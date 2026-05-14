@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/unerr-pre-tool.sh",
+        "matcher": "Read|Grep|Glob|Write|Edit"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": ".cursor/hooks/unerr-post-tool.sh",
+        "matcher": "Read|Grep|Glob|Write|Edit"
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": ".cursor/hooks/unerr-prompt.sh"
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/unerr-pre-shell.sh"
+      }
+    ]
+  }
+}

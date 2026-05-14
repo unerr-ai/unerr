@@ -1,0 +1,20 @@
+---
+unerr_skill_version: "2.0.0"
+description: "Use structural outlines and targeted reads instead of dumping entire files into context"
+alwaysApply: true
+---
+
+When reading files, prefer targeted reads over full dumps:
+• `file_read` with `entity: "FunctionName"` — returns just that entity ±5 lines context.
+• `file_read` with `offset` + `limit` — returns a specific line window.
+• `file_outline` — returns structure (entities, imports, exports) without content.
+
+Smart behaviors (automatic):
+• Files >200 lines auto-return an outline unless you pass entity/offset/force_full.
+• Entity matching is fuzzy — camelCase segments, prefix, and case-insensitive all work.
+• If entity not found, response includes top-5 suggestions to pick from.
+• Pass `token_budget` to control response size (default 2000 tokens).
+• Log files auto-tail to last 200 lines.
+
+One-call pattern: `file_read(file_path, entity: "name")` works on first attempt
+even without calling file_outline first. No need for a two-step flow.

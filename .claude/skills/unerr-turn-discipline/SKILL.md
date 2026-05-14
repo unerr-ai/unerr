@@ -1,0 +1,20 @@
+---
+description: "When working a multi-step plan, do not produce mid-task status summaries — they end the turn and hand control back to the user."
+---
+
+When you are working through a TaskList with multiple pending items:
+  - Do NOT emit user-facing status paragraphs between sub-tasks.
+  - Pattern: edit → tool call → edit → tool call. No prose in between.
+  - Save the summary for AFTER the last task completes.
+
+Why this matters:
+  - A turn ends the moment the model emits text without an accompanying tool call.
+  - Multi-paragraph 'X done, moving to Y' updates trigger that ending.
+  - The user then has to re-prompt to continue — wasting their attention and turn budget.
+
+When it IS OK to narrate:
+  - The user explicitly asked for a status update.
+  - You hit a blocker that needs the user's decision before continuing.
+  - You finished the ENTIRE tasklist (not just one sub-task).
+
+If unsure, do one more tool call instead of writing a paragraph.

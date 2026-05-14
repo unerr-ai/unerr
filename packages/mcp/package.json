@@ -1,0 +1,46 @@
+{
+  "name": "@unerr/unerr-mcp",
+  "version": "0.1.0",
+  "description": "Transport-agnostic MCP server factory for unerr intelligence tools",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./transports/stdio": {
+      "import": "./dist/transports/stdio.js",
+      "types": "./dist/transports/stdio.d.ts"
+    },
+    "./transports/http": {
+      "import": "./dist/transports/http.js",
+      "types": "./dist/transports/http.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/transports/stdio.ts src/transports/http.ts --format esm --target node20 --dts --clean",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "hono": "^4.12.16",
+    "@hono/node-server": "^2.0.1"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT"
+}

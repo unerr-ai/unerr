@@ -1,0 +1,1470 @@
+@import 'tailwindcss';
+@plugin "@tailwindcss/typography";
+
+/* ============================================================================
+   unerr Design System — Substrate Dark + Paper Light
+   Tailwind CSS v4 + shadcn/ui compatible
+   Theme: Void Black + Unified Violet Accent
+   See: docs/ui_ux/brand.md, docs/ui_ux/DESIGN_SYSTEM_OVERHAUL.md
+
+   PRIMARY UI PALETTE (enterprise — Color Budget principle)
+   --------------------------------------------------------
+   - BACKGROUND: Void Black (#0A0A0F) always.
+   - ACCENT: Violet (#8B5CF6 dark, #6D28D9 light) — sparingly, CTA + focus only.
+   - LIVE DATA: Cyan (#22D3EE dark, #0891B2 light) — functional only, not brand.
+   - TEXT: Cloud White (#FAFAFA) for primary text; muted for metadata.
+   - 90% neutral, 10% purposeful color. 3-5 colored elements per page max.
+   - No accent on navigation chrome (sidebar, tabs, breadcrumbs, secondary buttons).
+   ============================================================================ */
+
+@theme {
+  /* ==========================================================================
+     Color Primitives
+     ========================================================================== */
+  --color-void-black: #0A0A0F;
+  --color-slate-grey: #1E1E28;
+  --color-cloud-white: #FAFAFA;
+  --color-pure-white: #FFFFFF;
+  --color-obsidian: #050507; /* Darker background for depth */
+
+  /* ==========================================================================
+     Brand Colors — Unified Violet Accent (see brand.md, DESIGN_SYSTEM_OVERHAUL.md)
+     Violet is the sole brand/interactive accent. Cyan is functional (live data only).
+     ========================================================================== */
+  --color-violet-500: #8B5CF6;
+  --color-violet-600: #7C3AED;
+  --color-violet-700: #6D28D9;
+  --color-violet-deep: #8134CE; /* Palette primitive — gradient stops, hover depth */
+
+  /* Legacy aliases — mapped to canonical tokens (Phase 19: use canonical names instead) */
+  --color-electric-cyan: #22D3EE; /* Use --color-live instead */
+
+  /* Live data color — pipeline running, terminal streaming, active processes */
+  --color-live: #22D3EE; /* Cyan-400 dark, functional only */
+
+  /* ==========================================================================
+     Health Grade Colors (5-point semantic scale — see brand.md §5)
+     ========================================================================== */
+  --color-grade-a: #34D399; /* Emerald — Excellent */
+  --color-grade-b: #2DD4BF; /* Teal — Good */
+  --color-grade-c: #FBBF24; /* Amber — Average */
+  --color-grade-d: #FB923C; /* Orange — Poor */
+  --color-grade-f: #F87171; /* Red — Critical */
+
+  /* ==========================================================================
+     Status Colors (semantic only — forms, alerts, indicators)
+     ========================================================================== */
+  --color-success: #34D399;
+  --color-warning: #FBBF24;
+  --color-error: #F87171;
+  --color-info: var(--color-violet-500);
+
+  /* ==========================================================================
+     shadcn/ui Semantic Colors — Zinc-based solid hex (Phase 19 Sprint 14)
+     Migrated from rgba to solid hex for predictable rendering on any surface.
+     ========================================================================== */
+
+  /* L0: Page canvas. Use: bg-background. NEVER use raw hex */
+  --color-background: #09090B;
+  /* Primary text. Body copy, labels, interactive text (~12.5:1 contrast) */
+  --color-foreground: #E8E8ED;
+  /* Emphasized text. Page titles, hero numbers, active nav (reserved for emphasis) */
+  --color-foreground-emphasis: #FAFAFA;
+
+  /* L2: Card/panel surfaces. Use: bg-card, glass-card, glass-panel */
+  --color-card: #18181B;
+  --color-card-foreground: #E8E8ED;
+
+  /* Popover/tooltip backgrounds. Elevated above canvas */
+  --color-popover: #18181B;
+  --color-popover-foreground: #E8E8ED;
+
+  /* Interactive accent — Violet (unchanged) */
+  --color-primary: var(--color-violet-500);
+  --color-primary-foreground: var(--color-pure-white);
+
+  /* Secondary/structural panels */
+  --color-secondary: #18181B;
+  --color-secondary-foreground: #E8E8ED;
+
+  /* Input backgrounds, badge fills, hover states (Zinc-800) */
+  --color-muted: #27272A;
+  /* Secondary text: metadata, timestamps (~8:1 contrast on #09090B) */
+  --color-muted-foreground: #A1A1AA;
+
+  --color-accent: var(--color-violet-500);
+  --color-accent-foreground: var(--color-pure-white);
+
+  --color-destructive: #EF4444;
+  --color-destructive-foreground: var(--color-pure-white);
+
+  /* Standard borders: card edges, dividers (Zinc-800, solid + visible) */
+  --color-border: #27272A;
+  --color-input: #27272A;
+  --color-ring: var(--color-violet-500);
+
+  /* ==========================================================================
+     Semantic Text Tiers — solid hex, WCAG AA on #09090B
+     ========================================================================== */
+  /* Labels, metadata, timestamps (~8:1) */
+  --color-text-secondary: #A1A1AA;
+  /* Placeholders, disabled text (~5:1) */
+  --color-text-tertiary: #7C7C85;
+  /* Decorative only — NOT for functional text (~2.5:1) */
+  --color-text-ghost: #3F3F46;
+
+  /* ==========================================================================
+     Elevation Surfaces — solid hex, visible steps
+     L0 Canvas → L1 Substrate → L2 Surface → L3 Raised → L4 Overlay
+     ========================================================================== */
+  --color-surface-substrate: #0F0F12;
+  --color-surface-default: #18181B;
+  --color-surface-raised: #1C1C22;
+  --color-surface-overlay: #27272A;
+
+  /* Border tiers */
+  --color-border-subtle: #1C1C22;
+  --color-border-default: #27272A;
+  --color-border-strong: #3F3F46;
+
+  /* Chart colors */
+  --color-chart-1: var(--color-violet-500);
+  --color-chart-2: var(--color-live);
+  --color-chart-3: var(--color-violet-600);
+  --color-chart-4: #2DD4BF;
+  --color-chart-5: var(--color-violet-deep);
+
+  /* Sidebar — matches canvas for seamless feel */
+  --color-sidebar: #09090B;
+  --color-sidebar-foreground: #E8E8ED;
+  --color-sidebar-primary: var(--color-violet-500);
+  --color-sidebar-primary-foreground: var(--color-pure-white);
+  --color-sidebar-accent: #18181B;
+  --color-sidebar-accent-foreground: #E8E8ED;
+  --color-sidebar-border: #1C1C22;
+  --color-sidebar-ring: var(--color-violet-500);
+
+  /* Overlay backdrop */
+  --color-overlay: rgba(0, 0, 0, 0.80);
+
+  /* ==========================================================================
+     Font Families (Tailwind v4: --font-* creates font-* utility)
+     ========================================================================== */
+  --font-grotesk: var(--font-space-grotesk), 'Space Grotesk', sans-serif;
+  --font-sans: var(--font-inter-var), 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: var(--font-jetbrains), 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* ==========================================================================
+     Border Radius
+     ========================================================================== */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* ==========================================================================
+     Spacing
+     ========================================================================== */
+  --spacing-18: 4.5rem;
+  --spacing-22: 5.5rem;
+
+  /* ==========================================================================
+     Animations
+     ========================================================================== */
+  --animate-fade-in: fade-in 0.5s ease-out;
+  --animate-slide-in-left: slide-in-left 0.2s ease-out;
+  --animate-discovery-enter: discovery-enter 0.35s ease-out;
+  --animate-slide-up: slide-up 0.5s ease-out;
+  --animate-pulse-glow: pulse-glow 2s ease-in-out infinite;
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-shimmer: shimmer 2s linear infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-glitch: glitch 0.4s ease-out;
+  --animate-breathing-glow: breathing-glow 4s ease-in-out infinite;
+  --animate-particle-flow: particle-flow 1.5s linear infinite;
+
+  @keyframes particle-flow {
+    0% { transform: translateX(0); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translateX(var(--flow-distance, 100px)); opacity: 0; }
+  }
+
+  /* Landing page only — not for dashboard (see DESIGN_SYSTEM_OVERHAUL.md Decision 6) */
+  @keyframes breathing-glow {
+    0%, 100% { box-shadow: inset 0 0 20px rgba(34,211,238,0.03); }
+    50% { box-shadow: inset 0 0 40px rgba(34,211,238,0.08); }
+  }
+
+  /* Landing page only */
+  @keyframes breathing-glow-purple {
+    0%, 100% { box-shadow: inset 0 0 20px rgba(139,92,246,0.03); }
+    50% { box-shadow: inset 0 0 40px rgba(139,92,246,0.08); }
+  }
+
+  @keyframes cursor-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  @keyframes slide-in-left {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+  }
+
+  @keyframes discovery-enter {
+    from { opacity: 0; transform: translateX(-12px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+
+  @keyframes accordion-down {
+    from { height: 0; }
+    to { height: var(--radix-accordion-content-height); }
+  }
+
+  @keyframes accordion-up {
+    from { height: var(--radix-accordion-content-height); }
+    to { height: 0; }
+  }
+
+  @keyframes shimmer {
+    from { background-position: 0 0; }
+    to { background-position: -200% 0; }
+  }
+
+  @keyframes glitch {
+    0% { transform: translateX(0); opacity: 1; }
+    15% { transform: translateX(-2px); opacity: 0.85; }
+    30% { transform: translateX(2px); opacity: 0.9; }
+    45% { transform: translateX(-1px); opacity: 0.95; }
+    60% { transform: translateX(1px); }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+
+  /* Confidence success glow — pulses box-shadow only, not element opacity */
+  --animate-success-glow-pulse: success-glow-pulse 3s ease-in-out infinite;
+
+  @keyframes success-glow-pulse {
+    0%, 100% { box-shadow: 0 0 15px rgba(52,211,153,0.12); }
+    50% { box-shadow: 0 0 30px rgba(52,211,153,0.35); }
+  }
+
+  /* Antigravity hero: industrial "lock into place" settle */
+  --animate-antigravity-settle: antigravity-settle 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+
+  @keyframes antigravity-settle {
+    0% { opacity: 0; transform: translateY(-24px) scale(0.98); }
+    70% { opacity: 1; transform: translateY(2px) scale(1); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* ── Cinematic Section Keyframes ──────────────────────────────────────── */
+
+  /* Blinking terminal cursor */
+  --animate-blink: blink 1.2s step-end infinite;
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  /* Breathing glow (purple variant) — keyframe defined above */
+  --animate-breathing-glow-purple: breathing-glow-purple 4s ease-in-out infinite;
+
+  /* Orbit ring — rotating border highlight */
+  --animate-orbit: orbit 3s linear infinite;
+
+  @keyframes orbit {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  /* Dash flow — animated SVG stroke offset */
+  --animate-dash-flow: dash-flow 2s linear infinite;
+
+  @keyframes dash-flow {
+    0% { stroke-dashoffset: 0; }
+    100% { stroke-dashoffset: -20; }
+  }
+
+  /* Shimmer overlay for bars and lines */
+  --animate-shimmer-bar: shimmer-bar 2.5s ease-in-out infinite;
+
+  @keyframes shimmer-bar {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  /* Pulse ring — expanding ring around icons */
+  --animate-pulse-ring: pulse-ring 2.5s ease-out infinite;
+
+  @keyframes pulse-ring {
+    0% { transform: scale(1); opacity: 0.4; }
+    100% { transform: scale(1.5); opacity: 0; }
+  }
+
+  /* Vertical particle flow — for backbone lines */
+  --animate-particle-down: particle-down 3s linear infinite;
+
+  @keyframes particle-down {
+    0% { transform: translateY(-10px); opacity: 0; }
+    15% { opacity: 1; }
+    85% { opacity: 1; }
+    100% { transform: translateY(var(--flow-distance-y, 60px)); opacity: 0; }
+  }
+
+  /* Pipeline celebration */
+  --animate-celebration-pop: celebration-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+
+  @keyframes celebration-pop {
+    0% { transform: scale(0.8); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  @keyframes celebration-particle {
+    0% { transform: translate(0, 0) scale(1); opacity: 0.7; }
+    100% { transform: translate(var(--particle-x, 40px), var(--particle-y, -40px)) scale(0); opacity: 0; }
+  }
+
+  /* ── Narrative Progress Animations ────────────────────────────────────── */
+  --animate-phase-enter: phase-enter 0.35s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  --animate-phase-exit: phase-exit 0.2s ease-in both;
+  --animate-chip-enter: chip-enter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-progress-shimmer: progress-shimmer 2s ease-in-out infinite;
+  --animate-phase-icon-pulse: phase-icon-pulse 3s ease-in-out infinite;
+  --animate-summary-morph: summary-morph 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  --animate-tip-fade: tip-fade 0.4s ease-in-out both;
+
+  @keyframes phase-enter {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes phase-exit {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-8px); }
+  }
+
+  @keyframes chip-enter {
+    from { opacity: 0; transform: scale(0.85); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes progress-shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  @keyframes phase-icon-pulse {
+    0%, 100% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.1); opacity: 1; }
+  }
+
+  @keyframes summary-morph {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes tip-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  /* Magic UI: Border Beam — rotating conic gradient around card edges */
+  --animate-border-beam-spin: border-beam-spin 12s linear infinite;
+
+  @keyframes border-beam-spin {
+    from { background-position: 0% 0%; transform: rotate(0deg); }
+    to { background-position: 100% 100%; transform: rotate(360deg); }
+  }
+
+  /* Magic UI: Spotlight sweep — enters from top-left */
+  --animate-spotlight: spotlight 2s ease 0.75s 1 forwards;
+
+  @keyframes spotlight {
+    0% { opacity: 0; transform: translate(-72%, -62%) scale(0.5); }
+    100% { opacity: 1; transform: translate(-50%, -40%) scale(1); }
+  }
+
+  /* Magic UI: Ripple — expanding concentric rings */
+  --animate-ripple: ripple 3.5s ease-out infinite;
+
+  @keyframes ripple {
+    0% { transform: translate(-50%, -50%) scale(1); opacity: var(--tw-opacity, 0.24); }
+    100% { transform: translate(-50%, -50%) scale(4); opacity: 0; }
+  }
+}
+
+/* =============================================================================
+   Light Theme — "Paper Light" System
+   Emissive (glows on dark) → Reflective (shadows on light).
+   Violet-700 = primary interactive accent. Cyan = live data only.
+   Terminal Exception: code/logs stay dark.
+   ============================================================================= */
+
+.light {
+  /* ── Paper Light — Zinc scale (Phase 19 Sprint 14) ─────────────────── */
+  --color-background: #FAFAFA;          /* Zinc-50 — warm paper white */
+  --color-foreground: #09090B;          /* Zinc-950 — deep black */
+  --color-foreground-emphasis: #000000; /* Pure black for emphasis in light mode */
+
+  --color-card: #FFFFFF;                /* Pure white cards on warm canvas */
+  --color-card-foreground: #09090B;
+
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #09090B;
+
+  --color-primary: #6D28D9;            /* Violet-700 — higher contrast on white */
+  --color-primary-foreground: #FFFFFF;
+
+  --color-secondary: #F4F4F5;          /* Zinc-100 */
+  --color-secondary-foreground: #09090B;
+
+  --color-muted: #F4F4F5;              /* Zinc-100 */
+  --color-muted-foreground: #52525B;   /* Zinc-600 (~7:1 on white) */
+
+  --color-accent: #6D28D9;
+  --color-accent-foreground: #FFFFFF;
+
+  --color-destructive: #DC2626;
+  --color-destructive-foreground: #FFFFFF;
+
+  --color-border: #E4E4E7;             /* Zinc-200 — crisp borders */
+  --color-input: #E4E4E7;
+  --color-ring: #6D28D9;
+
+  /* Brand Colors (Light mode) */
+  --color-violet-500: #6D28D9;
+  --color-violet-600: #6D28D9;
+  --color-violet-700: #5B21B6;
+  --color-violet-deep: #6B21A8;
+  --color-live: #0891B2;
+
+  /* Sidebar — Zinc-100 */
+  --color-sidebar: #F4F4F5;
+  --color-sidebar-foreground: #09090B;
+  --color-sidebar-primary: #6D28D9;
+  --color-sidebar-primary-foreground: #FFFFFF;
+  --color-sidebar-accent: #E4E4E7;     /* Zinc-200 */
+  --color-sidebar-accent-foreground: #09090B;
+  --color-sidebar-border: #E4E4E7;
+  --color-sidebar-ring: #6D28D9;
+
+  /* Text tiers — Zinc scale */
+  --color-text-secondary: #52525B;     /* Zinc-600 */
+  --color-text-tertiary: #71717A;      /* Zinc-500 */
+  --color-text-ghost: #A1A1AA;         /* Zinc-400 */
+
+  /* Elevation — shadow-based */
+  --color-surface-substrate: rgba(0, 0, 0, 0.01);
+  --color-surface-default: rgba(0, 0, 0, 0.02);
+  --color-surface-raised: rgba(0, 0, 0, 0.03);
+  --color-surface-overlay: rgba(0, 0, 0, 0.05);
+
+  --color-border-subtle: #F4F4F5;      /* Zinc-100 */
+  --color-border-default: #E4E4E7;     /* Zinc-200 */
+  --color-border-strong: #D1D5DB;      /* Slate-300 — focus/active borders */
+
+  /* ── Status colors (Reflective — WCAG AA on white) ────────────────────── */
+  --color-success: #059669;
+  --color-warning: #D97706;
+  --color-error: #CC1D36;
+  --color-info: #6D28D9;
+
+  /* ── Health Grade Colors (light mode — darker for WCAG on white) ──────── */
+  --color-grade-a: #059669;
+  --color-grade-b: #0D9488;
+  --color-grade-c: #D97706;
+  --color-grade-d: #EA580C;
+  --color-grade-f: #DC2626;
+
+  /* Overlay — lighter scrim for paper backgrounds */
+  --color-overlay: rgba(0, 0, 0, 0.50);
+}
+
+/* ── Light mode body ──────────────────────────────────────────────────────── */
+.light body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+}
+
+/* ── React Flow controls — visible in both themes ─────────────────────────── */
+.react-flow__controls {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+.react-flow__controls-button {
+  background-color: var(--color-card);
+  border-color: rgba(255, 255, 255, 0.1);
+  fill: #FAFAFA;
+  color: #FAFAFA;
+}
+.react-flow__controls-button:hover {
+  background-color: var(--color-muted);
+}
+.react-flow__controls-button svg {
+  fill: #FAFAFA;
+}
+.light .react-flow__controls-button {
+  background-color: #FFFFFF;
+  border-color: #E5E7EB;
+  fill: #111827;
+  color: #111827;
+}
+.light .react-flow__controls-button:hover {
+  background-color: #F3F4F6;
+}
+.light .react-flow__controls-button svg {
+  fill: #111827;
+}
+
+/* ── React Flow minimap — theme-aware ─────────────────────────────────────── */
+.react-flow__minimap {
+  background-color: var(--color-background);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.light .react-flow__minimap {
+  background-color: #F9FAFB;
+  border: 1px solid #E5E7EB;
+}
+
+/* ── React Flow node cards — opaque backgrounds that work in both themes ── */
+.flow-node {
+  background-color: var(--color-card); /* Elevated surface in dark mode — between void black and slate grey */
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.light .flow-node {
+  background-color: #FFFFFF;
+  border-color: #E5E7EB;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.light .flow-node:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Light mode elevation (shadow-based, not border-heavy) ────────────────── */
+.light .glass-panel,
+.light .glass-card {
+  background: #FFFFFF;
+  border-color: rgba(229, 231, 235, 0.5); /* #E5E7EB at 50% — soft border */
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+}
+
+.light .glass-card:hover {
+  background: #FFFFFF;
+  border-color: #D1D5DB; /* Slate-300 — stronger on hover */
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.07), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+}
+
+/* ── Terminal Exception: console/logs STAY DARK in light mode ─────────────── */
+.light .console-panel {
+  background-color: #1E1E2E;
+  border-color: rgba(255, 255, 255, 0.06);
+  color: #FAFAFA;
+}
+
+.light .console-header {
+  background-color: rgba(255, 255, 255, 0.03);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Force dark-mode text tiers inside console in light mode */
+.light .console-panel .t-secondary { color: rgba(250, 250, 250, 0.70); }
+.light .console-panel .t-tertiary { color: rgba(250, 250, 250, 0.45); }
+.light .console-panel .t-ghost { color: rgba(250, 250, 250, 0.25); }
+.light .console-panel .text-muted-foreground { color: rgba(250, 250, 250, 0.60); }
+.light .console-panel .text-foreground { color: #FAFAFA; }
+.light .console-panel .text-destructive { color: #FF3366; }
+
+/* ── Glow Replacement: tinted fills + strokes instead of box-shadow ───────── */
+.light .glow-purple,
+.light .glow-purple-strong,
+.light .glow-accent,
+.light .shadow-glow-purple,
+.light .shadow-glow-accent { box-shadow: none; background-color: rgba(109, 40, 217, 0.04); }
+
+.light .glow-cyan,
+.light .glow-live,
+.light .shadow-glow-cyan,
+.light .shadow-glow-live { box-shadow: none; border-color: rgba(8, 145, 178, 0.25); background-color: rgba(8, 145, 178, 0.04); }
+
+.light .glow-success,
+.light .glow-success-strong,
+.light .glow-success-pulse {
+  box-shadow: none;
+  animation: none;
+  background-color: rgba(5, 150, 105, 0.05);
+  border-color: rgba(5, 150, 105, 0.25);
+}
+
+.light .hover-glow-cyan:hover,
+.light .hover-glow-accent:hover {
+  color: var(--color-primary);
+  box-shadow: none;
+  background-color: rgba(109, 40, 217, 0.05);
+  border-color: rgba(109, 40, 217, 0.20);
+}
+
+.light .hover-glow-purple:hover {
+  box-shadow: none;
+  background-color: rgba(109, 40, 217, 0.05);
+  border-color: rgba(109, 40, 217, 0.20);
+}
+
+/* ── Light mode gradients ─────────────────────────────────────────────────── */
+.light .bg-rail-fade,
+.light .bg-accent-fade {
+  background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%);
+}
+
+.light .text-gradient {
+  background: linear-gradient(135deg, #6D28D9 0%, #4C1D95 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.light .text-lit {
+  background: linear-gradient(to bottom, #0A0A0F, rgba(10, 10, 15, 0.75));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Info cards / telemetry chips in light mode ────────────────────────────── */
+.light .info-card,
+.light .telemetry-chip {
+  background-color: #FFFFFF;
+  border-color: rgba(17, 17, 24, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* ── Electric Cyan → Violet in light mode (legacy mapping) ───────────────── */
+.light .text-electric-cyan,
+/* Legacy: .text-neon-blue removed — use text-live or text-accent instead */
+
+.light .border-electric-cyan { border-color: #6D28D9; }
+
+/* ── Scrollbar — dark thumb on light track ────────────────────────────────── */
+.light .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(17, 17, 24, 0.15);
+}
+.light .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(17, 17, 24, 0.25);
+}
+
+/* ── Grid pattern — dark lines on light canvas ────────────────────────────── */
+.light .bg-grid-pattern {
+  background-image:
+    linear-gradient(to right, rgba(17, 17, 24, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(17, 17, 24, 0.04) 1px, transparent 1px);
+}
+
+/* ── Terminal header in light mode (inside console-panel, stays dark) ─────── */
+.light .terminal-header {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Divider shimmer — subtle dark lines on light ─────────────────────────── */
+.light .divider-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(17, 17, 24, 0.06) 20%,
+    rgba(17, 17, 24, 0.12) 50%,
+    rgba(17, 17, 24, 0.06) 80%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* ── Selection highlight ──────────────────────────────────────────────────── */
+.light ::selection {
+  background: rgba(109, 40, 217, 0.15);
+  color: #111118;
+}
+
+/* =============================================================================
+   Base Styles
+   ============================================================================= */
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: 0.01em;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  h1 { font-family: var(--font-grotesk); font-size: 1.125rem; line-height: 1.3; letter-spacing: -0.02em; font-weight: 600; }
+  h2 { font-family: var(--font-grotesk); font-size: 0.875rem; line-height: 1.4; letter-spacing: -0.01em; font-weight: 600; }
+  h3 { font-family: var(--font-grotesk); font-size: 0.875rem; line-height: 1.4; letter-spacing: -0.01em; font-weight: 500; }
+  h4, h5, h6 { font-family: var(--font-grotesk); font-weight: 600; line-height: 1.4; letter-spacing: -0.01em; }
+
+  code, pre {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    letter-spacing: 0;
+  }
+
+  ::selection {
+    background: rgba(139, 92, 246, 0.3);
+    color: var(--color-cloud-white);
+  }
+}
+
+/* =============================================================================
+   Scroll-Driven Reveal (Marketing Pages)
+   CSS-only viewport reveal — zero JS. Chrome 115+, Safari 18+.
+   Firefox fallback: content visible immediately (no animation).
+   ============================================================================= */
+
+.scroll-reveal {
+  animation: scroll-fade-up 0.6s ease both;
+  animation-timeline: view();
+  animation-range: entry 0% entry 30%;
+}
+
+@keyframes scroll-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Firefox / older browsers: show content immediately */
+@supports not (animation-timeline: view()) {
+  .scroll-reveal {
+    animation: none;
+  }
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* =============================================================================
+   Gradient & Glass Utilities
+   ============================================================================= */
+
+@layer utilities {
+  /* Brand gradients — unified violet accent */
+  .bg-rail-fade,
+  .bg-accent-fade {
+    background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+  }
+
+  .bg-infra-depth {
+    background: linear-gradient(180deg, #0A0A0F 0%, #0A0A0F 100%);
+  }
+
+  /* Text gradient — wider hue range for visual richness */
+  .text-gradient {
+    background: linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Text lighting — "lit from above" gradient, Linear's signature H1 treatment */
+  .text-lit {
+    background: linear-gradient(to bottom, #FAFAFA, rgba(250, 250, 250, 0.68));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Live data color utility — pipeline running, streaming, active processes */
+  .text-live {
+    color: var(--color-live);
+  }
+
+  /* Border gradient — violet accent */
+  .border-gradient {
+    position: relative;
+    background: var(--color-void-black);
+    border-radius: var(--radius-xl);
+  }
+
+  .border-gradient::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: calc(var(--radius-xl) + 1px);
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.5), rgba(124, 58, 237, 0.5));
+    z-index: -1;
+  }
+
+  /* Glow effects — unified violet accent */
+  .glow-purple,
+  .glow-accent {
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.2);
+  }
+
+  .glow-purple-strong {
+    box-shadow: 0 0 40px rgba(139, 92, 246, 0.3);
+  }
+
+  /* Hover shadow glows — accent (violet) for CTA, live (cyan) for streaming */
+  .shadow-glow-purple,
+  .shadow-glow-accent {
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.2);
+  }
+
+  .shadow-glow-cyan,
+  .shadow-glow-live {
+    box-shadow: 0 0 20px rgba(34, 211, 238, 0.2);
+  }
+
+  /* Confidence / framing glows (see docs/ui_ux/brand.md §6.1) */
+  .glow-yellow {
+    box-shadow: 0 0 15px rgba(255, 184, 0, 0.15);
+    border: 1px solid rgba(255, 184, 0, 0.3);
+  }
+
+  .glow-cyan,
+  .glow-live {
+    box-shadow: 0 0 20px rgba(34, 211, 238, 0.2);
+    border: 1px solid rgba(34, 211, 238, 0.4);
+  }
+
+  .glow-success-pulse {
+    border: 1px solid rgba(52, 211, 153, 0.4);
+    animation: success-glow-pulse 3s ease-in-out infinite;
+  }
+
+  /* Hover glow utilities — use sparingly, only on primary CTAs per Color Budget */
+  .hover-glow-cyan,
+  .hover-glow-accent {
+    transition: all 0.2s ease;
+  }
+  .hover-glow-cyan:hover,
+  .hover-glow-accent:hover {
+    color: var(--color-accent);
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.15);
+    border-color: rgba(139, 92, 246, 0.3);
+  }
+
+  .hover-glow-purple {
+    transition: all 0.2s ease;
+  }
+  .hover-glow-purple:hover {
+    color: #FAFAFA;
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.2);
+    border-color: rgba(139, 92, 246, 0.4);
+  }
+
+  /* Substrate Dark — Solid surfaces (Phase 19 Sprint 14: Zinc-based) */
+  .glass-panel {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+  }
+
+  .glass-card {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    transition: all 0.2s ease-in-out;
+  }
+
+  .glass-card:hover {
+    background: var(--color-surface-raised);
+    border-color: var(--color-border-strong);
+  }
+
+  /* Pipeline celebration */
+  .celebration-pop {
+    animation: celebration-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  .celebration-particle {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-emerald-500, #10b981);
+    animation: celebration-particle 1.2s ease-out both;
+    pointer-events: none;
+  }
+
+  .celebration-particle-1 {
+    top: 20%;
+    left: 30%;
+    --particle-x: -30px;
+    --particle-y: -30px;
+    animation-delay: 0.1s;
+  }
+
+  .celebration-particle-2 {
+    top: 20%;
+    right: 30%;
+    --particle-x: 30px;
+    --particle-y: -25px;
+    animation-delay: 0.2s;
+    background: var(--color-electric-cyan);
+  }
+
+  .celebration-particle-3 {
+    top: 50%;
+    left: 50%;
+    --particle-x: 0px;
+    --particle-y: -40px;
+    animation-delay: 0.3s;
+    background: var(--color-violet-500);
+  }
+
+  /* Scrollbar */
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  /* ── Shiki code blocks — IDE-style with CSS-based line numbers ─────────── */
+  /* Line numbers use a CSS counter; starting line set via inline style:     */
+  /*   counter-reset: shiki-ln <startLine - 1>                              */
+  /* Theme: one-dark-pro (VS Code / IntelliJ aesthetic)                      */
+
+  .shiki-line-numbers pre {
+    background-color: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .shiki-line-numbers code {
+    background-color: transparent !important;
+  }
+
+  .shiki-line-numbers .line {
+    display: block;
+    position: relative;
+    padding-left: 56px;
+    min-height: 1lh;
+    white-space: pre;
+    counter-increment: shiki-ln;
+    transition: background-color 100ms;
+  }
+
+  .shiki-line-numbers .line:hover {
+    background-color: color-mix(in srgb, var(--color-muted) 30%, transparent);
+  }
+
+  .shiki-line-numbers .line::before {
+    content: counter(shiki-ln);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 44px;
+    text-align: right;
+    padding-right: 0.75rem;
+    line-height: inherit;
+    font-size: inherit;
+    color: var(--color-text-tertiary);
+    border-right: 1px solid var(--color-border-subtle);
+    user-select: none;
+    box-sizing: border-box;
+    opacity: 0.7;
+  }
+
+  .shiki-line-numbers .line:hover::before {
+    opacity: 1;
+    color: var(--color-text-secondary);
+  }
+
+  /* Font utilities (enterprise typography — see docs/ui_ux/brand.md §6) */
+  .font-grotesk {
+    font-family: var(--font-grotesk);
+  }
+
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  /* Display levels (Space Grotesk — landing page only, see brand.md §8) */
+  .text-display-xl {
+    font-family: var(--font-grotesk);
+    font-size: 3rem;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+  }
+
+  @media (min-width: 768px) {
+    .text-display-xl {
+      font-size: 4.5rem;
+    }
+  }
+
+  .text-display-lg {
+    font-family: var(--font-grotesk);
+    font-size: 2.25rem;
+    line-height: 1.1;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+  }
+
+  @media (min-width: 768px) {
+    .text-display-lg {
+      font-size: 3.5rem;
+    }
+  }
+
+  .text-display-m {
+    font-family: var(--font-grotesk);
+    font-size: 1.875rem;
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  @media (min-width: 768px) {
+    .text-display-m {
+      font-size: 3rem;
+    }
+  }
+
+  /* Terminal text glow (landing page only — not for dashboard) */
+  .text-glow-cyan {
+    color: var(--color-electric-cyan);
+    text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+  }
+
+  .text-glow-purple {
+    color: var(--color-violet-deep);
+    text-shadow: 0 0 12px rgba(129, 52, 206, 0.4);
+  }
+
+  /* Background patterns (landing page only — see DESIGN_SYSTEM_OVERHAUL.md Decision 6) */
+  .bg-grid-pattern {
+    background-size: 40px 40px;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  }
+
+  .border-hud {
+    border: 1px solid rgba(250, 250, 250, 0.1);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  }
+
+  .text-terminal {
+    font-family: var(--font-mono);
+    color: var(--color-electric-cyan);
+    filter: drop-shadow(0 0 5px rgba(0, 229, 255, 0.5));
+  }
+
+  .text-legacy {
+    font-family: var(--font-mono);
+    color: var(--color-muted-foreground);
+    text-decoration-line: line-through;
+    opacity: 0.5;
+  }
+
+  .text-label {
+    font-family: var(--font-grotesk);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--color-text-ghost);
+  }
+
+  /* Red glow effects (self-heal / error) */
+  .glow-red {
+    box-shadow: 0 0 20px rgba(255, 51, 102, 0.2);
+  }
+
+  .glow-red-strong {
+    box-shadow: 0 0 40px rgba(255, 51, 102, 0.3);
+  }
+
+  /* Success glow */
+  .glow-success {
+    box-shadow: 0 0 30px rgba(52,211,153,0.2);
+  }
+
+  .glow-success-strong {
+    box-shadow: 0 0 60px rgba(52,211,153,0.3);
+  }
+
+  /* ── Cinematic Section Utilities ──────────────────────────────────────── */
+
+  /* Terminal window header bar (3 traffic-light dots) */
+  .terminal-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  .terminal-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  /* Blinking cursor */
+  .cursor-blink::after {
+    content: '▊';
+    animation: cursor-blink 1.2s step-end infinite;
+    color: var(--color-electric-cyan);
+    opacity: 0.7;
+    margin-left: 2px;
+  }
+
+  .cursor-blink-purple::after {
+    content: '▊';
+    animation: cursor-blink 1.2s step-end infinite;
+    color: var(--color-violet-500);
+    opacity: 0.7;
+    margin-left: 2px;
+  }
+
+  /* Section divider with shimmer */
+  .divider-shimmer {
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255,255,255,0.06) 20%,
+      rgba(255,255,255,0.15) 50%,
+      rgba(255,255,255,0.06) 80%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 3s ease-in-out infinite;
+  }
+
+  /* Active glow borders for scroll-driven states */
+  .glow-border-cyan,
+  .glow-border-live {
+    box-shadow:
+      -2px 0 12px rgba(34,211,238,0.2),
+      inset -2px 0 12px rgba(34,211,238,0.05);
+  }
+
+  .glow-border-purple,
+  .glow-border-accent {
+    box-shadow:
+      -2px 0 12px rgba(139,92,246,0.2),
+      inset -2px 0 12px rgba(139,92,246,0.05);
+  }
+
+  /* Scan line overlay — very subtle horizontal lines */
+  .scan-lines {
+    position: relative;
+  }
+
+  .scan-lines::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 2px,
+      rgba(255,255,255,0.006) 2px,
+      rgba(255,255,255,0.006) 4px
+    );
+    pointer-events: none;
+    z-index: 1;
+    border-radius: inherit;
+  }
+
+  /* =========================================================================
+     Semantic Text Utilities
+     ========================================================================= */
+
+  /* Emphasis: headings, hero numbers, active states. Brighter than body text. */
+  .text-foreground-emphasis {
+    color: var(--color-foreground-emphasis);
+  }
+
+  /* Semantic tiers — use instead of text-white/XX */
+  .t-secondary {
+    color: var(--color-text-secondary);
+  }
+
+  .t-tertiary {
+    color: var(--color-text-tertiary);
+  }
+
+  .t-ghost {
+    color: var(--color-text-ghost);
+  }
+
+  /* =========================================================================
+     Elevation Surface Utilities — use "el-" prefix
+     Consistent backgrounds for layered UI. Always pair with el-border-subtle/default.
+     ========================================================================= */
+  .el-substrate {
+    background-color: var(--color-surface-substrate);
+  }
+
+  .el-surface {
+    background-color: var(--color-surface-default);
+  }
+
+  .el-raised {
+    background-color: var(--color-surface-raised);
+  }
+
+  .el-overlay {
+    background-color: var(--color-surface-overlay);
+  }
+
+  .el-border-subtle {
+    border-color: var(--color-border-subtle);
+  }
+
+  .el-border-strong {
+    border-color: var(--color-border-strong);
+  }
+
+  /* =========================================================================
+     Component Macros — Reusable patterns for consistent UI
+     Use these on container elements to get a consistent look.
+     ========================================================================= */
+
+  /* Info card — small metric/stat tile (e.g., pipeline run detail cards) */
+  .info-card {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-subtle);
+    background-color: var(--color-surface-substrate);
+    padding: 0.375rem 0.625rem; /* py-1.5 px-2.5 */
+  }
+
+  /* Info card label — uppercase micro text above the value */
+  .info-card-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-text-ghost);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Info card value — the main metric number/text */
+  .info-card-value {
+    font-size: 0.75rem; /* text-xs */
+    color: var(--color-foreground);
+    margin-top: 0.125rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Status pill — inline status badge with dot indicator */
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: var(--radius-full);
+    padding: 0.125rem 0.625rem; /* py-0.5 px-2.5 */
+    font-size: 0.75rem; /* text-xs */
+    font-weight: 500;
+    border: 1px solid;
+  }
+
+  .status-pill-dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: var(--radius-full);
+  }
+
+  /* Console panel — terminal/log viewer container */
+  .console-panel {
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border-default);
+    background-color: #08080D;
+    overflow: hidden;
+  }
+
+  /* Console header — top bar of a console/log panel */
+  .console-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.375rem 0.75rem; /* py-1.5 px-3 */
+    border-bottom: 1px solid var(--color-border-subtle);
+    background-color: var(--color-surface-substrate);
+    flex-shrink: 0;
+  }
+
+  /* Console body — scrollable log area */
+  .console-body {
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0.5rem 0.75rem; /* py-2 px-3 */
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  /* Telemetry chip — compact metric badge used in repo headers */
+  .telemetry-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-default);
+    background-color: var(--color-surface-substrate);
+    padding: 0.375rem 0.75rem; /* py-1.5 px-3 */
+  }
+
+  /* Section header — page section title bar with optional action */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .section-title {
+    font-family: var(--font-grotesk);
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 600;
+    color: var(--color-foreground);
+  }
+
+  /* Viewport-fit layout — fills screen minus chrome (header + tabs + padding) */
+  .viewport-fit {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 20rem);
+    min-height: 300px;
+  }
+
+  .viewport-fit-compact {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 13rem);
+    min-height: 300px;
+  }
+
+  /* ── GitHub-style alert/callout blocks (remark-github-blockquote-alert) ── */
+  .markdown-alert {
+    border-left: 3px solid;
+    border-radius: var(--radius-lg);
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+  .markdown-alert p { margin: 0.25rem 0; }
+  .markdown-alert-title {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-weight: 600;
+    font-size: 0.6875rem;
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .markdown-alert-title svg { width: 14px; height: 14px; flex-shrink: 0; }
+  .markdown-alert-note {
+    border-color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  }
+  .markdown-alert-note .markdown-alert-title { color: var(--color-accent); }
+  .markdown-alert-tip {
+    border-color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 8%, transparent);
+  }
+  .markdown-alert-tip .markdown-alert-title { color: var(--color-success); }
+  .markdown-alert-important {
+    border-color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  }
+  .markdown-alert-important .markdown-alert-title { color: var(--color-accent); }
+  .markdown-alert-warning {
+    border-color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+  }
+  .markdown-alert-warning .markdown-alert-title { color: var(--color-warning); }
+  .markdown-alert-caution {
+    border-color: var(--color-destructive);
+    background: color-mix(in srgb, var(--color-destructive) 8%, transparent);
+  }
+  .markdown-alert-caution .markdown-alert-title { color: var(--color-destructive); }
+}

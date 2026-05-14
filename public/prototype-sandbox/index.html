@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>unerr Prototype Sandbox</title>
+  <style>
+    :root {
+      --p-primary: #3B82F6;
+      --p-secondary: #64748B;
+      --p-accent: #8B5CF6;
+      --p-bg: #FFFFFF;
+      --p-fg: #0F172A;
+      --p-border: #E2E8F0;
+      --p-muted: #F8FAFC;
+      --p-font-heading: Inter, system-ui, sans-serif;
+      --p-font-body: Inter, system-ui, sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: var(--p-font-body); background: var(--p-bg); color: var(--p-fg); min-height: 100vh; }
+
+    .proto-header { padding: 16px 24px; border-bottom: 1px solid var(--p-border); display: flex; align-items: center; justify-content: space-between; }
+    .proto-header h1 { font-family: var(--p-font-heading); font-size: 18px; font-weight: 600; }
+
+    .proto-sidebar { width: 240px; border-right: 1px solid var(--p-border); padding: 16px; background: var(--p-muted); }
+    .proto-sidebar-item { padding: 8px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; margin-bottom: 2px; }
+    .proto-sidebar-item:hover { background: var(--p-border); }
+    .proto-sidebar-item.active { background: var(--p-primary); color: white; }
+
+    .proto-main { flex: 1; padding: 24px; overflow-y: auto; }
+
+    .proto-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .proto-table th { text-align: left; padding: 10px 12px; border-bottom: 2px solid var(--p-border); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--p-secondary); }
+    .proto-table td { padding: 10px 12px; border-bottom: 1px solid var(--p-muted); }
+    .proto-table tr:hover td { background: var(--p-muted); }
+
+    .proto-form { max-width: 480px; display: flex; flex-direction: column; gap: 16px; }
+    .proto-field { display: flex; flex-direction: column; gap: 4px; }
+    .proto-field label { font-size: 12px; font-weight: 500; color: var(--p-secondary); }
+    .proto-field input, .proto-field select, .proto-field textarea { padding: 8px 12px; border: 1px solid var(--p-border); border-radius: 6px; font-size: 14px; font-family: inherit; }
+    .proto-field input:focus, .proto-field select:focus, .proto-field textarea:focus { outline: none; border-color: var(--p-primary); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+
+    .proto-btn { padding: 8px 16px; border: none; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; font-family: inherit; }
+    .proto-btn-primary { background: var(--p-primary); color: white; }
+    .proto-btn-primary:hover { opacity: 0.9; }
+
+    .proto-stat { padding: 20px; border: 1px solid var(--p-border); border-radius: 8px; }
+    .proto-stat-label { font-size: 11px; color: var(--p-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+    .proto-stat-value { font-size: 28px; font-weight: 700; margin-top: 4px; font-family: var(--p-font-heading); }
+
+    .proto-detail { display: flex; flex-direction: column; gap: 12px; }
+    .proto-detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--p-muted); font-size: 13px; }
+    .proto-detail-label { color: var(--p-secondary); }
+
+    .proto-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; }
+    .proto-badge-success { background: #DCFCE7; color: #166534; }
+    .proto-badge-warning { background: #FEF3C7; color: #92400E; }
+    .proto-badge-info { background: #DBEAFE; color: #1E40AF; }
+
+    .proto-empty { text-align: center; padding: 48px; color: var(--p-secondary); }
+
+    .proto-highlight { outline: 2px solid var(--p-accent); outline-offset: 2px; border-radius: 4px; animation: pulse 1.5s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { outline-color: var(--p-accent); } 50% { outline-color: transparent; } }
+
+    .layout-split { display: flex; min-height: 100vh; }
+
+    .loading { display: flex; align-items: center; justify-content: center; height: 100vh; color: var(--p-secondary); }
+  </style>
+</head>
+<body>
+  <div id="root" class="loading">Loading prototype...</div>
+
+  <script>
+    let currentData = null;
+    let currentStep = null;
+
+    // Signal ready to parent
+    window.parent.postMessage({ type: 'prototype:ready' }, '*');
+
+    // Listen for prototype data
+    window.addEventListener('message', function(event) {
+      if (event.data && event.data.type === 'prototype:init') {
+        currentData = event.data.payload;
+        currentStep = event.data.payload.activeStep;
+
+        // Apply design tokens as CSS custom properties
+        if (currentData.designTokens) {
+          const t = currentData.designTokens;
+          const root = document.documentElement;
+          if (t.primary) root.style.setProperty('--p-primary', t.primary);
+          if (t.secondary) root.style.setProperty('--p-secondary', t.secondary);
+          if (t.accent) root.style.setProperty('--p-accent', t.accent);
+          if (t.background) root.style.setProperty('--p-bg', t.background);
+          if (t.foreground) root.style.setProperty('--p-fg', t.foreground);
+          if (t.fontHeading) root.style.setProperty('--p-font-heading', t.fontHeading);
+          if (t.fontBody) root.style.setProperty('--p-font-body', t.fontBody);
+        }
+
+        render();
+      }
+    });
+
+    function render() {
+      if (!currentData || !currentData.screens || currentData.screens.length === 0) {
+        document.getElementById('root').innerHTML = '<div class="proto-empty">No prototype data received</div>';
+        return;
+      }
+
+      const screen = currentData.screens[0];
+      if (!screen) return;
+
+      // Determine which components are active based on walkthrough step
+      let activeComponentIds = null;
+      if (currentStep !== null && currentStep !== undefined && currentData.flowSteps && currentData.flowSteps[currentStep]) {
+        activeComponentIds = new Set(currentData.flowSteps[currentStep].activeComponents);
+      }
+
+      let html = '';
+
+      for (const comp of screen.components) {
+        // If in walkthrough mode and component not in active list, dim it
+        const isActive = !activeComponentIds || activeComponentIds.has(comp.id);
+        const isHighlighted = activeComponentIds && activeComponentIds.has(comp.id);
+        const wrapStyle = isActive ? '' : 'opacity:0.3;pointer-events:none;';
+        const highlightClass = isHighlighted ? ' proto-highlight' : '';
+
+        html += '<div style="' + wrapStyle + '" class="' + highlightClass + '">';
+        html += renderComponent(comp);
+        html += '</div>';
+      }
+
+      document.getElementById('root').className = '';
+      document.getElementById('root').innerHTML = html;
+    }
+
+    function renderComponent(comp) {
+      switch (comp.type) {
+        case 'Header':
+          return '<div class="proto-header"><h1>' + esc(comp.label) + '</h1></div>';
+
+        case 'DataTable':
+          return renderDataTable(comp);
+
+        case 'FormSection':
+          return renderFormSection(comp);
+
+        case 'DetailPanel':
+          return renderDetailPanel(comp);
+
+        case 'StatCard':
+          return '<div style="padding:8px"><div class="proto-stat"><div class="proto-stat-label">' + esc(comp.label) + '</div><div class="proto-stat-value">—</div></div></div>';
+
+        case 'SearchBar':
+          return '<div style="padding:16px 24px"><input type="text" placeholder="Search ' + esc(comp.label) + '..." style="width:100%;padding:10px 14px;border:1px solid var(--p-border);border-radius:8px;font-size:14px;font-family:inherit" /></div>';
+
+        case 'CardGrid':
+          return renderCardGrid(comp);
+
+        case 'Sidebar':
+          return '<div class="proto-sidebar"><div class="proto-sidebar-item active">Dashboard</div><div class="proto-sidebar-item">Settings</div></div>';
+
+        case 'EmptyState':
+          return '<div class="proto-empty">' + esc(comp.label) + '</div>';
+
+        case 'StatusBadge':
+          return '<div style="padding:8px 24px"><span class="proto-badge proto-badge-success">Active</span></div>';
+
+        default:
+          return '<div style="padding:16px 24px;color:var(--p-secondary);font-size:13px">' + esc(comp.label) + ' (' + esc(comp.type) + ')</div>';
+      }
+    }
+
+    function renderDataTable(comp) {
+      const entity = currentData.sampleData ? currentData.sampleData.find(function(e) { return e.entityName === comp.entity; }) : null;
+      if (!entity || !entity.rows || entity.rows.length === 0) {
+        return '<div class="proto-empty">No data for ' + esc(comp.label) + '</div>';
+      }
+
+      const cols = Object.keys(entity.rows[0]);
+      let html = '<div style="padding:16px 24px"><h3 style="font-family:var(--p-font-heading);font-size:14px;font-weight:600;margin-bottom:12px">' + esc(comp.label) + '</h3>';
+      html += '<table class="proto-table"><thead><tr>';
+      cols.forEach(function(col) { html += '<th>' + esc(col) + '</th>'; });
+      html += '</tr></thead><tbody>';
+      entity.rows.forEach(function(row) {
+        html += '<tr>';
+        cols.forEach(function(col) {
+          const val = row[col];
+          html += '<td>' + formatCell(val) + '</td>';
+        });
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+      return html;
+    }
+
+    function renderFormSection(comp) {
+      return '<div style="padding:24px"><h3 style="font-family:var(--p-font-heading);font-size:14px;font-weight:600;margin-bottom:16px">' + esc(comp.label) + '</h3>' +
+        '<div class="proto-form">' +
+        '<div class="proto-field"><label>Name</label><input type="text" placeholder="Enter name..." /></div>' +
+        '<div class="proto-field"><label>Description</label><textarea rows="3" placeholder="Enter description..."></textarea></div>' +
+        '<div class="proto-field"><label>Status</label><select><option>Active</option><option>Pending</option><option>Archived</option></select></div>' +
+        '<button class="proto-btn proto-btn-primary">Create</button>' +
+        '</div></div>';
+    }
+
+    function renderDetailPanel(comp) {
+      const entity = currentData.sampleData ? currentData.sampleData.find(function(e) { return e.entityName === comp.entity; }) : null;
+      const row = entity && entity.rows ? entity.rows[0] : null;
+
+      if (!row) {
+        return '<div style="padding:24px"><h3 style="font-family:var(--p-font-heading);font-size:14px;font-weight:600;margin-bottom:12px">' + esc(comp.label) + '</h3><div class="proto-empty">No data</div></div>';
+      }
+
+      let html = '<div style="padding:24px"><h3 style="font-family:var(--p-font-heading);font-size:14px;font-weight:600;margin-bottom:12px">' + esc(comp.label) + '</h3><div class="proto-detail">';
+      Object.keys(row).forEach(function(key) {
+        html += '<div class="proto-detail-row"><span class="proto-detail-label">' + esc(key) + '</span><span>' + formatCell(row[key]) + '</span></div>';
+      });
+      html += '</div></div>';
+      return html;
+    }
+
+    function renderCardGrid(comp) {
+      const entity = currentData.sampleData ? currentData.sampleData.find(function(e) { return e.entityName === comp.entity; }) : null;
+      if (!entity || !entity.rows || entity.rows.length === 0) {
+        return '<div class="proto-empty">No data for ' + esc(comp.label) + '</div>';
+      }
+
+      let html = '<div style="padding:24px"><h3 style="font-family:var(--p-font-heading);font-size:14px;font-weight:600;margin-bottom:12px">' + esc(comp.label) + '</h3><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">';
+      entity.rows.slice(0, 6).forEach(function(row) {
+        const keys = Object.keys(row);
+        const title = row[keys[1]] || row[keys[0]] || 'Item';
+        html += '<div style="padding:16px;border:1px solid var(--p-border);border-radius:8px"><div style="font-weight:600;font-size:14px;margin-bottom:4px">' + esc(String(title)) + '</div>';
+        if (keys[2]) html += '<div style="font-size:12px;color:var(--p-secondary)">' + esc(String(row[keys[2]] || '')) + '</div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+      return html;
+    }
+
+    function formatCell(val) {
+      if (val === null || val === undefined) return '<span style="color:var(--p-secondary)">—</span>';
+      if (typeof val === 'boolean') return val ? '<span class="proto-badge proto-badge-success">Yes</span>' : '<span class="proto-badge proto-badge-warning">No</span>';
+      const s = String(val);
+      if (s === 'active' || s === 'completed' || s === 'approved') return '<span class="proto-badge proto-badge-success">' + esc(s) + '</span>';
+      if (s === 'pending' || s === 'scheduled' || s === 'processing') return '<span class="proto-badge proto-badge-warning">' + esc(s) + '</span>';
+      if (s === 'draft' || s === 'inactive') return '<span class="proto-badge proto-badge-info">' + esc(s) + '</span>';
+      return esc(s);
+    }
+
+    function esc(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

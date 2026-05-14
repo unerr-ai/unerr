@@ -1,0 +1,16 @@
+---
+description: "Check blast radius before modifying any function, class, or exported entity"
+paths: **/*.ts, **/*.js, **/*.py, **/*.go
+---
+
+Before modifying any function, class, or exported entity:
+
+1. Call `get_references` on the target entity
+2. If callers > 5, call `get_entity` for full context
+3. Watch for a `ur|rsk` prefix line in the response (e.g. `ur|rsk fan_in=24 fan_out=3`) — if present:
+   - List all affected callers to the user before proceeding
+   - Consider whether a non-breaking change is possible
+   - If breaking, enumerate what else needs updating
+4. Only then proceed with the modification
+
+Never modify a high-fan-in entity without understanding its blast radius first.

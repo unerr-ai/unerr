@@ -1,0 +1,201 @@
+/**
+ * unerrd client — communicates with the daemon supervisor over UDS.
+ *
+ * Used by `unerr --mcp` (bridge) and CLI commands to interact with `unerrd`.
+ * All methods are fire-and-forget except `ensureRepo` which waits for the
+ * repo process to become ready (returns the per-repo UDS sock path).
+ *
+ * Protocol: newline-delimited JSON over `~/.unerr/unerrd.sock`.
+ * Each request is a single connection (connect → send → read → close).
+ */
+
+import { type Socket, createConnection } from "node:net";
+import { join } from "node:path";
+import type {
+  DaemonResponse,
+  EnsureOkResponse,
+  OkResponse,
+  StatusOkResponse,
+} from "./protocol.js";
+import { globalDir } from "./registry.js";
+
+/** Default path to the daemon's UDS control socket. */
+export function daemonSockPath(): string {
+  return join(globalDir(), "unerrd.sock");
+}
+
+/**
+ * Send a single request to unerrd and return the parsed response.
+ * Opens a fresh connection per request (control-plane traffic is low-frequency).
+ */
+export function sendRequest(
+  sockPath: string,
+  request: Record<string, unknown>,
+  timeoutMs = 30_000,
+): Promise<DaemonResponse> {
+  return new Promise((resolve, reject) => {
+    let buffer = "";
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      reject(new Error(`unerrd request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    timer.unref();
+
+    const socket: Socket = createConnection(sockPath);
+
+    socket.on("connect", () => {
+      socket.write(`${JSON.stringify(request)}\n`);
+    });
+
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString();
+      const newlineIdx = buffer.indexOf("\n");
+      if (newlineIdx === -1) return;
+
+      const line = buffer.slice(0, newlineIdx).trim();
+      if (!line) return;
+
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+
+      try {
+        resolve(JSON.parse(line) as DaemonResponse);
+      } catch {
+        reject(new Error(`Invalid JSON from unerrd: ${line.slice(0, 200)}`));
+      }
+    });
+
+    socket.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    socket.on("close", () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error("unerrd connection closed before response"));
+    });
+  });
+}
+
+/**
+ * Send a fire-and-forget request (no response needed).
+ * Used for `activity` which the daemon acknowledges with no response (null).
+ */
+export function sendFireAndForget(
+  sockPath: string,
+  request: Record<string, unknown>,
+): void {
+  try {
+    const socket = createConnection(sockPath);
+    socket.on("connect", () => {
+      socket.write(`${JSON.stringify(request)}\n`);
+      // Give the socket a moment to flush, then destroy
+      setTimeout(() => socket.destroy(), 50);
+    });
+    socket.on("error", () => {
+      // Best-effort — daemon might be shutting down
+    });
+  } catch {
+    // Best-effort
+  }
+}
+
+// ── High-level client methods ─────────────────────────────────────
+
+/**
+ * Ensure a repo process is running. Returns the per-repo UDS sock path.
+ * If the repo is already running, returns immediately.
+ * If not, the supervisor spawns it and waits for ready.
+ */
+export async function ensureRepo(
+  sockPath: string,
+  repoPath: string,
+): Promise<string> {
+  const resp = await sendRequest(sockPath, { cmd: "ensure", repo: repoPath });
+  if (!resp.ok) {
+    throw new Error(`ensureRepo failed: ${(resp as { error: string }).error}`);
+  }
+  return (resp as EnsureOkResponse).sock;
+}
+
+/**
+ * Register a bridge connection to a repo.
+ * Increments the repo's connection count (prevents idle sweep).
+ */
+export async function connectRepo(
+  sockPath: string,
+  repoPath: string,
+): Promise<void> {
+  const resp = await sendRequest(sockPath, { cmd: "connect", repo: repoPath });
+  if (!resp.ok) {
+    throw new Error(`connectRepo failed: ${(resp as { error: string }).error}`);
+  }
+}
+
+/**
+ * Unregister a bridge connection from a repo.
+ * Decrements the repo's connection count.
+ */
+export async function disconnectRepo(
+  sockPath: string,
+  repoPath: string,
+): Promise<void> {
+  const resp = await sendRequest(sockPath, {
+    cmd: "disconnect",
+    repo: repoPath,
+  });
+  if (!resp.ok) {
+    throw new Error(
+      `disconnectRepo failed: ${(resp as { error: string }).error}`,
+    );
+  }
+}
+
+/** Fire-and-forget activity ping. Does not wait for response. */
+export function sendActivity(sockPath: string, repoPath: string): void {
+  sendFireAndForget(sockPath, { cmd: "activity", repo: repoPath });
+}
+
+/** Get status of all managed repos. */
+export async function getStatus(sockPath: string): Promise<StatusOkResponse> {
+  const resp = await sendRequest(sockPath, { cmd: "status" });
+  if (!resp.ok) {
+    throw new Error(`getStatus failed: ${(resp as { error: string }).error}`);
+  }
+  return resp as StatusOkResponse;
+}
+
+/**
+ * Check if the daemon socket is reachable (probe connection).
+ * Returns true if connection succeeds, false otherwise.
+ */
+export function probeDaemon(sockPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection(sockPath);
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve(false);
+    }, 1000);
+    timer.unref();
+
+    socket.on("connect", () => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
+}

@@ -1,0 +1,979 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook pre-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-edit"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook post-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-read"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-grep"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-glob"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-write"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-edit"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook prompt-submit"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook prompt-submit"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook prompt-submit"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook prompt-submit"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook prompt-submit"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook prompt-submit"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook prompt-submit"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/IdeaProjects/unerr-cli/dist/cli.js hook prompt-submit"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook prompt-submit"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Grep",
+      "Glob"
+    ]
+  }
+}
