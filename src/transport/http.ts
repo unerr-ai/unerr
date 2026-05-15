@@ -69,7 +69,7 @@ export function createHttpTransport(
   app.get("/health", (c) =>
     c.json({
       status: "ok",
-      version: "0.1.0",
+      version: "0.1.2",
       uptime_ms: Date.now() - startedAt,
     })
   );

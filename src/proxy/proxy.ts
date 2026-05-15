@@ -953,7 +953,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   );
 
   const server = new Server(
-    { name: "unerr-local", version: "0.1.0" },
+    { name: "unerr-local", version: "0.1.2" },
     { capabilities: { tools: {} } }
   );
 
@@ -1836,7 +1836,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         result: {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "unerr-local", version: "0.1.0" },
+          serverInfo: { name: "unerr-local", version: "0.1.2" },
         },
       };
     }

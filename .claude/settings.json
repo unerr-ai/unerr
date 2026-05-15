@@ -438,7 +438,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-bash"
+            "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr hook pre-bash"
           }
         ]
       },
@@ -447,7 +447,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-read"
+            "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr hook pre-read"
           }
         ]
       },
@@ -456,7 +456,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-grep"
+            "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr hook pre-grep"
           }
         ]
       },
@@ -465,7 +465,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-glob"
+            "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr hook pre-glob"
           }
         ]
       },
@@ -474,7 +474,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-write"
+            "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr hook pre-write"
           }
         ]
       },
@@ -483,7 +483,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-edit"
+            "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr hook pre-edit"
           }
         ]
       }
@@ -854,7 +854,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-read"
+            "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr hook post-read"
           }
         ]
       },
@@ -863,7 +863,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-grep"
+            "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr hook post-grep"
           }
         ]
       },
@@ -872,7 +872,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-glob"
+            "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr hook post-glob"
           }
         ]
       },
@@ -881,7 +881,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-write"
+            "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr hook post-write"
           }
         ]
       },
@@ -890,7 +890,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-edit"
+            "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr hook post-edit"
           }
         ]
       }
@@ -964,7 +964,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jaswanth/Library/pnpm/unerr hook prompt-submit"
+            "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr hook prompt-submit"
           }
         ]
       }

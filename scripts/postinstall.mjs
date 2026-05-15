@@ -158,11 +158,14 @@ function getFixPayload() {
     };
   }
 
-  // Generic: direct PATH export
+  // Generic: direct PATH export — use $HOME instead of absolute home path for portability
+  const portableBin = normalizedGlobalBin.startsWith(home)
+    ? normalizedGlobalBin.replace(home, "$HOME")
+    : normalizedGlobalBin;
   const exportLine =
     shell === "fish"
-      ? `set -gx PATH ${normalizedGlobalBin} $PATH`
-      : `export PATH="${normalizedGlobalBin}:$PATH"`;
+      ? `set -gx PATH ${portableBin} $PATH`
+      : `export PATH="${portableBin}:$PATH"`;
 
   return {
     lines: ["", "# npm global bin (added by unerr postinstall)", exportLine],
