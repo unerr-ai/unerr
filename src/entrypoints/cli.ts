@@ -21,7 +21,10 @@ import { registerConfigVerifyCommand } from "../commands/config-verify.js";
 import { registerDaemonCommand } from "../commands/daemon.js";
 import { registerDashboardCommand } from "../commands/dashboard.js";
 import { registerDebugCommand } from "../commands/debug.js";
-import { registerDoctorCommand } from "../commands/doctor.js";
+import {
+  registerDoctorCommand,
+  verifyUnerrOnPath,
+} from "../commands/doctor.js";
 import { registerEnrichCommand } from "../commands/enrich.js";
 import { registerExecCommand } from "../commands/exec.js";
 import {
@@ -726,6 +729,7 @@ function readLocalConfig(cwd: string): Record<string, unknown> | null {
  * Resume path: config exists, skip all interactive prompts.
  */
 async function resumeBoot(config: Record<string, unknown>): Promise<void> {
+  verifyUnerrOnPath();
   initFileLog(process.cwd());
 
   // Verify this is still a valid project directory (config may be stale)
@@ -774,6 +778,7 @@ async function resumeBoot(config: Record<string, unknown>): Promise<void> {
  * First-run path: no config exists. Auto-detect environment, prompt if needed.
  */
 async function firstRunBoot(): Promise<void> {
+  verifyUnerrOnPath();
   initFileLog(process.cwd());
 
   const { initSessionLogger, createSessionModuleLogger } = await import(

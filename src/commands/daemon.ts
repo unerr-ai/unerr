@@ -15,6 +15,7 @@
 
 import { resolve } from "node:path";
 import type { Command } from "commander";
+import { verifyUnerrOnPath } from "./doctor.js";
 import {
   addRepo,
   findRepo,
@@ -45,6 +46,8 @@ export function registerDaemonCommand(program: Command): void {
       "One-time daemon setup: register at boot (launchd/systemd/schtasks) and start unerrd"
     )
     .action(async () => {
+      verifyUnerrOnPath();
+
       const { installForCurrentPlatform } = await import(
         "../daemon/autostart.js"
       );

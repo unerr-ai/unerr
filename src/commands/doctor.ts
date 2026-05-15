@@ -373,6 +373,33 @@ function isUnerrOnPathViaWhere(): boolean {
   }
 }
 
+// ── Quick PATH verification (non-interactive) ───────────────
+
+/**
+ * Lightweight PATH check for use at boot. Returns true if unerr is reachable.
+ * If not, prints a warning to stderr suggesting `unerr doctor`.
+ * Never blocks on user input or exits the process.
+ */
+export function verifyUnerrOnPath(): boolean {
+  const globalBin = getGlobalBin();
+  if (!globalBin) return true; // can't determine — skip silently
+
+  const normalizedBin = normalize(globalBin).replace(/[/\\]+$/, "");
+  const onPath = isOnPath(normalizedBin) || (isWin && isUnerrOnPathViaWhere());
+  if (onPath) return true;
+
+  const hasTTYLocal = !!process.stderr.isTTY;
+  const w = hasTTYLocal ? "\x1b[33m" : "";
+  const b = hasTTYLocal ? "\x1b[1m" : "";
+  const d = hasTTYLocal ? "\x1b[2m" : "";
+  const r = hasTTYLocal ? "\x1b[0m" : "";
+  process.stderr.write(
+    `${w}⚠${r}  ${b}unerr${r} may not be on your PATH in new terminals.\n` +
+      `${d}   Run ${b}unerr doctor${r}${d} to diagnose and fix.${r}\n\n`
+  );
+  return false;
+}
+
 // ── Command registration ─────────────────────────────────────
 
 export function registerDoctorCommand(program: Command): void {
