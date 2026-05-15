@@ -1136,7 +1136,7 @@ const program = new Command();
 program
   .name("unerr")
   .description("Code intelligence for AI agents")
-  .version("0.1.2")
+  .version("0.1.3")
   .option("--ide <type>", "IDE type: cursor, vscode, claude-code, windsurf")
   .option("--mcp", "Start in MCP server mode (stdio, no interactive prompts)")
   .option(

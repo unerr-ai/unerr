@@ -43,7 +43,7 @@ export interface ContextInjectorArgs {
 import { estimateTokens } from "../intelligence/token-estimator.js";
 export { estimateTokens };
 
-const VERSION = "0.1.2";
+const VERSION = "0.1.3";
 
 /**
  * Update notification state — set by the daemon's version checker.
