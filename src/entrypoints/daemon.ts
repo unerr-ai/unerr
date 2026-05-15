@@ -129,10 +129,11 @@ function createUdsServer(pm: ProcessManager): Server {
 
     socket.on("data", (chunk) => {
       buffer += chunk.toString();
-      let newlineIdx: number;
 
       // Process all complete newline-delimited messages
-      while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+      while (true) {
+        const newlineIdx = buffer.indexOf("\n");
+        if (newlineIdx === -1) break;
         const line = buffer.slice(0, newlineIdx).trim();
         buffer = buffer.slice(newlineIdx + 1);
         if (!line) continue;
@@ -146,7 +147,7 @@ function createUdsServer(pm: ProcessManager): Server {
           .catch((err) => {
             if (!socket.destroyed) {
               socket.write(
-                `${JSON.stringify({ ok: false, error: String(err) })}\n`,
+                `${JSON.stringify({ ok: false, error: String(err) })}\n`
               );
             }
           });
@@ -163,7 +164,7 @@ function createUdsServer(pm: ProcessManager): Server {
 
 async function handleRequest(
   pm: ProcessManager,
-  raw: string,
+  raw: string
 ): Promise<DaemonResponse | null> {
   let req: DaemonRequest;
   try {
@@ -423,7 +424,7 @@ export async function startDaemon(opts: {
   process.on("SIGINT", () => wrappedShutdown("SIGINT"));
 
   log.info(
-    `Started (PID ${process.pid}), ${reg.repos.length} repos registered. Socket: ${sock}`,
+    `Started (PID ${process.pid}), ${reg.repos.length} repos registered. Socket: ${sock}`
   );
 
   if (!opts.background) {

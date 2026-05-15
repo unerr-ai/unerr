@@ -44,7 +44,7 @@ export function createStreamRoutes(deps: StreamRouteDeps): Hono {
           violations_caught: deps.stats.violationsCaught,
           risk_warnings: deps.stats.riskWarningsIssued,
           duration_s: Math.round(
-            (Date.now() - deps.stats.sessionStartedAt) / 1000,
+            (Date.now() - deps.stats.sessionStartedAt) / 1000
           ),
           session_events: deps.stats.events,
           caught_total: totalCaughtEvents(deps.stats.events),
@@ -110,7 +110,7 @@ export function createStreamRoutes(deps: StreamRouteDeps): Hono {
               violations_caught: deps.stats.violationsCaught,
               risk_warnings: deps.stats.riskWarningsIssued,
               duration_s: Math.round(
-                (Date.now() - deps.stats.sessionStartedAt) / 1000,
+                (Date.now() - deps.stats.sessionStartedAt) / 1000
               ),
               session_events: deps.stats.events,
               caught_total: totalCaughtEvents(deps.stats.events),

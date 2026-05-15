@@ -92,11 +92,11 @@ export class WorkingSnapshotStore {
     writeFileSync(
       join(this.snapshotDir, `${id}.json`),
       JSON.stringify(snapshot, null, 2),
-      "utf-8",
+      "utf-8"
     );
 
     _log.info(
-      `Created snapshot ${id} at ${opts.commitSha.slice(0, 8)} (${opts.reason})`,
+      `Created snapshot ${id} at ${opts.commitSha.slice(0, 8)} (${opts.reason})`
     );
 
     // Enforce cap
@@ -126,7 +126,7 @@ export class WorkingSnapshotStore {
     if (!existsSync(this.snapshotDir)) return [];
 
     const files = readdirSync(this.snapshotDir).filter((f) =>
-      f.endsWith(".json"),
+      f.endsWith(".json")
     );
 
     const snapshots: WorkingSnapshot[] = [];
@@ -142,7 +142,7 @@ export class WorkingSnapshotStore {
     // Sort by timestamp descending
     snapshots.sort(
       (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
 
     return snapshots;
@@ -186,7 +186,7 @@ export class WorkingSnapshotStore {
     writeFileSync(
       join(this.snapshotDir, `${snapshotId}.json`),
       JSON.stringify(snapshot, null, 2),
-      "utf-8",
+      "utf-8"
     );
   }
 

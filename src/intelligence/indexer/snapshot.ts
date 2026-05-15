@@ -36,7 +36,7 @@ export function saveSnapshot(
   unerrDir: string,
   entities: IndexedEntity[],
   edges: IndexedEdge[],
-  metadata: IndexMetadata,
+  metadata: IndexMetadata
 ): void {
   const indexDir = join(unerrDir, "index");
   if (!existsSync(indexDir)) {
@@ -56,11 +56,11 @@ export function saveSnapshot(
   try {
     writeFileSync(snapshotPath, JSON.stringify(snapshot), "utf-8");
     log.info(
-      `Snapshot saved: ${entities.length} entities, ${edges.length} edges`,
+      `Snapshot saved: ${entities.length} entities, ${edges.length} edges`
     );
   } catch (err) {
     log.warn(
-      `Failed to save snapshot: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to save snapshot: ${err instanceof Error ? err.message : String(err)}`
     );
   }
 }
@@ -84,13 +84,13 @@ export function loadSnapshot(unerrDir: string): IndexSnapshot | null {
     }
 
     log.info(
-      `Snapshot loaded: ${parsed.entities.length} entities, ${parsed.edges.length} edges (saved ${parsed.savedAt})`,
+      `Snapshot loaded: ${parsed.entities.length} entities, ${parsed.edges.length} edges (saved ${parsed.savedAt})`
     );
 
     return parsed;
   } catch (err) {
     log.warn(
-      `Failed to load snapshot: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to load snapshot: ${err instanceof Error ? err.message : String(err)}`
     );
     return null;
   }

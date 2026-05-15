@@ -50,7 +50,7 @@ let testHome: string;
 beforeEach(() => {
   testHome = join(
     tmpdir(),
-    `unerr-autostart-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    `unerr-autostart-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   );
   mkdirSync(join(testHome, ".unerr"), { recursive: true });
 });
@@ -77,7 +77,7 @@ describe("CI detection", () => {
     try {
       expect(isCI()).toBe(true);
     } finally {
-      if (orig === undefined) delete process.env.CI;
+      if (orig === undefined) process.env.CI = undefined;
       else process.env.CI = orig;
       resetCICache();
     }
@@ -94,7 +94,7 @@ describe("CI detection", () => {
     try {
       expect(isCI()).toBe(true);
     } finally {
-      if (orig === undefined) delete process.env.GITHUB_ACTIONS;
+      if (orig === undefined) process.env.GITHUB_ACTIONS = undefined;
       else process.env.GITHUB_ACTIONS = orig;
       resetCICache();
     }

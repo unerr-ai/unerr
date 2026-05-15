@@ -16,8 +16,8 @@
 import {
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
+  readdirSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -67,16 +67,14 @@ export interface ScipEnrichmentResult {
  * @param entities - Entity info for key resolution during merge
  * @returns Enriched edges with compiler-verified confidence where SCIP confirms them
  */
-export interface ScipEnrichmentOptions {
-  /* Extensible — future per-language options go here. */
-}
+export type ScipEnrichmentOptions = Record<string, never>;
 
 export async function enrichWithScip(
   files: string[],
   projectRoot: string,
   existingEdges: IndexedEdge[],
   entities?: EntityInfo[],
-  options?: ScipEnrichmentOptions,
+  options?: ScipEnrichmentOptions
 ): Promise<ScipEnrichmentResult> {
   // Step 1: Detect ALL languages in the project
   const languages = detectProjectLanguages(files);
@@ -116,7 +114,7 @@ export async function enrichWithScip(
         } else {
           const manualInstr = getManualInstallInstructions(language);
           log.warn(
-            `SCIP auto-download failed for ${language}: ${downloadResult.error}${manualInstr ? `\n  Manual install: ${manualInstr}` : ""}`,
+            `SCIP auto-download failed for ${language}: ${downloadResult.error}${manualInstr ? `\n  Manual install: ${manualInstr}` : ""}`
           );
           continue;
         }
@@ -143,7 +141,7 @@ export async function enrichWithScip(
         !existsSync(join(projectRoot, "jsconfig.json"))
       ) {
         log.info(
-          `SCIP skipping TypeScript: no tsconfig.json or jsconfig.json found in project root. Create one to enable SCIP indexing.`,
+          "SCIP skipping TypeScript: no tsconfig.json or jsconfig.json found in project root. Create one to enable SCIP indexing."
         );
         continue;
       }
@@ -160,7 +158,7 @@ export async function enrichWithScip(
       const compdbPath = resolveCompileCommandsJson(projectRoot);
       if (!compdbPath) {
         log.info(
-          `SCIP skipping C/C++: no compile_commands.json found. Generate one with CMake (-DCMAKE_EXPORT_COMPILE_COMMANDS=ON), Bear, or your build system.`,
+          "SCIP skipping C/C++: no compile_commands.json found. Generate one with CMake (-DCMAKE_EXPORT_COMPILE_COMMANDS=ON), Bear, or your build system."
         );
         continue;
       }
@@ -171,7 +169,7 @@ export async function enrichWithScip(
     // have been resolved and won't be visually wedged between these logs.
     log.info(`SCIP: processing ${language} (${fileCount} files)`);
     log.info(
-      `SCIP enrichment: ${language} (${binaryInfo.bundled ? "bundled" : "external"}: ${binaryInfo.binaryName})`,
+      `SCIP enrichment: ${language} (${binaryInfo.bundled ? "bundled" : "external"}: ${binaryInfo.binaryName})`
     );
 
     const runResult = await runScipIndexer({
@@ -205,7 +203,7 @@ export async function enrichWithScip(
     const { edges: enrichedEdges, result: mergeResult } = mergeScipResults(
       indexedEdges,
       decodeResult,
-      entities,
+      entities
     );
     currentEdges = enrichedEdges;
     lastMergeResult = mergeResult;
@@ -213,14 +211,14 @@ export async function enrichWithScip(
     processedLanguages.push(language);
 
     log.info(
-      `SCIP ${language}: ${mergeResult.edgesUpgraded} edges upgraded to compiler-verified (${Math.round(runResult.durationMs)}ms)`,
+      `SCIP ${language}: ${mergeResult.edgesUpgraded} edges upgraded to compiler-verified (${Math.round(runResult.durationMs)}ms)`
     );
   }
 
   if (!anySucceeded) {
     return skipResult(
       existingEdges,
-      `No SCIP binary available for any detected language (${languages.map((l) => l.language).join(", ")})`,
+      `No SCIP binary available for any detected language (${languages.map((l) => l.language).join(", ")})`
     );
   }
 
@@ -239,10 +237,13 @@ export async function enrichWithScip(
 
 // ── Java Build Tool Detection ─────────────────────────────────────
 
-import type { JavaBuildTool, NeedsInputSignal } from "../../../daemon/protocol.js";
+import type {
+  JavaBuildTool,
+  NeedsInputSignal,
+} from "../../../daemon/protocol.js";
 import { writeNeedsInput } from "../../../daemon/registry.js";
 
-export { type JavaBuildTool };
+export type { JavaBuildTool };
 
 const BUILD_TOOL_FILES: Record<JavaBuildTool, string[]> = {
   Maven: ["pom.xml"],
@@ -320,7 +321,7 @@ export interface BuildToolChoice {
  */
 export function chooseBuildTool(
   detected: JavaBuildTool[],
-  projectRoot: string,
+  projectRoot: string
 ): BuildToolChoice | null {
   if (detected.length === 0) return null;
   if (detected.length === 1) {
@@ -387,7 +388,7 @@ export function chooseBuildTool(
 /** Pick the tool whose build files have the most recent mtime. */
 function tiebreakByMtime(
   tools: JavaBuildTool[],
-  projectRoot: string,
+  projectRoot: string
 ): BuildToolChoice {
   let best: JavaBuildTool = tools[0]!;
   let bestMtime = 0;
@@ -429,7 +430,7 @@ function tiebreakByMtime(
  */
 async function resolveJavaBuildTool(
   projectRoot: string,
-  _options?: ScipEnrichmentOptions,
+  _options?: ScipEnrichmentOptions
 ): Promise<{ tool: JavaBuildTool; extraArgs: string[] } | null> {
   const detected = detectJavaBuildTools(projectRoot);
 
@@ -459,7 +460,7 @@ async function resolveJavaBuildTool(
     };
     writeNeedsInput(projectRoot, [signal]);
     log.info(
-      `Java build tool: ${choice.tool} (auto: ${choice.reason}). Override: unerr daemon config . --java-build-tool=<tool>`,
+      `Java build tool: ${choice.tool} (auto: ${choice.reason}). Override: unerr daemon config . --java-build-tool=<tool>`
     );
   } else {
     log.info(`Java build tool: ${choice.tool} (${choice.reason})`);
@@ -511,13 +512,13 @@ async function installScipDotnet(): Promise<boolean> {
     const dotnetCheck = await exec("which", ["dotnet"]);
     if (dotnetCheck.exitCode !== 0) {
       log.warn(
-        `SCIP skipping C#: dotnet CLI not found on PATH. Install the .NET SDK to enable SCIP indexing for C#.`,
+        "SCIP skipping C#: dotnet CLI not found on PATH. Install the .NET SDK to enable SCIP indexing for C#."
       );
       return false;
     }
   } catch {
     log.warn(
-      `SCIP skipping C#: dotnet CLI not found on PATH. Install the .NET SDK to enable SCIP indexing for C#.`,
+      "SCIP skipping C#: dotnet CLI not found on PATH. Install the .NET SDK to enable SCIP indexing for C#."
     );
     return false;
   }
@@ -543,7 +544,7 @@ async function installScipDotnet(): Promise<boolean> {
     return false;
   } catch (err) {
     log.warn(
-      `scip-dotnet install failed: ${err instanceof Error ? err.message : String(err)}`,
+      `scip-dotnet install failed: ${err instanceof Error ? err.message : String(err)}`
     );
     return false;
   }
@@ -551,7 +552,7 @@ async function installScipDotnet(): Promise<boolean> {
 
 function skipResult(
   existingEdges: IndexedEdge[],
-  reason: string,
+  reason: string
 ): ScipEnrichmentResult {
   log.info(`SCIP skipped: ${reason}`);
   return {

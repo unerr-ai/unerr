@@ -36,7 +36,7 @@ describe("ProcessManager", () => {
     mkdirSync(globalUnerr, { recursive: true });
     writeFileSync(
       join(globalUnerr, "repos.json"),
-      JSON.stringify({ version: 1, repos: [] }),
+      JSON.stringify({ version: 1, repos: [] })
     );
   });
 
@@ -154,7 +154,7 @@ describe("Daemon entrypoint", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/entrypoints/daemon.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     // Must not import from intelligence/, behaviors/, tracking/
@@ -179,7 +179,7 @@ describe("Daemon entrypoint", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/daemon/process-manager.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     const forbidden = [
@@ -203,7 +203,7 @@ describe("CLI --daemon-child flag", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("--daemon-child");
@@ -215,7 +215,7 @@ describe("CLI --daemon-child flag", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("process.ppid");
@@ -228,7 +228,7 @@ describe("CLI --daemon-child flag", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain('{ type: "ready", sock: sockPath }');
@@ -244,7 +244,7 @@ describe("Idle sweep logic", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/daemon/process-manager.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("runIdleSweep");
@@ -258,7 +258,7 @@ describe("Idle sweep logic", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/daemon/process-manager.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("IDLE_SWEEP_INTERVAL_MS = 60_000");
@@ -290,7 +290,7 @@ describe("Daemon PID lock", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/entrypoints/daemon.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("unerrd.pid");
@@ -304,7 +304,7 @@ describe("Daemon PID lock", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/entrypoints/daemon.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("cleanStaleSocket");
@@ -320,7 +320,7 @@ describe("Signal handling", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/entrypoints/daemon.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("SIGTERM");
@@ -333,7 +333,7 @@ describe("Signal handling", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     // Child process listens for SIGTERM
@@ -373,7 +373,7 @@ describe("UDS protocol", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/entrypoints/daemon.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     // Newline-delimited JSON framing
@@ -387,7 +387,7 @@ describe("UDS protocol", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/entrypoints/daemon.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     const commands = [
@@ -431,7 +431,7 @@ describe("Daemon CLI commands", () => {
     const { resolve: res } = await import("node:path");
     const content = readSync(
       res(process.cwd(), "src/commands/daemon.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain('.command("start")');

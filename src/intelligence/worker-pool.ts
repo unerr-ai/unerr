@@ -52,7 +52,7 @@ function resolveWorkerPath(): ResolvedWorker | null {
 }
 
 async function getPool(
-  options?: WorkerPoolOptions,
+  options?: WorkerPoolOptions
 ): Promise<InstanceType<typeof import("tinypool").default> | null> {
   if (poolFailed) return null;
   if (pool) return pool;
@@ -79,7 +79,7 @@ async function getPool(
   } catch (err) {
     log.warn(
       "Worker threads unavailable, falling back to sequential parsing",
-      err,
+      err
     );
     poolFailed = true;
     return null;
@@ -87,7 +87,7 @@ async function getPool(
 }
 
 function parseSequential(
-  files: Array<{ filePath: string; content: string }>,
+  files: Array<{ filePath: string; content: string }>
 ): ParseResult[] {
   return files.map(({ filePath, content }) => {
     const start = performance.now();
@@ -107,7 +107,7 @@ function parseSequential(
 
 export async function parseFiles(
   files: Array<{ filePath: string; content: string }>,
-  options?: WorkerPoolOptions,
+  options?: WorkerPoolOptions
 ): Promise<ParseResult[]> {
   if (files.length === 0) return [];
 
@@ -138,7 +138,7 @@ export async function parseFiles(
           durationMs: performance.now() - start,
         };
       }
-    }),
+    })
   );
 
   return results;

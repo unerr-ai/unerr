@@ -27,11 +27,11 @@ describe("CLI init command core logic", () => {
 
     fs.writeFileSync(
       path.join(unerrDir, "config.json"),
-      `${JSON.stringify(config, null, 2)}\n`,
+      `${JSON.stringify(config, null, 2)}\n`
     );
 
     const written = JSON.parse(
-      fs.readFileSync(path.join(unerrDir, "config.json"), "utf-8"),
+      fs.readFileSync(path.join(unerrDir, "config.json"), "utf-8")
     ) as { repoId: string; orgId: string; branch: string };
 
     expect(written.repoId).toBe("repo-123");
@@ -108,7 +108,7 @@ describe("CLI push command core logic", () => {
     };
     fs.writeFileSync(
       path.join(unerrDir, "config.json"),
-      JSON.stringify(config),
+      JSON.stringify(config)
     );
 
     const raw = fs.readFileSync(path.join(unerrDir, "config.json"), "utf-8");
@@ -125,7 +125,7 @@ describe("CLI push command core logic", () => {
     fs.mkdirSync(path.join(tmpDir, "node_modules", "pkg"), { recursive: true });
     fs.writeFileSync(
       path.join(tmpDir, "node_modules", "pkg", "index.js"),
-      "module.exports = {}",
+      "module.exports = {}"
     );
     fs.mkdirSync(path.join(tmpDir, ".git"), { recursive: true });
     fs.writeFileSync(path.join(tmpDir, ".git", "HEAD"), "ref: refs/heads/main");

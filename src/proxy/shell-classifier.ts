@@ -1165,7 +1165,7 @@ function scoreContent(lines: string[]): {
   {
     const yamlDocSep = /^---\s*$/m.test(sample);
     const yamlKeyLines = lines.filter(
-      (l) => /^\s*[\w][\w.-]*:\s/.test(l) && !/^\s*[\[{]/.test(l),
+      (l) => /^\s*[\w][\w.-]*:\s/.test(l) && !/^\s*[\[{]/.test(l)
     ).length;
     const hasArrayItems = /^\s*-\s+\S/m.test(sample);
     const noJsonBraces = !/^\s*[\[{]/.test(lines[0] ?? "");
@@ -1232,7 +1232,7 @@ function scoreContent(lines: string[]): {
   }
   if (
     /\b(Downloading|Installing|Building|packages?\s+\)|ETA|⠋|⠙|\[\s*\d+%\s*\])/.test(
-      sample,
+      sample
     )
   ) {
     bump("progress_streaming", 0.82);
@@ -1333,7 +1333,7 @@ function scoreContent(lines: string[]): {
   // Docker compose progress
   if (
     /^\[?\+?\]?\s*(Creating|Starting|Stopping|Removing|Running)\s+\S+\s*\.{3}/m.test(
-      sample,
+      sample
     )
   )
     bump("log_text", 0.78);
@@ -1344,7 +1344,7 @@ function scoreContent(lines: string[]): {
   // Security scanner output (npm audit, snyk, trivy)
   if (
     /\b(vulnerabilit|CVE-\d{4}|GHSA-|critical|moderate|high|low)\b/i.test(
-      sample,
+      sample
     ) &&
     /\d+ (vulnerabilit|issue|finding)/i.test(sample)
   )
@@ -1357,7 +1357,7 @@ function scoreContent(lines: string[]): {
   // Cloud deploy progress
   if (
     /\b(Deploying|Uploading|Provisioning|Creating stack|Updating stack)\b/i.test(
-      sample,
+      sample
     )
   )
     bump("progress_streaming", 0.76);
@@ -1386,7 +1386,7 @@ const PASSTHROUGH_COMMANDS = new Set([
  */
 export function classifyShellOutput(
   command: string,
-  strippedStdout: string,
+  strippedStdout: string
 ): ClassifyResult {
   const head = strippedStdout.split("\n").slice(0, 20);
 

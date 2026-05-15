@@ -65,7 +65,7 @@ describe("ur|rsk scope for reference-shaped results", () => {
         },
       },
       undefined,
-      "targetLow",
+      "targetLow"
     );
     // Second call (e.g. limit-paginated get_references): a different caller now
     // tops the list. Composite key (target:ref:callerHigh2) is fresh, so emit.
@@ -79,7 +79,7 @@ describe("ur|rsk scope for reference-shaped results", () => {
         },
       },
       undefined,
-      "targetLow",
+      "targetLow"
     );
     expect(first).toContain("ur|rsk");
     expect(first).toContain("fan_in=24");

@@ -27,8 +27,8 @@ function renderStartup(state: StartupState) {
     React.createElement(
       ThemeProvider,
       null,
-      React.createElement(StartupDisplay, { state }),
-    ),
+      React.createElement(StartupDisplay, { state })
+    )
   );
 }
 
@@ -314,7 +314,7 @@ describe("StartupRenderer", () => {
         highRiskEntities: [],
         score: 62,
       },
-      "repo_test",
+      "repo_test"
     );
 
     // Should have written first_boot_shown = true
@@ -322,7 +322,7 @@ describe("StartupRenderer", () => {
       tmpDir,
       ".unerr",
       "state",
-      "graph_version.json",
+      "graph_version.json"
     );
     const data = JSON.parse(fs.readFileSync(versionPath, "utf-8")) as {
       first_boot_shown?: boolean;
@@ -335,7 +335,7 @@ describe("StartupRenderer", () => {
       tmpDir,
       ".unerr",
       "state",
-      "graph_version.json",
+      "graph_version.json"
     );
     fs.writeFileSync(versionPath, JSON.stringify({ first_boot_shown: true }));
 
@@ -351,7 +351,7 @@ describe("StartupRenderer", () => {
         highRiskEntities: [],
         score: 95,
       },
-      "repo_test",
+      "repo_test"
     );
 
     // firstBoot should be false since flag was already set

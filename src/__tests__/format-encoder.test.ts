@@ -22,7 +22,7 @@ describe("detectShape", () => {
       detectShape([
         { a: 1, b: 2 },
         { b: 3, a: 4 },
-      ]),
+      ])
     ).toBe("uniform-array");
   });
 
@@ -42,13 +42,13 @@ describe("isUniformObjectArray", () => {
       isUniformObjectArray([
         { k: "a", n: 1 },
         { n: 2, k: "b" },
-      ]),
+      ])
     ).toBe(true);
   });
 
   it("returns false when keys differ", () => {
     expect(isUniformObjectArray([{ k: "a" }, { k: "b", extra: 1 }])).toBe(
-      false,
+      false
     );
   });
 });
@@ -73,7 +73,7 @@ describe("encodeColumnar", () => {
         { name: "x", v: 1 },
         { name: "y", v: 2 },
       ],
-      ["name", "v"],
+      ["name", "v"]
     );
     expect(text.startsWith("_fmt:columnar\nname|v\n")).toBe(true);
     expect(text).toContain("x|1");
@@ -124,7 +124,7 @@ describe("formatToolOutput FE-E (legends, tiers)", () => {
         { k: "b", z: 2 },
       ],
       meta,
-      { tier: "minified" },
+      { tier: "minified" }
     );
     expect(Array.isArray(out)).toBe(true);
     expect(meta.format).toBe("json");
@@ -169,7 +169,7 @@ describe("performance: columnar encode 500 rows", () => {
 });
 
 function minimalGraphWithCallers(
-  rows: Record<string, unknown>[],
+  rows: Record<string, unknown>[]
 ): CozoGraphStore {
   return {
     getEntity: vi.fn(),

@@ -16,7 +16,7 @@ let store: CozoTimelineStore;
 beforeEach(async () => {
   tempDir = join(
     tmpdir(),
-    `unerr-rt-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-rt-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(join(tempDir, ".unerr"), { recursive: true });
   store = await CozoTimelineStore.create(tempDir);
@@ -44,7 +44,9 @@ describe("Timeline routes", () => {
     const app = createTimelineRoutes({ store });
     const res = await app.request("/health");
     expect(res.status).toBe(200);
-    const body = (await jsonOf(res)) as { data: { ok: boolean; db_path: string } };
+    const body = (await jsonOf(res)) as {
+      data: { ok: boolean; db_path: string };
+    };
     expect(body.data.ok).toBe(true);
     expect(body.data.db_path).toBe(store.dbPath);
   });
@@ -84,7 +86,9 @@ describe("Timeline routes", () => {
 
   it("GET /loops uses the ledger getter for live detection", async () => {
     const t = (offsetSec: number) =>
-      new Date(Date.parse("2026-05-12T10:00:00Z") + offsetSec * 1000).toISOString();
+      new Date(
+        Date.parse("2026-05-12T10:00:00Z") + offsetSec * 1000
+      ).toISOString();
     let id = 0;
     const make = (tool: string, file: string, ts: string): LedgerEntry => {
       id += 1;
@@ -172,7 +176,7 @@ describe("Timeline routes", () => {
     expect(body.data.intent).toBe("harden auth flow");
     expect(body.data.session_id).toBe("sx");
     expect(body.data.open_threads.map((t) => t.text)).toContain(
-      "type error in verify",
+      "type error in verify"
     );
   });
 });

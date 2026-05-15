@@ -93,10 +93,10 @@ function compressColonFormat(lines: string[]): string {
     }
 
     const [, indent, key, value] = colonMatch;
-    const keyTrimmed = key!.trim();
+    const keyTrimmed = key?.trim();
 
     // Drop noisy k8s keys
-    if (DROP_COLON_KEYS.has(keyTrimmed)) {
+    if (keyTrimmed && DROP_COLON_KEYS.has(keyTrimmed)) {
       i++;
       // Skip indented child lines
       const childIndent = (indent?.length ?? 0) + 2;
@@ -149,7 +149,7 @@ export function compressKeyValue(raw: string, command?: string): string {
   // Detect format: KEY=VALUE vs Key: Value
   const equalsCount = lines.filter((l) => /^[A-Za-z_]\w*=/.test(l)).length;
   const colonCount = lines.filter((l) =>
-    /^\s{0,4}[A-Za-z][\w\s-]*:\s/.test(l),
+    /^\s{0,4}[A-Za-z][\w\s-]*:\s/.test(l)
   ).length;
 
   // Nothing to compress: input has no key=value or key:value rows. The

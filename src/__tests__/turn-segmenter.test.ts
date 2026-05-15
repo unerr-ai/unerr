@@ -157,7 +157,7 @@ describe("ShadowLedger ↔ TurnSegmenter integration", () => {
 
     const tempDir = join(
       tmpdir(),
-      `unerr-ts-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      `unerr-ts-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
     );
     const unerrDir = join(tempDir, ".unerr");
     mkdirSync(unerrDir, { recursive: true });
@@ -169,14 +169,14 @@ describe("ShadowLedger ↔ TurnSegmenter integration", () => {
         { query: "foo" },
         { count: 3 },
         "main",
-        "deadbeef",
+        "deadbeef"
       );
       const e2 = ledger.record(
         "file_read",
         { file_path: "src/a.ts" },
         { lines: 100 },
         "main",
-        "deadbeef",
+        "deadbeef"
       );
 
       expect(e1.turn_id).toMatch(/^[a-f0-9]{12}$/);
@@ -203,7 +203,7 @@ describe("ShadowLedger ↔ TurnSegmenter integration", () => {
 
     const tempDir = join(
       tmpdir(),
-      `unerr-ts-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      `unerr-ts-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
     );
     const unerrDir = join(tempDir, ".unerr");
     mkdirSync(unerrDir, { recursive: true });

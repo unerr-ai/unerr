@@ -45,7 +45,7 @@ function formatSize(bytes: number): string {
 /** Read new lines from a file starting at the given byte offset. */
 function readNewLines(
   filePath: string,
-  fromOffset: number,
+  fromOffset: number
 ): { lines: string[]; newOffset: number } {
   try {
     const stat = statSync(filePath);
@@ -82,7 +82,7 @@ function printCompressionEntry(entry: Record<string, unknown>): void {
   if (savedPct === 0) return; // skip no-op compressions on console
 
   startupLog.step(
-    `${startupLog.fmt.muted("[exec]")} ${startupLog.fmt.dim(`"${cmdSlug}"`)} ${startupLog.fmt.muted("→")} ${startupLog.fmt.cyan(strategy)} ${startupLog.fmt.muted(`(${formatSize(rawBytes)} → ${formatSize(compressedBytes)}, ${savedPct}% saved)`)}`,
+    `${startupLog.fmt.muted("[exec]")} ${startupLog.fmt.dim(`"${cmdSlug}"`)} ${startupLog.fmt.muted("→")} ${startupLog.fmt.cyan(strategy)} ${startupLog.fmt.muted(`(${formatSize(rawBytes)} → ${formatSize(compressedBytes)}, ${savedPct}% saved)`)}`
   );
 }
 
@@ -117,7 +117,7 @@ function printFileReadEntry(entry: Record<string, unknown>): void {
   const returnedLines = Number(entry.returnedLines ?? 0);
 
   startupLog.step(
-    `${startupLog.fmt.muted("[mcp]")} ${startupLog.fmt.dim(fileSlug)} ${startupLog.fmt.muted("→")} ${startupLog.fmt.cyan(mode)} ${startupLog.fmt.muted(`(${totalLines} → ${returnedLines} lines, ${savedPct}% saved)`)}`,
+    `${startupLog.fmt.muted("[mcp]")} ${startupLog.fmt.dim(fileSlug)} ${startupLog.fmt.muted("→")} ${startupLog.fmt.cyan(mode)} ${startupLog.fmt.muted(`(${totalLines} → ${returnedLines} lines, ${savedPct}% saved)`)}`
   );
 }
 
@@ -145,12 +145,12 @@ function printGeneralEntry(entry: Record<string, unknown>): void {
     case "done":
       startupLog.done(
         `${prefix} ${msg}`,
-        typeof entry.ms === "number" ? entry.ms : undefined,
+        typeof entry.ms === "number" ? entry.ms : undefined
       );
       break;
     case "metric":
       startupLog.step(
-        `${prefix} ${startupLog.fmt.cyan(msg)}: ${startupLog.fmt.bold(String(entry.value))} ${startupLog.fmt.muted(String(entry.unit ?? ""))}`,
+        `${prefix} ${startupLog.fmt.cyan(msg)}: ${startupLog.fmt.bold(String(entry.value))} ${startupLog.fmt.muted(String(entry.unit ?? ""))}`
       );
       break;
     default:
@@ -160,7 +160,7 @@ function printGeneralEntry(entry: Record<string, unknown>): void {
 
 function tailFile(
   state: TailState,
-  handler: (entry: Record<string, unknown>) => void,
+  handler: (entry: Record<string, unknown>) => void
 ): void {
   const { lines, newOffset } = readNewLines(state.path, state.offset);
   state.offset = newOffset;
@@ -191,7 +191,7 @@ export interface LogTailerOptions {
 // These keep the printers untouched while the storage backend swaps.
 
 function compressionRowToEntry(
-  r: CompressionEventRow,
+  r: CompressionEventRow
 ): Record<string, unknown> {
   return {
     ts: r.ts_iso,
@@ -245,7 +245,7 @@ function tokenFlowRowToEntry(r: TokenFlowEventRow): Record<string, unknown> {
  */
 export function startLogTailer(
   cwd: string,
-  options?: LogTailerOptions,
+  options?: LogTailerOptions
 ): LogTailerHandle {
   const unerrDir = join(cwd, ".unerr");
   const logsDir = join(unerrDir, "logs");
@@ -261,7 +261,7 @@ export function startLogTailer(
 
   function setupWatcher(
     state: TailState,
-    handler: (entry: Record<string, unknown>) => void,
+    handler: (entry: Record<string, unknown>) => void
   ): void {
     try {
       state.watcher = watch(state.path, () => {

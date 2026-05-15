@@ -27,7 +27,7 @@ async function createTestDb(): Promise<CozoDb> {
 }
 
 function makeSessionRecord(
-  overrides: Partial<SessionSummaryRecord> = {},
+  overrides: Partial<SessionSummaryRecord> = {}
 ): SessionSummaryRecord {
   return {
     session_id: `sess-${Math.random().toString(36).slice(2, 8)}`,
@@ -201,8 +201,8 @@ describe("fact-generator", () => {
         });
         writeFileSync(
           join(sessionsDir, `s${i}.jsonl`),
-          JSON.stringify(record) + "\n",
-          "utf-8",
+          `${JSON.stringify(record)}\n`,
+          "utf-8"
         );
       }
 
@@ -223,14 +223,14 @@ describe("fact-generator", () => {
         });
         writeFileSync(
           join(sessionsDir, `s${i}.jsonl`),
-          JSON.stringify(record) + "\n",
-          "utf-8",
+          `${JSON.stringify(record)}\n`,
+          "utf-8"
         );
       }
 
       const result = await generateFromSessionAnalysis(store, testDir);
       const fragileDetail = result.details.find((d) =>
-        d.includes("src/fragile.ts"),
+        d.includes("src/fragile.ts")
       );
       expect(fragileDetail).toBeDefined();
     });
@@ -242,8 +242,8 @@ describe("fact-generator", () => {
       const record = makeSessionRecord();
       writeFileSync(
         join(sessionsDir, "s1.jsonl"),
-        JSON.stringify(record) + "\n",
-        "utf-8",
+        `${JSON.stringify(record)}\n`,
+        "utf-8"
       );
 
       const result = await generateFromSessionAnalysis(store, testDir);

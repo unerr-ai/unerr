@@ -101,7 +101,7 @@ describe("Entity Key Generation (I.6)", () => {
       "src/auth.ts",
       "function",
       "helper",
-      "parent-scope",
+      "parent-scope"
     );
     expect(topLevel).not.toBe(nested);
   });
@@ -183,7 +183,7 @@ describe("TypeScript Entity Extraction (I.3)", () => {
     const result = typescriptPlugin.extract(tree, "fixture.ts", FIXTURE_TS);
     const methods = result.entities.filter(
       (e) =>
-        e.kind === "method" || e.kind === "constructor" || e.kind === "getter",
+        e.kind === "method" || e.kind === "constructor" || e.kind === "getter"
     );
     expect(methods.length).toBeGreaterThanOrEqual(2);
     const getUser = methods.find((e) => e.name === "getUser");
@@ -243,7 +243,7 @@ describe("TypeScript Edge Extraction (I.4)", () => {
     const result = typescriptPlugin.extract(tree, "fixture.ts", FIXTURE_TS);
     const classEntity = result.entities.find((e) => e.name === "UserService");
     const containsEdges = result.edges.filter(
-      (e) => e.type === "contains" && e.from_key === classEntity?.key,
+      (e) => e.type === "contains" && e.from_key === classEntity?.key
     );
     expect(containsEdges.length).toBeGreaterThanOrEqual(2);
   });

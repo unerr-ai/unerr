@@ -79,7 +79,7 @@ describe("session-summary-writer", () => {
       expect(row!.session_id).toBe("test-session-001");
       expect(row!.tool_calls).toBe(3);
       expect(JSON.parse(row!.files_modified)).toEqual(
-        expect.arrayContaining([]),
+        expect.arrayContaining([])
       );
     });
 

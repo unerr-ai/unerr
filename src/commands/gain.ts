@@ -63,7 +63,7 @@ function loadFlow(cwd: string): FlowEvent[] {
 
 /** Normalize a command to its leading-token fingerprint ("git diff" → "git diff"). */
 function commandKey(
-  detail: Record<string, unknown> | undefined,
+  detail: Record<string, unknown> | undefined
 ): string | null {
   const cmd = (detail?.command ?? detail?.cmd) as string | undefined;
   if (!cmd) return null;
@@ -109,7 +109,7 @@ function fmtNum(n: number): string {
 function table(
   rows: CommandRow[],
   title: string,
-  kind: "gain" | "discover",
+  kind: "gain" | "discover"
 ): string {
   const c = PALETTE;
   const out: string[] = [];
@@ -122,10 +122,10 @@ function table(
     return out.join("\n");
   }
   out.push(
-    `  ${c.dim}${"command".padEnd(28)} ${"invs".padStart(5)}  ${"raw".padStart(7)}  ${"saved".padStart(7)}  ${"ratio".padStart(6)}${c.reset}`,
+    `  ${c.dim}${"command".padEnd(28)} ${"invs".padStart(5)}  ${"raw".padStart(7)}  ${"saved".padStart(7)}  ${"ratio".padStart(6)}${c.reset}`
   );
   out.push(
-    `  ${c.dim}${"".padEnd(28, "─")} ${"────".padStart(5)}  ${"───".padStart(7)}  ${"─────".padStart(7)}  ${"─────".padStart(6)}${c.reset}`,
+    `  ${c.dim}${"".padEnd(28, "─")} ${"────".padStart(5)}  ${"───".padStart(7)}  ${"─────".padStart(7)}  ${"─────".padStart(6)}${c.reset}`
   );
   for (const r of rows) {
     const ratioColor =
@@ -143,7 +143,7 @@ function table(
     const cmd = r.command.slice(0, 28).padEnd(28);
     const ratioStr = `${(r.ratio * 100).toFixed(0)}%`.padStart(6);
     out.push(
-      `  ${cmd} ${String(r.invocations).padStart(5)}  ${fmtNum(r.rawTokens).padStart(7)}  ${fmtNum(r.savedTokens).padStart(7)}  ${ratioColor}${ratioStr}${c.reset}`,
+      `  ${cmd} ${String(r.invocations).padStart(5)}  ${fmtNum(r.rawTokens).padStart(7)}  ${fmtNum(r.savedTokens).padStart(7)}  ${ratioColor}${ratioStr}${c.reset}`
     );
   }
   out.push("");
@@ -154,7 +154,7 @@ export function registerGainCommand(program: Command): void {
   program
     .command("gain")
     .description(
-      "Show top commands by tokens saved through shell compression (this repo)",
+      "Show top commands by tokens saved through shell compression (this repo)"
     )
     .option("-n, --limit <n>", "Number of rows to show", "20")
     .action((opts: { limit: string }) => {
@@ -166,7 +166,7 @@ export function registerGainCommand(program: Command): void {
         .sort((a, b) => b.savedTokens - a.savedTokens)
         .slice(0, limit);
       process.stderr.write(
-        table(top, `unerr gain — top ${limit} by tokens saved`, "gain"),
+        table(top, `unerr gain — top ${limit} by tokens saved`, "gain")
       );
     });
 }
@@ -175,18 +175,18 @@ export function registerDiscoverCommand(program: Command): void {
   program
     .command("discover")
     .description(
-      "Surface commands that bypass effective compression — untapped savings",
+      "Surface commands that bypass effective compression — untapped savings"
     )
     .option("-n, --limit <n>", "Number of rows to show", "20")
     .option(
       "-t, --threshold <pct>",
       "Ratio floor (0..100) below which a command is flagged",
-      "30",
+      "30"
     )
     .option(
       "-m, --min-raw <bytes>",
       "Ignore commands with raw output below this",
-      "2000",
+      "2000"
     )
     .action((opts: { limit: string; threshold: string; minRaw: string }) => {
       const limit = Number.parseInt(opts.limit, 10) || 20;
@@ -199,7 +199,7 @@ export function registerDiscoverCommand(program: Command): void {
         .filter(
           (r) =>
             r.ratio < threshold &&
-            r.rawTokens / Math.max(1, r.invocations) >= minRaw,
+            r.rawTokens / Math.max(1, r.invocations) >= minRaw
         )
         .sort((a, b) => b.rawTokens - a.rawTokens)
         .slice(0, limit);
@@ -207,8 +207,8 @@ export function registerDiscoverCommand(program: Command): void {
         table(
           leaking,
           `unerr discover — ${leaking.length} commands below ${Math.round(threshold * 100)}% compression`,
-          "discover",
-        ),
+          "discover"
+        )
       );
     });
 }

@@ -61,14 +61,14 @@ function countParameters(node: SyntaxNode): number {
   const params = node.childForFieldName("parameters");
   if (!params) return 0;
   return params.namedChildren.filter(
-    (c) => c.type === "formal_parameter" || c.type === "spread_parameter",
+    (c) => c.type === "formal_parameter" || c.type === "spread_parameter"
   ).length;
 }
 
 function extractSignature(
   node: SyntaxNode,
   name: string,
-  kind: EntityKind,
+  kind: EntityKind
 ): string {
   if (kind === "class") return `class ${name}`;
   if (kind === "interface") return `interface ${name}`;
@@ -118,7 +118,7 @@ function addEntity(
     isAsync?: boolean;
     paramCount?: number;
     signature?: string;
-  } = {},
+  } = {}
 ): string {
   const scope = currentScope(ctx);
   const key = entityKey(ctx.filePath, kind, name, scope);
@@ -158,7 +158,7 @@ function addEntity(
 function extractSuperclass(
   node: SyntaxNode,
   entityKey: string,
-  ctx: ExtractorContext,
+  ctx: ExtractorContext
 ): void {
   const superclass = node.childForFieldName("superclass");
   if (superclass) {
@@ -178,7 +178,7 @@ function extractSuperclass(
 function extractInterfaces(
   node: SyntaxNode,
   entityKey: string,
-  ctx: ExtractorContext,
+  ctx: ExtractorContext
 ): void {
   const interfaces = node.childForFieldName("interfaces");
   if (interfaces) {
@@ -215,7 +215,7 @@ function extractInterfaces(
 function extractSuperInterfaces(
   node: SyntaxNode,
   entityKey: string,
-  ctx: ExtractorContext,
+  ctx: ExtractorContext
 ): void {
   for (const child of node.namedChildren) {
     if (child.type === "extends_interfaces" || child.type === "type_list") {
@@ -355,7 +355,7 @@ function extractImports(tree: Tree, filePath: string): ImportInfo[] {
       const isStaticImport = node.children.some((c) => textOf(c) === "static");
 
       const scopedId = node.namedChildren.find(
-        (c) => c.type === "scoped_identifier" || c.type === "identifier",
+        (c) => c.type === "scoped_identifier" || c.type === "identifier"
       );
       if (!scopedId) return;
 

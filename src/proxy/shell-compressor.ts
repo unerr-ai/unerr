@@ -105,7 +105,7 @@ function applyStrategy(
   category: ClassifyResult["category"],
   stripped: string,
   command: string,
-  options?: CompressShellOptions,
+  options?: CompressShellOptions
 ): string {
   switch (category) {
     case "tabular":
@@ -136,7 +136,7 @@ function applyStrategy(
 export async function compressShellOutput(
   command: string,
   stdout: string,
-  options?: CompressShellOptions,
+  options?: CompressShellOptions
 ): Promise<ShellCompressResult> {
   const cwd = options?.cwd ?? process.cwd();
   const persist = options?.persistStats !== false;
@@ -157,7 +157,7 @@ export async function compressShellOutput(
       options.qualityMonitor.recordCompression(
         `shell-binary-${Date.now()}`,
         shellCategoryToContentType("structured"),
-        1,
+        1
       );
     }
     return {
@@ -210,7 +210,7 @@ export async function compressShellOutput(
             .slice(0, 10)
             .map(
               (h) =>
-                `${h.file} — risk:${h.risk_level} fan_in=${h.fan_in} top=${h.topEntity}`,
+                `${h.file} — risk:${h.risk_level} fan_in=${h.fan_in} top=${h.topEntity}`
             )
             .join("\n")}\n`;
           gitStatusOut = `${header}${gitStatusOut}`;
@@ -233,8 +233,8 @@ export async function compressShellOutput(
           Math.round(
             ((stripped.length - gitStatusOut.length) /
               Math.max(1, stripped.length)) *
-              100,
-          ),
+              100
+          )
         ),
         omniFallback: false,
       });
@@ -243,7 +243,7 @@ export async function compressShellOutput(
           cwd,
           classification.category,
           stdout,
-          gitStatusOut,
+          gitStatusOut
         );
       recordShellTokenFlow(
         cwd,
@@ -251,7 +251,7 @@ export async function compressShellOutput(
         classification.category,
         stripped,
         gitStatusOut,
-        "git_status",
+        "git_status"
       );
       return { text: gitStatusOut, classification };
     }
@@ -276,8 +276,8 @@ export async function compressShellOutput(
         0,
         Math.round(
           ((stripped.length - cloudOut.length) / Math.max(1, stripped.length)) *
-            100,
-        ),
+            100
+        )
       ),
       omniFallback: false,
     });
@@ -286,7 +286,7 @@ export async function compressShellOutput(
         cwd,
         classification.category,
         stdout,
-        cloudOut,
+        cloudOut
       );
     recordShellTokenFlow(
       cwd,
@@ -294,7 +294,7 @@ export async function compressShellOutput(
       classification.category,
       stripped,
       cloudOut,
-      "cloud",
+      "cloud"
     );
     return { text: cloudOut, classification };
   }
@@ -319,9 +319,8 @@ export async function compressShellOutput(
       savedPct: Math.max(
         0,
         Math.round(
-          ((stripped.length - text.length) / Math.max(1, stripped.length)) *
-            100,
-        ),
+          ((stripped.length - text.length) / Math.max(1, stripped.length)) * 100
+        )
       ),
       omniFallback: false,
     });
@@ -333,7 +332,7 @@ export async function compressShellOutput(
       classification.category,
       stripped,
       text,
-      "user_filter",
+      "user_filter"
     );
     return { text, classification };
   }
@@ -343,7 +342,7 @@ export async function compressShellOutput(
   let graph = options?.graph ?? null;
   const wantsFileBoost = categoryWantsFileRiskBoost(
     classification.category,
-    command,
+    command
   );
   if (
     !graph &&
@@ -369,7 +368,7 @@ export async function compressShellOutput(
           .slice(0, 10)
           .map(
             (h) =>
-              `${h.file} — risk:${h.risk_level} fan_in=${h.fan_in} top=${h.topEntity}`,
+              `${h.file} — risk:${h.risk_level} fan_in=${h.fan_in} top=${h.topEntity}`
           )
           .join("\n")}\n`
       : "";
@@ -383,7 +382,7 @@ export async function compressShellOutput(
         classification.category,
         stripped,
         command,
-        options,
+        options
       );
     } catch {
       // Strategy failed — fall back to omni
@@ -424,7 +423,7 @@ export async function compressShellOutput(
       options.qualityMonitor.recordCompression(
         `shell-omni-${Date.now()}`,
         shellCategoryToContentType(classification.category),
-        after / Math.max(1, before),
+        after / Math.max(1, before)
       );
     }
 
@@ -434,7 +433,7 @@ export async function compressShellOutput(
       classification.category,
       stripped,
       text,
-      usedOmni ? "omni" : classification.category,
+      usedOmni ? "omni" : classification.category
     );
     return { text, classification };
   }
@@ -507,7 +506,7 @@ export async function compressShellOutput(
     options.qualityMonitor.recordCompression(
       `shell-${classification.category}-${Date.now()}`,
       shellCategoryToContentType(classification.category),
-      after / Math.max(1, before),
+      after / Math.max(1, before)
     );
   }
 
@@ -517,7 +516,7 @@ export async function compressShellOutput(
     classification.category,
     stripped,
     text,
-    classification.category,
+    classification.category
   );
   return { text, classification };
 }
@@ -533,7 +532,7 @@ function recordShellTokenFlow(
   category: string,
   raw: string,
   compressed: string,
-  strategy: string,
+  strategy: string
 ): void {
   const rawTokens = Math.ceil(raw.length / 4);
   const compressedTokens = Math.ceil(compressed.length / 4);
@@ -549,7 +548,7 @@ function recordShellTokenFlow(
       try {
         sessionId = readFileSync(
           `${unerrDir}/state/session.id`,
-          "utf-8",
+          "utf-8"
         ).trim();
       } catch {
         sessionId = "unknown";

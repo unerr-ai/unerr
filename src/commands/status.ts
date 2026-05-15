@@ -35,7 +35,7 @@ function buildSuggestions(data: {
 
   if (data.byoLlmStatus === "not_configured") {
     suggestions.push(
-      "Configure BYO-LLM for semantic search: edit ~/.unerr/settings.json",
+      "Configure BYO-LLM for semantic search: edit ~/.unerr/settings.json"
     );
   }
   if (data.byoLlmStatus === "unreachable") {
@@ -49,14 +49,14 @@ function buildSuggestions(data: {
   }
   if (data.byoLlmStatus === "connected") {
     suggestions.push(
-      "Run 'unerr enrich' to generate business context with your LLM",
+      "Run 'unerr enrich' to generate business context with your LLM"
     );
   }
   suggestions.push("Run 'unerr chat' to talk to your codebase interactively");
 
   if (data.skillCount === 0 || data.skillCount == null) {
     suggestions.push(
-      "No skills installed. Run 'unerr' to install agent skills.",
+      "No skills installed. Run 'unerr' to install agent skills."
     );
   }
 
@@ -79,7 +79,7 @@ export function registerStatusCommand(program: Command): void {
       if (!(await isGitRepo(cwd))) {
         process.stderr.write(
           "[unerr] Error: not inside a git repository.\n" +
-            "  Run unerr from a project directory that has been initialized with git.\n",
+            "  Run unerr from a project directory that has been initialized with git.\n"
         );
         process.exit(1);
       }
@@ -132,7 +132,7 @@ export function registerStatusCommand(program: Command): void {
       if (remote) {
         const sshMatch = remote.match(/git@[^:]+:(.+?)(?:\.git)?$/);
         const httpMatch = remote.match(
-          /(?:https?:\/\/)?(?:www\.)?[^/]+\/(.+?)(?:\.git)?$/,
+          /(?:https?:\/\/)?(?:www\.)?[^/]+\/(.+?)(?:\.git)?$/
         );
         repoFullName = sshMatch?.[1] ?? httpMatch?.[1] ?? repoId;
       }
@@ -161,7 +161,7 @@ export function registerStatusCommand(program: Command): void {
       if (repoId && existsSync(join(manifestsDir, `${repoId}.json`))) {
         try {
           const manifest = JSON.parse(
-            readFileSync(join(manifestsDir, `${repoId}.json`), "utf-8"),
+            readFileSync(join(manifestsDir, `${repoId}.json`), "utf-8")
           ) as {
             entityCount?: number;
             edgeCount?: number;
@@ -194,7 +194,7 @@ export function registerStatusCommand(program: Command): void {
       if (existsSync(driftSummaryPath)) {
         try {
           const summary = JSON.parse(
-            readFileSync(driftSummaryPath, "utf-8"),
+            readFileSync(driftSummaryPath, "utf-8")
           ) as {
             added?: number;
             modified?: number;
@@ -251,10 +251,8 @@ export function registerStatusCommand(program: Command): void {
             } catch {
               buffer = raw;
             }
-            // biome-ignore lint/suspicious/noExplicitAny: dynamic CozoDB constructor
             const db = new (CozoDbConstructor as any)();
             const graph = await CozoGraphStore.create(db);
-            // biome-ignore lint/suspicious/noExplicitAny: msgpack unpack returns unknown shape
             const envelope = unpack(buffer) as any;
             await graph.loadSnapshot(envelope);
             ruleHealth = await graph.getRuleHealthSummary();
@@ -311,7 +309,7 @@ export function registerStatusCommand(program: Command): void {
         const firewallStatsPath = join(
           unerrDir,
           "state",
-          "firewall_stats.json",
+          "firewall_stats.json"
         );
         if (existsSync(firewallStatsPath)) {
           const fs = JSON.parse(readFileSync(firewallStatsPath, "utf-8")) as {
@@ -555,7 +553,7 @@ export function registerStatusCommand(program: Command): void {
                 ? new Date(raw.sessionStartedAt)
                 : endTime;
               const durationMin = Math.round(
-                (endTime.getTime() - startTime.getTime()) / 60_000,
+                (endTime.getTime() - startTime.getTime()) / 60_000
               );
               const ageMs = Date.now() - endTime.getTime();
               const ageHours = Math.floor(ageMs / 3_600_000);
@@ -660,7 +658,7 @@ export function registerStatusCommand(program: Command): void {
           await import("../tracking/token-flow.js");
         const events = readTokenFlowEvents(unerrDir);
         if (events.length > 0) {
-          const latestSessionId = events[events.length - 1]!.session_id;
+          const latestSessionId = events[events.length - 1]?.session_id ?? "";
           const summary = aggSession(events, latestSessionId);
           if (summary.total_tokens_saved > 0) {
             tokenFlowData = {
@@ -715,7 +713,7 @@ export function registerStatusCommand(program: Command): void {
         const el = React.createElement(
           ThemeProvider,
           null,
-          React.createElement(StatusDashboard, { data: statusData }),
+          React.createElement(StatusDashboard, { data: statusData })
         );
         const inst = renderToStderr(el);
         inst.unmount();

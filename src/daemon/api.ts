@@ -98,13 +98,13 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
           repo.path,
           ".unerr",
           "state",
-          "server.json",
+          "server.json"
         );
         if (!existsSync(serverJsonPath)) return null;
 
         try {
           const serverInfo = JSON.parse(
-            readFileSync(serverJsonPath, "utf-8"),
+            readFileSync(serverJsonPath, "utf-8")
           ) as {
             port: number;
           };
@@ -125,7 +125,7 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
         } catch {
           return null;
         }
-      }),
+      })
     );
 
     for (const result of perRepoStats) {
@@ -252,7 +252,7 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
           error: `Repo ${label} is not running`,
           status: managed?.status ?? "stopped",
         },
-        503,
+        503
       );
     }
 
@@ -281,7 +281,7 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
       const proxyResponse = await proxyToRepoHttp(
         repoPort,
         targetPath,
-        c.req.method,
+        c.req.method
       );
       return c.json(proxyResponse);
     } catch (err) {
@@ -327,7 +327,7 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
     });
   } catch {
     process.stderr.write(
-      `[unerrd] Port ${DAEMON_PORT} occupied, skipping dashboard.\n`,
+      `[unerrd] Port ${DAEMON_PORT} occupied, skipping dashboard.\n`
     );
     return null;
   }
@@ -363,7 +363,7 @@ function fetchRepoApi(port: number, path: string): Promise<unknown> {
             resolve(body);
           }
         });
-      },
+      }
     );
     req.on("error", reject);
     req.on("timeout", () => {
@@ -377,7 +377,7 @@ function fetchRepoApi(port: number, path: string): Promise<unknown> {
 function proxyToRepoHttp(
   port: number,
   path: string,
-  method: string,
+  method: string
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const req = httpRequest(
@@ -394,7 +394,7 @@ function proxyToRepoHttp(
             resolve(body);
           }
         });
-      },
+      }
     );
     req.on("error", reject);
     req.on("timeout", () => {

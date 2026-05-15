@@ -26,6 +26,7 @@ import {
   errorMiddleware,
   timingMiddleware,
 } from "./middleware.js";
+import { createDriftRoutes } from "./routes/drift.js";
 import {
   type IntelligenceRouteDeps,
   createIntelligenceRoutes,
@@ -40,7 +41,6 @@ import {
 } from "./routes/session.js";
 import { type StreamRouteDeps, createStreamRoutes } from "./routes/stream.js";
 import { type SystemRouteDeps, createSystemRoutes } from "./routes/system.js";
-import { createDriftRoutes } from "./routes/drift.js";
 import {
   type TemporalRouteDeps,
   createTemporalRoutes,
@@ -111,12 +111,12 @@ async function findAvailablePort(): Promise<number> {
  * Non-blocking: returns null if no port available (dashboard is non-critical).
  */
 export async function startDashboardServer(
-  opts: DashboardServerOptions,
+  opts: DashboardServerOptions
 ): Promise<DashboardServerHandle | null> {
   const port = await findAvailablePort();
   if (port === 0) {
     process.stderr.write(
-      "[dashboard] All ports 7655-7660 occupied, skipping dashboard server.\n",
+      "[dashboard] All ports 7655-7660 occupied, skipping dashboard server.\n"
     );
     return null;
   }
@@ -150,7 +150,7 @@ export async function startDashboardServer(
   if (opts.reasoningQuality) {
     app.route(
       "/api/reasoning-quality",
-      createReasoningQualityRoutes(opts.reasoningQuality),
+      createReasoningQualityRoutes(opts.reasoningQuality)
     );
   }
 

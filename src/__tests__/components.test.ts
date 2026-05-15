@@ -57,7 +57,7 @@ describe("Banner", () => {
 describe("Section", () => {
   it("renders title with line decoration", () => {
     const { lastFrame } = render(
-      React.createElement(Section, { title: "First Look" }),
+      React.createElement(Section, { title: "First Look" })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("──");
@@ -66,7 +66,7 @@ describe("Section", () => {
 
   it("renders with custom width", () => {
     const { lastFrame } = render(
-      React.createElement(Section, { title: "Test", width: 30 }),
+      React.createElement(Section, { title: "Test", width: 30 })
     );
     expect(lastFrame()).toContain("──");
     expect(lastFrame()).toContain("Test");
@@ -81,7 +81,7 @@ describe("KeyValue", () => {
       React.createElement(KeyValue, {
         label: "Repository",
         value: "acme/widgets",
-      }),
+      })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Repository");
@@ -94,7 +94,7 @@ describe("KeyValue", () => {
         label: "Key",
         value: "val",
         labelWidth: 10,
-      }),
+      })
     );
     // Label "Key" padded to 10 chars
     expect(lastFrame()).toContain("Key");
@@ -107,7 +107,7 @@ describe("KeyValue", () => {
 describe("ProgressBar", () => {
   it("renders empty bar for value 0", () => {
     const { lastFrame } = render(
-      React.createElement(ProgressBar, { value: 0, width: 10 }),
+      React.createElement(ProgressBar, { value: 0, width: 10 })
     );
     const frame = lastFrame() ?? "";
     // Should be all spaces (empty bar)
@@ -116,7 +116,7 @@ describe("ProgressBar", () => {
 
   it("renders full bar for value 1", () => {
     const { lastFrame } = render(
-      React.createElement(ProgressBar, { value: 1, width: 10 }),
+      React.createElement(ProgressBar, { value: 1, width: 10 })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("██████████");
@@ -124,7 +124,7 @@ describe("ProgressBar", () => {
 
   it("renders partial fill for value 0.5", () => {
     const { lastFrame } = render(
-      React.createElement(ProgressBar, { value: 0.5, width: 10 }),
+      React.createElement(ProgressBar, { value: 0.5, width: 10 })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("█████");
@@ -136,7 +136,7 @@ describe("ProgressBar", () => {
         value: 0.62,
         width: 10,
         showLabel: true,
-      }),
+      })
     );
     expect(lastFrame()).toContain("62%");
   });
@@ -147,7 +147,7 @@ describe("ProgressBar", () => {
         value: 1.5,
         width: 5,
         showLabel: true,
-      }),
+      })
     );
     expect(lastFrame()).toContain("100%");
   });
@@ -158,7 +158,7 @@ describe("ProgressBar", () => {
         value: -0.5,
         width: 5,
         showLabel: true,
-      }),
+      })
     );
     expect(lastFrame()).toContain("0%");
   });
@@ -175,14 +175,14 @@ describe("ProgressBar", () => {
 describe("GradeBadge", () => {
   it("renders grade letter", () => {
     const { lastFrame } = render(
-      React.createElement(GradeBadge, { grade: "A" }),
+      React.createElement(GradeBadge, { grade: "A" })
     );
     expect(lastFrame()).toContain("A");
   });
 
   it("renders grade with score when provided", () => {
     const { lastFrame } = render(
-      React.createElement(GradeBadge, { grade: "C+", score: 62 }),
+      React.createElement(GradeBadge, { grade: "C+", score: 62 })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("C+");
@@ -191,7 +191,7 @@ describe("GradeBadge", () => {
 
   it("renders without score when not provided", () => {
     const { lastFrame } = render(
-      React.createElement(GradeBadge, { grade: "B+" }),
+      React.createElement(GradeBadge, { grade: "B+" })
     );
     expect(lastFrame()).toContain("B+");
     expect(lastFrame()).not.toContain("/100");
@@ -207,7 +207,7 @@ describe("StepLine", () => {
         label: "Authenticated",
         value: "Org",
         status: "done",
-      }),
+      })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("✓");
@@ -220,7 +220,7 @@ describe("StepLine", () => {
       React.createElement(StepLine, {
         label: "Loading",
         status: "active",
-      }),
+      })
     );
     expect(lastFrame()).toContain("●");
     expect(lastFrame()).toContain("Loading");
@@ -231,7 +231,7 @@ describe("StepLine", () => {
       React.createElement(StepLine, {
         label: "Failed",
         status: "error",
-      }),
+      })
     );
     expect(lastFrame()).toContain("✗");
   });
@@ -241,7 +241,7 @@ describe("StepLine", () => {
       React.createElement(StepLine, {
         label: "Waiting",
         status: "pending",
-      }),
+      })
     );
     expect(lastFrame()).toContain("○");
   });
@@ -270,7 +270,7 @@ describe("HealthCard", () => {
 
   it("renders grade and score in full mode", () => {
     const { lastFrame } = render(
-      React.createElement(HealthCard, { health: baseHealth }),
+      React.createElement(HealthCard, { health: baseHealth })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("C+");
@@ -279,14 +279,14 @@ describe("HealthCard", () => {
 
   it("renders dead function warning", () => {
     const { lastFrame } = render(
-      React.createElement(HealthCard, { health: baseHealth }),
+      React.createElement(HealthCard, { health: baseHealth })
     );
     expect(lastFrame()).toContain("23 dead functions");
   });
 
   it("renders chokepoint warning with fan counts", () => {
     const { lastFrame } = render(
-      React.createElement(HealthCard, { health: baseHealth }),
+      React.createElement(HealthCard, { health: baseHealth })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("processPayment");
@@ -297,7 +297,7 @@ describe("HealthCard", () => {
 
   it("renders compact mode with entity/edge counts", () => {
     const { lastFrame } = render(
-      React.createElement(HealthCard, { health: baseHealth, compact: true }),
+      React.createElement(HealthCard, { health: baseHealth, compact: true })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("C+");
@@ -308,7 +308,7 @@ describe("HealthCard", () => {
   it("omits dead function line when count is 0", () => {
     const healthy = { ...baseHealth, deadFunctionCount: 0 };
     const { lastFrame } = render(
-      React.createElement(HealthCard, { health: healthy }),
+      React.createElement(HealthCard, { health: healthy })
     );
     expect(lastFrame()).not.toContain("dead function");
   });
@@ -321,7 +321,7 @@ describe("DriftSummary", () => {
     const { lastFrame } = render(
       React.createElement(DriftSummary, {
         drift: { modified: 0, added: 0, deleted: 0 },
-      }),
+      })
     );
     expect(lastFrame()).toContain("No drift detected");
   });
@@ -330,7 +330,7 @@ describe("DriftSummary", () => {
     const { lastFrame } = render(
       React.createElement(DriftSummary, {
         drift: { modified: 5, added: 0, deleted: 0 },
-      }),
+      })
     );
     expect(lastFrame()).toContain("5 modified");
   });
@@ -339,7 +339,7 @@ describe("DriftSummary", () => {
     const { lastFrame } = render(
       React.createElement(DriftSummary, {
         drift: { modified: 3, added: 2, deleted: 1 },
-      }),
+      })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("6 drifted entities");
@@ -352,7 +352,7 @@ describe("DriftSummary", () => {
     const { lastFrame } = render(
       React.createElement(DriftSummary, {
         drift: { modified: 1, added: 0, deleted: 0 },
-      }),
+      })
     );
     expect(lastFrame()).toContain("1 drifted entity");
   });
@@ -363,7 +363,7 @@ describe("DriftSummary", () => {
 describe("ViolationList", () => {
   it("renders no-violations message when empty", () => {
     const { lastFrame } = render(
-      React.createElement(ViolationList, { violations: [] }),
+      React.createElement(ViolationList, { violations: [] })
     );
     expect(lastFrame()).toContain("No violations");
   });
@@ -374,7 +374,7 @@ describe("ViolationList", () => {
         violations: [
           { message: "Missing return type", severity: "error" as const },
         ],
-      }),
+      })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("✗");
@@ -387,7 +387,7 @@ describe("ViolationList", () => {
         violations: [
           { message: "Unused import", severity: "warning" as const },
         ],
-      }),
+      })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("⚠");
@@ -404,7 +404,7 @@ describe("ViolationList", () => {
             file: "src/foo.ts",
           },
         ],
-      }),
+      })
     );
     expect(lastFrame()).toContain("src/foo.ts");
   });
@@ -419,7 +419,7 @@ describe("ViolationList", () => {
             suggestion: "Remove or prefix with _",
           },
         ],
-      }),
+      })
     );
     expect(lastFrame()).toContain("Remove or prefix with _");
   });
@@ -432,7 +432,7 @@ describe("ViolationList", () => {
           { message: "Issue 2", severity: "warning" as const },
         ],
         title: "Violations",
-      }),
+      })
     );
     expect(lastFrame()).toContain("2 violations");
   });
@@ -445,7 +445,7 @@ describe("SessionSummaryCard", () => {
     const stats = createSessionStats();
     stats.toolCallsLocal = 15;
     const { lastFrame } = render(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("15 (all local)");
@@ -455,7 +455,7 @@ describe("SessionSummaryCard", () => {
     const stats = createSessionStats();
     stats.toolCallsLocal = 16;
     const { lastFrame } = render(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     expect(lastFrame()).toContain("100%");
     expect(lastFrame()).toContain("Local rate");
@@ -465,7 +465,7 @@ describe("SessionSummaryCard", () => {
     const stats = createSessionStats();
     stats.toolCallsLocal = 20;
     const { lastFrame } = render(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     expect(lastFrame()).toContain("unerr session");
   });
@@ -476,7 +476,7 @@ describe("SessionSummaryCard", () => {
     stats.events.conventionViolationsCaught = 3;
     stats.events.chokepointWarningsIssued = 2;
     const { lastFrame } = render(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Caught:");
@@ -488,7 +488,7 @@ describe("SessionSummaryCard", () => {
     const stats = createSessionStats();
     stats.toolCallsLocal = 5;
     const { lastFrame } = render(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("5 tool calls");
@@ -499,7 +499,7 @@ describe("SessionSummaryCard", () => {
   it("renders nothing when zero tool calls", () => {
     const stats = createSessionStats();
     const { lastFrame } = render(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     expect(lastFrame()).toBe("");
   });
@@ -511,7 +511,7 @@ describe("SessionSummaryCard", () => {
       React.createElement(SessionSummaryCard, {
         stats,
         deepLink: "https://app.unerr.dev/r/repo_123?utm_source=cli_session",
-      }),
+      })
     );
     expect(lastFrame()).toContain("https://app.unerr.dev/r/repo_123");
   });
@@ -528,7 +528,7 @@ describe("SessionSummaryCard", () => {
       chokepointWarningsAllTime: 3,
     };
     const { lastFrame } = render(
-      React.createElement(SessionSummaryCard, { stats, cumulative }),
+      React.createElement(SessionSummaryCard, { stats, cumulative })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("This week:");
@@ -540,7 +540,7 @@ describe("SessionSummaryCard", () => {
     const stats = createSessionStats();
     stats.toolCallsLocal = 20;
     const { lastFrame } = render(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     expect(lastFrame()).not.toContain("Caught:");
   });
@@ -550,7 +550,7 @@ describe("SessionSummaryCard", () => {
     stats.toolCallsLocal = 20;
     stats.estimatedTokensSaved = 64000;
     const { lastFrame } = render(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     expect(lastFrame()).toContain("64.0k tokens");
   });
@@ -561,14 +561,14 @@ describe("SessionSummaryCard", () => {
 describe("InkSpinner", () => {
   it("renders label text", () => {
     const { lastFrame } = render(
-      React.createElement(InkSpinner, { label: "Loading graph..." }),
+      React.createElement(InkSpinner, { label: "Loading graph..." })
     );
     expect(lastFrame()).toContain("Loading graph...");
   });
 
   it("renders a spinner frame character", () => {
     const { lastFrame } = render(
-      React.createElement(InkSpinner, { label: "test" }),
+      React.createElement(InkSpinner, { label: "test" })
     );
     const frame = lastFrame() ?? "";
     // Should contain one of the braille spinner chars
@@ -585,7 +585,7 @@ describe("ConfirmPrompt", () => {
         message: "Delete this?",
         onConfirm: () => {},
         defaultYes: true,
-      }),
+      })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Delete this?");
@@ -598,7 +598,7 @@ describe("ConfirmPrompt", () => {
         message: "Proceed?",
         onConfirm: () => {},
         defaultYes: false,
-      }),
+      })
     );
     expect(lastFrame()).toContain("[y/N]");
   });

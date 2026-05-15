@@ -80,7 +80,7 @@ export function extractChains(entries: LedgerEntry[]): LedgerChain[] {
     if (chainEntries.length === 0) continue;
 
     const sorted = chainEntries.sort(
-      (a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime(),
+      (a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime()
     );
     const first = sorted[0]!;
     const last = sorted[sorted.length - 1]!;
@@ -107,7 +107,7 @@ export function extractChains(entries: LedgerEntry[]): LedgerChain[] {
 
   return chains.sort(
     (a, b) =>
-      new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
+      new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
   );
 }
 
@@ -119,14 +119,14 @@ export function extractChains(entries: LedgerEntry[]): LedgerChain[] {
 export function getEntityHistory(
   entries: LedgerEntry[],
   entityKey: string,
-  limit = 20,
+  limit = 20
 ): LedgerChain[] {
   const chains = extractChains(entries);
   return chains
     .filter((chain) =>
       chain.entities_touched.some(
-        (e) => e === entityKey || e.startsWith(entityKey),
-      ),
+        (e) => e === entityKey || e.startsWith(entityKey)
+      )
     )
     .slice(0, limit);
 }
@@ -140,7 +140,7 @@ export function getEntityHistory(
  */
 export function getRevertPatterns(
   entries: LedgerEntry[],
-  minFrequency = 2,
+  minFrequency = 2
 ): PatternSummary[] {
   const chains = extractChains(entries);
   const sequenceMap = new Map<
@@ -202,7 +202,7 @@ export function getRevertPatterns(
  */
 export function getSessionTimeline(
   entries: LedgerEntry[],
-  count = 5,
+  count = 5
 ): SessionSummary[] {
   const sessionMap = new Map<string, LedgerEntry[]>();
 
@@ -221,7 +221,7 @@ export function getSessionTimeline(
     if (sessionEntries.length === 0) continue;
 
     const sorted = sessionEntries.sort(
-      (a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime(),
+      (a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime()
     );
     const first = sorted[0]!;
     const last = sorted[sorted.length - 1]!;
@@ -271,7 +271,7 @@ export function getSessionTimeline(
   return summaries
     .sort(
       (a, b) =>
-        new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
+        new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
     )
     .slice(0, count);
 }
@@ -324,8 +324,8 @@ function inferFeatureArea(entries: LedgerEntry[]): string | null {
     .filter((p): p is string => p !== null);
   if (paths.length === 0) return null;
 
-  const segments = paths[0]!.split("/");
-  if (segments.length >= 2) {
+  const segments = paths[0]?.split("/");
+  if (segments && segments.length >= 2) {
     return segments.slice(0, 2).join("/");
   }
   return null;
@@ -335,17 +335,17 @@ function classifyChainOutcome(entries: LedgerEntry[]): ChainOutcome {
   const hasRevert = entries.some(
     (e) =>
       e.tool === "unerr_revert_to_working_state" ||
-      e.result_summary?.reverted === true,
+      e.result_summary?.reverted === true
   );
   if (hasRevert) return "reverted";
 
   const hasModify = entries.some(
-    (e) => e.tool === "sync_local_diff" || e.result_summary?.modified === true,
+    (e) => e.tool === "sync_local_diff" || e.result_summary?.modified === true
   );
   if (hasModify) return "modified";
 
   const hasCommit = entries.some(
-    (e) => e.commit_sha != null && e.commit_sha.length > 0,
+    (e) => e.commit_sha != null && e.commit_sha.length > 0
   );
   if (hasCommit) return "survived";
 

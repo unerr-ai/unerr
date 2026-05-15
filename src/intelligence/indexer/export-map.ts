@@ -37,7 +37,7 @@ export interface ExportMap {
   resolveSymbol: (
     importSource: string,
     symbolName: string,
-    importerPath: string,
+    importerPath: string
   ) => ExportEntry | null;
 }
 
@@ -47,7 +47,7 @@ export interface ExportMap {
  */
 function resolveImportPath(
   importSource: string,
-  importerFilePath: string,
+  importerFilePath: string
 ): string | null {
   if (!importSource.startsWith(".")) return null;
 
@@ -70,10 +70,7 @@ function stripExtension(filePath: string): string {
  * Build the export map from per-file extraction results.
  */
 export function buildExportMap(
-  fileResults: Map<
-    string,
-    { entities: IndexedEntity[]; imports: ImportInfo[] }
-  >,
+  fileResults: Map<string, { entities: IndexedEntity[]; imports: ImportInfo[] }>
 ): ExportMap {
   const exports = new Map<string, ExportEntry[]>();
   const reExports = new Map<string, ReExportEntry[]>();
@@ -97,7 +94,7 @@ export function buildExportMap(
     for (const imp of result.imports) {
       if (imp.source.startsWith(".") && imp.symbols.length > 0) {
         const isReExport = result.entities.some(
-          (e) => imp.symbols.includes(e.name) && e.exported,
+          (e) => imp.symbols.includes(e.name) && e.exported
         );
         if (!isReExport) {
           fileReExports.push({
@@ -139,7 +136,7 @@ export function buildExportMap(
   function resolveSymbol(
     importSource: string,
     symbolName: string,
-    importerPath: string,
+    importerPath: string
   ): ExportEntry | null {
     const resolvedPath = resolveImportPath(importSource, importerPath);
     if (!resolvedPath) return null;

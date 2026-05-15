@@ -114,7 +114,7 @@ export interface AddConflict {
 export function addRepo(
   rawPath: string,
   settings: Partial<RepoSettings> = {},
-  opts: { skipParentCheck?: boolean; skipChildCheck?: boolean } = {},
+  opts: { skipParentCheck?: boolean; skipChildCheck?: boolean } = {}
 ): AddResult | AddConflict {
   const absPath = resolve(rawPath);
   const reg = readRegistry();
@@ -209,7 +209,7 @@ export function listRepos(): RepoEntry[] {
  */
 export function updateRepoSettings(
   rawPath: string,
-  patch: Record<string, string | number | boolean>,
+  patch: Record<string, string | number | boolean>
 ): RepoEntry | null {
   const absPath = resolve(rawPath);
   const reg = readRegistry();
@@ -238,7 +238,7 @@ export function updateRepoSettings(
  */
 export function detectParentConflict(
   target: string,
-  repos: RepoEntry[],
+  repos: RepoEntry[]
 ): string | null {
   const registeredPaths = new Set(repos.map((r) => r.path));
   let current = dirname(target);
@@ -263,7 +263,7 @@ export function detectParentConflict(
  */
 export function detectChildConflicts(
   target: string,
-  repos: RepoEntry[],
+  repos: RepoEntry[]
 ): string[] {
   const normalized = target.endsWith("/") ? target : `${target}/`;
   return repos.filter((r) => r.path.startsWith(normalized)).map((r) => r.path);
@@ -290,13 +290,13 @@ export function readNeedsInput(repoPath: string): NeedsInputSignal[] {
  */
 export function writeNeedsInput(
   repoPath: string,
-  signals: NeedsInputSignal[],
+  signals: NeedsInputSignal[]
 ): void {
   const dir = join(repoPath, ".unerr");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, "needs-input.json"),
-    `${JSON.stringify(signals, null, 2)}\n`,
+    `${JSON.stringify(signals, null, 2)}\n`
   );
 }
 

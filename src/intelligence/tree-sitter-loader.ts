@@ -45,7 +45,7 @@ function resolveGrammarPath(wasmName: string): string {
       "node_modules",
       "tree-sitter-wasms",
       "out",
-      wasmName,
+      wasmName
     );
   }
 }
@@ -73,7 +73,7 @@ export async function getParser(wasmName: string): Promise<Parser> {
  */
 export async function parseSource(
   source: string,
-  wasmName: string,
+  wasmName: string
 ): Promise<Parser.Tree> {
   const parser = await getParser(wasmName);
   return parser.parse(source);

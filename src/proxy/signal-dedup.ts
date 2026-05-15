@@ -63,7 +63,7 @@ export interface SignalDedup {
   shouldEmit: (
     tag: string,
     entityKey: string | null,
-    content: string,
+    content: string
   ) => boolean;
   /**
    * Peek-only variant of `shouldEmit`. Returns the same boolean but does NOT
@@ -74,7 +74,7 @@ export interface SignalDedup {
   wouldEmit: (
     tag: string,
     entityKey: string | null,
-    content: string,
+    content: string
   ) => boolean;
   /** Force-reset the table (tests). */
   reset: () => void;
@@ -121,7 +121,7 @@ const TAG_SESSION_CAP: Record<string, number> = {
 };
 
 export function createSignalDedup(
-  policyOverride: Record<string, DedupPolicy> = {},
+  policyOverride: Record<string, DedupPolicy> = {}
 ): SignalDedup {
   const seen = new Map<string, Entry>();
   const policy = { ...DEFAULT_POLICY, ...policyOverride };
@@ -143,7 +143,7 @@ export function createSignalDedup(
   function shouldEmit(
     tag: string,
     entityKey: string | null,
-    content: string,
+    content: string
   ): boolean {
     const p: DedupPolicy = policy[tag] ?? "on_change";
     if (p === "drop") return false;
@@ -182,7 +182,7 @@ export function createSignalDedup(
   function wouldEmit(
     tag: string,
     entityKey: string | null,
-    content: string,
+    content: string
   ): boolean {
     const p: DedupPolicy = policy[tag] ?? "on_change";
     if (p === "drop") return false;

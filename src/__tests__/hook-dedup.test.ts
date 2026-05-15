@@ -129,7 +129,7 @@ describe("hook-dedup", () => {
       const stale = Date.now() - 5_000; // 5s old — well past 100ms cutoff
       fs.writeFileSync(
         STATE_FILE,
-        JSON.stringify({ "stale:key": stale, "fresh:key": Date.now() }),
+        JSON.stringify({ "stale:key": stale, "fresh:key": Date.now() })
       );
 
       // Use a small TTL so PRUNE_FACTOR * ttl = 100ms cutoff.

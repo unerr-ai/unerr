@@ -27,11 +27,11 @@ export interface GitMessageContext {
 export async function getFileCommits(
   filePath: string,
   cwd: string,
-  maxCount = 20,
+  maxCount = 20
 ): Promise<Array<{ hash: string; message: string; date: string }>> {
   const output = await gitQuery(
     ["log", `--max-count=${maxCount}`, "--format=%H|%s|%ci", "--", filePath],
-    cwd,
+    cwd
   );
   if (!output) return [];
 
@@ -123,7 +123,7 @@ export function extractKeywords(messages: string[]): string[] {
  */
 export async function mineEntityContext(
   entities: Array<{ key: string; file_path: string }>,
-  cwd: string,
+  cwd: string
 ): Promise<Map<string, GitMessageContext>> {
   const contexts = new Map<string, GitMessageContext>();
   const fileCache = new Map<string, Array<{ hash: string; message: string }>>();

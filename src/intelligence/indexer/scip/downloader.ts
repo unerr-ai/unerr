@@ -233,7 +233,7 @@ export function resolvePlatform(): PlatformInfo {
 export function buildDownloadUrl(
   spec: ScipDownloadSpec,
   platform: PlatformInfo,
-  resolvedTag: string,
+  resolvedTag: string
 ): string | null {
   const assetName = spec.resolveAssetName(platform);
   if (!assetName) return null;
@@ -246,7 +246,7 @@ export function buildDownloadUrl(
  * Follows redirects (repos may have been transferred).
  */
 async function resolveLatestRelease(
-  repo: string,
+  repo: string
 ): Promise<{ tag: string; assets: { name: string; url: string }[] } | null> {
   try {
     const url = `https://api.github.com/repos/${repo}/releases/latest`;
@@ -274,7 +274,7 @@ async function resolveLatestRelease(
     };
   } catch (err) {
     log.warn(
-      `Failed to resolve latest release for ${repo}: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to resolve latest release for ${repo}: ${err instanceof Error ? err.message : String(err)}`
     );
     return null;
   }
@@ -287,7 +287,7 @@ async function resolveLatestRelease(
  */
 export async function downloadScipBinary(
   language: string,
-  onProgress?: (message: string) => void,
+  onProgress?: (message: string) => void
 ): Promise<DownloadResult> {
   const spec = DOWNLOAD_SPECS[language];
   if (!spec) {
@@ -333,7 +333,7 @@ export async function downloadScipBinary(
         (a) =>
           a.name.startsWith("scip-java-") &&
           !a.name.endsWith(".bat") &&
-          !a.name.endsWith(".sha256"),
+          !a.name.endsWith(".sha256")
       );
       if (!javaAsset) {
         return {
@@ -430,7 +430,7 @@ export async function downloadScipBinary(
 async function extractTarGz(
   response: Response,
   binaryPath: string,
-  destPath: string,
+  destPath: string
 ): Promise<void> {
   const { exec } = await import("../../../utils/exec.js");
 
@@ -478,7 +478,7 @@ async function extractTarGz(
  */
 async function extractGzSingle(
   response: Response,
-  destPath: string,
+  destPath: string
 ): Promise<void> {
   const gunzip = createGunzip();
   const dest = createWriteStream(destPath);
@@ -493,7 +493,7 @@ async function extractGzSingle(
  */
 async function downloadToFile(
   response: Response,
-  destPath: string,
+  destPath: string
 ): Promise<void> {
   const body = response.body;
   if (!body) throw new Error("No response body");

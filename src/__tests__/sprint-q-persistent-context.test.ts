@@ -78,7 +78,7 @@ describe("Q.2: Auto-Snapshot Triggers", () => {
     const trigger = shouldAutoSnapshot(
       "bash",
       { command: "pnpm test:run" },
-      { exitCode: 0 },
+      { exitCode: 0 }
     );
     expect(trigger).not.toBeNull();
     expect(trigger?.type).toBe("test_pass");
@@ -91,7 +91,7 @@ describe("Q.2: Auto-Snapshot Triggers", () => {
     const trigger = shouldAutoSnapshot(
       "bash",
       { command: "pnpm test:run" },
-      { exitCode: 1 },
+      { exitCode: 1 }
     );
     expect(trigger).toBeNull();
   });
@@ -104,14 +104,14 @@ describe("Q.5: Timeline Branching on Rewind", () => {
       "snapshot-123",
       ["src/auth.ts::login", "src/auth.ts::validate"],
       ["Add optional param to login", "Fix validate edge case"],
-      "Broke 3 downstream callers",
+      "Broke 3 downstream callers"
     );
     expect(fork.forkPoint).toBe("snapshot-123");
     expect(fork.abandonedBranch.entityChanges).toHaveLength(2);
     expect(fork.abandonedBranch.promptsTried).toHaveLength(2);
     expect(fork.abandonedBranch.failureReason).toContain("Broke");
     expect(fork.newBranch.timelineId).toBeGreaterThan(
-      fork.abandonedBranch.timelineId,
+      fork.abandonedBranch.timelineId
     );
   });
 });
@@ -198,7 +198,7 @@ describe("Q.9: Session Health Monitor", () => {
     }
     const health = monitor.getHealth();
     const spike = health.signals.find(
-      (s) => s.type === "convention_violation_spike",
+      (s) => s.type === "convention_violation_spike"
     );
     expect(spike).toBeDefined();
   });

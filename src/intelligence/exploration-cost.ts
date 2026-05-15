@@ -166,7 +166,7 @@ function resolveQueryType(queryType: string): string {
 export function estimateExplorationCost(
   queryType: string,
   resultSize: number,
-  entityCount?: number,
+  entityCount?: number
 ): ExplorationCostEstimate {
   const ruleKey = resolveQueryType(queryType);
   const rule = COUNTERFACTUAL_RULES[ruleKey] ?? DEFAULT_RULE;
@@ -248,7 +248,7 @@ export function createExplorationAccumulator(): {
  */
 function estimateGraphQueryTokens(
   queryType: string,
-  resultSize: number,
+  resultSize: number
 ): number {
   const perResultTokens: Record<string, number> = {
     blast_radius: 30,

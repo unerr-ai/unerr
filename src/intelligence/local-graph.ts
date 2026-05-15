@@ -361,15 +361,15 @@ export class CozoGraphStore {
   async query(
     script: string,
     params?: Record<string, unknown>,
-    timeoutMs = QUERY_TIMEOUT_MS,
+    timeoutMs = QUERY_TIMEOUT_MS
   ): Promise<{ rows: unknown[][] }> {
     return Promise.race([
       this.db.run(script, params),
       new Promise<never>((_, reject) =>
         setTimeout(
           () => reject(new Error(`CozoDB query timeout after ${timeoutMs}ms`)),
-          timeoutMs,
-        ),
+          timeoutMs
+        )
       ),
     ]);
   }
@@ -381,7 +381,7 @@ export class CozoGraphStore {
    */
   async write(
     script: string,
-    params?: Record<string, unknown>,
+    params?: Record<string, unknown>
   ): Promise<{ rows: unknown[][] }> {
     let result: { rows: unknown[][] };
     const op = this.writeChain.then(async () => {
@@ -391,10 +391,10 @@ export class CozoGraphStore {
           setTimeout(
             () =>
               reject(
-                new Error(`CozoDB write timeout after ${WRITE_TIMEOUT_MS}ms`),
+                new Error(`CozoDB write timeout after ${WRITE_TIMEOUT_MS}ms`)
               ),
-            WRITE_TIMEOUT_MS,
-          ),
+            WRITE_TIMEOUT_MS
+          )
         ),
       ]);
     });
@@ -413,7 +413,7 @@ export class CozoGraphStore {
    */
   static async create(
     db: CozoDb,
-    projectRoot?: string,
+    projectRoot?: string
   ): Promise<CozoGraphStore> {
     // RC-6: Check if another process owns the DB
     if (projectRoot) {
@@ -433,7 +433,7 @@ export class CozoGraphStore {
             try {
               process.kill(ownerPid, 0); // Check if alive (signal 0)
               throw new Error(
-                `DB owned by daemon (PID ${ownerPid}). Use parse-only mode to avoid lock contention.`,
+                `DB owned by daemon (PID ${ownerPid}). Use parse-only mode to avoid lock contention.`
               );
             } catch (killErr) {
               if (
@@ -444,7 +444,7 @@ export class CozoGraphStore {
               }
               // Process not alive — stale PID file, safe to proceed
               process.stderr.write(
-                `[unerr] Stale PID file detected (PID ${ownerPid} not alive). Proceeding with DB access.\n`,
+                `[unerr] Stale PID file detected (PID ${ownerPid} not alive). Proceeding with DB access.\n`
               );
             }
           }
@@ -504,13 +504,13 @@ export class CozoGraphStore {
           fi: entity.fan_in ?? 0,
           fo: entity.fan_out ?? 0,
           rl: entity.risk_level ?? "normal",
-        },
+        }
       );
 
       // Build file index
       await this.write(
         "?[file_path, entity_key] <- [[$fp, $key]] :put file_index { file_path, entity_key }",
-        { fp: entity.file_path, key: entity.key },
+        { fp: entity.file_path, key: entity.key }
       );
     }
 
@@ -532,7 +532,7 @@ export class CozoGraphStore {
           eh: edge.eh ?? false,
           mt: edge.mt ?? "",
           mm: edge.mm ?? "",
-        },
+        }
       );
     }
 
@@ -569,7 +569,7 @@ export class CozoGraphStore {
             taxonomy: entity.taxonomy ?? "",
             fa: entity.feature_area ?? "",
             conf: entity.justification_confidence ?? 0,
-          },
+          }
         );
       }
     }
@@ -593,7 +593,7 @@ export class CozoGraphStore {
   private async detectAndStoreCommunities(): Promise<void> {
     // Extract minimal entity data for community detection
     const entityResult = await this.query(
-      "?[key, file_path] := *entities{key, file_path}",
+      "?[key, file_path] := *entities{key, file_path}"
     );
     const entities = entityResult.rows.map((row) => ({
       key: row[0] as string,
@@ -605,7 +605,7 @@ export class CozoGraphStore {
     // Extract edges (all types contribute to community structure)
     // R.5: Include edge type so community detection can weight contains edges at 0.3
     const edgeResult = await this.query(
-      "?[from_key, to_key, type] := *edges{from_key, to_key, type}",
+      "?[from_key, to_key, type] := *edges{from_key, to_key, type}"
     );
     const edges = edgeResult.rows.map((row) => ({
       from_key: row[0] as string,
@@ -620,7 +620,7 @@ export class CozoGraphStore {
     for (const [key, communityId] of result.assignments) {
       await this.write(
         "?[key, community] <- [[$key, $cid]] :update entities { key => community }",
-        { key, cid: communityId },
+        { key, cid: communityId }
       );
     }
 
@@ -628,7 +628,7 @@ export class CozoGraphStore {
     for (const c of result.communities) {
       await this.write(
         "?[id, label, size, cohesion] <- [[$id, $label, $size, $cohesion]] :put communities { id => label, size, cohesion }",
-        { id: c.id, label: c.label, size: c.size, cohesion: c.cohesion },
+        { id: c.id, label: c.label, size: c.size, cohesion: c.cohesion }
       );
     }
   }
@@ -639,7 +639,7 @@ export class CozoGraphStore {
   async getEntity(key: string): Promise<LocalEntity | null> {
     const result = await this.query(
       "?[key, kind, name, fp, sl, el, sig, body, fi, fo, rl, community] := *entities{key, kind, name, file_path: fp, start_line: sl, end_line: el, signature: sig, body, fan_in: fi, fan_out: fo, risk_level: rl, community}, key = $key",
-      { key },
+      { key }
     );
     if (result.rows.length === 0) return null;
     const [k, kind, name, fp, sl, el, sig, body, fi, fo, rl, community] = result
@@ -703,7 +703,7 @@ export class CozoGraphStore {
         drift_overlay_entity[k, kind, name, fp, sl, el, sig, body, fi, fo, rl, comm],
         not base[k, _, _, _, _, _, _, _, _, _, _, _],
         not drift_entity[k, _, _, _, _, _, _, _, _, _, _, _]`,
-      { key },
+      { key }
     );
     return result.rows.map((row) => {
       const [k, kind, name, fp, sl, el, sig, body, fi, fo, rl, comm] = row as [
@@ -764,7 +764,7 @@ export class CozoGraphStore {
         drift_overlay_entity[k, kind, name, fp, sl, el, sig, body, fi, fo, rl, comm],
         not base[k, _, _, _, _, _, _, _, _, _, _, _],
         not drift_entity[k, _, _, _, _, _, _, _, _, _, _, _]`,
-      { key },
+      { key }
     );
     return result.rows.map((row) => {
       const [k, kind, name, fp, sl, el, sig, body, fi, fo, rl, comm] = row as [
@@ -807,16 +807,16 @@ export class CozoGraphStore {
    */
   async getBlastRadius(
     entityKey: string,
-    maxDepth = 2,
+    maxDepth = 2
   ): Promise<BlastRadiusResult> {
     // Direct callers and callees (depth 1)
     const callersResult = await this.query(
       `?[k] := *edges{from_key, to_key: $key, type: "calls"}, k = from_key`,
-      { key: entityKey },
+      { key: entityKey }
     );
     const calleesResult = await this.query(
       `?[k] := *edges{from_key: $key, to_key, type: "calls"}, k = to_key`,
-      { key: entityKey },
+      { key: entityKey }
     );
 
     const directCallers = callersResult.rows.length;
@@ -826,7 +826,7 @@ export class CozoGraphStore {
     const callerTestSplit = await this.query(
       `?[k, it] := *edges{from_key, to_key: $key, type: "calls"},
         *entities{key: from_key, is_test: it}, k = from_key`,
-      { key: entityKey },
+      { key: entityKey }
     );
     let productionCallers = 0;
     let testCallers = 0;
@@ -853,13 +853,13 @@ export class CozoGraphStore {
     const parts: string[] = [];
     if (productionCallers > 0)
       parts.push(
-        `${productionCallers} production caller${productionCallers !== 1 ? "s" : ""}`,
+        `${productionCallers} production caller${productionCallers !== 1 ? "s" : ""}`
       );
     if (testCallers > 0)
       parts.push(`${testCallers} test caller${testCallers !== 1 ? "s" : ""}`);
     if (directCallees > 0)
       parts.push(
-        `${directCallees} direct callee${directCallees !== 1 ? "s" : ""}`,
+        `${directCallees} direct callee${directCallees !== 1 ? "s" : ""}`
       );
     if (isChokepoint) parts.push("CHOKEPOINT");
     const summary = parts.length > 0 ? parts.join(", ") : "No dependencies";
@@ -885,7 +885,7 @@ export class CozoGraphStore {
    */
   async getBlastRadiusEntities(
     entityKey: string,
-    maxDepth = 2,
+    maxDepth = 2
   ): Promise<BlastRadiusEntity[]> {
     // Single-hop direct callers — same data, no broken recursion. The
     // consumer (`_meta.blast_radius.affected_entities.slice(0, 20)`) was
@@ -894,7 +894,7 @@ export class CozoGraphStore {
     void maxDepth; // depth-N walk would re-introduce the parser bug; depth-1 truth is sufficient.
     const directResult = await this.query(
       `?[target] := *edges{from_key, to_key: $root, type: "calls"}, target = from_key`,
-      { root: entityKey },
+      { root: entityKey }
     );
 
     const depthMap = new Map<string, number>();
@@ -914,7 +914,7 @@ export class CozoGraphStore {
     for (const [key, depth] of depthMap) {
       const entityResult = await this.query(
         "?[k, name, fp] := *entities{key: k, name, file_path: fp}, k = $key",
-        { key },
+        { key }
       );
       if (entityResult.rows.length > 0) {
         const [, name, file] = entityResult.rows[0] as [string, string, string];
@@ -932,20 +932,20 @@ export class CozoGraphStore {
    * Used as blast radius fallback when no callers exist.
    */
   private async getFileSiblings(
-    entityKey: string,
+    entityKey: string
   ): Promise<BlastRadiusEntity[]> {
     // Find the file path for this entity
     const fileResult = await this.query(
       "?[fp] := *entities{key: $key, file_path: fp}",
-      { key: entityKey },
+      { key: entityKey }
     );
     if (fileResult.rows.length === 0) return [];
-    const filePath = fileResult.rows[0]![0] as string;
+    const filePath = fileResult.rows[0]?.[0] as string;
 
     // Get all entities in the same file (via contains edges from the file entity)
     const siblingsResult = await this.query(
       `?[key, name, fp] := *edges{from_key: $fileKey, to_key: key, type: "contains"}, *entities{key, name, file_path: fp}, key != $entityKey`,
-      { fileKey: `file:${filePath}`, entityKey },
+      { fileKey: `file:${filePath}`, entityKey }
     );
 
     return siblingsResult.rows.map((row) => ({
@@ -962,11 +962,11 @@ export class CozoGraphStore {
    * R.7: Get all entities contained within a file.
    */
   async getFileEntities(
-    filePath: string,
+    filePath: string
   ): Promise<Array<{ key: string; kind: string; name: string }>> {
     const result = await this.query(
       `?[key, kind, name] := *edges{from_key: $fileKey, to_key: key, type: "contains"}, *entities{key, kind, name}`,
-      { fileKey: `file:${filePath}` },
+      { fileKey: `file:${filePath}` }
     );
     return result.rows.map((row) => ({
       key: row[0] as string,
@@ -980,20 +980,20 @@ export class CozoGraphStore {
    * Returns connected files with edge type and direction.
    */
   async getFileNeighbors(
-    filePath: string,
+    filePath: string
   ): Promise<
     Array<{ file: string; edgeType: string; direction: "in" | "out" }>
   > {
     const fileKey = `file:${filePath}`;
     // Outbound: this file imports others
     const outResult = await this.query(
-      `?[to_key, type] := *edges{from_key: $fk, to_key, type}, to_key != $fk`,
-      { fk: fileKey },
+      "?[to_key, type] := *edges{from_key: $fk, to_key, type}, to_key != $fk",
+      { fk: fileKey }
     );
     // Inbound: others import this file
     const inResult = await this.query(
-      `?[from_key, type] := *edges{from_key, to_key: $fk, type}, from_key != $fk`,
-      { fk: fileKey },
+      "?[from_key, type] := *edges{from_key, to_key: $fk, type}, from_key != $fk",
+      { fk: fileKey }
     );
 
     type Neighbor = {
@@ -1043,7 +1043,7 @@ export class CozoGraphStore {
    */
   async getTestCoverage(
     entityKey: string,
-    includeTransitive = true,
+    includeTransitive = true
   ): Promise<
     Array<{ key: string; name: string; file: string; depth: number }>
   > {
@@ -1051,7 +1051,7 @@ export class CozoGraphStore {
     const directResult = await this.query(
       `?[k, name, fp] := *edges{from_key: k, to_key: $target, type: "tests"},
         *entities{key: k, name, file_path: fp}`,
-      { target: entityKey },
+      { target: entityKey }
     );
 
     const results: Array<{
@@ -1088,7 +1088,7 @@ export class CozoGraphStore {
         `?[k, name, fp] := *edges{from_key: mid, to_key: $target, type: "calls"},
           *edges{from_key: k, to_key: mid, type: "tests"},
           *entities{key: k, name, file_path: fp}`,
-        { target: entityKey },
+        { target: entityKey }
       );
 
       for (const row of transitiveResult.rows) {
@@ -1127,7 +1127,7 @@ export class CozoGraphStore {
         key = $key, community >= 0,
         *communities[community, label, size, cohesion],
         id = community`,
-      { key: entityKey },
+      { key: entityKey }
     );
     if (result.rows.length === 0) return null;
     const [id, label, size, cohesion] = result.rows[0] as [
@@ -1161,7 +1161,7 @@ export class CozoGraphStore {
         c1 >= 0, to_community >= 0, c1 != to_community,
         *communities{id: to_community, label: to_label},
         to_key = tk`,
-      { key: entityKey },
+      { key: entityKey }
     );
 
     // Inbound cross-community edges
@@ -1173,7 +1173,7 @@ export class CozoGraphStore {
         c1 >= 0, from_community >= 0, c1 != from_community,
         *communities{id: from_community, label: from_label},
         from_key = fk`,
-      { key: entityKey },
+      { key: entityKey }
     );
 
     const edges: Array<{
@@ -1227,7 +1227,7 @@ export class CozoGraphStore {
    */
   async getCrossBoundaryLinks(
     communityId?: number,
-    topN = 10,
+    topN = 10
   ): Promise<
     Array<{
       from_name: string;
@@ -1263,7 +1263,7 @@ export class CozoGraphStore {
 
     const result = await this.query(
       query,
-      communityId !== undefined ? { cid: communityId } : {},
+      communityId !== undefined ? { cid: communityId } : {}
     );
 
     // Count edges per community pair for density calculation
@@ -1312,12 +1312,131 @@ export class CozoGraphStore {
   }
 
   /**
+   * Get cross-boundary links for a specific pair of directory prefixes.
+   *
+   * Unlike getCrossBoundaryLinks (which fetches ALL cross-community edges and
+   * post-filters), this runs a targeted Datalog query with starts_with so it
+   * always finds relevant edges regardless of how many total cross-community
+   * edges exist in the project.  Used when both from_path and to_path are
+   * provided to get_cross_boundary_links.
+   *
+   * NOTE: Entity community IDs are hierarchical (macroCid * 1000 + subId).
+   * The `communities` table only stores macro IDs.  This method avoids the
+   * table join and resolves labels by looking up macroId = floor(id / 1000).
+   */
+  async getCrossPathLinks(
+    fromPrefix: string,
+    toPrefix: string,
+    topN: number
+  ): Promise<
+    Array<{
+      from_name: string;
+      from_file: string;
+      from_community: number;
+      from_community_label: string;
+      to_name: string;
+      to_file: string;
+      to_community: number;
+      to_community_label: string;
+      edge_type: string;
+      surprise_score: number;
+    }>
+  > {
+    // Normalise: ensure trailing slash so "src/proxy" doesn't match
+    // "src/proxy-extra/" accidentally.
+    const fp = fromPrefix.endsWith("/") ? fromPrefix : `${fromPrefix}/`;
+    const tp = toPrefix.endsWith("/") ? toPrefix : `${toPrefix}/`;
+
+    // Skip the communities table join — entity community IDs are
+    // macroCid * 1000 + subId, so *communities{id: fc} would miss any entity
+    // with a sub-community ID.  We resolve labels in TypeScript below.
+    const mkQuery = (a: string, b: string) =>
+      `?[fn, ff, fc, tn, tf, tc, et] :=
+        *edges{from_key: fk, to_key: tk, type: et},
+        *entities{key: fk, name: fn, file_path: ff, community: fc},
+        *entities{key: tk, name: tn, file_path: tf, community: tc},
+        starts_with(ff, $a), starts_with(tf, $b),
+        fc >= 0, tc >= 0
+        :limit $n`;
+
+    const [fwdRes, revRes] = await Promise.all([
+      this.query(mkQuery(fp, tp), { a: fp, b: tp, n: topN }).catch(() => ({
+        rows: [] as unknown[][],
+      })),
+      this.query(mkQuery(tp, fp), { a: tp, b: fp, n: topN }).catch(() => ({
+        rows: [] as unknown[][],
+      })),
+    ]);
+
+    // Resolve macro community labels: macroId = floor(subCommunityId / 1000)
+    const macroIds = new Set<number>();
+    for (const rows of [fwdRes.rows, revRes.rows]) {
+      for (const row of rows) {
+        macroIds.add(Math.floor((row[2] as number) / 1000));
+        macroIds.add(Math.floor((row[5] as number) / 1000));
+      }
+    }
+    const labelMap = new Map<number, string>();
+    if (macroIds.size > 0) {
+      const ids = [...macroIds];
+      try {
+        const labelRes = await this.query(
+          `?[id, label] := *communities{id, label}, id in $ids`,
+          { ids }
+        );
+        for (const row of labelRes.rows) {
+          labelMap.set(row[0] as number, row[1] as string);
+        }
+      } catch {
+        // label lookup is best-effort; carry on without labels
+      }
+    }
+
+    const seen = new Set<string>();
+    const results: Array<{
+      from_name: string;
+      from_file: string;
+      from_community: number;
+      from_community_label: string;
+      to_name: string;
+      to_file: string;
+      to_community: number;
+      to_community_label: string;
+      edge_type: string;
+      surprise_score: number;
+    }> = [];
+
+    for (const row of [...fwdRes.rows, ...revRes.rows]) {
+      const fc = row[2] as number;
+      const tc = row[5] as number;
+      const key = `${row[0] as string}:${row[3] as string}:${row[6] as string}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push({
+        from_name: row[0] as string,
+        from_file: row[1] as string,
+        from_community: fc,
+        from_community_label:
+          labelMap.get(Math.floor(fc / 1000)) ?? String(Math.floor(fc / 1000)),
+        to_name: row[3] as string,
+        to_file: row[4] as string,
+        to_community: tc,
+        to_community_label:
+          labelMap.get(Math.floor(tc / 1000)) ?? String(Math.floor(tc / 1000)),
+        edge_type: row[6] as string,
+        surprise_score: 1.0, // all edges here cross an explicit path boundary
+      });
+    }
+    return results.slice(0, topN);
+  }
+
+  /**
    * Get critical nodes — highest degree entities excluding file-level hubs.
    * Degree ranking excluding kind=="file" and kind=="module".
    */
   async getCriticalNodes(
     topN = 10,
-    communityId?: number,
+    communityId?: number
   ): Promise<
     Array<{
       key: string;
@@ -1397,7 +1516,7 @@ export class CozoGraphStore {
     }>
   > {
     const result = await this.query(
-      "?[id, label, size, cohesion] := *communities[id, label, size, cohesion] :order -size",
+      "?[id, label, size, cohesion] := *communities[id, label, size, cohesion] :order -size"
     );
     return result.rows.map((row) => {
       const [id, label, size, cohesion] = row as [
@@ -1418,7 +1537,7 @@ export class CozoGraphStore {
       `?[k, kind, name, fp, sl, el, sig, body, fi, fo, rl, community] := *file_index[$fp, ek],
         *entities{key: ek, kind, name, file_path: fp, start_line: sl, end_line: el, signature: sig, body, fan_in: fi, fan_out: fo, risk_level: rl, community},
         k = ek`,
-      { fp: filePath },
+      { fp: filePath }
     );
     return result.rows.map((row) => {
       const [k, kind, name, fp, sl, el, sig, body, fi, fo, rl, community] =
@@ -1460,7 +1579,7 @@ export class CozoGraphStore {
   async findEntityByName(name: string): Promise<LocalEntity | null> {
     const result = await this.query(
       "?[k, kind, name, fp, sl, el, sig, body, fi, fo, rl, community] := *entities{key: k, kind, name, file_path: fp, start_line: sl, end_line: el, signature: sig, body, fan_in: fi, fan_out: fo, risk_level: rl, community}, name = $name :limit 1",
-      { name },
+      { name }
     );
     if (result.rows.length === 0) return null;
     const [k, kind, n, fp, sl, el, sig, body, fi, fo, rl, community] = result
@@ -1499,7 +1618,7 @@ export class CozoGraphStore {
    */
   async searchEntities(
     query: string,
-    limit = 20,
+    limit = 20
   ): Promise<
     Array<{
       key: string;
@@ -1516,13 +1635,13 @@ export class CozoGraphStore {
    * Get import edges for a file.
    */
   async getImports(
-    filePath: string,
+    filePath: string
   ): Promise<Array<{ imported_file: string }>> {
     // File-level import edges use "file:<path>" keys (created by local-indexer R.3).
     const fileKey = `file:${filePath}`;
     const result = await this.query(
       `?[to_key] := *edges{from_key: $fk, to_key, type: "imports"}`,
-      { fk: fileKey },
+      { fk: fileKey }
     );
     return result.rows.map((row) => {
       const raw = row[0] as string;
@@ -1558,7 +1677,7 @@ export class CozoGraphStore {
           ds: rule.decay_score ?? 0.0,
           evals: rule.evaluations ?? 0,
           ov: rule.overrides ?? 0,
-        },
+        }
       );
     }
   }
@@ -1579,7 +1698,7 @@ export class CozoGraphStore {
           conf: pattern.confidence,
           ek: pattern.exemplar_keys.join(","),
           prk: pattern.promoted_rule_key,
-        },
+        }
       );
     }
   }
@@ -1590,7 +1709,7 @@ export class CozoGraphStore {
   async hasRules(): Promise<boolean> {
     try {
       const result = await this.query(
-        "?[key] := *rules[key, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _] :limit 1",
+        "?[key] := *rules[key, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _] :limit 1"
       );
       return result?.rows?.length > 0;
     } catch {
@@ -1606,7 +1725,7 @@ export class CozoGraphStore {
     let result: { rows: unknown[][] };
     try {
       result = await this.query(
-        "?[key, name, scope, severity, engine, query, message, fg, enabled, rid, status, tk, agf, ex, ds, evals, ov] := *rules[key, name, scope, severity, engine, query, message, fg, enabled, rid, status, tk, agf, ex, ds, evals, ov], enabled = true",
+        "?[key, name, scope, severity, engine, query, message, fg, enabled, rid, status, tk, agf, ex, ds, evals, ov] := *rules[key, name, scope, severity, engine, query, message, fg, enabled, rid, status, tk, agf, ex, ds, evals, ov], enabled = true"
       );
     } catch {
       return [];
@@ -1689,7 +1808,7 @@ export class CozoGraphStore {
       org: 1,
     };
     rules.sort(
-      (a, b) => (scopePriority[b.scope] ?? 0) - (scopePriority[a.scope] ?? 0),
+      (a, b) => (scopePriority[b.scope] ?? 0) - (scopePriority[a.scope] ?? 0)
     );
 
     return rules;
@@ -1771,7 +1890,7 @@ export class CozoGraphStore {
    */
   async getPatterns(): Promise<CompactPattern[]> {
     const result = await this.query(
-      "?[key, name, kind, freq, conf, ek, prk] := *patterns[key, name, kind, freq, conf, ek, prk]",
+      "?[key, name, kind, freq, conf, ek, prk] := *patterns[key, name, kind, freq, conf, ek, prk]"
     );
 
     return result.rows.map((row) => {
@@ -1815,7 +1934,7 @@ export class CozoGraphStore {
    * Bulk insert justifications into CozoDB.
    */
   async loadJustifications(
-    justifications: CompactJustification[],
+    justifications: CompactJustification[]
   ): Promise<void> {
     for (const j of justifications) {
       await this.write(
@@ -1828,7 +1947,7 @@ export class CozoGraphStore {
           taxonomy: j.taxonomy,
           fa: j.feature_area,
           conf: j.confidence,
-        },
+        }
       );
     }
   }
@@ -1846,7 +1965,7 @@ export class CozoGraphStore {
     const result = await this.query(
       `?[ek, purpose, taxonomy, fa, conf] :=
         *justifications[ek, purpose, taxonomy, fa, conf], ek = $ek`,
-      { ek: entityKey },
+      { ek: entityKey }
     );
     if (result.rows.length === 0) return null;
 
@@ -1880,7 +1999,7 @@ export class CozoGraphStore {
 
     // Per-kind entity counts for accurate adherence computation
     const kindResult = await this.query(
-      "?[kind, count(key)] := *entities{key, kind}",
+      "?[kind, count(key)] := *entities{key, kind}"
     );
     const kindCounts = new Map<string, number>();
     for (const row of kindResult.rows) {
@@ -1908,7 +2027,7 @@ export class CozoGraphStore {
    */
   async getConventionsForEntity(
     entityFilePath: string,
-    limit = 3,
+    limit = 3
   ): Promise<
     Array<{
       id: string;
@@ -1930,7 +2049,7 @@ export class CozoGraphStore {
     const patterns = await this.getPatterns();
     // Per-kind entity counts for accurate adherence
     const kindResult = await this.query(
-      "?[kind, count(key)] := *entities{key, kind}",
+      "?[kind, count(key)] := *entities{key, kind}"
     );
     const kindCounts = new Map<string, number>();
     for (const row of kindResult.rows) {
@@ -1968,7 +2087,7 @@ export class CozoGraphStore {
    */
   async hasJustifications(): Promise<boolean> {
     const result = await this.query(
-      "?[ek] := *justifications[ek, _, _, _, _] :limit 1",
+      "?[ek] := *justifications[ek, _, _, _, _] :limit 1"
     );
     return result.rows.length > 0;
   }
@@ -1993,7 +2112,7 @@ export class CozoGraphStore {
           ea: ex.expires_at,
           status: ex.status ?? "active",
           jt: ex.jira_ticket ?? "",
-        },
+        }
       );
     }
   }
@@ -2004,11 +2123,11 @@ export class CozoGraphStore {
    */
   async getRuleExceptions(
     entityKey: string,
-    ruleKey?: string,
+    ruleKey?: string
   ): Promise<CompactRuleException[]> {
     const result = await this.query(
       "?[key, ek, rk, reason, gb, ga, ea, status, jt] := *rule_exceptions[key, ek, rk, reason, gb, ga, ea, status, jt], ek = $ek, status = 'active'",
-      { ek: entityKey },
+      { ek: entityKey }
     );
 
     const now = new Date().toISOString();
@@ -2060,10 +2179,10 @@ export class CozoGraphStore {
    * Used by _meta to surface "exception expiring soon" warnings.
    */
   async getExpiringExceptions(
-    windowMs: number,
+    windowMs: number
   ): Promise<CompactRuleException[]> {
     const result = await this.query(
-      "?[key, ek, rk, reason, gb, ga, ea, status, jt] := *rule_exceptions[key, ek, rk, reason, gb, ga, ea, status, jt], status = 'active'",
+      "?[key, ek, rk, reason, gb, ga, ea, status, jt] := *rule_exceptions[key, ek, rk, reason, gb, ga, ea, status, jt], status = 'active'"
     );
 
     const now = Date.now();
@@ -2107,7 +2226,7 @@ export class CozoGraphStore {
       })
       .filter(
         (ex) =>
-          ex.expires_at && ex.expires_at > nowIso && ex.expires_at <= threshold,
+          ex.expires_at && ex.expires_at > nowIso && ex.expires_at <= threshold
       );
   }
 
@@ -2137,7 +2256,7 @@ export class CozoGraphStore {
         origin: entity.origin,
         pb: entity.previous_body,
         ps: entity.previous_signature,
-      },
+      }
     );
   }
 
@@ -2156,7 +2275,7 @@ export class CozoGraphStore {
       `?[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps] :=
         *drift_overlay[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps],
         fp = $fp`,
-      { fp: filePath },
+      { fp: filePath }
     );
     return result.rows.map((row) => {
       const [
@@ -2220,7 +2339,7 @@ export class CozoGraphStore {
       `?[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps] :=
         *drift_overlay[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps],
         key = $key`,
-      { key },
+      { key }
     );
     if (result.rows.length === 0) return null;
     const [
@@ -2281,7 +2400,7 @@ export class CozoGraphStore {
   async getAllDriftEntities(): Promise<DriftEntity[]> {
     const result = await this.query(
       `?[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps] :=
-        *drift_overlay[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps]`,
+        *drift_overlay[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps]`
     );
     return result.rows.map((row) => {
       const [
@@ -2343,7 +2462,7 @@ export class CozoGraphStore {
   async clearDriftOverlay(): Promise<void> {
     // Get all keys, then remove them
     const result = await this.write(
-      "?[key] := *drift_overlay[key, _, _, _, _, _, _, _, _, _, _, _, _, _, _]",
+      "?[key] := *drift_overlay[key, _, _, _, _, _, _, _, _, _, _, _, _, _, _]"
     );
     for (const row of result.rows) {
       const [key] = row as [string];
@@ -2371,7 +2490,7 @@ export class CozoGraphStore {
         type: edge.type,
         ds: edge.drift_status,
         ma: edge.modified_at,
-      },
+      }
     );
   }
 
@@ -2381,11 +2500,11 @@ export class CozoGraphStore {
   async removeDriftEdge(
     fromKey: string,
     toKey: string,
-    type: string,
+    type: string
   ): Promise<void> {
     await this.write(
       "?[from_key, to_key, type] <- [[$fk, $tk, $type]] :rm drift_edges { from_key, to_key, type }",
-      { fk: fromKey, tk: toKey, type },
+      { fk: fromKey, tk: toKey, type }
     );
   }
 
@@ -2394,7 +2513,7 @@ export class CozoGraphStore {
    */
   async getAllDriftEdges(): Promise<DriftEdge[]> {
     const result = await this.query(
-      "?[fk, tk, type, ds, ma] := *drift_edges[fk, tk, type, ds, ma]",
+      "?[fk, tk, type, ds, ma] := *drift_edges[fk, tk, type, ds, ma]"
     );
     return result.rows.map((row) => {
       const [from_key, to_key, type, drift_status, modified_at] = row as [
@@ -2419,13 +2538,13 @@ export class CozoGraphStore {
    */
   async clearDriftEdges(): Promise<void> {
     const result = await this.write(
-      "?[fk, tk, type] := *drift_edges[fk, tk, type, _, _]",
+      "?[fk, tk, type] := *drift_edges[fk, tk, type, _, _]"
     );
     for (const row of result.rows) {
       const [fk, tk, type] = row as [string, string, string];
       await this.write(
         "?[from_key, to_key, type] <- [[$fk, $tk, $type]] :rm drift_edges { from_key, to_key, type }",
-        { fk, tk, type },
+        { fk, tk, type }
       );
     }
   }
@@ -2515,13 +2634,13 @@ export class CozoGraphStore {
           fi: entity.fan_in ?? 0,
           fo: entity.fan_out ?? 0,
           rl: entity.risk_level ?? "normal",
-        },
+        }
       );
 
       // Update file index
       await this.write(
         "?[file_path, entity_key] <- [[$fp, $key]] :put file_index { file_path, entity_key }",
-        { fp: entity.file_path, key: entity.key },
+        { fp: entity.file_path, key: entity.key }
       );
 
       applied++;
@@ -2534,7 +2653,7 @@ export class CozoGraphStore {
         // Clean up file_index entries for this entity
         await this.write(
           "?[fp, ek] := *file_index[fp, ek], ek = $key :rm file_index { file_path: fp, entity_key: ek }",
-          { key },
+          { key }
         );
         deleted++;
       } catch {
@@ -2547,7 +2666,7 @@ export class CozoGraphStore {
       try {
         await this.write(
           "?[from_key, to_key, type] <- [[$from, $to, $type]] :rm edges { from_key, to_key, type }",
-          { from: edge.from_key, to: edge.to_key, type: edge.type },
+          { from: edge.from_key, to: edge.to_key, type: edge.type }
         );
       } catch {
         // Edge may not exist
@@ -2557,7 +2676,7 @@ export class CozoGraphStore {
     for (const edge of delta.edges.added) {
       await this.write(
         "?[from_key, to_key, type] <- [[$from, $to, $type]] :put edges { from_key, to_key, type }",
-        { from: edge.from_key, to: edge.to_key, type: edge.type },
+        { from: edge.from_key, to: edge.to_key, type: edge.type }
       );
       edgeCount++;
     }
@@ -2574,7 +2693,7 @@ export class CozoGraphStore {
           taxonomy: j.taxonomy,
           fa: j.feature_area,
           conf: j.confidence,
-        },
+        }
       );
       justCount++;
     }
@@ -2590,7 +2709,7 @@ export class CozoGraphStore {
       try {
         await this.write(
           "?[token, ek] := *search_tokens[token, ek], ek = $key :rm search_tokens { token, entity_key: ek }",
-          { key },
+          { key }
         );
       } catch {
         // May not exist
@@ -2603,7 +2722,7 @@ export class CozoGraphStore {
       for (const token of tokens) {
         await this.write(
           "?[token, entity_key] <- [[$token, $key]] :put search_tokens { token, entity_key }",
-          { token, key: entity.key },
+          { token, key: entity.key }
         );
       }
     }
@@ -2639,7 +2758,7 @@ export class CozoGraphStore {
    */
   async getDriftSummary(): Promise<DriftSummary> {
     const result = await this.query(
-      "?[ds, count(key)] := *drift_overlay[key, _, _, _, _, _, _, _, _, ds, _, _, _, _, _]",
+      "?[ds, count(key)] := *drift_overlay[key, _, _, _, _, _, _, _, _, ds, _, _, _, _, _]"
     );
     const summary: DriftSummary = {
       added: 0,
@@ -2686,7 +2805,7 @@ export class CozoGraphStore {
         health_baseline: JSON.stringify(project.healthBaseline ?? {}),
         org_id: project.orgId ?? "",
         updated_at: project.updatedAt ?? new Date().toISOString(),
-      },
+      }
     );
   }
 
@@ -2716,7 +2835,7 @@ export class CozoGraphStore {
           boundary_rules: JSON.stringify(s.boundaryRules ?? []),
           user_flows: JSON.stringify(s.userFlows ?? ""),
           ui_design: JSON.stringify(s.uiDesign ?? ""),
-        },
+        }
       );
     }
   }
@@ -2745,7 +2864,7 @@ export class CozoGraphStore {
           completed_at: t.completedAt ?? "",
           completed_files: JSON.stringify(t.completedFiles ?? []),
           checkpoint: JSON.stringify(t.checkpoint ?? {}),
-        },
+        }
       );
     }
   }
@@ -2755,7 +2874,7 @@ export class CozoGraphStore {
    */
   async loadDeepDiveDesignSystem(
     projectKey: string,
-    tokens: unknown,
+    tokens: unknown
   ): Promise<void> {
     await this.write(
       `?[project_key, tokens, updated_at] <-
@@ -2765,7 +2884,7 @@ export class CozoGraphStore {
         project_key: projectKey,
         tokens: JSON.stringify(tokens ?? {}),
         updated_at: new Date().toISOString(),
-      },
+      }
     );
   }
 
@@ -2777,7 +2896,7 @@ export class CozoGraphStore {
       `?[key, name, description, status, domain, stage, stack_recommendation, design_system, health_baseline, org_id, updated_at] :=
         *deep_dive_projects[key, name, description, status, domain, stage, stack_recommendation, design_system, health_baseline, org_id, updated_at],
         key = $key`,
-      { key },
+      { key }
     );
     if (result.rows.length === 0) return null;
     const row = result.rows[0] as [
@@ -2817,7 +2936,7 @@ export class CozoGraphStore {
         *deep_dive_projects[key, name, description, status, domain, stage, stack_recommendation, design_system, health_baseline, org_id, updated_at],
         status != "draft"
       :sort -updated_at
-      :limit 1`,
+      :limit 1`
     );
     if (result.rows.length === 0) return null;
     const row = result.rows[0] as [
@@ -2857,7 +2976,7 @@ export class CozoGraphStore {
         *deep_dive_slices[key, project_key, name, description, repo_target_id, parent_slice_key, dependencies, status, order, slice_type, data_model, api_surface, conventions, boundary_rules, user_flows, ui_design],
         project_key = $project_key
       :sort order`,
-      { project_key: projectKey },
+      { project_key: projectKey }
     );
     return result.rows.map((row) => {
       const [
@@ -2923,7 +3042,7 @@ export class CozoGraphStore {
       `?[key, project_key, name, description, repo_target_id, parent_slice_key, dependencies, status, order, slice_type, data_model, api_surface, conventions, boundary_rules, user_flows, ui_design] :=
         *deep_dive_slices[key, project_key, name, description, repo_target_id, parent_slice_key, dependencies, status, order, slice_type, data_model, api_surface, conventions, boundary_rules, user_flows, ui_design],
         key = $key`,
-      { key },
+      { key }
     );
     if (result.rows.length === 0) return null;
     const [
@@ -2985,7 +3104,7 @@ export class CozoGraphStore {
    */
   async getDeepDiveTasks(
     projectKey: string,
-    sprintNumber?: number,
+    sprintNumber?: number
   ): Promise<DeepDiveTaskRow[]> {
     const query =
       sprintNumber != null
@@ -3055,13 +3174,13 @@ export class CozoGraphStore {
    */
   async completeDeepDiveTask(
     taskKey: string,
-    completedFiles?: string[],
+    completedFiles?: string[]
   ): Promise<boolean> {
     const result = await this.query(
       `?[key, project_key, sprint_number, slice_name, description, status, estimated_effort, dependencies, boundary_rules, conventions, acceptance_criteria, completed_at, completed_files, checkpoint] :=
         *deep_dive_tasks[key, project_key, sprint_number, slice_name, description, status, estimated_effort, dependencies, boundary_rules, conventions, acceptance_criteria, completed_at, completed_files, checkpoint],
         key = $key`,
-      { key: taskKey },
+      { key: taskKey }
     );
     if (result.rows.length === 0) return false;
     const row = result.rows[0] as string[];
@@ -3083,7 +3202,7 @@ export class CozoGraphStore {
         completed_at: new Date().toISOString(),
         completed_files: JSON.stringify(completedFiles ?? []),
         checkpoint: row[13],
-      },
+      }
     );
     return true;
   }
@@ -3096,7 +3215,7 @@ export class CozoGraphStore {
       `?[project_key, tokens, updated_at] :=
         *deep_dive_design_system[project_key, tokens, updated_at],
         project_key = $project_key`,
-      { project_key: projectKey },
+      { project_key: projectKey }
     );
     if (result.rows.length === 0) return null;
     const [, tokens] = result.rows[0] as [string, string, string];
@@ -3108,7 +3227,7 @@ export class CozoGraphStore {
    */
   async hasDeepDiveProject(): Promise<boolean> {
     const result = await this.query(
-      "?[key] := *deep_dive_projects[key, _, _, _, _, _, _, _, _, _, _] :limit 1",
+      "?[key] := *deep_dive_projects[key, _, _, _, _, _, _, _, _, _, _] :limit 1"
     );
     return result.rows.length > 0;
   }
@@ -3142,14 +3261,14 @@ export class CozoGraphStore {
       confidence: number;
       occurrences: number;
       last_seen: string;
-    }>,
+    }>
   ): Promise<void> {
     for (const p of patterns) {
       // Check if existing pattern exists to merge occurrences
       const existing = await this.query(
         `?[entity_key, error_type, correction_summary, confidence, occurrences, last_seen] :=
           *corrections{entity_key: $ek, error_type: $et, correction_summary, confidence, occurrences, last_seen}`,
-        { ek: p.entity_key, et: p.error_type },
+        { ek: p.entity_key, et: p.error_type }
       );
       const prevOcc =
         existing.rows.length > 0 ? (existing.rows[0]?.[4] as number) : 0;
@@ -3171,7 +3290,7 @@ export class CozoGraphStore {
           conf: Math.max(p.confidence, prevConf),
           occ: prevOcc + p.occurrences,
           ls: p.last_seen,
-        },
+        }
       );
     }
   }
@@ -3182,7 +3301,7 @@ export class CozoGraphStore {
    */
   async getCorrections(
     entityKey: string,
-    minConfidence = 0.7,
+    minConfidence = 0.7
   ): Promise<
     Array<{
       entity_key: string;
@@ -3199,7 +3318,7 @@ export class CozoGraphStore {
         entity_key = $ek,
         confidence >= $min_conf
       :order -confidence`,
-      { ek: entityKey, min_conf: minConfidence },
+      { ek: entityKey, min_conf: minConfidence }
     );
 
     return result.rows.map((row) => ({
@@ -3230,7 +3349,7 @@ export class CozoGraphStore {
         *corrections{entity_key, error_type, correction_summary, confidence, occurrences, last_seen},
         confidence >= $min_conf
       :order -confidence`,
-      { min_conf: minConfidence },
+      { min_conf: minConfidence }
     );
 
     return result.rows.map((row) => ({
@@ -3272,14 +3391,14 @@ export class CozoGraphStore {
     const fileCount =
       ((
         await this.query(
-          "?[count_unique(file_path)] := *entities{key, file_path}",
+          "?[count_unique(file_path)] := *entities{key, file_path}"
         )
       ).rows[0]?.[0] as number) ?? 0;
 
     const ruleCount =
       ((
         await this.query(
-          "?[count(key)] := *rules{key, enabled}, enabled = true",
+          "?[count(key)] := *rules{key, enabled}, enabled = true"
         )
       ).rows[0]?.[0] as number) ?? 0;
 
@@ -3316,7 +3435,7 @@ export class CozoGraphStore {
     // Top 10 files by entity count
     const topFileRows = (
       await this.query(
-        "?[file_path, count(entity_key)] := *file_index{file_path, entity_key} :order -count(entity_key) :limit 10",
+        "?[file_path, count(entity_key)] := *file_index{file_path, entity_key} :order -count(entity_key) :limit 10"
       )
     ).rows;
     const topFiles = topFileRows.map((row) => ({
@@ -3338,7 +3457,7 @@ export class CozoGraphStore {
       const lastDot = filePath.lastIndexOf(".");
       const lastSlash = Math.max(
         filePath.lastIndexOf("/"),
-        filePath.lastIndexOf("\\"),
+        filePath.lastIndexOf("\\")
       );
       const ext =
         lastDot > lastSlash && lastDot >= 0
@@ -3368,14 +3487,14 @@ export class CozoGraphStore {
    */
   async pruneCorrections(staleDays = 30): Promise<number> {
     const cutoff = new Date(
-      Date.now() - staleDays * 24 * 60 * 60 * 1000,
+      Date.now() - staleDays * 24 * 60 * 60 * 1000
     ).toISOString();
 
     const stale = await this.write(
       `?[entity_key, error_type] :=
         *corrections{entity_key, error_type, last_seen},
         last_seen < $cutoff`,
-      { cutoff },
+      { cutoff }
     );
 
     let pruned = 0;
@@ -3383,7 +3502,7 @@ export class CozoGraphStore {
       await this.write(
         `?[entity_key, error_type] <- [[$ek, $et]]
         :rm corrections {entity_key, error_type}`,
-        { ek: row[0] as string, et: row[1] as string },
+        { ek: row[0] as string, et: row[1] as string }
       );
       pruned++;
     }

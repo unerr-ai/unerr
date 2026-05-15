@@ -78,7 +78,7 @@ export function WarmStartPanel() {
   const started = data.events.filter((e) => e.status === "started");
   const skipped = data.events.filter((e) => e.status === "skipped");
   const failed = data.events.filter(
-    (e) => e.status === "failed" || e.status === "aborted",
+    (e) => e.status === "failed" || e.status === "aborted"
   );
   const totalMs = data.events
     .filter((e) => e.status === "started")

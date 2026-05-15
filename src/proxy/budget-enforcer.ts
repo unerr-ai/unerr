@@ -31,7 +31,7 @@ export interface EnforcedResult {
 export function enforceBudget(
   content: string,
   budget?: number,
-  options: BudgetEnforcerOptions = {},
+  options: BudgetEnforcerOptions = {}
 ): EnforcedResult {
   const maxTokens = budget ?? options.defaultBudget ?? 4000;
   const headRatio = options.preserveHeadRatio ?? 0.7;

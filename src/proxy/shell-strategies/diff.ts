@@ -59,7 +59,7 @@ function parseDiffFiles(lines: string[]): DiffFile[] {
 function buildHeader(
   totalFiles: number,
   totalAdd: number,
-  totalDel: number,
+  totalDel: number
 ): string {
   return `_shell_diff:files=${totalFiles},+${totalAdd}/-${totalDel}`;
 }
@@ -74,7 +74,7 @@ function fileLabel(f: DiffFile): string {
 
 function riskSuffix(
   f: DiffFile,
-  risks: Map<string, ShellDiffRiskHint> | undefined,
+  risks: Map<string, ShellDiffRiskHint> | undefined
 ): string {
   if (!risks) return "";
   for (const [name, r] of risks) {
@@ -91,7 +91,7 @@ function riskSuffix(
 function emitStatOnly(
   header: string,
   files: DiffFile[],
-  risks?: Map<string, ShellDiffRiskHint>,
+  risks?: Map<string, ShellDiffRiskHint>
 ): string {
   const parts: string[] = [header];
   for (const f of files) {
@@ -109,7 +109,7 @@ function emitStatOnly(
 function emitHunkHeaders(
   header: string,
   files: DiffFile[],
-  risks?: Map<string, ShellDiffRiskHint>,
+  risks?: Map<string, ShellDiffRiskHint>
 ): string {
   const parts: string[] = [header];
   for (const f of files) {
@@ -131,10 +131,10 @@ function emitFull(
   header: string,
   lines: string[],
   files: DiffFile[],
-  risks?: Map<string, ShellDiffRiskHint>,
+  risks?: Map<string, ShellDiffRiskHint>
 ): string {
   const collapsedPaths = new Set(
-    files.filter((f) => f.isLockFile || f.isGenerated).map((f) => f.path),
+    files.filter((f) => f.isLockFile || f.isGenerated).map((f) => f.path)
   );
 
   const parts: string[] = [header];
@@ -146,7 +146,7 @@ function emitFull(
           ([, r]) =>
             r.risk_level === "high" ||
             r.risk_level === "critical" ||
-            r.fan_in > 5,
+            r.fan_in > 5
         )
         .map(([k]) => k)
     : [];
@@ -194,7 +194,7 @@ function emitFull(
 export function compressDiff(
   raw: string,
   risks?: Map<string, ShellDiffRiskHint>,
-  command?: string,
+  command?: string
 ): string {
   void command;
   const lines = raw.split("\n");

@@ -8,7 +8,13 @@
  *   - No auto-apply
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -119,7 +125,11 @@ describe("version comparison — minorsBehind", () => {
 describe("version cache", () => {
   it("readVersionCache returns defaults when file missing", () => {
     // Ensure no cache file exists for this test
-    try { rmSync(versionCachePath); } catch { /* ok */ }
+    try {
+      rmSync(versionCachePath);
+    } catch {
+      /* ok */
+    }
     const cache = readVersionCache();
     expect(cache.checkInterval).toBe(86_400);
     expect(cache.dismissed).toEqual([]);

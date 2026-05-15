@@ -75,7 +75,7 @@ function topExt(byExt: Map<string, number>, k = 4): string {
 export function compressTreePaths(
   raw: string,
   _maxDepth?: number,
-  command?: string,
+  command?: string
 ): string {
   void command;
   const lines = raw.replace(/\r\n/g, "\n").split("\n");
@@ -111,7 +111,7 @@ export function compressTreePaths(
     if (collapsedKey) {
       collapsedBuckets.set(
         collapsedKey,
-        (collapsedBuckets.get(collapsedKey) ?? 0) + 1,
+        (collapsedBuckets.get(collapsedKey) ?? 0) + 1
       );
       continue;
     }
@@ -139,9 +139,9 @@ export function compressTreePaths(
   }
 
   const sortedDirs = [...buckets.keys()].sort();
-  const out: string[] = [`_shell_fmt:tree_paths`];
+  const out: string[] = ["_shell_fmt:tree_paths"];
   out.push(
-    `(${paths.length} paths across ${sortedDirs.length} dirs; rolled up)`,
+    `(${paths.length} paths across ${sortedDirs.length} dirs; rolled up)`
   );
 
   for (const h of nonPathLines.slice(0, 2)) out.push(h);

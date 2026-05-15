@@ -66,7 +66,7 @@ export function computeBlastRadius(
   targetKey: string,
   entities: Map<string, IndexedEntity & { community?: number }>,
   reverseAdj: AdjacencyIndex,
-  options: BlastRadiusOptions = {},
+  options: BlastRadiusOptions = {}
 ): BlastRadiusResult {
   const start = performance.now();
   const maxHops = options.maxHops ?? 3;
@@ -157,10 +157,10 @@ export function computeFileBlastRadius(
   filePath: string,
   entities: Map<string, IndexedEntity & { community?: number }>,
   reverseAdj: AdjacencyIndex,
-  options: BlastRadiusOptions = {},
+  options: BlastRadiusOptions = {}
 ): BlastRadiusResult {
   const fileEntities = [...entities.values()].filter(
-    (e) => e.file_path === filePath,
+    (e) => e.file_path === filePath
   );
   if (fileEntities.length === 0) {
     return emptyResult(filePath);
@@ -240,34 +240,34 @@ function generateSuggestions(
     medium: number;
     normal: number;
   },
-  target: (IndexedEntity & { community?: number }) | null | undefined,
+  target: (IndexedEntity & { community?: number }) | null | undefined
 ): string[] {
   const suggestions: string[] = [];
 
   if (riskSummary.critical > 0) {
     suggestions.push(
-      `${riskSummary.critical} critical entity(ies) affected — consider adding overload/adapter pattern to isolate changes.`,
+      `${riskSummary.critical} critical entity(ies) affected — consider adding overload/adapter pattern to isolate changes.`
     );
   }
 
   if (affected.length > 20) {
     suggestions.push(
-      `Wide blast radius (${affected.length} entities). Consider extracting an interface to reduce coupling.`,
+      `Wide blast radius (${affected.length} entities). Consider extracting an interface to reduce coupling.`
     );
   }
 
   const communities = new Set(
-    affected.map((e) => e.community).filter((c) => c >= 0),
+    affected.map((e) => e.community).filter((c) => c >= 0)
   );
   if (communities.size > 2) {
     suggestions.push(
-      `Change spans ${communities.size} communities — verify cross-team contracts are maintained.`,
+      `Change spans ${communities.size} communities — verify cross-team contracts are maintained.`
     );
   }
 
   if (affected.length > 0 && suggestions.length === 0) {
     suggestions.push(
-      `${affected.length} dependent(s) affected. Review callers before modifying.`,
+      `${affected.length} dependent(s) affected. Review callers before modifying.`
     );
   }
 

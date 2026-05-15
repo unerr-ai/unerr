@@ -35,7 +35,7 @@ export function createTemporalRoutes(deps: TemporalRouteDeps): Hono {
     const scope = c.req.query("scope") ?? "project";
     const factType = c.req.query("type");
     const minConfidence = Number.parseFloat(
-      c.req.query("min_confidence") ?? "0.2",
+      c.req.query("min_confidence") ?? "0.2"
     );
     const limit = Number.parseInt(c.req.query("limit") ?? "50", 10);
 
@@ -74,7 +74,7 @@ export function createTemporalRoutes(deps: TemporalRouteDeps): Hono {
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Unknown error" },
-        500,
+        500
       );
     }
   });
@@ -91,7 +91,7 @@ export function createTemporalRoutes(deps: TemporalRouteDeps): Hono {
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Unknown error" },
-        500,
+        500
       );
     }
   });
@@ -129,7 +129,7 @@ export function createTemporalRoutes(deps: TemporalRouteDeps): Hono {
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Unknown error" },
-        500,
+        500
       );
     }
   });
@@ -158,7 +158,7 @@ export function createTemporalRoutes(deps: TemporalRouteDeps): Hono {
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Unknown error" },
-        500,
+        500
       );
     }
   });
@@ -187,7 +187,7 @@ export function createTemporalRoutes(deps: TemporalRouteDeps): Hono {
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Unknown error" },
-        500,
+        500
       );
     }
   });
@@ -203,7 +203,7 @@ export function createTemporalRoutes(deps: TemporalRouteDeps): Hono {
     try {
       await deps.factStore.contradictFact(
         factId,
-        "Manually dismissed from dashboard",
+        "Manually dismissed from dashboard"
       );
 
       deps.emitEvent("fact:expired", {
@@ -215,7 +215,7 @@ export function createTemporalRoutes(deps: TemporalRouteDeps): Hono {
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Unknown error" },
-        500,
+        500
       );
     }
   });

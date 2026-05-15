@@ -117,7 +117,7 @@ export function createNativeWatcher(opts: NativeWatcherOptions): NativeWatcher {
     } catch (err) {
       log.warn(
         "@parcel/watcher native bindings unavailable — file watching disabled.",
-        err instanceof Error ? err.message : String(err),
+        err instanceof Error ? err.message : String(err)
       );
       return;
     }
@@ -144,7 +144,7 @@ export function createNativeWatcher(opts: NativeWatcherOptions): NativeWatcher {
         }
         if (pendingEvents.length > 0) scheduleFlush();
       },
-      { ignore },
+      { ignore }
     );
 
     running = true;

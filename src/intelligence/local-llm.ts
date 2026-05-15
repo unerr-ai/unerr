@@ -115,7 +115,7 @@ class OpenAiCompatibleAdapter implements LocalLlmAdapter {
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       throw new Error(
-        `[LocalLLM] ${this.provider} embedding request failed: ${response.status} ${response.statusText}${body ? ` — ${body.slice(0, 200)}` : ""}`,
+        `[LocalLLM] ${this.provider} embedding request failed: ${response.status} ${response.statusText}${body ? ` — ${body.slice(0, 200)}` : ""}`
       );
     }
 
@@ -183,7 +183,7 @@ class AnthropicDirectAdapter implements LocalLlmAdapter {
 
     this.inner = new OpenAiCompatibleAdapter(
       config,
-      "anthropic-direct (embedding proxy)",
+      "anthropic-direct (embedding proxy)"
     );
   }
 
@@ -203,7 +203,7 @@ class AnthropicDirectAdapter implements LocalLlmAdapter {
  * Returns null if no localLlm config is provided.
  */
 export function createLocalLlmAdapter(
-  config: LocalLlmConfig | undefined,
+  config: LocalLlmConfig | undefined
 ): LocalLlmAdapter | null {
   if (!config) return null;
 
@@ -229,7 +229,7 @@ export function createLocalLlmAdapter(
  * Returns the adapter (available or not) — callers check isAvailable() as needed.
  */
 export async function createAndVerifyAdapter(
-  config: LocalLlmConfig | undefined,
+  config: LocalLlmConfig | undefined
 ): Promise<LocalLlmAdapter | null> {
   const adapter = createLocalLlmAdapter(config);
   if (!adapter) return null;
@@ -237,11 +237,11 @@ export async function createAndVerifyAdapter(
   const available = await adapter.isAvailable();
   if (available) {
     process.stderr.write(
-      `[unerr] BYO-LLM: ${adapter.provider} at ${adapter.baseUrl} ✓ (model: ${adapter.embeddingModel})\n`,
+      `[unerr] BYO-LLM: ${adapter.provider} at ${adapter.baseUrl} ✓ (model: ${adapter.embeddingModel})\n`
     );
   } else {
     process.stderr.write(
-      `[unerr] BYO-LLM: ${adapter.provider} at ${adapter.baseUrl} — not reachable (embeddings disabled)\n`,
+      `[unerr] BYO-LLM: ${adapter.provider} at ${adapter.baseUrl} — not reachable (embeddings disabled)\n`
     );
   }
 

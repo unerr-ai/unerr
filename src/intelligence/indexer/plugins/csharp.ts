@@ -68,7 +68,7 @@ function extractDoc(node: SyntaxNode): string | null {
   while (sibling?.type === "comment") {
     const text = textOf(sibling);
     if (text.startsWith("///")) {
-      doc = text + "\n" + doc;
+      doc = `${text}\n${doc}`;
       sibling = sibling.previousSibling;
       continue;
     }
@@ -81,14 +81,14 @@ function countParameters(node: SyntaxNode): number {
   const params = node.childForFieldName("parameters");
   if (!params) return 0;
   return params.namedChildren.filter(
-    (c) => c.type === "parameter" || c.type === "params_keyword",
+    (c) => c.type === "parameter" || c.type === "params_keyword"
   ).length;
 }
 
 function extractSignature(
   node: SyntaxNode,
   name: string,
-  kind: EntityKind,
+  kind: EntityKind
 ): string {
   if (kind === "class") return `class ${name}`;
   if (kind === "interface") return `interface ${name}`;
@@ -140,7 +140,7 @@ function addEntity(
     isAsync?: boolean;
     paramCount?: number;
     signature?: string;
-  } = {},
+  } = {}
 ): string {
   const scope = currentScope(ctx);
   const key = entityKey(ctx.filePath, kind, name, scope);
@@ -180,7 +180,7 @@ function addEntity(
 function extractBaseTypes(
   node: SyntaxNode,
   entityKey: string,
-  ctx: ExtractorContext,
+  ctx: ExtractorContext
 ): void {
   const baseList =
     node.childForFieldName("bases") ?? node.childForFieldName("base_list");
@@ -199,10 +199,10 @@ function extractBaseTypes(
 function extractBaseList(
   baseList: SyntaxNode,
   key: string,
-  ctx: ExtractorContext,
+  ctx: ExtractorContext
 ): void {
   for (const child of baseList.namedChildren) {
-    const typeName = textOf(child).split("<")[0]!.trim();
+    const typeName = textOf(child).split("<")[0]?.trim();
     if (!typeName || typeName === ":") continue;
 
     const startsWithI =
@@ -349,7 +349,7 @@ function visitNode(node: SyntaxNode, ctx: ExtractorContext): void {
     case "object_creation_expression": {
       const typeNode = node.childForFieldName("type") ?? node.namedChildren[0];
       if (typeNode && ctx.scopeStack.length > 0) {
-        const typeName = textOf(typeNode).split("<")[0]!.trim();
+        const typeName = textOf(typeNode).split("<")[0]?.trim();
         if (typeName) {
           ctx.edges.push({
             from_key: currentScope(ctx),
@@ -398,7 +398,7 @@ function extractImports(tree: Tree, filePath: string): ImportInfo[] {
         (c) =>
           c.type === "qualified_name" ||
           c.type === "identifier" ||
-          c.type === "name_equals",
+          c.type === "name_equals"
       );
 
       if (!nameNode) {
@@ -426,7 +426,7 @@ function extractImports(tree: Tree, filePath: string): ImportInfo[] {
         const target = node.namedChildren.find(
           (c) =>
             c !== nameNode &&
-            (c.type === "qualified_name" || c.type === "identifier"),
+            (c.type === "qualified_name" || c.type === "identifier")
         );
         if (alias && target) {
           imports.push({

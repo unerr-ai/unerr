@@ -85,7 +85,7 @@ export function createContextLedger(unerrDir: string): ContextLedger {
     for (const [entityKey, contextKeys] of delivered) {
       for (const contextKey of contextKeys) {
         const existing = records.find(
-          (r) => r.entityKey === entityKey && r.contextKey === contextKey,
+          (r) => r.entityKey === entityKey && r.contextKey === contextKey
         );
         newRecords.push({
           entityKey,
@@ -131,7 +131,7 @@ export function createContextLedger(unerrDir: string): ContextLedger {
 
   function prune(): number {
     const cutoff = new Date(
-      Date.now() - TTL_DAYS * 24 * 60 * 60 * 1000,
+      Date.now() - TTL_DAYS * 24 * 60 * 60 * 1000
     ).toISOString();
     const before = records.length;
 

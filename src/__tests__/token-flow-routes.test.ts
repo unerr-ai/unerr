@@ -17,12 +17,12 @@ const unerrDir = join(process.cwd(), ".unerr");
 // filter here to keep totals comparable.
 function countRawEvents() {
   const events = readTokenFlowEvents(unerrDir).filter(
-    (e) => e.mechanism !== "persistent_memory",
+    (e) => e.mechanism !== "persistent_memory"
   );
   const sessions = new Set<string>();
-  let saved = 0,
-    without = 0,
-    with_ = 0;
+  let saved = 0;
+  let without = 0;
+  let with_ = 0;
   for (const e of events) {
     sessions.add(e.session_id);
     saved += e.tokens_saved;
@@ -36,7 +36,7 @@ const hasData = countRawEvents().total > 0;
 
 async function fetchRoute(
   app: ReturnType<typeof createTokenFlowRoutes>,
-  path: string,
+  path: string
 ) {
   const res = await app.fetch(new Request(`http://localhost${path}`));
   return {
@@ -66,7 +66,7 @@ describe.skipIf(!hasData)("token-flow API routes", () => {
       expect(d.total_tokens_without).toBe(raw.without);
       expect(d.total_tokens_with).toBe(raw.with_);
       expect(d.efficiency_pct).toBe(
-        Math.round((raw.saved / raw.without) * 100),
+        Math.round((raw.saved / raw.without) * 100)
       );
     });
 
@@ -79,7 +79,7 @@ describe.skipIf(!hasData)("token-flow API routes", () => {
       >;
       const pctSum = Object.values(mechs).reduce(
         (s, m) => s + m.pct_of_total,
-        0,
+        0
       );
       expect(pctSum).toBeGreaterThanOrEqual(98);
       expect(pctSum).toBeLessThanOrEqual(102);
@@ -91,7 +91,7 @@ describe.skipIf(!hasData)("token-flow API routes", () => {
         .by_mechanism as Record<string, { event_count: number }>;
       const evtSum = Object.values(mechs).reduce(
         (s, m) => s + m.event_count,
-        0,
+        0
       );
       expect(evtSum).toBe(raw.total);
     });
@@ -158,7 +158,7 @@ describe.skipIf(!hasData)("token-flow API routes", () => {
 
       const { status, json } = await fetchRoute(
         app,
-        `/session?session_id=${targetId}`,
+        `/session?session_id=${targetId}`
       );
       expect(status).toBe(200);
       const d = json.data as Record<string, unknown>;
@@ -178,7 +178,7 @@ describe.skipIf(!hasData)("token-flow API routes", () => {
 
       const { status, json } = await fetchRoute(
         app,
-        `/cumulative?session_id=${targetId}`,
+        `/cumulative?session_id=${targetId}`
       );
       expect(status).toBe(200);
 
@@ -188,13 +188,13 @@ describe.skipIf(!hasData)("token-flow API routes", () => {
       // Monotonically non-decreasing
       for (let i = 1; i < turns.length; i++) {
         expect(turns[i]!.cumulative_tokens_saved).toBeGreaterThanOrEqual(
-          turns[i - 1]!.cumulative_tokens_saved,
+          turns[i - 1]!.cumulative_tokens_saved
         );
       }
 
       // Last cumulative equals total_saved
       expect(turns[turns.length - 1]!.cumulative_tokens_saved).toBe(
-        json.total_saved,
+        json.total_saved
       );
 
       // Each turn has events and tools array
@@ -216,7 +216,7 @@ describe.skipIf(!hasData)("token-flow API routes", () => {
 
       const { status, json } = await fetchRoute(
         app,
-        `/events?session_id=${targetId}&turn=0`,
+        `/events?session_id=${targetId}&turn=0`
       );
       expect(status).toBe(200);
       const evts = json.data as TokenFlowEvent[];
@@ -236,7 +236,7 @@ describe.skipIf(!hasData)("token-flow API routes", () => {
     it("filters by mechanism", async () => {
       const { status, json } = await fetchRoute(
         app,
-        "/events?mechanism=graph_query",
+        "/events?mechanism=graph_query"
       );
       expect(status).toBe(200);
       const evts = json.data as TokenFlowEvent[];
@@ -272,7 +272,7 @@ describe.skipIf(!hasData)("token-flow API routes", () => {
       for (const s of sessions) {
         const { json } = await fetchRoute(
           app,
-          `/session?session_id=${s.session_id}`,
+          `/session?session_id=${s.session_id}`
         );
         const d = json.data as {
           event_count: number;

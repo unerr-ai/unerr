@@ -105,7 +105,7 @@ export interface RotatableFact extends RankableFact {
  */
 export function rankFactsWithRotation<T extends RotatableFact>(
   facts: T[],
-  opts: FactRotationOptions = {},
+  opts: FactRotationOptions = {}
 ): T[] {
   const {
     getShowCount,
@@ -142,9 +142,7 @@ export function rankFactsWithRotation<T extends RotatableFact>(
     }
     return { fact: f, score };
   });
-  return scored
-    .sort((a, b) => b.score - a.score)
-    .map(({ fact }) => fact);
+  return scored.sort((a, b) => b.score - a.score).map(({ fact }) => fact);
 }
 
 /**
@@ -160,7 +158,7 @@ export function rankFactsWithRotation<T extends RotatableFact>(
 export function applyDiversityQuota<T extends RotatableFact>(
   ranked: T[],
   limit: number,
-  opts: { maxSameTypePct?: number; maxSameSubject?: number } = {},
+  opts: { maxSameTypePct?: number; maxSameSubject?: number } = {}
 ): T[] {
   if (ranked.length <= limit) return [...ranked];
   const { maxSameTypePct = 0.6, maxSameSubject = 2 } = opts;

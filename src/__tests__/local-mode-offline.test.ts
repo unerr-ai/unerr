@@ -155,8 +155,8 @@ describe("Local Mode — Zero Network Leakage (L5.1)", () => {
       if (hostname && !isLocalhostUrl(hostname)) {
         return Promise.reject(
           new Error(
-            `[TEST GUARD] Outbound network call detected to ${hostname}: ${url}`,
-          ),
+            `[TEST GUARD] Outbound network call detected to ${hostname}: ${url}`
+          )
         );
       }
 

@@ -156,7 +156,7 @@ describe("Sprint 3.2: Convention Pattern Matching", () => {
       });
       const violations = await checkImportDirection(
         "src/services/userService.ts",
-        graph,
+        graph
       );
       expect(violations).toHaveLength(1);
       expect(violations[0]?.type).toBe("import_direction");
@@ -169,7 +169,7 @@ describe("Sprint 3.2: Convention Pattern Matching", () => {
       });
       const violations = await checkImportDirection(
         "src/services/userService.ts",
-        graph,
+        graph
       );
       expect(violations).toHaveLength(0);
     });

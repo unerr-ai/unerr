@@ -9,11 +9,11 @@ import { GraphTemporalJoiner } from "../intelligence/graph-temporal-joiner.js";
 function createMockGraph(
   fileEntities: Record<string, Array<{ key: string; file_path: string }>>,
   callerMap: Record<string, Array<{ key: string; file_path: string }>>,
-  calleeMap: Record<string, Array<{ key: string; file_path: string }>>,
+  calleeMap: Record<string, Array<{ key: string; file_path: string }>>
 ) {
   return {
     getEntitiesByFile: vi.fn((filePath: string) =>
-      Promise.resolve(fileEntities[filePath] ?? []),
+      Promise.resolve(fileEntities[filePath] ?? [])
     ),
     getCallersOf: vi.fn((key: string) => Promise.resolve(callerMap[key] ?? [])),
     getCalleesOf: vi.fn((key: string) => Promise.resolve(calleeMap[key] ?? [])),
@@ -27,18 +27,18 @@ function createMockFactStore(
     subject: string;
     content: string;
     base_confidence: number;
-  }>,
+  }>
 ) {
   return {
     recallBySubject: vi.fn((subject: string) =>
       Promise.resolve(
         facts.filter(
-          (f) => f.subject === subject || f.subject.startsWith(subject),
-        ),
-      ),
+          (f) => f.subject === subject || f.subject.startsWith(subject)
+        )
+      )
     ),
     recallByScope: vi.fn((scope: string) =>
-      Promise.resolve(facts.filter((f) => f.scope === scope)),
+      Promise.resolve(facts.filter((f) => f.scope === scope))
     ),
   };
 }
@@ -56,7 +56,7 @@ describe("GraphTemporalJoiner", () => {
             { key: "fnC", file_path: "src/c.ts" },
           ],
         },
-        { fnA: [] },
+        { fnA: [] }
       );
 
       const joiner = new GraphTemporalJoiner(graph as any, null);
@@ -101,7 +101,7 @@ describe("GraphTemporalJoiner", () => {
         {
           fnA: [{ key: "fnB", file_path: "src/b.ts" }],
         },
-        { fnA: [] },
+        { fnA: [] }
       );
       const factStore = createMockFactStore([
         {
@@ -122,7 +122,7 @@ describe("GraphTemporalJoiner", () => {
       expect(results[0].temporal_coupling).toBe(0.7);
       // Combined should be > either alone
       expect(results[0].combined_score).toBeGreaterThan(
-        0.6 * results[0].temporal_coupling,
+        0.6 * results[0].temporal_coupling
       );
     });
 
@@ -160,7 +160,7 @@ describe("GraphTemporalJoiner", () => {
         {
           fnA: [{ key: "fnA2", file_path: "src/a.ts" }],
         },
-        { fnA: [] },
+        { fnA: [] }
       );
 
       const joiner = new GraphTemporalJoiner(graph as any, null);
@@ -181,7 +181,7 @@ describe("GraphTemporalJoiner", () => {
         },
         {
           fnA: [{ key: "fnD", file_path: "src/b.ts" }],
-        },
+        }
       );
 
       const joiner = new GraphTemporalJoiner(graph as any, null);
@@ -189,7 +189,7 @@ describe("GraphTemporalJoiner", () => {
 
       for (let i = 1; i < results.length; i++) {
         expect(results[i - 1].combined_score).toBeGreaterThanOrEqual(
-          results[i].combined_score,
+          results[i].combined_score
         );
       }
     });
@@ -226,7 +226,7 @@ describe("GraphTemporalJoiner", () => {
           "src/a.ts": [{ key: "fnA", file_path: "src/a.ts" }],
         },
         { fnA: [{ key: "fnB", file_path: "src/b.ts" }] },
-        { fnA: [] },
+        { fnA: [] }
       );
       const factStore = createMockFactStore([
         {
@@ -294,7 +294,7 @@ describe("GraphTemporalJoiner", () => {
 
       expect(hidden.length).toBe(2);
       expect(hidden[0].temporal_coupling).toBeGreaterThanOrEqual(
-        hidden[1].temporal_coupling,
+        hidden[1].temporal_coupling
       );
     });
   });

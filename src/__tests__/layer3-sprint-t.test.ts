@@ -51,7 +51,7 @@ describe("Model Pricing (T.2-T.3)", () => {
   it("calculates dollar savings correctly", () => {
     const savings = calculateDollarSavings(
       1_000_000,
-      "claude-sonnet-4-20250514",
+      "claude-sonnet-4-20250514"
     );
     expect(savings).toBe(3.0);
   });

@@ -31,7 +31,7 @@ export function daemonSockPath(): string {
 export function sendRequest(
   sockPath: string,
   request: Record<string, unknown>,
-  timeoutMs = 30_000,
+  timeoutMs = 30_000
 ): Promise<DaemonResponse> {
   return new Promise((resolve, reject) => {
     let buffer = "";
@@ -93,7 +93,7 @@ export function sendRequest(
  */
 export function sendFireAndForget(
   sockPath: string,
-  request: Record<string, unknown>,
+  request: Record<string, unknown>
 ): void {
   try {
     const socket = createConnection(sockPath);
@@ -119,7 +119,7 @@ export function sendFireAndForget(
  */
 export async function ensureRepo(
   sockPath: string,
-  repoPath: string,
+  repoPath: string
 ): Promise<string> {
   const resp = await sendRequest(sockPath, { cmd: "ensure", repo: repoPath });
   if (!resp.ok) {
@@ -134,7 +134,7 @@ export async function ensureRepo(
  */
 export async function connectRepo(
   sockPath: string,
-  repoPath: string,
+  repoPath: string
 ): Promise<void> {
   const resp = await sendRequest(sockPath, { cmd: "connect", repo: repoPath });
   if (!resp.ok) {
@@ -148,7 +148,7 @@ export async function connectRepo(
  */
 export async function disconnectRepo(
   sockPath: string,
-  repoPath: string,
+  repoPath: string
 ): Promise<void> {
   const resp = await sendRequest(sockPath, {
     cmd: "disconnect",
@@ -156,7 +156,7 @@ export async function disconnectRepo(
   });
   if (!resp.ok) {
     throw new Error(
-      `disconnectRepo failed: ${(resp as { error: string }).error}`,
+      `disconnectRepo failed: ${(resp as { error: string }).error}`
     );
   }
 }

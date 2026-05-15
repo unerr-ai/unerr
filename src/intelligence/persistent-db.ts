@@ -45,7 +45,7 @@ const UNERR_DIR = ".unerr";
  * The caller is responsible for calling `db.close()` on shutdown.
  */
 export async function openPersistentDb(
-  projectRoot: string,
+  projectRoot: string
 ): Promise<PersistentDbResult> {
   const unerrDir = join(projectRoot, UNERR_DIR);
   mkdirSync(unerrDir, { recursive: true });

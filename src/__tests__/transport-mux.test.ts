@@ -21,7 +21,7 @@ function createTempDir(): string {
 /** Send a JSON-RPC message over a socket and wait for response. */
 function sendMessage(
   sockPath: string,
-  message: JsonRpcRequest,
+  message: JsonRpcRequest
 ): Promise<JsonRpcResponse> {
   return new Promise((resolve, reject) => {
     const socket = createConnection(sockPath);

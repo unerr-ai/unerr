@@ -78,7 +78,7 @@ describe("smartTruncate", () => {
   it("large entity (10K tokens) with budget 500 → truncated", () => {
     const largeBodies = Array.from(
       { length: 500 },
-      (_, i) => `  const line${i} = processItem(items[${i}]);`,
+      (_, i) => `  const line${i} = processItem(items[${i}]);`
     ).join("\n");
 
     const result = smartTruncate({
@@ -93,7 +93,7 @@ describe("smartTruncate", () => {
     expect(
       result.truncation_level === "signatures_only" ||
         result.truncation_level === "signatures_and_bodies" ||
-        result.truncation_level === "metadata_only",
+        result.truncation_level === "metadata_only"
     ).toBe(true);
     expect(result.content).toContain("lines omitted");
     expect(result.full_tokens_estimate).toBeGreaterThan(500);
@@ -103,7 +103,7 @@ describe("smartTruncate", () => {
   it("budget 50K → full content even for large entities", () => {
     const largeBodies = Array.from(
       { length: 200 },
-      (_, i) => `  const line${i} = processItem(items[${i}]);`,
+      (_, i) => `  const line${i} = processItem(items[${i}]);`
     ).join("\n");
 
     const result = smartTruncate({
@@ -123,7 +123,7 @@ describe("smartTruncate", () => {
     const bodies = Array.from(
       { length: 100 },
       (_, i) =>
-        `  const longVariableName${i} = someVeryLongFunctionCall(param1, param2, param3);`,
+        `  const longVariableName${i} = someVeryLongFunctionCall(param1, param2, param3);`
     ).join("\n");
 
     const result = smartTruncate({
@@ -143,7 +143,7 @@ describe("smartTruncate", () => {
           line.endsWith(";") ||
             line.startsWith("name:") ||
             line.startsWith("kind:") ||
-            line.startsWith("file:"),
+            line.startsWith("file:")
         ).toBe(true);
       }
     }
@@ -225,7 +225,7 @@ describe("smartTruncate", () => {
   it("performance: handles 10K-line entity under 5ms", () => {
     const bigBodies = Array.from(
       { length: 10000 },
-      (_, i) => `  const line${i} = processItem(items[${i}], options);`,
+      (_, i) => `  const line${i} = processItem(items[${i}], options);`
     ).join("\n");
 
     const t0 = performance.now();

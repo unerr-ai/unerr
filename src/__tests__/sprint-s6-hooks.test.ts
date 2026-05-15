@@ -31,7 +31,7 @@ import { detectTools, formatDetectedTools } from "../config/tool-detector.js";
 function makeTmpDir(): string {
   const dir = join(
     tmpdir(),
-    `unerr-s6-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-s6-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(dir, { recursive: true });
   return dir;
@@ -122,12 +122,12 @@ describe("Sprint S6: CLI Hooks Integration", () => {
       mkdirSync(join(cwd, ".claude", "hooks"), { recursive: true });
       writeFileSync(
         join(cwd, ".claude", "hooks", "PostToolUse.sh"),
-        "#!/bin/bash\n# existing",
+        "#!/bin/bash\n# existing"
       );
 
       const result = runInit(cwd);
       expect(result.skipped.some((s) => s.includes("already installed"))).toBe(
-        true,
+        true
       );
     });
 
@@ -139,7 +139,7 @@ describe("Sprint S6: CLI Hooks Integration", () => {
 
       const hookContent = readFileSync(
         join(cwd, ".claude", "hooks", "PostToolUse.sh"),
-        "utf-8",
+        "utf-8"
       );
       expect(hookContent).toContain("compress-output");
       expect(hookContent).toContain("unerr");
@@ -182,13 +182,13 @@ describe("Sprint S6: CLI Hooks Integration", () => {
       };
       writeFileSync(
         join(cwd, ".cursor", "mcp.json"),
-        JSON.stringify(existingConfig),
+        JSON.stringify(existingConfig)
       );
 
       runInit(cwd);
 
       const config = JSON.parse(
-        readFileSync(join(cwd, ".cursor", "mcp.json"), "utf-8"),
+        readFileSync(join(cwd, ".cursor", "mcp.json"), "utf-8")
       );
       expect(config.mcpServers.other).toBeDefined();
       expect(config.mcpServers.unerr).toBeDefined();
@@ -204,12 +204,12 @@ describe("Sprint S6: CLI Hooks Integration", () => {
       };
       writeFileSync(
         join(cwd, ".cursor", "mcp.json"),
-        JSON.stringify(existingConfig),
+        JSON.stringify(existingConfig)
       );
 
       const result = runInit(cwd);
       expect(result.skipped.some((s) => s.includes("already configured"))).toBe(
-        true,
+        true
       );
     });
   });
@@ -230,7 +230,7 @@ describe("Sprint S6: CLI Hooks Integration", () => {
         {
           tokenBudget: 2000,
           entityRiskMap: riskMap,
-        },
+        }
       );
 
       expect(result.output).toBeDefined();
@@ -254,7 +254,7 @@ describe("Sprint S6: CLI Hooks Integration", () => {
       mkdirSync(join(cwd, ".claude", "hooks"), { recursive: true });
       writeFileSync(
         join(cwd, ".claude", "hooks", "PostToolUse.sh"),
-        "#!/bin/bash\n",
+        "#!/bin/bash\n"
       );
 
       expect(isClaudeHookInstalled(cwd)).toBe(true);
@@ -278,7 +278,7 @@ describe("Sprint S6: CLI Hooks Integration", () => {
       expect(removed).toBe(true);
 
       const updated = JSON.parse(
-        readFileSync(join(cwd, ".cursor", "mcp.json"), "utf-8"),
+        readFileSync(join(cwd, ".cursor", "mcp.json"), "utf-8")
       );
       expect(updated.mcpServers.unerr).toBeUndefined();
       expect(updated.mcpServers.other).toBeDefined();
@@ -291,7 +291,7 @@ describe("Sprint S6: CLI Hooks Integration", () => {
       mkdirSync(join(cwd, ".claude", "hooks"), { recursive: true });
       writeFileSync(
         join(cwd, ".claude", "hooks", "PostToolUse.sh"),
-        "#!/bin/bash\n",
+        "#!/bin/bash\n"
       );
 
       expect(isClaudeHookInstalled(cwd)).toBe(true);

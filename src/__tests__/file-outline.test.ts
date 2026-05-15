@@ -16,7 +16,7 @@ describe("buildFileOutline", () => {
     writeFileSync(
       join(dir, "sample.ts"),
       "export function alpha(x: number): number {\n  return x + 1;\n}\n",
-      "utf-8",
+      "utf-8"
     );
 
     const o = await buildFileOutline({
@@ -36,7 +36,7 @@ describe("buildFileOutline", () => {
     writeFileSync(
       join(dir, "cfg.json"),
       JSON.stringify({ foo: 1, bar: { nested: true } }),
-      "utf-8",
+      "utf-8"
     );
 
     const o = await buildFileOutline({
@@ -54,7 +54,7 @@ describe("buildFileOutline", () => {
     writeFileSync(
       join(dir, "main.go"),
       "package main\n\nfunc goAlpha() int { return 1 }\n",
-      "utf-8",
+      "utf-8"
     );
 
     const o = await buildFileOutline({
@@ -72,7 +72,7 @@ describe("buildFileOutline", () => {
     writeFileSync(
       join(dir, "mod.py"),
       "def py_alpha(n):\n    return n + 1\n",
-      "utf-8",
+      "utf-8"
     );
 
     const o = await buildFileOutline({
@@ -90,7 +90,7 @@ describe("buildFileOutline", () => {
     writeFileSync(
       join(dir, "doc.md"),
       "# Title\n\n## Section\nbody\n",
-      "utf-8",
+      "utf-8"
     );
 
     const o = await buildFileOutline({
@@ -115,7 +115,7 @@ describe("buildFileOutline", () => {
         "const PRIVATE_CONST = 2;",
         "export class MyClass {}",
       ].join("\n"),
-      "utf-8",
+      "utf-8"
     );
 
     const o = await buildFileOutline({
@@ -159,7 +159,7 @@ describe("buildFileOutline", () => {
         "export function alpha(): void {}",
         "export function beta(): void {}",
       ].join("\n"),
-      "utf-8",
+      "utf-8"
     );
 
     const o = await buildFileOutline({
@@ -186,7 +186,7 @@ describe("buildFileOutline", () => {
     writeFileSync(
       join(dir, "mod.ts"),
       "export function a() {}\nfunction b() {}\nexport class C {}\n",
-      "utf-8",
+      "utf-8"
     );
 
     const o = await buildFileOutline({

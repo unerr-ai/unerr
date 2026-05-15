@@ -36,12 +36,15 @@ function extOf(path: string): string {
 
 function dirOf(path: string): string {
   const i = path.lastIndexOf("/");
-  return i >= 0 ? path.slice(0, i) + "/" : "./";
+  return i >= 0 ? `${path.slice(0, i)}/` : "./";
 }
 
 function topExt(byExt: Map<string, number>, k = 3): string {
   const sorted = [...byExt.entries()].sort((a, b) => b[1] - a[1]);
-  return sorted.slice(0, k).map(([ext, n]) => `${n} ${ext}`).join(", ");
+  return sorted
+    .slice(0, k)
+    .map(([ext, n]) => `${n} ${ext}`)
+    .join(", ");
 }
 
 /**
@@ -60,7 +63,10 @@ export function compressGitStatus(raw: string): string | null {
   let branch = "";
   let tracking = "";
   let currentBucket: Bucket | null = null;
-  const buckets: Record<Bucket, { files: string[]; statuses: Map<string, number> }> = {
+  const buckets: Record<
+    Bucket,
+    { files: string[]; statuses: Map<string, number> }
+  > = {
     staged: { files: [], statuses: new Map() },
     modified: { files: [], statuses: new Map() },
     untracked: { files: [], statuses: new Map() },
@@ -94,11 +100,14 @@ export function compressGitStatus(raw: string): string | null {
     // any open section so it doesn't get misread as an untracked path.
     if (
       /^(?:no changes added to commit|nothing to commit|nothing added|on branch \S+ nothing|.*working tree clean)/i.test(
-        line.trim(),
+        line.trim()
       )
     ) {
       // Strip trailing "(use 'git add' ...)" boilerplate from the footer
-      trailingMsg = line.trim().replace(/\s*\(use\b[^)]*\)\s*/g, "").trim();
+      trailingMsg = line
+        .trim()
+        .replace(/\s*\(use\b[^)]*\)\s*/g, "")
+        .trim();
       currentBucket = null;
       continue;
     }
@@ -119,13 +128,12 @@ export function compressGitStatus(raw: string): string | null {
         buckets[currentBucket].files.push(path);
         buckets[currentBucket].statuses.set(
           status,
-          (buckets[currentBucket].statuses.get(status) ?? 0) + 1,
+          (buckets[currentBucket].statuses.get(status) ?? 0) + 1
         );
       } else {
         // Untracked section: each line is just a path
         buckets[currentBucket].files.push(stripped);
       }
-      continue;
     }
   }
 
@@ -139,7 +147,7 @@ export function compressGitStatus(raw: string): string | null {
   // let the generic strategy take it.
   if (totalFiles === 0 && !branch) return null;
 
-  const out: string[] = [`_shell_fmt:git_status`];
+  const out: string[] = ["_shell_fmt:git_status"];
   const branchLine = branch
     ? tracking
       ? `branch=${branch}; ${tracking}`
@@ -148,7 +156,12 @@ export function compressGitStatus(raw: string): string | null {
   if (branchLine) out.push(branchLine);
 
   // Per-section rollup: list files individually if ≤6, otherwise group by dir
-  const sectionOrder: Bucket[] = ["staged", "modified", "untracked", "unmerged"];
+  const sectionOrder: Bucket[] = [
+    "staged",
+    "modified",
+    "untracked",
+    "unmerged",
+  ];
   for (const bucket of sectionOrder) {
     const b = buckets[bucket];
     if (b.files.length === 0) continue;
@@ -176,7 +189,9 @@ export function compressGitStatus(raw: string): string | null {
         const ext = extOf(f);
         agg.byExt.set(ext, (agg.byExt.get(ext) ?? 0) + 1);
       }
-      const sortedDirs = [...byDir.entries()].sort((a, b2) => b2[1].total - a[1].total);
+      const sortedDirs = [...byDir.entries()].sort(
+        (a, b2) => b2[1].total - a[1].total
+      );
       for (const [dir, agg] of sortedDirs.slice(0, 8)) {
         out.push(`  ${dir} (${agg.total}: ${topExt(agg.byExt)})`);
       }

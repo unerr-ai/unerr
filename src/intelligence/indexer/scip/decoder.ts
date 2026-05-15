@@ -50,7 +50,7 @@ export interface ScipDecodeResult {
  * Decode a SCIP protobuf output file into structured symbol occurrences.
  */
 export async function decodeScipOutput(
-  filePath: string,
+  filePath: string
 ): Promise<ScipDecodeResult> {
   const start = performance.now();
 
@@ -80,7 +80,7 @@ export async function decodeScipOutput(
       // field 2 = documents (length-delimited)
       if (field.fieldNumber === 2 && field.wireType === 2) {
         const doc = parseDocument(field.data as Buffer);
-        if (doc && doc.relativePath) {
+        if (doc?.relativePath) {
           documents.push(doc);
           symbolCount += doc.symbols.length;
           definitionCount += doc.symbols.filter((s) => s.isDefinition).length;
@@ -90,13 +90,13 @@ export async function decodeScipOutput(
     }
   } catch (err) {
     log.warn(
-      `SCIP decode error: ${err instanceof Error ? err.message : String(err)} (decoded ${documents.length} docs before failure)`,
+      `SCIP decode error: ${err instanceof Error ? err.message : String(err)} (decoded ${documents.length} docs before failure)`
     );
   }
 
   const durationMs = performance.now() - start;
   log.info(
-    `SCIP decoded: ${documents.length} docs, ${symbolCount} symbols (${definitionCount} defs, ${referenceCount} refs) in ${Math.round(durationMs)}ms`,
+    `SCIP decoded: ${documents.length} docs, ${symbolCount} symbols (${definitionCount} defs, ${referenceCount} refs) in ${Math.round(durationMs)}ms`
   );
 
   return {
@@ -155,7 +155,7 @@ function parseDocument(data: Buffer): ScipDocument | null {
 
 function parseOccurrence(
   data: Buffer,
-  filePath: string,
+  filePath: string
 ): ScipSymbolOccurrence | null {
   let symbol = "";
   let line = 0;
@@ -277,7 +277,7 @@ function readField(buffer: Buffer, offset: number): FieldResult | null {
 
 function readVarint(
   buffer: Buffer,
-  offset: number,
+  offset: number
 ): { value: number; offset: number } | null {
   let value = 0;
   let shift = 0;

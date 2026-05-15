@@ -22,7 +22,7 @@ describe("runPreBashHook", () => {
     expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
     expect(out.hookSpecificOutput.permissionDecision).toBe("allow");
     expect(out.hookSpecificOutput.updatedInput.command).toBe(
-      "unerr exec -- ps aux",
+      "unerr exec -- ps aux"
     );
   });
 
@@ -58,7 +58,7 @@ describe("runPreBashHook", () => {
 describe("parseExecCommandLine", () => {
   it("parses tokens after exec and optional --", () => {
     expect(
-      parseExecCommandLine(["node", "cli", "exec", "--", "echo", "a"]),
+      parseExecCommandLine(["node", "cli", "exec", "--", "echo", "a"])
     ).toBe("echo a");
     expect(parseExecCommandLine(["exec", "pwd"])).toBe("pwd");
   });
@@ -120,7 +120,7 @@ describe("mergePreToolUseBashHook", () => {
     expect(r.ok).toBe(true);
     expect(r.action).toBe("merged");
     const settings = JSON.parse(
-      readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
+      readFileSync(join(dir, ".claude", "settings.json"), "utf-8")
     ) as { hooks: { PreToolUse: unknown[] } };
     expect(settings.hooks.PreToolUse.length).toBeGreaterThan(0);
     rmSync(dir, { recursive: true, force: true });
@@ -139,7 +139,7 @@ describe("mergePreToolUseBashHook", () => {
     expect(r2.ok).toBe(true);
     // Idempotent in the on-disk sense: two merges produce identical settings.
     const settings = JSON.parse(
-      readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
+      readFileSync(join(dir, ".claude", "settings.json"), "utf-8")
     );
     const preTool = settings.hooks?.PreToolUse;
     expect(Array.isArray(preTool)).toBe(true);
@@ -153,7 +153,7 @@ describe("mergePreToolUseBashHook", () => {
         hooks?: Array<{ command?: string }>;
       }>
     ).filter((entry) =>
-      entry.hooks?.some((h) => (h.command ?? "").includes("unerr")),
+      entry.hooks?.some((h) => (h.command ?? "").includes("unerr"))
     );
     expect(unerrEntries.length).toBe(6);
     const matchers = unerrEntries.map((e) => e.matcher).sort();

@@ -14,7 +14,7 @@ import { generateLocalRules } from "../intelligence/local-rule-generator.js";
 function createMockDB(
   entities: Array<[string, string, string, string]>,
   edges: Array<[string, string, string]> = [],
-  communities: Array<[number, string, number]> = [],
+  communities: Array<[number, string, number]> = []
 ): ConventionDetectorDB {
   return {
     async run(query: string) {
@@ -47,7 +47,7 @@ describe("detectLocalConventions", () => {
     const result = await detectLocalConventions(db);
 
     const camelCaseFn = result.conventions.find(
-      (c) => c.key === "naming-function-camelCase",
+      (c) => c.key === "naming-function-camelCase"
     );
     expect(camelCaseFn).toBeDefined();
     expect(camelCaseFn?.confidence).toBe(1.0);
@@ -66,7 +66,7 @@ describe("detectLocalConventions", () => {
     const result = await detectLocalConventions(db);
 
     const pascalClass = result.conventions.find(
-      (c) => c.key === "naming-class-PascalCase",
+      (c) => c.key === "naming-class-PascalCase"
     );
     expect(pascalClass).toBeDefined();
     expect(pascalClass?.confidence).toBe(1.0);
@@ -85,7 +85,7 @@ describe("detectLocalConventions", () => {
     const result = await detectLocalConventions(db);
 
     const componentConvention = result.conventions.find(
-      (c) => c.key === "naming-component-PascalCase",
+      (c) => c.key === "naming-component-PascalCase"
     );
     expect(componentConvention).toBeDefined();
     expect(componentConvention?.name).toBe("PascalCase React components");
@@ -103,7 +103,7 @@ describe("detectLocalConventions", () => {
 
     // With 1/3 camelCase, shouldn't detect camelCase as convention
     const camelCaseFn = result.conventions.find(
-      (c) => c.key === "naming-function-camelCase",
+      (c) => c.key === "naming-function-camelCase"
     );
     // 1/3 = 33% < 60% threshold
     expect(camelCaseFn).toBeUndefined();
@@ -121,7 +121,7 @@ describe("detectLocalConventions", () => {
     const singleKind = result.conventions.find(
       (c) =>
         c.key.startsWith("structure-single-kind-") &&
-        c.name.includes("src/utils"),
+        c.name.includes("src/utils")
     );
     expect(singleKind).toBeDefined();
     expect(singleKind?.kind).toBe("structure");
@@ -140,7 +140,7 @@ describe("detectLocalConventions", () => {
     const result = await detectLocalConventions(db);
 
     const testPattern = result.conventions.find(
-      (c) => c.key === "structure-test-segregated",
+      (c) => c.key === "structure-test-segregated"
     );
     expect(testPattern).toBeDefined();
     expect(testPattern?.kind).toBe("structure");
@@ -161,13 +161,13 @@ describe("detectLocalConventions", () => {
       [
         [0, "controllers", 1],
         [1, "utils", 2],
-      ],
+      ]
     );
 
     const result = await detectLocalConventions(db);
 
     const leafModule = result.conventions.find((c) =>
-      c.key.startsWith("import-direction-leaf-"),
+      c.key.startsWith("import-direction-leaf-")
     );
     expect(leafModule).toBeDefined();
     expect(leafModule?.kind).toBe("import_direction");
@@ -263,7 +263,7 @@ describe("generateLocalRules", () => {
 
     // Naming rules should have engine: "structural"
     const namingRules = generation.rules.filter((r) =>
-      r.key.includes("naming"),
+      r.key.includes("naming")
     );
     for (const rule of namingRules) {
       expect(rule.engine).toBe("structural");
@@ -320,7 +320,7 @@ describe("generateLocalRules", () => {
     const generation = generateLocalRules(detection.conventions, "test-repo");
 
     const structureRules = generation.rules.filter((r) =>
-      r.key.includes("structure"),
+      r.key.includes("structure")
     );
     for (const rule of structureRules) {
       expect(rule.severity).toBe("info");
@@ -341,14 +341,14 @@ describe("generateLocalRules", () => {
       [
         [0, "controllers", 1],
         [1, "utils", 2],
-      ],
+      ]
     );
 
     const detection = await detectLocalConventions(db);
     const generation = generateLocalRules(detection.conventions, "test-repo");
 
     const importRules = generation.rules.filter((r) =>
-      r.key.includes("import-direction"),
+      r.key.includes("import-direction")
     );
     for (const rule of importRules) {
       expect(rule.severity).toBe("warn");
@@ -386,7 +386,7 @@ describe("L6 convention pipeline integration", () => {
         [0, "services", 2],
         [1, "controllers", 1],
         [2, "utils", 1],
-      ],
+      ]
     );
 
     // Step 1: Detect conventions
@@ -402,7 +402,7 @@ describe("L6 convention pipeline integration", () => {
     for (const pattern of detection.patterns) {
       expect(pattern.promoted_rule_key).toMatch(/^local-rule-/);
       const linkedRule = generation.rules.find(
-        (r) => r.key === pattern.promoted_rule_key,
+        (r) => r.key === pattern.promoted_rule_key
       );
       expect(linkedRule).toBeDefined();
     }

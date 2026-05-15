@@ -20,7 +20,7 @@ let unerrDir: string;
 beforeEach(() => {
   tempDir = join(
     tmpdir(),
-    `unerr-ledger-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-ledger-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   unerrDir = join(tempDir, ".unerr");
   mkdirSync(unerrDir, { recursive: true });
@@ -42,7 +42,7 @@ describe("ShadowLedger", () => {
       { key: "abc" },
       { found: true },
       "main",
-      "deadbeef",
+      "deadbeef"
     );
 
     const filePath = join(unerrDir, "ledger", "shadow.jsonl");
@@ -112,7 +112,7 @@ describe("ShadowLedger", () => {
       { diff: "..." },
       {},
       "main",
-      "aaa",
+      "aaa"
     );
 
     expect(sync.correlation_id).toBe(root.id);
@@ -138,7 +138,7 @@ describe("ShadowLedger", () => {
       { content: longValue },
       {},
       "main",
-      "aaa",
+      "aaa"
     );
 
     const truncated = entry.args_summary.content as string;

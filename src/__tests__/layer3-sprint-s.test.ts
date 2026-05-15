@@ -89,7 +89,7 @@ describe("Subgraph Cache (S.3)", () => {
     cache.warmDirectory(
       "src/auth",
       ["src/auth/login.ts", "src/auth/logout.ts"],
-      (f) => ({ file: f }),
+      (f) => ({ file: f })
     );
     expect(cache.has("src/auth/login.ts")).toBe(true);
     expect(cache.has("src/auth/logout.ts")).toBe(true);
@@ -113,7 +113,7 @@ describe("Subgraph Cache (S.3)", () => {
     cache.warmDirectory(
       "src/auth",
       ["src/auth/a.ts", "src/auth/b.ts"],
-      (f) => f,
+      (f) => f
     );
     cache.invalidateDirectory("src/auth");
     expect(cache.has("src/auth/a.ts")).toBe(false);
@@ -133,7 +133,7 @@ describe("Approach Suggestions (S.4)", () => {
       "processPayment",
       "critical",
       55,
-      "function",
+      "function"
     );
     expect(suggestion).not.toBeNull();
     expect(suggestion?.pattern).toBe("overload-adapter");
@@ -146,7 +146,7 @@ describe("Approach Suggestions (S.4)", () => {
       "validateInput",
       "high",
       35,
-      "function",
+      "function"
     );
     expect(suggestion).not.toBeNull();
     expect(suggestion?.pattern).toBe("feature-flag");
@@ -158,7 +158,7 @@ describe("Approach Suggestions (S.4)", () => {
       "helperFn",
       "high",
       10,
-      "function",
+      "function"
     );
     expect(suggestion).not.toBeNull();
     expect(suggestion?.pattern).toBe("test-first");
@@ -166,7 +166,7 @@ describe("Approach Suggestions (S.4)", () => {
 
   it("returns null for low-risk entities", () => {
     expect(
-      suggestApproach("k4", "simpleUtil", "normal", 3, "function"),
+      suggestApproach("k4", "simpleUtil", "normal", 3, "function")
     ).toBeNull();
   });
 

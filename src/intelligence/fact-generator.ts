@@ -48,14 +48,14 @@ export interface CausalBridgeEvent {
  */
 export async function runFactGenerationPipeline(
   factStore: TemporalFactStore,
-  unerrDir: string,
+  unerrDir: string
 ): Promise<FactGeneratorResult[]> {
   const results: FactGeneratorResult[] = [];
 
   try {
     const sessionResult = await generateFromSessionAnalysis(
       factStore,
-      unerrDir,
+      unerrDir
     );
     if (sessionResult) results.push(sessionResult);
   } catch {
@@ -76,7 +76,7 @@ export async function runFactGenerationPipeline(
  */
 export async function generateFromConventions(
   factStore: TemporalFactStore,
-  conventions: DetectedConvention[],
+  conventions: DetectedConvention[]
 ): Promise<FactGeneratorResult> {
   let created = 0;
   let reinforced = 0;
@@ -126,7 +126,7 @@ export async function generateFromConventions(
  */
 export async function generateFromNegativeKnowledge(
   factStore: TemporalFactStore,
-  corrections: CorrectionEntry[],
+  corrections: CorrectionEntry[]
 ): Promise<FactGeneratorResult> {
   let created = 0;
   const reinforced = 0;
@@ -148,7 +148,7 @@ export async function generateFromNegativeKnowledge(
     if (factId) {
       created++;
       details.push(
-        `[negative] ${correction.entityKey}: ${content.slice(0, 60)}`,
+        `[negative] ${correction.entityKey}: ${content.slice(0, 60)}`
       );
     }
   }
@@ -167,7 +167,7 @@ export async function generateFromNegativeKnowledge(
  */
 export async function generateFromCausalBridge(
   factStore: TemporalFactStore,
-  events: CausalBridgeEvent[],
+  events: CausalBridgeEvent[]
 ): Promise<FactGeneratorResult> {
   let created = 0;
   const reinforced = 0;
@@ -227,7 +227,7 @@ export async function generateFromCausalBridge(
  */
 export async function generateFromSessionAnalysis(
   factStore: TemporalFactStore,
-  unerrDir: string,
+  unerrDir: string
 ): Promise<FactGeneratorResult> {
   let created = 0;
   const reinforced = 0;
@@ -293,7 +293,7 @@ export async function generateFromSessionAnalysis(
 
 function loadRecentSessions(
   unerrDir: string,
-  limit: number,
+  limit: number
 ): SessionSummaryRecord[] {
   const sessionsDir = join(unerrDir, "sessions");
   if (!existsSync(sessionsDir)) return [];
@@ -328,7 +328,7 @@ function loadRecentSessions(
  * Returns [file, frequency] pairs sorted by frequency descending.
  */
 function detectHotFiles(
-  summaries: SessionSummaryRecord[],
+  summaries: SessionSummaryRecord[]
 ): Array<[string, number]> {
   const fileCounts = new Map<string, number>();
   const total = summaries.length;
@@ -356,7 +356,7 @@ function detectHotFiles(
  * A file modified in session with revert_count > 0 = potential fragile file.
  */
 function detectHighRevertFiles(
-  summaries: SessionSummaryRecord[],
+  summaries: SessionSummaryRecord[]
 ): Array<[string, number]> {
   const fileModifiedCount = new Map<string, number>();
   const fileRevertCount = new Map<string, number>();

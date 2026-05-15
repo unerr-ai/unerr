@@ -19,10 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  initFactsSchema,
-  openFactsDb,
-} from "../intelligence/facts-schema.js";
+import { initFactsSchema, openFactsDb } from "../intelligence/facts-schema.js";
 import { SignalShowStore } from "../intelligence/signal-show-store.js";
 
 describe("SignalShowStore — multi-session contract", () => {

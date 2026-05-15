@@ -33,11 +33,11 @@ export function ProgressBar({
   const fillWidth = clamped * width;
   const fullBlocks = Math.floor(fillWidth);
   const partialIndex = Math.round(
-    (fillWidth - fullBlocks) * (BLOCKS.length - 1),
+    (fillWidth - fullBlocks) * (BLOCKS.length - 1)
   );
   const emptyBlocks = Math.max(
     0,
-    width - fullBlocks - (partialIndex > 0 ? 1 : 0),
+    width - fullBlocks - (partialIndex > 0 ? 1 : 0)
   );
 
   const bar =

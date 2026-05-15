@@ -99,7 +99,7 @@ export function startUdsBridge(sockPath: string): Promise<BridgeResult> {
           missedHeartbeats++;
           if (missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
             log.warn(
-              `${MAX_MISSED_HEARTBEATS} heartbeats missed — daemon appears dead`,
+              `${MAX_MISSED_HEARTBEATS} heartbeats missed — daemon appears dead`
             );
             cleanup("daemon_dead");
             return;
@@ -114,7 +114,7 @@ export function startUdsBridge(sockPath: string): Promise<BridgeResult> {
           params: { ts: Date.now() },
         });
         try {
-          socket.write(ping + "\n");
+          socket.write(`${ping}\n`);
         } catch {
           cleanup("daemon_dead");
           return;

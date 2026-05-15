@@ -62,13 +62,13 @@ export interface SessionWriterContext {
  */
 export function writeSessionSummary(
   unerrDir: string,
-  ctx: SessionWriterContext,
+  ctx: SessionWriterContext
 ): SessionSummaryRecord | null {
   if (ctx.entries.length === 0) return null;
 
   try {
     const sorted = [...ctx.entries].sort(
-      (a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime(),
+      (a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime()
     );
     const first = sorted[0]!;
     const last = sorted[sorted.length - 1]!;
@@ -145,7 +145,7 @@ export function writeSessionSummary(
     return record;
   } catch (err) {
     process.stderr.write(
-      `[unerr:session] WARN: Failed to write session summary: ${err instanceof Error ? err.message : String(err)}\n`,
+      `[unerr:session] WARN: Failed to write session summary: ${err instanceof Error ? err.message : String(err)}\n`
     );
     return null;
   }
@@ -172,7 +172,7 @@ export function readLastSession(unerrDir: string): SessionSummaryRecord | null {
 function writeLastSessionPointer(
   unerrDir: string,
   sessionId: string,
-  record: SessionSummaryRecord,
+  record: SessionSummaryRecord
 ): void {
   try {
     const stateDir = join(unerrDir, "state");

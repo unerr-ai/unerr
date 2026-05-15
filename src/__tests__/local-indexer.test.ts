@@ -37,7 +37,7 @@ export class App {
     main();
   }
 }
-`,
+`
   );
 
   writeFileSync(
@@ -55,7 +55,7 @@ export interface Greeting {
   name: string;
   message: string;
 }
-`,
+`
   );
 
   writeFileSync(
@@ -73,7 +73,7 @@ export interface UserConfig {
   timeout: number;
   retries: number;
 }
-`,
+`
   );
 
   return dir;
@@ -103,7 +103,7 @@ describe("discoverSourceFiles", () => {
     });
     writeFileSync(
       join(projectDir, "node_modules", "fake-pkg", "index.ts"),
-      "export const x = 1;",
+      "export const x = 1;"
     );
 
     const files = discoverSourceFiles(projectDir);
@@ -282,7 +282,7 @@ describe("DriftTracker local reindex hook", () => {
         unerrDir: "/tmp/test/.unerr",
       },
       mockGraph,
-      mockHashManager,
+      mockHashManager
     );
 
     const mockReindex = vi.fn().mockResolvedValue({ entities: 5, edges: 3 });

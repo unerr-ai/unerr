@@ -56,7 +56,7 @@ function defaultLog(level: "info" | "warn", msg: string): void {
  * as "timeline is off" and continue normally.
  */
 export async function startTimelineBootstrap(
-  opts: TimelineBootstrapOptions,
+  opts: TimelineBootstrapOptions
 ): Promise<TimelineBootstrapHandle | null> {
   if (process.env.UNERR_TIMELINE_V2 === "0") return null;
 
@@ -68,7 +68,7 @@ export async function startTimelineBootstrap(
   } catch (err) {
     log(
       "warn",
-      `init failed: ${err instanceof Error ? err.message : String(err)}`,
+      `init failed: ${err instanceof Error ? err.message : String(err)}`
     );
     return null;
   }
@@ -82,7 +82,7 @@ export async function startTimelineBootstrap(
     store.upsertTurn(rollup).catch((err: unknown) => {
       log(
         "warn",
-        `upsertTurn failed for ${rollup.turn_id}: ${err instanceof Error ? err.message : String(err)}`,
+        `upsertTurn failed for ${rollup.turn_id}: ${err instanceof Error ? err.message : String(err)}`
       );
     });
     // ST-4: persist distinct files touched in this turn so the intent stitcher
@@ -94,7 +94,7 @@ export async function startTimelineBootstrap(
         .catch((err: unknown) => {
           log(
             "warn",
-            `recordSessionFiles failed for ${event.session_id}: ${err instanceof Error ? err.message : String(err)}`,
+            `recordSessionFiles failed for ${event.session_id}: ${err instanceof Error ? err.message : String(err)}`
           );
         });
     }
@@ -102,12 +102,14 @@ export async function startTimelineBootstrap(
     // (after MCP `initialize`) still gets recorded.
     const agentName = opts.getAgentName?.();
     if (agentName) {
-      store.setSessionAgent(event.session_id, agentName).catch((err: unknown) => {
-        log(
-          "warn",
-          `setSessionAgent failed for ${event.session_id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+      store
+        .setSessionAgent(event.session_id, agentName)
+        .catch((err: unknown) => {
+          log(
+            "warn",
+            `setSessionAgent failed for ${event.session_id}: ${err instanceof Error ? err.message : String(err)}`
+          );
+        });
     }
   });
 
@@ -128,12 +130,13 @@ export async function startTimelineBootstrap(
  */
 export function computeTurnRollup(
   event: TurnCloseEvent,
-  entries: LedgerEntry[],
+  entries: LedgerEntry[]
 ): TurnRow {
   const tsValues = entries
     .map((e) => Date.parse(e.ts))
     .filter((n) => Number.isFinite(n));
-  const started_at = tsValues.length > 0 ? Math.min(...tsValues) : event.closed_at;
+  const started_at =
+    tsValues.length > 0 ? Math.min(...tsValues) : event.closed_at;
 
   const filePaths = new Set<string>();
   let edit_count = 0;

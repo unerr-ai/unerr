@@ -33,7 +33,7 @@ function buildEnrichmentPrompt(entities: EnrichableEntity[]): string {
   const entityBlock = entities
     .map(
       (e, i) =>
-        `[${i + 1}] ${e.kind} "${e.name}" in ${e.filePath}\n    Signature: ${e.signature || "(none)"}`,
+        `[${i + 1}] ${e.kind} "${e.name}" in ${e.filePath}\n    Signature: ${e.signature || "(none)"}`
     )
     .join("\n");
 
@@ -54,7 +54,7 @@ Respond ONLY with the JSON array, no other text.`;
 
 function parseEnrichmentResponse(
   text: string,
-  count: number,
+  count: number
 ): EnrichmentResult[] {
   // Extract JSON array from response (may be wrapped in markdown code blocks)
   const jsonMatch = text.match(/\[[\s\S]*\]/);
@@ -112,7 +112,7 @@ export async function runEnrich(opts: {
     process.stderr.write(
       "[unerr] Error: BYO-LLM required for enrichment.\n" +
         "[unerr] Configure localLlm in ~/.unerr/settings.json:\n" +
-        '[unerr]   { "localLlm": { "provider": "ollama", "chatModel": "llama3" } }\n',
+        '[unerr]   { "localLlm": { "provider": "ollama", "chatModel": "llama3" } }\n'
     );
     process.exit(1);
   }
@@ -123,7 +123,7 @@ export async function runEnrich(opts: {
   );
   if (!hasPersistedGraph(cwd)) {
     process.stderr.write(
-      "[unerr] No persistent graph found. Run 'unerr index' first.\n",
+      "[unerr] No persistent graph found. Run 'unerr index' first.\n"
     );
     process.exit(1);
   }
@@ -136,7 +136,7 @@ export async function runEnrich(opts: {
   let entities: EnrichableEntity[];
   if (opts.force) {
     const result = await db.run(
-      "?[key, kind, name, file_path, signature] := *entities{key, kind, name, file_path, signature}",
+      "?[key, kind, name, file_path, signature] := *entities{key, kind, name, file_path, signature}"
     );
     entities = result.rows.map((row) => ({
       key: row[0] as string,
@@ -150,7 +150,7 @@ export async function runEnrich(opts: {
     const result = await db.run(
       `?[key, kind, name, file_path, signature] :=
         *entities{key, kind, name, file_path, signature},
-        not *justifications{entity_key: key}`,
+        not *justifications{entity_key: key}`
     );
     entities = result.rows.map((row) => ({
       key: row[0] as string,
@@ -167,18 +167,18 @@ export async function runEnrich(opts: {
 
   if (entities.length === 0) {
     process.stderr.write(
-      "[unerr] All entities already have business context. Use --force to re-enrich.\n",
+      "[unerr] All entities already have business context. Use --force to re-enrich.\n"
     );
     if (opts.json) {
       process.stdout.write(
-        `${JSON.stringify({ enriched: 0, total: 0, skipped: true })}\n`,
+        `${JSON.stringify({ enriched: 0, total: 0, skipped: true })}\n`
       );
     }
     return;
   }
 
   process.stderr.write(
-    `[unerr] Enriching ${entities.length} entities via ${settings.localLlm.chatModel ?? settings.localLlm.provider}...\n`,
+    `[unerr] Enriching ${entities.length} entities via ${settings.localLlm.chatModel ?? settings.localLlm.provider}...\n`
   );
 
   // 4. Create chat provider for LLM calls
@@ -200,7 +200,7 @@ export async function runEnrich(opts: {
         [],
         "You are a precise code analysis assistant. Always respond with valid JSON.",
         4096,
-        () => {}, // No streaming UI needed for enrichment
+        () => {} // No streaming UI needed for enrichment
       );
 
       const results = parseEnrichmentResponse(response.text, batch.length);
@@ -223,12 +223,12 @@ export async function runEnrich(opts: {
       }
     } catch (err) {
       process.stderr.write(
-        `[unerr] Batch ${Math.floor(i / batchSize) + 1} failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        `[unerr] Batch ${Math.floor(i / batchSize) + 1} failed: ${err instanceof Error ? err.message : String(err)}\n`
       );
     }
 
     process.stderr.write(
-      `[unerr] Enriched ${enriched}/${entities.length} entities...\n`,
+      `[unerr] Enriched ${enriched}/${entities.length} entities...\n`
     );
   }
 
@@ -237,10 +237,10 @@ export async function runEnrich(opts: {
   // Justifications are persisted directly in CozoDB — no snapshot re-export needed.
 
   process.stderr.write(
-    `[unerr] Enrichment complete: ${enriched} entities via ${settings.localLlm.chatModel ?? settings.localLlm.provider} in ${elapsed}s\n`,
+    `[unerr] Enrichment complete: ${enriched} entities via ${settings.localLlm.chatModel ?? settings.localLlm.provider} in ${elapsed}s\n`
   );
   process.stderr.write(
-    "[unerr]   get_business_context now returns full context for enriched entities\n",
+    "[unerr]   get_business_context now returns full context for enriched entities\n"
   );
 
   if (opts.json) {
@@ -250,7 +250,7 @@ export async function runEnrich(opts: {
         total: entities.length,
         model: settings.localLlm.chatModel,
         elapsedSeconds: Number.parseFloat(elapsed),
-      })}\n`,
+      })}\n`
     );
   }
 }
@@ -261,7 +261,7 @@ export function registerEnrichCommand(program: Command): void {
   program
     .command("enrich")
     .description(
-      "Generate business context (purpose, taxonomy, feature_area) for code entities via BYO-LLM",
+      "Generate business context (purpose, taxonomy, feature_area) for code entities via BYO-LLM"
     )
     .option("--batch-size <n>", "Entities per LLM batch", "10")
     .option("--limit <n>", "Max entities to enrich")
@@ -280,6 +280,6 @@ export function registerEnrichCommand(program: Command): void {
           force: opts.force,
           json: opts.json,
         });
-      },
+      }
     );
 }

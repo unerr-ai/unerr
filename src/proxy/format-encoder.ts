@@ -33,7 +33,7 @@ export const COLUMNAR_LEGEND_TEXT =
 
 export function isUniformObjectArray(arr: unknown[]): boolean {
   const objects = arr.filter(
-    (x) => x !== null && typeof x === "object" && !Array.isArray(x),
+    (x) => x !== null && typeof x === "object" && !Array.isArray(x)
   );
   if (objects.length !== arr.length || objects.length === 0) return false;
   const firstKeys = new Set(Object.keys(objects[0] as object));
@@ -79,11 +79,11 @@ export function escapeColumnarCell(value: unknown): string {
 
 export function encodeColumnar(
   rows: Record<string, unknown>[],
-  columns: string[],
+  columns: string[]
 ): string {
   const header = `_fmt:columnar\n${columns.join("|")}`;
   const lines = rows.map((row) =>
-    columns.map((c) => escapeColumnarCell(row[c])).join("|"),
+    columns.map((c) => escapeColumnarCell(row[c])).join("|")
   );
   return `${header}\n${lines.join("\n")}`;
 }
@@ -116,7 +116,7 @@ export function encodeMultiSection(
     name: string;
     items: unknown[];
     kind: "uniform-object" | "string-list";
-  }>,
+  }>
 ): string {
   const lines: string[] = ["_fmt:multi"];
 
@@ -177,7 +177,7 @@ export function formatToolOutput(
   toolName: string,
   content: unknown,
   meta: Layer6FormatMeta,
-  options?: Layer6FormatOptions,
+  options?: Layer6FormatOptions
 ): unknown {
   void toolName;
   const tier = options?.tier ?? "columnar";
@@ -253,7 +253,7 @@ export function formatToolOutput(
     if (typeof content === "object" && content !== null) {
       const obj = content as Record<string, unknown>;
       const arrayFieldsPresent = KNOWN_ARRAY_WRAPPERS.filter(
-        (k) => k in obj && Array.isArray(obj[k]),
+        (k) => k in obj && Array.isArray(obj[k])
       );
 
       // P6.2: 2+ recognized arrays → _fmt:multi.
@@ -298,7 +298,7 @@ export function formatToolOutput(
                 !Array.isArray(v) &&
                 v !== undefined &&
                 v !== null &&
-                typeof v !== "object",
+                typeof v !== "object"
             )
             .map(([k, v]) => `${k}=${String(v)}`)
             .join("|");

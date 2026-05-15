@@ -21,6 +21,7 @@ import {
   readdirSync,
 } from "node:fs";
 import { join } from "node:path";
+import { aliasAndValidate } from "./arg-validator.js";
 import { PidLock } from "./pid-lock.js";
 import {
   type SessionStats,
@@ -45,7 +46,6 @@ import {
 import { StartupRenderer } from "./startup-renderer.js";
 import { ToolUsageTracker, reorderToolsByCluster } from "./tool-clusters.js";
 import { TOOL_DEFINITIONS } from "./tool-definitions.js";
-import { aliasAndValidate } from "./arg-validator.js";
 
 import { installFileLogger } from "../utils/file-logger.js";
 import { formatUnknownError } from "../utils/format-error.js";
@@ -76,13 +76,17 @@ export interface ProxyOptions {
 
 // ── Layer 9: Fact tool handlers for long-lived proxy ────────────────
 
-type FactStoreType = import("../intelligence/temporal-facts.js").TemporalFactStore;
-type SignalShowStoreType = import("../intelligence/signal-show-store.js").SignalShowStore;
+type FactStoreType = import(
+  "../intelligence/temporal-facts.js"
+).TemporalFactStore;
+type SignalShowStoreType = import(
+  "../intelligence/signal-show-store.js"
+).SignalShowStore;
 let proxyFactStore: FactStoreType | null | undefined = undefined; // undefined = not yet initialized
 let proxyShowStore: SignalShowStoreType | null = null;
 
 async function getProxyFactStore(
-  unerrDir: string,
+  unerrDir: string
 ): Promise<FactStoreType | null> {
   if (proxyFactStore !== undefined) return proxyFactStore;
   try {
@@ -103,9 +107,11 @@ async function handleRecordFactProxy(
   unerrDir: string,
   shadowLedger: import("../tracking/shadow-ledger.js").ShadowLedger,
   effectiveness?: {
-    tracker: import("../tracking/persistence-effectiveness.js").PersistenceEffectivenessTracker;
+    tracker: import(
+      "../tracking/persistence-effectiveness.js"
+    ).PersistenceEffectivenessTracker;
     turn: number;
-  },
+  }
 ): Promise<{
   content: Array<{ type: string; text: string }>;
   _meta?: unknown;
@@ -137,7 +143,7 @@ async function handleRecordFactProxy(
         subject: string;
       },
       factStore,
-      shadowLedger.getSessionId(),
+      shadowLedger.getSessionId()
     );
     if (effectiveness) {
       effectiveness.tracker.recordSignalFired({
@@ -152,7 +158,7 @@ async function handleRecordFactProxy(
       args,
       { fact_id: result.fact_id },
       "unknown",
-      "",
+      ""
     );
     return {
       content: [{ type: "text", text: JSON.stringify(result) }],
@@ -175,9 +181,11 @@ async function handleRecallFactsProxy(
   args: Record<string, unknown>,
   unerrDir: string,
   effectiveness?: {
-    tracker: import("../tracking/persistence-effectiveness.js").PersistenceEffectivenessTracker;
+    tracker: import(
+      "../tracking/persistence-effectiveness.js"
+    ).PersistenceEffectivenessTracker;
     turn: number;
-  },
+  }
 ): Promise<{
   content: Array<{ type: string; text: string }>;
   _meta?: unknown;
@@ -208,7 +216,7 @@ async function handleRecallFactsProxy(
       await import("./fact-ranking.js");
     const requestedLimit = resolveFactLimit(args.limit);
 
-    let facts;
+    let facts: Awaited<ReturnType<typeof factStore.recallNegative>>;
     if (factType === "negative") {
       facts = await factStore.recallNegative(minConfidence);
     } else {
@@ -221,10 +229,10 @@ async function handleRecallFactsProxy(
     const useRotation = rotationMode !== "none" && proxyShowStore !== null;
     const ranked = rankFactsWithRotation(facts, {
       getShowCount: useRotation
-        ? (id) => proxyShowStore!.getEffectiveShowCount(id)
+        ? (id) => proxyShowStore?.getEffectiveShowCount(id) ?? 0
         : undefined,
       getLastShownMs: useRotation
-        ? (id) => proxyShowStore!.getLastShownMs(id)
+        ? (id) => proxyShowStore?.getLastShownMs(id) ?? 0
         : undefined,
     });
     const total = ranked.length;
@@ -306,9 +314,9 @@ function migrateAgentPermissions(cwd: string): void {
     const readIdx = deny.indexOf("Read");
     if (readIdx < 0) return;
     deny.splice(readIdx, 1);
-    fsWriteFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+    fsWriteFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
     process.stderr.write(
-      "[unerr] Migrated permissions: removed Read from deny list (required for Edit workflow)\n",
+      "[unerr] Migrated permissions: removed Read from deny list (required for Edit workflow)\n"
     );
   } catch {
     // Non-critical — settings migration is best-effort
@@ -352,7 +360,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
   if (!lockResult.acquired) {
     log.info(
-      `Proxy already running (PID ${lockResult.existingPid}). Secondary IDEs can connect via UDS at .unerr/state/proxy.sock`,
+      `Proxy already running (PID ${lockResult.existingPid}). Secondary IDEs can connect via UDS at .unerr/state/proxy.sock`
     );
     process.exit(0);
   }
@@ -363,7 +371,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
   startupLog.header();
   startupLog.step(
-    `PID ${process.pid} ${startupLog.fmt.muted(`· health localhost:${lockResult.healthPort}`)}`,
+    `PID ${process.pid} ${startupLog.fmt.muted(`· health localhost:${lockResult.healthPort}`)}`
   );
 
   // ── Step 1b: Session Resume Detection ────────────────────────────
@@ -428,7 +436,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       .slice(0, 12);
     repoIds = [localRepoId];
     startupLog.done(
-      `Repository ${startupLog.fmt.cyan(localRepoId)} ${startupLog.fmt.muted(`(from ${repoIdentifier === process.cwd() ? "directory" : "git remote"})`)}`,
+      `Repository ${startupLog.fmt.cyan(localRepoId)} ${startupLog.fmt.muted(`(from ${repoIdentifier === process.cwd() ? "directory" : "git remote"})`)}`
     );
   }
 
@@ -449,7 +457,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
   startup.addStep(
     "Graph loaded",
-    (proxyMode as string) === "parse" ? "pending" : "active",
+    (proxyMode as string) === "parse" ? "pending" : "active"
   );
   let localGraph:
     | import("../intelligence/local-graph.js").CozoGraphStore
@@ -481,11 +489,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         const rules = await localGraph.getRules();
         const ruleCount = rules?.length ?? 0;
         const communityResult = await localGraph.db.run(
-          "?[count(id)] := *communities[id, _, _, _]",
+          "?[count(id)] := *communities[id, _, _, _]"
         );
         const communityCount = (communityResult.rows[0]?.[0] as number) ?? 0;
         const patternResult = await localGraph.db.run(
-          "?[count(key)] := *patterns[key, _, _, _, _, _, _]",
+          "?[count(key)] := *patterns[key, _, _, _, _, _, _]"
         );
         const patternCount = (patternResult.rows[0]?.[0] as number) ?? 0;
 
@@ -512,13 +520,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           hottestCount: hottest?.entityCount,
         });
         startupLog.perf(
-          `${startupLog.fmt.cyan("Persistent graph")} ${startupLog.fmt.muted("— zero recomputation, all intelligence preserved")}`,
+          `${startupLog.fmt.cyan("Persistent graph")} ${startupLog.fmt.muted("— zero recomputation, all intelligence preserved")}`
         );
 
         // Always reindex on startup to ensure graph data (end_line, etc.) is fresh
         needsBackgroundIndex = true;
         startupLog.step(
-          `${startupLog.fmt.muted("Background reindex will refresh graph data after MCP ready")}`,
+          `${startupLog.fmt.muted("Background reindex will refresh graph data after MCP ready")}`
         );
       } else {
         // ── Fresh DB or empty: needs initial indexing ─────────────────
@@ -541,7 +549,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           const communityCount = await runCommunityDetection(localGraph);
           const { patternCount, ruleCount } = await runConventionDetection(
             localGraph,
-            repoIds[0] as string,
+            repoIds[0] as string
           );
 
           const projStats = await localGraph.getLocalProjectStats();
@@ -568,7 +576,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             hottestCount: hottest?.entityCount,
           });
           startupLog.done(
-            `Migrated snapshot to persistent graph ${startupLog.fmt.muted(`→ ${dbPath}`)}`,
+            `Migrated snapshot to persistent graph ${startupLog.fmt.muted(`→ ${dbPath}`)}`
           );
 
           // Layer 9: Generate temporal facts from conventions after snapshot migration
@@ -586,22 +594,22 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
               if (detection.conventions.length > 0) {
                 const convResult = await generateFromConventions(
                   factStoreForMigration,
-                  detection.conventions,
+                  detection.conventions
                 );
                 if (convResult.created > 0 || convResult.reinforced > 0) {
                   log.info(
-                    `Fact generator: ${convResult.created} convention facts created, ${convResult.reinforced} reinforced`,
+                    `Fact generator: ${convResult.created} convention facts created, ${convResult.reinforced} reinforced`
                   );
                 }
               }
               const pipelineResults = await runFactGenerationPipeline(
                 factStoreForMigration,
-                migrationUnerrDir,
+                migrationUnerrDir
               );
               for (const r of pipelineResults) {
                 if (r.created > 0 || r.reinforced > 0) {
                   log.info(
-                    `Fact generator [${r.source}]: ${r.created} created, ${r.reinforced} reinforced`,
+                    `Fact generator [${r.source}]: ${r.created} created, ${r.reinforced} reinforced`
                   );
                 }
               }
@@ -613,7 +621,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           // No snapshot available — full index needed
           needsBackgroundIndex = true;
           startupLog.step(
-            `${startupLog.fmt.muted("First run — full index will start after MCP ready")}`,
+            `${startupLog.fmt.muted("First run — full index will start after MCP ready")}`
           );
         }
       }
@@ -625,7 +633,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             ? JSON.stringify(err)
             : String(err);
       log.warn(
-        `Failed to open persistent graph: ${errMsg}. Falling back to PARSE mode.`,
+        `Failed to open persistent graph: ${errMsg}. Falling back to PARSE mode.`
       );
       proxyMode = "parse";
       proxyModeReason = "CozoDB unavailable. Running in parse-only mode.";
@@ -664,7 +672,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   }
 
   // In PARSE mode, create a minimal graph stub that delegates to ParseModeIndex
-  // biome-ignore lint/style/noNonNullAssertion: parseIndex is set when localGraph is null
   const graphForRouter =
     localGraph ?? (await createParseGraphStub(parseIndex!));
 
@@ -744,7 +751,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           incompleteEntities: resumeCtx.incompleteEntities,
         });
         log.info(
-          `Session resume context prepared (${resumeCtx.filesModified.length} files, ${resumeCtx.incompleteEntities.length} incomplete)`,
+          `Session resume context prepared (${resumeCtx.filesModified.length} files, ${resumeCtx.incompleteEntities.length} incomplete)`
         );
       }
     } catch {
@@ -769,7 +776,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const unstable = durabilityScorer.getTopUnstable(5);
       if (unstable.length > 0) {
         log.info(
-          `Durability scorer active (${unstable.length} fragile entities tracked)`,
+          `Durability scorer active (${unstable.length} fragile entities tracked)`
         );
       }
     }
@@ -801,10 +808,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             entityKey: p.entityKey,
             pattern: p.pattern,
             reason: p.reason,
-          })),
+          }))
         );
         log.info(
-          `Negative knowledge loaded (${antiPatterns.length} anti-patterns)`,
+          `Negative knowledge loaded (${antiPatterns.length} anti-patterns)`
         );
       }
     }
@@ -817,7 +824,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     const { CausalBridge } = await import("../tracking/causal-bridge.js");
     const causalBridge = new CausalBridge(
       join(process.cwd(), ".unerr"),
-      process.cwd(),
+      process.cwd()
     );
     router.setCausalBridge(causalBridge);
     log.info("Causal bridge wired (entity interaction history active)");
@@ -844,10 +851,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             name: c.name,
             pattern: c.pattern,
             confidence: c.confidence,
-          })),
+          }))
         );
         log.info(
-          `Convention learner: ${learned.length} patterns detected from corrections`,
+          `Convention learner: ${learned.length} patterns detected from corrections`
         );
       }
     }
@@ -874,7 +881,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             targetRisk: p.targetRisk,
             durability: p.durability,
             recommendation: p.recommendation,
-          })),
+          }))
         );
         log.info(`Prompt durability: ${profiles.length} profiles computed`);
       }
@@ -893,7 +900,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     contextLedger.prune();
     router.setContextLedger(contextLedger);
     log.info(
-      `Context ledger loaded (${contextLedger.getDeliveredCount()} prior deliveries)`,
+      `Context ledger loaded (${contextLedger.getDeliveredCount()} prior deliveries)`
     );
   } catch {
     // Non-critical — cross-session dedup is best-effort
@@ -931,7 +938,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     }
   } catch (err: unknown) {
     log.warn(
-      `Skill self-healing failed: ${err instanceof Error ? err.message : String(err)}`,
+      `Skill self-healing failed: ${err instanceof Error ? err.message : String(err)}`
     );
   }
 
@@ -947,7 +954,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
   const server = new Server(
     { name: "unerr-local", version: "0.1.0" },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} } }
   );
 
   // Tool definitions imported from shared tool-definitions.ts (single source of truth)
@@ -980,17 +987,17 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
    */
   const runBoundaryValidation = (
     toolName: string,
-    toolArgs: Record<string, unknown>,
+    toolArgs: Record<string, unknown>
   ): { error: string; required: string[]; details: string } | null => {
     let def: ToolDef | undefined = toolDefinitions.find(
-      (t) => t.name === toolName,
+      (t) => t.name === toolName
     );
     if (!def) {
       try {
         // biome-ignore format: typeof import() must stay on one line for TS parsing
         const { DEEP_DIVE_TOOL_DEFINITIONS } = require("../intelligence/deep-dive-tools.js") as typeof import("../intelligence/deep-dive-tools.js");
         def = (DEEP_DIVE_TOOL_DEFINITIONS as readonly ToolDef[]).find(
-          (t) => t.name === toolName,
+          (t) => t.name === toolName
         );
       } catch {
         /* deep-dive not available — base validation is enough */
@@ -1027,7 +1034,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         const navTools = (
           DEEP_DIVE_TOOL_DEFINITIONS as readonly ToolDef[]
         ).filter((t) =>
-          (NAVIGATION_TOOL_NAMES as readonly string[]).includes(t.name),
+          (NAVIGATION_TOOL_NAMES as readonly string[]).includes(t.name)
         );
         baseTools = [...baseTools, ...navTools];
       } else if (currentDeepDiveState === "building") {
@@ -1041,10 +1048,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
       cachedInjectedTools = (await injectRuleContext(
         baseTools,
-        localGraph,
+        localGraph
       )) as ToolDef[];
       cachedBlockRuleKeys = new Set(
-        (await getBlockRules(localGraph)).map((r: { key: string }) => r.key),
+        (await getBlockRules(localGraph)).map((r: { key: string }) => r.key)
       );
       cachedDeepDiveState = currentDeepDiveState;
       return cachedInjectedTools;
@@ -1067,7 +1074,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   const intentCorrelator = new IntentCorrelator(unerrDirForLedger);
 
   log.info(
-    `Shadow ledger active (session ${shadowLedger.getSessionId().slice(0, 8)})`,
+    `Shadow ledger active (session ${shadowLedger.getSessionId().slice(0, 8)})`
   );
 
   // ST-1c: Timeline subsystem (kill-switch UNERR_TIMELINE_V2=0). Additive,
@@ -1091,9 +1098,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   let timelineIntentStitchInterval: NodeJS.Timeout | null = null;
   let timelineSignalPruneInterval: NodeJS.Timeout | null = null;
   if (timelineHandle) {
-    const { runIntentStitch } = await import(
-      "../timeline/intent-detector.js"
-    );
+    const { runIntentStitch } = await import("../timeline/intent-detector.js");
     const { pruneStaleSignals } = await import(
       "../timeline/signal-reinforcer.js"
     );
@@ -1101,7 +1106,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     timelineIntentStitchInterval = setInterval(() => {
       runIntentStitch(timelineHandle.store).catch((err: unknown) => {
         log.warn(
-          `Timeline intent-stitch failed: ${err instanceof Error ? err.message : String(err)}`,
+          `Timeline intent-stitch failed: ${err instanceof Error ? err.message : String(err)}`
         );
       });
     }, stitchPeriodMs);
@@ -1114,7 +1119,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     timelineSignalPruneInterval = setInterval(() => {
       pruneStaleSignals(timelineHandle.store).catch((err: unknown) => {
         log.warn(
-          `Timeline signal prune failed: ${err instanceof Error ? err.message : String(err)}`,
+          `Timeline signal prune failed: ${err instanceof Error ? err.message : String(err)}`
         );
       });
     }, prunePeriodMs);
@@ -1132,12 +1137,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const r = archiveShadowLedger(unerrDirForLedger);
       if (r.archived > 0) {
         log.info(
-          `Ledger archive: rotated ${r.archived} entries → ${r.archivePath ?? "?"}`,
+          `Ledger archive: rotated ${r.archived} entries → ${r.archivePath ?? "?"}`
         );
       }
     } catch (err: unknown) {
       log.warn(
-        `Ledger archive failed: ${err instanceof Error ? err.message : String(err)}`,
+        `Ledger archive failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }, archiveIntervalMs);
@@ -1159,7 +1164,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       );
       narrativeCapture = new SessionNarrativeCapture(
         proxyFactStore,
-        shadowLedger,
+        shadowLedger
       );
     } catch {
       // Non-critical
@@ -1176,7 +1181,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       );
       proxyShowStore = new SignalShowStore(
         proxyFactStore.getDb(),
-        shadowLedger.getSessionId(),
+        shadowLedger.getSessionId()
       );
       await proxyShowStore.start();
       router.setSignalShowStore(proxyShowStore);
@@ -1185,7 +1190,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       });
     } catch (err) {
       log.warn(
-        `Signal show store init failed (rotation degrades to in-memory): ${err instanceof Error ? err.message : "unknown"}`,
+        `Signal show store init failed (rotation degrades to in-memory): ${err instanceof Error ? err.message : "unknown"}`
       );
     }
   }
@@ -1197,7 +1202,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   const { TokenFlowWriter } = await import("../tracking/token-flow.js");
   const tokenFlowWriter = new TokenFlowWriter(
     unerrDirForLedger,
-    shadowLedger.getSessionId(),
+    shadowLedger.getSessionId()
   );
   process.env.UNERR_SESSION_ID = shadowLedger.getSessionId();
   // RC3 fix: Write session ID to file for exec processes
@@ -1206,7 +1211,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     writeFileSync(
       join(unerrDirForLedger, "state", "session.id"),
       shadowLedger.getSessionId(),
-      "utf-8",
+      "utf-8"
     );
   } catch {
     /* best effort */
@@ -1221,14 +1226,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     "../tracking/persistence-effectiveness.js"
   );
   const effectivenessTracker = new PersistenceEffectivenessTracker(
-    tokenFlowWriter,
+    tokenFlowWriter
   );
   router.setEffectivenessTracker(effectivenessTracker);
   // Close windows on every turn boundary so verdicts land near-real-time.
   shadowLedger.getTurnSegmenter().onTurnClose(() => {
-    effectivenessTracker.closeWindow(
-      router.sessionContext.getToolCallCount(),
-    );
+    effectivenessTracker.closeWindow(router.sessionContext.getToolCallCount());
   });
 
   // ── Sprint 10: Working Snapshots, Circuit Breaker, Quality Signals ──
@@ -1320,7 +1323,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   behaviorDispatcher.register(changeNarrative);
 
   log.info(
-    `Behavior engine active (${behaviorDispatcher.getRegisteredBehaviors().length} behaviors registered)`,
+    `Behavior engine active (${behaviorDispatcher.getRegisteredBehaviors().length} behaviors registered)`
   );
 
   // Task 6.3: Deferred initialization tracking
@@ -1356,12 +1359,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         // agent conversation instead of treating the message as a normal
         // tool result body.
         process.stderr.write(
-          `[unerr] tools/call validation failed for ${name}: ${JSON.stringify(validationFailure)}\n`,
+          `[unerr] tools/call validation failed for ${name}: ${JSON.stringify(validationFailure)}\n`
         );
         return {
-          content: [
-            { type: "text", text: JSON.stringify(validationFailure) },
-          ],
+          content: [{ type: "text", text: JSON.stringify(validationFailure) }],
           isError: true,
         };
       }
@@ -1425,7 +1426,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         if (isMarkerTool(name)) {
           if (!timelineHandle) {
             process.stderr.write(
-              `[unerr] ${name} called but timeline subsystem is disabled\n`,
+              `[unerr] ${name} called but timeline subsystem is disabled\n`
             );
             return {
               content: [
@@ -1446,22 +1447,17 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             const { getCurrentBranch, getHeadSha } = await import(
               "../utils/git.js"
             );
-            branchVal =
-              (await getCurrentBranch(process.cwd())) ?? branchVal;
+            branchVal = (await getCurrentBranch(process.cwd())) ?? branchVal;
             headShaVal = (await getHeadSha(process.cwd())) ?? "";
           } catch {
             /* defaults */
           }
-          return handleMarkerCall(
-            name,
-            args as Record<string, unknown>,
-            {
-              ledger: shadowLedger,
-              store: timelineHandle.store,
-              branch: branchVal,
-              headSha: headShaVal,
-            },
-          );
+          return handleMarkerCall(name, args as Record<string, unknown>, {
+            ledger: shadowLedger,
+            store: timelineHandle.store,
+            branch: branchVal,
+            headSha: headShaVal,
+          });
         }
       }
 
@@ -1469,10 +1465,15 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       if (name === "record_fact" || name === "recall_facts") {
         const factResult =
           name === "record_fact"
-            ? await handleRecordFactProxy(args, unerrDirForLedger, shadowLedger, {
-                tracker: effectivenessTracker,
-                turn: router.sessionContext.getToolCallCount(),
-              })
+            ? await handleRecordFactProxy(
+                args,
+                unerrDirForLedger,
+                shadowLedger,
+                {
+                  tracker: effectivenessTracker,
+                  turn: router.sessionContext.getToolCallCount(),
+                }
+              )
             : await handleRecallFactsProxy(args, unerrDirForLedger, {
                 tracker: effectivenessTracker,
                 turn: router.sessionContext.getToolCallCount(),
@@ -1493,7 +1494,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           const { body: cappedBody, pageHint } = applyWireCapFact(
             name,
             parsed,
-            args,
+            args
           );
           const pageBlock = pageHint ? `${pageHint}\n\n` : "";
           // Forward isError so error responses from the fact handler reach
@@ -1529,7 +1530,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             args,
             { tool: name, source: "local" },
             branch,
-            headSha,
+            headSha
           );
           return deepDiveResult;
         }
@@ -1545,7 +1546,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err);
         process.stderr.write(
-          `[unerr] router.execute(${name}) threw: ${errMsg}\n`,
+          `[unerr] router.execute(${name}) threw: ${errMsg}\n`
         );
         return {
           content: [
@@ -1578,7 +1579,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       if (stats.localMode && result._meta.source === "local") {
         recordLatencyAdvantage(
           stats.localMode,
-          Math.max(0, 200 - result._meta.latency_ms),
+          Math.max(0, 200 - result._meta.latency_ms)
         );
       }
       if (result._meta.entity_risk?.risk_level === "high") {
@@ -1663,7 +1664,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         const lastEntry = recentEntries[recentEntries.length - 1];
         if (lastEntry) {
           setImmediate(() =>
-            narrativeCapture!.captureEditNarrative(lastEntry).catch(() => {}),
+            narrativeCapture?.captureEditNarrative(lastEntry).catch(() => {})
           );
         }
       }
@@ -1680,11 +1681,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             const { analyzeSessionPatterns } = await import(
               "../intelligence/session-pattern-analyzer.js"
             );
-            const entries = shadowLedger!.getRecentEntries(20);
+            const entries = shadowLedger?.getRecentEntries(20);
             await analyzeSessionPatterns({
               ledgerEntries: entries,
               factStore: proxyFactStore!,
-              sessionId: shadowLedger!.getSessionId(),
+              sessionId: shadowLedger?.getSessionId(),
             });
           } catch {
             /* non-critical */
@@ -1703,7 +1704,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             name,
             args,
             resultSummary,
-            fanInThreshold > 8 ? fanInThreshold : undefined,
+            fanInThreshold > 8 ? fanInThreshold : undefined
           )
         ) {
           const snapshotBranch = branchContext?.currentBranch ?? "unknown";
@@ -1773,7 +1774,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const signalFooter = buildSignalPrefix(
         meta,
         contextPayload as unknown as Record<string, unknown>,
-        entityKey,
+        entityKey
       );
       const pageHint = (meta as Record<string, unknown>)._unerr_page_hint as
         | string
@@ -1791,7 +1792,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       return {
         content: [{ type: "text", text: finalText }],
       };
-    }) as any,
+    }) as any
   );
 
   const transport = new StdioServerTransport();
@@ -1896,7 +1897,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const udsValidationFailure = runBoundaryValidation(name, toolArgs);
       if (udsValidationFailure) {
         process.stderr.write(
-          `[unerr] tools/call validation failed for ${name} (uds): ${JSON.stringify(udsValidationFailure)}\n`,
+          `[unerr] tools/call validation failed for ${name} (uds): ${JSON.stringify(udsValidationFailure)}\n`
         );
         return {
           jsonrpc: "2.0" as const,
@@ -1920,7 +1921,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         if (isMarkerTool(name)) {
           if (!timelineHandle) {
             process.stderr.write(
-              `[unerr] ${name} called but timeline subsystem is disabled (uds)\n`,
+              `[unerr] ${name} called but timeline subsystem is disabled (uds)\n`
             );
             return {
               jsonrpc: "2.0" as const,
@@ -1944,8 +1945,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             const { getCurrentBranch, getHeadSha } = await import(
               "../utils/git.js"
             );
-            branchVal =
-              (await getCurrentBranch(process.cwd())) ?? branchVal;
+            branchVal = (await getCurrentBranch(process.cwd())) ?? branchVal;
             headShaVal = (await getHeadSha(process.cwd())) ?? "";
           } catch {
             /* defaults */
@@ -1958,7 +1958,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
               store: timelineHandle.store,
               branch: branchVal,
               headSha: headShaVal,
-            },
+            }
           );
           return { jsonrpc: "2.0" as const, result: markerRes };
         }
@@ -1975,7 +1975,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                 {
                   tracker: effectivenessTracker,
                   turn: router.sessionContext.getToolCallCount(),
-                },
+                }
               )
             : await handleRecallFactsProxy(toolArgs, unerrDirForLedger, {
                 tracker: effectivenessTracker,
@@ -1999,7 +1999,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           const { body: cappedBody, pageHint } = applyWireCapFact(
             name,
             parsed,
-            toolArgs,
+            toolArgs
           );
           const pageBlock = pageHint ? `${pageHint}\n\n` : "";
           // Forward isError so error responses from the fact handler reach
@@ -2031,7 +2031,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         const deepDiveResult = await handleDeepDiveTool(
           name,
           toolArgs,
-          localGraph,
+          localGraph
         );
         if (deepDiveResult) {
           recordToolCall(stats);
@@ -2045,7 +2045,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             toolArgs,
             { tool: name, source: "local", client: clientId },
             branch,
-            headSha,
+            headSha
           );
           return { jsonrpc: "2.0" as const, result: deepDiveResult };
         }
@@ -2062,7 +2062,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err);
         process.stderr.write(
-          `[unerr] router.execute(${name}) threw (uds): ${errMsg}\n`,
+          `[unerr] router.execute(${name}) threw (uds): ${errMsg}\n`
         );
         return {
           jsonrpc: "2.0" as const,
@@ -2091,7 +2091,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       if (stats.localMode && result._meta.source === "local") {
         recordLatencyAdvantage(
           stats.localMode,
-          Math.max(0, 200 - result._meta.latency_ms),
+          Math.max(0, 200 - result._meta.latency_ms)
         );
       }
 
@@ -2107,7 +2107,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           client: clientId,
         },
         branch,
-        headSha,
+        headSha
       );
 
       // Tier-3: _meta/_context stripped. Wire-cap ran in QueryRouter and
@@ -2129,7 +2129,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const signalFooter2 = buildSignalPrefix2(
         result._meta as Record<string, unknown>,
         result._context as Record<string, unknown> | undefined,
-        entityKey2,
+        entityKey2
       );
       const pageHint2 = (result._meta as Record<string, unknown>)
         ._unerr_page_hint as string | undefined;
@@ -2176,7 +2176,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       log.info(`HTTP transport ready on port ${httpTransportHandle.port}`);
     } catch (err: unknown) {
       log.warn(
-        `HTTP transport failed to start: ${err instanceof Error ? err.message : String(err)}`,
+        `HTTP transport failed to start: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
@@ -2208,7 +2208,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       _driftTracker = new DriftTracker(
         { projectRoot: process.cwd(), repoId: repoIds[0] as string, unerrDir },
         localGraph,
-        fileHashManager,
+        fileHashManager
       );
 
       // L9.4: Wire DriftTracker into QueryRouter for sync_local_diff overlay writes
@@ -2289,14 +2289,14 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             ?.processFiles(indexable, headSha)
             .catch((err: unknown) => {
               process.stderr.write(
-                `⚠ [watcher] Drift processing failed: ${formatUnknownError(err)}\n`,
+                `⚠ [watcher] Drift processing failed: ${formatUnknownError(err)}\n`
               );
             });
         },
       });
       nativeWatcher.start().catch((err: unknown) => {
         process.stderr.write(
-          `⚠ [watcher] File watcher failed to start: ${err instanceof Error ? err.message : String(err)}\n`,
+          `⚠ [watcher] File watcher failed to start: ${err instanceof Error ? err.message : String(err)}\n`
         );
       });
 
@@ -2316,13 +2316,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           ?.onBranchSwitch([], newContext.headSha, prev, newBranch)
           .catch((err: unknown) => {
             log.warn(
-              `Branch switch drift failed: ${err instanceof Error ? err.message : String(err)}`,
+              `Branch switch drift failed: ${err instanceof Error ? err.message : String(err)}`
             );
           });
       });
     } catch (err: unknown) {
       log.warn(
-        `Drift tracker not available: ${err instanceof Error ? err.message : String(err)}`,
+        `Drift tracker not available: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
@@ -2385,7 +2385,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           }
         } catch (err: unknown) {
           log.warn(
-            `Health grade failed: ${err instanceof Error ? err.message : String(err)}`,
+            `Health grade failed: ${err instanceof Error ? err.message : String(err)}`
           );
         }
 
@@ -2398,19 +2398,19 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           const pathMod = await import("node:path");
           const projectDir = process.cwd();
           const configured = AGENT_REGISTRY.filter((a) =>
-            fs.existsSync(pathMod.join(projectDir, a.projectConfigPath)),
+            fs.existsSync(pathMod.join(projectDir, a.projectConfigPath))
           ).map((a) => a.name);
           startupLog.mcpConnectionCard(configured, projectDir);
         } catch (err: unknown) {
           log.warn(
-            `MCP connection card failed: ${err instanceof Error ? err.message : String(err)}`,
+            `MCP connection card failed: ${err instanceof Error ? err.message : String(err)}`
           );
         }
 
         // L11.4: Start DriftTracker ONLY after initial indexing completes (TL-31)
         initDriftTracker().catch((err: unknown) => {
           log.warn(
-            `Post-index DriftTracker init failed: ${err instanceof Error ? err.message : String(err)}`,
+            `Post-index DriftTracker init failed: ${err instanceof Error ? err.message : String(err)}`
           );
         });
 
@@ -2428,11 +2428,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             if (detection.conventions.length > 0) {
               const convResult = await generateFromConventions(
                 factStoreForGen,
-                detection.conventions,
+                detection.conventions
               );
               if (convResult.created > 0 || convResult.reinforced > 0) {
                 log.info(
-                  `Fact generator: ${convResult.created} convention facts created, ${convResult.reinforced} reinforced`,
+                  `Fact generator: ${convResult.created} convention facts created, ${convResult.reinforced} reinforced`
                 );
               }
             }
@@ -2442,12 +2442,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             );
             const pipelineResults = await runFactGenerationPipeline(
               factStoreForGen,
-              unerrDirForLedger,
+              unerrDirForLedger
             );
             for (const r of pipelineResults) {
               if (r.created > 0 || r.reinforced > 0) {
                 log.info(
-                  `Fact generator [${r.source}]: ${r.created} created, ${r.reinforced} reinforced`,
+                  `Fact generator [${r.source}]: ${r.created} created, ${r.reinforced} reinforced`
                 );
               }
             }
@@ -2460,9 +2460,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       (err) => {
         spinner.fail(`Indexing failed: ${err.message}`);
         process.stderr.write(
-          "  MCP continues with partial graph. Run 'unerr' again to retry.\n",
+          "  MCP continues with partial graph. Run 'unerr' again to retry.\n"
         );
-      },
+      }
     );
 
     // Update spinner with progress every 200ms
@@ -2493,7 +2493,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     ? new WorkspaceManifest(
         join(process.cwd(), ".unerr"),
         repoIds[0],
-        shadowLedger.getSessionId(),
+        shadowLedger.getSessionId()
       )
     : null;
 
@@ -2531,10 +2531,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     startup.addStep(
       "MCP ready",
       "done",
-      `PARSE mode (${parseStats?.entityCount ?? 0} entities)`,
+      `PARSE mode (${parseStats?.entityCount ?? 0} entities)`
     );
     log.info(
-      `MCP server running on stdio — PARSE mode (${parseStats?.entityCount ?? 0} entities from ${parseStats?.fileCount ?? 0} files)`,
+      `MCP server running on stdio — PARSE mode (${parseStats?.entityCount ?? 0} entities from ${parseStats?.fileCount ?? 0} files)`
     );
   } else {
     const localToolCount = 14;
@@ -2573,7 +2573,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       }
     } catch (err: unknown) {
       log.warn(
-        `Health grade failed: ${err instanceof Error ? err.message : String(err)}`,
+        `Health grade failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }
 
@@ -2584,12 +2584,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const pathMod = await import("node:path");
       const projectDir = process.cwd();
       const configured = AGENT_REGISTRY.filter((a) =>
-        fs.existsSync(pathMod.join(projectDir, a.projectConfigPath)),
+        fs.existsSync(pathMod.join(projectDir, a.projectConfigPath))
       ).map((a) => a.name);
       startupLog.mcpConnectionCard(configured, projectDir);
     } catch (err: unknown) {
       log.warn(
-        `MCP connection card failed: ${err instanceof Error ? err.message : String(err)}`,
+        `MCP connection card failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
@@ -2627,11 +2627,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
       const indexStats = parseIndex.getStats();
       log.info(
-        `PARSE index: ${indexStats.entityCount} entities from ${indexStats.fileCount} files`,
+        `PARSE index: ${indexStats.entityCount} entities from ${indexStats.fileCount} files`
       );
     } catch (err: unknown) {
       log.warn(
-        `PARSE indexing failed: ${err instanceof Error ? err.message : String(err)}`,
+        `PARSE indexing failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
@@ -2645,7 +2645,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     log.info("Tree-sitter WASM grammars pre-loaded");
   } catch (err: unknown) {
     log.warn(
-      `Tree-sitter grammar pre-load failed (regex fallback active): ${err instanceof Error ? err.message : String(err)}`,
+      `Tree-sitter grammar pre-load failed (regex fallback active): ${err instanceof Error ? err.message : String(err)}`
     );
   }
 
@@ -2661,7 +2661,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       if (tokenFlowWriter) {
         try {
           tokenFlowWriter.ingestExternal(
-            entry as unknown as import("../tracking/token-flow.js").TokenFlowEvent,
+            entry as unknown as import(
+              "../tracking/token-flow.js"
+            ).TokenFlowEvent
           );
         } catch {
           /* best effort */
@@ -2677,13 +2679,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     const notesPush =
       (await gitQ(
         ["config", "--local", "--get-all", "notes.push"],
-        process.cwd(),
+        process.cwd()
       )) ?? "";
 
     if (!notesPush.includes("refs/notes/unerr")) {
       await gitE(
         ["config", "--local", "--add", "notes.push", "refs/notes/unerr"],
-        { cwd: process.cwd() },
+        { cwd: process.cwd() }
       );
       log.info("Auto-configured git notes push for intent tracking");
     }
@@ -2712,7 +2714,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       if (total === 0) return;
       const localP = computePercentiles(
         stats.latency.localSamples,
-        stats.latency.localTotalSamples,
+        stats.latency.localTotalSamples
       );
       const snapshot = {
         pid: process.pid,
@@ -2735,7 +2737,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       writeStatsFile(
         statsSnapshotPath,
         JSON.stringify(snapshot, null, 2),
-        "utf-8",
+        "utf-8"
       );
     } catch {
       /* non-critical */
@@ -2864,7 +2866,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     }
   } catch (err: unknown) {
     log.warn(
-      `Dashboard server failed: ${err instanceof Error ? err.message : String(err)}`,
+      `Dashboard server failed: ${err instanceof Error ? err.message : String(err)}`
     );
   }
 
@@ -2908,15 +2910,17 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         if (tokenFlowWriter) {
           try {
             const { aggregateSession: aggSession } =
-              require("../tracking/token-flow.js") as typeof import("../tracking/token-flow.js");
+              require("../tracking/token-flow.js") as typeof import(
+                "../tracking/token-flow.js"
+              );
             tokenFlowSummary = aggSession(
               tokenFlowWriter.getSessionEvents(),
-              tokenFlowWriter.sessionId,
+              tokenFlowWriter.sessionId
             );
             if (Object.keys(tokenFlowSummary.by_mechanism).length > 0) {
               mechanismBreakdown = {};
               for (const [mech, data] of Object.entries(
-                tokenFlowSummary.by_mechanism,
+                tokenFlowSummary.by_mechanism
               )) {
                 mechanismBreakdown[mech] = data.tokens_saved;
               }
@@ -2932,7 +2936,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           require("./session-stats.js") as typeof import("./session-stats.js");
         const localPercentiles = computePercentiles(
           stats.latency.localSamples,
-          stats.latency.localTotalSamples,
+          stats.latency.localTotalSamples
         );
         const effSnap = router.getEfficiencySnapshot();
         const unifiedStats = accumulateSession({
@@ -2956,9 +2960,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         if (tokenFlowSummary && tokenFlowSummary.total_tokens_saved > 0) {
           try {
             const { appendSessionHistory } =
-              require("../tracking/session-history.js") as typeof import("../tracking/session-history.js");
+              require("../tracking/session-history.js") as typeof import(
+                "../tracking/session-history.js"
+              );
             const topMech = Object.entries(tokenFlowSummary.by_mechanism).sort(
-              ([, a], [, b]) => b.tokens_saved - a.tokens_saved,
+              ([, a], [, b]) => b.tokens_saved - a.tokens_saved
             )[0];
             appendSessionHistory(join(process.cwd(), ".unerr"), {
               sessionId: shadowLedger.getSessionId(),
@@ -2985,8 +2991,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                         tokens_saved: v.tokens_saved,
                         event_count: v.event_count,
                       },
-                    ],
-                  ),
+                    ]
+                  )
                 ),
                 top_mechanism: topMech?.[0] ?? "none",
                 efficiency_pct: tokenFlowSummary.efficiency_pct,
@@ -3003,7 +3009,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         if (tokenFlowSummary && tokenFlowSummary.total_tokens_saved > 0) {
           try {
             const { printSessionReceipt } =
-              require("../tracking/session-receipt.js") as typeof import("../tracking/session-receipt.js");
+              require("../tracking/session-receipt.js") as typeof import(
+                "../tracking/session-receipt.js"
+              );
             printSessionReceipt({
               summary: tokenFlowSummary,
               durationMs: Date.now() - stats.sessionStartedAt,
@@ -3058,14 +3066,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             : undefined;
 
         try {
-          // biome-ignore lint/suspicious/noExplicitAny: dynamic require in non-critical shutdown path
           const React = require("react") as any;
           const { SessionSummaryCard } =
-            // biome-ignore lint/suspicious/noExplicitAny: dynamic require in non-critical shutdown path
             require("../components/SessionSummaryCard.js") as any;
-          // biome-ignore lint/suspicious/noExplicitAny: dynamic require in non-critical shutdown path
           const { ThemeProvider } = require("../components/Theme.js") as any;
-          // biome-ignore lint/suspicious/noExplicitAny: dynamic require in non-critical shutdown path
           const { renderToStderr } = require("../components/render.js") as any;
           const el = React.createElement(
             ThemeProvider,
@@ -3079,7 +3083,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                 tokensSaved: scorecardData.tokensSaved,
                 counterfactual: counterfactualStr,
               },
-            }),
+            })
           );
           const inst = renderToStderr(el);
           inst.unmount();
@@ -3096,7 +3100,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           const driftSummary = await localGraph.getDriftSummary();
           if (driftSummary.total > 0) {
             process.stderr.write(
-              `[unerr] Drift: ${driftSummary.added} added, ${driftSummary.modified} modified, ${driftSummary.deleted} deleted\n`,
+              `[unerr] Drift: ${driftSummary.added} added, ${driftSummary.modified} modified, ${driftSummary.deleted} deleted\n`
             );
           }
         } catch {
@@ -3113,7 +3117,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       if (ledgerStats.totalEntries > 0) {
         const pendingCorrelations = intentCorrelator.getPendingCount();
         process.stderr.write(
-          `[unerr] Ledger: ${ledgerStats.totalEntries} entries, ${ledgerStats.bufferSize} buffered, ${pendingCorrelations} pending correlations\n`,
+          `[unerr] Ledger: ${ledgerStats.totalEntries} entries, ${ledgerStats.bufferSize} buffered, ${pendingCorrelations} pending correlations\n`
         );
       }
 
@@ -3125,7 +3129,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           .then((result) => {
             if (result.filesModified.length > 0) {
               process.stderr.write(
-                `[unerr] Session narrative: ${result.narratives.length} edits across ${result.filesModified.length} file(s)\n`,
+                `[unerr] Session narrative: ${result.narratives.length} edits across ${result.filesModified.length} file(s)\n`
               );
             }
           })
@@ -3136,7 +3140,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       if (proxyFactStore && ledgerStats.totalEntries > 0) {
         try {
           const { analyzeSessionPatterns } =
-            require("../intelligence/session-pattern-analyzer.js") as typeof import("../intelligence/session-pattern-analyzer.js");
+            require("../intelligence/session-pattern-analyzer.js") as typeof import(
+              "../intelligence/session-pattern-analyzer.js"
+            );
           const entries = shadowLedger.getRecentEntries(100);
           analyzeSessionPatterns({
             ledgerEntries: entries,
@@ -3149,7 +3155,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                 analysisResult.factsReinforced > 0
               ) {
                 process.stderr.write(
-                  `[unerr] Session analysis: ${analysisResult.factsCreated} facts learned, ${analysisResult.factsReinforced} reinforced\n`,
+                  `[unerr] Session analysis: ${analysisResult.factsCreated} facts learned, ${analysisResult.factsReinforced} reinforced\n`
                 );
               }
             })
@@ -3166,7 +3172,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           const correctionModule = require("../tracking/correction-detector.js");
           const detectCorrections = correctionModule.detectCorrections as (
             ledgerPath: string,
-            opts?: { since_days?: number },
+            opts?: { since_days?: number }
           ) => Array<{
             error_type: string;
             entity_key: string;
@@ -3179,7 +3185,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             process.cwd(),
             ".unerr",
             "ledger",
-            "shadow.jsonl",
+            "shadow.jsonl"
           );
           const patterns = detectCorrections(ledgerPath, { since_days: 1 });
           if (patterns.length > 0) {
@@ -3191,7 +3197,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
               }
             }
             process.stderr.write(
-              `[unerr] Learned ${patterns.length} correction pattern${patterns.length !== 1 ? "s" : ""} from this session\n`,
+              `[unerr] Learned ${patterns.length} correction pattern${patterns.length !== 1 ? "s" : ""} from this session\n`
             );
 
             // Layer 9: Generate negative knowledge facts from corrections
@@ -3213,11 +3219,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                 }));
                 const negResult = await generateFromNegativeKnowledge(
                   factStoreForShutdown,
-                  corrections,
+                  corrections
                 );
                 if (negResult.created > 0) {
                   process.stderr.write(
-                    `[unerr] Fact generator: ${negResult.created} negative knowledge facts created\n`,
+                    `[unerr] Fact generator: ${negResult.created} negative knowledge facts created\n`
                   );
                 }
               }
@@ -3239,12 +3245,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           );
           const pipelineResults = await runFactGenerationPipeline(
             factStoreForSession,
-            unerrDirForLedger,
+            unerrDirForLedger
           );
           for (const r of pipelineResults) {
             if (r.created > 0 || r.reinforced > 0) {
               process.stderr.write(
-                `[unerr] Fact generator [${r.source}]: ${r.created} created, ${r.reinforced} reinforced\n`,
+                `[unerr] Fact generator [${r.source}]: ${r.created} created, ${r.reinforced} reinforced\n`
               );
             }
           }
@@ -3264,14 +3270,14 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
               toolChain: c.toolChain,
               files: c.files,
               createdAt: c.createdAt,
-            })),
+            }))
           );
         }
 
         const mStats = workspaceManifest.getStats();
         if (mStats.total > 0 || mStats.orphanedIntents > 0) {
           process.stderr.write(
-            `[unerr] Manifest: ${mStats.total} attributions (${mStats.unflushed} unflushed, ${mStats.orphanedIntents} orphaned)\n`,
+            `[unerr] Manifest: ${mStats.total} attributions (${mStats.unflushed} unflushed, ${mStats.orphanedIntents} orphaned)\n`
           );
         }
       }
@@ -3300,7 +3306,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // Release SQLite metrics handle(s).
       try {
         const { closeAllMetricsStores } =
-          require("../tracking/metrics-store.js") as typeof import("../tracking/metrics-store.js");
+          require("../tracking/metrics-store.js") as typeof import(
+            "../tracking/metrics-store.js"
+          );
         closeAllMetricsStores();
       } catch {
         /* metrics store may not have been opened this session */
@@ -3342,7 +3350,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
  * Delegates entity lookups to the ParseModeIndex.
  */
 async function createParseGraphStub(
-  index: import("./auto-bootstrap.js").ParseModeIndex,
+  index: import("./auto-bootstrap.js").ParseModeIndex
 ): Promise<import("../intelligence/local-graph.js").CozoGraphStore> {
   const noop = async () => [];
   const noopVoid = async () => {};

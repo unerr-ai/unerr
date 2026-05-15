@@ -86,7 +86,7 @@ export function isTestEntity(filePath: string): boolean {
  */
 export function resolveTestSubject(
   testFilePath: string,
-  projectFiles: Set<string>,
+  projectFiles: Set<string>
 ): string | null {
   const base = basename(testFilePath);
 

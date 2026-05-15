@@ -37,22 +37,22 @@ let _fileLogCount = 0;
 
 /** Strip ANSI escape sequences for machine-readable file output. */
 function stripAnsi(s: string): string {
-  // biome-ignore lint: simple regex for ANSI stripping
-  return s
-    .replace(/\x1b\[[0-9;?]*[A-Za-z~]/g, "")
-    .replace(/\x1b\][^\x07]*\x07/g, "");
+  const ESC = "\x1b";
+  const CSI = new RegExp(`${ESC}\\[[0-9;?]*[A-Za-z~]`, "g");
+  const OSC = new RegExp(`${ESC}\\][^\\x07]*\\x07`, "g");
+  return s.replace(CSI, "").replace(OSC, "");
 }
 
 function rotateIfNeeded(
   filePath: string,
   maxLines: number,
-  keepLines: number,
+  keepLines: number
 ): void {
   try {
     const content = readFileSync(filePath, "utf-8");
     const lines = content.split("\n").filter(Boolean);
     if (lines.length > maxLines) {
-      writeFileSync(filePath, lines.slice(-keepLines).join("\n") + "\n");
+      writeFileSync(filePath, `${lines.slice(-keepLines).join("\n")}\n`);
     }
   } catch {
     /* file may not exist yet */
@@ -70,7 +70,7 @@ export function initFileLog(cwd: string): void {
 function writeToFile(
   level: string,
   message: string,
-  meta?: Record<string, unknown>,
+  meta?: Record<string, unknown>
 ): void {
   if (!_fileLogPath) return;
   const entry: Record<string, unknown> = {
@@ -81,7 +81,7 @@ function writeToFile(
     ...meta,
   };
   try {
-    appendFileSync(_fileLogPath, JSON.stringify(entry) + "\n");
+    appendFileSync(_fileLogPath, `${JSON.stringify(entry)}\n`);
     if (++_fileLogCount % 200 === 0) rotateIfNeeded(_fileLogPath, 2000, 1000);
   } catch {
     /* best effort */
@@ -197,7 +197,7 @@ export const startupLog = {
   header() {
     write("");
     write(
-      `  ${brandBold("unerr")} ${muted("— intelligence engine for AI agents")}`,
+      `  ${brandBold("unerr")} ${muted("— intelligence engine for AI agents")}`
     );
     write("");
     writeToFile("header", "unerr — intelligence engine for AI agents");
@@ -278,7 +278,7 @@ export const startupLog = {
   ready(toolCount: number, mode: string) {
     write("");
     write(
-      `  ${SYM.done} ${bold("Ready")} ${muted("—")} ${cyan(String(toolCount))} ${muted("tools")} ${muted("·")} ${muted(mode)} ${muted("mode")} ${muted("·")} ${emerald("<5ms")} ${muted("per query")}`,
+      `  ${SYM.done} ${bold("Ready")} ${muted("—")} ${cyan(String(toolCount))} ${muted("tools")} ${muted("·")} ${muted(mode)} ${muted("mode")} ${muted("·")} ${emerald("<5ms")} ${muted("per query")}`
     );
     write("");
     writeToFile("ready", "Ready", { toolCount, mode });
@@ -294,23 +294,23 @@ export const startupLog = {
     write("");
     write(`  ${dim("┌──────────────────────────────────────────┐")}`);
     write(
-      `  ${dim("│")} ${brandBold("unerr")} session                          ${dim("│")}`,
+      `  ${dim("│")} ${brandBold("unerr")} session                          ${dim("│")}`
     );
     write(`  ${dim("├──────────────────────────────────────────┤")}`);
     write(
-      `  ${dim("│")}  Duration     ${cyan(stats.duration.padEnd(24))}${dim("│")}`,
+      `  ${dim("│")}  Duration     ${cyan(stats.duration.padEnd(24))}${dim("│")}`
     );
     write(
-      `  ${dim("│")}  Tool calls   ${cyan(String(stats.toolCalls).padEnd(24))}${dim("│")}`,
+      `  ${dim("│")}  Tool calls   ${cyan(String(stats.toolCalls).padEnd(24))}${dim("│")}`
     );
     if (stats.tokensSaved) {
       write(
-        `  ${dim("│")}  Saved        ${emerald(stats.tokensSaved.padEnd(24))}${dim("│")}`,
+        `  ${dim("│")}  Saved        ${emerald(stats.tokensSaved.padEnd(24))}${dim("│")}`
       );
     }
     if (stats.efficiency) {
       write(
-        `  ${dim("│")}  Efficiency   ${emerald(stats.efficiency.padEnd(24))}${dim("│")}`,
+        `  ${dim("│")}  Efficiency   ${emerald(stats.efficiency.padEnd(24))}${dim("│")}`
       );
     }
     write(`  ${dim("└──────────────────────────────────────────┘")}`);
@@ -343,15 +343,15 @@ export const startupLog = {
     write(`  ${SYM.done} ${bold("Graph loaded")} ${muted(`in ${stats.ms}ms`)}`);
     write("");
     write(
-      `    ${cyan(stats.entities.toLocaleString())} entities ${muted("across")} ${cyan(String(stats.files))} files ${muted("·")} ${cyan(stats.edges.toLocaleString())} edges ${muted(`(${avgConn} avg/entity)`)}`,
+      `    ${cyan(stats.entities.toLocaleString())} entities ${muted("across")} ${cyan(String(stats.files))} files ${muted("·")} ${cyan(stats.edges.toLocaleString())} edges ${muted(`(${avgConn} avg/entity)`)}`
     );
     write(
-      `    ${violet(String(stats.communities))} communities ${muted("detected")} ${muted("·")} ${violet(String(stats.patterns))} conventions ${muted("→")} ${violet(String(stats.rules))} rules`,
+      `    ${violet(String(stats.communities))} communities ${muted("detected")} ${muted("·")} ${violet(String(stats.patterns))} conventions ${muted("→")} ${violet(String(stats.rules))} rules`
     );
 
     if (stats.hottestFile) {
       write(
-        `    ${muted("hottest:")} ${bold(stats.hottestFile)} ${muted(`(${stats.hottestCount} entities)`)}`,
+        `    ${muted("hottest:")} ${bold(stats.hottestFile)} ${muted(`(${stats.hottestCount} entities)`)}`
       );
     }
     write("");
@@ -371,7 +371,7 @@ export const startupLog = {
   /** MCP tools registered */
   toolsReady(count: number, ruleCount: number) {
     write(
-      `  ${SYM.done} ${cyan(String(count))} intelligence tools registered ${ruleCount > 0 ? muted(`(${ruleCount} enforcement rules)`) : ""}`,
+      `  ${SYM.done} ${cyan(String(count))} intelligence tools registered ${ruleCount > 0 ? muted(`(${ruleCount} enforcement rules)`) : ""}`
     );
     writeToFile("tools_ready", "Tools registered", { count, ruleCount });
   },
@@ -379,7 +379,7 @@ export const startupLog = {
   /** Skills installed during setup */
   skillsInstalled(names: string[], ide: string) {
     write(
-      `  ${SYM.done} ${emerald(String(names.length))} agent skills installed ${muted(`for ${ide}`)}`,
+      `  ${SYM.done} ${emerald(String(names.length))} agent skills installed ${muted(`for ${ide}`)}`
     );
     for (const name of names) {
       write(`    ${muted("·")} ${name}`);
@@ -407,10 +407,10 @@ export const startupLog = {
   /** Session resume context */
   sessionResumed(prevCalls: number, prevMinutes: number) {
     write(
-      `  ${SYM.done} Session resumed ${muted("— picking up where you left off")}`,
+      `  ${SYM.done} Session resumed ${muted("— picking up where you left off")}`
     );
     write(
-      `    ${muted("previous:")} ${cyan(String(prevCalls))} tool calls ${muted("·")} ${cyan(String(prevMinutes))}min`,
+      `    ${muted("previous:")} ${cyan(String(prevCalls))} tool calls ${muted("·")} ${cyan(String(prevMinutes))}min`
     );
     writeToFile("session_resumed", "Session resumed", {
       prevCalls,
@@ -434,7 +434,7 @@ export const startupLog = {
         ? `${muted(`[exec:${opts.pid}]`)} `
         : "";
     write(
-      `  ${SYM.step} ${prefix}Turn ${cyan(String(opts.turn))}: ${bold(toolSlug)} ${muted("—")} ${emerald(opts.tokensSaved.toLocaleString())} tokens saved ${muted(`(${opts.mechanism})`)}${opts.tokensDelivered > 0 ? `, ${cyan(opts.tokensDelivered.toLocaleString())} delivered` : ""}`,
+      `  ${SYM.step} ${prefix}Turn ${cyan(String(opts.turn))}: ${bold(toolSlug)} ${muted("—")} ${emerald(opts.tokensSaved.toLocaleString())} tokens saved ${muted(`(${opts.mechanism})`)}${opts.tokensDelivered > 0 ? `, ${cyan(opts.tokensDelivered.toLocaleString())} delivered` : ""}`
     );
     writeToFile(
       "token_flow",
@@ -447,14 +447,14 @@ export const startupLog = {
         tokens_delivered: opts.tokensDelivered,
         session_total: opts.sessionTotal,
         pid: opts.pid,
-      },
+      }
     );
   },
 
   /** Token flow session total — periodic summary line */
   tokenFlowTotal(saved: number, delivered: number, efficiency: number) {
     write(
-      `  ${SYM.bolt} Session: ${emerald(saved.toLocaleString())} saved ${muted("/")} ${cyan(delivered.toLocaleString())} delivered ${muted(`(${efficiency}% efficiency)`)}`,
+      `  ${SYM.bolt} Session: ${emerald(saved.toLocaleString())} saved ${muted("/")} ${cyan(delivered.toLocaleString())} delivered ${muted(`(${efficiency}% efficiency)`)}`
     );
     writeToFile("token_flow_total", "Session token flow", {
       tokens_saved: saved,
@@ -507,7 +507,7 @@ export const startupLog = {
     const fillWidth = (health.score / 100) * BAR_WIDTH;
     const fullBlocks = Math.floor(fillWidth);
     const partialIdx = Math.round(
-      (fillWidth - fullBlocks) * (BLOCKS.length - 1),
+      (fillWidth - fullBlocks) * (BLOCKS.length - 1)
     );
     const emptyBlocks = BAR_WIDTH - fullBlocks - (partialIdx > 0 ? 1 : 0);
     const bar =
@@ -517,25 +517,25 @@ export const startupLog = {
 
     write("");
     write(
-      `  ${dim("┌─────────────────────────────────────────────────────┐")}`,
+      `  ${dim("┌─────────────────────────────────────────────────────┐")}`
     );
     write(
-      `  ${dim("│")}  ${violet("◆")} ${bold("Architecture Health")}                            ${dim("│")}`,
+      `  ${dim("│")}  ${violet("◆")} ${bold("Architecture Health")}                            ${dim("│")}`
     );
     write(
-      `  ${dim("├─────────────────────────────────────────────────────┤")}`,
+      `  ${dim("├─────────────────────────────────────────────────────┤")}`
     );
     write(
-      `  ${dim("│")}                                                     ${dim("│")}`,
+      `  ${dim("│")}                                                     ${dim("│")}`
     );
     write(
-      `  ${dim("│")}   ${gradeColor(`${BOLD}${health.grade}${RESET}`)}  ${gradeBg}${bar}${RESET}  ${gradeColor(`${health.score}`)}${muted("/100")}          ${dim("│")}`,
+      `  ${dim("│")}   ${gradeColor(`${BOLD}${health.grade}${RESET}`)}  ${gradeBg}${bar}${RESET}  ${gradeColor(`${health.score}`)}${muted("/100")}          ${dim("│")}`
     );
     write(
-      `  ${dim("│")}                                                     ${dim("│")}`,
+      `  ${dim("│")}                                                     ${dim("│")}`
     );
     write(
-      `  ${dim("├─────────────────────────────────────────────────────┤")}`,
+      `  ${dim("├─────────────────────────────────────────────────────┤")}`
     );
 
     // ── Metrics grid ──
@@ -547,21 +547,21 @@ export const startupLog = {
         : "0";
 
     write(
-      `  ${dim("│")}  ${muted("Entities")}     ${cyan(entityStr.padEnd(8))} ${muted("Edges")}       ${cyan(edgeStr.padEnd(8))} ${dim("│")}`,
+      `  ${dim("│")}  ${muted("Entities")}     ${cyan(entityStr.padEnd(8))} ${muted("Edges")}       ${cyan(edgeStr.padEnd(8))} ${dim("│")}`
     );
     write(
-      `  ${dim("│")}  ${muted("Connectivity")} ${cyan(connectivity.padEnd(8))} ${muted("Rules")}       ${violet(String(health.totalRules).padEnd(8))} ${dim("│")}`,
+      `  ${dim("│")}  ${muted("Connectivity")} ${cyan(connectivity.padEnd(8))} ${muted("Rules")}       ${violet(String(health.totalRules).padEnd(8))} ${dim("│")}`
     );
 
     // ── Signals ──
     write(
-      `  ${dim("├─────────────────────────────────────────────────────┤")}`,
+      `  ${dim("├─────────────────────────────────────────────────────┤")}`
     );
     write(
-      `  ${dim("│")}  ${muted("Signal")}                           ${muted("Status")}         ${dim("│")}`,
+      `  ${dim("│")}  ${muted("Signal")}                           ${muted("Status")}         ${dim("│")}`
     );
     write(
-      `  ${dim("│")}  ${dim("─────────────────────────────────────────────")}  ${dim("│")}`,
+      `  ${dim("│")}  ${dim("─────────────────────────────────────────────")}  ${dim("│")}`
     );
 
     // Dead functions
@@ -578,7 +578,7 @@ export const startupLog = {
           ? red
           : amber;
     write(
-      `  ${dim("│")}  ${deadIcon} ${muted("Dead functions")}                  ${deadColor(String(health.deadFunctionCount).padEnd(4))}       ${dim("│")}`,
+      `  ${dim("│")}  ${deadIcon} ${muted("Dead functions")}                  ${deadColor(String(health.deadFunctionCount).padEnd(4))}       ${dim("│")}`
     );
 
     // Circular deps
@@ -587,7 +587,7 @@ export const startupLog = {
       circCount === 0 ? SYM.done : circCount > 5 ? SYM.fail : SYM.warn;
     const circColor = circCount === 0 ? emerald : circCount > 5 ? red : amber;
     write(
-      `  ${dim("│")}  ${circIcon} ${muted("Circular dependencies")}           ${circColor(String(circCount).padEnd(4))}       ${dim("│")}`,
+      `  ${dim("│")}  ${circIcon} ${muted("Circular dependencies")}           ${circColor(String(circCount).padEnd(4))}       ${dim("│")}`
     );
 
     // Import depth
@@ -595,7 +595,7 @@ export const startupLog = {
     const depthIcon = depth <= 7 ? SYM.done : depth > 15 ? SYM.fail : SYM.warn;
     const depthColor = depth <= 7 ? emerald : depth > 15 ? red : amber;
     write(
-      `  ${dim("│")}  ${depthIcon} ${muted("Max import chain")}                ${depthColor(String(depth).padEnd(4))}       ${dim("│")}`,
+      `  ${dim("│")}  ${depthIcon} ${muted("Max import chain")}                ${depthColor(String(depth).padEnd(4))}       ${dim("│")}`
     );
 
     // Convention adherence
@@ -606,7 +606,7 @@ export const startupLog = {
     const adhColor =
       adherence >= 0.9 ? emerald : adherence >= 0.7 ? amber : red;
     write(
-      `  ${dim("│")}  ${adhIcon} ${muted("Convention adherence")}            ${adhColor(adherencePct.padEnd(4))}       ${dim("│")}`,
+      `  ${dim("│")}  ${adhIcon} ${muted("Convention adherence")}            ${adhColor(adherencePct.padEnd(4))}       ${dim("│")}`
     );
 
     // Drift impact
@@ -614,7 +614,7 @@ export const startupLog = {
     const driftIcon = drift === 0 ? SYM.done : drift > 10 ? SYM.fail : SYM.warn;
     const driftColor = drift === 0 ? emerald : drift > 10 ? red : amber;
     write(
-      `  ${dim("│")}  ${driftIcon} ${muted("Drift in critical paths")}         ${driftColor(String(drift).padEnd(4))}       ${dim("│")}`,
+      `  ${dim("│")}  ${driftIcon} ${muted("Drift in critical paths")}         ${driftColor(String(drift).padEnd(4))}       ${dim("│")}`
     );
 
     // Orphan test files
@@ -624,16 +624,16 @@ export const startupLog = {
     const orphanColor =
       orphanCount === 0 ? emerald : orphanCount > 10 ? red : amber;
     write(
-      `  ${dim("│")}  ${orphanIcon} ${muted("Orphan test files")}               ${orphanColor(String(orphanCount).padEnd(4))}       ${dim("│")}`,
+      `  ${dim("│")}  ${orphanIcon} ${muted("Orphan test files")}               ${orphanColor(String(orphanCount).padEnd(4))}       ${dim("│")}`
     );
 
     // ── High-risk entities (chokepoints) ──
     if (health.highRiskEntities.length > 0) {
       write(
-        `  ${dim("├─────────────────────────────────────────────────────┤")}`,
+        `  ${dim("├─────────────────────────────────────────────────────┤")}`
       );
       write(
-        `  ${dim("│")}  ${amber("⚠")} ${bold("Chokepoints")} ${muted("— changes here ripple widely")}      ${dim("│")}`,
+        `  ${dim("│")}  ${amber("⚠")} ${bold("Chokepoints")} ${muted("— changes here ripple widely")}      ${dim("│")}`
       );
       for (const entity of health.highRiskEntities) {
         const fanStr = `${entity.fan_in}↓ ${entity.fan_out}↑`;
@@ -642,7 +642,7 @@ export const startupLog = {
             ? `${entity.name.slice(0, 22)}..`
             : entity.name;
         write(
-          `  ${dim("│")}    ${cyan(nameDisplay.padEnd(26))} ${amber(fanStr.padEnd(10))}     ${dim("│")}`,
+          `  ${dim("│")}    ${cyan(nameDisplay.padEnd(26))} ${amber(fanStr.padEnd(10))}     ${dim("│")}`
         );
         const fileShort =
           entity.file_path.length > 40
@@ -653,7 +653,7 @@ export const startupLog = {
     }
 
     write(
-      `  ${dim("└─────────────────────────────────────────────────────┘")}`,
+      `  ${dim("└─────────────────────────────────────────────────────┘")}`
     );
     write("");
     writeToFile("health_card", "Architecture health", {
@@ -676,62 +676,62 @@ export const startupLog = {
   mcpConnectionCard(configuredAgents: string[], projectDir: string) {
     write("");
     write(
-      `  ${dim("┌─────────────────────────────────────────────────────┐")}`,
+      `  ${dim("┌─────────────────────────────────────────────────────┐")}`
     );
     write(
-      `  ${dim("│")}  ${violet("⚡")} ${bold("MCP Connection")}                                 ${dim("│")}`,
+      `  ${dim("│")}  ${violet("⚡")} ${bold("MCP Connection")}                                 ${dim("│")}`
     );
     write(
-      `  ${dim("├─────────────────────────────────────────────────────┤")}`,
+      `  ${dim("├─────────────────────────────────────────────────────┤")}`
     );
 
     if (configuredAgents.length > 0) {
       write(
-        `  ${dim("│")}  ${emerald(SYM.done)} ${muted("Auto-configured:")} ${cyan(configuredAgents.join(", "))}    ${dim("│")}`,
+        `  ${dim("│")}  ${emerald(SYM.done)} ${muted("Auto-configured:")} ${cyan(configuredAgents.join(", "))}    ${dim("│")}`
       );
     }
 
     write(
-      `  ${dim("│")}                                                     ${dim("│")}`,
+      `  ${dim("│")}                                                     ${dim("│")}`
     );
     write(
-      `  ${dim("│")}  ${muted("For any MCP-compatible agent, add to config:")}       ${dim("│")}`,
+      `  ${dim("│")}  ${muted("For any MCP-compatible agent, add to config:")}       ${dim("│")}`
     );
     write(
-      `  ${dim("│")}                                                     ${dim("│")}`,
+      `  ${dim("│")}                                                     ${dim("│")}`
     );
     write(
-      `  ${dim("│")}  ${dim("{")}                                                  ${dim("│")}`,
+      `  ${dim("│")}  ${dim("{")}                                                  ${dim("│")}`
     );
     write(
-      `  ${dim("│")}    ${cyan('"mcpServers"')}: ${dim("{")}                                 ${dim("│")}`,
+      `  ${dim("│")}    ${cyan('"mcpServers"')}: ${dim("{")}                                 ${dim("│")}`
     );
     write(
-      `  ${dim("│")}      ${cyan('"unerr"')}: ${dim("{")}                                    ${dim("│")}`,
+      `  ${dim("│")}      ${cyan('"unerr"')}: ${dim("{")}                                    ${dim("│")}`
     );
     write(
-      `  ${dim("│")}        ${cyan('"command"')}: ${emerald('"unerr"')}${dim(",")}                          ${dim("│")}`,
+      `  ${dim("│")}        ${cyan('"command"')}: ${emerald('"unerr"')}${dim(",")}                          ${dim("│")}`
     );
     write(
-      `  ${dim("│")}        ${cyan('"args"')}: [${emerald('"--mcp"')}]                          ${dim("│")}`,
+      `  ${dim("│")}        ${cyan('"args"')}: [${emerald('"--mcp"')}]                          ${dim("│")}`
     );
     write(
-      `  ${dim("│")}      ${dim("}")}                                                ${dim("│")}`,
+      `  ${dim("│")}      ${dim("}")}                                                ${dim("│")}`
     );
     write(
-      `  ${dim("│")}    ${dim("}")}                                                  ${dim("│")}`,
+      `  ${dim("│")}    ${dim("}")}                                                  ${dim("│")}`
     );
     write(
-      `  ${dim("│")}  ${dim("}")}                                                    ${dim("│")}`,
+      `  ${dim("│")}  ${dim("}")}                                                    ${dim("│")}`
     );
     write(
-      `  ${dim("│")}                                                     ${dim("│")}`,
+      `  ${dim("│")}                                                     ${dim("│")}`
     );
     write(
-      `  ${dim("│")}  ${muted("Add more:")} ${dim("unerr install <agent>")}                    ${dim("│")}`,
+      `  ${dim("│")}  ${muted("Add more:")} ${dim("unerr install <agent>")}                    ${dim("│")}`
     );
     write(
-      `  ${dim("└─────────────────────────────────────────────────────┘")}`,
+      `  ${dim("└─────────────────────────────────────────────────────┘")}`
     );
     write("");
     writeToFile("mcp_connection_card", "MCP connection info", {
@@ -744,7 +744,7 @@ export const startupLog = {
   dashboardReady(url: string) {
     write(`  ${SYM.brain} ${bold("Dashboard")} ${muted("—")} ${cyan(url)}`);
     write(
-      `    ${muted("Tip:")} ${dim("unerr dashboard")} ${muted("opens this in your browser")}`,
+      `    ${muted("Tip:")} ${dim("unerr dashboard")} ${muted("opens this in your browser")}`
     );
     writeToFile("dashboard_ready", "Dashboard ready", { url });
   },

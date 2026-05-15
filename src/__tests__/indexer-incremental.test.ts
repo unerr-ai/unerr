@@ -59,7 +59,7 @@ afterAll(() => {
 beforeEach(() => {
   tempDir = join(
     tmpdir(),
-    `unerr-incr-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-incr-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(tempDir, { recursive: true });
 });
@@ -71,7 +71,7 @@ afterEach(() => {
 function makeEntity(
   name: string,
   bodyContent: string,
-  filePath = "test.ts",
+  filePath = "test.ts"
 ): IndexedEntity {
   return {
     key: entityKey(filePath, "function", name, ""),
@@ -283,10 +283,10 @@ describe("Tree-sitter Incremental Re-extraction", () => {
     const r2 = typescriptPlugin.extract(tree2, "test.ts", source);
 
     expect(r1.entities.map((e) => e.key)).toEqual(
-      r2.entities.map((e) => e.key),
+      r2.entities.map((e) => e.key)
     );
     expect(r1.entities.map((e) => e.body_hash)).toEqual(
-      r2.entities.map((e) => e.body_hash),
+      r2.entities.map((e) => e.body_hash)
     );
 
     tree1.delete();

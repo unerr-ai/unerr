@@ -30,7 +30,7 @@ export interface EnrichmentResult {
  * Run the full semantic enrichment pipeline.
  */
 export async function runEnrichment(
-  input: EnrichmentInput,
+  input: EnrichmentInput
 ): Promise<EnrichmentResult> {
   const start = performance.now();
   const { entities, edges } = input;
@@ -70,7 +70,7 @@ export async function runEnrichment(
 
   const durationMs = performance.now() - start;
   log.info(
-    `Semantic enrichment complete: ${entities.length} entities in ${Math.round(durationMs)}ms`,
+    `Semantic enrichment complete: ${entities.length} entities in ${Math.round(durationMs)}ms`
   );
 
   return { embeddings, entityCount: entities.length, durationMs };

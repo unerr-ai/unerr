@@ -45,7 +45,7 @@ const fxDiff = (() => {
     lines.push(
       i % 50 === 0
         ? `+ const change_${i} = ${i};`
-        : `  const same_${i} = ${i};  // unchanged context line`,
+        : `  const same_${i} = ${i};  // unchanged context line`
     );
   }
   return lines.join("\n");
@@ -55,7 +55,7 @@ const fxLog = (() => {
   const out: string[] = ["BUILD START"];
   for (let i = 0; i < 1500; i++) {
     out.push(
-      `2026-05-13T14:32:0${i % 10}.123Z INFO compiling module/foo-${i % 8}.ts`,
+      `2026-05-13T14:32:0${i % 10}.123Z INFO compiling module/foo-${i % 8}.ts`
     );
   }
   out.push("Finished build in 12.3s");
@@ -81,7 +81,7 @@ const fxTabular = (() => {
   ];
   for (let i = 0; i < 200; i++) {
     out.push(
-      `user${i.toString().padStart(3, "0")} ${(1000 + i).toString().padStart(5)} ${(i % 20).toFixed(1)}  ${(i % 8).toFixed(1)}  123456 ${(20000 + i).toString().padStart(6)} ?     S    10:00   0:00 some/long/process/name-${i}`,
+      `user${i.toString().padStart(3, "0")} ${(1000 + i).toString().padStart(5)} ${(i % 20).toFixed(1)}  ${(i % 8).toFixed(1)}  123456 ${(20000 + i).toString().padStart(6)} ?     S    10:00   0:00 some/long/process/name-${i}`
     );
   }
   return out.join("\n");
@@ -105,14 +105,14 @@ const fxStructured = JSON.stringify(
     })),
   },
   null,
-  2,
+  2
 );
 
 const fxProgress = (() => {
   const out: string[] = [];
   for (let i = 0; i <= 100; i += 2) {
     out.push(
-      `[${"#".repeat(i / 2)}${" ".repeat(50 - i / 2)}] ${i}% downloading pkg-name`,
+      `[${"#".repeat(i / 2)}${" ".repeat(50 - i / 2)}] ${i}% downloading pkg-name`
     );
   }
   out.push("done");
@@ -136,10 +136,10 @@ const fxErrorDiag = (() => {
   const out: string[] = [];
   for (let i = 0; i < 50; i++) {
     out.push(
-      `src/file_${i}.ts(${10 + i},${5 + (i % 30)}): error TS2304: Cannot find name 'foo${i}'.`,
+      `src/file_${i}.ts(${10 + i},${5 + (i % 30)}): error TS2304: Cannot find name 'foo${i}'.`
     );
     out.push(`   10   const x = foo${i}();`);
-    out.push(`                  ~~~~~~`);
+    out.push("                  ~~~~~~");
     out.push("");
   }
   return out.join("\n");
@@ -216,7 +216,7 @@ describe("R10 — per-classifier compression floor (≥ per-strategy floor)", ()
       if (r < c.floor) {
         // Helpful failure message — what we got vs what's required
         throw new Error(
-          `${c.name}: ratio ${(r * 100).toFixed(1)}% < floor ${(c.floor * 100).toFixed(0)}% — raw ${c.raw.length}B, out ${out.length}B`,
+          `${c.name}: ratio ${(r * 100).toFixed(1)}% < floor ${(c.floor * 100).toFixed(0)}% — raw ${c.raw.length}B, out ${out.length}B`
         );
       }
       expect(r).toBeGreaterThanOrEqual(c.floor);

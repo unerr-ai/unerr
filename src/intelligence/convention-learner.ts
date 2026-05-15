@@ -43,7 +43,7 @@ interface RenameObservation {
  * Returns newly detected conventions.
  */
 export function learnConventions(
-  entries: LedgerEntryLike[],
+  entries: LedgerEntryLike[]
 ): LearnedConvention[] {
   const conventions: LearnedConvention[] = [];
 
@@ -99,7 +99,7 @@ function detectRenamePatterns(entries: LedgerEntryLike[]): LearnedConvention[] {
         name: `Naming: ${pattern}`,
         pattern,
         evidence: observations.map(
-          (o) => `${o.fromName} → ${o.toName} in ${o.file}`,
+          (o) => `${o.fromName} → ${o.toName} in ${o.file}`
         ),
         confidence: Math.min(0.9, 0.5 + observations.length * 0.1),
         detectedAt: new Date().toISOString(),
@@ -112,7 +112,7 @@ function detectRenamePatterns(entries: LedgerEntryLike[]): LearnedConvention[] {
 }
 
 function detectStructuralPatterns(
-  entries: LedgerEntryLike[],
+  entries: LedgerEntryLike[]
 ): LearnedConvention[] {
   const fileModCounts = new Map<string, number>();
 
@@ -145,7 +145,7 @@ function detectStructuralPatterns(
 }
 
 function detectCoChanges(
-  entries: LedgerEntryLike[],
+  entries: LedgerEntryLike[]
 ): Map<string, { files: string[]; count: number }> {
   const groups = new Map<string, { files: string[]; count: number }>();
   const syncEntries = entries.filter((e) => e.tool === "sync_local_diff");
@@ -175,14 +175,14 @@ function extractFiles(args: Record<string, unknown>): string[] {
   if (!Array.isArray(files)) return [];
   return files
     .map((f) =>
-      typeof f === "string" ? f : ((f as { path?: string })?.path ?? ""),
+      typeof f === "string" ? f : ((f as { path?: string })?.path ?? "")
     )
     .filter(Boolean);
 }
 
 function extractContent(
   args: Record<string, unknown>,
-  filePath: string,
+  filePath: string
 ): string | null {
   const files = args.files;
   if (!Array.isArray(files)) return null;
@@ -197,7 +197,7 @@ function extractContent(
 
 function detectNameChanges(
   prevContent: string,
-  currContent: string,
+  currContent: string
 ): Array<{ fromName: string; toName: string }> {
   const prevNames = extractIdentifiers(prevContent);
   const currNames = extractIdentifiers(currContent);

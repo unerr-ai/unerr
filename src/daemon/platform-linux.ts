@@ -5,6 +5,9 @@
  * Enables with `systemctl --user enable --now`.
  * Runs `loginctl enable-linger` for headless/server boxes.
  * Skips WSL (no boot phase).
+ *
+ * Critical: uses absolute paths to node + CLI entry (nvm/fnm binaries
+ * are not on the default systemd PATH).
  */
 
 import { execSync } from "node:child_process";
@@ -12,11 +15,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { PlatformInstallResult } from "./platform-macos.js";
 
 const UNIT_NAME = "unerrd.service";
@@ -29,12 +33,40 @@ function unitPath(): string {
   return join(unitDir(), UNIT_NAME);
 }
 
-function resolveUnerrBin(): string {
+function resolveNodeBin(): string {
   try {
-    return execSync("which unerr", { encoding: "utf-8" }).trim();
+    return realpathSync(process.execPath);
   } catch {
-    return join(process.argv[1] || "unerr");
+    return process.execPath;
   }
+}
+
+function resolveCliEntry(): string {
+  if (process.argv[1]) {
+    const resolved = resolve(process.argv[1]);
+    if (existsSync(resolved)) return resolved;
+  }
+
+  // Fallback: parse the shell shim installed by pnpm/npm
+  try {
+    const shimPath = execSync("which unerr", { encoding: "utf-8" }).trim();
+    if (shimPath && existsSync(shimPath)) {
+      const shimContent = readFileSync(shimPath, "utf-8");
+      const jsMatch = /"\$basedir\/((?:\.\.\/)*[^"]+\.js)"/m.exec(shimContent);
+      if (jsMatch?.[1]) {
+        const basedir = dirname(shimPath);
+        const abs = resolve(basedir, jsMatch[1]);
+        if (existsSync(abs)) return abs;
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+
+  const fallbackBase = process.argv[1]
+    ? dirname(resolve(process.argv[1]))
+    : process.cwd();
+  return join(fallbackBase, "cli.js");
 }
 
 function isWSL(): boolean {
@@ -46,18 +78,27 @@ function isWSL(): boolean {
   }
 }
 
-function generateUnit(bin: string): string {
+/** Escape systemd ExecStart value — paths with spaces need quoting. */
+function systemdQuote(s: string): string {
+  if (/[\s"\\]/.test(s))
+    return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  return s;
+}
+
+function generateUnit(nodeBin: string, cliEntry: string): string {
+  const nodeBinDir = dirname(nodeBin);
+  const home = homedir();
   return `[Unit]
 Description=unerr daemon supervisor
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=${bin} daemon start --foreground
+ExecStart=${systemdQuote(nodeBin)} ${systemdQuote(cliEntry)} daemon start --foreground
 Restart=on-failure
-RestartSec=5
-Environment=HOME=${homedir()}
-Environment=PATH=${process.env.PATH || "/usr/local/bin:/usr/bin:/bin"}
+RestartSec=30
+Environment=HOME=${home}
+Environment=PATH=${nodeBinDir}:/usr/local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=default.target
@@ -77,11 +118,12 @@ export function installSystemd(): PlatformInstallResult {
   }
 
   try {
-    const bin = resolveUnerrBin();
+    const nodeBin = resolveNodeBin();
+    const cliEntry = resolveCliEntry();
     const dir = unitDir();
     mkdirSync(dir, { recursive: true });
 
-    writeFileSync(path, generateUnit(bin), "utf-8");
+    writeFileSync(path, generateUnit(nodeBin, cliEntry), "utf-8");
 
     execSync("systemctl --user daemon-reload", { stdio: "ignore" });
     execSync("systemctl --user enable --now unerrd.service", {
@@ -90,7 +132,9 @@ export function installSystemd(): PlatformInstallResult {
 
     // Enable lingering so the unit starts at boot, not just at first login
     try {
-      execSync("loginctl enable-linger $USER", { stdio: "ignore" });
+      const username =
+        process.env.USER || execSync("whoami", { encoding: "utf-8" }).trim();
+      execSync(`loginctl enable-linger ${username}`, { stdio: "ignore" });
     } catch {
       // loginctl may not be available (containers, minimal installs)
     }

@@ -16,7 +16,7 @@ export function registerServeCommand(program: Command): void {
     .option("--no-prefetch", "Disable predictive context pre-fetching")
     .action(async (opts: { repo?: string; prefetch?: boolean }) => {
       process.stderr.write(
-        "Note: 'unerr serve' is now handled by 'unerr'. Starting proxy...\n",
+        "Note: 'unerr serve' is now handled by 'unerr'. Starting proxy...\n"
       );
       const { startProxy } = await import("../proxy/proxy.js");
       await startProxy({ repoId: opts.repo, prefetch: opts.prefetch });

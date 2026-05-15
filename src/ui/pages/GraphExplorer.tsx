@@ -169,7 +169,7 @@ function HealthScoreHero({
       {/* Score ring */}
       <div className="glass-panel rounded-xl flex flex-col items-center justify-center py-6 px-4 gap-2">
         <div className="relative flex items-center justify-center">
-          <svg viewBox="0 0 120 120" className="h-28 w-28">
+          <svg aria-hidden="true" viewBox="0 0 120 120" className="h-28 w-28">
             <circle
               cx="60"
               cy="60"
@@ -214,83 +214,83 @@ function HealthScoreHero({
       <div className="flex flex-col gap-3">
         {/* Primary metrics — the three signals every user should grok at a glance */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <MetricTile
-          label="Tested Reach"
-          value={pct(brCov)}
-          hint="% of your code's dependency reach that has tests guarding it."
-          accent={brCov >= 75 ? "emerald" : brCov >= 50 ? "amber" : "red"}
-        />
-        <MetricTile
-          label="Chokepoints"
-          value={String(insights.bottlenecks.length)}
-          hint="High-traffic files with no tests — break one, break many."
-          accent={insights.bottlenecks.length > 0 ? "red" : "emerald"}
-        />
-        <MetricTile
-          label="Risk Concentrated In Top 5"
-          value={pct(insights.riskConcentration)}
-          hint="Higher = more fragile codebase (few files carry most risk)."
-          accent={
-            insights.riskConcentration > 60
-              ? "red"
-              : insights.riskConcentration > 40
-                ? "amber"
-                : "emerald"
-          }
-        />
-      </div>
-
-      {/* Advanced metrics — hidden by default to avoid number-soup */}
-      <details className="group rounded-xl border border-border-subtle bg-sidebar/40 px-4 py-2">
-        <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground transition-colors">
-          Advanced metrics ({fmtNum(stats.entityCount)} entities ·{" "}
-          {stats.communityCount} modules)
-        </summary>
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <MetricTile
-            label="High-Risk Files"
-            value={String(insights.riskDistribution.high)}
-            sub={`of ${insights.riskDistribution.high + insights.riskDistribution.medium + insights.riskDistribution.low} analyzed`}
-            hint="Files with high blast radius and weak test coverage."
-            accent={insights.riskDistribution.high > 0 ? "red" : "emerald"}
+            label="Tested Reach"
+            value={pct(brCov)}
+            hint="% of your code's dependency reach that has tests guarding it."
+            accent={brCov >= 75 ? "emerald" : brCov >= 50 ? "amber" : "red"}
           />
           <MetricTile
-            label="Untested Reach"
-            value={fmtNum(insights.untestedBlastRadius)}
-            sub={`of ${fmtNum(insights.totalBlastRadius)} total`}
-            hint="Dependency edges that no test currently exercises."
+            label="Chokepoints"
+            value={String(insights.bottlenecks.length)}
+            hint="High-traffic files with no tests — break one, break many."
+            accent={insights.bottlenecks.length > 0 ? "red" : "emerald"}
+          />
+          <MetricTile
+            label="Risk Concentrated In Top 5"
+            value={pct(insights.riskConcentration)}
+            hint="Higher = more fragile codebase (few files carry most risk)."
             accent={
-              insights.untestedBlastRadius > insights.testedBlastRadius
+              insights.riskConcentration > 60
                 ? "red"
-                : "emerald"
+                : insights.riskConcentration > 40
+                  ? "amber"
+                  : "emerald"
             }
           />
-          <MetricTile
-            label="Modules"
-            value={String(stats.communityCount)}
-            sub={`${fmtNum(stats.fileCount)} files`}
-            hint="Clusters of files that change together (auto-detected)."
-          />
-          {insights.mostCoupledPair ? (
+        </div>
+
+        {/* Advanced metrics — hidden by default to avoid number-soup */}
+        <details className="group rounded-xl border border-border-subtle bg-sidebar/40 px-4 py-2">
+          <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground transition-colors">
+            Advanced metrics ({fmtNum(stats.entityCount)} entities ·{" "}
+            {stats.communityCount} modules)
+          </summary>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             <MetricTile
-              label="Tightest Co-Change Pair"
-              value={String(insights.mostCoupledPair.weight)}
-              sub={`${insights.mostCoupledPair.from.slice(0, 16)}…`}
-              hint="Two files edited together this many times — likely coupled."
+              label="High-Risk Files"
+              value={String(insights.riskDistribution.high)}
+              sub={`of ${insights.riskDistribution.high + insights.riskDistribution.medium + insights.riskDistribution.low} analyzed`}
+              hint="Files with high blast radius and weak test coverage."
+              accent={insights.riskDistribution.high > 0 ? "red" : "emerald"}
+            />
+            <MetricTile
+              label="Untested Reach"
+              value={fmtNum(insights.untestedBlastRadius)}
+              sub={`of ${fmtNum(insights.totalBlastRadius)} total`}
+              hint="Dependency edges that no test currently exercises."
               accent={
-                insights.mostCoupledPair.weight >= 10 ? "amber" : undefined
+                insights.untestedBlastRadius > insights.testedBlastRadius
+                  ? "red"
+                  : "emerald"
               }
             />
-          ) : (
             <MetricTile
-              label="Drift"
-              value={fmtNum(stats.driftCount)}
-              sub={stats.driftCount > 0 ? "entities drifted" : "clean"}
-              hint="Entities modified since the graph was last indexed."
+              label="Modules"
+              value={String(stats.communityCount)}
+              sub={`${fmtNum(stats.fileCount)} files`}
+              hint="Clusters of files that change together (auto-detected)."
             />
-          )}
-        </div>
-      </details>
+            {insights.mostCoupledPair ? (
+              <MetricTile
+                label="Tightest Co-Change Pair"
+                value={String(insights.mostCoupledPair.weight)}
+                sub={`${insights.mostCoupledPair.from.slice(0, 16)}…`}
+                hint="Two files edited together this many times — likely coupled."
+                accent={
+                  insights.mostCoupledPair.weight >= 10 ? "amber" : undefined
+                }
+              />
+            ) : (
+              <MetricTile
+                label="Drift"
+                value={fmtNum(stats.driftCount)}
+                sub={stats.driftCount > 0 ? "entities drifted" : "clean"}
+                hint="Entities modified since the graph was last indexed."
+              />
+            )}
+          </div>
+        </details>
       </div>
     </div>
   );
@@ -775,8 +775,7 @@ function parseTabFromHash(): CodeIntelTab {
 }
 
 function writeTabToHash(next: CodeIntelTab): void {
-  const target =
-    next === "file-health" ? "#/graph/file-health" : "#/graph";
+  const target = next === "file-health" ? "#/graph/file-health" : "#/graph";
   if (window.location.hash !== target) {
     window.history.replaceState(null, "", target);
   }
@@ -826,7 +825,7 @@ export function GraphExplorer() {
     queryKey: queryKey(["intelligence", "risk-hotspots"]),
     queryFn: () =>
       fetchJson<RiskHotspotsResponse>(
-        url("/api/intelligence/risk-hotspots?limit=25"),
+        url("/api/intelligence/risk-hotspots?limit=25")
       ),
     enabled: tab === "overview",
   });
@@ -852,7 +851,7 @@ export function GraphExplorer() {
     queryKey: queryKey(["intelligence", "reading-tour"]),
     queryFn: () =>
       fetchJson<ReadingTourResponse>(
-        url("/api/intelligence/reading-tour?limit=5"),
+        url("/api/intelligence/reading-tour?limit=5")
       ),
     enabled: tab === "overview",
     staleTime: 5 * 60_000,
@@ -867,7 +866,7 @@ export function GraphExplorer() {
 
   const insights = insightsQ.data?.data;
   const hotspots = (hotspotsQ.data?.data ?? []).sort(
-    (a, b) => riskScore(b) - riskScore(a),
+    (a, b) => riskScore(b) - riskScore(a)
   );
 
   return (

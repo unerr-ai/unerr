@@ -25,7 +25,7 @@ export function extractRiskLookupCandidates(text: string): string[] {
 /** Resolve symbols that are high-risk or high fan-in for diff annotation. */
 export async function buildShellDiffRiskMap(
   graph: CozoGraphStore,
-  stdout: string,
+  stdout: string
 ): Promise<Map<string, ShellDiffRiskHint>> {
   const candidates = extractRiskLookupCandidates(stdout);
   const map = new Map<string, ShellDiffRiskHint>();
@@ -66,7 +66,7 @@ export function extractFilePathCandidates(text: string): string[] {
     if (
       p.includes("/") ||
       /\.(ts|tsx|js|jsx|py|go|rs|rb|cs|java|kt|swift|scala|cpp|c|h|hpp)$/i.test(
-        p,
+        p
       )
     ) {
       out.add(p);
@@ -88,7 +88,7 @@ export interface ShellFileRiskHint {
  */
 export async function buildShellFileRiskMap(
   graph: CozoGraphStore,
-  stdout: string,
+  stdout: string
 ): Promise<Map<string, ShellFileRiskHint>> {
   const paths = extractFilePathCandidates(stdout);
   const map = new Map<string, ShellFileRiskHint>();
@@ -129,7 +129,7 @@ export async function buildShellFileRiskMap(
  */
 export function categoryWantsFileRiskBoost(
   category: string,
-  command: string | undefined,
+  command: string | undefined
 ): boolean {
   if (!command) return false;
   if (category === "diff") return false; // handled by buildShellDiffRiskMap
@@ -137,7 +137,7 @@ export function categoryWantsFileRiskBoost(
   if (/^\s*git\s+(status|log)\b/.test(command)) return true;
   if (
     /^\s*(eslint|biome|tsc|ruff|mypy|golangci|cargo clippy|shellcheck)\b/.test(
-      command,
+      command
     )
   )
     return true;
@@ -170,7 +170,7 @@ async function logBoostFailure(reason: string): Promise<void> {
 
 /** Load snapshot graph for hook/exec boost (same snapshot layout as proxy). */
 export async function tryLoadGraphForShellBoost(
-  cwd: string,
+  cwd: string
 ): Promise<CozoGraphStore | null> {
   const cached = boostCache.get(cwd);
   if (cached && Date.now() - cached.loadedAt < BOOST_TTL_MS) {
@@ -231,7 +231,6 @@ export async function tryLoadGraphForShellBoost(
   }
 
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: CozoDB dynamic ctor matches status.ts / proxy boot
     const db = new (CozoDbConstructor as any)();
     const graph = await CozoGraphStoreCtor.create(db);
     const { unpack } = await import("msgpackr");

@@ -11,11 +11,11 @@
  */
 
 import { Hono } from "hono";
+import { runIntentStitch } from "../../timeline/intent-detector.js";
 import { detectLoops } from "../../timeline/loop-miner.js";
 import { computeOpenThreads } from "../../timeline/open-threads.js";
 import type { CozoTimelineStore } from "../../timeline/timeline-store.js";
 import type { LedgerEntry } from "../../tracking/shadow-ledger.js";
-import { runIntentStitch } from "../../timeline/intent-detector.js";
 
 export interface TimelineRouteDeps {
   store: CozoTimelineStore;
@@ -23,7 +23,11 @@ export interface TimelineRouteDeps {
   getRecentLedgerEntries?: (limit: number) => LedgerEntry[];
 }
 
-function parseLimit(raw: string | undefined, fallback: number, max: number): number {
+function parseLimit(
+  raw: string | undefined,
+  fallback: number,
+  max: number
+): number {
   const n = Number.parseInt(raw ?? "", 10);
   if (Number.isNaN(n) || n < 1) return fallback;
   return Math.min(n, max);
@@ -53,7 +57,7 @@ export function createTimelineRoutes(deps: TimelineRouteDeps): Hono {
         db_path: deps.store.dbPath,
         is_new: deps.store.isNew,
       },
-    }),
+    })
   );
 
   app.get("/turns", async (c) => {

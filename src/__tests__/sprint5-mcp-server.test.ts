@@ -16,7 +16,7 @@ describe("Sprint E: MCP Package Structure", () => {
       "packages",
       "mcp",
       "src",
-      "server.ts",
+      "server.ts"
     );
     expect(fs.existsSync(serverPath)).toBe(true);
   });
@@ -27,7 +27,7 @@ describe("Sprint E: MCP Package Structure", () => {
       "packages",
       "mcp",
       "src",
-      "server.ts",
+      "server.ts"
     );
     const content = fs.readFileSync(serverPath, "utf-8");
     expect(content).toContain("export function createMcpServer");
@@ -39,7 +39,7 @@ describe("Sprint E: MCP Package Structure", () => {
       "packages",
       "mcp",
       "src",
-      "types.ts",
+      "types.ts"
     );
     const content = fs.readFileSync(typesPath, "utf-8");
     expect(content).toContain("McpToolDefinition");
@@ -53,7 +53,7 @@ describe("Sprint E: MCP Package Structure", () => {
       "packages",
       "mcp",
       "src",
-      "index.ts",
+      "index.ts"
     );
     const content = fs.readFileSync(indexPath, "utf-8");
     expect(content).toContain("createMcpServer");
@@ -67,7 +67,7 @@ describe("Sprint E: MCP Package Structure", () => {
       "mcp",
       "src",
       "transports",
-      "stdio.ts",
+      "stdio.ts"
     );
     expect(fs.existsSync(stdioPath)).toBe(true);
   });
@@ -79,7 +79,7 @@ describe("Sprint E: MCP Package Structure", () => {
       "mcp",
       "src",
       "transports",
-      "http.ts",
+      "http.ts"
     );
     expect(fs.existsSync(httpPath)).toBe(true);
   });

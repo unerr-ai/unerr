@@ -46,7 +46,7 @@ export async function launchRepl(opts: ReplOptions = {}): Promise<void> {
       console.error(
         "BYO-LLM not configured.\n" +
           "Add localLlm configuration to ~/.unerr/settings.json:\n" +
-          '  { "localLlm": { "provider": "ollama", "chatModel": "llama3" } }',
+          '  { "localLlm": { "provider": "ollama", "chatModel": "llama3" } }'
       );
       process.exit(1);
     }
@@ -75,7 +75,7 @@ export async function launchRepl(opts: ReplOptions = {}): Promise<void> {
     if (!apiKey) {
       console.error(
         "No Anthropic API key found.\n" +
-          "Set ANTHROPIC_API_KEY environment variable or add it to ~/.unerr/settings.json",
+          "Set ANTHROPIC_API_KEY environment variable or add it to ~/.unerr/settings.json"
       );
       process.exit(1);
     }
@@ -112,7 +112,7 @@ export async function launchRepl(opts: ReplOptions = {}): Promise<void> {
     allTools.length,
     !!settings.localLlm,
     chatProvider?.providerName,
-    model,
+    model
   );
 
   // Launch Ink UI
@@ -125,7 +125,7 @@ export async function launchRepl(opts: ReplOptions = {}): Promise<void> {
       tools={allTools}
       cwd={cwd}
       welcomeMessage={welcomeMsg}
-    />,
+    />
   );
 
   await waitUntilExit();
@@ -137,7 +137,7 @@ export async function launchRepl(opts: ReplOptions = {}): Promise<void> {
  */
 async function loadIntelligenceTools(
   registry: ToolRegistry,
-  cwd: string,
+  cwd: string
 ): Promise<boolean> {
   try {
     // Open persistent CozoDB (SQLite-backed at .unerr/graph.db)
@@ -191,7 +191,7 @@ function buildInstructions(graphLoaded: boolean, isLocal: boolean): string {
       "",
       "IMPORTANT: Use the intelligence tools (get_function, get_callers, search_code, etc.) to understand",
       "the codebase architecture BEFORE making changes. These tools provide pre-computed analysis",
-      "that is faster and more accurate than reading files manually.",
+      "that is faster and more accurate than reading files manually."
     );
   }
 
@@ -199,7 +199,7 @@ function buildInstructions(graphLoaded: boolean, isLocal: boolean): string {
     lines.push(
       "",
       "MODE: Local-only (fully offline). All processing happens on this machine.",
-      "No data is sent to external servers.",
+      "No data is sent to external servers."
     );
   }
 
@@ -213,14 +213,14 @@ function buildWelcomeMessage(
   toolCount: number,
   isLocal: boolean,
   providerName?: string,
-  model?: string,
+  model?: string
 ): string {
   const parts = [`${toolCount} tools available.`];
   if (graphLoaded) {
     parts.push("Code intelligence graph loaded.");
   } else {
     parts.push(
-      "No graph loaded — run 'unerr pull' to enable intelligence tools.",
+      "No graph loaded — run 'unerr pull' to enable intelligence tools."
     );
   }
   if (isLocal && providerName) {

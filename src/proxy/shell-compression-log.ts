@@ -43,7 +43,7 @@ function parseTs(ts: string): number {
 
 export function appendCompressionLog(
   cwd: string,
-  entry: CompressionLogEntry,
+  entry: CompressionLogEntry
 ): void {
   try {
     const store = openMetricsStore(join(cwd, ".unerr"));
@@ -85,7 +85,7 @@ export function appendFileReadLog(cwd: string, entry: FileReadLogEntry): void {
 
 export function readRecentFileReadLogs(
   cwd: string,
-  limit = 10,
+  limit = 10
 ): FileReadLogEntry[] {
   try {
     const store = openMetricsStore(join(cwd, ".unerr"));
@@ -106,7 +106,7 @@ export function readRecentFileReadLogs(
 
 export function readRecentCompressionLogs(
   cwd: string,
-  limit = 10,
+  limit = 10
 ): CompressionLogEntry[] {
   try {
     const store = openMetricsStore(join(cwd, ".unerr"));

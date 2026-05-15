@@ -111,7 +111,7 @@ function appendExecNudge(cmd: string, outputBytes: number): void {
     ) {
       // Table row #4 TRIM — why (cost) leads, tool roster follows, drop preamble.
       process.stdout.write(
-        `[unerr] ${post.drift_count}× drift this session — search_code/file_read/get_references cut 10-30× tokens for code-nav\n`,
+        `[unerr] ${post.drift_count}× drift this session — search_code/file_read/get_references cut 10-30× tokens for code-nav\n`
       );
       updateNudgeState(cwd, (s) => {
         s.tier2_emitted = true;
@@ -146,13 +146,13 @@ export function parseExecCommandLine(argv: string[]): string {
 /** Detect shell parse errors that indicate the command itself couldn't be parsed. */
 function isShellParseError(
   combined: string,
-  exitCode: number | undefined,
+  exitCode: number | undefined
 ): boolean {
   if (exitCode === undefined || exitCode === 0) return false;
   // zsh: "parse error", "unmatched", "bad pattern"
   // bash/sh: "syntax error", "unexpected EOF", "unexpected end of file"
   return /(?:parse error|syntax error|unexpected EOF|unexpected end of file|unmatched|bad pattern)/i.test(
-    combined,
+    combined
   );
 }
 
@@ -189,13 +189,13 @@ export async function runExecMain(argv: string[]): Promise<number> {
   if (isShellParseError(combined, exitCode)) {
     startupLog.fileOnly(
       "warn",
-      `shell parse error, skipping compression: ${cmd.slice(0, 120)}`,
+      `shell parse error, skipping compression: ${cmd.slice(0, 120)}`
     );
     process.stderr.write(
-      `[unerr:exec] command failed (exit ${exitCode}): ${cmd.slice(0, 120)}\n`,
+      `[unerr:exec] command failed (exit ${exitCode}): ${cmd.slice(0, 120)}\n`
     );
     process.stderr.write(
-      `[unerr:exec] ↑ this error is from the command itself, not unerr\n`,
+      "[unerr:exec] ↑ this error is from the command itself, not unerr\n"
     );
     process.stdout.write(combined);
     if (combined.length > 0 && !combined.endsWith("\n"))
@@ -212,7 +212,7 @@ export async function runExecMain(argv: string[]): Promise<number> {
       const truncated = lines.slice(0, TEE_RAW_LINE_LIMIT).join("\n");
       process.stdout.write(truncated);
       process.stdout.write(
-        `\n\n[unerr] Truncated ${TEE_RAW_LINE_LIMIT}/${lines.length} lines — use grep/head/tail to recover specific sections\n`,
+        `\n\n[unerr] Truncated ${TEE_RAW_LINE_LIMIT}/${lines.length} lines — use grep/head/tail to recover specific sections\n`
       );
     } else {
       process.stdout.write(combined);
@@ -235,10 +235,10 @@ export async function runExecMain(argv: string[]): Promise<number> {
     const msg = err instanceof Error ? err.message : String(err);
     startupLog.fileOnly(
       "warn",
-      `shell compression failed, falling back to raw output: ${msg}`,
+      `shell compression failed, falling back to raw output: ${msg}`
     );
     process.stderr.write(
-      `[unerr:exec] compression failed, showing raw output: ${msg}\n`,
+      `[unerr:exec] compression failed, showing raw output: ${msg}\n`
     );
     process.stdout.write(combined);
     if (combined.length > 0 && !combined.endsWith("\n"))
@@ -254,7 +254,7 @@ export async function runExecMain(argv: string[]): Promise<number> {
   if (exitCode !== 0 && !isGrepNoMatch(cmd, exitCode, result.stdout ?? "")) {
     startupLog.fileOnly(
       "warn",
-      `command exited with code ${exitCode}: ${cmd.slice(0, 120)}`,
+      `command exited with code ${exitCode}: ${cmd.slice(0, 120)}`
     );
   }
 
@@ -265,7 +265,7 @@ export function registerExecCommand(program: Command): void {
   program
     .command("exec")
     .description(
-      "Run shell command and print compressed output (for PreToolUse hooks)",
+      "Run shell command and print compressed output (for PreToolUse hooks)"
     )
     .allowUnknownOption(true)
     .action(async () => {

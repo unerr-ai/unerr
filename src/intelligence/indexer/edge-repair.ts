@@ -26,7 +26,7 @@ export interface RepairResult {
  */
 export function findDependentFiles(
   changedFile: string,
-  allImports: Map<string, ImportInfo[]>,
+  allImports: Map<string, ImportInfo[]>
 ): string[] {
   const dependents: string[] = [];
   const changedBase = stripExtension(changedFile);
@@ -42,7 +42,7 @@ export function findDependentFiles(
       const importerDir = dirname(filePath);
       let resolved = normalize(join(importerDir, imp.source)).replace(
         /\\/g,
-        "/",
+        "/"
       );
       if (resolved.startsWith("./")) resolved = resolved.slice(2);
 
@@ -67,10 +67,10 @@ export function repairCrossFileEdges(
   fileResults: Map<
     string,
     { entities: IndexedEntity[]; edges: IndexedEdge[]; imports: ImportInfo[] }
-  >,
+  >
 ): { repairedEdges: IndexedEdge[]; count: number } {
   const exportMap = buildExportMap(
-    fileResults as unknown as Parameters<typeof buildExportMap>[0],
+    fileResults as unknown as Parameters<typeof buildExportMap>[0]
   );
 
   const repairedEdges: IndexedEdge[] = [];
@@ -116,7 +116,7 @@ export function repairCrossFileEdges(
         const resolved = exportMap.resolveSymbol(
           imported.source,
           imported.originalName,
-          filePath,
+          filePath
         );
         if (resolved) {
           repairedEdges.push({ ...edge, to_key: resolved.entityKey });
@@ -130,7 +130,7 @@ export function repairCrossFileEdges(
   }
 
   log.debug(
-    `Repaired ${count} cross-file edges in ${dependentFiles.length} files`,
+    `Repaired ${count} cross-file edges in ${dependentFiles.length} files`
   );
   return { repairedEdges, count };
 }

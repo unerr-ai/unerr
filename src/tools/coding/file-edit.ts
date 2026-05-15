@@ -40,7 +40,7 @@ export const fileEditTool: Tool = {
 
   async execute(
     args: Record<string, unknown>,
-    ctx: ToolContext,
+    ctx: ToolContext
   ): Promise<ToolOutput> {
     const filePath = resolve(ctx.cwd, args.file_path as string);
     const oldString = args.old_string as string;

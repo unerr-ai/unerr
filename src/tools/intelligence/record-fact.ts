@@ -34,7 +34,7 @@ export interface RecordFactResult {
 export async function executeRecordFact(
   args: RecordFactArgs,
   factStore: TemporalFactStore,
-  sessionId: string,
+  sessionId: string
 ): Promise<RecordFactResult> {
   const { content, fact_type, scope, subject } = args;
 
@@ -43,14 +43,14 @@ export async function executeRecordFact(
   }
   if (content.length > 280) {
     throw new Error(
-      `content exceeds 280 character limit (got ${content.length}). Shorten the fact.`,
+      `content exceeds 280 character limit (got ${content.length}). Shorten the fact.`
     );
   }
   if (
     !["procedural", "semantic", "negative", "convention"].includes(fact_type)
   ) {
     throw new Error(
-      `fact_type must be one of: procedural, semantic, negative, convention (got "${fact_type}")`,
+      `fact_type must be one of: procedural, semantic, negative, convention (got "${fact_type}")`
     );
   }
   if (!scope || scope.trim().length === 0) {

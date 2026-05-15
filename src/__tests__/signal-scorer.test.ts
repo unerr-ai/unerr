@@ -135,8 +135,7 @@ describe("SignalScorer", () => {
       };
       const signals = scorer.contextToSignals(raw, "get_entity", {});
       const s = signals[0];
-      const expected =
-        Math.pow(s.actionability, 1.5) * s.relevance * s.confidence;
+      const expected = s.actionability ** 1.5 * s.relevance * s.confidence;
       expect(s.composite_score).toBeCloseTo(expected, 10);
     });
 
@@ -151,7 +150,7 @@ describe("SignalScorer", () => {
       const context = signals.find((s) => s.type === "context")!;
       // Ratio should be > 0.9/0.4 due to exponent
       expect(warning.composite_score).toBeGreaterThan(
-        context.composite_score * 2,
+        context.composite_score * 2
       );
     });
   });
@@ -170,10 +169,10 @@ describe("SignalScorer", () => {
       expect(ranked).toHaveLength(3);
       // Should be sorted descending by composite_score
       expect(ranked[0].composite_score).toBeGreaterThanOrEqual(
-        ranked[1].composite_score,
+        ranked[1].composite_score
       );
       expect(ranked[1].composite_score).toBeGreaterThanOrEqual(
-        ranked[2].composite_score,
+        ranked[2].composite_score
       );
     });
 

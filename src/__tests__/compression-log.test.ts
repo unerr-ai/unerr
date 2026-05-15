@@ -20,7 +20,7 @@ describe("compression-log", () => {
   beforeEach(() => {
     tmpDir = join(
       os.tmpdir(),
-      `unerr-complog-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      `unerr-complog-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     );
     mkdirSync(tmpDir, { recursive: true });
     unerrDir = join(tmpDir, ".unerr");
@@ -33,7 +33,7 @@ describe("compression-log", () => {
   });
 
   function makeEntry(
-    overrides?: Partial<CompressionLogEntry>,
+    overrides?: Partial<CompressionLogEntry>
   ): CompressionLogEntry {
     return {
       ts: new Date().toISOString(),
@@ -61,7 +61,7 @@ describe("compression-log", () => {
   it("records entries with 0% savings (passthrough)", () => {
     appendCompressionLog(
       tmpDir,
-      makeEntry({ savedPct: 0, compressedBytes: 1000 }),
+      makeEntry({ savedPct: 0, compressedBytes: 1000 })
     );
     const entries = readRecentCompressionLogs(tmpDir, 10);
     expect(entries).toHaveLength(1);
@@ -71,15 +71,15 @@ describe("compression-log", () => {
   it("readRecentCompressionLogs returns entries in reverse chronological order", () => {
     appendCompressionLog(
       tmpDir,
-      makeEntry({ command: "first", ts: "2024-01-01T00:00:00Z" }),
+      makeEntry({ command: "first", ts: "2024-01-01T00:00:00Z" })
     );
     appendCompressionLog(
       tmpDir,
-      makeEntry({ command: "second", ts: "2024-01-01T00:01:00Z" }),
+      makeEntry({ command: "second", ts: "2024-01-01T00:01:00Z" })
     );
     appendCompressionLog(
       tmpDir,
-      makeEntry({ command: "third", ts: "2024-01-01T00:02:00Z" }),
+      makeEntry({ command: "third", ts: "2024-01-01T00:02:00Z" })
     );
 
     const entries = readRecentCompressionLogs(tmpDir, 10);
@@ -105,7 +105,7 @@ describe("compression-log", () => {
   it("includes teeFile when present", () => {
     appendCompressionLog(
       tmpDir,
-      makeEntry({ teeFile: "/tmp/shell-tee-123.txt" }),
+      makeEntry({ teeFile: "/tmp/shell-tee-123.txt" })
     );
     const entries = readRecentCompressionLogs(tmpDir, 1);
     expect(entries[0]!.teeFile).toBe("/tmp/shell-tee-123.txt");
@@ -132,7 +132,7 @@ describe("file-read-log", () => {
   beforeEach(() => {
     tmpDir = join(
       os.tmpdir(),
-      `unerr-filelog-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      `unerr-filelog-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     );
     mkdirSync(tmpDir, { recursive: true });
     unerrDir = join(tmpDir, ".unerr");
@@ -145,7 +145,7 @@ describe("file-read-log", () => {
   });
 
   function makeFileEntry(
-    overrides?: Partial<FileReadLogEntry>,
+    overrides?: Partial<FileReadLogEntry>
   ): FileReadLogEntry {
     return {
       ts: new Date().toISOString(),
@@ -174,7 +174,7 @@ describe("file-read-log", () => {
       makeFileEntry({
         entity: "MyClass",
         tokenEstimate: 1200,
-      }),
+      })
     );
     const entries = readRecentFileReadLogs(tmpDir, 1);
     expect(entries).toHaveLength(1);
@@ -191,15 +191,15 @@ describe("file-read-log", () => {
   it("readRecentFileReadLogs returns entries in reverse chronological order", () => {
     appendFileReadLog(
       tmpDir,
-      makeFileEntry({ file: "a.ts", ts: "2024-01-01T00:00:00Z" }),
+      makeFileEntry({ file: "a.ts", ts: "2024-01-01T00:00:00Z" })
     );
     appendFileReadLog(
       tmpDir,
-      makeFileEntry({ file: "b.ts", ts: "2024-01-01T00:01:00Z" }),
+      makeFileEntry({ file: "b.ts", ts: "2024-01-01T00:01:00Z" })
     );
     appendFileReadLog(
       tmpDir,
-      makeFileEntry({ file: "c.ts", ts: "2024-01-01T00:02:00Z" }),
+      makeFileEntry({ file: "c.ts", ts: "2024-01-01T00:02:00Z" })
     );
 
     const entries = readRecentFileReadLogs(tmpDir, 10);

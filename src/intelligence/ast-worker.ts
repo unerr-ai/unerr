@@ -35,7 +35,7 @@ async function loadExtractor(): Promise<ExtractFn> {
 }
 
 export default async function parse(
-  input: WorkerInput,
+  input: WorkerInput
 ): Promise<ExtractedEntity[]> {
   try {
     const extractEntities = await loadExtractor();

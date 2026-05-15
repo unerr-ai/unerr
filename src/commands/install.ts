@@ -59,12 +59,12 @@ export function registerInstallCommand(program: Command): void {
     .option("--force", "Overwrite existing configuration")
     .option(
       "--no-force-tools",
-      "Keep built-in Read/Grep/Glob enabled (Claude Code only, default: denied)",
+      "Keep built-in Read/Grep/Glob enabled (Claude Code only, default: denied)"
     )
     .option("--show-skills", "Print skill content for manual installation")
     .option(
       "--show-instructions [agent]",
-      "Print setup instructions for any AI coding agent",
+      "Print setup instructions for any AI coding agent"
     )
     .action(
       async (
@@ -74,7 +74,7 @@ export function registerInstallCommand(program: Command): void {
           forceTools?: boolean;
           showSkills?: boolean;
           showInstructions?: boolean | string;
-        },
+        }
       ) => {
         const cwd = process.cwd();
 
@@ -106,7 +106,7 @@ export function registerInstallCommand(program: Command): void {
         const agentDef = getAgent(normalizedAgent as any);
         if (!agentDef) {
           process.stderr.write(
-            `\x1b[31m✗\x1b[0m Unknown agent: "${agent}"\n\n`,
+            `\x1b[31m✗\x1b[0m Unknown agent: "${agent}"\n\n`
           );
           showAvailableAgents(cwd);
           return;
@@ -119,66 +119,66 @@ export function registerInstallCommand(program: Command): void {
         // Display results
         process.stderr.write("\n");
         process.stderr.write(
-          `  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1munerr → ${agentDef.name}\x1b[0m\n`,
+          `  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1munerr → ${agentDef.name}\x1b[0m\n`
         );
         process.stderr.write("\n");
 
         // MCP config
         if (result.mcpConfig.action === "created") {
           process.stderr.write(
-            `  \x1b[38;2;52;211;153m✓\x1b[0m MCP config created → ${result.mcpConfig.path}\n`,
+            `  \x1b[38;2;52;211;153m✓\x1b[0m MCP config created → ${result.mcpConfig.path}\n`
           );
         } else if (result.mcpConfig.action === "updated") {
           process.stderr.write(
-            `  \x1b[38;2;52;211;153m✓\x1b[0m MCP config updated → ${result.mcpConfig.path}\n`,
+            `  \x1b[38;2;52;211;153m✓\x1b[0m MCP config updated → ${result.mcpConfig.path}\n`
           );
         } else {
           process.stderr.write(
-            `  \x1b[38;2;161;161;170m·\x1b[0m MCP config already present → ${result.mcpConfig.path}\n`,
+            `  \x1b[38;2;161;161;170m·\x1b[0m MCP config already present → ${result.mcpConfig.path}\n`
           );
         }
 
         // Skills
         if (result.skillsInstalled > 0) {
           process.stderr.write(
-            `  \x1b[38;2;52;211;153m✓\x1b[0m ${result.skillsInstalled} intelligence skills installed\n`,
+            `  \x1b[38;2;52;211;153m✓\x1b[0m ${result.skillsInstalled} intelligence skills installed\n`
           );
         }
 
         // Hook
         if (result.hookInstalled) {
           process.stderr.write(
-            `  \x1b[38;2;52;211;153m✓\x1b[0m PreToolUse hook installed (graph-first navigation)\n`,
+            "  \x1b[38;2;52;211;153m✓\x1b[0m PreToolUse hook installed (graph-first navigation)\n"
           );
         }
 
         // Gitignore
         if (result.gitignoreUpdated) {
           process.stderr.write(
-            `  \x1b[38;2;52;211;153m✓\x1b[0m .unerr added to .gitignore\n`,
+            "  \x1b[38;2;52;211;153m✓\x1b[0m .unerr added to .gitignore\n"
           );
         }
 
         // Instructions
         if (result.instructionsInjected) {
           process.stderr.write(
-            `  \x1b[38;2;52;211;153m✓\x1b[0m Tool preferences → ${result.instructionPath}\n`,
+            `  \x1b[38;2;52;211;153m✓\x1b[0m Tool preferences → ${result.instructionPath}\n`
           );
         }
 
         // S8: Disallowed tools (default-on for Claude Code)
         if (result.toolsDenied > 0) {
           process.stderr.write(
-            `  \x1b[38;2;52;211;153m✓\x1b[0m Built-in Read/Grep/Glob denied (use --no-force-tools to keep)\n`,
+            "  \x1b[38;2;52;211;153m✓\x1b[0m Built-in Read/Grep/Glob denied (use --no-force-tools to keep)\n"
           );
         }
 
         process.stderr.write("\n");
         process.stderr.write(
-          `  \x1b[38;2;161;161;170mRun \x1b[0munerr\x1b[38;2;161;161;170m to start the intelligence engine.\x1b[0m\n`,
+          "  \x1b[38;2;161;161;170mRun \x1b[0munerr\x1b[38;2;161;161;170m to start the intelligence engine.\x1b[0m\n"
         );
         process.stderr.write("\n");
-      },
+      }
     );
 }
 
@@ -188,7 +188,7 @@ export function registerInstallCommand(program: Command): void {
 export async function runInstall(
   cwd: string,
   ide: Parameters<typeof writeMcpConfig>[1],
-  opts?: { forceTools?: boolean },
+  opts?: { forceTools?: boolean }
 ): Promise<InstallResult> {
   const agentDef = getAgent(ide);
   const agentName = agentDef?.name ?? ide;
@@ -257,7 +257,20 @@ export async function runInstall(
     }
   }
 
-  // 7. Register repo with daemon supervisor and start the per-repo process (only if unerrd is running)
+  // 7. Auto-install daemon autostart (first install only — gated by sentinel + CI check)
+  try {
+    const { autoInstallIfNeeded } = await import("../daemon/autostart.js");
+    const autostartResult = await autoInstallIfNeeded();
+    if (autostartResult?.installed) {
+      process.stderr.write(
+        `\x1b[38;2;52;211;153m✓\x1b[0m Daemon auto-start registered: ${autostartResult.path}\n`
+      );
+    }
+  } catch {
+    // Non-blocking — autostart is a nice-to-have
+  }
+
+  // 8. Register repo with daemon supervisor and start the per-repo process (only if unerrd is running)
   let repoRegistered = false;
   try {
     const { daemonSockPath, probeDaemon, ensureRepo } = await import(
@@ -272,24 +285,24 @@ export async function runInstall(
         addRepo(cwd, {});
         repoRegistered = true;
         process.stderr.write(
-          "\x1b[38;2;52;211;153m✓\x1b[0m Registered repo with unerrd.\n",
+          "\x1b[38;2;52;211;153m✓\x1b[0m Registered repo with unerrd.\n"
         );
       }
       // Ask the daemon to start the per-repo process
       try {
         await ensureRepo(sock, cwd);
         process.stderr.write(
-          "\x1b[38;2;52;211;153m✓\x1b[0m unerr process started via daemon.\n",
+          "\x1b[38;2;52;211;153m✓\x1b[0m unerr process started via daemon.\n"
         );
       } catch {
         process.stderr.write(
-          "\x1b[38;2;251;191;36m⚠\x1b[0m Repo registered but process did not start. It will start on next IDE connection.\n",
+          "\x1b[38;2;251;191;36m⚠\x1b[0m Repo registered but process did not start. It will start on next IDE connection.\n"
         );
       }
     } else {
       process.stderr.write(
         "\x1b[38;2;34;211;238m▸\x1b[0m Daemon not running. To use daemon mode: \x1b[1munerr daemon initialize\x1b[0m\n" +
-          "  For standalone mode: run \x1b[1munerr\x1b[0m in this directory.\n",
+          "  For standalone mode: run \x1b[1munerr\x1b[0m in this directory.\n"
       );
     }
   } catch {
@@ -315,21 +328,21 @@ export async function runInstall(
 function showAvailableAgents(cwd: string): void {
   process.stderr.write("\n");
   process.stderr.write(
-    "  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1munerr install <agent>\x1b[0m\n",
+    "  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1munerr install <agent>\x1b[0m\n"
   );
   process.stderr.write("\n");
   process.stderr.write(
-    "  \x1b[38;2;161;161;170mInstall unerr intelligence for a specific AI coding agent.\x1b[0m\n",
+    "  \x1b[38;2;161;161;170mInstall unerr intelligence for a specific AI coding agent.\x1b[0m\n"
   );
   process.stderr.write(
-    "  \x1b[38;2;161;161;170mWrites MCP config + installs skills (project-level, never global).\x1b[0m\n",
+    "  \x1b[38;2;161;161;170mWrites MCP config + installs skills (project-level, never global).\x1b[0m\n"
   );
   process.stderr.write("\n");
   process.stderr.write(
-    "  \x1b[38;2;161;161;170mAgent              Command                          Status\x1b[0m\n",
+    "  \x1b[38;2;161;161;170mAgent              Command                          Status\x1b[0m\n"
   );
   process.stderr.write(
-    "  \x1b[2m─────────────────────────────────────────────────────────────────\x1b[0m\n",
+    "  \x1b[2m─────────────────────────────────────────────────────────────────\x1b[0m\n"
   );
 
   for (const agent of AGENT_REGISTRY) {
@@ -344,7 +357,7 @@ function showAvailableAgents(cwd: string): void {
 
   process.stderr.write("\n");
   process.stderr.write(
-    "  \x1b[38;2;161;161;170mExample:\x1b[0m unerr install claude-code\n",
+    "  \x1b[38;2;161;161;170mExample:\x1b[0m unerr install claude-code\n"
   );
   process.stderr.write("\n");
 }
@@ -355,23 +368,23 @@ function showAvailableAgents(cwd: string): void {
 async function showSkillContent(): Promise<void> {
   process.stderr.write("\n");
   process.stderr.write(
-    "  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1munerr intelligence skills\x1b[0m\n",
+    "  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1munerr intelligence skills\x1b[0m\n"
   );
   process.stderr.write("\n");
   process.stderr.write(
-    "  \x1b[38;2;161;161;170mCopy these into your agent's rules/prompts directory.\x1b[0m\n",
+    "  \x1b[38;2;161;161;170mCopy these into your agent's rules/prompts directory.\x1b[0m\n"
   );
   process.stderr.write(
-    "  \x1b[38;2;161;161;170mThey teach the agent to use unerr's graph tools before reading files.\x1b[0m\n",
+    "  \x1b[38;2;161;161;170mThey teach the agent to use unerr's graph tools before reading files.\x1b[0m\n"
   );
 
   for (const skill of BUNDLED_SKILLS) {
     process.stderr.write("\n");
     process.stderr.write(
-      `  \x1b[2m── ${skill.name} ──────────────────────────────────────────\x1b[0m\n`,
+      `  \x1b[2m── ${skill.name} ──────────────────────────────────────────\x1b[0m\n`
     );
     process.stderr.write(
-      `  \x1b[38;2;161;161;170m${skill.description}\x1b[0m\n\n`,
+      `  \x1b[38;2;161;161;170m${skill.description}\x1b[0m\n\n`
     );
     // Print content with indentation
     for (const line of skill.content.split("\n")) {
@@ -381,16 +394,16 @@ async function showSkillContent(): Promise<void> {
 
   process.stderr.write("\n");
   process.stderr.write(
-    "  \x1b[38;2;161;161;170mMCP config to add alongside skills:\x1b[0m\n\n",
+    "  \x1b[38;2;161;161;170mMCP config to add alongside skills:\x1b[0m\n\n"
   );
   process.stderr.write(
     `  ${JSON.stringify(
       { mcpServers: { unerr: { command: "unerr", args: ["--mcp"] } } },
       null,
-      2,
+      2
     )
       .split("\n")
-      .join("\n  ")}\n`,
+      .join("\n  ")}\n`
   );
   process.stderr.write("\n");
 }
@@ -407,7 +420,7 @@ function showSetupInstructions(agentName: string): void {
   if (agentDef) {
     // Known agent — show agent-specific instructions
     w(
-      `  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1mSetup instructions for ${agentDef.name}\x1b[0m\n\n`,
+      `  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1mSetup instructions for ${agentDef.name}\x1b[0m\n\n`
     );
 
     // Step 1: MCP config
@@ -418,10 +431,10 @@ function showSetupInstructions(agentName: string): void {
         `     ${JSON.stringify(
           { mcpServers: { unerr: { command: "unerr", args: ["--mcp"] } } },
           null,
-          2,
+          2
         )
           .split("\n")
-          .join("\n     ")}\n\n`,
+          .join("\n     ")}\n\n`
       );
     } else if (agentDef.configFormat === "continue-config") {
       w(
@@ -430,20 +443,20 @@ function showSetupInstructions(agentName: string): void {
             mcpServers: [{ name: "unerr", command: "unerr", args: ["--mcp"] }],
           },
           null,
-          2,
+          2
         )
           .split("\n")
-          .join("\n     ")}\n\n`,
+          .join("\n     ")}\n\n`
       );
     } else {
       w(
         `     ${JSON.stringify(
           { mcpServers: { unerr: { command: "unerr", args: ["--mcp"] } } },
           null,
-          2,
+          2
         )
           .split("\n")
-          .join("\n     ")}\n\n`,
+          .join("\n     ")}\n\n`
       );
     }
 
@@ -451,27 +464,27 @@ function showSetupInstructions(agentName: string): void {
     if (agentDef.instructionFilePath) {
       w("  \x1b[1m2. Tool Preferences\x1b[0m\n");
       w(
-        `     ${generateCustomInstructions(agentDef.id).split("\n").join("\n     ")}\n\n`,
+        `     ${generateCustomInstructions(agentDef.id).split("\n").join("\n     ")}\n\n`
       );
     }
 
     // Step 3: Auto install
     w(
-      `  \x1b[1m${agentDef.instructionFilePath ? "3" : "2"}. Or run automatically:\x1b[0m\n`,
+      `  \x1b[1m${agentDef.instructionFilePath ? "3" : "2"}. Or run automatically:\x1b[0m\n`
     );
     w(`     unerr install ${agentDef.id}\n\n`);
 
     // Step 4: Restart
     w(
-      `  \x1b[38;2;161;161;170mRestart ${agentDef.name} to pick up changes.\x1b[0m\n`,
+      `  \x1b[38;2;161;161;170mRestart ${agentDef.name} to pick up changes.\x1b[0m\n`
     );
   } else {
     // Unknown/other agent — generic guide
     w(
-      "  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1mManual setup for any AI coding agent\x1b[0m\n\n",
+      "  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1mManual setup for any AI coding agent\x1b[0m\n\n"
     );
     w(
-      "  unerr works with any agent that supports MCP (Model Context Protocol).\n\n",
+      "  unerr works with any agent that supports MCP (Model Context Protocol).\n\n"
     );
 
     w("  \x1b[1mStep 1: MCP Server Configuration\x1b[0m\n");
@@ -483,10 +496,10 @@ function showSetupInstructions(agentName: string): void {
       `  ${JSON.stringify(
         { mcpServers: { unerr: { command: "unerr", args: ["--mcp"] } } },
         null,
-        2,
+        2
       )
         .split("\n")
-        .join("\n  ")}\n\n`,
+        .join("\n  ")}\n\n`
     );
 
     w("  \x1b[1mStep 2: Agent Instructions (Critical for Adoption)\x1b[0m\n");
@@ -504,7 +517,7 @@ function showSetupInstructions(agentName: string): void {
     w("  \x1b[1mStep 4: Start unerr\x1b[0m\n");
     w("  \x1b[2m────────────────────\x1b[0m\n");
     w(
-      "  Run \x1b[1munerr\x1b[0m in your project root to start the intelligence engine.\n",
+      "  Run \x1b[1munerr\x1b[0m in your project root to start the intelligence engine.\n"
     );
     w("  The MCP server will be available at \x1b[1munerr --mcp\x1b[0m.\n");
   }
@@ -605,7 +618,7 @@ function installCursorHooks(cwd: string): boolean {
     if (existsSync(hooksJsonPath)) {
       try {
         const existing = JSON.parse(
-          readFileSync(hooksJsonPath, "utf-8"),
+          readFileSync(hooksJsonPath, "utf-8")
         ) as typeof config;
         if (existing.version && existing.hooks) {
           config = existing;
@@ -623,7 +636,7 @@ function installCursorHooks(cwd: string): boolean {
 
       for (const entry of entries) {
         const alreadyPresent = existing.some(
-          (h) => h.command === entry.command,
+          (h) => h.command === entry.command
         );
         if (!alreadyPresent) {
           existing.push(entry);
@@ -639,18 +652,18 @@ function installCursorHooks(cwd: string): boolean {
     writeCursorHookScript(
       hooksDir,
       "unerr-pre-tool.sh",
-      CURSOR_PRE_TOOL_SCRIPT,
+      CURSOR_PRE_TOOL_SCRIPT
     );
     writeCursorHookScript(
       hooksDir,
       "unerr-post-tool.sh",
-      CURSOR_POST_TOOL_SCRIPT,
+      CURSOR_POST_TOOL_SCRIPT
     );
     writeCursorHookScript(hooksDir, "unerr-prompt.sh", CURSOR_PROMPT_SCRIPT);
     writeCursorHookScript(
       hooksDir,
       "unerr-pre-shell.sh",
-      CURSOR_PRE_SHELL_SCRIPT,
+      CURSOR_PRE_SHELL_SCRIPT
     );
 
     return true;
@@ -663,7 +676,7 @@ function installCursorHooks(cwd: string): boolean {
 function writeCursorHookScript(
   dir: string,
   filename: string,
-  content: string,
+  content: string
 ): void {
   const scriptPath = join(dir, filename);
   writeFileSync(scriptPath, content, "utf-8");
@@ -723,7 +736,7 @@ function ensureGitignore(cwd: string): boolean {
     const newline = content.endsWith("\n") ? "" : "\n";
     writeFileSync(
       gitignorePath,
-      `${content}${newline}\n# unerr local artifacts\n.unerr\n`,
+      `${content}${newline}\n# unerr local artifacts\n.unerr\n`
     );
     return true;
   } catch {

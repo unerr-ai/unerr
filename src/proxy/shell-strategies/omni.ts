@@ -24,7 +24,7 @@ function normalizeForPattern(line: string): string {
     .replace(/\b[0-9a-f]{7,40}\b/gi, "<HASH>")
     .replace(
       /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
-      "<UUID>",
+      "<UUID>"
     )
     .replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, "<IP>")
     .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.\d]*Z?/g, "<TS>")
@@ -197,6 +197,6 @@ export function compressOmni(raw: string): string {
   const header =
     savedLines > 5
       ? `_shell_fmt:omni (${originalCount}→${truncated.length} lines)`
-      : `_shell_fmt:omni`;
+      : "_shell_fmt:omni";
   return `${header}\n${capped}`;
 }

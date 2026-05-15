@@ -75,9 +75,7 @@ function MetricRow({
   return (
     <div>
       <div className="flex items-center gap-2 text-xs">
-        <span className="w-28 text-zinc-300 shrink-0 font-medium">
-          {label}
-        </span>
+        <span className="w-28 text-zinc-300 shrink-0 font-medium">{label}</span>
         <div className="flex-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
           <div
             className="h-full bg-violet-500 rounded-full transition-all"
@@ -139,7 +137,7 @@ function NodeCard({
         <div className="flex items-center gap-3 text-[11px] text-zinc-400">
           <span>Score: {Math.round(node.health_score * 100)}%</span>
           <span>{node.entity_count} entities</span>
-          {hasChildren && <span>{node.children!.length} dirs</span>}
+          {hasChildren && <span>{node.children?.length} dirs</span>}
         </div>
         {hasChildren && onDrillDown && (
           <button
@@ -293,8 +291,8 @@ export function HealthMapView({
     queryFn: () =>
       fetchJson<{ data: HealthMapNode & { recent_activity?: RecentActivity } }>(
         `/api/intelligence/health-map/file?path=${encodeURIComponent(
-          selectedNode?.path ?? "",
-        )}`,
+          selectedNode?.path ?? ""
+        )}`
       ),
     enabled: isFileSelected,
     staleTime: 30_000,
@@ -334,7 +332,7 @@ export function HealthMapView({
   const nodes = q
     ? allNodes.filter(
         (n) =>
-          n.name.toLowerCase().includes(q) || n.path.toLowerCase().includes(q),
+          n.name.toLowerCase().includes(q) || n.path.toLowerCase().includes(q)
       )
     : allNodes;
 

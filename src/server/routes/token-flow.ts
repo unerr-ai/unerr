@@ -79,7 +79,7 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
     const sessionEvents = querySessionId
       ? allEvents.filter((e) => e.session_id === sessionId)
       : allEvents.filter(
-          (e) => e.session_id === sessionId || e.session_id === "unknown",
+          (e) => e.session_id === sessionId || e.session_id === "unknown"
         );
     const summary = aggregateSession(sessionEvents, sessionId);
 
@@ -124,7 +124,7 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
       readTokenFlowEvents(deps.unerrDir, {
         from_ts: fromTs || undefined,
         to_ts: toTs || undefined,
-      }),
+      })
     );
 
     const emptyCompound = {
@@ -263,7 +263,7 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
       readTokenFlowEvents(deps.unerrDir, {
         from_ts: fromTs || undefined,
         to_ts: toTs || undefined,
-      }),
+      })
     );
 
     // Build agent lookup from session history
@@ -301,7 +301,7 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
       entry.mechanisms.add(e.mechanism);
       entry.turnSaved.set(
         e.turn,
-        (entry.turnSaved.get(e.turn) ?? 0) + e.tokens_saved,
+        (entry.turnSaved.get(e.turn) ?? 0) + e.tokens_saved
       );
       sessionMap.set(e.session_id, entry);
     }
@@ -310,7 +310,7 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
       .map(([id, data]) => {
         // Compute avg context reduction: compound total / num turns
         const sortedTurns = [...data.turnSaved.entries()].sort(
-          ([a], [b]) => a - b,
+          ([a], [b]) => a - b
         );
         let cumSaved = 0;
         let compoundTotal = 0;
@@ -398,7 +398,7 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
         mechanism: mechanismFilter || undefined,
         from_ts: fromTs || undefined,
         to_ts: toTs || undefined,
-      }),
+      })
     );
 
     // If no session filter provided, include current session + "unknown"
@@ -406,8 +406,7 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
       const writer = deps.getTokenFlowWriter();
       if (writer) {
         events = events.filter(
-          (e) =>
-            e.session_id === writer.sessionId || e.session_id === "unknown",
+          (e) => e.session_id === writer.sessionId || e.session_id === "unknown"
         );
       }
     }
@@ -444,7 +443,7 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
     const targetSession = sessionFilter ?? writer?.sessionId;
     if (targetSession) {
       events = events.filter(
-        (e) => e.session_id === targetSession || e.session_id === "unknown",
+        (e) => e.session_id === targetSession || e.session_id === "unknown"
       );
     }
 
@@ -477,7 +476,7 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
     }
 
     for (const [turn, turnEvents] of [...turnGroups.entries()].sort(
-      ([a], [b]) => a - b,
+      ([a], [b]) => a - b
     )) {
       let turnSaved = 0;
       const mechanismsThisTurn: Record<string, number> = {};

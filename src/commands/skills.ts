@@ -46,7 +46,7 @@ export function registerSkillsCommand(program: Command) {
 
       if (result.installed.length > 0) {
         success(
-          `Installed ${result.installed.length} skill${result.installed.length === 1 ? "" : "s"} (source: ${result.source}): ${result.installed.map((n) => pc.bold(n)).join(", ")}`,
+          `Installed ${result.installed.length} skill${result.installed.length === 1 ? "" : "s"} (source: ${result.source}): ${result.installed.map((n) => pc.bold(n)).join(", ")}`
         );
       } else {
         detail("No skills available.");

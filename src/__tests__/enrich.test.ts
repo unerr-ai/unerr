@@ -38,7 +38,7 @@ describe("Enrichment prompt builder (L8.2)", () => {
     const entityBlock = entities
       .map(
         (e, i) =>
-          `[${i + 1}] ${e.kind} "${e.name}" in ${e.filePath}\n    Signature: ${e.signature || "(none)"}`,
+          `[${i + 1}] ${e.kind} "${e.name}" in ${e.filePath}\n    Signature: ${e.signature || "(none)"}`
       )
       .join("\n");
 
@@ -52,7 +52,7 @@ describe("Enrichment response parser (L8.2)", () => {
   // Mirror the parseEnrichmentResponse logic
   function parseEnrichmentResponse(
     text: string,
-    count: number,
+    count: number
   ): Array<{ purpose: string; taxonomy: string; feature_area: string }> {
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
@@ -130,7 +130,7 @@ describe("Enrichment response parser (L8.2)", () => {
   it("returns defaults for unparseable response", () => {
     const results = parseEnrichmentResponse(
       "Sorry, I cannot help with that.",
-      3,
+      3
     );
     expect(results).toHaveLength(3);
     expect(results[0]?.purpose).toBe("");

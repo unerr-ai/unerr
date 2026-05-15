@@ -86,7 +86,7 @@ export function loadStats(): UnifiedStats {
   try {
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     const raw = JSON.parse(
-      readFileSync(getStatsPath(), "utf-8"),
+      readFileSync(getStatsPath(), "utf-8")
     ) as UnifiedStats;
 
     if (raw.version !== 1) {
@@ -133,7 +133,7 @@ export interface SessionAccumulatorInput {
  * Returns the updated stats for display.
  */
 export function accumulateSession(
-  input: SessionAccumulatorInput,
+  input: SessionAccumulatorInput
 ): UnifiedStats {
   const stats = loadStats();
 
@@ -216,7 +216,7 @@ export function formatStatsReport(stats: UnifiedStats): string {
     lines.push("");
     lines.push("  By mechanism:");
     const sorted = Object.entries(w.tokensByMechanism).sort(
-      ([, a], [, b]) => b - a,
+      ([, a], [, b]) => b - a
     );
     const totalMech = sorted.reduce((s, [, v]) => s + v, 0);
     for (const [mech, saved] of sorted) {
@@ -224,7 +224,7 @@ export function formatStatsReport(stats: UnifiedStats): string {
       const barLen = Math.max(1, Math.round(pct / 5));
       const bar = "█".repeat(barLen) + "░".repeat(20 - barLen);
       lines.push(
-        `    ${mech.padEnd(22)} ${formatTokenCount(saved).padStart(6)}  ${String(pct).padStart(3)}%  ${bar}`,
+        `    ${mech.padEnd(22)} ${formatTokenCount(saved).padStart(6)}  ${String(pct).padStart(3)}%  ${bar}`
       );
     }
   }

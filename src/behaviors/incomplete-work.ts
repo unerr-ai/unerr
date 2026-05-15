@@ -269,7 +269,7 @@ export class IncompleteWorkDetector extends Behavior {
           timestamp: new Date().toISOString(),
           items,
         }),
-        "utf-8",
+        "utf-8"
       );
       return true;
     } catch {

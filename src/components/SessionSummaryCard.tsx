@@ -126,7 +126,7 @@ function LocalModeCard({
 
   const localP = computePercentiles(
     stats.latency.localSamples,
-    stats.latency.localTotalSamples,
+    stats.latency.localTotalSamples
   );
 
   // Short session (<=10 calls) — compact line
@@ -316,7 +316,7 @@ export function SessionSummaryCard({
 
   const localP = computePercentiles(
     stats.latency.localSamples,
-    stats.latency.localTotalSamples,
+    stats.latency.localTotalSamples
   );
   const caughtTotal = totalCaughtEvents(ev);
 

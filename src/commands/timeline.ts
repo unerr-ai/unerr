@@ -91,7 +91,7 @@ export function runTimelineLocal(opts: {
   if (entries.length === 0) {
     process.stderr.write("[unerr] No ledger entries found.\n");
     process.stderr.write(
-      "[unerr] The shadow ledger is populated as you use unerr tools.\n",
+      "[unerr] The shadow ledger is populated as you use unerr tools.\n"
     );
     return;
   }
@@ -125,7 +125,7 @@ export function runTimelineLocal(opts: {
     if (entry.args_summary && Object.keys(entry.args_summary).length > 0) {
       const summary = Object.entries(entry.args_summary)
         .map(
-          ([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`,
+          ([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`
         )
         .join(", ")
         .slice(0, 80);
@@ -134,10 +134,10 @@ export function runTimelineLocal(opts: {
   }
 
   const workingCount = entries.filter((e) =>
-    workingShas.has(e.head_sha),
+    workingShas.has(e.head_sha)
   ).length;
   process.stderr.write(
-    `\n  ${entries.length} entries shown${total > entries.length ? ` (of ${total} total)` : ""} · ${workingCount} working states marked\n\n`,
+    `\n  ${entries.length} entries shown${total > entries.length ? ` (of ${total} total)` : ""} · ${workingCount} working states marked\n\n`
   );
 }
 
@@ -166,6 +166,6 @@ export function registerTimelineCommand(program: Command): void {
           console.error(`Error: ${message}`);
           process.exit(1);
         }
-      },
+      }
     );
 }

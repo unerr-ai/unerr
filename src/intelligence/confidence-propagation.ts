@@ -25,7 +25,7 @@ const CONFIDENCE_ORDER: Record<ConfidenceLevel, number> = {
  * Result confidence = MIN of all edge confidences in the path.
  */
 export function propagateConfidence(
-  edgeConfidences: ConfidenceLevel[],
+  edgeConfidences: ConfidenceLevel[]
 ): PropagatedConfidence {
   if (edgeConfidences.length === 0) {
     return { level: "structural", edgeSources: {}, pathLength: 0 };

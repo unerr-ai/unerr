@@ -21,15 +21,15 @@ function createMockGraph(
     risk_level: string;
     community: number;
   }> = [],
-  conventions: Array<{ adherence_rate: number }> = [],
+  conventions: Array<{ adherence_rate: number }> = []
 ) {
   return {
     getLocalProjectStats: vi.fn(() =>
-      Promise.resolve({ entity_count: entities.length, edge_count: 0 }),
+      Promise.resolve({ entity_count: entities.length, edge_count: 0 })
     ),
     getCriticalNodes: vi.fn(() => Promise.resolve(entities)),
     getEntitiesByFile: vi.fn((filePath: string) =>
-      Promise.resolve(entities.filter((e) => e.file_path === filePath)),
+      Promise.resolve(entities.filter((e) => e.file_path === filePath))
     ),
     getConventions: vi.fn(() => Promise.resolve(conventions)),
   };
@@ -50,7 +50,7 @@ function createMockFactStore(
     subject: string;
     content: string;
     effective_confidence: number;
-  }> = [],
+  }> = []
 ) {
   return {
     recallByScope: vi.fn(() => Promise.resolve(projectFacts)),
@@ -228,7 +228,7 @@ describe("HealthMapData", () => {
             content: "Modified again",
             effective_confidence: 0.7,
           },
-        ],
+        ]
       );
       const healthMap = new HealthMapData(graph as any, factStore);
       const result = await healthMap.getFileHealth("src/a.ts");

@@ -41,7 +41,7 @@ describe("Intent Encoder — Git Notes", () => {
   }
 
   function makeCorrelation(
-    overrides: Partial<PendingCorrelation> = {},
+    overrides: Partial<PendingCorrelation> = {}
   ): PendingCorrelation {
     return {
       rootIntentId: "intent-001",
@@ -71,7 +71,7 @@ describe("Intent Encoder — Git Notes", () => {
         computedAt: new Date().toISOString(),
       },
       { added: 1, modified: 2, deleted: 0 },
-      repoDir,
+      repoDir
     );
 
     expect(ok).toBe(true);
@@ -104,7 +104,7 @@ describe("Intent Encoder — Git Notes", () => {
       "session-xyz",
       null,
       { added: 0, modified: 0, deleted: 0 },
-      repoDir,
+      repoDir
     );
     expect(ok).toBe(false);
   });
@@ -118,7 +118,7 @@ describe("Intent Encoder — Git Notes", () => {
       "sess-123",
       null,
       { added: 0, modified: 0, deleted: 0 },
-      repoDir,
+      repoDir
     );
 
     const noteContent = execSync(`git notes --ref=unerr show ${sha}`, {
@@ -149,7 +149,7 @@ describe("Intent Encoder — Git Notes", () => {
         computedAt: new Date().toISOString(),
       },
       { added: 0, modified: 0, deleted: 0 },
-      repoDir,
+      repoDir
     );
 
     const noteContent = execSync(`git notes --ref=unerr show ${sha}`, {
@@ -169,7 +169,7 @@ describe("Intent Encoder — Git Notes", () => {
       "sess-invisible",
       null,
       { added: 0, modified: 0, deleted: 0 },
-      repoDir,
+      repoDir
     );
 
     // Regular git log should NOT show the note
@@ -196,7 +196,7 @@ describe("Intent Encoder — Git Notes", () => {
         files: [`src/file${i}.ts`],
         entities: [`entity${i}`],
         toolChain: ["get_function", "sync_local_diff"],
-      }),
+      })
     );
 
     await encodeIntentAsNote(
@@ -213,7 +213,7 @@ describe("Intent Encoder — Git Notes", () => {
         computedAt: new Date().toISOString(),
       },
       { added: 2, modified: 3, deleted: 1 },
-      repoDir,
+      repoDir
     );
 
     const noteContent = execSync(`git notes --ref=unerr show ${sha}`, {
@@ -233,7 +233,7 @@ describe("Intent Encoder — Git Notes", () => {
         "sess-bad",
         null,
         { added: 0, modified: 0, deleted: 0 },
-        nonGitDir,
+        nonGitDir
       );
       expect(ok).toBe(false);
     } finally {

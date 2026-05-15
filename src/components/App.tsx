@@ -84,7 +84,7 @@ export function App({
       if (input.trim() === "/cost") {
         if (lastUsage) {
           setError(
-            `Session: ${lastUsage.inputTokens} in / ${lastUsage.outputTokens} out — $${lastUsage.estimatedCost.toFixed(4)}`,
+            `Session: ${lastUsage.inputTokens} in / ${lastUsage.outputTokens} out — $${lastUsage.estimatedCost.toFixed(4)}`
           );
         } else {
           setError("No usage data yet");
@@ -122,8 +122,8 @@ export function App({
               prev.map((t) =>
                 t.name === name && t.status === "running"
                   ? { ...t, status: "done" }
-                  : t,
-              ),
+                  : t
+              )
             );
           },
         });
@@ -154,7 +154,7 @@ export function App({
       cwd,
       exit,
       lastUsage,
-    ],
+    ]
   );
 
   return (

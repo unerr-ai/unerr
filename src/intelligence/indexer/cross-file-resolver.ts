@@ -45,10 +45,10 @@ export function resolveCrossFileEdges(
       edges: IndexedEdge[];
       imports: ImportInfo[];
     }
-  >,
+  >
 ): CrossFileResult {
   const exportMap = buildExportMap(
-    fileResults as unknown as Parameters<typeof buildExportMap>[0],
+    fileResults as unknown as Parameters<typeof buildExportMap>[0]
   );
 
   const allResolvedEdges: IndexedEdge[] = [];
@@ -61,7 +61,7 @@ export function resolveCrossFileEdges(
     const importLookup = buildImportLookup(result.imports, filePath);
 
     const localEntityNames = new Map(
-      result.entities.map((e) => [e.name, e.key]),
+      result.entities.map((e) => [e.name, e.key])
     );
 
     // R.3: Emit file→file imports edges from the import declarations directly
@@ -92,7 +92,7 @@ export function resolveCrossFileEdges(
         const resolved = exportMap.resolveSymbol(
           importedFrom.source,
           importedFrom.originalName,
-          filePath,
+          filePath
         );
         if (resolved) {
           allResolvedEdges.push({ ...edge, to_key: resolved.entityKey });
@@ -133,7 +133,7 @@ interface ImportLookupEntry {
 
 function buildImportLookup(
   imports: ImportInfo[],
-  filePath: string,
+  filePath: string
 ): Map<string, ImportLookupEntry> {
   const lookup = new Map<string, ImportLookupEntry>();
 

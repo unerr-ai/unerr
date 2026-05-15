@@ -33,7 +33,7 @@ const parseJavaBuildTool = (raw: string): JavaBuildTool => {
   const normalized = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
   if (!(JAVA_BUILD_TOOLS as readonly string[]).includes(normalized)) {
     throw new Error(
-      `Invalid Java build tool "${raw}". Valid: ${JAVA_BUILD_TOOLS.join(", ")}`,
+      `Invalid Java build tool "${raw}". Valid: ${JAVA_BUILD_TOOLS.join(", ")}`
     );
   }
   return normalized as JavaBuildTool;
@@ -44,7 +44,7 @@ const parseAutostart = (raw: string): string => {
   const lower = raw.toLowerCase();
   if (!valid.includes(lower)) {
     throw new Error(
-      `Invalid autostart value "${raw}". Valid: ${valid.join(", ")}`,
+      `Invalid autostart value "${raw}". Valid: ${valid.join(", ")}`
     );
   }
   return lower;
@@ -73,12 +73,12 @@ export const SETTINGS_SCHEMA: readonly SettingDef[] = [
 
 /** Map from CLI flag name → SettingDef for O(1) lookup. */
 export const SETTINGS_BY_FLAG = new Map<string, SettingDef>(
-  SETTINGS_SCHEMA.map((s) => [s.flag, s]),
+  SETTINGS_SCHEMA.map((s) => [s.flag, s])
 );
 
 /** Map from camelCase key → SettingDef for config.json round-tripping. */
 export const SETTINGS_BY_KEY = new Map<string, SettingDef>(
-  SETTINGS_SCHEMA.map((s) => [s.key, s]),
+  SETTINGS_SCHEMA.map((s) => [s.key, s])
 );
 
 /**
@@ -87,7 +87,7 @@ export const SETTINGS_BY_KEY = new Map<string, SettingDef>(
  * Throws on the first invalid value with a descriptive error.
  */
 export function parseSettingsFlags(
-  raw: Record<string, string | undefined>,
+  raw: Record<string, string | undefined>
 ): Record<string, string | number | boolean> {
   const result: Record<string, string | number | boolean> = {};
   for (const [flag, value] of Object.entries(raw)) {
@@ -95,7 +95,7 @@ export function parseSettingsFlags(
     const def = SETTINGS_BY_FLAG.get(flag);
     if (!def) {
       throw new Error(
-        `Unknown setting "--${flag}". Valid flags: ${SETTINGS_SCHEMA.map((s) => `--${s.flag}`).join(", ")}`,
+        `Unknown setting "--${flag}". Valid flags: ${SETTINGS_SCHEMA.map((s) => `--${s.flag}`).join(", ")}`
       );
     }
     result[def.key] = def.parse(value);

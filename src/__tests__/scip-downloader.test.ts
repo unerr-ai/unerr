@@ -28,7 +28,7 @@ describe("SCIP Downloader", () => {
     it("returns correct rust triple for current platform", () => {
       const platform = resolvePlatform();
       expect(platform.rustTriple).toMatch(
-        /^(x86_64|aarch64)-(apple-darwin|unknown-linux-gnu|pc-windows-msvc)$/,
+        /^(x86_64|aarch64)-(apple-darwin|unknown-linux-gnu|pc-windows-msvc)$/
       );
     });
   });
@@ -131,7 +131,7 @@ describe("SCIP Downloader", () => {
       };
       const url = buildDownloadUrl(spec, platform, "2024-01-01");
       expect(url).toBe(
-        "https://github.com/rust-lang/rust-analyzer/releases/download/2024-01-01/rust-analyzer-aarch64-apple-darwin.gz",
+        "https://github.com/rust-lang/rust-analyzer/releases/download/2024-01-01/rust-analyzer-aarch64-apple-darwin.gz"
       );
     });
 
@@ -145,7 +145,7 @@ describe("SCIP Downloader", () => {
       };
       const url = buildDownloadUrl(spec, platform, "v0.5.0");
       expect(url).toBe(
-        "https://github.com/scip-code/scip-go/releases/download/v0.5.0/scip-go-linux-arm64.tar.gz",
+        "https://github.com/scip-code/scip-go/releases/download/v0.5.0/scip-go-linux-arm64.tar.gz"
       );
     });
 
@@ -184,7 +184,7 @@ describe("SCIP Downloader", () => {
       };
       const url = buildDownloadUrl(spec, platform, "scip-ruby-v0.4.7");
       expect(url).toBe(
-        "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-arm64-darwin",
+        "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-arm64-darwin"
       );
     });
 
@@ -198,7 +198,7 @@ describe("SCIP Downloader", () => {
       };
       const url = buildDownloadUrl(spec, platform, "v0.4.0");
       expect(url).toBe(
-        "https://github.com/sourcegraph/scip-clang/releases/download/v0.4.0/scip-clang-x86_64-linux",
+        "https://github.com/sourcegraph/scip-clang/releases/download/v0.4.0/scip-clang-x86_64-linux"
       );
     });
 

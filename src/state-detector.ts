@@ -42,7 +42,7 @@ export interface StateDetectorDeps {
  * All I/O is read-only (except stale PID cleanup).
  */
 export async function detectState(
-  deps: StateDetectorDeps = {},
+  deps: StateDetectorDeps = {}
 ): Promise<StateResult> {
   const cwd = deps.cwd ?? process.cwd();
 

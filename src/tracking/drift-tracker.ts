@@ -169,7 +169,7 @@ export class DriftTracker {
         projectRoot: string,
         filePath: string,
         graphStore: CozoGraphStore,
-        repoId: string,
+        repoId: string
       ) => Promise<{ entities: number; edges: number }>)
     | null = null;
   /** File change notification callback — wired to GraphHolder.notifyFileChange(). */
@@ -184,7 +184,7 @@ export class DriftTracker {
   constructor(
     config: DriftTrackerConfig,
     localGraph: CozoGraphStore,
-    fileHashManager: FileHashManager,
+    fileHashManager: FileHashManager
   ) {
     this.config = config;
     this.localGraph = localGraph;
@@ -197,7 +197,7 @@ export class DriftTracker {
    */
   setRuleEnforcement(
     evaluator: typeof EvaluateRulesFn,
-    store: PendingViolationStore,
+    store: PendingViolationStore
   ): void {
     this.ruleEvaluator = evaluator;
     this.violationStore = store;
@@ -212,8 +212,8 @@ export class DriftTracker {
       projectRoot: string,
       filePath: string,
       graphStore: CozoGraphStore,
-      repoId: string,
-    ) => Promise<{ entities: number; edges: number }>,
+      repoId: string
+    ) => Promise<{ entities: number; edges: number }>
   ): void {
     this.localReindexFn = reindexFn;
   }
@@ -243,7 +243,7 @@ export class DriftTracker {
    * Layer 7: Wire dashboard event bus — emits when drift counts change for a file.
    */
   setDriftEventSink(
-    sink: ((payload: DriftDashboardPayload) => void) | null,
+    sink: ((payload: DriftDashboardPayload) => void) | null
   ): void {
     this.driftSink = sink;
   }
@@ -267,7 +267,7 @@ export class DriftTracker {
   async processFile(
     filePath: string,
     headSha: string,
-    intentId?: string,
+    intentId?: string
   ): Promise<DriftResult> {
     const result: DriftResult = {
       filesProcessed: 0,
@@ -372,7 +372,7 @@ export class DriftTracker {
         relPath,
         entity.kind,
         entity.name,
-        entity.signature,
+        entity.signature
       );
       localByKey.set(key, entity);
     }
@@ -468,7 +468,7 @@ export class DriftTracker {
       relPath,
       now,
       origin,
-      intentId,
+      intentId
     );
 
     // Task 6.4: Extract drift edges (imports + function calls)
@@ -476,7 +476,7 @@ export class DriftTracker {
       content,
       relPath,
       localByKey,
-      now,
+      now
     );
 
     // Notify GraphHolder of file change — resets idle timer for swap-on-idle rebuild.
@@ -505,7 +505,7 @@ export class DriftTracker {
   async processFiles(
     filePaths: string[],
     headSha: string,
-    intentId?: string,
+    intentId?: string
   ): Promise<DriftResult> {
     const aggregate: DriftResult = {
       filesProcessed: 0,
@@ -544,7 +544,7 @@ export class DriftTracker {
   initBranchSnapshots(): BranchSnapshotManager {
     this.branchSnapshotManager = new BranchSnapshotManager(
       this.config.unerrDir,
-      this.config.projectRoot,
+      this.config.projectRoot
     );
     return this.branchSnapshotManager;
   }
@@ -564,7 +564,7 @@ export class DriftTracker {
     changedFiles: string[],
     headSha: string,
     fromBranch?: string,
-    toBranch?: string,
+    toBranch?: string
   ): Promise<DriftResult> {
     // Save outgoing branch snapshot
     if (this.branchSnapshotManager && fromBranch) {
@@ -574,7 +574,7 @@ export class DriftTracker {
         this.localGraph,
         {
           ...fileHashState,
-        },
+        }
       );
     }
 
@@ -587,7 +587,7 @@ export class DriftTracker {
     if (this.branchSnapshotManager && toBranch) {
       const snapshot = await this.branchSnapshotManager.restoreSnapshot(
         toBranch,
-        this.localGraph,
+        this.localGraph
       );
       if (snapshot) {
         // Restored from snapshot — skip recompute
@@ -624,7 +624,7 @@ export class DriftTracker {
   initStashManager(): StashManager {
     this.stashManager = new StashManager(
       this.config.unerrDir,
-      this.config.projectRoot,
+      this.config.projectRoot
     );
     return this.stashManager;
   }
@@ -650,7 +650,7 @@ export class DriftTracker {
 
   private async markFileDeleted(
     filePath: string,
-    intentId?: string,
+    intentId?: string
   ): Promise<void> {
     // Evict from mtime cache — file no longer exists
     const absPath = filePath.startsWith("/")
@@ -700,7 +700,7 @@ export class DriftTracker {
     filePath: string,
     now: string,
     origin: DriftOrigin,
-    intentId?: string,
+    intentId?: string
   ): Promise<number> {
     // Collect keys of entities that were modified or deleted
     const changedKeys: string[] = [];
@@ -734,10 +734,10 @@ export class DriftTracker {
 
         // Don't overwrite a stronger drift status (added/modified/deleted)
         const existingEntities = await this.localGraph.getDriftEntitiesForFile(
-          caller.file_path,
+          caller.file_path
         );
         const existing = existingEntities.find(
-          (e: { key: string }) => e.key === caller.key,
+          (e: { key: string }) => e.key === caller.key
         );
         if (existing && existing.drift_status !== "dependency_changed") {
           continue;
@@ -777,7 +777,7 @@ export class DriftTracker {
     writeFileSync(
       join(driftDir, "drift_summary.json"),
       JSON.stringify(summary, null, 2),
-      "utf-8",
+      "utf-8"
     );
   }
 
@@ -796,7 +796,7 @@ export class DriftTracker {
       string,
       { name: string; kind: string; content_hash: string }
     >,
-    now: string,
+    now: string
   ): Promise<number> {
     let count = 0;
 
@@ -806,7 +806,7 @@ export class DriftTracker {
       // Resolve target: find entity key matching imported name in target file
       const targetKey = await this.resolveImportTarget(
         imp.importedName,
-        imp.targetPath,
+        imp.targetPath
       );
       if (!targetKey) continue;
 
@@ -858,7 +858,7 @@ export class DriftTracker {
    */
   private async resolveImportTarget(
     name: string,
-    targetPath: string,
+    targetPath: string
   ): Promise<string | null> {
     // Look in base entities first
     const baseEntities = await this.localGraph.getEntitiesByFile(targetPath);
@@ -883,7 +883,7 @@ export class DriftTracker {
     localByKey: Map<
       string,
       { name: string; kind: string; content_hash: string }
-    >,
+    >
   ): string | null {
     // Use first entity from local extraction as the module representative
     for (const [key] of localByKey) {
@@ -919,7 +919,7 @@ export class DriftTracker {
         const elapsed = performance.now() - t0;
         if (elapsed > 10) {
           _log.warn(
-            `Rule evaluation for ${filePath} took ${elapsed.toFixed(1)}ms (>10ms budget)`,
+            `Rule evaluation for ${filePath} took ${elapsed.toFixed(1)}ms (>10ms budget)`
           );
         }
         store.addViolations(filePath, result.violations);
@@ -933,7 +933,7 @@ export class DriftTracker {
 function extractBodyLines(
   content: string,
   lineStart: number,
-  lineEnd: number,
+  lineEnd: number
 ): string {
   const lines = content.split("\n");
   return lines.slice(lineStart - 1, lineEnd).join("\n");
@@ -1008,7 +1008,7 @@ function extractImportEdges(content: string, filePath: string): ImportEdge[] {
  */
 function resolveImportPath(
   fromFile: string,
-  importPath: string,
+  importPath: string
 ): string | null {
   // Remove file extension from current file to get directory
   const dir = fromFile.replace(/\/[^/]+$/, "");
@@ -1048,7 +1048,7 @@ function resolveImportPath(
 function extractCallEdges(
   content: string,
   _entityName: string,
-  callerKey: string,
+  callerKey: string
 ): CallEdge[] {
   const edges: CallEdge[] = [];
   const seen = new Set<string>();

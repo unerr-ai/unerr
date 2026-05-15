@@ -41,7 +41,7 @@ export function teeShellOutput(
   cwd: string,
   command: string,
   raw: string,
-  compressed: string,
+  compressed: string
 ): TeeResult | null {
   const ratio = 1 - compressed.length / raw.length;
   if (ratio < 0.3 || raw.length < 1024) return null;
@@ -59,12 +59,12 @@ export function teeShellOutput(
   const filePath = join(teeDir, filename);
 
   const header = [
-    `# unerr tee — full shell output`,
+    "# unerr tee — full shell output",
     `# command: ${command}`,
     `# captured: ${new Date(ts).toISOString()}`,
     `# raw_bytes: ${raw.length}  compressed_bytes: ${compressed.length}  ratio: ${(ratio * 100).toFixed(1)}%`,
-    `# ---`,
-    ``,
+    "# ---",
+    "",
   ].join("\n");
 
   const content = header + raw;

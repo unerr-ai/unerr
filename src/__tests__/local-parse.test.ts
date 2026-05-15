@@ -65,14 +65,14 @@ describe("Local Parse — TypeScript AST Extraction (P5.6-ADV-01)", () => {
       "src/auth.ts",
       "function",
       "login",
-      "(user: string)",
+      "(user: string)"
     );
     const key2 = entityKey(
       "repo-1",
       "src/auth.ts",
       "function",
       "login",
-      "(user: string)",
+      "(user: string)"
     );
 
     // Deterministic

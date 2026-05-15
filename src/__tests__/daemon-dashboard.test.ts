@@ -25,7 +25,7 @@ describe("Daemon API (api.ts)", () => {
   it("imports only from daemon/, server/ and node builtins + hono", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/api.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     const forbidden = [
@@ -46,7 +46,7 @@ describe("Daemon API (api.ts)", () => {
   it("defines all required API routes", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/api.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain('"/api/daemon"');
@@ -58,7 +58,7 @@ describe("Daemon API (api.ts)", () => {
   it("serves SPA for non-API routes", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/api.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("serveStatic");
@@ -69,7 +69,7 @@ describe("Daemon API (api.ts)", () => {
   it("uses port 9847 for daemon dashboard", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/api.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("DAEMON_PORT = 9847");
@@ -82,7 +82,7 @@ describe("Router (router.ts)", () => {
   it("defines GlobalRouteId and RepoRouteId types", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/lib/router.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("GlobalRouteId");
@@ -94,7 +94,7 @@ describe("Router (router.ts)", () => {
   it("exports useParsedRoute and useRepoLabel hooks", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/lib/router.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("export function useParsedRoute");
@@ -104,7 +104,7 @@ describe("Router (router.ts)", () => {
   it("parseHash handles repo/<label>/<route> format", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/lib/router.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain('first === "repo"');
@@ -115,7 +115,7 @@ describe("Router (router.ts)", () => {
   it("navigateRoute generates repo-prefixed hashes", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/lib/router.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("`#/repo/${repoLabel}`");
@@ -125,7 +125,7 @@ describe("Router (router.ts)", () => {
   it("preserves backward compatibility with bare routes", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/lib/router.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     // Bare routes still work (standalone mode)
@@ -140,7 +140,7 @@ describe("Repo context (repo-context.ts)", () => {
   it("exports RepoContext and useRepoContext", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/lib/repo-context.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("export const RepoContext");
@@ -151,7 +151,7 @@ describe("Repo context (repo-context.ts)", () => {
   it("includes isDaemonMode and apiBase fields", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/lib/repo-context.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("isDaemonMode: boolean");
@@ -166,7 +166,7 @@ describe("UI pages", () => {
   it("AllReposPage.tsx exists and exports component", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/pages/AllReposPage.tsx"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("export function AllReposPage");
@@ -177,7 +177,7 @@ describe("UI pages", () => {
   it("AllReposPage shows aggregated metrics", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/pages/AllReposPage.tsx"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("totalEntities");
@@ -189,7 +189,7 @@ describe("UI pages", () => {
   it("DaemonPage.tsx exists and exports component", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/pages/DaemonPage.tsx"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("export function DaemonPage");
@@ -200,7 +200,7 @@ describe("UI pages", () => {
   it("DaemonPage shows process table", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/pages/DaemonPage.tsx"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("Managed Processes");
@@ -215,7 +215,7 @@ describe("AppShell (layout)", () => {
   it("supports daemon mode with repo switcher", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/components/layout/AppShell.tsx"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("isDaemonMode");
@@ -227,7 +227,7 @@ describe("AppShell (layout)", () => {
   it("shows status dots for repo list", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/components/layout/AppShell.tsx"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("bg-success");
@@ -238,7 +238,7 @@ describe("AppShell (layout)", () => {
   it("falls back to standalone nav when not in daemon mode", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/components/layout/AppShell.tsx"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("{!isDaemonMode && (");
@@ -251,7 +251,7 @@ describe("App.tsx integration", () => {
   it("detects daemon mode via /api/daemon", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/App.tsx"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("isDaemonMode");
@@ -262,7 +262,7 @@ describe("App.tsx integration", () => {
   it("renders global pages (AllReposPage, DaemonPage)", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/App.tsx"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("<AllReposPage");
@@ -274,7 +274,7 @@ describe("App.tsx integration", () => {
   it("provides RepoContext", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/App.tsx"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("RepoContext.Provider");
@@ -285,7 +285,7 @@ describe("App.tsx integration", () => {
   it("passes repos list and repoLabel to AppShell", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/App.tsx"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("repos={repos}");
@@ -300,7 +300,7 @@ describe("daemon.ts HTTP integration", () => {
   it("starts the dashboard API server", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/daemon.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("startDaemonApi");
@@ -311,7 +311,7 @@ describe("daemon.ts HTTP integration", () => {
   it("closes HTTP server on shutdown", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/daemon.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("apiHandle?.close()");
@@ -324,7 +324,7 @@ describe("Proxy route design", () => {
   it("api.ts reads server.json for per-repo HTTP port", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/api.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("server.json");
@@ -335,7 +335,7 @@ describe("Proxy route design", () => {
   it("strips /api/repo/:label prefix before proxying", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/api.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("c.req.path.replace");

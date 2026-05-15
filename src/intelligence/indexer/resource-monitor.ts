@@ -61,7 +61,7 @@ export function getResourceSnapshot(): ResourceSnapshot {
 
 export function getDegradationConfig(
   level: DegradationLevel,
-  baseWorkers = 4,
+  baseWorkers = 4
 ): DegradationConfig {
   switch (level) {
     case 0:
@@ -89,7 +89,7 @@ export interface ResourceMonitor {
 
 export function createResourceMonitor(
   intervalMs = 10_000,
-  baseWorkers = 4,
+  baseWorkers = 4
 ): ResourceMonitor {
   let timer: ReturnType<typeof setInterval> | null = null;
   let lastLevel: DegradationLevel = 0;
@@ -100,7 +100,7 @@ export function createResourceMonitor(
 
     if (snapshot.degradationLevel !== lastLevel) {
       log.info(
-        `Resource degradation: Level ${lastLevel} → ${snapshot.degradationLevel} (heap: ${snapshot.heapUsedMB}MB / ${HEAP_LIMIT_MB}MB)`,
+        `Resource degradation: Level ${lastLevel} → ${snapshot.degradationLevel} (heap: ${snapshot.heapUsedMB}MB / ${HEAP_LIMIT_MB}MB)`
       );
       lastLevel = snapshot.degradationLevel;
       changeCallback?.(snapshot.degradationLevel);

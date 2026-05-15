@@ -121,7 +121,7 @@ export class QualitySignalTracker {
     entityName: string,
     origin: string,
     lastSyncTimestamp: number,
-    ledgerEntries: LedgerEntry[],
+    ledgerEntries: LedgerEntry[]
   ): void {
     const now = Date.now();
 
@@ -129,7 +129,7 @@ export class QualitySignalTracker {
     const aiEntry = this.findAiCreationEntry(
       entityKey,
       entityName,
-      ledgerEntries,
+      ledgerEntries
     );
 
     if (aiEntry) {
@@ -165,7 +165,7 @@ export class QualitySignalTracker {
             QualitySignalTracker.MAX_CORRECTIONS
           ) {
             this.signals.corrections = this.signals.corrections.slice(
-              -QualitySignalTracker.MAX_CORRECTIONS,
+              -QualitySignalTracker.MAX_CORRECTIONS
             );
           }
         }
@@ -226,7 +226,7 @@ export class QualitySignalTracker {
       writeFileSync(
         this.signalsPath,
         JSON.stringify(this.signals, null, 2),
-        "utf-8",
+        "utf-8"
       );
     } catch {
       // Non-critical — signals persist best-effort
@@ -239,7 +239,7 @@ export class QualitySignalTracker {
   private findAiCreationEntry(
     entityKey: string,
     entityName: string,
-    entries: LedgerEntry[],
+    entries: LedgerEntry[]
   ): LedgerEntry | null {
     // Look for sync_local_diff entries that mention this entity
     for (let i = entries.length - 1; i >= 0; i--) {
@@ -294,7 +294,7 @@ export class QualitySignalTracker {
 
     try {
       return JSON.parse(
-        readFileSync(this.signalsPath, "utf-8"),
+        readFileSync(this.signalsPath, "utf-8")
       ) as QualitySignals;
     } catch {
       return {

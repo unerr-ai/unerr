@@ -123,7 +123,7 @@ describe("StartupDisplay Local Mode (L7.1)", () => {
     });
     const frame = lastFrame() ?? "";
     expect(frame).toContain(
-      "Show me the highest-impact functions in this codebase",
+      "Show me the highest-impact functions in this codebase"
     );
   });
 
@@ -160,7 +160,7 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
   it("renders all-local tool calls with 100% progress bar", () => {
     const stats = makeLocalStats();
     const { lastFrame } = renderWithTheme(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("25 (all local)");
@@ -170,7 +170,7 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
   it("shows caught section when violations exist", () => {
     const stats = makeLocalStats();
     const { lastFrame } = renderWithTheme(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Caught:");
@@ -181,7 +181,7 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
   it("shows Intelligence Applied section", () => {
     const stats = makeLocalStats();
     const { lastFrame } = renderWithTheme(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Intelligence Applied:");
@@ -193,7 +193,7 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
   it("shows Token Discipline section", () => {
     const stats = makeLocalStats();
     const { lastFrame } = renderWithTheme(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Token Discipline:");
@@ -204,7 +204,7 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
   it("shows Semantic Intelligence when BYO-LLM used", () => {
     const stats = makeLocalStats();
     const { lastFrame } = renderWithTheme(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Semantic Intelligence:");
@@ -214,7 +214,7 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
   it("shows Network Isolation section with firewall sealed", () => {
     const stats = makeLocalStats();
     const { lastFrame } = renderWithTheme(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("Network Isolation:");
@@ -231,7 +231,7 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
     stats.latency.localCursor = 10;
     stats.latency.localTotalSamples = 10;
     const { lastFrame } = renderWithTheme(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("4.8s saved vs remote");
@@ -240,7 +240,7 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
   it("never shows dollar savings in Local Mode (TL-19)", () => {
     const stats = makeLocalStats();
     const { lastFrame } = renderWithTheme(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     expect(frame).not.toContain("$");
@@ -253,7 +253,7 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
       React.createElement(SessionSummaryCard, {
         stats,
         deepLink: "https://app.unerr.dev/r/repo_123",
-      }),
+      })
     );
     const frame = lastFrame() ?? "";
     expect(frame).not.toContain("Session →");
@@ -264,7 +264,7 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
     const stats = makeLocalStats();
     stats.toolCallsLocal = 5;
     const { lastFrame } = renderWithTheme(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("unerr local session:");
@@ -275,7 +275,7 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
     const stats = makeLocalStats();
     stats.toolCallsLocal = 0;
     const { lastFrame } = renderWithTheme(
-      React.createElement(SessionSummaryCard, { stats }),
+      React.createElement(SessionSummaryCard, { stats })
     );
     const frame = lastFrame() ?? "";
     // Should be basically empty
@@ -299,7 +299,7 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
           totalSemanticSearches: 15,
           avgLatencyP50: 2.1,
         },
-      }),
+      })
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("This week:");
@@ -357,7 +357,7 @@ describe("StartupRenderer Local Mode (L7.4)", () => {
         highRiskEntities: [],
         score: 80,
       },
-      "repo_test",
+      "repo_test"
     );
     // Access internal state to verify no deep link
     // @ts-expect-error accessing private for test

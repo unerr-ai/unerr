@@ -18,7 +18,7 @@ export function encodeEmbedding(embedding: Float32Array): string {
   const buffer = Buffer.from(
     embedding.buffer,
     embedding.byteOffset,
-    embedding.byteLength,
+    embedding.byteLength
   );
   return buffer.toString("base64");
 }
@@ -31,7 +31,7 @@ export function decodeEmbedding(encoded: string): Float32Array {
   return new Float32Array(
     buffer.buffer,
     buffer.byteOffset,
-    buffer.byteLength / 4,
+    buffer.byteLength / 4
   );
 }
 
@@ -62,7 +62,7 @@ export function findSimilar(
   query: Float32Array,
   allEmbeddings: Map<string, Float32Array>,
   topK = 10,
-  excludeKey?: string,
+  excludeKey?: string
 ): Array<{ entityKey: string; similarity: number }> {
   const results: Array<{ entityKey: string; similarity: number }> = [];
 

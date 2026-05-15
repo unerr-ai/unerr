@@ -16,10 +16,7 @@
  *   - Total hot-path overhead: <0.2ms per tool call
  */
 
-import {
-  type TokenFlowEventRow,
-  openMetricsStore,
-} from "./metrics-store.js";
+import { type TokenFlowEventRow, openMetricsStore } from "./metrics-store.js";
 
 // ── Data Model ──────────────────────────────────────────────────────
 
@@ -171,7 +168,7 @@ export class TokenFlowWriter {
     // RC-5: Evict oldest events if buffer exceeds limit
     if (this.sessionEvents.length > MAX_SESSION_EVENTS) {
       this.sessionEvents = this.sessionEvents.slice(
-        -Math.floor(MAX_SESSION_EVENTS * 0.75),
+        -Math.floor(MAX_SESSION_EVENTS * 0.75)
       );
     }
   }
@@ -210,7 +207,7 @@ export class TokenFlowWriter {
     this.sessionEvents.push(event);
     if (this.sessionEvents.length > MAX_SESSION_EVENTS) {
       this.sessionEvents = this.sessionEvents.slice(
-        -Math.floor(MAX_SESSION_EVENTS * 0.75),
+        -Math.floor(MAX_SESSION_EVENTS * 0.75)
       );
     }
   }
@@ -234,7 +231,7 @@ export interface TokenFlowFilter {
  */
 export function readTokenFlowEvents(
   unerrDir: string,
-  filter?: TokenFlowFilter,
+  filter?: TokenFlowFilter
 ): TokenFlowEvent[] {
   let rows: TokenFlowEventRow[];
   try {
@@ -264,7 +261,7 @@ export function readTokenFlowEvents(
  */
 export function aggregateSession(
   events: TokenFlowEvent[],
-  sessionId: string,
+  sessionId: string
 ): SessionTokenSummary {
   const sessionEvents = events.filter((e) => e.session_id === sessionId);
 
@@ -318,7 +315,7 @@ export function aggregateSession(
     turn.tokens_saved += e.tokens_saved;
     turn.mechanisms.set(
       e.mechanism,
-      (turn.mechanisms.get(e.mechanism) ?? 0) + e.tokens_saved,
+      (turn.mechanisms.get(e.mechanism) ?? 0) + e.tokens_saved
     );
     if (e.tool) turn.tool = e.tool;
     turnMap.set(e.turn, turn);
@@ -376,7 +373,7 @@ export function aggregateSession(
  * Aggregate events by mechanism across all sessions (for cross-session trends).
  */
 export function aggregateByMechanism(
-  events: TokenFlowEvent[],
+  events: TokenFlowEvent[]
 ): Record<string, MechanismSummary> {
   let totalSaved = 0;
   const mechanismMap = new Map<

@@ -17,7 +17,7 @@ import { QueryRouter } from "../intelligence/query-router.js";
 import { createSessionHealthMonitor } from "../intelligence/session-health-monitor.js";
 
 function createMockGraph(
-  overrides: Record<string, unknown> = {},
+  overrides: Record<string, unknown> = {}
 ): CozoGraphStore {
   return {
     getEntity: vi.fn().mockReturnValue({
@@ -135,7 +135,7 @@ describe("Sprint S2: Session Health & Exploration Cost Wiring", () => {
       const health = monitor.getHealth();
       // After 3 queries to same entity, repeated_query signal should fire
       expect(health.signals.some((s) => s.type === "repeated_query")).toBe(
-        true,
+        true
       );
     });
 
@@ -293,7 +293,7 @@ describe("Sprint S2: Session Health & Exploration Cost Wiring", () => {
       const health = monitor.getHealth();
       // With 12 rapid calls, tool_call_acceleration should fire
       const hasAcceleration = health.signals.some(
-        (s) => s.type === "tool_call_acceleration",
+        (s) => s.type === "tool_call_acceleration"
       );
       expect(hasAcceleration).toBe(true);
     });

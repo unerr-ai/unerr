@@ -37,7 +37,7 @@ export const fileReadTool: Tool = {
 
   execute(
     args: Record<string, unknown>,
-    ctx: ToolContext,
+    ctx: ToolContext
   ): Promise<ToolOutput> {
     return runFileReadTool(args, ctx);
   },

@@ -166,7 +166,7 @@ describe("Cumulative stats persistence", () => {
         weekStart: "2025-01-06", // Old week
         violationsCaughtAllTime: 50,
         chokepointWarningsAllTime: 20,
-      }),
+      })
     );
 
     const cumulative = loadCumulativeStats();
@@ -185,7 +185,7 @@ describe("Cumulative stats persistence", () => {
     expect(fs.existsSync(filePath)).toBe(true);
 
     const data = JSON.parse(
-      fs.readFileSync(filePath, "utf-8"),
+      fs.readFileSync(filePath, "utf-8")
     ) as CumulativeStats;
     expect(data.totalSessions).toBe(1);
     expect(data.totalTokensSaved).toBe(32000);

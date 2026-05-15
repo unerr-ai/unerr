@@ -90,7 +90,7 @@ function createMockDb(): CozoDb {
             const idf = idfMap.get(token) ?? 0;
             entityScores.set(
               entityKey,
-              (entityScores.get(entityKey) ?? 0) + idf,
+              (entityScores.get(entityKey) ?? 0) + idf
             );
           }
         }
@@ -119,12 +119,12 @@ function createMockDb(): CozoDb {
 
 async function seedEntities(
   db: CozoDb,
-  items: Array<{ key: string; kind: string; name: string; file_path: string }>,
+  items: Array<{ key: string; kind: string; name: string; file_path: string }>
 ): Promise<void> {
   for (const item of items) {
     await db.run(
       "?[key, kind, name, fp] <- [[$key, $kind, $name, $fp]] :put entities { key => kind, name, file_path: fp }",
-      { key: item.key, kind: item.kind, name: item.name, fp: item.file_path },
+      { key: item.key, kind: item.kind, name: item.name, fp: item.file_path }
     );
   }
 }
@@ -337,7 +337,7 @@ describe("search-index", () => {
 
       // The rare token's IDF weight should be higher
       expect(rareResults[0]?.score).toBeGreaterThan(
-        commonResults[0]?.score ?? 0,
+        commonResults[0]?.score ?? 0
       );
     });
 

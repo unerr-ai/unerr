@@ -147,7 +147,7 @@ describe("readShadowLedger (L9.2)", () => {
           session_id: "s1",
           correlation_id: null,
         }),
-      ].join("\n"),
+      ].join("\n")
     );
 
     const result = readShadowLedger(ledgerPath);

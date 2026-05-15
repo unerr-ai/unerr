@@ -41,11 +41,11 @@ export async function reinforceSignal(
   identity: SignalIdentity,
   delta: number,
   source: string,
-  opts: ReinforceOptions = {},
+  opts: ReinforceOptions = {}
 ): Promise<SignalRow> {
   const now = opts.nowMs ?? Date.now();
 
-  let signal = await resolveSignal(store, identity);
+  const signal = await resolveSignal(store, identity);
   if (!signal) {
     const created: SignalRow = {
       signal_id: "signal_id" in identity ? identity.signal_id : randomUUID(),
@@ -70,7 +70,7 @@ export async function reinforceSignal(
 
 async function resolveSignal(
   store: CozoTimelineStore,
-  identity: SignalIdentity,
+  identity: SignalIdentity
 ): Promise<SignalRow | null> {
   if ("signal_id" in identity) {
     return store.getSignal(identity.signal_id);
@@ -81,7 +81,7 @@ async function resolveSignal(
 
 export async function pruneStaleSignals(
   store: CozoTimelineStore,
-  opts: PruneOptions = {},
+  opts: PruneOptions = {}
 ): Promise<number> {
   const now = opts.nowMs ?? Date.now();
   const cutoff = now - (opts.staleAfterMs ?? DEFAULT_STALE_MS);

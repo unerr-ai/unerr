@@ -60,7 +60,7 @@ export class CommitWatcher {
    * Set drift summary provider for git note encoding.
    */
   setDriftSummaryFn(
-    fn: () => Promise<{ added: number; modified: number; deleted: number }>,
+    fn: () => Promise<{ added: number; modified: number; deleted: number }>
   ): void {
     this.driftSummaryFn = fn;
   }
@@ -112,13 +112,13 @@ export class CommitWatcher {
         const files = await getChangedFiles(
           this.cwd,
           this.lastHeadSha,
-          currentHead,
+          currentHead
         );
         const associated = this.correlator.associateCommit(currentHead, files);
 
         if (associated > 0) {
           log.info(
-            `Commit ${currentHead.slice(0, 8)}: associated ${associated} pending correlation(s)`,
+            `Commit ${currentHead.slice(0, 8)}: associated ${associated} pending correlation(s)`
           );
 
           const committed = this.correlator
@@ -138,7 +138,7 @@ export class CommitWatcher {
               this.sessionId,
               this.branchContext,
               drift,
-              this.cwd,
+              this.cwd
             ).catch(() => {
               /* fire-and-forget */
             });

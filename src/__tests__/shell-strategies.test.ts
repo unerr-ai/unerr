@@ -54,7 +54,7 @@ describe("compressTabular", () => {
       ...Array.from(
         { length: 20 },
         (_, i) =>
-          `value${i}   data${i}   info${i}   extra-long-description-with-lots-of-detail-${i}-that-should-not-be-lost`,
+          `value${i}   data${i}   info${i}   extra-long-description-with-lots-of-detail-${i}-that-should-not-be-lost`
       ),
     ].join("\n");
     const out = compressTabular(lines);
@@ -143,7 +143,7 @@ describe("compressLogText", () => {
     const lines = Array.from(
       { length: 100 },
       (_, i) =>
-        `2024-01-01T00:00:${String(i).padStart(2, "0")}Z request handled`,
+        `2024-01-01T00:00:${String(i).padStart(2, "0")}Z request handled`
     );
     const out = compressLogText(lines.join("\n"));
     expect(out).toContain("[×100]");
@@ -524,7 +524,7 @@ describe("compressShellOutput integration", () => {
     await compressShellOutput(
       "docker ps",
       "CONTAINER ID   IMAGE\nabc123         nginx",
-      { persistStats: false, qualityMonitor: mon },
+      { persistStats: false, qualityMonitor: mon }
     );
     expect(mon.getRetention("shell_tabular")).toBeGreaterThanOrEqual(0.4);
   });
@@ -560,7 +560,7 @@ describe("compressOmni", () => {
     const filler = Array.from(
       { length: 80 },
       (_, i) =>
-        `unique_${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}_line`,
+        `unique_${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}_line`
     );
     const out = compressOmni([...filler, ...lines].join("\n"));
     // Consecutive dedup threshold is 3, so runs of 2 should stay
@@ -578,7 +578,7 @@ describe("compressOmni", () => {
     const lines = Array.from(
       { length: 500 },
       (_, i) =>
-        `processing file_${String.fromCharCode(65 + (i % 26))}_module_${String.fromCharCode(97 + (i % 26))}`,
+        `processing file_${String.fromCharCode(65 + (i % 26))}_module_${String.fromCharCode(97 + (i % 26))}`
     );
     const out = compressOmni(lines.join("\n"));
     // Pattern-dedup or truncation should reduce the output
@@ -650,14 +650,14 @@ describe("compressOmni", () => {
   it("handles binary-like content with null bytes gracefully", () => {
     const lines = Array.from(
       { length: 50 },
-      (_, i) => `data\x00\x01\x02 row ${i}`,
+      (_, i) => `data\x00\x01\x02 row ${i}`
     );
     const out = compressOmni(lines.join("\n"));
     expect(out).toContain("_shell_fmt:omni");
   });
 
   it("handles very long single line (minified JS)", () => {
-    const line = "var a=" + "x".repeat(100_000) + ";";
+    const line = `var a=${"x".repeat(100_000)};`;
     const out = compressOmni(line);
     // Single line is under SMALL_THRESHOLD so no header is added, but capChars
     // still trims wide input; the omission marker confirms truncation happened.
@@ -694,7 +694,7 @@ describe("compressOmni", () => {
     const lines = Array.from(
       { length: 60 },
       (_, i) =>
-        `2024-01-15T10:00:${String(i).padStart(2, "0")}Z [192.168.1.${i}] Processing batch abc${String(i).padStart(4, "0")}def`,
+        `2024-01-15T10:00:${String(i).padStart(2, "0")}Z [192.168.1.${i}] Processing batch abc${String(i).padStart(4, "0")}def`
     );
     const out = compressOmni(lines.join("\n"));
     expect(out).toContain("_shell_fmt:omni");
@@ -712,7 +712,7 @@ describe("compressOmni", () => {
   it("handles tab-separated output (TSV-like)", () => {
     const lines = Array.from(
       { length: 50 },
-      (_, i) => `col1_${i}\tcol2_${i}\tcol3_${i}`,
+      (_, i) => `col1_${i}\tcol2_${i}\tcol3_${i}`
     );
     const out = compressOmni(lines.join("\n"));
     expect(out).toContain("_shell_fmt:omni");
@@ -722,7 +722,7 @@ describe("compressOmni", () => {
     const lines = [
       ...Array.from(
         { length: 80 },
-        (_, i) => `   Compiling dep-${i} v0.${i}.0`,
+        (_, i) => `   Compiling dep-${i} v0.${i}.0`
       ),
       "   Compiling my-project v1.0.0",
       "    Finished release [optimized] target(s) in 45.2s",
@@ -737,7 +737,7 @@ describe("compressOmni", () => {
       "vite v5.0.0 building for production...",
       ...Array.from(
         { length: 100 },
-        (_, i) => `transforming (${i + 1}) src/components/Component${i}.tsx`,
+        (_, i) => `transforming (${i + 1}) src/components/Component${i}.tsx`
       ),
       "✓ 100 modules transformed.",
       "dist/assets/index-abc123.js    125.4 kB │ gzip: 42.1 kB",

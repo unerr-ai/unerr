@@ -29,7 +29,7 @@ export function getValueSurfacingConfig(): ValueSurfacingConfig {
 }
 
 export function setValueSurfacingConfig(
-  overrides: Partial<ValueSurfacingConfig>,
+  overrides: Partial<ValueSurfacingConfig>
 ): void {
   currentConfig = { ...currentConfig, ...overrides };
 }
@@ -112,27 +112,27 @@ export function formatScorecard(input: ScorecardInput): Scorecard {
 
   if (input.blastRadiusComputed > 0) {
     intelligence.push(
-      `${input.blastRadiusComputed} blast radius computation${input.blastRadiusComputed !== 1 ? "s" : ""}`,
+      `${input.blastRadiusComputed} blast radius computation${input.blastRadiusComputed !== 1 ? "s" : ""}`
     );
   }
   if (input.conventionsInjected > 0) {
     intelligence.push(
-      `${input.conventionsInjected} convention injection${input.conventionsInjected !== 1 ? "s" : ""}`,
+      `${input.conventionsInjected} convention injection${input.conventionsInjected !== 1 ? "s" : ""}`
     );
   }
   if (input.outputsCompressed > 0) {
     intelligence.push(
-      `${input.outputsCompressed} output${input.outputsCompressed !== 1 ? "s" : ""} compressed`,
+      `${input.outputsCompressed} output${input.outputsCompressed !== 1 ? "s" : ""} compressed`
     );
   }
   if (input.correctionsApplied > 0) {
     intelligence.push(
-      `${input.correctionsApplied} correction${input.correctionsApplied !== 1 ? "s" : ""} applied`,
+      `${input.correctionsApplied} correction${input.correctionsApplied !== 1 ? "s" : ""} applied`
     );
   }
   if (input.wrongApproachesPrevented > 0) {
     intelligence.push(
-      `${input.wrongApproachesPrevented} wrong approach${input.wrongApproachesPrevented !== 1 ? "es" : ""} prevented`,
+      `${input.wrongApproachesPrevented} wrong approach${input.wrongApproachesPrevented !== 1 ? "es" : ""} prevented`
     );
   }
 
@@ -156,7 +156,7 @@ export function formatScorecard(input: ScorecardInput): Scorecard {
  */
 export function formatCounterfactual(
   tokensWithout: number,
-  tokensWith: number,
+  tokensWith: number
 ): string {
   const withoutStr = formatTokens(tokensWithout);
   const withStr = formatTokens(tokensWith);
@@ -182,7 +182,7 @@ export interface ValueMeta {
 export function assembleValueMeta(
   tokensSaved: number,
   dollarSavings: number,
-  optimizationDescription?: string,
+  optimizationDescription?: string
 ): ValueMeta {
   const meta: ValueMeta = {
     tokens_saved: tokensSaved,

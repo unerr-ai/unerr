@@ -181,7 +181,7 @@ function countIncludedBodyLines(result: string, bodies: string): number {
 export function truncateResultList<T>(
   items: T[],
   budget: number,
-  serialize: (item: T) => string,
+  serialize: (item: T) => string
 ): { items: T[]; truncated: boolean; total: number; tokens_used: number } {
   const charBudget = Math.max(budget, 100) * CHARS_PER_TOKEN;
   let chars = 0;

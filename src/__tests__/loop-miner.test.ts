@@ -16,7 +16,7 @@ function entry(
     tool: string;
     ts: string;
     session_id?: string;
-  },
+  }
 ): LedgerEntry {
   idCounter += 1;
   return {
@@ -38,11 +38,31 @@ const t = (offsetSec: number) =>
 describe("detectFileReadLoops", () => {
   it("flags ≥5 reads of the same file with no edit in between", () => {
     const entries: LedgerEntry[] = [
-      entry({ tool: "file_read", args_summary: { file_path: "auth.ts" }, ts: t(0) }),
-      entry({ tool: "file_read", args_summary: { file_path: "auth.ts" }, ts: t(10) }),
-      entry({ tool: "file_read", args_summary: { file_path: "auth.ts" }, ts: t(30) }),
-      entry({ tool: "file_read", args_summary: { file_path: "auth.ts" }, ts: t(60) }),
-      entry({ tool: "file_read", args_summary: { file_path: "auth.ts" }, ts: t(90) }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "auth.ts" },
+        ts: t(0),
+      }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "auth.ts" },
+        ts: t(10),
+      }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "auth.ts" },
+        ts: t(30),
+      }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "auth.ts" },
+        ts: t(60),
+      }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "auth.ts" },
+        ts: t(90),
+      }),
     ];
     const loops = detectFileReadLoops(entries);
     expect(loops).toHaveLength(1);
@@ -56,11 +76,27 @@ describe("detectFileReadLoops", () => {
 
   it("an edit between reads resets the run", () => {
     const entries: LedgerEntry[] = [
-      entry({ tool: "file_read", args_summary: { file_path: "a.ts" }, ts: t(0) }),
-      entry({ tool: "file_read", args_summary: { file_path: "a.ts" }, ts: t(10) }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "a.ts" },
+        ts: t(0),
+      }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "a.ts" },
+        ts: t(10),
+      }),
       entry({ tool: "Edit", args_summary: { file_path: "a.ts" }, ts: t(20) }),
-      entry({ tool: "file_read", args_summary: { file_path: "a.ts" }, ts: t(30) }),
-      entry({ tool: "file_read", args_summary: { file_path: "a.ts" }, ts: t(40) }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "a.ts" },
+        ts: t(30),
+      }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "a.ts" },
+        ts: t(40),
+      }),
     ];
     expect(detectFileReadLoops(entries)).toEqual([]);
   });
@@ -74,7 +110,7 @@ describe("detectFileReadLoops", () => {
           args_summary: { file_path: "a.ts" },
           ts: t(i * 10),
           session_id: "s1",
-        }),
+        })
       );
       entries.push(
         entry({
@@ -82,7 +118,7 @@ describe("detectFileReadLoops", () => {
           args_summary: { file_path: "a.ts" },
           ts: t(i * 10 + 1),
           session_id: "s2",
-        }),
+        })
       );
     }
     const loops = detectFileReadLoops(entries);
@@ -99,7 +135,7 @@ describe("detectFileReadLoops", () => {
           tool: "file_read",
           args_summary: { file_path: "a.ts" },
           ts: t(i * 10),
-        }),
+        })
       );
     }
     // Force "now" to be far in the future
@@ -112,9 +148,21 @@ describe("detectFileReadLoops", () => {
 
   it("does not flag under the threshold", () => {
     const entries: LedgerEntry[] = [
-      entry({ tool: "file_read", args_summary: { file_path: "a.ts" }, ts: t(0) }),
-      entry({ tool: "file_read", args_summary: { file_path: "a.ts" }, ts: t(10) }),
-      entry({ tool: "file_read", args_summary: { file_path: "a.ts" }, ts: t(20) }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "a.ts" },
+        ts: t(0),
+      }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "a.ts" },
+        ts: t(10),
+      }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "a.ts" },
+        ts: t(20),
+      }),
     ];
     expect(detectFileReadLoops(entries)).toEqual([]);
   });
@@ -123,9 +171,21 @@ describe("detectFileReadLoops", () => {
 describe("detectQueryLoops", () => {
   it("flags ≥3 same search_code queries", () => {
     const entries: LedgerEntry[] = [
-      entry({ tool: "search_code", args_summary: { query: "validateToken" }, ts: t(0) }),
-      entry({ tool: "search_code", args_summary: { query: "validateToken" }, ts: t(120) }),
-      entry({ tool: "search_code", args_summary: { query: "validateToken" }, ts: t(300) }),
+      entry({
+        tool: "search_code",
+        args_summary: { query: "validateToken" },
+        ts: t(0),
+      }),
+      entry({
+        tool: "search_code",
+        args_summary: { query: "validateToken" },
+        ts: t(120),
+      }),
+      entry({
+        tool: "search_code",
+        args_summary: { query: "validateToken" },
+        ts: t(300),
+      }),
     ];
     const loops = detectQueryLoops(entries);
     expect(loops).toHaveLength(1);
@@ -159,11 +219,31 @@ describe("detectQueryLoops", () => {
 describe("detectLoops (union)", () => {
   it("returns both detections sorted by last_ts desc", () => {
     const entries: LedgerEntry[] = [
-      entry({ tool: "file_read", args_summary: { file_path: "a.ts" }, ts: t(0) }),
-      entry({ tool: "file_read", args_summary: { file_path: "a.ts" }, ts: t(10) }),
-      entry({ tool: "file_read", args_summary: { file_path: "a.ts" }, ts: t(20) }),
-      entry({ tool: "file_read", args_summary: { file_path: "a.ts" }, ts: t(30) }),
-      entry({ tool: "file_read", args_summary: { file_path: "a.ts" }, ts: t(40) }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "a.ts" },
+        ts: t(0),
+      }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "a.ts" },
+        ts: t(10),
+      }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "a.ts" },
+        ts: t(20),
+      }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "a.ts" },
+        ts: t(30),
+      }),
+      entry({
+        tool: "file_read",
+        args_summary: { file_path: "a.ts" },
+        ts: t(40),
+      }),
       entry({ tool: "search_code", args_summary: { query: "X" }, ts: t(100) }),
       entry({ tool: "search_code", args_summary: { query: "X" }, ts: t(200) }),
       entry({ tool: "search_code", args_summary: { query: "X" }, ts: t(300) }),

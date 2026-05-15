@@ -270,7 +270,7 @@ export function createIntelligenceTools(router: QueryRouter): Tool[] {
     requiresPermission: false,
     async execute(
       args: Record<string, unknown>,
-      _ctx: ToolContext,
+      _ctx: ToolContext
     ): Promise<ToolOutput> {
       try {
         const result = await router.execute(def.name, args);

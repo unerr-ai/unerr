@@ -75,7 +75,7 @@ export async function generateSessionResumePayload(
   factStore?: {
     recallByScope(scope: string, minConf?: number): Promise<TemporalFact[]>;
     recallDecaying?(minConf: number, maxConf: number): Promise<TemporalFact[]>;
-  } | null,
+  } | null
 ): Promise<SessionResumePayload | null> {
   try {
     const { readLastSession } = await import(
@@ -165,13 +165,13 @@ function generateIncompleteHint(session: SessionSummaryRecord): string {
 
   if (session.revert_count > 0) {
     parts.push(
-      `${session.revert_count} revert(s) in last session — approach may need rethinking`,
+      `${session.revert_count} revert(s) in last session — approach may need rethinking`
     );
   }
 
   if (session.files_modified.length > 5) {
     parts.push(
-      `Large change set (${session.files_modified.length} files) — verify consistency`,
+      `Large change set (${session.files_modified.length} files) — verify consistency`
     );
   }
 
@@ -199,7 +199,7 @@ async function recallFactsForSession(
   session: SessionSummaryRecord,
   factStore?: {
     recallByScope(scope: string, minConf?: number): Promise<TemporalFact[]>;
-  } | null,
+  } | null
 ): Promise<
   Array<{
     fact_id: string;
@@ -256,7 +256,7 @@ async function recallFactsForSession(
  * Keeps total output under 500 chars.
  */
 export function formatSessionResumeBlock(
-  payload: SessionResumePayload | null,
+  payload: SessionResumePayload | null
 ): string {
   if (!payload) return "";
 
@@ -271,7 +271,7 @@ export function formatSessionResumeBlock(
   const hotFiles = payload.continuity.hot_files.slice(0, 3);
   const filesStr = hotFiles.length > 0 ? hotFiles.join(", ") : "various files";
   parts.push(
-    `[unerr:session-resume] Previous session (${elapsed} ago): worked on ${filesStr}.`,
+    `[unerr:session-resume] Previous session (${elapsed} ago): worked on ${filesStr}.`
   );
 
   // High-confidence recalled facts
@@ -290,7 +290,7 @@ export function formatSessionResumeBlock(
       .slice(0, 2)
       .map((f) => `"${f.content.slice(0, 40)}"`);
     parts.push(
-      `⚠ ${n} fact(s) expired since last session: ${subjects.join(", ")}. Use record_fact to re-record if still relevant.`,
+      `⚠ ${n} fact(s) expired since last session: ${subjects.join(", ")}. Use record_fact to re-record if still relevant.`
     );
   }
 
@@ -304,7 +304,7 @@ export function formatSessionResumeBlock(
 
   const result = parts.join("\n");
   // Truncate to 500 chars max
-  return result.length > 500 ? result.slice(0, 497) + "..." : result;
+  return result.length > 500 ? `${result.slice(0, 497)}...` : result;
 }
 
 function formatElapsed(ms: number): string {

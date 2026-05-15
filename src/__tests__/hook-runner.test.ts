@@ -68,7 +68,7 @@ describe("claudeCodeAdapter", () => {
 
   it("formats nudge with systemMessage", () => {
     const result = JSON.parse(
-      claudeCodeAdapter.formatPreToolUse(nudge("Use search_code")),
+      claudeCodeAdapter.formatPreToolUse(nudge("Use search_code"))
     );
     expect(result.hookSpecificOutput.permissionDecision).toBe("allow");
     expect(result.hookSpecificOutput.systemMessage).toBe("Use search_code");
@@ -77,8 +77,8 @@ describe("claudeCodeAdapter", () => {
   it("formats rewrite with updatedInput", () => {
     const result = JSON.parse(
       claudeCodeAdapter.formatPreToolUse(
-        rewrite({ command: "unerr exec -- ls" }),
-      ),
+        rewrite({ command: "unerr exec -- ls" })
+      )
     );
     expect(result.hookSpecificOutput.updatedInput).toEqual({
       command: "unerr exec -- ls",
@@ -88,7 +88,7 @@ describe("claudeCodeAdapter", () => {
 
   it("formats PostToolUse enrich with additionalContext", () => {
     const result = JSON.parse(
-      claudeCodeAdapter.formatPostToolUse(enrich("Try get_entity")),
+      claudeCodeAdapter.formatPostToolUse(enrich("Try get_entity"))
     );
     expect(result.hookSpecificOutput.hookEventName).toBe("PostToolUse");
     expect(result.hookSpecificOutput.additionalContext).toBe("Try get_entity");
@@ -96,7 +96,7 @@ describe("claudeCodeAdapter", () => {
 
   it("formats UserPromptSubmit with additionalContext", () => {
     const result = JSON.parse(
-      claudeCodeAdapter.formatPromptSubmit(enrich("Use unerr tools")),
+      claudeCodeAdapter.formatPromptSubmit(enrich("Use unerr tools"))
     );
     expect(result.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
     expect(result.hookSpecificOutput.additionalContext).toBe("Use unerr tools");
@@ -112,7 +112,7 @@ describe("cursorAdapter", () => {
         tool_name: "Read",
         tool_input: {},
         cwd: "/project",
-      }),
+      })
     ).toBe(true);
     // Should NOT detect Claude Code
     expect(
@@ -120,7 +120,7 @@ describe("cursorAdapter", () => {
         hook_event_name: "PreToolUse",
         tool_name: "Read",
         cwd: "/project",
-      }),
+      })
     ).toBe(false);
   });
 
@@ -142,7 +142,7 @@ describe("cursorAdapter", () => {
 
   it("formats nudge with agent_message", () => {
     const result = JSON.parse(
-      cursorAdapter.formatPreToolUse(nudge("Use file_outline")),
+      cursorAdapter.formatPreToolUse(nudge("Use file_outline"))
     );
     expect(result.permission).toBe("allow");
     expect(result.agent_message).toBe("Use file_outline");
@@ -150,7 +150,7 @@ describe("cursorAdapter", () => {
 
   it("formats rewrite with updated_input", () => {
     const result = JSON.parse(
-      cursorAdapter.formatPreToolUse(rewrite({ command: "unerr exec -- ls" })),
+      cursorAdapter.formatPreToolUse(rewrite({ command: "unerr exec -- ls" }))
     );
     expect(result.permission).toBe("allow");
     expect(result.updated_input).toEqual({ command: "unerr exec -- ls" });
@@ -158,7 +158,7 @@ describe("cursorAdapter", () => {
 
   it("formats PostToolUse enrich with additional_context", () => {
     const result = JSON.parse(
-      cursorAdapter.formatPostToolUse(enrich("Use search_code")),
+      cursorAdapter.formatPostToolUse(enrich("Use search_code"))
     );
     expect(result.additional_context).toBe("Use search_code");
   });
@@ -169,7 +169,7 @@ describe("cursorAdapter", () => {
 describe("clineAdapter", () => {
   it("detects Cline payload", () => {
     expect(
-      clineAdapter.detect({ tool: "read_file", params: { path: "foo.ts" } }),
+      clineAdapter.detect({ tool: "read_file", params: { path: "foo.ts" } })
     ).toBe(true);
     // Should NOT detect Claude Code
     expect(
@@ -177,7 +177,7 @@ describe("clineAdapter", () => {
         tool: "read_file",
         params: {},
         hook_event_name: "PreToolUse",
-      }),
+      })
     ).toBe(false);
   });
 
@@ -207,7 +207,7 @@ describe("clineAdapter", () => {
 
   it("formats nudge with context", () => {
     const result = JSON.parse(
-      clineAdapter.formatPreToolUse(nudge("Use graph tools")),
+      clineAdapter.formatPreToolUse(nudge("Use graph tools"))
     );
     expect(result.allow).toBe(true);
     expect(result.context).toBe("Use graph tools");
@@ -215,7 +215,7 @@ describe("clineAdapter", () => {
 
   it("formats PostToolUse enrich with context", () => {
     const result = JSON.parse(
-      clineAdapter.formatPostToolUse(enrich("Try get_references")),
+      clineAdapter.formatPostToolUse(enrich("Try get_references"))
     );
     expect(result.context).toBe("Try get_references");
   });
@@ -249,7 +249,7 @@ describe("runPreToolUseHook", () => {
       tool_input: { file_path: "src/foo.ts" },
     });
     const result = JSON.parse(
-      runPreToolUseHook(stdin, () => nudge("Use file_read")),
+      runPreToolUseHook(stdin, () => nudge("Use file_read"))
     );
     expect(result.hookSpecificOutput.systemMessage).toBe("Use file_read");
   });
@@ -261,7 +261,7 @@ describe("runPreToolUseHook", () => {
       cwd: "/project",
     });
     const result = JSON.parse(
-      runPreToolUseHook(stdin, () => nudge("Use file_read")),
+      runPreToolUseHook(stdin, () => nudge("Use file_read"))
     );
     expect(result.permission).toBe("allow");
     expect(result.agent_message).toBe("Use file_read");
@@ -274,7 +274,7 @@ describe("runPreToolUseHook", () => {
       event: "pre_tool",
     });
     const result = JSON.parse(
-      runPreToolUseHook(stdin, () => nudge("Use file_read")),
+      runPreToolUseHook(stdin, () => nudge("Use file_read"))
     );
     expect(result.allow).toBe(true);
     expect(result.context).toBe("Use file_read");
@@ -288,10 +288,10 @@ describe("runPostToolUseHook", () => {
       tool_input: { file_path: "src/foo.ts" },
     });
     const result = JSON.parse(
-      runPostToolUseHook(stdin, () => enrich("Try get_references")),
+      runPostToolUseHook(stdin, () => enrich("Try get_references"))
     );
     expect(result.hookSpecificOutput.additionalContext).toBe(
-      "Try get_references",
+      "Try get_references"
     );
   });
 
@@ -302,7 +302,7 @@ describe("runPostToolUseHook", () => {
       cwd: "/project",
     });
     const result = JSON.parse(
-      runPostToolUseHook(stdin, () => enrich("Try get_references")),
+      runPostToolUseHook(stdin, () => enrich("Try get_references"))
     );
     expect(result.additional_context).toBe("Try get_references");
   });
@@ -315,7 +315,7 @@ describe("runPromptSubmitHook", () => {
       user_message: "Add a new function to handle auth",
     });
     const result = JSON.parse(
-      runPromptSubmitHook(stdin, () => enrich("Use unerr tools")),
+      runPromptSubmitHook(stdin, () => enrich("Use unerr tools"))
     );
     expect(result.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
     expect(result.hookSpecificOutput.additionalContext).toBe("Use unerr tools");

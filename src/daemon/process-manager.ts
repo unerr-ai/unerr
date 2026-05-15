@@ -50,7 +50,7 @@ export interface ManagedRepo {
 export type ProcessEventHandler = (
   event: "started" | "stopped" | "error" | "activity",
   repo: ManagedRepo,
-  detail?: string,
+  detail?: string
 ) => void;
 
 // ── Process Manager ─────────────────────────────────────────────
@@ -74,7 +74,7 @@ export class ProcessManager {
     if (this.sweepTimer) return;
     this.sweepTimer = setInterval(
       () => this.runIdleSweep(),
-      IDLE_SWEEP_INTERVAL_MS,
+      IDLE_SWEEP_INTERVAL_MS
     );
     this.sweepTimer.unref();
   }
@@ -263,8 +263,8 @@ export class ProcessManager {
       const timer = setTimeout(() => {
         repo.readyReject?.(
           new Error(
-            `Repo process ${repo.path} failed to become ready in ${READY_TIMEOUT_MS}ms`,
-          ),
+            `Repo process ${repo.path} failed to become ready in ${READY_TIMEOUT_MS}ms`
+          )
         );
         repo.readyResolve = null;
         repo.readyReject = null;
@@ -313,7 +313,7 @@ export class ProcessManager {
   private handleChildExit(
     repoPath: string,
     code: number | null,
-    signal: string | null,
+    signal: string | null
   ): void {
     const repo = this.repos.get(repoPath);
     if (!repo) return;
@@ -328,8 +328,8 @@ export class ProcessManager {
     if (prev === "starting") {
       repo.readyReject?.(
         new Error(
-          `Child exited during startup (code=${code}, signal=${signal})`,
-        ),
+          `Child exited during startup (code=${code}, signal=${signal})`
+        )
       );
       repo.readyResolve = null;
       repo.readyReject = null;

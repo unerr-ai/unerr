@@ -33,7 +33,7 @@ export interface BranchContext {
  * Never throws — returns safe defaults on any git failure.
  */
 export async function computeBranchContext(
-  cwd?: string,
+  cwd?: string
 ): Promise<BranchContext> {
   const dir = cwd ?? process.cwd();
 
@@ -45,19 +45,19 @@ export async function computeBranchContext(
   if (currentBranch && currentBranch !== "HEAD") {
     const configured = await gitQuery(
       ["config", "--get", `branch.${currentBranch}.merge`],
-      dir,
+      dir
     );
     if (configured) {
       baseBranch = configured.replace(/^refs\/heads\//, "");
     } else {
       const mainExists = await gitQuery(
         ["rev-parse", "--verify", "origin/main"],
-        dir,
+        dir
       );
       if (!mainExists) {
         const masterExists = await gitQuery(
           ["rev-parse", "--verify", "origin/master"],
-          dir,
+          dir
         );
         if (masterExists) baseBranch = "master";
       }
@@ -74,13 +74,13 @@ export async function computeBranchContext(
   if (baseCommit) {
     const ahead = await gitQuery(
       ["rev-list", "--count", `${baseCommit}..HEAD`],
-      dir,
+      dir
     );
     commitsAhead = ahead ? Number.parseInt(ahead, 10) : 0;
 
     const behind = await gitQuery(
       ["rev-list", "--count", `HEAD..${remoteBranch}`],
-      dir,
+      dir
     );
     commitsBehind = behind ? Number.parseInt(behind, 10) : null;
   }
@@ -107,7 +107,7 @@ export const computeBranchContextAsync = computeBranchContext;
  */
 export function detectBranchSwitch(
   previousBranch: string,
-  cwd?: string,
+  cwd?: string
 ): string | null {
   const current = getCurrentBranch(cwd);
   if (current && current !== previousBranch) {
@@ -152,7 +152,7 @@ export async function getHeadSha(cwd?: string): Promise<string> {
 export function startBranchPoller(
   onSwitch: (newBranch: string, context: BranchContext) => void,
   intervalMs = 5000,
-  cwd?: string,
+  cwd?: string
 ): () => void {
   let currentBranch = getCurrentBranch(cwd) ?? "unknown";
 

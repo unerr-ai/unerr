@@ -26,7 +26,7 @@ function createMockDb(): CozoDb {
   return {
     async run(
       query: string,
-      params?: Record<string, unknown>,
+      params?: Record<string, unknown>
     ): Promise<{ rows: unknown[][] }> {
       // ── :create — no-op, just acknowledge
       if (query.includes(":create ")) {
@@ -185,7 +185,7 @@ function createMockAdapter(dims = 3): LocalLlmAdapter {
       const embeddings = texts.map((text) => {
         const base = Array.from(text).reduce(
           (sum, ch) => sum + ch.charCodeAt(0),
-          0,
+          0
         );
         const vec: number[] = [];
         for (let i = 0; i < dims; i++) {
@@ -215,7 +215,7 @@ function seedEntities(
     name: string;
     filePath: string;
     signature: string;
-  }>,
+  }>
 ) {
   for (const e of entities) {
     db.run(":put entities {key => kind, name, file_path, signature}", {
@@ -260,7 +260,7 @@ describe("LocalEmbeddingStore", () => {
         signature: e.signature,
         name: e.name,
         kind: e.kind,
-      })),
+      }))
     );
 
     expect(result.computed).toBe(2);
@@ -292,7 +292,7 @@ describe("LocalEmbeddingStore", () => {
         signature: e.signature,
         name: e.name,
         kind: e.kind,
-      })),
+      }))
     );
     expect(adapter.embed).toHaveBeenCalledTimes(1);
 
@@ -303,7 +303,7 @@ describe("LocalEmbeddingStore", () => {
         signature: e.signature,
         name: e.name,
         kind: e.kind,
-      })),
+      }))
     );
     expect(result2.computed).toBe(0);
     expect(result2.skipped).toBe(1);
@@ -347,7 +347,7 @@ describe("LocalEmbeddingStore", () => {
         signature: e.signature,
         name: e.name,
         kind: e.kind,
-      })),
+      }))
     );
 
     // Search for something similar to "login"
@@ -357,7 +357,7 @@ describe("LocalEmbeddingStore", () => {
     // Results should be sorted by similarity descending
     for (let i = 1; i < results.length; i++) {
       expect(results[i - 1]?.similarity).toBeGreaterThanOrEqual(
-        results[i]?.similarity ?? 0,
+        results[i]?.similarity ?? 0
       );
     }
     // Each result should have entity metadata
@@ -404,7 +404,7 @@ describe("LocalEmbeddingStore", () => {
         signature: e.signature,
         name: e.name,
         kind: e.kind,
-      })),
+      }))
     );
 
     const results = await store.findSimilar("fn::a", 10, -1.0);
@@ -447,7 +447,7 @@ describe("LocalEmbeddingStore", () => {
         signature: e.signature,
         name: e.name,
         kind: e.kind,
-      })),
+      }))
     );
 
     stats = await store.getStats();
@@ -480,7 +480,7 @@ describe("LocalEmbeddingStore", () => {
         signature: e.signature,
         name: e.name,
         kind: e.kind,
-      })),
+      }))
     );
 
     expect(await store.hasEmbedding("fn::z")).toBe(true);
@@ -516,7 +516,7 @@ describe("LocalEmbeddingStore", () => {
         signature: e.signature,
         name: e.name,
         kind: e.kind,
-      })),
+      }))
     );
 
     expect((await store.getStats()).totalEmbeddings).toBe(2);

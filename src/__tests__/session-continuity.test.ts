@@ -20,7 +20,7 @@ import { ShadowLedger } from "../tracking/shadow-ledger.js";
 function makeTmpDir(): string {
   const dir = join(
     tmpdir(),
-    `unerr-test-continuity-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-test-continuity-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(dir, { recursive: true });
   return dir;
@@ -51,21 +51,21 @@ describe("Session Continuity Protocol (BA-1.2)", () => {
         { key: "src/payment.ts::processPayment", path: "src/payment.ts" },
         { source: "local" },
         "main",
-        "abc123",
+        "abc123"
       );
       ledger.record(
         "edit_file",
         { key: "src/payment.ts::processPayment", path: "src/payment.ts" },
         { source: "local" },
         "main",
-        "abc123",
+        "abc123"
       );
       ledger.record(
         "get_entity",
         { key: "src/checkout.ts::handleOrder" },
         { source: "local", found: true },
         "main",
-        "abc123",
+        "abc123"
       );
 
       const newLedger = new ShadowLedger(tmpDir);
@@ -92,7 +92,7 @@ describe("Session Continuity Protocol (BA-1.2)", () => {
       behavior.attachLedger(ledger);
 
       const output = await behavior.onSessionStart(
-        makeCtx(ledger.getSessionId()),
+        makeCtx(ledger.getSessionId())
       );
       expect(output).toBeNull();
     });
@@ -114,7 +114,7 @@ describe("Session Continuity Protocol (BA-1.2)", () => {
           { key: `src/file${i}.ts::func${i}` },
           { source: "local", found: true },
           "main",
-          "abc123",
+          "abc123"
         );
       }
 
@@ -123,7 +123,7 @@ describe("Session Continuity Protocol (BA-1.2)", () => {
       behavior.attachLedger(newLedger);
 
       const output = await behavior.onSessionStart(
-        makeCtx(newLedger.getSessionId()),
+        makeCtx(newLedger.getSessionId())
       );
       expect(output).not.toBeNull();
 
@@ -144,7 +144,7 @@ describe("Session Continuity Protocol (BA-1.2)", () => {
           { key: `src/file${i}.ts::func${i}` },
           { source: "local", found: true },
           "main",
-          "abc123",
+          "abc123"
         );
       }
 
@@ -153,7 +153,7 @@ describe("Session Continuity Protocol (BA-1.2)", () => {
       behavior.attachLedger(newLedger);
 
       const output = await behavior.onSessionStart(
-        makeCtx(newLedger.getSessionId()),
+        makeCtx(newLedger.getSessionId())
       );
       expect(output).not.toBeNull();
 
@@ -173,14 +173,14 @@ describe("Session Continuity Protocol (BA-1.2)", () => {
         { key: "src/a.ts::funcA", path: "src/a.ts" },
         { source: "local" },
         "feature/payments",
-        "abc123",
+        "abc123"
       );
       ledger.record(
         "edit_file",
         { key: "src/b.ts::funcB", path: "src/b.ts" },
         { source: "local" },
         "feature/payments",
-        "def456",
+        "def456"
       );
 
       const newLedger = new ShadowLedger(tmpDir);
@@ -188,7 +188,7 @@ describe("Session Continuity Protocol (BA-1.2)", () => {
       behavior.attachLedger(newLedger);
 
       const output = await behavior.onSessionStart(
-        makeCtx(newLedger.getSessionId()),
+        makeCtx(newLedger.getSessionId())
       );
       expect(output).not.toBeNull();
 
@@ -212,7 +212,7 @@ describe("Session Continuity Protocol (BA-1.2)", () => {
         { key: "src/low.ts::low" },
         { source: "local" },
         "main",
-        "abc123",
+        "abc123"
       );
 
       for (let i = 0; i < 5; i++) {
@@ -221,7 +221,7 @@ describe("Session Continuity Protocol (BA-1.2)", () => {
           { key: "src/high.ts::high" },
           { source: "local" },
           "main",
-          "abc123",
+          "abc123"
         );
       }
 
@@ -230,7 +230,7 @@ describe("Session Continuity Protocol (BA-1.2)", () => {
       behavior.attachLedger(newLedger);
 
       const output = await behavior.onSessionStart(
-        makeCtx(newLedger.getSessionId()),
+        makeCtx(newLedger.getSessionId())
       );
       expect(output).not.toBeNull();
 

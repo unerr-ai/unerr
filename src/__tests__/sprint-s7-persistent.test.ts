@@ -31,7 +31,7 @@ function makeLedgerEntry(
     result_summary: Record<string, unknown>;
     branch: string;
     session_id: string;
-  }>,
+  }>
 ) {
   return {
     id: overrides.id ?? `e${Math.random().toString(36).slice(2, 10)}`,
@@ -50,7 +50,7 @@ describe("Sprint S7: Wire Persistent Context", () => {
       const result = shouldAutoSnapshot(
         "run_command",
         { command: "npm test" },
-        { exitCode: 0 },
+        { exitCode: 0 }
       );
       expect(result).toBeTruthy();
       expect(result!.type).toBe("test_pass");
@@ -61,7 +61,7 @@ describe("Sprint S7: Wire Persistent Context", () => {
         "sync_local_diff",
         { file: "src/core.ts", entity_key: "src/core.ts::processPayment" },
         { fan_in: 50 },
-        50,
+        50
       );
       expect(result).toBeTruthy();
       expect(result!.type).toBe("pre_critical_change");
@@ -71,7 +71,7 @@ describe("Sprint S7: Wire Persistent Context", () => {
       const result = shouldAutoSnapshot(
         "search_code",
         { query: "hello" },
-        { count: 5 },
+        { count: 5 }
       );
       expect(result).toBeFalsy();
     });
@@ -128,10 +128,10 @@ describe("Sprint S7: Wire Persistent Context", () => {
       const ordered = orderContextFields(ctx);
       const keys = Object.keys(ordered);
       expect(keys.indexOf("blast_radius")).toBeLessThan(
-        keys.indexOf("session_resume"),
+        keys.indexOf("session_resume")
       );
       expect(keys.indexOf("session_resume")).toBeLessThan(
-        keys.indexOf("conventions"),
+        keys.indexOf("conventions")
       );
     });
   });
@@ -276,20 +276,20 @@ describe("Sprint S7: Wire Persistent Context", () => {
         "snap-123",
         ["processPayment", "validateOrder"],
         ["fix the payment flow"],
-        "Approach failed — infinite loop",
+        "Approach failed — infinite loop"
       );
 
       expect(fork.forkPoint).toBe("snap-123");
       expect(fork.abandonedBranch.entityChanges).toContain("processPayment");
       expect(fork.abandonedBranch.entityChanges).toContain("validateOrder");
       expect(fork.abandonedBranch.promptsTried).toContain(
-        "fix the payment flow",
+        "fix the payment flow"
       );
       expect(fork.abandonedBranch.failureReason).toBe(
-        "Approach failed — infinite loop",
+        "Approach failed — infinite loop"
       );
       expect(fork.newBranch.timelineId).toBeGreaterThan(
-        fork.abandonedBranch.timelineId,
+        fork.abandonedBranch.timelineId
       );
     });
 
@@ -297,7 +297,7 @@ describe("Sprint S7: Wire Persistent Context", () => {
       const fork = createTimelineFork(
         "snap-456",
         ["entity1", "entity1", "entity2", "entity2"],
-        [],
+        []
       );
 
       expect(fork.abandonedBranch.entityChanges).toEqual([
@@ -318,10 +318,10 @@ describe("Sprint S7: Wire Persistent Context", () => {
       const keys = Object.keys(ordered);
       // durability_warning should come after blast_radius but before conventions
       expect(keys.indexOf("blast_radius")).toBeLessThan(
-        keys.indexOf("durability_warning"),
+        keys.indexOf("durability_warning")
       );
       expect(keys.indexOf("durability_warning")).toBeLessThan(
-        keys.indexOf("conventions"),
+        keys.indexOf("conventions")
       );
     });
 
@@ -334,7 +334,7 @@ describe("Sprint S7: Wire Persistent Context", () => {
       const ordered = orderContextFields(ctx);
       const keys = Object.keys(ordered);
       expect(keys.indexOf("anti_patterns")).toBeLessThan(
-        keys.indexOf("conventions"),
+        keys.indexOf("conventions")
       );
     });
   });

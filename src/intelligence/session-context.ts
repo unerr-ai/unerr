@@ -26,7 +26,10 @@ export class SessionContext {
    * Stale = 10+ unrelated tool calls since last show, OR 30+ min wall-clock.
    * Tunable via STALE_CALL_GAP / STALE_TIME_MS constants below.
    */
-  private injectedConventions = new Map<string, { atCall: number; atMs: number }>();
+  private injectedConventions = new Map<
+    string,
+    { atCall: number; atMs: number }
+  >();
   private injectedRisk = new Set<string>();
   private injectedCorrections = new Set<string>();
   private injectedFacts = new Map<string, { atCall: number; atMs: number }>();
@@ -80,7 +83,7 @@ export class SessionContext {
     if (!signalId) return;
     this.signalShowCount.set(
       signalId,
-      (this.signalShowCount.get(signalId) ?? 0) + 1,
+      (this.signalShowCount.get(signalId) ?? 0) + 1
     );
     this.showStore?.recordShown(signalId, scope);
   }
@@ -124,7 +127,7 @@ export class SessionContext {
   recordEntityHistory(
     entityKey: string,
     blastRadius: number,
-    risk: string,
+    risk: string
   ): void {
     // Only record on first call — do not overwrite
     if (this.entityHistory.has(entityKey)) return;
@@ -143,7 +146,7 @@ export class SessionContext {
 
   shouldInjectCorrection(
     entityKey: string,
-    _errorType?: string | string[],
+    _errorType?: string | string[]
   ): boolean {
     if (this.injectedCorrections.has(entityKey)) return false;
     this.injectedCorrections.add(entityKey);
@@ -192,9 +195,7 @@ export class SessionContext {
    * Both thresholds matter — pure call-count misses long idle gaps, pure
    * time misses rapid-fire sessions.
    */
-  private isStale(
-    last: { atCall: number; atMs: number } | undefined,
-  ): boolean {
+  private isStale(last: { atCall: number; atMs: number } | undefined): boolean {
     if (!last) return true;
     if (this.toolCallCount - last.atCall >= this.STALE_CALL_GAP) return true;
     if (Date.now() - last.atMs >= this.STALE_TIME_MS) return true;

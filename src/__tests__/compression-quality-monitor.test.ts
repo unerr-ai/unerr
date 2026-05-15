@@ -38,7 +38,7 @@ describe("CompressionQualityMonitor Layer 6 tiers (FE-E)", () => {
     expect(m.getRetention("shell_diff")).toBeGreaterThanOrEqual(0.4);
     expect(m.getRetention("shell_structured")).toBeGreaterThanOrEqual(0.4);
     expect(m.getRetention("shell_error_diagnostic")).toBeGreaterThanOrEqual(
-      0.4,
+      0.4
     );
     m.recordCompression("s1", "shell_tabular", 0.5);
     m.recordAgentAction("e", true, false);

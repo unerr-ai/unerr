@@ -44,7 +44,7 @@ export interface HiddenCoupling {
 export class GraphTemporalJoiner {
   constructor(
     private localGraph: CozoGraphStore,
-    private factStore: TemporalFactStore | null,
+    private factStore: TemporalFactStore | null
   ) {}
 
   /**
@@ -155,7 +155,7 @@ export class GraphTemporalJoiner {
    * Returns [filePath, couplingScore, evidence] tuples.
    */
   private async getGraphNeighbors(
-    filePath: string,
+    filePath: string
   ): Promise<Array<[string, number, string]>> {
     const neighbors: Array<[string, number, string]> = [];
 
@@ -176,7 +176,7 @@ export class GraphTemporalJoiner {
           if (caller.file_path && caller.file_path !== filePath) {
             fileCounts.set(
               caller.file_path,
-              (fileCounts.get(caller.file_path) ?? 0) + 1,
+              (fileCounts.get(caller.file_path) ?? 0) + 1
             );
           }
         }
@@ -185,7 +185,7 @@ export class GraphTemporalJoiner {
           if (callee.file_path && callee.file_path !== filePath) {
             fileCounts.set(
               callee.file_path,
-              (fileCounts.get(callee.file_path) ?? 0) + 1,
+              (fileCounts.get(callee.file_path) ?? 0) + 1
             );
           }
         }
@@ -209,14 +209,14 @@ export class GraphTemporalJoiner {
    * Returns [filePath, couplingScore, evidence] tuples.
    */
   private async getTemporalCouplings(
-    filePath: string,
+    filePath: string
   ): Promise<Array<[string, number, string]>> {
     if (!this.factStore) return [];
 
     try {
       const facts = await this.factStore.recallBySubject(
         `coupling:${filePath}`,
-        0.2,
+        0.2
       );
 
       const couplings: Array<[string, number, string]> = [];
@@ -250,7 +250,7 @@ export class GraphTemporalJoiner {
     try {
       const allFacts = await this.factStore.recallByScope("project", 0.2);
       return allFacts.filter(
-        (f) => f.fact_type === "semantic" && f.subject.startsWith("coupling:"),
+        (f) => f.fact_type === "semantic" && f.subject.startsWith("coupling:")
       );
     } catch {
       return [];
@@ -292,7 +292,7 @@ export class GraphTemporalJoiner {
    */
   private async getGraphCouplingBetween(
     fileA: string,
-    fileB: string,
+    fileB: string
   ): Promise<number> {
     try {
       const entitiesA = await this.localGraph.getEntitiesByFile(fileA);
@@ -305,7 +305,7 @@ export class GraphTemporalJoiner {
         ]);
 
         const hasConnection = [...callers, ...callees].some(
-          (e) => e.file_path === fileB,
+          (e) => e.file_path === fileB
         );
         if (hasConnection) return 0.5; // At least one structural connection
       }

@@ -16,7 +16,7 @@ let store: CozoTimelineStore;
 beforeEach(async () => {
   tempDir = join(
     tmpdir(),
-    `unerr-tf-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-tf-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(join(tempDir, ".unerr"), { recursive: true });
   store = await CozoTimelineStore.create(tempDir);
@@ -55,7 +55,7 @@ describe("listTurns — filters + pagination", () => {
   it("paginates via offset + limit", async () => {
     for (let i = 0; i < 7; i++) {
       await store.upsertTurn(
-        turn({ turn_id: `t${i}`, started_at: 1000 + i * 1000 }),
+        turn({ turn_id: `t${i}`, started_at: 1000 + i * 1000 })
       );
     }
     const page1 = await store.listTurns({ limit: 3, offset: 0 });
@@ -75,7 +75,9 @@ describe("listTurns — filters + pagination", () => {
   });
 
   it("filters by query — case-insensitive substring on title", async () => {
-    await store.upsertTurn(turn({ turn_id: "a", title: "Refactor Auth Middleware" }));
+    await store.upsertTurn(
+      turn({ turn_id: "a", title: "Refactor Auth Middleware" })
+    );
     await store.upsertTurn(turn({ turn_id: "b", title: "Payments cleanup" }));
     await store.upsertTurn(turn({ turn_id: "c", title: "auth follow-up" }));
     const hits = await store.listTurns({ query: "auth" });
@@ -83,16 +85,24 @@ describe("listTurns — filters + pagination", () => {
   });
 
   it("query escapes regex metacharacters in the user input", async () => {
-    await store.upsertTurn(turn({ turn_id: "a", title: "fix [bug] in handler" }));
+    await store.upsertTurn(
+      turn({ turn_id: "a", title: "fix [bug] in handler" })
+    );
     await store.upsertTurn(turn({ turn_id: "b", title: "fix bug" }));
     const hits = await store.listTurns({ query: "[bug]" });
     expect(hits.map((t) => t.turn_id)).toEqual(["a"]);
   });
 
   it("countTurns mirrors the same filter semantics", async () => {
-    await store.upsertTurn(turn({ turn_id: "a", session_id: "s1", started_at: 100 }));
-    await store.upsertTurn(turn({ turn_id: "b", session_id: "s1", started_at: 200 }));
-    await store.upsertTurn(turn({ turn_id: "c", session_id: "s2", started_at: 150 }));
+    await store.upsertTurn(
+      turn({ turn_id: "a", session_id: "s1", started_at: 100 })
+    );
+    await store.upsertTurn(
+      turn({ turn_id: "b", session_id: "s1", started_at: 200 })
+    );
+    await store.upsertTurn(
+      turn({ turn_id: "c", session_id: "s2", started_at: 150 })
+    );
     expect(await store.countTurns({})).toBe(3);
     expect(await store.countTurns({ sessionId: "s1" })).toBe(2);
     expect(await store.countTurns({ fromTs: 110, toTs: 250 })).toBe(2);
@@ -109,7 +119,7 @@ describe("listSessions", () => {
         ended_at: 200,
         edit_count: 1,
         file_count: 2,
-      }),
+      })
     );
     await store.upsertTurn(
       turn({
@@ -119,7 +129,7 @@ describe("listSessions", () => {
         ended_at: 400,
         edit_count: 2,
         file_count: 3,
-      }),
+      })
     );
     await store.upsertTurn(
       turn({
@@ -129,7 +139,7 @@ describe("listSessions", () => {
         ended_at: 600,
         edit_count: 1,
         file_count: 1,
-      }),
+      })
     );
     const list = await store.listSessions();
     expect(list.map((s) => s.session_id)).toEqual(["sb", "sa"]);
@@ -152,7 +162,7 @@ describe("getActivityBuckets", () => {
         ended_at: t0 + 5_000,
         edit_count: 1,
         tool_count: 4,
-      }),
+      })
     );
     await store.upsertTurn(
       turn({
@@ -161,7 +171,7 @@ describe("getActivityBuckets", () => {
         ended_at: t0 + day + 5_000,
         edit_count: 3,
         tool_count: 7,
-      }),
+      })
     );
     const buckets = await store.getActivityBuckets({
       fromTs: t0,
@@ -182,7 +192,7 @@ describe("HTTP routes — pagination + sessions + heatmap", () => {
   it("GET /turns returns paginated envelope (total, returned, offset, limit)", async () => {
     for (let i = 0; i < 5; i++) {
       await store.upsertTurn(
-        turn({ turn_id: `r${i}`, started_at: 1000 + i * 1000 }),
+        turn({ turn_id: `r${i}`, started_at: 1000 + i * 1000 })
       );
     }
     const app = createTimelineRoutes({ store });
@@ -213,7 +223,7 @@ describe("HTTP routes — pagination + sessions + heatmap", () => {
 
   it("GET /sessions returns the aggregated session list", async () => {
     await store.upsertTurn(
-      turn({ turn_id: "x", session_id: "sa", started_at: 100, ended_at: 200 }),
+      turn({ turn_id: "x", session_id: "sa", started_at: 100, ended_at: 200 })
     );
     const app = createTimelineRoutes({ store });
     const res = await app.request("/sessions");

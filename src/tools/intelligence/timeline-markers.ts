@@ -19,8 +19,8 @@
  *   mark_resolution  ≤ 140 chars
  */
 
-import type { ShadowLedger } from "../../tracking/shadow-ledger.js";
 import type { CozoTimelineStore } from "../../timeline/timeline-store.js";
+import type { ShadowLedger } from "../../tracking/shadow-ledger.js";
 
 export const MARKER_TOOLS = [
   "mark_intent",
@@ -63,7 +63,7 @@ export interface MarkerCallResult {
 export async function handleMarkerCall(
   toolName: MarkerToolName,
   args: Record<string, unknown>,
-  deps: HandleMarkerDeps,
+  deps: HandleMarkerDeps
 ): Promise<MarkerCallResult> {
   const text = String(args.text ?? "").trim();
   const cap = TEXT_CAP[toolName];
@@ -100,7 +100,7 @@ export async function handleMarkerCall(
     const ref = String(args.blocker_ref ?? "").trim();
     if (ref.length === 0) {
       return errorResult(
-        "mark_resolution: blocker_ref required (the marker_id returned by mark_blocker)",
+        "mark_resolution: blocker_ref required (the marker_id returned by mark_blocker)"
       );
     }
     blockerRef = ref;
@@ -112,7 +112,7 @@ export async function handleMarkerCall(
     argsToPersist,
     { ok: true },
     deps.branch,
-    deps.headSha,
+    deps.headSha
   );
 
   // Read redacted values back from the ledger row — `ShadowLedger.record()`
@@ -144,7 +144,7 @@ export async function handleMarkerCall(
     });
   } catch (err: unknown) {
     process.stderr.write(
-      `[unerr:timeline-markers] WARN: insertMarker failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      `[unerr:timeline-markers] WARN: insertMarker failed: ${err instanceof Error ? err.message : String(err)}\n`
     );
     // Continue: ledger row already persisted, miners can still recover from it.
   }

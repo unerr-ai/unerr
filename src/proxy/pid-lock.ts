@@ -176,7 +176,7 @@ export class PidLock {
       this.healthServer = createServer((req, res) => {
         if (req.url === "/health" && req.method === "GET") {
           const uptimeS = Math.round(
-            (Date.now() - new Date(this.startedAt).getTime()) / 1000,
+            (Date.now() - new Date(this.startedAt).getTime()) / 1000
           );
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(
@@ -186,7 +186,7 @@ export class PidLock {
               tool_calls: this.toolCalls,
               mode: this.mode,
               pid: process.pid,
-            }),
+            })
           );
         } else {
           res.writeHead(404);

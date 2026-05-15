@@ -105,7 +105,7 @@ export class CausalBridge {
       const interaction = await this.classifyInteraction(
         entry,
         commits,
-        entityKey,
+        entityKey
       );
       interactions.push(interaction);
 
@@ -152,12 +152,12 @@ export class CausalBridge {
     }
 
     return entries.sort(
-      (a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime(),
+      (a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime()
     );
   }
 
   private async loadEntityCommitHistory(
-    entityKey: string,
+    entityKey: string
   ): Promise<CommitInfo[]> {
     const filePath = entityKeyToFilePath(entityKey);
     if (!filePath) return [];
@@ -171,7 +171,7 @@ export class CausalBridge {
         "--",
         filePath,
       ],
-      this.cwd,
+      this.cwd
     );
 
     if (!raw) return [];
@@ -196,7 +196,7 @@ export class CausalBridge {
 
       const filesRaw = await gitQuery(
         ["diff-tree", "--no-commit-id", "--name-only", "-r", sha],
-        this.cwd,
+        this.cwd
       );
       const files = filesRaw
         ? filesRaw
@@ -216,7 +216,7 @@ export class CausalBridge {
   private async classifyInteraction(
     entry: LedgerEntryCompat,
     commits: CommitInfo[],
-    entityKey: string,
+    entityKey: string
   ): Promise<CausalInteraction> {
     const entryTs = new Date(entry.ts).getTime();
     const prompt = extractPrompt(entry);
@@ -225,7 +225,7 @@ export class CausalBridge {
 
     const subsequentCommits = commits.filter(
       (c) =>
-        c.timestamp > entryTs && c.timestamp <= entryTs + SURVIVAL_WINDOW_MS,
+        c.timestamp > entryTs && c.timestamp <= entryTs + SURVIVAL_WINDOW_MS
     );
 
     if (subsequentCommits.length === 0) {
@@ -314,7 +314,7 @@ function entityKeyToFilePath(entityKey: string): string | null {
 
 function entryReferencesEntity(
   entry: LedgerEntryCompat,
-  entityKey: string,
+  entityKey: string
 ): boolean {
   const argsStr = JSON.stringify(entry.args_summary);
   if (argsStr.includes(entityKey)) return true;
@@ -367,7 +367,7 @@ export function assembleCausalChain(
     head_sha: string;
     commit_sha?: string;
     plan_summary?: string;
-  }>,
+  }>
 ): CausalChain {
   const entityName = extractEntityName(entityKey);
   const relevant = entries.filter((e) => entryReferencesEntity(e, entityKey));
@@ -428,7 +428,7 @@ export function assembleCausalChain(
  * Durability = fraction of interactions that survived.
  */
 export function computeDurability(
-  interactions: Array<{ survived: boolean; survivalMs: number }>,
+  interactions: Array<{ survived: boolean; survivalMs: number }>
 ): number {
   if (interactions.length === 0) return 1.0;
   const survivedCount = interactions.filter((i) => i.survived).length;

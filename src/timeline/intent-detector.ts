@@ -89,7 +89,7 @@ export function stitchIntents(
   sessions: SessionSummary[],
   existingIntents: IntentRow[],
   existingAttachments: StitchAttachment[],
-  opts: StitchOptions = {},
+  opts: StitchOptions = {}
 ): StitchResult {
   const jaccardThreshold = opts.jaccardThreshold ?? DEFAULT_JACCARD;
   const freshnessMs = opts.freshnessMs ?? DEFAULT_FRESHNESS_MS;
@@ -97,7 +97,7 @@ export function stitchIntents(
   const now = opts.nowMs ?? Date.now();
 
   const attachedSessions = new Set(
-    existingAttachments.map((a) => a.session_id),
+    existingAttachments.map((a) => a.session_id)
   );
   const titleIndex = new Map<string, IntentRow>();
   for (const i of existingIntents) {
@@ -148,7 +148,10 @@ export function stitchIntents(
     }
 
     // 2) Jaccard
-    let best: { intent: IntentRow & { _filesSet: Set<string> }; score: number } | null = null;
+    let best: {
+      intent: IntentRow & { _filesSet: Set<string> };
+      score: number;
+    } | null = null;
     for (const i of intents.values()) {
       if (s.started_at - i.last_active_at > freshnessMs) continue;
       const score = jaccard(s.files, i._filesSet);
@@ -196,10 +199,13 @@ export function stitchIntents(
 
 function attachSession(
   intent: IntentRow & { _filesSet: Set<string> },
-  session: SessionSummary,
+  session: SessionSummary
 ): void {
   for (const f of session.files) intent._filesSet.add(f);
-  intent.last_active_at = Math.max(intent.last_active_at, session.last_active_at);
+  intent.last_active_at = Math.max(
+    intent.last_active_at,
+    session.last_active_at
+  );
   intent.confidence = Math.min(1, intent.confidence + 0.05);
   intent.file_set = JSON.stringify([...intent._filesSet].sort());
   intent.file_set_hash = hashFileSet(intent._filesSet);
@@ -208,7 +214,7 @@ function attachSession(
 function createIntent(
   session: SessionSummary,
   title: string,
-  source: "agent_marker" | "file_jaccard",
+  source: "agent_marker" | "file_jaccard"
 ): IntentRow & { _filesSet: Set<string> } {
   const filesSorted = [...session.files].sort();
   return {
@@ -226,7 +232,7 @@ function createIntent(
 }
 
 function stripWorkingFields(
-  i: IntentRow & { _filesSet: Set<string> },
+  i: IntentRow & { _filesSet: Set<string> }
 ): IntentRow {
   const { _filesSet, ...row } = i;
   void _filesSet;
@@ -258,7 +264,7 @@ function deriveTitle(files: Set<string>): string {
 export function buildSessionSummaries(
   turns: TurnRow[],
   markers: MarkerRow[],
-  filesBySession: Map<string, Set<string>>,
+  filesBySession: Map<string, Set<string>>
 ): SessionSummary[] {
   const intentBySession = new Map<string, string>();
   for (const m of markers) {
@@ -294,7 +300,7 @@ export function buildSessionSummaries(
  */
 export async function runIntentStitch(
   store: CozoTimelineStore,
-  opts: StitchOptions = {},
+  opts: StitchOptions = {}
 ): Promise<{ created: number; attached: number; dormant: number }> {
   const turns = await store.listTurns({ limit: 500 });
   const markers = await store.listMarkers({ limit: 1000 });
@@ -317,7 +323,12 @@ export async function runIntentStitch(
     }
   }
 
-  const result = stitchIntents(summaries, existingIntents, existingAttachments, opts);
+  const result = stitchIntents(
+    summaries,
+    existingIntents,
+    existingAttachments,
+    opts
+  );
 
   let created = 0;
   const existingIds = new Set(existingIntents.map((i) => i.intent_id));

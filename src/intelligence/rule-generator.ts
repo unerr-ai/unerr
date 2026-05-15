@@ -34,7 +34,7 @@ const PROMOTION_THRESHOLD_OCCURRENCES = 3;
  * Returns rules that should be auto-generated.
  */
 export function evaluateForPromotion(
-  corrections: CorrectionCandidate[],
+  corrections: CorrectionCandidate[]
 ): GeneratedRule[] {
   const rules: GeneratedRule[] = [];
 

@@ -30,7 +30,7 @@ export function registerLearnCommand(program: Command) {
   program
     .command("learn")
     .description(
-      "Detect correction patterns from shadow ledger — learn what mistakes agents keep making",
+      "Detect correction patterns from shadow ledger — learn what mistakes agents keep making"
     )
     .option("--days <n>", "Scan last N days of ledger", "7")
     .option("--write", "Persist detected patterns to CozoDB for agent guidance")
@@ -46,7 +46,7 @@ export function registerLearnCommand(program: Command) {
         const days = Math.max(1, Number.parseInt(opts.days, 10) || 7);
         const minConf = Math.max(
           0,
-          Math.min(1, Number.parseFloat(opts.minConf) || 0.6),
+          Math.min(1, Number.parseFloat(opts.minConf) || 0.6)
         );
 
         const cwd = process.cwd();
@@ -56,7 +56,7 @@ export function registerLearnCommand(program: Command) {
         if (!existsSync(ledgerPath)) {
           fail("No shadow ledger found at .unerr/ledger/shadow.jsonl");
           info(
-            "The shadow ledger is created when the unerr proxy runs. Start the proxy first.",
+            "The shadow ledger is created when the unerr proxy runs. Start the proxy first."
           );
           process.exit(1);
         }
@@ -71,7 +71,7 @@ export function registerLearnCommand(program: Command) {
 
         if (patterns.length === 0) {
           info(
-            `No correction patterns found in last ${days} days (threshold: ${minConf})`,
+            `No correction patterns found in last ${days} days (threshold: ${minConf})`
           );
           process.exit(0);
         }
@@ -80,7 +80,7 @@ export function registerLearnCommand(program: Command) {
           process.stdout.write(`${JSON.stringify(patterns, null, 2)}\n`);
         } else {
           success(
-            `Detected ${patterns.length} correction pattern${patterns.length !== 1 ? "s" : ""}:`,
+            `Detected ${patterns.length} correction pattern${patterns.length !== 1 ? "s" : ""}:`
           );
           process.stderr.write("\n");
 
@@ -89,11 +89,11 @@ export function registerLearnCommand(program: Command) {
             const name =
               p.entity_key.split("/").pop()?.split(":").pop() ?? p.entity_key;
             process.stderr.write(
-              `  ${pc.bold(`${i + 1}.`)} ${pc.cyan(name)} ${pc.dim(`(${p.error_type})`)} — confidence: ${pc.yellow(String(p.confidence))}, seen ${pc.bold(String(p.occurrences))}x\n`,
+              `  ${pc.bold(`${i + 1}.`)} ${pc.cyan(name)} ${pc.dim(`(${p.error_type})`)} — confidence: ${pc.yellow(String(p.confidence))}, seen ${pc.bold(String(p.occurrences))}x\n`
             );
             process.stderr.write(`     ${pc.dim(p.correction_summary)}\n`);
             process.stderr.write(
-              `     ${pc.dim(`Last seen: ${p.last_seen.slice(0, 16).replace("T", " ")}`)}\n`,
+              `     ${pc.dim(`Last seen: ${p.last_seen.slice(0, 16).replace("T", " ")}`)}\n`
             );
             process.stderr.write("\n");
           }
@@ -103,10 +103,10 @@ export function registerLearnCommand(program: Command) {
           await persistPatterns(patterns, unerrDir);
         } else if (!opts.json) {
           detail(
-            "Run with --write to persist these patterns for agent guidance.",
+            "Run with --write to persist these patterns for agent guidance."
           );
         }
-      },
+      }
     );
 }
 
@@ -119,7 +119,7 @@ async function persistPatterns(
     occurrences: number;
     last_seen: string;
   }>,
-  _unerrDir: string,
+  _unerrDir: string
 ): Promise<void> {
   try {
     const cwd = process.cwd();
@@ -128,7 +128,7 @@ async function persistPatterns(
     const configPath = join(cwd, ".unerr", "config.json");
     if (!existsSync(configPath)) {
       warn(
-        "No repo config found — cannot persist to CozoDB. Run 'unerr' to configure.",
+        "No repo config found — cannot persist to CozoDB. Run 'unerr' to configure."
       );
       return;
     }
@@ -156,7 +156,6 @@ async function persistPatterns(
     ).default
       ? (cozoModule as { default: { CozoDb: unknown } }).default.CozoDb
       : (cozoModule as { CozoDb: unknown }).CozoDb;
-    // biome-ignore lint/suspicious/noExplicitAny: dynamic import requires any cast
     const db = new (CozoDbClass as any)() as CozoDb;
     const { initSchema } = await import("../intelligence/cozo-schema.js");
     initSchema(db);
@@ -172,11 +171,11 @@ async function persistPatterns(
 
     store.persistCorrections(patterns);
     success(
-      `Persisted ${patterns.length} correction pattern${patterns.length !== 1 ? "s" : ""} to CozoDB`,
+      `Persisted ${patterns.length} correction pattern${patterns.length !== 1 ? "s" : ""} to CozoDB`
     );
   } catch (err) {
     warn(
-      `Failed to persist corrections: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to persist corrections: ${err instanceof Error ? err.message : String(err)}`
     );
   }
 }

@@ -30,7 +30,7 @@ const IDE_CONFIG_PATHS: Record<string, string> = {
   "claude-code": path.join(
     os.homedir(),
     ".claude",
-    "claude_desktop_config.json",
+    "claude_desktop_config.json"
   ),
 };
 
@@ -46,7 +46,7 @@ function loadConfig(): {
 
 export function checkIdeConfig(
   ideName: string,
-  configPath: string,
+  configPath: string
 ): {
   found: boolean;
   configured: boolean;
@@ -82,7 +82,7 @@ export function checkIdeConfig(
     // Check if still pointing to remote URL (needs migration to local proxy)
     if (unerrServer.url && !unerrServer.command) {
       issues.push(
-        `${ideName}: unerr MCP config points to remote URL — should use local proxy`,
+        `${ideName}: unerr MCP config points to remote URL — should use local proxy`
       );
       return { found: true, configured: true, issues, needsMigration: true };
     }
@@ -102,7 +102,7 @@ export function checkIdeConfig(
         unerrServer.args?.includes("@unerr/unerr-mcp"))
     ) {
       issues.push(
-        `${ideName}: using npx with unpublished package — should use direct 'unerr' binary`,
+        `${ideName}: using npx with unpublished package — should use direct 'unerr' binary`
       );
       return { found: true, configured: true, issues, needsMigration: true };
     }
@@ -118,7 +118,7 @@ export function checkIdeConfig(
 export function repairIdeConfig(
   ideName: string,
   configPath: string,
-  mode: McpServerMode = "proxy",
+  mode: McpServerMode = "proxy"
 ): boolean {
   try {
     const dir = path.dirname(configPath);
@@ -190,12 +190,12 @@ export function registerConfigVerifyCommand(program: Command) {
     .option("--repair", "Automatically repair misconfigured IDEs")
     .option(
       "--ide <ide>",
-      "Check specific IDE (vscode, cursor, windsurf, claude-code)",
+      "Check specific IDE (vscode, cursor, windsurf, claude-code)"
     )
     .option(
       "--mode <mode>",
       "Server mode: proxy (full) or standalone (read-only)",
-      "proxy",
+      "proxy"
     )
     .action(
       async (opts: {
@@ -248,7 +248,7 @@ export function registerConfigVerifyCommand(program: Command) {
         if (allGood && !opts.silent) {
           console.log("\n  All IDE configurations look good!");
         }
-      },
+      }
     );
 
   // Show MCP config for manual copy-paste
@@ -269,17 +269,17 @@ export function registerConfigVerifyCommand(program: Command) {
           console.log(`    ${a.name.padEnd(22)} ${a.projectConfigPath}`);
         }
         console.log(
-          "\n  Usage: unerr install <agent>\n  Example: unerr install kiro\n",
+          "\n  Usage: unerr install <agent>\n  Example: unerr install kiro\n"
         );
         return;
       }
 
       const agentDef = AGENT_REGISTRY.find(
-        (a) => a.id === agent || a.name.toLowerCase() === agent.toLowerCase(),
+        (a) => a.id === agent || a.name.toLowerCase() === agent.toLowerCase()
       );
       if (!agentDef) {
         console.error(
-          `  Unknown agent: ${agent}\n  Available: ${AGENT_REGISTRY.map((a) => a.id).join(", ")}`,
+          `  Unknown agent: ${agent}\n  Available: ${AGENT_REGISTRY.map((a) => a.id).join(", ")}`
         );
         process.exit(1);
       }
@@ -294,7 +294,7 @@ export function registerConfigVerifyCommand(program: Command) {
         snippet
           .split("\n")
           .map((l) => `    ${l}`)
-          .join("\n"),
+          .join("\n")
       );
       console.log("");
     });

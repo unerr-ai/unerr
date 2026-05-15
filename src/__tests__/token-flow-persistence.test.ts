@@ -24,7 +24,7 @@ describe("token-flow-persistence", () => {
   beforeEach(() => {
     tmpDir = join(
       os.tmpdir(),
-      `unerr-tfp-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      `unerr-tfp-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     );
     unerrDir = join(tmpDir, ".unerr");
     mkdirSync(unerrDir, { recursive: true });
@@ -70,7 +70,7 @@ describe("token-flow-persistence", () => {
       expect(entries[0]!.tokenFlowSummary).toBeDefined();
       expect(entries[0]!.tokenFlowSummary!.top_mechanism).toBe("graph_query");
       expect(
-        entries[0]!.tokenFlowSummary!.by_mechanism.graph_query!.tokens_saved,
+        entries[0]!.tokenFlowSummary!.by_mechanism.graph_query!.tokens_saved
       ).toBe(38400);
       expect(entries[0]!.tokenFlowSummary!.total_tokens_saved).toBe(51600);
     });
@@ -133,7 +133,7 @@ describe("token-flow-persistence", () => {
       const totalGraphSaved = entries.reduce(
         (s, e) =>
           s + (e.tokenFlowSummary?.by_mechanism.graph_query?.tokens_saved ?? 0),
-        0,
+        0
       );
       expect(totalGraphSaved).toBe(800 + 1600 + 2400);
     });
@@ -377,14 +377,14 @@ describe("token-flow-persistence", () => {
 
       const summary = aggregateSession(
         writer.getSessionEvents(),
-        "e2e-session",
+        "e2e-session"
       );
 
       expect(summary.total_tokens_saved).toBe(9800);
       expect(summary.by_mechanism.graph_query!.tokens_saved).toBe(8600);
 
       const topMech = Object.entries(summary.by_mechanism).sort(
-        ([, a], [, b]) => b.tokens_saved - a.tokens_saved,
+        ([, a], [, b]) => b.tokens_saved - a.tokens_saved
       )[0];
 
       appendSessionHistory(unerrDir, {
@@ -404,7 +404,7 @@ describe("token-flow-persistence", () => {
             Object.entries(summary.by_mechanism).map(([k, v]) => [
               k,
               { tokens_saved: v.tokens_saved, event_count: v.event_count },
-            ]),
+            ])
           ),
           top_mechanism: topMech?.[0] ?? "none",
           efficiency_pct: summary.efficiency_pct,

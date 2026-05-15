@@ -25,7 +25,7 @@ let tempDir: string;
 beforeEach(() => {
   tempDir = join(
     tmpdir(),
-    `unerr-l10-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-l10-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(tempDir, { recursive: true });
 });
@@ -117,7 +117,7 @@ describe("Session Logger", () => {
     const { getSessionId } = await import("../utils/session-logger.js");
     const id = getSessionId();
     expect(id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
     );
   });
 
@@ -132,7 +132,7 @@ describe("Session Logger", () => {
     for (let i = 0; i < 12; i++) {
       const fakePath = join(
         logsDir,
-        `session-2020-01-${String(i + 1).padStart(2, "0")}-120000.log`,
+        `session-2020-01-${String(i + 1).padStart(2, "0")}-120000.log`
       );
       writeFileSync(fakePath, `{"level":"info","msg":"old"}\n`);
       // Set mtime to 60 days ago
@@ -152,7 +152,7 @@ describe("Session Logger", () => {
 
     // Old files should be cleaned up (>30 days)
     const remaining = readdirSync(logsDir).filter(
-      (f) => f.startsWith("session-") && f.endsWith(".log"),
+      (f) => f.startsWith("session-") && f.endsWith(".log")
     );
     // Should have at most MAX_FILES (10) + 1 new session log, but old ones (>30 days) deleted
     // The 12 old files are all >30 days, so they get deleted. Only the new session log remains.
@@ -196,11 +196,11 @@ describe("Setup Wizard", () => {
     const config = { repoId: "local-abc123def456" };
     writeFileSync(
       join(configDir, "config.json"),
-      `${JSON.stringify(config, null, 2)}\n`,
+      `${JSON.stringify(config, null, 2)}\n`
     );
 
     const parsed = JSON.parse(
-      readFileSync(join(configDir, "config.json"), "utf-8"),
+      readFileSync(join(configDir, "config.json"), "utf-8")
     );
     expect(parsed.repoId).toMatch(/^local-/);
   });
@@ -219,11 +219,11 @@ describe("Setup Wizard", () => {
     };
     writeFileSync(
       join(configDir, "settings.json"),
-      `${JSON.stringify(settings, null, 2)}\n`,
+      `${JSON.stringify(settings, null, 2)}\n`
     );
 
     const parsed = JSON.parse(
-      readFileSync(join(configDir, "settings.json"), "utf-8"),
+      readFileSync(join(configDir, "settings.json"), "utf-8")
     );
     expect(parsed.localLlm.provider).toBe("ollama");
     expect(parsed.localLlm.baseUrl).toBe("http://localhost:11434");
@@ -258,14 +258,14 @@ describe("Command Visibility", () => {
 
     // Verify visible commands
     const visible = program.commands.filter(
-      (cmd) => !(cmd as unknown as { _hidden: boolean })._hidden,
+      (cmd) => !(cmd as unknown as { _hidden: boolean })._hidden
     );
     const hidden = program.commands.filter(
-      (cmd) => (cmd as unknown as { _hidden: boolean })._hidden,
+      (cmd) => (cmd as unknown as { _hidden: boolean })._hidden
     );
 
     expect(visible.map((c) => c.name()).sort()).toEqual(
-      ["chat", "debug", "status"].sort(),
+      ["chat", "debug", "status"].sort()
     );
     expect(hidden.length).toBe(5); // auth, push, pull, sync, init
     expect(hidden.every((c) => !visibleCommands.has(c.name()))).toBe(true);

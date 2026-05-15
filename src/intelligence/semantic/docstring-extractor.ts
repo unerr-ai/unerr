@@ -17,7 +17,7 @@ export interface DocAnnotation {
  */
 export function extractDocComment(
   source: string,
-  entityStartLine: number,
+  entityStartLine: number
 ): string | null {
   const lines = source.split("\n");
   const lineIdx = entityStartLine - 1;
@@ -27,7 +27,8 @@ export function extractDocComment(
   let i = lineIdx - 1;
 
   while (i >= 0) {
-    const line = lines[i]!.trim();
+    const line = lines[i]?.trim();
+    if (line === undefined) break;
     if (line.startsWith("*") || line.startsWith("//") || line.startsWith("#")) {
       commentLines.unshift(line);
       i--;
@@ -67,8 +68,10 @@ export function extractDocTags(docstring: string): string[] {
   const tags: string[] = [];
   let match: RegExpExecArray | null;
 
-  while ((match = tagPattern.exec(docstring)) !== null) {
+  match = tagPattern.exec(docstring);
+  while (match !== null) {
     tags.push(match[1]!);
+    match = tagPattern.exec(docstring);
   }
 
   return [...new Set(tags)];

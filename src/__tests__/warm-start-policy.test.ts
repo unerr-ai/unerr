@@ -25,13 +25,13 @@ function makeRepo(
     lastActivity?: Date | null;
     exists?: boolean;
     path?: string;
-  } = {},
+  } = {}
 ): RepoEntry {
   const path =
     opts.path ??
     join(
       tmpdir(),
-      `warmtest-${name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      `warmtest-${name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     );
   if (opts.exists !== false) {
     mkdirSync(path, { recursive: true });
@@ -55,7 +55,7 @@ const tempPaths: string[] = [];
 
 function trackedRepo(
   name: string,
-  opts: Parameters<typeof makeRepo>[1] = {},
+  opts: Parameters<typeof makeRepo>[1] = {}
 ): RepoEntry {
   const repo = makeRepo(name, opts);
   tempPaths.push(repo.path);
@@ -215,7 +215,7 @@ describe("warm-start budget enforcement", () => {
         trackedRepo(`repo-${i}`, {
           lastActivity: new Date(Date.now() - i * 86400000),
           autostart: i < 2 ? "eager" : i >= 18 ? "never" : "auto",
-        }),
+        })
       );
     }
 
@@ -226,7 +226,7 @@ describe("warm-start budget enforcement", () => {
 
     // 2 never repos skipped
     expect(skipped.filter((s) => s.reason === "autostart=never").length).toBe(
-      2,
+      2
     );
 
     // Eager repos should be first in candidates
@@ -241,7 +241,7 @@ describe("warm-start budget enforcement", () => {
         trackedRepo(`repo-${i}`, {
           lastActivity: new Date(Date.now() - i * 86400000),
           autostart: i >= 18 ? "never" : "auto",
-        }),
+        })
       );
     }
 

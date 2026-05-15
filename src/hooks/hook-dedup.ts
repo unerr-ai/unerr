@@ -62,7 +62,7 @@ function prune(map: RecentMap, now: number, ttlMs: number): RecentMap {
  */
 export function shouldEmitOnce(
   key: string,
-  ttlMs: number = DEFAULT_TTL_MS,
+  ttlMs: number = DEFAULT_TTL_MS
 ): boolean {
   const now = Date.now();
   const map = readMap(STATE_FILE);

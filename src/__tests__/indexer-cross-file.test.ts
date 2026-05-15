@@ -101,7 +101,7 @@ describe("Cross-File Resolution (J.2)", () => {
     expect(result.resolvedCount).toBeGreaterThan(0);
 
     const resolvedCallEdges = result.resolvedEdges.filter(
-      (e) => e.type === "calls" && !e.to_key.startsWith("unresolved:"),
+      (e) => e.type === "calls" && !e.to_key.startsWith("unresolved:")
     );
     expect(resolvedCallEdges.length).toBeGreaterThan(0);
   });
@@ -118,7 +118,7 @@ describe("Cross-File Resolution (J.2)", () => {
 
     const result = resolveCrossFileEdges(fileResults);
     const localCalls = result.resolvedEdges.filter(
-      (e) => e.type === "calls" && !e.to_key.startsWith("unresolved:"),
+      (e) => e.type === "calls" && !e.to_key.startsWith("unresolved:")
     );
     expect(localCalls.length).toBeGreaterThan(0);
   });
@@ -134,7 +134,7 @@ describe("Barrel File Resolution (J.3)", () => {
     fileResults.set("src/index.ts", fileBarrel);
 
     const exportMap = buildExportMap(
-      fileResults as Parameters<typeof buildExportMap>[0],
+      fileResults as Parameters<typeof buildExportMap>[0]
     );
     const barrelExports = exportMap.getAllExports("src/index.ts");
     expect(barrelExports.length).toBeGreaterThanOrEqual(0);

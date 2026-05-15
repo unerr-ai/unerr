@@ -41,7 +41,7 @@ export interface SkillResolutionResult {
 
 function getSkillDir(
   ide: IdeType,
-  cwd: string,
+  cwd: string
 ): { dir: string; ext: string; dirPerSkill: boolean } {
   switch (ide) {
     case "claude-code":
@@ -107,7 +107,7 @@ function writeSkillFile(
   ide: IdeType,
   skillDir: string,
   ext: string,
-  dirPerSkill: boolean,
+  dirPerSkill: boolean
 ): string {
   mkdirSync(skillDir, { recursive: true });
 
@@ -334,9 +334,9 @@ function formatAntigravitySkill(skill: ResolvedSkill): string {
     frontmatter += `\nglobs:\n${globs.map((g) => `  - ${g}`).join("\n")}`;
   }
   if (triggerType === "manual") {
-    frontmatter += `\nuser_invocable: true`;
+    frontmatter += "\nuser_invocable: true";
   }
-  frontmatter += `\n---`;
+  frontmatter += "\n---";
 
   return `${frontmatter}\n\n${skill.content}\n`;
 }
@@ -508,11 +508,11 @@ export async function ensureSkillsPresent(opts: {
       if (dirPerSkill) {
         // Claude Code: check for unerr-*/SKILL.md directories
         hasSkills = entries.some(
-          (f) => f.startsWith("unerr-") && existsSync(join(dir, f, "SKILL.md")),
+          (f) => f.startsWith("unerr-") && existsSync(join(dir, f, "SKILL.md"))
         );
       } else {
         hasSkills = entries.some(
-          (f) => f.startsWith("unerr-") && f.endsWith(ext),
+          (f) => f.startsWith("unerr-") && f.endsWith(ext)
         );
       }
       if (hasSkills) return 0; // Skills present, nothing to do
@@ -531,7 +531,7 @@ export async function ensureSkillsPresent(opts: {
  */
 export function listInstalledSkills(
   ide: IdeType,
-  cwd: string,
+  cwd: string
 ): { name: string; path: string }[] {
   const { dir, ext, dirPerSkill } = getSkillDir(ide, cwd);
 
@@ -542,7 +542,7 @@ export function listInstalledSkills(
       // Claude Code: .claude/skills/unerr-{name}/SKILL.md
       return readdirSync(dir)
         .filter(
-          (f) => f.startsWith("unerr-") && existsSync(join(dir, f, "SKILL.md")),
+          (f) => f.startsWith("unerr-") && existsSync(join(dir, f, "SKILL.md"))
         )
         .map((f) => ({
           name: f.replace("unerr-", ""),

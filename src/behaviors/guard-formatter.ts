@@ -26,7 +26,7 @@ const DOLLAR_GATE = 0.5;
  */
 export function shouldFireGuard(
   tokensPrevented: number,
-  modelId?: string,
+  modelId?: string
 ): boolean {
   const dollars = calculateDollarSavings(tokensPrevented, modelId);
   return dollars >= DOLLAR_GATE;
@@ -40,7 +40,7 @@ export function formatGuardMoment(
   description: string,
   tokensPrevented: number,
   modelId?: string,
-  entityKey?: string,
+  entityKey?: string
 ): GuardMoment | null {
   const dollars = calculateDollarSavings(tokensPrevented, modelId);
 

@@ -54,7 +54,7 @@ export async function encodeIntentAsNote(
   sessionId: string,
   branchContext: BranchContext | null,
   driftSummary: { added: number; modified: number; deleted: number },
-  cwd?: string,
+  cwd?: string
 ): Promise<boolean> {
   if (correlations.length === 0) return false;
 
@@ -81,19 +81,19 @@ export async function encodeIntentAsNote(
 
   if (noteJson.length > 2048) {
     log.warn(
-      `Note payload exceeds 2KB budget (${noteJson.length} bytes) — writing anyway`,
+      `Note payload exceeds 2KB budget (${noteJson.length} bytes) — writing anyway`
     );
   }
 
   try {
     await writeNote(cwd ?? process.cwd(), "unerr", commitSha, noteJson);
     log.info(
-      `Note written for ${commitSha.slice(0, 8)} (${correlations.length} intent(s), ${noteJson.length}B)`,
+      `Note written for ${commitSha.slice(0, 8)} (${correlations.length} intent(s), ${noteJson.length}B)`
     );
     return true;
   } catch (err) {
     log.warn(
-      `Failed to write git note for ${commitSha.slice(0, 8)}: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to write git note for ${commitSha.slice(0, 8)}: ${err instanceof Error ? err.message : String(err)}`
     );
     return false;
   }

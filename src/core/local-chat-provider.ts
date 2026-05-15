@@ -67,7 +67,7 @@ export interface ChatProvider {
     tools: ChatToolDef[],
     systemPrompt: string,
     maxTokens: number,
-    onChunk: (chunk: ChatStreamChunk) => void,
+    onChunk: (chunk: ChatStreamChunk) => void
   ): Promise<ChatResponse>;
 }
 
@@ -101,7 +101,7 @@ export class AnthropicChatProvider implements ChatProvider {
     tools: ChatToolDef[],
     systemPrompt: string,
     maxTokens: number,
-    onChunk: (chunk: ChatStreamChunk) => void,
+    onChunk: (chunk: ChatStreamChunk) => void
   ): Promise<ChatResponse> {
     // Convert ChatMessage[] → Anthropic format
     const anthropicMessages = this.toAnthropicMessages(messages);
@@ -149,7 +149,7 @@ export class AnthropicChatProvider implements ChatProvider {
   }
 
   private toAnthropicMessages(
-    messages: ChatMessage[],
+    messages: ChatMessage[]
   ): Anthropic.MessageParam[] {
     const result: Anthropic.MessageParam[] = [];
     for (const msg of messages) {
@@ -221,7 +221,7 @@ export class LocalChatProvider implements ChatProvider {
     tools: ChatToolDef[],
     systemPrompt: string,
     maxTokens: number,
-    onChunk: (chunk: ChatStreamChunk) => void,
+    onChunk: (chunk: ChatStreamChunk) => void
   ): Promise<ChatResponse> {
     // anthropic-direct uses the Anthropic SDK directly
     if (this.providerName === "anthropic-direct") {
@@ -230,7 +230,7 @@ export class LocalChatProvider implements ChatProvider {
         tools,
         systemPrompt,
         maxTokens,
-        onChunk,
+        onChunk
       );
     }
 
@@ -240,7 +240,7 @@ export class LocalChatProvider implements ChatProvider {
         tools,
         systemPrompt,
         maxTokens,
-        onChunk,
+        onChunk
       );
     }
     return this.streamOpenAiCompatible(
@@ -248,7 +248,7 @@ export class LocalChatProvider implements ChatProvider {
       tools,
       systemPrompt,
       maxTokens,
-      onChunk,
+      onChunk
     );
   }
 
@@ -257,12 +257,12 @@ export class LocalChatProvider implements ChatProvider {
     tools: ChatToolDef[],
     systemPrompt: string,
     maxTokens: number,
-    onChunk: (chunk: ChatStreamChunk) => void,
+    onChunk: (chunk: ChatStreamChunk) => void
   ): Promise<ChatResponse> {
     if (!this.apiKey) {
       throw new Error(
         "[LocalChatProvider] anthropic-direct requires an API key. " +
-          "Set localLlm.apiKey in settings.json.",
+          "Set localLlm.apiKey in settings.json."
       );
     }
     const provider = new AnthropicChatProvider(this.apiKey, this.modelId);
@@ -271,7 +271,7 @@ export class LocalChatProvider implements ChatProvider {
       tools,
       systemPrompt,
       maxTokens,
-      onChunk,
+      onChunk
     );
   }
 
@@ -282,7 +282,7 @@ export class LocalChatProvider implements ChatProvider {
     tools: ChatToolDef[],
     systemPrompt: string,
     _maxTokens: number,
-    onChunk: (chunk: ChatStreamChunk) => void,
+    onChunk: (chunk: ChatStreamChunk) => void
   ): Promise<ChatResponse> {
     const ollamaMessages = [
       { role: "system", content: systemPrompt },
@@ -312,7 +312,7 @@ export class LocalChatProvider implements ChatProvider {
     if (!response.ok) {
       const errText = await response.text().catch(() => "");
       throw new Error(
-        `[LocalChatProvider] Ollama chat failed: ${response.status} ${response.statusText}${errText ? ` — ${errText.slice(0, 200)}` : ""}`,
+        `[LocalChatProvider] Ollama chat failed: ${response.status} ${response.statusText}${errText ? ` — ${errText.slice(0, 200)}` : ""}`
       );
     }
 
@@ -321,7 +321,7 @@ export class LocalChatProvider implements ChatProvider {
 
   private async parseNdjsonStream(
     response: Response,
-    onChunk: (chunk: ChatStreamChunk) => void,
+    onChunk: (chunk: ChatStreamChunk) => void
   ): Promise<ChatResponse> {
     const reader = response.body?.getReader();
     if (!reader) throw new Error("[LocalChatProvider] No response body");
@@ -380,7 +380,7 @@ export class LocalChatProvider implements ChatProvider {
     tools: ChatToolDef[],
     systemPrompt: string,
     maxTokens: number,
-    onChunk: (chunk: ChatStreamChunk) => void,
+    onChunk: (chunk: ChatStreamChunk) => void
   ): Promise<ChatResponse> {
     const openaiMessages = [
       { role: "system", content: systemPrompt },
@@ -426,7 +426,7 @@ export class LocalChatProvider implements ChatProvider {
     if (!response.ok) {
       const errText = await response.text().catch(() => "");
       throw new Error(
-        `[LocalChatProvider] Chat request failed: ${response.status} ${response.statusText}${errText ? ` — ${errText.slice(0, 200)}` : ""}`,
+        `[LocalChatProvider] Chat request failed: ${response.status} ${response.statusText}${errText ? ` — ${errText.slice(0, 200)}` : ""}`
       );
     }
 
@@ -435,7 +435,7 @@ export class LocalChatProvider implements ChatProvider {
 
   private async parseSseStream(
     response: Response,
-    onChunk: (chunk: ChatStreamChunk) => void,
+    onChunk: (chunk: ChatStreamChunk) => void
   ): Promise<ChatResponse> {
     const reader = response.body?.getReader();
     if (!reader) throw new Error("[LocalChatProvider] No response body");
@@ -541,7 +541,7 @@ export class AiSdkChatProvider implements ChatProvider {
     tools: ChatToolDef[],
     systemPrompt: string,
     maxTokens: number,
-    onChunk: (chunk: ChatStreamChunk) => void,
+    onChunk: (chunk: ChatStreamChunk) => void
   ): Promise<ChatResponse> {
     const { streamText } = await import("ai");
 
@@ -605,7 +605,7 @@ export class AiSdkChatProvider implements ChatProvider {
   }
 
   private toModelMessages(
-    messages: ChatMessage[],
+    messages: ChatMessage[]
   ): Array<Record<string, unknown>> {
     const result: Array<Record<string, unknown>> = [];
 
@@ -649,7 +649,7 @@ export class AiSdkChatProvider implements ChatProvider {
   }
 
   private toAiTools(
-    tools: ChatToolDef[],
+    tools: ChatToolDef[]
   ): Record<string, Record<string, unknown>> {
     const result: Record<string, Record<string, unknown>> = {};
     for (const t of tools) {

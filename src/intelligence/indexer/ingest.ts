@@ -60,12 +60,12 @@ function ingestFileEntities(db: CozoDb, entities: IndexedEntity[]): number {
       db.run(
         `?[key, kind, name, file_path, start_line, signature, body, fan_in, fan_out, risk_level, community] <- $rows
          :put entities { key => kind, name, file_path, start_line, signature, body, fan_in, fan_out, risk_level, community }`,
-        { rows: batch },
+        { rows: batch }
       );
       ingested += batch.length;
     } catch (err) {
       log.warn(
-        `File entity batch failed: ${err instanceof Error ? err.message : String(err)}`,
+        `File entity batch failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
@@ -89,12 +89,12 @@ function ingestContainsEdges(db: CozoDb, entities: IndexedEntity[]): number {
       db.run(
         `?[from_key, to_key, type] <- $rows
          :put edges { from_key, to_key, type }`,
-        { rows: batch },
+        { rows: batch }
       );
       ingested += batch.length;
     } catch (err) {
       log.warn(
-        `Contains edge batch failed: ${err instanceof Error ? err.message : String(err)}`,
+        `Contains edge batch failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
@@ -130,20 +130,20 @@ function ingestEntities(db: CozoDb, entities: IndexedEntity[]): number {
       db.run(
         `?[key, kind, name, file_path, start_line, signature, body, fan_in, fan_out, risk_level, community, is_test] <- $rows
          :put entities { key => kind, name, file_path, start_line, signature, body, fan_in, fan_out, risk_level, community, is_test }`,
-        { rows },
+        { rows }
       );
 
       const fileIndexRows = batch.map((e) => [e.file_path, e.key]);
       db.run(
         `?[file_path, entity_key] <- $rows
          :put file_index { file_path, entity_key }`,
-        { rows: fileIndexRows },
+        { rows: fileIndexRows }
       );
 
       ingested += batch.length;
     } catch (err) {
       log.warn(
-        `Entity batch ingest failed: ${err instanceof Error ? err.message : String(err)}`,
+        `Entity batch ingest failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
@@ -167,12 +167,12 @@ function ingestEdges(db: CozoDb, edges: IndexedEdge[]): number {
       db.run(
         `?[from_key, to_key, type] <- $rows
          :put edges { from_key, to_key, type }`,
-        { rows },
+        { rows }
       );
       ingested += batch.length;
     } catch (err) {
       log.warn(
-        `Edge batch ingest failed: ${err instanceof Error ? err.message : String(err)}`,
+        `Edge batch ingest failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
@@ -194,7 +194,7 @@ export interface IngestStats {
 export function ingestIndexResult(
   db: CozoDb,
   entities: IndexedEntity[],
-  edges: IndexedEdge[],
+  edges: IndexedEdge[]
 ): IngestResult & IngestStats {
   const start = performance.now();
 
@@ -212,7 +212,7 @@ export function ingestIndexResult(
 
   const durationMs = performance.now() - start;
   log.info(
-    `Ingested ${fileEntities} files + ${entitiesIngested} entities + ${containsEdges + edgesIngested} edges in ${Math.round(durationMs)}ms`,
+    `Ingested ${fileEntities} files + ${entitiesIngested} entities + ${containsEdges + edgesIngested} edges in ${Math.round(durationMs)}ms`
   );
 
   return {

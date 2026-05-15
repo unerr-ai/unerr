@@ -165,7 +165,7 @@ export class CascadeConsistencyGuard extends Behavior {
 
     const totalCallersAtRisk = warnings.reduce(
       (sum, w) => sum + w.blast_radius.total_at_risk,
-      0,
+      0
     );
 
     return {
@@ -191,7 +191,7 @@ export class CascadeConsistencyGuard extends Behavior {
     const incomplete: TrackedSignatureChange[] = [];
     for (const change of this.trackedChanges.values()) {
       const remaining = change.callersAtRisk.filter(
-        (c) => !change.callersUpdated.has(c.entity),
+        (c) => !change.callersUpdated.has(c.entity)
       );
       if (remaining.length > 0) incomplete.push(change);
     }
@@ -208,7 +208,7 @@ export class CascadeConsistencyGuard extends Behavior {
     for (const change of this.trackedChanges.values()) {
       totalCallers += change.callersAtRisk.length;
       const remaining = change.callersAtRisk.filter(
-        (c) => !change.callersUpdated.has(c.entity),
+        (c) => !change.callersUpdated.has(c.entity)
       );
       if (remaining.length > 0) incompleteCount++;
     }
@@ -268,12 +268,12 @@ function extractNewContent(args: Record<string, unknown>): string | null {
 function detectSignatureChange(
   entity: LocalEntity,
   oldContent: string | null,
-  newContent: string | null,
+  newContent: string | null
 ): SignatureChangeType | null {
   if (!oldContent || !newContent) {
     if (newContent && entity.signature) {
       const fnPattern = new RegExp(
-        `(?:function|async\\s+function|export\\s+(?:async\\s+)?function)\\s+${escapeRegex(entity.name)}\\s*\\(`,
+        `(?:function|async\\s+function|export\\s+(?:async\\s+)?function)\\s+${escapeRegex(entity.name)}\\s*\\(`
       );
       if (fnPattern.test(newContent)) {
         return "signature_modified";
@@ -317,19 +317,21 @@ function extractSignatures(content: string, entityName: string): string[] {
   const patterns = [
     new RegExp(
       `(?:export\\s+)?(?:async\\s+)?function\\s+${escapedName}\\s*\\([^)]*\\)(?:\\s*:\\s*[^{]+)?`,
-      "g",
+      "g"
     ),
     new RegExp(
       `(?:export\\s+)?(?:async\\s+)?${escapedName}\\s*\\([^)]*\\)(?:\\s*:\\s*[^{]+)?`,
-      "g",
+      "g"
     ),
   ];
 
   const results: string[] = [];
   for (const pattern of patterns) {
     let match: RegExpExecArray | null;
-    while ((match = pattern.exec(content)) !== null) {
+    match = pattern.exec(content);
+    while (match !== null) {
       results.push(match[0]);
+      match = pattern.exec(content);
     }
     if (results.length > 0) break;
   }
@@ -367,7 +369,7 @@ function toCallerAtRisk(entity: LocalEntity): CallerAtRisk {
 function buildSuggestion(
   entityName: string,
   direct: CallerAtRisk[],
-  tests: CallerAtRisk[],
+  tests: CallerAtRisk[]
 ): string {
   const total = direct.length + tests.length;
   const parts = [`Update all ${total} caller(s) of ${entityName}.`];
@@ -377,8 +379,8 @@ function buildSuggestion(
         .map((c) => `${c.file.split("/").pop()}:${c.entity}`)
         .slice(0, 3)
         .join(
-          ", ",
-        )}${direct.length > 3 ? ` (+${direct.length - 3} more)` : ""}.`,
+          ", "
+        )}${direct.length > 3 ? ` (+${direct.length - 3} more)` : ""}.`
     );
   }
   if (tests.length > 0) {

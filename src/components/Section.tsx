@@ -22,7 +22,7 @@ export function Section({
   const suffix = " ";
   const remaining = Math.max(
     0,
-    width - prefix.length - title.length - suffix.length,
+    width - prefix.length - title.length - suffix.length
   );
   const line = "─".repeat(remaining);
 

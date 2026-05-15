@@ -369,7 +369,7 @@ function computeQualityMetrics(events: TokenFlowEvent[]): QualityMetrics {
 }
 
 export function createReasoningQualityRoutes(
-  deps: ReasoningQualityRouteDeps,
+  deps: ReasoningQualityRouteDeps
 ): Hono {
   const app = new Hono();
 
@@ -416,7 +416,7 @@ export function createReasoningQualityRoutes(
     const sessionEvents = querySessionId
       ? allEvents.filter((e) => e.session_id === sessionId)
       : allEvents.filter(
-          (e) => e.session_id === sessionId || e.session_id === "unknown",
+          (e) => e.session_id === sessionId || e.session_id === "unknown"
         );
 
     const metrics = computeQualityMetrics(sessionEvents);
@@ -441,7 +441,7 @@ export function createReasoningQualityRoutes(
     let cumWith = 0;
 
     for (const [turn, turnEvents] of [...turnGroups.entries()].sort(
-      ([a], [b]) => a - b,
+      ([a], [b]) => a - b
     )) {
       let turnGraphCalls = 0;
       let turnGraphDelivered = 0;
@@ -517,11 +517,11 @@ export function createReasoningQualityRoutes(
         const m = computeQualityMetrics(events);
         const lastTs = events.reduce(
           (max, e) => (e.ts > max ? e.ts : max),
-          events[0]!.ts,
+          events[0]!.ts
         );
         const firstTs = events.reduce(
           (min, e) => (e.ts < min ? e.ts : min),
-          events[0]!.ts,
+          events[0]!.ts
         );
         return {
           session_id: sessionId,
@@ -544,7 +544,7 @@ export function createReasoningQualityRoutes(
           memory_verdicts_total: m.memory_verdicts_total,
         };
       })
-      .sort((a, b) => b.last_ts.localeCompare(a.last_ts));
+      .sort((a, b) => (b.last_ts ?? "").localeCompare(a.last_ts ?? ""));
 
     const paginated = allSessions.slice(offset, offset + limit);
 
@@ -585,11 +585,11 @@ export function createReasoningQualityRoutes(
         const m = computeQualityMetrics(events);
         const firstTs = events.reduce(
           (min, e) => (e.ts < min ? e.ts : min),
-          events[0]!.ts,
+          events[0]!.ts
         );
         const lastTs = events.reduce(
           (max, e) => (e.ts > max ? e.ts : max),
-          events[0]!.ts,
+          events[0]!.ts
         );
         return {
           session_id: sessionId,

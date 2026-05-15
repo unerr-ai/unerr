@@ -174,14 +174,14 @@ describe("Compression + Budget Pipeline (Q.7)", () => {
   it("compresses first, then enforces budget", () => {
     const largeInput = Array.from(
       { length: 200 },
-      (_, i) => `Line ${i}: some content that takes up space in the output`,
+      (_, i) => `Line ${i}: some content that takes up space in the output`
     ).join("\n");
 
     const compressed = compressOutput(largeInput, { tokenBudget: 500 });
     const enforced = enforceBudget(compressed.output, 300);
 
     expect(enforced.deliveredTokens).toBeLessThanOrEqual(
-      enforced.originalTokens,
+      enforced.originalTokens
     );
   });
 });

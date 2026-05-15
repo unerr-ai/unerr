@@ -52,7 +52,7 @@ export class DecisionPointDetector {
   detect(
     toolName: string,
     args: Record<string, unknown>,
-    sessionContext: SessionContext,
+    sessionContext: SessionContext
   ): DecisionLevel {
     // Exploration tools are always low
     if (EXPLORATION_TOOLS.has(toolName)) {

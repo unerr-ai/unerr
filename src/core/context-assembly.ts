@@ -65,7 +65,7 @@ function getProjectContext(cwd: string): ContextSection | null {
     try {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
       lines.push(
-        `Project: ${pkg.name ?? basename(cwd)} v${pkg.version ?? "0.0.0"}`,
+        `Project: ${pkg.name ?? basename(cwd)} v${pkg.version ?? "0.0.0"}`
       );
       if (pkg.description) lines.push(`Description: ${pkg.description}`);
       if (pkg.scripts)
@@ -100,7 +100,7 @@ function getProjectContext(cwd: string): ContextSection | null {
  * - Community/feature structure
  */
 async function getIntelligenceContext(
-  _graph: CozoGraphStore,
+  _graph: CozoGraphStore
 ): Promise<ContextSection | null> {
   // TODO: Query the graph for conventions, risk entities, architecture overview
   // This is what makes unerr's assistant unique — the LLM starts with codebase knowledge
@@ -122,7 +122,7 @@ export interface AssembleOptions {
  * Assemble the full system prompt from all context layers.
  */
 export async function assembleContext(
-  opts: AssembleOptions,
+  opts: AssembleOptions
 ): Promise<AssembledContext> {
   const sections: ContextSection[] = [];
 

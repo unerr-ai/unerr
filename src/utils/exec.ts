@@ -30,7 +30,7 @@ export interface ExecOptions {
 export async function exec(
   command: string,
   args: string[] = [],
-  options: ExecOptions = {},
+  options: ExecOptions = {}
 ): Promise<ExecResult> {
   const result = await x(command, args, {
     nodeOptions: {
@@ -64,7 +64,7 @@ export async function exec(
  */
 export async function gitExec(
   args: string[],
-  options: ExecOptions = {},
+  options: ExecOptions = {}
 ): Promise<ExecResult> {
   return exec("git", args, options);
 }
@@ -75,7 +75,7 @@ export async function gitExec(
  */
 export async function gitQuery(
   args: string[],
-  cwd?: string,
+  cwd?: string
 ): Promise<string | null> {
   const result = await gitExec(args, { cwd });
   return result.exitCode === 0 ? result.stdout : null;

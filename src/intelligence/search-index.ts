@@ -38,7 +38,7 @@ export async function buildSearchIndex(db: CozoDb): Promise<void> {
     result = await db.run("?[key, name] := *entities{key, name}");
   } catch (err) {
     process.stderr.write(
-      `[unerr:search-index] Failed to read entities: ${err instanceof Error ? err.message : JSON.stringify(err)}\n`,
+      `[unerr:search-index] Failed to read entities: ${err instanceof Error ? err.message : JSON.stringify(err)}\n`
     );
     return; // Cannot build search index without entities
   }
@@ -46,7 +46,7 @@ export async function buildSearchIndex(db: CozoDb): Promise<void> {
 
   const totalEntities = result.rows.length;
   process.stderr.write(
-    `[unerr:search-index] Building index for ${totalEntities} entities\n`,
+    `[unerr:search-index] Building index for ${totalEntities} entities\n`
   );
   // Track document frequency: how many entities contain each token
   const tokenDocCount = new Map<string, number>();
@@ -59,7 +59,7 @@ export async function buildSearchIndex(db: CozoDb): Promise<void> {
       try {
         await db.run(
           "?[token, entity_key] <- [[$token, $key]] :put search_tokens { token, entity_key }",
-          { token, key },
+          { token, key }
         );
       } catch {
         // Duplicate — ignore
@@ -75,14 +75,14 @@ export async function buildSearchIndex(db: CozoDb): Promise<void> {
     try {
       await db.run(
         "?[token, doc_count, idf] <- [[$token, $dc, $idf]] :put token_doc_frequency { token => doc_count, idf }",
-        { token, dc: docCount, idf },
+        { token, dc: docCount, idf }
       );
     } catch {
       idfErrors++;
     }
   }
   process.stderr.write(
-    `[unerr:search-index] Done: ${tokenDocCount.size} tokens indexed, ${idfErrors} IDF errors\n`,
+    `[unerr:search-index] Done: ${tokenDocCount.size} tokens indexed, ${idfErrors} IDF errors\n`
   );
 }
 
@@ -93,7 +93,7 @@ export async function buildSearchIndex(db: CozoDb): Promise<void> {
 export async function updateSearchIndexIncremental(
   db: CozoDb,
   changedKeys: Set<string>,
-  deletedKeys: Set<string>,
+  deletedKeys: Set<string>
 ): Promise<void> {
   if (changedKeys.size === 0 && deletedKeys.size === 0) return;
 
@@ -104,7 +104,7 @@ export async function updateSearchIndexIncremental(
     try {
       await db.run(
         "?[token, entity_key] := *search_tokens{token, entity_key}, entity_key = $key :rm search_tokens { token, entity_key }",
-        { key },
+        { key }
       );
     } catch {
       /* safe */
@@ -137,7 +137,7 @@ export async function updateSearchIndexIncremental(
       try {
         await db.run(
           "?[token, entity_key] <- [[$token, $key]] :put search_tokens { token, entity_key }",
-          { token, key },
+          { token, key }
         );
       } catch {
         /* safe */
@@ -151,7 +151,7 @@ export async function updateSearchIndexIncremental(
     const totalEntities = (totalResult.rows?.[0]?.[0] as number) ?? 1;
 
     const tokenResult = await db.run(
-      "?[token, count(entity_key)] := *search_tokens{token, entity_key}",
+      "?[token, count(entity_key)] := *search_tokens{token, entity_key}"
     );
     if (tokenResult.rows) {
       for (const row of tokenResult.rows) {
@@ -160,7 +160,7 @@ export async function updateSearchIndexIncremental(
         try {
           await db.run(
             "?[token, doc_count, idf] <- [[$token, $dc, $idf]] :put token_doc_frequency { token => doc_count, idf }",
-            { token, dc: docCount, idf },
+            { token, dc: docCount, idf }
           );
         } catch {
           /* safe */
@@ -180,7 +180,7 @@ export async function updateSearchIndexIncremental(
 export async function searchLocal(
   db: CozoDb,
   query: string,
-  limit = 20,
+  limit = 20
 ): Promise<
   Array<{
     key: string;

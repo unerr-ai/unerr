@@ -40,7 +40,7 @@ export class SessionBriefBuilder {
     private factStore: {
       recallByScope(
         scope: string,
-        minConfidence?: number,
+        minConfidence?: number
       ): Promise<
         Array<{
           fact_id: string;
@@ -56,7 +56,7 @@ export class SessionBriefBuilder {
       edges: number;
       rules: number;
     } | null,
-    private healthGrade: string | null,
+    private healthGrade: string | null
   ) {}
 
   /**
@@ -159,7 +159,7 @@ export class SessionBriefBuilder {
 
       const avgAdherence = Math.round(
         conventions.reduce((sum, c) => sum + c.adherence_rate, 0) /
-          conventions.length,
+          conventions.length
       );
       return `${conventions.length} conventions detected, ${avgAdherence}% avg adherence`;
     } catch {
@@ -213,14 +213,14 @@ export function getSessionBriefBuilder(
   localGraph: CozoGraphStore | null,
   factStore: SessionBriefBuilder["factStore"],
   graphStats: { entities: number; edges: number; rules: number } | null,
-  healthGrade: string | null,
+  healthGrade: string | null
 ): SessionBriefBuilder {
   if (!instance) {
     instance = new SessionBriefBuilder(
       localGraph,
       factStore,
       graphStats,
-      healthGrade,
+      healthGrade
     );
   }
   return instance;

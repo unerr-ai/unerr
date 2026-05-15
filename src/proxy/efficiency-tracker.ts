@@ -37,7 +37,7 @@ export interface EfficiencyTracker {
  * `getSnapshot()` reads from the token flow event stream.
  */
 export function createEfficiencyTracker(
-  tokenFlow?: TokenFlowWriter,
+  tokenFlow?: TokenFlowWriter
 ): EfficiencyTracker {
   if (tokenFlow) {
     return {
@@ -85,7 +85,7 @@ export function createEfficiencyTracker(
           originalTokens === 0
             ? 0
             : Math.round(
-                ((originalTokens - deliveredTokens) / originalTokens) * 100,
+                ((originalTokens - deliveredTokens) / originalTokens) * 100
               ),
         avgSavingsPerCall: totalCalls > 0 ? Math.round(saved / totalCalls) : 0,
       };
@@ -93,7 +93,7 @@ export function createEfficiencyTracker(
     getEfficiency(): number {
       if (originalTokens === 0) return 0;
       return Math.round(
-        ((originalTokens - deliveredTokens) / originalTokens) * 100,
+        ((originalTokens - deliveredTokens) / originalTokens) * 100
       );
     },
     getSavedTokens(): number {

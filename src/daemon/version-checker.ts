@@ -98,7 +98,7 @@ export function readVersionCache(): VersionCache {
     const path = versionCachePath();
     if (!existsSync(path)) return defaults;
     const raw = JSON.parse(
-      readFileSync(path, "utf-8"),
+      readFileSync(path, "utf-8")
     ) as Partial<VersionCache>;
     return {
       lastChecked: raw.lastChecked ?? defaults.lastChecked,
@@ -135,7 +135,7 @@ function parseSemVer(version: string): SemVer | null {
   if (parts.length < 3) return null;
   const major = Number.parseInt(parts[0]!, 10);
   const minor = Number.parseInt(parts[1]!, 10);
-  const patch = Number.parseInt(parts[2]!.split("-")[0]!, 10);
+  const patch = Number.parseInt(parts[2]?.split("-")[0]!, 10);
   if (
     !Number.isFinite(major) ||
     !Number.isFinite(minor) ||
@@ -188,7 +188,7 @@ export function fetchLatestVersion(): Promise<string | null> {
             resolve(null);
           }
         });
-      },
+      }
     );
     req.on("error", () => resolve(null));
     req.on("timeout", () => {

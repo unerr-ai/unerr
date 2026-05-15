@@ -64,7 +64,7 @@ export class IntentCorrelator {
    */
   onSyncLocalDiff(
     ledger: ShadowLedger,
-    args: Record<string, unknown>,
+    args: Record<string, unknown>
   ): PendingCorrelation | null {
     const rootId = ledger.getCurrentRootId();
     if (!rootId) return null;
@@ -190,7 +190,7 @@ export class IntentCorrelator {
       renameSync(tmpPath, this.pendingPath);
     } catch (err: unknown) {
       process.stderr.write(
-        `[unerr:correlator] WARN: Failed to save pending correlations: ${err instanceof Error ? err.message : String(err)}\n`,
+        `[unerr:correlator] WARN: Failed to save pending correlations: ${err instanceof Error ? err.message : String(err)}\n`
       );
     }
   }

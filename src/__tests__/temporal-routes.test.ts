@@ -26,7 +26,7 @@ function makeFact(overrides: Partial<TemporalFact> = {}): TemporalFact {
 }
 
 function makeSession(
-  overrides: Partial<SessionSummaryRecord> = {},
+  overrides: Partial<SessionSummaryRecord> = {}
 ): SessionSummaryRecord {
   return {
     session_id: "sess-test",
@@ -51,7 +51,7 @@ function makeSession(
 }
 
 function createTestDeps(
-  overrides: Partial<TemporalRouteDeps> = {},
+  overrides: Partial<TemporalRouteDeps> = {}
 ): TemporalRouteDeps {
   return {
     factStore: {
@@ -149,11 +149,11 @@ describe("temporal routes", () => {
 
       expect(deps.factStore!.reinforceFact).toHaveBeenCalledWith(
         "fact-001",
-        expect.objectContaining({ action: "reinforced" }),
+        expect.objectContaining({ action: "reinforced" })
       );
       expect(deps.emitEvent).toHaveBeenCalledWith(
         "fact:reinforced",
-        expect.objectContaining({ fact_id: "fact-001" }),
+        expect.objectContaining({ fact_id: "fact-001" })
       );
     });
   });
@@ -175,11 +175,11 @@ describe("temporal routes", () => {
 
       expect(deps.factStore!.contradictFact).toHaveBeenCalledWith(
         "fact-001",
-        "Manually dismissed from dashboard",
+        "Manually dismissed from dashboard"
       );
       expect(deps.emitEvent).toHaveBeenCalledWith(
         "fact:expired",
-        expect.objectContaining({ fact_id: "fact-001" }),
+        expect.objectContaining({ fact_id: "fact-001" })
       );
     });
   });

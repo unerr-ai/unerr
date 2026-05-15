@@ -44,7 +44,7 @@ export function createLatencyTracker(): LatencyTracker {
  */
 export function recordLatency(
   tracker: LatencyTracker,
-  latencyMs: number,
+  latencyMs: number
 ): void {
   // All samples
   tracker.samples[tracker.cursor] = latencyMs;
@@ -72,7 +72,7 @@ export interface LatencyPercentiles {
  */
 export function computePercentiles(
   samples: Float64Array,
-  totalSamples: number,
+  totalSamples: number
 ): LatencyPercentiles | null {
   const count = Math.min(totalSamples, LATENCY_BUFFER_SIZE);
   if (count === 0) return null;
@@ -149,7 +149,7 @@ export function createLocalModeStats(): LocalModeStats {
 
 export function recordGraphQuery(
   localStats: LocalModeStats,
-  toolName: string,
+  toolName: string
 ): void {
   localStats.graphQueriesByType[toolName] =
     (localStats.graphQueriesByType[toolName] ?? 0) + 1;
@@ -158,7 +158,7 @@ export function recordGraphQuery(
 export function recordTruncationSavings(
   localStats: LocalModeStats,
   fullTokens: number,
-  usedTokens: number,
+  usedTokens: number
 ): void {
   const saved = fullTokens - usedTokens;
   if (saved > 0) {
@@ -175,7 +175,7 @@ export function recordIndexingResult(
     edgeCount: number;
     elapsedMs: number;
     communityCount: number;
-  },
+  }
 ): void {
   localStats.filesIndexed = result.fileCount;
   localStats.entitiesExtracted = result.entityCount;
@@ -199,7 +199,7 @@ export function recordCommunityContext(localStats: LocalModeStats): void {
 export function recordEmbedding(
   localStats: LocalModeStats,
   count: number,
-  timeMs: number,
+  timeMs: number
 ): void {
   localStats.embeddingsComputed += count;
   localStats.embeddingTimeMs += timeMs;
@@ -212,7 +212,7 @@ export function recordSemanticSearch(localStats: LocalModeStats): void {
 /** Accumulate latency advantage (remote baseline minus actual local latency). */
 export function recordLatencyAdvantage(
   localStats: LocalModeStats,
-  advantageMs: number,
+  advantageMs: number
 ): void {
   localStats.cumulativeLatencySavedMs += advantageMs;
 }
@@ -319,7 +319,7 @@ export function createSessionStats(isLocalMode = false): SessionStats {
  */
 export function detectSessionResume(
   stateDir: string,
-  ledgerDir: string,
+  ledgerDir: string
 ): PreviousSessionSnapshot | null {
   try {
     const fs = require("node:fs") as typeof import("node:fs");
@@ -401,7 +401,7 @@ export function recordDeadCodeReference(stats: SessionStats): void {
 
 export function recordAttribution(
   stats: SessionStats,
-  origin: "ai" | "human" | "mixed",
+  origin: "ai" | "human" | "mixed"
 ): void {
   if (origin === "ai") stats.events.aiEntitiesModified++;
   else if (origin === "human") stats.events.humanEntitiesModified++;
@@ -441,7 +441,7 @@ export function formatSessionStats(stats: SessionStats): string | null {
   // Latency percentiles
   const localPercentiles = computePercentiles(
     stats.latency.localSamples,
-    stats.latency.localTotalSamples,
+    stats.latency.localTotalSamples
   );
 
   if (localPercentiles) {
@@ -451,7 +451,7 @@ export function formatSessionStats(stats: SessionStats): string | null {
     // Flag if local p99 exceeds the 5ms budget
     if (localPercentiles.p99 > 5) {
       lines.push(
-        `  ⚠ Local p99 (${localPercentiles.p99.toFixed(1)}ms) exceeds 5ms budget`,
+        `  ⚠ Local p99 (${localPercentiles.p99.toFixed(1)}ms) exceeds 5ms budget`
       );
     }
   }
@@ -473,15 +473,15 @@ export function formatSessionStats(stats: SessionStats): string | null {
       ((stats.events.aiEntitiesModified +
         stats.events.mixedEntitiesModified * 0.5) /
         totalAttrib) *
-        100,
+        100
     );
     lines.push(
-      `  AI contribution: ${aiPct}% (${stats.events.aiEntitiesModified} ai, ${stats.events.humanEntitiesModified} human, ${stats.events.mixedEntitiesModified} mixed)`,
+      `  AI contribution: ${aiPct}% (${stats.events.aiEntitiesModified} ai, ${stats.events.humanEntitiesModified} human, ${stats.events.mixedEntitiesModified} mixed)`
     );
   }
 
   lines.push(
-    `  Duration:       ${durationMin > 0 ? `${durationMin}m` : "<1m"}`,
+    `  Duration:       ${durationMin > 0 ? `${durationMin}m` : "<1m"}`
   );
   lines.push("───────────────────────────────────────────────");
   lines.push("");
@@ -494,7 +494,7 @@ export function formatSessionStats(stats: SessionStats): string | null {
  * Returns null if no tool calls were made.
  */
 export function formatLocalModeSessionStats(
-  stats: SessionStats,
+  stats: SessionStats
 ): string | null {
   const total = stats.toolCallsLocal;
   if (total === 0) return null;
@@ -507,7 +507,7 @@ export function formatLocalModeSessionStats(
 
   const localPercentiles = computePercentiles(
     stats.latency.localSamples,
-    stats.latency.localTotalSamples,
+    stats.latency.localTotalSamples
   );
 
   // Aggregate graph query categories
@@ -532,11 +532,11 @@ export function formatLocalModeSessionStats(
 
   if (localPercentiles) {
     lines.push(
-      `[unerr] ${pad("Avg local latency:", W)} ${localPercentiles.p50.toFixed(1)}ms (p50), ${localPercentiles.p95.toFixed(1)}ms (p95)`,
+      `[unerr] ${pad("Avg local latency:", W)} ${localPercentiles.p50.toFixed(1)}ms (p50), ${localPercentiles.p95.toFixed(1)}ms (p95)`
     );
     if (lm.cumulativeLatencySavedMs > 0) {
       lines.push(
-        `[unerr] ${pad("Latency saved:", W)} ${(lm.cumulativeLatencySavedMs / 1000).toFixed(1)}s vs remote baseline`,
+        `[unerr] ${pad("Latency saved:", W)} ${(lm.cumulativeLatencySavedMs / 1000).toFixed(1)}s vs remote baseline`
       );
     }
   }
@@ -554,13 +554,13 @@ export function formatLocalModeSessionStats(
       lines.push(`[unerr]   ${pad("Entity lookups:", W - 2)} ${entityLookups}`);
     if (lm.blastRadiusComputations > 0)
       lines.push(
-        `[unerr]   ${pad("Blast radius:", W - 2)} ${lm.blastRadiusComputations} computations`,
+        `[unerr]   ${pad("Blast radius:", W - 2)} ${lm.blastRadiusComputations} computations`
       );
     if (searchQueries > 0)
       lines.push(`[unerr]   ${pad("Search queries:", W - 2)} ${searchQueries}`);
     if (callerCallees > 0)
       lines.push(
-        `[unerr]   ${pad("Callers/callees:", W - 2)} ${callerCallees}`,
+        `[unerr]   ${pad("Callers/callees:", W - 2)} ${callerCallees}`
       );
   }
 
@@ -569,10 +569,10 @@ export function formatLocalModeSessionStats(
     lines.push("[unerr]");
     lines.push("[unerr] Token Discipline:");
     lines.push(
-      `[unerr]   ${pad("Tokens saved:", W - 2)} ~${lm.tokensSavedByTruncation.toLocaleString()} via smart truncation`,
+      `[unerr]   ${pad("Tokens saved:", W - 2)} ~${lm.tokensSavedByTruncation.toLocaleString()} via smart truncation`
     );
     lines.push(
-      `[unerr]   ${pad("Responses truncated:", W - 2)} ${lm.truncatedResponses}`,
+      `[unerr]   ${pad("Responses truncated:", W - 2)} ${lm.truncatedResponses}`
     );
   }
 
@@ -587,19 +587,19 @@ export function formatLocalModeSessionStats(
     lines.push("[unerr] Safety Catches:");
     if (stats.violationsCaught > 0)
       lines.push(
-        `[unerr]   ${pad("Violations caught:", W - 2)} ${stats.violationsCaught}`,
+        `[unerr]   ${pad("Violations caught:", W - 2)} ${stats.violationsCaught}`
       );
     if (stats.riskWarningsIssued > 0)
       lines.push(
-        `[unerr]   ${pad("Risk warnings:", W - 2)} ${stats.riskWarningsIssued}`,
+        `[unerr]   ${pad("Risk warnings:", W - 2)} ${stats.riskWarningsIssued}`
       );
     if (stats.events.chokepointWarningsIssued > 0)
       lines.push(
-        `[unerr]   ${pad("Chokepoints flagged:", W - 2)} ${stats.events.chokepointWarningsIssued}`,
+        `[unerr]   ${pad("Chokepoints flagged:", W - 2)} ${stats.events.chokepointWarningsIssued}`
       );
     if (lm.correctionPatternsInjected > 0)
       lines.push(
-        `[unerr]   ${pad("Corrections applied:", W - 2)} ${lm.correctionPatternsInjected}`,
+        `[unerr]   ${pad("Corrections applied:", W - 2)} ${lm.correctionPatternsInjected}`
       );
   }
 
@@ -608,11 +608,11 @@ export function formatLocalModeSessionStats(
     lines.push("[unerr]");
     lines.push("[unerr] Semantic Intelligence:");
     lines.push(
-      `[unerr]   ${pad("Embeddings computed:", W - 2)} ${lm.embeddingsComputed}`,
+      `[unerr]   ${pad("Embeddings computed:", W - 2)} ${lm.embeddingsComputed}`
     );
     if (lm.semanticSearches > 0)
       lines.push(
-        `[unerr]   ${pad("Semantic searches:", W - 2)} ${lm.semanticSearches}`,
+        `[unerr]   ${pad("Semantic searches:", W - 2)} ${lm.semanticSearches}`
       );
   }
 
@@ -621,7 +621,7 @@ export function formatLocalModeSessionStats(
   lines.push("[unerr] Network Isolation:");
   lines.push(`[unerr]   ${pad("Outbound calls:", W - 2)} 0 (firewall sealed)`);
   lines.push(
-    `[unerr]   ${pad("Blocked attempts:", W - 2)} ${lm.firewallBlockedCount}${lm.firewallBlockedCount === 0 ? " (clean — no leakage)" : ""}`,
+    `[unerr]   ${pad("Blocked attempts:", W - 2)} ${lm.firewallBlockedCount}${lm.firewallBlockedCount === 0 ? " (clean — no leakage)" : ""}`
   );
 
   lines.push("[unerr] ────────────────────────────────────────────────────");
@@ -660,7 +660,7 @@ export function loadCumulativeStats(): CumulativeStats {
   try {
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     const raw = JSON.parse(
-      readFileSync(getCumulativePath(), "utf-8"),
+      readFileSync(getCumulativePath(), "utf-8")
     ) as CumulativeStats;
     // Reset if new week
     if (raw.weekStart !== currentWeek) {
@@ -746,7 +746,7 @@ export function loadCumulativeLocalStats(): CumulativeLocalStats {
   try {
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     const raw = JSON.parse(
-      readFileSync(getCumulativeLocalPath(), "utf-8"),
+      readFileSync(getCumulativeLocalPath(), "utf-8")
     ) as CumulativeLocalStats;
     if (raw.weekStartDate !== currentWeek) {
       return createEmptyCumulativeLocal(currentWeek);
@@ -758,7 +758,7 @@ export function loadCumulativeLocalStats(): CumulativeLocalStats {
 }
 
 export function persistCumulativeLocalStats(
-  stats: SessionStats,
+  stats: SessionStats
 ): CumulativeLocalStats {
   if (!stats.localMode) return loadCumulativeLocalStats();
 
@@ -776,7 +776,7 @@ export function persistCumulativeLocalStats(
   // Rolling average of p50 latency
   const localPercentiles = computePercentiles(
     stats.latency.localSamples,
-    stats.latency.localTotalSamples,
+    stats.latency.localTotalSamples
   );
   if (localPercentiles && cumulative.totalSessions > 0) {
     const prevWeight =

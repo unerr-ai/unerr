@@ -22,7 +22,7 @@ export interface McpHarness {
   listTools: () => Promise<Tool[]>;
   callTool: (
     name: string,
-    args?: Record<string, unknown>,
+    args?: Record<string, unknown>
   ) => Promise<Awaited<ReturnType<Client["callTool"]>>>;
   close: () => Promise<void>;
 }
@@ -41,7 +41,7 @@ export interface McpHarnessOptions {
  * This mirrors the real proxy's MCP setup from proxy.ts.
  */
 export async function createMcpHarness(
-  options: McpHarnessOptions = {},
+  options: McpHarnessOptions = {}
 ): Promise<McpHarness> {
   const {
     serverName = "unerr-test",
@@ -51,7 +51,7 @@ export async function createMcpHarness(
 
   const server = new Server(
     { name: serverName, version: serverVersion },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} } }
   );
 
   if (setupServer) {
@@ -63,7 +63,7 @@ export async function createMcpHarness(
 
   const client = new Client(
     { name: "mcp-test-client", version: "0.0.1" },
-    { capabilities: {} },
+    { capabilities: {} }
   );
 
   await server.connect(serverTransport);

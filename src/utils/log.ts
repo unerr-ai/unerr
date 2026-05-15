@@ -60,7 +60,7 @@ export function logApi(
   method: string,
   url: string,
   status?: number,
-  body?: unknown,
+  body?: unknown
 ): void {
   const statusStr = status !== undefined ? ` → ${status}` : "";
   write("api", `${method} ${url}${statusStr}`, body);

@@ -98,17 +98,17 @@ const MAX_VISIBLE_EDGES = 100;
 
 function filterEdgesForLevel(
   edges: Array<{ from: string; to: string; type: string }>,
-  visibleNodeIds: Set<string>,
+  visibleNodeIds: Set<string>
 ): Array<{ from: string; to: string; type: string }> {
   // Only show edges where both endpoints are visible
   const relevant = edges.filter(
-    (e) => visibleNodeIds.has(e.from) && visibleNodeIds.has(e.to),
+    (e) => visibleNodeIds.has(e.from) && visibleNodeIds.has(e.to)
   );
   if (relevant.length <= MAX_VISIBLE_EDGES) return relevant;
   // Prioritize: calls > tests > imports > others
   const priority: Record<string, number> = { calls: 3, tests: 2, imports: 1 };
   const sorted = [...relevant].sort(
-    (a, b) => (priority[b.type] ?? 0) - (priority[a.type] ?? 0),
+    (a, b) => (priority[b.type] ?? 0) - (priority[a.type] ?? 0)
   );
   return sorted.slice(0, MAX_VISIBLE_EDGES);
 }
@@ -122,7 +122,7 @@ export function GraphVisualPage() {
 
   const [selected, setSelected] = useState<GraphVisualNode | null>(null);
   const [selectedFile, setSelectedFile] = useState<GraphVisualFileNode | null>(
-    null,
+    null
   );
   const [neighbors, setNeighbors] = useState<GraphVisualNode[]>([]);
   const [searchQ, setSearchQ] = useState("");
@@ -153,6 +153,7 @@ export function GraphVisualPage() {
   }, [data, isLoading, stage]);
 
   // ── Main graph effect: build network with pre-computed positions ─────────
+  // biome-ignore lint/correctness/useExhaustiveDependencies: rebuildKey is an intentional force-rebuild trigger
   useEffect(() => {
     if (!data?.data || !containerRef.current) return;
     if (networkRef.current) {
@@ -242,7 +243,7 @@ export function GraphVisualPage() {
     const visEdges = filteredEdges.map((e, i) => {
       const sourceNode = nodeMap.get(e.from);
       const sourceFile = fileNodes.find(
-        (fn) => fn.filePath === sourceNode?.file,
+        (fn) => fn.filePath === sourceNode?.file
       );
       const edgeColor = sourceFile
         ? communityColor(sourceFile.fileCommunity)
@@ -292,7 +293,7 @@ export function GraphVisualPage() {
         },
         nodes: { shape: "dot" },
         edges: { selectionWidth: 2 },
-      },
+      }
     );
 
     networkRef.current = network;
@@ -494,7 +495,7 @@ export function GraphVisualPage() {
 
       if (network.isCluster(nodeId)) {
         const isCommCluster = String(nodeId).startsWith(
-          COMMUNITY_CLUSTER_PREFIX,
+          COMMUNITY_CLUSTER_PREFIX
         );
         const isFileCluster = String(nodeId).startsWith(FILE_CLUSTER_PREFIX);
 
@@ -591,10 +592,10 @@ export function GraphVisualPage() {
         setSelected(rawNode);
         setSelectedFile(null);
         const connectedEdges = edges.filter(
-          (e) => e.from === nodeId || e.to === nodeId,
+          (e) => e.from === nodeId || e.to === nodeId
         );
         const neighborIds = new Set(
-          connectedEdges.map((e) => (e.from === nodeId ? e.to : e.from)),
+          connectedEdges.map((e) => (e.from === nodeId ? e.to : e.from))
         );
         setNeighbors(nodes.filter((n) => neighborIds.has(n.id)).slice(0, 20));
       }
@@ -653,10 +654,10 @@ export function GraphVisualPage() {
     if (posArr.length === 0) return;
 
     // Compute bounding box of all nodes
-    let minX = Number.POSITIVE_INFINITY,
-      maxX = Number.NEGATIVE_INFINITY,
-      minY = Number.POSITIVE_INFINITY,
-      maxY = Number.NEGATIVE_INFINITY;
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
     for (const p of posArr) {
       if (p.x < minX) minX = p.x;
       if (p.x > maxX) maxX = p.x;
@@ -733,7 +734,7 @@ export function GraphVisualPage() {
       setStage("building");
       setRebuildKey((k) => k + 1);
     },
-    [data],
+    [data]
   );
 
   // ── Escape key → go up one level ────────────────────────────────────────
@@ -755,12 +756,12 @@ export function GraphVisualPage() {
       if (!networkRef.current || !data?.data || query.length < 2) return;
       const q = query.toLowerCase();
       const matchEntity = data.data.nodes.find((n) =>
-        n.label.toLowerCase().includes(q),
+        n.label.toLowerCase().includes(q)
       );
       const matchFile = data.data.fileNodes.find(
         (f) =>
           f.label.toLowerCase().includes(q) ||
-          f.filePath.toLowerCase().includes(q),
+          f.filePath.toLowerCase().includes(q)
       );
 
       const target =
@@ -790,7 +791,7 @@ export function GraphVisualPage() {
         }
       }
     },
-    [data],
+    [data]
   );
 
   // ── Export PNG ──────────────────────────────────────────────────────────
@@ -910,6 +911,7 @@ export function GraphVisualPage() {
             <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
               <div className="flex flex-col items-center gap-4 rounded-xl border border-border-subtle bg-surface-default/95 px-10 py-8 shadow-2xl backdrop-blur-sm">
                 <svg
+                  aria-hidden="true"
                   className="h-12 w-12 animate-spin"
                   viewBox="0 0 48 48"
                   fill="none"
@@ -1127,7 +1129,7 @@ export function GraphVisualPage() {
                         Cohesion:{" "}
                         {Math.round(
                           (fileCommunities.find((c) => c.id === activeCommunity)
-                            ?.cohesion ?? 0) * 100,
+                            ?.cohesion ?? 0) * 100
                         )}
                         %
                       </div>

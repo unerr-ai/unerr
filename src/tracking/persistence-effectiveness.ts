@@ -61,7 +61,7 @@ export class PersistenceEffectivenessTracker {
 
   constructor(
     tokenFlow: TokenFlowWriter,
-    options: PersistenceEffectivenessOptions = {},
+    options: PersistenceEffectivenessOptions = {}
   ) {
     this.tokenFlow = tokenFlow;
     this.windowTurns = options.windowTurns ?? 5;

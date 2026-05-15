@@ -26,7 +26,7 @@ const BASE_URL = "https://app.unerr.dev";
  */
 export function buildDeepLink(
   repoId: string | undefined,
-  options?: DeepLinkOptions,
+  options?: DeepLinkOptions
 ): string {
   if (!repoId) {
     // Fallback: generic landing when repo context unavailable

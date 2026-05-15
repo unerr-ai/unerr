@@ -41,11 +41,11 @@ export function registerCheckCommitCommand(program: Command) {
   program
     .command("check-commit")
     .description(
-      "Check staged changes against project conventions (pre-commit hook)",
+      "Check staged changes against project conventions (pre-commit hook)"
     )
     .option(
       "--blocking",
-      "Exit with code 1 on violations (default: non-blocking)",
+      "Exit with code 1 on violations (default: non-blocking)"
     )
     .option("--verbose", "Show detailed output including passing files")
     .action(async (opts: { blocking?: boolean; verbose?: boolean }) => {
@@ -98,14 +98,14 @@ export function registerCheckCommitCommand(program: Command) {
 
       // Filter to supported file types
       const checkableFiles = stagedFiles.filter((f) =>
-        SUPPORTED_EXTENSIONS.has(extname(f)),
+        SUPPORTED_EXTENSIONS.has(extname(f))
       );
 
       if (checkableFiles.length === 0) {
         if (opts.verbose) {
           section("unerr pre-commit check");
           detail(
-            `${stagedFiles.length} staged file${stagedFiles.length !== 1 ? "s" : ""} — none with supported extensions`,
+            `${stagedFiles.length} staged file${stagedFiles.length !== 1 ? "s" : ""} — none with supported extensions`
           );
         }
         return;
@@ -118,7 +118,7 @@ export function registerCheckCommitCommand(program: Command) {
       const localGraph = await loadGraphForCheckCommit(
         repoId,
         snapshotsDir,
-        manifestsDir,
+        manifestsDir
       );
 
       if (!localGraph) {
@@ -183,7 +183,7 @@ export function registerCheckCommitCommand(program: Command) {
             rules,
             filePath,
             content,
-            localGraph,
+            localGraph
           );
           if (result.violations.length > 0) {
             allFileViolations.push({
@@ -198,7 +198,7 @@ export function registerCheckCommitCommand(program: Command) {
 
       const totalViolations = allFileViolations.reduce(
         (sum, fv) => sum + fv.violations.length,
-        0,
+        0
       );
 
       // ── Display results ──────────────────────────────────────────
@@ -206,7 +206,7 @@ export function registerCheckCommitCommand(program: Command) {
 
       if (totalViolations === 0) {
         success(
-          `${filesChecked} file${filesChecked !== 1 ? "s" : ""} checked, ${totalRulesEvaluated} rules evaluated — all clear`,
+          `${filesChecked} file${filesChecked !== 1 ? "s" : ""} checked, ${totalRulesEvaluated} rules evaluated — all clear`
         );
         process.exitCode = 0;
         return;
@@ -224,7 +224,7 @@ export function registerCheckCommitCommand(program: Command) {
                 ? pc.yellow
                 : pc.dim;
           info(
-            `${severityColor(`[${v.severity}]`)} ${v.message}${location ? pc.dim(` (line ${v.line})`) : ""}`,
+            `${severityColor(`[${v.severity}]`)} ${v.message}${location ? pc.dim(` (line ${v.line})`) : ""}`
           );
           if (v.matchedCode && opts.verbose) {
             detail(`  → ${v.matchedCode.slice(0, 80)}`);
@@ -236,7 +236,7 @@ export function registerCheckCommitCommand(program: Command) {
       const errorCount = allFileViolations.reduce(
         (sum, fv) =>
           sum + fv.violations.filter((v) => v.severity === "error").length,
-        0,
+        0
       );
       const warningCount = totalViolations - errorCount;
 
@@ -249,7 +249,7 @@ export function registerCheckCommitCommand(program: Command) {
           ? ` (${warningCount} warning${warningCount !== 1 ? "s" : ""})`
           : "";
       warn(
-        `${totalViolations} violation${totalViolations !== 1 ? "s" : ""} found${errorSuffix}${warnSuffix}`,
+        `${totalViolations} violation${totalViolations !== 1 ? "s" : ""} found${errorSuffix}${warnSuffix}`
       );
 
       if (blockingMode) {
@@ -258,7 +258,7 @@ export function registerCheckCommitCommand(program: Command) {
       } else {
         detail("Non-blocking mode — commit will proceed");
         detail(
-          "Enable blocking: set hooks.precommit.blocking=true in .unerr/settings.json",
+          "Enable blocking: set hooks.precommit.blocking=true in .unerr/settings.json"
         );
         process.exitCode = 0;
       }
@@ -274,7 +274,7 @@ export function registerCheckCommitCommand(program: Command) {
 async function loadGraphForCheckCommit(
   repoId: string,
   snapshotsDir: string,
-  manifestsDir: string,
+  manifestsDir: string
 ): Promise<import("../intelligence/local-graph.js").CozoGraphStore | null> {
   // Check manifest exists
   const manifestPath = join(manifestsDir, `${repoId}.json`);
@@ -293,13 +293,11 @@ async function loadGraphForCheckCommit(
     const { CozoGraphStore } = await import("../intelligence/local-graph.js");
     const { unpack } = await import("msgpackr");
 
-    // biome-ignore lint/suspicious/noExplicitAny: dynamic CozoDB constructor
     const db = new (CozoDbConstructor as any)();
     const localGraph = await CozoGraphStore.create(db);
 
     const raw = readFileSync(snapshotPath);
     const buffer = snapshotPath.endsWith(".gz") ? gunzipSync(raw) : raw;
-    // biome-ignore lint/suspicious/noExplicitAny: msgpack unpack returns unknown shape
     const envelope = unpack(buffer) as any;
     await localGraph.loadSnapshot(envelope);
 

@@ -54,7 +54,7 @@ export function registerCompressOutputCommand(program: Command): void {
   program
     .command("compress-output")
     .description(
-      "Compress text from stdin using graph-aware compression (for hooks)",
+      "Compress text from stdin using graph-aware compression (for hooks)"
     )
     .option("--budget <tokens>", "Token budget", "2000")
     .option("--no-graph", "Skip loading graph risk map")

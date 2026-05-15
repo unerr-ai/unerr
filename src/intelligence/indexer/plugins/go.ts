@@ -39,7 +39,7 @@ function extractDoc(node: SyntaxNode): string | null {
   let doc = "";
   let sibling = node.previousSibling;
   while (sibling?.type === "comment") {
-    doc = textOf(sibling) + "\n" + doc;
+    doc = `${textOf(sibling)}\n${doc}`;
     sibling = sibling.previousSibling;
   }
   return doc.length > 0 ? doc.trim().slice(0, 500) : null;
@@ -51,14 +51,14 @@ function countParameters(node: SyntaxNode): number {
   return params.namedChildren.filter(
     (c) =>
       c.type === "parameter_declaration" ||
-      c.type === "variadic_parameter_declaration",
+      c.type === "variadic_parameter_declaration"
   ).length;
 }
 
 function extractSignature(
   node: SyntaxNode,
   name: string,
-  kind: EntityKind,
+  kind: EntityKind
 ): string {
   if (kind === "class" || kind === "interface" || kind === "type") {
     return `type ${name}`;
@@ -105,7 +105,7 @@ function addEntity(
     isAsync?: boolean;
     paramCount?: number;
     signature?: string;
-  } = {},
+  } = {}
 ): string {
   const scope = currentScope(ctx);
   const key = entityKey(ctx.filePath, kind, name, scope);
@@ -231,7 +231,7 @@ function visitNode(node: SyntaxNode, ctx: ExtractorContext): void {
             for (const field of typeNode.namedChildren) {
               if (field.type === "field_declaration") {
                 const fieldNames = field.namedChildren.filter(
-                  (c) => c.type === "field_identifier",
+                  (c) => c.type === "field_identifier"
                 );
                 for (const fn of fieldNames) {
                   addEntity(ctx, field, "property", textOf(fn), {

@@ -55,7 +55,7 @@ export function needsRecomputation(currentEntityCount: number): boolean {
  */
 export async function detectCommunities(
   entities: IndexedEntity[],
-  edges: IndexedEdge[],
+  edges: IndexedEdge[]
 ): Promise<CommunityResult> {
   if (!needsRecomputation(entities.length) && cachedResult) {
     return cachedResult;
@@ -63,10 +63,8 @@ export async function detectCommunities(
 
   const start = performance.now();
 
-  // biome-ignore lint/suspicious/noExplicitAny: CJS/ESM interop for graphology
   const graphologyMod = (await import("graphology")) as any;
   const Graph = graphologyMod.default ?? graphologyMod;
-  // biome-ignore lint/suspicious/noExplicitAny: CJS/ESM interop
   const louvainMod = (await import("graphology-communities-louvain")) as any;
   const louvain = louvainMod.default ?? louvainMod;
 
@@ -144,12 +142,12 @@ export async function detectCommunities(
       .map(([kind, count]) => ({ kind, count }));
 
     const internalEdges = edges.filter(
-      (e) => memberKeys.includes(e.from_key) && memberKeys.includes(e.to_key),
+      (e) => memberKeys.includes(e.from_key) && memberKeys.includes(e.to_key)
     ).length;
     const externalEdges = edges.filter(
       (e) =>
         (memberKeys.includes(e.from_key) && !memberKeys.includes(e.to_key)) ||
-        (!memberKeys.includes(e.from_key) && memberKeys.includes(e.to_key)),
+        (!memberKeys.includes(e.from_key) && memberKeys.includes(e.to_key))
     ).length;
 
     const totalPossibleInternal =
@@ -163,7 +161,7 @@ export async function detectCommunities(
 
     const name = inferCommunityName(
       [...fileSet],
-      memberEntities.map((e) => e.name),
+      memberEntities.map((e) => e.name)
     );
 
     profiles.push({
@@ -192,7 +190,7 @@ export async function detectCommunities(
   lastEntityCount = entities.length;
 
   log.info(
-    `Detected ${profiles.length} communities in ${Math.round(performance.now() - start)}ms (modularity: ${result.modularity.toFixed(3)})`,
+    `Detected ${profiles.length} communities in ${Math.round(performance.now() - start)}ms (modularity: ${result.modularity.toFixed(3)})`
   );
 
   return result;

@@ -10,7 +10,7 @@ function makeViolation(
   file: string,
   rule: string,
   message: string,
-  line?: number,
+  line?: number
 ): RuleViolation {
   return {
     ruleKey: `rule-${rule}`,

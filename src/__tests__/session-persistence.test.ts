@@ -7,19 +7,19 @@ import type { SessionSummaryRecord } from "../tracking/session-summary-writer.js
 
 function writeLastSession(
   unerrDir: string,
-  record: SessionSummaryRecord,
+  record: SessionSummaryRecord
 ): void {
   const stateDir = join(unerrDir, "state");
   mkdirSync(stateDir, { recursive: true });
   writeFileSync(
     join(stateDir, "last_session.json"),
     JSON.stringify(record),
-    "utf-8",
+    "utf-8"
   );
 }
 
 function makeSessionRecord(
-  overrides: Partial<SessionSummaryRecord> = {},
+  overrides: Partial<SessionSummaryRecord> = {}
 ): SessionSummaryRecord {
   return {
     session_id: "test-session",
@@ -147,7 +147,7 @@ describe("session-persistence", () => {
 
       const payload = await generateSessionResumePayload(
         testDir,
-        mockFactStore,
+        mockFactStore
       );
       expect(payload!.recalled_facts.length).toBeGreaterThan(0);
       expect(payload!.recalled_facts[0]!.content).toBe("Auth uses JWT");

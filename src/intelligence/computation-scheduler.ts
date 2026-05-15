@@ -31,7 +31,7 @@ let isProcessing = false;
 export async function scheduleComputation(
   id: string,
   priority: ComputationPriority,
-  fn: () => Promise<void>,
+  fn: () => Promise<void>
 ): Promise<boolean> {
   const snap = getResourceSnapshot();
 
@@ -48,7 +48,7 @@ export async function scheduleComputation(
 
   if (priority === "background" && snap.degradationLevel >= 1) {
     log.info(
-      `Deferring background ${id}: heap pressure level ${snap.degradationLevel}`,
+      `Deferring background ${id}: heap pressure level ${snap.degradationLevel}`
     );
     pendingQueue.push({ id, priority, fn });
     return false;
@@ -83,7 +83,7 @@ export async function processPending(): Promise<number> {
       processed++;
     } catch (err) {
       log.warn(
-        `Scheduled computation ${task.id} failed: ${err instanceof Error ? err.message : String(err)}`,
+        `Scheduled computation ${task.id} failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }

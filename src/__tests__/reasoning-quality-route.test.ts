@@ -12,7 +12,7 @@ import { PersistenceEffectivenessTracker } from "../tracking/persistence-effecti
 import { TokenFlowWriter } from "../tracking/token-flow.js";
 
 async function getGlobal(
-  app: ReturnType<typeof createReasoningQualityRoutes>,
+  app: ReturnType<typeof createReasoningQualityRoutes>
 ): Promise<Record<string, unknown>> {
   const res = await app.fetch(new Request("http://localhost/global"));
   const body = (await res.json()) as { data: Record<string, unknown> };
@@ -28,7 +28,7 @@ describe("reasoning-quality route — persistent memory metrics", () => {
   beforeEach(() => {
     tmpDir = join(
       os.tmpdir(),
-      `unerr-rq-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      `unerr-rq-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     );
     unerrDir = join(tmpDir, ".unerr");
     mkdirSync(unerrDir, { recursive: true });

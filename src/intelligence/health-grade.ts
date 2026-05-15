@@ -114,7 +114,7 @@ const FRAMEWORK_PATTERNS = [
  * Compute health grade from a loaded CozoDB instance.
  */
 export async function computeHealthGrade(
-  db: CozoDb,
+  db: CozoDb
 ): Promise<HealthGradeResult> {
   // Total entity count
   let totalEntities = 0;
@@ -156,7 +156,7 @@ export async function computeHealthGrade(
   // because static analysis can't capture dynamic/framework-mediated calls.
   try {
     const allFunctions = await db.run(
-      `?[key, name, fp, fan_in, fan_out] := *entities{key, kind, name, file_path: fp, fan_in, fan_out}, kind = "function", fan_in == 0`,
+      `?[key, name, fp, fan_in, fan_out] := *entities{key, kind, name, file_path: fp, fan_in, fan_out}, kind = "function", fan_in == 0`
     );
     const deadFunctions = (allFunctions?.rows ?? []).filter((row) => {
       const name = row[1] as string;
@@ -174,7 +174,7 @@ export async function computeHealthGrade(
       // Exclude entry points
       if (
         ENTRY_POINT_PATTERNS.some(
-          (p) => nameLower === p || nameLower.startsWith(p),
+          (p) => nameLower === p || nameLower.startsWith(p)
         )
       )
         return false;
@@ -207,7 +207,7 @@ export async function computeHealthGrade(
         *entities{key, kind, name, file_path: fp, fan_in, fan_out, risk_level},
         risk_level == "high"
       :order -(fan_in + fan_out)
-      :limit 3`,
+      :limit 3`
     );
     highRiskEntities = (highRiskResult?.rows ?? []).map((row) => ({
       name: row[2] as string,
@@ -229,7 +229,7 @@ export async function computeHealthGrade(
   // Sprint 3.3: Convention adherence rate
   const conventionAdherence = await computeConventionAdherence(
     db,
-    totalEntities,
+    totalEntities
   );
 
   // Sprint 3.3: Drift impact score
@@ -247,7 +247,7 @@ export async function computeHealthGrade(
     circularDeps.length,
     maxImportDepth,
     conventionAdherence,
-    driftImpactScore,
+    driftImpactScore
   );
   const grade = scoreToGrade(score);
 
@@ -275,7 +275,7 @@ function computeScore(
   circularDepCount = 0,
   maxImportDepth = 0,
   conventionAdherence = 1,
-  driftImpact = 0,
+  driftImpact = 0
 ): number {
   if (totalEntities === 0) return 50; // Empty repo, neutral
 
@@ -326,7 +326,7 @@ function computeScore(
  * Returns up to 10 cycles (capped for performance).
  */
 async function detectCircularDeps(
-  db: CozoDb,
+  db: CozoDb
 ): Promise<Array<{ cycle: string[] }>> {
   try {
     // Find entities that can reach themselves through "calls" edges (cycle detection)
@@ -335,7 +335,7 @@ async function detectCircularDeps(
       `reach[start, next] := *edges{from_key: start, to_key: next, type: "calls"}
        reach[start, next] := reach[start, mid], *edges{from_key: mid, to_key: next, type: "calls"}
        ?[key] := reach[key, key]
-       :limit 10`,
+       :limit 10`
     );
     return result.rows.map((row) => ({ cycle: [row[0] as string] }));
   } catch {
@@ -344,7 +344,7 @@ async function detectCircularDeps(
     try {
       const result = await db.run(
         `?[a, b] := *edges{from_key: a, to_key: b, type: "calls"}, *edges{from_key: b, to_key: a, type: "calls"}
-         :limit 10`,
+         :limit 10`
       );
       return result.rows.map((row) => ({
         cycle: [row[0] as string, row[1] as string],
@@ -364,7 +364,7 @@ async function computeMaxImportDepth(db: CozoDb): Promise<number> {
     const result = await db.run(
       `reach[target, depth] := *edges{from_key, to_key: target, type: "calls"}, depth = 1
        reach[target, depth] := reach[mid, d], *edges{from_key: mid, to_key: target, type: "calls"}, depth = d + 1, d < 20
-       ?[max(depth)] := reach[_, depth]`,
+       ?[max(depth)] := reach[_, depth]`
     );
     return (result.rows[0]?.[0] as number) ?? 0;
   } catch {
@@ -378,17 +378,17 @@ async function computeMaxImportDepth(db: CozoDb): Promise<number> {
  */
 async function computeConventionAdherence(
   db: CozoDb,
-  totalEntities: number,
+  totalEntities: number
 ): Promise<number> {
   if (totalEntities === 0) return 1;
   try {
     const patterns = await db.run(
-      "?[freq] := *patterns[_, _, kind, freq, conf, _, _], kind = 'naming', conf > 0.7",
+      "?[freq] := *patterns[_, _, kind, freq, conf, _, _], kind = 'naming', conf > 0.7"
     );
     if (patterns.rows.length === 0) return 1; // No patterns = 100% adherence by default
     const totalFollowing = patterns.rows.reduce(
       (sum, row) => sum + (row[0] as number),
-      0,
+      0
     );
     return Math.min(1, totalFollowing / totalEntities);
   } catch {
@@ -404,7 +404,7 @@ async function computeDriftImpact(db: CozoDb): Promise<number> {
   try {
     const result = await db.run(
       `?[count(dk)] := *drift_overlay{key: dk},
-        *entities{key: dk, fan_in: fi}, fi > 5`,
+        *entities{key: dk, fan_in: fi}, fi > 5`
     );
     return (result.rows[0]?.[0] as number) ?? 0;
   } catch {
@@ -417,15 +417,15 @@ async function computeDriftImpact(db: CozoDb): Promise<number> {
  * These are test files not associated with any source entity in the graph.
  */
 async function detectOrphanTestFiles(
-  db: CozoDb,
+  db: CozoDb
 ): Promise<Array<{ file: string; reason: string }>> {
   try {
     // Get all test files (files containing is_test=true entities)
     const testFilesResult = await db.run(
-      `?[fp] := *entities{file_path: fp, is_test: t}, t = true`,
+      "?[fp] := *entities{file_path: fp, is_test: t}, t = true"
     );
     const allTestFiles = new Set(
-      testFilesResult.rows.map((row) => row[0] as string),
+      testFilesResult.rows.map((row) => row[0] as string)
     );
 
     if (allTestFiles.size === 0) return [];
@@ -433,10 +433,10 @@ async function detectOrphanTestFiles(
     // Get test files that have at least one "tests" edge from any of their entities
     const coveredResult = await db.run(
       `?[fp] := *entities{key: ek, file_path: fp, is_test: t}, t = true,
-        *edges{from_key: ek, type: "tests"}`,
+        *edges{from_key: ek, type: "tests"}`
     );
     const coveredFiles = new Set(
-      coveredResult.rows.map((row) => row[0] as string),
+      coveredResult.rows.map((row) => row[0] as string)
     );
 
     // Orphans = test files NOT in the covered set
@@ -483,7 +483,7 @@ export function formatHealthGrade(result: HealthGradeResult): string {
     lines.push("  High-risk:");
     for (const entity of result.highRiskEntities) {
       lines.push(
-        `    - ${entity.name} (${entity.kind}) — ${entity.fan_in} callers, ${entity.fan_out} callees`,
+        `    - ${entity.name} (${entity.kind}) — ${entity.fan_in} callers, ${entity.fan_out} callees`
       );
       lines.push(`      ${entity.file_path}`);
     }
@@ -493,7 +493,7 @@ export function formatHealthGrade(result: HealthGradeResult): string {
 
   if (result.circularDeps && result.circularDeps.length > 0) {
     lines.push(
-      `  Circular deps:  ${result.circularDeps.length} cycle(s) detected`,
+      `  Circular deps:  ${result.circularDeps.length} cycle(s) detected`
     );
   }
   if (result.maxImportDepth !== undefined && result.maxImportDepth > 0) {
@@ -501,18 +501,18 @@ export function formatHealthGrade(result: HealthGradeResult): string {
   }
   if (result.conventionAdherence !== undefined) {
     lines.push(
-      `  Conventions:    ${Math.round(result.conventionAdherence * 100)}% adherence`,
+      `  Conventions:    ${Math.round(result.conventionAdherence * 100)}% adherence`
     );
   }
   if (result.driftImpactScore !== undefined && result.driftImpactScore > 0) {
     lines.push(
-      `  Drift impact:   ${result.driftImpactScore} high-fan-in entities drifted`,
+      `  Drift impact:   ${result.driftImpactScore} high-fan-in entities drifted`
     );
   }
 
   if (result.orphanTestFiles && result.orphanTestFiles.length > 0) {
     lines.push(
-      `  Orphan tests:   ${result.orphanTestFiles.length} test file(s) not linked to source`,
+      `  Orphan tests:   ${result.orphanTestFiles.length} test file(s) not linked to source`
     );
     for (const orphan of result.orphanTestFiles.slice(0, 5)) {
       lines.push(`    - ${orphan.file}`);

@@ -150,7 +150,7 @@ export function createSessionHealthMonitor(): {
   }
 
   function detectLowDurabilityTargeting(
-    signals: SessionDegradationSignal[],
+    signals: SessionDegradationSignal[]
   ): void {
     const recentEntities = new Set<string>();
     const recentCalls = toolCalls.slice(-20);
@@ -172,20 +172,20 @@ export function createSessionHealthMonitor(): {
   }
 
   function detectExpandingBlastRadius(
-    signals: SessionDegradationSignal[],
+    signals: SessionDegradationSignal[]
   ): void {
     if (blastRadiusHistory.length < 2) return;
 
     const sorted = [...blastRadiusHistory].sort(
-      (a, b) => a.timestamp - b.timestamp,
+      (a, b) => a.timestamp - b.timestamp
     );
 
     const firstThird = sorted.slice(
       0,
-      Math.max(1, Math.floor(sorted.length / 3)),
+      Math.max(1, Math.floor(sorted.length / 3))
     );
     const lastThird = sorted.slice(
-      Math.max(0, sorted.length - Math.floor(sorted.length / 3)),
+      Math.max(0, sorted.length - Math.floor(sorted.length / 3))
     );
 
     const initialAvg =
@@ -204,11 +204,11 @@ export function createSessionHealthMonitor(): {
 
   function detectConventionViolationSpike(
     signals: SessionDegradationSignal[],
-    now: number,
+    now: number
   ): void {
     const windowStart = now - VIOLATION_WINDOW_MS;
     const recentViolations = conventionViolations.filter(
-      (ts) => ts >= windowStart,
+      (ts) => ts >= windowStart
     );
 
     if (recentViolations.length >= VIOLATION_SPIKE_THRESHOLD) {
@@ -222,7 +222,7 @@ export function createSessionHealthMonitor(): {
 
   function detectToolCallAcceleration(
     signals: SessionDegradationSignal[],
-    now: number,
+    now: number
   ): void {
     const oneMinuteAgo = now - 60_000;
     const recentCalls = toolCalls.filter((tc) => tc.timestamp >= oneMinuteAgo);
@@ -236,7 +236,7 @@ export function createSessionHealthMonitor(): {
   }
 
   function detectContextDepthWarning(
-    signals: SessionDegradationSignal[],
+    signals: SessionDegradationSignal[]
   ): void {
     const estimatedTokens = toolCalls.length * TOKENS_PER_TOOL_CALL;
 
@@ -255,7 +255,7 @@ export function createSessionHealthMonitor(): {
     toolCalls = toolCalls.filter((tc) => tc.timestamp >= cutoff);
     conventionViolations = conventionViolations.filter((ts) => ts >= cutoff);
     blastRadiusHistory = blastRadiusHistory.filter(
-      (br) => br.timestamp >= cutoff,
+      (br) => br.timestamp >= cutoff
     );
   }
 
@@ -285,7 +285,7 @@ function computeHealthScore(signals: SessionDegradationSignal[]): number {
 
     if (type === "context_depth_warning") {
       const contextSignal = signals.find(
-        (s) => s.type === "context_depth_warning",
+        (s) => s.type === "context_depth_warning"
       ) as
         | { type: "context_depth_warning"; estimated_tokens: number }
         | undefined;
@@ -303,12 +303,12 @@ function computeHealthScore(signals: SessionDegradationSignal[]): number {
 
 function deriveRecommendation(
   health: number,
-  signals: SessionDegradationSignal[],
+  signals: SessionDegradationSignal[]
 ): SessionHealthSignal["recommendation"] {
   if (health >= 0.8) return "continue";
 
   const hasContextWarning = signals.some(
-    (s) => s.type === "context_depth_warning",
+    (s) => s.type === "context_depth_warning"
   );
   const hasRepeatedQueries = signals.some((s) => s.type === "repeated_query");
 

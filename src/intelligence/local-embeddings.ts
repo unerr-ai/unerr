@@ -54,7 +54,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
 export class LocalEmbeddingStore {
   constructor(
     private readonly db: CozoDb,
-    private readonly adapter: LocalLlmAdapter,
+    private readonly adapter: LocalLlmAdapter
   ) {}
 
   /**
@@ -69,7 +69,7 @@ export class LocalEmbeddingStore {
       signature: string;
       name: string;
       kind: string;
-    }>,
+    }>
   ): Promise<{ computed: number; skipped: number; elapsedMs: number }> {
     const t0 = performance.now();
     const model = this.adapter.embeddingModel;
@@ -78,7 +78,7 @@ export class LocalEmbeddingStore {
     const existing = new Set<string>();
     const result = await this.db.run(
       "?[entity_key] := *entity_embeddings{entity_key, model}, model = $model",
-      { model },
+      { model }
     );
     for (const row of result.rows) {
       existing.add(row[0] as string);
@@ -130,7 +130,7 @@ export class LocalEmbeddingStore {
     entityKey: string,
     vector: number[],
     model: string,
-    computedAt: string,
+    computedAt: string
   ): Promise<void> {
     await this.db.run(
       `?[entity_key, vector_json, model, dimensions, computed_at] <- [[$ek, $vj, $m, $d, $ca]]
@@ -141,7 +141,7 @@ export class LocalEmbeddingStore {
         m: model,
         d: vector.length,
         ca: computedAt,
-      },
+      }
     );
   }
 
@@ -152,7 +152,7 @@ export class LocalEmbeddingStore {
   async semanticSearch(
     query: string,
     topK = 10,
-    minSimilarity = 0.3,
+    minSimilarity = 0.3
   ): Promise<SemanticSearchResult[]> {
     // Embed the query
     const embResult = await this.adapter.embed([query]);
@@ -168,12 +168,12 @@ export class LocalEmbeddingStore {
   async findSimilar(
     entityKey: string,
     topK = 10,
-    minSimilarity = 0.3,
+    minSimilarity = 0.3
   ): Promise<SemanticSearchResult[]> {
     // Load the entity's embedding
     const result = await this.db.run(
       "?[vector_json] := *entity_embeddings{entity_key, vector_json}, entity_key = $ek",
-      { ek: entityKey },
+      { ek: entityKey }
     );
     if (result.rows.length === 0) return [];
 
@@ -190,11 +190,11 @@ export class LocalEmbeddingStore {
   private async findByVector(
     queryVec: number[],
     topK: number,
-    minSimilarity: number,
+    minSimilarity: number
   ): Promise<SemanticSearchResult[]> {
     // Load all embeddings (CozoDB has no native vector ops — we do cosine in JS)
     const all = await this.db.run(
-      "?[entity_key, vector_json] := *entity_embeddings{entity_key, vector_json}",
+      "?[entity_key, vector_json] := *entity_embeddings{entity_key, vector_json}"
     );
 
     const scored: Array<{ entityKey: string; similarity: number }> = [];
@@ -217,7 +217,7 @@ export class LocalEmbeddingStore {
       const entity = await this.db.run(
         `?[kind, name, file_path, signature] :=
           *entities{key, kind, name, file_path, signature}, key = $key`,
-        { key: s.entityKey },
+        { key: s.entityKey }
       );
       const row = entity.rows[0];
       results.push({
@@ -237,13 +237,13 @@ export class LocalEmbeddingStore {
    */
   async getStats(): Promise<EmbeddingStats> {
     const countResult = await this.db.run(
-      "?[count(entity_key)] := *entity_embeddings{entity_key}",
+      "?[count(entity_key)] := *entity_embeddings{entity_key}"
     );
     const total =
       countResult.rows.length > 0 ? (countResult.rows[0]?.[0] as number) : 0;
 
     const modelResult = await this.db.run(
-      "?[model, dimensions] := *entity_embeddings{entity_key, model, dimensions}, limit 1",
+      "?[model, dimensions] := *entity_embeddings{entity_key, model, dimensions}, limit 1"
     );
     const model =
       modelResult.rows.length > 0 ? (modelResult.rows[0]?.[0] as string) : "";
@@ -259,7 +259,7 @@ export class LocalEmbeddingStore {
   async hasEmbedding(entityKey: string): Promise<boolean> {
     const result = await this.db.run(
       "?[entity_key] := *entity_embeddings{entity_key}, entity_key = $ek",
-      { ek: entityKey },
+      { ek: entityKey }
     );
     return result.rows.length > 0;
   }
@@ -269,18 +269,18 @@ export class LocalEmbeddingStore {
    */
   async clearAll(): Promise<number> {
     const count = await this.db.run(
-      "?[count(entity_key)] := *entity_embeddings{entity_key}",
+      "?[count(entity_key)] := *entity_embeddings{entity_key}"
     );
     const total = count.rows.length > 0 ? (count.rows[0]?.[0] as number) : 0;
 
     if (total > 0) {
       const keys = await this.db.run(
-        "?[entity_key] := *entity_embeddings{entity_key}",
+        "?[entity_key] := *entity_embeddings{entity_key}"
       );
       for (const row of keys.rows) {
         await this.db.run(
           "?[entity_key] <- [[$ek]] :rm entity_embeddings {entity_key}",
-          { ek: row[0] as string },
+          { ek: row[0] as string }
         );
       }
     }

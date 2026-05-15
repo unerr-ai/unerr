@@ -25,7 +25,7 @@ interface GraphEntity {
 interface HealthFactStore {
   recallByScope(
     scope: string,
-    minConfidence?: number,
+    minConfidence?: number
   ): Promise<
     Array<{
       fact_id: string;
@@ -102,7 +102,7 @@ function scoreToRisk(score: number): RiskLevel {
 export class HealthMapData {
   constructor(
     private localGraph: CozoGraphStore,
-    private factStore: HealthFactStore | null,
+    private factStore: HealthFactStore | null
   ) {}
 
   /**
@@ -149,7 +149,7 @@ export class HealthMapData {
           try {
             const fileFacts = await this.factStore.recallForFile(filePath);
             const episodic = fileFacts.filter(
-              (f) => f.fact_type === "episodic",
+              (f) => f.fact_type === "episodic"
             );
             if (episodic.length > 0) {
               changeCounts.set(filePath, episodic.length);
@@ -183,7 +183,7 @@ export class HealthMapData {
       const totalFanIn = entities.reduce((s, e) => s + e.fan_in, 0);
       const totalFanOut = entities.reduce((s, e) => s + e.fan_out, 0);
       const highRiskCount = entities.filter(
-        (e) => e.risk_level === "high" || e.risk_level === "critical",
+        (e) => e.risk_level === "high" || e.risk_level === "critical"
       ).length;
 
       const metrics: HealthMetrics = {
@@ -239,11 +239,11 @@ export class HealthMapData {
           children.length,
         change_frequency: children.reduce(
           (s, c) => s + c.metrics.change_frequency,
-          0,
+          0
         ),
         coupling_count: children.reduce(
           (s, c) => s + c.metrics.coupling_count,
-          0,
+          0
         ),
       };
 
@@ -281,11 +281,11 @@ export class HealthMapData {
         convention_adherence: avgAdherence,
         change_frequency: dirNodes.reduce(
           (s, d) => s + d.metrics.change_frequency,
-          0,
+          0
         ),
         coupling_count: dirNodes.reduce(
           (s, d) => s + d.metrics.coupling_count,
-          0,
+          0
         ),
       },
       entity_count: totalEntities,
@@ -303,7 +303,7 @@ export class HealthMapData {
     const totalFanIn = entities.reduce((s, e) => s + e.fan_in, 0);
     const totalFanOut = entities.reduce((s, e) => s + e.fan_out, 0);
     const highRiskCount = entities.filter(
-      (e) => e.risk_level === "high" || e.risk_level === "critical",
+      (e) => e.risk_level === "high" || e.risk_level === "critical"
     ).length;
 
     let couplingCount = 0;
@@ -322,7 +322,7 @@ export class HealthMapData {
         }
         const fileFacts = await this.factStore.recallForFile(filePath);
         changeFrequency = fileFacts.filter(
-          (f) => f.fact_type === "episodic",
+          (f) => f.fact_type === "episodic"
         ).length;
       } catch {
         // Non-critical

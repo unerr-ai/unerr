@@ -108,7 +108,7 @@ describe("instruction-writer", () => {
         tmpDir,
         ".cursor",
         "rules",
-        "unerr-instructions.mdc",
+        "unerr-instructions.mdc"
       );
       mkdirSync(join(tmpDir, ".cursor", "rules"), { recursive: true });
       writeFileSync(filePath, "old mdc content");
@@ -142,7 +142,7 @@ describe("instruction-writer", () => {
         tmpDir,
         ".windsurf",
         "rules",
-        "unerr-instructions.md",
+        "unerr-instructions.md"
       );
       mkdirSync(join(tmpDir, ".windsurf", "rules"), { recursive: true });
       writeFileSync(filePath, "old windsurf content");
@@ -209,7 +209,7 @@ describe("instruction-writer", () => {
         tmpDir,
         ".cursor",
         "rules",
-        "unerr-instructions.mdc",
+        "unerr-instructions.mdc"
       );
       expect(existsSync(filePath)).toBe(true);
 
@@ -229,7 +229,7 @@ describe("instruction-writer", () => {
         tmpDir,
         ".windsurf",
         "rules",
-        "unerr-instructions.md",
+        "unerr-instructions.md"
       );
       expect(existsSync(filePath)).toBe(true);
 

@@ -76,7 +76,7 @@ describe("isDriftCommand — TRUE POSITIVES (must nudge)", () => {
   // bypassed the v2 drift nudge.
   it("flags grep against an absolute path containing src/", () => {
     const h = isDriftCommand(
-      "grep -rn 'compressShellOutput' /Users/foo/repo/src/proxy/",
+      "grep -rn 'compressShellOutput' /Users/foo/repo/src/proxy/"
     );
     expect(h?.kind).toBe("code_search");
     expect(h?.suggest).toContain("search_code");
@@ -94,7 +94,7 @@ describe("isDriftCommand — TRUE NEGATIVES (must NOT nudge)", () => {
 
   it("does NOT flag npm version", () => {
     expect(
-      isDriftCommand("npm version 0.0.0-beta.11 --no-git-tag-version"),
+      isDriftCommand("npm version 0.0.0-beta.11 --no-git-tag-version")
     ).toBeNull();
   });
 
@@ -112,7 +112,7 @@ describe("isDriftCommand — TRUE NEGATIVES (must NOT nudge)", () => {
 
   it("does NOT flag a clean eslint run", () => {
     expect(
-      isDriftCommand("node_modules/.bin/eslint 'app/(launch)'"),
+      isDriftCommand("node_modules/.bin/eslint 'app/(launch)'")
     ).toBeNull();
   });
 
@@ -219,7 +219,7 @@ describe("nudge-state — session flag persistence", () => {
     writeFileSync(
       join(tmpRoot, ".unerr", "state", `nudge-pid-${process.pid}.flags`),
       "{not json",
-      { flag: "w" },
+      { flag: "w" }
     );
     // Should not throw
     const s = readNudgeState(tmpRoot);

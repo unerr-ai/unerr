@@ -41,7 +41,7 @@ const GRAPH_TIMEOUT_MS = 100;
 
 function isGeneratedPath(rel: string): boolean {
   return /(?:^|\/)node_modules\/|(?:^|\/)dist\/|\/\.next\/|\.generated\./.test(
-    rel,
+    rel
   );
 }
 
@@ -92,7 +92,7 @@ export interface EntitySearchInfo {
  */
 export function rankEntityMatches(
   entities: EntityMatchable[],
-  query: string,
+  query: string
 ): EntityMatch[] {
   const results: EntityMatch[] = [];
   const queryLower = query.toLowerCase();
@@ -129,7 +129,6 @@ export function rankEntityMatches(
         score: 40 + specificity * 20,
         matchType: "substring",
       });
-      continue;
     }
   }
 
@@ -145,7 +144,7 @@ function logFileRead(
   totalLines: number,
   returnedLines: number,
   entity?: string,
-  tokenEstimate?: number,
+  tokenEstimate?: number
 ): void {
   const savedPct =
     totalLines > 0
@@ -170,7 +169,7 @@ function logFileRead(
  */
 export async function runFileReadForRouter(
   args: Record<string, unknown>,
-  ctx: { cwd: string; graph: CozoGraphStore | null },
+  ctx: { cwd: string; graph: CozoGraphStore | null }
 ): Promise<FileReadRouterResult> {
   const filePathArg = args.file_path as string;
   if (!filePathArg) throw new Error("file_read requires file_path");
@@ -195,7 +194,7 @@ export async function runFileReadForRouter(
       ? args.token_budget
       : defaultBudget;
   const budgetLines = Math.floor(
-    (tokenBudget * CHARS_PER_TOKEN) / AVG_CHARS_PER_LINE,
+    (tokenBudget * CHARS_PER_TOKEN) / AVG_CHARS_PER_LINE
   );
 
   const abs = resolve(ctx.cwd, filePathArg);
@@ -228,7 +227,7 @@ export async function runFileReadForRouter(
   // Adaptive gating: use budget-derived threshold but respect hard ceiling
   const effectiveGate = Math.max(
     LINE_GATE,
-    Math.min(HARD_GATE_CEILING, budgetLines),
+    Math.min(HARD_GATE_CEILING, budgetLines)
   );
 
   if (
@@ -250,7 +249,7 @@ export async function runFileReadForRouter(
       totalLines,
       outline.entities.length,
       undefined,
-      outline.token_estimate,
+      outline.token_estimate
     );
     return {
       content: {
@@ -283,16 +282,17 @@ export async function runFileReadForRouter(
           new Promise<never>((_, reject) =>
             setTimeout(
               () => reject(new Error("graph_timeout")),
-              GRAPH_TIMEOUT_MS,
-            ),
+              GRAPH_TIMEOUT_MS
+            )
           ),
         ]).catch(() => [] as EntityMatchable[]);
 
         if (entities.length > 0) {
           const ranked = rankEntityMatches(entities, entityName);
 
-          if (ranked.length > 0 && ranked[0]!.score >= 70) {
-            const match = ranked[0]!.entity;
+          const topRanked = ranked[0];
+          if (ranked.length > 0 && topRanked && topRanked.score >= 70) {
+            const match = topRanked.entity;
             if (match.start_line >= 1 && match.start_line <= totalLines) {
               const start = Math.max(1, match.start_line - ENTITY_CONTEXT);
               const endLine =
@@ -307,8 +307,8 @@ export async function runFileReadForRouter(
               entityMatchInfo = {
                 matched: true,
                 name: match.name,
-                score: ranked[0]!.score,
-                matchType: ranked[0]!.matchType,
+                score: topRanked.score,
+                matchType: topRanked.matchType,
               };
             }
           } else if (ranked.length > 0) {
@@ -336,8 +336,9 @@ export async function runFileReadForRouter(
         }));
         const ranked = rankEntityMatches(astEntities, entityName);
 
-        if (ranked.length > 0 && ranked[0]!.score >= 70) {
-          const match = ranked[0]!.entity;
+        const topAstRank = ranked[0];
+        if (topAstRank && topAstRank.score >= 70 && topAstRank.entity) {
+          const match = topAstRank.entity;
           if (match.start_line >= 1 && match.start_line <= totalLines) {
             const start = Math.max(1, match.start_line - ENTITY_CONTEXT);
             const endLine =
@@ -349,8 +350,8 @@ export async function runFileReadForRouter(
             entityMatchInfo = {
               matched: true,
               name: match.name,
-              score: ranked[0]!.score,
-              matchType: ranked[0]!.matchType,
+              score: topAstRank.score,
+              matchType: topAstRank.matchType,
             };
           }
         } else if (ranked.length > 0 && !entityMatchInfo) {
@@ -390,7 +391,7 @@ export async function runFileReadForRouter(
         totalLines,
         outline.entities.length,
         entityName,
-        outline.token_estimate,
+        outline.token_estimate
       );
       return {
         content: {
@@ -472,7 +473,7 @@ export async function runFileReadForRouter(
       totalLines,
       sliced.length,
       entityLabel,
-      neededTokens,
+      neededTokens
     );
     return {
       content: {
@@ -513,7 +514,7 @@ export async function runFileReadForRouter(
   const warnings: string[] = [];
   if (isGeneratedPath(rel)) {
     warnings.push(
-      "Path looks generated or vendor (`node_modules` / `dist` / `.next`) — verify you intended to read it.",
+      "Path looks generated or vendor (`node_modules` / `dist` / `.next`) — verify you intended to read it."
     );
   }
   if (warnings.length > 0) {
@@ -564,7 +565,7 @@ export async function runFileReadForRouter(
     totalLines,
     returnedLineCount,
     entityWindowApplied ? entityMatchInfo?.name : undefined,
-    meta.tokens_estimate,
+    meta.tokens_estimate
   );
 
   return {
@@ -576,7 +577,7 @@ export async function runFileReadForRouter(
 /** Interactive / coding-tools entry — same semantics as router. */
 export async function runFileReadTool(
   args: Record<string, unknown>,
-  ctx: ToolContext,
+  ctx: ToolContext
 ): Promise<ToolOutput> {
   try {
     const r = await runFileReadForRouter(args, {

@@ -106,7 +106,7 @@ describe("ledger-chains", () => {
       const history = getEntityHistory(entries, "src/proxy.ts");
       expect(history.length).toBe(1);
       expect(history[0]!.entities_touched).toContain(
-        "src/proxy.ts::startProxy",
+        "src/proxy.ts::startProxy"
       );
     });
 
@@ -116,7 +116,7 @@ describe("ledger-chains", () => {
           id: `r${i}`,
           correlation_id: null,
           args_summary: { file_path: "src/hot.ts" },
-        }),
+        })
       );
 
       const history = getEntityHistory(entries, "src/hot.ts", 5);
@@ -142,14 +142,14 @@ describe("ledger-chains", () => {
             id: `c${i}-2`,
             correlation_id: rootId,
             tool: i < 2 ? "unerr_revert_to_working_state" : "get_callers",
-          }),
+          })
         );
       }
 
       const patterns = getRevertPatterns(entries, 2);
       expect(patterns.length).toBeGreaterThan(0);
       const mainPattern = patterns.find((p) =>
-        p.tool_sequence.includes("get_function"),
+        p.tool_sequence.includes("get_function")
       );
       expect(mainPattern).toBeDefined();
       expect(mainPattern!.revert_rate).toBeGreaterThan(0);
@@ -180,7 +180,7 @@ describe("ledger-chains", () => {
       const s1 = timeline.find((s) => s.session_id === "s1");
       expect(s1).toBeDefined();
       expect(s1!.tool_calls).toBe(2);
-      expect(s1!.tools_used["get_function"]).toBe(1);
+      expect(s1!.tools_used.get_function).toBe(1);
     });
 
     it("counts facts recorded", () => {
@@ -196,7 +196,7 @@ describe("ledger-chains", () => {
 
     it("respects count limit", () => {
       const entries = Array.from({ length: 30 }, (_, i) =>
-        makeEntry({ session_id: `s${i}` }),
+        makeEntry({ session_id: `s${i}` })
       );
 
       const timeline = getSessionTimeline(entries, 3);

@@ -72,7 +72,7 @@ export abstract class Behavior {
 
   constructor(
     config?: Partial<BehaviorConfig>,
-    defaultLevel: AssertLevel = "suggestion",
+    defaultLevel: AssertLevel = "suggestion"
   ) {
     this.config = {
       enabled: true,
@@ -121,7 +121,7 @@ export abstract class Behavior {
 
   recordFeedback(
     action: "accepted" | "dismissed" | "overridden",
-    entityKey?: string,
+    entityKey?: string
   ): void {
     switch (action) {
       case "accepted":
@@ -310,7 +310,7 @@ export function evaluateGate(
   tokensPrevented: number,
   description: string,
   modelId?: string,
-  entityKey?: string,
+  entityKey?: string
 ): { passes: boolean; guardMoment: GuardMoment | null } {
   if (!shouldFireGuard(tokensPrevented, modelId)) {
     return { passes: false, guardMoment: null };
@@ -319,7 +319,7 @@ export function evaluateGate(
     description,
     tokensPrevented,
     modelId,
-    entityKey,
+    entityKey
   );
   return { passes: true, guardMoment: moment };
 }
@@ -330,7 +330,7 @@ export function evaluateGate(
  */
 export function estimateWastedTokens(
   attemptsRemaining: number,
-  avgTokensPerAttempt = 3500,
+  avgTokensPerAttempt = 3500
 ): number {
   return attemptsRemaining * avgTokensPerAttempt;
 }

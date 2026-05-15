@@ -20,9 +20,9 @@
  * readers share one prepared-statement set per process.
  */
 
-import Database, { type Database as DatabaseT } from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import Database, { type Database as DatabaseT } from "better-sqlite3";
 
 // ── Row types — wire format used by writers/readers ───────────────────
 

@@ -22,6 +22,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
+import { formatUnknownError } from "../utils/format-error.js";
 import {
   type ExtractedEdge,
   type ExtractedEntity,
@@ -34,7 +35,6 @@ import { detectCascadedCommunities } from "./community-detection.js";
 import { computeCoChangeEdges } from "./indexer/git-cochange.js";
 import { enrichWithScip } from "./indexer/scip/orchestrator.js";
 import { isTestFile } from "./indexer/test-detector.js";
-import { formatUnknownError } from "../utils/format-error.js";
 import { detectLocalConventions } from "./local-convention-detector.js";
 import type {
   CompactEdge,
@@ -97,7 +97,7 @@ export interface IndexOptions {
   onFileIndexed?: (
     filePath: string,
     entityCount: number,
-    edgeCount: number,
+    edgeCount: number
   ) => void;
   /** Rich progress callback (L11.1) — reports phase, processed/total, current file */
   onProgress?: (event: IndexProgressEvent) => void;
@@ -282,7 +282,7 @@ export async function indexLocalProject(
   projectRoot: string,
   graphStore: CozoGraphStore,
   repoId: string,
-  opts?: IndexOptions,
+  opts?: IndexOptions
 ): Promise<IndexResult> {
   const startTime = Date.now();
   const progress = opts?.onProgress;
@@ -343,7 +343,7 @@ export async function indexLocalProject(
         relPath,
         entity.kind,
         entity.name,
-        entity.signature,
+        entity.signature
       );
       allEntities.push({
         key,
@@ -372,7 +372,7 @@ export async function indexLocalProject(
     filesProcessed++;
     log.verbose(
       `${relPath}: ${entities.length} entities, ${edges.length} edges`,
-      opts?.verbose,
+      opts?.verbose
     );
     opts?.onFileIndexed?.(relPath, entities.length, edges.length);
   }
@@ -390,7 +390,7 @@ export async function indexLocalProject(
     entityByName,
     allEntities,
     repoId,
-    fileEntityMap,
+    fileEntityMap
   );
 
   // Phase 4.5: SCIP enrichment (inline — adds cross-file edges tree-sitter missed)
@@ -415,11 +415,11 @@ export async function indexLocalProject(
       key: e.key,
       name: e.name,
       file_path: e.file_path,
-    })),
+    }))
   );
   if (scipResult.mergeResult) {
     log.info(
-      `SCIP: ${scipResult.mergeResult.edgesUpgraded} edges verified, ${scipResult.mergeResult.newEdgesFromScip} new edges added (${scipResult.language})`,
+      `SCIP: ${scipResult.mergeResult.edgesUpgraded} edges verified, ${scipResult.mergeResult.newEdgesFromScip} new edges added (${scipResult.language})`
     );
   }
 
@@ -430,7 +430,7 @@ export async function indexLocalProject(
   const testEdges = resolveTestEdges(
     allEntities,
     resolvedEdges,
-    fileImportEdges,
+    fileImportEdges
   );
   if (testEdges.length > 0) {
     resolvedEdges.push(...testEdges);
@@ -508,7 +508,7 @@ export async function indexLocalProject(
   });
   const { patternCount, ruleCount } = await runConventionDetection(
     graphStore,
-    repoId,
+    repoId
   );
 
   // Phase 9: Build search index
@@ -531,7 +531,7 @@ export async function indexLocalProject(
 
   const elapsedMs = Date.now() - startTime;
   log.info(
-    `Indexed ${files.length} files → ${allEntities.length} entities, ${resolvedEdges.length} edges, ${docKeys.length} docs in ${elapsedMs}ms`,
+    `Indexed ${files.length} files → ${allEntities.length} entities, ${resolvedEdges.length} edges, ${docKeys.length} docs in ${elapsedMs}ms`
   );
 
   return {
@@ -562,7 +562,7 @@ export async function reindexFile(
   projectRoot: string,
   filePath: string,
   graphStore: CozoGraphStore,
-  repoId: string,
+  repoId: string
 ): Promise<{ entities: number; edges: number }> {
   const relPath = filePath.startsWith("/")
     ? relative(projectRoot, filePath)
@@ -612,7 +612,7 @@ export async function reindexFile(
       edge.from_name,
       relPath,
       repoId,
-      entities,
+      entities
     );
     const toKey = await resolveEntityNameGlobal(edge.to_name, graphStore);
     if (fromKey && toKey) {
@@ -682,7 +682,7 @@ function walkDir(dir: string, files: string[], projectRoot: string): void {
 
 /** Build a name → entity key index for cross-file resolution. */
 function buildEntityNameIndex(
-  entities: CompactEntity[],
+  entities: CompactEntity[]
 ): Map<string, CompactEntity[]> {
   const index = new Map<string, CompactEntity[]>();
   for (const entity of entities) {
@@ -713,7 +713,7 @@ function resolveEdges(
   entityByName: Map<string, CompactEntity[]>,
   allEntities: CompactEntity[],
   repoId: string,
-  fileEntityMap: Map<string, ExtractedEntity[]>,
+  fileEntityMap: Map<string, ExtractedEntity[]>
 ): ResolveEdgesResult {
   const resolved: CompactEdge[] = [];
   const seen = new Set<string>();
@@ -737,7 +737,7 @@ function resolveEdges(
       const targetFile = resolveImportSourceToFile(
         edge.import_source,
         sourceFile,
-        allFilePaths,
+        allFilePaths
       );
       if (targetFile && targetFile !== sourceFile) {
         fileImportPairs.add(`${sourceFile}\0${targetFile}`);
@@ -785,7 +785,7 @@ function resolveEdges(
       sources.length === 1
         ? sources[0]!
         : (sources.find(
-            (s) => s.file_path === edge.source_file && s.kind !== "class",
+            (s) => s.file_path === edge.source_file && s.kind !== "class"
           ) ??
           sources.find((s) => s.file_path === edge.source_file) ??
           sources.find((s) => s.kind !== "class") ??
@@ -836,7 +836,7 @@ function resolveEdges(
 export function resolveImportSourceToFile(
   importSource: string,
   sourceFile: string,
-  projectFiles: Set<string>,
+  projectFiles: Set<string>
 ): string | null {
   // Skip empty or clearly external imports
   if (!importSource || importSource.length === 0) return null;
@@ -856,7 +856,7 @@ export function resolveImportSourceToFile(
     return matchFileCandidates(
       base ? `${base}/${remainder}` : remainder,
       projectFiles,
-      ["py"],
+      ["py"]
     );
   }
 
@@ -887,7 +887,7 @@ export function resolveImportSourceToFile(
         const suffix = segments.slice(i).join("/");
         // Go packages are directories — look for any .go file in that dir
         for (const fp of projectFiles) {
-          if (fp.endsWith(".go") && fp.includes(suffix + "/")) {
+          if (fp.endsWith(".go") && fp.includes(`${suffix}/`)) {
             // Return the directory's first file as representative
             return fp;
           }
@@ -935,15 +935,13 @@ export function resolveImportSourceToFile(
 function resolveRelativeImport(
   importSource: string,
   sourceFile: string,
-  projectFiles: Set<string>,
+  projectFiles: Set<string>
 ): string | null {
   const sourceDir = sourceFile.substring(0, sourceFile.lastIndexOf("/"));
   const candidates: string[] = [];
 
   // Normalize the relative path
-  const parts = (sourceDir + "/" + importSource.replace(/^\.\//, "")).split(
-    "/",
-  );
+  const parts = `${sourceDir}/${importSource.replace(/^\.\//, "")}`.split("/");
   const resolved: string[] = [];
   for (const p of parts) {
     if (p === "..") resolved.pop();
@@ -990,7 +988,7 @@ function resolveRelativeImport(
 function matchFileCandidates(
   basePath: string,
   projectFiles: Set<string>,
-  extensions: string[],
+  extensions: string[]
 ): string | null {
   if (!basePath) return null;
 
@@ -1041,7 +1039,7 @@ function matchFileCandidates(
 /** Pick the best matching entity when multiple share the same name. */
 function pickBestTarget(
   targets: CompactEntity[],
-  importSource?: string,
+  importSource?: string
 ): CompactEntity | null {
   if (!importSource || targets.length <= 1) return targets[0] ?? null;
 
@@ -1072,7 +1070,7 @@ function pickBestTarget(
 function resolveTestEdges(
   entities: CompactEntity[],
   edges: CompactEdge[],
-  fileImportEdges: CompactEdge[] = [],
+  fileImportEdges: CompactEdge[] = []
 ): CompactEdge[] {
   const testEdges: CompactEdge[] = [];
   const entityMap = new Map<string, CompactEntity>();
@@ -1233,7 +1231,7 @@ function resolveTestEdges(
 /** Compute fan_in, fan_out, and risk_level for all entities. */
 function computeDerivedFields(
   entities: CompactEntity[],
-  edges: CompactEdge[],
+  edges: CompactEdge[]
 ): void {
   const fanInMap = new Map<string, number>();
   const fanOutMap = new Map<string, number>();
@@ -1264,7 +1262,7 @@ function computeRiskLevel(fanIn: number, fanOut: number): string {
 async function populateCozoDB(
   graphStore: CozoGraphStore,
   entities: CompactEntity[],
-  edges: CompactEdge[],
+  edges: CompactEdge[]
 ): Promise<void> {
   // R.1: Create file-level entities (file:<path> with kind="module")
   const filePaths = new Set<string>();
@@ -1276,12 +1274,12 @@ async function populateCozoDB(
       await graphStore.db.run(
         `?[key, kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test] <- [[$key, "module", $name, $fp, 0, 0, "", "", 0, 0, "normal", $is_test]]
          :put entities { key => kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test }`,
-        { key: `file:${fp}`, name: basename(fp), fp, is_test: isTestFile(fp) },
+        { key: `file:${fp}`, name: basename(fp), fp, is_test: isTestFile(fp) }
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : JSON.stringify(err);
       process.stderr.write(
-        `[unerr] ⚠ File entity insert failed for ${fp}: ${msg}\n`,
+        `[unerr] ⚠ File entity insert failed for ${fp}: ${msg}\n`
       );
     }
   }
@@ -1298,11 +1296,11 @@ async function populateCozoDB(
       await graphStore.db.run(
         `?[from_key, to_key, type, sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode] <- [[$from, $to, "contains", -1, "", "", false, "", 0, false, false, "", ""]]
          :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`,
-        { from: `file:${entity.file_path}`, to: entity.key },
+        { from: `file:${entity.file_path}`, to: entity.key }
       );
     } catch (err: unknown) {
       process.stderr.write(
-        `[unerr] ⚠ Contains edge insert failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        `[unerr] ⚠ Contains edge insert failed: ${err instanceof Error ? err.message : String(err)}\n`
       );
     }
   }
@@ -1315,18 +1313,18 @@ async function populateCozoDB(
       (e) =>
         e.kind === "class" &&
         e.name === entity.parent_class &&
-        e.file_path === entity.file_path,
+        e.file_path === entity.file_path
     );
     if (!classEntity) continue;
     try {
       await graphStore.db.run(
         `?[from_key, to_key, type, sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode] <- [[$from, $to, "contains", -1, "", "", false, "", 0, false, false, "", ""]]
          :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`,
-        { from: classEntity.key, to: entity.key },
+        { from: classEntity.key, to: entity.key }
       );
     } catch (err: unknown) {
       process.stderr.write(
-        `[unerr] ⚠ Class→method edge insert failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        `[unerr] ⚠ Class→method edge insert failed: ${err instanceof Error ? err.message : String(err)}\n`
       );
     }
   }
@@ -1339,7 +1337,7 @@ async function populateCozoDB(
 
 async function insertEntity(
   graphStore: CozoGraphStore,
-  entity: CompactEntity,
+  entity: CompactEntity
 ): Promise<void> {
   try {
     await graphStore.db.run(
@@ -1358,24 +1356,24 @@ async function insertEntity(
         fo: entity.fan_out ?? 0,
         rl: entity.risk_level ?? "normal",
         is_test: entity.is_test ?? false,
-      },
+      }
     );
 
     // File index
     await graphStore.db.run(
       "?[file_path, entity_key] <- [[$fp, $key]] :put file_index { file_path, entity_key }",
-      { fp: entity.file_path, key: entity.key },
+      { fp: entity.file_path, key: entity.key }
     );
   } catch (err: unknown) {
     process.stderr.write(
-      `[unerr] ⚠ Entity insert failed for ${entity.key}: ${formatUnknownError(err)}\n`,
+      `[unerr] ⚠ Entity insert failed for ${entity.key}: ${formatUnknownError(err)}\n`
     );
   }
 }
 
 async function insertEdge(
   graphStore: CozoGraphStore,
-  edge: CompactEdge,
+  edge: CompactEdge
 ): Promise<void> {
   try {
     await graphStore.db.run(
@@ -1385,11 +1383,11 @@ async function insertEdge(
         from: edge.from_key,
         to: edge.to_key,
         type: edge.type,
-      },
+      }
     );
   } catch (err: unknown) {
     process.stderr.write(
-      `[unerr] ⚠ Edge insert failed (${edge.from_key} → ${edge.to_key}): ${err instanceof Error ? err.message : String(err)}\n`,
+      `[unerr] ⚠ Edge insert failed (${edge.from_key} → ${edge.to_key}): ${err instanceof Error ? err.message : String(err)}\n`
     );
   }
 }
@@ -1424,14 +1422,14 @@ async function materializeL1Edges(graphStore: CozoGraphStore): Promise<void> {
             et: row[2] as string,
             w: row[3] as number,
             ts: Date.now(),
-          },
+          }
         );
       }
       log.info(`L1 file edges: ${fileEdgeResult.rows.length} materialized`);
     }
   } catch (err) {
     log.info(
-      `L1 file edge materialization failed: ${err instanceof Error ? err.message : err}`,
+      `L1 file edge materialization failed: ${err instanceof Error ? err.message : err}`
     );
   }
 
@@ -1459,14 +1457,14 @@ async function materializeL1Edges(graphStore: CozoGraphStore): Promise<void> {
             et: row[2] as string,
             w: row[3] as number,
             ts: Date.now(),
-          },
+          }
         );
       }
       log.info(`L1 class edges: ${classEdgeResult.rows.length} materialized`);
     }
   } catch (err) {
     log.info(
-      `L1 class edge materialization failed: ${err instanceof Error ? err.message : err}`,
+      `L1 class edge materialization failed: ${err instanceof Error ? err.message : err}`
     );
   }
 }
@@ -1475,7 +1473,7 @@ async function materializeL1Edges(graphStore: CozoGraphStore): Promise<void> {
 
 /** Run cascaded multi-level community detection. Returns macro-community count. */
 export async function runCommunityDetection(
-  graphStore: CozoGraphStore,
+  graphStore: CozoGraphStore
 ): Promise<number> {
   const db = graphStore.db;
 
@@ -1483,11 +1481,11 @@ export async function runCommunityDetection(
   let entityResult: { rows?: unknown[][] };
   try {
     entityResult = await db.run(
-      "?[key, kind, file_path] := *entities{key, kind, file_path}",
+      "?[key, kind, file_path] := *entities{key, kind, file_path}"
     );
   } catch (err: unknown) {
     process.stderr.write(
-      `[unerr] ⚠ Entity query failed during community detection: ${err instanceof Error ? err.message : String(err)}\n`,
+      `[unerr] ⚠ Entity query failed during community detection: ${err instanceof Error ? err.message : String(err)}\n`
     );
     return 0;
   }
@@ -1502,11 +1500,11 @@ export async function runCommunityDetection(
   let edgeResult: { rows?: unknown[][] };
   try {
     edgeResult = await db.run(
-      "?[from_key, to_key, type] := *edges{from_key, to_key, type}",
+      "?[from_key, to_key, type] := *edges{from_key, to_key, type}"
     );
   } catch (err: unknown) {
     process.stderr.write(
-      `[unerr] ⚠ Edge query failed during community detection: ${err instanceof Error ? err.message : String(err)}\n`,
+      `[unerr] ⚠ Edge query failed during community detection: ${err instanceof Error ? err.message : String(err)}\n`
     );
     return 0;
   }
@@ -1520,7 +1518,7 @@ export async function runCommunityDetection(
   let fileEdgeResult: { rows?: unknown[][] };
   try {
     fileEdgeResult = await db.run(
-      "?[from_file, to_file, edge_type, weight] := *file_edges{from_file, to_file, edge_type, weight}",
+      "?[from_file, to_file, edge_type, weight] := *file_edges{from_file, to_file, edge_type, weight}"
     );
   } catch {
     fileEdgeResult = { rows: [] };
@@ -1540,11 +1538,11 @@ export async function runCommunityDetection(
     try {
       await db.run(
         "?[key, community] <- [[$key, $cid]] :update entities { key => community }",
-        { key, cid: communityId },
+        { key, cid: communityId }
       );
     } catch (err: unknown) {
       process.stderr.write(
-        `[unerr] ⚠ Community assignment update failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        `[unerr] ⚠ Community assignment update failed: ${err instanceof Error ? err.message : String(err)}\n`
       );
     }
   }
@@ -1554,11 +1552,11 @@ export async function runCommunityDetection(
     try {
       await db.run(
         "?[id, label, size, cohesion] <- [[$id, $label, $size, $cohesion]] :put communities { id => label, size, cohesion }",
-        { id: c.id, label: c.label, size: c.size, cohesion: c.cohesion },
+        { id: c.id, label: c.label, size: c.size, cohesion: c.cohesion }
       );
     } catch (err: unknown) {
       process.stderr.write(
-        `[unerr] ⚠ Community metadata write failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        `[unerr] ⚠ Community metadata write failed: ${err instanceof Error ? err.message : String(err)}\n`
       );
     }
   }
@@ -1575,17 +1573,17 @@ export async function runCommunityDetection(
           label: fc.label,
           cohesion: fc.cohesion,
           ts: Date.now(),
-        },
+        }
       );
     } catch (err: unknown) {
       process.stderr.write(
-        `[unerr] ⚠ File community write failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        `[unerr] ⚠ File community write failed: ${err instanceof Error ? err.message : String(err)}\n`
       );
     }
   }
 
   log.info(
-    `Community detection: ${result.macroCommunities.length} macro-communities, ${result.entityAssignments.size} entity assignments`,
+    `Community detection: ${result.macroCommunities.length} macro-communities, ${result.entityAssignments.size} entity assignments`
   );
 
   return result.macroCommunities.length;
@@ -1598,7 +1596,7 @@ export async function runCommunityDetection(
  */
 export async function runConventionDetection(
   graphStore: CozoGraphStore,
-  repoId: string,
+  repoId: string
 ): Promise<{ patternCount: number; ruleCount: number }> {
   try {
     const detection = await detectLocalConventions(graphStore.db);
@@ -1608,7 +1606,7 @@ export async function runConventionDetection(
     await graphStore.loadRules(generation.rules);
 
     log.info(
-      `Conventions: ${detection.patterns.length} patterns detected, ${generation.rules.length} rules generated`,
+      `Conventions: ${detection.patterns.length} patterns detected, ${generation.rules.length} rules generated`
     );
     if (detection.stats.naming > 0) {
       log.info(`  Naming: ${detection.stats.naming}`);
@@ -1626,7 +1624,7 @@ export async function runConventionDetection(
     };
   } catch (err) {
     log.info(
-      `Convention detection skipped: ${err instanceof Error ? err.message : String(err)}`,
+      `Convention detection skipped: ${err instanceof Error ? err.message : String(err)}`
     );
     return { patternCount: 0, ruleCount: 0 };
   }
@@ -1637,14 +1635,14 @@ export async function runConventionDetection(
 /** Remove all entities and edges for a given file path. */
 async function removeFileEntities(
   graphStore: CozoGraphStore,
-  relPath: string,
+  relPath: string
 ): Promise<void> {
   const db = graphStore.db;
 
   // Get entity keys for this file
   const result = await db.run(
     "?[entity_key] := *file_index[file_path, entity_key], file_path = $fp",
-    { fp: relPath },
+    { fp: relPath }
   );
   const keys = result.rows.map((r) => r[0] as string);
 
@@ -1661,7 +1659,7 @@ async function removeFileEntities(
   try {
     await db.run(
       "?[file_path, entity_key] := *file_index[file_path, entity_key], file_path = $fp :rm file_index { file_path, entity_key }",
-      { fp: relPath },
+      { fp: relPath }
     );
   } catch {
     /* may not exist */
@@ -1672,7 +1670,7 @@ async function removeFileEntities(
     try {
       await db.run(
         "?[from_key, to_key, type] := *edges[from_key, to_key, type, _, _, _, _, _, _, _, _, _, _], from_key = $key :rm edges { from_key, to_key, type }",
-        { key },
+        { key }
       );
     } catch {
       /* ignore */
@@ -1680,7 +1678,7 @@ async function removeFileEntities(
     try {
       await db.run(
         "?[from_key, to_key, type] := *edges[from_key, to_key, type, _, _, _, _, _, _, _, _, _, _], to_key = $key :rm edges { from_key, to_key, type }",
-        { key },
+        { key }
       );
     } catch {
       /* ignore */
@@ -1692,7 +1690,7 @@ async function removeFileEntities(
     try {
       await db.run(
         "?[token, entity_key] := *search_tokens[token, entity_key], entity_key = $key :rm search_tokens { token, entity_key }",
-        { key },
+        { key }
       );
     } catch {
       /* ignore */
@@ -1707,7 +1705,7 @@ async function removeFileEntities(
  */
 async function removeOrphanedEntities(
   graphStore: CozoGraphStore,
-  liveKeys: Set<string>,
+  liveKeys: Set<string>
 ): Promise<void> {
   const db = graphStore.db;
 
@@ -1730,21 +1728,21 @@ async function removeOrphanedEntities(
       // Remove edges referencing this entity
       await db.run(
         "?[from_key, to_key, type] := *edges{from_key, to_key, type}, from_key = $key :rm edges {from_key, to_key, type}",
-        { key },
+        { key }
       );
       await db.run(
         "?[from_key, to_key, type] := *edges{from_key, to_key, type}, to_key = $key :rm edges {from_key, to_key, type}",
-        { key },
+        { key }
       );
       // Remove search tokens
       await db.run(
         "?[token, entity_key] := *search_tokens[token, entity_key], entity_key = $key :rm search_tokens {token, entity_key}",
-        { key },
+        { key }
       );
       // Remove file index entries
       await db.run(
         "?[file_path, entity_key] := *file_index[file_path, entity_key], entity_key = $key :rm file_index {file_path, entity_key}",
-        { key },
+        { key }
       );
       // Remove the entity itself
       await db.run("?[key] <- [[$key]] :rm entities {key}", { key });
@@ -1759,7 +1757,7 @@ function resolveEntityName(
   name: string,
   filePath: string,
   repoId: string,
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): string | null {
   if (name === "__file__") return null;
   const match = entities.find((e) => e.name === name);
@@ -1772,12 +1770,12 @@ function resolveEntityName(
 /** Resolve an entity name by searching the global CozoDB graph. */
 async function resolveEntityNameGlobal(
   name: string,
-  graphStore: CozoGraphStore,
+  graphStore: CozoGraphStore
 ): Promise<string | null> {
   try {
     const result = await graphStore.db.run(
       "?[key] := *entities{key, name}, name = $name :limit 1",
-      { name },
+      { name }
     );
     if (result.rows.length > 0) {
       return result.rows[0]?.[0] as string;
@@ -1831,7 +1829,7 @@ const DOC_TOKEN_PATTERNS: Record<string, RegExp> = {
 function walkDirForDocs(
   dir: string,
   files: string[],
-  projectRoot: string,
+  projectRoot: string
 ): void {
   let entries: string[];
   try {
@@ -1905,9 +1903,11 @@ function extractDocTokens(absPath: string, relPath: string): string[] {
     if (pattern) {
       pattern.lastIndex = 0;
       let match: RegExpExecArray | null;
-      while ((match = pattern.exec(content)) !== null) {
+      match = pattern.exec(content);
+      while (match !== null) {
         if (match[1]) for (const t of tokenize(match[1])) tokens.add(t);
         if (match[2]) for (const t of tokenize(match[2])) tokens.add(t);
+        match = pattern.exec(content);
       }
     }
 
@@ -1915,8 +1915,10 @@ function extractDocTokens(absPath: string, relPath: string): string[] {
     if (ext === ".yaml" || ext === ".yml") {
       const yamlKeyRegex = /^([a-zA-Z_][\w-]*)\s*:/gm;
       let match: RegExpExecArray | null;
-      while ((match = yamlKeyRegex.exec(content)) !== null) {
+      match = yamlKeyRegex.exec(content);
+      while (match !== null) {
         if (match[1]) for (const t of tokenize(match[1])) tokens.add(t);
+        match = yamlKeyRegex.exec(content);
       }
     }
   } catch {
@@ -1933,7 +1935,7 @@ function extractDocTokens(absPath: string, relPath: string): string[] {
  */
 async function indexDocumentFiles(
   projectRoot: string,
-  graphStore: CozoGraphStore,
+  graphStore: CozoGraphStore
 ): Promise<string[]> {
   const docFiles = discoverDocumentFiles(projectRoot);
   if (docFiles.length === 0) return [];
@@ -1950,7 +1952,7 @@ async function indexDocumentFiles(
     try {
       await graphStore.db.run(
         '?[key, kind, name, file_path, fan_in, fan_out, risk_level] <- [[$key, "document", $name, $fp, 0, 0, "low"]] :put entities { key => kind, name, file_path, fan_in, fan_out, risk_level }',
-        { key, name, fp: relPath },
+        { key, name, fp: relPath }
       );
     } catch {
       continue;
@@ -1962,7 +1964,7 @@ async function indexDocumentFiles(
       try {
         await graphStore.db.run(
           "?[token, entity_key] <- [[$token, $key]] :put search_tokens { token, entity_key }",
-          { token, key },
+          { token, key }
         );
       } catch {
         /* duplicate — safe */
@@ -1973,7 +1975,7 @@ async function indexDocumentFiles(
     try {
       await graphStore.db.run(
         "?[file_path, entity_key] <- [[$fp, $key]] :put file_index { file_path, entity_key }",
-        { fp: relPath, key },
+        { fp: relPath, key }
       );
     } catch {
       /* safe */
@@ -1982,7 +1984,7 @@ async function indexDocumentFiles(
 
   if (docKeys.length > 0) {
     log.info(
-      `Documents: ${docKeys.length} doc/config files indexed for search`,
+      `Documents: ${docKeys.length} doc/config files indexed for search`
     );
   }
 

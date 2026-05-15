@@ -28,7 +28,7 @@ let unerrDir: string;
 beforeEach(() => {
   tempDir = join(
     tmpdir(),
-    `unerr-drift-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-drift-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   projectRoot = join(tempDir, "project");
   unerrDir = join(projectRoot, ".unerr");
@@ -123,7 +123,7 @@ function createMockGraph(baseEntities: LocalEntity[] = []): CozoGraphStore & {
  */
 function createMockGraphWithCallers(
   baseEntities: LocalEntity[],
-  callerMap: Map<string, LocalEntity[]>,
+  callerMap: Map<string, LocalEntity[]>
 ): CozoGraphStore & { driftOverlay: Map<string, DriftEntity> } {
   const base = createMockGraph(baseEntities);
   // Override getCallersOf to return from the caller map
@@ -138,7 +138,7 @@ describe("DriftTracker", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     // Write a TypeScript file with a function
@@ -146,7 +146,7 @@ describe("DriftTracker", () => {
       join(projectRoot, "src/new-feature.ts"),
       `export function newFeature() {
   return "hello"
-}`,
+}`
     );
 
     const result = await tracker.processFile("src/new-feature.ts", "abc123");
@@ -185,7 +185,7 @@ describe("DriftTracker", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     // Write modified file
@@ -193,14 +193,14 @@ describe("DriftTracker", () => {
       join(projectRoot, "src/existing.ts"),
       `function existingFn() {
   return 2
-}`,
+}`
     );
 
     const result = await tracker.processFile("src/existing.ts", "abc123");
     expect(result.filesProcessed).toBe(1);
     // Either modified or added depending on key match
     expect(
-      result.entitiesModified + result.entitiesAdded,
+      result.entitiesModified + result.entitiesAdded
     ).toBeGreaterThanOrEqual(1);
   });
 
@@ -210,7 +210,7 @@ describe("DriftTracker", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     const content = "export function unchanged() { return 1 }";
@@ -253,7 +253,7 @@ describe("DriftTracker", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     // Don't create the file — it's "deleted"
@@ -272,7 +272,7 @@ describe("DriftTracker", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     writeFileSync(join(projectRoot, "data.json"), '{"key": "value"}');
@@ -288,21 +288,21 @@ describe("DriftTracker", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     writeFileSync(
       join(projectRoot, "src/a.ts"),
-      "export function alpha() { return 1 }",
+      "export function alpha() { return 1 }"
     );
     writeFileSync(
       join(projectRoot, "src/b.ts"),
-      "export function beta() { return 2 }",
+      "export function beta() { return 2 }"
     );
 
     const result = await tracker.processFiles(
       ["src/a.ts", "src/b.ts"],
-      "abc123",
+      "abc123"
     );
     expect(result.filesProcessed).toBe(2);
     expect(result.entitiesAdded).toBe(2);
@@ -330,13 +330,13 @@ describe("DriftTracker", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     // Add a new file
     writeFileSync(
       join(projectRoot, "src/new.ts"),
-      "export function newOne() { return 1 }",
+      "export function newOne() { return 1 }"
     );
     await tracker.processFile("src/new.ts", "abc123");
 
@@ -346,7 +346,7 @@ describe("DriftTracker", () => {
     const summary = await tracker.getDriftSummary();
     expect(summary.total).toBeGreaterThan(0);
     expect(summary.added + summary.modified + summary.deleted).toBe(
-      summary.total,
+      summary.total
     );
   });
 
@@ -356,12 +356,12 @@ describe("DriftTracker", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     writeFileSync(
       join(projectRoot, "src/a.ts"),
-      "export function alpha() { return 1 }",
+      "export function alpha() { return 1 }"
     );
     await tracker.processFile("src/a.ts", "abc123");
     expect(graph.driftOverlay.size).toBe(1);
@@ -369,7 +369,7 @@ describe("DriftTracker", () => {
     // Branch switch — clears and recomputes
     writeFileSync(
       join(projectRoot, "src/b.ts"),
-      "export function beta() { return 1 }",
+      "export function beta() { return 1 }"
     );
     await tracker.onBranchSwitch(["src/b.ts"], "def456");
 
@@ -384,12 +384,12 @@ describe("DriftTracker", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     writeFileSync(
       join(projectRoot, "src/a.ts"),
-      "export function alpha() { return 1 }",
+      "export function alpha() { return 1 }"
     );
     await tracker.processFiles(["src/a.ts"], "abc123");
 
@@ -403,7 +403,7 @@ describe("DriftTracker", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     const filePath = join(projectRoot, "src/stable.ts");
@@ -425,7 +425,7 @@ describe("DriftTracker", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     const filePath = join(projectRoot, "src/changing.ts");
@@ -448,7 +448,7 @@ describe("DriftTracker", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     const filePath = join(projectRoot, "src/branched.ts");
@@ -569,7 +569,7 @@ describe("DriftTracker origin attribution", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     // Simulate recent AI sync
@@ -577,7 +577,7 @@ describe("DriftTracker origin attribution", () => {
 
     writeFileSync(
       join(projectRoot, "src/ai-created.ts"),
-      "export function aiCreated() { return 1 }",
+      "export function aiCreated() { return 1 }"
     );
 
     await tracker.processFile("src/ai-created.ts", "abc123");
@@ -592,14 +592,14 @@ describe("DriftTracker origin attribution", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     // No setLastSyncTimestamp call — default is 0
 
     writeFileSync(
       join(projectRoot, "src/human-created.ts"),
-      "export function humanCreated() { return 1 }",
+      "export function humanCreated() { return 1 }"
     );
 
     await tracker.processFile("src/human-created.ts", "abc123");
@@ -630,7 +630,7 @@ describe("DriftTracker origin attribution", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId: "repo1", unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     // Simulate mixed timing
@@ -653,7 +653,7 @@ describe("Cross-file drift invalidation", () => {
     filePath: string,
     name: string,
     kind: string,
-    body: string,
+    body: string
   ): LocalEntity {
     const key = entityKey(repoId, filePath, kind, name, "()");
     return {
@@ -678,13 +678,13 @@ describe("Cross-file drift invalidation", () => {
       "src/helper.ts",
       "helperFn",
       "function",
-      "function helperFn() {\n  return 1\n}",
+      "function helperFn() {\n  return 1\n}"
     );
     const callerEntity = makeBaseEntity(
       "src/caller.ts",
       "callerFn",
       "function",
-      "function callerFn() {\n  return helperFn()\n}",
+      "function callerFn() {\n  return helperFn()\n}"
     );
 
     const callerMap = new Map<string, LocalEntity[]>();
@@ -692,24 +692,24 @@ describe("Cross-file drift invalidation", () => {
 
     const graph = createMockGraphWithCallers(
       [helperEntity, callerEntity],
-      callerMap,
+      callerMap
     );
     const fileHashManager = new FileHashManager(unerrDir);
     const tracker = new DriftTracker(
       { projectRoot, repoId, unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     // Write modified helper (body changed)
     writeFileSync(
       join(projectRoot, "src/helper.ts"),
-      "export function helperFn() {\n  return 999\n}",
+      "export function helperFn() {\n  return 999\n}"
     );
     // Write caller file (unchanged, but needs to exist)
     writeFileSync(
       join(projectRoot, "src/caller.ts"),
-      "export function callerFn() {\n  return helperFn()\n}",
+      "export function callerFn() {\n  return helperFn()\n}"
     );
 
     const result = await tracker.processFile("src/helper.ts", "abc123");
@@ -728,13 +728,13 @@ describe("Cross-file drift invalidation", () => {
       "src/same-file.ts",
       "baseFunc",
       "function",
-      "function baseFunc() {\n  return 1\n}",
+      "function baseFunc() {\n  return 1\n}"
     );
     const entity2 = makeBaseEntity(
       "src/same-file.ts",
       "callerFunc",
       "function",
-      "function callerFunc() {\n  return baseFunc()\n}",
+      "function callerFunc() {\n  return baseFunc()\n}"
     );
 
     const callerMap = new Map<string, LocalEntity[]>();
@@ -745,12 +745,12 @@ describe("Cross-file drift invalidation", () => {
     const tracker = new DriftTracker(
       { projectRoot, repoId, unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     writeFileSync(
       join(projectRoot, "src/same-file.ts"),
-      "export function baseFunc() {\n  return 999\n}\nexport function callerFunc() {\n  return baseFunc()\n}",
+      "export function baseFunc() {\n  return 999\n}\nexport function callerFunc() {\n  return baseFunc()\n}"
     );
 
     const result = await tracker.processFile("src/same-file.ts", "abc123");
@@ -763,13 +763,13 @@ describe("Cross-file drift invalidation", () => {
       "src/dep.ts",
       "depFn",
       "function",
-      "function depFn() {\n  return 1\n}",
+      "function depFn() {\n  return 1\n}"
     );
     const callerEntity = makeBaseEntity(
       "src/consumer.ts",
       "consumerFn",
       "function",
-      "function consumerFn() {\n  return depFn()\n}",
+      "function consumerFn() {\n  return depFn()\n}"
     );
 
     const callerMap = new Map<string, LocalEntity[]>();
@@ -777,13 +777,13 @@ describe("Cross-file drift invalidation", () => {
 
     const graph = createMockGraphWithCallers(
       [helperEntity, callerEntity],
-      callerMap,
+      callerMap
     );
     const fileHashManager = new FileHashManager(unerrDir);
     const tracker = new DriftTracker(
       { projectRoot, repoId, unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     // Pre-populate overlay with a "modified" status for the caller
@@ -808,7 +808,7 @@ describe("Cross-file drift invalidation", () => {
     // Modify the dependency
     writeFileSync(
       join(projectRoot, "src/dep.ts"),
-      "export function depFn() {\n  return 999\n}",
+      "export function depFn() {\n  return 999\n}"
     );
 
     const result = await tracker.processFile("src/dep.ts", "abc123");
@@ -824,13 +824,13 @@ describe("Cross-file drift invalidation", () => {
       "src/removed.ts",
       "removedFn",
       "function",
-      "function removedFn() {\n  return 1\n}",
+      "function removedFn() {\n  return 1\n}"
     );
     const callerEntity = makeBaseEntity(
       "src/uses-removed.ts",
       "usesFn",
       "function",
-      "function usesFn() {\n  return removedFn()\n}",
+      "function usesFn() {\n  return removedFn()\n}"
     );
 
     const callerMap = new Map<string, LocalEntity[]>();
@@ -838,19 +838,19 @@ describe("Cross-file drift invalidation", () => {
 
     const graph = createMockGraphWithCallers(
       [deletedEntity, callerEntity],
-      callerMap,
+      callerMap
     );
     const fileHashManager = new FileHashManager(unerrDir);
     const tracker = new DriftTracker(
       { projectRoot, repoId, unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     // Write the caller file (exists), but don't write removed.ts (deleted)
     writeFileSync(
       join(projectRoot, "src/uses-removed.ts"),
-      "export function usesFn() {\n  return removedFn()\n}",
+      "export function usesFn() {\n  return removedFn()\n}"
     );
 
     // Process the deleted file — entities should propagate dependency_changed
@@ -868,19 +868,19 @@ describe("Cross-file drift invalidation", () => {
       "src/a.ts",
       "funcA",
       "function",
-      "function funcA() {\n  return 1\n}",
+      "function funcA() {\n  return 1\n}"
     );
     const callerB = makeBaseEntity(
       "src/b.ts",
       "funcB",
       "function",
-      "function funcB() {\n  return funcA()\n}",
+      "function funcB() {\n  return funcA()\n}"
     );
     const callerC = makeBaseEntity(
       "src/c.ts",
       "funcC",
       "function",
-      "function funcC() {\n  return funcA()\n}",
+      "function funcC() {\n  return funcA()\n}"
     );
 
     const callerMap = new Map<string, LocalEntity[]>();
@@ -888,27 +888,27 @@ describe("Cross-file drift invalidation", () => {
 
     const graph = createMockGraphWithCallers(
       [entityA, callerB, callerC],
-      callerMap,
+      callerMap
     );
     const fileHashManager = new FileHashManager(unerrDir);
     const tracker = new DriftTracker(
       { projectRoot, repoId, unerrDir },
       graph,
-      fileHashManager,
+      fileHashManager
     );
 
     // Modify source entity
     writeFileSync(
       join(projectRoot, "src/a.ts"),
-      "export function funcA() {\n  return 999\n}",
+      "export function funcA() {\n  return 999\n}"
     );
     writeFileSync(
       join(projectRoot, "src/b.ts"),
-      "export function funcB() {\n  return funcA()\n}",
+      "export function funcB() {\n  return funcA()\n}"
     );
     writeFileSync(
       join(projectRoot, "src/c.ts"),
-      "export function funcC() {\n  return funcA()\n}",
+      "export function funcC() {\n  return funcA()\n}"
     );
 
     const result = await tracker.processFiles(["src/a.ts"], "abc123");
@@ -916,10 +916,10 @@ describe("Cross-file drift invalidation", () => {
 
     // Both callers should be in the overlay
     expect(graph.driftOverlay.get(callerB.key)?.drift_status).toBe(
-      "dependency_changed",
+      "dependency_changed"
     );
     expect(graph.driftOverlay.get(callerC.key)?.drift_status).toBe(
-      "dependency_changed",
+      "dependency_changed"
     );
 
     // Summary should reflect it

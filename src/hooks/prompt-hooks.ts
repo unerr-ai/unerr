@@ -47,7 +47,7 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // Detect code-related intent for stronger nudge
   const isCodeTask =
     /\b(fix|bug|add|implement|refactor|debug|update|change|modify|create|delete|remove|test|find|search|where|who calls|callers|dependencies|import)\b/i.test(
-      message,
+      message
     );
 
   // Table rows #24/#25 TRIM — why (faster/graph-backed/project-aware) leads,
@@ -59,7 +59,7 @@ const promptSubmitHandler: HookHandler = (normalized) => {
         "`file_read` (NOT built-in Read for understanding; built-in Read is only for pre-Edit) · " +
         "`file_outline` · `get_entity`. " +
         "Mark progress: `mark_intent` (task start) · `mark_decision` · `mark_blocker` · " +
-        "`mark_resolution` — these power the cross-session timeline.",
+        "`mark_resolution` — these power the cross-session timeline."
     );
   }
 
@@ -67,7 +67,7 @@ const promptSubmitHandler: HookHandler = (normalized) => {
     "[unerr] Prefer unerr MCP tools (graph-backed, <5ms): " +
       "`search_code` · `get_references` · `file_read` · `file_outline` · `get_entity`. " +
       "Drop `mark_intent` / `mark_decision` / `mark_blocker` / `mark_resolution` as you work — " +
-      "they keep the timeline coherent across sessions.",
+      "they keep the timeline coherent across sessions."
   );
 };
 

@@ -30,7 +30,7 @@ function createMockLocalGraph(
     start_line: number;
     signature: string;
     body: string;
-  }> = [],
+  }> = []
 ): CozoGraphStore {
   return {
     getEntitiesByFile: vi.fn().mockReturnValue(entities),
@@ -169,7 +169,7 @@ describe("evaluateRules", () => {
         rules,
         "src/foo.ts",
         "const x = 1",
-        localGraph,
+        localGraph
       );
 
       expect(result.violations.length).toBe(0);
@@ -233,7 +233,7 @@ describe("evaluateRules", () => {
         rules,
         "src/foo.ts",
         "console.log('hello')",
-        localGraph,
+        localGraph
       );
 
       // Without tree-sitter WASM files installed, should gracefully return 0 violations
@@ -262,7 +262,7 @@ describe("evaluateRules", () => {
         rules,
         "src/foo.rb",
         "puts 'hello'",
-        localGraph,
+        localGraph
       );
 
       expect(result.violations.length).toBe(0);

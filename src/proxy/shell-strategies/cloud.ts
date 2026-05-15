@@ -58,11 +58,11 @@ function parseAwsEc2(raw: string): string | null {
       const tags = (inst.Tags as JsonObj[] | undefined) ?? [];
       const name = tags.find((t) => t.Key === "Name")?.Value ?? "";
       rows.push(
-        `${id}  ${state.padEnd(10)} ${type.toString().padEnd(12)} ${ip.toString().padEnd(15)} ${az}  ${name}`,
+        `${id}  ${state.padEnd(10)} ${type.toString().padEnd(12)} ${ip.toString().padEnd(15)} ${az}  ${name}`
       );
     }
   }
-  if (count === 0) return `_shell_fmt:cloud[aws-ec2]\n0 instances`;
+  if (count === 0) return "_shell_fmt:cloud[aws-ec2]\n0 instances";
   return `_shell_fmt:cloud[aws-ec2]\n${fmtCount(count, "instance")}\nid                   state      type         ip              az  name\n${rows.join("\n")}`;
 }
 
@@ -150,7 +150,7 @@ function parseAwsCfn(raw: string): string | null {
   const stacks = data.Stacks as JsonObj[];
   const rows = stacks.map(
     (s) =>
-      `${s.StackName}  ${s.StackStatus}  ${s.LastUpdatedTime ?? s.CreationTime ?? ""}`,
+      `${s.StackName}  ${s.StackStatus}  ${s.LastUpdatedTime ?? s.CreationTime ?? ""}`
   );
   return `_shell_fmt:cloud[aws-cfn]\n${fmtCount(stacks.length, "stack")}\n${rows.join("\n")}`;
 }

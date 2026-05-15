@@ -35,12 +35,7 @@ export interface LoopQueryDetection {
 
 export type LoopDetection = LoopReadDetection | LoopQueryDetection;
 
-const READ_TOOLS = new Set([
-  "file_read",
-  "file_outline",
-  "get_file",
-  "Read",
-]);
+const READ_TOOLS = new Set(["file_read", "file_outline", "get_file", "Read"]);
 
 const EDIT_TOOLS = new Set([
   "Edit",
@@ -82,7 +77,7 @@ function entryTsMs(entry: LedgerEntry): number {
 
 export function detectFileReadLoops(
   entries: LedgerEntry[],
-  opts: DetectLoopsOptions = {},
+  opts: DetectLoopsOptions = {}
 ): LoopReadDetection[] {
   const window = opts.readWindowMs ?? DEFAULT_READ_WINDOW_MS;
   const threshold = opts.readThreshold ?? DEFAULT_READ_THRESHOLD;
@@ -138,7 +133,7 @@ export function detectFileReadLoops(
 
 export function detectQueryLoops(
   entries: LedgerEntry[],
-  opts: DetectLoopsOptions = {},
+  opts: DetectLoopsOptions = {}
 ): LoopQueryDetection[] {
   const window = opts.queryWindowMs ?? DEFAULT_QUERY_WINDOW_MS;
   const threshold = opts.queryThreshold ?? DEFAULT_QUERY_THRESHOLD;
@@ -183,7 +178,7 @@ export function detectQueryLoops(
  */
 export function detectLoops(
   entries: LedgerEntry[],
-  opts: DetectLoopsOptions = {},
+  opts: DetectLoopsOptions = {}
 ): LoopDetection[] {
   const all = [
     ...detectFileReadLoops(entries, opts),
@@ -193,7 +188,7 @@ export function detectLoops(
 }
 
 function maxTs(entries: LedgerEntry[]): number | null {
-  let max = -Infinity;
+  let max = Number.NEGATIVE_INFINITY;
   for (const e of entries) {
     const t = entryTsMs(e);
     if (Number.isFinite(t) && t > max) max = t;

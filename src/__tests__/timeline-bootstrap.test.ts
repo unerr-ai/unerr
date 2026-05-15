@@ -6,22 +6,22 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ShadowLedger } from "../tracking/shadow-ledger.js";
 import {
   computeTurnRollup,
   startTimelineBootstrap,
 } from "../timeline/timeline-bootstrap.js";
 import { CozoTimelineStore } from "../timeline/timeline-store.js";
+import { ShadowLedger } from "../tracking/shadow-ledger.js";
 
 let tempDir: string;
 
 beforeEach(() => {
   tempDir = join(
     tmpdir(),
-    `unerr-tb-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-tb-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(join(tempDir, ".unerr"), { recursive: true });
-  delete process.env.UNERR_TIMELINE_V2;
+  process.env.UNERR_TIMELINE_V2 = undefined;
 });
 
 afterEach(() => {
@@ -30,7 +30,7 @@ afterEach(() => {
   } catch {
     /* ignore */
   }
-  delete process.env.UNERR_TIMELINE_V2;
+  process.env.UNERR_TIMELINE_V2 = undefined;
 });
 
 describe("computeTurnRollup", () => {
@@ -150,7 +150,7 @@ describe("startTimelineBootstrap", () => {
         { file_path: "src/a.ts" },
         {},
         "main",
-        "deadbeef",
+        "deadbeef"
       );
       ledger.record("search_code", { query: "foo" }, {}, "main", "deadbeef");
       ledger.closeTurn("session_end");

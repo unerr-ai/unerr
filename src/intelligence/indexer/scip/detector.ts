@@ -77,7 +77,7 @@ function resolveBundledBinary(binName: string): string | null {
  *   4. Not available — orchestrator will attempt auto-download
  */
 export async function detectScipBinary(
-  language: string,
+  language: string
 ): Promise<ScipBinaryInfo> {
   // 1. Check bundled first (TypeScript, Python)
   const bundled = BUNDLED_SCIP[language];
@@ -136,9 +136,7 @@ export async function detectScipBinary(
           path: whichResult.stdout.trim() || null,
         };
       }
-    } catch {
-      continue;
-    }
+    } catch {}
   }
 
   // 4. Not available — caller should attempt auto-download
@@ -235,7 +233,7 @@ export function detectPrimaryLanguage(files: string[]): string | null {
  * Returns languages sorted by file count (primary first).
  */
 export function detectProjectLanguages(
-  files: string[],
+  files: string[]
 ): { language: string; fileCount: number }[] {
   const counts: Record<string, number> = {};
 

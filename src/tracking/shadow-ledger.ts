@@ -23,7 +23,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { redactArgs } from "./redactor.js";
-import { TurnSegmenter, type TurnConfidence } from "./turn-segmenter.js";
+import { type TurnConfidence, TurnSegmenter } from "./turn-segmenter.js";
 
 export interface LedgerEntry {
   /** Unique intent ID (12-char hex) */
@@ -126,7 +126,7 @@ export class ShadowLedger {
       planSummary?: string;
       changeType?: string;
       featureArea?: string;
-    },
+    }
   ): LedgerEntry {
     const now = Date.now();
     const correlationId = this.computeCorrelation(tool, now);
@@ -301,7 +301,7 @@ export class ShadowLedger {
       appendFileSync(this.filePath, `${JSON.stringify(entry)}\n`, "utf-8");
     } catch (err: unknown) {
       process.stderr.write(
-        `[unerr:ledger] WARN: Failed to append entry: ${err instanceof Error ? err.message : String(err)}\n`,
+        `[unerr:ledger] WARN: Failed to append entry: ${err instanceof Error ? err.message : String(err)}\n`
       );
     }
   }
@@ -325,7 +325,7 @@ export class ShadowLedger {
         } catch {
           // Invalid line — stop here (truncate from this point)
           process.stderr.write(
-            `[unerr:ledger] Recovered: truncated ${lines.length - validLines.length} corrupt line(s)\n`,
+            `[unerr:ledger] Recovered: truncated ${lines.length - validLines.length} corrupt line(s)\n`
           );
           break;
         }
@@ -336,7 +336,7 @@ export class ShadowLedger {
         writeFileSync(
           this.filePath,
           validLines.join("\n") + (validLines.length > 0 ? "\n" : ""),
-          "utf-8",
+          "utf-8"
         );
       }
     } catch {

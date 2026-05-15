@@ -33,7 +33,7 @@ export interface DurabilityTracker {
   recordModification: (
     entityKey: string,
     sessionId: string,
-    bodyHash: string,
+    bodyHash: string
   ) => void;
   evaluateSurvival: (entityKey: string, currentBodyHash: string) => void;
   getScore: (entityKey: string) => DurabilityResult | null;
@@ -47,10 +47,10 @@ export function createDurabilityTracker(): DurabilityTracker {
   function recordModification(
     entityKey: string,
     sessionId: string,
-    bodyHash: string,
+    bodyHash: string
   ): void {
     if (!records.has(entityKey)) records.set(entityKey, []);
-    records.get(entityKey)!.push({
+    records.get(entityKey)?.push({
       entityKey,
       modifiedAt: Date.now(),
       sessionId,
@@ -98,7 +98,7 @@ export function createDurabilityTracker(): DurabilityTracker {
       survived,
       reverted,
       pending,
-      lastModified: mods[mods.length - 1]!.modifiedAt,
+      lastModified: mods[mods.length - 1]?.modifiedAt ?? 0,
     };
   }
 

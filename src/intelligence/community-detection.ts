@@ -26,7 +26,7 @@ interface GraphLike {
   addEdge(
     source: string,
     target: string,
-    attributes?: Record<string, unknown>,
+    attributes?: Record<string, unknown>
   ): void;
   hasNode(key: string): boolean;
   hasEdge(source: string, target: string): boolean;
@@ -34,7 +34,7 @@ interface GraphLike {
   size: number;
   order: number;
   forEachNode(
-    callback: (node: string, attributes: Record<string, unknown>) => void,
+    callback: (node: string, attributes: Record<string, unknown>) => void
   ): void;
   forEachEdge(
     node: string,
@@ -42,8 +42,8 @@ interface GraphLike {
       edge: string,
       attributes: unknown,
       source: string,
-      target: string,
-    ) => void,
+      target: string
+    ) => void
   ): void;
   getNodeAttributes(node: string): Record<string, unknown>;
   getEdgeAttributes(edge: string): Record<string, unknown>;
@@ -60,7 +60,7 @@ type LouvainFn = (
     getEdgeWeight?:
       | string
       | ((edge: string, attrs: Record<string, unknown>) => number);
-  },
+  }
 ) => Record<string, number>;
 
 const Graph = GraphNs as unknown as GraphConstructor;
@@ -124,7 +124,7 @@ interface EntityEdgeInput {
 export function detectCascadedCommunities(
   fileEdges: FileEdgeInput[],
   entities: EntityInput[],
-  entityEdges: EntityEdgeInput[],
+  entityEdges: EntityEdgeInput[]
 ): CascadedCommunityResult {
   if (entities.length === 0) {
     return {
@@ -178,7 +178,7 @@ export function detectCascadedCommunities(
     const pairKey = `${a}\0${b}`;
     aggregatedWeights.set(
       pairKey,
-      (aggregatedWeights.get(pairKey) ?? 0) + weight,
+      (aggregatedWeights.get(pairKey) ?? 0) + weight
     );
   }
 
@@ -488,7 +488,7 @@ export function detectCascadedCommunities(
       entityKeys,
       macroCid,
       threshold,
-      nextSubId,
+      nextSubId
     );
   }
 
@@ -516,7 +516,7 @@ export interface CommunityResult {
 /** @deprecated Use detectCascadedCommunities instead */
 export function detectCommunities(
   entities: { key: string; file_path: string }[],
-  edges: { from_key: string; to_key: string; type?: string }[],
+  edges: { from_key: string; to_key: string; type?: string }[]
 ): CommunityResult {
   // Delegate to cascaded detection with no file edges (flat fallback)
   const result = detectCascadedCommunities(
@@ -526,7 +526,7 @@ export function detectCommunities(
       from_key: e.from_key,
       to_key: e.to_key,
       type: e.type ?? "calls",
-    })),
+    }))
   );
   return {
     assignments: result.entityAssignments,
@@ -544,7 +544,7 @@ function mergeSmallCommunities(
   fileAssignments: Map<string, number>,
   fileEdges: FileEdgeInput[],
   allFiles: Set<string>,
-  minSize: number,
+  minSize: number
 ): void {
   // Build community → files map
   const communityFiles = new Map<number, string[]>();
@@ -605,7 +605,7 @@ function mergeSmallCommunities(
           if (largeCommunities.has(targetCid)) {
             communityWeights.set(
               targetCid,
-              (communityWeights.get(targetCid) ?? 0) + w,
+              (communityWeights.get(targetCid) ?? 0) + w
             );
           }
         }
@@ -633,7 +633,7 @@ function mergeSmallCommunities(
             if (dirname(tf) === dir) {
               communityDirOverlap.set(
                 targetCid,
-                (communityDirOverlap.get(targetCid) ?? 0) + 1,
+                (communityDirOverlap.get(targetCid) ?? 0) + 1
               );
             }
           }
@@ -677,7 +677,7 @@ function mergeSmallCommunities(
 function reassignTestFiles(
   fileAssignments: Map<string, number>,
   fileEdges: FileEdgeInput[],
-  allFiles: Set<string>,
+  allFiles: Set<string>
 ): void {
   for (const fp of allFiles) {
     if (!isTestFile(fp)) continue;
@@ -715,7 +715,7 @@ function splitOversizedSubCommunities(
   macroCid: number,
   threshold: number,
   startSubId: number,
-  depth = 0,
+  depth = 0
 ): void {
   if (depth > 3) return;
 
@@ -757,7 +757,7 @@ function splitOversizedSubCommunities(
               // parallel edge
             }
           }
-        },
+        }
       );
     }
 
@@ -808,7 +808,7 @@ function computeFileCohesion(graph: GraphLike, nodes: string[]): number {
           countedEdges.add(edge);
           intraEdges++;
         }
-      },
+      }
     );
   }
 

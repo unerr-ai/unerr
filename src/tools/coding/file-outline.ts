@@ -85,15 +85,15 @@ function detectExportedNames(lines: string[], scanLimit: number): Set<string> {
     // export function/const/let/var/class/interface/type/enum Name
     const m =
       /^export\s+(?:default\s+)?(?:async\s+)?(?:function\*?\s+|const\s+|let\s+|var\s+|class\s+|interface\s+|type\s+|enum\s+)(\w+)/.exec(
-        t,
+        t
       );
-    if (m && m[1]) {
+    if (m?.[1]) {
       exported.add(m[1]);
       continue;
     }
     // export { name1, name2 }
     const braceMatch = /^export\s*\{([^}]+)\}/.exec(t);
-    if (braceMatch && braceMatch[1]) {
+    if (braceMatch?.[1]) {
       const names = braceMatch[1].split(",").map((n) => {
         const asMatch = /(\w+)\s+as\s+\w+/.exec(n.trim());
         return asMatch ? asMatch[1]! : n.trim();
@@ -128,7 +128,7 @@ export async function buildFileOutline(params: {
   for (let i = 0; i < sampleEnd; i++) {
     if (raw[i] === 0) {
       throw new Error(
-        "File appears to be binary — text outline is not available.",
+        "File appears to be binary — text outline is not available."
       );
     }
   }
@@ -148,8 +148,8 @@ export async function buildFileOutline(params: {
           new Promise<never>((_, reject) =>
             setTimeout(
               () => reject(new Error("graph_timeout")),
-              GRAPH_TIMEOUT_MS,
-            ),
+              GRAPH_TIMEOUT_MS
+            )
           ),
         ]).catch(() => [])
       : [];
@@ -160,8 +160,8 @@ export async function buildFileOutline(params: {
           new Promise<never>((_, reject) =>
             setTimeout(
               () => reject(new Error("graph_timeout")),
-              GRAPH_TIMEOUT_MS,
-            ),
+              GRAPH_TIMEOUT_MS
+            )
           ),
         ]).catch(() => [])
       : [];
@@ -170,7 +170,7 @@ export async function buildFileOutline(params: {
   // Detect exports from source
   const exportedNames = detectExportedNames(
     lines,
-    Math.min(lines.length, 2000),
+    Math.min(lines.length, 2000)
   );
 
   const entities: FileOutlineEntityRow[] = [];
@@ -204,7 +204,7 @@ export async function buildFileOutline(params: {
 
   // Stable sort: by start line, then by name for same-line entities
   entities.sort(
-    (a, b) => a.lines[0] - b.lines[0] || a.name.localeCompare(b.name),
+    (a, b) => a.lines[0] - b.lines[0] || a.name.localeCompare(b.name)
   );
 
   const imports: string[] = [];

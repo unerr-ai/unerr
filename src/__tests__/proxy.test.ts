@@ -32,7 +32,7 @@ let tempDir: string;
 beforeEach(() => {
   tempDir = join(
     tmpdir(),
-    `unerr-proxy-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-proxy-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(tempDir, { recursive: true });
 });
@@ -102,7 +102,7 @@ describe("PidLock", () => {
         startedAt: new Date().toISOString(),
         healthPort: 0,
       }),
-      "utf-8",
+      "utf-8"
     );
 
     const lock = new PidLock(tempDir);
@@ -125,7 +125,7 @@ describe("PidLock", () => {
     writeFileSync(
       join(tempDir, "proxy.pid"),
       JSON.stringify({ pid: 1, startedAt: "", healthPort: 0 }),
-      "utf-8",
+      "utf-8"
     );
     const lock = new PidLock(tempDir);
     // Don't acquire — just try to release
@@ -256,7 +256,7 @@ describe("LatencyTracker", () => {
 
     const p = computePercentiles(
       stats.latency.localSamples,
-      stats.latency.localTotalSamples,
+      stats.latency.localTotalSamples
     );
     expect(p).not.toBeNull();
     expect(p?.count).toBe(100);
@@ -279,7 +279,7 @@ describe("LatencyTracker", () => {
 
     const localP = computePercentiles(
       stats.latency.localSamples,
-      stats.latency.localTotalSamples,
+      stats.latency.localTotalSamples
     );
     expect(localP?.max).toBeLessThan(5);
   });
@@ -304,7 +304,7 @@ describe("LatencyTracker", () => {
     // Buffer has 200 samples of 50ms + 800 samples of 1ms
     const p = computePercentiles(
       stats.latency.localSamples,
-      stats.latency.localTotalSamples,
+      stats.latency.localTotalSamples
     );
     expect(p?.count).toBe(1200);
     // p50 should be 1.0ms (800/1000 are 1ms)

@@ -75,7 +75,7 @@ describe("Sprint R.8: Test File Detection", () => {
   describe("isTestFile — Java", () => {
     it("detects Test suffix", () => {
       expect(isTestFile("src/test/java/com/example/UserServiceTest.java")).toBe(
-        true,
+        true
       );
       expect(isTestFile("com/example/AuthTest.java")).toBe(true);
     });
@@ -94,7 +94,7 @@ describe("Sprint R.8: Test File Detection", () => {
 
     it("rejects source files", () => {
       expect(isTestFile("src/main/java/com/example/UserService.java")).toBe(
-        false,
+        false
       );
       expect(isTestFile("com/example/models/User.java")).toBe(false);
     });
@@ -187,27 +187,27 @@ describe("Sprint R.8: resolveTestSubject", () => {
 
   it("resolves TS test → source (same dir)", () => {
     expect(resolveTestSubject("src/utils/exec.test.ts", projectFiles)).toBe(
-      "src/utils/exec.ts",
+      "src/utils/exec.ts"
     );
   });
 
   it("resolves TS test → source (__tests__ dir → parent)", () => {
     // __tests__/exec.test.ts → parent dir is src/, so resolves to src/exec.ts
     expect(resolveTestSubject("src/__tests__/exec.test.ts", projectFiles)).toBe(
-      "src/exec.ts",
+      "src/exec.ts"
     );
   });
 
   it("resolves Go test → source", () => {
     expect(resolveTestSubject("pkg/handlers/auth_test.go", projectFiles)).toBe(
-      "pkg/handlers/auth.go",
+      "pkg/handlers/auth.go"
     );
   });
 
   it("resolves Python test_ prefix → source (parent dir)", () => {
     // tests/test_user.py → tries tests/user.py then user.py (parent strip)
     expect(resolveTestSubject("tests/test_user.py", projectFiles)).toBe(
-      "user.py",
+      "user.py"
     );
   });
 
@@ -216,15 +216,15 @@ describe("Sprint R.8: resolveTestSubject", () => {
     expect(
       resolveTestSubject(
         "src/test/java/com/example/UserServiceTest.java",
-        projectFiles,
-      ),
+        projectFiles
+      )
     ).toBe("src/main/java/com/example/UserService.java");
   });
 
   it("resolves Ruby _spec → source (spec/ → lib/)", () => {
     // spec/models/user_spec.rb → tries models/user.rb (strip spec/)
     expect(resolveTestSubject("spec/models/user_spec.rb", projectFiles)).toBe(
-      "models/user.rb",
+      "models/user.rb"
     );
   });
 

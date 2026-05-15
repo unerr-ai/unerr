@@ -30,7 +30,7 @@ describe("PersistenceEffectivenessTracker", () => {
   beforeEach(() => {
     tmpDir = join(
       os.tmpdir(),
-      `unerr-eff-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      `unerr-eff-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     );
     unerrDir = join(tmpDir, ".unerr");
     mkdirSync(unerrDir, { recursive: true });
@@ -87,9 +87,7 @@ describe("PersistenceEffectivenessTracker", () => {
       turn: 2,
     });
     tracker.closeWindow(7);
-    const resolved = verdicts(unerrDir).find(
-      (v) => v.verdict === "reinforced",
-    );
+    const resolved = verdicts(unerrDir).find((v) => v.verdict === "reinforced");
     expect(resolved?.signal_id).toBe("fact-1");
   });
 
@@ -102,9 +100,7 @@ describe("PersistenceEffectivenessTracker", () => {
     });
     tracker.recordEdit("EntityB");
     tracker.closeWindow(7);
-    const resolved = verdicts(unerrDir).find(
-      (v) => v.verdict === "acted_on",
-    );
+    const resolved = verdicts(unerrDir).find((v) => v.verdict === "acted_on");
     expect(resolved?.signal_id).toBe("conv-1");
   });
 
@@ -118,9 +114,7 @@ describe("PersistenceEffectivenessTracker", () => {
     tracker.recordEdit("EntityC");
     tracker.recordCorrection("EntityC", "circuit_breaker");
     tracker.closeWindow(7);
-    const resolved = verdicts(unerrDir).find(
-      (v) => v.verdict === "corrected",
-    );
+    const resolved = verdicts(unerrDir).find((v) => v.verdict === "corrected");
     expect(resolved?.signal_id).toBe("conv-2");
   });
 
@@ -132,9 +126,7 @@ describe("PersistenceEffectivenessTracker", () => {
       turn: 1,
     });
     tracker.closeWindow(7);
-    const resolved = verdicts(unerrDir).find(
-      (v) => v.verdict === "caught",
-    );
+    const resolved = verdicts(unerrDir).find((v) => v.verdict === "caught");
     expect(resolved?.signal_id).toBe("neg-1");
   });
 
@@ -160,7 +152,7 @@ describe("PersistenceEffectivenessTracker", () => {
     tracker.closeWindow(7); // delta 2 < 5
     expect(tracker.openCount()).toBe(1);
     expect(
-      verdicts(unerrDir).filter((v) => v.verdict !== "fired"),
+      verdicts(unerrDir).filter((v) => v.verdict !== "fired")
     ).toHaveLength(0);
   });
 
@@ -174,7 +166,7 @@ describe("PersistenceEffectivenessTracker", () => {
     tracker.closeAll(50);
     expect(tracker.openCount()).toBe(0);
     const resolved = verdicts(unerrDir).filter(
-      (v) => v.signal_id === "session-X" && v.verdict !== "fired",
+      (v) => v.signal_id === "session-X" && v.verdict !== "fired"
     );
     expect(resolved).toHaveLength(1);
   });

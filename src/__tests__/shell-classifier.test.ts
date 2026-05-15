@@ -86,7 +86,7 @@ describe("shell-classifier", () => {
   it("classifies git blame as log_text (not tabular)", () => {
     const r = classifyShellOutput(
       "git blame src/main.ts",
-      "abc123 (author 2024-01-01 10) line",
+      "abc123 (author 2024-01-01 10) line"
     );
     expect(r.category).toBe("log_text");
   });
@@ -182,10 +182,7 @@ describe("shell-classifier", () => {
       "drwxr-xr-x  4 user  wheel   128 May 12 02:31 ..",
       "-rwxr-xr-x  1 user  wheel  1643 May 12 02:31 script.sh",
     ].join("\n");
-    const r = classifyShellOutput(
-      "chmod +x /tmp/x.sh && ls -la /tmp/",
-      stdout,
-    );
+    const r = classifyShellOutput("chmod +x /tmp/x.sh && ls -la /tmp/", stdout);
     expect(r.category).toBe("tabular");
   });
 });

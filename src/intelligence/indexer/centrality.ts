@@ -50,7 +50,7 @@ export function computeCentrality(edges: IndexedEdge[]): CentralityResult {
  * Determine risk level from fan_in count.
  */
 export function riskLevel(
-  fanInCount: number,
+  fanInCount: number
 ): "critical" | "high" | "medium" | "normal" {
   if (fanInCount >= RISK_THRESHOLDS.critical) return "critical";
   if (fanInCount >= RISK_THRESHOLDS.high) return "high";
@@ -64,7 +64,7 @@ export function riskLevel(
  */
 export function applyCentrality(
   entities: IndexedEntity[],
-  edges: IndexedEdge[],
+  edges: IndexedEdge[]
 ): IndexedEntity[] {
   const { fanIn, fanOut } = computeCentrality(edges);
 

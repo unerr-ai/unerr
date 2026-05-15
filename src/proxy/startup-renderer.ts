@@ -124,7 +124,7 @@ export class StartupRenderer {
   setByoLlmStatus(
     status: "connected" | "not_configured" | "unreachable",
     provider?: string,
-    model?: string,
+    model?: string
   ): void {
     this.state.byoLlmStatus = status;
     if (provider) this.state.byoLlmProvider = provider;
@@ -151,7 +151,7 @@ export class StartupRenderer {
       process.cwd(),
       ".unerr",
       "state",
-      "graph_version.json",
+      "graph_version.json"
     );
     if (!existsSync(versionPath)) return true;
     try {
@@ -190,7 +190,7 @@ export class StartupRenderer {
       null,
       React.createElement(StartupDisplay, {
         state: this.state,
-      }),
+      })
     );
   }
 

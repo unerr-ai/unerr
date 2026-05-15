@@ -73,7 +73,7 @@ export function App() {
     queryKey: ["system", "status"],
     queryFn: () =>
       fetchJson<{ data: { cwd: string } }>("/api/system/status").catch(
-        () => null,
+        () => null
       ),
     staleTime: 60_000,
     enabled: !isDaemonMode,
@@ -92,7 +92,7 @@ export function App() {
       apiBase: parsed.repoLabel ? `/api/repo/${parsed.repoLabel}` : "",
       isDaemonMode,
     }),
-    [parsed.repoLabel, selectedRepo, isDaemonMode],
+    [parsed.repoLabel, selectedRepo, isDaemonMode]
   );
 
   // In daemon mode, redirect to all-repos when landing on per-repo overview

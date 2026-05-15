@@ -49,7 +49,7 @@ const ALIAS_MAP: Record<string, readonly string[]> = {
  */
 export function normalizeArgAliases(
   toolDef: MinimalToolDef,
-  args: Record<string, unknown>,
+  args: Record<string, unknown>
 ): void {
   const props = toolDef.inputSchema.properties;
   for (const [canonical, aliases] of Object.entries(ALIAS_MAP)) {
@@ -86,7 +86,7 @@ export function normalizeArgAliases(
  */
 export function validateRequiredArgs(
   toolDef: MinimalToolDef,
-  args: Record<string, unknown>,
+  args: Record<string, unknown>
 ): ValidationFailure | null {
   const required = toolDef.inputSchema.required ?? [];
   if (required.length === 0) return null;
@@ -123,7 +123,7 @@ export function validateRequiredArgs(
  */
 export function aliasAndValidate(
   toolDef: MinimalToolDef,
-  args: Record<string, unknown>,
+  args: Record<string, unknown>
 ): ValidationFailure | null {
   normalizeArgAliases(toolDef, args);
   return validateRequiredArgs(toolDef, args);

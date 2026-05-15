@@ -67,7 +67,7 @@ export class BackgroundIndexer {
     graphStore: CozoGraphStore,
     repoId: string,
     onComplete: (result: IndexResult) => void,
-    onError: (err: Error) => void,
+    onError: (err: Error) => void
   ): void {
     if (this._status === "indexing") return; // Already running
 
@@ -82,13 +82,7 @@ export class BackgroundIndexer {
     this._completedAt = null;
 
     // Fire-and-forget async — does not block the caller
-    this.runIndexing(
-      projectRoot,
-      graphStore,
-      repoId,
-      onComplete,
-      onError,
-    );
+    this.runIndexing(projectRoot, graphStore, repoId, onComplete, onError);
   }
 
   /** Whether indexing is currently in progress. */
@@ -155,7 +149,7 @@ export class BackgroundIndexer {
     graphStore: CozoGraphStore,
     repoId: string,
     onComplete: (result: IndexResult) => void,
-    onError: (err: Error) => void,
+    onError: (err: Error) => void
   ): Promise<void> {
     try {
       const { indexLocalProject } = await import("./local-indexer.js");

@@ -75,7 +75,7 @@ export class BranchSnapshotManager {
   async saveSnapshot(
     branch: string,
     localGraph: CozoGraphStore,
-    fileHashState: FileHashState,
+    fileHashState: FileHashState
   ): Promise<boolean> {
     const entities = await localGraph.getAllDriftEntities();
     const edges = await localGraph.getAllDriftEdges();
@@ -103,19 +103,19 @@ export class BranchSnapshotManager {
     writeFileSync(
       join(snapshotDir, OVERLAY_FILE),
       JSON.stringify(snapshot, null, 2),
-      "utf-8",
+      "utf-8"
     );
     writeFileSync(
       join(snapshotDir, HASHES_FILE),
       JSON.stringify(fileHashState, null, 2),
-      "utf-8",
+      "utf-8"
     );
 
     // Enforce LRU cap
     this.enforceLruCap();
 
     log.info(
-      `Saved branch snapshot: ${branch} (${entities.length} entities, ${edges.length} edges)`,
+      `Saved branch snapshot: ${branch} (${entities.length} entities, ${edges.length} edges)`
     );
 
     return true;
@@ -127,7 +127,7 @@ export class BranchSnapshotManager {
    */
   async restoreSnapshot(
     branch: string,
-    localGraph: CozoGraphStore,
+    localGraph: CozoGraphStore
   ): Promise<BranchSnapshot | null> {
     const dirName = sanitizeBranchName(branch);
     const snapshotDir = join(this.branchDir, dirName);
@@ -159,17 +159,17 @@ export class BranchSnapshotManager {
       writeFileSync(
         join(snapshotDir, ".last_access"),
         now.toISOString(),
-        "utf-8",
+        "utf-8"
       );
 
       log.info(
-        `Restored branch snapshot: ${branch} (${snapshot.entities.length} entities, ${snapshot.edges?.length ?? 0} edges)`,
+        `Restored branch snapshot: ${branch} (${snapshot.entities.length} entities, ${snapshot.edges?.length ?? 0} edges)`
       );
 
       return snapshot;
     } catch (err) {
       log.warn(
-        `Failed to restore snapshot for ${branch}: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to restore snapshot for ${branch}: ${err instanceof Error ? err.message : String(err)}`
       );
       return null;
     }

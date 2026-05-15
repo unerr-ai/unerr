@@ -76,7 +76,7 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
       // Should have file→file import edges
       expect(result.fileImportEdges.length).toBeGreaterThan(0);
       const fileEdge = result.fileImportEdges.find(
-        (e) => e.from_key === "file:src/a.ts" && e.to_key === "file:src/b.ts",
+        (e) => e.from_key === "file:src/a.ts" && e.to_key === "file:src/b.ts"
       );
       expect(fileEdge).toBeDefined();
       expect(fileEdge!.type).toBe("imports");
@@ -146,7 +146,7 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
 
       // Only one file→file edge despite two import declarations
       const fileEdges = result.fileImportEdges.filter(
-        (e) => e.from_key === "file:src/a.ts" && e.to_key === "file:src/b.ts",
+        (e) => e.from_key === "file:src/a.ts" && e.to_key === "file:src/b.ts"
       );
       expect(fileEdges).toHaveLength(1);
     });
@@ -230,16 +230,16 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
         resolveImportSourceToFile(
           "./helper",
           "src/utils/status.ts",
-          projectFiles,
-        ),
+          projectFiles
+        )
       ).toBe("src/utils/helper.ts");
 
       expect(
         resolveImportSourceToFile(
           "../commands/status",
           "src/utils/helper.ts",
-          projectFiles,
-        ),
+          projectFiles
+        )
       ).toBe("src/commands/status.ts");
 
       // Index file resolution (../utils from commands/ → src/utils/index.ts)
@@ -247,8 +247,8 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
         resolveImportSourceToFile(
           "../utils",
           "src/commands/status.ts",
-          projectFiles,
-        ),
+          projectFiles
+        )
       ).toBe("src/utils/index.ts");
     });
 
@@ -257,8 +257,8 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
         resolveImportSourceToFile(
           "models.user",
           "app/services/auth.py",
-          projectFiles,
-        ),
+          projectFiles
+        )
       ).toBe("app/models/user.py");
 
       // __init__.py as directory index
@@ -266,8 +266,8 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
         resolveImportSourceToFile(
           "models",
           "app/services/auth.py",
-          projectFiles,
-        ),
+          projectFiles
+        )
       ).toBe("app/models/__init__.py");
     });
 
@@ -276,8 +276,8 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
         resolveImportSourceToFile(
           "github.com/myapp/pkg/handlers",
           "cmd/main.go",
-          projectFiles,
-        ),
+          projectFiles
+        )
       ).toBe("pkg/handlers/auth.go");
     });
 
@@ -286,8 +286,8 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
         resolveImportSourceToFile(
           "com.example.models.User",
           "com/example/service/UserService.java",
-          projectFiles,
-        ),
+          projectFiles
+        )
       ).toBe("com/example/models/User.java");
     });
 
@@ -296,13 +296,13 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
         resolveImportSourceToFile(
           "crate::module::sub",
           "src/lib.rs",
-          projectFiles,
-        ),
+          projectFiles
+        )
       ).toBe("src/module/sub.rs");
 
       // Rust mod.rs as directory index
       expect(
-        resolveImportSourceToFile("crate::module", "src/lib.rs", projectFiles),
+        resolveImportSourceToFile("crate::module", "src/lib.rs", projectFiles)
       ).toBe("src/module/mod.rs");
     });
 
@@ -311,8 +311,8 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
         resolveImportSourceToFile(
           "models/user",
           "lib/services/auth.rb",
-          projectFiles,
-        ),
+          projectFiles
+        )
       ).toBe("lib/models/user.rb");
     });
 
@@ -321,19 +321,15 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
         resolveImportSourceToFile(
           "Models.User",
           "Services/UserService.cs",
-          projectFiles,
-        ),
+          projectFiles
+        )
       ).toBe("Models/User.cs");
     });
 
     it("returns null for external/unresolvable imports", () => {
       // npm package
       expect(
-        resolveImportSourceToFile(
-          "lodash",
-          "src/utils/helper.ts",
-          projectFiles,
-        ),
+        resolveImportSourceToFile("lodash", "src/utils/helper.ts", projectFiles)
       ).toBeNull();
 
       // Python stdlib
@@ -341,13 +337,13 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
         resolveImportSourceToFile(
           "os.path",
           "app/services/auth.py",
-          projectFiles,
-        ),
+          projectFiles
+        )
       ).toBeNull();
 
       // Go stdlib
       expect(
-        resolveImportSourceToFile("fmt", "pkg/handlers/auth.go", projectFiles),
+        resolveImportSourceToFile("fmt", "pkg/handlers/auth.go", projectFiles)
       ).toBeNull();
     });
   });

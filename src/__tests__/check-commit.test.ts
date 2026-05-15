@@ -61,7 +61,7 @@ exit 0
       mkdirSync(settingsDir, { recursive: true });
       writeFileSync(
         join(settingsDir, "settings.json"),
-        JSON.stringify({ hooks: { precommit: { blocking: true } } }),
+        JSON.stringify({ hooks: { precommit: { blocking: true } } })
       );
 
       const settingsPath = join(settingsDir, "settings.json");
@@ -69,7 +69,7 @@ exit 0
 
       if (!blockingMode && existsSync(settingsPath)) {
         const settings = JSON.parse(
-          require("node:fs").readFileSync(settingsPath, "utf-8"),
+          require("node:fs").readFileSync(settingsPath, "utf-8")
         ) as { hooks?: { precommit?: { blocking?: boolean } } };
         blockingMode = settings.hooks?.precommit?.blocking ?? false;
       }
@@ -82,7 +82,7 @@ exit 0
       mkdirSync(settingsDir, { recursive: true });
       writeFileSync(
         join(settingsDir, "settings.json"),
-        JSON.stringify({ hooks: { precommit: { blocking: false } } }),
+        JSON.stringify({ hooks: { precommit: { blocking: false } } })
       );
 
       const optsBlocking = true;
@@ -107,7 +107,7 @@ exit 0
       if (!blockingMode && existsSync(settingsPath)) {
         try {
           const settings = JSON.parse(
-            require("node:fs").readFileSync(settingsPath, "utf-8"),
+            require("node:fs").readFileSync(settingsPath, "utf-8")
           ) as { hooks?: { precommit?: { blocking?: boolean } } };
           blockingMode = settings.hooks?.precommit?.blocking ?? false;
         } catch {
@@ -123,7 +123,7 @@ exit 0
       mkdirSync(settingsDir, { recursive: true });
       writeFileSync(
         join(settingsDir, "settings.json"),
-        JSON.stringify({ theme: "dark" }),
+        JSON.stringify({ theme: "dark" })
       );
 
       const settingsPath = join(settingsDir, "settings.json");
@@ -131,7 +131,7 @@ exit 0
 
       if (!blockingMode && existsSync(settingsPath)) {
         const settings = JSON.parse(
-          require("node:fs").readFileSync(settingsPath, "utf-8"),
+          require("node:fs").readFileSync(settingsPath, "utf-8")
         ) as { hooks?: { precommit?: { blocking?: boolean } } };
         blockingMode = settings.hooks?.precommit?.blocking ?? false;
       }
@@ -153,14 +153,14 @@ exit 0
         join(unerrDir, "config.json"),
         JSON.stringify({
           repoId: "test-repo",
-        }),
+        })
       );
 
       const configPath = join(unerrDir, "config.json");
       expect(existsSync(configPath)).toBe(true);
 
       const config = JSON.parse(
-        require("node:fs").readFileSync(configPath, "utf-8"),
+        require("node:fs").readFileSync(configPath, "utf-8")
       ) as { repoId: string };
       expect(config.repoId).toBe("test-repo");
     });
@@ -170,11 +170,11 @@ exit 0
       mkdirSync(unerrDir, { recursive: true });
       writeFileSync(
         join(unerrDir, "config.json"),
-        JSON.stringify({ orgId: "org-1" }),
+        JSON.stringify({ orgId: "org-1" })
       );
 
       const config = JSON.parse(
-        require("node:fs").readFileSync(join(unerrDir, "config.json"), "utf-8"),
+        require("node:fs").readFileSync(join(unerrDir, "config.json"), "utf-8")
       ) as { repoId?: string };
       expect(config.repoId).toBeUndefined();
     });
@@ -189,8 +189,8 @@ exit 0
         const config = JSON.parse(
           require("node:fs").readFileSync(
             join(unerrDir, "config.json"),
-            "utf-8",
-          ),
+            "utf-8"
+          )
         ) as { repoId?: string };
         repoId = config.repoId;
       } catch {
@@ -268,10 +268,10 @@ exit 0
       ];
 
       const errorCount = violations.filter(
-        (v) => v.severity === "error",
+        (v) => v.severity === "error"
       ).length;
       const warningCount = violations.filter(
-        (v) => v.severity === "warning",
+        (v) => v.severity === "warning"
       ).length;
 
       expect(errorCount).toBe(2);
@@ -315,7 +315,7 @@ exit 0
       mkdirSync(manifestsDir, { recursive: true });
       writeFileSync(
         join(manifestsDir, "test-repo.json"),
-        JSON.stringify({ entityCount: 100, edgeCount: 200 }),
+        JSON.stringify({ entityCount: 100, edgeCount: 200 })
       );
 
       const snapshotsDir = join(tempDir, "snapshots");

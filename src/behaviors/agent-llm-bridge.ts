@@ -103,7 +103,7 @@ export class AgentLlmBridge {
   createPrompt(
     template: PromptTemplate,
     context: string,
-    options?: { timeoutMs?: number; fallback?: string },
+    options?: { timeoutMs?: number; fallback?: string }
   ): SubPrompt {
     const def = TEMPLATE_DEFINITIONS[template];
 
@@ -181,7 +181,7 @@ export class AgentLlmBridge {
    */
   getLastInjectionId(): string | null {
     if (this.injections.length === 0) return null;
-    return this.injections[this.injections.length - 1]!.id;
+    return this.injections[this.injections.length - 1]?.id ?? null;
   }
 
   getStats(): {
@@ -233,5 +233,5 @@ function estimateTokens(text: string): number {
 function truncateToTokens(text: string, maxTokens: number): string {
   const maxChars = maxTokens * 4;
   if (text.length <= maxChars) return text;
-  return text.slice(0, maxChars - 3) + "...";
+  return `${text.slice(0, maxChars - 3)}...`;
 }

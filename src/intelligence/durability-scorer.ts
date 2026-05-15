@@ -42,7 +42,7 @@ export function createDurabilityScorer(): DurabilityScorer {
   const cache = new Map<string, DurabilityScore>();
 
   function computeScores(
-    entries: LedgerEntryLike[],
+    entries: LedgerEntryLike[]
   ): Map<string, DurabilityScore> {
     cache.clear();
 
@@ -71,7 +71,7 @@ export function createDurabilityScorer(): DurabilityScorer {
 
       const modCount = timestamps.length;
       const lastModified = new Date(
-        timestamps[timestamps.length - 1]!,
+        timestamps[timestamps.length - 1]!
       ).toISOString();
 
       let totalSurvival = 0;
@@ -124,7 +124,7 @@ function extractFiles(args: Record<string, unknown>): string[] {
   if (!Array.isArray(files)) return [];
   return files
     .map((f) =>
-      typeof f === "string" ? f : ((f as { path?: string })?.path ?? ""),
+      typeof f === "string" ? f : ((f as { path?: string })?.path ?? "")
     )
     .filter(Boolean);
 }

@@ -58,7 +58,7 @@ export class StashManager {
 
   constructor(
     private unerrDir: string,
-    private projectRoot: string,
+    private projectRoot: string
   ) {
     this.stashDir = join(unerrDir, "drift", "stash");
     this.gitDir = join(projectRoot, ".git");
@@ -105,7 +105,7 @@ export class StashManager {
    */
   async saveSnapshot(
     localGraph: CozoGraphStore,
-    fileHashState: FileHashState,
+    fileHashState: FileHashState
   ): Promise<string | null> {
     const stashRef = this.readStashRef();
     if (!stashRef) return null;
@@ -136,19 +136,19 @@ export class StashManager {
     writeFileSync(
       join(snapshotDir, OVERLAY_FILE),
       JSON.stringify(snapshot, null, 2),
-      "utf-8",
+      "utf-8"
     );
     writeFileSync(
       join(snapshotDir, HASHES_FILE),
       JSON.stringify(fileHashState, null, 2),
-      "utf-8",
+      "utf-8"
     );
 
     // Enforce LRU cap
     this.enforceLruCap();
 
     _log.info(
-      `Saved stash snapshot: ${snapshotId} (${entities.length} entities)`,
+      `Saved stash snapshot: ${snapshotId} (${entities.length} entities)`
     );
 
     return snapshotId;
@@ -166,7 +166,6 @@ export class StashManager {
     }
 
     // Restore the most recently saved snapshot
-    // biome-ignore lint/style/noNonNullAssertion: length > 0 checked above
     const latest = snapshots[0]!;
     const snapshotDir = join(this.stashDir, latest.id);
     const overlayPath = join(snapshotDir, OVERLAY_FILE);
@@ -196,13 +195,13 @@ export class StashManager {
       rmSync(snapshotDir, { recursive: true, force: true });
 
       _log.info(
-        `Restored stash snapshot: ${latest.id} (${snapshot.entities.length} entities, ${snapshot.edges?.length ?? 0} edges)`,
+        `Restored stash snapshot: ${latest.id} (${snapshot.entities.length} entities, ${snapshot.edges?.length ?? 0} edges)`
       );
 
       return snapshot.entities.length;
     } catch (err) {
       _log.warn(
-        `Failed to restore snapshot ${latest.id}: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to restore snapshot ${latest.id}: ${err instanceof Error ? err.message : String(err)}`
       );
       return 0;
     }
@@ -216,7 +215,6 @@ export class StashManager {
     const snapshots = this.listSnapshots();
     if (snapshots.length === 0) return null;
 
-    // biome-ignore lint/style/noNonNullAssertion: length > 0 checked above
     const latest = snapshots[0]!;
     const hashesPath = join(this.stashDir, latest.id, HASHES_FILE);
 
@@ -327,7 +325,7 @@ export function startStashPoller(
   stashManager: StashManager,
   onPush: () => void,
   onPop: () => void,
-  intervalMs = 3000,
+  intervalMs = 3000
 ): () => void {
   const timer = setInterval(() => {
     const action = stashManager.detectStashChange();

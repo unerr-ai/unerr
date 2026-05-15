@@ -78,14 +78,14 @@ describe("NetworkFirewall (L8.4)", () => {
   it("addAllowedHost throws after seal (immutability)", () => {
     seal();
     expect(() => addAllowedHost("evil.com")).toThrow(
-      "firewall is already sealed",
+      "firewall is already sealed"
     );
   });
 
   it("addAllowedUrl throws after seal (immutability)", () => {
     seal();
     expect(() => addAllowedUrl("https://evil.com")).toThrow(
-      "firewall is already sealed",
+      "firewall is already sealed"
     );
   });
 

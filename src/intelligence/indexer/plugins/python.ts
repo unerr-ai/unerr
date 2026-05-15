@@ -59,7 +59,7 @@ function countParameters(node: SyntaxNode): number {
       c.type === "typed_parameter" ||
       c.type === "typed_default_parameter" ||
       c.type === "list_splat_pattern" ||
-      c.type === "dictionary_splat_pattern",
+      c.type === "dictionary_splat_pattern"
   ).length;
 }
 
@@ -143,7 +143,7 @@ function addEntity(
     isAsync?: boolean;
     paramCount?: number;
     signature?: string;
-  } = {},
+  } = {}
 ): string {
   const scope = currentScope(ctx);
   const key = entityKey(ctx.filePath, kind, name, scope);
@@ -229,7 +229,7 @@ function visitNode(node: SyntaxNode, ctx: ExtractorContext): void {
       const superclasses = actualNode.childForFieldName("superclasses");
       if (superclasses) {
         for (const arg of superclasses.namedChildren) {
-          const baseName = textOf(arg).split("(")[0]!.trim();
+          const baseName = textOf(arg).split("(")[0]?.trim();
           if (baseName && baseName !== "object") {
             ctx.edges.push({
               from_key: key,
@@ -322,7 +322,7 @@ function extractImports(tree: Tree, filePath: string): ImportInfo[] {
       const moduleNode =
         node.childForFieldName("module_name") ??
         node.namedChildren.find(
-          (c) => c.type === "dotted_name" || c.type === "relative_import",
+          (c) => c.type === "dotted_name" || c.type === "relative_import"
         );
       const source = moduleNode ? textOf(moduleNode) : ".";
 

@@ -7,10 +7,7 @@
  * Same wire types — the table is a 1:1 mirror of the old record shape.
  */
 
-import {
-  type SessionHistoryRow,
-  openMetricsStore,
-} from "./metrics-store.js";
+import { type SessionHistoryRow, openMetricsStore } from "./metrics-store.js";
 
 /** Layer 10: Per-mechanism savings breakdown attached to session history. */
 export interface TokenFlowSessionSummary {
@@ -66,7 +63,7 @@ function rowToEntry(r: SessionHistoryRow): SessionHistoryEntry {
   if (r.token_flow_summary) {
     try {
       entry.tokenFlowSummary = JSON.parse(
-        r.token_flow_summary,
+        r.token_flow_summary
       ) as TokenFlowSessionSummary;
     } catch {
       /* malformed JSON — drop the summary field */
@@ -82,7 +79,7 @@ function rowToEntry(r: SessionHistoryRow): SessionHistoryEntry {
  */
 export function appendSessionHistory(
   unerrDir: string,
-  entry: SessionHistoryEntry,
+  entry: SessionHistoryEntry
 ): void {
   try {
     const store = openMetricsStore(unerrDir);
@@ -124,7 +121,7 @@ export function readSessionHistory(unerrDir: string): SessionHistoryEntry[] {
  */
 export function aggregateStats(
   entries: SessionHistoryEntry[],
-  periodLabel: string,
+  periodLabel: string
 ): AggregatedStats {
   if (entries.length === 0) {
     return {

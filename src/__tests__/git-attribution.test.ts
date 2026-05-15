@@ -14,7 +14,7 @@ import {
 } from "../tracking/git-attribution.js";
 
 function makeAttribution(
-  overrides?: Partial<AttributionContext>,
+  overrides?: Partial<AttributionContext>
 ): AttributionContext {
   return {
     sessionId: "sess-abc-123",
@@ -37,7 +37,7 @@ describe("git-attribution", () => {
     it("appends session trailer to commit message", () => {
       const result = buildCommitMessageWithTrailers(
         "feat: add login",
-        makeAttribution(),
+        makeAttribution()
       );
       expect(result).toContain("Unerr-Session: sess-abc-123");
     });
@@ -45,7 +45,7 @@ describe("git-attribution", () => {
     it("includes ledger ID trailer (first entry only)", () => {
       const result = buildCommitMessageWithTrailers(
         "feat: add login",
-        makeAttribution(),
+        makeAttribution()
       );
       expect(result).toContain("Unerr-Ledger-Id: entry-1");
       expect(result).not.toContain("entry-2");
@@ -54,7 +54,7 @@ describe("git-attribution", () => {
     it("includes change type trailer", () => {
       const result = buildCommitMessageWithTrailers(
         "feat: add login",
-        makeAttribution(),
+        makeAttribution()
       );
       expect(result).toContain("Unerr-Change-Type: feat");
     });
@@ -62,7 +62,7 @@ describe("git-attribution", () => {
     it("includes feature area trailer", () => {
       const result = buildCommitMessageWithTrailers(
         "feat: add login",
-        makeAttribution(),
+        makeAttribution()
       );
       expect(result).toContain("Unerr-Feature: auth/oauth");
     });
@@ -70,10 +70,10 @@ describe("git-attribution", () => {
     it("includes plan summary trailer", () => {
       const result = buildCommitMessageWithTrailers(
         "feat: add login",
-        makeAttribution(),
+        makeAttribution()
       );
       expect(result).toContain(
-        "Unerr-Plan: Implement OAuth2 flow with Google provider",
+        "Unerr-Plan: Implement OAuth2 flow with Google provider"
       );
     });
 
@@ -81,7 +81,7 @@ describe("git-attribution", () => {
       const longPlan = "A".repeat(100);
       const result = buildCommitMessageWithTrailers(
         "feat: add login",
-        makeAttribution({ planSummary: longPlan }),
+        makeAttribution({ planSummary: longPlan })
       );
       expect(result).toContain(`Unerr-Plan: ${"A".repeat(69)}...`);
     });
@@ -90,7 +90,7 @@ describe("git-attribution", () => {
       const exactPlan = "B".repeat(72);
       const result = buildCommitMessageWithTrailers(
         "feat: add login",
-        makeAttribution({ planSummary: exactPlan }),
+        makeAttribution({ planSummary: exactPlan })
       );
       expect(result).toContain(`Unerr-Plan: ${"B".repeat(72)}`);
       expect(result).not.toContain("...");
@@ -99,7 +99,7 @@ describe("git-attribution", () => {
     it("includes agent model and tool trailers", () => {
       const result = buildCommitMessageWithTrailers(
         "feat: add login",
-        makeAttribution(),
+        makeAttribution()
       );
       expect(result).toContain("Unerr-Agent-Model: claude-sonnet-4");
       expect(result).toContain("Unerr-Agent-Tool: cursor");
@@ -108,7 +108,7 @@ describe("git-attribution", () => {
     it("separates trailers from message body with blank line", () => {
       const result = buildCommitMessageWithTrailers(
         "feat: add login",
-        makeAttribution(),
+        makeAttribution()
       );
       expect(result).toMatch(/feat: add login\n\nUnerr-Session:/);
     });
@@ -122,7 +122,7 @@ describe("git-attribution", () => {
           planSummary: undefined,
           agentModel: undefined,
           agentTool: undefined,
-        }),
+        })
       );
       expect(result).toContain("Unerr-Session:");
       expect(result).toContain("Unerr-Ledger-Id:");
@@ -136,7 +136,7 @@ describe("git-attribution", () => {
     it("omits ledger ID trailer when no entry IDs", () => {
       const result = buildCommitMessageWithTrailers(
         "chore: cleanup",
-        makeAttribution({ ledgerEntryIds: [] }),
+        makeAttribution({ ledgerEntryIds: [] })
       );
       expect(result).not.toContain("Unerr-Ledger-Id:");
     });
@@ -156,7 +156,7 @@ describe("git-attribution", () => {
       expect(payload.ledger_entry_ids).toEqual(["entry-1", "entry-2"]);
       expect(payload.prompt).toBe("Add user authentication");
       expect(payload.plan_summary).toBe(
-        "Implement OAuth2 flow with Google provider",
+        "Implement OAuth2 flow with Google provider"
       );
       expect(payload.change_type).toBe("feat");
       expect(payload.feature_area).toBe("auth/oauth");
@@ -189,7 +189,7 @@ describe("git-attribution", () => {
           featureArea: undefined,
           agentModel: undefined,
           agentTool: undefined,
-        }),
+        })
       );
       expect(payload.plan_summary).toBeUndefined();
       expect(payload.change_type).toBeUndefined();
@@ -215,7 +215,7 @@ describe("git-attribution", () => {
     beforeEach(() => {
       tempDir = join(
         tmpdir(),
-        `unerr-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        `unerr-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
       );
       mkdirSync(join(tempDir, ".unerr"), { recursive: true });
     });
@@ -236,7 +236,7 @@ describe("git-attribution", () => {
     it("returns null when manifest has no sessionId", () => {
       writeFileSync(
         join(tempDir, ".unerr", "manifest.json"),
-        JSON.stringify({ attributions: [{ prompt: "test" }] }),
+        JSON.stringify({ attributions: [{ prompt: "test" }] })
       );
       expect(readAttributionFromManifest(tempDir)).toBeNull();
     });
@@ -244,7 +244,7 @@ describe("git-attribution", () => {
     it("returns null when manifest has no attributions", () => {
       writeFileSync(
         join(tempDir, ".unerr", "manifest.json"),
-        JSON.stringify({ sessionId: "sess-1", attributions: [] }),
+        JSON.stringify({ sessionId: "sess-1", attributions: [] })
       );
       expect(readAttributionFromManifest(tempDir)).toBeNull();
     });
@@ -271,7 +271,7 @@ describe("git-attribution", () => {
               ledgerEntryIds: ["le-1"],
             },
           ],
-        }),
+        })
       );
 
       const result = readAttributionFromManifest(tempDir);
@@ -307,7 +307,7 @@ describe("git-attribution", () => {
               planSummary: "Fix the signup flow",
             },
           ],
-        }),
+        })
       );
 
       const result = readAttributionFromManifest(tempDir);
@@ -335,7 +335,7 @@ describe("git-attribution", () => {
             { prompt: "First", ledgerEntryIds: ["le-1", "le-2"] },
             { prompt: "Second", ledgerEntryIds: ["le-2", "le-3"] },
           ],
-        }),
+        })
       );
 
       const result = readAttributionFromManifest(tempDir);
@@ -348,7 +348,7 @@ describe("git-attribution", () => {
         JSON.stringify({
           sessionId: "sess-minimal",
           attributions: [{ prompt: "Just a prompt" }],
-        }),
+        })
       );
 
       const result = readAttributionFromManifest(tempDir);

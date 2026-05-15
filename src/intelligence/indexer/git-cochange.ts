@@ -36,7 +36,7 @@ export function computeCoChangeEdges(
   projectRoot: string,
   maxCommits = 100,
   topK = 20,
-  minCoOccurrences = 3,
+  minCoOccurrences = 3
 ): CoChangeEdge[] {
   const commits = getCommitFileLists(projectRoot, maxCommits);
   if (commits.length === 0) return [];
@@ -94,13 +94,13 @@ function pairKey(a: string, b: string): string {
  */
 function getCommitFileLists(
   projectRoot: string,
-  maxCommits: number,
+  maxCommits: number
 ): string[][] {
   let output: string;
   try {
     output = execSync(
       `git log --name-only --pretty=format:"" -n ${maxCommits}`,
-      { cwd: projectRoot, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 },
+      { cwd: projectRoot, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 }
     );
   } catch {
     return [];

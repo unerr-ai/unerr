@@ -23,7 +23,8 @@
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
     "typecheck": "tsc --noEmit",
-    "test:local-mode": "vitest run src/__tests__/local-mode-offline.test.ts src/__tests__/network-boundary.test.ts"
+    "test:local-mode": "vitest run src/__tests__/local-mode-offline.test.ts src/__tests__/network-boundary.test.ts",
+    "postinstall": "node scripts/postinstall.mjs || true"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.73",
@@ -93,7 +94,8 @@
     "node": ">=20.9.0"
   },
   "files": [
-    "dist"
+    "dist",
+    "scripts/postinstall.mjs"
   ],
   "license": "Elastic-2.0",
   "pnpm": {

@@ -24,7 +24,7 @@ function safeParse(data: string): unknown {
  */
 export function connectDashboardSse(
   queryClient: QueryClient,
-  onStatus: (connected: boolean) => void,
+  onStatus: (connected: boolean) => void
 ): () => void {
   let stopped = false;
   let es: EventSource | null = null;
@@ -35,7 +35,7 @@ export function connectDashboardSse(
   const pushFeed = (type: string, data: unknown) => {
     const item: LiveFeedItem = { t: Date.now(), type, data };
     queryClient.setQueryData<LiveFeedItem[]>(FEED_KEY, (prev = []) =>
-      [...prev, item].slice(-100),
+      [...prev, item].slice(-100)
     );
   };
 

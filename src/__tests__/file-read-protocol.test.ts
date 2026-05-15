@@ -20,7 +20,7 @@ describe("runFileReadForRouter", () => {
 
     const r = await runFileReadForRouter(
       { file_path: "a.txt" },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
     expect(typeof r.content).toBe("string");
     expect((r.content as string).includes("1\tone")).toBe(true);
@@ -34,7 +34,7 @@ describe("runFileReadForRouter", () => {
 
     const r = await runFileReadForRouter(
       { file_path: "big.txt" },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     expect(r.content && typeof r.content === "object").toBe(true);
@@ -48,17 +48,17 @@ describe("runFileReadForRouter", () => {
     const dir = makeTmpDir("ctx");
     const prefix = Array.from(
       { length: 12 },
-      (_, i) => `// line ${i + 1}`,
+      (_, i) => `// line ${i + 1}`
     ).join("\n");
     writeFileSync(
       join(dir, "deep.ts"),
       `${prefix}\nexport function sliceFn(): number {\n  return 42;\n}\n`,
-      "utf-8",
+      "utf-8"
     );
 
     const r = await runFileReadForRouter(
       { file_path: "deep.ts", entity: "sliceFn" },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     const body = r.content as string;
@@ -72,12 +72,12 @@ describe("runFileReadForRouter", () => {
     writeFileSync(
       join(dir, "mod.ts"),
       "// head\nexport function targetFn(): void {\n  return;\n}\n",
-      "utf-8",
+      "utf-8"
     );
 
     const r = await runFileReadForRouter(
       { file_path: "mod.ts", entity: "targetFn" },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     expect(typeof r.content).toBe("string");
@@ -91,7 +91,7 @@ describe("runFileReadForRouter", () => {
 
     const r = await runFileReadForRouter(
       { file_path: "bin.dat" },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     expect(r.content && typeof r.content === "object").toBe(true);
@@ -103,13 +103,13 @@ describe("runFileReadForRouter", () => {
   it("adaptive gating: budget=5000 allows 500-line file through without gating", async () => {
     const dir = makeTmpDir("budget-high");
     const lines = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join(
-      "\n",
+      "\n"
     );
     writeFileSync(join(dir, "medium.ts"), lines, "utf-8");
 
     const r = await runFileReadForRouter(
       { file_path: "medium.ts", token_budget: 5000 },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     // With budget=5000, budgetLines = (5000*4)/80 = 250. effectiveGate = max(200, 250) = 250.
@@ -117,7 +117,7 @@ describe("runFileReadForRouter", () => {
     // But let's use a higher budget to prove the adaptive gating works
     const r2 = await runFileReadForRouter(
       { file_path: "medium.ts", token_budget: 30000 },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     // budget=30000 → budgetLines = (30000*4)/80 = 1500. effectiveGate = max(200, 1500) = 1500.
@@ -131,13 +131,13 @@ describe("runFileReadForRouter", () => {
     // 150 lines, each ~40 chars → fits in default budget but let's constrain
     const lines = Array.from(
       { length: 150 },
-      (_, i) => `const x${i} = ${i}; // padding here for length`,
+      (_, i) => `const x${i} = ${i}; // padding here for length`
     ).join("\n");
     writeFileSync(join(dir, "vars.ts"), lines, "utf-8");
 
     const r = await runFileReadForRouter(
       { file_path: "vars.ts", token_budget: 300 },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     // budget=300 → budgetLines = (300*4)/80 = 15
@@ -158,7 +158,7 @@ describe("runFileReadForRouter", () => {
     // File has 205 > 200 → gated (same as before)
     const r = await runFileReadForRouter(
       { file_path: "big.txt" },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     expect((r.content as Record<string, unknown>).gated).toBe(true);
@@ -171,12 +171,12 @@ describe("runFileReadForRouter", () => {
     writeFileSync(
       join(dir, "fn.ts"),
       "// top\nexport function compressOutput(): string {\n  return '';\n}\n",
-      "utf-8",
+      "utf-8"
     );
 
     const r = await runFileReadForRouter(
       { file_path: "fn.ts", entity: "CompressOutput" },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     expect(typeof r.content).toBe("string");
@@ -188,12 +188,12 @@ describe("runFileReadForRouter", () => {
     writeFileSync(
       join(dir, "fn.ts"),
       "// filler\nexport function compressShellOutput(): string {\n  return '';\n}\n",
-      "utf-8",
+      "utf-8"
     );
 
     const r = await runFileReadForRouter(
       { file_path: "fn.ts", entity: "compress" },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     expect(typeof r.content).toBe("string");
@@ -203,17 +203,17 @@ describe("runFileReadForRouter", () => {
   it("entity not found on large file: returns outline with suggestions", async () => {
     const dir = makeTmpDir("not-found");
     const filler = Array.from({ length: 210 }, (_, i) => `// line ${i}`).join(
-      "\n",
+      "\n"
     );
     writeFileSync(
       join(dir, "big.ts"),
       `${filler}\nexport function realFunction(): void {}\n`,
-      "utf-8",
+      "utf-8"
     );
 
     const r = await runFileReadForRouter(
       { file_path: "big.ts", entity: "nonExistentThing" },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     const c = r.content as Record<string, unknown>;
@@ -230,7 +230,7 @@ describe("runFileReadForRouter", () => {
 
     const r = await runFileReadForRouter(
       { file_path: "a.ts" },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     expect(r._layer6_meta?.tokens_estimate).toBeGreaterThan(0);
@@ -243,7 +243,7 @@ describe("runFileReadForRouter", () => {
 
     const r = await runFileReadForRouter(
       { file_path: "empty.ts" },
-      { cwd: dir, graph: null },
+      { cwd: dir, graph: null }
     );
 
     // Empty file has totalLines=1 (one empty string from split), body may be empty

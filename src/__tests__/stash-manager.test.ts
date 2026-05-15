@@ -21,7 +21,7 @@ import { StashManager } from "../tracking/stash-manager.js";
 
 /** Minimal mock CozoGraphStore backed by a Map for drift overlay. */
 function createMockGraph(
-  driftEntities: DriftEntity[] = [],
+  driftEntities: DriftEntity[] = []
 ): CozoGraphStore & { entities: Map<string, DriftEntity> } {
   const entities = new Map<string, DriftEntity>();
   for (const e of driftEntities) {
@@ -46,7 +46,7 @@ function createMockGraph(
 }
 
 function makeDrift(
-  overrides: Partial<DriftEntity> & { key: string; name: string },
+  overrides: Partial<DriftEntity> & { key: string; name: string }
 ): DriftEntity {
   return {
     kind: "function",
@@ -90,12 +90,12 @@ function writeStashLog(gitDir: string, count: number): void {
   const lines = Array.from(
     { length: count },
     (_, i) =>
-      `0000000 abcdef${i} Author <a@b.com> ${Date.now()} +0000\tstash@{${i}}: WIP`,
+      `0000000 abcdef${i} Author <a@b.com> ${Date.now()} +0000\tstash@{${i}}: WIP`
   );
   writeFileSync(
     join(gitDir, "logs", "refs", "stash"),
     `${lines.join("\n")}\n`,
-    "utf-8",
+    "utf-8"
   );
 }
 

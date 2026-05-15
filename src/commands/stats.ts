@@ -15,14 +15,14 @@ export function registerStatsCommand(program: Command): void {
   program
     .command("stats")
     .description(
-      "Show weekly and all-time token savings with mechanism breakdown",
+      "Show weekly and all-time token savings with mechanism breakdown"
     )
     .action(() => {
       const stats = loadStats();
 
       if (stats.allTime.totalSessions === 0) {
         process.stderr.write(
-          "\n  No sessions recorded yet. Start using unerr to see stats.\n\n",
+          "\n  No sessions recorded yet. Start using unerr to see stats.\n\n"
         );
         return;
       }

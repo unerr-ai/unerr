@@ -43,7 +43,7 @@ export function assembleFileIntelligence(
     risk_level?: string;
     fan_in?: number;
     community?: number;
-  }>,
+  }>
 ): FileIntelligence {
   const fileEntities = entities.filter((e) => e.file_path === filePath);
 
@@ -69,7 +69,7 @@ export function assembleFileIntelligence(
     if (e.community >= 0) {
       communityVotes.set(
         e.community,
-        (communityVotes.get(e.community) ?? 0) + 1,
+        (communityVotes.get(e.community) ?? 0) + 1
       );
     }
   }

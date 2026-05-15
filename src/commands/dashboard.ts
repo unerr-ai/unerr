@@ -40,7 +40,7 @@ export function registerDashboardCommand(program: Command): void {
 
       if (!(await isGitRepo(cwd))) {
         startupLog.error(
-          "Not inside a git repository. Run from your project root.",
+          "Not inside a git repository. Run from your project root."
         );
         process.exit(1);
       }
@@ -50,7 +50,7 @@ export function registerDashboardCommand(program: Command): void {
         startupLog.warn("No dashboard metadata found.");
         startupLog.detail("Start the proxy with: unerr");
         startupLog.detail(
-          "The dashboard URL appears when the HTTP server binds.",
+          "The dashboard URL appears when the HTTP server binds."
         );
         process.exit(1);
       }
@@ -60,7 +60,7 @@ export function registerDashboardCommand(program: Command): void {
         startupLog.done(`Opened ${server.url}`);
       } catch (err) {
         startupLog.error(
-          err instanceof Error ? err.message : "Could not open browser.",
+          err instanceof Error ? err.message : "Could not open browser."
         );
         startupLog.detail(`Open manually: ${server.url}`);
         process.exit(1);

@@ -46,7 +46,7 @@ export interface EntityInfo {
 export function mergeScipResults(
   existingEdges: IndexedEdge[],
   scipResult: ScipDecodeResult,
-  entities?: EntityInfo[],
+  entities?: EntityInfo[]
 ): { edges: EnrichedEdge[]; result: MergeResult } {
   const start = performance.now();
 
@@ -120,7 +120,7 @@ export function mergeScipResults(
   const durationMs = performance.now() - start;
 
   log.info(
-    `Merge: ${edgesUpgraded} upgraded, ${edgesUnchanged} unchanged (${scipDefs.size} unique SCIP definitions across ${scipResult.documents.length} files)`,
+    `Merge: ${edgesUpgraded} upgraded, ${edgesUnchanged} unchanged (${scipDefs.size} unique SCIP definitions across ${scipResult.documents.length} files)`
   );
 
   return {

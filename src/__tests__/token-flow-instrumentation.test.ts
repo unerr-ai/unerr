@@ -20,7 +20,7 @@ describe("token-flow-instrumentation", () => {
   beforeEach(() => {
     tmpDir = join(
       os.tmpdir(),
-      `unerr-tfi-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      `unerr-tfi-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     );
     unerrDir = join(tmpDir, ".unerr");
     mkdirSync(unerrDir, { recursive: true });
@@ -84,7 +84,7 @@ describe("token-flow-instrumentation", () => {
 
       const summary = aggregateSession(
         writer.getSessionEvents(),
-        "test-session",
+        "test-session"
       );
       expect(summary.by_mechanism.graph_query!.tokens_saved).toBe(8600);
       expect(summary.by_mechanism.graph_query!.pct_of_total).toBe(100);
@@ -453,7 +453,7 @@ describe("token-flow-instrumentation", () => {
 
       const summary = aggregateSession(
         writer.getSessionEvents(),
-        "test-session",
+        "test-session"
       );
 
       expect(summary.total_turns).toBe(7);
@@ -463,7 +463,7 @@ describe("token-flow-instrumentation", () => {
 
       // graph_query should be the top mechanism
       expect(summary.by_mechanism.graph_query!.pct_of_total).toBeGreaterThan(
-        70,
+        70
       );
 
       // All 7 mechanisms present
@@ -516,7 +516,7 @@ describe("token-flow-instrumentation", () => {
 
       const summary = aggregateSession(
         writer.getSessionEvents(),
-        "test-session",
+        "test-session"
       );
       expect(summary.total_tokens_saved).toBe(0);
       expect(summary.efficiency_pct).toBe(0);

@@ -24,7 +24,7 @@ describe("token-flow", () => {
   beforeEach(() => {
     tmpDir = join(
       os.tmpdir(),
-      `unerr-tokenflow-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      `unerr-tokenflow-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     );
     unerrDir = join(tmpDir, ".unerr");
     mkdirSync(unerrDir, { recursive: true });
@@ -92,7 +92,7 @@ describe("token-flow", () => {
     it("records detail metadata when provided", () => {
       const writer = new TokenFlowWriter(unerrDir, "test-session-001");
       writer.record(
-        makeInput({ detail: { counterfactual: "file_read", depth: 3 } }),
+        makeInput({ detail: { counterfactual: "file_read", depth: 3 } })
       );
 
       const [event] = readTokenFlowEvents(unerrDir);
@@ -109,7 +109,7 @@ describe("token-flow", () => {
           tokens_without: 3400,
           tokens_with: 800,
           tokens_saved: 2600,
-        }),
+        })
       );
 
       const [event] = readTokenFlowEvents(unerrDir);
@@ -158,7 +158,7 @@ describe("token-flow", () => {
           tokens_without: 100,
           tokens_with: 100,
           tokens_saved: 0,
-        }),
+        })
       );
 
       expect(writer.getSessionTokensSaved()).toBe(0);
@@ -266,7 +266,7 @@ describe("token-flow", () => {
           tokens_without: 5000,
           tokens_with: 1800,
           tokens_saved: 3200,
-        }),
+        })
       );
       writer.record(
         makeInput({
@@ -275,7 +275,7 @@ describe("token-flow", () => {
           tokens_without: 2000,
           tokens_with: 800,
           tokens_saved: 1200,
-        }),
+        })
       );
       writer.record(
         makeInput({
@@ -284,7 +284,7 @@ describe("token-flow", () => {
           tokens_without: 1000,
           tokens_with: 520,
           tokens_saved: 480,
-        }),
+        })
       );
 
       const summary = aggregateSession(writer.getSessionEvents(), "s1");
@@ -399,7 +399,7 @@ describe("token-flow", () => {
       // Percentages should sum close to 100
       const totalPct = Object.values(summary.by_mechanism).reduce(
         (sum, m) => sum + m.pct_of_total,
-        0,
+        0
       );
       expect(totalPct).toBeCloseTo(100, 0);
     });
@@ -705,7 +705,7 @@ describe("token-flow", () => {
         turn: number,
         without: number,
         saved: number,
-        offsetSec: number,
+        offsetSec: number
       ): void => {
         store.insertTokenFlow({
           ts: baseTs + offsetSec * 1000,
@@ -728,11 +728,11 @@ describe("token-flow", () => {
 
       const summaryA = aggregateSession(
         readTokenFlowEvents(unerrDir),
-        "session-a",
+        "session-a"
       );
       const summaryB = aggregateSession(
         readTokenFlowEvents(unerrDir),
-        "session-b",
+        "session-b"
       );
 
       expect(summaryA.total_tokens_saved).toBe(200);
@@ -766,7 +766,7 @@ describe("token-flow", () => {
             tokens_saved: (i + 1) * 100,
             tokens_without: (i + 1) * 200,
             tokens_with: (i + 1) * 100,
-          }),
+          })
         );
       }
 

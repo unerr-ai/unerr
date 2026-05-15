@@ -93,7 +93,7 @@ export function detectLanguage(filePath: string): Language | null {
  */
 export function extractEntities(
   content: string,
-  filePath: string,
+  filePath: string
 ): ExtractedEntity[] {
   const language = detectLanguage(filePath);
   if (!language) return [];
@@ -465,7 +465,7 @@ function getPatterns(language: Language): PatternDef[] {
 function findBlockEnd(
   lines: string[],
   startIdx: number,
-  language: Language,
+  language: Language
 ): number {
   if (language === "python") {
     return findPythonBlockEnd(lines, startIdx);
@@ -548,7 +548,7 @@ export function entityKey(
   filePath: string,
   kind: string,
   name: string,
-  signature?: string,
+  signature?: string
 ): string {
   const input = [repoId, filePath, kind, name, signature ?? ""].join("\0");
   return createHash("sha256").update(input).digest("hex").slice(0, 16);
@@ -680,7 +680,7 @@ export async function preloadGrammars(
     "go",
     "java",
     "rust",
-  ],
+  ]
 ): Promise<void> {
   const grammars = new Set<string>();
   for (const lang of languages) {
@@ -703,7 +703,7 @@ export async function preloadGrammars(
  */
 export async function extractEntitiesAsync(
   content: string,
-  filePath: string,
+  filePath: string
 ): Promise<ExtractedEntity[]> {
   const language = detectLanguage(filePath);
   if (!language) return [];
@@ -731,7 +731,7 @@ export async function extractEntitiesAsync(
 function extractFromAST(
   root: TSNode,
   lines: string[],
-  language: Language,
+  language: Language
 ): ExtractedEntity[] {
   const entities: ExtractedEntity[] = [];
 
@@ -780,7 +780,7 @@ function extractFromAST(
 function hashLines(
   lines: string[],
   startLine: number,
-  endLine: number,
+  endLine: number
 ): string {
   const body = lines.slice(startLine - 1, endLine).join("\n");
   return createHash("sha256").update(body).digest("hex").slice(0, 16);
@@ -846,7 +846,7 @@ const TEST_PRIMITIVES = new Set([
 function extractTSEntities(
   node: TSNode,
   lines: string[],
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): void {
   walkNodes(node, (n) => {
     switch (n.type) {
@@ -1058,7 +1058,7 @@ function extractTSEntities(
 function extractPythonEntities(
   node: TSNode,
   lines: string[],
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): void {
   walkNodes(node, (n) => {
     switch (n.type) {
@@ -1126,7 +1126,7 @@ function findPythonParentClass(node: TSNode): string | null {
 function extractGoEntities(
   node: TSNode,
   lines: string[],
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): void {
   walkNodes(node, (n) => {
     switch (n.type) {
@@ -1207,7 +1207,7 @@ function extractGoEntities(
 function extractJavaEntities(
   node: TSNode,
   lines: string[],
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): void {
   walkNodes(node, (n) => {
     switch (n.type) {
@@ -1310,7 +1310,7 @@ function isInsideCfgTest(node: TSNode): boolean {
 function extractRustEntities(
   node: TSNode,
   lines: string[],
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): void {
   walkNodes(node, (n) => {
     switch (n.type) {
@@ -1409,7 +1409,7 @@ function findRustImplName(node: TSNode): string | null {
 function extractCEntities(
   node: TSNode,
   lines: string[],
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): void {
   walkNodes(node, (n) => {
     switch (n.type) {
@@ -1473,7 +1473,7 @@ function extractCEntities(
 function extractCSharpEntities(
   node: TSNode,
   lines: string[],
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): void {
   walkNodes(node, (n) => {
     switch (n.type) {
@@ -1565,7 +1565,7 @@ function findCSharpParentClass(node: TSNode): string | null {
 function extractRubyEntities(
   node: TSNode,
   lines: string[],
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): void {
   walkNodes(node, (n) => {
     switch (n.type) {
@@ -1640,7 +1640,7 @@ function findRubyParentClass(node: TSNode): string | null {
 function extractPHPEntities(
   node: TSNode,
   lines: string[],
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): void {
   walkNodes(node, (n) => {
     switch (n.type) {
@@ -1747,7 +1747,7 @@ function findPHPParentClass(node: TSNode): string | null {
 function extractKotlinEntities(
   node: TSNode,
   lines: string[],
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): void {
   walkNodes(node, (n) => {
     switch (n.type) {
@@ -1856,7 +1856,7 @@ function findKotlinParentClass(node: TSNode): string | null {
 function extractSwiftEntities(
   node: TSNode,
   lines: string[],
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): void {
   walkNodes(node, (n) => {
     switch (n.type) {
@@ -1981,7 +1981,7 @@ export interface ExtractedEdge {
 export async function extractEdgesAsync(
   content: string,
   filePath: string,
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): Promise<ExtractedEdge[]> {
   const language = detectLanguage(filePath);
   if (!language) return [];
@@ -2004,7 +2004,7 @@ export async function extractEdgesAsync(
 function extractEdgesFromAST(
   root: TSNode,
   language: Language,
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): ExtractedEdge[] {
   const edges: ExtractedEdge[] = [];
 
@@ -2051,10 +2051,10 @@ function extractEdgesFromAST(
 function extractTSEdges(
   root: TSNode,
   edges: ExtractedEdge[],
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): void {
   const entityNames = new Set(
-    entities.map((e) => e.name.split(".").pop() ?? e.name),
+    entities.map((e) => e.name.split(".").pop() ?? e.name)
   );
 
   // Collect imported symbol names so cross-file calls are captured.
@@ -2075,6 +2075,31 @@ function extractTSEdges(
             } else if (spec.type === "identifier") {
               importedNames.add(spec.text);
             }
+          }
+        }
+      }
+    }
+    // Dynamic import: const { Foo, Bar } = await import("./module.js")
+    // Collect destructured names so downstream call edges are tracked.
+    if (n.type === "call_expression") {
+      const func = n.childForFieldName("function");
+      if (func?.type === "import") {
+        const awaitExpr = n.parent;
+        const varDecl =
+          awaitExpr?.type === "await_expression" ? awaitExpr.parent : null;
+        if (varDecl?.type === "variable_declarator") {
+          const pattern = varDecl.childForFieldName("name");
+          if (pattern?.type === "object_pattern") {
+            for (const prop of pattern.namedChildren) {
+              if (prop.type === "shorthand_property_identifier_pattern") {
+                importedNames.add(prop.text);
+              } else if (prop.type === "pair_pattern") {
+                const val = prop.childForFieldName("value");
+                if (val?.type === "identifier") importedNames.add(val.text);
+              }
+            }
+          } else if (pattern?.type === "identifier") {
+            importedNames.add(pattern.text);
           }
         }
       }
@@ -2160,6 +2185,31 @@ function extractTSEdges(
     if (n.type === "call_expression") {
       const func = n.childForFieldName("function");
       if (!func) return;
+
+      // Dynamic import: await import("../intelligence/local-graph.js")
+      // Creates a file→file imports edge so get_cross_boundary_links can
+      // find connections between modules that use dynamic imports exclusively.
+      if (func.type === "import") {
+        const argsNode = n.childForFieldName("arguments");
+        if (argsNode) {
+          const strArg = argsNode.namedChildren.find(
+            (c) => c.type === "string"
+          );
+          if (strArg) {
+            const src = strArg.text.replace(/['"]/g, "");
+            if (src) {
+              edges.push({
+                from_name: "__file__",
+                to_name: "__dynamic_import__",
+                type: "imports",
+                import_source: src,
+              });
+            }
+          }
+        }
+        return;
+      }
+
       let calledName: string | null = null;
       if (func.type === "identifier") {
         calledName = func.text;
@@ -2500,7 +2550,7 @@ function extractKotlinEdges(root: TSNode, edges: ExtractedEdge[]): void {
       const delegation = n.namedChildren.find(
         (c) =>
           c.type === "delegation_specifier" ||
-          c.type === "delegation_specifiers",
+          c.type === "delegation_specifiers"
       );
       if (delegation) {
         for (const child of delegation.namedChildren) {
@@ -2574,7 +2624,7 @@ function extractRustUsePath(node: TSNode): string {
 function extractRustUseNames(
   node: TSNode,
   edges: ExtractedEdge[],
-  importSource: string,
+  importSource: string
 ): void {
   walkNodes(node, (n) => {
     if (n.type === "identifier" && n.parent?.type === "use_as_clause") {
@@ -2610,7 +2660,7 @@ function extractRustUseNames(
  */
 function findEnclosingEntity(
   node: TSNode,
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): string | null {
   const callLine = node.startPosition.row + 1;
   let best: ExtractedEntity | null = null;
@@ -2634,7 +2684,7 @@ function findEnclosingEntity(
 function extractEdgesRegex(
   content: string,
   _filePath: string,
-  language: Language,
+  language: Language
 ): ExtractedEdge[] {
   const edges: ExtractedEdge[] = [];
   const lines = content.split("\n");
@@ -2645,7 +2695,7 @@ function extractEdgesRegex(
       case "javascript": {
         // import { Foo, Bar } from "./module"
         const importMatch = line.match(
-          /^\s*import\s+(?:(?:type\s+)?{([^}]+)}|(\w+))\s+from\s+['"]([^'"]+)['"]/,
+          /^\s*import\s+(?:(?:type\s+)?{([^}]+)}|(\w+))\s+from\s+['"]([^'"]+)['"]/
         );
         if (importMatch) {
           const names = importMatch[1] ?? importMatch[2] ?? "";
@@ -2776,7 +2826,7 @@ function extractEdgesRegex(
       }
       case "ruby": {
         const reqMatch = line.match(
-          /^\s*require(?:_relative)?\s+['"]([^'"]+)['"]/,
+          /^\s*require(?:_relative)?\s+['"]([^'"]+)['"]/
         );
         if (reqMatch?.[1]) {
           const mod = reqMatch[1];
@@ -2819,7 +2869,7 @@ function extractEdgesRegex(
           });
         }
         const phpImpl = line.match(
-          /class\s+(\w+)\s+(?:extends\s+\w+\s+)?implements\s+(.+?)(?:\s*\{|$)/,
+          /class\s+(\w+)\s+(?:extends\s+\w+\s+)?implements\s+(.+?)(?:\s*\{|$)/
         );
         if (phpImpl?.[1] && phpImpl[2]) {
           for (const iface of phpImpl[2].split(",")) {
@@ -2849,7 +2899,7 @@ function extractEdgesRegex(
           }
         }
         const ktExtends = line.match(
-          /class\s+(\w+)\s*(?:\([^)]*\))?\s*:\s*(\w+)/,
+          /class\s+(\w+)\s*(?:\([^)]*\))?\s*:\s*(\w+)/
         );
         if (ktExtends?.[1] && ktExtends[2]) {
           edges.push({
@@ -2872,7 +2922,7 @@ function extractEdgesRegex(
           });
         }
         const swExtends = line.match(
-          /(?:class|struct|enum)\s+(\w+)\s*:\s*(\w+)/,
+          /(?:class|struct|enum)\s+(\w+)\s*:\s*(\w+)/
         );
         if (swExtends?.[1] && swExtends[2]) {
           edges.push({

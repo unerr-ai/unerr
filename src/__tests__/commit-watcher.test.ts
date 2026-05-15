@@ -33,7 +33,7 @@ function initGitRepo(): void {
 beforeEach(() => {
   tempDir = join(
     tmpdir(),
-    `unerr-commit-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-commit-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(tempDir, { recursive: true });
   initGitRepo();
@@ -79,7 +79,7 @@ describe("CommitWatcher", () => {
     mkdirSync(join(repoDir, "src"), { recursive: true });
     writeFileSync(
       join(repoDir, "src", "auth.ts"),
-      "export function login() {}",
+      "export function login() {}"
     );
     execSync("git add -A", { cwd: repoDir, stdio: "pipe" });
     execSync("git commit -m 'add auth'", { cwd: repoDir, stdio: "pipe" });
@@ -107,7 +107,7 @@ describe("CommitWatcher", () => {
       { key: "abc" },
       { found: true },
       "main",
-      "aaa",
+      "aaa"
     );
     correlator.onSyncLocalDiff(ledger, {
       prompt: "Fix auth",
@@ -122,7 +122,7 @@ describe("CommitWatcher", () => {
     mkdirSync(join(repoDir, "src"), { recursive: true });
     writeFileSync(
       join(repoDir, "src", "auth.ts"),
-      "export function login() {}",
+      "export function login() {}"
     );
     execSync("git add -A", { cwd: repoDir, stdio: "pipe" });
     execSync("git commit -m 'add auth'", { cwd: repoDir, stdio: "pipe" });

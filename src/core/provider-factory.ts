@@ -51,7 +51,7 @@ export function resolveProviderConfig(settings: LlmSettings): ProviderConfig {
  * This is the primary entry point for the rest of the codebase.
  */
 export async function createModelFromSettings(
-  settings: LlmSettings,
+  settings: LlmSettings
 ): Promise<unknown> {
   const config = resolveProviderConfig(settings);
   return createLanguageModel(config);

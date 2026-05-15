@@ -150,7 +150,7 @@ function buildPageHint(
   cursorArg: string,
   args: Record<string, unknown>,
   delivered: number,
-  filterHint?: string,
+  filterHint?: string
 ): string {
   // Tight format: tag `pg` is one BPE token in modern tokenizers. Filter hint
   // is included only when narrowing actually helps. Legend in
@@ -180,7 +180,7 @@ function buildPageHint(
 export function applyWireCap(
   toolName: string,
   rawBody: unknown,
-  args: Record<string, unknown>,
+  args: Record<string, unknown>
 ): WireCapResult {
   const byteCap = resolveByteCap(args);
   const cap = PER_TOOL_CAPS[toolName];
@@ -203,7 +203,7 @@ export function applyWireCap(
       cap.cursorArg,
       args,
       sliced.length,
-      cap.filterHint,
+      cap.filterHint
     );
     return enforceByteCap(toolName, sliced, args, hint, byteCap);
   }
@@ -241,7 +241,7 @@ export function applyWireCap(
         cap.cursorArg,
         args,
         sliced.length,
-        cap.filterHint,
+        cap.filterHint
       );
       return enforceByteCap(toolName, newBody, args, hint, byteCap);
     }
@@ -256,7 +256,7 @@ export function applyWireCap(
         cap.cursorArg,
         args,
         deliveredCount,
-        cap.filterHint,
+        cap.filterHint
       );
       return enforceByteCap(toolName, rawBody, args, hint, byteCap);
     }
@@ -279,7 +279,7 @@ function enforceByteCap(
   body: unknown,
   args: Record<string, unknown>,
   existingHint: string | null = null,
-  byteCap: number = HARD_BYTE_CAP,
+  byteCap: number = HARD_BYTE_CAP
 ): WireCapResult {
   const serialized = typeof body === "string" ? body : JSON.stringify(body);
   if (serialized.length <= byteCap) {
@@ -320,7 +320,7 @@ function enforceByteCap(
     const suggestedLimit = hasLimit
       ? Math.max(
           1,
-          Math.floor((args.limit as number) * (byteCap / serialized.length)),
+          Math.floor((args.limit as number) * (byteCap / serialized.length))
         )
       : null;
     const limitHint = suggestedLimit

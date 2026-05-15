@@ -14,7 +14,7 @@ export interface ProxyContext {
  * Create a ProxyContext with optional BYO-LLM adapter.
  */
 export function createLocalContext(
-  llmAdapter: LocalLlmAdapter | null = null,
+  llmAdapter: LocalLlmAdapter | null = null
 ): ProxyContext {
   return { llmAdapter };
 }

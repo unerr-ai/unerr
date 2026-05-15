@@ -77,7 +77,7 @@ export function writeNudgeState(cwd: string, state: NudgeSessionState): void {
 /** Convenience helper: read, mutate, write atomically. */
 export function updateNudgeState(
   cwd: string,
-  mutator: (s: NudgeSessionState) => void,
+  mutator: (s: NudgeSessionState) => void
 ): NudgeSessionState {
   const s = readNudgeState(cwd);
   mutator(s);

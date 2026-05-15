@@ -57,7 +57,7 @@ function createCopilotServerEntry(): McpServerEntry {
  */
 export function writeMcpConfig(
   cwd: string,
-  ide: IdeType,
+  ide: IdeType
 ): { path: string; action: "created" | "updated" | "skipped" } {
   const agent = getAgent(ide);
   if (!agent) {
@@ -93,7 +93,7 @@ export function writeMcpConfig(
  */
 export function writeAllMcpConfigs(
   cwd: string,
-  agents: IdeType[],
+  agents: IdeType[]
 ): Array<{
   ide: IdeType;
   path: string;
@@ -123,7 +123,7 @@ export function removeMcpConfig(cwd: string, ide: IdeType): boolean {
     if (agent.configFormat === "continue-config") {
       if (!Array.isArray(existing.mcpServers)) return false;
       existing.mcpServers = existing.mcpServers.filter(
-        (s: { name?: string }) => s.name !== UNERR_SERVER_KEY,
+        (s: { name?: string }) => s.name !== UNERR_SERVER_KEY
       );
     } else if (agent.configFormat === "settings-json") {
       if (!existing.mcp?.servers?.[UNERR_SERVER_KEY]) return false;
@@ -161,7 +161,7 @@ export function isConfigured(cwd: string, ide: IdeType): boolean {
       return (
         Array.isArray(existing.mcpServers) &&
         existing.mcpServers.some(
-          (s: { name?: string }) => s.name === UNERR_SERVER_KEY,
+          (s: { name?: string }) => s.name === UNERR_SERVER_KEY
         )
       );
     }
@@ -192,27 +192,27 @@ export function generateConfigSnippet(ide: IdeType): string {
       return JSON.stringify(
         { mcp: { servers: { [UNERR_SERVER_KEY]: entry } } },
         null,
-        2,
+        2
       );
     case "copilot-json": {
       const copilotEntry = createCopilotServerEntry();
       return JSON.stringify(
         { mcpServers: { [UNERR_SERVER_KEY]: copilotEntry } },
         null,
-        2,
+        2
       );
     }
     case "continue-config":
       return JSON.stringify(
         { mcpServers: [{ name: UNERR_SERVER_KEY, ...entry }] },
         null,
-        2,
+        2
       );
     default:
       return JSON.stringify(
         { mcpServers: { [UNERR_SERVER_KEY]: entry } },
         null,
-        2,
+        2
       );
   }
 }
@@ -221,7 +221,7 @@ export function generateConfigSnippet(ide: IdeType): string {
  * Get config info for display purposes.
  */
 export function getConfigInfo(
-  ide: IdeType,
+  ide: IdeType
 ): { path: string; format: string } | null {
   const agent = getAgent(ide);
   if (!agent) return null;
@@ -240,7 +240,7 @@ function writeMcpJsonFormat(configPath: string): {
   if (existsSync(configPath)) {
     try {
       const existing = JSON.parse(
-        readFileSync(configPath, "utf-8"),
+        readFileSync(configPath, "utf-8")
       ) as McpConfig;
       if (existing.mcpServers?.[UNERR_SERVER_KEY]) {
         return { path: configPath, action: "skipped" };
@@ -330,7 +330,7 @@ function writeCopilotJsonFormat(configPath: string): {
   if (existsSync(configPath)) {
     try {
       const existing = JSON.parse(
-        readFileSync(configPath, "utf-8"),
+        readFileSync(configPath, "utf-8")
       ) as McpConfig;
       if (existing.mcpServers?.[UNERR_SERVER_KEY]) {
         return { path: configPath, action: "skipped" };

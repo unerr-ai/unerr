@@ -38,12 +38,11 @@ export interface CommitTrailers {
 export function getCommitTrailers(
   ledger: ShadowLedger,
   timelineBranch: number,
-  branch: string,
+  branch: string
 ): CommitTrailers | null {
   const recent = ledger.getRecentEntries(1);
   if (recent.length === 0) return null;
 
-  // biome-ignore lint/style/noNonNullAssertion: length > 0 checked above
   const latest = recent[0]!;
 
   return {
@@ -92,7 +91,7 @@ export function installPrepareCommitMsgHook(projectRoot: string): boolean {
       const appendSection = `\n\n${marker}\n${generateHookScript()}`;
       writeFileSync(hookPath, existing + appendSection, { mode: 0o755 });
       _log.info(
-        "Appended trailer injection to existing prepare-commit-msg hook",
+        "Appended trailer injection to existing prepare-commit-msg hook"
       );
       return true;
     } catch {
@@ -130,7 +129,7 @@ export function uninstallPrepareCommitMsgHook(projectRoot: string): boolean {
       (line) =>
         !line.includes(marker) &&
         !line.includes("unerr") &&
-        !line.includes("Unerr-"),
+        !line.includes("Unerr-")
     );
 
     // If only shebang remains, remove the file
@@ -180,7 +179,7 @@ fi`;
  * Parse trailers from a commit message. Returns null if no unerr trailers found.
  */
 export function parseTrailersFromMessage(
-  commitMessage: string,
+  commitMessage: string
 ): CommitTrailers | null {
   const lines = commitMessage.split("\n");
 
@@ -198,7 +197,7 @@ export function parseTrailersFromMessage(
     } else if (trimmed.startsWith("Unerr-Timeline-Branch:")) {
       timelineBranch = Number.parseInt(
         trimmed.slice("Unerr-Timeline-Branch:".length).trim(),
-        10,
+        10
       );
     }
   }

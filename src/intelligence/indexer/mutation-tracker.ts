@@ -94,7 +94,7 @@ export function detectMutations(bodyNode: SyntaxNode): MutationSite[] {
 export function mutationsToEdges(
   mutations: MutationSite[],
   scopeKey: string,
-  filePath: string,
+  filePath: string
 ): IndexedEdge[] {
   return mutations.map((m) => ({
     from_key: scopeKey,

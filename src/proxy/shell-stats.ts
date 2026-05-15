@@ -22,7 +22,7 @@ export function recordShellCompressionEvent(
   cwd: string,
   category: OutputCategory,
   original: string,
-  compressed: string,
+  compressed: string
 ): void {
   try {
     const dir = join(cwd, ".unerr", "state");
@@ -42,7 +42,7 @@ export function recordShellCompressionEvent(
       agg = {
         ...agg,
         ...(JSON.parse(
-          readFileSync(path, "utf-8"),
+          readFileSync(path, "utf-8")
         ) as ShellCompressionAggregate),
       };
     }
@@ -61,7 +61,7 @@ export function recordShellCompressionEvent(
 }
 
 export function readShellCompressionAggregate(
-  cwd: string,
+  cwd: string
 ): ShellCompressionAggregate | null {
   try {
     const path = join(cwd, ".unerr", "state", "shell_compression_stats.json");

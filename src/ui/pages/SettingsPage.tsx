@@ -63,6 +63,7 @@ function CopyButton({ value }: { value: string }) {
     >
       {copied ? (
         <svg
+          aria-hidden="true"
           className="h-3 w-3 text-emerald-500"
           fill="none"
           viewBox="0 0 24 24"
@@ -77,6 +78,7 @@ function CopyButton({ value }: { value: string }) {
         </svg>
       ) : (
         <svg
+          aria-hidden="true"
           className="h-3 w-3"
           fill="none"
           viewBox="0 0 24 24"
@@ -178,7 +180,12 @@ function SkillPill({ name }: { name: string }) {
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ring-1 ${style}`}
     >
-      <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 8 8">
+      <svg
+        aria-hidden="true"
+        className="h-2.5 w-2.5"
+        fill="currentColor"
+        viewBox="0 0 8 8"
+      >
         <circle cx="4" cy="4" r="3" />
       </svg>
       {name}
@@ -267,6 +274,7 @@ export function SettingsPage() {
         <div className="glass-panel rounded-xl p-8 text-center max-w-md">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-500/15">
             <svg
+              aria-hidden="true"
               className="h-6 w-6 text-red-400"
               fill="none"
               viewBox="0 0 24 24"
@@ -297,6 +305,7 @@ export function SettingsPage() {
           <div className="flex items-center gap-4">
             <div className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-violet-500/15 ring-1 ring-violet-500/30">
               <svg
+                aria-hidden="true"
                 className="h-5 w-5 text-violet-400"
                 fill="none"
                 viewBox="0 0 24 24"
@@ -332,6 +341,7 @@ export function SettingsPage() {
             {st?.ide && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/10 px-3 py-1 text-xs font-medium text-cyan-400 ring-1 ring-cyan-500/20">
                 <svg
+                  aria-hidden="true"
                   className="h-3 w-3"
                   fill="currentColor"
                   viewBox="0 0 24 24"
@@ -386,6 +396,7 @@ export function SettingsPage() {
         <section className="flex-1 glass-panel rounded-xl p-5">
           <h2 className="section-label text-violet-500 flex items-center gap-2">
             <svg
+              aria-hidden="true"
               className="h-4 w-4"
               fill="none"
               viewBox="0 0 24 24"
@@ -434,6 +445,7 @@ export function SettingsPage() {
         <section className="flex-1 glass-panel rounded-xl p-5">
           <h2 className="section-label text-cyan-500 flex items-center gap-2">
             <svg
+              aria-hidden="true"
               className="h-4 w-4"
               fill="none"
               viewBox="0 0 24 24"
@@ -464,6 +476,7 @@ export function SettingsPage() {
             <div className="mt-6 flex flex-col items-center py-6 text-center">
               <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10 ring-1 ring-amber-500/20">
                 <svg
+                  aria-hidden="true"
                   className="h-5 w-5 text-amber-400"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -492,6 +505,7 @@ export function SettingsPage() {
           <div className="mt-6 border-t border-border-subtle/50 pt-5">
             <h3 className="section-label text-violet-500 flex items-center gap-2">
               <svg
+                aria-hidden="true"
                 className="h-3.5 w-3.5"
                 fill="none"
                 viewBox="0 0 24 24"
@@ -541,6 +555,7 @@ export function SettingsPage() {
         <div className="flex items-center justify-between">
           <h2 className="section-label text-emerald-500 flex items-center gap-2">
             <svg
+              aria-hidden="true"
               className="h-4 w-4"
               fill="none"
               viewBox="0 0 24 24"
@@ -582,6 +597,7 @@ export function SettingsPage() {
       <section className="glass-panel rounded-xl p-5">
         <h2 className="section-label text-amber-500 flex items-center gap-2">
           <svg
+            aria-hidden="true"
             className="h-4 w-4"
             fill="none"
             viewBox="0 0 24 24"

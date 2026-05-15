@@ -24,7 +24,7 @@ export interface ParsedEntity {
  */
 export function extractEntitiesFromSource(
   filePath: string,
-  content: string,
+  content: string
 ): ParsedEntity[] {
   const entities: ParsedEntity[] = [];
   const lines = content.split("\n");
@@ -35,7 +35,7 @@ export function extractEntitiesFromSource(
 
     // Export function / async function
     const funcMatch = line.match(
-      /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*(\([^)]*\))/,
+      /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*(\([^)]*\))/
     );
     if (funcMatch) {
       const name = funcMatch[1] ?? "";
@@ -53,7 +53,7 @@ export function extractEntitiesFromSource(
 
     // Arrow function: export const name = (...) =>
     const arrowMatch = line.match(
-      /^(?:export\s+)?(?:const|let)\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*(?::\s*\w[^=]*)?\s*=>/,
+      /^(?:export\s+)?(?:const|let)\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*(?::\s*\w[^=]*)?\s*=>/
     );
     if (arrowMatch) {
       const name = arrowMatch[1] ?? "";
@@ -71,7 +71,7 @@ export function extractEntitiesFromSource(
 
     // Class declaration
     const classMatch = line.match(
-      /^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)/,
+      /^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)/
     );
     if (classMatch) {
       const name = classMatch[1] ?? "";
@@ -118,7 +118,7 @@ export function extractEntitiesFromSource(
 
     // Method declarations inside classes (indented)
     const methodMatch = line.match(
-      /^\s+(?:async\s+)?(?:static\s+)?(?:private\s+|protected\s+|public\s+)?(\w+)\s*\(([^)]*)\)\s*(?::\s*\S+)?\s*\{/,
+      /^\s+(?:async\s+)?(?:static\s+)?(?:private\s+|protected\s+|public\s+)?(\w+)\s*\(([^)]*)\)\s*(?::\s*\S+)?\s*\{/
     );
     if (
       methodMatch &&
@@ -147,13 +147,12 @@ export function extractEntitiesFromSource(
 
 function findEnclosingClass(
   lines: string[],
-  currentLine: number,
+  currentLine: number
 ): string | null {
   for (let i = currentLine - 1; i >= 0; i--) {
     const match = lines[i]?.match(
-      /^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)/,
+      /^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)/
     );
-    // biome-ignore lint/style/noNonNullAssertion: capture group 1 guaranteed by regex
     if (match) return match[1]!;
   }
   return null;

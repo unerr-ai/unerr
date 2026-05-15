@@ -15,7 +15,7 @@ let store: CozoTimelineStore;
 beforeEach(async () => {
   tempDir = join(
     tmpdir(),
-    `unerr-agent-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-agent-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(join(tempDir, ".unerr"), { recursive: true });
   store = await CozoTimelineStore.create(tempDir);
@@ -65,10 +65,12 @@ describe("session_agents store", () => {
   it("setSessionAgent preserves first_seen across refresh", async () => {
     await store.setSessionAgent("sA", "claude-code", 1_000);
     await store.setSessionAgent("sA", "claude-code", 5_000);
-    const result = await store.getDb().run(
-      `?[first_seen, last_seen] := *session_agents{session_id, first_seen, last_seen}, session_id = $sid`,
-      { sid: "sA" },
-    );
+    const result = await store
+      .getDb()
+      .run(
+        "?[first_seen, last_seen] := *session_agents{session_id, first_seen, last_seen}, session_id = $sid",
+        { sid: "sA" }
+      );
     const row = result.rows[0]!;
     expect(row[0]).toBe(1_000);
     expect(row[1]).toBe(5_000);
@@ -99,7 +101,9 @@ describe("session_agents store", () => {
 
   it("listSessions joins agent_name onto each row", async () => {
     await store.upsertTurn(turn({ turn_id: "t1", session_id: "sa" }));
-    await store.upsertTurn(turn({ turn_id: "t2", session_id: "sb", started_at: 2_000 }));
+    await store.upsertTurn(
+      turn({ turn_id: "t2", session_id: "sb", started_at: 2_000 })
+    );
     await store.setSessionAgent("sa", "claude-code", 1_500);
     const list = await store.listSessions();
     const a = list.find((s) => s.session_id === "sa");
@@ -128,7 +132,9 @@ describe("HTTP routes — /agents + /sessions?agent=", () => {
 
   it("GET /sessions?agent=claude-code filters by agent", async () => {
     await store.upsertTurn(turn({ turn_id: "t1", session_id: "sa" }));
-    await store.upsertTurn(turn({ turn_id: "t2", session_id: "sb", started_at: 2_000 }));
+    await store.upsertTurn(
+      turn({ turn_id: "t2", session_id: "sb", started_at: 2_000 })
+    );
     await store.setSessionAgent("sa", "claude-code", 1_500);
     await store.setSessionAgent("sb", "cursor", 2_500);
     const app = createTimelineRoutes({ store });

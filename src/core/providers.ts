@@ -34,7 +34,7 @@ export interface ProviderConfig {
  * Throws on invalid config or missing API keys (except Ollama).
  */
 export async function createLanguageModel(
-  config: ProviderConfig,
+  config: ProviderConfig
 ): Promise<AnyLanguageModel> {
   switch (config.provider) {
     case "anthropic":
@@ -55,7 +55,7 @@ export async function createLanguageModel(
 }
 
 async function createAnthropicModel(
-  config: ProviderConfig,
+  config: ProviderConfig
 ): Promise<AnyLanguageModel> {
   const { createAnthropic } = await import("@ai-sdk/anthropic");
   const anthropic = createAnthropic({
@@ -65,7 +65,7 @@ async function createAnthropicModel(
 }
 
 async function createOpenAIModel(
-  config: ProviderConfig,
+  config: ProviderConfig
 ): Promise<AnyLanguageModel> {
   const { createOpenAI } = await import("@ai-sdk/openai");
   const openai = createOpenAI({
@@ -76,7 +76,7 @@ async function createOpenAIModel(
 }
 
 async function createGoogleModel(
-  config: ProviderConfig,
+  config: ProviderConfig
 ): Promise<AnyLanguageModel> {
   const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
   const google = createGoogleGenerativeAI({
@@ -90,7 +90,7 @@ async function createGoogleModel(
  * No API key required — Ollama runs locally.
  */
 async function createOllamaModel(
-  config: ProviderConfig,
+  config: ProviderConfig
 ): Promise<AnyLanguageModel> {
   const { createOpenAI } = await import("@ai-sdk/openai");
   const ollama = createOpenAI({
@@ -105,7 +105,7 @@ async function createOllamaModel(
  * Requires baseUrl to be set.
  */
 async function createOpenAICompatibleModel(
-  config: ProviderConfig,
+  config: ProviderConfig
 ): Promise<AnyLanguageModel> {
   if (!config.baseUrl) {
     throw new Error("openai-compatible provider requires baseUrl to be set");

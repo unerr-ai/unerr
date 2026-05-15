@@ -25,7 +25,7 @@ export interface SessionRouteDeps {
 function parseLimit(
   raw: string | undefined,
   fallback: number,
-  max: number,
+  max: number
 ): number {
   const n = Number.parseInt(raw ?? "", 10);
   if (Number.isNaN(n) || n < 1) return fallback;
@@ -40,7 +40,7 @@ export function createSessionRoutes(deps: SessionRouteDeps): Hono {
     const s = deps.stats;
     const localP = computePercentiles(
       s.latency.localSamples,
-      s.latency.localTotalSamples,
+      s.latency.localTotalSamples
     );
 
     return c.json({

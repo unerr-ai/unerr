@@ -76,7 +76,7 @@ function matchGlob(filename: string, pattern: string): boolean {
     .replace(/\*/g, ".*")
     .replace(
       /\{([^}]+)\}/g,
-      (_, alts: string) => `(${alts.split(",").join("|")})`,
+      (_, alts: string) => `(${alts.split(",").join("|")})`
     );
   return new RegExp(`^${regex}$`).test(filename);
 }
@@ -113,7 +113,7 @@ export const grepTool: Tool = {
 
   async execute(
     args: Record<string, unknown>,
-    ctx: ToolContext,
+    ctx: ToolContext
   ): Promise<ToolOutput> {
     const pattern = args.pattern as string;
     const searchPath = resolve(ctx.cwd, (args.path as string) ?? ".");
@@ -151,7 +151,6 @@ export const grepTool: Tool = {
 
         for (let i = 0; i < lines.length; i++) {
           if (matches.length >= MAX_RESULTS) break;
-          // biome-ignore lint/style/noNonNullAssertion: index within bounds
           const line = lines[i]!;
           if (regex.test(line)) {
             const relPath = relative(ctx.cwd, file);

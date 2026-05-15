@@ -171,7 +171,7 @@ export function Dashboard({
     queryKey: queryKey(["token-flow", "sessions-recent"]),
     queryFn: () =>
       fetchJson<TokenFlowSessionsResponse>(
-        url("/api/token-flow/sessions?limit=5&offset=0"),
+        url("/api/token-flow/sessions?limit=5&offset=0")
       ),
   });
 

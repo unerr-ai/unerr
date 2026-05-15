@@ -65,7 +65,7 @@ function parseRemote(remote: string): string | null {
   if (sshMatch) return sshMatch[1] ?? null;
   // https://github.com/owner/repo.git
   const httpMatch = remote.match(
-    /(?:https?:\/\/)?(?:www\.)?[^/]+\/(.+?)(?:\.git)?$/,
+    /(?:https?:\/\/)?(?:www\.)?[^/]+\/(.+?)(?:\.git)?$/
   );
   if (httpMatch) return httpMatch[1] ?? null;
   return null;
@@ -75,7 +75,7 @@ function parseRemote(remote: string): string | null {
  * Detect full git context from the current working directory.
  */
 export async function detectGitContext(
-  cwd?: string,
+  cwd?: string
 ): Promise<GitContext | null> {
   try {
     const dir = cwd ?? process.cwd();

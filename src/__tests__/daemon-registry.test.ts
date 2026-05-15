@@ -6,8 +6,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock homedir before importing registry (module-level side effect via globalDir)
@@ -17,6 +17,7 @@ vi.mock("node:os", async () => {
   return { ...actual, homedir: () => testHome };
 });
 
+import type { RepoEntry } from "../daemon/protocol.js";
 import {
   addRepo,
   deriveLabel,
@@ -31,7 +32,6 @@ import {
   writeNeedsInput,
   writeRegistry,
 } from "../daemon/registry.js";
-import type { RepoEntry } from "../daemon/protocol.js";
 
 let testNum = 0;
 function makeRepo(name: string): string {
@@ -133,7 +133,7 @@ describe("Settings", () => {
 
     // Verify local config mirror
     const localConfig = JSON.parse(
-      readFileSync(join(repoPath, ".unerr", "config.json"), "utf-8"),
+      readFileSync(join(repoPath, ".unerr", "config.json"), "utf-8")
     );
     expect(localConfig.javaBuildTool).toBe("Gradle");
   });
@@ -158,7 +158,7 @@ describe("Settings", () => {
 
     // Verify local mirror
     const localConfig = JSON.parse(
-      readFileSync(join(repoPath, ".unerr", "config.json"), "utf-8"),
+      readFileSync(join(repoPath, ".unerr", "config.json"), "utf-8")
     );
     expect(localConfig.javaBuildTool).toBe("Gradle");
   });

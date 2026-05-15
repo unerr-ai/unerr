@@ -107,7 +107,7 @@ export class ArchitectureBoundaryGuard extends Behavior {
     if (sourceEntities.length === 0) return null;
 
     const sourceCommunity = await this.graph.getCommunityForEntity(
-      sourceEntities[0]!.key,
+      sourceEntities[0]!.key
     );
     if (!sourceCommunity) return null;
 
@@ -125,14 +125,14 @@ export class ArchitectureBoundaryGuard extends Behavior {
         await this.recordOverride(
           sourceCommunity.id,
           imp.resolvedPath ?? "",
-          filePath,
+          filePath
         );
         continue;
       }
 
       const targetCommunity = await this.resolveTargetCommunity(
         imp.resolvedPath ?? imp.specifier,
-        filePath,
+        filePath
       );
       if (!targetCommunity) continue;
       if (targetCommunity.id === sourceCommunity.id) continue;
@@ -158,8 +158,9 @@ export class ArchitectureBoundaryGuard extends Behavior {
         },
         {
           pattern: "interface_bridge",
-          example: `Define shared types in a schemas/ module accessible to both communities`,
-        },
+          example:
+            "Define shared types in a schemas/ module accessible to both communities",
+        }
       );
     }
 
@@ -215,7 +216,7 @@ export class ArchitectureBoundaryGuard extends Behavior {
 
   private async resolveTargetCommunity(
     importSpecifier: string,
-    sourceFile: string,
+    sourceFile: string
   ): Promise<{ id: number; label: string } | null> {
     if (!this.graph) return null;
 
@@ -226,7 +227,7 @@ export class ArchitectureBoundaryGuard extends Behavior {
     if (targetEntities.length === 0) return null;
 
     const community = await this.graph.getCommunityForEntity(
-      targetEntities[0]!.key,
+      targetEntities[0]!.key
     );
     if (!community) return null;
 
@@ -236,11 +237,11 @@ export class ArchitectureBoundaryGuard extends Behavior {
   private async recordOverride(
     sourceCommunityId: number,
     _targetPath: string,
-    _sourceFile: string,
+    _sourceFile: string
   ): Promise<void> {
     const targetCommunity = await this.resolveTargetCommunity(
       _targetPath,
-      _sourceFile,
+      _sourceFile
     );
     if (!targetCommunity) return;
 
@@ -282,7 +283,7 @@ function parseImports(content: string): ParsedImport[] {
     const line = lines[i]!.trim();
 
     const importMatch = line.match(
-      /^import\s+(type\s+)?(?:\{[^}]*\}|[^'"]+)\s+from\s+['"]([^'"]+)['"]/,
+      /^import\s+(type\s+)?(?:\{[^}]*\}|[^'"]+)\s+from\s+['"]([^'"]+)['"]/
     );
     if (!importMatch) continue;
 
@@ -291,7 +292,7 @@ function parseImports(content: string): ParsedImport[] {
 
     if (!specifier.startsWith(".")) continue;
 
-    const prevLine = i > 0 ? lines[i - 1]!.trim() : "";
+    const prevLine = i > 0 ? (lines[i - 1]?.trim() ?? "") : "";
     const hasOverride =
       OVERRIDE_PATTERN.test(prevLine) || OVERRIDE_PATTERN.test(line);
 
@@ -309,7 +310,7 @@ function parseImports(content: string): ParsedImport[] {
 
 function resolveImportPath(
   specifier: string,
-  sourceFile: string,
+  sourceFile: string
 ): string | null {
   if (!specifier.startsWith(".")) return null;
 

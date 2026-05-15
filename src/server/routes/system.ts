@@ -80,7 +80,7 @@ export function createSystemRoutes(deps: SystemRouteDeps): Hono {
       const { listInstalledSkills } = await import("../../skills/resolver.js");
       skills = listInstalledSkills(
         deps.ide as "claude-code" | "cursor" | "vscode" | "windsurf" | "zed",
-        deps.cwd,
+        deps.cwd
       ).map((s) => s.name);
     } catch {
       // Skills module may not be available

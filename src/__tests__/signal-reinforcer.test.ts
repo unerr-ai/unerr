@@ -18,7 +18,7 @@ let store: CozoTimelineStore;
 beforeEach(async () => {
   tempDir = join(
     tmpdir(),
-    `unerr-sr-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-sr-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(join(tempDir, ".unerr"), { recursive: true });
   store = await CozoTimelineStore.create(tempDir);
@@ -44,7 +44,7 @@ describe("reinforceSignal", () => {
       { type: "hot_file", scope: "src/auth.ts" },
       0.2,
       "loop_miner",
-      { nowMs: 1_000 },
+      { nowMs: 1_000 }
     );
     expect(sig.signal_id).toBeTruthy();
     expect(sig.confidence).toBeCloseTo(0.7);
@@ -61,14 +61,14 @@ describe("reinforceSignal", () => {
       { type: "hot_file", scope: "src/auth.ts" },
       0.3,
       "src",
-      { nowMs: 1_000 },
+      { nowMs: 1_000 }
     );
     const b = await reinforceSignal(
       store,
       { type: "hot_file", scope: "src/auth.ts" },
       0.6,
       "src",
-      { nowMs: 2_000 },
+      { nowMs: 2_000 }
     );
     expect(b.signal_id).toBe(a.signal_id);
     expect(b.confidence).toBeLessThanOrEqual(1);
@@ -79,7 +79,7 @@ describe("reinforceSignal", () => {
       { type: "hot_file", scope: "src/auth.ts" },
       -0.7,
       "contradiction",
-      { nowMs: 3_000 },
+      { nowMs: 3_000 }
     );
     expect(c.confidence).toBeCloseTo(0.3);
 
@@ -93,7 +93,7 @@ describe("reinforceSignal", () => {
       { type: "hot_file", scope: "src/auth.ts" },
       0.1,
       "src",
-      { nowMs: 1_000 },
+      { nowMs: 1_000 }
     );
     // facts.db must not have been created by anything in the reinforcer path.
     expect(existsSync(join(tempDir, ".unerr", "facts.db"))).toBe(false);
@@ -107,14 +107,14 @@ describe("pruneStaleSignals", () => {
       { type: "hot_file", scope: "src/old.ts" },
       0.2,
       "src",
-      { nowMs: 1_000 },
+      { nowMs: 1_000 }
     );
     await reinforceSignal(
       store,
       { type: "hot_file", scope: "src/new.ts" },
       0.2,
       "src",
-      { nowMs: 30 * 24 * 60 * 60_000 },
+      { nowMs: 30 * 24 * 60 * 60_000 }
     );
     const removed = await pruneStaleSignals(store, {
       staleAfterMs: 14 * 24 * 60 * 60_000,
@@ -133,7 +133,7 @@ describe("pruneStaleSignals", () => {
       { type: "loop", scope: "src/x.ts" },
       0.1,
       "src",
-      { nowMs: now },
+      { nowMs: now }
     );
     const removed = await pruneStaleSignals(store, { nowMs: now });
     expect(removed).toBe(0);

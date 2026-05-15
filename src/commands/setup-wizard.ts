@@ -51,7 +51,7 @@ export async function runSetup(cwd?: string): Promise<WizardResult> {
   if (existsSync(settingsPath)) {
     try {
       existingSettings = JSON.parse(
-        require("node:fs").readFileSync(settingsPath, "utf-8"),
+        require("node:fs").readFileSync(settingsPath, "utf-8")
       ) as Record<string, unknown>;
     } catch {
       // Ignore parse errors
@@ -59,7 +59,7 @@ export async function runSetup(cwd?: string): Promise<WizardResult> {
   }
   writeFileSync(
     settingsPath,
-    `${JSON.stringify({ ...existingSettings }, null, 2)}\n`,
+    `${JSON.stringify({ ...existingSettings }, null, 2)}\n`
   );
 
   // Install skills from bundled pack
@@ -74,7 +74,7 @@ export async function runSetup(cwd?: string): Promise<WizardResult> {
     skillCount = result.installed.length;
     if (skillCount > 0) {
       clack.log.success(
-        `🧠 ${skillCount} intelligence skills installed — your AI agent will now use graph tools before reading files`,
+        `🧠 ${skillCount} intelligence skills installed — your AI agent will now use graph tools before reading files`
       );
     }
   } catch {
@@ -90,12 +90,12 @@ export async function runSetup(cwd?: string): Promise<WizardResult> {
     if (mcpResult.action === "created") {
       mcpConfigAction = `MCP config written → ${mcpResult.path}`;
       clack.log.success(
-        `🔌 MCP server registered for ${detectedIde} — AI agent will auto-connect to unerr intelligence`,
+        `🔌 MCP server registered for ${detectedIde} — AI agent will auto-connect to unerr intelligence`
       );
     } else if (mcpResult.action === "updated") {
       mcpConfigAction = `MCP config updated → ${mcpResult.path}`;
       clack.log.success(
-        `🔌 MCP config updated for ${detectedIde} — unerr intelligence now wired in`,
+        `🔌 MCP config updated for ${detectedIde} — unerr intelligence now wired in`
       );
     }
   } catch {
@@ -113,7 +113,7 @@ export async function runSetup(cwd?: string): Promise<WizardResult> {
   summaryLines.push("Config: .unerr/config.json");
   summaryLines.push("");
   summaryLines.push(
-    "Your AI agent now has: blast radius, community detection,",
+    "Your AI agent now has: blast radius, community detection,"
   );
   summaryLines.push("convention enforcement, and <5ms graph queries.");
 
@@ -237,12 +237,12 @@ export async function configureOllama(): Promise<Record<
   if (ollamaReachable) {
     spinner.stop("Ollama detected but no models found");
     clack.log.warn(
-      "No models installed. Run: ollama pull nomic-embed-text && ollama pull llama3",
+      "No models installed. Run: ollama pull nomic-embed-text && ollama pull llama3"
     );
   } else {
     spinner.stop("Ollama not running");
     clack.log.warn(
-      "Install from ollama.com and start it, or enter a custom URL.",
+      "Install from ollama.com and start it, or enter a custom URL."
     );
   }
 
@@ -508,7 +508,7 @@ export async function configureAnthropic(): Promise<Record<
   }
 
   clack.log.info(
-    "Note: Anthropic has no embedding API. Semantic search will use text matching.",
+    "Note: Anthropic has no embedding API. Semantic search will use text matching."
   );
 
   return {

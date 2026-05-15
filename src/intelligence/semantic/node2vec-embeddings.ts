@@ -16,7 +16,7 @@ const STRUCTURAL_DIM = 64;
  */
 export function trainEmbeddings(
   walks: string[][],
-  windowSize = 5,
+  windowSize = 5
 ): Map<string, Float32Array> {
   const cooccurrence = new Map<string, Map<string, number>>();
 
@@ -66,7 +66,7 @@ export function trainEmbeddings(
  */
 export function combineEmbeddings(
   lexical: Float32Array,
-  structural: Float32Array,
+  structural: Float32Array
 ): Float32Array {
   const combined = new Float32Array(128);
   combined.set(lexical, 0);

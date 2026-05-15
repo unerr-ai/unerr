@@ -34,7 +34,7 @@ export interface ConventionReport {
  * Detect naming conventions (suffix/prefix patterns).
  */
 export function detectNamingConventions(
-  entities: IndexedEntity[],
+  entities: IndexedEntity[]
 ): DetectedConvention[] {
   const conventions: DetectedConvention[] = [];
 
@@ -125,7 +125,7 @@ export function detectNamingConventions(
   for (const [prefix, data] of prefixCounts) {
     if (data.count >= 5) {
       const totalFuncs = entities.filter(
-        (e) => e.kind === "function" || e.kind === "method",
+        (e) => e.kind === "function" || e.kind === "method"
       ).length;
       const adherence = totalFuncs > 0 ? data.count / totalFuncs : 0;
       conventions.push({
@@ -148,7 +148,7 @@ export function detectNamingConventions(
  * Detect structural conventions (file organization patterns).
  */
 export function detectStructureConventions(
-  entities: IndexedEntity[],
+  entities: IndexedEntity[]
 ): DetectedConvention[] {
   const conventions: DetectedConvention[] = [];
   const dirKinds = new Map<string, Map<string, number>>();
@@ -197,7 +197,7 @@ export function detectStructureConventions(
  */
 export function detectImportDirectionConventions(
   entities: IndexedEntity[],
-  edges: IndexedEdge[],
+  edges: IndexedEdge[]
 ): DetectedConvention[] {
   const conventions: DetectedConvention[] = [];
   const layerOrder = [
@@ -258,7 +258,7 @@ function getLayerIndex(filePath: string, layers: string[]): number {
  */
 export function detectAllConventions(
   entities: IndexedEntity[],
-  edges: IndexedEdge[],
+  edges: IndexedEdge[]
 ): ConventionReport {
   const naming = detectNamingConventions(entities);
   const structure = detectStructureConventions(entities);
@@ -278,14 +278,14 @@ export function detectAllConventions(
  */
 export function persistConventions(
   unerrDir: string,
-  report: ConventionReport,
+  report: ConventionReport
 ): void {
   const convDir = join(unerrDir, "conventions");
   if (!existsSync(convDir)) mkdirSync(convDir, { recursive: true });
   writeFileSync(
     join(convDir, "detected.json"),
     JSON.stringify(report, null, 2),
-    "utf-8",
+    "utf-8"
   );
 }
 

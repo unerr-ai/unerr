@@ -35,7 +35,7 @@ interface FileResult {
 
 async function processFile(
   filePath: string,
-  projectRoot: string,
+  projectRoot: string
 ): Promise<FileResult> {
   const plugin = getPluginForFile(filePath);
   if (!plugin) return { entities: [], edges: [], imports: [], error: true };
@@ -69,7 +69,7 @@ async function processFile(
  */
 export async function indexProjectParallel(
   projectRoot: string,
-  ignorePatterns?: Set<string>,
+  ignorePatterns?: Set<string>
 ): Promise<IndexResult> {
   const start = performance.now();
   const files = discoverFiles(projectRoot, ignorePatterns);
@@ -84,7 +84,7 @@ export async function indexProjectParallel(
   for (let i = 0; i < files.length; i += chunkSize) {
     const chunk = files.slice(i, i + chunkSize);
     const results = await Promise.all(
-      chunk.map((file) => processFile(file, projectRoot)),
+      chunk.map((file) => processFile(file, projectRoot))
     );
 
     for (const result of results) {
@@ -113,7 +113,7 @@ export async function indexProjectParallel(
  */
 export async function indexProjectAuto(
   projectRoot: string,
-  ignorePatterns?: Set<string>,
+  ignorePatterns?: Set<string>
 ): Promise<IndexResult> {
   return indexProjectParallel(projectRoot, ignorePatterns);
 }

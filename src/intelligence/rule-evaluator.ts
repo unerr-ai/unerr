@@ -126,7 +126,6 @@ async function getParser(language: string): Promise<TreeSitterParser | null> {
   }
 
   if (parserCache.has(language)) {
-    // biome-ignore lint/style/noNonNullAssertion: checked via .has() above
     return parserCache.get(language)!;
   }
 
@@ -147,7 +146,7 @@ async function getParser(language: string): Promise<TreeSitterParser | null> {
           process.cwd(),
           "node_modules",
           `tree-sitter-${language}`,
-          langFile,
+          langFile
         ),
         join(process.cwd(), "node_modules", "web-tree-sitter", langFile),
       ];
@@ -183,7 +182,7 @@ async function getParser(language: string): Promise<TreeSitterParser | null> {
  */
 function collectNodesByType(
   node: TreeSitterNode,
-  targetTypes: string[],
+  targetTypes: string[]
 ): TreeSitterNode[] {
   const results: TreeSitterNode[] = [];
 
@@ -206,7 +205,7 @@ function collectNodesByType(
 async function evaluateStructural(
   rule: CompactRule,
   filePath: string,
-  content: string,
+  content: string
 ): Promise<RuleViolation[]> {
   const language = detectLanguage(filePath);
   if (!language) return [];
@@ -244,7 +243,7 @@ async function evaluateStructural(
 async function evaluateNaming(
   rule: CompactRule,
   filePath: string,
-  localGraph: CozoGraphStore,
+  localGraph: CozoGraphStore
 ): Promise<RuleViolation[]> {
   const entities = await localGraph.getEntitiesByFile(filePath);
   if (entities.length === 0) return [];
@@ -292,7 +291,7 @@ export async function getRelevantRules(
   allRules: CompactRule[],
   filePath: string,
   entityKey: string | undefined,
-  localGraph: CozoGraphStore,
+  localGraph: CozoGraphStore
 ): Promise<{ rules: ScoredRule[]; totalRules: number; maxScore: number }> {
   const entityMeta = entityKey ? await localGraph.getEntity(entityKey) : null;
 
@@ -382,7 +381,7 @@ export async function evaluateRules(
     entityKey?: string;
     /** Sprint 9.6: Pre-fetched exceptions for entities in this file */
     exceptions?: CompactRuleException[];
-  },
+  }
 ): Promise<EvaluationResult> {
   const violations: RuleViolation[] = [];
   const stagedResults: StagedRuleResult[] = [];
@@ -400,7 +399,7 @@ export async function evaluateRules(
       rules,
       filePath,
       options.entityKey,
-      localGraph,
+      localGraph
     );
     activeRules = jit.rules;
     jitMeta = {
@@ -445,7 +444,7 @@ export async function evaluateRules(
       rule,
       filePath,
       content,
-      localGraph,
+      localGraph
     );
 
     if (ruleViolations.engine === "skipped") {
@@ -492,7 +491,7 @@ export async function evaluateRules(
       rule,
       filePath,
       content,
-      localGraph,
+      localGraph
     );
 
     if (ruleViolations.engine === "skipped") continue;
@@ -524,7 +523,7 @@ export async function evaluateRules(
       entityKey: ex.entity_key,
       expires_at: ex.expires_at,
       jira_ticket: ex.jira_ticket,
-    }),
+    })
   );
 
   return {
@@ -553,7 +552,7 @@ async function evaluateSingleRule(
   rule: CompactRule,
   filePath: string,
   content: string,
-  localGraph: CozoGraphStore,
+  localGraph: CozoGraphStore
 ): Promise<{ violations: RuleViolation[]; engine: string }> {
   switch (rule.engine) {
     case "structural": {

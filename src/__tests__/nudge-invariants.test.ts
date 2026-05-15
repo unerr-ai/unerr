@@ -10,9 +10,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  SIGNAL_PREFIX_LEGEND,
-} from "../proxy/response-envelope.js";
+import { SIGNAL_PREFIX_LEGEND } from "../proxy/response-envelope.js";
 
 const HEDGE_VERBS = [
   /\bConsider\b/,
@@ -35,11 +33,14 @@ function readSource(rel: string): string {
 function extractActionLiterals(src: string): string[] {
   const out: string[] = [];
   // Match: action: "..."  or  action: `...`
-  const re = /action:\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|`([^`\\]*(?:\\.[^`\\]*)*)`)/g;
+  const re =
+    /action:\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|`([^`\\]*(?:\\.[^`\\]*)*)`)/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(src)) !== null) {
+  m = re.exec(src);
+  while (m !== null) {
     const literal = m[1] ?? m[2];
     if (literal) out.push(literal);
+    m = re.exec(src);
   }
   return out;
 }
@@ -80,7 +81,7 @@ describe("nudge invariants — signal-scorer action strings", () => {
       for (const re of HEDGE_VERBS) {
         if (re.test(action)) {
           throw new Error(
-            `signal-scorer action uses hedge verb (${re}): "${action}"`,
+            `signal-scorer action uses hedge verb (${re}): "${action}"`
           );
         }
       }
@@ -114,7 +115,11 @@ describe("nudge invariants — isError reaches the agent's MCP context", () => {
       const raw = lines[i];
       if (!raw) continue;
       // Match the stderr error pattern we standardized on.
-      if (!/process\.stderr\.write\([\s\S]*\[unerr\][^)]*(failed|threw|disabled|validation)/i.test(raw))
+      if (
+        !/process\.stderr\.write\([\s\S]*\[unerr\][^)]*(failed|threw|disabled|validation)/i.test(
+          raw
+        )
+      )
         continue;
       // Look ahead up to 12 lines for `isError: true`.
       const window = lines.slice(i, Math.min(lines.length, i + 13)).join("\n");
@@ -127,7 +132,7 @@ describe("nudge invariants — isError reaches the agent's MCP context", () => {
         .map((o) => `  proxy.ts:${o.line} → ${o.text}`)
         .join("\n");
       throw new Error(
-        `${orphans.length} stderr error log(s) in proxy.ts do not set isError:true within 12 lines. Pair every human-debug log with a wire isError so the agent sees the failure:\n${msg}`,
+        `${orphans.length} stderr error log(s) in proxy.ts do not set isError:true within 12 lines. Pair every human-debug log with a wire isError so the agent sees the failure:\n${msg}`
       );
     }
   });
@@ -175,7 +180,7 @@ describe("nudge invariants — wire-cap nudges", () => {
     }
     if (offenders.length > 0) {
       throw new Error(
-        `PER_TOOL_CAPS filterHint values must be concrete:\n${offenders.map((o) => `  - ${o}`).join("\n")}`,
+        `PER_TOOL_CAPS filterHint values must be concrete:\n${offenders.map((o) => `  - ${o}`).join("\n")}`
       );
     }
   });

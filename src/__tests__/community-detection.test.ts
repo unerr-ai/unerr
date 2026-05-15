@@ -189,7 +189,7 @@ describe("Community Recomputation (M.6)", () => {
 
   it("skips recomputation when below threshold", async () => {
     const entities = Array.from({ length: 100 }, (_, i) =>
-      makeEntity(`fn${i}`, `src/f${i}.ts`),
+      makeEntity(`fn${i}`, `src/f${i}.ts`)
     );
     const edges: IndexedEdge[] = [];
     await detectCommunities(entities, edges);
@@ -199,7 +199,7 @@ describe("Community Recomputation (M.6)", () => {
 
   it("triggers recomputation when >10% change", async () => {
     const entities = Array.from({ length: 100 }, (_, i) =>
-      makeEntity(`fn${i}`, `src/f${i}.ts`),
+      makeEntity(`fn${i}`, `src/f${i}.ts`)
     );
     detectCommunities(entities, []);
 

@@ -40,7 +40,7 @@ function detectContentType(text: string): ContentType {
   const wordCount = (sample.match(/\b\w+\b/g) ?? []).length;
   const codeIndicators = (
     sample.match(
-      /\b(function|const|let|var|class|import|export|return|if|for|while|async|await|type|interface|def|fn)\b/g,
+      /\b(function|const|let|var|class|import|export|return|if|for|while|async|await|type|interface|def|fn)\b/g
     ) ?? []
   ).length;
 
@@ -100,7 +100,7 @@ const MODEL_COSTS: Record<string, ModelCostRate> = {
 export function estimateCost(
   model: string,
   inputTokens: number,
-  outputTokens: number,
+  outputTokens: number
 ): number {
   const rates = MODEL_COSTS[model] ?? {
     inputPerMillion: 3,
@@ -126,7 +126,7 @@ export function getModelCostRate(model: string): ModelCostRate {
 export function estimateSavings(
   model: string,
   originalTokens: number,
-  deliveredTokens: number,
+  deliveredTokens: number
 ): number {
   const savedTokens = Math.max(0, originalTokens - deliveredTokens);
   const rates = getModelCostRate(model);

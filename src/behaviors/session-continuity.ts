@@ -88,13 +88,13 @@ export class SessionContinuityBehavior extends Behavior {
 
     const previousSessionEntries = extractPreviousSession(
       allEntries,
-      ctx.sessionId,
+      ctx.sessionId
     );
     if (previousSessionEntries.length === 0) return null;
 
     const resume = buildResumePayload(
       previousSessionEntries,
-      this.continuityConfig.maxResumeItems,
+      this.continuityConfig.maxResumeItems
     );
 
     if (previousSessionEntries.length > AGENT_LLM_THRESHOLD) {
@@ -120,7 +120,7 @@ export class SessionContinuityBehavior extends Behavior {
 
 function extractPreviousSession(
   allEntries: LedgerEntry[],
-  currentSessionId: string,
+  currentSessionId: string
 ): LedgerEntry[] {
   const sessionIds = new Set<string>();
   for (const entry of allEntries) {
@@ -148,10 +148,10 @@ function extractPreviousSession(
 
 function buildResumePayload(
   entries: LedgerEntry[],
-  maxItems: number,
+  maxItems: number
 ): SessionResumePayload {
-  const firstTs = new Date(entries[0]!.ts).getTime();
-  const lastTs = new Date(entries[entries.length - 1]!.ts).getTime();
+  const firstTs = new Date(entries[0]?.ts ?? 0).getTime();
+  const lastTs = new Date(entries[entries.length - 1]?.ts ?? 0).getTime();
   const durationMs = lastTs - firstTs;
   const elapsedSinceMs = Date.now() - lastTs;
 
@@ -177,11 +177,11 @@ function buildResumePayload(
     if (typeof args.key === "string" && args.key.includes("/")) {
       const entityKey = args.key;
       filesModified.add(
-        entityKey.includes("::") ? entityKey.split("::")[0]! : entityKey,
+        entityKey.includes("::") ? entityKey.split("::")[0]! : entityKey
       );
       entityModifications.set(
         entityKey,
-        (entityModifications.get(entityKey) ?? 0) + 1,
+        (entityModifications.get(entityKey) ?? 0) + 1
       );
     }
 
@@ -225,7 +225,7 @@ function buildResumePayload(
 
   const suggestedNext =
     incompleteWork.length > 0
-      ? `Complete outstanding work on ${incompleteWork[0]!.entity} (${incompleteWork[0]!.status})`
+      ? `Complete outstanding work on ${incompleteWork[0]?.entity} (${incompleteWork[0]?.status})`
       : "No outstanding items from last session — ready for new work.";
 
   return {

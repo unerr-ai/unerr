@@ -128,7 +128,7 @@ function shortPath(subject: string): string {
 function dirPath(subject: string): string {
   // "src/proxy/mcp-server.ts" → "src/proxy/"
   const parts = subject.split("/");
-  return parts.length > 1 ? parts.slice(0, -1).join("/") + "/" : "";
+  return parts.length > 1 ? `${parts.slice(0, -1).join("/")}/` : "";
 }
 
 // ── Confidence bar color ────────────────────────────────────────────
@@ -164,8 +164,8 @@ export function FactsPage() {
     queryFn: () =>
       fetchJson<FactsResponse>(
         url(
-          `/api/facts?${new URLSearchParams({ scope: "*", min_confidence: "0", limit: "100" })}`,
-        ),
+          `/api/facts?${new URLSearchParams({ scope: "*", min_confidence: "0", limit: "100" })}`
+        )
       ),
     refetchInterval: 15_000,
   });
@@ -191,7 +191,13 @@ export function FactsPage() {
 
   // Group facts by type
   const grouped = facts.reduce<Record<string, FactRow[]>>((acc, f) => {
-    (acc[f.fact_type] ??= []).push(f);
+    const key = f.fact_type;
+    let bucket = acc[key];
+    if (!bucket) {
+      bucket = [];
+      acc[key] = bucket;
+    }
+    bucket.push(f);
     return acc;
   }, {});
 
@@ -439,7 +445,7 @@ function KnowledgeRing({ score, total }: { score: number; total: number }) {
 
   return (
     <div className="relative flex-shrink-0" style={{ width: 88, height: 88 }}>
-      <svg viewBox="0 0 88 88" className="w-full h-full">
+      <svg aria-hidden="true" viewBox="0 0 88 88" className="w-full h-full">
         <circle
           cx="44"
           cy="44"
@@ -726,6 +732,7 @@ function CardActions({
         title="This is still true — strengthen this memory"
       >
         <svg
+          aria-hidden="true"
           viewBox="0 0 16 16"
           className="w-3.5 h-3.5"
           fill="none"
@@ -743,6 +750,7 @@ function CardActions({
         title="This is wrong — forget this memory"
       >
         <svg
+          aria-hidden="true"
           viewBox="0 0 16 16"
           className="w-3.5 h-3.5"
           fill="none"
@@ -860,6 +868,7 @@ function MemoryDetailModal({
             onClick={onClose}
           >
             <svg
+              aria-hidden="true"
               viewBox="0 0 16 16"
               className="w-4 h-4"
               fill="none"
@@ -982,7 +991,7 @@ function MemoryDetailModal({
                         day: "numeric",
                         hour: "2-digit",
                         minute: "2-digit",
-                      },
+                      }
                     )}
                   </span>
                 </>
@@ -1011,6 +1020,7 @@ function MemoryDetailModal({
               disabled={isPending}
             >
               <svg
+                aria-hidden="true"
                 viewBox="0 0 16 16"
                 className="w-3.5 h-3.5"
                 fill="none"
@@ -1028,6 +1038,7 @@ function MemoryDetailModal({
               disabled={isPending}
             >
               <svg
+                aria-hidden="true"
                 viewBox="0 0 16 16"
                 className="w-3.5 h-3.5"
                 fill="none"
@@ -1181,13 +1192,13 @@ function ModalTypeDetails({
         (f) =>
           f.fact_id !== fact.fact_id &&
           f.fact_type === "procedural" &&
-          dirPath(f.subject) === myDir,
+          dirPath(f.subject) === myDir
       )
       .slice(0, 4);
     const relatedLessons = allFacts.filter(
       (f) =>
         (f.fact_type === "negative" || f.fact_type === "episodic") &&
-        f.subject === fact.subject,
+        f.subject === fact.subject
     );
 
     return (

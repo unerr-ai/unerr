@@ -47,7 +47,7 @@ function createRng(seed: number): () => number {
  */
 export function generateWalks(
   adjacency: AdjacencyList,
-  config: Partial<WalkConfig> = {},
+  config: Partial<WalkConfig> = {}
 ): string[][] {
   const cfg = { ...DEFAULT_CONFIG, ...config };
   const rng = createRng(cfg.seed);
@@ -111,7 +111,7 @@ export function generateWalks(
  * Build adjacency list from edge data.
  */
 export function buildAdjacencyFromEdges(
-  edges: Array<{ from_key: string; to_key: string }>,
+  edges: Array<{ from_key: string; to_key: string }>
 ): AdjacencyList {
   const adj: AdjacencyList = new Map();
 

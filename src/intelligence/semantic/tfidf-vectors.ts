@@ -52,7 +52,7 @@ const VECTOR_DIM = 64;
  */
 export function computeTfIdfVector(
   identifier: string,
-  corpus: TfIdfCorpus,
+  corpus: TfIdfCorpus
 ): Float32Array {
   const vector = new Float32Array(VECTOR_DIM);
   const tokens = tokenizeIdentifier(identifier);
@@ -81,7 +81,7 @@ export function computeTfIdfVector(
  * Build TF-IDF vectors for all entities at once.
  */
 export function buildTfIdfVectors(
-  identifiers: string[],
+  identifiers: string[]
 ): Map<string, Float32Array> {
   const corpus = buildCorpus(identifiers);
   const vectors = new Map<string, Float32Array>();

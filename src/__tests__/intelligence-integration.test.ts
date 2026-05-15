@@ -70,7 +70,7 @@ describe("Response Enrichment (P.9)", () => {
         riskLevel: "high",
         resolutionMs: 2.3,
         edgeSources: { structural: 5 },
-      },
+      }
     );
 
     expect(result._meta.confidence).toBe("structural");
@@ -89,7 +89,7 @@ describe("Response Enrichment (P.9)", () => {
         resolutionMs: 1,
         edgeSources: {},
       },
-      { "dev.unerr/conventions": [{ name: "test" }] },
+      { "dev.unerr/conventions": [{ name: "test" }] }
     );
     expect(result._context?.["dev.unerr/conventions"]).toBeDefined();
   });
@@ -102,7 +102,7 @@ describe("Response Enrichment (P.9)", () => {
         riskLevel: "normal",
         resolutionMs: 1,
         edgeSources: {},
-      },
+      }
     );
     expect(result._context).toBeUndefined();
   });
@@ -116,7 +116,7 @@ describe("Computation Scheduler (P.11)", () => {
       "critical",
       async () => {
         executed = true;
-      },
+      }
     );
     expect(ran).toBe(true);
     expect(executed).toBe(true);
@@ -264,7 +264,7 @@ describe("End-to-End Pipeline (P.13)", () => {
     expect(enriched._meta.risk_level).toBe("high");
     expect(enriched._meta.resolution_ms).toBeGreaterThanOrEqual(0);
     expect((enriched.content as { totalAffected: number }).totalAffected).toBe(
-      1,
+      1
     );
   });
 });

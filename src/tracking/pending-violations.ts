@@ -38,7 +38,7 @@ export class PendingViolationStore {
         rule: v.ruleName,
         message: v.message,
         line: v.line,
-      })),
+      }))
     );
   }
 

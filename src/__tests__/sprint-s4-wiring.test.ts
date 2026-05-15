@@ -18,7 +18,7 @@ import { calculateDollarSavings } from "../proxy/model-pricing.js";
 import { createTokenCounter } from "../proxy/token-counter.js";
 
 function createMockGraph(
-  overrides: Record<string, unknown> = {},
+  overrides: Record<string, unknown> = {}
 ): CozoGraphStore {
   return {
     getEntity: vi.fn().mockReturnValue({

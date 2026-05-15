@@ -83,12 +83,12 @@ export interface CompressionQualityMonitor {
   recordCompression: (
     id: string,
     contentType: ContentType,
-    ratio: number,
+    ratio: number
   ) => void;
   recordAgentAction: (
     entityKey: string,
     isRetry: boolean,
-    isReRequest: boolean,
+    isReRequest: boolean
   ) => void;
   /** Increment when the agent re-queries the same entity shortly after a Layer 6-encoded response. */
   recordLayer6Retry: (toolName: string) => void;
@@ -153,7 +153,7 @@ export function createCompressionQualityMonitor(): CompressionQualityMonitor {
   function recordCompression(
     id: string,
     contentType: ContentType,
-    ratio: number,
+    ratio: number
   ): void {
     recentCompressions.push({ id, contentType, ratio, timestamp: Date.now() });
     if (recentCompressions.length > 100) recentCompressions.shift();
@@ -162,13 +162,13 @@ export function createCompressionQualityMonitor(): CompressionQualityMonitor {
   function recordAgentAction(
     entityKey: string,
     isRetry: boolean,
-    isReRequest: boolean,
+    isReRequest: boolean
   ): void {
     const now = Date.now();
     const cutoff = now - FEEDBACK_WINDOW_MS;
 
     const recentForEntity = recentCompressions.filter(
-      (c) => c.timestamp > cutoff,
+      (c) => c.timestamp > cutoff
     );
 
     if (recentForEntity.length === 0) return;
@@ -191,7 +191,7 @@ export function createCompressionQualityMonitor(): CompressionQualityMonitor {
         if ((overCompressionCounts[ct] ?? 0) >= OVER_COMPRESSION_THRESHOLD) {
           adapted[ct] = Math.min(
             1.0,
-            (adapted[ct] ?? DEFAULT_RETENTION[ct]) + RETENTION_INCREASE,
+            (adapted[ct] ?? DEFAULT_RETENTION[ct]) + RETENTION_INCREASE
           );
           overCompressionCounts[ct] = 0;
         }
@@ -201,7 +201,7 @@ export function createCompressionQualityMonitor(): CompressionQualityMonitor {
         if ((goodStreaks[ct] ?? 0) >= GOOD_STREAK_THRESHOLD) {
           adapted[ct] = Math.max(
             DEFAULT_RETENTION[ct],
-            (adapted[ct] ?? DEFAULT_RETENTION[ct]) - RETENTION_DECREASE,
+            (adapted[ct] ?? DEFAULT_RETENTION[ct]) - RETENTION_DECREASE
           );
           goodStreaks[ct] = 0;
         }
@@ -212,7 +212,7 @@ export function createCompressionQualityMonitor(): CompressionQualityMonitor {
   function getRetention(contentType: ContentType): number {
     return Math.max(
       HARD_FLOOR,
-      adapted[contentType] ?? DEFAULT_RETENTION[contentType],
+      adapted[contentType] ?? DEFAULT_RETENTION[contentType]
     );
   }
 
@@ -232,7 +232,7 @@ export function createCompressionQualityMonitor(): CompressionQualityMonitor {
   function recordLayer6Retry(toolName: string): void {
     layer6RetriesByTool.set(
       toolName,
-      (layer6RetriesByTool.get(toolName) ?? 0) + 1,
+      (layer6RetriesByTool.get(toolName) ?? 0) + 1
     );
   }
 

@@ -68,7 +68,7 @@ export function updateFileMetadata(
   metadata: IndexMetadata,
   filePath: string,
   hash: string,
-  entityCount: number,
+  entityCount: number
 ): void {
   metadata.files[filePath] = {
     hash,
@@ -79,7 +79,7 @@ export function updateFileMetadata(
 
 export function removeFileMetadata(
   metadata: IndexMetadata,
-  filePath: string,
+  filePath: string
 ): void {
   delete metadata.files[filePath];
 }
@@ -87,7 +87,7 @@ export function removeFileMetadata(
 export function fileNeedsReindex(
   metadata: IndexMetadata,
   filePath: string,
-  currentHash: string,
+  currentHash: string
 ): boolean {
   const existing = metadata.files[filePath];
   if (!existing) return true;

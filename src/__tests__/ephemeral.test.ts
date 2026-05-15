@@ -22,7 +22,7 @@ describe("Ephemeral Sandbox (P5.6-ADV-02)", () => {
 
     const ttlHours = 24;
     const expiresAt = new Date(
-      Date.now() + ttlHours * 60 * 60 * 1000,
+      Date.now() + ttlHours * 60 * 60 * 1000
     ).toISOString();
 
     const ephemeralConfig = {
@@ -35,7 +35,7 @@ describe("Ephemeral Sandbox (P5.6-ADV-02)", () => {
 
     fs.writeFileSync(
       path.join(unerrDir, "config.json"),
-      `${JSON.stringify(ephemeralConfig, null, 2)}\n`,
+      `${JSON.stringify(ephemeralConfig, null, 2)}\n`
     );
 
     const raw = fs.readFileSync(path.join(unerrDir, "config.json"), "utf-8");
@@ -140,7 +140,7 @@ describe("Ephemeral Sandbox (P5.6-ADV-02)", () => {
       (c) =>
         c.ephemeral &&
         c.expiresAt &&
-        new Date(c.expiresAt).getTime() < Date.now(),
+        new Date(c.expiresAt).getTime() < Date.now()
     );
 
     expect(expired.length).toBe(2);

@@ -17,7 +17,7 @@ export interface SubgraphCache {
   warmDirectory: (
     dirPath: string,
     files: string[],
-    loader: (filePath: string) => unknown,
+    loader: (filePath: string) => unknown
   ) => void;
   has: (filePath: string) => boolean;
   invalidate: (filePath: string) => void;
@@ -48,7 +48,7 @@ export function createSubgraphCache(): SubgraphCache {
   function warmDirectory(
     dirPath: string,
     files: string[],
-    loader: (filePath: string) => unknown,
+    loader: (filePath: string) => unknown
   ): void {
     if (directoriesWarmed.has(dirPath)) return;
     directoriesWarmed.add(dirPath);

@@ -14,7 +14,7 @@ import { revertEntity } from "../tracking/entity-rewind.js";
 
 /** Minimal mock CozoGraphStore with drift overlay backed by a Map. */
 function createMockGraph(
-  driftEntities: DriftEntity[] = [],
+  driftEntities: DriftEntity[] = []
 ): CozoGraphStore & { removed: string[] } {
   const overlay = new Map<string, DriftEntity>();
   for (const e of driftEntities) {
@@ -66,7 +66,7 @@ function createMockGraph(
 }
 
 function makeDrift(
-  overrides: Partial<DriftEntity> & { key: string; name: string },
+  overrides: Partial<DriftEntity> & { key: string; name: string }
 ): DriftEntity {
   return {
     kind: "function",
@@ -242,7 +242,7 @@ describe("Entity-level rewind", () => {
     mkdirSync(join(projectRoot, "src"), { recursive: true });
     writeFileSync(
       join(projectRoot, "src", "b.ts"),
-      "function shared() { return 'modified'; }",
+      "function shared() { return 'modified'; }"
     );
 
     const result = await revertEntity("shared", graph, projectRoot, "src/b.ts");

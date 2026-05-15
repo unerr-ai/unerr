@@ -29,7 +29,7 @@ function extractDoc(node: SyntaxNode): string | null {
   let doc = "";
   let sibling = node.previousSibling;
   while (sibling?.type === "comment") {
-    doc = textOf(sibling) + "\n" + doc;
+    doc = `${textOf(sibling)}\n${doc}`;
     sibling = sibling.previousSibling;
   }
   return doc.length > 0 ? doc.trim().slice(0, 500) : null;
@@ -45,14 +45,14 @@ function countParameters(node: SyntaxNode): number {
       c.type === "splat_parameter" ||
       c.type === "hash_splat_parameter" ||
       c.type === "keyword_parameter" ||
-      c.type === "block_parameter",
+      c.type === "block_parameter"
   ).length;
 }
 
 function extractSignature(
   node: SyntaxNode,
   name: string,
-  kind: EntityKind,
+  kind: EntityKind
 ): string {
   if (kind === "class") return `class ${name}`;
   if (kind === "namespace") return `module ${name}`;
@@ -97,7 +97,7 @@ function addEntity(
     isAsync?: boolean;
     paramCount?: number;
     signature?: string;
-  } = {},
+  } = {}
 ): string {
   const scope = currentScope(ctx);
   const key = entityKey(ctx.filePath, kind, name, scope);
@@ -283,7 +283,7 @@ function extractImports(tree: Tree, filePath: string): ImportInfo[] {
           const symbol = textOf(args.namedChildren[0]!).replace(/^:/, "");
           const path = textOf(args.namedChildren[1]!).replace(
             /^['"]|['"]$/g,
-            "",
+            ""
           );
           imports.push({
             source: path,

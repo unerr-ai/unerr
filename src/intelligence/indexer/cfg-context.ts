@@ -103,7 +103,7 @@ function isDescendantOf(node: SyntaxNode, ancestor: SyntaxNode): boolean {
  * Flatten CFG context into edge metadata fields.
  */
 export function cfgToEdgeFields(
-  cfg: CFGContext,
+  cfg: CFGContext
 ): Record<string, boolean | number> {
   const fields: Record<string, boolean | number> = {};
   if (cfg.isTryGuarded) fields.is_try_guarded = true;

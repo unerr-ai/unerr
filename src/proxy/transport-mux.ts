@@ -25,7 +25,7 @@ const _log = {
 /** Message handler callback — processes a JSON-RPC request and returns a response. */
 export type MuxMessageHandler = (
   clientId: string,
-  message: JsonRpcRequest,
+  message: JsonRpcRequest
 ) => Promise<JsonRpcResponse>;
 
 export interface JsonRpcRequest {
@@ -183,7 +183,7 @@ export class TransportMux {
               socket.write(httpResponse);
             } catch {
               socket.write(
-                "HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n"
               );
             }
             socket.end();
@@ -205,7 +205,7 @@ export class TransportMux {
 
         this.processMessage(clientId, line, socket).catch((err) => {
           _log.warn(
-            `Error processing message from ${clientId}: ${err instanceof Error ? err.message : String(err)}`,
+            `Error processing message from ${clientId}: ${err instanceof Error ? err.message : String(err)}`
           );
         });
         newlineIdx = buffer.indexOf("\n");
@@ -226,7 +226,7 @@ export class TransportMux {
   private async processMessage(
     clientId: string,
     raw: string,
-    socket: Socket,
+    socket: Socket
   ): Promise<void> {
     if (!this.handler) {
       _log.warn("No message handler set — dropping message");

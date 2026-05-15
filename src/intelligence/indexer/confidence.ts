@@ -29,7 +29,7 @@ export function labelFromTier(tier: 1 | 2 | 3): ConfidenceLabel {
 }
 
 export function upgradeToCompilerVerified(
-  label: ConfidenceLabel,
+  label: ConfidenceLabel
 ): ConfidenceLabel {
   return { level: "compiler-verified", source: `scip+${label.source}` };
 }

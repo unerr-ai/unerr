@@ -13,7 +13,7 @@ import { cleanupOldTees, teeShellOutput } from "../proxy/shell-tee.js";
 function makeTempDir(): string {
   const dir = join(
     tmpdir(),
-    `shell-tee-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `shell-tee-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(dir, { recursive: true });
   return dir;
@@ -75,7 +75,7 @@ describe("teeShellOutput", () => {
       cwd,
       "kubectl describe pod/my-app",
       raw,
-      compressed,
+      compressed
     );
     expect(result).not.toBeNull();
     expect(result!.filePath).toContain("kubectl-describe");

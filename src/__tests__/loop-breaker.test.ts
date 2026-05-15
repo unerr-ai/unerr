@@ -60,7 +60,7 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
       expect(output?.halt).toBe(true);
       expect(output?._context?.pattern).toBe("repetitive_failure");
       expect(output?._context?.reason).toContain(
-        "4 consecutive failed attempts",
+        "4 consecutive failed attempts"
       );
     });
 
@@ -122,7 +122,7 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
       const breaker = new LoopCircuitBreaker({ maxAttemptsPerEntity: 4 });
 
       expect(
-        breaker.getCircuitState("src/payment.ts::processPayment"),
+        breaker.getCircuitState("src/payment.ts::processPayment")
       ).toBeNull();
 
       for (let i = 0; i < 4; i++) {
@@ -130,7 +130,7 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
       }
 
       expect(breaker.getCircuitState("src/payment.ts::processPayment")).toBe(
-        "open",
+        "open"
       );
     });
 
@@ -182,7 +182,7 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
       await breaker.onPostToolUse(makeCtx({ result: makeSuccessResult() }));
 
       expect(breaker.getCircuitState("src/payment.ts::processPayment")).toBe(
-        "closed",
+        "closed"
       );
     });
 
@@ -202,7 +202,7 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
       await breaker.onPostToolUse(makeCtx({ result: makeErrorResult() }));
 
       expect(breaker.getCircuitState("src/payment.ts::processPayment")).toBe(
-        "open",
+        "open"
       );
     });
   });
@@ -243,7 +243,7 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
       let lastOutput = null;
       for (let i = 0; i < 4; i++) {
         lastOutput = await breaker.onPostToolUse(
-          makeCtx({ result: makeErrorResult() }),
+          makeCtx({ result: makeErrorResult() })
         );
       }
 
@@ -269,7 +269,7 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
       await new Promise((r) => setTimeout(r, 100));
 
       await breaker.onPreToolUse(
-        makeCtx({ entityKey: "src/checkout.ts::handleOrder" }),
+        makeCtx({ entityKey: "src/checkout.ts::handleOrder" })
       );
       for (let i = 0; i < 4; i++) {
         await breaker.onPostToolUse(
@@ -277,7 +277,7 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
             entityKey: "src/checkout.ts::handleOrder",
             filePath: "src/checkout.ts",
             result: makeErrorResult(),
-          }),
+          })
         );
       }
 
@@ -294,7 +294,7 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
       let guardFired = false;
       for (let i = 0; i < 4; i++) {
         const output = await breaker.onPostToolUse(
-          makeCtx({ result: makeErrorResult() }),
+          makeCtx({ result: makeErrorResult() })
         );
         if (output?.guardMoment) guardFired = true;
       }
@@ -330,7 +330,7 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
 
       for (let i = 0; i < 6; i++) {
         const output = await breaker.onPostToolUse(
-          makeCtx({ result: makeSuccessResult() }),
+          makeCtx({ result: makeSuccessResult() })
         );
         expect(output).toBeNull();
       }
@@ -347,7 +347,7 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
 
       for (let i = 0; i < 3; i++) {
         const output = await breaker.onPostToolUse(
-          makeCtx({ result: makeErrorResult() }),
+          makeCtx({ result: makeErrorResult() })
         );
         expect(output).toBeNull();
       }

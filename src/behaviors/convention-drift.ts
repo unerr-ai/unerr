@@ -99,13 +99,13 @@ export class ConventionDriftPrevention extends Behavior {
 
     const namingViolations = await this.checkNamingConventions(
       ctx.filePath,
-      newContent,
+      newContent
     );
     violations.push(...namingViolations);
 
     const importViolations = await this.checkImportConventions(
       ctx.filePath,
-      newContent,
+      newContent
     );
     violations.push(...importViolations);
 
@@ -146,7 +146,7 @@ export class ConventionDriftPrevention extends Behavior {
    */
   private async checkNamingConventions(
     filePath: string,
-    content: string,
+    content: string
   ): Promise<ConventionViolation[]> {
     const projectConvention =
       await this.detectDominantNamingConvention(filePath);
@@ -186,7 +186,7 @@ export class ConventionDriftPrevention extends Behavior {
    */
   private async checkImportConventions(
     filePath: string,
-    content: string,
+    content: string
   ): Promise<ConventionViolation[]> {
     if (!this.graph) return [];
 
@@ -194,7 +194,7 @@ export class ConventionDriftPrevention extends Behavior {
     const importConventions = conventions.filter(
       (c) =>
         c.name.toLowerCase().includes("import") ||
-        c.name.toLowerCase().includes("barrel"),
+        c.name.toLowerCase().includes("barrel")
     );
 
     if (importConventions.length === 0) return [];
@@ -241,12 +241,12 @@ export class ConventionDriftPrevention extends Behavior {
         c.name.toLowerCase().includes("naming") ||
         c.name.toLowerCase().includes("camel") ||
         c.name.toLowerCase().includes("pascal") ||
-        c.name.toLowerCase().includes("snake"),
+        c.name.toLowerCase().includes("snake")
     );
 
     if (namingConvention) {
       const rule = NAMING_RULES.find((r) =>
-        namingConvention.name.toLowerCase().includes(r.id.toLowerCase()),
+        namingConvention.name.toLowerCase().includes(r.id.toLowerCase())
       );
       if (rule) {
         return { ...rule, confidence: namingConvention.adherence_pct / 100 };
@@ -314,8 +314,10 @@ function extractDefinedNames(content: string): string[] {
 
   for (const pattern of patterns) {
     let match: RegExpExecArray | null;
-    while ((match = pattern.exec(content)) !== null) {
+    match = pattern.exec(content);
+    while (match !== null) {
       if (match[1]) names.push(match[1]);
+      match = pattern.exec(content);
     }
   }
 
@@ -326,8 +328,10 @@ function extractImportLines(content: string): string[] {
   const imports: string[] = [];
   const pattern = /import\s+.*?from\s+['"]([^'"]+)['"]/g;
   let match: RegExpExecArray | null;
-  while ((match = pattern.exec(content)) !== null) {
+  match = pattern.exec(content);
+  while (match !== null) {
     if (match[1]) imports.push(match[1]);
+    match = pattern.exec(content);
   }
   return imports;
 }

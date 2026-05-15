@@ -21,7 +21,7 @@ import { ShadowLedger } from "../tracking/shadow-ledger.js";
 function makeTmpDir(): string {
   const dir = join(
     tmpdir(),
-    `unerr-test-ba2-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-test-ba2-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(dir, { recursive: true });
   return dir;
@@ -63,7 +63,7 @@ describe("Incomplete Work Detection (BA-2.1)", () => {
         { path: "src/utils/removed-module.ts" },
         { success: true },
         "main",
-        "abc123",
+        "abc123"
       );
 
       const detector = new IncompleteWorkDetector();
@@ -96,7 +96,7 @@ describe("Incomplete Work Detection (BA-2.1)", () => {
         { path: "src/deleted.ts" },
         { success: true },
         "main",
-        "abc123",
+        "abc123"
       );
 
       const detector = new IncompleteWorkDetector();
@@ -111,7 +111,7 @@ describe("Incomplete Work Detection (BA-2.1)", () => {
 
     it("readPersistedItems returns empty array when no file exists", () => {
       const items = IncompleteWorkDetector.readPersistedItems(
-        join(tmpDir, "nonexistent"),
+        join(tmpDir, "nonexistent")
       );
       expect(items).toEqual([]);
     });
@@ -125,7 +125,7 @@ describe("Incomplete Work Detection (BA-2.1)", () => {
         { key: "src/safe.ts::func" },
         { found: true },
         "main",
-        "abc123",
+        "abc123"
       );
 
       const detector = new IncompleteWorkDetector();

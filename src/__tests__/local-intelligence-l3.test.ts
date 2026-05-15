@@ -53,7 +53,7 @@ class MockCozoDb implements CozoDb {
 
   async run(
     query: string,
-    params?: Record<string, unknown>,
+    params?: Record<string, unknown>
   ): Promise<{ rows: unknown[][] }> {
     // ── :create — no-op
     if (query.includes(":create ")) {
@@ -66,31 +66,31 @@ class MockCozoDb implements CozoDb {
         query,
         params,
         "entity_key",
-        0,
+        0
       ) as string;
       const vj = this.extractInlineOrParam(
         query,
         params,
         "vector_json",
-        1,
+        1
       ) as string;
       const model = this.extractInlineOrParam(
         query,
         params,
         "model",
-        2,
+        2
       ) as string;
       const dims = this.extractInlineOrParam(
         query,
         params,
         "dimensions",
-        3,
+        3
       ) as number;
       const ca = this.extractInlineOrParam(
         query,
         params,
         "computed_at",
-        4,
+        4
       ) as string;
       this.embeddings.set(ek, {
         entityKey: ek,
@@ -108,7 +108,7 @@ class MockCozoDb implements CozoDb {
         query,
         params,
         "entity_key",
-        0,
+        0
       ) as string;
       this.embeddings.delete(ek);
       return { rows: [] };
@@ -228,7 +228,7 @@ class MockCozoDb implements CozoDb {
     query: string,
     params: Record<string, unknown> | undefined,
     _field: string,
-    _index: number,
+    _index: number
   ): unknown {
     // For the entity_embeddings CRUD test, values come from the <- [[...]] clause
     // Parse the values from the inline array
@@ -331,7 +331,7 @@ function seedGraph(db: MockCozoDb) {
       kind: "file",
       name: "db.ts",
       filePath: "src/db.ts",
-    },
+    }
   );
 
   // Seed file index
@@ -352,7 +352,7 @@ function seedGraph(db: MockCozoDb) {
       toKey: "fn::auth::logout",
       type: "contains",
     },
-    { fromKey: "fn::db::connect", toKey: "fn::db::query", type: "calls" },
+    { fromKey: "fn::db::connect", toKey: "fn::db::query", type: "calls" }
   );
 
   // Seed a rule
@@ -454,12 +454,12 @@ describe("entity_embeddings relation", () => {
     // Insert via mock's run method (simulates CozoDB :put)
     await db.run(
       `?[entity_key, vector_json, model, dimensions, computed_at] <- [["fn::test", "[0.1,0.2,0.3]", "test-model", 3, "2026-04-17"]]
-       :put entity_embeddings {entity_key => vector_json, model, dimensions, computed_at}`,
+       :put entity_embeddings {entity_key => vector_json, model, dimensions, computed_at}`
     );
 
     // Read
     const result = await db.run(
-      "?[entity_key, vector_json, model, dimensions] := *entity_embeddings{entity_key, vector_json, model, dimensions}",
+      "?[entity_key, vector_json, model, dimensions] := *entity_embeddings{entity_key, vector_json, model, dimensions}"
     );
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]?.[0]).toBe("fn::test");
@@ -468,10 +468,10 @@ describe("entity_embeddings relation", () => {
 
     // Delete
     await db.run(
-      `?[entity_key] <- [["fn::test"]] :rm entity_embeddings {entity_key}`,
+      `?[entity_key] <- [["fn::test"]] :rm entity_embeddings {entity_key}`
     );
     const afterDelete = await db.run(
-      "?[entity_key] := *entity_embeddings{entity_key}",
+      "?[entity_key] := *entity_embeddings{entity_key}"
     );
     expect(afterDelete.rows).toHaveLength(0);
   });

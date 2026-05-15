@@ -29,7 +29,7 @@ function formatTokens(n: number): string {
 }
 
 export function createTokenCounter(
-  options: TokenCounterOptions = {},
+  options: TokenCounterOptions = {}
 ): TokenCounter {
   const emitEveryN = options.emitEveryN ?? 10;
   const sink = options.sink ?? ((msg: string) => process.stderr.write(msg));
@@ -49,7 +49,7 @@ export function createTokenCounter(
           ? Math.round((totalSaved / totalProcessed) * 100)
           : 0;
       sink(
-        `[unerr] ${formatTokens(totalSaved)} tokens saved (efficiency: ${efficiency}%)\n`,
+        `[unerr] ${formatTokens(totalSaved)} tokens saved (efficiency: ${efficiency}%)\n`
       );
     }
   }

@@ -108,7 +108,7 @@ interface WarmCandidate {
  */
 export function selectCandidates(
   repos: RepoEntry[],
-  config: WarmStartConfig,
+  config: WarmStartConfig
 ): {
   candidates: WarmCandidate[];
   skipped: Array<{ entry: RepoEntry; reason: string }>;
@@ -174,7 +174,7 @@ export interface WarmStartResult {
  */
 export async function runWarmStart(
   pm: ProcessManager,
-  onEvent?: WarmStartEventHandler,
+  onEvent?: WarmStartEventHandler
 ): Promise<WarmStartResult> {
   const config = loadWarmStartConfig();
   const result: WarmStartResult = {
@@ -283,7 +283,7 @@ export async function runWarmStart(
  */
 export function scheduleWarmStart(
   pm: ProcessManager,
-  onEvent?: WarmStartEventHandler,
+  onEvent?: WarmStartEventHandler
 ): () => void {
   if (isCI()) return () => {};
 

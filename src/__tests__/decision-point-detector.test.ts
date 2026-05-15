@@ -66,7 +66,7 @@ describe("DecisionPointDetector", () => {
       const level = detector.detect(
         "file_read",
         { key: "fn1" },
-        makeSession(["fn1"]),
+        makeSession(["fn1"])
       );
       expect(level).toBe("high");
     });
@@ -75,7 +75,7 @@ describe("DecisionPointDetector", () => {
       const level = detector.detect(
         "get_entity",
         { key: "myClass" },
-        makeSession(["myClass"]),
+        makeSession(["myClass"])
       );
       expect(level).toBe("high");
     });
@@ -84,7 +84,7 @@ describe("DecisionPointDetector", () => {
       const level = detector.detect(
         "get_function",
         { key: "doStuff" },
-        makeSession(["doStuff"]),
+        makeSession(["doStuff"])
       );
       expect(level).toBe("high");
     });
@@ -93,7 +93,7 @@ describe("DecisionPointDetector", () => {
       const level = detector.detect(
         "file_read",
         { key: "fn1", purpose: "edit" },
-        makeSession(),
+        makeSession()
       );
       expect(level).toBe("high");
     });
@@ -102,7 +102,7 @@ describe("DecisionPointDetector", () => {
       const level = detector.detect(
         "get_file",
         { name: "src/index.ts" },
-        makeSession(),
+        makeSession()
       );
       expect(level).toBe("medium");
     });

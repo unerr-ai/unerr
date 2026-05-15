@@ -229,7 +229,7 @@ export class ToolUsageTracker {
  */
 export function reorderToolsByCluster<T extends { name: string }>(
   tools: readonly T[],
-  tracker: ToolUsageTracker | null,
+  tracker: ToolUsageTracker | null
 ): T[] {
   if (!tracker || tracker.getCallCount() === 0) {
     // No usage data — use default cluster order
@@ -282,7 +282,7 @@ export function reorderToolsByCluster<T extends { name: string }>(
  * Reorder tools by default cluster ordering (no usage data).
  */
 function reorderByDefaultClusters<T extends { name: string }>(
-  tools: readonly T[],
+  tools: readonly T[]
 ): T[] {
   const toolMap = new Map(tools.map((t) => [t.name, t]));
   const result: T[] = [];

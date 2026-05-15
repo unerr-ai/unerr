@@ -28,7 +28,7 @@ let tempDir: string;
 beforeEach(() => {
   tempDir = join(
     tmpdir(),
-    `unerr-r-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-r-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(tempDir, { recursive: true });
 });
@@ -74,7 +74,7 @@ describe("MCP Config Writer (R.3 + R.7)", () => {
       JSON.stringify({
         mcpServers: { "other-tool": { command: "other", args: [] } },
       }),
-      "utf-8",
+      "utf-8"
     );
 
     const result = writeMcpConfig(tempDir, "cursor");

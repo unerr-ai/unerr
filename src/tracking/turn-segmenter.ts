@@ -114,7 +114,7 @@ export class TurnSegmenter {
    */
   closeTurn(
     sessionId: string,
-    reason: "stop_hook" | "session_end" = "stop_hook",
+    reason: "stop_hook" | "session_end" = "stop_hook"
   ): void {
     const s = this.state.get(sessionId);
     if (!s || s.currentTurnId === null) return;
@@ -158,7 +158,7 @@ export class TurnSegmenter {
         l(event);
       } catch (err: unknown) {
         process.stderr.write(
-          `[unerr:turn-segmenter] WARN: listener error: ${err instanceof Error ? err.message : String(err)}\n`,
+          `[unerr:turn-segmenter] WARN: listener error: ${err instanceof Error ? err.message : String(err)}\n`
         );
       }
     }

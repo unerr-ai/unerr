@@ -104,7 +104,7 @@ const DEFAULT_IMPORT_DIRECTION_CONVENTIONS: ImportDirectionConvention[] = [
  */
 export function checkNamingConventions(
   entities: LocalEntity[],
-  conventions?: NamingConvention[],
+  conventions?: NamingConvention[]
 ): ConventionViolation[] {
   const rules = conventions ?? DEFAULT_NAMING_CONVENTIONS;
   const violations: ConventionViolation[] = [];
@@ -134,7 +134,7 @@ export function checkNamingConventions(
 export async function checkFileStructure(
   filePath: string,
   graph: CozoGraphStore,
-  conventions?: FileStructureConvention[],
+  conventions?: FileStructureConvention[]
 ): Promise<ConventionViolation[]> {
   const rules = conventions ?? DEFAULT_FILE_STRUCTURE_CONVENTIONS;
   const violations: ConventionViolation[] = [];
@@ -173,7 +173,7 @@ export async function checkFileStructure(
 export async function checkImportDirection(
   filePath: string,
   graph: CozoGraphStore,
-  conventions?: ImportDirectionConvention[],
+  conventions?: ImportDirectionConvention[]
 ): Promise<ConventionViolation[]> {
   const rules = conventions ?? DEFAULT_IMPORT_DIRECTION_CONVENTIONS;
   const violations: ConventionViolation[] = [];
@@ -212,27 +212,27 @@ export async function matchConventions(
     namingConventions?: NamingConvention[];
     fileStructureConventions?: FileStructureConvention[];
     importDirectionConventions?: ImportDirectionConvention[];
-  },
+  }
 ): Promise<ConventionViolation[]> {
   const entities = await graph.getEntitiesByFile(filePath);
   const violations: ConventionViolation[] = [];
 
   violations.push(
-    ...checkNamingConventions(entities, options?.namingConventions),
+    ...checkNamingConventions(entities, options?.namingConventions)
   );
   violations.push(
     ...(await checkFileStructure(
       filePath,
       graph,
-      options?.fileStructureConventions,
-    )),
+      options?.fileStructureConventions
+    ))
   );
   violations.push(
     ...(await checkImportDirection(
       filePath,
       graph,
-      options?.importDirectionConventions,
-    )),
+      options?.importDirectionConventions
+    ))
   );
 
   return violations;
@@ -269,7 +269,7 @@ function resolveNamingRegex(patternName: string): RegExp | null {
  * mapping pattern names to the correct regex (camelCase, PascalCase, snake_case, etc.).
  */
 export async function deriveNamingConventionsFromPatterns(
-  graph: CozoGraphStore,
+  graph: CozoGraphStore
 ): Promise<NamingConvention[]> {
   const patterns = await graph.getPatterns();
   const conventions: NamingConvention[] = [];
@@ -278,7 +278,7 @@ export async function deriveNamingConventionsFromPatterns(
     if (p.kind === "naming" && p.confidence >= 0.7) {
       // Extract entity kind (class, function, interface, etc.)
       const kindMatch = p.name.match(
-        /\b(class|function|interface|method|variable|type|enum|constant)\b/i,
+        /\b(class|function|interface|method|variable|type|enum|constant)\b/i
       );
       if (!kindMatch) continue;
 

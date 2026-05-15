@@ -99,23 +99,23 @@ export interface RawContextData {
 function computeComposite(
   actionability: number,
   relevance: number,
-  confidence: number,
+  confidence: number
 ): number {
-  return Math.pow(actionability, 1.5) * relevance * confidence;
+  return actionability ** 1.5 * relevance * confidence;
 }
 
 /**
  * Create a signal with auto-computed composite score.
  */
 function createSignal(
-  params: Omit<IntelligenceSignal, "composite_score">,
+  params: Omit<IntelligenceSignal, "composite_score">
 ): IntelligenceSignal {
   return {
     ...params,
     composite_score: computeComposite(
       params.actionability,
       params.relevance,
-      params.confidence,
+      params.confidence
     ),
   };
 }
@@ -128,7 +128,7 @@ export class SignalScorer {
   contextToSignals(
     raw: RawContextData,
     _toolName: string,
-    _args: Record<string, unknown>,
+    _args: Record<string, unknown>
   ): IntelligenceSignal[] {
     const signals: IntelligenceSignal[] = [];
 
@@ -144,7 +144,7 @@ export class SignalScorer {
           relevance: 0.85,
           confidence: 0.95,
           source: "graph",
-        }),
+        })
       );
     }
 
@@ -159,7 +159,7 @@ export class SignalScorer {
             relevance: 0.95,
             confidence: 0.9,
             source: "graph",
-          }),
+          })
         );
       }
     }
@@ -175,7 +175,7 @@ export class SignalScorer {
           relevance: 0.9,
           confidence: 0.85,
           source: "graph",
-        }),
+        })
       );
     }
 
@@ -190,7 +190,7 @@ export class SignalScorer {
           relevance: 0.8,
           confidence: 0.75,
           source: "temporal",
-        }),
+        })
       );
     }
 
@@ -207,7 +207,7 @@ export class SignalScorer {
             relevance: 0.75,
             confidence: 0.7,
             source: "temporal",
-          }),
+          })
         );
       }
     }
@@ -225,7 +225,7 @@ export class SignalScorer {
             relevance: 0.75,
             confidence: 0.8,
             source: "temporal",
-          }),
+          })
         );
       }
     }
@@ -242,7 +242,7 @@ export class SignalScorer {
             relevance: 0.65,
             confidence: 0.8,
             source: "graph",
-          }),
+          })
         );
       }
     }
@@ -257,7 +257,7 @@ export class SignalScorer {
             relevance: 0.6,
             confidence: 0.7,
             source: "temporal",
-          }),
+          })
         );
       }
     }
@@ -272,7 +272,7 @@ export class SignalScorer {
             relevance: 0.55,
             confidence: 0.65,
             source: "temporal",
-          }),
+          })
         );
       }
     }
@@ -328,7 +328,7 @@ export class SignalScorer {
             relevance,
             confidence: 0.7, // ↑ from 0.65 — facts are first-class data
             source: "temporal",
-          }),
+          })
         );
       }
     }
@@ -343,7 +343,7 @@ export class SignalScorer {
           relevance: 0.5,
           confidence: 0.85,
           source: "graph",
-        }),
+        })
       );
     }
 
@@ -362,7 +362,7 @@ export class SignalScorer {
           relevance: 0.5,
           confidence: 0.9,
           source: "graph",
-        }),
+        })
       );
     }
 
@@ -380,7 +380,7 @@ export class SignalScorer {
           relevance: 0.7,
           confidence: 0.7,
           source: "graph+temporal",
-        }),
+        })
       );
     }
 
@@ -397,7 +397,7 @@ export class SignalScorer {
           relevance: 0.8,
           confidence: 0.7,
           source: "graph+temporal",
-        }),
+        })
       );
     }
 
@@ -413,7 +413,7 @@ export class SignalScorer {
             relevance: 0.4,
             confidence: 0.6,
             source: "temporal",
-          }),
+          })
         );
       }
     }
@@ -427,7 +427,7 @@ export class SignalScorer {
    */
   applyBurstMultipliers(
     signals: IntelligenceSignal[],
-    decisionLevel: DecisionLevel,
+    decisionLevel: DecisionLevel
   ): IntelligenceSignal[] {
     if (decisionLevel !== "high") return signals;
 
@@ -454,7 +454,7 @@ export class SignalScorer {
         composite_score: computeComposite(
           s.actionability,
           boostedRelevance,
-          s.confidence,
+          s.confidence
         ),
       };
     });
@@ -478,7 +478,7 @@ export class SignalScorer {
     signals: IntelligenceSignal[],
     maxSignals = 3,
     getShowCount?: (signalId: string) => number,
-    wouldEmit?: (signal: IntelligenceSignal) => boolean,
+    wouldEmit?: (signal: IntelligenceSignal) => boolean
   ): IntelligenceSignal[] {
     if (signals.length === 0) return [];
 
@@ -511,7 +511,7 @@ export class SignalScorer {
       adherence_pct: number;
       kind: string;
     },
-    toolName: string,
+    toolName: string
   ): IntelligenceSignal {
     const isPrescriptive = toolName !== "get_conventions";
     return createSignal({

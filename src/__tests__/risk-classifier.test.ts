@@ -23,7 +23,7 @@ describe("Risk Classifier (M.4)", () => {
   it("classifies entity with mutations as higher risk", () => {
     const result = classifyRisk("mutator", 5, false, true, false);
     expect(result.score).toBeGreaterThan(
-      classifyRisk("pure", 5, false, false, false).score,
+      classifyRisk("pure", 5, false, false, false).score
     );
   });
 
@@ -119,7 +119,7 @@ describe("Batch Risk Classification", () => {
       edges,
       assignments,
       mutations,
-      guarded,
+      guarded
     );
     expect(results).toHaveLength(3);
     expect(results[0]?.level).toBe("critical");

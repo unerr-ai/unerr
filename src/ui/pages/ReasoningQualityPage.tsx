@@ -184,7 +184,7 @@ function Breadcrumb({
       {items.map((item, i) => {
         const isLast = i === items.length - 1;
         return (
-          <span key={i} className="flex items-center gap-1.5">
+          <span key={item.label} className="flex items-center gap-1.5">
             {i > 0 && <span className="t-tertiary">›</span>}
             {isLast ? (
               <span className="text-foreground font-medium">{item.label}</span>
@@ -339,7 +339,7 @@ function GlobalView({
     queryKey: queryKey(["reasoning-quality-global", fromTs, toTs]),
     queryFn: () =>
       fetchJson<GlobalQualityResponse>(
-        url(`/api/reasoning-quality/global?_=1${dateParams}`),
+        url(`/api/reasoning-quality/global?_=1${dateParams}`)
       ),
     refetchInterval: 5_000,
   });
@@ -354,8 +354,8 @@ function GlobalView({
     queryFn: () =>
       fetchJson<SessionListResponse>(
         url(
-          `/api/reasoning-quality/sessions?limit=${sessionLimit}&offset=${sessionOffset}${dateParams}`,
-        ),
+          `/api/reasoning-quality/sessions?limit=${sessionLimit}&offset=${sessionOffset}${dateParams}`
+        )
       ),
     refetchInterval: 5_000,
   });
@@ -364,7 +364,7 @@ function GlobalView({
     queryKey: queryKey(["reasoning-quality-trend", fromTs, toTs]),
     queryFn: () =>
       fetchJson<TrendResponse>(
-        url(`/api/reasoning-quality/trend?_=1${dateParams}`),
+        url(`/api/reasoning-quality/trend?_=1${dateParams}`)
       ),
     refetchInterval: 10_000,
   });
@@ -505,12 +505,12 @@ function GlobalView({
 
         const maxMultiplier = Math.max(
           ...trend.map((t) => t.reasoning_quality_multiplier),
-          1,
+          1
         );
         const maxNoise = Math.max(...trend.map((t) => t.noise_removed_pct), 1);
         const maxFcr = Math.max(
           ...trend.map((t) => t.first_call_resolution_rate),
-          1,
+          1
         );
 
         return (
@@ -542,7 +542,7 @@ function GlobalView({
                         : 4;
                     const dateLabel = new Date(pt.first_ts).toLocaleDateString(
                       [],
-                      { month: "short", day: "numeric" },
+                      { month: "short", day: "numeric" }
                     );
                     return (
                       <div
@@ -588,12 +588,12 @@ function GlobalView({
                       maxFcr > 0
                         ? Math.max(
                             4,
-                            (pt.first_call_resolution_rate / maxFcr) * 100,
+                            (pt.first_call_resolution_rate / maxFcr) * 100
                           )
                         : 4;
                     const dateLabel = new Date(pt.first_ts).toLocaleDateString(
                       [],
-                      { month: "short", day: "numeric" },
+                      { month: "short", day: "numeric" }
                     );
                     return (
                       <div
@@ -640,12 +640,12 @@ function GlobalView({
                         ? Math.max(
                             4,
                             (pt.reasoning_quality_multiplier / maxMultiplier) *
-                              100,
+                              100
                           )
                         : 4;
                     const dateLabel = new Date(pt.first_ts).toLocaleDateString(
                       [],
-                      { month: "short", day: "numeric" },
+                      { month: "short", day: "numeric" }
                     );
                     return (
                       <div
@@ -681,7 +681,7 @@ function GlobalView({
               <div className="flex justify-between mt-2 pt-2 border-t border-border-subtle/50">
                 <span className="t-tertiary text-[10px] font-mono">
                   {new Date(
-                    trend[Math.max(0, trend.length - 40)].first_ts,
+                    trend[Math.max(0, trend.length - 40)].first_ts
                   ).toLocaleDateString([], { month: "short", day: "numeric" })}
                 </span>
                 <span className="t-tertiary text-[10px]">
@@ -689,7 +689,7 @@ function GlobalView({
                 </span>
                 <span className="t-tertiary text-[10px] font-mono">
                   {new Date(
-                    trend[trend.length - 1].first_ts,
+                    trend[trend.length - 1].first_ts
                   ).toLocaleDateString([], { month: "short", day: "numeric" })}
                 </span>
               </div>
@@ -949,78 +949,79 @@ function GlobalView({
         </div>
 
         {/* Verdict breakdown bar */}
-        {g.memory_verdicts_total > 0 && (() => {
-          const total = g.memory_verdicts_total;
-          const seg = (n: number) => (n / total) * 100;
-          return (
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="t-tertiary text-[10px] uppercase tracking-wider">
-                  {total} verdict{total === 1 ? "" : "s"}
-                </span>
+        {g.memory_verdicts_total > 0 &&
+          (() => {
+            const total = g.memory_verdicts_total;
+            const seg = (n: number) => (n / total) * 100;
+            return (
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="t-tertiary text-[10px] uppercase tracking-wider">
+                    {total} verdict{total === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="flex h-3 rounded-full overflow-hidden bg-surface-secondary">
+                  {g.verdicts_reinforced > 0 && (
+                    <div
+                      className="bg-emerald-500"
+                      style={{ width: `${seg(g.verdicts_reinforced)}%` }}
+                      title={`Reinforced: ${g.verdicts_reinforced}`}
+                    />
+                  )}
+                  {g.verdicts_acted_on > 0 && (
+                    <div
+                      className="bg-fuchsia-500"
+                      style={{ width: `${seg(g.verdicts_acted_on)}%` }}
+                      title={`Acted on: ${g.verdicts_acted_on}`}
+                    />
+                  )}
+                  {g.verdicts_caught > 0 && (
+                    <div
+                      className="bg-cyan-500"
+                      style={{ width: `${seg(g.verdicts_caught)}%` }}
+                      title={`Caught: ${g.verdicts_caught}`}
+                    />
+                  )}
+                  {g.verdicts_ignored > 0 && (
+                    <div
+                      className="bg-zinc-600"
+                      style={{ width: `${seg(g.verdicts_ignored)}%` }}
+                      title={`Ignored: ${g.verdicts_ignored}`}
+                    />
+                  )}
+                  {g.verdicts_corrected > 0 && (
+                    <div
+                      className="bg-red-500"
+                      style={{ width: `${seg(g.verdicts_corrected)}%` }}
+                      title={`Corrected: ${g.verdicts_corrected}`}
+                    />
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-3 mt-2 text-[10px] t-tertiary">
+                  <span>
+                    <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500 mr-1" />
+                    reinforced {g.verdicts_reinforced}
+                  </span>
+                  <span>
+                    <span className="inline-block w-2 h-2 rounded-sm bg-fuchsia-500 mr-1" />
+                    acted_on {g.verdicts_acted_on}
+                  </span>
+                  <span>
+                    <span className="inline-block w-2 h-2 rounded-sm bg-cyan-500 mr-1" />
+                    caught {g.verdicts_caught}
+                  </span>
+                  <span>
+                    <span className="inline-block w-2 h-2 rounded-sm bg-zinc-600 mr-1" />
+                    ignored {g.verdicts_ignored}
+                  </span>
+                  <span>
+                    <span className="inline-block w-2 h-2 rounded-sm bg-red-500 mr-1" />
+                    corrected {g.verdicts_corrected}
+                  </span>
+                </div>
               </div>
-              <div className="flex h-3 rounded-full overflow-hidden bg-surface-secondary">
-                {g.verdicts_reinforced > 0 && (
-                  <div
-                    className="bg-emerald-500"
-                    style={{ width: `${seg(g.verdicts_reinforced)}%` }}
-                    title={`Reinforced: ${g.verdicts_reinforced}`}
-                  />
-                )}
-                {g.verdicts_acted_on > 0 && (
-                  <div
-                    className="bg-fuchsia-500"
-                    style={{ width: `${seg(g.verdicts_acted_on)}%` }}
-                    title={`Acted on: ${g.verdicts_acted_on}`}
-                  />
-                )}
-                {g.verdicts_caught > 0 && (
-                  <div
-                    className="bg-cyan-500"
-                    style={{ width: `${seg(g.verdicts_caught)}%` }}
-                    title={`Caught: ${g.verdicts_caught}`}
-                  />
-                )}
-                {g.verdicts_ignored > 0 && (
-                  <div
-                    className="bg-zinc-600"
-                    style={{ width: `${seg(g.verdicts_ignored)}%` }}
-                    title={`Ignored: ${g.verdicts_ignored}`}
-                  />
-                )}
-                {g.verdicts_corrected > 0 && (
-                  <div
-                    className="bg-red-500"
-                    style={{ width: `${seg(g.verdicts_corrected)}%` }}
-                    title={`Corrected: ${g.verdicts_corrected}`}
-                  />
-                )}
-              </div>
-              <div className="flex flex-wrap gap-3 mt-2 text-[10px] t-tertiary">
-                <span>
-                  <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500 mr-1" />
-                  reinforced {g.verdicts_reinforced}
-                </span>
-                <span>
-                  <span className="inline-block w-2 h-2 rounded-sm bg-fuchsia-500 mr-1" />
-                  acted_on {g.verdicts_acted_on}
-                </span>
-                <span>
-                  <span className="inline-block w-2 h-2 rounded-sm bg-cyan-500 mr-1" />
-                  caught {g.verdicts_caught}
-                </span>
-                <span>
-                  <span className="inline-block w-2 h-2 rounded-sm bg-zinc-600 mr-1" />
-                  ignored {g.verdicts_ignored}
-                </span>
-                <span>
-                  <span className="inline-block w-2 h-2 rounded-sm bg-red-500 mr-1" />
-                  corrected {g.verdicts_corrected}
-                </span>
-              </div>
-            </div>
-          );
-        })()}
+            );
+          })()}
 
         {/* Signal volume sub-row */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-border-subtle/50">
@@ -1078,7 +1079,12 @@ function GlobalView({
       {/* ── Session List ── */}
       <div className="el-raised rounded-lg overflow-hidden">
         <div className="px-5 py-3 border-b border-border-subtle flex items-center justify-between">
-          <h3 className="t-secondary text-sm font-medium" title="Click a row to drill into a session">Sessions</h3>
+          <h3
+            className="t-secondary text-sm font-medium"
+            title="Click a row to drill into a session"
+          >
+            Sessions
+          </h3>
           <span className="t-tertiary text-xs">
             {sessionsTotal} session{sessionsTotal !== 1 ? "s" : ""}
           </span>
@@ -1230,6 +1236,7 @@ function GlobalView({
                         <span className="inline-flex items-center gap-1 text-xs text-violet-400 opacity-0 group-hover:opacity-100 transition-opacity font-medium whitespace-nowrap">
                           View{" "}
                           <svg
+                            aria-hidden="true"
                             className="w-3.5 h-3.5"
                             fill="none"
                             viewBox="0 0 24 24"
@@ -1274,7 +1281,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
     queryKey: queryKey(["reasoning-quality-session", sessionId]),
     queryFn: () =>
       fetchJson<SessionQualityResponse>(
-        url(`/api/reasoning-quality/session?session_id=${sessionId}`),
+        url(`/api/reasoning-quality/session?session_id=${sessionId}`)
       ),
     refetchInterval: 5_000,
   });
@@ -1534,7 +1541,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
         <p className="t-tertiary text-xs">
           Want to see individual events and token-level details?{" "}
           <a
-            href={`#/token-trace`}
+            href={"#/token-trace"}
             className="text-violet-400 hover:text-violet-300 transition-colors font-medium"
           >
             Open Token Trace →
@@ -1563,7 +1570,7 @@ export function ReasoningQualityPage() {
   if (view.level === "session") {
     crumbs.push(
       { label: "All Sessions", onClick: goGlobal },
-      { label: `Session ${view.sessionId.slice(0, 12)}` },
+      { label: `Session ${view.sessionId.slice(0, 12)}` }
     );
   }
 

@@ -208,7 +208,7 @@ describe("extractEntities — unsupported", () => {
   it("never throws for any input", () => {
     expect(() => extractEntities("", "test.ts")).not.toThrow();
     expect(() =>
-      extractEntities("random garbage !@#$%", "test.py"),
+      extractEntities("random garbage !@#$%", "test.py")
     ).not.toThrow();
     expect(() => extractEntities("{{{}", "test.go")).not.toThrow();
   });

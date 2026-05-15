@@ -36,7 +36,7 @@ export interface TimelineDbResult {
  * factory pattern in `openFactsDb()` so the dynamic-import dance stays uniform.
  */
 export async function openTimelineDb(
-  projectRoot: string,
+  projectRoot: string
 ): Promise<TimelineDbResult> {
   const unerrDir = join(projectRoot, ".unerr");
   mkdirSync(unerrDir, { recursive: true });
@@ -51,10 +51,12 @@ export async function openTimelineDb(
     ? (cozoModule as { default: { CozoDb: unknown } }).default.CozoDb
     : (cozoModule as { CozoDb: unknown }).CozoDb;
 
-  const db = new (CozoDbConstructor as new (
-    engine: string,
-    path: string,
-  ) => CozoDb)("sqlite", dbPath);
+  const db = new (
+    CozoDbConstructor as new (
+      engine: string,
+      path: string
+    ) => CozoDb
+  )("sqlite", dbPath);
 
   return { db, isNew, dbPath };
 }
@@ -259,7 +261,7 @@ export class CozoTimelineStore {
   private constructor(
     private readonly db: CozoDb,
     public readonly dbPath: string,
-    public readonly isNew: boolean,
+    public readonly isNew: boolean
   ) {}
 
   /**
@@ -291,7 +293,7 @@ export class CozoTimelineStore {
         tool_count, file_count, edit_count, title, outcome
       }
     `,
-      turn as unknown as Record<string, unknown>,
+      turn as unknown as Record<string, unknown>
     );
   }
 
@@ -307,7 +309,7 @@ export class CozoTimelineStore {
       query?: string;
       limit?: number;
       offset?: number;
-    } = {},
+    } = {}
   ): Promise<TurnRow[]> {
     const limit = Math.max(1, Math.min(opts.limit ?? 50, 500));
     const offset = Math.max(0, opts.offset ?? 0);
@@ -336,12 +338,12 @@ export class CozoTimelineStore {
       fromTs?: number;
       toTs?: number;
       query?: string;
-    } = {},
+    } = {}
   ): Promise<number> {
     const { whereClause, params } = buildTurnFilter(opts);
     const result = await this.db.run(
       `?[count(turn_id)] := *turns{turn_id, session_id, started_at, ended_at, opened_by, closed_reason, tool_count, file_count, edit_count, title, outcome}${whereClause}`,
-      params,
+      params
     );
     const row = result.rows[0];
     return row ? Number(row[0] as number) : 0;
@@ -353,7 +355,7 @@ export class CozoTimelineStore {
    * filters in the Timeline page.
    */
   async listSessions(
-    opts: { fromTs?: number; toTs?: number; limit?: number } = {},
+    opts: { fromTs?: number; toTs?: number; limit?: number } = {}
   ): Promise<
     Array<{
       session_id: string;
@@ -382,7 +384,7 @@ export class CozoTimelineStore {
         *turns{turn_id, session_id, started_at, ended_at, edit_count, file_count}${whereClause}
        :order -max(ended_at)
        :limit ${limit}`,
-      params,
+      params
     );
     const rows = result.rows.map((r) => ({
       session_id: r[0] as string,
@@ -412,15 +414,15 @@ export class CozoTimelineStore {
   async setSessionAgent(
     sessionId: string,
     agentName: string,
-    nowMs = Date.now(),
+    nowMs = Date.now()
   ): Promise<void> {
     if (!agentName || agentName.length === 0) return;
     const existing = await this.db.run(
-      `?[first_seen] := *session_agents{session_id, first_seen}, session_id = $sid`,
-      { sid: sessionId },
+      "?[first_seen] := *session_agents{session_id, first_seen}, session_id = $sid",
+      { sid: sessionId }
     );
     const firstSeen =
-      existing.rows.length > 0 ? (existing.rows[0]![0] as number) : nowMs;
+      existing.rows.length > 0 ? (existing.rows[0]?.[0] as number) : nowMs;
     await this.db.run(
       `?[session_id, agent_name, first_seen, last_seen] <-
         [[$sid, $name, $first, $last]]
@@ -432,15 +434,15 @@ export class CozoTimelineStore {
         name: agentName,
         first: firstSeen,
         last: nowMs,
-      },
+      }
     );
   }
 
   /** Lookup the agent name for one session id. Returns null when unknown. */
   async getSessionAgent(sessionId: string): Promise<string | null> {
     const result = await this.db.run(
-      `?[agent_name] := *session_agents{session_id, agent_name}, session_id = $sid`,
-      { sid: sessionId },
+      "?[agent_name] := *session_agents{session_id, agent_name}, session_id = $sid",
+      { sid: sessionId }
     );
     const row = result.rows[0];
     return row ? (row[0] as string) : null;
@@ -452,7 +454,7 @@ export class CozoTimelineStore {
     if (sessionIds.length === 0) return map;
     // Cozo doesn't take an `IN` list directly; pull all and filter client-side.
     const all = await this.db.run(
-      "?[session_id, agent_name] := *session_agents{session_id, agent_name}",
+      "?[session_id, agent_name] := *session_agents{session_id, agent_name}"
     );
     const wanted = new Set(sessionIds);
     for (const r of all.rows) {
@@ -472,7 +474,7 @@ export class CozoTimelineStore {
     const result = await this.db.run(
       `?[agent_name, count(session_id), max(last_seen)] :=
         *session_agents{session_id, agent_name, last_seen}
-       :order -max(last_seen)`,
+       :order -max(last_seen)`
     );
     return result.rows.map((r) => ({
       agent_name: r[0] as string,
@@ -538,7 +540,7 @@ export class CozoTimelineStore {
         type, text, session_id, turn_id, ts, blocker_ref, file_path
       }
     `,
-      marker as unknown as Record<string, unknown>,
+      marker as unknown as Record<string, unknown>
     );
   }
 
@@ -547,14 +549,13 @@ export class CozoTimelineStore {
    * without resolutions.
    */
   async listMarkers(
-    opts: { sessionId?: string; type?: string; limit?: number } = {},
+    opts: { sessionId?: string; type?: string; limit?: number } = {}
   ): Promise<MarkerRow[]> {
     const limit = opts.limit ?? 100;
     const filters: string[] = [];
     if (opts.sessionId) filters.push("session_id = $session_id");
     if (opts.type) filters.push("type = $type");
-    const filterClause =
-      filters.length > 0 ? `, ${filters.join(", ")}` : "";
+    const filterClause = filters.length > 0 ? `, ${filters.join(", ")}` : "";
     const query = `
       ?[marker_id, type, text, session_id, turn_id, ts, blocker_ref, file_path] :=
         *markers{
@@ -576,7 +577,7 @@ export class CozoTimelineStore {
    */
   async recordSessionFiles(
     sessionId: string,
-    files: Iterable<string>,
+    files: Iterable<string>
   ): Promise<void> {
     const list = [...new Set([...files].filter((f) => f.length > 0))];
     if (list.length === 0) return;
@@ -585,15 +586,15 @@ export class CozoTimelineStore {
       await this.db.run(
         `?[session_id, file_path] <- [[$session_id, $file_path]]
          :put session_files { session_id, file_path }`,
-        { session_id: sessionId, file_path: fp },
+        { session_id: sessionId, file_path: fp }
       );
     }
   }
 
   async getSessionFiles(sessionId: string): Promise<string[]> {
     const result = await this.db.run(
-      `?[file_path] := *session_files{session_id: $session_id, file_path}`,
-      { session_id: sessionId },
+      "?[file_path] := *session_files{session_id: $session_id, file_path}",
+      { session_id: sessionId }
     );
     return result.rows.map((r) => r[0] as string);
   }
@@ -606,15 +607,15 @@ export class CozoTimelineStore {
          intent_id
          => title, started_at, last_active_at, file_set, file_set_hash, status, confidence, source
        }`,
-      intent as unknown as Record<string, unknown>,
+      intent as unknown as Record<string, unknown>
     );
   }
 
   async listIntents(
-    opts: { status?: string; limit?: number } = {},
+    opts: { status?: string; limit?: number } = {}
   ): Promise<IntentRow[]> {
     const limit = Math.max(1, Math.min(opts.limit ?? 100, 500));
-    const filter = opts.status ? `, status = $status` : "";
+    const filter = opts.status ? ", status = $status" : "";
     const query = `?[intent_id, title, started_at, last_active_at, file_set, file_set_hash, status, confidence, source] :=
         *intents{intent_id, title, started_at, last_active_at, file_set, file_set_hash, status, confidence, source}${filter}
       :order -last_active_at
@@ -639,14 +640,14 @@ export class CozoTimelineStore {
     await this.db.run(
       `?[intent_id, session_id] <- [[$intent_id, $session_id]]
        :put intent_sessions { intent_id, session_id }`,
-      { intent_id: intentId, session_id: sessionId },
+      { intent_id: intentId, session_id: sessionId }
     );
   }
 
   async listIntentSessions(intentId: string): Promise<string[]> {
     const result = await this.db.run(
-      `?[session_id] := *intent_sessions{intent_id: $intent_id, session_id}`,
-      { intent_id: intentId },
+      "?[session_id] := *intent_sessions{intent_id: $intent_id, session_id}",
+      { intent_id: intentId }
     );
     return result.rows.map((r) => r[0] as string);
   }
@@ -656,8 +657,8 @@ export class CozoTimelineStore {
    */
   async findIntentForSession(sessionId: string): Promise<string | null> {
     const result = await this.db.run(
-      `?[intent_id] := *intent_sessions{intent_id, session_id: $session_id}`,
-      { session_id: sessionId },
+      "?[intent_id] := *intent_sessions{intent_id, session_id: $session_id}",
+      { session_id: sessionId }
     );
     const row = result.rows[0];
     return row ? (row[0] as string) : null;
@@ -672,7 +673,7 @@ export class CozoTimelineStore {
        :put derived_signals {
          signal_id => type, scope, content, confidence, first_seen_at, last_seen_at
        }`,
-      signal as unknown as Record<string, unknown>,
+      signal as unknown as Record<string, unknown>
     );
   }
 
@@ -681,7 +682,7 @@ export class CozoTimelineStore {
       `?[signal_id, type, scope, content, confidence, first_seen_at, last_seen_at] :=
          *derived_signals{signal_id, type, scope, content, confidence, first_seen_at, last_seen_at},
          signal_id = $signal_id`,
-      { signal_id: signalId },
+      { signal_id: signalId }
     );
     const row = result.rows[0];
     if (!row) return null;
@@ -689,7 +690,7 @@ export class CozoTimelineStore {
   }
 
   async listSignals(
-    opts: { type?: string; minConfidence?: number; limit?: number } = {},
+    opts: { type?: string; minConfidence?: number; limit?: number } = {}
   ): Promise<SignalRow[]> {
     const limit = Math.max(1, Math.min(opts.limit ?? 50, 500));
     const filters: string[] = [];
@@ -713,7 +714,7 @@ export class CozoTimelineStore {
     signalId: string,
     ts: number,
     delta: number,
-    source: string,
+    source: string
   ): Promise<void> {
     await this.db.run(
       `?[signal_id, ts, delta, source] <-
@@ -724,13 +725,13 @@ export class CozoTimelineStore {
         ts,
         delta,
         source,
-      },
+      }
     );
   }
 
   async getReinforcementHistory(
     signalId: string,
-    limit = 10,
+    limit = 10
   ): Promise<SignalReinforcementRow[]> {
     const result = await this.db.run(
       `?[signal_id, ts, delta, source] :=
@@ -738,7 +739,7 @@ export class CozoTimelineStore {
         signal_id = $signal_id
       :order -ts
       :limit ${Math.max(1, Math.min(limit, 100))}`,
-      { signal_id: signalId },
+      { signal_id: signalId }
     );
     return result.rows.map((r) => ({
       signal_id: r[0] as string,
@@ -756,19 +757,19 @@ export class CozoTimelineStore {
     const stale = await this.db.run(
       `?[signal_id] := *derived_signals{signal_id, last_seen_at},
         last_seen_at < $cutoff`,
-      { cutoff: cutoffMs },
+      { cutoff: cutoffMs }
     );
     const ids = stale.rows.map((r) => r[0] as string);
     for (const id of ids) {
       await this.db.run(
         `?[signal_id] := *derived_signals{signal_id}, signal_id = $signal_id
          :rm derived_signals { signal_id }`,
-        { signal_id: id },
+        { signal_id: id }
       );
       await this.db.run(
         `?[signal_id, ts] := *signal_reinforcement{signal_id, ts}, signal_id = $signal_id
          :rm signal_reinforcement { signal_id, ts }`,
-        { signal_id: id },
+        { signal_id: id }
       );
     }
     return ids.length;

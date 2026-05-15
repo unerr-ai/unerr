@@ -16,7 +16,7 @@ import type { LedgerEntry } from "../tracking/shadow-ledger.js";
 function createTempLedger(entries: LedgerEntry[]): string {
   const dir = join(
     tmpdir(),
-    `unerr-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(dir, { recursive: true });
   const path = join(dir, "shadow.jsonl");
@@ -26,7 +26,7 @@ function createTempLedger(entries: LedgerEntry[]): string {
 }
 
 function makeLedgerEntry(
-  overrides: Partial<LedgerEntry> & { tool: string },
+  overrides: Partial<LedgerEntry> & { tool: string }
 ): LedgerEntry {
   return {
     id: Math.random().toString(36).slice(2),
@@ -83,7 +83,7 @@ describe("detectCorrections", () => {
 
     expect(result.length).toBeGreaterThanOrEqual(1);
     const correction = result.find(
-      (c) => c.entity_key === "src/auth.ts:validateToken",
+      (c) => c.entity_key === "src/auth.ts:validateToken"
     );
     expect(correction).toBeDefined();
     expect(correction?.error_type).toBe("type_error");
@@ -123,7 +123,7 @@ describe("detectCorrections", () => {
     const path = createTempLedger(entries);
     const result = detectCorrections(path, { min_confidence: 0.4 });
     const correction = result.find(
-      (c) => c.entity_key === "src/payment.ts:process",
+      (c) => c.entity_key === "src/payment.ts:process"
     );
     expect(correction).toBeDefined();
     // Base 0.5 + fix success bonus 0.2 = at least 0.7
@@ -193,7 +193,7 @@ describe("detectCorrections", () => {
           args_summary: { key: "src/db.ts:query" },
           result_summary: { error: "TypeError: connection is undefined" },
           session_id: `session-${session}`,
-        }),
+        })
       );
     }
 
@@ -233,7 +233,7 @@ describe("detectCorrections", () => {
     const path = createTempLedger(entries);
     const result = detectCorrections(path);
     const slowPatterns = result.filter(
-      (c) => c.entity_key === "src/slow.ts:fn",
+      (c) => c.entity_key === "src/slow.ts:fn"
     );
     expect(slowPatterns.length).toBe(0);
   });
@@ -243,7 +243,7 @@ describe("detectCorrections", () => {
     const makeErrorPair = (
       key: string,
       errorMessage: string,
-      offset: number,
+      offset: number
     ) => [
       makeLedgerEntry({
         tool: "get_function",
@@ -271,7 +271,7 @@ describe("detectCorrections", () => {
       ...makeErrorPair(
         "c",
         "Property 'name' does not exist on type 'Foo'",
-        200_000,
+        200_000
       ),
       ...makeErrorPair("d", "Expected 2 arguments but got 1", 300_000),
     ];
@@ -349,7 +349,7 @@ describe("detectCorrections", () => {
         args_summary: { key: "high" },
         result_summary: { error: "TypeError" },
         session_id: "s1",
-      }),
+      })
     );
 
     // Pattern 2: lower confidence (fix failed — another re-query)
@@ -381,7 +381,7 @@ describe("detectCorrections", () => {
         args_summary: { key: "low" },
         result_summary: { error: "TypeError" },
         session_id: "s2",
-      }),
+      })
     );
 
     const path = createTempLedger(entries);
@@ -389,7 +389,7 @@ describe("detectCorrections", () => {
 
     if (result.length >= 2) {
       expect(result[0]?.confidence).toBeGreaterThanOrEqual(
-        result[1]?.confidence as number,
+        result[1]?.confidence as number
       );
     }
   });

@@ -29,7 +29,7 @@ describe("BA-4.1: token-efficient skill", () => {
   it("includes ur|ctx rule", () => {
     expect(TOKEN_EFFICIENT_SKILL.instructions).toContain("ur|ctx");
     expect(TOKEN_EFFICIENT_SKILL.instructions).toContain(
-      "proceed directly to the action",
+      "proceed directly to the action"
     );
   });
 

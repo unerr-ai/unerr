@@ -151,7 +151,7 @@ export function useTimelineFilters(): {
       if (!pageChanged && !onlyDensity) next.page = 1;
       writeHash(next);
     },
-    [filters, writeHash],
+    [filters, writeHash]
   );
 
   const clear = useCallback(() => {
@@ -180,7 +180,10 @@ export function activeFilterChips(filters: TimelineFilters): Array<{
     });
   }
   if (filters.session) {
-    chips.push({ key: "session", label: `Session ${filters.session.slice(0, 8)}` });
+    chips.push({
+      key: "session",
+      label: `Session ${filters.session.slice(0, 8)}`,
+    });
   }
   if (filters.agent) {
     chips.push({ key: "agent", label: `Agent: ${filters.agent}` });
@@ -228,7 +231,7 @@ function formatShort(ts: number): string {
 /** Resolve a quick-preset string to a {from, to} pair (or "all" → clear). */
 export function quickRange(
   preset: "today" | "7d" | "30d" | "all",
-  nowMs = Date.now(),
+  nowMs = Date.now()
 ): { from?: number; to?: number } {
   if (preset === "all") return {};
   const dayMs = 24 * 60 * 60_000;

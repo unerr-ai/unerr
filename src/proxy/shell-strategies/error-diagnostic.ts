@@ -27,7 +27,7 @@ interface ErrorGroup {
 
 function detectErrorFormat(
   command: string | undefined,
-  lines: string[],
+  lines: string[]
 ): ErrorFormat {
   if (command) {
     const cmd = command.toLowerCase();
@@ -73,7 +73,7 @@ function detectErrorFormat(
   // Generic line diagnostics: file:line:col: message (rubocop, stylelint, vale, etc.)
   if (
     /^.+:\d+(?::\d+)?:\s*(?:error|warning|info|note|convention|refactor)\s*:?\s*.+$/m.test(
-      sample,
+      sample
     )
   )
     return "line_diagnostic";
@@ -121,7 +121,7 @@ function compressTscErrors(lines: string[]): string {
     parts.push(group.firstOccurrence);
     if (group.count > 1) {
       parts.push(
-        `  └─ ${group.code}: ${group.count - 1} more in ${group.files.size} file(s)`,
+        `  └─ ${group.code}: ${group.count - 1} more in ${group.files.size} file(s)`
       );
     }
   }
@@ -156,7 +156,7 @@ function compressEslintErrors(lines: string[]): string {
         existing.count++;
       } else {
         ruleGroups.set(rule!, {
-          message: message!.trim(),
+          message: message?.trim() ?? "",
           count: 1,
           firstFile: currentFile,
           firstLine: lineNum!,
@@ -174,12 +174,12 @@ function compressEslintErrors(lines: string[]): string {
   if (summaryLine) parts.push(summaryLine);
 
   const sorted = [...ruleGroups.entries()].sort(
-    (a, b) => b[1].count - a[1].count,
+    (a, b) => b[1].count - a[1].count
   );
   for (const [rule, group] of sorted) {
     if (group.count === 1) {
       parts.push(
-        `  ${group.firstFile}:${group.firstLine}  ${group.message}  ${rule}`,
+        `  ${group.firstFile}:${group.firstLine}  ${group.message}  ${rule}`
       );
     } else {
       parts.push(`  ${rule}: ${group.message} (${group.count} occurrences)`);
@@ -237,7 +237,7 @@ function compressNodeStack(lines: string[]): string {
       currentStack.push(line);
     } else if (
       /^(Error|TypeError|RangeError|ReferenceError|SyntaxError|Caused by):/.test(
-        line,
+        line
       )
     ) {
       currentError = line;
@@ -460,9 +460,9 @@ function compressPythonErrors(lines: string[]): string {
   let diagCount = 0;
 
   for (const line of lines) {
-    let code = "",
-      message = "",
-      filePath = "";
+    let code = "";
+    let message = "";
+    let filePath = "";
 
     const mp = MYPY_RE.exec(line);
     if (mp) {
@@ -512,7 +512,7 @@ function compressPythonErrors(lines: string[]): string {
       parts.push(group.firstOccurrence);
       if (group.count > 1) {
         parts.push(
-          `  └─ ${group.code}: ${group.count - 1} more in ${group.files.size} file(s)`,
+          `  └─ ${group.code}: ${group.count - 1} more in ${group.files.size} file(s)`
         );
       }
     }
@@ -559,7 +559,7 @@ function compressPythonErrors(lines: string[]): string {
   // Dedup identical tracebacks
   const seen = new Map<string, number>();
   for (const tb of tracebacks) {
-    const fingerprint = tb.frames.join("\n") + "\n" + tb.error;
+    const fingerprint = `${tb.frames.join("\n")}\n${tb.error}`;
     const prev = seen.get(fingerprint) ?? 0;
     seen.set(fingerprint, prev + 1);
     if (prev === 0) {
@@ -712,7 +712,7 @@ function compressShellcheck(lines: string[]): string {
   for (const g of sorted) {
     parts.push("");
     parts.push(
-      `${g.code} (${g.severity}): ${g.message}  [×${g.count} in ${g.files.size} file${g.files.size > 1 ? "s" : ""}]`,
+      `${g.code} (${g.severity}): ${g.message}  [×${g.count} in ${g.files.size} file${g.files.size > 1 ? "s" : ""}]`
     );
     // Show first example block indented
     for (const bl of g.firstBlock) {
@@ -749,8 +749,8 @@ function compressLineDiagnostics(lines: string[]): string {
 
     const [, filePath, , , severity, message] = m;
     // Normalize message: strip trailing whitespace and file-specific references
-    const normMsg = message!
-      .trim()
+    const normMsg = message
+      ?.trim()
       .replace(/`[^`]+`/g, "`<id>`")
       .replace(/'\S+'/, "'<id>'");
     const key = `${severity ?? "warning"}:${normMsg}`;
@@ -761,7 +761,7 @@ function compressLineDiagnostics(lines: string[]): string {
       existing.files.add(filePath!);
     } else {
       groups.set(key, {
-        message: message!.trim(),
+        message: message?.trim() ?? "",
         severity: severity ?? "warning",
         count: 1,
         files: new Set([filePath!]),
@@ -783,7 +783,7 @@ function compressLineDiagnostics(lines: string[]): string {
     parts.push(
       g.count > 1
         ? `${g.severity}: ${g.message}  [×${g.count} in ${fileInfo}]`
-        : g.firstLine,
+        : g.firstLine
     );
   }
 
@@ -795,7 +795,7 @@ function compressLineDiagnostics(lines: string[]): string {
   const summaryLines = nonDiagLines.filter(
     (l) =>
       /\d+\s*(error|warning|problem|issue|offense)/i.test(l) ||
-      /^(✖|✗|Found|Total:)/i.test(l),
+      /^(✖|✗|Found|Total:)/i.test(l)
   );
   if (summaryLines.length > 0) {
     parts.push("");

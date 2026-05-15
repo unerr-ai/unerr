@@ -27,7 +27,7 @@ export type GraphRebuildFactory = () => Promise<{
 
 /** Factory for incremental indexing — processes only changed files. */
 export type IncrementalIndexFactory = (
-  changedFiles: string[],
+  changedFiles: string[]
 ) => Promise<IncrementalResult>;
 
 export interface GraphHolderConfig {
@@ -190,7 +190,7 @@ export class GraphHolder {
     } else {
       if (this.incrementalCycleCount >= this.fullReindexEveryNCycles) {
         _log.info(
-          `Periodic full reindex (after ${this.incrementalCycleCount} incremental cycles)`,
+          `Periodic full reindex (after ${this.incrementalCycleCount} incremental cycles)`
         );
         this.incrementalCycleCount = 0;
       }
@@ -201,11 +201,11 @@ export class GraphHolder {
   private runIncremental(
     changedFiles: string[],
     changesAtStart: number,
-    startMs: number,
+    startMs: number
   ): void {
     _log.info(`Incremental indexing ${changedFiles.length} files...`);
 
-    this.incrementalFactory!(changedFiles)
+    this.incrementalFactory?.(changedFiles)
       .then((result) => {
         // Clear tracked files that were processed
         for (const fp of changedFiles) {
@@ -213,7 +213,7 @@ export class GraphHolder {
         }
         this.fileChangesSinceLastRebuild = Math.max(
           0,
-          this.fileChangesSinceLastRebuild - changesAtStart,
+          this.fileChangesSinceLastRebuild - changesAtStart
         );
         this.lastRebuildTimestamp = Date.now();
         this.incrementalCycleCount++;
@@ -221,7 +221,7 @@ export class GraphHolder {
         _log.info(
           `Incremental done in ${Date.now() - startMs}ms — ` +
             `+${result.entitiesAdded}/-${result.entitiesDeleted}/~${result.entitiesUpdated} entities, ` +
-            `+${result.edgesAdded}/-${result.edgesDeleted} edges`,
+            `+${result.edgesAdded}/-${result.edgesDeleted} edges`
         );
 
         // Notify swap callbacks (graph is same instance, but data changed)
@@ -230,14 +230,14 @@ export class GraphHolder {
             cb(this.current);
           } catch (err) {
             _log.warn(
-              `Swap callback failed: ${err instanceof Error ? err.message : String(err)}`,
+              `Swap callback failed: ${err instanceof Error ? err.message : String(err)}`
             );
           }
         }
       })
       .catch((err: unknown) => {
         _log.warn(
-          `Incremental indexing failed: ${err instanceof Error ? err.message : String(err)}. Falling back to full reindex.`,
+          `Incremental indexing failed: ${err instanceof Error ? err.message : String(err)}. Falling back to full reindex.`
         );
         // Fallback to full reindex
         this.runFullRebuild(changesAtStart, startMs);
@@ -254,10 +254,10 @@ export class GraphHolder {
 
   private runFullRebuild(changesAtStart: number, startMs: number): void {
     _log.info(
-      `Full reindex (${changesAtStart} file changes since last rebuild)...`,
+      `Full reindex (${changesAtStart} file changes since last rebuild)...`
     );
 
-    this.rebuildFactory!()
+    this.rebuildFactory?.()
       .then(({ graph: newGraph, result }) => {
         const oldGraph = this.current;
         this.current = newGraph;
@@ -268,7 +268,7 @@ export class GraphHolder {
             cb(newGraph);
           } catch (err) {
             _log.warn(
-              `Swap callback failed: ${err instanceof Error ? err.message : String(err)}`,
+              `Swap callback failed: ${err instanceof Error ? err.message : String(err)}`
             );
           }
         }
@@ -277,12 +277,12 @@ export class GraphHolder {
         this.changedFilePaths.clear();
         this.fileChangesSinceLastRebuild = Math.max(
           0,
-          this.fileChangesSinceLastRebuild - changesAtStart,
+          this.fileChangesSinceLastRebuild - changesAtStart
         );
         this.lastRebuildTimestamp = Date.now();
 
         _log.info(
-          `Graph rebuilt in ${Date.now() - startMs}ms — ${result.entityCount} entities, ${result.edgeCount} edges. Swapped.`,
+          `Graph rebuilt in ${Date.now() - startMs}ms — ${result.entityCount} entities, ${result.edgeCount} edges. Swapped.`
         );
 
         // Close old graph if different instance
@@ -296,7 +296,7 @@ export class GraphHolder {
       })
       .catch((err: unknown) => {
         _log.warn(
-          `Graph rebuild failed: ${err instanceof Error ? err.message : String(err)}`,
+          `Graph rebuild failed: ${err instanceof Error ? err.message : String(err)}`
         );
       })
       .finally(() => {

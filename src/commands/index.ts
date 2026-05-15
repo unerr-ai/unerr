@@ -29,7 +29,7 @@ export function registerIndexCommand(program: Command): void {
   program
     .command("index")
     .description(
-      "Build local code intelligence graph (replaces 'pull' in Local Mode)",
+      "Build local code intelligence graph (replaces 'pull' in Local Mode)"
     )
     .option("--force", "Re-index even if local snapshot is fresh")
     .option("--verbose", "Show per-file indexing progress")
@@ -51,12 +51,12 @@ export function registerIndexCommand(program: Command): void {
           if (!shouldReindex(projectRoot)) {
             if (opts.json) {
               process.stdout.write(
-                JSON.stringify({ status: "fresh", reindexed: false }),
+                JSON.stringify({ status: "fresh", reindexed: false })
               );
               process.stdout.write("\n");
             } else {
               process.stderr.write(
-                "[unerr] Local snapshot is fresh. Use --force to re-index.\n",
+                "[unerr] Local snapshot is fresh. Use --force to re-index.\n"
               );
             }
             process.exit(0);
@@ -90,7 +90,7 @@ export function registerIndexCommand(program: Command): void {
           repoId,
           {
             verbose: opts.verbose,
-          },
+          }
         );
 
         // Output results
@@ -106,7 +106,7 @@ export function registerIndexCommand(program: Command): void {
               patternCount: result.patternCount,
               ruleCount: result.ruleCount,
               elapsedMs: result.elapsedMs,
-            }),
+            })
           );
           process.stdout.write("\n");
         } else {
@@ -115,13 +115,13 @@ export function registerIndexCommand(program: Command): void {
           process.stderr.write(`  Edges:       ${result.edgeCount}\n`);
           process.stderr.write(`  Communities: ${result.communityCount}\n`);
           process.stderr.write(
-            `  Conventions: ${result.patternCount} patterns, ${result.ruleCount} rules\n`,
+            `  Conventions: ${result.patternCount} patterns, ${result.ruleCount} rules\n`
           );
           process.stderr.write(`  Time:        ${result.elapsedMs}ms\n`);
           process.stderr.write(
-            "\n[unerr] Graph persisted to .unerr/graph.db — available instantly on next boot.\n",
+            "\n[unerr] Graph persisted to .unerr/graph.db — available instantly on next boot.\n"
           );
         }
-      },
+      }
     );
 }

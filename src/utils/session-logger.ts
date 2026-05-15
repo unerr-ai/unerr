@@ -92,7 +92,7 @@ export interface SessionLoggerOptions {
  * Returns the consola logger instance. Subsequent calls return the same instance.
  */
 export function initSessionLogger(
-  opts: SessionLoggerOptions = {},
+  opts: SessionLoggerOptions = {}
 ): ConsolaInstance {
   if (_logger) return _logger;
 

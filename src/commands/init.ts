@@ -29,16 +29,16 @@ export function registerInitCommand(program: Command): void {
 
       if (result.detectedTools.length === 0) {
         process.stderr.write(
-          "[unerr] No AI tools detected. Create a .cursor/, .claude/, or .vscode/ directory first.\n",
+          "[unerr] No AI tools detected. Create a .cursor/, .claude/, or .vscode/ directory first.\n"
         );
         process.stderr.write(
-          "[unerr] Or run 'unerr' directly — it will start the MCP proxy on stdio.\n",
+          "[unerr] Or run 'unerr' directly — it will start the MCP proxy on stdio.\n"
         );
         return;
       }
 
       process.stderr.write(
-        `[unerr] Detected: ${result.detectedTools.join(", ")}\n`,
+        `[unerr] Detected: ${result.detectedTools.join(", ")}\n`
       );
 
       for (const h of result.hooksInstalled) {
@@ -76,7 +76,7 @@ export function runInit(cwd: string): InitResult {
       const hookResult = installClaudeHook(cwd);
       if (hookResult.action === "installed") {
         result.hooksInstalled.push(
-          `Installed Claude Code hook at ${hookResult.path}`,
+          `Installed Claude Code hook at ${hookResult.path}`
         );
       } else if (hookResult.action === "already_exists") {
         result.skipped.push("Claude Code hook already installed");
@@ -89,7 +89,7 @@ export function runInit(cwd: string): InitResult {
       result.configsWritten.push(`Created MCP config at ${configResult.path}`);
     } else if (configResult.action === "updated") {
       result.configsWritten.push(
-        `Added unerr to existing config at ${configResult.path}`,
+        `Added unerr to existing config at ${configResult.path}`
       );
     } else {
       result.skipped.push(`MCP config for ${name} already configured`);

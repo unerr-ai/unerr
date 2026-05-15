@@ -101,7 +101,7 @@ describe("Agent-as-LLM Bridge (BA-3.3)", () => {
       const bridge = new AgentLlmBridge();
       const prompt = bridge.createPrompt(
         "doc_generation",
-        "Function processPayment(amount: number, currency: string): Promise<Receipt>",
+        "Function processPayment(amount: number, currency: string): Promise<Receipt>"
       );
 
       expect(prompt.template).toBe("doc_generation");
@@ -148,7 +148,7 @@ describe("Agent-as-LLM Bridge (BA-3.3)", () => {
       const bridge = new AgentLlmBridge();
       const prompt = bridge.createPrompt(
         "loop_diagnosis",
-        "4 failed attempts on processPayment",
+        "4 failed attempts on processPayment"
       );
       const injected = bridge.inject(prompt);
 
@@ -166,7 +166,7 @@ describe("Agent-as-LLM Bridge (BA-3.3)", () => {
 
       const overBudget = bridge.createPrompt(
         "doc_generation",
-        "x".repeat(2000),
+        "x".repeat(2000)
       );
       const result = bridge.inject(overBudget);
 

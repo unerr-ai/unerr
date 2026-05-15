@@ -55,7 +55,7 @@ export interface AttributionContext {
  */
 export function buildCommitMessageWithTrailers(
   baseMessage: string,
-  attribution: AttributionContext,
+  attribution: AttributionContext
 ): string {
   const trailers: string[] = [];
 
@@ -106,7 +106,7 @@ export function buildCommitMessageWithTrailers(
  * The git-ai v3 standard uses a similar approach under refs/notes/ai.
  */
 export function buildGitNotePayload(
-  attribution: AttributionContext,
+  attribution: AttributionContext
 ): GitNotePayload {
   return {
     version: "1.0",
@@ -134,7 +134,7 @@ export async function writeGitNote(
   dir: string,
   _gitdir: string,
   commitSha: string,
-  payload: GitNotePayload,
+  payload: GitNotePayload
 ): Promise<void> {
   const noteContent = JSON.stringify(payload, null, 2);
   await writeNote(dir, "unerr", commitSha, noteContent);
@@ -148,7 +148,7 @@ export async function writeGitNote(
  * Returns null if no manifest exists (non-AI push).
  */
 export function readAttributionFromManifest(
-  cwd: string,
+  cwd: string
 ): AttributionContext | null {
   const manifestPath = join(cwd, ".unerr", "manifest.json");
   if (!existsSync(manifestPath)) return null;
@@ -183,7 +183,6 @@ export function readAttributionFromManifest(
       if (attr.prompt) prompts.push(attr.prompt);
     }
 
-    // biome-ignore lint/style/noNonNullAssertion: length > 0 guaranteed by caller
     const latest = manifest.attributions[manifest.attributions.length - 1]!;
 
     return {

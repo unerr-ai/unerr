@@ -35,7 +35,7 @@ export interface ScipRunOptions {
  * Default timeout is 30s (inline indexing — not background).
  */
 export async function runScipIndexer(
-  options: ScipRunOptions,
+  options: ScipRunOptions
 ): Promise<ScipRunResult> {
   const start = performance.now();
   const {
@@ -72,12 +72,12 @@ export async function runScipIndexer(
       // If the output file was created despite the non-zero exit, treat as success.
       if (existsSync(outputPath)) {
         log.warn(
-          `SCIP indexer exited with code ${result.exitCode} but output file was created — treating as success`,
+          `SCIP indexer exited with code ${result.exitCode} but output file was created — treating as success`
         );
         return { success: true, outputPath, durationMs, error: null };
       }
       log.warn(
-        `SCIP indexer failed (exit ${result.exitCode}): ${result.stderr.slice(0, 500)}`,
+        `SCIP indexer failed (exit ${result.exitCode}): ${result.stderr.slice(0, 500)}`
       );
       return {
         success: false,
@@ -110,7 +110,7 @@ function buildScipArgs(
   language: string,
   binaryPath: string,
   projectRoot: string,
-  outputPath: string,
+  outputPath: string
 ): string[] {
   switch (language) {
     case "typescript":

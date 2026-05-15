@@ -19,7 +19,7 @@ const MAP: Record<OutputCategory, ContentType> = {
 };
 
 export function shellCategoryToContentType(
-  category: OutputCategory,
+  category: OutputCategory
 ): ContentType {
   return MAP[category];
 }

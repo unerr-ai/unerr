@@ -27,7 +27,7 @@ afterEach(() => {
 function makeEntity(
   name: string,
   kind: string,
-  filePath: string,
+  filePath: string
 ): IndexedEntity {
   return {
     key: entityKey(filePath, kind, name, ""),
@@ -65,7 +65,7 @@ describe("Convention Detector (O.6-O.10)", () => {
 
   it("detects naming prefix convention for functions", () => {
     const entities = Array.from({ length: 8 }, (_, i) =>
-      makeEntity(`getUser${i}`, "function", `src/f${i}.ts`),
+      makeEntity(`getUser${i}`, "function", `src/f${i}.ts`)
     );
     const conventions = detectNamingConventions(entities);
     const getPrefix = conventions.find((c) => c.pattern === "get*");

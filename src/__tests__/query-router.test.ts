@@ -40,7 +40,7 @@ function createMockLocalGraph(
     hasRules?: boolean;
     hasJustifications?: boolean;
     driftEntities?: DriftEntity[];
-  } = {},
+  } = {}
 ): CozoGraphStore {
   const {
     hasRules = true,
@@ -148,7 +148,7 @@ function createMockLocalGraph(
             confidence: 0.9,
             entity: null,
           }
-        : null,
+        : null
     ),
     getConventions: vi.fn().mockReturnValue([
       {
@@ -188,7 +188,7 @@ function createMockLocalGraph(
         .length,
       deleted: driftEntities.filter((d) => d.drift_status === "deleted").length,
       dependency_changed: driftEntities.filter(
-        (d) => d.drift_status === "dependency_changed",
+        (d) => d.drift_status === "dependency_changed"
       ).length,
       total: driftEntities.length,
     } as DriftSummary),
@@ -241,7 +241,7 @@ describe("QueryRouter", () => {
       (localGraph.getEntity as ReturnType<typeof vi.fn>).mockImplementation(
         () => {
           throw new Error("Not found");
-        },
+        }
       );
 
       const router = new QueryRouter(localGraph);
@@ -444,7 +444,7 @@ describe("QueryRouter", () => {
       (localGraph.getEntity as ReturnType<typeof vi.fn>).mockImplementation(
         () => {
           throw new Error("CozoDB corrupted");
-        },
+        }
       );
 
       const router = new QueryRouter(localGraph);
@@ -554,7 +554,7 @@ describe("QueryRouter", () => {
       (localGraph.getEntity as ReturnType<typeof vi.fn>).mockImplementation(
         () => {
           throw new Error("CozoDB error");
-        },
+        }
       );
 
       const router = new QueryRouter(localGraph);
@@ -645,7 +645,7 @@ describe("QueryRouter", () => {
             transitive_depth: 2,
             is_chokepoint: true,
             summary: "10 direct callers, 8 direct callees, CHOKEPOINT",
-          },
+          }
         );
         // Also need entity with high fan_in/fan_out
         (localGraph.getEntity as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -855,7 +855,7 @@ describe("QueryRouter", () => {
         const result = await router.execute("get_function", { key: "fn1" });
         expect(result._context?.session_greeting).toContain("C");
         expect(result._context?.session_greeting).toContain(
-          "structural issues",
+          "structural issues"
         );
       });
 
@@ -1033,7 +1033,7 @@ describe("QueryRouter", () => {
             transitive_count: 15,
             is_chokepoint: false,
             summary: "7 callers, 15 transitive dependents",
-          },
+          }
         );
         const router = new QueryRouter(localGraph);
 
@@ -1100,7 +1100,7 @@ describe("QueryRouter", () => {
         expect(result._context?.signals).toBeDefined();
         const violationSignal = findSignal(
           result,
-          "Function should use camelCase",
+          "Function should use camelCase"
         );
         expect(violationSignal).toBeDefined();
         expect(violationSignal?.type).toBe("warning");

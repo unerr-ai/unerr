@@ -159,7 +159,7 @@ export function mergePreToolUseBashHook(cwd: string): MergePreToolResult {
     ] as HookEvent[]) {
       if (Array.isArray(hooks[eventType])) {
         hooks[eventType] = (hooks[eventType] as unknown[]).filter(
-          (entry: unknown) => !isAnyUnerrHook(entry),
+          (entry: unknown) => !isAnyUnerrHook(entry)
         );
       }
     }
@@ -202,7 +202,7 @@ export function mergePreToolUseBashHook(cwd: string): MergePreToolResult {
     writeFileSync(
       settingsPath,
       `${JSON.stringify(settings, null, 2)}\n`,
-      "utf-8",
+      "utf-8"
     );
     return { ok: true, path: settingsPath, action: "merged" };
   } catch {
@@ -282,7 +282,7 @@ export function addDisallowedTools(cwd: string): {
     writeFileSync(
       settingsPath,
       `${JSON.stringify(settings, null, 2)}\n`,
-      "utf-8",
+      "utf-8"
     );
     return { added, path: settingsPath };
   } catch {
@@ -311,20 +311,21 @@ export function removeDisallowedTools(cwd: string): boolean {
 
     const before = (permissions.deny as string[]).length;
     permissions.deny = (permissions.deny as string[]).filter(
-      (tool: string) => !DISALLOWED_TOOLS.includes(tool),
+      (tool: string) => !DISALLOWED_TOOLS.includes(tool)
     );
     const removed = before - (permissions.deny as string[]).length;
 
     if (removed === 0) return false;
 
     // Clean up empty deny array and permissions object
-    if ((permissions.deny as string[]).length === 0) delete permissions.deny;
-    if (Object.keys(permissions).length === 0) delete settings.permissions;
+    if ((permissions.deny as string[]).length === 0)
+      permissions.deny = undefined;
+    if (Object.keys(permissions).length === 0) settings.permissions = undefined;
 
     writeFileSync(
       settingsPath,
       `${JSON.stringify(settings, null, 2)}\n`,
-      "utf-8",
+      "utf-8"
     );
     return true;
   } catch {
@@ -356,7 +357,7 @@ export function removePreToolUseBashHook(cwd: string): boolean {
 
       const before = (hooks[eventType] as unknown[]).length;
       hooks[eventType] = (hooks[eventType] as unknown[]).filter(
-        (entry: unknown) => !isAnyUnerrHook(entry),
+        (entry: unknown) => !isAnyUnerrHook(entry)
       );
 
       const removed = before - (hooks[eventType] as unknown[]).length;
@@ -369,12 +370,12 @@ export function removePreToolUseBashHook(cwd: string): boolean {
     if (totalRemoved === 0) return false;
 
     // Clean up empty hooks object
-    if (Object.keys(hooks).length === 0) delete settings.hooks;
+    if (Object.keys(hooks).length === 0) settings.hooks = undefined;
 
     writeFileSync(
       settingsPath,
       `${JSON.stringify(settings, null, 2)}\n`,
-      "utf-8",
+      "utf-8"
     );
     return true;
   } catch {

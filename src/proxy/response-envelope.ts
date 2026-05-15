@@ -29,7 +29,7 @@ export interface ResponseEnvelope {
 export interface ContextInjector {
   key: string;
   inject: (
-    args: ContextInjectorArgs,
+    args: ContextInjectorArgs
   ) => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
 }
 
@@ -78,7 +78,7 @@ export function createEnvelopePipeline(injectors: ContextInjector[] = []) {
     latencyMs: number,
     toolName = "",
     toolArgs: Record<string, unknown> = {},
-    originalTokens = 0,
+    originalTokens = 0
   ): Promise<ResponseEnvelope> {
     const responseTokens = estimateTokens(content);
     const tokensSaved = Math.max(0, originalTokens - responseTokens);
@@ -151,7 +151,7 @@ const WIRE_STRIP_ALWAYS = new Set([
 ]);
 
 export function wireifyMeta(
-  meta: Record<string, unknown> | undefined,
+  meta: Record<string, unknown> | undefined
 ): Record<string, unknown> | undefined {
   if (!meta) return meta;
   const out: Record<string, unknown> = {};
@@ -256,7 +256,7 @@ import { getSignalDedup } from "./signal-dedup.js";
 export function buildSignalPrefix(
   meta: Record<string, unknown> | undefined,
   context: Record<string, unknown> | undefined,
-  entityKey: string | null = null,
+  entityKey: string | null = null
 ): string {
   const dedup = getSignalDedup();
   const lines: string[] = [];
@@ -300,7 +300,7 @@ export function buildSignalPrefix(
       tryPush(
         "dft",
         entityKey,
-        `${d.entityStatus}${where}${by} — re-read before edit`,
+        `${d.entityStatus}${where}${by} — re-read before edit`
       );
     }
   }
@@ -325,7 +325,7 @@ export function buildSignalPrefix(
       tryPush(
         "rsk",
         refKey,
-        `fan_in=${r.fan_in ?? 0} fan_out=${r.fan_out ?? 0} (high blast radius — get_references first)`,
+        `fan_in=${r.fan_in ?? 0} fan_out=${r.fan_out ?? 0} (high blast radius — get_references first)`
       );
     }
   }
@@ -337,13 +337,13 @@ export function buildSignalPrefix(
       failure_modes?: string[];
     };
     const realFailures = (ch.failure_modes ?? []).filter(
-      (m) => m !== "survived",
+      (m) => m !== "survived"
     );
     if (realFailures.length > 0) {
       tryPush(
         "hst",
         entityKey,
-        `${ch.interactions ?? 0} interactions, prior: ${realFailures.join(",")}`,
+        `${ch.interactions ?? 0} interactions, prior: ${realFailures.join(",")}`
       );
     }
   }
@@ -363,7 +363,7 @@ export function buildSignalPrefix(
       tryPush(
         "hth",
         null,
-        `${(h.health * 100).toFixed(0)}% — ${h.recommendation ?? "start a new session before next task"}`,
+        `${(h.health * 100).toFixed(0)}% — ${h.recommendation ?? "start a new session before next task"}`
       );
     }
   }
@@ -411,13 +411,13 @@ export function buildSignalPrefix(
 export async function wrapResponse(
   content: unknown,
   latencyMs: number,
-  originalTokens = 0,
+  originalTokens = 0
 ): Promise<ResponseEnvelope> {
   return await createEnvelopePipeline().wrapResponse(
     content,
     latencyMs,
     "",
     {},
-    originalTokens,
+    originalTokens
   );
 }

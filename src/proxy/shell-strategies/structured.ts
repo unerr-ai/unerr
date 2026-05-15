@@ -11,7 +11,7 @@ function shouldPruneGeneric(key: string, value: unknown): boolean {
   if (typeof value !== "string") return false;
   if (value.length < 500) return false;
   return /raw|encoded|binary|base64|hash|signature|certificate|token/i.test(
-    key,
+    key
   );
 }
 
@@ -82,9 +82,9 @@ function compressRepeatedValueLines(lines: string[], marker: string): string[] {
   const out: string[] = [];
   let i = 0;
   while (i < lines.length) {
-    if (lines[i]!.includes(marker)) {
+    if (lines[i]?.includes(marker)) {
       const runStart = i;
-      while (i < lines.length && lines[i]!.includes(marker)) i++;
+      while (i < lines.length && lines[i]?.includes(marker)) i++;
       const runLen = i - runStart;
       if (runLen >= 3) {
         out.push(lines[runStart]!);

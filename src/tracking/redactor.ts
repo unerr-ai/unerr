@@ -63,7 +63,7 @@ export function redactString(input: string): string {
  * didn't, which keeps GC pressure low on clean inputs).
  */
 export function redactArgs(
-  args: Record<string, unknown>,
+  args: Record<string, unknown>
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(args)) {

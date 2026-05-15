@@ -18,7 +18,7 @@ let tempDir: string;
 beforeEach(() => {
   tempDir = join(
     tmpdir(),
-    `unerr-tl-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-tl-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(tempDir, { recursive: true });
 });
@@ -136,13 +136,13 @@ describe("CozoTimelineStore", () => {
     const store = await CozoTimelineStore.create(tempDir);
     try {
       await store.upsertTurn(
-        makeTurn({ turn_id: "t1", session_id: "a", started_at: 100 }),
+        makeTurn({ turn_id: "t1", session_id: "a", started_at: 100 })
       );
       await store.upsertTurn(
-        makeTurn({ turn_id: "t2", session_id: "a", started_at: 200 }),
+        makeTurn({ turn_id: "t2", session_id: "a", started_at: 200 })
       );
       await store.upsertTurn(
-        makeTurn({ turn_id: "t3", session_id: "b", started_at: 150 }),
+        makeTurn({ turn_id: "t3", session_id: "b", started_at: 150 })
       );
 
       const inA = await store.listTurns({ sessionId: "a" });
@@ -164,7 +164,7 @@ describe("CozoTimelineStore", () => {
           type: "mark_intent",
           text: "auth",
           ts: 100,
-        }),
+        })
       );
       await store.insertMarker(
         makeMarker({
@@ -172,7 +172,7 @@ describe("CozoTimelineStore", () => {
           type: "mark_blocker",
           text: "type error",
           ts: 200,
-        }),
+        })
       );
       await store.insertMarker(
         makeMarker({
@@ -181,7 +181,7 @@ describe("CozoTimelineStore", () => {
           text: "fixed",
           ts: 300,
           blocker_ref: "m2",
-        }),
+        })
       );
 
       const all = await store.listMarkers();

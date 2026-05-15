@@ -24,7 +24,7 @@ let watcher: NativeWatcher | null = null;
 function makeTempDir(): string {
   const raw = join(
     tmpdir(),
-    `unerr-watcher-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-watcher-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(raw, { recursive: true });
   return realpathSync(raw);
@@ -37,7 +37,7 @@ function makeTempDir(): string {
 function waitForMatch(
   collected: WatchEvent[],
   predicate: (e: WatchEvent) => boolean,
-  timeoutMs = 3000,
+  timeoutMs = 3000
 ): Promise<WatchEvent[]> {
   return new Promise((resolve) => {
     const start = Date.now();
@@ -66,7 +66,7 @@ function delay(ms: number): Promise<void> {
  */
 async function startAndDrain(
   w: NativeWatcher,
-  events: WatchEvent[],
+  events: WatchEvent[]
 ): Promise<void> {
   await w.start();
   await delay(500);
@@ -117,7 +117,7 @@ describe("NativeWatcher", () => {
     writeFileSync(join(tempDir, "new-file.txt"), "hello");
 
     const result = await waitForMatch(events, (e) =>
-      e.path.includes("new-file.txt"),
+      e.path.includes("new-file.txt")
     );
 
     const createEvent = result.find((e) => e.path.includes("new-file.txt"));
@@ -141,7 +141,7 @@ describe("NativeWatcher", () => {
     writeFileSync(filePath, "updated content");
 
     const result = await waitForMatch(events, (e) =>
-      e.path.includes("existing.txt"),
+      e.path.includes("existing.txt")
     );
 
     const updateEvent = result.find((e) => e.path.includes("existing.txt"));
@@ -165,7 +165,7 @@ describe("NativeWatcher", () => {
     unlinkSync(filePath);
 
     const result = await waitForMatch(events, (e) =>
-      e.path.includes("to-delete.txt"),
+      e.path.includes("to-delete.txt")
     );
 
     const deleteEvent = result.find((e) => e.path.includes("to-delete.txt"));
@@ -214,11 +214,11 @@ describe("NativeWatcher", () => {
     writeFileSync(join(tempDir, "tracked.txt"), "should see this");
 
     const result = await waitForMatch(events, (e) =>
-      e.path.includes("tracked.txt"),
+      e.path.includes("tracked.txt")
     );
 
     const gitEvents = result.filter(
-      (e) => e.path.includes("/.git/") || e.path.endsWith("/.git"),
+      (e) => e.path.includes("/.git/") || e.path.endsWith("/.git")
     );
     expect(gitEvents.length).toBe(0);
 
@@ -243,7 +243,7 @@ describe("NativeWatcher", () => {
     writeFileSync(join(tempDir, "src-file.ts"), "export const x = 1;");
 
     const result = await waitForMatch(events, (e) =>
-      e.path.includes("src-file.ts"),
+      e.path.includes("src-file.ts")
     );
 
     const nmEvents = result.filter((e) => e.path.includes("node_modules"));

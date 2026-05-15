@@ -55,7 +55,11 @@ export class SignalShowStore {
   private hydrated = false;
   private closed = false;
 
-  constructor(db: CozoDb, sessionId: string, opts: SignalShowStoreOptions = {}) {
+  constructor(
+    db: CozoDb,
+    sessionId: string,
+    opts: SignalShowStoreOptions = {}
+  ) {
     this.db = db;
     this.sessionId = sessionId;
     this.flushIntervalMs = opts.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
@@ -145,7 +149,7 @@ export class SignalShowStore {
             scope,
             count,
             last,
-          },
+          }
         );
       } catch {
         // Restore to dirty so the next tick retries; don't lose updates.
@@ -178,7 +182,7 @@ export class SignalShowStore {
            session_id != $sess,
            total_count = count,
            last = last_shown_ms`,
-        { sess: this.sessionId },
+        { sess: this.sessionId }
       );
       // Aggregate in TS — Cozo's group-by syntax varies by version; this is
       // simpler and the row count is small (one row per (signal_id, session_id)).

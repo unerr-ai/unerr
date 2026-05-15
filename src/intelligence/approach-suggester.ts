@@ -26,7 +26,7 @@ export function suggestApproach(
   entityName: string,
   riskLevel: string,
   fanIn: number,
-  kind: string,
+  kind: string
 ): ApproachSuggestion | null {
   if (fanIn < FAN_IN_HIGH && riskLevel === "normal") return null;
 
@@ -81,7 +81,7 @@ export function suggestApproachesForFile(
     risk_level?: string;
     fan_in?: number;
     kind: string;
-  }>,
+  }>
 ): ApproachSuggestion[] {
   const suggestions: ApproachSuggestion[] = [];
   for (const entity of entities) {
@@ -90,7 +90,7 @@ export function suggestApproachesForFile(
       entity.name,
       entity.risk_level ?? "normal",
       entity.fan_in ?? 0,
-      entity.kind,
+      entity.kind
     );
     if (suggestion) suggestions.push(suggestion);
   }

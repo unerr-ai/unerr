@@ -73,7 +73,7 @@ describe("MCP Envelope Integration", () => {
             latencyMs,
             request.params.name,
             args,
-            originalTokens,
+            originalTokens
           );
 
           const entityKey = String(args.key ?? "");
@@ -84,7 +84,7 @@ describe("MCP Envelope Integration", () => {
 
           tokenCounter.record(
             envelope._meta["dev.unerr/tokens_saved"],
-            estimateTokens(rawContent),
+            estimateTokens(rawContent)
           );
 
           const responseText = JSON.stringify(
@@ -94,7 +94,7 @@ describe("MCP Envelope Integration", () => {
               ...(Object.keys(context).length > 0 ? { _context: context } : {}),
             },
             null,
-            2,
+            2
           );
 
           return {
@@ -119,7 +119,7 @@ describe("MCP Envelope Integration", () => {
     expect(parsed._context).toBeDefined();
     expect(parsed._context["dev.unerr/test_context"]).toBeDefined();
     expect(parsed._context["dev.unerr/test_context"].entity).toBe(
-      "src/auth.ts::login",
+      "src/auth.ts::login"
     );
 
     expect(tokenCounter.getCallCount()).toBe(1);
@@ -129,12 +129,12 @@ describe("MCP Envelope Integration", () => {
       key: "src/auth.ts::login",
     });
     const parsed2 = JSON.parse(
-      (result2.content as Array<{ text: string }>)[0]!.text,
+      (result2.content as Array<{ text: string }>)[0]!.text
     );
 
     expect(parsed2._context).toBeUndefined();
     expect(
-      dedup.hasDelivered("src/auth.ts::login", "dev.unerr/test_context"),
+      dedup.hasDelivered("src/auth.ts::login", "dev.unerr/test_context")
     ).toBe(true);
 
     await harness.close();

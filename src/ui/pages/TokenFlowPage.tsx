@@ -231,7 +231,7 @@ function describeEvent(evt: TokenFlowEvent): string {
   if (d.command) {
     const cmd = String(d.command);
     // Shorten long commands: keep first 80 chars
-    return cmd.length > 80 ? cmd.slice(0, 77) + "…" : cmd;
+    return cmd.length > 80 ? `${cmd.slice(0, 77)}…` : cmd;
   }
 
   // File read optimization — show the window/entity info
@@ -265,9 +265,9 @@ function describeTurn(events: TokenFlowEvent[]): {
   // Shell compression turns — show the actual command
   const shellEvt = events.find((e) => e.detail?.command);
   if (shellEvt) {
-    const cmd = String(shellEvt.detail!.command);
+    const cmd = String(shellEvt.detail?.command);
     // Extract the meaningful part of the command
-    const short = cmd.length > 60 ? cmd.slice(0, 57) + "…" : cmd;
+    const short = cmd.length > 60 ? `${cmd.slice(0, 57)}…` : cmd;
     return {
       label: short,
       subtitle: `shell → ${events.length} optimization${events.length > 1 ? "s" : ""}`,
@@ -277,7 +277,7 @@ function describeTurn(events: TokenFlowEvent[]): {
   // File read with entity/window info
   const fileEvt = events.find((e) => e.detail?.optimization);
   if (fileEvt) {
-    const opt = String(fileEvt.detail!.optimization);
+    const opt = String(fileEvt.detail?.optimization);
     const extra = events.length > 1 ? ` +${events.length - 1} more` : "";
     return { label: opt, subtitle: tools.join(", ") + extra };
   }
@@ -324,7 +324,7 @@ function MechanismBars({
   totalSaved,
 }: { mechanisms: Record<string, MechanismSummary>; totalSaved: number }) {
   const entries = Object.entries(mechanisms).sort(
-    ([, a], [, b]) => b.tokens_saved - a.tokens_saved,
+    ([, a], [, b]) => b.tokens_saved - a.tokens_saved
   );
   if (entries.length === 0)
     return <p className="t-secondary text-sm py-3">No mechanism data.</p>;
@@ -386,7 +386,7 @@ function Breadcrumb({
       {items.map((item, i) => {
         const isLast = i === items.length - 1;
         return (
-          <span key={i} className="flex items-center gap-1.5">
+          <span key={item.label} className="flex items-center gap-1.5">
             {i > 0 && <span className="t-tertiary">›</span>}
             {isLast ? (
               <span className="text-foreground font-medium">{item.label}</span>
@@ -520,8 +520,8 @@ function GlobalView({
     queryFn: () =>
       fetchJson<SessionListResponse>(
         url(
-          `/api/token-flow/sessions?limit=${sessionLimit}&offset=${sessionOffset}${dateParams}`,
-        ),
+          `/api/token-flow/sessions?limit=${sessionLimit}&offset=${sessionOffset}${dateParams}`
+        )
       ),
     refetchInterval: 5_000,
   });
@@ -598,7 +598,7 @@ function GlobalView({
                     (e.detail ?? "").toString().replace(/"/g, '""'),
                   ]
                     .map((v) => `"${v}"`)
-                    .join(","),
+                    .join(",")
                 );
                 const csv = [headers.join(","), ...rows].join("\n");
                 const blob = new Blob([csv], { type: "text/csv" });
@@ -612,6 +612,7 @@ function GlobalView({
           }}
         >
           <svg
+            aria-hidden="true"
             className="w-3.5 h-3.5"
             fill="none"
             viewBox="0 0 24 24"
@@ -855,6 +856,7 @@ function GlobalView({
                         <span className="inline-flex items-center gap-1 text-xs text-violet-400 opacity-0 group-hover:opacity-100 transition-opacity font-medium whitespace-nowrap">
                           View{" "}
                           <svg
+                            aria-hidden="true"
                             className="w-3.5 h-3.5"
                             fill="none"
                             viewBox="0 0 24 24"
@@ -909,8 +911,8 @@ function SessionView({
     queryFn: () =>
       fetchJson<SessionSummaryResponse>(
         url(
-          `/api/token-flow/session${sessionId ? `?session_id=${sessionId}` : ""}`,
-        ),
+          `/api/token-flow/session${sessionId ? `?session_id=${sessionId}` : ""}`
+        )
       ),
     refetchInterval: 5_000,
   });
@@ -919,7 +921,7 @@ function SessionView({
     queryKey: queryKey(["token-flow-cumulative", sessionId]),
     queryFn: () =>
       fetchJson<CumulativeResponse>(
-        url(`/api/token-flow/cumulative?session_id=${sessionId}`),
+        url(`/api/token-flow/cumulative?session_id=${sessionId}`)
       ),
     refetchInterval: 5_000,
   });
@@ -928,7 +930,7 @@ function SessionView({
     queryKey: queryKey(["token-flow-events", sessionId]),
     queryFn: () =>
       fetchJson<EventsResponse>(
-        url(`/api/token-flow/events?session_id=${sessionId}`),
+        url(`/api/token-flow/events?session_id=${sessionId}`)
       ),
     refetchInterval: 5_000,
   });
@@ -959,7 +961,7 @@ function SessionView({
   const allSortedTurns = [...turnGroups.entries()].sort(([a], [b]) => b - a);
   const sortedTurns = allSortedTurns.slice(
     turnPage * turnsPerPage,
-    (turnPage + 1) * turnsPerPage,
+    (turnPage + 1) * turnsPerPage
   );
 
   // Max saved per turn for bar scaling
@@ -1094,7 +1096,7 @@ function SessionView({
                       ?.cumulative_tokens_saved || 1;
                   const heightPct = (turn.cumulative_tokens_saved / max) * 100;
                   const mechs = Object.entries(turn.mechanisms_this_turn).sort(
-                    ([, a], [, b]) => b - a,
+                    ([, a], [, b]) => b - a
                   );
                   const primary = mechs[0]?.[0] ?? "graph_query";
                   const colors = mc(primary);
@@ -1149,7 +1151,7 @@ function SessionView({
               {/* Legend */}
               <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-border-subtle/50">
                 {ALL_MECHANISMS.filter((m) =>
-                  cumulative.some((d) => m in d.mechanisms_this_turn),
+                  cumulative.some((d) => m in d.mechanisms_this_turn)
                 ).map((m) => (
                   <div key={m} className="flex items-center gap-1.5">
                     <div className={`h-2.5 w-2.5 rounded-sm ${mc(m).bar}`} />
@@ -1245,7 +1247,7 @@ function SessionView({
                 {sortedTurns.map(([turn, turnEvents]) => {
                   const totalSaved = turnEvents.reduce(
                     (s, e) => s + e.tokens_saved,
-                    0,
+                    0
                   );
                   const mechs = [
                     ...new Set(turnEvents.map((e) => e.mechanism)),
@@ -1289,7 +1291,7 @@ function SessionView({
                               mechSavings.set(
                                 e.mechanism,
                                 (mechSavings.get(e.mechanism) ?? 0) +
-                                  e.tokens_saved,
+                                  e.tokens_saved
                               );
                             }
                             let offset = 0;
@@ -1362,6 +1364,7 @@ function SessionView({
                         <span className="inline-flex items-center gap-1 text-xs text-violet-400 opacity-0 group-hover:opacity-100 transition-opacity font-medium whitespace-nowrap">
                           View{" "}
                           <svg
+                            aria-hidden="true"
                             className="w-3.5 h-3.5"
                             fill="none"
                             viewBox="0 0 24 24"
@@ -1412,7 +1415,7 @@ function TurnView({
     queryKey: queryKey(["token-flow-events", sessionId, turn]),
     queryFn: () =>
       fetchJson<EventsResponse>(
-        url(`/api/token-flow/events?session_id=${sessionId}&turn=${turn}`),
+        url(`/api/token-flow/events?session_id=${sessionId}&turn=${turn}`)
       ),
   });
 
@@ -1420,11 +1423,11 @@ function TurnView({
     queryKey: queryKey(["token-flow-cumulative", sessionId]),
     queryFn: () =>
       fetchJson<CumulativeResponse>(
-        url(`/api/token-flow/cumulative?session_id=${sessionId}`),
+        url(`/api/token-flow/cumulative?session_id=${sessionId}`)
       ),
   });
   const thisTurnCumulative = cumulativeQ.data?.data?.find(
-    (t) => t.turn === turn,
+    (t) => t.turn === turn
   );
   const totalTurns = cumulativeQ.data?.total_turns ?? 0;
   const remainingTurns =
@@ -1639,7 +1642,7 @@ function TurnView({
                   const evtPct =
                     evt.tokens_without > 0
                       ? Math.round(
-                          (evt.tokens_saved / evt.tokens_without) * 100,
+                          (evt.tokens_saved / evt.tokens_without) * 100
                         )
                       : 0;
                   return (
@@ -1747,7 +1750,7 @@ export function TokenFlowPage() {
         label: `Session ${view.sessionId.slice(0, 12)}`,
         onClick:
           view.level === "turn" ? () => goSession(view.sessionId) : undefined,
-      },
+      }
     );
   }
 

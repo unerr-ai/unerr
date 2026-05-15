@@ -26,8 +26,8 @@ function renderStatus(data: StatusData) {
     React.createElement(
       ThemeProvider,
       null,
-      React.createElement(StatusDashboard, { data }),
-    ),
+      React.createElement(StatusDashboard, { data })
+    )
   );
 }
 

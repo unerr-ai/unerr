@@ -61,7 +61,7 @@ describe("Auto-Rule Generation (U.6)", () => {
         description: "d",
         occurrences: 3,
         confidence: 0.9,
-      }),
+      })
     ).toBe(true);
     expect(
       shouldPromote({
@@ -70,7 +70,7 @@ describe("Auto-Rule Generation (U.6)", () => {
         description: "d",
         occurrences: 2,
         confidence: 0.9,
-      }),
+      })
     ).toBe(false);
   });
 });
@@ -156,7 +156,7 @@ describe("Context Rot Detector (U.14-U.15)", () => {
     }
     const signal = detector.evaluate();
     expect(signal.signals.some((s) => s.type === "repeated_exploration")).toBe(
-      true,
+      true
     );
   });
 

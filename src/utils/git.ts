@@ -98,7 +98,7 @@ export async function getRemoteUrl(cwd: string): Promise<string | null> {
 export async function getChangedFiles(
   cwd: string,
   fromRef: string,
-  toRef: string,
+  toRef: string
 ): Promise<string[]> {
   try {
     const git = getGit(cwd);
@@ -118,7 +118,7 @@ export async function getChangedFiles(
 export async function checkoutFile(
   cwd: string,
   ref: string,
-  filePath: string,
+  filePath: string
 ): Promise<void> {
   const git = getGit(cwd);
   await git.checkout([ref, "--", filePath]);
@@ -149,7 +149,7 @@ export async function getStagedFiles(cwd: string): Promise<string[]> {
  */
 export async function getLog(
   cwd: string,
-  maxCount = 5,
+  maxCount = 5
 ): Promise<
   Array<{ hash: string; date: string; message: string; author_name: string }>
 > {
@@ -187,7 +187,7 @@ export async function writeNote(
   cwd: string,
   ref: string,
   commitSha: string,
-  content: string,
+  content: string
 ): Promise<void> {
   const git = getGit(cwd);
   await git.raw(["notes", "--ref", ref, "add", "-f", "-m", content, commitSha]);
@@ -199,7 +199,7 @@ export async function writeNote(
 export async function readNote(
   cwd: string,
   ref: string,
-  commitSha: string,
+  commitSha: string
 ): Promise<string | null> {
   try {
     const git = getGit(cwd);

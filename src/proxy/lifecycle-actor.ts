@@ -24,7 +24,7 @@ export interface LifecycleActor {
   getSnapshot: () => { value: ProxyStateValue; context: ProxyContext };
   waitForState: (state: ProxyStateValue, timeoutMs?: number) => Promise<void>;
   subscribe: (
-    callback: (state: ProxyStateValue, context: ProxyContext) => void,
+    callback: (state: ProxyStateValue, context: ProxyContext) => void
   ) => Subscription;
   stop: () => void;
 }
@@ -55,7 +55,7 @@ export function createLifecycleActor(repoPath: string): LifecycleActor {
 
   const waitForState = async (
     state: ProxyStateValue,
-    timeoutMs = 30_000,
+    timeoutMs = 30_000
   ): Promise<void> => {
     const snap = actor.getSnapshot();
     if (snap.value === state) return;
@@ -64,12 +64,12 @@ export function createLifecycleActor(repoPath: string): LifecycleActor {
     await waitFor(
       actor,
       (snapshot) => snapshot.value === state || snapshot.status === "done",
-      { timeout: timeoutMs },
+      { timeout: timeoutMs }
     );
   };
 
   const subscribe = (
-    callback: (state: ProxyStateValue, context: ProxyContext) => void,
+    callback: (state: ProxyStateValue, context: ProxyContext) => void
   ): Subscription => {
     return actor.subscribe((snapshot) => {
       callback(snapshot.value as ProxyStateValue, snapshot.context);

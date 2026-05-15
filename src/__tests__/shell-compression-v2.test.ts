@@ -113,7 +113,7 @@ describe("R1 — success short-circuit (log_text, error_diagnostic)", () => {
   it("collapses lint output when no issues found", () => {
     const out = compressErrorDiagnostic(
       "Checked 47 files. All checks passed.",
-      "eslint",
+      "eslint"
     );
     expect(out).toContain("eslint ok");
   });
@@ -121,7 +121,7 @@ describe("R1 — success short-circuit (log_text, error_diagnostic)", () => {
   it("does NOT short-circuit lint output with errors", () => {
     const out = compressErrorDiagnostic(
       "src/foo.ts:10:5 error: Cannot find name 'bar'",
-      "tsc",
+      "tsc"
     );
     expect(out).not.toContain("ok");
   });
@@ -148,7 +148,7 @@ describe("R3 — user filter DSL", () => {
   it("returns null when no filter matches", () => {
     writeFileSync(
       join(tmpRoot, ".unerr", "filters.toml"),
-      `[filters.something]\nmatch_command = "^never-runs"\nmax_lines = 5\n`,
+      `[filters.something]\nmatch_command = "^never-runs"\nmax_lines = 5\n`
     );
     expect(applyUserFilter("my-tool run", "hello", tmpRoot)).toBeNull();
   });
@@ -156,12 +156,12 @@ describe("R3 — user filter DSL", () => {
   it("applies strip_lines_matching", () => {
     writeFileSync(
       join(tmpRoot, ".unerr", "filters.toml"),
-      `[filters.mytool]\nmatch_command = "^mytool"\nstrip_lines_matching = ["^DEBUG"]\n`,
+      `[filters.mytool]\nmatch_command = "^mytool"\nstrip_lines_matching = ["^DEBUG"]\n`
     );
     const r = applyUserFilter(
       "mytool run",
       "INFO: ok\nDEBUG: chatter\nDONE",
-      tmpRoot,
+      tmpRoot
     );
     expect(r).not.toBeNull();
     expect(r?.text).not.toContain("DEBUG");
@@ -171,7 +171,7 @@ describe("R3 — user filter DSL", () => {
   it("short-circuits on match_output", () => {
     writeFileSync(
       join(tmpRoot, ".unerr", "filters.toml"),
-      `[filters.green]\nmatch_command = "^anything"\nmatch_output = [{ pattern = "all green", message = "ok" }]\n`,
+      `[filters.green]\nmatch_command = "^anything"\nmatch_output = [{ pattern = "all green", message = "ok" }]\n`
     );
     const r = applyUserFilter("anything", "all green here", tmpRoot);
     expect(r?.text).toBe("_shell_fmt:user_filter\nok");
@@ -180,7 +180,7 @@ describe("R3 — user filter DSL", () => {
   it("applies replace substitutions", () => {
     writeFileSync(
       join(tmpRoot, ".unerr", "filters.toml"),
-      `[filters.scrub]\nmatch_command = "^scrub"\nreplace = [{ pattern = "secret", replacement = "***" }]\n`,
+      `[filters.scrub]\nmatch_command = "^scrub"\nreplace = [{ pattern = "secret", replacement = "***" }]\n`
     );
     const r = applyUserFilter("scrub run", "the secret thing", tmpRoot);
     expect(r?.text).toContain("***");
@@ -190,7 +190,7 @@ describe("R3 — user filter DSL", () => {
   it("respects tail_lines window", () => {
     writeFileSync(
       join(tmpRoot, ".unerr", "filters.toml"),
-      `[filters.tail]\nmatch_command = "^tail"\ntail_lines = 3\n`,
+      `[filters.tail]\nmatch_command = "^tail"\ntail_lines = 3\n`
     );
     const lines = Array.from({ length: 20 }, (_, i) => `line_${i}`).join("\n");
     const r = applyUserFilter("tail run", lines, tmpRoot);
@@ -280,7 +280,7 @@ describe("R4 — cloud parsers", () => {
 
   it("returns null when JSON parse fails", () => {
     expect(
-      tryCompressCloud("not json", "aws ec2 describe-instances"),
+      tryCompressCloud("not json", "aws ec2 describe-instances")
     ).toBeNull();
   });
 });
@@ -306,7 +306,7 @@ describe("R9 — file path extraction for graph boost", () => {
     const lines: string[] = [];
     for (let i = 0; i < 200; i++) lines.push(`src/file_${i}.ts`);
     expect(
-      extractFilePathCandidates(lines.join("\n")).length,
+      extractFilePathCandidates(lines.join("\n")).length
     ).toBeLessThanOrEqual(64);
   });
 });
@@ -409,7 +409,7 @@ describe("F1 — graph boost diagnostic logging + cache", () => {
     _clearShellBoostCache();
     // Random cwd guaranteed to not have a snapshot
     const result = await tryLoadGraphForShellBoost(
-      `/tmp/nonexistent-${Date.now()}`,
+      `/tmp/nonexistent-${Date.now()}`
     );
     expect(result).toBeNull();
   });

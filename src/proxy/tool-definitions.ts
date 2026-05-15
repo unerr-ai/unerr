@@ -507,7 +507,8 @@ export const TOOL_DEFINITIONS = [
       properties: {
         text: {
           type: "string",
-          description: "One short sentence describing the decision (≤140 chars).",
+          description:
+            "One short sentence describing the decision (≤140 chars).",
         },
         alternatives: {
           type: "array",
@@ -533,7 +534,8 @@ export const TOOL_DEFINITIONS = [
       properties: {
         text: {
           type: "string",
-          description: "One short sentence describing the blocker (≤140 chars).",
+          description:
+            "One short sentence describing the blocker (≤140 chars).",
         },
         file_path: {
           type: "string",
@@ -561,7 +563,8 @@ export const TOOL_DEFINITIONS = [
         },
         text: {
           type: "string",
-          description: "One short sentence describing the resolution (≤140 chars).",
+          description:
+            "One short sentence describing the resolution (≤140 chars).",
         },
       },
       required: ["blocker_ref", "text"],

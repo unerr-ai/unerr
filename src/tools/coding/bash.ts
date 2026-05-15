@@ -31,7 +31,7 @@ export const bashTool: Tool = {
 
   async execute(
     args: Record<string, unknown>,
-    ctx: ToolContext,
+    ctx: ToolContext
   ): Promise<ToolOutput> {
     const command = args.command as string;
     const timeout = Math.min((args.timeout as number) ?? 120_000, 600_000);

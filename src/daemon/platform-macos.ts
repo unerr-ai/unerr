@@ -2,8 +2,13 @@
  * macOS auto-start — launchd plist for unerrd.
  *
  * Generates and installs ~/Library/LaunchAgents/com.unerr.daemon.plist.
- * KeepAlive on crash, RunAtLoad=true, user-scoped (no sudo).
+ * KeepAlive on crash (with throttle), RunAtLoad=true, user-scoped (no sudo).
  * Loaded via `launchctl bootstrap gui/<uid>`.
+ *
+ * Critical design: launchd runs with a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin).
+ * nvm/fnm/pnpm-managed node binaries are NOT on that PATH. The plist therefore
+ * uses absolute paths to both node and the CLI entry point, resolved at install time
+ * via `process.execPath` and the dist entry point. This bypasses shell shims entirely.
  */
 
 import { execSync } from "node:child_process";
@@ -11,11 +16,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const PLIST_NAME = "com.unerr.daemon.plist";
 
@@ -31,16 +37,67 @@ function logPath(): string {
   return join(homedir(), ".unerr", "logs", "unerrd.boot.log");
 }
 
-function resolveUnerrBin(): string {
+/**
+ * Resolve the absolute path to the node binary.
+ * Uses process.execPath (always absolute) and follows symlinks.
+ */
+function resolveNodeBin(): string {
   try {
-    return execSync("which unerr", { encoding: "utf-8" }).trim();
+    return realpathSync(process.execPath);
   } catch {
-    return join(process.argv[1] || "unerr");
+    return process.execPath;
   }
 }
 
-function generatePlist(bin: string): string {
+/**
+ * Resolve the absolute path to the unerr CLI entry point (dist/cli.js).
+ * Tries: process.argv[1] → shim parsing → dirname-based fallback.
+ */
+function resolveCliEntry(): string {
+  if (process.argv[1]) {
+    const resolved = resolve(process.argv[1]);
+    if (existsSync(resolved)) return resolved;
+  }
+
+  // Fallback: parse the pnpm/npm shim to extract the JS entry
+  try {
+    const shimPath = execSync("which unerr", { encoding: "utf-8" }).trim();
+    if (shimPath && existsSync(shimPath)) {
+      const shimContent = readFileSync(shimPath, "utf-8");
+      // pnpm shims: exec node  "$basedir/../../path/to/dist/cli.js" "$@"
+      // Also match: exec "$basedir/node"  "$basedir/../../path/to/dist/cli.js" "$@"
+      const jsMatch = /"\$basedir\/((?:\.\.\/)*[^"]+\.js)"/m.exec(shimContent);
+      if (jsMatch?.[1]) {
+        const basedir = dirname(shimPath);
+        const abs = resolve(basedir, jsMatch[1]);
+        if (existsSync(abs)) return abs;
+      }
+    }
+  } catch {
+    // which failed or shim unreadable — non-fatal
+  }
+
+  // Last resort: assume cli.js is next to the current entry
+  const fallbackBase = process.argv[1]
+    ? dirname(resolve(process.argv[1]))
+    : process.cwd();
+  return join(fallbackBase, "cli.js");
+}
+
+/** Escape special XML characters in plist string values. */
+function xmlEscape(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function generatePlist(nodeBin: string, cliEntry: string): string {
   const log = logPath();
+  const nodeBinDir = dirname(nodeBin);
+  // All interpolated values must be XML-escaped — paths may contain & or other special chars
+  const e = xmlEscape;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -49,11 +106,17 @@ function generatePlist(bin: string): string {
   <string>com.unerr.daemon</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${bin}</string>
+    <string>${e(nodeBin)}</string>
+    <string>${e(cliEntry)}</string>
     <string>daemon</string>
     <string>start</string>
     <string>--foreground</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${e(nodeBinDir)}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -61,10 +124,12 @@ function generatePlist(bin: string): string {
     <key>SuccessfulExit</key>
     <false/>
   </dict>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
   <key>StandardOutPath</key>
-  <string>${log}</string>
+  <string>${e(log)}</string>
   <key>StandardErrorPath</key>
-  <string>${log}</string>
+  <string>${e(log)}</string>
   <key>ProcessType</key>
   <string>Background</string>
   <key>LowPriorityBackgroundIO</key>
@@ -82,14 +147,15 @@ export interface PlatformInstallResult {
 export function installLaunchd(): PlatformInstallResult {
   const dir = plistDir();
   const path = plistPath();
-  const bin = resolveUnerrBin();
+  const nodeBin = resolveNodeBin();
+  const cliEntry = resolveCliEntry();
 
   try {
     mkdirSync(dir, { recursive: true });
     const logDir = join(homedir(), ".unerr", "logs");
     mkdirSync(logDir, { recursive: true });
 
-    const plist = generatePlist(bin);
+    const plist = generatePlist(nodeBin, cliEntry);
     writeFileSync(path, plist, "utf-8");
 
     const uid =
@@ -101,7 +167,7 @@ export function installLaunchd(): PlatformInstallResult {
         `launchctl bootout gui/${uid}/${PLIST_NAME.replace(".plist", "")}`,
         {
           stdio: "ignore",
-        },
+        }
       );
     } catch {
       // Not loaded — fine
@@ -131,7 +197,7 @@ export function uninstallLaunchd(): PlatformInstallResult {
         `launchctl bootout gui/${uid}/${PLIST_NAME.replace(".plist", "")}`,
         {
           stdio: "ignore",
-        },
+        }
       );
     } catch {
       // Not loaded

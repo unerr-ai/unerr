@@ -71,7 +71,7 @@ export function createIntentTokenTracker(options?: IntentTokenTrackerOptions): {
     intentId: string,
     tokens: number,
     saved: number,
-    entity?: string,
+    entity?: string
   ) => void;
   getGroup: (intentId: string) => IntentGroup | null;
   getAllGroups: () => IntentGroup[];
@@ -113,7 +113,7 @@ export function createIntentTokenTracker(options?: IntentTokenTrackerOptions): {
     intentId: string,
     tokens: number,
     saved: number,
-    entity?: string,
+    entity?: string
   ): void {
     let state = intents.get(intentId);
     if (!state) {
@@ -150,7 +150,7 @@ export function createIntentTokenTracker(options?: IntentTokenTrackerOptions): {
 
   function markOutcome(
     intentId: string,
-    outcome: IntentGroup["outcome"],
+    outcome: IntentGroup["outcome"]
   ): void {
     const state = intents.get(intentId);
     if (!state) return;
@@ -223,7 +223,7 @@ export function createIntentTokenTracker(options?: IntentTokenTrackerOptions): {
           intent_id: state.intentId,
         });
         log.info(
-          `Intent ${state.intentId} marked abandoned (inactive ${Math.round((now - state.lastActivity) / 60_000)}min)`,
+          `Intent ${state.intentId} marked abandoned (inactive ${Math.round((now - state.lastActivity) / 60_000)}min)`
         );
       }
     }

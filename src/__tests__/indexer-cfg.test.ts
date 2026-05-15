@@ -49,7 +49,7 @@ async function findCallNodes(source: string): Promise<SyntaxNode[]> {
 
 async function findFunctionBody(
   source: string,
-  fnName: string,
+  fnName: string
 ): Promise<SyntaxNode | null> {
   const tree = await parseSource(source, "tree-sitter-typescript.wasm");
 
@@ -189,7 +189,7 @@ describe("State Mutation Detection (J.5)", () => {
           this.count = this.count + 1;
         }
       }`,
-      "increment",
+      "increment"
     );
     expect(body).not.toBeNull();
 
@@ -204,7 +204,7 @@ describe("State Mutation Detection (J.5)", () => {
       `function update(config: any) {
         config.value = 42;
       }`,
-      "update",
+      "update"
     );
     expect(body).not.toBeNull();
 

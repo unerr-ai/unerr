@@ -91,7 +91,7 @@ export const clineAdapter: HookAdapter = {
       // Cline doesn't support input rewriting directly — allow with context
       return JSON.stringify({
         allow: true,
-        context: `Suggested rewrite: use unerr exec for this command.`,
+        context: "Suggested rewrite: use unerr exec for this command.",
       });
     }
 

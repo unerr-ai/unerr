@@ -62,11 +62,11 @@ function rowFor(file: string): SessionDriftRow | null {
   if (!flags) return null;
   const id = file
     .split("/")
-    .pop()!
-    .replace(/^nudge-/, "")
+    .pop()
+    ?.replace(/^nudge-/, "")
     .replace(/\.flags$/, "");
   return {
-    session_id: id,
+    session_id: id ?? "",
     tier0_emitted: Boolean(flags.tier0_emitted),
     tier1_kinds: Array.isArray(flags.tier1_emitted_kinds)
       ? flags.tier1_emitted_kinds

@@ -16,7 +16,7 @@ describe("token-flow-api", () => {
   beforeEach(() => {
     tmpDir = join(
       os.tmpdir(),
-      `unerr-tfa-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      `unerr-tfa-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     );
     unerrDir = join(tmpDir, ".unerr");
     mkdirSync(unerrDir, { recursive: true });

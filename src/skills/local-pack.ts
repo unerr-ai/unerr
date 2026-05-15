@@ -403,7 +403,7 @@ export function getSkillsContext(): Record<string, unknown> {
       instructions: s.instructions,
     })),
     "dev.unerr/available_skills": LOCAL_SKILLS.filter(
-      (s) => s.trigger.type !== "always",
+      (s) => s.trigger.type !== "always"
     ).map((s) => ({
       id: s.id,
       name: s.name,

@@ -29,7 +29,7 @@ export function registerRewindCommand(program: Command): void {
 async function handleOfflineRewind(
   entryId: string,
   unerrDir: string,
-  dryRun: boolean,
+  dryRun: boolean
 ): Promise<void> {
   // Lazy-load CozoDB modules (heavy, only when needed)
   const { offlineRewind } = await import("../tracking/offline-rewind.js");
@@ -43,7 +43,7 @@ async function handleOfflineRewind(
     const { CozoDb } = (await import("cozo-node")) as unknown as {
       CozoDb: new (
         engine: string,
-        path: string,
+        path: string
       ) => import("../intelligence/cozo-schema.js").CozoDb;
     };
     const { CozoGraphStore } = await import("../intelligence/local-graph.js");
@@ -59,7 +59,7 @@ async function handleOfflineRewind(
   console.log(
     dryRun
       ? "Dry Run — computing blast radius locally..."
-      : "Rewind — using local graph...",
+      : "Rewind — using local graph..."
   );
 
   const result = await offlineRewind({
@@ -81,7 +81,7 @@ async function handleOfflineRewind(
     console.log(`  Safe files: ${result.blastRadius.safeFiles.length}`);
     console.log(`  Conflicted: ${result.blastRadius.conflictedFiles.length}`);
     console.log(
-      `  Affected entities: ${result.blastRadius.affectedEntities.length}`,
+      `  Affected entities: ${result.blastRadius.affectedEntities.length}`
     );
     console.log(`  Affected callers: ${result.blastRadius.affectedCallers}`);
     console.log(`  Resolved in: ${result.blastRadius.resolvedInMs}ms`);
@@ -99,7 +99,7 @@ async function handleOfflineRewind(
     ) {
       console.log("\n  High-risk entities:");
       for (const e of result.blastRadius.affectedEntities.filter(
-        (e) => e.riskLevel === "high",
+        (e) => e.riskLevel === "high"
       )) {
         console.log(`    - ${e.name} (${e.filePath})`);
       }
@@ -114,7 +114,7 @@ async function handleOfflineRewind(
   console.log(`  Files restored: ${result.filesRestored.length}`);
   console.log(`  Rewind entry: ${result.rewindEntryId}`);
   console.log(
-    `  Blast radius resolved in: ${result.blastRadius.resolvedInMs}ms`,
+    `  Blast radius resolved in: ${result.blastRadius.resolvedInMs}ms`
   );
 
   if (result.filesRestored.length > 0) {
@@ -131,17 +131,17 @@ async function handleOfflineRewind(
         "../tracking/timeline-fork.js"
       );
       const abandonedEntities = result.blastRadius.affectedEntities.map(
-        (e: { name: string; filePath: string }) => e.name ?? e.filePath,
+        (e: { name: string; filePath: string }) => e.name ?? e.filePath
       );
       const fork = createTimelineFork(
         result.rewindEntryId,
         abandonedEntities,
         [], // prompts not available at CLI level
         `Rewind to ${entryId}`,
-        unerrDir,
+        unerrDir
       );
       console.log(
-        `\n  Timeline fork: timeline ${fork.abandonedBranch.timelineId} → ${fork.newBranch.timelineId} (abandoned ${abandonedEntities.length} entities)`,
+        `\n  Timeline fork: timeline ${fork.abandonedBranch.timelineId} → ${fork.newBranch.timelineId} (abandoned ${abandonedEntities.length} entities)`
       );
     } catch {
       // Timeline fork is non-critical — don't block rewind output

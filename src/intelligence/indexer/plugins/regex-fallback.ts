@@ -24,7 +24,7 @@ const CLASS_PATTERN =
 function extractWithRegex(
   source: string,
   filePath: string,
-  language: string,
+  language: string
 ): ExtractionResult {
   const entities: IndexedEntity[] = [];
   const edges: IndexedEdge[] = [];
@@ -33,7 +33,8 @@ function extractWithRegex(
   let match: RegExpExecArray | null;
 
   FUNCTION_PATTERN.lastIndex = 0;
-  while ((match = FUNCTION_PATTERN.exec(source)) !== null) {
+  match = FUNCTION_PATTERN.exec(source);
+  while (match !== null) {
     const name = match[1]!;
     const lineNum = source.slice(0, match.index).split("\n").length;
 
@@ -53,10 +54,12 @@ function extractWithRegex(
       parameter_count: 0,
       doc: null,
     });
+    match = FUNCTION_PATTERN.exec(source);
   }
 
   CLASS_PATTERN.lastIndex = 0;
-  while ((match = CLASS_PATTERN.exec(source)) !== null) {
+  match = CLASS_PATTERN.exec(source);
+  while (match !== null) {
     const name = match[1]!;
     const lineNum = source.slice(0, match.index).split("\n").length;
 
@@ -76,6 +79,7 @@ function extractWithRegex(
       parameter_count: 0,
       doc: null,
     });
+    match = CLASS_PATTERN.exec(source);
   }
 
   return { entities, edges };
@@ -101,7 +105,7 @@ export const regexFallbackPlugin: LanguagePlugin = {
  */
 export function regexExtract(
   source: string,
-  filePath: string,
+  filePath: string
 ): ExtractionResult {
   const ext = filePath.slice(filePath.lastIndexOf(".") + 1);
   return extractWithRegex(source, filePath, ext);

@@ -88,7 +88,7 @@ export class LedgerCircuitBreaker {
       // Check if last N attempts all had violations within the window
       const now = Date.now();
       const recentAttempts = attempts.filter(
-        (a) => now - a.timestamp < WINDOW_MS,
+        (a) => now - a.timestamp < WINDOW_MS
       );
 
       if (recentAttempts.length < CONSECUTIVE_THRESHOLD) continue;
@@ -100,7 +100,7 @@ export class LedgerCircuitBreaker {
       if (allHadViolations) {
         this.haltedEntities.add(entity);
         _log.warn(
-          `Circuit breaker tripped for entity: ${entity} (${lastN.length} consecutive failures)`,
+          `Circuit breaker tripped for entity: ${entity} (${lastN.length} consecutive failures)`
         );
         return {
           triggered: true,

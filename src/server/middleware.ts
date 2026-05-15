@@ -34,7 +34,7 @@ export const corsMiddleware = createMiddleware(
     }
 
     await next();
-  },
+  }
 );
 
 /**
@@ -52,7 +52,7 @@ export const cacheMiddleware = createMiddleware(
     } else if (path.startsWith("/api/")) {
       c.header("Cache-Control", "no-cache, no-store, must-revalidate");
     }
-  },
+  }
 );
 
 /**
@@ -70,9 +70,9 @@ export const timingMiddleware = createMiddleware(
 
     const ms = (performance.now() - start).toFixed(1);
     process.stderr.write(
-      `[dashboard] ${c.req.method} ${c.req.path} → ${c.res.status} (${ms}ms)\n`,
+      `[dashboard] ${c.req.method} ${c.req.path} → ${c.res.status} (${ms}ms)\n`
     );
-  },
+  }
 );
 
 /**
@@ -90,8 +90,8 @@ export const errorMiddleware = createMiddleware(
           data: null,
           _meta: { source: "local", latency_ms: 0, error: message },
         },
-        500,
+        500
       );
     }
-  },
+  }
 );

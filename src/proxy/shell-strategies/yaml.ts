@@ -25,7 +25,7 @@ const VALUE_MAX = 200;
 function detectIndentUnit(lines: string[]): number {
   for (const line of lines) {
     const m = /^( +)\S/.exec(line);
-    if (m) return m[1]!.length;
+    if (m) return m[1]?.length ?? 0;
   }
   return 2;
 }
@@ -33,7 +33,7 @@ function detectIndentUnit(lines: string[]): number {
 /** Get the indentation level (in spaces) of a line. */
 function indentOf(line: string): number {
   const m = /^( *)/.exec(line);
-  return m ? m[1]!.length : 0;
+  return m ? (m[1]?.length ?? 0) : 0;
 }
 
 /**
@@ -114,14 +114,14 @@ export function compressYaml(raw: string, command?: string): string {
           let preview = 0;
           let k = i + 1;
           while (k < j && preview < 3) {
-            if (lines[k]!.trim()) {
+            if (lines[k]?.trim()) {
               kept.push(lines[k]!);
               preview++;
             }
             k++;
           }
           kept.push(
-            `${" ".repeat(childIndent)}# ... ${childCount - 3} more lines`,
+            `${" ".repeat(childIndent)}# ... ${childCount - 3} more lines`
           );
           i = j;
           continue;
@@ -131,7 +131,7 @@ export function compressYaml(raw: string, command?: string): string {
       // Truncate long scalar values
       if (value && value.length > VALUE_MAX) {
         kept.push(
-          `${indent}${key}: ${value.slice(0, 100)}...(${value.length} chars)`,
+          `${indent}${key}: ${value.slice(0, 100)}...(${value.length} chars)`
         );
         i++;
         continue;
@@ -177,7 +177,7 @@ export function compressYaml(raw: string, command?: string): string {
           for (let k = item.start; k < item.end; k++) kept.push(lines[k]!);
         }
         kept.push(
-          `${" ".repeat(arrayIndent)}# ... ${arrayItems.length - 4} more items`,
+          `${" ".repeat(arrayIndent)}# ... ${arrayItems.length - 4} more items`
         );
         const lastItem = arrayItems[arrayItems.length - 1]!;
         for (let k = lastItem.start; k < lastItem.end; k++)

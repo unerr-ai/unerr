@@ -43,7 +43,7 @@ export interface HttpTransportHandle {
  * Returns a handle for shutdown.
  */
 export async function startHttpTransport(
-  opts: HttpTransportOptions,
+  opts: HttpTransportOptions
 ): Promise<HttpTransportHandle> {
   const { port, apiKey, mcpServer, log = () => {} } = opts;
 
@@ -63,7 +63,7 @@ export async function startHttpTransport(
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     res.setHeader(
       "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, Mcp-Session-Id",
+      "Content-Type, Authorization, Mcp-Session-Id"
     );
     res.setHeader("Access-Control-Expose-Headers", "Mcp-Session-Id");
 
@@ -81,7 +81,7 @@ export async function startHttpTransport(
           status: "ok",
           transport: "streamable-http",
           pid: process.pid,
-        }),
+        })
       );
       return;
     }
@@ -111,7 +111,7 @@ export async function startHttpTransport(
       JSON.stringify({
         error: "Not found",
         endpoints: ["/mcp", "/health"],
-      }),
+      })
     );
   });
 

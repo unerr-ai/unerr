@@ -28,7 +28,7 @@
 export interface CozoDb {
   run(
     query: string,
-    params?: Record<string, unknown>,
+    params?: Record<string, unknown>
   ): Promise<{ rows: unknown[][] }>;
   close?(): void;
   exportRelations?(relations: string[]): Promise<unknown>;
@@ -51,7 +51,7 @@ async function createIfMissing(
   db: CozoDb,
   existing: Set<string>,
   name: string,
-  schema: string,
+  schema: string
 ): Promise<void> {
   if (existing.has(name)) return;
   await db.run(schema);
@@ -65,7 +65,7 @@ async function dropIfStale(
   db: CozoDb,
   existing: Set<string>,
   name: string,
-  requiredColumns: string[],
+  requiredColumns: string[]
 ): Promise<void> {
   if (!existing.has(name)) return;
   try {
@@ -108,7 +108,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       community: Int default -1,
       is_test: Bool default false
     }
-  `,
+  `
   );
 
   // Edge relation (v2: includes CFG control flow fields)
@@ -133,7 +133,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       mutation_target: String default "",
       mutation_mode: String default ""
     }
-  `,
+  `
   );
 
   // File index for fast file-based lookups
@@ -146,7 +146,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       file_path: String,
       entity_key: String
     }
-  `,
+  `
   );
 
   // Search tokens (inverted index)
@@ -159,7 +159,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       token: String,
       entity_key: String
     }
-  `,
+  `
   );
 
   // Token document frequency + pre-computed IDF weights (Sprint 6.6)
@@ -175,7 +175,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       doc_count: Int default 0,
       idf: Float default 0.0
     }
-  `,
+  `
   );
 
   // Rules (Phase 10b, Sprint 9 extensions: status, target_kinds, ast_grep_fix, health)
@@ -204,7 +204,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       evaluations: Int default 0,
       overrides: Int default 0
     }
-  `,
+  `
   );
 
   // Patterns (Phase 10b)
@@ -223,7 +223,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       exemplar_keys: String default "",
       promoted_rule_key: String default ""
     }
-  `,
+  `
   );
 
   // Drift overlay (Phase 10) — entities modified locally, tracked for drift detection.
@@ -251,7 +251,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       previous_body: String default "",
       previous_signature: String default ""
     }
-  `,
+  `
   );
 
   // Drift edges (Sprint 6.4) — locally-detected edges (imports, function calls).
@@ -268,7 +268,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       drift_status: String default "added",
       modified_at: String default ""
     }
-  `,
+  `
   );
 
   // Justifications (Phase 10 MV-03) — entity purpose/taxonomy from snapshot.
@@ -286,7 +286,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       feature_area: String default "",
       confidence: Float default 0.0
     }
-  `,
+  `
   );
 
   // Spatial positions (Phase 14) — 3D coordinates for local-first visualization.
@@ -303,7 +303,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       y: Float default 0.0,
       z: Float default 0.0
     }
-  `,
+  `
   );
 
   // Rule exceptions (Sprint 9.6) — time-bound exception ledger for rule violations.
@@ -325,7 +325,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       status: String default "active",
       jira_ticket: String default ""
     }
-  `,
+  `
   );
 
   // ── Sprint 11: Phase 22 Blueprint Deep Dive Relations ──────────────
@@ -350,7 +350,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       org_id: String default "",
       updated_at: String default ""
     }
-  `,
+  `
   );
 
   // Blueprint slices — vertical implementation slices with boundary rules.
@@ -378,7 +378,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       user_flows: String default "",
       ui_design: String default ""
     }
-  `,
+  `
   );
 
   // Blueprint tasks — implementation tasks within sprints.
@@ -404,7 +404,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       completed_files: String default "[]",
       checkpoint: String default "{}"
     }
-  `,
+  `
   );
 
   // Blueprint design system — denormalized design tokens for fast retrieval.
@@ -419,7 +419,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       tokens: String default "{}",
       updated_at: String default ""
     }
-  `,
+  `
   );
 
   // ── Leapfrog Sprint A: Community Detection Relations ──────────────
@@ -437,7 +437,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       size: Int default 0,
       cohesion: Float default 0.0
     }
-  `,
+  `
   );
 
   // ── Leapfrog Sprint B: Correction Intelligence Relation ───────────
@@ -457,7 +457,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       occurrences: Int default 0,
       last_seen: String default ""
     }
-  `,
+  `
   );
 
   // ── Sprint L3: Entity Embeddings for Local Semantic Search ───────
@@ -476,7 +476,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       dimensions: Int default 0,
       computed_at: String default ""
     }
-  `,
+  `
   );
 
   // ── Multi-Level Graph: L1 Materialized Relations ────────────────
@@ -495,7 +495,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       weight: Int default 0,
       updated_at: Float default 0.0
     }
-  `,
+  `
   );
 
   // Weighted class-to-class edges (L1). Aggregated from L0 method/function edges.
@@ -512,7 +512,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
       weight: Int default 0,
       updated_at: Float default 0.0
     }
-  `,
+  `
   );
 
   // Materialized file-level communities from cascaded Louvain detection.
@@ -529,6 +529,6 @@ export async function initSchema(db: CozoDb): Promise<void> {
       cohesion: Float default 0.0,
       updated_at: Float default 0.0
     }
-  `,
+  `
   );
 }

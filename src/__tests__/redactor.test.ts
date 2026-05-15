@@ -9,9 +9,9 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { gunzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { archiveShadowLedger } from "../tracking/ledger-archiver.js";
 import { redactArgs, redactString } from "../tracking/redactor.js";
@@ -19,20 +19,20 @@ import { ShadowLedger } from "../tracking/shadow-ledger.js";
 
 describe("redactString", () => {
   it("redacts Anthropic-style sk-... keys", () => {
-    expect(
-      redactString("API key: sk-abc123def456ghi789jklmno"),
-    ).toBe("API key: <redacted>");
+    expect(redactString("API key: sk-abc123def456ghi789jklmno")).toBe(
+      "API key: <redacted>"
+    );
   });
 
   it("redacts GitHub PATs", () => {
     expect(redactString("ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).toBe(
-      "<redacted>",
+      "<redacted>"
     );
   });
 
   it("redacts Bearer headers", () => {
     expect(redactString("Authorization: Bearer abc.def.ghi=")).toContain(
-      "<redacted>",
+      "<redacted>"
     );
   });
 
@@ -43,7 +43,7 @@ describe("redactString", () => {
 
   it("does not touch unrelated text", () => {
     expect(redactString("just some normal log line")).toBe(
-      "just some normal log line",
+      "just some normal log line"
     );
   });
 });
@@ -56,9 +56,7 @@ describe("redactArgs", () => {
       list: ["plain", "Bearer abcdefghijklmno12345"],
     });
     expect(out.file_path).toBe("src/auth.ts");
-    expect((out.env as Record<string, unknown>).TOKEN).toBe(
-      "<redacted>",
-    );
+    expect((out.env as Record<string, unknown>).TOKEN).toBe("<redacted>");
     expect((out.list as string[])[1]).toContain("<redacted>");
   });
 });
@@ -70,7 +68,7 @@ describe("ShadowLedger redacts on record", () => {
   beforeEach(() => {
     tempDir = join(
       tmpdir(),
-      `unerr-redact-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      `unerr-redact-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
     );
     unerrDir = join(tempDir, ".unerr");
     mkdirSync(unerrDir, { recursive: true });
@@ -91,11 +89,11 @@ describe("ShadowLedger redacts on record", () => {
       { command: "curl -H 'Authorization: Bearer abcdef0123456789'" },
       {},
       "main",
-      "x",
+      "x"
     );
     const line = readFileSync(
       join(unerrDir, "ledger", "shadow.jsonl"),
-      "utf-8",
+      "utf-8"
     ).trim();
     expect(line).toContain("<redacted>");
     expect(line).not.toContain("abcdef0123456789");
@@ -109,7 +107,7 @@ describe("archiveShadowLedger", () => {
   beforeEach(() => {
     tempDir = join(
       tmpdir(),
-      `unerr-arch-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      `unerr-arch-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
     );
     unerrDir = join(tempDir, ".unerr");
     mkdirSync(join(unerrDir, "ledger"), { recursive: true });
@@ -144,7 +142,9 @@ describe("archiveShadowLedger", () => {
     expect(result.archivePath).not.toBeNull();
     expect(existsSync(result.archivePath!)).toBe(true);
 
-    const decoded = gunzipSync(readFileSync(result.archivePath!)).toString("utf-8");
+    const decoded = gunzipSync(readFileSync(result.archivePath!)).toString(
+      "utf-8"
+    );
     expect(decoded).toContain('"id":"1"');
 
     const remaining = readFileSync(filePath, "utf-8").trim();

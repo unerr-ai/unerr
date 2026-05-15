@@ -34,7 +34,7 @@ export interface SessionResumeContext {
  */
 export function generateSessionResume(
   entries: LedgerEntryLike[],
-  maxEntries = 50,
+  maxEntries = 50
 ): SessionResumeContext | null {
   if (entries.length === 0) return null;
 
@@ -84,7 +84,7 @@ export function generateSessionResume(
   }
 
   const incompleteEntities = [...modifiedEntities].filter(
-    (e) => !committedEntities.has(e) && e !== "",
+    (e) => !committedEntities.has(e) && e !== ""
   );
 
   const firstTs = sessionEntries[0]?.ts;
@@ -98,19 +98,19 @@ export function generateSessionResume(
 
   const parts: string[] = [];
   parts.push(
-    `Last session: ${sessionEntries.length} tool calls over ${formatDuration(sessionDurationMs)}`,
+    `Last session: ${sessionEntries.length} tool calls over ${formatDuration(sessionDurationMs)}`
   );
 
   if (filesModified.size > 0) {
     const fileList = [...filesModified].slice(0, 5);
     parts.push(
-      `Modified ${filesModified.size} file(s): ${fileList.join(", ")}${filesModified.size > 5 ? ` (+${filesModified.size - 5} more)` : ""}`,
+      `Modified ${filesModified.size} file(s): ${fileList.join(", ")}${filesModified.size > 5 ? ` (+${filesModified.size - 5} more)` : ""}`
     );
   }
 
   if (incompleteEntities.length > 0) {
     parts.push(
-      `Uncommitted changes in: ${incompleteEntities.slice(0, 3).join(", ")}`,
+      `Uncommitted changes in: ${incompleteEntities.slice(0, 3).join(", ")}`
     );
   }
 

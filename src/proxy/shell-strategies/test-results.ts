@@ -33,7 +33,7 @@ interface ParsedTestOutput {
 
 function detectTestFramework(
   command: string | undefined,
-  lines: string[],
+  lines: string[]
 ): TestFramework {
   if (command) {
     const cmd = command.toLowerCase();
@@ -218,7 +218,7 @@ function parsePytest(lines: string[]): ParsedTestOutput {
   for (const line of lines) {
     // Final summary: "= N passed, M failed in Xs ="
     const summaryMatch = line.match(
-      /^=+\s*(\d+)\s+passed(?:,\s+(\d+)\s+failed)?(?:,\s+(\d+)\s+skipped)?\s+in\s+(.+?)\s*=+$/,
+      /^=+\s*(\d+)\s+passed(?:,\s+(\d+)\s+failed)?(?:,\s+(\d+)\s+skipped)?\s+in\s+(.+?)\s*=+$/
     );
     if (summaryMatch) {
       passed = Number.parseInt(summaryMatch[1]!, 10);
@@ -252,7 +252,6 @@ function parsePytest(lines: string[]): ParsedTestOutput {
     // FAILED summary line
     if (/^FAILED\s/.test(line)) {
       summaryLines.push(line.trim());
-      continue;
     }
   }
   if (currentFail) failures.push(currentFail);
@@ -282,7 +281,7 @@ function parseCargoTest(lines: string[]): ParsedTestOutput {
   for (const line of lines) {
     // Summary: "test result: ok. N passed; M failed; K ignored; ... finished in Xs"
     const summaryMatch = line.match(
-      /^test result: \w+\. (\d+) passed; (\d+) failed; (\d+) ignored;.+?finished in (.+)$/,
+      /^test result: \w+\. (\d+) passed; (\d+) failed; (\d+) ignored;.+?finished in (.+)$/
     );
     if (summaryMatch) {
       passed = Number.parseInt(summaryMatch[1]!, 10);
@@ -406,7 +405,7 @@ function parseRspec(lines: string[]): ParsedTestOutput {
   for (const line of lines) {
     // Summary: "15 examples, 2 failures, 1 pending"
     const summaryMatch = line.match(
-      /^(\d+) examples?, (\d+) failures?(?:,\s+(\d+) pending)?/,
+      /^(\d+) examples?, (\d+) failures?(?:,\s+(\d+) pending)?/
     );
     if (summaryMatch) {
       const total = Number.parseInt(summaryMatch[1]!, 10);
@@ -437,7 +436,6 @@ function parseRspec(lines: string[]): ParsedTestOutput {
       } else {
         currentFail.lines.push(line);
       }
-      continue;
     }
   }
   if (currentFail) failures.push(currentFail);
@@ -784,7 +782,7 @@ function compressFallback(lines: string[]): string {
 export function compressTestResults(
   text: string,
   command?: string,
-  exitCode?: number,
+  exitCode?: number
 ): string {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const framework = detectTestFramework(command, lines);

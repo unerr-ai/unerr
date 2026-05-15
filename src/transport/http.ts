@@ -59,7 +59,7 @@ function resolveUiDistDir(): string | null {
 }
 
 export function createHttpTransport(
-  options: HttpTransportOptions = {},
+  options: HttpTransportOptions = {}
 ): HttpTransport {
   const port = options.port ?? 3141;
   const hostname = options.hostname ?? "127.0.0.1";
@@ -71,7 +71,7 @@ export function createHttpTransport(
       status: "ok",
       version: "0.1.0",
       uptime_ms: Date.now() - startedAt,
-    }),
+    })
   );
 
   app.get("/ui", (c) => c.redirect("/ui/"));
@@ -81,7 +81,7 @@ export function createHttpTransport(
     if (!uiDir) {
       return c.json(
         { error: "UI not built. Run: pnpm --filter @unerr/ui build" },
-        404,
+        404
       );
     }
 
@@ -125,8 +125,8 @@ export function createHttpTransport(
         error: "not_found",
         message: `${c.req.method} ${c.req.path} not found`,
       },
-      404,
-    ),
+      404
+    )
   );
 
   const start = (): ServerType => {

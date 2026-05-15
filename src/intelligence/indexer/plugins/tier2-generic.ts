@@ -228,7 +228,7 @@ function extractName(node: SyntaxNode, mapping: NodeMapping): string | null {
   }
   if (mapping.nameChildType) {
     const child = node.namedChildren.find(
-      (c) => c.type === mapping.nameChildType,
+      (c) => c.type === mapping.nameChildType
     );
     if (child) return child.text;
   }
@@ -248,12 +248,12 @@ function genericExtract(
   tree: Tree,
   filePath: string,
   source: string,
-  config: Tier2Config,
+  config: Tier2Config
 ): ExtractionResult {
   const entities: IndexedEntity[] = [];
   const edges: IndexedEdge[] = [];
   const mappingLookup = new Map(
-    config.entityMappings.map((m) => [m.nodeType, m]),
+    config.entityMappings.map((m) => [m.nodeType, m])
   );
 
   function visit(node: SyntaxNode, parentKey: string | null): void {
@@ -265,7 +265,7 @@ function genericExtract(
           filePath,
           mapping.entityKind,
           name,
-          parentKey ?? "",
+          parentKey ?? ""
         );
 
         entities.push({
@@ -314,7 +314,7 @@ function genericExtract(
 function genericImports(
   tree: Tree,
   filePath: string,
-  config: Tier2Config,
+  config: Tier2Config
 ): ImportInfo[] {
   if (!config.importNodeType) return [];
 
@@ -328,7 +328,7 @@ function genericImports(
             (c) =>
               c.type === "string" ||
               c.type === "string_literal" ||
-              c.type === "system_lib_string",
+              c.type === "system_lib_string"
           );
 
       if (sourceNode) {

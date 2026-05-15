@@ -42,21 +42,17 @@ export function registerDaemonCommand(program: Command): void {
   daemon
     .command("initialize")
     .description(
-      "One-time daemon setup: register at boot (launchd/systemd/schtasks) and start unerrd",
+      "One-time daemon setup: register at boot (launchd/systemd/schtasks) and start unerrd"
     )
     .action(async () => {
       const { installForCurrentPlatform } = await import(
         "../daemon/autostart.js"
       );
-      const { existsSync, mkdirSync, writeFileSync } = await import(
-        "node:fs"
-      );
+      const { existsSync, mkdirSync, writeFileSync } = await import("node:fs");
       const { homedir } = await import("node:os");
       const { join } = await import("node:path");
 
-      write(
-        "\x1b[38;2;139;92;246m▸\x1b[0m Initializing unerr daemon...\n",
-      );
+      write("\x1b[38;2;139;92;246m▸\x1b[0m Initializing unerr daemon...\n");
 
       // 1. Register at boot
       const result = await installForCurrentPlatform();
@@ -66,11 +62,11 @@ export function registerDaemonCommand(program: Command): void {
         mkdirSync(dir, { recursive: true });
         writeFileSync(sentinel, new Date().toISOString(), "utf-8");
         write(
-          `\x1b[38;2;52;211;153m✓\x1b[0m Registered at boot: ${result.path}\n`,
+          `\x1b[38;2;52;211;153m✓\x1b[0m Registered at boot: ${result.path}\n`
         );
       } else if (result.error) {
         write(
-          `\x1b[38;2;251;191;36m⚠\x1b[0m Boot registration failed: ${result.error}\n`,
+          `\x1b[38;2;251;191;36m⚠\x1b[0m Boot registration failed: ${result.error}\n`
         );
         write("  You can still use `unerr daemon start` to start manually.\n");
       }
@@ -87,14 +83,16 @@ export function registerDaemonCommand(program: Command): void {
         try {
           const { readFileSync: readPid } = await import("node:fs");
           pidStr = readPid(pidPath, "utf-8").trim();
-        } catch { /* fall through */ }
+        } catch {
+          /* fall through */
+        }
         write(
-          `\x1b[38;2;52;211;153m✓\x1b[0m unerrd is already running${pidStr ? ` (PID ${pidStr})` : ""}.\n\n`,
+          `\x1b[38;2;52;211;153m✓\x1b[0m unerrd is already running${pidStr ? ` (PID ${pidStr})` : ""}.\n\n`
         );
         write(
           "  Next steps:\n" +
             "    cd /path/to/your-project\n" +
-            "    unerr install <agent>       # registers repo + installs MCP config\n\n",
+            "    unerr install <agent>       # registers repo + installs MCP config\n\n"
         );
         return;
       }
@@ -106,7 +104,7 @@ export function registerDaemonCommand(program: Command): void {
       const child = spawn(
         process.execPath,
         [unerrBin, "daemon", "start", "--foreground"],
-        { detached: true, stdio: "ignore", env: { ...process.env } },
+        { detached: true, stdio: "ignore", env: { ...process.env } }
       );
       child.unref();
 
@@ -130,18 +128,20 @@ export function registerDaemonCommand(program: Command): void {
         try {
           const { readFileSync: readPid } = await import("node:fs");
           daemonPid = readPid(pidPath, "utf-8").trim();
-        } catch { /* fall back to child.pid */ }
+        } catch {
+          /* fall back to child.pid */
+        }
         write(
-          `\x1b[38;2;52;211;153m✓\x1b[0m unerrd is running (PID ${daemonPid}).\n\n`,
+          `\x1b[38;2;52;211;153m✓\x1b[0m unerrd is running (PID ${daemonPid}).\n\n`
         );
         write(
           "  Next steps:\n" +
             "    cd /path/to/your-project\n" +
-            "    unerr install <agent>       # registers repo + installs MCP config\n\n",
+            "    unerr install <agent>       # registers repo + installs MCP config\n\n"
         );
       } else {
         write(
-          "\x1b[38;2;248;113;113m✗\x1b[0m unerrd did not start in time. Check: ~/.unerr/logs/unerrd.log\n",
+          "\x1b[38;2;248;113;113m✗\x1b[0m unerrd did not start in time. Check: ~/.unerr/logs/unerrd.log\n"
         );
         process.exitCode = 1;
       }
@@ -167,7 +167,7 @@ export function registerDaemonCommand(program: Command): void {
       const child = spawn(
         process.execPath,
         [unerrBin, "daemon", "start", "--foreground"],
-        { detached: true, stdio: "ignore", env: { ...process.env } },
+        { detached: true, stdio: "ignore", env: { ...process.env } }
       );
       child.unref();
 
@@ -196,13 +196,15 @@ export function registerDaemonCommand(program: Command): void {
         try {
           const { readFileSync } = await import("node:fs");
           daemonPid = readFileSync(pidPath, "utf-8").trim();
-        } catch { /* fall back to child.pid */ }
+        } catch {
+          /* fall back to child.pid */
+        }
         write(
-          `\x1b[38;2;52;211;153m✓\x1b[0m unerrd started (PID ${daemonPid}).\n`,
+          `\x1b[38;2;52;211;153m✓\x1b[0m unerrd started (PID ${daemonPid}).\n`
         );
       } else {
         write(
-          "\x1b[38;2;248;113;113m✗\x1b[0m unerrd did not start in time. Check: ~/.unerr/logs/unerrd.log\n",
+          "\x1b[38;2;248;113;113m✗\x1b[0m unerrd did not start in time. Check: ~/.unerr/logs/unerrd.log\n"
         );
         process.exitCode = 1;
       }
@@ -243,7 +245,7 @@ export function registerDaemonCommand(program: Command): void {
         write("\x1b[38;2;52;211;153m\u2713\x1b[0m unerrd stopped.\n");
       } catch {
         write(
-          "\x1b[38;2;248;113;113m\u2717\x1b[0m Failed to connect to unerrd.\n",
+          "\x1b[38;2;248;113;113m\u2717\x1b[0m Failed to connect to unerrd.\n"
         );
         process.exitCode = 1;
       }
@@ -255,7 +257,7 @@ export function registerDaemonCommand(program: Command): void {
   daemon
     .command("teardown")
     .description(
-      "Remove unerr daemon completely: stop unerrd, deregister from boot, remove state",
+      "Remove unerr daemon completely: stop unerrd, deregister from boot, remove state"
     )
     .option("--purge", "Also delete ~/.unerr (logs, registry, cached data)")
     .action(async (opts: { purge?: boolean }) => {
@@ -290,12 +292,12 @@ export function registerDaemonCommand(program: Command): void {
           write("\x1b[38;2;52;211;153m✓\x1b[0m unerrd stopped.\n");
         } catch {
           write(
-            "\x1b[38;2;251;191;36m⚠\x1b[0m Could not connect to unerrd (may already be stopped).\n",
+            "\x1b[38;2;251;191;36m⚠\x1b[0m Could not connect to unerrd (may already be stopped).\n"
           );
         }
       } else {
         write(
-          "\x1b[38;2;34;211;238m▸\x1b[0m unerrd not running (no socket found).\n",
+          "\x1b[38;2;34;211;238m▸\x1b[0m unerrd not running (no socket found).\n"
         );
       }
 
@@ -309,17 +311,13 @@ export function registerDaemonCommand(program: Command): void {
         removeSentinel();
         if (result.error) {
           write(
-            `\x1b[38;2;251;191;36m⚠\x1b[0m Boot service removal note: ${result.error}\n`,
+            `\x1b[38;2;251;191;36m⚠\x1b[0m Boot service removal note: ${result.error}\n`
           );
         } else {
-          write(
-            "\x1b[38;2;52;211;153m✓\x1b[0m Boot registration removed.\n",
-          );
+          write("\x1b[38;2;52;211;153m✓\x1b[0m Boot registration removed.\n");
         }
       } catch {
-        write(
-          "\x1b[38;2;251;191;36m⚠\x1b[0m No boot registration found.\n",
-        );
+        write("\x1b[38;2;251;191;36m⚠\x1b[0m No boot registration found.\n");
       }
 
       // 3. Clean up PID file and socket
@@ -339,24 +337,20 @@ export function registerDaemonCommand(program: Command): void {
         write("\x1b[38;2;139;92;246m▸\x1b[0m Purging ~/.unerr...\n");
         if (existsSync(home)) {
           rmSync(home, { recursive: true, force: true });
-          write(
-            "\x1b[38;2;52;211;153m✓\x1b[0m ~/.unerr removed.\n",
-          );
+          write("\x1b[38;2;52;211;153m✓\x1b[0m ~/.unerr removed.\n");
         }
       }
 
       write(
-        "\n\x1b[38;2;52;211;153m✓\x1b[0m Daemon teardown complete." +
-          (opts.purge
+        `\n\x1b[38;2;52;211;153m✓\x1b[0m Daemon teardown complete.${
+          opts.purge
             ? ""
-            : " Registry and logs preserved in ~/.unerr (use --purge to remove).") +
-          "\n",
+            : " Registry and logs preserved in ~/.unerr (use --purge to remove)."
+        }\n`
       );
 
       if (!opts.purge) {
-        write(
-          "\n  To re-initialize: \x1b[1munerr daemon initialize\x1b[0m\n",
-        );
+        write("\n  To re-initialize: \x1b[1munerr daemon initialize\x1b[0m\n");
       }
     });
 
@@ -367,11 +361,11 @@ export function registerDaemonCommand(program: Command): void {
     .description("Register a repo with unerrd")
     .option(
       "--skip-parent-check",
-      "Allow registration even if parent dir is registered",
+      "Allow registration even if parent dir is registered"
     )
     .option(
       "--skip-child-check",
-      "Allow registration even if subdirectories are registered",
+      "Allow registration even if subdirectories are registered"
     );
 
   for (const s of SETTINGS_SCHEMA) {
@@ -384,7 +378,7 @@ export function registerDaemonCommand(program: Command): void {
       opts: Record<string, string | undefined> & {
         skipParentCheck?: boolean;
         skipChildCheck?: boolean;
-      },
+      }
     ) => {
       const targetPath = resolve(pathArg ?? ".");
 
@@ -392,7 +386,7 @@ export function registerDaemonCommand(program: Command): void {
       const settingsRaw: Record<string, string | undefined> = {};
       for (const s of SETTINGS_SCHEMA) {
         const camelFlag = s.flag.replace(/-([a-z])/g, (_, c: string) =>
-          c.toUpperCase(),
+          c.toUpperCase()
         );
         if (opts[camelFlag] !== undefined) {
           settingsRaw[s.flag] = opts[camelFlag];
@@ -404,7 +398,7 @@ export function registerDaemonCommand(program: Command): void {
         settings = parseSettingsFlags(settingsRaw);
       } catch (err) {
         write(
-          `\x1b[38;2;248;113;113m\u2717\x1b[0m ${(err as Error).message}\n`,
+          `\x1b[38;2;248;113;113m\u2717\x1b[0m ${(err as Error).message}\n`
         );
         process.exitCode = 1;
         return;
@@ -419,12 +413,12 @@ export function registerDaemonCommand(program: Command): void {
         write(`\x1b[38;2;248;113;113m\u2717\x1b[0m ${result.error}\n`);
         if (result.parentConflict) {
           write(
-            `  Parent: ${result.parentConflict}\n  Use --skip-parent-check to override.\n`,
+            `  Parent: ${result.parentConflict}\n  Use --skip-parent-check to override.\n`
           );
         }
         if (result.childConflicts) {
           write(
-            `  Children: ${result.childConflicts.join(", ")}\n  Use --skip-child-check to override.\n`,
+            `  Children: ${result.childConflicts.join(", ")}\n  Use --skip-child-check to override.\n`
           );
         }
         process.exitCode = 1;
@@ -433,20 +427,20 @@ export function registerDaemonCommand(program: Command): void {
 
       if (result.created) {
         write(
-          `\x1b[38;2;52;211;153m\u2713\x1b[0m Registered \x1b[1m${result.entry.label}\x1b[0m (${result.entry.path})\n`,
+          `\x1b[38;2;52;211;153m\u2713\x1b[0m Registered \x1b[1m${result.entry.label}\x1b[0m (${result.entry.path})\n`
         );
         const keys = Object.keys(settings);
         if (keys.length > 0) {
           write(
-            `  Settings: ${keys.map((k) => `${k}=${settings[k]}`).join(", ")}\n`,
+            `  Settings: ${keys.map((k) => `${k}=${settings[k]}`).join(", ")}\n`
           );
         }
       } else {
         write(
-          `\x1b[38;2;251;191;36m\u25c6\x1b[0m Already registered: \x1b[1m${result.entry.label}\x1b[0m\n`,
+          `\x1b[38;2;251;191;36m\u25c6\x1b[0m Already registered: \x1b[1m${result.entry.label}\x1b[0m\n`
         );
       }
-    },
+    }
   );
 
   // ── daemon remove <path> ────────────────────────────────────
@@ -461,7 +455,7 @@ export function registerDaemonCommand(program: Command): void {
         write(`\x1b[38;2;52;211;153m\u2713\x1b[0m Removed ${targetPath}\n`);
       } else {
         write(
-          `\x1b[38;2;248;113;113m\u2717\x1b[0m Not registered: ${targetPath}\n`,
+          `\x1b[38;2;248;113;113m\u2717\x1b[0m Not registered: ${targetPath}\n`
         );
         process.exitCode = 1;
       }
@@ -481,7 +475,7 @@ export function registerDaemonCommand(program: Command): void {
         const info = getCachedUpdateInfo();
         if (info.available && !info.dismissed) {
           write(
-            `\n  \x1b[38;2;34;211;238m▸\x1b[0m Update available: \x1b[1m${info.current}\x1b[0m → \x1b[1m${info.latest}\x1b[0m — run \x1b[38;2;139;92;246munerr daemon update\x1b[0m\n`,
+            `\n  \x1b[38;2;34;211;238m▸\x1b[0m Update available: \x1b[1m${info.current}\x1b[0m → \x1b[1m${info.latest}\x1b[0m — run \x1b[38;2;139;92;246munerr daemon update\x1b[0m\n`
           );
         }
       } catch {
@@ -495,7 +489,16 @@ export function registerDaemonCommand(program: Command): void {
       }
 
       // Try to get live status from daemon API when daemon is running
-      let liveStatus: Map<string, { status: string; pid: number | null; connections: number; idle: number | null; memory: number | null }> | null = null;
+      let liveStatus: Map<
+        string,
+        {
+          status: string;
+          pid: number | null;
+          connections: number;
+          idle: number | null;
+          memory: number | null;
+        }
+      > | null = null;
       try {
         const { daemonSockPath, probeDaemon } = await import(
           "../daemon/client.js"
@@ -505,21 +508,47 @@ export function registerDaemonCommand(program: Command): void {
           const { request } = await import("node:http");
           const body = await new Promise<string>((resolveReq, rejectReq) => {
             const req = request(
-              { hostname: "127.0.0.1", port: 9847, path: "/api/repos", method: "GET", timeout: 2000 },
+              {
+                hostname: "127.0.0.1",
+                port: 9847,
+                path: "/api/repos",
+                method: "GET",
+                timeout: 2000,
+              },
               (res) => {
                 let data = "";
-                res.on("data", (chunk: Buffer) => { data += chunk.toString(); });
+                res.on("data", (chunk: Buffer) => {
+                  data += chunk.toString();
+                });
                 res.on("end", () => resolveReq(data));
-              },
+              }
             );
             req.on("error", rejectReq);
-            req.on("timeout", () => { req.destroy(); rejectReq(new Error("timeout")); });
+            req.on("timeout", () => {
+              req.destroy();
+              rejectReq(new Error("timeout"));
+            });
             req.end();
           });
-          const parsed = JSON.parse(body) as { repos: Array<{ path: string; status: string; pid: number | null; connections: number; idle: number | null; memory: number | null }> };
+          const parsed = JSON.parse(body) as {
+            repos: Array<{
+              path: string;
+              status: string;
+              pid: number | null;
+              connections: number;
+              idle: number | null;
+              memory: number | null;
+            }>;
+          };
           liveStatus = new Map();
           for (const r of parsed.repos) {
-            liveStatus.set(r.path, { status: r.status, pid: r.pid, connections: r.connections, idle: r.idle, memory: r.memory });
+            liveStatus.set(r.path, {
+              status: r.status,
+              pid: r.pid,
+              connections: r.connections,
+              idle: r.idle,
+              memory: r.memory,
+            });
           }
         }
       } catch {
@@ -527,7 +556,7 @@ export function registerDaemonCommand(program: Command): void {
       }
 
       write(
-        `\n  \x1b[1munerr daemon\x1b[0m — ${repos.length} repo${repos.length === 1 ? "" : "s"} registered\n\n`,
+        `\n  \x1b[1munerr daemon\x1b[0m — ${repos.length} repo${repos.length === 1 ? "" : "s"} registered\n\n`
       );
 
       for (const repo of repos) {
@@ -536,8 +565,11 @@ export function registerDaemonCommand(program: Command): void {
           repo.idleTimeout === 0 ? "never" : `${repo.idleTimeout}s`;
 
         const live = liveStatus?.get(repo.path);
-        const isRunning = live?.status === "running" || live?.status === "starting";
-        const statusIcon = isRunning ? "\x1b[38;2;52;211;153m●\x1b[0m" : "\u25cb";
+        const isRunning =
+          live?.status === "running" || live?.status === "starting";
+        const statusIcon = isRunning
+          ? "\x1b[38;2;52;211;153m●\x1b[0m"
+          : "\u25cb";
         const statusSuffix = live
           ? ` \x1b[2m(${live.status}${live.pid ? `, PID ${live.pid}` : ""}${live.connections ? `, ${live.connections} conn` : ""}${live.idle != null ? `, idle ${live.idle}s` : ""})\x1b[0m`
           : "";
@@ -546,25 +578,25 @@ export function registerDaemonCommand(program: Command): void {
           `  ${statusIcon} \x1b[1m${repo.label}\x1b[0m${statusSuffix}\n` +
             `    Path: ${repo.path}\n` +
             `    Idle timeout: ${idleLabel}\n` +
-            `    Added: ${repo.addedAt}\n`,
+            `    Added: ${repo.addedAt}\n`
         );
 
         const settingsEntries = Object.entries(repo.settings).filter(
-          ([, v]) => v !== undefined,
+          ([, v]) => v !== undefined
         );
         if (settingsEntries.length > 0) {
           write(
-            `    Settings: ${settingsEntries.map(([k, v]) => `${k}=${v}`).join(", ")}\n`,
+            `    Settings: ${settingsEntries.map(([k, v]) => `${k}=${v}`).join(", ")}\n`
           );
         }
 
         if (needsInput.length > 0) {
-          write(`    \x1b[38;2;251;191;36m⚠\x1b[0m Needs input:\n`);
+          write("    \x1b[38;2;251;191;36m⚠\x1b[0m Needs input:\n");
           for (const ni of needsInput) {
             write(
               `      ${ni.key}: auto-selected \x1b[1m${ni.auto}\x1b[0m (${ni.reason})\n` +
                 `        Alternatives: ${ni.alternatives.join(", ")}\n` +
-                `        Override: unerr daemon config ${repo.path} --${toKebab(ni.key)}=${ni.alternatives[0]}\n`,
+                `        Override: unerr daemon config ${repo.path} --${toKebab(ni.key)}=${ni.alternatives[0]}\n`
             );
           }
         }
@@ -587,7 +619,7 @@ export function registerDaemonCommand(program: Command): void {
   configCmd.action(
     (
       pathArg: string | undefined,
-      opts: Record<string, string | undefined> & { show?: boolean },
+      opts: Record<string, string | undefined> & { show?: boolean }
     ) => {
       const targetPath = resolve(pathArg ?? ".");
 
@@ -595,7 +627,7 @@ export function registerDaemonCommand(program: Command): void {
       const settingsRaw: Record<string, string | undefined> = {};
       for (const s of SETTINGS_SCHEMA) {
         const camelFlag = s.flag.replace(/-([a-z])/g, (_, c: string) =>
-          c.toUpperCase(),
+          c.toUpperCase()
         );
         if (opts[camelFlag] !== undefined) {
           settingsRaw[s.flag] = opts[camelFlag];
@@ -610,7 +642,7 @@ export function registerDaemonCommand(program: Command): void {
         if (!entry) {
           write(
             `\x1b[38;2;248;113;113m\u2717\x1b[0m Not registered: ${targetPath}\n` +
-              `  Register first: unerr daemon add ${targetPath}\n`,
+              `  Register first: unerr daemon add ${targetPath}\n`
           );
           process.exitCode = 1;
           return;
@@ -619,11 +651,11 @@ export function registerDaemonCommand(program: Command): void {
         write(
           `\n  \x1b[1m${entry.label}\x1b[0m — ${entry.path}\n\n` +
             `  Idle timeout: ${entry.idleTimeout === 0 ? "never" : `${entry.idleTimeout}s`}\n` +
-            `  Added: ${entry.addedAt}\n`,
+            `  Added: ${entry.addedAt}\n`
         );
 
         const settingsEntries = Object.entries(entry.settings).filter(
-          ([, v]) => v !== undefined,
+          ([, v]) => v !== undefined
         );
         if (settingsEntries.length > 0) {
           write("  Settings:\n");
@@ -635,12 +667,12 @@ export function registerDaemonCommand(program: Command): void {
         const needsInput = readNeedsInput(entry.path);
         if (needsInput.length > 0) {
           write(
-            `\n  \x1b[38;2;251;191;36m⚠ Auto-detected picks (override with flags):\x1b[0m\n`,
+            "\n  \x1b[38;2;251;191;36m⚠ Auto-detected picks (override with flags):\x1b[0m\n"
           );
           for (const ni of needsInput) {
             write(
               `    ${ni.key}: ${ni.auto} (${ni.reason})\n` +
-                `      Override: --${toKebab(ni.key)}=${ni.alternatives[0]}\n`,
+                `      Override: --${toKebab(ni.key)}=${ni.alternatives[0]}\n`
             );
           }
         }
@@ -655,7 +687,7 @@ export function registerDaemonCommand(program: Command): void {
         parsed = parseSettingsFlags(settingsRaw);
       } catch (err) {
         write(
-          `\x1b[38;2;248;113;113m\u2717\x1b[0m ${(err as Error).message}\n`,
+          `\x1b[38;2;248;113;113m\u2717\x1b[0m ${(err as Error).message}\n`
         );
         process.exitCode = 1;
         return;
@@ -665,7 +697,7 @@ export function registerDaemonCommand(program: Command): void {
       if (!updated) {
         write(
           `\x1b[38;2;248;113;113m\u2717\x1b[0m Not registered: ${targetPath}\n` +
-            `  Register first: unerr daemon add ${targetPath}\n`,
+            `  Register first: unerr daemon add ${targetPath}\n`
         );
         process.exitCode = 1;
         return;
@@ -673,12 +705,12 @@ export function registerDaemonCommand(program: Command): void {
 
       write(
         `\x1b[38;2;52;211;153m\u2713\x1b[0m Updated \x1b[1m${updated.label}\x1b[0m: ${Object.entries(
-          parsed,
+          parsed
         )
           .map(([k, v]) => `${k}=${v}`)
-          .join(", ")}\n`,
+          .join(", ")}\n`
       );
-    },
+    }
   );
 
   // ── daemon autostart on|off|status ──────────────────────────
@@ -690,7 +722,7 @@ export function registerDaemonCommand(program: Command): void {
       const validActions = ["on", "off", "status"];
       if (!validActions.includes(action)) {
         write(
-          `\x1b[38;2;248;113;113m\u2717\x1b[0m Invalid action "${action}". Valid: ${validActions.join(", ")}\n`,
+          `\x1b[38;2;248;113;113m\u2717\x1b[0m Invalid action "${action}". Valid: ${validActions.join(", ")}\n`
         );
         process.exitCode = 1;
         return;
@@ -705,19 +737,19 @@ export function registerDaemonCommand(program: Command): void {
         const config = loadWarmStartConfig();
         const repos = listRepos();
         const autostartRepos = repos.filter(
-          (r) => (r.settings?.autostart ?? "auto") !== "never",
+          (r) => (r.settings?.autostart ?? "auto") !== "never"
         );
 
-        write(`\n  \x1b[1munerr daemon autostart\x1b[0m\n\n`);
+        write("\n  \x1b[1munerr daemon autostart\x1b[0m\n\n");
         write(`  Platform:     ${status.platform}\n`);
         write(
-          `  Service:      ${status.installed ? "\x1b[38;2;52;211;153m●\x1b[0m installed" : "\x1b[38;2;248;113;113m●\x1b[0m not installed"}\n`,
+          `  Service:      ${status.installed ? "\x1b[38;2;52;211;153m●\x1b[0m installed" : "\x1b[38;2;248;113;113m●\x1b[0m not installed"}\n`
         );
         write(`  Warm budget:  ${config.warmStartBudget}\n`);
         write(`  Idle cutoff:  ${config.warmStartIdleDays} days\n`);
         write(`  Boot delay:   ${config.warmStartDelayMs}ms\n`);
         write(
-          `  Repos:        ${autostartRepos.length}/${repos.length} eligible\n\n`,
+          `  Repos:        ${autostartRepos.length}/${repos.length} eligible\n\n`
         );
 
         if (repos.length > 0) {
@@ -755,11 +787,11 @@ export function registerDaemonCommand(program: Command): void {
           mk(jn(hd(), ".unerr"), { recursive: true });
           wf(sentinel, new Date().toISOString(), "utf-8");
           write(
-            `\x1b[38;2;52;211;153m\u2713\x1b[0m Auto-start enabled (${result.path})\n`,
+            `\x1b[38;2;52;211;153m\u2713\x1b[0m Auto-start enabled (${result.path})\n`
           );
         } else {
           write(
-            `\x1b[38;2;248;113;113m\u2717\x1b[0m Failed: ${result.error}\n`,
+            `\x1b[38;2;248;113;113m\u2717\x1b[0m Failed: ${result.error}\n`
           );
           process.exitCode = 1;
         }
@@ -773,7 +805,7 @@ export function registerDaemonCommand(program: Command): void {
         const result = await uninstallForCurrentPlatform();
         removeSentinel();
         write(
-          `\x1b[38;2;52;211;153m\u2713\x1b[0m Auto-start disabled${result.error ? ` (note: ${result.error})` : ""}\n`,
+          `\x1b[38;2;52;211;153m\u2713\x1b[0m Auto-start disabled${result.error ? ` (note: ${result.error})` : ""}\n`
         );
       }
     });
@@ -827,7 +859,7 @@ export function registerDaemonCommand(program: Command): void {
             if (ex(logsDir)) {
               try {
                 const bridgeLogs = rd(logsDir).filter((f: string) =>
-                  f.startsWith("mcp-"),
+                  f.startsWith("mcp-")
                 );
                 for (const bl of bridgeLogs) {
                   logFiles.push(jn(logsDir, bl));
@@ -850,7 +882,7 @@ export function registerDaemonCommand(program: Command): void {
             ["-f", "-n", String(lines), ...logFiles],
             {
               stdio: ["ignore", "inherit", "inherit"],
-            },
+            }
           );
           await new Promise<void>((resolve) => {
             child.on("close", () => resolve());
@@ -871,7 +903,7 @@ export function registerDaemonCommand(program: Command): void {
             if (opts.boot) {
               // Find last boot marker
               const bootIdx = fileLines.findLastIndex((l: string) =>
-                l.includes("Started (PID"),
+                l.includes("Started (PID")
               );
               if (bootIdx >= 0) fileLines = fileLines.slice(bootIdx);
             }
@@ -880,11 +912,11 @@ export function registerDaemonCommand(program: Command): void {
             write(`\x1b[38;2;139;92;246m▸\x1b[0m ${file}\n${tail}\n\n`);
           } catch {
             write(
-              `\x1b[38;2;248;113;113m\u2717\x1b[0m Could not read: ${file}\n`,
+              `\x1b[38;2;248;113;113m\u2717\x1b[0m Could not read: ${file}\n`
             );
           }
         }
-      },
+      }
     );
 
   // ── daemon dashboard ────────────────────────────────────────
@@ -925,7 +957,7 @@ export function registerDaemonCommand(program: Command): void {
     .description("Set global daemon configuration")
     .option(
       "--warm-start-budget <n>",
-      "Max repos to warm-start on boot (0=disabled)",
+      "Max repos to warm-start on boot (0=disabled)"
     )
     .option("--warm-start-idle-days <n>", "Skip repos inactive for N+ days")
     .option("--warm-start-delay-ms <n>", "Delay after boot before warm-start")
@@ -944,7 +976,7 @@ export function registerDaemonCommand(program: Command): void {
           const n = Number.parseInt(opts.warmStartBudget, 10);
           if (!Number.isFinite(n) || n < 0) {
             write(
-              `\x1b[38;2;248;113;113m\u2717\x1b[0m Invalid warm-start-budget: ${opts.warmStartBudget}\n`,
+              `\x1b[38;2;248;113;113m\u2717\x1b[0m Invalid warm-start-budget: ${opts.warmStartBudget}\n`
             );
             process.exitCode = 1;
             return;
@@ -957,7 +989,7 @@ export function registerDaemonCommand(program: Command): void {
           const n = Number.parseInt(opts.warmStartIdleDays, 10);
           if (!Number.isFinite(n) || n < 0) {
             write(
-              `\x1b[38;2;248;113;113m\u2717\x1b[0m Invalid warm-start-idle-days: ${opts.warmStartIdleDays}\n`,
+              `\x1b[38;2;248;113;113m\u2717\x1b[0m Invalid warm-start-idle-days: ${opts.warmStartIdleDays}\n`
             );
             process.exitCode = 1;
             return;
@@ -970,7 +1002,7 @@ export function registerDaemonCommand(program: Command): void {
           const n = Number.parseInt(opts.warmStartDelayMs, 10);
           if (!Number.isFinite(n) || n < 0) {
             write(
-              `\x1b[38;2;248;113;113m\u2717\x1b[0m Invalid warm-start-delay-ms: ${opts.warmStartDelayMs}\n`,
+              `\x1b[38;2;248;113;113m\u2717\x1b[0m Invalid warm-start-delay-ms: ${opts.warmStartDelayMs}\n`
             );
             process.exitCode = 1;
             return;
@@ -985,7 +1017,7 @@ export function registerDaemonCommand(program: Command): void {
             "../daemon/warm-start.js"
           );
           const config = loadWarmStartConfig();
-          write(`\n  \x1b[1mGlobal daemon config\x1b[0m\n\n`);
+          write("\n  \x1b[1mGlobal daemon config\x1b[0m\n\n");
           write(`  warmStartBudget:   ${config.warmStartBudget}\n`);
           write(`  warmStartIdleDays: ${config.warmStartIdleDays}\n`);
           write(`  warmStartDelayMs:  ${config.warmStartDelayMs}\n\n`);
@@ -996,9 +1028,9 @@ export function registerDaemonCommand(program: Command): void {
         write(
           `\x1b[38;2;52;211;153m\u2713\x1b[0m Updated: ${Object.entries(partial)
             .map(([k, v]) => `${k}=${v}`)
-            .join(", ")}\n`,
+            .join(", ")}\n`
         );
-      },
+      }
     );
 
   // ── daemon update ───────────────────────────────────────────
@@ -1018,16 +1050,13 @@ export function registerDaemonCommand(program: Command): void {
 
       if (!info.available) {
         write(
-          `\x1b[38;2;52;211;153m\u2713\x1b[0m unerr is up to date (${info.current})\n`,
+          `\x1b[38;2;52;211;153m\u2713\x1b[0m unerr is up to date (${info.current})\n`
         );
         return;
       }
 
       write(
-        `\n  \x1b[1mUpdate available\x1b[0m\n\n` +
-          `  Current: ${info.current}\n` +
-          `  Latest:  \x1b[38;2;34;211;238m${info.latest}\x1b[0m\n` +
-          `  Behind:  ${info.behindMinor} minor version${info.behindMinor !== 1 ? "s" : ""}\n\n`,
+        `\n  \x1b[1mUpdate available\x1b[0m\n\n  Current: ${info.current}\n  Latest:  \x1b[38;2;34;211;238m${info.latest}\x1b[0m\n  Behind:  ${info.behindMinor} minor version${info.behindMinor !== 1 ? "s" : ""}\n\n`
       );
 
       if (opts.check) return;
@@ -1046,7 +1075,7 @@ export function registerDaemonCommand(program: Command): void {
             (ans) => {
               rl.close();
               resolve(ans.trim().toLowerCase());
-            },
+            }
           );
         });
 
@@ -1122,7 +1151,7 @@ export function registerDaemonCommand(program: Command): void {
       } catch (err) {
         write(
           `        \x1b[38;2;248;113;113m\u2717\x1b[0m Install failed: ${(err as Error).message}\n` +
-            `        Try manually: ${installCmd}\n`,
+            `        Try manually: ${installCmd}\n`
         );
         process.exitCode = 1;
         return;
@@ -1137,7 +1166,7 @@ export function registerDaemonCommand(program: Command): void {
         write(`        \x1b[38;2;52;211;153m\u2713\x1b[0m ${newVer}\n`);
       } catch {
         write(
-          "        \x1b[38;2;251;191;36m⚠\x1b[0m Could not verify version\n",
+          "        \x1b[38;2;251;191;36m⚠\x1b[0m Could not verify version\n"
         );
       }
 
@@ -1148,14 +1177,14 @@ export function registerDaemonCommand(program: Command): void {
         const child = spawn(
           process.execPath,
           [process.argv[1]!, "daemon", "start", "--background"],
-          { detached: true, stdio: "ignore" },
+          { detached: true, stdio: "ignore" }
         );
         child.unref();
         await new Promise<void>((r) => setTimeout(r, 3000));
         write("        \x1b[38;2;52;211;153m\u2713\x1b[0m started\n");
       } catch {
         write(
-          "        \x1b[38;2;251;191;36m⚠\x1b[0m Manual restart: unerr daemon start\n",
+          "        \x1b[38;2;251;191;36m⚠\x1b[0m Manual restart: unerr daemon start\n"
         );
       }
 
@@ -1171,7 +1200,7 @@ export function registerDaemonCommand(program: Command): void {
           write("        \x1b[38;2;52;211;153m\u2713\x1b[0m healthy\n");
         } else {
           write(
-            "        \x1b[38;2;251;191;36m⚠\x1b[0m daemon not yet responsive\n",
+            "        \x1b[38;2;251;191;36m⚠\x1b[0m daemon not yet responsive\n"
           );
         }
       } catch {
@@ -1179,7 +1208,7 @@ export function registerDaemonCommand(program: Command): void {
       }
 
       write(
-        `\n  \x1b[38;2;52;211;153m\u2713\x1b[0m Updated to \x1b[1m${info.latest}\x1b[0m\n\n`,
+        `\n  \x1b[38;2;52;211;153m\u2713\x1b[0m Updated to \x1b[1m${info.latest}\x1b[0m\n\n`
       );
     });
 
@@ -1192,7 +1221,7 @@ export function registerDaemonCommand(program: Command): void {
       const { dismissVersion } = await import("../daemon/version-checker.js");
       dismissVersion(version);
       write(
-        `\x1b[38;2;52;211;153m\u2713\x1b[0m Dismissed update notification for v${version.replace(/^v/, "")}\n`,
+        `\x1b[38;2;52;211;153m\u2713\x1b[0m Dismissed update notification for v${version.replace(/^v/, "")}\n`
       );
     });
 }

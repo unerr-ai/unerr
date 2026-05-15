@@ -103,7 +103,7 @@ describe("Health Grading (O.1-O.5)", () => {
 
   it("computes composite health grade", () => {
     const entities = Array.from({ length: 20 }, (_, i) =>
-      makeEntity(`fn${i}`, `src/f${i}.ts`),
+      makeEntity(`fn${i}`, `src/f${i}.ts`)
     );
     const edges: IndexedEdge[] = [
       {

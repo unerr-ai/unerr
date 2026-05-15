@@ -35,7 +35,7 @@ export async function revertEntity(
   entityName: string,
   localGraph: CozoGraphStore,
   projectRoot: string,
-  filePath?: string,
+  filePath?: string
 ): Promise<RevertResult> {
   // Find the drift entity by name
   const driftEntity = await findDriftEntity(localGraph, entityName, filePath);
@@ -83,7 +83,7 @@ export async function revertEntity(
 async function findDriftEntity(
   localGraph: CozoGraphStore,
   entityName: string,
-  filePath?: string,
+  filePath?: string
 ): Promise<DriftEntity | null> {
   // Query drift_overlay for entities matching the name
   const result = await localGraph.db.run(
@@ -94,7 +94,7 @@ async function findDriftEntity(
       : `?[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps] :=
           *drift_overlay[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps],
           name = $name`,
-    filePath ? { name: entityName, fp: filePath } : { name: entityName },
+    filePath ? { name: entityName, fp: filePath } : { name: entityName }
   );
 
   if (result.rows.length === 0) return null;
@@ -158,7 +158,7 @@ async function findDriftEntity(
 async function removeAddedEntity(
   absPath: string,
   entity: DriftEntity,
-  localGraph: CozoGraphStore,
+  localGraph: CozoGraphStore
 ): Promise<RevertResult> {
   try {
     const content = readFileSync(absPath, "utf-8");
@@ -195,7 +195,7 @@ async function removeAddedEntity(
 async function restoreDeletedEntity(
   absPath: string,
   entity: DriftEntity,
-  localGraph: CozoGraphStore,
+  localGraph: CozoGraphStore
 ): Promise<RevertResult> {
   if (!entity.previous_body) {
     // No previous body stored — can't restore
@@ -245,7 +245,7 @@ async function restoreDeletedEntity(
 async function restoreModifiedEntity(
   absPath: string,
   entity: DriftEntity,
-  localGraph: CozoGraphStore,
+  localGraph: CozoGraphStore
 ): Promise<RevertResult> {
   if (!entity.previous_body) {
     await localGraph.removeDriftEntity(entity.key);

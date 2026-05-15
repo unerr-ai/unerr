@@ -126,7 +126,7 @@ const TYPE_CONTENT_LIMITS: Record<string, number> = {
 export class TemporalFactStore {
   private constructor(
     private db: CozoDb,
-    private config: TemporalConfig,
+    private config: TemporalConfig
   ) {}
 
   /**
@@ -144,7 +144,7 @@ export class TemporalFactStore {
    */
   static async create(
     projectRoot: string,
-    config?: Partial<TemporalConfig>,
+    config?: Partial<TemporalConfig>
   ): Promise<TemporalFactStore> {
     const { db } = await openFactsDb(projectRoot);
     await initFactsSchema(db);
@@ -164,7 +164,7 @@ export class TemporalFactStore {
    */
   static fromDb(
     db: CozoDb,
-    config?: Partial<TemporalConfig>,
+    config?: Partial<TemporalConfig>
   ): TemporalFactStore {
     const mergedConfig = { ...DEFAULT_CONFIG, ...config };
     if (config?.decay_rates) {
@@ -190,7 +190,7 @@ export class TemporalFactStore {
     const existing = await this.findDuplicate(
       input.fact_type,
       input.scope,
-      input.subject,
+      input.subject
     );
 
     if (existing) {
@@ -233,7 +233,7 @@ export class TemporalFactStore {
         now,
         source: input.source,
         evidence: JSON.stringify(evidence),
-      },
+      }
     );
 
     return factId;
@@ -247,7 +247,7 @@ export class TemporalFactStore {
     if (!rows) return;
 
     const existingEvidence: EvidenceEntry[] = JSON.parse(
-      rows.evidence as string,
+      rows.evidence as string
     );
     existingEvidence.push(evidence);
     const trimmedEvidence = existingEvidence.slice(-20);
@@ -280,7 +280,7 @@ export class TemporalFactStore {
         last_contradicted_at: rows.last_contradicted_at,
         source: rows.source,
         evidence: JSON.stringify(trimmedEvidence),
-      },
+      }
     );
   }
 
@@ -293,7 +293,7 @@ export class TemporalFactStore {
 
     const now = Date.now();
     const existingEvidence: EvidenceEntry[] = JSON.parse(
-      rows.evidence as string,
+      rows.evidence as string
     );
     existingEvidence.push({
       session_id: "contradiction",
@@ -329,7 +329,7 @@ export class TemporalFactStore {
         now,
         source: rows.source,
         evidence: JSON.stringify(existingEvidence.slice(-20)),
-      },
+      }
     );
   }
 
@@ -340,7 +340,7 @@ export class TemporalFactStore {
    */
   async recallByScope(
     scope: string,
-    minConfidence?: number,
+    minConfidence?: number
   ): Promise<TemporalFact[]> {
     return this.runDecayQuery(
       `*facts{fact_id, fact_type, scope, subject, content,
@@ -348,7 +348,7 @@ export class TemporalFactStore {
               last_reinforced_at, last_contradicted_at, source, evidence},
         scope == $filter_scope`,
       { filter_scope: scope },
-      minConfidence,
+      minConfidence
     );
   }
 
@@ -357,7 +357,7 @@ export class TemporalFactStore {
    */
   async recallBySubject(
     subject: string,
-    minConfidence?: number,
+    minConfidence?: number
   ): Promise<TemporalFact[]> {
     return this.runDecayQuery(
       `*facts{fact_id, fact_type, scope, subject, content,
@@ -365,7 +365,7 @@ export class TemporalFactStore {
               last_reinforced_at, last_contradicted_at, source, evidence},
         subject == $filter_subject`,
       { filter_subject: subject },
-      minConfidence,
+      minConfidence
     );
   }
 
@@ -379,7 +379,7 @@ export class TemporalFactStore {
               last_reinforced_at, last_contradicted_at, source, evidence},
         fact_type == "negative"`,
       {},
-      minConfidence,
+      minConfidence
     );
   }
 
@@ -392,7 +392,7 @@ export class TemporalFactStore {
     const parts = filePath.split("/");
     // Build directory prefixes from deepest to shallowest
     for (let i = parts.length - 1; i > 0; i--) {
-      scopes.push(parts.slice(0, i).join("/") + "/");
+      scopes.push(`${parts.slice(0, i).join("/")}/`);
     }
     scopes.push("project");
     return scopes;
@@ -404,7 +404,7 @@ export class TemporalFactStore {
    */
   async recallByPrefix(
     filePath: string,
-    minConfidence?: number,
+    minConfidence?: number
   ): Promise<TemporalFact[]> {
     const scopes = this.buildScopeHierarchy(filePath);
     // Build CozoDB or-clause for all scope levels
@@ -419,7 +419,7 @@ export class TemporalFactStore {
               last_reinforced_at, last_contradicted_at, source, evidence},
         (${conditions})`,
       params,
-      minConfidence,
+      minConfidence
     );
   }
 
@@ -429,7 +429,7 @@ export class TemporalFactStore {
    */
   async recallForFile(
     filePath: string,
-    entityKeys: string[],
+    entityKeys: string[]
   ): Promise<TemporalFact[]> {
     const threshold = this.config.recall_threshold;
     const maxFacts = this.config.max_facts_per_response;
@@ -476,7 +476,7 @@ export class TemporalFactStore {
               base_confidence, reinforcement_count, created_at,
               last_reinforced_at, last_contradicted_at, source, evidence}`,
       {},
-      minConfidence ?? 0,
+      minConfidence ?? 0
     );
   }
 
@@ -485,14 +485,14 @@ export class TemporalFactStore {
    */
   async recallDecaying(
     minConf: number,
-    maxConf: number,
+    maxConf: number
   ): Promise<TemporalFact[]> {
     const all = await this.runDecayQuery(
       `*facts{fact_id, fact_type, scope, subject, content,
               base_confidence, reinforcement_count, created_at,
               last_reinforced_at, last_contradicted_at, source, evidence}`,
       {},
-      minConf,
+      minConf
     );
     return all.filter((f) => f.effective_confidence < maxConf);
   }
@@ -506,7 +506,7 @@ export class TemporalFactStore {
               base_confidence, reinforcement_count, created_at,
               last_reinforced_at, last_contradicted_at, source, evidence}`,
       {},
-      0,
+      0
     );
 
     const byType: Record<FactType, number> = {
@@ -548,12 +548,12 @@ export class TemporalFactStore {
               base_confidence, reinforcement_count, created_at,
               last_reinforced_at, last_contradicted_at, source, evidence}`,
       {},
-      0,
+      0
     );
 
     const toPrune = allFacts.filter(
       (f) =>
-        f.fact_type !== "episodic" && f.effective_confidence < pruneThreshold,
+        f.fact_type !== "episodic" && f.effective_confidence < pruneThreshold
     );
 
     for (const fact of toPrune) {
@@ -562,7 +562,7 @@ export class TemporalFactStore {
         ?[fact_id] <- [[$fact_id]]
         :rm facts { fact_id }
         `,
-        { fact_id: fact.fact_id },
+        { fact_id: fact.fact_id }
       );
     }
 
@@ -577,7 +577,7 @@ export class TemporalFactStore {
     sessionId: string,
     interactionType: string,
     toolName: string,
-    outcome: string,
+    outcome: string
   ): Promise<void> {
     await this.db.run(
       `
@@ -596,7 +596,7 @@ export class TemporalFactStore {
         timestamp: Date.now(),
         tool_name: toolName,
         outcome,
-      },
+      }
     );
   }
 
@@ -605,7 +605,7 @@ export class TemporalFactStore {
   private async findDuplicate(
     factType: string,
     scope: string,
-    subject: string,
+    subject: string
   ): Promise<string | null> {
     const result = await this.db.run(
       `
@@ -620,13 +620,13 @@ export class TemporalFactStore {
         filter_type: factType,
         filter_scope: scope,
         filter_subject: subject,
-      },
+      }
     );
-    return result.rows.length > 0 ? (result.rows[0]![0] as string) : null;
+    return result.rows.length > 0 ? (result.rows[0]?.[0] as string) : null;
   }
 
   private async getRawFact(
-    factId: string,
+    factId: string
   ): Promise<Record<string, unknown> | null> {
     const result = await this.db.run(
       `
@@ -638,7 +638,7 @@ export class TemporalFactStore {
                last_reinforced_at, last_contradicted_at, source, evidence},
         fact_id == $filter_fact_id
       `,
-      { filter_fact_id: factId },
+      { filter_fact_id: factId }
     );
     if (result.rows.length === 0) return null;
     const row = result.rows[0]!;
@@ -665,7 +665,7 @@ export class TemporalFactStore {
   private async runDecayQuery(
     sourceClause: string,
     params: Record<string, unknown>,
-    minConfidence?: number,
+    minConfidence?: number
   ): Promise<TemporalFact[]> {
     const threshold = minConfidence ?? this.config.recall_threshold;
     const nowMs = Date.now();

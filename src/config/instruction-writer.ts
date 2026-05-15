@@ -35,7 +35,7 @@ function getInstructionContent(ide?: IdeType): string {
   // Other agents can use file_read directly before editing.
   const readForEditRow = isClaudeCode
     ? `| Understand a file before editing | \`file_read\` with \`purpose:'explore'\` to understand, then built-in \`Read\` (offset/limit) on target lines before Edit | Reading entire file |`
-    : `| Read a file before editing | \`file_read\` with \`entity\` param or offset/limit for targeted access | Reading entire file |`;
+    : "| Read a file before editing | `file_read` with `entity` param or offset/limit for targeted access | Reading entire file |";
 
   const twoStepSection = isClaudeCode
     ? `
@@ -56,8 +56,8 @@ When your next action is Edit, use built-in Read with offset/limit on the target
     : "";
 
   const summaryEditNote = isClaudeCode
-    ? `\nNEVER use built-in Read/Grep/Glob for code navigation. EXCEPTION: built-in Read (with offset/limit) is REQUIRED immediately before Edit (file_read cannot substitute — Edit will fail without it).`
-    : `\nNEVER use built-in Read/Grep/Glob for code navigation — use unerr MCP tools instead.`;
+    ? "\nNEVER use built-in Read/Grep/Glob for code navigation. EXCEPTION: built-in Read (with offset/limit) is REQUIRED immediately before Edit (file_read cannot substitute — Edit will fail without it)."
+    : "\nNEVER use built-in Read/Grep/Glob for code navigation — use unerr MCP tools instead.";
 
   return `## REQUIRED: Use unerr Graph Intelligence Tools (22 MCP tools)
 
@@ -233,7 +233,7 @@ export interface InstructionWriteResult {
  */
 export function writeInstructionFile(
   cwd: string,
-  ide: IdeType,
+  ide: IdeType
 ): InstructionWriteResult {
   const agentDef = getAgent(ide);
   if (!agentDef?.instructionFilePath) {
@@ -294,7 +294,7 @@ export function writeInstructionFile(
  */
 function mergeMarkdownSection(
   filePath: string,
-  content: string,
+  content: string
 ): InstructionWriteResult {
   const wrappedContent = `${SENTINEL_START}\n${content}\n${SENTINEL_END}`;
 
@@ -397,7 +397,7 @@ export function removeInstructionSection(cwd: string, ide: IdeType): boolean {
   const after = content.slice(endIdx + SENTINEL_END.length);
 
   // Clean up extra blank lines left behind
-  const cleaned = (before + after).replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+  const cleaned = `${(before + after).replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
 
   // If nothing meaningful remains, delete the file only if we created it
   const trimmed = cleaned.replace(/\s/g, "");

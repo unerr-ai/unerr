@@ -91,7 +91,7 @@ const EDIT_INDICATORS = new Set(["sync_local_diff"]);
  */
 export function detectCorrections(
   ledgerPath: string,
-  options?: CorrectionDetectorOptions,
+  options?: CorrectionDetectorOptions
 ): CorrectionPattern[] {
   const MIN_CONFIDENCE = options?.min_confidence ?? 0.6;
   const CORRECTION_WINDOW = options?.correction_window_ms ?? 60_000;
@@ -111,7 +111,7 @@ export function detectCorrections(
     const sessionPairs = findCorrectionPairs(
       sessionEntries,
       CORRECTION_WINDOW,
-      MAX_DISTANCE,
+      MAX_DISTANCE
     );
     pairs.push(...sessionPairs);
   }
@@ -133,7 +133,7 @@ export function detectCorrections(
  */
 function readLedgerEntries(
   ledgerPath: string,
-  sinceDays: number,
+  sinceDays: number
 ): LedgerEntry[] {
   if (!existsSync(ledgerPath)) return [];
 
@@ -244,7 +244,7 @@ function classifyError(entry: LedgerEntry): ErrorType | null {
 function findCorrectionPairs(
   entries: LedgerEntry[],
   correctionWindowMs: number,
-  maxDistance: number,
+  maxDistance: number
 ): CorrectionPair[] {
   const pairs: CorrectionPair[] = [];
   const len = entries.length;
@@ -375,7 +375,7 @@ function scoreAndClassify(pair: CorrectionPair): CorrectionPattern | null {
  */
 function buildCorrectionSummary(
   entityKey: string,
-  errorType: ErrorType,
+  errorType: ErrorType
 ): string {
   const name = entityKey.split("/").pop()?.split(":").pop() ?? entityKey;
 
@@ -400,7 +400,7 @@ function buildCorrectionSummary(
  * Keeps highest confidence, sums occurrences, uses latest timestamp.
  */
 function deduplicatePatterns(
-  patterns: CorrectionPattern[],
+  patterns: CorrectionPattern[]
 ): CorrectionPattern[] {
   const grouped = new Map<string, CorrectionPattern>();
 

@@ -98,7 +98,7 @@ export async function analyzeSessionPatterns(input: {
 async function analyzeEntityAccess(
   entries: LedgerEntry[],
   factStore: FactStoreWriter,
-  sessionId: string,
+  sessionId: string
 ): Promise<PatternAnalysisResult> {
   const result: PatternAnalysisResult = {
     factsCreated: 0,
@@ -161,7 +161,7 @@ async function analyzeEntityAccess(
  */
 async function analyzeFileCoupling(
   entries: LedgerEntry[],
-  factStore: FactStoreWriter,
+  factStore: FactStoreWriter
 ): Promise<PatternAnalysisResult> {
   const result: PatternAnalysisResult = {
     factsCreated: 0,
@@ -225,7 +225,7 @@ async function analyzeFileCoupling(
 
       result.factsCreated++;
       result.patternsDetected.push(
-        `coupling:${shortPath(fileA!)}↔${shortPath(fileB!)}(${count}x)`,
+        `coupling:${shortPath(fileA!)}↔${shortPath(fileB!)}(${count}x)`
       );
     }
   }
@@ -239,7 +239,7 @@ async function analyzeFileCoupling(
  */
 async function analyzeHotFiles(
   entries: LedgerEntry[],
-  factStore: FactStoreWriter,
+  factStore: FactStoreWriter
 ): Promise<PatternAnalysisResult> {
   const result: PatternAnalysisResult = {
     factsCreated: 0,
@@ -274,7 +274,7 @@ async function analyzeHotFiles(
 
       result.factsCreated++;
       result.patternsDetected.push(
-        `hot-file:${shortPath(filePath)}(${count}x)`,
+        `hot-file:${shortPath(filePath)}(${count}x)`
       );
     }
   }

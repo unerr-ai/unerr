@@ -128,14 +128,14 @@ describe("uninstall", () => {
               },
             ],
           },
-        }),
+        })
       );
 
       const removed = removePreToolUseBashHook(tmpDir);
       expect(removed).toBe(true);
 
       const after = JSON.parse(
-        readFileSync(join(dir, "settings.json"), "utf-8"),
+        readFileSync(join(dir, "settings.json"), "utf-8")
       );
       expect(after.hooks.PreToolUse).toHaveLength(1);
       expect(after.hooks.PreToolUse[0].hooks[0].command).toBe("other-tool");
@@ -151,7 +151,7 @@ describe("uninstall", () => {
       mkdirSync(dir, { recursive: true });
       writeFileSync(
         join(dir, "settings.json"),
-        JSON.stringify({ hooks: { PreToolUse: [] } }),
+        JSON.stringify({ hooks: { PreToolUse: [] } })
       );
       expect(removePreToolUseBashHook(tmpDir)).toBe(false);
     });

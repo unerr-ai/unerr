@@ -5,8 +5,8 @@
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   chooseBuildTool,
@@ -18,7 +18,10 @@ let testCounter = 0;
 
 beforeEach(() => {
   testCounter++;
-  root = join(tmpdir(), `unerr-java-test-${process.pid}-${Date.now()}-${testCounter}`);
+  root = join(
+    tmpdir(),
+    `unerr-java-test-${process.pid}-${Date.now()}-${testCounter}`
+  );
   mkdirSync(root, { recursive: true });
 });
 
@@ -198,15 +201,14 @@ describe("No interactive prompts in indexer", () => {
     const { resolve } = require("node:path");
     const content = readFileSync(
       resolve(__dirname, "../intelligence/indexer/scip/orchestrator.ts"),
-      "utf-8",
+      "utf-8"
     );
     // Only allow the string in comments (lines starting with * or //)
     const codeLines = content
       .split("\n")
       .filter(
         (line: string) =>
-          !line.trim().startsWith("*") &&
-          !line.trim().startsWith("//"),
+          !line.trim().startsWith("*") && !line.trim().startsWith("//")
       );
     const joined = codeLines.join("\n");
     expect(joined).not.toContain("process.stdin.isTTY");

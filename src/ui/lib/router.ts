@@ -92,7 +92,7 @@ function matchRepoRoute(seg: string | undefined): RepoRouteId {
 
 export function useHashRoute(): RouteId {
   const [route, setRoute] = useState<RouteId>(() =>
-    typeof window === "undefined" ? "overview" : parseHash().routeId,
+    typeof window === "undefined" ? "overview" : parseHash().routeId
   );
 
   useEffect(() => {
@@ -109,7 +109,7 @@ export function useParsedRoute(): ParsedRoute {
   const [parsed, setParsed] = useState<ParsedRoute>(() =>
     typeof window === "undefined"
       ? { routeId: "overview" as RouteId, repoLabel: null }
-      : parseHash(),
+      : parseHash()
   );
 
   useEffect(() => {
@@ -146,10 +146,10 @@ export function navigateRoute(next: RouteId, repoLabel?: string): void {
 
 export function useNavigateRoute(): (
   next: RouteId,
-  repoLabel?: string,
+  repoLabel?: string
 ) => void {
   return useCallback(
     (next: RouteId, repoLabel?: string) => navigateRoute(next, repoLabel),
-    [],
+    []
   );
 }

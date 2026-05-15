@@ -153,7 +153,7 @@ function parseToml(src: string): RawSection[] {
   for (const rawLine of src.split("\n")) {
     const line = rawLine.replace(/#.*$/, "");
     if (depth > 0) {
-      buf += " " + line.trim();
+      buf += ` ${line.trim()}`;
     } else if (line.includes("[") && !line.match(/^\s*\[[^=]*\]\s*$/)) {
       // Likely the start of an inline-table array or multi-line array
       buf = line;
@@ -198,7 +198,7 @@ function parseToml(src: string): RawSection[] {
 
 function compileOne(
   name: string,
-  raw: Record<string, unknown>,
+  raw: Record<string, unknown>
 ): CompiledFilter | null {
   const mc = raw.match_command;
   if (typeof mc !== "string" || !mc) return null;
@@ -225,7 +225,7 @@ function compileOne(
   };
 
   const toReplace = (
-    arr: unknown,
+    arr: unknown
   ): { pattern: RegExp; replacement: string }[] | undefined => {
     if (!Array.isArray(arr)) return undefined;
     const out: { pattern: RegExp; replacement: string }[] = [];
@@ -250,7 +250,7 @@ function compileOne(
   };
 
   const toShortCircuit = (
-    arr: unknown,
+    arr: unknown
   ): { pattern: RegExp; message: string }[] | undefined => {
     if (!Array.isArray(arr)) return undefined;
     const out: { pattern: RegExp; message: string }[] = [];
@@ -279,12 +279,12 @@ function compileOne(
     match_command: mc,
     strip_lines_matching: Array.isArray(raw.strip_lines_matching)
       ? (raw.strip_lines_matching.filter(
-          (x) => typeof x === "string",
+          (x) => typeof x === "string"
         ) as string[])
       : undefined,
     keep_lines_matching: Array.isArray(raw.keep_lines_matching)
       ? (raw.keep_lines_matching.filter(
-          (x) => typeof x === "string",
+          (x) => typeof x === "string"
         ) as string[])
       : undefined,
     replace: Array.isArray(raw.replace)
@@ -323,7 +323,7 @@ function loadFilters(cwd: string): CompiledFilter[] {
   if (cachedFilters && cacheKey === key) return cachedFilters;
 
   const sources = [readFile(repoPath), readFile(userPath)].filter(
-    (s): s is string => Boolean(s),
+    (s): s is string => Boolean(s)
   );
   const compiled: CompiledFilter[] = [];
   for (const src of sources) {
@@ -347,7 +347,7 @@ function loadFilters(cwd: string): CompiledFilter[] {
 export function applyUserFilter(
   command: string,
   stdout: string,
-  cwd: string,
+  cwd: string
 ): { text: string; name: string } | null {
   const filters = loadFilters(cwd);
   if (filters.length === 0) return null;
@@ -378,10 +378,10 @@ export function applyUserFilter(
   // Strip / keep
   let lines = text.split("\n");
   if (filter.strip) {
-    lines = lines.filter((l) => !filter.strip!.some((r) => r.test(l)));
+    lines = lines.filter((l) => !filter.strip?.some((r) => r.test(l)));
   }
   if (filter.keep) {
-    lines = lines.filter((l) => filter.keep!.some((r) => r.test(l)));
+    lines = lines.filter((l) => filter.keep?.some((r) => r.test(l)));
   }
 
   // Truncate long lines

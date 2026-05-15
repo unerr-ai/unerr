@@ -124,7 +124,7 @@ function splitIntoSections(text: string): Section[] {
 
 function scoreSections(
   sections: Section[],
-  entityRiskMap?: Map<string, EntityRiskInfo>,
+  entityRiskMap?: Map<string, EntityRiskInfo>
 ): void {
   for (const section of sections) {
     if (section.type === "error") section.score += 10;
@@ -164,7 +164,7 @@ function scoreSections(
  */
 export function compressOutput(
   text: string,
-  options: CompressorOptions = {},
+  options: CompressorOptions = {}
 ): CompressionResult {
   const {
     tokenBudget = 2000,

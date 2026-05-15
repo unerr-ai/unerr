@@ -79,9 +79,7 @@ function createMockGraphStore(opts?: MockGraphOpts) {
     getEntity: vi
       .fn()
       .mockReturnValue(
-        opts?.entityOverride !== undefined
-          ? opts.entityOverride
-          : defaultEntity,
+        opts?.entityOverride !== undefined ? opts.entityOverride : defaultEntity
       ),
     getCallersOf: vi.fn().mockReturnValue([]),
     getCalleesOf: vi.fn().mockReturnValue([]),
@@ -320,7 +318,7 @@ describe.skip("Community context enrichment (A.3) (deprecated — _context.commu
     });
     expect(result._meta.cross_community_edges).toHaveLength(1);
     expect(result._meta.cross_community_edges?.[0]?.entity_name).toBe(
-      "validateToken",
+      "validateToken"
     );
     expect(result._meta.cross_community_count).toBe(1);
     expect(result._context?.community).toContain("payment");

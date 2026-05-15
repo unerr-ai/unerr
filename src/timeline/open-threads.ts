@@ -8,10 +8,7 @@
  * Read-only: never writes anything.
  */
 
-import type {
-  CozoTimelineStore,
-  MarkerRow,
-} from "./timeline-store.js";
+import type { CozoTimelineStore, MarkerRow } from "./timeline-store.js";
 
 export interface OpenThread {
   marker_id: string;
@@ -62,7 +59,7 @@ export function computeOpenThreads(markers: MarkerRow[]): OpenThread[] {
  */
 export async function getOpenThreads(
   store: CozoTimelineStore,
-  opts: GetOpenThreadsOptions = {},
+  opts: GetOpenThreadsOptions = {}
 ): Promise<OpenThread[]> {
   const markers = await store.listMarkers({
     sessionId: opts.sessionId,

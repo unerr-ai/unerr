@@ -48,7 +48,7 @@ export class ToolRegistry {
         inputSchema,
         isReadOnly,
         requiresPermission,
-      }),
+      })
     );
   }
 

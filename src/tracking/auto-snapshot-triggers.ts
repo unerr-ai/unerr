@@ -104,7 +104,7 @@ export function shouldAutoSnapshot(
   toolName: string,
   args: Record<string, unknown>,
   result: unknown,
-  fanInThreshold?: number,
+  fanInThreshold?: number
 ): AutoSnapshotTrigger | null {
   const testTrigger = checkTestPass(toolName, args, result);
   if (testTrigger) return testTrigger;
@@ -113,7 +113,7 @@ export function shouldAutoSnapshot(
     toolName,
     args,
     result,
-    fanInThreshold ?? DEFAULT_FAN_IN_THRESHOLD,
+    fanInThreshold ?? DEFAULT_FAN_IN_THRESHOLD
   );
   if (criticalTrigger) return criticalTrigger;
 
@@ -130,7 +130,7 @@ export function createSessionEndTrigger(): AutoSnapshotTrigger {
 function checkTestPass(
   toolName: string,
   args: Record<string, unknown>,
-  result: unknown,
+  result: unknown
 ): AutoSnapshotTrigger | null {
   const command = extractCommand(toolName, args);
   if (!command) return null;
@@ -151,7 +151,7 @@ function checkPreCriticalChange(
   toolName: string,
   args: Record<string, unknown>,
   result: unknown,
-  threshold: number,
+  threshold: number
 ): AutoSnapshotTrigger | null {
   const modifyTools = [
     "sync_local_diff",
@@ -168,7 +168,7 @@ function checkPreCriticalChange(
   if (fanIn === null || fanIn < threshold) return null;
 
   log.info(
-    `Pre-critical-change trigger: ${entityKey} (fan_in=${fanIn}, threshold=${threshold})`,
+    `Pre-critical-change trigger: ${entityKey} (fan_in=${fanIn}, threshold=${threshold})`
   );
   return {
     type: "pre_critical_change",
@@ -179,7 +179,7 @@ function checkPreCriticalChange(
 
 function extractCommand(
   toolName: string,
-  args: Record<string, unknown>,
+  args: Record<string, unknown>
 ): string | null {
   if (typeof args.command === "string") return args.command;
 
@@ -270,7 +270,7 @@ function extractTargetEntity(args: Record<string, unknown>): string | null {
 
 function extractFanIn(
   args: Record<string, unknown>,
-  result: unknown,
+  result: unknown
 ): number | null {
   if (typeof args.fan_in === "number") return args.fan_in;
   if (typeof args.fanIn === "number") return args.fanIn;

@@ -101,7 +101,7 @@ function matchColumnProfile(command: string): { keep: string[] } | null {
 }
 
 function detectHeaderRow(
-  lines: string[],
+  lines: string[]
 ): { headers: string[]; dataStart: number } | null {
   if (lines.length < 2) return null;
   const first = lines[0]?.trim() ?? "";
@@ -135,8 +135,8 @@ function compressTabularInner(text: string, command?: string): string {
   // Last-col-rest parsing for ps aux / ps -ef:
   // First N-1 fields are whitespace-delimited, last field captures everything remaining.
   if (useLastColRest && lines.length >= 2) {
-    const headerTokens = lines[0]!.trim().split(/\s+/).filter(Boolean);
-    if (headerTokens.length >= 2) {
+    const headerTokens = lines[0]?.trim().split(/\s+/).filter(Boolean);
+    if (headerTokens && headerTokens.length >= 2) {
       const numCols = headerTokens.length;
       const dataRows = lines.slice(1);
 
@@ -148,9 +148,10 @@ function compressTabularInner(text: string, command?: string): string {
         keepIndices = [];
         keepNames = [];
         for (let i = 0; i < headerTokens.length; i++) {
-          if (keepSet.has(headerTokens[i]!.toUpperCase())) {
+          const tok = headerTokens[i];
+          if (tok && keepSet.has(tok.toUpperCase())) {
             keepIndices.push(i);
-            keepNames.push(headerTokens[i]!);
+            keepNames.push(tok);
           }
         }
         if (keepIndices.length < 2) {
@@ -210,7 +211,7 @@ function compressTabularInner(text: string, command?: string): string {
     const { headers, dataStart } = detected;
     const dataRows = lines.slice(dataStart);
     const parsedRows = dataRows.map((line) =>
-      line.trim().split(SPLIT).filter(Boolean),
+      line.trim().split(SPLIT).filter(Boolean)
     );
 
     const width = Math.max(headers.length, ...parsedRows.map((r) => r.length));

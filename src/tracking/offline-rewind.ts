@@ -92,7 +92,7 @@ export interface OfflineRewindResult {
  *   5. Update local state: shadow.jsonl, branch_context.json, drift overlay
  */
 export async function offlineRewind(
-  input: OfflineRewindInput,
+  input: OfflineRewindInput
 ): Promise<OfflineRewindResult> {
   const startTime = Date.now();
   const { targetEntryId, cwd, unerrDir, graph, ledger, dryRun } = input;
@@ -104,7 +104,7 @@ export async function offlineRewind(
 
     if (!targetEntry) {
       return errorResult(
-        `Target entry ${targetEntryId} not found in local ledger`,
+        `Target entry ${targetEntryId} not found in local ledger`
       );
     }
 
@@ -115,7 +115,7 @@ export async function offlineRewind(
         e.branch === targetEntry.branch &&
         e.ts > targetEntry.ts &&
         e.id !== targetEntryId &&
-        !(e.result_summary as Record<string, unknown>)?.rewind_status,
+        !(e.result_summary as Record<string, unknown>)?.rewind_status
     );
 
     // Collect all files changed in entries to revert
@@ -133,7 +133,7 @@ export async function offlineRewind(
       graph,
       Array.from(filesToRevert),
       targetFiles,
-      startTime,
+      startTime
     );
 
     if (dryRun) {
@@ -202,7 +202,7 @@ export async function offlineRewind(
     // 5c. Mark intermediate entries as reverted locally
     markEntriesReverted(
       unerrDir,
-      entriesToRevert.map((e) => e.id),
+      entriesToRevert.map((e) => e.id)
     );
 
     // 5d. Clear drift overlay for reverted files (they're now at target state)
@@ -230,7 +230,7 @@ async function computeLocalBlastRadius(
   graph: CozoGraphStore,
   revertFiles: string[],
   targetFiles: Set<string>,
-  startTime: number,
+  startTime: number
 ): Promise<LocalBlastRadius> {
   const safeFiles: string[] = [];
   const conflictedFiles: Array<{ filePath: string; reason: string }> = [];

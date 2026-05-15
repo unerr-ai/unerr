@@ -85,23 +85,23 @@ export class AutoDocBehavior extends Behavior {
 
     const inlineActions = await this.detectInlineDocNeeds(
       ctx.filePath,
-      newContent,
+      newContent
     );
     actions.push(...inlineActions);
 
     const refActions = await this.detectStaleReferences(
       ctx.filePath,
-      newContent,
+      newContent
     );
     actions.push(...refActions);
 
     if (actions.length === 0) return null;
 
     this.docsGeneratedThisSession += actions.filter(
-      (a) => a.type !== "reference_flagged",
+      (a) => a.type !== "reference_flagged"
     ).length;
     this.docsFlaggedThisSession += actions.filter(
-      (a) => a.type === "reference_flagged",
+      (a) => a.type === "reference_flagged"
     ).length;
 
     const agentPrompt = this.docConfig.useAgentAsLlm
@@ -142,7 +142,7 @@ export class AutoDocBehavior extends Behavior {
    */
   private async detectInlineDocNeeds(
     filePath: string,
-    content: string,
+    content: string
   ): Promise<DocAction[]> {
     const actions: DocAction[] = [];
     const exportedFunctions = extractExportedSignatures(content);
@@ -175,7 +175,7 @@ export class AutoDocBehavior extends Behavior {
                   filePath,
                   sig.name,
                   entity.signature,
-                  sig.signature,
+                  sig.signature
                 )
               : undefined,
           });
@@ -191,7 +191,7 @@ export class AutoDocBehavior extends Behavior {
    */
   private async detectStaleReferences(
     filePath: string,
-    content: string,
+    content: string
   ): Promise<DocAction[]> {
     if (!this.graph) return [];
 
@@ -219,7 +219,7 @@ export class AutoDocBehavior extends Behavior {
 
   private async findEntity(
     name: string,
-    filePath: string,
+    filePath: string
   ): Promise<LocalEntity | null> {
     if (!this.graph) return null;
     const entities = await this.graph.getEntitiesByFile(filePath);
@@ -243,7 +243,7 @@ export class AutoDocBehavior extends Behavior {
 
     parts.push("");
     parts.push(
-      "Please review and update documentation as needed, following the existing doc style in this project.",
+      "Please review and update documentation as needed, following the existing doc style in this project."
     );
 
     return parts.join("\n");
@@ -280,7 +280,8 @@ function extractExportedSignatures(content: string): ParsedSignature[] {
     /(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(\([^)]*\))(?:\s*:\s*([^{]+?))?(?:\s*\{)/g;
 
   let match: RegExpExecArray | null;
-  while ((match = pattern.exec(content)) !== null) {
+  match = pattern.exec(content);
+  while (match !== null) {
     const name = match[1]!;
     const params = match[2]!;
     const returnType = match[3]?.trim() ?? null;
@@ -290,6 +291,7 @@ function extractExportedSignatures(content: string): ParsedSignature[] {
       startIndex: match.index,
       returnType,
     });
+    match = pattern.exec(content);
   }
 
   return results;
@@ -298,7 +300,7 @@ function extractExportedSignatures(content: string): ParsedSignature[] {
 function hasExistingDoc(content: string, signatureIndex: number): boolean {
   const before = content.slice(
     Math.max(0, signatureIndex - 200),
-    signatureIndex,
+    signatureIndex
   );
   return /\/\*\*[\s\S]*?\*\/\s*$/.test(before);
 }
@@ -321,7 +323,7 @@ function extractParamsFromSignature(signature: string): ParsedParam[] {
 function generateTemplateJSDoc(
   name: string,
   params: ParsedParam[],
-  returnType: string | null,
+  returnType: string | null
 ): string {
   const lines: string[] = ["/**"];
 
@@ -341,7 +343,7 @@ function generateTemplateJSDoc(
 function buildInlineDocPrompt(
   filePath: string,
   funcName: string,
-  signature: string,
+  signature: string
 ): string {
   return `Generate a concise JSDoc comment for the function "${funcName}" in ${filePath}. Signature: ${signature}. Follow the existing documentation style in this file. Focus on what the function does, not how.`;
 }
@@ -350,7 +352,7 @@ function buildUpdateDocPrompt(
   filePath: string,
   funcName: string,
   oldSignature: string,
-  newSignature: string,
+  newSignature: string
 ): string {
   return `The function "${funcName}" in ${filePath} had its signature changed from "${oldSignature}" to "${newSignature}". Update the JSDoc above the function to reflect the new parameters. Preserve the existing description.`;
 }

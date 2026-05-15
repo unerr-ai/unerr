@@ -9,7 +9,7 @@ let tempDir: string;
 beforeEach(() => {
   tempDir = join(
     tmpdir(),
-    `unerr-scip-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-scip-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(tempDir, { recursive: true });
 });

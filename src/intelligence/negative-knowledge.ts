@@ -38,7 +38,7 @@ export interface CorrectionEntry {
  */
 export function detectAntiPatterns(
   entries: LedgerEntryLike[],
-  rewindEntryId: string,
+  rewindEntryId: string
 ): CorrectionEntry[] {
   const rewindIdx = entries.findIndex((e) => e.id === rewindEntryId);
   if (rewindIdx < 0) return [];
@@ -86,7 +86,7 @@ export function detectAntiPatterns(
  */
 export function detectInstableEntities(
   entries: LedgerEntryLike[],
-  windowMs = 10 * 60 * 1000,
+  windowMs = 10 * 60 * 1000
 ): CorrectionEntry[] {
   const entityTimestamps = new Map<string, number[]>();
 
@@ -133,7 +133,7 @@ function extractFiles(args: Record<string, unknown>): string[] {
   if (!Array.isArray(files)) return [];
   return files
     .map((f) =>
-      typeof f === "string" ? f : ((f as { path?: string })?.path ?? ""),
+      typeof f === "string" ? f : ((f as { path?: string })?.path ?? "")
     )
     .filter(Boolean);
 }

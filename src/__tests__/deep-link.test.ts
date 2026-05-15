@@ -41,7 +41,7 @@ describe("Deep-Link URL Generation (1.6)", () => {
       });
       const parsed = new URL(url);
       expect(parsed.searchParams.get("entities")).toBe(
-        "fn_pay,cls_user,fn_validate",
+        "fn_pay,cls_user,fn_validate"
       );
     });
 

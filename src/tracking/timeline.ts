@@ -74,7 +74,7 @@ export function getTimeline(
   ledger: ShadowLedger,
   currentBranch: string,
   timelineBranch: number,
-  opts: TimelineOptions = {},
+  opts: TimelineOptions = {}
 ): TimelineResult {
   const limit = opts.limit ?? 50;
   const branch = opts.branch ?? currentBranch;

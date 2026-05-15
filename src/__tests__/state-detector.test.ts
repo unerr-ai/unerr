@@ -14,7 +14,7 @@ let unerrDir: string;
 beforeEach(() => {
   tempDir = join(
     tmpdir(),
-    `unerr-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   unerrDir = join(tempDir, ".unerr");
   mkdirSync(join(unerrDir, "state"), { recursive: true });
@@ -32,7 +32,7 @@ function makeConfig(repoId = "repo-123"): void {
   writeFileSync(
     join(unerrDir, "config.json"),
     JSON.stringify({ repoId }),
-    "utf-8",
+    "utf-8"
   );
 }
 
@@ -111,7 +111,7 @@ describe("detectState", () => {
     const result = await detectState(
       baseDeps({
         isGitRepo: () => false,
-      }),
+      })
     );
     expect(result.state).toBe("not_git_repo");
   });

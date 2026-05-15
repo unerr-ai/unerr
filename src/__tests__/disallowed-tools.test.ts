@@ -46,7 +46,7 @@ describe("addDisallowedTools", () => {
     expect(result.added).toBe(2); // Grep + Glob
 
     const settings = JSON.parse(
-      readFileSync(join(testDir, ".claude", "settings.json"), "utf-8"),
+      readFileSync(join(testDir, ".claude", "settings.json"), "utf-8")
     );
     expect(settings.permissions.deny).not.toContain("Read"); // intentionally excluded
     expect(settings.permissions.deny).toContain("Grep");
@@ -58,14 +58,14 @@ describe("addDisallowedTools", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "settings.json"),
-      JSON.stringify({ someExisting: true }, null, 2),
+      JSON.stringify({ someExisting: true }, null, 2)
     );
 
     const result = addDisallowedTools(testDir);
     expect(result.added).toBe(2);
 
     const settings = JSON.parse(
-      readFileSync(join(dir, "settings.json"), "utf-8"),
+      readFileSync(join(dir, "settings.json"), "utf-8")
     );
     expect(settings.someExisting).toBe(true);
     expect(settings.permissions.deny).toContain("Grep");
@@ -77,13 +77,13 @@ describe("addDisallowedTools", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "settings.json"),
-      JSON.stringify({ permissions: { deny: ["SomeOtherTool"] } }, null, 2),
+      JSON.stringify({ permissions: { deny: ["SomeOtherTool"] } }, null, 2)
     );
 
     addDisallowedTools(testDir);
 
     const settings = JSON.parse(
-      readFileSync(join(dir, "settings.json"), "utf-8"),
+      readFileSync(join(dir, "settings.json"), "utf-8")
     );
     expect(settings.permissions.deny).toContain("SomeOtherTool");
     expect(settings.permissions.deny).toContain("Grep");
@@ -97,7 +97,7 @@ describe("addDisallowedTools", () => {
     expect(result.added).toBe(0);
 
     const settings = JSON.parse(
-      readFileSync(join(testDir, ".claude", "settings.json"), "utf-8"),
+      readFileSync(join(testDir, ".claude", "settings.json"), "utf-8")
     );
     // No duplicates — only Grep + Glob
     expect(settings.permissions.deny).toHaveLength(2);
@@ -111,7 +111,7 @@ describe("removeDisallowedTools", () => {
     expect(removed).toBe(true);
 
     const settings = JSON.parse(
-      readFileSync(join(testDir, ".claude", "settings.json"), "utf-8"),
+      readFileSync(join(testDir, ".claude", "settings.json"), "utf-8")
     );
     // permissions.deny cleaned up entirely
     expect(settings.permissions).toBeUndefined();
@@ -125,14 +125,14 @@ describe("removeDisallowedTools", () => {
       JSON.stringify(
         { permissions: { deny: ["Read", "Grep", "Glob", "SomeOtherTool"] } },
         null,
-        2,
-      ),
+        2
+      )
     );
 
     removeDisallowedTools(testDir);
 
     const settings = JSON.parse(
-      readFileSync(join(dir, "settings.json"), "utf-8"),
+      readFileSync(join(dir, "settings.json"), "utf-8")
     );
     // Read is no longer unerr-managed, so it survives a `remove`. Migration
     // away from Read happens only on `add`.
@@ -155,7 +155,7 @@ describe("removeDisallowedTools", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "settings.json"),
-      JSON.stringify({ permissions: { deny: ["SomeOtherTool"] } }, null, 2),
+      JSON.stringify({ permissions: { deny: ["SomeOtherTool"] } }, null, 2)
     );
     expect(removeDisallowedTools(testDir)).toBe(false);
   });
@@ -167,14 +167,14 @@ describe("add + remove roundtrip", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "settings.json"),
-      JSON.stringify({ hooks: { PreToolUse: [] } }, null, 2),
+      JSON.stringify({ hooks: { PreToolUse: [] } }, null, 2)
     );
 
     addDisallowedTools(testDir);
     removeDisallowedTools(testDir);
 
     const settings = JSON.parse(
-      readFileSync(join(dir, "settings.json"), "utf-8"),
+      readFileSync(join(dir, "settings.json"), "utf-8")
     );
     expect(settings.hooks).toBeDefined(); // preserved
     expect(settings.permissions).toBeUndefined(); // cleaned up

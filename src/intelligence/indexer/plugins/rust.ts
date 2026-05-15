@@ -50,7 +50,7 @@ function extractDoc(node: SyntaxNode): string | null {
         text.startsWith("//!") ||
         text.startsWith("/**")
       ) {
-        doc = text + "\n" + doc;
+        doc = `${text}\n${doc}`;
         sibling = sibling.previousSibling;
         continue;
       }
@@ -67,7 +67,7 @@ function countParameters(node: SyntaxNode): number {
     (c) =>
       c.type === "parameter" ||
       c.type === "self_parameter" ||
-      c.type === "variadic_parameter",
+      c.type === "variadic_parameter"
   ).length;
 }
 
@@ -75,7 +75,7 @@ function countParametersExcludingSelf(node: SyntaxNode): number {
   const params = node.childForFieldName("parameters");
   if (!params) return 0;
   return params.namedChildren.filter(
-    (c) => c.type === "parameter" || c.type === "variadic_parameter",
+    (c) => c.type === "parameter" || c.type === "variadic_parameter"
   ).length;
 }
 
@@ -88,7 +88,7 @@ function hasSelfParam(node: SyntaxNode): boolean {
 function extractSignature(
   node: SyntaxNode,
   name: string,
-  kind: EntityKind,
+  kind: EntityKind
 ): string {
   if (kind === "class") return `struct ${name}`;
   if (kind === "interface") return `trait ${name}`;
@@ -141,7 +141,7 @@ function addEntity(
     isAsync?: boolean;
     paramCount?: number;
     signature?: string;
-  } = {},
+  } = {}
 ): string {
   const scope = currentScope(ctx);
   const key = entityKey(ctx.filePath, kind, name, scope);
@@ -272,7 +272,7 @@ function visitNode(node: SyntaxNode, ctx: ExtractorContext): void {
       const bounds = node.childForFieldName("bounds");
       if (bounds) {
         for (const bound of bounds.namedChildren) {
-          const boundName = textOf(bound).split("<")[0]!.trim();
+          const boundName = textOf(bound).split("<")[0]?.trim();
           if (boundName) {
             ctx.edges.push({
               from_key: key,
@@ -294,11 +294,11 @@ function visitNode(node: SyntaxNode, ctx: ExtractorContext): void {
     case "impl_item": {
       const typeNode = node.childForFieldName("type");
       const traitNode = node.childForFieldName("trait");
-      const typeName = typeNode ? textOf(typeNode).split("<")[0]!.trim() : null;
+      const typeName = typeNode ? textOf(typeNode).split("<")[0]?.trim() : null;
       if (!typeName) break;
 
       const implName = traitNode
-        ? `${textOf(traitNode).split("<")[0]!.trim()} for ${typeName}`
+        ? `${textOf(traitNode).split("<")[0]?.trim()} for ${typeName}`
         : typeName;
 
       const key = addEntity(ctx, node, "namespace", implName, {
@@ -307,7 +307,7 @@ function visitNode(node: SyntaxNode, ctx: ExtractorContext): void {
       });
 
       if (traitNode) {
-        const traitName = textOf(traitNode).split("<")[0]!.trim();
+        const traitName = textOf(traitNode).split("<")[0]?.trim();
         const typeKey = entityKey(ctx.filePath, "class", typeName, "");
         ctx.edges.push({
           from_key: typeKey,
@@ -415,7 +415,7 @@ function extractImports(tree: Tree, filePath: string): ImportInfo[] {
   function processUseTree(
     useTree: SyntaxNode,
     basePath: string,
-    line: number,
+    line: number
   ): void {
     if (useTree.type === "use_as_clause") {
       const path = useTree.namedChildren[0];
@@ -455,7 +455,7 @@ function extractImports(tree: Tree, filePath: string): ImportInfo[] {
     if (useTree.type === "scoped_use_list") {
       const path = useTree.childForFieldName("path");
       const list = useTree.childForFieldName("list");
-      const newBase = path ? basePath + textOf(path) + "::" : basePath;
+      const newBase = path ? `${basePath + textOf(path)}::` : basePath;
       if (list) {
         processUseTree(list, newBase, line);
       }
@@ -500,7 +500,7 @@ function extractImports(tree: Tree, filePath: string): ImportInfo[] {
         (c) =>
           c.type !== "visibility_modifier" &&
           c.type !== "line_comment" &&
-          c.type !== "block_comment",
+          c.type !== "block_comment"
       );
       if (argument) {
         processUseTree(argument, "", line);

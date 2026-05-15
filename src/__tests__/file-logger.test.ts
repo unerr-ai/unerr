@@ -12,7 +12,7 @@ describe("installFileLogger", () => {
   beforeEach(() => {
     tmpDir = join(
       os.tmpdir(),
-      `unerr-file-logger-${Date.now()}-${Math.random()}`,
+      `unerr-file-logger-${Date.now()}-${Math.random()}`
     );
     mkdirSync(tmpDir, { recursive: true });
     logPath = join(tmpDir, "mirror.log");

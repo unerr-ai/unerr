@@ -79,7 +79,7 @@ export class WorkspaceManifest {
   constructor(
     private unerrDir: string,
     private repoId: string,
-    private sessionId: string,
+    private sessionId: string
   ) {
     this.manifestPath = join(unerrDir, "manifest.json");
     this.data = this.load();
@@ -164,7 +164,7 @@ export class WorkspaceManifest {
       toolChain: string[];
       files: string[];
       createdAt: string;
-    }>,
+    }>
   ): void {
     if (intents.length === 0) return;
 
@@ -250,7 +250,7 @@ export class WorkspaceManifest {
     writeFileSync(
       this.manifestPath,
       JSON.stringify(this.data, null, 2),
-      "utf-8",
+      "utf-8"
     );
   }
 

@@ -125,7 +125,7 @@ export function analyzeFanInDistribution(edges: IndexedEdge[]): {
  */
 export function measureImportDepth(edges: IndexedEdge[]): number {
   const importEdges = edges.filter(
-    (e) => e.type === "imports" || e.type === "calls",
+    (e) => e.type === "imports" || e.type === "calls"
   );
   const adj = new Map<string, string[]>();
   for (const edge of importEdges) {
@@ -176,7 +176,7 @@ export function computeTestCoverageProxy(entities: IndexedEntity[]): number {
 export function computeHealthGrade(
   entities: IndexedEntity[],
   edges: IndexedEdge[],
-  communityCohesion = 0.5,
+  communityCohesion = 0.5
 ): HealthReport {
   const cycles = detectCircularDeps(edges);
   const cycleScore = Math.max(0, 100 - cycles.length * 15);
@@ -228,7 +228,7 @@ export function computeHealthGrade(
 
   const compositeScore = factors.reduce(
     (sum, f) => sum + f.score * f.weight,
-    0,
+    0
   );
 
   const grade: HealthGrade =

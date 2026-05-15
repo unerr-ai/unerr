@@ -46,7 +46,7 @@ export function tokenizeFilePath(filePath: string): string[] {
  * Build a token frequency map from an array of identifiers.
  */
 export function buildTokenFrequency(
-  identifiers: string[],
+  identifiers: string[]
 ): Map<string, number> {
   const freq = new Map<string, number>();
 

@@ -87,7 +87,7 @@ const DELETE_PATTERNS = [
  * Fix is highest priority because fix prompts often also contain "modify" or "change".
  */
 export function extractActionType(
-  prompt: string,
+  prompt: string
 ): PromptDurabilityProfile["actionType"] {
   if (!prompt || prompt.trim().length === 0) return "other";
 
@@ -107,7 +107,7 @@ export function extractActionType(
  * durability as survived/total, and attaches recommendations for low-durability buckets.
  */
 export function computePromptDurabilityProfiles(
-  ledgerEntries: LedgerEntryLike[],
+  ledgerEntries: LedgerEntryLike[]
 ): PromptDurabilityProfile[] {
   const buckets = new Map<
     string,
@@ -167,7 +167,7 @@ export function computePromptDurabilityProfiles(
  * Returns the overall durability across all profiles, weighted by sample count.
  */
 export function computeOverallDurability(
-  profiles: PromptDurabilityProfile[],
+  profiles: PromptDurabilityProfile[]
 ): number {
   let totalWeighted = 0;
   let totalSamples = 0;
@@ -188,7 +188,7 @@ export function computeOverallDurability(
 export function getMostFragile(
   profiles: PromptDurabilityProfile[],
   limit = 5,
-  minSamples = 3,
+  minSamples = 3
 ): PromptDurabilityProfile[] {
   return profiles
     .filter((p) => p.sampleCount >= minSamples)
@@ -202,7 +202,7 @@ export function getMostFragile(
 export function getMostDurable(
   profiles: PromptDurabilityProfile[],
   limit = 5,
-  minSamples = 3,
+  minSamples = 3
 ): PromptDurabilityProfile[] {
   return profiles
     .filter((p) => p.sampleCount >= minSamples)
@@ -219,7 +219,7 @@ interface BucketKey {
 }
 
 function normalizeRisk(
-  risk: string | undefined,
+  risk: string | undefined
 ): PromptDurabilityProfile["targetRisk"] {
   if (!risk) return "low";
   const lower = risk.toLowerCase();
@@ -230,14 +230,14 @@ function normalizeRisk(
 }
 
 function classifyScope(
-  files: string[] | undefined,
+  files: string[] | undefined
 ): PromptDurabilityProfile["scope"] {
   if (!files || files.length <= 1) return "single_file";
   return "multi_file";
 }
 
 function generateRecommendation(
-  profile: PromptDurabilityProfile,
+  profile: PromptDurabilityProfile
 ): string | undefined {
   if (profile.sampleCount < 3) return undefined;
 

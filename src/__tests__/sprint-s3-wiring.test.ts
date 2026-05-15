@@ -15,7 +15,7 @@ import { QueryRouter } from "../intelligence/query-router.js";
 import { createContextRotDetector } from "../proxy/context-rot-detector.js";
 
 function createMockGraph(
-  overrides: Record<string, unknown> = {},
+  overrides: Record<string, unknown> = {}
 ): CozoGraphStore {
   return {
     getEntity: vi.fn().mockReturnValue({
@@ -85,7 +85,7 @@ describe("Sprint S3: Context Rot Detector Wiring", () => {
 
       const signal = detector.evaluate();
       expect(signal.signals.some((s) => s.type === "depth_threshold")).toBe(
-        true,
+        true
       );
       expect(signal.rotConfidence).toBeGreaterThan(0);
     });
@@ -108,7 +108,7 @@ describe("Sprint S3: Context Rot Detector Wiring", () => {
       const signal = detector.evaluate();
       // After 3+ re-queries to an entity already in history, repeated_exploration fires
       expect(
-        signal.signals.some((s) => s.type === "repeated_exploration"),
+        signal.signals.some((s) => s.type === "repeated_exploration")
       ).toBe(true);
     });
   });
@@ -132,7 +132,7 @@ describe("Sprint S3: Context Rot Detector Wiring", () => {
       const signal = detector.evaluate();
       // After 5+ errors, declining_precision should fire
       expect(signal.signals.some((s) => s.type === "declining_precision")).toBe(
-        true,
+        true
       );
     });
   });
@@ -199,7 +199,7 @@ describe("Sprint S3: Context Rot Detector Wiring", () => {
 
       expect(result._meta.session_health).toBeDefined();
       expect(result._meta.session_health?.recommendation).toBe(
-        "suggest_new_session",
+        "suggest_new_session"
       );
       expect(result._meta.session_health?.signals.length).toBeGreaterThan(0);
     });

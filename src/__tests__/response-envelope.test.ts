@@ -125,7 +125,7 @@ describe("createEnvelopePipeline", () => {
       5,
       "get_function",
       { key: "abc" },
-      100,
+      100
     );
 
     const args = capturedArgs as {

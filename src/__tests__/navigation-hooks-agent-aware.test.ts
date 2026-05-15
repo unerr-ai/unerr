@@ -47,8 +47,8 @@ describe("preReadHook — Claude Code", () => {
   it("passthrough for targeted Read (offset/limit)", () => {
     const result = JSON.parse(
       runPreReadHook(
-        claudeCodePayload({ file_path: "src/foo.ts", offset: 10, limit: 20 }),
-      ),
+        claudeCodePayload({ file_path: "src/foo.ts", offset: 10, limit: 20 })
+      )
     );
     // Empty object = passthrough (no nudge)
     expect(result).toEqual({});
@@ -56,7 +56,7 @@ describe("preReadHook — Claude Code", () => {
 
   it("nudges for full-file Read (no offset/limit)", () => {
     const result = JSON.parse(
-      runPreReadHook(claudeCodePayload({ file_path: "src/foo.ts" })),
+      runPreReadHook(claudeCodePayload({ file_path: "src/foo.ts" }))
     );
     const msg = result.hookSpecificOutput?.systemMessage ?? "";
     expect(msg).toContain("ONLY for the Edit workflow");
@@ -66,7 +66,7 @@ describe("preReadHook — Claude Code", () => {
 
   it("still nudges for non-code files (preRead has no isCodeFile gate)", () => {
     const result = JSON.parse(
-      runPreReadHook(claudeCodePayload({ file_path: "README.md" })),
+      runPreReadHook(claudeCodePayload({ file_path: "README.md" }))
     );
     const msg = result.hookSpecificOutput?.systemMessage ?? "";
     expect(msg).toContain("file_read");
@@ -78,7 +78,7 @@ describe("preReadHook — Claude Code", () => {
 describe("preReadHook — Cursor (non-Claude Code)", () => {
   it("nudges toward file_read (no Edit workflow mention)", () => {
     const result = JSON.parse(
-      runPreReadHook(cursorPayload({ file_path: "src/foo.ts" })),
+      runPreReadHook(cursorPayload({ file_path: "src/foo.ts" }))
     );
     // Cursor adapter uses `agent_message` at root level for pre-tool-use nudges
     const msg = result.agent_message ?? "";
@@ -91,8 +91,8 @@ describe("preReadHook — Cursor (non-Claude Code)", () => {
   it("still nudges even with offset/limit (Cursor doesn't need targeted Read)", () => {
     const result = JSON.parse(
       runPreReadHook(
-        cursorPayload({ file_path: "src/foo.ts", offset: 10, limit: 20 }),
-      ),
+        cursorPayload({ file_path: "src/foo.ts", offset: 10, limit: 20 })
+      )
     );
     // Cursor adapter uses `agent_message` for pre-tool-use nudges
     const msg = result.agent_message ?? "";
@@ -111,8 +111,8 @@ describe("preEditHook — Claude Code", () => {
           file_path: "src/foo.ts",
           old_string: "const x = 1",
           new_string: "const x = 2",
-        }),
-      ),
+        })
+      )
     );
     const msg = result.hookSpecificOutput?.systemMessage ?? "";
     expect(msg).toContain("CRITICAL: Edit REQUIRES built-in Read");
@@ -126,8 +126,8 @@ describe("preEditHook — Claude Code", () => {
           file_path: "src/foo.ts",
           old_string: "export function doSomething(x: number)",
           new_string: "export function doSomething(x: string)",
-        }),
-      ),
+        })
+      )
     );
     const msg = result.hookSpecificOutput?.systemMessage ?? "";
     expect(msg).toContain("CRITICAL: Edit REQUIRES built-in Read");
@@ -169,7 +169,7 @@ describe("postReadHook — agent-aware enrichment", () => {
 
   it("Claude Code: mentions Edit workflow", () => {
     const result = JSON.parse(
-      runPostReadHook(claudeCodePayload({ file_path: "src/post-read-cc.ts" })),
+      runPostReadHook(claudeCodePayload({ file_path: "src/post-read-cc.ts" }))
     );
     const msg = result.hookSpecificOutput?.additionalContext ?? "";
     expect(msg).toContain("Edit needs built-in Read first");

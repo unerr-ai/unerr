@@ -29,7 +29,7 @@ describe("Config Healer (P5.6-ADV-04)", () => {
     it("returns found=false when config file does not exist", () => {
       const result = checkIdeConfig(
         "cursor",
-        path.join(tmpDir, "nonexistent.json"),
+        path.join(tmpDir, "nonexistent.json")
       );
       expect(result.found).toBe(false);
       expect(result.configured).toBe(false);
@@ -54,7 +54,7 @@ describe("Config Healer (P5.6-ADV-04)", () => {
         configPath,
         JSON.stringify({
           mcpServers: { copilot: { command: "npx", args: ["copilot"] } },
-        }),
+        })
       );
 
       const result = checkIdeConfig("cursor", configPath);
@@ -71,7 +71,7 @@ describe("Config Healer (P5.6-ADV-04)", () => {
           mcpServers: {
             unerr: { url: "https://api.unerr.io/mcp/sse" },
           },
-        }),
+        })
       );
 
       const result = checkIdeConfig("cursor", configPath);
@@ -90,7 +90,7 @@ describe("Config Healer (P5.6-ADV-04)", () => {
           mcpServers: {
             unerr: { command: "unerr", args: ["--mcp"] },
           },
-        }),
+        })
       );
 
       const result = checkIdeConfig("cursor", configPath);
@@ -108,7 +108,7 @@ describe("Config Healer (P5.6-ADV-04)", () => {
           mcpServers: {
             unerr: { command: "node", args: ["custom-server.js"] },
           },
-        }),
+        })
       );
 
       const result = checkIdeConfig("cursor", configPath);
@@ -154,7 +154,7 @@ describe("Config Healer (P5.6-ADV-04)", () => {
             copilot: { command: "npx", args: ["copilot-mcp"] },
             cody: { url: "http://localhost:4000/mcp" },
           },
-        }),
+        })
       );
 
       repairIdeConfig("cursor", configPath);
@@ -176,7 +176,7 @@ describe("Config Healer (P5.6-ADV-04)", () => {
           mcpServers: {
             unerr: { url: "https://api.unerr.io/mcp/sse" },
           },
-        }),
+        })
       );
 
       repairIdeConfig("cursor", configPath);
@@ -208,7 +208,7 @@ describe("Config Healer (P5.6-ADV-04)", () => {
         configPath,
         JSON.stringify({
           mcpServers: { other: { url: "http://example.com" } },
-        }),
+        })
       );
 
       // Step 1: check — should find issues

@@ -87,7 +87,7 @@ let ledger: ShadowLedger;
 beforeEach(() => {
   testDir = join(
     tmpdir(),
-    `unerr-test-rewind-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-test-rewind-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   unerrDir = join(testDir, ".unerr");
   mkdirSync(join(unerrDir, "ledger"), { recursive: true });
@@ -110,7 +110,7 @@ function recordEntry(
   tool: string,
   branch: string,
   headSha: string,
-  args?: { files?: string[] },
+  args?: { files?: string[] }
 ) {
   return ledger.record(tool, args ?? {}, {}, branch, headSha);
 }
@@ -175,10 +175,10 @@ describe("Zero-Network Rewind (P5.5-TEST-07a)", () => {
     expect(rewindEntry).toBeDefined();
     expect(rewindEntry?.tool).toBe("revert_to_working_state");
     expect(
-      (rewindEntry?.result_summary as Record<string, unknown>).rewind_status,
+      (rewindEntry?.result_summary as Record<string, unknown>).rewind_status
     ).toBe("simulated");
     expect((rewindEntry?.args_summary as Record<string, unknown>).offline).toBe(
-      true,
+      true
     );
   });
 
@@ -278,7 +278,7 @@ describe("Zero-Network Rewind (P5.5-TEST-07a)", () => {
     };
     writeFileSync(
       ledgerPath,
-      `${JSON.stringify(targetEntry)}\n${JSON.stringify(badEntry)}\n`,
+      `${JSON.stringify(targetEntry)}\n${JSON.stringify(badEntry)}\n`
     );
 
     const freshLedger = new ShadowLedger(unerrDir);

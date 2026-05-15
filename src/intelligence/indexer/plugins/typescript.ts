@@ -61,7 +61,7 @@ function countParameters(node: SyntaxNode): number {
     (c) =>
       c.type === "required_parameter" ||
       c.type === "optional_parameter" ||
-      c.type === "rest_pattern",
+      c.type === "rest_pattern"
   ).length;
 }
 
@@ -116,7 +116,7 @@ function addEntity(
     isAsync?: boolean;
     paramCount?: number;
     signature?: string;
-  } = {},
+  } = {}
 ): string {
   const scope = currentScope(ctx);
   const key = entityKey(ctx.filePath, kind, name, scope);
@@ -157,7 +157,7 @@ function visitNode(node: SyntaxNode, ctx: ExtractorContext): void {
   const actualNode =
     node.type === "export_statement"
       ? (node.namedChildren.find(
-          (c) => c.type !== "comment" && c.type !== "decorator",
+          (c) => c.type !== "comment" && c.type !== "decorator"
         ) ?? node)
       : node;
 
@@ -359,7 +359,7 @@ function extractCalleeName(node: SyntaxNode): string | null {
 function extractHeritage(
   heritageNode: SyntaxNode,
   classKey: string,
-  ctx: ExtractorContext,
+  ctx: ExtractorContext
 ): void {
   for (const clause of heritageNode.namedChildren) {
     if (clause.type === "extends_clause") {
@@ -406,7 +406,7 @@ function extractImports(tree: Tree, filePath: string): ImportInfo[] {
       const line = node.startPosition.row + 1;
 
       const importClause = node.namedChildren.find(
-        (c) => c.type === "import_clause",
+        (c) => c.type === "import_clause"
       );
 
       if (!importClause) {

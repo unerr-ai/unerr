@@ -8,13 +8,13 @@ import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { CozoTimelineStore } from "../timeline/timeline-store.js";
 import {
+  MARKER_TOOLS,
   handleMarkerCall,
   isMarkerTool,
-  MARKER_TOOLS,
 } from "../tools/intelligence/timeline-markers.js";
 import { ShadowLedger } from "../tracking/shadow-ledger.js";
-import { CozoTimelineStore } from "../timeline/timeline-store.js";
 
 let tempDir: string;
 let unerrDir: string;
@@ -24,7 +24,7 @@ let store: CozoTimelineStore;
 beforeEach(async () => {
   tempDir = join(
     tmpdir(),
-    `unerr-mk-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-mk-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   unerrDir = join(tempDir, ".unerr");
   mkdirSync(unerrDir, { recursive: true });
@@ -66,7 +66,7 @@ describe("handleMarkerCall — happy paths", () => {
     const res = await handleMarkerCall(
       "mark_intent",
       { text: "refactor auth" },
-      { ledger, store, branch: "main", headSha: "deadbeef" },
+      { ledger, store, branch: "main", headSha: "deadbeef" }
     );
     const body = JSON.parse(res.content[0]!.text);
     expect(body.ok).toBe(true);
@@ -77,7 +77,7 @@ describe("handleMarkerCall — happy paths", () => {
     // Ledger row
     const ledgerLines = readFileSync(
       join(unerrDir, "ledger", "shadow.jsonl"),
-      "utf-8",
+      "utf-8"
     )
       .trim()
       .split("\n")
@@ -103,11 +103,11 @@ describe("handleMarkerCall — happy paths", () => {
         text: "JWT over session cookies",
         alternatives: ["session cookies", "OAuth proxy", "API tokens"],
       },
-      { ledger, store, branch: "main", headSha: "x" },
+      { ledger, store, branch: "main", headSha: "x" }
     );
     const lines = readFileSync(
       join(unerrDir, "ledger", "shadow.jsonl"),
-      "utf-8",
+      "utf-8"
     )
       .trim()
       .split("\n")
@@ -123,7 +123,7 @@ describe("handleMarkerCall — happy paths", () => {
     const res = await handleMarkerCall(
       "mark_blocker",
       { text: "type error in verify", file_path: "src/auth/token.ts" },
-      { ledger, store, branch: "main", headSha: "x" },
+      { ledger, store, branch: "main", headSha: "x" }
     );
     const body = JSON.parse(res.content[0]!.text);
     const markers = await store.listMarkers({ type: "mark_blocker" });
@@ -139,7 +139,7 @@ describe("handleMarkerCall — happy paths", () => {
     const res = await handleMarkerCall(
       "mark_blocker",
       { text: `auth fails when ${tokenish} is set`, file_path: "src/auth.ts" },
-      { ledger, store, branch: "main", headSha: "x" },
+      { ledger, store, branch: "main", headSha: "x" }
     );
     const body = JSON.parse(res.content[0]!.text);
     expect(body.ok).toBe(true);
@@ -147,7 +147,7 @@ describe("handleMarkerCall — happy paths", () => {
     // Ledger redacted
     const ledgerLines = readFileSync(
       join(unerrDir, "ledger", "shadow.jsonl"),
-      "utf-8",
+      "utf-8"
     )
       .trim()
       .split("\n")
@@ -168,14 +168,14 @@ describe("handleMarkerCall — happy paths", () => {
     const blocker = await handleMarkerCall(
       "mark_blocker",
       { text: "type error" },
-      { ledger, store, branch: "main", headSha: "x" },
+      { ledger, store, branch: "main", headSha: "x" }
     );
     const blockerId = JSON.parse(blocker.content[0]!.text).marker_id;
 
     const res = await handleMarkerCall(
       "mark_resolution",
       { blocker_ref: blockerId, text: "fixed by import bump" },
-      { ledger, store, branch: "main", headSha: "x" },
+      { ledger, store, branch: "main", headSha: "x" }
     );
     const body = JSON.parse(res.content[0]!.text);
     expect(body.ok).toBe(true);
@@ -191,7 +191,7 @@ describe("handleMarkerCall — validation", () => {
     const res = await handleMarkerCall(
       "mark_intent",
       { text: "   " },
-      { ledger, store, branch: "main", headSha: "x" },
+      { ledger, store, branch: "main", headSha: "x" }
     );
     const body = JSON.parse(res.content[0]!.text);
     expect(body.error).toMatch(/required/);
@@ -202,7 +202,7 @@ describe("handleMarkerCall — validation", () => {
     const res = await handleMarkerCall(
       "mark_intent",
       { text: long },
-      { ledger, store, branch: "main", headSha: "x" },
+      { ledger, store, branch: "main", headSha: "x" }
     );
     const body = JSON.parse(res.content[0]!.text);
     expect(body.error).toMatch(/80/);
@@ -212,7 +212,7 @@ describe("handleMarkerCall — validation", () => {
     const res = await handleMarkerCall(
       "mark_resolution",
       { text: "fixed" },
-      { ledger, store, branch: "main", headSha: "x" },
+      { ledger, store, branch: "main", headSha: "x" }
     );
     const body = JSON.parse(res.content[0]!.text);
     expect(body.error).toMatch(/blocker_ref required/);

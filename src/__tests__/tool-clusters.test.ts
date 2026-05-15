@@ -130,7 +130,7 @@ describe("ToolUsageTracker", () => {
     expect(scores.get("navigation")).toBeGreaterThan(0);
     expect(scores.get("file-access")).toBeGreaterThan(0);
     expect(scores.get("navigation")!).toBeGreaterThan(
-      scores.get("file-access")!,
+      scores.get("file-access")!
     );
   });
 
@@ -179,10 +179,10 @@ describe("reorderToolsByCluster", () => {
     const names = result.map((t) => t.name);
     // Navigation cluster tools should come first (default order)
     expect(names.indexOf("search_code")).toBeLessThan(
-      names.indexOf("file_outline"),
+      names.indexOf("file_outline")
     );
     expect(names.indexOf("search_code")).toBeLessThan(
-      names.indexOf("get_rules"),
+      names.indexOf("get_rules")
     );
   });
 
@@ -197,7 +197,7 @@ describe("reorderToolsByCluster", () => {
     const names = result.map((t) => t.name);
     // file-access tools should now come before navigation
     expect(names.indexOf("file_outline")).toBeLessThan(
-      names.indexOf("search_code"),
+      names.indexOf("search_code")
     );
   });
 

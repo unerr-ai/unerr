@@ -38,8 +38,7 @@ export async function waitForDaemonReady(): Promise<string> {
   }
 
   throw new Error(
-    `unerrd did not become reachable within ${WAIT_TIMEOUT_MS / 1000}s. ` +
-      `Check logs: ~/.unerr/logs/unerrd.log`,
+    `unerrd did not become reachable within ${WAIT_TIMEOUT_MS / 1000}s. Check logs: ~/.unerr/logs/unerrd.log`
   );
 }
 

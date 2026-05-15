@@ -39,7 +39,7 @@ async function deleteEntity(db: CozoDb, entityKey: string): Promise<void> {
     await db.run(
       `?[from_key, to_key, type] := *edges{ from_key, to_key, type }, from_key = $key
        :rm edges { from_key, to_key, type }`,
-      { key: entityKey },
+      { key: entityKey }
     );
   } catch {
     /* no outgoing edges — safe */
@@ -49,7 +49,7 @@ async function deleteEntity(db: CozoDb, entityKey: string): Promise<void> {
     await db.run(
       `?[from_key, to_key, type] := *edges{ from_key, to_key, type }, to_key = $key
        :rm edges { from_key, to_key, type }`,
-      { key: entityKey },
+      { key: entityKey }
     );
   } catch {
     /* no incoming edges — safe */
@@ -59,7 +59,7 @@ async function deleteEntity(db: CozoDb, entityKey: string): Promise<void> {
     await db.run(
       `?[file_path, entity_key] := *file_index{ file_path, entity_key }, entity_key = $key
        :rm file_index { file_path, entity_key }`,
-      { key: entityKey },
+      { key: entityKey }
     );
   } catch {
     /* not in file_index — safe */
@@ -84,16 +84,16 @@ async function upsertEntity(db: CozoDb, entity: IndexedEntity): Promise<void> {
         sig: entity.signature,
         el: entity.end_line,
         body: entity.body_hash,
-      },
+      }
     );
     await db.run(
       `?[file_path, entity_key] <- [[$fp, $ek]]
        :put file_index { file_path, entity_key }`,
-      { fp: entity.file_path, ek: entity.key },
+      { fp: entity.file_path, ek: entity.key }
     );
   } catch (err) {
     log.debug(
-      `Upsert entity failed for ${entity.key}: ${err instanceof Error ? err.message : String(err)}`,
+      `Upsert entity failed for ${entity.key}: ${err instanceof Error ? err.message : String(err)}`
     );
   }
 }
@@ -111,7 +111,7 @@ async function insertEdges(db: CozoDb, edges: IndexedEdge[]): Promise<number> {
       await db.run(
         `?[from_key, to_key, type] <- [[$fk, $tk, $type]]
          :put edges { from_key, to_key, type }`,
-        { fk: edge.from_key, tk: edge.to_key, type: edge.type },
+        { fk: edge.from_key, tk: edge.to_key, type: edge.type }
       );
       count++;
     } catch {
@@ -128,7 +128,7 @@ export async function applyGraphPatch(
   db: CozoDb,
   diff: EntityDiff,
   newEdges: IndexedEdge[],
-  oldEdgeKeys?: Set<string>,
+  oldEdgeKeys?: Set<string>
 ): Promise<PatchResult> {
   const start = performance.now();
 
@@ -153,7 +153,7 @@ export async function applyGraphPatch(
           await db.run(
             `?[from_key, to_key, type] <- [[$fk, $tk, $type]]
              :rm edges { from_key, to_key, type }`,
-            { fk: fromKey, tk: toKey, type },
+            { fk: fromKey, tk: toKey, type }
           );
         } catch {
           /* safe */
@@ -167,7 +167,7 @@ export async function applyGraphPatch(
   const durationMs = performance.now() - start;
 
   log.debug(
-    `Patch: +${diff.added.length} ~${diff.updated.length} -${diff.deleted.length} entities, +${edgesAdded} edges (${Math.round(durationMs)}ms)`,
+    `Patch: +${diff.added.length} ~${diff.updated.length} -${diff.deleted.length} entities, +${edgesAdded} edges (${Math.round(durationMs)}ms)`
   );
 
   return {
@@ -185,14 +185,14 @@ export async function applyGraphPatch(
  */
 export async function deleteFileFromGraph(
   db: CozoDb,
-  filePath: string,
+  filePath: string
 ): Promise<number> {
   let deleted = 0;
 
   try {
     const result = await db.run(
       "?[entity_key] := *file_index{ file_path: $fp, entity_key }",
-      { fp: filePath },
+      { fp: filePath }
     );
     const keys = result.rows.map((r: unknown[]) => r[0] as string);
 

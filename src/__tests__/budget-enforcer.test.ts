@@ -16,7 +16,7 @@ describe("enforceBudget", () => {
   it("truncates content exceeding budget", () => {
     const content = Array.from(
       { length: 500 },
-      (_, i) => `Line ${i}: some content here that takes up space`,
+      (_, i) => `Line ${i}: some content here that takes up space`
     ).join("\n");
     const result = enforceBudget(content, 200);
     expect(result.truncated).toBe(true);
@@ -42,7 +42,7 @@ describe("enforceBudget", () => {
   it("reports original and delivered token counts", () => {
     const content = Array.from(
       { length: 200 },
-      (_, i) => `Data line ${i} with some padding text`,
+      (_, i) => `Data line ${i} with some padding text`
     ).join("\n");
     const result = enforceBudget(content, 100);
     expect(result.originalTokens).toBeGreaterThan(100);

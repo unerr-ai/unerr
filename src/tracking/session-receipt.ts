@@ -56,16 +56,16 @@ export function formatSessionReceipt(input: SessionReceiptInput): string {
   lines.push(border(`Tool calls:   ${CYAN}${toolCalls}${RESET}`));
   lines.push(
     border(
-      `Tokens saved:     ${EMERALD}${formatTokens(summary.total_tokens_saved).padEnd(10)}${RESET}`,
-    ),
+      `Tokens saved:     ${EMERALD}${formatTokens(summary.total_tokens_saved).padEnd(10)}${RESET}`
+    )
   );
   lines.push(
     border(
-      `Tokens delivered: ${CYAN}${formatTokens(summary.total_tokens_with).padEnd(10)}${RESET}`,
-    ),
+      `Tokens delivered: ${CYAN}${formatTokens(summary.total_tokens_with).padEnd(10)}${RESET}`
+    )
   );
   lines.push(
-    border(`Efficiency:       ${EMERALD}${summary.efficiency_pct}%${RESET}`),
+    border(`Efficiency:       ${EMERALD}${summary.efficiency_pct}%${RESET}`)
   );
   lines.push(empty());
 
@@ -80,8 +80,8 @@ export function formatSessionReceipt(input: SessionReceiptInput): string {
       const pctStr = `(${Math.round(data.pct_of_total)}%)`;
       lines.push(
         border(
-          `  ${padRight(mech, 20)} ${EMERALD}${formatTokens(data.tokens_saved).padStart(6)}${RESET}  ${MUTED}${pctStr}${RESET}`,
-        ),
+          `  ${padRight(mech, 20)} ${EMERALD}${formatTokens(data.tokens_saved).padStart(6)}${RESET}  ${MUTED}${pctStr}${RESET}`
+        )
       );
     }
     lines.push(empty());
@@ -92,8 +92,8 @@ export function formatSessionReceipt(input: SessionReceiptInput): string {
     const top = summary.top_turns[0]!;
     lines.push(
       border(
-        `${MUTED}Most efficient:${RESET} ${BOLD}${top.tool}${RESET} ${MUTED}→${RESET} ${EMERALD}${formatTokens(top.tokens_saved)}${RESET} saved`,
-      ),
+        `${MUTED}Most efficient:${RESET} ${BOLD}${top.tool}${RESET} ${MUTED}→${RESET} ${EMERALD}${formatTokens(top.tokens_saved)}${RESET} saved`
+      )
     );
   }
 
@@ -122,5 +122,7 @@ export function printSessionReceipt(input: SessionReceiptInput): void {
 }
 
 function stripAnsi(s: string): string {
-  return s.replace(/\x1b\[[0-9;?]*[A-Za-z~]/g, "");
+  const ESC = "\x1b";
+  const CSI = new RegExp(`${ESC}\\[[0-9;?]*[A-Za-z~]`, "g");
+  return s.replace(CSI, "");
 }

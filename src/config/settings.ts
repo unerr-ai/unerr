@@ -74,7 +74,7 @@ export interface ResolvedEndpoint {
  * `config.embedding` fields override top-level `config` fields.
  */
 export function resolveEmbeddingEndpoint(
-  config: LocalLlmConfig,
+  config: LocalLlmConfig
 ): ResolvedEndpoint {
   const e = config.embedding;
   return {
@@ -90,7 +90,7 @@ export function resolveEmbeddingEndpoint(
  * `config.inference` fields override top-level `config` fields.
  */
 export function resolveInferenceEndpoint(
-  config: LocalLlmConfig,
+  config: LocalLlmConfig
 ): ResolvedEndpoint {
   const i = config.inference;
   return {
@@ -157,7 +157,7 @@ export function loadSettings(cwd?: string): Settings {
 
   // Layer 3: Project settings
   const projectSettings = loadJsonFile(
-    join(projectDir, ".unerr", "settings.json"),
+    join(projectDir, ".unerr", "settings.json")
   );
 
   // Layer 4: Environment overrides

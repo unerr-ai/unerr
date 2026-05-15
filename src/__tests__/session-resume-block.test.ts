@@ -5,7 +5,7 @@ import {
 } from "../proxy/session-persistence.js";
 
 function makePayload(
-  overrides?: Partial<SessionResumePayload>,
+  overrides?: Partial<SessionResumePayload>
 ): SessionResumePayload {
   return {
     session_resumed: true,

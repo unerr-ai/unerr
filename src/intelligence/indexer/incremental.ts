@@ -33,7 +33,7 @@ export interface CascadeResult {
  */
 export function diffEntities(
   oldEntities: IndexedEntity[],
-  newEntities: IndexedEntity[],
+  newEntities: IndexedEntity[]
 ): EntityDiff {
   const oldMap = new Map(oldEntities.map((e) => [e.key, e]));
   const newMap = new Map(newEntities.map((e) => [e.key, e]));
@@ -69,7 +69,7 @@ export function diffEntities(
  */
 export function cascadeInvalidation(
   diff: EntityDiff,
-  allEdges: IndexedEdge[],
+  allEdges: IndexedEdge[]
 ): CascadeResult {
   const changedKeys = new Set<string>();
   for (const e of diff.added) changedKeys.add(e.key);
@@ -98,7 +98,7 @@ export function cascadeInvalidation(
  */
 export function fileNeedsReindex(
   oldEntities: IndexedEntity[],
-  newEntities: IndexedEntity[],
+  newEntities: IndexedEntity[]
 ): boolean {
   if (oldEntities.length !== newEntities.length) return true;
 

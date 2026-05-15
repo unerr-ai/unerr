@@ -77,7 +77,7 @@ export interface IndexOptions {
  */
 export function discoverFiles(
   projectRoot: string,
-  ignorePatterns = DEFAULT_IGNORE,
+  ignorePatterns = DEFAULT_IGNORE
 ): string[] {
   const files: string[] = [];
 
@@ -124,7 +124,7 @@ export function discoverFiles(
  */
 export async function indexFile(
   filePath: string,
-  projectRoot: string,
+  projectRoot: string
 ): Promise<{ extraction: ExtractionResult; imports: ImportInfo[] } | null> {
   const plugin = getPluginForFile(filePath);
   if (!plugin) return null;
@@ -153,7 +153,7 @@ export async function indexFile(
     return { extraction, imports };
   } catch (err) {
     log.debug(
-      `Failed to index ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to index ${filePath}: ${err instanceof Error ? err.message : String(err)}`
     );
     return null;
   }
@@ -163,7 +163,7 @@ export async function indexFile(
  * Index all files in a project. Returns merged results.
  */
 export async function indexProject(
-  options: IndexOptions,
+  options: IndexOptions
 ): Promise<IndexResult> {
   const start = performance.now();
   const { projectRoot, ignorePatterns } = options;

@@ -57,11 +57,11 @@ function loadManifest(repoRoot: string): ManifestData | null {
 
 async function _getRecentCommits(
   repoRoot: string,
-  count: number,
+  count: number
 ): Promise<string[]> {
   const output = await gitQuery(
     ["log", "--format=%H", "-n", String(count)],
-    repoRoot,
+    repoRoot
   );
   if (!output) return [];
   return output.split("\n").filter(Boolean);
@@ -69,11 +69,11 @@ async function _getRecentCommits(
 
 async function getBranchCommits(
   repoRoot: string,
-  baseBranch: string,
+  baseBranch: string
 ): Promise<string[]> {
   const output = await gitQuery(
     ["log", "--format=%H", `${baseBranch}..HEAD`],
-    repoRoot,
+    repoRoot
   );
   if (!output) return [];
   return output.split("\n").filter(Boolean);
@@ -103,7 +103,7 @@ export function registerManifestCommand(program: Command): void {
         if (!manifest) {
           console.error("[unerr] No manifest found at .unerr/manifest.json");
           console.error(
-            "[unerr] Run 'unerr' in this repo to start recording attributions.",
+            "[unerr] Run 'unerr' in this repo to start recording attributions."
           );
           process.exit(2);
         }
@@ -114,13 +114,13 @@ export function registerManifestCommand(program: Command): void {
         if (commits.length === 0) {
           console.error(
             "[unerr] No commits found between HEAD and",
-            baseBranch,
+            baseBranch
           );
           process.exit(0);
         }
 
         const attributedShas = new Set(
-          manifest.records.map((r) => r.commitSha),
+          manifest.records.map((r) => r.commitSha)
         );
         const unattributed: string[] = [];
         const attributed: string[] = [];
@@ -148,7 +148,7 @@ export function registerManifestCommand(program: Command): void {
           for (const sha of unattributed.slice(0, 10)) {
             const msg = await gitQuery(
               ["log", "--format=%s", "-n", "1", sha],
-              repoRoot,
+              repoRoot
             );
             if (msg) {
               console.error(`  ${sha.slice(0, 10)}  ${msg}`);
@@ -163,14 +163,14 @@ export function registerManifestCommand(program: Command): void {
           if (opts.warn) {
             console.error("");
             console.error(
-              "[unerr] Warning: un-attributed commits detected (--warn mode)",
+              "[unerr] Warning: un-attributed commits detected (--warn mode)"
             );
             process.exit(0);
           } else {
             console.error("");
             console.error("[unerr] FAILED: un-attributed AI commits detected.");
             console.error(
-              "[unerr] Ensure all AI-assisted changes are committed while 'unerr' is running.",
+              "[unerr] Ensure all AI-assisted changes are committed while 'unerr' is running."
             );
             process.exit(1);
           }
@@ -179,7 +179,7 @@ export function registerManifestCommand(program: Command): void {
           console.error("[unerr] All commits have intent attribution.");
           process.exit(0);
         }
-      },
+      }
     );
 
   // ── unerr manifest status ─────────────────────────────────────────
@@ -261,7 +261,7 @@ export function registerManifestCommand(program: Command): void {
         console.error(`    Tools: ${tools || "—"}`);
         console.error(`    Files: ${files} changed  Branch: ${record.branch}`);
         console.error(
-          `    At: ${record.committedAt}  ${record.flushed ? "(flushed)" : "(pending)"}`,
+          `    At: ${record.committedAt}  ${record.flushed ? "(flushed)" : "(pending)"}`
         );
         console.error("");
       }

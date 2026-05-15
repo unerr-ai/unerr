@@ -53,7 +53,7 @@ export class FileHashManager {
   shouldProcess(
     filePath: string,
     contentSha: string,
-    headSha: string,
+    headSha: string
   ): SkipDecision {
     const entry = this.state.files[filePath];
     if (!entry) return "process";

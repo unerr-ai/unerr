@@ -57,7 +57,7 @@ export interface RewindResult {
  *   4. Return result with blast radius and restored files
  */
 export async function revertToWorkingState(
-  request: RewindRequest,
+  request: RewindRequest
 ): Promise<RewindResult> {
   const { snapshotId, cwd, unerrDir, graph, ledger, snapshotStore, dryRun } =
     request;
@@ -83,7 +83,7 @@ export async function revertToWorkingState(
   }
 
   log.info(
-    `Reverting to snapshot ${snapshot.id} at ${snapshot.commitSha.slice(0, 8)} (${snapshot.reason})`,
+    `Reverting to snapshot ${snapshot.id} at ${snapshot.commitSha.slice(0, 8)} (${snapshot.reason})`
   );
 
   // Step 2: Find the closest ledger entry to the snapshot
@@ -133,7 +133,7 @@ export async function revertToWorkingState(
 async function performGitOnlyRewind(
   snapshot: WorkingSnapshot,
   cwd: string,
-  dryRun?: boolean,
+  dryRun?: boolean
 ): Promise<RewindResult> {
   if (dryRun) {
     return {

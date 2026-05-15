@@ -58,7 +58,7 @@ describe("SCIP Merger (L2.4)", () => {
     const { edges: enriched, result } = mergeScipResults(
       edges,
       scipResult,
-      entities,
+      entities
     );
 
     expect(enriched).toHaveLength(2);

@@ -39,7 +39,7 @@ export function enrichResponse(
     resolutionMs: number;
     edgeSources: Record<string, number>;
   },
-  context?: Record<string, unknown>,
+  context?: Record<string, unknown>
 ): EnrichedResponse {
   const result: EnrichedResponse = {
     content,

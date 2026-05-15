@@ -44,13 +44,12 @@ export function useRepoApi() {
 
   const url = useCallback(
     (path: string) => repoApiUrl(apiBase, path),
-    [apiBase],
+    [apiBase]
   );
 
   const queryKey = useCallback(
-    (key: readonly unknown[]) =>
-      label ? ["repo", label, ...key] : [...key],
-    [label],
+    (key: readonly unknown[]) => (label ? ["repo", label, ...key] : [...key]),
+    [label]
   );
 
   return { url, queryKey };

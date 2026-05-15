@@ -15,7 +15,7 @@ interface LocalBranchInfo {
 }
 
 export async function listLocalBranches(
-  cwd: string,
+  cwd: string
 ): Promise<LocalBranchInfo[]> {
   const raw = await gitQuery(
     [
@@ -23,7 +23,7 @@ export async function listLocalBranches(
       "-a",
       "--format=%(HEAD)|%(refname:short)|%(upstream:track)|%(committerdate:relative)",
     ],
-    cwd,
+    cwd
   );
 
   if (!raw) return [];
@@ -67,7 +67,7 @@ function loadBranchDriftCounts(cwd: string): Map<string, number> {
       const overlayPath = path.join(
         branchDir,
         entry.name,
-        "overlay_snapshot.json",
+        "overlay_snapshot.json"
       );
       if (!fs.existsSync(overlayPath)) continue;
 
@@ -116,12 +116,12 @@ export function registerBranchesCommand(program: Command): void {
             withDrift++;
           }
           process.stderr.write(
-            `${marker}${branch.name.padEnd(30)} ${branch.lastCommit}${trackingSuffix}${driftSuffix}\n`,
+            `${marker}${branch.name.padEnd(30)} ${branch.lastCommit}${trackingSuffix}${driftSuffix}\n`
           );
         }
 
         process.stderr.write(
-          `\n  ${branches.length} branches · ${withDrift} with drift overlays\n\n`,
+          `\n  ${branches.length} branches · ${withDrift} with drift overlays\n\n`
         );
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);

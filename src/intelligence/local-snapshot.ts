@@ -166,7 +166,7 @@ export async function persistLocalSnapshot(
   projectRoot: string,
   repoId: string,
   entities: CompactEntity[],
-  edges: CompactEdge[],
+  edges: CompactEdge[]
 ): Promise<string> {
   const snapshotsDir = join(projectRoot, ".unerr", "snapshots");
   mkdirSync(snapshotsDir, { recursive: true });
@@ -199,7 +199,7 @@ export async function persistLocalSnapshot(
  */
 export async function loadLocalSnapshot(
   projectRoot: string,
-  graphStore: import("./local-graph.js").CozoGraphStore,
+  graphStore: import("./local-graph.js").CozoGraphStore
 ): Promise<boolean> {
   const path = snapshotPath(projectRoot);
   if (!existsSync(path)) return false;

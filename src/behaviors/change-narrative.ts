@@ -98,7 +98,7 @@ export class ChangeNarrativeBehavior extends Behavior {
     const markdown = renderMarkdown(activeSections, riskLevel);
     const counterfactual = buildCounterfactual(
       activeSections,
-      this.loopBreaker,
+      this.loopBreaker
     );
 
     return {
@@ -131,13 +131,13 @@ export class ChangeNarrativeBehavior extends Behavior {
     const stats = this.cascadeGuard.getSessionStats();
     if (stats.signatureChangesDetected > 0) {
       section.items.push(
-        `${stats.signatureChangesDetected} signature change(s) detected, ${stats.totalCallersNotified} caller(s) notified`,
+        `${stats.signatureChangesDetected} signature change(s) detected, ${stats.totalCallersNotified} caller(s) notified`
       );
     }
     if (stats.incompleteUpdates > 0) {
       section.status = "fail";
       section.items.push(
-        `${stats.incompleteUpdates} signature change(s) have callers NOT yet updated`,
+        `${stats.incompleteUpdates} signature change(s) have callers NOT yet updated`
       );
     } else if (stats.signatureChangesDetected > 0) {
       section.status = "pass";
@@ -160,11 +160,11 @@ export class ChangeNarrativeBehavior extends Behavior {
       section.status =
         stats.autoFixes === stats.violationsDetected ? "warn" : "fail";
       section.items.push(
-        `${stats.violationsDetected} convention violation(s), ${stats.autoFixes} auto-fixed`,
+        `${stats.violationsDetected} convention violation(s), ${stats.autoFixes} auto-fixed`
       );
       if (stats.violationsDetected > stats.autoFixes) {
         section.items.push(
-          `${stats.violationsDetected - stats.autoFixes} violation(s) require manual review`,
+          `${stats.violationsDetected - stats.autoFixes} violation(s) require manual review`
         );
       }
     }
@@ -184,17 +184,17 @@ export class ChangeNarrativeBehavior extends Behavior {
     if (stats.violationsBlocked > 0) {
       section.status = "fail";
       section.items.push(
-        `${stats.violationsBlocked} cross-community import(s) blocked`,
+        `${stats.violationsBlocked} cross-community import(s) blocked`
       );
     }
     if (stats.typeImportsAllowed > 0) {
       section.items.push(
-        `${stats.typeImportsAllowed} type import(s) across boundaries (allowed)`,
+        `${stats.typeImportsAllowed} type import(s) across boundaries (allowed)`
       );
     }
     if (stats.autoBridges > 0) {
       section.items.push(
-        `${stats.autoBridges} auto-bridge rule(s) created from repeated overrides`,
+        `${stats.autoBridges} auto-bridge rule(s) created from repeated overrides`
       );
     }
 
@@ -214,14 +214,14 @@ export class ChangeNarrativeBehavior extends Behavior {
     if (changes.length > 0) {
       section.status = "warn";
       section.items.push(
-        `${changes.length} entity(s) with incomplete caller updates`,
+        `${changes.length} entity(s) with incomplete caller updates`
       );
       for (const change of changes.slice(0, 3)) {
         const remaining = change.callersAtRisk.filter(
-          (c) => !change.callersUpdated.has(c.entity),
+          (c) => !change.callersUpdated.has(c.entity)
         );
         section.items.push(
-          `  → ${change.entityKey}: ${remaining.length} caller(s) still need updating`,
+          `  → ${change.entityKey}: ${remaining.length} caller(s) still need updating`
         );
       }
     }
@@ -242,7 +242,7 @@ export class ChangeNarrativeBehavior extends Behavior {
       section.status = "warn";
       const dollars = calculateDollarSavings(stats.totalTokensSaved);
       section.items.push(
-        `${stats.loopsPrevented} loop(s) prevented, saving ~${formatDollars(dollars)}`,
+        `${stats.loopsPrevented} loop(s) prevented, saving ~${formatDollars(dollars)}`
       );
     }
 
@@ -283,7 +283,7 @@ function computeRiskLevel(sections: NarrativeSection[]): RiskLevel {
 
 function renderMarkdown(
   sections: NarrativeSection[],
-  riskLevel: RiskLevel,
+  riskLevel: RiskLevel
 ): string {
   const statusIcon = (s: "pass" | "warn" | "fail"): string => {
     switch (s) {
@@ -329,26 +329,26 @@ function renderMarkdown(
 
 function buildCounterfactual(
   sections: NarrativeSection[],
-  loopBreaker: LoopCircuitBreaker | null,
+  loopBreaker: LoopCircuitBreaker | null
 ): string {
   const parts: string[] = [];
 
   const cascadeFails = sections.find(
-    (s) => s.title === "Cascade Status" && s.status === "fail",
+    (s) => s.title === "Cascade Status" && s.status === "fail"
   );
   if (cascadeFails) {
     parts.push("broken callers would have gone unnoticed until runtime");
   }
 
   const convFails = sections.find(
-    (s) => s.title === "Convention Compliance" && s.status !== "pass",
+    (s) => s.title === "Convention Compliance" && s.status !== "pass"
   );
   if (convFails) {
     parts.push("convention violations would have spread through the codebase");
   }
 
   const archFails = sections.find(
-    (s) => s.title === "Architecture Check" && s.status === "fail",
+    (s) => s.title === "Architecture Check" && s.status === "fail"
   );
   if (archFails) {
     parts.push("cross-community imports would have degraded module boundaries");
@@ -359,7 +359,7 @@ function buildCounterfactual(
     if (stats.loopsPrevented > 0) {
       const dollars = calculateDollarSavings(stats.totalTokensSaved);
       parts.push(
-        `~${formatDollars(dollars)} would have been wasted in retry loops`,
+        `~${formatDollars(dollars)} would have been wasted in retry loops`
       );
     }
   }

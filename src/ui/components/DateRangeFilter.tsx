@@ -61,7 +61,7 @@ export function DateRangeFilter({
           range.from.getDate(),
           0,
           0,
-          0,
+          0
         ).toISOString()
       : "";
     const to = range.to
@@ -71,7 +71,7 @@ export function DateRangeFilter({
           range.to.getDate(),
           23,
           59,
-          59,
+          59
         ).toISOString()
       : "";
     onChange(from, to);
@@ -104,6 +104,7 @@ export function DateRangeFilter({
         className="flex items-center gap-2 bg-surface-secondary border border-border-subtle rounded-lg px-3 py-1.5 text-xs text-foreground hover:border-violet-500/50 transition-colors"
       >
         <svg
+          aria-hidden="true"
           className="w-3.5 h-3.5 t-tertiary shrink-0"
           fill="none"
           viewBox="0 0 24 24"

@@ -16,7 +16,7 @@ import type {
 
 function makeEntity(
   name: string,
-  filePath: string,
+  filePath: string
 ): IndexedEntity & { community: number; risk_level: string } {
   return {
     key: entityKey(filePath, "function", name, ""),
@@ -42,7 +42,7 @@ describe("Blast Radius Engine (N.1-N.5)", () => {
   it("returns all direct callers at hop=1", () => {
     const target = makeEntity("target", "src/core.ts");
     const callers = Array.from({ length: 10 }, (_, i) =>
-      makeEntity(`caller${i}`, `src/caller${i}.ts`),
+      makeEntity(`caller${i}`, `src/caller${i}.ts`)
     );
 
     const entities = new Map<string, IndexedEntity & { community: number }>([
@@ -139,8 +139,8 @@ describe("Blast Radius Engine (N.1-N.5)", () => {
     expect(result.riskSummary.critical).toBe(1);
     expect(
       result.suggestions.some(
-        (s) => s.includes("overload") || s.includes("adapter"),
-      ),
+        (s) => s.includes("overload") || s.includes("adapter")
+      )
     ).toBe(true);
   });
 
@@ -186,7 +186,7 @@ describe("Blast Radius Engine (N.1-N.5)", () => {
   it("respects maxResults limit", () => {
     const target = makeEntity("popular", "src/pop.ts");
     const callers = Array.from({ length: 600 }, (_, i) =>
-      makeEntity(`c${i}`, `src/c${i}.ts`),
+      makeEntity(`c${i}`, `src/c${i}.ts`)
     );
 
     const entities = new Map([

@@ -122,7 +122,7 @@ describe("worker-pool", () => {
     ]);
     expect(results2).toHaveLength(1);
     expect(
-      results2[0]?.entities.find((e) => e.name === "second"),
+      results2[0]?.entities.find((e) => e.name === "second")
     ).toBeDefined();
   });
 });

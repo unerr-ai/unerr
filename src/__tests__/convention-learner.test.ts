@@ -29,7 +29,7 @@ describe("learnConventions", () => {
     ];
     const conventions = learnConventions(entries);
     expect(conventions.filter((c) => c.pattern === "co-change")).toHaveLength(
-      0,
+      0
     );
   });
 

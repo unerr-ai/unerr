@@ -37,7 +37,7 @@ const MAX_BLOCK_RULES = 10;
  * Get block-level rules from CozoDB for injection.
  */
 export async function getBlockRules(
-  localGraph: CozoGraphStore,
+  localGraph: CozoGraphStore
 ): Promise<CompactRule[]> {
   const allRules = await localGraph.getRules();
   return allRules
@@ -74,7 +74,7 @@ export function formatRuleInjection(blockRules: CompactRule[]): string {
  */
 export async function injectRuleContext(
   tools: MCPToolSchema[],
-  localGraph: CozoGraphStore,
+  localGraph: CozoGraphStore
 ): Promise<MCPToolSchema[]> {
   const blockRules = await getBlockRules(localGraph);
   if (blockRules.length === 0) return tools;
@@ -83,7 +83,7 @@ export async function injectRuleContext(
   if (!injection) return tools;
 
   _log.info(
-    `Injecting ${blockRules.length} block rules into tool descriptions`,
+    `Injecting ${blockRules.length} block rules into tool descriptions`
   );
 
   return tools.map((tool) => {
@@ -103,7 +103,7 @@ export async function injectRuleContext(
  */
 export async function needsRefresh(
   localGraph: CozoGraphStore,
-  cachedRuleKeys: Set<string>,
+  cachedRuleKeys: Set<string>
 ): Promise<boolean> {
   const currentBlockRules = await getBlockRules(localGraph);
   const currentKeys = new Set(currentBlockRules.map((r: CompactRule) => r.key));

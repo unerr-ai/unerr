@@ -54,7 +54,7 @@ describe("Daemon client (client.ts)", () => {
   it("sendRequest rejects on nonexistent socket", async () => {
     const { sendRequest } = await import("../daemon/client.js");
     await expect(
-      sendRequest("/tmp/nonexistent-unerr-test.sock", { cmd: "status" }, 1000),
+      sendRequest("/tmp/nonexistent-unerr-test.sock", { cmd: "status" }, 1000)
     ).rejects.toThrow();
   });
 
@@ -65,7 +65,7 @@ describe("Daemon client (client.ts)", () => {
       sendFireAndForget("/tmp/nonexistent-unerr-test.sock", {
         cmd: "activity",
         repo: "/tmp/fake",
-      }),
+      })
     ).not.toThrow();
   });
 });
@@ -87,7 +87,7 @@ describe("DM-3 module isolation", () => {
   it("client.ts imports only from daemon/ and node builtins", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/client.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     const forbidden = [
@@ -109,7 +109,7 @@ describe("DM-3 module isolation", () => {
   it("bootstrap.ts imports only from daemon/ and node builtins", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/bootstrap.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     const forbidden = [
@@ -129,7 +129,7 @@ describe("DM-3 module isolation", () => {
   it("bridge.ts still imports nothing from intelligence/", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/proxy/bridge.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     const forbidden = [
@@ -150,7 +150,7 @@ describe("mcpBoot socket discovery", () => {
   it("cli.ts mcpBoot checks per-repo sock first", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     // Step 1: per-repo proxy sock
@@ -167,7 +167,7 @@ describe("mcpBoot socket discovery", () => {
   it("mcpBoot does NOT auto-register repos (explicit registration only)", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     // mcpBoot checks findRepo but never calls addRepo
@@ -178,7 +178,7 @@ describe("mcpBoot socket discovery", () => {
   it("mcpBoot includes activity throttle at 60s", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("ACTIVITY_THROTTLE_MS = 60_000");
@@ -192,16 +192,16 @@ describe("Bridge connect/disconnect lifecycle", () => {
   it("mcpBoot calls connectRepo before bridging and disconnectRepo after", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     // Ordering: connectRepo comes before startUdsBridge, disconnectRepo after
     const connectIdx = content.indexOf("await connectRepo(daemonSock, cwd)");
     const bridgeIdx = content.indexOf(
-      "await startUdsBridge(repoSockViaEnsure)",
+      "await startUdsBridge(repoSockViaEnsure)"
     );
     const disconnectIdx = content.indexOf(
-      "await disconnectRepo(daemonSock, cwd)",
+      "await disconnectRepo(daemonSock, cwd)"
     );
 
     expect(connectIdx).toBeGreaterThan(-1);
@@ -218,7 +218,7 @@ describe("Readiness polling (bootstrap.ts)", () => {
   it("does NOT spawn processes (poll-only, no child_process)", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/bootstrap.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).not.toContain("detached: true");
@@ -229,7 +229,7 @@ describe("Readiness polling (bootstrap.ts)", () => {
   it("polls at 100ms intervals with 5s timeout", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/bootstrap.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("POLL_INTERVAL_MS = 100");
@@ -239,7 +239,7 @@ describe("Readiness polling (bootstrap.ts)", () => {
   it("uses probeDaemon for fast-path check", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/bootstrap.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("probeDaemon(sock)");
@@ -248,11 +248,13 @@ describe("Readiness polling (bootstrap.ts)", () => {
   it("exports waitForDaemonReady as primary + ensureDaemonRunning alias", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/bootstrap.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("export async function waitForDaemonReady");
-    expect(content).toContain("export const ensureDaemonRunning = waitForDaemonReady");
+    expect(content).toContain(
+      "export const ensureDaemonRunning = waitForDaemonReady"
+    );
   });
 });
 
@@ -262,7 +264,7 @@ describe("Client protocol integration", () => {
   it("client methods use correct cmd values", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/client.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain('cmd: "ensure"');
@@ -275,7 +277,7 @@ describe("Client protocol integration", () => {
   it("sendRequest uses newline-delimited JSON", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/client.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     // Sends JSON with newline delimiter
@@ -287,7 +289,7 @@ describe("Client protocol integration", () => {
   it("sendRequest has configurable timeout", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/client.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("timeoutMs = 30_000");
@@ -300,7 +302,7 @@ describe("Race safety", () => {
   it("bootstrap.ts is poll-only (no file locks, no spawn)", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/bootstrap.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).not.toContain("lockFile");
@@ -316,7 +318,7 @@ describe("Error handling", () => {
   it("mcpBoot exits 1 when no process found (no auto-spawn)", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("No unerr process found");
@@ -327,7 +329,7 @@ describe("Error handling", () => {
   it("mcpBoot exits 1 when repo not registered", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("Repo not registered with unerrd");
@@ -337,7 +339,7 @@ describe("Error handling", () => {
   it("mcpBoot exits 1 on ensure failure", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain("Failed to ensure repo process");
@@ -346,7 +348,7 @@ describe("Error handling", () => {
   it("mcpBoot handles daemon_dead from bridge", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8",
+      "utf-8"
     );
 
     expect(content).toContain('"daemon_dead"');

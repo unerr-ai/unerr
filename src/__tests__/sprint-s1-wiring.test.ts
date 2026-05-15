@@ -16,7 +16,7 @@ import { createCompressionQualityMonitor } from "../proxy/compression-quality-mo
 import { createSessionDedup } from "../proxy/session-dedup.js";
 
 function createMockGraph(
-  overrides: Record<string, unknown> = {},
+  overrides: Record<string, unknown> = {}
 ): CozoGraphStore {
   return {
     getEntity: vi.fn().mockReturnValue({
@@ -238,7 +238,7 @@ describe("Sprint S1: Output Compression Wiring", () => {
       const hugeText = Array.from(
         { length: 5000 },
         (_, i) =>
-          `line ${i}: some content that takes up space in the output buffer`,
+          `line ${i}: some content that takes up space in the output buffer`
       ).join("\n"); // ~5000 lines, ~300K chars, ~75K tokens
       const graph = createMockGraph({
         searchEntities: vi.fn().mockReturnValue(hugeText),

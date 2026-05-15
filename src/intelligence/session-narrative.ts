@@ -102,7 +102,7 @@ export class SessionNarrativeCapture {
 
   constructor(
     private factStore: FactStoreWriter,
-    private ledger: LedgerReader,
+    private ledger: LedgerReader
   ) {}
 
   /**
@@ -143,7 +143,7 @@ export class SessionNarrativeCapture {
 
     // Derive "why" from the investigation chain
     const investigationTools = chain.filter(
-      (e) => classifyToolIntent(e.tool) === "investigation",
+      (e) => classifyToolIntent(e.tool) === "investigation"
     );
     const why =
       investigationTools.length > 0
@@ -204,7 +204,12 @@ export class SessionNarrativeCapture {
     const byArea = new Map<string, NarrativeEntry[]>();
     for (const n of this.narratives) {
       const area = extractFeatureArea(n.file_path);
-      (byArea.get(area) ?? (byArea.set(area, []), byArea.get(area)!)).push(n);
+      let list = byArea.get(area);
+      if (!list) {
+        list = [];
+        byArea.set(area, list);
+      }
+      list.push(n);
     }
 
     // Build summary
@@ -248,7 +253,7 @@ export class SessionNarrativeCapture {
 export function deriveIntentFields(
   toolName: string,
   args: Record<string, unknown>,
-  recentEntries: LedgerEntry[],
+  recentEntries: LedgerEntry[]
 ): { change_type: string; feature_area: string; plan_summary: string } {
   const filePath =
     (args.file_path as string) ??

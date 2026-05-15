@@ -131,7 +131,7 @@ export function parseImportSymbols(source: string): ImportSymbolMap {
  */
 export async function loadImportSymbols(
   projectRoot: string,
-  filePath: string,
+  filePath: string
 ): Promise<ImportSymbolMap> {
   const abs = isAbsolute(filePath) ? filePath : resolve(projectRoot, filePath);
   try {

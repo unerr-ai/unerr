@@ -32,7 +32,7 @@ const COST_TABLE: Record<string, { input: number; output: number }> = {
 function estimateCost(
   model: string,
   inputTokens: number,
-  outputTokens: number,
+  outputTokens: number
 ): number {
   const rates = COST_TABLE[model] ?? { input: 3, output: 15 };
   return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
@@ -180,12 +180,12 @@ function resolveProvider(options: QueryEngineOptions): ChatProvider {
     return new AiSdkChatProvider(
       options.languageModel,
       options.providerName ?? "ai-sdk",
-      options.model,
+      options.model
     );
   }
   if (!options.apiKey) {
     throw new Error(
-      "QueryEngine requires one of: chatProvider, languageModel, or apiKey",
+      "QueryEngine requires one of: chatProvider, languageModel, or apiKey"
     );
   }
   return new AnthropicChatProvider(options.apiKey, options.model);
@@ -204,7 +204,7 @@ function resolveProvider(options: QueryEngineOptions): ChatProvider {
 export async function executeQuery(
   messages: ConversationMessage[],
   options: QueryEngineOptions,
-  events?: QueryEngineEvents,
+  events?: QueryEngineEvents
 ): Promise<QueryResult> {
   const provider = resolveProvider(options);
   const chatToolDefs = toChatToolDefs(options.tools);
@@ -228,7 +228,7 @@ export async function executeQuery(
         if (chunk.type === "text_delta" && chunk.text) {
           events?.onToken?.(chunk.text);
         }
-      },
+      }
     );
 
     totalInputTokens += response.inputTokens;
@@ -300,7 +300,7 @@ export async function executeQuery(
       estimatedCost: estimateCost(
         provider.modelId,
         totalInputTokens,
-        totalOutputTokens,
+        totalOutputTokens
       ),
     },
   };

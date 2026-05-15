@@ -8,10 +8,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  type SessionSummary,
   buildSessionSummaries,
   jaccard,
   runIntentStitch,
-  type SessionSummary,
   stitchIntents,
 } from "../timeline/intent-detector.js";
 import {
@@ -26,7 +26,7 @@ function summary(
   files: string[],
   started_at: number,
   last_active_at?: number,
-  intent_text?: string,
+  intent_text?: string
 ): SessionSummary {
   return {
     session_id,
@@ -45,9 +45,9 @@ describe("jaccard", () => {
     expect(jaccard(new Set(["a", "b"]), new Set(["b", "a"]))).toBe(1);
   });
   it("computes overlap correctly", () => {
-    expect(jaccard(new Set(["a", "b", "c"]), new Set(["b", "c", "d"]))).toBeCloseTo(
-      2 / 4,
-    );
+    expect(
+      jaccard(new Set(["a", "b", "c"]), new Set(["b", "c", "d"]))
+    ).toBeCloseTo(2 / 4);
   });
 });
 
@@ -65,12 +65,7 @@ describe("stitchIntents (pure)", () => {
   it("attaches a new session via file-set Jaccard when overlap > threshold", () => {
     const sessions = [
       summary("s1", ["a.ts", "b.ts", "c.ts"], 1_000, 1_500),
-      summary(
-        "s2",
-        ["a.ts", "b.ts", "c.ts", "d.ts"],
-        2_000,
-        2_500,
-      ),
+      summary("s2", ["a.ts", "b.ts", "c.ts", "d.ts"], 2_000, 2_500),
     ];
     const result = stitchIntents(sessions, [], [], { nowMs: 3000 });
     expect(result.intents).toHaveLength(1);
@@ -92,13 +87,7 @@ describe("stitchIntents (pure)", () => {
   it("creates a new intent when overlap is fresh but text marker differs", () => {
     const sessions = [
       summary("s1", ["a.ts", "b.ts", "c.ts"], 1_000, 1_500, "auth refactor"),
-      summary(
-        "s2",
-        ["a.ts", "b.ts", "c.ts"],
-        2_000,
-        2_500,
-        "payments cleanup",
-      ),
+      summary("s2", ["a.ts", "b.ts", "c.ts"], 2_000, 2_500, "payments cleanup"),
     ];
     const result = stitchIntents(sessions, [], [], { nowMs: 3_000 });
     expect(result.intents).toHaveLength(2);
@@ -131,7 +120,7 @@ describe("stitchIntents (pure)", () => {
       sessions,
       [existing],
       [{ intent_id: "i1", session_id: "s1" }],
-      { nowMs: 2_000 },
+      { nowMs: 2_000 }
     );
     expect(result.attachments).toEqual([]);
   });
@@ -206,7 +195,7 @@ describe("buildSessionSummaries", () => {
     const summaries = buildSessionSummaries(
       turns,
       markers,
-      new Map([["s1", new Set(["a.ts", "b.ts"])]]),
+      new Map([["s1", new Set(["a.ts", "b.ts"])]])
     );
     expect(summaries).toHaveLength(1);
     expect(summaries[0]?.intent_text).toBe("harden auth");
@@ -222,7 +211,7 @@ describe("runIntentStitch (IO)", () => {
   beforeEach(async () => {
     tempDir = join(
       tmpdir(),
-      `unerr-istitch-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      `unerr-istitch-${Date.now()}-${Math.random().toString(36).slice(2)}`
     );
     mkdirSync(join(tempDir, ".unerr"), { recursive: true });
     store = await CozoTimelineStore.create(tempDir);

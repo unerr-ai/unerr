@@ -23,7 +23,7 @@ export function UpdateBanner() {
 
   const dismiss = useMutation({
     mutationFn: async (version: string) => {
-      await fetch(`/api/daemon/version/dismiss`, {
+      await fetch("/api/daemon/version/dismiss", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ version }),

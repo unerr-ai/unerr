@@ -124,7 +124,7 @@ describe("MCP Local Proxy Configuration", () => {
         mcpServers: {
           unerr: { url: "https://app.unerr.dev/mcp/org-123" },
         },
-      }),
+      })
     );
 
     // Simulate repair by writing local proxy config

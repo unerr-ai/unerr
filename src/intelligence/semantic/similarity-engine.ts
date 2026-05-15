@@ -39,7 +39,7 @@ export interface SimilarityResult {
 export function computeSimilarity(
   a: EntityEmbeddings,
   b: EntityEmbeddings,
-  weights: SimilarityWeights = DEFAULT_WEIGHTS,
+  weights: SimilarityWeights = DEFAULT_WEIGHTS
 ): number {
   const lexicalSim = cosineSimilarity(a.lexical, b.lexical);
   const structuralSim = cosineSimilarity(a.structural, b.structural);
@@ -60,7 +60,7 @@ export function findMostSimilar(
   queryEmbeddings: EntityEmbeddings,
   allEmbeddings: Map<string, EntityEmbeddings>,
   topK = 10,
-  weights: SimilarityWeights = DEFAULT_WEIGHTS,
+  weights: SimilarityWeights = DEFAULT_WEIGHTS
 ): SimilarityResult[] {
   const results: SimilarityResult[] = [];
 
@@ -69,15 +69,15 @@ export function findMostSimilar(
 
     const lexicalScore = cosineSimilarity(
       queryEmbeddings.lexical,
-      embeddings.lexical,
+      embeddings.lexical
     );
     const structuralScore = cosineSimilarity(
       queryEmbeddings.structural,
-      embeddings.structural,
+      embeddings.structural
     );
     const metadataScore = computeMetadataSimilarity(
       queryEmbeddings,
-      embeddings,
+      embeddings
     );
 
     const score =
@@ -100,7 +100,7 @@ export function findMostSimilar(
 
 function computeMetadataSimilarity(
   a: EntityEmbeddings,
-  b: EntityEmbeddings,
+  b: EntityEmbeddings
 ): number {
   let score = 0;
 

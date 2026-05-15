@@ -47,7 +47,7 @@ export class SkillEffectivenessTracker {
   recordActivation(
     skillId: string,
     triggeredBy: SkillActivation["triggeredBy"],
-    behaviorId?: string,
+    behaviorId?: string
   ): void {
     this.activations.push({
       skillId,
@@ -111,12 +111,12 @@ export class SkillEffectivenessTracker {
         graphToolsCalled: stats.graphToolsCalled,
         followRate:
           stats.activations > 0 ? stats.followed / stats.activations : 0,
-      }),
+      })
     );
 
     // Build summary line
     const behaviorTriggered = this.activations.filter(
-      (a) => a.triggeredBy === "behavior",
+      (a) => a.triggeredBy === "behavior"
     );
     const preventions = behaviorTriggered.filter((a) => a.followed).length;
     const summaryLine =

@@ -84,7 +84,7 @@ export const globTool: Tool = {
 
   async execute(
     args: Record<string, unknown>,
-    ctx: ToolContext,
+    ctx: ToolContext
   ): Promise<ToolOutput> {
     const pattern = args.pattern as string;
     const searchPath = resolve(ctx.cwd, (args.path as string) ?? ".");

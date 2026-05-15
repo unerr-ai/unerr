@@ -72,7 +72,7 @@ function isLocalhost(hostname: string): boolean {
 export function addAllowedHost(hostname: string): void {
   if (sealed) {
     throw new Error(
-      `[NetworkFirewall] Cannot add host "${hostname}" — firewall is already sealed. All allowlist entries must be added before seal().`,
+      `[NetworkFirewall] Cannot add host "${hostname}" — firewall is already sealed. All allowlist entries must be added before seal().`
     );
   }
   allowlistedHosts.add(hostname);
@@ -119,19 +119,19 @@ export function seal(allowedBaseUrls?: string[]): void {
 
   globalThis.fetch = ((
     input: string | URL | Request,
-    init?: RequestInit,
+    init?: RequestInit
   ): Promise<Response> => {
     const hostname = extractHostname(input);
 
     if (hostname && !isLocalhost(hostname)) {
       blockedCallCount++;
       process.stderr.write(
-        `[unerr] FIREWALL: Blocked outbound call to ${hostname} (Local Mode active)\n`,
+        `[unerr] FIREWALL: Blocked outbound call to ${hostname} (Local Mode active)\n`
       );
       return Promise.reject(
         new Error(
-          `[NetworkFirewall] Outbound network call to ${hostname} blocked — Local Mode active. This indicates a code path that should be gated on mode !== 'local'.`,
-        ),
+          `[NetworkFirewall] Outbound network call to ${hostname} blocked — Local Mode active. This indicates a code path that should be gated on mode !== 'local'.`
+        )
       );
     }
 

@@ -37,7 +37,7 @@ export function registerDebugCommand(program: Command): void {
       if (existsSync(settingsPath)) {
         try {
           const settings = JSON.parse(
-            readFileSync(settingsPath, "utf-8"),
+            readFileSync(settingsPath, "utf-8")
           ) as Record<string, unknown>;
           for (const [key, value] of Object.entries(settings)) {
             if (key === "anthropicApiKey" && typeof value === "string") {
@@ -69,7 +69,7 @@ export function registerDebugCommand(program: Command): void {
       if (existsSync(configPath)) {
         try {
           const config = JSON.parse(
-            readFileSync(configPath, "utf-8"),
+            readFileSync(configPath, "utf-8")
           ) as Record<string, unknown>;
           for (const [key, value] of Object.entries(config)) {
             sections.push(`  ${key}: ${String(value)}`);
@@ -89,7 +89,7 @@ export function registerDebugCommand(program: Command): void {
         try {
           const pid = Number.parseInt(
             readFileSync(pidPath, "utf-8").trim(),
-            10,
+            10
           );
           let alive = false;
           try {
@@ -149,13 +149,13 @@ export function registerDebugCommand(program: Command): void {
           "User",
           "globalStorage",
           "cursor.mcp",
-          "mcp.json",
+          "mcp.json"
         ),
       ];
       for (const loc of mcpLocations) {
         const exists = existsSync(loc);
         sections.push(
-          `  ${exists ? "[x]" : "[ ]"} ${loc.replace(homedir(), "~")}`,
+          `  ${exists ? "[x]" : "[ ]"} ${loc.replace(homedir(), "~")}`
         );
       }
       sections.push("");
@@ -203,7 +203,7 @@ function listDir(
   indent: string,
   out: string[],
   depth: number,
-  maxDepth: number,
+  maxDepth: number
 ): void {
   if (depth > maxDepth) return;
   try {
@@ -216,7 +216,7 @@ function listDir(
           `${indent}  `,
           out,
           depth + 1,
-          maxDepth,
+          maxDepth
         );
       } else {
         const size = formatBytes(statSync(join(dirPath, entry.name)).size);

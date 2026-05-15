@@ -27,7 +27,7 @@ export interface DegradationResult {
 export function applyScipFallback(
   existingEdges: IndexedEdge[],
   reason: string,
-  level: ScipDegradationLevel = "unavailable",
+  level: ScipDegradationLevel = "unavailable"
 ): DegradationResult {
   log.info(`SCIP degradation (${level}): ${reason}`);
 

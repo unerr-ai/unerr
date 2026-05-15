@@ -129,7 +129,7 @@ const MAX_EXEMPLARS = 5;
 export interface ConventionDetectorDB {
   run(
     query: string,
-    params?: Record<string, unknown>,
+    params?: Record<string, unknown>
   ): Promise<{ rows: unknown[][] }>;
 }
 
@@ -142,7 +142,7 @@ export interface ConventionDetectorDB {
  * Does NOT require getAllEntities/getAllEdges methods on CozoGraphStore.
  */
 export async function detectLocalConventions(
-  db: ConventionDetectorDB,
+  db: ConventionDetectorDB
 ): Promise<ConventionDetectionResult> {
   const start = Date.now();
 
@@ -167,7 +167,7 @@ export async function detectLocalConventions(
   const importConventions = detectImportDirectionPatterns(
     entities,
     edges,
-    communities,
+    communities
   );
   conventions.push(...importConventions);
 
@@ -200,11 +200,11 @@ export async function detectLocalConventions(
 // ── CozoDB Queries ──────────────────────────────────────────────
 
 async function queryAllEntities(
-  db: ConventionDetectorDB,
+  db: ConventionDetectorDB
 ): Promise<DetectorEntity[]> {
   try {
     const result = await db.run(
-      "?[key, kind, name, file_path] := *entities{key, kind, name, file_path}",
+      "?[key, kind, name, file_path] := *entities{key, kind, name, file_path}"
     );
     if (!result?.rows) return [];
     return result.rows.map((row) => {
@@ -222,11 +222,11 @@ async function queryAllEntities(
 }
 
 async function queryAllEdges(
-  db: ConventionDetectorDB,
+  db: ConventionDetectorDB
 ): Promise<DetectorEdge[]> {
   try {
     const result = await db.run(
-      "?[from_key, to_key, type] := *edges{from_key, to_key, type}",
+      "?[from_key, to_key, type] := *edges{from_key, to_key, type}"
     );
     if (!result?.rows) return [];
     return result.rows.map((row) => {
@@ -239,11 +239,11 @@ async function queryAllEdges(
 }
 
 async function queryAllCommunities(
-  db: ConventionDetectorDB,
+  db: ConventionDetectorDB
 ): Promise<DetectorCommunity[]> {
   try {
     const result = await db.run(
-      "?[id, label, size] := *communities{id, label, size}",
+      "?[id, label, size] := *communities{id, label, size}"
     );
     if (!result?.rows) return [];
     return result.rows.map((row) => {
@@ -266,7 +266,7 @@ function pluralizeKind(kind: string): string {
 }
 
 function detectNamingConventions(
-  entities: DetectorEntity[],
+  entities: DetectorEntity[]
 ): DetectedConvention[] {
   const conventions: DetectedConvention[] = [];
 
@@ -308,7 +308,7 @@ function detectNamingConventions(
     // Special: React component detection (PascalCase functions in .tsx files)
     if (kind === "function") {
       const tsxFunctions = kindEntities.filter((e) =>
-        e.file_path.endsWith(".tsx"),
+        e.file_path.endsWith(".tsx")
       );
       if (tsxFunctions.length >= MIN_SAMPLE_SIZE) {
         const pascalTsx = tsxFunctions.filter((e) => PASCAL_CASE.test(e.name));
@@ -334,7 +334,7 @@ function detectNamingConventions(
 // ── 2. File Structure Pattern Detection ─────────────────────────
 
 function detectFileStructurePatterns(
-  entities: DetectorEntity[],
+  entities: DetectorEntity[]
 ): DetectedConvention[] {
   const conventions: DetectedConvention[] = [];
 
@@ -377,7 +377,7 @@ function detectFileStructurePatterns(
       e.file_path.endsWith("/index.ts") ||
       e.file_path.endsWith("/index.js") ||
       e.file_path === "index.ts" ||
-      e.file_path === "index.js",
+      e.file_path === "index.js"
   );
   if (indexFiles.length >= MIN_SAMPLE_SIZE) {
     // Count directories that have index files
@@ -415,10 +415,10 @@ function detectFileStructurePatterns(
   if (testFiles.size >= MIN_SAMPLE_SIZE) {
     // Check if tests are co-located (same directory) or segregated (__tests__/)
     const segregatedTests = [...testFiles].filter((f) =>
-      f.includes("__tests__/"),
+      f.includes("__tests__/")
     );
     const colocatedTests = [...testFiles].filter(
-      (f) => !f.includes("__tests__/"),
+      (f) => !f.includes("__tests__/")
     );
 
     if (segregatedTests.length > colocatedTests.length) {
@@ -465,7 +465,7 @@ function detectFileStructurePatterns(
 function detectImportDirectionPatterns(
   entities: DetectorEntity[],
   edges: DetectorEdge[],
-  communities: DetectorCommunity[],
+  communities: DetectorCommunity[]
 ): DetectedConvention[] {
   const conventions: DetectedConvention[] = [];
 

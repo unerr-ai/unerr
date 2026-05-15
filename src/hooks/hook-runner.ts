@@ -129,7 +129,7 @@ export type HookHandler = (normalized: NormalizedPayload) => HookResult;
  */
 export function runPreToolUseHook(
   stdinJson: string,
-  handler: HookHandler,
+  handler: HookHandler
 ): string {
   const payload = parseStdin(stdinJson);
   if (!payload) return "{}";
@@ -146,7 +146,7 @@ export function runPreToolUseHook(
  */
 export function runPostToolUseHook(
   stdinJson: string,
-  handler: HookHandler,
+  handler: HookHandler
 ): string {
   const payload = parseStdin(stdinJson);
   if (!payload) return "{}";
@@ -163,7 +163,7 @@ export function runPostToolUseHook(
  */
 export function runPromptSubmitHook(
   stdinJson: string,
-  handler: HookHandler,
+  handler: HookHandler
 ): string {
   const payload = parseStdin(stdinJson);
   if (!payload) return "{}";

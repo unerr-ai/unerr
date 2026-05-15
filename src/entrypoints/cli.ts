@@ -77,7 +77,7 @@ async function autoVerifyIdeConfigs(): Promise<void> {
         const repaired = repairIdeConfig(ideName, configPath);
         if (repaired) {
           process.stderr.write(
-            `[unerr] Auto-repaired ${ideName} MCP config (remote URL → local proxy)\n`,
+            `[unerr] Auto-repaired ${ideName} MCP config (remote URL → local proxy)\n`
           );
         }
       }
@@ -502,7 +502,7 @@ async function detectProjectRoot(cwd: string): Promise<{
   // ── TIER 4 first: Anti-signal paths (early reject) ──────────
   const normalizedCwd = cwd.replace(/\\/g, "/");
   for (const ap of ANTI_SIGNAL_PATHS) {
-    if (normalizedCwd === ap || normalizedCwd === ap + "/") {
+    if (normalizedCwd === ap || normalizedCwd === `${ap}/`) {
       return {
         isProject: false,
         hasGit: false,
@@ -532,10 +532,10 @@ async function detectProjectRoot(cwd: string): Promise<{
   }
 
   const rootFileNames = new Set(
-    rootEntries.filter((e) => e.isFile).map((e) => e.name),
+    rootEntries.filter((e) => e.isFile).map((e) => e.name)
   );
   const rootDirNames = new Set(
-    rootEntries.filter((e) => e.isDir).map((e) => e.name),
+    rootEntries.filter((e) => e.isDir).map((e) => e.name)
   );
 
   // ── TIER 4: Anti-signal files & dirs at root ────────────────
@@ -732,16 +732,11 @@ async function resumeBoot(config: Record<string, unknown>): Promise<void> {
   if (!detection.isProject) {
     const antiSignals = detection.signals.filter((s) => s.startsWith("anti-"));
     process.stderr.write(
-      "\x1b[38;2;248;113;113m\u2717\x1b[0m No code project detected in this directory.\n" +
-        "  Found .unerr/config.json but the directory doesn't look like a project root.\n" +
-        `  Detection score: ${detection.score} (need ${DETECTION_THRESHOLD})\n` +
-        (antiSignals.length > 0
+      `\x1b[38;2;248;113;113m\u2717\x1b[0m No code project detected in this directory.\n  Found .unerr/config.json but the directory doesn't look like a project root.\n  Detection score: ${detection.score} (need ${DETECTION_THRESHOLD})\n${
+        antiSignals.length > 0
           ? `  Negative signals: ${antiSignals.map((s) => s.replace("anti-", "")).join(", ")}\n`
-          : "") +
-        "\n  unerr checks for: project files (package.json, Cargo.toml, go.mod, ...),\n" +
-        "  VCS directories (.git, .hg), IDE configs, CI/CD files, lock files,\n" +
-        "  and source code across 50+ languages.\n\n" +
-        "  \u25b8 Run \x1b[1munerr\x1b[0m from a project root directory.\n",
+          : ""
+      }\n  unerr checks for: project files (package.json, Cargo.toml, go.mod, ...),\n  VCS directories (.git, .hg), IDE configs, CI/CD files, lock files,\n  and source code across 50+ languages.\n\n  \u25b8 Run \x1b[1munerr\x1b[0m from a project root directory.\n`
     );
     process.exit(1);
   }
@@ -761,7 +756,7 @@ async function resumeBoot(config: Record<string, unknown>): Promise<void> {
     const info = getCachedUpdateInfo();
     if (info.available && !info.dismissed) {
       process.stderr.write(
-        `\x1b[38;2;34;211;238m▸\x1b[0m Update available: ${info.current} → ${info.latest} — run \x1b[38;2;139;92;246munerr daemon update\x1b[0m\n`,
+        `\x1b[38;2;34;211;238m▸\x1b[0m Update available: ${info.current} → ${info.latest} — run \x1b[38;2;139;92;246munerr daemon update\x1b[0m\n`
       );
     }
   } catch {
@@ -791,27 +786,17 @@ async function firstRunBoot(): Promise<void> {
   if (!detection.isProject) {
     const antiSignals = detection.signals.filter((s) => s.startsWith("anti-"));
     process.stderr.write(
-      "\x1b[38;2;248;113;113m\u2717\x1b[0m No code project detected in this directory.\n" +
-        "  unerr needs a folder containing source code to index.\n" +
-        `  Detection score: ${detection.score} (need ${DETECTION_THRESHOLD})\n` +
-        (antiSignals.length > 0
+      `\x1b[38;2;248;113;113m\u2717\x1b[0m No code project detected in this directory.\n  unerr needs a folder containing source code to index.\n  Detection score: ${detection.score} (need ${DETECTION_THRESHOLD})\n${
+        antiSignals.length > 0
           ? `  Negative signals: ${antiSignals.map((s) => s.replace("anti-", "")).join(", ")}\n`
-          : "") +
-        "\n  Checked for: project files (package.json, Cargo.toml, go.mod, pyproject.toml, ...),\n" +
-        "  VCS directories (.git, .hg, .svn), IDE configs (.vscode, .idea),\n" +
-        "  CI/CD files (.github, Jenkinsfile), lock files, and source code\n" +
-        "  across 50+ languages in root + standard source directories.\n\n" +
-        "  \u25b8 Run \x1b[1munerr\x1b[0m from a project root directory.\n",
+          : ""
+      }\n  Checked for: project files (package.json, Cargo.toml, go.mod, pyproject.toml, ...),\n  VCS directories (.git, .hg, .svn), IDE configs (.vscode, .idea),\n  CI/CD files (.github, Jenkinsfile), lock files, and source code\n  across 50+ languages in root + standard source directories.\n\n  \u25b8 Run \x1b[1munerr\x1b[0m from a project root directory.\n`
     );
     process.exit(1);
   }
   if (!detection.hasGit) {
     process.stderr.write(
-      "\x1b[38;2;251;191;36m\u26a0\x1b[0m Project detected (" +
-        detection.reason +
-        ") but no git repository found.\n" +
-        "  unerr works best with git. Consider running \x1b[1mgit init\x1b[0m first.\n" +
-        "  Continuing anyway...\n\n",
+      `\x1b[38;2;251;191;36m\u26a0\x1b[0m Project detected (${detection.reason}) but no git repository found.\n  unerr works best with git. Consider running \x1b[1mgit init\x1b[0m first.\n  Continuing anyway...\n\n`
     );
   }
 
@@ -855,7 +840,7 @@ async function daemonChildBoot(cwd: string): Promise<void> {
   const config = readLocalConfig(cwd);
   if (!config) {
     process.stderr.write(
-      "[unerr:child] No .unerr/config.json — run `unerr` interactively first.\n",
+      "[unerr:child] No .unerr/config.json — run `unerr` interactively first.\n"
     );
     process.exit(1);
   }
@@ -945,7 +930,7 @@ async function daemonChildBoot(cwd: string): Promise<void> {
       await proxyResult.shutdown();
     } catch (err) {
       process.stderr.write(
-        `[unerr:child] Shutdown error: ${(err as Error).message}\n`,
+        `[unerr:child] Shutdown error: ${(err as Error).message}\n`
       );
     }
     process.exit(0);
@@ -979,7 +964,7 @@ async function mcpBoot(cwd: string): Promise<void> {
         antiSignals.length > 0
           ? `  Negative signals: ${antiSignals.map((s) => s.replace("anti-", "")).join(", ")}\n`
           : ""
-      }\n  \u25b8 Run \x1b[1munerr --mcp\x1b[0m from a project root directory.\n`,
+      }\n  \u25b8 Run \x1b[1munerr --mcp\x1b[0m from a project root directory.\n`
     );
     process.exit(1);
   }
@@ -995,15 +980,21 @@ async function mcpBoot(cwd: string): Promise<void> {
 
     if (probeResult.alive) {
       process.stderr.write(
-        `[unerr:mcp] Bridging to running proxy (PID ${probeResult.pid})\n`,
+        `[unerr:mcp] Bridging to running proxy (PID ${probeResult.pid})\n`
       );
       return bridgeAndExit(startUdsBridge, repoSock);
     }
   }
 
   // ── Step 2: Try unerrd (must already be running, repo must be registered) ──
-  const { daemonSockPath, probeDaemon, ensureRepo, connectRepo, disconnectRepo, sendActivity } =
-    await import("../daemon/client.js");
+  const {
+    daemonSockPath,
+    probeDaemon,
+    ensureRepo,
+    connectRepo,
+    disconnectRepo,
+    sendActivity,
+  } = await import("../daemon/client.js");
   const { findRepo } = await import("../daemon/registry.js");
 
   const daemonSock = daemonSockPath();
@@ -1016,7 +1007,7 @@ async function mcpBoot(cwd: string): Promise<void> {
         "    unerr              # start per-repo process in this directory\n\n" +
         "  To use daemon mode:\n" +
         "    unerr daemon initialize    # one-time setup\n" +
-        "    unerr install <agent>      # register this repo\n",
+        "    unerr install <agent>      # register this repo\n"
     );
     process.exit(1);
   }
@@ -1027,7 +1018,7 @@ async function mcpBoot(cwd: string): Promise<void> {
     process.stderr.write(
       "\x1b[38;2;248;113;113m\u2717\x1b[0m Repo not registered with unerrd.\n\n" +
         "  Run: unerr install <agent>   # registers this repo with the daemon\n" +
-        "  Or:  unerr daemon add .      # register without installing agent config\n",
+        "  Or:  unerr daemon add .      # register without installing agent config\n"
     );
     process.exit(1);
   }
@@ -1038,7 +1029,7 @@ async function mcpBoot(cwd: string): Promise<void> {
     repoSockViaEnsure = await ensureRepo(daemonSock, cwd);
   } catch (err) {
     process.stderr.write(
-      `\x1b[38;2;248;113;113m\u2717\x1b[0m Failed to ensure repo process: ${(err as Error).message}\n`,
+      `\x1b[38;2;248;113;113m\u2717\x1b[0m Failed to ensure repo process: ${(err as Error).message}\n`
     );
     process.exit(1);
   }
@@ -1051,7 +1042,7 @@ async function mcpBoot(cwd: string): Promise<void> {
   }
 
   process.stderr.write(
-    `[unerr:mcp] Bridging to repo process via unerrd (sock: ${repoSockViaEnsure})\n`,
+    `[unerr:mcp] Bridging to repo process via unerrd (sock: ${repoSockViaEnsure})\n`
   );
 
   // Throttled activity reporting (1/min)
@@ -1079,7 +1070,7 @@ async function mcpBoot(cwd: string): Promise<void> {
 
   if (bridgeResult.reason === "daemon_dead") {
     process.stderr.write(
-      "\x1b[38;2;248;113;113m\u2717\x1b[0m unerr proxy disconnected mid-session.\n  The repo process may have been idle-stopped or crashed.\n",
+      "\x1b[38;2;248;113;113m\u2717\x1b[0m unerr proxy disconnected mid-session.\n  The repo process may have been idle-stopped or crashed.\n"
     );
     process.exit(1);
   }
@@ -1088,12 +1079,12 @@ async function mcpBoot(cwd: string): Promise<void> {
 /** Bridge to a UDS sock and handle disconnect/error. */
 async function bridgeAndExit(
   startBridge: typeof import("../proxy/bridge.js").startUdsBridge,
-  sockPath: string,
+  sockPath: string
 ): Promise<void> {
   const result = await startBridge(sockPath);
   if (result.reason === "daemon_dead") {
     process.stderr.write(
-      "\x1b[38;2;248;113;113m\u2717\x1b[0m unerr proxy disconnected mid-session.\n",
+      "\x1b[38;2;248;113;113m\u2717\x1b[0m unerr proxy disconnected mid-session.\n"
     );
     process.exit(1);
   }
@@ -1111,7 +1102,7 @@ program
   .option("--mcp", "Start in MCP server mode (stdio, no interactive prompts)")
   .option(
     "--daemon-child",
-    "Run as a daemon-managed child process (internal, set by unerrd)",
+    "Run as a daemon-managed child process (internal, set by unerrd)"
   )
   .showHelpAfterError("(use --help for available commands)")
   .action(
@@ -1137,7 +1128,7 @@ program
       } else {
         await firstRunBoot();
       }
-    },
+    }
   );
 
 // ── Visible Commands (shown in --help) ──────────────────────
@@ -1149,7 +1140,7 @@ program
   .option("--no-graph", "Skip loading the code intelligence graph")
   .action(async () => {
     process.stderr.write(
-      "\n  unerr chat is temporarily disabled.\n  Use unerr as an MCP proxy with your preferred AI agent instead.\n\n",
+      "\n  unerr chat is temporarily disabled.\n  Use unerr as an MCP proxy with your preferred AI agent instead.\n\n"
     );
     process.exit(0);
   });

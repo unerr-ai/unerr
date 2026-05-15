@@ -68,8 +68,8 @@ describe("Theme System (1.1)", () => {
         React.createElement(
           ThemeProvider,
           null,
-          React.createElement(ThemeConsumer),
-        ),
+          React.createElement(ThemeConsumer)
+        )
       );
       expect(lastFrame()).toContain("success=green");
     });

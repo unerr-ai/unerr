@@ -14,7 +14,7 @@ export function entityKey(
   filePath: string,
   kind: string,
   name: string,
-  scope = "",
+  scope = ""
 ): string {
   const input = `${filePath}:${kind}:${name}:${scope}`;
   return createHash("sha256").update(input).digest("hex").slice(0, 16);

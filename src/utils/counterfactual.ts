@@ -14,7 +14,7 @@ import { formatDollars } from "../proxy/model-pricing.js";
  */
 export function frameTokenSavings(
   tokensSaved: number,
-  dollarsSaved: number,
+  dollarsSaved: number
 ): string {
   if (tokensSaved <= 0) return "";
   const tokensStr =
@@ -29,7 +29,7 @@ export function frameTokenSavings(
  */
 export function frameGuardMoment(
   description: string,
-  dollarsPrevented: number,
+  dollarsPrevented: number
 ): string {
   return `[unerr] ⚠ Prevented: ${description}. Without unerr, est. cost: ${formatDollars(dollarsPrevented)}`;
 }
@@ -39,7 +39,7 @@ export function frameGuardMoment(
  */
 export function frameExplorationSaving(
   queryType: string,
-  filesAvoided: number,
+  filesAvoided: number
 ): string {
   return `Without unerr, the agent would have read ~${filesAvoided} files to get this information.`;
 }
@@ -50,7 +50,7 @@ export function frameExplorationSaving(
 export function frameSessionSummary(
   tokensSaved: number,
   dollarsSaved: number,
-  guardsFirered: number,
+  guardsFirered: number
 ): string {
   const parts: string[] = [];
   if (tokensSaved > 0) {
@@ -75,7 +75,7 @@ export function frameSessionSummary(
 export function frameWeeklyTrend(
   thisWeekSaved: number,
   lastWeekSaved: number,
-  dollarsSaved: number,
+  dollarsSaved: number
 ): string {
   const trend =
     thisWeekSaved > lastWeekSaved

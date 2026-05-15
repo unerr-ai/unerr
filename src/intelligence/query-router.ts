@@ -317,7 +317,7 @@ export async function assembleContextOutput(
   toolName: string,
   args: Record<string, unknown>,
   decisionLevel: import("./signal-scorer.js").DecisionLevel = "medium",
-  sessionContext?: SessionContext,
+  sessionContext?: SessionContext
 ): Promise<ContextHints> {
   const { getSignalScorer, signalId } = await import("./signal-scorer.js");
   const { getSignalDedup } = await import("../proxy/signal-dedup.js");
@@ -668,7 +668,7 @@ export class QueryRouter {
       intentId: string,
       tokens: number,
       saved: number,
-      entity?: string,
+      entity?: string
     ): void;
     getActiveIntentId(): string | null;
     getAllGroups(): import("../tracking/intent-token-tracker.js").IntentGroup[];
@@ -683,7 +683,7 @@ export class QueryRouter {
   private factStore: {
     recallForFile(
       filePath: string,
-      entityKeys?: string[],
+      entityKeys?: string[]
     ): Promise<
       Array<{
         fact_id: string;
@@ -695,7 +695,7 @@ export class QueryRouter {
     >;
     recallByScope(
       scope: string,
-      minConfidence?: number,
+      minConfidence?: number
     ): Promise<
       Array<{
         fact_id: string;
@@ -705,9 +705,7 @@ export class QueryRouter {
         source: string;
       }>
     >;
-    recallNegative(
-      minConfidence?: number,
-    ): Promise<
+    recallNegative(minConfidence?: number): Promise<
       Array<{
         fact_id: string;
         fact_type: string;
@@ -731,7 +729,7 @@ export class QueryRouter {
 
   constructor(
     private localGraph: CozoGraphStore,
-    ruleEvaluator?: typeof EvaluateRulesFn,
+    ruleEvaluator?: typeof EvaluateRulesFn
   ) {
     this.ruleEvaluator = ruleEvaluator ?? null;
     this.sessionContext = new SessionContext();
@@ -758,7 +756,7 @@ export class QueryRouter {
    */
   setHealthInfo(
     grade: string,
-    stats: { entities: number; edges: number; rules: number },
+    stats: { entities: number; edges: number; rules: number }
   ): void {
     this.healthGrade = grade;
     this.graphStats = stats;
@@ -827,7 +825,7 @@ export class QueryRouter {
    * S2: Set session health monitor for degradation detection.
    */
   setHealthMonitor(
-    monitor: ReturnType<typeof createSessionHealthMonitor>,
+    monitor: ReturnType<typeof createSessionHealthMonitor>
   ): void {
     this.healthMonitor = monitor;
   }
@@ -836,7 +834,7 @@ export class QueryRouter {
    * S2: Set exploration cost accumulator for token savings tracking.
    */
   setExplorationAccumulator(
-    accumulator: ReturnType<typeof createExplorationAccumulator>,
+    accumulator: ReturnType<typeof createExplorationAccumulator>
   ): void {
     this.explorationAccumulator = accumulator;
   }
@@ -916,7 +914,7 @@ export class QueryRouter {
       avgSurvivalMs: number;
     } | null;
     getTopUnstable: (
-      limit?: number,
+      limit?: number
     ) => Array<{ entityKey: string; score: number }>;
   }): void {
     this.durabilityScorer = scorer as any;
@@ -926,7 +924,7 @@ export class QueryRouter {
    * S7.6: Set anti-pattern entries from negative knowledge analysis.
    */
   setAntiPatterns(
-    entries: Array<{ entityKey: string; pattern: string; reason: string }>,
+    entries: Array<{ entityKey: string; pattern: string; reason: string }>
   ): void {
     this.antiPatternEntries = entries;
   }
@@ -950,7 +948,7 @@ export class QueryRouter {
    * and are coordinated across parallel sessions in the same repo.
    */
   setSignalShowStore(
-    store: import("./signal-show-store.js").SignalShowStore | null,
+    store: import("./signal-show-store.js").SignalShowStore | null
   ): void {
     this.sessionContext.setSignalShowStore(store);
   }
@@ -1017,7 +1015,7 @@ export class QueryRouter {
    * Q.1: Set prompt durability profiles for strategy recommendations.
    */
   setPromptDurabilityProfiles(
-    profiles: typeof this.promptDurabilityProfiles,
+    profiles: typeof this.promptDurabilityProfiles
   ): void {
     this.promptDurabilityProfiles = profiles;
   }
@@ -1070,7 +1068,9 @@ export class QueryRouter {
   /**
    * Layer 7: Intent groups for dashboard session API.
    */
-  getIntentGroups(): import("../tracking/intent-token-tracker.js").IntentGroup[] {
+  getIntentGroups(): import(
+    "../tracking/intent-token-tracker.js"
+  ).IntentGroup[] {
     return this.intentTracker?.getAllGroups() ?? [];
   }
 
@@ -1099,7 +1099,7 @@ export class QueryRouter {
 
   async execute(
     toolName: string,
-    args: Record<string, unknown>,
+    args: Record<string, unknown>
   ): Promise<ToolResult> {
     const t0 = performance.now();
 
@@ -1108,7 +1108,7 @@ export class QueryRouter {
       const r = this.buildModeResponse(
         toolName,
         t0,
-        `unerr is not yet configured for this repository. Run 'unerr' to complete setup. Tool '${toolName}' will be available after setup.`,
+        `unerr is not yet configured for this repository. Run 'unerr' to complete setup. Tool '${toolName}' will be available after setup.`
       );
       await this.enrichResult(toolName, args, r);
       return r;
@@ -1141,7 +1141,7 @@ export class QueryRouter {
           }
         } catch (err: unknown) {
           process.stderr.write(
-            `[unerr] ⚠ Graph query failed during tool dispatch: ${formatUnknownError(err)}\n`,
+            `[unerr] ⚠ Graph query failed during tool dispatch: ${formatUnknownError(err)}\n`
           );
         }
       }
@@ -1167,7 +1167,7 @@ export class QueryRouter {
       const r = this.buildModeResponse(
         toolName,
         t0,
-        `Unknown tool '${toolName}'. Run 'unerr status' to see available tools.`,
+        `Unknown tool '${toolName}'. Run 'unerr status' to see available tools.`
       );
       return r;
     }
@@ -1185,11 +1185,11 @@ export class QueryRouter {
             () =>
               reject(
                 new Error(
-                  `tool_timeout: ${toolName} exceeded ${TOOL_TIMEOUT_MS}ms`,
-                ),
+                  `tool_timeout: ${toolName} exceeded ${TOOL_TIMEOUT_MS}ms`
+                )
               ),
-            TOOL_TIMEOUT_MS,
-          ),
+            TOOL_TIMEOUT_MS
+          )
         ),
       ]);
       const latency_ms = performance.now() - t0;
@@ -1276,7 +1276,7 @@ export class QueryRouter {
           if (entityRisk?.risk_level === "high") {
             this.effectivenessTracker.recordCorrection(
               entityKey,
-              "blast_radius",
+              "blast_radius"
             );
           }
         }
@@ -1301,7 +1301,7 @@ export class QueryRouter {
       const compressedContent = await this.maybeCompressContent(
         toolName,
         result,
-        meta,
+        meta
       );
 
       // Strip noise fields that are meaningless to coding agents before encoding
@@ -1318,7 +1318,7 @@ export class QueryRouter {
       const { body: cappedContent, pageHint: cappedHint } = applyCapEarly(
         toolName,
         cleanedContent,
-        args,
+        args
       );
       if (cappedHint) {
         // _unerr_page_hint is an internal-only field — wire boundaries
@@ -1346,7 +1346,7 @@ export class QueryRouter {
         this.compressionMonitor.recordCompression(
           `${toolName}-l6-${Date.now()}`,
           "layer6_columnar",
-          ratio,
+          ratio
         );
       }
 
@@ -1442,7 +1442,7 @@ export class QueryRouter {
   private buildModeResponse(
     toolName: string,
     t0: number,
-    message: string,
+    message: string
   ): ToolResult {
     const meta: ToolResult["_meta"] = {
       source: "local",
@@ -1494,7 +1494,7 @@ export class QueryRouter {
   async enrichResult(
     toolName: string,
     args: Record<string, unknown>,
-    result: ToolResult,
+    result: ToolResult
   ): Promise<{ tokensSaved: number; savingsMechanism?: string }> {
     this.sessionContext.recordToolCall();
 
@@ -1540,11 +1540,11 @@ export class QueryRouter {
           };
           this.effectivenessTracker?.recordCorrection(
             entityKey,
-            "circuit_breaker",
+            "circuit_breaker"
           );
           // S9.7: Stderr notification on circuit break
           process.stderr.write(
-            `[unerr] Circuit breaker: halting repeated attempts on ${entityKey}\n`,
+            `[unerr] Circuit breaker: halting repeated attempts on ${entityKey}\n`
           );
           // S9.5: Increment caught counter for convention violations that triggered breaker
           if (this.sessionEvents) {
@@ -1607,7 +1607,7 @@ export class QueryRouter {
         if (this.efficiencyTracker) {
           this.efficiencyTracker.record(
             estimate.tokensWithout,
-            estimate.tokensUsed,
+            estimate.tokensUsed
           );
         }
 
@@ -1638,7 +1638,7 @@ export class QueryRouter {
               activeIntent,
               estimate.tokensUsed,
               saved,
-              entityKey,
+              entityKey
             );
           }
         }
@@ -1710,7 +1710,7 @@ export class QueryRouter {
           this.localGraph,
           this.factStore as any,
           this.graphStats,
-          this.healthGrade,
+          this.healthGrade
         );
         const brief = await briefBuilder.build(this.sessionResumeContext);
         context.session_brief = brief;
@@ -1805,7 +1805,7 @@ export class QueryRouter {
             if (this.healthMonitor) {
               this.healthMonitor.recordBlastRadius(
                 entityKey,
-                br.direct_callers,
+                br.direct_callers
               );
             }
 
@@ -1813,7 +1813,7 @@ export class QueryRouter {
             if (br.is_chokepoint) {
               context.related_issues = context.related_issues ?? [];
               context.related_issues.push(
-                "Chokepoint: high fan_in and fan_out \u2014 changes here have wide blast radius",
+                "Chokepoint: high fan_in and fan_out \u2014 changes here have wide blast radius"
               );
               riskLevel = "high";
               // S9.5: Wire chokepoint warning into caught counter
@@ -1823,7 +1823,7 @@ export class QueryRouter {
             }
           } catch (err: unknown) {
             process.stderr.write(
-              `[unerr] ⚠ Blast radius query failed for ${entityKey}: ${formatUnknownError(err)}\n`,
+              `[unerr] ⚠ Blast radius query failed for ${entityKey}: ${formatUnknownError(err)}\n`
             );
           }
         }
@@ -1859,7 +1859,7 @@ export class QueryRouter {
           }
         } catch (err: unknown) {
           process.stderr.write(
-            `[unerr] ⚠ Community query failed: ${formatUnknownError(err)}\n`,
+            `[unerr] ⚠ Community query failed: ${formatUnknownError(err)}\n`
           );
         }
 
@@ -1872,7 +1872,7 @@ export class QueryRouter {
             }
           } catch (err: unknown) {
             process.stderr.write(
-              `[unerr] ⚠ Entity risk lookup failed: ${formatUnknownError(err)}\n`,
+              `[unerr] ⚠ Entity risk lookup failed: ${formatUnknownError(err)}\n`
             );
           }
         }
@@ -1881,13 +1881,13 @@ export class QueryRouter {
         try {
           const corrections = await this.localGraph.getCorrections(
             entityKey,
-            0.7,
+            0.7
           );
           const newCorrections = corrections.filter((c) =>
             this.sessionContext.shouldInjectCorrection(
               c.entity_key,
-              c.error_type,
-            ),
+              c.error_type
+            )
           );
           if (newCorrections.length > 0) {
             result._meta.corrections = newCorrections.map((c) => ({
@@ -1898,13 +1898,13 @@ export class QueryRouter {
             }));
             context.corrections = newCorrections.map(
               (c) =>
-                `WARNING: ${c.correction_summary} (confidence: ${c.confidence}, seen ${c.occurrences}x)`,
+                `WARNING: ${c.correction_summary} (confidence: ${c.confidence}, seen ${c.occurrences}x)`
             );
             hasContext = true;
           }
         } catch (err: unknown) {
           process.stderr.write(
-            `[unerr] ⚠ Correction query failed: ${formatUnknownError(err)}\n`,
+            `[unerr] ⚠ Correction query failed: ${formatUnknownError(err)}\n`
           );
         }
 
@@ -1928,7 +1928,7 @@ export class QueryRouter {
             }
           } catch (err: unknown) {
             process.stderr.write(
-              `[unerr] ⚠ Durability lookup failed: ${formatUnknownError(err)}\n`,
+              `[unerr] ⚠ Durability lookup failed: ${formatUnknownError(err)}\n`
             );
           }
         }
@@ -1936,11 +1936,11 @@ export class QueryRouter {
         // S7.6: Anti-pattern injection from negative knowledge
         if (this.antiPatternEntries.length > 0) {
           const entityPatterns = this.antiPatternEntries.filter(
-            (e) => e.entityKey === entityKey,
+            (e) => e.entityKey === entityKey
           );
           if (entityPatterns.length > 0) {
             context.anti_patterns = entityPatterns.map(
-              (p) => `ANTI-PATTERN: ${p.pattern} — ${p.reason}`,
+              (p) => `ANTI-PATTERN: ${p.pattern} — ${p.reason}`
             );
             hasContext = true;
           }
@@ -1959,13 +1959,13 @@ export class QueryRouter {
               const recentInteractions = chain.interactions.slice(-3);
               context.history = recentInteractions.map(
                 (i) =>
-                  `${i.outcome === "survived" ? "✓" : "✗"} ${i.prompt.slice(0, 60)} (${i.outcome}, ${Math.round(i.survivalMs / 3600000)}h)`,
+                  `${i.outcome === "survived" ? "✓" : "✗"} ${i.prompt.slice(0, 60)} (${i.outcome}, ${Math.round(i.survivalMs / 3600000)}h)`
               );
               hasContext = true;
             }
           } catch (err: unknown) {
             process.stderr.write(
-              `[unerr] ⚠ Causal bridge query failed: ${formatUnknownError(err)}\n`,
+              `[unerr] ⚠ Causal bridge query failed: ${formatUnknownError(err)}\n`
             );
           }
         }
@@ -1976,12 +1976,12 @@ export class QueryRouter {
           const applicable = this.learnedConventions.filter(
             (c) =>
               c.confidence >= 0.6 &&
-              entityKey.includes(c.pattern.split(" ")[0] ?? ""),
+              entityKey.includes(c.pattern.split(" ")[0] ?? "")
           );
           if (applicable.length > 0) {
             context.learned_conventions = applicable.map(
               (c) =>
-                `LEARNED: ${c.name} (confidence: ${c.confidence.toFixed(2)})`,
+                `LEARNED: ${c.name} (confidence: ${c.confidence.toFixed(2)})`
             );
             hasContext = true;
           }
@@ -1993,7 +1993,7 @@ export class QueryRouter {
           riskLevel !== "normal"
         ) {
           const lowDurability = this.promptDurabilityProfiles.filter(
-            (p) => p.durability < 0.5 && p.recommendation,
+            (p) => p.durability < 0.5 && p.recommendation
           );
           if (lowDurability.length > 0) {
             context.prompt_strategy = lowDurability
@@ -2008,10 +2008,10 @@ export class QueryRouter {
           const entity = await this.localGraph.getEntity(entityKey);
           if (entity) {
             const conventions = await this.localGraph.getConventionsForEntity(
-              entity.file_path,
+              entity.file_path
             );
             const newConventions = conventions.filter((c) =>
-              this.sessionContext.shouldInjectConvention(c.id),
+              this.sessionContext.shouldInjectConvention(c.id)
             );
             if (newConventions.length > 0) {
               result._meta.conventions = newConventions.map((c) => ({
@@ -2030,7 +2030,7 @@ export class QueryRouter {
                     adherence_pct: c.adherence_pct,
                     kind: (c as any).kind ?? "entity",
                   },
-                  toolName,
+                  toolName
                 );
                 return signal.action
                   ? `${signal.content} — ${signal.action}`
@@ -2038,13 +2038,17 @@ export class QueryRouter {
               });
               hasContext = true;
               this.sessionContext.recordConventions(
-                newConventions.map((c) => c.id),
+                newConventions.map((c) => c.id)
               );
               if (this.effectivenessTracker) {
                 const turn = this.sessionContext.getToolCallCount();
                 const entityKey =
-                  ((args as Record<string, unknown>).key as string | undefined) ??
-                  ((args as Record<string, unknown>).name as string | undefined) ??
+                  ((args as Record<string, unknown>).key as
+                    | string
+                    | undefined) ??
+                  ((args as Record<string, unknown>).name as
+                    | string
+                    | undefined) ??
                   null;
                 for (const c of newConventions) {
                   this.effectivenessTracker.recordSignalFired({
@@ -2058,7 +2062,7 @@ export class QueryRouter {
 
               // S2.6: Feed convention violations into health monitor (adherence < 70%)
               const violations = newConventions.filter(
-                (c) => c.adherence_pct < 70,
+                (c) => c.adherence_pct < 70
               );
               if (this.healthMonitor) {
                 for (const _v of violations) {
@@ -2074,7 +2078,7 @@ export class QueryRouter {
           }
         } catch (err: unknown) {
           process.stderr.write(
-            `[unerr] ⚠ Convention lookup failed: ${formatUnknownError(err)}\n`,
+            `[unerr] ⚠ Convention lookup failed: ${formatUnknownError(err)}\n`
           );
         }
 
@@ -2094,7 +2098,7 @@ export class QueryRouter {
             }
           } catch (err: unknown) {
             process.stderr.write(
-              `[unerr] ⚠ Drift alert failed: ${formatUnknownError(err)}\n`,
+              `[unerr] ⚠ Drift alert failed: ${formatUnknownError(err)}\n`
             );
           }
         }
@@ -2104,7 +2108,7 @@ export class QueryRouter {
           this.sessionContext.recordEntityHistory(
             entityKey,
             blastRadiusCount,
-            riskLevel,
+            riskLevel
           );
         }
 
@@ -2156,7 +2160,7 @@ export class QueryRouter {
 
           // Dedup: only inject facts not yet delivered this session
           const newFacts = merged.filter((f) =>
-            this.sessionContext.shouldInjectFact(f.fact_id),
+            this.sessionContext.shouldInjectFact(f.fact_id)
           );
           if (newFacts.length > 0) {
             const top = newFacts.slice(0, 5);
@@ -2174,7 +2178,9 @@ export class QueryRouter {
               const turn = this.sessionContext.getToolCallCount();
               const entityKey =
                 ((args as Record<string, unknown>).key as string | undefined) ??
-                ((args as Record<string, unknown>).name as string | undefined) ??
+                ((args as Record<string, unknown>).name as
+                  | string
+                  | undefined) ??
                 null;
               for (const f of top) {
                 this.effectivenessTracker.recordSignalFired({
@@ -2217,7 +2223,7 @@ export class QueryRouter {
           );
           const joiner = new GraphTemporalJoiner(
             this.localGraph,
-            this.factStore ? (this.factStore as any) : null,
+            this.factStore ? (this.factStore as any) : null
           );
           const coChanges = await joiner.predictCoChanges(filePath);
           const topCoChange = coChanges[0];
@@ -2240,7 +2246,7 @@ export class QueryRouter {
           const hidden = await joiner.detectHiddenCouplings();
           const topHidden = hidden.filter(
             (h: { file_a: string; file_b: string }) =>
-              h.file_a === filePath || h.file_b === filePath,
+              h.file_a === filePath || h.file_b === filePath
           );
           if (topHidden.length > 0) {
             const hiddenFile = topHidden[0];
@@ -2249,9 +2255,7 @@ export class QueryRouter {
                 hiddenFile.file_a === filePath
                   ? hiddenFile.file_b
                   : hiddenFile.file_a;
-              context.co_changes =
-                (context.co_changes ? context.co_changes + ". " : "") +
-                `Hidden dependency: ${otherFile} (${hiddenFile.evidence})`;
+              context.co_changes = `${context.co_changes ? `${context.co_changes}. ` : ""}Hidden dependency: ${otherFile} (${hiddenFile.evidence})`;
               hasContext = true;
             }
           }
@@ -2282,20 +2286,20 @@ export class QueryRouter {
           dedupedContext = orderContextFields(
             this.sessionDedup.filter(
               entityKey,
-              dedupedContext as Record<string, unknown>,
-            ) as ContextHints,
+              dedupedContext as Record<string, unknown>
+            ) as ContextHints
           );
 
           // Layer 10: Record session dedup savings
           if (this.tokenFlow) {
             const postFilterKeys = new Set(Object.keys(dedupedContext));
             const dedupedKeys = preFilterKeys.filter(
-              (k) => !postFilterKeys.has(k),
+              (k) => !postFilterKeys.has(k)
             );
             if (dedupedKeys.length > 0) {
               const dedupedContent = dedupedKeys
                 .map((k) =>
-                  JSON.stringify((context as Record<string, unknown>)[k]),
+                  JSON.stringify((context as Record<string, unknown>)[k])
                 )
                 .join("");
               const dedupedTokens = Math.ceil(dedupedContent.length / 4);
@@ -2336,14 +2340,14 @@ export class QueryRouter {
       const decisionLevel = getDecisionPointDetector().detect(
         toolName,
         args,
-        this.sessionContext,
+        this.sessionContext
       );
       const signalOutput = await assembleContextOutput(
         dedupedContext,
         toolName,
         args,
         decisionLevel,
-        this.sessionContext,
+        this.sessionContext
       );
 
       if (Object.keys(signalOutput).length > 0) {
@@ -2489,7 +2493,7 @@ export class QueryRouter {
   private async maybeCompressContent(
     toolName: string,
     result: unknown,
-    meta: ToolResult["_meta"],
+    meta: ToolResult["_meta"]
   ): Promise<unknown> {
     // Apply smart truncation to entity objects from get_function/get_class/get_file
     if (
@@ -2591,14 +2595,14 @@ export class QueryRouter {
     if (Array.isArray(result) && result.length > 0) {
       const budget = 2000;
       const truncatedList = truncateResultList(result, budget, (item) =>
-        JSON.stringify(item),
+        JSON.stringify(item)
       );
       if (truncatedList.truncated) {
         meta.truncated = true;
         meta.tokens_used = truncatedList.tokens_used;
         meta.tokens_budget = budget;
         const fullTokensEst = estimateTokens(
-          result.map((i) => JSON.stringify(i)).join("\n"),
+          result.map((i) => JSON.stringify(i)).join("\n")
         );
         meta.full_tokens_estimate = fullTokensEst;
 
@@ -2672,7 +2676,7 @@ export class QueryRouter {
       this.compressionMonitor.recordCompression(
         compressionId,
         contentType,
-        ratio,
+        ratio
       );
     }
 
@@ -2726,7 +2730,7 @@ export class QueryRouter {
    * Extracts file paths mentioned in text and queries their risk levels.
    */
   private async buildEntityRiskMap(
-    text: string,
+    text: string
   ): Promise<Map<string, EntityRiskInfo>> {
     const riskMap = new Map<string, EntityRiskInfo>();
     try {
@@ -2734,9 +2738,13 @@ export class QueryRouter {
       const filePathPattern = /(?:^|\s)([\w/.]+\.[a-z]{1,4})(?:\s|:|$)/gm;
       const seen = new Set<string>();
       let match: RegExpExecArray | null;
-      while ((match = filePathPattern.exec(text)) !== null) {
+      match = filePathPattern.exec(text);
+      while (match !== null) {
         const filePath = match[1]!;
-        if (seen.has(filePath)) continue;
+        if (seen.has(filePath)) {
+          match = filePathPattern.exec(text);
+          continue;
+        }
         seen.add(filePath);
         if (seen.size > 20) break; // Cap to avoid expensive queries
 
@@ -2754,10 +2762,11 @@ export class QueryRouter {
             isChokepoint: br.is_chokepoint,
           });
         }
+        match = filePathPattern.exec(text);
       }
     } catch (err: unknown) {
       process.stderr.write(
-        `[unerr] ⚠ Risk map construction failed: ${formatUnknownError(err)}\n`,
+        `[unerr] ⚠ Risk map construction failed: ${formatUnknownError(err)}\n`
       );
     }
     return riskMap;
@@ -2765,7 +2774,7 @@ export class QueryRouter {
 
   private async executeLocal(
     toolName: string,
-    args: Record<string, unknown>,
+    args: Record<string, unknown>
   ): Promise<unknown> {
     switch (toolName) {
       case "get_file": {
@@ -2800,7 +2809,7 @@ export class QueryRouter {
         const key = await this.resolveKeyArg(rawArg, kindHint);
         const entity = await this.resolveEntityWithOverlay(key);
         // Resolve actual body from source file — CozoDB stores body_hash, not body text
-        if (entity && entity.file_path && entity.start_line > 0) {
+        if (entity?.file_path && entity.start_line > 0) {
           try {
             const { readFileSync } = await import("node:fs");
             const { resolve } = await import("node:path");
@@ -2913,7 +2922,7 @@ export class QueryRouter {
         const { loadImportSymbols } = await import("./import-symbols.js");
         const symbolMap = await loadImportSymbols(
           this.projectRoot ?? process.cwd(),
-          filePath,
+          filePath
         );
         const lookup = new Map<string, string[]>();
         const stripExt = (p: string): string =>
@@ -2969,7 +2978,7 @@ export class QueryRouter {
             .filter((c) => c.confidence >= 0.7)
             .map(
               (c) =>
-                `${c.name}: ${Math.round(c.adherence_rate * 100)}% adherence — follow for new ${c.kind}s`,
+                `${c.name}: ${Math.round(c.adherence_rate * 100)}% adherence — follow for new ${c.kind}s`
             )
             .slice(0, 5),
           summary: `${raw.length} conventions. ${raw.filter((c) => c.adherence_rate >= 0.8).length} strongly adhered (>80%).`,
@@ -2980,30 +2989,59 @@ export class QueryRouter {
         const topN = (args.top_n as number) ?? 20;
         const fromPath = args.from_path as string | undefined;
         const toPath = args.to_path as string | undefined;
-        // If a path filter is given, fetch a wider set then post-filter so the
-        // requested `top_n` is still met after filtering. Without this, the
-        // community-pair ranking can starve specific directory queries.
-        const fetchN = fromPath || toPath ? Math.max(topN * 10, 200) : topN;
+
+        // When BOTH path filters are provided, run a targeted query with
+        // starts_with directly in Datalog.  The old approach (fetch top-N
+        // global cross-community edges, then JS-filter by path) breaks when
+        // the target directories are tightly coupled (Louvain merges them into
+        // one community so fc!=tc never fires) or when the budget runs out
+        // before the relevant edges appear.
+        if (fromPath && toPath) {
+          const norm = (p: string) => p.replace(/\/+$/, "");
+          const result = await this.localGraph.getCrossPathLinks(
+            norm(fromPath),
+            norm(toPath),
+            topN
+          );
+          if (result.length === 0) {
+            return {
+              links: [],
+              _hint:
+                "No edges found between these directory prefixes. " +
+                "call file_connections({file_path:'<file>'}) for import-level neighbors, " +
+                "or get_references({entity:'<name>', direction:'callees'}) for call-level dependencies.",
+            };
+          }
+          return result;
+        }
+
+        // Single-path filter or no filter: use community-based approach.
+        const fetchN = fromPath ? Math.max(topN * 10, 200) : topN;
         const rows = await this.localGraph.getCrossBoundaryLinks(
           communityId,
-          fetchN,
+          fetchN
         );
-        if (!fromPath && !toPath) return rows;
-        const norm = (p?: string): string =>
-          p ? p.replace(/\/+$/, "") : "";
+        if (!fromPath) return rows;
+        const norm = (p?: string): string => (p ? p.replace(/\/+$/, "") : "");
         const f = norm(fromPath);
-        const t = norm(toPath);
         const matches = (file: string, prefix: string): boolean =>
           !prefix ||
           file === prefix ||
           file.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`);
-        // Either direction may satisfy the pair: an edge connects A↔B.
         const filtered = rows.filter(
-          (r) =>
-            (matches(r.from_file, f) && matches(r.to_file, t)) ||
-            (matches(r.from_file, t) && matches(r.to_file, f)),
+          (r) => matches(r.from_file, f) || matches(r.to_file, f)
         );
-        return filtered.slice(0, topN);
+        const result = filtered.slice(0, topN);
+        if (result.length === 0) {
+          return {
+            links: [],
+            _hint:
+              "No cross-community edges found for this path filter. " +
+              "call file_connections({file_path:'<file>'}) for import-level neighbors, " +
+              "or get_references({entity:'<name>', direction:'callees'}) for call-level dependencies.",
+          };
+        }
+        return result;
       }
       case "get_critical_nodes": {
         const topN = (args.top_n as number) ?? 10;
@@ -3032,7 +3070,7 @@ export class QueryRouter {
         const includeTransitive = (args.include_transitive as boolean) ?? true;
         const coverage = await this.localGraph.getTestCoverage(
           key,
-          includeTransitive,
+          includeTransitive
         );
         return {
           entity: key,
@@ -3065,7 +3103,7 @@ export class QueryRouter {
             ? Math.round(
                 ((outline.total_lines - outline.entities.length) /
                   outline.total_lines) *
-                  100,
+                  100
               )
             : 0;
         appendFileReadLog(cwd, {
@@ -3129,7 +3167,7 @@ export class QueryRouter {
           rank = if(kind == "class", 0, if(kind == "function", 1, if(kind == "method", 2, if(kind == "type", 3, if(kind == "interface", 4, if(kind == "variable", 5, 6))))))
          :order rank
          :limit 8`,
-        { n: raw },
+        { n: raw }
       );
       const exactRows = (exact.rows ?? []) as Array<[string, string, number]>;
       if (exactRows.length > 0) {
@@ -3162,7 +3200,7 @@ export class QueryRouter {
    * If entity exists in drift_overlay, overlay data replaces/augments base entity.
    */
   private async resolveEntityWithOverlay(
-    key: string,
+    key: string
   ): Promise<LocalEntity | (LocalEntity & { _drift: DriftEntity }) | null> {
     // Check drift overlay first
     const _driftEntities = await this.localGraph.getDriftEntitiesForFile("");
@@ -3175,7 +3213,7 @@ export class QueryRouter {
         `?[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps] :=
           *drift_overlay[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps],
           key = $key`,
-        { key },
+        { key }
       );
       if (result.rows.length > 0) {
         const [
@@ -3231,7 +3269,7 @@ export class QueryRouter {
       }
     } catch (err: unknown) {
       process.stderr.write(
-        `[unerr] ⚠ Drift overlay query failed: ${formatUnknownError(err)}\n`,
+        `[unerr] ⚠ Drift overlay query failed: ${formatUnknownError(err)}\n`
       );
     }
 
@@ -3282,7 +3320,7 @@ export class QueryRouter {
   private async extractDriftMeta(
     toolName: string,
     args: Record<string, unknown>,
-    result: unknown,
+    result: unknown
   ): Promise<DriftMeta | null> {
     // Only inject drift for entity-returning tools
     if (!ENTITY_TOOLS.has(toolName)) return null;
@@ -3311,7 +3349,7 @@ export class QueryRouter {
           }
         ).db.run(
           "?[ds, iid] := *drift_overlay[$key, _, _, _, _, _, _, _, _, ds, iid, _, _, _, _]",
-          { key },
+          { key }
         );
         if (driftResult.rows.length > 0) {
           const [ds, iid] = driftResult.rows[0] as [string, string];
@@ -3325,7 +3363,7 @@ export class QueryRouter {
         }
       } catch (err: unknown) {
         process.stderr.write(
-          `[unerr] ⚠ Drift data query failed: ${formatUnknownError(err)}\n`,
+          `[unerr] ⚠ Drift data query failed: ${formatUnknownError(err)}\n`
         );
       }
     }
@@ -3394,7 +3432,7 @@ const SINGLE_ENTITY_TOOLS = new Set([
  */
 function stripEntityRow(
   row: Record<string, unknown>,
-  noiseSet: Set<string>,
+  noiseSet: Set<string>
 ): Record<string, unknown> {
   const cleaned: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(row)) {
@@ -3419,9 +3457,9 @@ function stripNoiseFields(toolName: string, content: unknown): unknown {
       item && typeof item === "object" && !Array.isArray(item)
         ? stripEntityRow(
             item as Record<string, unknown>,
-            ENTITY_NOISE_FIELDS_ARRAY,
+            ENTITY_NOISE_FIELDS_ARRAY
           )
-        : item,
+        : item
     );
   }
 
@@ -3443,9 +3481,9 @@ function stripNoiseFields(toolName: string, content: unknown): unknown {
           item && typeof item === "object" && !Array.isArray(item)
             ? stripEntityRow(
                 item as Record<string, unknown>,
-                ENTITY_NOISE_FIELDS_ARRAY,
+                ENTITY_NOISE_FIELDS_ARRAY
               )
-            : item,
+            : item
         );
       }
     }
@@ -3461,7 +3499,7 @@ function stripNoiseFields(toolName: string, content: unknown): unknown {
   ) {
     return stripEntityRow(
       content as Record<string, unknown>,
-      ENTITY_NOISE_FIELDS_ALL,
+      ENTITY_NOISE_FIELDS_ALL
     );
   }
 
@@ -3528,7 +3566,7 @@ function extractMaxRiskFromArray(items: unknown[]): EntityRiskMeta | undefined {
  */
 function extractEntityRisk(
   toolName: string,
-  result: unknown,
+  result: unknown
 ): EntityRiskMeta | undefined {
   if (!ENTITY_TOOLS.has(toolName)) return undefined;
 
@@ -3557,7 +3595,7 @@ function extractEntityRisk(
     Array.isArray((result as { references: unknown[] }).references)
   ) {
     return extractMaxRiskFromArray(
-      (result as { references: unknown[] }).references,
+      (result as { references: unknown[] }).references
     );
   }
 

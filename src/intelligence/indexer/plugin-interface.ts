@@ -102,7 +102,7 @@ export interface LanguagePlugin {
 
   detectCalls?(
     bodyNode: SyntaxNode,
-    scopeEntities: Map<string, string>,
+    scopeEntities: Map<string, string>
   ): CallSite[];
 }
 

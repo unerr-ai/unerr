@@ -21,7 +21,7 @@ export type RiskLevel = "critical" | "high" | "medium" | "low";
 /** Translate a possibly-stale risk_level string to the canonical enum.
  * Old snapshots used "normal" for the bottom rung; map it to "low". */
 export function normalizeRiskLevel(
-  value: string | null | undefined,
+  value: string | null | undefined
 ): RiskLevel {
   if (value === "critical" || value === "high" || value === "medium") {
     return value;
@@ -64,7 +64,7 @@ export function classifyRisk(
   fanIn: number,
   isBridge: boolean,
   hasMutations: boolean,
-  isGuarded: boolean,
+  isGuarded: boolean
 ): RiskAssessment {
   const fanInScore = Math.min(100, fanIn * 2);
   const bridgeScore = isBridge ? 80 : 0;
@@ -79,7 +79,7 @@ export function classifyRisk(
 
   const score = Math.max(
     0,
-    Math.min(100, Math.round(rawScore + guardScore * WEIGHTS.guard)),
+    Math.min(100, Math.round(rawScore + guardScore * WEIGHTS.guard))
   );
 
   const level: RiskLevel =
@@ -121,7 +121,7 @@ export function classifyRisk(
 export function detectBridges(
   entityKey: string,
   edges: IndexedEdge[],
-  communityAssignments: Map<string, number>,
+  communityAssignments: Map<string, number>
 ): boolean {
   const myCommunity = communityAssignments.get(entityKey);
   if (myCommunity === undefined) return false;
@@ -153,7 +153,7 @@ export function classifyAllRisks(
   edges: IndexedEdge[],
   communityAssignments: Map<string, number>,
   mutationEntities: Set<string>,
-  guardedEntities: Set<string>,
+  guardedEntities: Set<string>
 ): RiskAssessment[] {
   return entities.map((entity) => {
     const fanIn = fanInMap.get(entity.key) ?? 0;

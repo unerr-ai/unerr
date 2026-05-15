@@ -13,7 +13,7 @@ function createMockGraph(
     frequency: number;
     confidence: number;
     adherence_rate: number;
-  }> = [],
+  }> = []
 ) {
   return {
     getConventions: vi.fn(() => Promise.resolve(conventions)),
@@ -27,7 +27,7 @@ function createMockFactStore(
     content: string;
     effective_confidence: number;
     source: string;
-  }> = [],
+  }> = []
 ) {
   return {
     recallByScope: vi.fn(() => Promise.resolve(facts)),
@@ -41,7 +41,7 @@ describe("SessionBriefBuilder", () => {
         null,
         null,
         { entities: 100, edges: 200, rules: 10 },
-        "A",
+        "A"
       );
       const brief = await builder.build();
       expect(brief.greeting).toContain("100 entities");
@@ -106,7 +106,7 @@ describe("SessionBriefBuilder", () => {
         null,
         factStore as any,
         null,
-        null,
+        null
       );
       const brief = await builder.build();
       expect(brief.key_facts).toHaveLength(2);
@@ -148,7 +148,7 @@ describe("SessionBriefBuilder", () => {
         null,
         factStore as any,
         null,
-        null,
+        null
       );
       const brief = await builder.build();
       expect(brief.key_facts).toHaveLength(3);
@@ -200,7 +200,7 @@ describe("SessionBriefBuilder", () => {
         graph as any,
         factStore as any,
         { entities: 42, edges: 100, rules: 5 },
-        "B",
+        "B"
       );
       const brief = await builder.build();
       expect(brief.intelligence_health).toContain("42 entities");
@@ -223,7 +223,7 @@ describe("SessionBriefBuilder", () => {
         null,
         null,
         { entities: 50, edges: 80, rules: 5 },
-        "B",
+        "B"
       );
       const brief = await builder.build();
       expect(brief.greeting).toContain("could improve");
@@ -234,7 +234,7 @@ describe("SessionBriefBuilder", () => {
         null,
         null,
         { entities: 50, edges: 80, rules: 5 },
-        "C",
+        "C"
       );
       const brief = await builder.build();
       expect(brief.greeting).toContain("Structural issues");
@@ -245,7 +245,7 @@ describe("SessionBriefBuilder", () => {
         null,
         null,
         { entities: 50, edges: 80, rules: 5 },
-        "D",
+        "D"
       );
       const brief = await builder.build();
       expect(brief.greeting).toContain("Warning");

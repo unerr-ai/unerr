@@ -15,7 +15,7 @@ let unerrDir: string;
 beforeEach(() => {
   tempDir = join(
     tmpdir(),
-    `unerr-correlator-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `unerr-correlator-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   unerrDir = join(tempDir, ".unerr");
   mkdirSync(unerrDir, { recursive: true });
@@ -40,7 +40,7 @@ describe("IntentCorrelator", () => {
       { key: "abc" },
       { found: true },
       "main",
-      "aaa",
+      "aaa"
     );
     ledger.record(
       "sync_local_diff",
@@ -51,7 +51,7 @@ describe("IntentCorrelator", () => {
       },
       {},
       "main",
-      "aaa",
+      "aaa"
     );
 
     const result = correlator.onSyncLocalDiff(ledger, {
@@ -219,7 +219,7 @@ describe("IntentCorrelator", () => {
       { key: "abc" },
       { found: true },
       "main",
-      "aaa",
+      "aaa"
     );
     ledger.record("get_callers", { key: "abc" }, { count: 3 }, "main", "aaa");
     ledger.record("get_file", { key: "file1" }, { found: true }, "main", "aaa");

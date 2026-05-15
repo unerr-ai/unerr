@@ -28,7 +28,7 @@ function normalizeLogLine(line: string): string {
       .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.\d]*Z?/g, "<TS>")
       .replace(
         /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
-        "<UUID>",
+        "<UUID>"
       )
       .replace(/\b[0-9a-f]{7,40}\b/gi, "<HASH>")
       .replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, "<IP>")
@@ -37,7 +37,7 @@ function normalizeLogLine(line: string): string {
       // Bare filenames with extensions
       .replace(
         /\b[\w.-]+\.(ts|js|tsx|jsx|py|go|rs|c|cpp|java|rb|swift|kt|cs|o|so|dll|wasm)\b/g,
-        "<FILE>",
+        "<FILE>"
       )
       // Relative/absolute paths
       .replace(/(?:\.\.?\/|\/)[\w./-]+/g, "<PATH>")
@@ -138,7 +138,7 @@ export function compressLogText(text: string, command?: string): string {
     }
   }
 
-  const parts: string[] = [`_shell_fmt:log_text`];
+  const parts: string[] = ["_shell_fmt:log_text"];
   parts.push(`(${total} lines, ${patterns.size} unique patterns)`);
 
   // Errors first — dedup identical error/warning lines with [×N]

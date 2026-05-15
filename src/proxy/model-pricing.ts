@@ -76,7 +76,7 @@ export function getModelRate(modelId?: string): ModelRate {
  */
 export function calculateDollarSavings(
   tokensSaved: number,
-  modelId?: string,
+  modelId?: string
 ): number {
   const rate = getModelRate(modelId);
   return (tokensSaved * rate.inputPerMillion) / 1_000_000;
@@ -97,7 +97,7 @@ export function formatDollars(amount: number): string {
  */
 export function formatSavingsSummary(
   tokensSaved: number,
-  modelId?: string,
+  modelId?: string
 ): string {
   const dollars = calculateDollarSavings(tokensSaved, modelId);
   const rate = getModelRate(modelId);

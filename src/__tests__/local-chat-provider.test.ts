@@ -30,7 +30,7 @@ function createMockOllamaServer(): http.Server {
           `${JSON.stringify({
             message: { role: "assistant", content: "Hello " },
             done: false,
-          })}\n`,
+          })}\n`
         );
         res.write(
           `${JSON.stringify({
@@ -38,7 +38,7 @@ function createMockOllamaServer(): http.Server {
             done: true,
             eval_count: 10,
             prompt_eval_count: 5,
-          })}\n`,
+          })}\n`
         );
         res.end();
       });
@@ -59,10 +59,10 @@ function createMockOpenAiServer(): http.Server {
     if (req.url === "/v1/chat/completions" && req.method === "POST") {
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       res.write(
-        'data: {"choices":[{"delta":{"content":"Hi "},"index":0}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"Hi "},"index":0}]}\n\n'
       );
       res.write(
-        'data: {"choices":[{"delta":{"content":"there!"},"index":0}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"there!"},"index":0}]}\n\n'
       );
       res.write("data: [DONE]\n\n");
       res.end();
@@ -114,7 +114,7 @@ describe("LocalChatProvider — Ollama (L8.1)", () => {
       [],
       "You are a helpful assistant.",
       1024,
-      (chunk) => chunks.push(chunk),
+      (chunk) => chunks.push(chunk)
     );
 
     expect(response.text).toBe("Hello world!");
@@ -165,7 +165,7 @@ describe("LocalChatProvider — OpenAI-Compatible (L8.1)", () => {
       [],
       "You are helpful.",
       1024,
-      (chunk) => chunks.push(chunk),
+      (chunk) => chunks.push(chunk)
     );
 
     expect(response.text).toBe("Hi there!");
@@ -222,8 +222,8 @@ describe("LocalChatProvider — anthropic-direct (L8.1)", () => {
         [],
         "System prompt",
         1024,
-        () => {},
-      ),
+        () => {}
+      )
     ).rejects.toThrow("anthropic-direct requires an API key");
   });
 });

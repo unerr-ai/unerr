@@ -15,7 +15,7 @@ const MAX_TRACKED_KEYS = 10_000;
 export interface SessionDedup {
   filter: (
     entityKey: string,
-    context: Record<string, unknown>,
+    context: Record<string, unknown>
   ) => Record<string, unknown>;
   hasDelivered: (entityKey: string, contextKey: string) => boolean;
   markDelivered: (entityKey: string, contextKeys: string[]) => void;
@@ -77,7 +77,7 @@ export function createSessionDedup(): SessionDedup {
 
   function filter(
     entityKey: string,
-    context: Record<string, unknown>,
+    context: Record<string, unknown>
   ): Record<string, unknown> {
     const filtered: Record<string, unknown> = {};
     const newKeys: string[] = [];

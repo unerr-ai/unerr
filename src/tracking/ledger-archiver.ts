@@ -12,7 +12,6 @@
  * append-only log.
  */
 
-import { gzipSync } from "node:zlib";
 import {
   appendFileSync,
   existsSync,
@@ -22,6 +21,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 
 const DEFAULT_RETAIN_MS = 7 * 24 * 60 * 60_000;
 
@@ -47,7 +47,7 @@ export interface ArchiveResult {
  */
 export function archiveShadowLedger(
   unerrDir: string,
-  opts: ArchiveOptions = {},
+  opts: ArchiveOptions = {}
 ): ArchiveResult {
   const ledgerDir = join(unerrDir, "ledger");
   const filePath = join(ledgerDir, "shadow.jsonl");
@@ -68,7 +68,7 @@ export function archiveShadowLedger(
   const keep: string[] = [];
   const archive: string[] = [];
   for (const line of lines) {
-    let entryTs = NaN;
+    let entryTs = Number.NaN;
     try {
       const obj = JSON.parse(line) as { ts?: string };
       if (typeof obj.ts === "string") entryTs = Date.parse(obj.ts);

@@ -187,7 +187,7 @@ export const DEEP_DIVE_TOOL_DEFINITIONS = [
 
 /** All 8 deep dive tool names. */
 export const DEEP_DIVE_TOOL_NAMES = DEEP_DIVE_TOOL_DEFINITIONS.map(
-  (t) => t.name,
+  (t) => t.name
 );
 
 /** Navigation-phase tools (available post-approval). */
@@ -226,7 +226,7 @@ function formatError(message: string): ToolResult {
 
 async function resolveProject(
   graph: CozoGraphStore,
-  projectId?: string,
+  projectId?: string
 ): ReturnType<CozoGraphStore["getDeepDiveProject"]> {
   if (projectId) return await graph.getDeepDiveProject(projectId);
   return await graph.getActiveDeepDiveProject();
@@ -236,7 +236,7 @@ async function resolveProject(
 
 export async function handleGetPlanContext(
   graph: CozoGraphStore,
-  args: { projectId?: string },
+  args: { projectId?: string }
 ): Promise<ToolResult> {
   const project = await resolveProject(graph, args.projectId);
   if (!project) return formatError("No Blueprint project found.");
@@ -274,20 +274,20 @@ export async function handleGetPlanContext(
 
 export async function handleGetNextSlice(
   graph: CozoGraphStore,
-  args: { projectId?: string },
+  args: { projectId?: string }
 ): Promise<ToolResult> {
   const project = await resolveProject(graph, args.projectId);
   if (!project) return formatError("No Blueprint project found.");
 
   if (project.status !== "approved" && project.status !== "building") {
     return formatError(
-      `unerr_get_next_slice requires an approved project. Current status: "${project.status}".`,
+      `unerr_get_next_slice requires an approved project. Current status: "${project.status}".`
     );
   }
 
   const slices = await graph.getDeepDiveSlices(project.key);
   const completedKeys = new Set(
-    slices.filter((s) => s.status === "complete").map((s) => s.key),
+    slices.filter((s) => s.status === "complete").map((s) => s.key)
   );
 
   const nextSlice = slices.find((s) => {
@@ -330,7 +330,7 @@ export async function handleCheckBoundary(
     sliceId: string;
     proposedImports?: string[];
     proposedFiles?: string[];
-  },
+  }
 ): Promise<ToolResult> {
   const project = await resolveProject(graph, args.projectId);
   if (!project) return formatError("No Blueprint project found.");
@@ -402,7 +402,7 @@ function ruleViolatesImport(ruleLower: string, importLower: string): boolean {
 
 export async function handleGetDesignSystem(
   graph: CozoGraphStore,
-  args: { projectId?: string },
+  args: { projectId?: string }
 ): Promise<ToolResult> {
   const project = await resolveProject(graph, args.projectId);
   if (!project) return formatError("No Blueprint project found.");
@@ -423,7 +423,7 @@ export async function handleGetDesignSystem(
 
 export async function handleGetNextTask(
   graph: CozoGraphStore,
-  args: { projectId?: string; sprintNumber?: number },
+  args: { projectId?: string; sprintNumber?: number }
 ): Promise<ToolResult> {
   const project = await resolveProject(graph, args.projectId);
   if (!project) return formatError("No Blueprint project found.");
@@ -431,12 +431,12 @@ export async function handleGetNextTask(
   const tasks = await graph.getDeepDiveTasks(project.key, args.sprintNumber);
   if (tasks.length === 0) {
     return formatError(
-      "No tasks found. Generate an implementation plan first.",
+      "No tasks found. Generate an implementation plan first."
     );
   }
 
   const completedIds = new Set(
-    tasks.filter((t) => t.status === "complete").map((t) => t.key),
+    tasks.filter((t) => t.status === "complete").map((t) => t.key)
   );
 
   const nextTask = tasks.find((t) => {
@@ -453,10 +453,10 @@ export async function handleGetNextTask(
   }
 
   const sprintTasks = tasks.filter(
-    (t) => t.sprintNumber === nextTask.sprintNumber,
+    (t) => t.sprintNumber === nextTask.sprintNumber
   );
   const sprintCompleted = sprintTasks.filter(
-    (t) => t.status === "complete",
+    (t) => t.status === "complete"
   ).length;
 
   return formatResult({
@@ -483,7 +483,7 @@ export async function handleCompleteTask(
     projectId?: string;
     taskId: string;
     completedFiles?: string[];
-  },
+  }
 ): Promise<ToolResult> {
   const project = await resolveProject(graph, args.projectId);
   if (!project) return formatError("No Blueprint project found.");
@@ -492,7 +492,7 @@ export async function handleCompleteTask(
   const task = tasks.find((t) => t.key === args.taskId);
   if (!task) {
     return formatError(
-      `Task "${args.taskId}" not found in the implementation plan.`,
+      `Task "${args.taskId}" not found in the implementation plan.`
     );
   }
 
@@ -537,7 +537,7 @@ export async function handleCompleteTask(
 
 export async function handleGetSprintContext(
   graph: CozoGraphStore,
-  args: { projectId?: string; sprintNumber: number },
+  args: { projectId?: string; sprintNumber: number }
 ): Promise<ToolResult> {
   const project = await resolveProject(graph, args.projectId);
   if (!project) return formatError("No Blueprint project found.");
@@ -545,7 +545,7 @@ export async function handleGetSprintContext(
   const tasks = await graph.getDeepDiveTasks(project.key, args.sprintNumber);
   if (tasks.length === 0) {
     return formatError(
-      `Sprint ${args.sprintNumber} not found or has no tasks.`,
+      `Sprint ${args.sprintNumber} not found or has no tasks.`
     );
   }
 
@@ -570,7 +570,7 @@ export async function handleGetSprintContext(
       checkpoint,
     },
     acceptanceCriteria: Object.fromEntries(
-      tasks.map((t) => [t.key, t.acceptanceCriteria]),
+      tasks.map((t) => [t.key, t.acceptanceCriteria])
     ),
     agentContext: {
       claudeMd,
@@ -582,7 +582,7 @@ export async function handleGetSprintContext(
 
 export async function handleGetCheckpointStatus(
   graph: CozoGraphStore,
-  args: { projectId?: string; sprintNumber: number },
+  args: { projectId?: string; sprintNumber: number }
 ): Promise<ToolResult> {
   const project = await resolveProject(graph, args.projectId);
   if (!project) return formatError("No Blueprint project found.");
@@ -628,7 +628,7 @@ function generateClaudeMd(
     domain: Record<string, unknown>;
     stage: Record<string, unknown>;
     designSystem: unknown;
-  },
+  }
 ): string {
   const lines: string[] = [
     `# Blueprint Sprint Context — ${project.name}`,
@@ -689,7 +689,7 @@ function generateCursorRules(
     sliceName: string;
     boundaryRules: Array<{ description: string }>;
   }>,
-  sprintNumber: number,
+  sprintNumber: number
 ): string {
   const lines: string[] = [
     "---",
@@ -727,7 +727,7 @@ function generateCursorRules(
 export async function handleDeepDiveTool(
   name: string,
   args: Record<string, unknown>,
-  graph: CozoGraphStore,
+  graph: CozoGraphStore
 ): Promise<ToolResult | null> {
   switch (name) {
     case "unerr_get_plan_context":
@@ -742,7 +742,7 @@ export async function handleDeepDiveTool(
           sliceId: string;
           proposedImports?: string[];
           proposedFiles?: string[];
-        },
+        }
       );
     case "unerr_get_design_system":
       return await handleGetDesignSystem(graph, args as { projectId?: string });
@@ -752,7 +752,7 @@ export async function handleDeepDiveTool(
         args as {
           projectId?: string;
           sprintNumber?: number;
-        },
+        }
       );
     case "unerr_complete_task":
       return await handleCompleteTask(
@@ -761,7 +761,7 @@ export async function handleDeepDiveTool(
           projectId?: string;
           taskId: string;
           completedFiles?: string[];
-        },
+        }
       );
     case "unerr_get_sprint_context":
       return await handleGetSprintContext(
@@ -769,7 +769,7 @@ export async function handleDeepDiveTool(
         args as {
           projectId?: string;
           sprintNumber: number;
-        },
+        }
       );
     case "unerr_get_checkpoint_status":
       return await handleGetCheckpointStatus(
@@ -777,7 +777,7 @@ export async function handleDeepDiveTool(
         args as {
           projectId?: string;
           sprintNumber: number;
-        },
+        }
       );
     default:
       return null;

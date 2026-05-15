@@ -145,9 +145,24 @@ const NOTE_TYPES: Array<{
   color: string;
 }> = [
   { value: "", label: "All notes", emoji: "▣", color: "text-zinc-300" },
-  { value: "mark_intent", label: "Goals", emoji: "🎯", color: "text-violet-300" },
-  { value: "mark_decision", label: "Decisions", emoji: "💡", color: "text-cyan-300" },
-  { value: "mark_blocker", label: "Stuck moments", emoji: "⚠", color: "text-rose-300" },
+  {
+    value: "mark_intent",
+    label: "Goals",
+    emoji: "🎯",
+    color: "text-violet-300",
+  },
+  {
+    value: "mark_decision",
+    label: "Decisions",
+    emoji: "💡",
+    color: "text-cyan-300",
+  },
+  {
+    value: "mark_blocker",
+    label: "Stuck moments",
+    emoji: "⚠",
+    color: "text-rose-300",
+  },
   {
     value: "mark_resolution",
     label: "Solutions",
@@ -375,8 +390,7 @@ export function SessionTimelinePage() {
   }, [drawerTurnId]);
 
   const isCold = totalTurns <= 3;
-  const isExplainerVisible =
-    explainerOpen === null ? isCold : explainerOpen;
+  const isExplainerVisible = explainerOpen === null ? isCold : explainerOpen;
 
   if (healthError || !subsystemReady) {
     return <SubsystemDisabledBanner />;
@@ -384,10 +398,10 @@ export function SessionTimelinePage() {
 
   const chips = activeFilterChips(filters);
   const drawerTurn = drawerTurnId
-    ? turns.find((t) => t.turn_id === drawerTurnId) ?? null
+    ? (turns.find((t) => t.turn_id === drawerTurnId) ?? null)
     : null;
   const drawerMarkers = drawerTurnId
-    ? markersByTurn.get(drawerTurnId) ?? []
+    ? (markersByTurn.get(drawerTurnId) ?? [])
     : [];
 
   return (
@@ -499,9 +513,9 @@ function FirstRunExplainer({ onDismiss }: { onDismiss: () => void }) {
           fix) turn the raw activity into a readable story.
         </li>
         <li>
-          <strong className="text-foreground">Filters + the heatmap</strong>{" "}
-          let you scope to a day, a coding session, a specific AI agent, or a
-          search term. Every filter is shareable via the URL.
+          <strong className="text-foreground">Filters + the heatmap</strong> let
+          you scope to a day, a coding session, a specific AI agent, or a search
+          term. Every filter is shareable via the URL.
         </li>
       </ul>
       <p className="t-tertiary text-[10px] mt-3">
@@ -610,9 +624,7 @@ function KpiCard({
       >
         {label}
       </p>
-      <p
-        className={`text-3xl font-bold font-mono ${tokens.value} mt-2`}
-      >
+      <p className={`text-3xl font-bold font-mono ${tokens.value} mt-2`}>
         {value.toLocaleString()}
       </p>
       <p className="t-secondary text-xs mt-1">{sublabel}</p>
@@ -772,8 +784,10 @@ function FilterBar({
               type="button"
               key={chip.key}
               onClick={() => {
-                if (chip.key === "from") onChange({ from: undefined, to: undefined });
-                else if (chip.key === "session") onChange({ session: undefined });
+                if (chip.key === "from")
+                  onChange({ from: undefined, to: undefined });
+                else if (chip.key === "session")
+                  onChange({ session: undefined });
                 else if (chip.key === "agent") onChange({ agent: undefined });
                 else if (chip.key === "type") onChange({ type: undefined });
                 else if (chip.key === "q") onChange({ q: undefined });
@@ -990,8 +1004,8 @@ function ActivityHeatmap({
           </div>
           <div className="text-[11px] t-tertiary mt-0.5">
             {totalActivity.toLocaleString()} activity moment
-            {totalActivity === 1 ? "" : "s"} · brighter = busier · click any
-            day to focus
+            {totalActivity === 1 ? "" : "s"} · brighter = busier · click any day
+            to focus
           </div>
         </div>
         <div className="text-[11px] t-tertiary font-mono">peak {max}/day</div>
@@ -1124,9 +1138,9 @@ function ActivityList({
           Insights — what we noticed
         </div>
         <div className="t-tertiary text-xs leading-relaxed mt-2 max-w-2xl">
-          We'll surface stuck patterns, hot files, and learned conventions
-          here as your agent works. Drop a few <code>mark_intent</code> notes
-          to speed things up.
+          We'll surface stuck patterns, hot files, and learned conventions here
+          as your agent works. Drop a few <code>mark_intent</code> notes to
+          speed things up.
         </div>
       </div>
 
@@ -1206,15 +1220,19 @@ function ActivityRow({
   onClick: () => void;
 }) {
   const intentMarker = markers.find((m) => m.type === "mark_intent");
-  const decisionCount = markers.filter((m) => m.type === "mark_decision").length;
+  const decisionCount = markers.filter(
+    (m) => m.type === "mark_decision"
+  ).length;
   const blockers = markers.filter((m) => m.type === "mark_blocker");
   const resolvedRefs = new Set(
-    markers.filter((m) => m.type === "mark_resolution").map((m) => m.blocker_ref),
+    markers
+      .filter((m) => m.type === "mark_resolution")
+      .map((m) => m.blocker_ref)
   );
   const openBlockers = blockers.filter((b) => !resolvedRefs.has(b.marker_id));
   const title =
     (intentMarker?.text ?? "").length > 0
-      ? intentMarker?.text ?? ""
+      ? (intentMarker?.text ?? "")
       : turn.title && turn.title.length > 0
         ? turn.title
         : `Activity — ${turn.tool_count} tool call${turn.tool_count === 1 ? "" : "s"}`;
@@ -1355,15 +1373,15 @@ function Pagination({
         ← Newer
       </button>
       <div className="flex items-center gap-1">
-        {pages.map((p, i) =>
+        {pages.map(({ key, value: p }) =>
           p === "…" ? (
-            <span key={`gap-${i}`} className="px-2 t-tertiary text-xs">
+            <span key={key} className="px-2 t-tertiary text-xs">
               …
             </span>
           ) : (
             <button
               type="button"
-              key={p}
+              key={key}
               onClick={() => onChange(p)}
               className={`min-w-[28px] rounded-md px-2 py-1 text-xs border border-border-subtle transition-colors ${
                 p === page
@@ -1373,7 +1391,7 @@ function Pagination({
             >
               {p}
             </button>
-          ),
+          )
         )}
       </div>
       <button
@@ -1388,17 +1406,36 @@ function Pagination({
   );
 }
 
-function pageButtons(page: number, totalPages: number): Array<number | "…"> {
+function pageButtons(
+  page: number,
+  totalPages: number
+): Array<{ key: string; value: number | "…" }> {
   if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, i) => i + 1);
+    return Array.from({ length: totalPages }, (_, i) => ({
+      key: `page-${i + 1}`,
+      value: i + 1,
+    }));
   }
-  const set = new Set<number>([1, totalPages, page, page - 1, page + 1, page - 2, page + 2]);
-  const valid = [...set].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
-  const out: Array<number | "…"> = [];
+  const set = new Set<number>([
+    1,
+    totalPages,
+    page,
+    page - 1,
+    page + 1,
+    page - 2,
+    page + 2,
+  ]);
+  const valid = [...set]
+    .filter((p) => p >= 1 && p <= totalPages)
+    .sort((a, b) => a - b);
+  const out: Array<{ key: string; value: number | "…" }> = [];
   for (let i = 0; i < valid.length; i++) {
     const v = valid[i]!;
-    if (i > 0 && v - (valid[i - 1] as number) > 1) out.push("…");
-    out.push(v);
+    if (i > 0 && v - (valid[i - 1] as number) > 1) {
+      const prev = valid[i - 1] as number;
+      out.push({ key: `ellipsis-${prev}-${v}`, value: "…" });
+    }
+    out.push({ key: `page-${v}`, value: v });
   }
   return out;
 }
@@ -1417,15 +1454,14 @@ function ActivityDetailDrawer({
   onClose: () => void;
 }) {
   const filesTouched = useMemo(
-    () =>
-      [
-        ...new Set(
-          markers
-            .map((m) => m.file_path)
-            .filter((f) => typeof f === "string" && f.length > 0),
-        ),
-      ],
-    [markers],
+    () => [
+      ...new Set(
+        markers
+          .map((m) => m.file_path)
+          .filter((f) => typeof f === "string" && f.length > 0)
+      ),
+    ],
+    [markers]
   );
 
   const relatedNarratives = useMemo(() => {
@@ -1453,7 +1489,6 @@ function ActivityDetailDrawer({
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
         role="document"
-        tabIndex={0}
       >
         <div className="sticky top-0 bg-background/90 backdrop-blur border-b border-border-subtle p-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -1560,8 +1595,8 @@ function DrawerNotes({ markers }: { markers: MarkerRow[] }) {
       <div className="t-tertiary text-xs leading-relaxed">
         No notes recorded for this activity. Tip: drop a{" "}
         <code className="t-secondary">mark_intent</code> at the start of your
-        next task and a <code className="t-secondary">mark_decision</code>{" "}
-        when you pick between options — they show up here as a readable trail.
+        next task and a <code className="t-secondary">mark_decision</code> when
+        you pick between options — they show up here as a readable trail.
       </div>
     );
   }
@@ -1578,9 +1613,7 @@ function DrawerNotes({ markers }: { markers: MarkerRow[] }) {
             className="rounded border border-border-subtle bg-surface-secondary px-3 py-2"
           >
             <div className="flex items-center justify-between">
-              <span
-                className={`text-[10px] font-mono uppercase ${meta.color}`}
-              >
+              <span className={`text-[10px] font-mono uppercase ${meta.color}`}>
                 {meta.emoji} {meta.label}
               </span>
               <span className="t-tertiary text-[10px] font-mono">

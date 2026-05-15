@@ -124,7 +124,7 @@ export class LoopCircuitBreaker extends Behavior {
           loops_prevented_session: this.loopsPrevented,
           tokens_saved: this.totalTokensSaved,
           dollars_saved: formatDollars(
-            calculateDollarSavings(this.totalTokensSaved, ctx.modelId),
+            calculateDollarSavings(this.totalTokensSaved, ctx.modelId)
           ),
         },
         _context: {
@@ -196,7 +196,7 @@ export class LoopCircuitBreaker extends Behavior {
     const failCount = detection.failedAttempts;
     const estimatedFutureWaste = estimateWastedTokens(
       failCount * EXPECTED_REMAINING_MULTIPLIER,
-      AVG_TOKENS_PER_FAILED_ATTEMPT,
+      AVG_TOKENS_PER_FAILED_ATTEMPT
     );
     const totalWasted = failCount * AVG_TOKENS_PER_FAILED_ATTEMPT;
 
@@ -204,7 +204,7 @@ export class LoopCircuitBreaker extends Behavior {
       estimatedFutureWaste,
       `Loop detected: ${failCount} consecutive failures on ${entityKey} (${detection.pattern})`,
       ctx.modelId,
-      entityKey,
+      entityKey
     );
 
     if (!gate.passes) return null;
@@ -226,7 +226,7 @@ export class LoopCircuitBreaker extends Behavior {
         loops_prevented_session: this.loopsPrevented,
         tokens_saved: this.totalTokensSaved,
         dollars_saved: formatDollars(
-          calculateDollarSavings(this.totalTokensSaved, ctx.modelId),
+          calculateDollarSavings(this.totalTokensSaved, ctx.modelId)
         ),
       },
       _context: {
@@ -280,7 +280,7 @@ export class LoopCircuitBreaker extends Behavior {
       .slice(-threshold)
       .map(
         (a, i) =>
-          `Attempt ${i + 1}: ${a.toolName} on ${a.filePath.split("/").pop()} — ${a.hasError ? "error" : "no visible progress"}`,
+          `Attempt ${i + 1}: ${a.toolName} on ${a.filePath.split("/").pop()} — ${a.hasError ? "error" : "no visible progress"}`
       );
 
     return {

@@ -75,7 +75,7 @@ describe("Rust #[cfg(test)] detection performance", () => {
     // The regex path relies on file-level isTestFile() for is_test marking.
     // This benchmark validates that regex extraction overhead is negligible.
     console.error(
-      `  Extracted ${totalEntities} entities (${testEntities} marked test) from ${files.length} files in ${elapsed.toFixed(2)}ms`,
+      `  Extracted ${totalEntities} entities (${testEntities} marked test) from ${files.length} files in ${elapsed.toFixed(2)}ms`
     );
   });
 
@@ -97,7 +97,7 @@ describe("Rust #[cfg(test)] detection performance", () => {
     // Each file extraction should be <0.5ms (regex is fast)
     expect(perFile).toBeLessThan(0.5);
     console.error(
-      `  Per-file extraction: ${perFile.toFixed(3)}ms (${iterations} iterations, ${elapsed.toFixed(2)}ms total)`,
+      `  Per-file extraction: ${perFile.toFixed(3)}ms (${iterations} iterations, ${elapsed.toFixed(2)}ms total)`
     );
   });
 });

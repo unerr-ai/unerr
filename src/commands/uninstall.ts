@@ -44,7 +44,7 @@ export function registerUninstallCommand(program: Command): void {
     .description("Remove unerr configs and hooks from this project")
     .option(
       "--autostart",
-      "Remove the platform auto-start service (launchd/systemd/schtasks)",
+      "Remove the platform auto-start service (launchd/systemd/schtasks)"
     )
     .action(
       async (agent: string | undefined, opts: { autostart?: boolean }) => {
@@ -57,11 +57,11 @@ export function registerUninstallCommand(program: Command): void {
             const result = await uninstallForCurrentPlatform();
             removeSentinel();
             process.stderr.write(
-              `\x1b[38;2;52;211;153m✓\x1b[0m Platform auto-start removed${result.error ? ` (note: ${result.error})` : ""}\n`,
+              `\x1b[38;2;52;211;153m✓\x1b[0m Platform auto-start removed${result.error ? ` (note: ${result.error})` : ""}\n`
             );
           } catch (err) {
             process.stderr.write(
-              `\x1b[38;2;248;113;113m✗\x1b[0m Failed to remove auto-start: ${(err as Error).message}\n`,
+              `\x1b[38;2;248;113;113m✗\x1b[0m Failed to remove auto-start: ${(err as Error).message}\n`
             );
           }
           return;
@@ -72,7 +72,7 @@ export function registerUninstallCommand(program: Command): void {
           const agentDef = getAgent(normalized as IdeType);
           if (!agentDef) {
             process.stderr.write(
-              `\x1b[31m✗\x1b[0m Unknown agent: "${agent}"\n`,
+              `\x1b[31m✗\x1b[0m Unknown agent: "${agent}"\n`
             );
             return;
           }
@@ -89,13 +89,13 @@ export function registerUninstallCommand(program: Command): void {
           );
           if (isAutostartInstalled()) {
             process.stderr.write(
-              "\n  \x1b[38;2;251;191;36m⚠\x1b[0m Platform auto-start is still active. Remove with: unerr uninstall --autostart\n\n",
+              "\n  \x1b[38;2;251;191;36m⚠\x1b[0m Platform auto-start is still active. Remove with: unerr uninstall --autostart\n\n"
             );
           }
         } catch {
           // Non-blocking
         }
-      },
+      }
     );
 }
 
@@ -161,11 +161,11 @@ function runUninstall(cwd: string, ide: IdeType): UninstallResult {
  */
 function displayUninstallResult(
   agentName: string,
-  result: UninstallResult,
+  result: UninstallResult
 ): void {
   process.stderr.write("\n");
   process.stderr.write(
-    `  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1munerr ✗ ${agentName}\x1b[0m\n`,
+    `  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1munerr ✗ ${agentName}\x1b[0m\n`
   );
   process.stderr.write("\n");
 
@@ -179,44 +179,44 @@ function displayUninstallResult(
 
   if (nothingRemoved) {
     process.stderr.write(
-      "  \x1b[38;2;161;161;170m· Nothing to uninstall\x1b[0m\n",
+      "  \x1b[38;2;161;161;170m· Nothing to uninstall\x1b[0m\n"
     );
   } else {
     if (result.mcpRemoved) {
       process.stderr.write(
-        "  \x1b[38;2;52;211;153m✓\x1b[0m MCP config removed\n",
+        "  \x1b[38;2;52;211;153m✓\x1b[0m MCP config removed\n"
       );
     }
     if (result.skillsRemoved > 0) {
       process.stderr.write(
-        `  \x1b[38;2;52;211;153m✓\x1b[0m ${result.skillsRemoved} skills removed\n`,
+        `  \x1b[38;2;52;211;153m✓\x1b[0m ${result.skillsRemoved} skills removed\n`
       );
     }
     if (result.hookRemoved) {
       process.stderr.write(
-        "  \x1b[38;2;52;211;153m✓\x1b[0m PostToolUse hook removed\n",
+        "  \x1b[38;2;52;211;153m✓\x1b[0m PostToolUse hook removed\n"
       );
     }
     if (result.settingsHookRemoved) {
       process.stderr.write(
-        "  \x1b[38;2;52;211;153m✓\x1b[0m PreToolUse settings hook removed\n",
+        "  \x1b[38;2;52;211;153m✓\x1b[0m PreToolUse settings hook removed\n"
       );
     }
     if (result.instructionsRemoved) {
       process.stderr.write(
-        "  \x1b[38;2;52;211;153m✓\x1b[0m Tool preferences removed\n",
+        "  \x1b[38;2;52;211;153m✓\x1b[0m Tool preferences removed\n"
       );
     }
     if (result.disallowedToolsRemoved) {
       process.stderr.write(
-        "  \x1b[38;2;52;211;153m✓\x1b[0m Disallowed tools restored\n",
+        "  \x1b[38;2;52;211;153m✓\x1b[0m Disallowed tools restored\n"
       );
     }
   }
 
   process.stderr.write("\n");
   process.stderr.write(
-    "  \x1b[38;2;161;161;170mData in .unerr/ preserved.\x1b[0m\n",
+    "  \x1b[38;2;161;161;170mData in .unerr/ preserved.\x1b[0m\n"
   );
   process.stderr.write("\n");
 }
@@ -247,7 +247,7 @@ function runUninstallAll(cwd: string): void {
       process.stderr.write(`[unerr] ${r}\n`);
     }
     process.stderr.write(
-      "[unerr] Uninstall complete. Data in .unerr/ preserved.\n",
+      "[unerr] Uninstall complete. Data in .unerr/ preserved.\n"
     );
   }
 }
@@ -268,7 +268,7 @@ function removeCursorHooks(cwd: string): boolean {
 
     const before = (config.hooks as unknown[]).length;
     config.hooks = (config.hooks as unknown[]).filter(
-      (h) => (h as Record<string, unknown>)?.name !== "unerr-graph-tools",
+      (h) => (h as Record<string, unknown>)?.name !== "unerr-graph-tools"
     );
     if ((config.hooks as unknown[]).length === before) return false;
 

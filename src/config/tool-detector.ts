@@ -29,7 +29,7 @@ export function detectTools(cwd: string): DetectedTool[] {
   for (const agent of AGENT_REGISTRY) {
     // Check directory markers
     const hasDirMarker = agent.dirMarkers.some((dir) =>
-      existsSync(join(cwd, dir)),
+      existsSync(join(cwd, dir))
     );
 
     // Check environment variables

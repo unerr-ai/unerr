@@ -59,5 +59,5 @@ process.stdout.write(
       permissionDecision: "allow",
       updatedInput,
     },
-  }),
+  })
 );

@@ -52,7 +52,7 @@ describe("log-tailer", () => {
   beforeEach(() => {
     tmpDir = join(
       os.tmpdir(),
-      `unerr-tailer-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      `unerr-tailer-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
     );
     unerrDir = join(tmpDir, ".unerr");
     logsDir = join(unerrDir, "logs");
@@ -95,7 +95,7 @@ describe("log-tailer", () => {
 
     const calls = getCalls();
     const compressionCall = calls.find(
-      (c) => c.method === "step" && String(c.args[0]).includes("ps aux"),
+      (c) => c.method === "step" && String(c.args[0]).includes("ps aux")
     );
     expect(compressionCall).toBeDefined();
 
@@ -166,17 +166,17 @@ describe("log-tailer", () => {
       level: "warn",
       msg: "other-warning",
     });
-    appendFileSync(generalPath, ownEntry + "\n" + otherEntry + "\n");
+    appendFileSync(generalPath, `${ownEntry}\n${otherEntry}\n`);
 
     await new Promise((resolve) => setTimeout(resolve, 3500));
 
     const calls = getCalls();
     const warnCalls = calls.filter((c) => c.method === "warn");
     expect(
-      warnCalls.find((c) => String(c.args[0]).includes("own-warning")),
+      warnCalls.find((c) => String(c.args[0]).includes("own-warning"))
     ).toBeUndefined();
     expect(
-      warnCalls.find((c) => String(c.args[0]).includes("other-warning")),
+      warnCalls.find((c) => String(c.args[0]).includes("other-warning"))
     ).toBeDefined();
 
     handle.close();
@@ -205,7 +205,7 @@ describe("log-tailer", () => {
       (c) =>
         c.method === "step" &&
         String(c.args[0]).includes("proxy.ts") &&
-        String(c.args[0]).includes("entity"),
+        String(c.args[0]).includes("entity")
     );
     expect(fileReadCall).toBeDefined();
 
@@ -232,7 +232,7 @@ describe("log-tailer", () => {
 
     const calls = getCalls();
     const fileReadCall = calls.find(
-      (c) => c.method === "step" && String(c.args[0]).includes("readme.md"),
+      (c) => c.method === "step" && String(c.args[0]).includes("readme.md")
     );
     expect(fileReadCall).toBeUndefined();
 
@@ -260,7 +260,7 @@ describe("log-tailer", () => {
 
     const calls = getCalls();
     const echoCall = calls.find(
-      (c) => c.method === "step" && String(c.args[0]).includes("echo hello"),
+      (c) => c.method === "step" && String(c.args[0]).includes("echo hello")
     );
     expect(echoCall).toBeUndefined();
 

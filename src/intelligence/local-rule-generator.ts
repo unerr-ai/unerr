@@ -59,7 +59,7 @@ const KIND_TO_GLOB: Record<string, string> = {
  */
 export function generateLocalRules(
   conventions: DetectedConvention[],
-  repoId: string,
+  repoId: string
 ): RuleGenerationResult {
   const rules: CompactRule[] = [];
   let naming = 0;
@@ -99,7 +99,7 @@ export function generateLocalRules(
 
 function conventionToRule(
   convention: DetectedConvention,
-  repoId: string,
+  repoId: string
 ): CompactRule | null {
   const ruleKey = `local-rule-${convention.key}`;
 
@@ -118,7 +118,7 @@ function conventionToRule(
 function namingConventionToRule(
   convention: DetectedConvention,
   ruleKey: string,
-  repoId: string,
+  repoId: string
 ): CompactRule {
   // Extract naming pattern ID from convention key (e.g., "naming-function-camelCase" → "camelCase")
   const parts = convention.key.split("-");
@@ -151,7 +151,7 @@ function namingConventionToRule(
 function structureConventionToRule(
   convention: DetectedConvention,
   ruleKey: string,
-  repoId: string,
+  repoId: string
 ): CompactRule {
   return {
     key: ruleKey,
@@ -177,7 +177,7 @@ function structureConventionToRule(
 function importDirectionConventionToRule(
   convention: DetectedConvention,
   ruleKey: string,
-  repoId: string,
+  repoId: string
 ): CompactRule {
   return {
     key: ruleKey,

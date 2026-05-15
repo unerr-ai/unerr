@@ -115,7 +115,7 @@ describe("adapter.embed", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
-        new Response(JSON.stringify(mockResponse), { status: 200 }),
+        new Response(JSON.stringify(mockResponse), { status: 200 })
       );
 
     const result = await adapter.embed(["hello", "world"]);
@@ -150,7 +150,7 @@ describe("adapter.embed", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
-        new Response(JSON.stringify(mockResponse), { status: 200 }),
+        new Response(JSON.stringify(mockResponse), { status: 200 })
       );
 
     const result = await adapter.embed(["first", "second"]);
@@ -165,7 +165,7 @@ describe("adapter.embed", () => {
       new Response("model not found", {
         status: 404,
         statusText: "Not Found",
-      }),
+      })
     );
 
     await expect(adapter.embed(["test"])).rejects.toThrow("404 Not Found");
@@ -192,7 +192,7 @@ describe("adapter.embed", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
-        new Response(JSON.stringify(mockResponse), { status: 200 }),
+        new Response(JSON.stringify(mockResponse), { status: 200 })
       );
 
     await adapterWithKey.embed(["test"]);
@@ -222,7 +222,7 @@ describe("adapter.isAvailable", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
-        new Response(JSON.stringify({ models: [] }), { status: 200 }),
+        new Response(JSON.stringify({ models: [] }), { status: 200 })
       );
 
     expect(await adapter.isAvailable()).toBe(true);
@@ -262,7 +262,7 @@ describe("adapter.isAvailable", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
-        new Response(JSON.stringify({ data: [] }), { status: 200 }),
+        new Response(JSON.stringify({ data: [] }), { status: 200 })
       );
 
     await adapter.isAvailable();
@@ -284,7 +284,7 @@ describe("createAndVerifyAdapter", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
-        new Response(JSON.stringify({ models: [] }), { status: 200 }),
+        new Response(JSON.stringify({ models: [] }), { status: 200 })
       );
 
     const adapter = await createAndVerifyAdapter({

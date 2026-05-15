@@ -84,7 +84,7 @@ describe("TemporalFactStore", () => {
       const convention = facts.find((f) => f.fact_type === "convention");
       expect(convention).toBeDefined();
       expect(convention!.content).toBe(
-        "All API handlers must return structured JSON responses",
+        "All API handlers must return structured JSON responses"
       );
       expect(convention!.effective_confidence).toBeGreaterThan(0.9);
     });
@@ -116,7 +116,7 @@ describe("TemporalFactStore", () => {
       const facts = await store.recallByScope("src/proxy/proxy.ts");
       expect(facts.length).toBe(1);
       expect(facts[0]!.content).toBe(
-        "The proxy module owns all MCP communication",
+        "The proxy module owns all MCP communication"
       );
       expect(facts[0]!.effective_confidence).toBeGreaterThan(0);
     });
@@ -340,8 +340,8 @@ describe("TemporalFactStore", () => {
           "session-abc",
           "read",
           "get_function",
-          "success",
-        ),
+          "success"
+        )
       ).resolves.not.toThrow();
     });
   });

@@ -22,7 +22,7 @@ vi.mock("../intelligence/local-indexer.js", () => ({
           phase: string;
           currentFile: string | null;
         }) => void;
-      },
+      }
     ) => {
       const phases = [
         "discovering",
@@ -54,7 +54,7 @@ vi.mock("../intelligence/local-indexer.js", () => ({
         patternCount: 3,
         ruleCount: 2,
       };
-    },
+    }
   ),
 }));
 
@@ -88,7 +88,7 @@ describe("BackgroundIndexer", () => {
       mockGraphStore,
       "test-repo",
       () => {},
-      () => {},
+      () => {}
     );
 
     expect(indexer.getStatus()).toBe("indexing");
@@ -99,7 +99,7 @@ describe("BackgroundIndexer", () => {
       () => {
         expect(indexer.isComplete()).toBe(true);
       },
-      { timeout: 5000 },
+      { timeout: 5000 }
     );
   });
 
@@ -121,7 +121,7 @@ describe("BackgroundIndexer", () => {
       mockGraphStore,
       "test-repo",
       () => {},
-      () => {},
+      () => {}
     );
 
     // Poll progress a few times
@@ -138,7 +138,7 @@ describe("BackgroundIndexer", () => {
       () => {
         expect(indexer.isComplete()).toBe(true);
       },
-      { timeout: 5000 },
+      { timeout: 5000 }
     );
 
     clearInterval(pollInterval);
@@ -163,14 +163,14 @@ describe("BackgroundIndexer", () => {
       (result) => {
         completedResult = result;
       },
-      () => {},
+      () => {}
     );
 
     await vi.waitFor(
       () => {
         expect(indexer.isComplete()).toBe(true);
       },
-      { timeout: 5000 },
+      { timeout: 5000 }
     );
 
     expect(completedResult).not.toBeNull();
@@ -199,7 +199,7 @@ describe("BackgroundIndexer", () => {
       () => {
         callCount++;
       },
-      () => {},
+      () => {}
     );
 
     // Second start should be a no-op
@@ -210,14 +210,14 @@ describe("BackgroundIndexer", () => {
       () => {
         callCount++;
       },
-      () => {},
+      () => {}
     );
 
     await vi.waitFor(
       () => {
         expect(indexer.isComplete()).toBe(true);
       },
-      { timeout: 5000 },
+      { timeout: 5000 }
     );
 
     // onComplete should have been called exactly once
@@ -236,14 +236,14 @@ describe("BackgroundIndexer", () => {
       mockGraphStore,
       "test-repo",
       () => {},
-      () => {},
+      () => {}
     );
 
     await vi.waitFor(
       () => {
         expect(indexer.isComplete()).toBe(true);
       },
-      { timeout: 5000 },
+      { timeout: 5000 }
     );
 
     expect(indexer.getElapsedMs()).toBeGreaterThan(0);
@@ -272,7 +272,7 @@ describe("BackgroundIndexer", () => {
       "../intelligence/local-indexer.js"
     );
     vi.mocked(indexLocalProject).mockRejectedValueOnce(
-      new Error("tree-sitter init failed"),
+      new Error("tree-sitter init failed")
     );
 
     const { BackgroundIndexer } = await import(
@@ -290,19 +290,19 @@ describe("BackgroundIndexer", () => {
       () => {},
       (err) => {
         errorCaught = err;
-      },
+      }
     );
 
     await vi.waitFor(
       () => {
         expect(indexer.getStatus()).toBe("error");
       },
-      { timeout: 5000 },
+      { timeout: 5000 }
     );
 
     expect(errorCaught).not.toBeNull();
     expect((errorCaught as unknown as Error).message).toBe(
-      "tree-sitter init failed",
+      "tree-sitter init failed"
     );
     expect(indexer.getError()?.message).toBe("tree-sitter init failed");
     expect(indexer.isComplete()).toBe(false);

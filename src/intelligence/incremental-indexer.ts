@@ -54,11 +54,11 @@ export interface IncrementalResult {
 type DbLike = {
   run: (
     q: string,
-    p?: Record<string, unknown>,
+    p?: Record<string, unknown>
   ) => Promise<{ rows: unknown[][] }>;
   write: (
     q: string,
-    p?: Record<string, unknown>,
+    p?: Record<string, unknown>
   ) => Promise<{ rows: unknown[][] }>;
 };
 
@@ -73,7 +73,7 @@ export async function indexFilesIncremental(
   projectRoot: string,
   changedFiles: string[],
   graphStore: CozoGraphStore,
-  repoId: string,
+  repoId: string
 ): Promise<IncrementalResult> {
   const startMs = Date.now();
   const db: DbLike = {
@@ -241,7 +241,7 @@ export async function indexFilesIncremental(
         edge.from_name,
         relPath,
         repoId,
-        newExtracted,
+        newExtracted
       );
       if (!fromKey) continue;
       localResolved.set(edge.from_name, fromKey);
@@ -252,7 +252,7 @@ export async function indexFilesIncremental(
           edge.to_name,
           relPath,
           repoId,
-          newExtracted,
+          newExtracted
         );
         if (localKey) {
           localResolved.set(edge.to_name, localKey);
@@ -328,14 +328,14 @@ export async function indexFilesIncremental(
 
 async function getFileEntities(
   db: DbLike,
-  relPath: string,
+  relPath: string
 ): Promise<CompactEntity[]> {
   try {
     const result = await db.run(
       `?[key, kind, name, file_path, start_line, signature, body, fan_in, fan_out, risk_level, is_test] :=
         *file_index{file_path: $fp, entity_key: key},
         *entities{key, kind, name, file_path, start_line, signature, body, fan_in, fan_out, risk_level, is_test}`,
-      { fp: relPath },
+      { fp: relPath }
     );
     return result.rows.map((row) => ({
       key: row[0] as string,
@@ -363,7 +363,7 @@ async function getFileEntities(
 async function getFileEdgeKeysBatched(
   db: DbLike,
   relPath: string,
-  entities: CompactEntity[],
+  entities: CompactEntity[]
 ): Promise<Set<string>> {
   const keys = new Set<string>();
 
@@ -374,7 +374,7 @@ async function getFileEdgeKeysBatched(
         `?[from_key, to_key, type] :=
           *file_index{file_path: $fp, entity_key: ek},
           *edges{from_key: ek, to_key, type}`,
-        { fp: relPath },
+        { fp: relPath }
       );
       for (const row of result.rows) {
         keys.add(`${row[0]}::${row[1]}::${row[2]}`);
@@ -387,8 +387,8 @@ async function getFileEdgeKeysBatched(
   // Also get edges from file entity
   try {
     const result = await db.run(
-      `?[from_key, to_key, type] := *edges{from_key: $key, to_key, type}`,
-      { key: `file:${relPath}` },
+      "?[from_key, to_key, type] := *edges{from_key: $key, to_key, type}",
+      { key: `file:${relPath}` }
     );
     for (const row of result.rows) {
       keys.add(`${row[0]}::${row[1]}::${row[2]}`);
@@ -402,7 +402,7 @@ async function getFileEdgeKeysBatched(
 
 async function deleteFileFromGraph(
   db: DbLike,
-  relPath: string,
+  relPath: string
 ): Promise<{
   entitiesDeleted: number;
   edgesDeleted: number;
@@ -415,7 +415,7 @@ async function deleteFileFromGraph(
   try {
     const result = await db.run(
       "?[entity_key] := *file_index{file_path: $fp, entity_key}",
-      { fp: relPath },
+      { fp: relPath }
     );
     const entityKeys = result.rows.map((r) => r[0] as string);
 
@@ -431,8 +431,8 @@ async function deleteFileFromGraph(
   // Remove file_index entries
   try {
     await db.write(
-      `?[file_path, entity_key] := *file_index{file_path: $fp, entity_key} :rm file_index { file_path, entity_key }`,
-      { fp: relPath },
+      "?[file_path, entity_key] := *file_index{file_path: $fp, entity_key} :rm file_index { file_path, entity_key }",
+      { fp: relPath }
     );
   } catch {
     /* safe */
@@ -456,7 +456,7 @@ async function deleteFileFromGraph(
  */
 async function removeEntitiesAndEdgesBatched(
   db: DbLike,
-  entityKeys: string[],
+  entityKeys: string[]
 ): Promise<number> {
   let edgesRemoved = 0;
 
@@ -464,8 +464,8 @@ async function removeEntitiesAndEdgesBatched(
     // Remove outgoing edges
     try {
       const result = await db.write(
-        `?[from_key, to_key, type] := *edges{from_key: $key, to_key, type} :rm edges { from_key, to_key, type }`,
-        { key },
+        "?[from_key, to_key, type] := *edges{from_key: $key, to_key, type} :rm edges { from_key, to_key, type }",
+        { key }
       );
       edgesRemoved += result.rows?.length ?? 0;
     } catch {
@@ -475,8 +475,8 @@ async function removeEntitiesAndEdgesBatched(
     // Remove incoming edges
     try {
       const result = await db.write(
-        `?[from_key, to_key, type] := *edges{from_key, to_key: $key, type} :rm edges { from_key, to_key, type }`,
-        { key },
+        "?[from_key, to_key, type] := *edges{from_key, to_key: $key, type} :rm edges { from_key, to_key, type }",
+        { key }
       );
       edgesRemoved += result.rows?.length ?? 0;
     } catch {
@@ -499,8 +499,8 @@ async function removeEntitiesAndEdgesBatched(
     for (const key of entityKeys) {
       try {
         await db.write(
-          `?[file_path, entity_key] := *file_index{file_path, entity_key}, entity_key = $key :rm file_index { file_path, entity_key }`,
-          { key },
+          "?[file_path, entity_key] := *file_index{file_path, entity_key}, entity_key = $key :rm file_index { file_path, entity_key }",
+          { key }
         );
       } catch {
         /* safe */
@@ -516,21 +516,21 @@ async function removeEntitiesAndEdgesBatched(
  */
 async function removeEdgesForKeysBatched(
   db: DbLike,
-  entityKeys: string[],
+  entityKeys: string[]
 ): Promise<void> {
   for (const key of entityKeys) {
     try {
       await db.write(
-        `?[from_key, to_key, type] := *edges{from_key: $key, to_key, type} :rm edges { from_key, to_key, type }`,
-        { key },
+        "?[from_key, to_key, type] := *edges{from_key: $key, to_key, type} :rm edges { from_key, to_key, type }",
+        { key }
       );
     } catch {
       /* safe */
     }
     try {
       await db.write(
-        `?[from_key, to_key, type] := *edges{from_key, to_key: $key, type} :rm edges { from_key, to_key, type }`,
-        { key },
+        "?[from_key, to_key, type] := *edges{from_key, to_key: $key, type} :rm edges { from_key, to_key, type }",
+        { key }
       );
     } catch {
       /* safe */
@@ -543,7 +543,7 @@ async function removeEdgesForKeysBatched(
  */
 async function upsertEntitiesBatched(
   db: DbLike,
-  entities: CompactEntity[],
+  entities: CompactEntity[]
 ): Promise<void> {
   if (entities.length === 0) return;
 
@@ -577,7 +577,7 @@ async function upsertEntitiesBatched(
   try {
     await db.write(
       `?[key, kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test] <- [${rowStrs.join(", ")}]
-       :put entities { key => kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test }`,
+       :put entities { key => kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test }`
     );
   } catch {
     // Fallback: try one-by-one if batch fails (e.g., encoding issues)
@@ -599,7 +599,7 @@ async function upsertEntitiesBatched(
             fo: entity.fan_out ?? 0,
             rl: entity.risk_level ?? "normal",
             is_test: entity.is_test ?? false,
-          },
+          }
         );
       } catch {
         /* safe */
@@ -613,26 +613,26 @@ async function upsertEntitiesBatched(
  */
 async function removeEdgesBatched(
   db: DbLike,
-  edges: Array<[string, string, string]>,
+  edges: Array<[string, string, string]>
 ): Promise<void> {
   if (edges.length === 0) return;
 
   const rowStrs = edges.map(
     ([fk, tk, t]) =>
-      `["${fk.replace(/"/g, '\\"')}", "${tk.replace(/"/g, '\\"')}", "${t.replace(/"/g, '\\"')}"]`,
+      `["${fk.replace(/"/g, '\\"')}", "${tk.replace(/"/g, '\\"')}", "${t.replace(/"/g, '\\"')}"]`
   );
 
   try {
     await db.write(
-      `?[from_key, to_key, type] <- [${rowStrs.join(", ")}] :rm edges { from_key, to_key, type }`,
+      `?[from_key, to_key, type] <- [${rowStrs.join(", ")}] :rm edges { from_key, to_key, type }`
     );
   } catch {
     // Fallback one-by-one
     for (const [fk, tk, type] of edges) {
       try {
         await db.write(
-          `?[from_key, to_key, type] <- [[$fk, $tk, $type]] :rm edges { from_key, to_key, type }`,
-          { fk, tk, type },
+          "?[from_key, to_key, type] <- [[$fk, $tk, $type]] :rm edges { from_key, to_key, type }",
+          { fk, tk, type }
         );
       } catch {
         /* safe */
@@ -646,7 +646,7 @@ async function removeEdgesBatched(
  */
 async function insertEdgesBatched(
   db: DbLike,
-  edges: Array<[string, string, string]>,
+  edges: Array<[string, string, string]>
 ): Promise<number> {
   if (edges.length === 0) return 0;
 
@@ -660,7 +660,7 @@ async function insertEdgesBatched(
   try {
     await db.write(
       `?[from_key, to_key, type, sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode] <- [${rowStrs.join(", ")}]
-       :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`,
+       :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`
     );
     return edges.length;
   } catch {
@@ -671,7 +671,7 @@ async function insertEdgesBatched(
         await db.write(
           `?[from_key, to_key, type, sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode] <- [[$fk, $tk, $type, -1, "", "", false, "", 0, false, false, "", ""]]
            :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`,
-          { fk, tk, type },
+          { fk, tk, type }
         );
         inserted++;
       } catch {
@@ -688,7 +688,7 @@ async function insertEdgesBatched(
 async function updateFileIndexBatched(
   db: DbLike,
   relPath: string,
-  entities: CompactEntity[],
+  entities: CompactEntity[]
 ): Promise<void> {
   if (entities.length === 0) return;
 
@@ -701,7 +701,7 @@ async function updateFileIndexBatched(
 
   try {
     await db.write(
-      `?[file_path, entity_key] <- [${indexRows.join(", ")}] :put file_index { file_path, entity_key }`,
+      `?[file_path, entity_key] <- [${indexRows.join(", ")}] :put file_index { file_path, entity_key }`
     );
   } catch {
     /* safe */
@@ -717,7 +717,7 @@ async function updateFileIndexBatched(
   try {
     await db.write(
       `?[from_key, to_key, type, sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode] <- [${containsRows.join(", ")}]
-       :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`,
+       :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`
     );
   } catch {
     /* safe */
@@ -730,7 +730,7 @@ async function updateFileIndexBatched(
  */
 async function resolveEntityNamesGlobal(
   names: string[],
-  db: DbLike,
+  db: DbLike
 ): Promise<Map<string, string>> {
   const resolved = new Map<string, string>();
   if (names.length === 0) return resolved;
@@ -763,7 +763,7 @@ function resolveLocalEntityName(
   name: string,
   filePath: string,
   repoId: string,
-  entities: ExtractedEntity[],
+  entities: ExtractedEntity[]
 ): string | null {
   if (name === "__file__") return `file:${filePath}`;
   const match = entities.find((e) => e.name === name);
@@ -779,11 +779,11 @@ function resolveLocalEntityName(
  */
 async function updateFanCountsBatched(
   db: DbLike,
-  affectedKeys: Set<string>,
+  affectedKeys: Set<string>
 ): Promise<void> {
   // Filter to real entity keys
   const keys = [...affectedKeys].filter(
-    (k) => !k.startsWith("file:") && !k.startsWith("unresolved:"),
+    (k) => !k.startsWith("file:") && !k.startsWith("unresolved:")
   );
   if (keys.length === 0) return;
 
@@ -832,7 +832,7 @@ async function updateFanCountsBatched(
   try {
     await db.write(
       `?[key, fan_in, fan_out] <- [${updateRows.join(", ")}]
-       :update entities { key => fan_in, fan_out }`,
+       :update entities { key => fan_in, fan_out }`
     );
   } catch {
     // Fallback: some keys may no longer exist — try individually
@@ -841,8 +841,8 @@ async function updateFanCountsBatched(
       const fo = fanOutMap.get(key) ?? 0;
       try {
         await db.write(
-          `?[key, fan_in, fan_out] <- [[$key, $fi, $fo]] :update entities { key => fan_in, fan_out }`,
-          { key, fi, fo },
+          "?[key, fan_in, fan_out] <- [[$key, $fi, $fo]] :update entities { key => fan_in, fan_out }",
+          { key, fi, fo }
         );
       } catch {
         /* entity deleted — safe */

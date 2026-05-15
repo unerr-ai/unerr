@@ -50,7 +50,7 @@ describe("NetworkFirewall", () => {
     seal();
 
     await expect(fetch("https://api.example.com/data")).rejects.toThrow(
-      /NetworkFirewall/,
+      /NetworkFirewall/
     );
     expect(getBlockedCount()).toBe(1);
   });
@@ -111,7 +111,7 @@ describe("NetworkFirewall", () => {
     // .local domains should pass through (they're localhost-ish)
     // Non-allowlisted external should still be blocked
     await expect(fetch("https://api.openai.com/v1/chat")).rejects.toThrow(
-      /NetworkFirewall/,
+      /NetworkFirewall/
     );
     expect(getBlockedCount()).toBe(1);
   });

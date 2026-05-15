@@ -49,7 +49,7 @@ export function createTimelineFork(
   abandonedEntities: string[],
   prompts: string[],
   reason?: string,
-  unerrDir?: string,
+  unerrDir?: string
 ): TimelineFork {
   const state = unerrDir
     ? loadState(unerrDir)
@@ -86,7 +86,7 @@ export function createTimelineFork(
   }
 
   log.info(
-    `Fork created: timeline ${currentTimeline} → ${nextTimeline} at snapshot ${snapshotId}`,
+    `Fork created: timeline ${currentTimeline} → ${nextTimeline} at snapshot ${snapshotId}`
   );
 
   return fork;
@@ -113,11 +113,11 @@ export function getForkHistory(unerrDir: string): TimelineFork[] {
  */
 export function getEntityForkHistory(
   unerrDir: string,
-  entityKey: string,
+  entityKey: string
 ): TimelineFork[] {
   const state = loadState(unerrDir);
   return state.forks.filter((f) =>
-    f.abandonedBranch.entityChanges.includes(entityKey),
+    f.abandonedBranch.entityChanges.includes(entityKey)
   );
 }
 
@@ -180,7 +180,7 @@ export function wasForkPoint(unerrDir: string, snapshotId: string): boolean {
  */
 export function getAbandonedPrompts(
   unerrDir: string,
-  entityKey: string,
+  entityKey: string
 ): string[] {
   const state = loadState(unerrDir);
   const prompts = new Set<string>();
@@ -201,7 +201,7 @@ export function getAbandonedPrompts(
  */
 export function getTimelineAtFork(
   unerrDir: string,
-  snapshotId: string,
+  snapshotId: string
 ): { abandoned: number; created: number } | null {
   const state = loadState(unerrDir);
   const fork = state.forks.find((f) => f.forkPoint === snapshotId);

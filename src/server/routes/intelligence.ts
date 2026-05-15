@@ -29,7 +29,7 @@ export interface IntelligenceRouteDeps {
   factStore?: {
     recallByScope(
       scope: string,
-      minConfidence?: number,
+      minConfidence?: number
     ): Promise<
       Array<{
         fact_id: string;
@@ -79,7 +79,7 @@ function slimCallerCallee(e: {
 }
 
 function compactEntityBody<T extends { body: string }>(
-  e: T,
+  e: T
 ): T & { body_truncated: boolean } {
   if (e.body.length <= ENTITY_BODY_MAX) {
     return { ...e, body_truncated: false };
@@ -94,7 +94,7 @@ function compactEntityBody<T extends { body: string }>(
 function parseLimit(
   raw: string | undefined,
   fallback: number,
-  max: number,
+  max: number
 ): number {
   const n = Number.parseInt(raw ?? "", 10);
   if (Number.isNaN(n) || n < 1) return fallback;
@@ -119,7 +119,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        503,
+        503
       );
     }
 
@@ -156,7 +156,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        503,
+        503
       );
     }
     const stats = await deps.localGraph.getLocalProjectStats();
@@ -210,7 +210,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        503,
+        503
       );
     }
 
@@ -244,7 +244,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        503,
+        503
       );
     }
 
@@ -313,7 +313,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        503,
+        503
       );
     }
 
@@ -328,7 +328,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        404,
+        404
       );
     }
 
@@ -371,13 +371,13 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        503,
+        503
       );
     }
 
     const coverage = await deps.localGraph.getTestCoverage(
       key,
-      includeTransitive,
+      includeTransitive
     );
     return c.json({
       data: coverage,
@@ -437,7 +437,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        503,
+        503
       );
     }
 
@@ -446,10 +446,10 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
       deps.localGraph.db.run(
         `?[key, name, fp, fi, fo, community, rl, kind] :=
           *entities{key, name, file_path: fp, fan_in: fi, fan_out: fo, community, risk_level: rl, kind},
-          kind != "file", kind != "module"`,
+          kind != "file", kind != "module"`
       ),
       deps.localGraph.db.run(
-        "?[from_key, to_key, type] := *edges{from_key, to_key, type}",
+        "?[from_key, to_key, type] := *edges{from_key, to_key, type}"
       ),
     ]);
 
@@ -467,7 +467,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
       const type = row[2] as string;
       if (type === "contains") {
         if (!containsChildren.has(from)) containsChildren.set(from, new Set());
-        containsChildren.get(from)!.add(to);
+        containsChildren.get(from)?.add(to);
         childToParent.set(to, from);
       } else {
         relationshipEdges.push({ from, to, type });
@@ -583,7 +583,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
 
     // Final edge filter: only edges where both endpoints are visible
     const edges = redirectedEdges.filter(
-      (e) => nodeKeys.has(e.from) && nodeKeys.has(e.to),
+      (e) => nodeKeys.has(e.from) && nodeKeys.has(e.to)
     );
 
     // Compute external (cross-community) edge counts per node
@@ -611,7 +611,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
     const fileEdgeWeights = new Map<string, number>(); // "from→to" → weight for position computation
     try {
       const feResult = await deps.localGraph.db.run(
-        "?[from_file, to_file, weight] := *file_edges{from_file, to_file, weight}",
+        "?[from_file, to_file, weight] := *file_edges{from_file, to_file, weight}"
       );
       for (const row of feResult.rows) {
         const from = row[0] as string;
@@ -631,7 +631,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
     const fileCommunityCohesion = new Map<number, number>();
     try {
       const fcResult = await deps.localGraph.db.run(
-        "?[file_path, community, label, cohesion] := *file_communities{file_path, community, label, cohesion}",
+        "?[file_path, community, label, cohesion] := *file_communities{file_path, community, label, cohesion}"
       );
       for (const row of fcResult.rows) {
         const fp = row[0] as string;
@@ -760,7 +760,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
         cohesion: Math.round(cohesion * 100) / 100,
         files,
         inter_edges: Array.from(interEdgeMap.entries()).map(
-          ([target, weight]) => ({ target, weight }),
+          ([target, weight]) => ({ target, weight })
         ),
       });
     }
@@ -801,7 +801,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
     }> = [];
     try {
       const ceResult = await deps.localGraph.db.run(
-        "?[from_class, to_class, edge_type, weight] := *class_edges{from_class, to_class, edge_type, weight}",
+        "?[from_class, to_class, edge_type, weight] := *class_edges{from_class, to_class, edge_type, weight}"
       );
       classEdges = ceResult.rows.map((row) => ({
         from: row[0] as string,
@@ -923,7 +923,8 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
       for (const [, ents] of fileEntityMap) {
         if (ents.length <= 1) {
           if (ents.length === 1) {
-            positions.entities[ents[0]!.id] = { x: 0, y: 0 };
+            const ent0 = ents[0];
+            if (ent0) positions.entities[ent0.id] = { x: 0, y: 0 };
           }
           continue;
         }
@@ -985,7 +986,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        503,
+        503
       );
     }
 
@@ -1003,7 +1004,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
         const directResult = await deps.localGraph.db.run(
           `?[target, count(tk)] := *edges{from_key: tk, to_key: target, type: "tests"},
             target in $keys`,
-          { keys },
+          { keys }
         );
         for (const row of directResult.rows) {
           testCountMap.set(row[0] as string, row[1] as number);
@@ -1014,7 +1015,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
           `?[target, count(tk)] := *edges{from_key: mid, to_key: target, type: "calls"},
             *edges{from_key: tk, to_key: mid, type: "tests"},
             target in $keys`,
-          { keys },
+          { keys }
         );
         for (const row of transitiveResult.rows) {
           const key = row[0] as string;
@@ -1033,7 +1034,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
         const callerResult = await deps.localGraph.db.run(
           `?[target, count(caller)] := *edges{from_key: caller, to_key: target, type: "calls"},
             target in $keys`,
-          { keys },
+          { keys }
         );
         for (const row of callerResult.rows) {
           callerCountMap.set(row[0] as string, row[1] as number);
@@ -1079,7 +1080,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        503,
+        503
       );
     }
 
@@ -1095,7 +1096,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
         const directResult = await deps.localGraph.db.run(
           `?[target, count(tk)] := *edges{from_key: tk, to_key: target, type: "tests"},
             target in $keys`,
-          { keys },
+          { keys }
         );
         for (const row of directResult.rows) {
           testCountMap.set(row[0] as string, row[1] as number);
@@ -1104,7 +1105,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
           `?[target, count(tk)] := *edges{from_key: mid, to_key: target, type: "calls"},
             *edges{from_key: tk, to_key: mid, type: "tests"},
             target in $keys`,
-          { keys },
+          { keys }
         );
         for (const row of transitiveResult.rows) {
           const k = row[0] as string;
@@ -1142,7 +1143,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
         (n) =>
           n.fan_in >= 3 &&
           n.fan_out >= 2 &&
-          (testCountMap.get(n.key) ?? 0) === 0,
+          (testCountMap.get(n.key) ?? 0) === 0
       )
       .map((n) => ({
         key: n.key,
@@ -1246,8 +1247,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
         blastRadiusCoveragePct:
           comm.totalFanIn > 0
             ? Math.round(
-                ((comm.totalFanIn - comm.untestedFanIn) / comm.totalFanIn) *
-                  100,
+                ((comm.totalFanIn - comm.untestedFanIn) / comm.totalFanIn) * 100
               )
             : 0,
         riskHigh: comm.riskHigh,
@@ -1259,7 +1259,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
 
     // Sort communities: worst blast-radius coverage first
     communityHealth.sort(
-      (a, b) => a.blastRadiusCoveragePct - b.blastRadiusCoveragePct,
+      (a, b) => a.blastRadiusCoveragePct - b.blastRadiusCoveragePct
     );
 
     // ── Most coupled community pair ───────────────────────────────────
@@ -1277,7 +1277,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
           *file_communities{file_path: to_file, label: to_label},
           from_label != to_label
          :order -w
-         :limit 1`,
+         :limit 1`
       );
       if (fcResult.rows.length > 0) {
         const [from, to, weight] = fcResult.rows[0] as [string, string, number];
@@ -1332,7 +1332,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
     if (bottlenecks.length > 0) {
       const totalBottleneckFanIn = bottlenecks.reduce(
         (s, b) => s + b.fan_in,
-        0,
+        0
       );
       insights.push({
         id: "bottlenecks",
@@ -1393,9 +1393,9 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
           blastRadiusCoverage * 0.4 +
             (100 - bottleneckPenalty) * 0.25 +
             (100 - concentrationPenalty) * 0.2 +
-            (100 - highRiskPenalty) * 0.15,
-        ),
-      ),
+            (100 - highRiskPenalty) * 0.15
+        )
+      )
     );
 
     const healthGrade =
@@ -1472,7 +1472,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
       );
       const healthMap = new HealthMapData(
         deps.localGraph,
-        deps.factStore ?? null,
+        deps.factStore ?? null
       );
       const tree = await healthMap.buildTree(root);
       return c.json({
@@ -1485,7 +1485,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "Health map failed" },
-        500,
+        500
       );
     }
   });
@@ -1506,7 +1506,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
       );
       const healthMap = new HealthMapData(
         deps.localGraph,
-        deps.factStore ?? null,
+        deps.factStore ?? null
       );
       const node = await healthMap.getFileHealth(filePath);
       if (!node) {
@@ -1551,7 +1551,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
     } catch (err) {
       return c.json(
         { error: err instanceof Error ? err.message : "File health failed" },
-        500,
+        500
       );
     }
   });

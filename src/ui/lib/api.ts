@@ -9,7 +9,7 @@ export class ApiError extends Error {
 
 export async function fetchJson<T>(
   path: string,
-  init?: RequestInit,
+  init?: RequestInit
 ): Promise<T> {
   const r = await fetch(path, {
     ...init,
@@ -30,7 +30,7 @@ export async function fetchJson<T>(
       typeof body === "object" && body !== null && "error" in (body as object)
         ? String((body as { error: unknown }).error)
         : r.statusText,
-      r.status,
+      r.status
     );
   }
   return body as T;

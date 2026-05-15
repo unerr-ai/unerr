@@ -60,7 +60,7 @@ export function filterIndexableEvents(events: WatchEvent[]): string[] {
  * Create a watcher callback that triggers incremental reindexing.
  */
 export function createWatchReindexHook(
-  onReindex: WatchReindexCallback,
+  onReindex: WatchReindexCallback
 ): (events: WatchEvent[]) => void {
   return (events: WatchEvent[]) => {
     const indexable = filterIndexableEvents(events);
@@ -70,7 +70,7 @@ export function createWatchReindexHook(
 
     onReindex(indexable).catch((err) => {
       log.warn(
-        `Watch-triggered reindex failed: ${err instanceof Error ? err.message : String(err)}`,
+        `Watch-triggered reindex failed: ${err instanceof Error ? err.message : String(err)}`
       );
     });
   };

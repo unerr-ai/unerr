@@ -38,7 +38,7 @@ export function buildTaskCostSummaries(
     entitiesModified: string[];
     outcome: string;
   }>,
-  modelId?: string,
+  modelId?: string
 ): TaskDisplayResult {
   const tasks: TaskCostSummary[] = intentGroups
     .filter((g) => g.toolCalls > 0)
@@ -63,14 +63,14 @@ export function buildTaskCostSummaries(
   const totalSaved = tasks.reduce((s, t) => s + t.tokensSaved, 0);
   const totalWithout = tasks.reduce(
     (s, t) => s + t.tokensConsumed + t.tokensSaved,
-    0,
+    0
   );
 
   const formattedLines = [
     "Tasks this session:",
     ...top3.map(
       (t, i) =>
-        `  ${i + 1}. "${t.taskDescription.slice(0, 50)}" — ${t.toolCalls} calls, ${formatDollars(t.dollarCost)} (${t.efficiency}% optimized)`,
+        `  ${i + 1}. "${t.taskDescription.slice(0, 50)}" — ${t.toolCalls} calls, ${formatDollars(t.dollarCost)} (${t.efficiency}% optimized)`
     ),
     `  Total: ${totalCalls} calls, ${formatDollars(calculateDollarSavings(totalSaved, modelId))} saved (${formatDollars(calculateDollarSavings(totalWithout, modelId))} without unerr)`,
   ];
