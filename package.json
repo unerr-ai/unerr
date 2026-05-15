@@ -1,6 +1,6 @@
 {
   "name": "@unerr-ai/unerr",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Local-first code intelligence CLI for unerr",
   "type": "module",
   "bin": {
