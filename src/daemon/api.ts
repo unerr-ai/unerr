@@ -274,8 +274,10 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
 
     // Strip /api/repo/:label prefix and prepend /api so that
     // /api/repo/label/stats → /api/stats on the per-repo server.
+    // Preserve query string — date filters, pagination, etc. are passed through.
     const remaining = c.req.path.replace(`/api/repo/${label}`, "");
-    const targetPath = `/api${remaining || "/"}`;
+    const qs = new URL(c.req.url).search;
+    const targetPath = `/api${remaining || "/"}${qs}`;
 
     try {
       const proxyResponse = await proxyToRepoHttp(

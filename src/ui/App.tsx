@@ -31,8 +31,10 @@ export function App() {
   const parsed = useParsedRoute();
   const [sseConnected, setSseConnected] = useState(false);
 
-  // Detect daemon mode by probing /api/daemon
-  const { data: daemonInfo } = useQuery({
+  // Detect daemon mode by probing /api/daemon.
+  // `daemonResolved` gates standalone-only side effects (SSE, /api/system/status)
+  // so they don't fire before we know whether we're in daemon mode.
+  const { data: daemonInfo, isFetched: daemonResolved } = useQuery({
     queryKey: ["daemon", "info"],
     queryFn: () =>
       fetchJson<{ pid: number; port: number }>("/api/daemon").catch(() => null),
@@ -54,11 +56,11 @@ export function App() {
 
   const repos = reposData?.repos ?? [];
 
-  // SSE connection (standalone mode or when viewing a specific repo)
+  // SSE connection (standalone mode only — wait for daemon probe to resolve first)
   useEffect(() => {
-    if (isDaemonMode) return;
+    if (!daemonResolved || isDaemonMode) return;
     return connectDashboardSse(queryClient, setSseConnected);
-  }, [isDaemonMode]);
+  }, [daemonResolved, isDaemonMode]);
 
   const { data: liveFeed = [] } = useQuery<LiveFeedItem[]>({
     queryKey: ["live-feed"],
@@ -76,7 +78,7 @@ export function App() {
         () => null
       ),
     staleTime: 60_000,
-    enabled: !isDaemonMode,
+    enabled: daemonResolved && !isDaemonMode,
   });
 
   // Build repo context
