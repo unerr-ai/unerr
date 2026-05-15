@@ -177,6 +177,20 @@ export function registerInstallCommand(program: Command): void {
           );
         }
 
+        // Cursor requires manual MCP server approval (CVE-2025-54136, Cursor 1.3+)
+        if (normalizedAgent === "cursor") {
+          process.stderr.write("\n");
+          process.stderr.write(
+            "  \x1b[38;2;251;191;36m⚠\x1b[0m Cursor requires one-time approval:\n"
+          );
+          process.stderr.write(
+            "    Open \x1b[1mSettings → Tools & MCP\x1b[0m and toggle \x1b[1m\"unerr\"\x1b[0m on.\n"
+          );
+          process.stderr.write(
+            "    \x1b[38;2;161;161;170m(Required since Cursor 1.3 — CVE-2025-54136)\x1b[0m\n"
+          );
+        }
+
         process.stderr.write("\n");
         process.stderr.write(
           "  \x1b[38;2;161;161;170mRun \x1b[0munerr\x1b[38;2;161;161;170m to start the intelligence engine.\x1b[0m\n"
