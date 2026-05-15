@@ -21,6 +21,7 @@ import { registerConfigVerifyCommand } from "../commands/config-verify.js";
 import { registerDaemonCommand } from "../commands/daemon.js";
 import { registerDashboardCommand } from "../commands/dashboard.js";
 import { registerDebugCommand } from "../commands/debug.js";
+import { registerDoctorCommand } from "../commands/doctor.js";
 import { registerEnrichCommand } from "../commands/enrich.js";
 import { registerExecCommand } from "../commands/exec.js";
 import {
@@ -937,6 +938,16 @@ async function daemonChildBoot(cwd: string): Promise<void> {
   }
 }
 
+// ── MCP boot: retry/reconnect constants ────────────────────────
+const MCP_INITIAL_RETRY_MS = 2_000;
+const MCP_MAX_RETRY_MS = 30_000;
+const MCP_RETRY_BACKOFF = 1.5;
+
+type DiscoveryResult =
+  | { kind: "standalone"; sockPath: string; pid: number | null }
+  | { kind: "daemon"; sockPath: string; daemonSock: string }
+  | { kind: "none" };
+
 /**
  * MCP mode: headless boot for IDE integration.
  *
@@ -945,7 +956,12 @@ async function daemonChildBoot(cwd: string): Promise<void> {
  *   2. unerrd daemon sock (`~/.unerr/unerrd.sock`) — bridge if repo is registered
  *
  * The bridge NEVER spawns unerrd or registers repos. It only connects to
- * what's already running. If nothing is available, it exits with an error.
+ * what's already running. If nothing is available, it retries with backoff
+ * until a process becomes available (IDEs keep the bridge process alive).
+ *
+ * On mid-session disconnects (`daemon_dead`, `socket_closed`), the bridge
+ * re-enters the discovery loop so reconnection happens automatically when
+ * the unerr process restarts.
  */
 async function mcpBoot(cwd: string): Promise<void> {
   installFileLogger({
@@ -970,23 +986,6 @@ async function mcpBoot(cwd: string): Promise<void> {
   }
 
   const { startUdsBridge } = await import("../proxy/bridge.js");
-
-  // ── Step 1: Try per-repo proxy sock (standalone `unerr` running) ──
-  const repoSock = join(cwd, ".unerr", "state", "proxy.sock");
-  if (existsSync(repoSock)) {
-    const { PidLock } = await import("../proxy/pid-lock.js");
-    const pidLock = new PidLock(join(cwd, ".unerr", "state"));
-    const probeResult = await pidLock.probe();
-
-    if (probeResult.alive) {
-      process.stderr.write(
-        `[unerr:mcp] Bridging to running proxy (PID ${probeResult.pid})\n`
-      );
-      return bridgeAndExit(startUdsBridge, repoSock);
-    }
-  }
-
-  // ── Step 2: Try unerrd (must already be running, repo must be registered) ──
   const {
     daemonSockPath,
     probeDaemon,
@@ -997,96 +996,136 @@ async function mcpBoot(cwd: string): Promise<void> {
   } = await import("../daemon/client.js");
   const { findRepo } = await import("../daemon/registry.js");
 
-  const daemonSock = daemonSockPath();
-  const daemonRunning = await probeDaemon(daemonSock);
-
-  if (!daemonRunning) {
-    process.stderr.write(
-      "\x1b[38;2;248;113;113m\u2717\x1b[0m No unerr process found for this project.\n\n" +
-        "  To use standalone mode:\n" +
-        "    unerr              # start per-repo process in this directory\n\n" +
-        "  To use daemon mode:\n" +
-        "    unerr daemon initialize    # one-time setup\n" +
-        "    unerr install <agent>      # register this repo\n"
+  // Main loop: discover → bridge → on disconnect, rediscover
+  // Exits only when stdin closes (IDE killed the process) or process.exit
+  for (;;) {
+    const discovery = await discoverWithRetry(
+      cwd,
+      daemonSockPath,
+      probeDaemon,
+      ensureRepo,
+      findRepo
     );
-    process.exit(1);
-  }
 
-  // Daemon is running — check if this repo is registered
-  const repoEntry = findRepo(cwd);
-  if (!repoEntry) {
-    process.stderr.write(
-      "\x1b[38;2;248;113;113m\u2717\x1b[0m Repo not registered with unerrd.\n\n" +
-        "  Run: unerr install <agent>   # registers this repo with the daemon\n" +
-        "  Or:  unerr daemon add .      # register without installing agent config\n"
-    );
-    process.exit(1);
-  }
-
-  // Daemon running + repo registered → ensure the per-repo process is up
-  let repoSockViaEnsure: string;
-  try {
-    repoSockViaEnsure = await ensureRepo(daemonSock, cwd);
-  } catch (err) {
-    process.stderr.write(
-      `\x1b[38;2;248;113;113m\u2717\x1b[0m Failed to ensure repo process: ${(err as Error).message}\n`
-    );
-    process.exit(1);
-  }
-
-  // Register this bridge connection
-  try {
-    await connectRepo(daemonSock, cwd);
-  } catch {
-    // Non-fatal — idle sweep may stop the repo eventually
-  }
-
-  process.stderr.write(
-    `[unerr:mcp] Bridging to repo process via unerrd (sock: ${repoSockViaEnsure})\n`
-  );
-
-  // Throttled activity reporting (1/min)
-  const ACTIVITY_THROTTLE_MS = 60_000;
-  let lastActivitySent = 0;
-  const activityInterval = setInterval(() => {
-    const now = Date.now();
-    if (now - lastActivitySent >= ACTIVITY_THROTTLE_MS) {
-      sendActivity(daemonSock, cwd);
-      lastActivitySent = now;
+    if (discovery.kind === "standalone") {
+      process.stderr.write(
+        `[unerr:mcp] Bridging to running proxy (PID ${discovery.pid})\n`
+      );
+      const result = await startUdsBridge(discovery.sockPath);
+      if (result.reason === "stdin_closed") return;
+      process.stderr.write(
+        `[unerr:mcp] Connection lost (${result.reason}), will retry...\n`
+      );
+      continue;
     }
-  }, ACTIVITY_THROTTLE_MS);
-  activityInterval.unref();
 
-  // Bridge to the per-repo process
-  const bridgeResult = await startUdsBridge(repoSockViaEnsure);
+    if (discovery.kind === "daemon") {
+      try {
+        await connectRepo(discovery.daemonSock, cwd);
+      } catch {
+        // Non-fatal
+      }
 
-  // Cleanup: disconnect from daemon, stop activity reporting
-  clearInterval(activityInterval);
-  try {
-    await disconnectRepo(daemonSock, cwd);
-  } catch {
-    // Best-effort — daemon may already be gone
-  }
+      process.stderr.write(
+        `[unerr:mcp] Bridging to repo process via unerrd (sock: ${discovery.sockPath})\n`
+      );
 
-  if (bridgeResult.reason === "daemon_dead") {
-    process.stderr.write(
-      "\x1b[38;2;248;113;113m\u2717\x1b[0m unerr proxy disconnected mid-session.\n  The repo process may have been idle-stopped or crashed.\n"
-    );
-    process.exit(1);
+      const ACTIVITY_THROTTLE_MS = 60_000;
+      let lastActivitySent = 0;
+      const activityInterval = setInterval(() => {
+        const now = Date.now();
+        if (now - lastActivitySent >= ACTIVITY_THROTTLE_MS) {
+          sendActivity(discovery.daemonSock, cwd);
+          lastActivitySent = now;
+        }
+      }, ACTIVITY_THROTTLE_MS);
+      activityInterval.unref();
+
+      const result = await startUdsBridge(discovery.sockPath);
+
+      clearInterval(activityInterval);
+      try {
+        await disconnectRepo(discovery.daemonSock, cwd);
+      } catch {
+        // Best-effort
+      }
+
+      if (result.reason === "stdin_closed") return;
+      process.stderr.write(
+        `[unerr:mcp] Connection lost (${result.reason}), will retry...\n`
+      );
+    }
   }
 }
 
-/** Bridge to a UDS sock and handle disconnect/error. */
-async function bridgeAndExit(
-  startBridge: typeof import("../proxy/bridge.js").startUdsBridge,
-  sockPath: string
-): Promise<void> {
-  const result = await startBridge(sockPath);
-  if (result.reason === "daemon_dead") {
-    process.stderr.write(
-      "\x1b[38;2;248;113;113m\u2717\x1b[0m unerr proxy disconnected mid-session.\n"
-    );
-    process.exit(1);
+/**
+ * Discovery loop with exponential backoff.
+ * Polls for standalone sock or daemon availability. Returns when a
+ * connectable target is found, or loops forever (IDE kills the process).
+ */
+async function discoverWithRetry(
+  cwd: string,
+  daemonSockPath: () => string,
+  probeDaemon: (sock: string) => Promise<boolean>,
+  ensureRepo: (sock: string, repo: string) => Promise<string>,
+  findRepo: (repo: string) => unknown
+): Promise<DiscoveryResult> {
+  let retryMs = MCP_INITIAL_RETRY_MS;
+  let attempt = 0;
+
+  for (;;) {
+    // ── Try per-repo proxy sock (standalone `unerr` running) ──
+    const repoSock = join(cwd, ".unerr", "state", "proxy.sock");
+    if (existsSync(repoSock)) {
+      const { PidLock } = await import("../proxy/pid-lock.js");
+      const pidLock = new PidLock(join(cwd, ".unerr", "state"));
+      const probeResult = await pidLock.probe();
+      if (probeResult.alive) {
+        return {
+          kind: "standalone",
+          sockPath: repoSock,
+          pid: probeResult.pid ?? null,
+        };
+      }
+    }
+
+    // ── Try unerrd (must already be running, repo must be registered) ──
+    const daemonSock = daemonSockPath();
+    const daemonRunning = await probeDaemon(daemonSock);
+
+    if (daemonRunning) {
+      const repoEntry = findRepo(cwd);
+      if (repoEntry) {
+        try {
+          const sockPath = await ensureRepo(daemonSock, cwd);
+          return { kind: "daemon", sockPath, daemonSock };
+        } catch (err) {
+          process.stderr.write(
+            `[unerr:mcp] ensureRepo failed: ${(err as Error).message}, retrying...\n`
+          );
+        }
+      } else if (attempt === 0) {
+        process.stderr.write(
+          "[unerr:mcp] Repo not registered with unerrd — waiting for registration...\n"
+        );
+      }
+    }
+
+    // ── Nothing available yet — wait and retry ──
+    if (attempt === 0) {
+      process.stderr.write(
+        "[unerr:mcp] Waiting for unerr process to become available...\n"
+      );
+    }
+    attempt++;
+
+    await new Promise<void>((r) => {
+      const t = setTimeout(r, retryMs);
+      // Allow process to exit even while waiting
+      if (typeof t.unref === "function") t.unref();
+    });
+
+    retryMs = Math.min(retryMs * MCP_RETRY_BACKOFF, MCP_MAX_RETRY_MS);
   }
 }
 
@@ -1150,6 +1189,7 @@ registerStatsCommand(program);
 registerInstallCommand(program);
 registerDashboardCommand(program);
 registerDebugCommand(program);
+registerDoctorCommand(program);
 registerGainCommand(program);
 registerDiscoverCommand(program);
 registerDaemonCommand(program);

@@ -35,7 +35,11 @@ import {
   generateCustomInstructions,
   writeInstructionFile,
 } from "../config/instruction-writer.js";
-import { isConfigured, writeMcpConfig } from "../config/mcp-config-writer.js";
+import {
+  generateConfigSnippet,
+  isConfigured,
+  writeMcpConfig,
+} from "../config/mcp-config-writer.js";
 import { BUNDLED_SKILLS } from "../skills/local-pack.js";
 import { resolveAndInstallSkills } from "../skills/resolver.js";
 
@@ -397,13 +401,7 @@ async function showSkillContent(): Promise<void> {
     "  \x1b[38;2;161;161;170mMCP config to add alongside skills:\x1b[0m\n\n"
   );
   process.stderr.write(
-    `  ${JSON.stringify(
-      { mcpServers: { unerr: { command: "unerr", args: ["--mcp"] } } },
-      null,
-      2
-    )
-      .split("\n")
-      .join("\n  ")}\n`
+    `  ${generateConfigSnippet("cursor").split("\n").join("\n  ")}\n`
   );
   process.stderr.write("\n");
 }
@@ -426,39 +424,9 @@ function showSetupInstructions(agentName: string): void {
     // Step 1: MCP config
     w("  \x1b[1m1. MCP Configuration\x1b[0m\n");
     w(`     Add to ${agentDef.projectConfigPath}:\n\n`);
-    if (agentDef.configFormat === "settings-json") {
-      w(
-        `     ${JSON.stringify(
-          { mcpServers: { unerr: { command: "unerr", args: ["--mcp"] } } },
-          null,
-          2
-        )
-          .split("\n")
-          .join("\n     ")}\n\n`
-      );
-    } else if (agentDef.configFormat === "continue-config") {
-      w(
-        `     ${JSON.stringify(
-          {
-            mcpServers: [{ name: "unerr", command: "unerr", args: ["--mcp"] }],
-          },
-          null,
-          2
-        )
-          .split("\n")
-          .join("\n     ")}\n\n`
-      );
-    } else {
-      w(
-        `     ${JSON.stringify(
-          { mcpServers: { unerr: { command: "unerr", args: ["--mcp"] } } },
-          null,
-          2
-        )
-          .split("\n")
-          .join("\n     ")}\n\n`
-      );
-    }
+    w(
+      `     ${generateConfigSnippet(agentDef.id).split("\n").join("\n     ")}\n\n`
+    );
 
     // Step 2: Instruction file
     if (agentDef.instructionFilePath) {
@@ -492,15 +460,7 @@ function showSetupInstructions(agentName: string): void {
     w("  Add unerr as an MCP server in your agent's config file.\n");
     w("  The exact format depends on your agent:\n\n");
     w("  Standard JSON format (most agents):\n");
-    w(
-      `  ${JSON.stringify(
-        { mcpServers: { unerr: { command: "unerr", args: ["--mcp"] } } },
-        null,
-        2
-      )
-        .split("\n")
-        .join("\n  ")}\n\n`
-    );
+    w(`  ${generateConfigSnippet("cursor").split("\n").join("\n  ")}\n\n`);
 
     w("  \x1b[1mStep 2: Agent Instructions (Critical for Adoption)\x1b[0m\n");
     w("  \x1b[2m───────────────────────────────────────────────────\x1b[0m\n");

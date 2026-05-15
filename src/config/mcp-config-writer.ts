@@ -10,9 +10,10 @@
  *   - continue-config: { mcpServers: [{ name: "unerr", ... }] } (Continue.dev)
  */
 
+import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { IdeType } from "../utils/detect.js";
 import {
   AGENT_REGISTRY,
@@ -34,10 +35,59 @@ export interface McpConfig {
 
 const UNERR_SERVER_KEY = "unerr";
 
+/**
+ * Resolve the absolute path to the `unerr` binary at install time.
+ *
+ * IDEs spawn MCP servers as child processes that do NOT inherit the user's
+ * interactive shell profile (no ~/.zshrc, ~/.bashrc). On macOS, GUI apps
+ * launched from Dock/Spotlight get a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin).
+ * Using a bare "unerr" command would silently fail for nvm/fnm/pnpm/volta users.
+ *
+ * Resolution order:
+ * 1. process.argv[1] — the script currently running (works for global installs)
+ * 2. `which unerr` / `where unerr` — PATH lookup at install time
+ * 3. "unerr" — bare name as last resort
+ */
+function resolveUnerrCommand(): string {
+  const entryScript = process.argv[1];
+  if (entryScript && existsSync(entryScript)) {
+    const base = basename(entryScript);
+    if (base === "unerr" || base.startsWith("unerr.")) {
+      return entryScript;
+    }
+  }
+
+  const whichCmd = process.platform === "win32" ? "where unerr" : "which unerr";
+  try {
+    const resolved = execSync(whichCmd, {
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+      .trim()
+      .split(/\r?\n/)[0]; // `where` on Windows may return multiple lines
+    if (resolved && existsSync(resolved)) {
+      return resolved;
+    }
+  } catch {
+    // not found — fall through
+  }
+
+  return "unerr";
+}
+
+let _resolvedCommand: string | undefined;
+export function getUnerrCommand(): string {
+  if (_resolvedCommand === undefined) {
+    _resolvedCommand = resolveUnerrCommand();
+  }
+  return _resolvedCommand;
+}
+
 function createUnerrServerEntry(): McpServerEntry {
   return {
     type: "stdio",
-    command: "unerr",
+    command: getUnerrCommand(),
     args: ["--mcp"],
   };
 }
@@ -45,7 +95,7 @@ function createUnerrServerEntry(): McpServerEntry {
 function createCopilotServerEntry(): McpServerEntry {
   return {
     type: "local",
-    command: "unerr",
+    command: getUnerrCommand(),
     args: ["--mcp"],
   };
 }
@@ -242,11 +292,13 @@ function writeMcpJsonFormat(configPath: string): {
       const existing = JSON.parse(
         readFileSync(configPath, "utf-8")
       ) as McpConfig;
-      if (existing.mcpServers?.[UNERR_SERVER_KEY]) {
+      const current = existing.mcpServers?.[UNERR_SERVER_KEY];
+      const desired = createUnerrServerEntry();
+      if (current && current.command === desired.command) {
         return { path: configPath, action: "skipped" };
       }
       existing.mcpServers = existing.mcpServers ?? {};
-      existing.mcpServers[UNERR_SERVER_KEY] = createUnerrServerEntry();
+      existing.mcpServers[UNERR_SERVER_KEY] = desired;
       writeFileSync(configPath, JSON.stringify(existing, null, 2), "utf-8");
       return { path: configPath, action: "updated" };
     } catch {
@@ -272,11 +324,13 @@ function writeSettingsJsonFormat(configPath: string): {
         unknown
       >;
       const mcp = (existing.mcp ?? {}) as Record<string, unknown>;
-      const servers = (mcp.servers ?? {}) as Record<string, unknown>;
-      if (servers[UNERR_SERVER_KEY]) {
+      const servers = (mcp.servers ?? {}) as Record<string, McpServerEntry>;
+      const current = servers[UNERR_SERVER_KEY];
+      const desired = createUnerrServerEntry();
+      if (current && current.command === desired.command) {
         return { path: configPath, action: "skipped" };
       }
-      servers[UNERR_SERVER_KEY] = createUnerrServerEntry();
+      servers[UNERR_SERVER_KEY] = desired;
       mcp.servers = servers;
       existing.mcp = mcp;
       writeFileSync(configPath, JSON.stringify(existing, null, 2), "utf-8");
@@ -305,11 +359,19 @@ function writeContinueFormat(configPath: string): {
         string,
         unknown
       >;
-      const servers = (existing.mcpServers ?? []) as Array<{ name?: string }>;
-      if (servers.some((s) => s.name === UNERR_SERVER_KEY)) {
+      const servers = (existing.mcpServers ?? []) as Array<{
+        name?: string;
+        command?: string;
+      }>;
+      const idx = servers.findIndex((s) => s.name === UNERR_SERVER_KEY);
+      if (idx >= 0 && servers[idx]?.command === entry.command) {
         return { path: configPath, action: "skipped" };
       }
-      servers.push(entry);
+      if (idx >= 0) {
+        servers[idx] = entry;
+      } else {
+        servers.push(entry);
+      }
       existing.mcpServers = servers;
       writeFileSync(configPath, JSON.stringify(existing, null, 2), "utf-8");
       return { path: configPath, action: "updated" };
@@ -332,11 +394,13 @@ function writeCopilotJsonFormat(configPath: string): {
       const existing = JSON.parse(
         readFileSync(configPath, "utf-8")
       ) as McpConfig;
-      if (existing.mcpServers?.[UNERR_SERVER_KEY]) {
+      const current = existing.mcpServers?.[UNERR_SERVER_KEY];
+      const desired = createCopilotServerEntry();
+      if (current && current.command === desired.command) {
         return { path: configPath, action: "skipped" };
       }
       existing.mcpServers = existing.mcpServers ?? {};
-      existing.mcpServers[UNERR_SERVER_KEY] = createCopilotServerEntry();
+      existing.mcpServers[UNERR_SERVER_KEY] = desired;
       writeFileSync(configPath, JSON.stringify(existing, null, 2), "utf-8");
       return { path: configPath, action: "updated" };
     } catch {

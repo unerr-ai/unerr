@@ -1160,7 +1160,8 @@ export function registerDaemonCommand(program: Command): void {
       // Step 3: Verify new version
       write("  [3/5] Verifying...\n");
       try {
-        const newVer = execSync("unerr --version", {
+        const unerrBin = process.argv[1] ?? "unerr";
+        const newVer = execSync(`"${unerrBin}" --version`, {
           encoding: "utf-8",
         }).trim();
         write(`        \x1b[38;2;52;211;153m\u2713\x1b[0m ${newVer}\n`);

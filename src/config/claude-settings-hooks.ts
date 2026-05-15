@@ -8,7 +8,7 @@
 
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 /** Hook event type. */
 type HookEvent = "PreToolUse" | "PostToolUse" | "UserPromptSubmit";
@@ -33,20 +33,27 @@ function resolveUnerrBinary(): string {
   // `isAnyUnerrHook` can't match for removal).
   const entryScript = process.argv[1];
   if (entryScript && existsSync(entryScript)) {
-    const base = entryScript.split("/").pop() ?? "";
+    const base = basename(entryScript);
     if (base === "unerr" || base.startsWith("unerr.")) {
       return entryScript;
     }
   }
 
-  // Fallback: `which unerr` at install time (captures current PATH)
+  // Fallback: `which unerr` / `where unerr` at install time (captures current PATH)
+  const whichCmd = process.platform === "win32" ? "where unerr" : "which unerr";
   try {
-    const resolved = execSync("which unerr", { encoding: "utf-8" }).trim();
+    const resolved = execSync(whichCmd, {
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+      .trim()
+      .split(/\r?\n/)[0];
     if (resolved && existsSync(resolved)) {
       return resolved;
     }
   } catch {
-    // which not found or unerr not on PATH — fall through
+    // not found — fall through
   }
 
   // Last resort: bare name (original behavior — `isAnyUnerrHook` still matches

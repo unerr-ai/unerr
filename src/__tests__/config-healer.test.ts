@@ -141,7 +141,7 @@ describe("Config Healer (P5.6-ADV-04)", () => {
       const written = JSON.parse(fs.readFileSync(configPath, "utf-8")) as {
         mcpServers: Record<string, { command?: string; args?: string[] }>;
       };
-      expect(written.mcpServers.unerr?.command).toBe("unerr");
+      expect(written.mcpServers.unerr?.command).toContain("unerr");
       expect(written.mcpServers.unerr?.args).toContain("--mcp");
     });
 
@@ -185,7 +185,7 @@ describe("Config Healer (P5.6-ADV-04)", () => {
         mcpServers: Record<string, { command?: string; url?: string }>;
       };
       // Should now be local proxy format, not remote URL
-      expect(result.mcpServers.unerr?.command).toBe("unerr");
+      expect(result.mcpServers.unerr?.command).toContain("unerr");
       expect(result.mcpServers.unerr?.url).toBeUndefined();
     });
 

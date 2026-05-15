@@ -157,7 +157,7 @@ describe("Sprint S6: CLI Hooks Integration", () => {
       expect(existsSync(configPath)).toBe(true);
       const config = JSON.parse(readFileSync(configPath, "utf-8"));
       expect(config.mcpServers.unerr).toBeDefined();
-      expect(config.mcpServers.unerr.command).toBe("unerr");
+      expect(config.mcpServers.unerr.command).toContain("unerr");
       expect(config.mcpServers.unerr.args).toContain("--mcp");
       expect(result.configsWritten.length).toBeGreaterThan(0);
     });
@@ -194,19 +194,17 @@ describe("Sprint S6: CLI Hooks Integration", () => {
       expect(config.mcpServers.unerr).toBeDefined();
     });
 
-    it("skips if unerr already configured", () => {
+    it("skips if unerr already configured with same command", () => {
       const cwd = makeTmpDir();
       mkdirSync(join(cwd, ".cursor"), { recursive: true });
-      const existingConfig = {
-        mcpServers: {
-          unerr: { command: "npx", args: ["@unerr/unerr", "--mcp"] },
-        },
-      };
-      writeFileSync(
-        join(cwd, ".cursor", "mcp.json"),
-        JSON.stringify(existingConfig)
-      );
+      // First install writes the resolved command
+      runInit(cwd);
+      const configPath = join(cwd, ".cursor", "mcp.json");
+      const written = JSON.parse(readFileSync(configPath, "utf-8"));
+      const resolvedCmd = written.mcpServers.unerr.command;
+      expect(resolvedCmd).toContain("unerr");
 
+      // Second install with same command should skip
       const result = runInit(cwd);
       expect(result.skipped.some((s) => s.includes("already configured"))).toBe(
         true

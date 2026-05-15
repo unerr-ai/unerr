@@ -21,7 +21,7 @@ describe("runPreBashHook", () => {
     };
     expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
     expect(out.hookSpecificOutput.permissionDecision).toBe("allow");
-    expect(out.hookSpecificOutput.updatedInput.command).toBe(
+    expect(out.hookSpecificOutput.updatedInput.command).toContain(
       "unerr exec -- ps aux"
     );
   });
@@ -38,8 +38,8 @@ describe("runPreBashHook", () => {
       };
     };
     const rewritten = out.hookSpecificOutput.updatedInput.command;
-    expect(rewritten).toMatch(/^unerr exec --b64 /);
-    const b64 = rewritten.replace("unerr exec --b64 ", "");
+    expect(rewritten).toMatch(/unerr exec --b64 /);
+    const b64 = rewritten.replace(/.*unerr exec --b64 /, "");
     expect(Buffer.from(b64, "base64").toString("utf-8")).toBe(multiLine);
   });
 

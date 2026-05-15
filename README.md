@@ -112,7 +112,17 @@ The agent reads from the same store through MCP — every claim on the dashboard
 npm install -g @unerr-ai/unerr
 ```
 
-### 2. Choose your mode
+### 2. Verify your environment
+
+```bash
+unerr doctor
+```
+
+This ensures `unerr` is available in **all** terminal sessions — not just the one you installed from. If your PATH isn't configured correctly (common with nvm, fnm, volta, or pnpm), `unerr doctor` detects the issue and offers to fix it automatically by updating your shell config (`~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`).
+
+> **Why this matters:** Global npm packages are installed to a directory that some shells don't include by default. Without this step, `unerr` might work in your current terminal but fail in new ones — which breaks IDE integrations that spawn `unerr --mcp` in a fresh shell.
+
+### 3. Choose your mode
 
 <table>
 <tr>
@@ -147,6 +157,8 @@ A single `unerrd` supervisor manages all repos. Starts at login, spawns per-repo
 </table>
 
 > **Important:** After running `unerr install`, restart your coding AI session (close and reopen the IDE or start a new chat) for unerr to take effect. The agent needs to pick up the newly installed MCP config, skills, and instructions.
+
+> **`unerr: command not found` in a new terminal?** Run `unerr doctor` in the terminal where it works — it will detect the PATH issue and fix it so `unerr` is recognized everywhere.
 
 ### What each command does (no hidden behaviors)
 
@@ -384,6 +396,7 @@ Every response includes `_meta` (latency, risk level, drift status) and inline `
 ```bash
 unerr                 # Start per-repo daemon (or resume; auto-spawned by IDE if missing)
 unerr --mcp           # Stdio bridge — what your IDE invokes via .mcp.json
+unerr doctor          # Check PATH + environment; auto-fix if unerr isn't in all terminals
 unerr install <agent> # Install MCP config + skills + instructions for one agent
 unerr uninstall       # Remove unerr integration from agents in this repo
 unerr status          # Show proxy health, entity count, graph age

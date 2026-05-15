@@ -9,6 +9,7 @@
  * with multi-line commands, nested quotes, and special characters.
  */
 
+import { getUnerrCommand } from "../config/mcp-config-writer.js";
 import { normalizeShellCommand } from "../proxy/shell-classifier.js";
 import {
   type HookHandler,
@@ -35,19 +36,22 @@ const preBashHandler: HookHandler = (normalized) => {
   if (!normalizeShellCommand(cmd)) return passthrough();
 
   const n = normalizeShellCommand(cmd);
-  if (n.startsWith("unerr exec") || n.startsWith("npx unerr exec")) {
+  if (
+    n.startsWith("unerr exec") ||
+    n.startsWith("npx unerr exec") ||
+    /[/\\]unerr exec/.test(n)
+  ) {
     return passthrough();
   }
 
-  // Base64-encode commands that contain characters unsafe for shell embedding:
-  // newlines, quotes, parentheses, backticks, $, {, }, etc.
-  // Simple commands (ls, git status) pass through as plain argv for readability.
+  const bin = getUnerrCommand();
+
   if (/[\n"'`(){}$\\;<>|&!~*?]/.test(cmd)) {
     const b64 = Buffer.from(cmd, "utf-8").toString("base64");
-    return rewrite({ command: `unerr exec --b64 ${b64}` });
+    return rewrite({ command: `${bin} exec --b64 ${b64}` });
   }
 
-  return rewrite({ command: `unerr exec -- ${cmd}` });
+  return rewrite({ command: `${bin} exec -- ${cmd}` });
 };
 
 /**

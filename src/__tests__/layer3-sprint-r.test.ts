@@ -45,7 +45,7 @@ describe("MCP Config Writer (R.3 + R.7)", () => {
 
     const config = JSON.parse(readFileSync(result.path, "utf-8"));
     expect(config.mcpServers.unerr).toBeDefined();
-    expect(config.mcpServers.unerr.command).toBe("unerr");
+    expect(config.mcpServers.unerr.command).toContain("unerr");
   });
 
   it("creates config for Claude Code", () => {

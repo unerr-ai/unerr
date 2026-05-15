@@ -35,9 +35,12 @@ export interface BridgeResult {
 /**
  * Start bridging stdin/stdout to the proxy's UDS socket.
  * Returns when the connection closes, with a reason indicating why.
+ *
+ * Safe to call multiple times (reconnect loop). Each call removes its
+ * stdin listeners on cleanup so they don't accumulate across retries.
  */
 export function startUdsBridge(sockPath: string): Promise<BridgeResult> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const socket: Socket = connect(sockPath);
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
     let heartbeatTimeoutTimer: ReturnType<typeof setTimeout> | undefined;
@@ -45,12 +48,20 @@ export function startUdsBridge(sockPath: string): Promise<BridgeResult> {
     let pendingPing = false;
     let resolved = false;
 
+    // Track stdin listeners so we can remove them on cleanup
+    let stdinDataHandler: ((chunk: Buffer) => void) | undefined;
+    // biome-ignore lint/style/useConst: assigned after socket.on handlers below
+    let stdinEndHandler: (() => void) | undefined;
+
     function cleanup(reason: BridgeResult["reason"]) {
       if (resolved) return;
       resolved = true;
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (heartbeatTimeoutTimer) clearTimeout(heartbeatTimeoutTimer);
       if (!socket.destroyed) socket.destroy();
+      if (stdinDataHandler)
+        process.stdin.removeListener("data", stdinDataHandler);
+      if (stdinEndHandler) process.stdin.removeListener("end", stdinEndHandler);
       resolve({ reason });
     }
 
@@ -58,15 +69,15 @@ export function startUdsBridge(sockPath: string): Promise<BridgeResult> {
       log.info(`Connected to proxy at ${sockPath}`);
 
       // stdin → UDS: forward MCP requests from IDE to proxy
-      process.stdin.on("data", (chunk: Buffer) => {
+      stdinDataHandler = (chunk: Buffer) => {
         if (!socket.destroyed) {
           socket.write(chunk);
         }
-      });
+      };
+      process.stdin.on("data", stdinDataHandler);
 
       // UDS → stdout: forward MCP responses from proxy to IDE
       socket.on("data", (data: Buffer) => {
-        // Check if this is a heartbeat pong response
         const str = data.toString();
         if (str.includes('"unerr/pong"')) {
           missedHeartbeats = 0;
@@ -75,7 +86,6 @@ export function startUdsBridge(sockPath: string): Promise<BridgeResult> {
             clearTimeout(heartbeatTimeoutTimer);
             heartbeatTimeoutTimer = undefined;
           }
-          // Filter out pong from data sent to IDE — find and remove the pong line
           const lines = str.split("\n");
           const filtered = lines.filter((l) => !l.includes('"unerr/pong"'));
           const remaining = filtered.join("\n");
@@ -95,7 +105,6 @@ export function startUdsBridge(sockPath: string): Promise<BridgeResult> {
         }
 
         if (pendingPing) {
-          // Previous ping didn't get a pong
           missedHeartbeats++;
           if (missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
             log.warn(
@@ -106,7 +115,6 @@ export function startUdsBridge(sockPath: string): Promise<BridgeResult> {
           }
         }
 
-        // Send heartbeat ping as JSON-RPC notification
         pendingPing = true;
         const ping = JSON.stringify({
           jsonrpc: "2.0",
@@ -120,9 +128,7 @@ export function startUdsBridge(sockPath: string): Promise<BridgeResult> {
           return;
         }
 
-        // Set timeout for this specific ping
         heartbeatTimeoutTimer = setTimeout(() => {
-          // Ping timed out — increment missed count (handled on next interval)
           heartbeatTimeoutTimer = undefined;
         }, HEARTBEAT_TIMEOUT_MS);
       }, HEARTBEAT_INTERVAL_MS);
@@ -136,28 +142,22 @@ export function startUdsBridge(sockPath: string): Promise<BridgeResult> {
     socket.on("error", (err) => {
       log.warn(`Connection error: ${err.message}`);
       if (resolved) return;
-      // Connection errors before connect are fatal
-      if (!socket.connecting && !heartbeatTimer) {
-        reject(err);
+      if (!heartbeatTimer) {
+        cleanup("connect_error");
       } else {
         cleanup("daemon_dead");
       }
     });
 
-    // If stdin closes (IDE disconnects), allow a grace period for pending
-    // responses before tearing down. Without this, piped input like
-    //   echo '{"jsonrpc":"2.0",...}' | unerr --mcp
-    // closes stdin immediately, destroying the socket before the proxy
-    // can write its response back.
-    process.stdin.on("end", () => {
+    stdinEndHandler = () => {
       const grace = setTimeout(() => cleanup("stdin_closed"), 3_000);
       socket.once("end", () => {
         clearTimeout(grace);
         cleanup("stdin_closed");
       });
-    });
+    };
+    process.stdin.on("end", stdinEndHandler);
 
-    // Keep the process alive while bridging
     process.stdin.resume();
   });
 }

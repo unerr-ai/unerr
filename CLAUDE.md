@@ -184,7 +184,7 @@ unerr CLI — lands your AI agent at the right code in fewer turns, tokens, & br
 - **`unerr`** (no args) — Long-lived MCP server **+ the only owner of intelligence (graph, facts, behaviors, drift)**. First-run: wizard → index → serve. Subsequent: resume → serve.
 - **`unerr --mcp`** — Bridge process for IDE integration (what `.mcp.json` invokes). Pure stdio↔UDS relay: forwards MCP frames to the per-repo `unerr` process. Imports zero intelligence modules. Errors out if no per-repo `unerr` is running (DM-3 will add auto-spawn).
 
-MCP config format: `{ "command": "unerr", "args": ["--mcp"] }`
+MCP config format: `{ "command": "<absolute-path-to-unerr>", "args": ["--mcp"] }` (resolved at install time via `process.argv[1]` or `which unerr`)
 
 ### Service Scope: `unerr` vs `unerr --mcp`
 
@@ -349,7 +349,7 @@ unerr install cursor           # Writes .cursor/mcp.json + .cursor/rules/
 ```
 
 **Verify:**
-- `.mcp.json` contains `{ "command": "unerr", "args": ["--mcp"] }`
+- `.mcp.json` contains `{ "command": "<resolved-unerr-path>", "args": ["--mcp"] }` (absolute path)
 - `.claude/skills/unerr-*` files exist (10 skills)
 - `.cursor/rules/unerr-*.mdc` files exist
 - stderr shows: entity/edge counts, SCIP enrichment, conventions detected

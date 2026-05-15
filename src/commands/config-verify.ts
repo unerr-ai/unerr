@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Command } from "commander";
+import { getUnerrCommand } from "../config/mcp-config-writer.js";
 
 interface MCPConfig {
   mcpServers?: Record<
@@ -87,9 +88,10 @@ export function checkIdeConfig(
       return { found: true, configured: true, issues, needsMigration: true };
     }
 
-    // Check if using local proxy correctly (direct binary or npx)
+    // Check if using local proxy correctly (absolute path or bare "unerr")
+    const cmd = unerrServer.command ?? "";
     if (
-      unerrServer.command === "unerr" &&
+      (cmd === "unerr" || cmd.endsWith("/unerr") || cmd.endsWith("\\unerr")) &&
       unerrServer.args?.includes("--mcp")
     ) {
       return { found: true, configured: true, issues, needsMigration: false };
@@ -134,18 +136,17 @@ export function repairIdeConfig(
 
     if (!config.mcpServers) config.mcpServers = {};
 
+    const unerrBin = getUnerrCommand();
     if (mode === "standalone") {
-      // Sprint 5.4: Standalone read-only MCP server
       const graphPath = resolveGraphPath();
       config.mcpServers.unerr = {
-        command: "unerr",
+        command: unerrBin,
         args: ["--mcp"],
         env: graphPath ? { UNERR_GRAPH_PATH: graphPath } : {},
       };
     } else {
-      // Local proxy — direct binary
       config.mcpServers.unerr = {
-        command: "unerr",
+        command: unerrBin,
         args: ["--mcp"],
       };
     }

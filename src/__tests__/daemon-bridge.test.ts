@@ -5,7 +5,7 @@
  *   - client.ts: sendRequest, sendFireAndForget, probeDaemon
  *   - bootstrap.ts: waitForDaemonReady (poll-only, no spawn)
  *   - mcpBoot socket discovery order (repo sock → unerrd if running + registered)
- *   - Explicit error exits when no process / repo not registered
+ *   - Retry/reconnect behavior when no process available
  *   - Bridge lifecycle: connect/disconnect through daemon
  *   - Activity throttling
  *   - Module isolation (no intelligence imports)
@@ -170,7 +170,6 @@ describe("mcpBoot socket discovery", () => {
       "utf-8"
     );
 
-    // mcpBoot checks findRepo but never calls addRepo
     expect(content).toContain("findRepo(cwd)");
     expect(content).not.toContain("addRepo(cwd, {})");
   });
@@ -182,27 +181,27 @@ describe("mcpBoot socket discovery", () => {
     );
 
     expect(content).toContain("ACTIVITY_THROTTLE_MS = 60_000");
-    expect(content).toContain("sendActivity(daemonSock, cwd)");
+    expect(content).toContain("sendActivity(discovery.daemonSock, cwd)");
   });
 });
 
 // ── Bridge lifecycle tests ─────────────────────────────────────────
 
 describe("Bridge connect/disconnect lifecycle", () => {
-  it("mcpBoot calls connectRepo before bridging and disconnectRepo after", () => {
+  it("mcpBoot daemon path calls connectRepo before bridging and disconnectRepo after", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
       "utf-8"
     );
 
-    // Ordering: connectRepo comes before startUdsBridge, disconnectRepo after
-    const connectIdx = content.indexOf("await connectRepo(daemonSock, cwd)");
-    const bridgeIdx = content.indexOf(
-      "await startUdsBridge(repoSockViaEnsure)"
-    );
-    const disconnectIdx = content.indexOf(
-      "await disconnectRepo(daemonSock, cwd)"
-    );
+    // Find the daemon code block (starts after 'discovery.kind === "daemon"')
+    const daemonBlockStart = content.indexOf('discovery.kind === "daemon"');
+    expect(daemonBlockStart).toBeGreaterThan(-1);
+    const daemonBlock = content.slice(daemonBlockStart);
+
+    const connectIdx = daemonBlock.indexOf("await connectRepo(");
+    const bridgeIdx = daemonBlock.indexOf("await startUdsBridge(");
+    const disconnectIdx = daemonBlock.indexOf("await disconnectRepo(");
 
     expect(connectIdx).toBeGreaterThan(-1);
     expect(bridgeIdx).toBeGreaterThan(-1);
@@ -312,46 +311,105 @@ describe("Race safety", () => {
   });
 });
 
+// ── Retry/reconnect behavior tests ─────────────────────────────────
+
+describe("mcpBoot retry behavior", () => {
+  it("uses exponential backoff retry constants", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      "utf-8"
+    );
+
+    expect(content).toContain("MCP_INITIAL_RETRY_MS");
+    expect(content).toContain("MCP_MAX_RETRY_MS");
+    expect(content).toContain("MCP_RETRY_BACKOFF");
+  });
+
+  it("has a discoverWithRetry loop that retries instead of exiting", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      "utf-8"
+    );
+
+    expect(content).toContain("discoverWithRetry");
+    expect(content).toContain(
+      "Waiting for unerr process to become available"
+    );
+    // No hard exit on "no process found" — retries instead
+    expect(content).not.toContain(
+      'No unerr process found for this project'
+    );
+  });
+
+  it("reconnects on daemon_dead or socket_closed (not stdin_closed)", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      "utf-8"
+    );
+
+    // stdin_closed is the only reason that exits the main loop
+    expect(content).toContain('result.reason === "stdin_closed"');
+    expect(content).toContain("Connection lost");
+    expect(content).toContain("will retry");
+  });
+
+  it("bridge cleans up stdin listeners on disconnect for safe reconnect", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/proxy/bridge.ts"),
+      "utf-8"
+    );
+
+    expect(content).toContain("stdinDataHandler");
+    expect(content).toContain("stdinEndHandler");
+    expect(content).toContain('removeListener("data"');
+    expect(content).toContain('removeListener("end"');
+  });
+
+  it("bridge resolves with connect_error on initial failure (never rejects)", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/proxy/bridge.ts"),
+      "utf-8"
+    );
+
+    expect(content).toContain('"connect_error"');
+    // The bridge promise should never reject — always resolve with a reason
+    expect(content).not.toContain("reject(err)");
+    expect(content).not.toContain("reject(");
+  });
+});
+
 // ── Error handling tests ───────────────────────────────────────────
 
 describe("Error handling", () => {
-  it("mcpBoot exits 1 when no process found (no auto-spawn)", () => {
+  it("mcpBoot logs when repo not registered (retry, not exit)", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
       "utf-8"
     );
 
-    expect(content).toContain("No unerr process found");
-    expect(content).toContain("unerr daemon initialize");
-    expect(content).toContain("process.exit(1)");
+    expect(content).toContain("not registered with unerrd");
+    expect(content).toContain("waiting for registration");
   });
 
-  it("mcpBoot exits 1 when repo not registered", () => {
+  it("mcpBoot logs ensureRepo failures and retries", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
       "utf-8"
     );
 
-    expect(content).toContain("Repo not registered with unerrd");
-    expect(content).toContain("unerr install <agent>");
+    expect(content).toContain("ensureRepo failed");
+    expect(content).toContain("retrying");
   });
 
-  it("mcpBoot exits 1 on ensure failure", () => {
+  it("mcpBoot handles connection loss from bridge by retrying", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
       "utf-8"
     );
 
-    expect(content).toContain("Failed to ensure repo process");
-  });
-
-  it("mcpBoot handles daemon_dead from bridge", () => {
-    const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8"
-    );
-
-    expect(content).toContain('"daemon_dead"');
-    expect(content).toContain("idle-stopped or crashed");
+    expect(content).toContain("Connection lost");
+    expect(content).toContain("will retry");
+    // Only stdin_closed exits the loop — all other reasons trigger retry
+    expect(content).toContain('result.reason === "stdin_closed"');
   });
 });
