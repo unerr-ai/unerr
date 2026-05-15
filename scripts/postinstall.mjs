@@ -30,8 +30,6 @@ const ci =
   process.env.GITHUB_ACTIONS;
 if (ci) process.exit(0);
 
-if (!process.stderr.isTTY) process.exit(0);
-
 const npmGlobal = process.env.npm_config_global;
 if (npmGlobal !== undefined && npmGlobal !== "true") process.exit(0);
 
@@ -55,6 +53,19 @@ try {
 }
 if (!globalBin) process.exit(0);
 
+// ANSI codes (use plain text if stderr is not a TTY)
+const hasTTY = !!process.stderr.isTTY;
+const W = hasTTY ? "\x1b[33m" : "";
+const G = hasTTY ? "\x1b[32m" : "";
+const B = hasTTY ? "\x1b[1m" : "";
+const D = hasTTY ? "\x1b[2m" : "";
+const R = hasTTY ? "\x1b[0m" : "";
+const C = hasTTY ? "\x1b[36m" : "";
+
+const stderr = (msg) => process.stderr.write(msg);
+
+// ── Check PATH ───────────────────────────────────────────────
+
 const pathSep = process.platform === "win32" ? ";" : ":";
 const pathDirs = (process.env.PATH || "").split(pathSep);
 const normalizedGlobalBin = globalBin.replace(/\/+$/, "");
@@ -62,7 +73,16 @@ const isOnPath = pathDirs.some(
   (d) => d.replace(/\/+$/, "") === normalizedGlobalBin
 );
 
-if (isOnPath) process.exit(0);
+if (isOnPath) {
+  stderr(
+    `\n   ${G}✓${R} ${B}unerr${R} is installed and ready to use.\n` +
+    `   ${D}Run ${C}unerr${D} in any project to start.${R}\n\n`
+  );
+  process.exit(0);
+}
+
+// For the interactive warning/prompt, we need a TTY
+if (!hasTTY) process.exit(0);
 
 // ── Detect shell & version manager ──────────────────────────
 
@@ -71,16 +91,6 @@ const hasNvm = !!process.env.NVM_DIR;
 const hasFnm = !!process.env.FNM_MULTISHELL_PATH;
 const hasVolta = !!process.env.VOLTA_HOME;
 const home = homedir();
-
-// ANSI codes
-const W = "\x1b[33m";
-const G = "\x1b[32m";
-const B = "\x1b[1m";
-const D = "\x1b[2m";
-const R = "\x1b[0m";
-const C = "\x1b[36m";
-
-const stderr = (msg) => process.stderr.write(msg);
 
 // ── Shell RC helpers ─────────────────────────────────────────
 
