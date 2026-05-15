@@ -2,7 +2,7 @@
   "mcpServers": {
     "unerr": {
       "type": "stdio",
-      "command": "/Users/jaswanth/.nvm/versions/node/v25.1.0/bin/unerr",
+      "command": "/Users/jaswanth/Library/pnpm/unerr",
       "args": [
         "--mcp"
       ]

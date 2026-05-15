@@ -617,6 +617,15 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           } catch {
             // Non-critical — fact generation failure doesn't block startup
           }
+
+          // Snapshot migration populates from stale data — schedule background
+          // reindex so the graph reflects current files, orphans are pruned,
+          // and the drift overlay is cleared (Phase 6.3 of indexLocalProject).
+          needsBackgroundIndex = true;
+          log.info("Snapshot migration complete — scheduling background reindex to refresh graph");
+          startupLog.step(
+            `${startupLog.fmt.muted("Background reindex will refresh graph after MCP ready")}`
+          );
         } else {
           // No snapshot available — full index needed
           needsBackgroundIndex = true;
