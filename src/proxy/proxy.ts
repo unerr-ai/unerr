@@ -45,7 +45,7 @@ import {
 } from "./session-stats.js";
 import { StartupRenderer } from "./startup-renderer.js";
 import { ToolUsageTracker, reorderToolsByCluster } from "./tool-clusters.js";
-import { TOOL_DEFINITIONS } from "./tool-definitions.js";
+import { TOOL_DEFINITIONS, type ToolDefinition } from "./tool-definitions.js";
 
 import { installFileLogger } from "../utils/file-logger.js";
 import { formatUnknownError } from "../utils/format-error.js";
@@ -758,6 +758,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           summary: resumeCtx.summary,
           filesModified: resumeCtx.filesModified,
           incompleteEntities: resumeCtx.incompleteEntities,
+          previousSessionEndedAt: previousSession.endedAt
+            ? new Date(previousSession.endedAt).getTime()
+            : undefined,
         });
         log.info(
           `Session resume context prepared (${resumeCtx.filesModified.length} files, ${resumeCtx.incompleteEntities.length} incomplete)`
@@ -1069,10 +1072,34 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     }
   }
 
-  // S7: Reorder tools by semantic cluster priority based on recent usage
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: reorderToolsByCluster(await getInjectedTools(), toolUsageTracker),
-  }));
+  // P0-3 + S7: Apply tier-aware exposure rendering (locked tools get the
+  // ≤30-token placeholder description, active tools get the full text),
+  // then reorder by semantic cluster priority based on recent usage.
+  const { renderToolsListForExposure } = await import("./tools-list.js");
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const baseTools = await getInjectedTools();
+    const gateway = router.getRouterGateway();
+    if (!gateway) {
+      return {
+        tools: reorderToolsByCluster(baseTools, toolUsageTracker),
+      };
+    }
+    const exposed = gateway.exposedTools();
+    const knownNames = new Set(
+      renderToolsListForExposure(exposed).map((t) => t.name)
+    );
+    // Replace gateway-known entries with their per-exposure rendering,
+    // and pass through everything else (deep-dive tools, etc.) untouched.
+    const exposureRendered = new Map(
+      renderToolsListForExposure(exposed).map((t) => [t.name, t])
+    );
+    const merged = baseTools.map((t) =>
+      knownNames.has(t.name) ? exposureRendered.get(t.name) ?? t : t
+    );
+    return {
+      tools: reorderToolsByCluster(merged, toolUsageTracker),
+    };
+  });
 
   // ── Step 7a: Shadow Ledger + Intent Correlator ─────────────────
 
@@ -1085,6 +1112,20 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   log.info(
     `Shadow ledger active (session ${shadowLedger.getSessionId().slice(0, 8)})`
   );
+
+  // P0-3: Wire the tier-aware exposure gateway. Owns SessionState +
+  // ToolExposureStore + TelemetryRecorder; consulted by QueryRouter on every dispatch.
+  const { RouterGateway } = await import("./router-gateway.js");
+  const routerGateway = new RouterGateway(
+    unerrDirForLedger,
+    shadowLedger.getSessionId()
+  );
+  router.setRouterGateway(routerGateway);
+
+  // P0-5: Rotate stale metrics.jsonl from previous day on startup.
+  routerGateway.rotateMetrics((err) => {
+    log.warn(`Telemetry rotation failed: ${err}`);
+  }).catch(() => {});
 
   // ST-1c: Timeline subsystem (kill-switch UNERR_TIMELINE_V2=0). Additive,
   // never touches existing facts.db / graph.db code paths.
@@ -1798,8 +1839,16 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // Final assembly: data → page-hint → signal footer (signals trail).
       const finalText = bodyText + bodyEnd + pageBlock + footerBlock;
 
+      // P0-3: A soft-refused (locked) tool call surfaces as a tool error
+      // so every known MCP client (Cursor, Cline, Codex, Claude Code)
+      // routes the body text into the model's view, not the framework's
+      // silent retry path.
+      const isGateLocked =
+        (result._meta as Record<string, unknown>).gate_status === "locked";
+
       return {
         content: [{ type: "text", text: finalText }],
+        ...(isGateLocked ? { isError: true } : {}),
       };
     }) as any
   );
@@ -2149,6 +2198,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const pageBlock2 = pageHint2 ? `\n${pageHint2}` : "";
       const footerBlock2 = signalFooter2 ? `\n${signalFooter2.trimEnd()}` : "";
       const bodyEnd2 = bodyText2.endsWith("\n") ? "" : "\n";
+      // P0-3 mirror of stdio: surface a locked-tool refusal as isError so
+      // the bridge → IDE → model path treats the body as a model-visible
+      // error rather than a silent framework retry.
+      const isGateLocked2 =
+        (result._meta as Record<string, unknown>).gate_status === "locked";
       return {
         jsonrpc: "2.0" as const,
         result: {
@@ -2158,6 +2212,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
               text: bodyText2 + bodyEnd2 + pageBlock2 + footerBlock2,
             },
           ],
+          ...(isGateLocked2 ? { isError: true } : {}),
         },
       };
     }
@@ -2284,6 +2339,44 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const { filterIndexableEvents } = await import(
         "../intelligence/indexer/watch-integration.js"
       );
+      // Drift coalescer — see the long-running-session timeout investigation.
+      //
+      // Two issues compounded: (1) local-indexer.ts bypasses the writeChain
+      // and fires raw `db.run` calls during full reindex; (2) periodic orphan
+      // cleanup (`Removing 4058 orphaned entities`) triggers a RocksDB
+      // compaction stall that lasts tens of seconds. Drift writes queued
+      // behind the stall hit the 10s timeout. Fire-and-forget event handling
+      // amplified the failure — every new file change stacked another
+      // doomed-to-timeout write.
+      //
+      // Mitigation: skip drift processing entirely while a rebuild is in
+      // flight (the rebuild picks up the same files), and serialize the
+      // remaining work so concurrent file events coalesce into one batched
+      // `processFiles` call instead of N racing ones.
+      let driftBusy = false;
+      const pendingDriftPaths = new Set<string>();
+      const drainDrift = async (): Promise<void> => {
+        if (driftBusy || !_driftTracker) return;
+        if (graphHolder.isRebuilding) return;
+        if (pendingDriftPaths.size === 0) return;
+        driftBusy = true;
+        const batch = [...pendingDriftPaths];
+        pendingDriftPaths.clear();
+        const headSha = branchContext?.headSha ?? "unknown";
+        try {
+          await _driftTracker.processFiles(batch, headSha);
+        } catch (err: unknown) {
+          process.stderr.write(
+            `⚠ [watcher] Drift processing failed: ${formatUnknownError(err)}\n`
+          );
+        } finally {
+          driftBusy = false;
+          if (pendingDriftPaths.size > 0) {
+            void drainDrift();
+          }
+        }
+      };
+
       const nativeWatcher = createNativeWatcher({
         projectRoot: cwd,
         debounceMs: 100,
@@ -2292,16 +2385,25 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           if (indexable.length === 0) return;
           // Notify GraphHolder of file change (resets idle timer, tracks paths for incremental)
           graphHolder.notifyFileChange(indexable);
-          // Feed into DriftTracker for overlay updates
-          const headSha = branchContext?.headSha ?? "unknown";
-          _driftTracker
-            ?.processFiles(indexable, headSha)
-            .catch((err: unknown) => {
-              process.stderr.write(
-                `⚠ [watcher] Drift processing failed: ${formatUnknownError(err)}\n`
-              );
-            });
+          // Always accumulate paths. drainDrift() gates on isRebuilding so the
+          // actual writes are deferred — but events that arrive mid-rebuild
+          // are NOT dropped (the reindex pipeline may already be past those
+          // files; we need to fold them into the overlay after swap).
+          for (const p of indexable) pendingDriftPaths.add(p);
+          void drainDrift();
         },
+      });
+
+      // Drain the deferred drift backlog after a graph swap. Swap callbacks
+      // fire inside the rebuild's `.then()` — `isRebuilding` is still true at
+      // that instant and flips false in the following `.finally()`. Defer with
+      // setImmediate so the drain runs on the next event-loop tick, by which
+      // point `.finally()` has executed and the gate inside drainDrift will
+      // let writes through.
+      graphHolder.onSwap(() => {
+        setImmediate(() => {
+          void drainDrift();
+        });
       });
       nativeWatcher.start().catch((err: unknown) => {
         process.stderr.write(

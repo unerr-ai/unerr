@@ -69,14 +69,14 @@ export async function executeRecordFact(
     base_confidence: 0.95,
   };
 
-  const factId = await factStore.createFact(input);
+  const { fact_id, deduplicated } = await factStore.createFact(input);
 
-  const isDeduplicated = factId !== undefined && content.trim() !== "";
-  const message = `Recorded: "${content.trim().slice(0, 60)}${content.trim().length > 60 ? "..." : ""}" [${fact_type}] → ${scope}`;
+  const verb = deduplicated ? "Reinforced" : "Recorded";
+  const message = `${verb}: "${content.trim().slice(0, 60)}${content.trim().length > 60 ? "..." : ""}" [${fact_type}] → ${scope}`;
 
   return {
-    fact_id: factId,
+    fact_id,
     message,
-    deduplicated: false,
+    deduplicated,
   };
 }

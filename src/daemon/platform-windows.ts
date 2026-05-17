@@ -1,188 +1,174 @@
 /**
- * Windows auto-start — two-path approach.
+ * Windows auto-start — Scheduled Task only (no Startup folder fallback).
  *
- * (a) Preferred: Scheduled Task `Unerr Daemon` via schtasks.
- * (b) Fallback: .cmd shim in %APPDATA%\...\Startup.
+ * Creates a per-user Scheduled Task `Unerr Daemon` via schtasks /XML so the
+ * task carries Author / Description / URI metadata that EDR can attribute.
  *
- * Both run as current user (no admin).
- * Uses absolute paths to node + CLI entry to avoid PATH issues.
+ * Design notes:
+ *  - No Startup-folder .cmd fallback. Dropping a .cmd into %APPDATA%\...\Startup
+ *    is the textbook user-mode persistence signature; AV scanners flag any
+ *    package that does it regardless of intent.
+ *  - Executable paths come from import.meta.url, not process.argv[1] or `where unerr`.
+ *    A scanner red flag for persistence is "exec path influenced by runtime
+ *    invocation"; the resolver in ./resolve-exec.ts removes that.
+ *  - Runs as the current user with LeastPrivilege (no admin) at logon only.
  */
 
 import { execSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PlatformInstallResult } from "./platform-macos.js";
+import { resolveAutostartExec, UnresolvedExecError } from "./resolve-exec.js";
 
 const TASK_NAME = "Unerr Daemon";
-const STARTUP_CMD_NAME = "unerrd.cmd";
+const TASK_AUTHOR = "@unerr-ai/unerr";
+const TASK_URI = "https://www.npmjs.com/package/@unerr-ai/unerr";
+const TASK_DESCRIPTION =
+  "unerr local code-intelligence daemon. Runs in user context at logon. " +
+  "Manage via: unerr daemon disable-autostart";
 
-function startupDir(): string {
-  return join(
-    process.env.APPDATA || join(homedir(), "AppData", "Roaming"),
-    "Microsoft",
-    "Windows",
-    "Start Menu",
-    "Programs",
-    "Startup"
-  );
+function xmlEscape(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
-function startupCmdPath(): string {
-  return join(startupDir(), STARTUP_CMD_NAME);
+/**
+ * schtasks expects the XML file as UTF-16 LE with a BOM. Anything else and
+ * it silently fails with "ERROR: The task XML contains a value that is incorrectly formatted".
+ */
+function encodeUtf16Le(s: string): Buffer {
+  const bom = Buffer.from([0xff, 0xfe]);
+  const body = Buffer.from(s, "utf16le");
+  return Buffer.concat([bom, body]);
 }
 
-function resolveNodeBin(): string {
-  try {
-    return realpathSync(process.execPath);
-  } catch {
-    return process.execPath;
-  }
-}
-
-function resolveCliEntry(): string {
-  if (process.argv[1]) {
-    const resolved = resolve(process.argv[1]);
-    if (existsSync(resolved)) return resolved;
-  }
-
-  // Fallback: find unerr via `where` (Windows equivalent of `which`)
-  try {
-    const whereLine = execSync("where unerr", { encoding: "utf-8" })
-      .trim()
-      .split("\n")[0]
-      ?.trim();
-    if (whereLine && existsSync(whereLine)) {
-      // npm/pnpm on Windows creates .cmd shims — parse the target JS file from them
-      const shimContent = readFileSync(whereLine, "utf-8");
-      // npm .cmd shims contain: "%~dp0\node.exe" "%~dp0\node_modules\unerr\dist\cli.js" %*
-      const jsMatch = /"%~dp0\\([^"]+\.js)"/m.exec(shimContent);
-      if (jsMatch?.[1]) {
-        const abs = resolve(dirname(whereLine), jsMatch[1]);
-        if (existsSync(abs)) return abs;
-      }
-    }
-  } catch {
-    // non-fatal
-  }
-
-  const fallbackBase = process.argv[1]
-    ? dirname(resolve(process.argv[1]))
-    : process.cwd();
-  return join(fallbackBase, "cli.js");
+function generateTaskXml(nodeBin: string, cliEntry: string): string {
+  const e = xmlEscape;
+  // Arguments string: schtasks XML wants the command in <Command> and the
+  // rest in <Arguments>. Inner quotes around cliEntry handle spaces in path.
+  const args = `"${cliEntry}" daemon start --foreground`;
+  return `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Author>${e(TASK_AUTHOR)}</Author>
+    <Description>${e(TASK_DESCRIPTION)}</Description>
+    <URI>\\${e(TASK_NAME)}</URI>
+    <Source>${e(TASK_URI)}</Source>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>true</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>${e(nodeBin)}</Command>
+      <Arguments>${e(args)}</Arguments>
+    </Exec>
+  </Actions>
+</Task>`;
 }
 
 export function installWindows(): PlatformInstallResult {
-  const nodeBin = resolveNodeBin();
-  const cliEntry = resolveCliEntry();
-
-  // Attempt scheduled task first
-  const taskResult = installScheduledTask(nodeBin, cliEntry);
-  if (taskResult.installed) return taskResult;
-
-  // Fallback to startup folder
-  return installStartupCmd(nodeBin, cliEntry);
-}
-
-function installScheduledTask(
-  nodeBin: string,
-  cliEntry: string
-): PlatformInstallResult {
-  // schtasks /TR requires the entire command wrapped in outer quotes,
-  // with inner paths also quoted for spaces. The expected format is:
-  //   /TR "\"C:\path to\node.exe\" \"C:\path to\cli.js\" daemon start --foreground"
-  const innerCmd = `\\"${nodeBin}\\" \\"${cliEntry}\\" daemon start --foreground`;
-  const trArg = `"${innerCmd}"`;
-
+  let exec: { nodeBin: string; cliEntry: string };
   try {
-    // Delete existing task first (idempotent)
-    try {
-      execSync(`schtasks /Delete /TN "${TASK_NAME}" /F`, { stdio: "ignore" });
-    } catch {
-      // Didn't exist
-    }
-
-    execSync(
-      `schtasks /Create /SC ONLOGON /TN "${TASK_NAME}" /TR ${trArg} /RL LIMITED /F`,
-      { stdio: "ignore" }
-    );
-
-    return { installed: true, path: `Scheduled Task: ${TASK_NAME}` };
-  } catch {
-    return {
-      installed: false,
-      path: `Scheduled Task: ${TASK_NAME}`,
-      error: "schtasks unavailable — falling back to Startup folder",
-    };
-  }
-}
-
-function installStartupCmd(
-  nodeBin: string,
-  cliEntry: string
-): PlatformInstallResult {
-  const path = startupCmdPath();
-
-  try {
-    const dir = startupDir();
-    mkdirSync(dir, { recursive: true });
-
-    const script = `@echo off\r\n"${nodeBin}" "${cliEntry}" daemon start --foreground\r\n`;
-    writeFileSync(path, script, "utf-8");
-
-    return { installed: true, path };
+    exec = resolveAutostartExec(import.meta.url);
   } catch (err) {
     return {
       installed: false,
-      path,
-      error: err instanceof Error ? err.message : String(err),
+      path: `Scheduled Task: ${TASK_NAME}`,
+      error:
+        err instanceof UnresolvedExecError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err),
     };
+  }
+
+  const xml = generateTaskXml(exec.nodeBin, exec.cliEntry);
+  const tmpDir = mkdtempSync(join(tmpdir(), "unerr-autostart-"));
+  const xmlPath = join(tmpDir, "task.xml");
+
+  try {
+    writeFileSync(xmlPath, encodeUtf16Le(xml));
+
+    // Idempotent: drop any existing registration before creating.
+    try {
+      execSync(`schtasks /Delete /TN "${TASK_NAME}" /F`, { stdio: "ignore" });
+    } catch {
+      // Task didn't exist — that's fine.
+    }
+
+    execSync(`schtasks /Create /TN "${TASK_NAME}" /XML "${xmlPath}" /F`, {
+      stdio: "ignore",
+    });
+
+    return { installed: true, path: `Scheduled Task: ${TASK_NAME}` };
+  } catch (err) {
+    return {
+      installed: false,
+      path: `Scheduled Task: ${TASK_NAME}`,
+      error:
+        err instanceof Error
+          ? `schtasks failed: ${err.message}`
+          : `schtasks failed: ${String(err)}`,
+    };
+  } finally {
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      // best-effort cleanup
+    }
   }
 }
 
 export function uninstallWindows(): PlatformInstallResult {
-  const errors: string[] = [];
-
-  // Remove scheduled task
   try {
     execSync(`schtasks /Delete /TN "${TASK_NAME}" /F`, { stdio: "ignore" });
   } catch {
-    // Didn't exist
+    // Didn't exist — uninstall is idempotent.
   }
-
-  // Remove startup cmd
-  const cmdPath = startupCmdPath();
-  try {
-    if (existsSync(cmdPath)) unlinkSync(cmdPath);
-  } catch (err) {
-    errors.push(err instanceof Error ? err.message : String(err));
-  }
-
-  return {
-    installed: false,
-    path: cmdPath,
-    error: errors.length > 0 ? errors.join("; ") : undefined,
-  };
+  return { installed: false, path: `Scheduled Task: ${TASK_NAME}` };
 }
 
 export function isWindowsInstalled(): boolean {
-  // Check scheduled task
   try {
     execSync(`schtasks /Query /TN "${TASK_NAME}" /FO CSV /NH`, {
       stdio: "pipe",
     });
     return true;
   } catch {
-    // Not a scheduled task
+    return false;
   }
-
-  // Check startup cmd
-  return existsSync(startupCmdPath());
 }

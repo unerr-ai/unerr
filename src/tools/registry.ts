@@ -51,17 +51,4 @@ export class ToolRegistry {
       })
     );
   }
-
-  /** Get tool definitions formatted for MCP tools/list response. */
-  mcpToolList(): Array<{
-    name: string;
-    description: string;
-    inputSchema: Record<string, unknown>;
-  }> {
-    return this.all().map(({ name, description, inputSchema }) => ({
-      name,
-      description,
-      inputSchema,
-    }));
-  }
 }

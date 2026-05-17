@@ -12,16 +12,10 @@
  */
 
 import { execSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
+import { resolveAutostartExec, UnresolvedExecError } from "./resolve-exec.js";
 
 const PLIST_NAME = "com.unerr.daemon.plist";
 
@@ -35,53 +29,6 @@ function plistPath(): string {
 
 function logPath(): string {
   return join(homedir(), ".unerr", "logs", "unerrd.boot.log");
-}
-
-/**
- * Resolve the absolute path to the node binary.
- * Uses process.execPath (always absolute) and follows symlinks.
- */
-function resolveNodeBin(): string {
-  try {
-    return realpathSync(process.execPath);
-  } catch {
-    return process.execPath;
-  }
-}
-
-/**
- * Resolve the absolute path to the unerr CLI entry point (dist/cli.js).
- * Tries: process.argv[1] → shim parsing → dirname-based fallback.
- */
-function resolveCliEntry(): string {
-  if (process.argv[1]) {
-    const resolved = resolve(process.argv[1]);
-    if (existsSync(resolved)) return resolved;
-  }
-
-  // Fallback: parse the pnpm/npm shim to extract the JS entry
-  try {
-    const shimPath = execSync("which unerr", { encoding: "utf-8" }).trim();
-    if (shimPath && existsSync(shimPath)) {
-      const shimContent = readFileSync(shimPath, "utf-8");
-      // pnpm shims: exec node  "$basedir/../../path/to/dist/cli.js" "$@"
-      // Also match: exec "$basedir/node"  "$basedir/../../path/to/dist/cli.js" "$@"
-      const jsMatch = /"\$basedir\/((?:\.\.\/)*[^"]+\.js)"/m.exec(shimContent);
-      if (jsMatch?.[1]) {
-        const basedir = dirname(shimPath);
-        const abs = resolve(basedir, jsMatch[1]);
-        if (existsSync(abs)) return abs;
-      }
-    }
-  } catch {
-    // which failed or shim unreadable — non-fatal
-  }
-
-  // Last resort: assume cli.js is next to the current entry
-  const fallbackBase = process.argv[1]
-    ? dirname(resolve(process.argv[1]))
-    : process.cwd();
-  return join(fallbackBase, "cli.js");
 }
 
 /** Escape special XML characters in plist string values. */
@@ -147,8 +94,25 @@ export interface PlatformInstallResult {
 export function installLaunchd(): PlatformInstallResult {
   const dir = plistDir();
   const path = plistPath();
-  const nodeBin = resolveNodeBin();
-  const cliEntry = resolveCliEntry();
+
+  let nodeBin: string;
+  let cliEntry: string;
+  try {
+    const exec = resolveAutostartExec(import.meta.url);
+    nodeBin = exec.nodeBin;
+    cliEntry = exec.cliEntry;
+  } catch (err) {
+    return {
+      installed: false,
+      path,
+      error:
+        err instanceof UnresolvedExecError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err),
+    };
+  }
 
   try {
     mkdirSync(dir, { recursive: true });

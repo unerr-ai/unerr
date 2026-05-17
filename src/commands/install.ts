@@ -238,6 +238,9 @@ export async function runInstall(
       } else if (ide === "cursor") {
         // Cursor: hook config in .cursor/hooks.json (when supported)
         hookInstalled = installCursorHooks(cwd);
+      } else if (ide === "windsurf") {
+        // Windsurf: hook config in .windsurf/hooks.json + scripts in .windsurf/hooks/
+        hookInstalled = installWindsurfHooks(cwd);
       } else if (ide === "cline") {
         // Cline: hook scripts in .clinerules/hooks/ (when supported)
         hookInstalled = installClineHooks(cwd);
@@ -275,17 +278,20 @@ export async function runInstall(
     }
   }
 
-  // 7. Auto-install daemon autostart (first install only — gated by sentinel + CI check)
+  // 7. Daemon autostart is opt-in. Surface the command the user must run
+  // explicitly to register a boot-time launch unit. Auto-installing a
+  // launchd / systemd / scheduled-task entry from `unerr install` is the
+  // exact pattern AV/EDR scanners flag as persistence, so this is gated
+  // behind `unerr daemon enable-autostart`.
   try {
-    const { autoInstallIfNeeded } = await import("../daemon/autostart.js");
-    const autostartResult = await autoInstallIfNeeded();
-    if (autostartResult?.installed) {
+    const { isAutostartInstalled } = await import("../daemon/autostart.js");
+    if (!isAutostartInstalled()) {
       process.stderr.write(
-        `\x1b[38;2;52;211;153m✓\x1b[0m Daemon auto-start registered: ${autostartResult.path}\n`
+        "\x1b[38;2;34;211;238m▸\x1b[0m To launch unerrd at login, run \x1b[1munerr daemon enable-autostart\x1b[0m.\n"
       );
     }
   } catch {
-    // Non-blocking — autostart is a nice-to-have
+    // Non-blocking — autostart hint is informational only.
   }
 
   // 8. Register repo with daemon supervisor and start the per-repo process (only if unerrd is running)
@@ -655,6 +661,119 @@ function writeCursorHookScript(
   const scriptPath = join(dir, filename);
   writeFileSync(scriptPath, content, "utf-8");
   chmodSync(scriptPath, 0o755);
+}
+
+// Windsurf hook scripts — receive Cascade event JSON on stdin and route to
+// the unerr hook subcommand that already handles the equivalent event from
+// Cursor/Claude Code. Keeping the bridge thin (one cat | unerr line) means
+// behaviour changes flow through the CLI, not the on-disk scripts.
+const WINDSURF_PRE_TOOL_SCRIPT = `#!/bin/bash
+# unerr pre_mcp_tool_use hook for Windsurf Cascade
+# Installed by: unerr install windsurf | Removed by: unerr uninstall windsurf
+cat | unerr hook pre-tool
+`;
+
+const WINDSURF_POST_TOOL_SCRIPT = `#!/bin/bash
+# unerr post_mcp_tool_use hook for Windsurf Cascade
+# Installed by: unerr install windsurf | Removed by: unerr uninstall windsurf
+cat | unerr hook post-tool
+`;
+
+const WINDSURF_PROMPT_SCRIPT = `#!/bin/bash
+# unerr pre_user_prompt hook for Windsurf Cascade
+# Installed by: unerr install windsurf | Removed by: unerr uninstall windsurf
+cat | unerr hook prompt-submit
+`;
+
+const WINDSURF_PRE_SHELL_SCRIPT = `#!/bin/bash
+# unerr pre_run_command hook for Windsurf Cascade
+# Installed by: unerr install windsurf | Removed by: unerr uninstall windsurf
+# Shell compression routes through PreToolUse/Bash/exec — passthrough here.
+cat > /dev/null
+exit 0
+`;
+
+/**
+ * Install Windsurf Cascade hook configuration in `.windsurf/hooks.json` plus
+ * the four shell scripts under `.windsurf/hooks/`. Mirrors the Cursor wiring,
+ * but uses Windsurf's snake_case event names (`pre_mcp_tool_use` etc.) per
+ * the Cascade hook schema. Idempotent — re-running merges without duplicates.
+ */
+function installWindsurfHooks(cwd: string): boolean {
+  const hooksJsonPath = join(cwd, ".windsurf", "hooks.json");
+  const hooksDir = join(cwd, ".windsurf", "hooks");
+
+  const unerrHooks: Record<
+    string,
+    Array<{ command: string; show_output?: boolean }>
+  > = {
+    pre_mcp_tool_use: [
+      { command: ".windsurf/hooks/unerr-pre-tool.sh", show_output: false },
+    ],
+    post_mcp_tool_use: [
+      { command: ".windsurf/hooks/unerr-post-tool.sh", show_output: false },
+    ],
+    pre_user_prompt: [
+      { command: ".windsurf/hooks/unerr-prompt.sh", show_output: false },
+    ],
+    pre_run_command: [
+      { command: ".windsurf/hooks/unerr-pre-shell.sh", show_output: false },
+    ],
+  };
+
+  try {
+    if (!existsSync(hooksDir)) {
+      mkdirSync(hooksDir, { recursive: true });
+    }
+
+    let config: { hooks: Record<string, unknown[]> } = { hooks: {} };
+    if (existsSync(hooksJsonPath)) {
+      try {
+        const existing = JSON.parse(
+          readFileSync(hooksJsonPath, "utf-8")
+        ) as Partial<typeof config>;
+        if (existing.hooks && typeof existing.hooks === "object") {
+          config = { hooks: existing.hooks };
+        }
+      } catch {
+        // Corrupt file — overwrite with fresh config
+      }
+    }
+
+    for (const [event, entries] of Object.entries(unerrHooks)) {
+      const current = Array.isArray(config.hooks[event])
+        ? (config.hooks[event] as Array<{ command?: string }>)
+        : [];
+      for (const entry of entries) {
+        const alreadyPresent = current.some((h) => h.command === entry.command);
+        if (!alreadyPresent) current.push(entry);
+      }
+      config.hooks[event] = current;
+    }
+
+    writeFileSync(hooksJsonPath, `${JSON.stringify(config, null, 2)}\n`);
+
+    writeCursorHookScript(
+      hooksDir,
+      "unerr-pre-tool.sh",
+      WINDSURF_PRE_TOOL_SCRIPT
+    );
+    writeCursorHookScript(
+      hooksDir,
+      "unerr-post-tool.sh",
+      WINDSURF_POST_TOOL_SCRIPT
+    );
+    writeCursorHookScript(hooksDir, "unerr-prompt.sh", WINDSURF_PROMPT_SCRIPT);
+    writeCursorHookScript(
+      hooksDir,
+      "unerr-pre-shell.sh",
+      WINDSURF_PRE_SHELL_SCRIPT
+    );
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

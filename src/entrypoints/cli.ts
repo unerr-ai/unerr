@@ -43,6 +43,7 @@ import { registerStatsCommand } from "../commands/stats.js";
 import { registerStatusCommand } from "../commands/status.js";
 import { registerTimelineCommand } from "../commands/timeline.js";
 import { registerUninstallCommand } from "../commands/uninstall.js";
+import { registerRouterCommands } from "../commands/router.js";
 import { installFileLogger } from "../utils/file-logger.js";
 import { initFileLog } from "../utils/startup-log.js";
 
@@ -1198,6 +1199,7 @@ registerDoctorCommand(program);
 registerGainCommand(program);
 registerDiscoverCommand(program);
 registerDaemonCommand(program);
+registerRouterCommands(program);
 
 // ── Hidden Commands (callable but not shown in --help) ──────
 
@@ -1232,6 +1234,9 @@ const visibleCommands = new Set([
   "debug",
   "init",
   "daemon",
+  "enable",
+  "disable",
+  "router",
 ]);
 for (const cmd of program.commands) {
   if (!visibleCommands.has(cmd.name())) {

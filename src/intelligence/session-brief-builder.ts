@@ -203,6 +203,62 @@ export class SessionBriefBuilder {
   }
 }
 
+/**
+ * Render a SessionBrief as a visible `[unerr:session-resume]` block that
+ * can be prepended to the first tool response's text content.
+ *
+ * The block exists because MCP clients filter `_meta` out before reaching
+ * the agent, so the structured brief never lands in the model's context.
+ * Emitting the same intel inline keeps it visible at the wire boundary.
+ *
+ * Returns "" when the brief has nothing user-facing to surface (a bare
+ * greeting alone is not worth the tokens — those land in `_meta` only).
+ */
+export function formatBriefAsVisibleBlock(
+  brief: SessionBrief,
+  elapsedMs?: number
+): string {
+  const lines: string[] = [];
+  const elapsed = elapsedMs ? formatElapsed(elapsedMs) : null;
+  const files = brief.inter_session_changes ?? [];
+
+  // First line — only emit when there's something concrete to say. A
+  // bare "Previous session (?)" with no files is noise.
+  if (files.length > 0) {
+    const filesStr = files.slice(0, 3).join(", ");
+    const prefix = elapsed
+      ? `Previous session (${elapsed} ago)`
+      : "Previous session";
+    lines.push(`[unerr:session-resume] ${prefix}: worked on ${filesStr}.`);
+  } else if (elapsed) {
+    lines.push(`[unerr:session-resume] Previous session ${elapsed} ago.`);
+  }
+
+  if (brief.unfinished_work && brief.unfinished_work.length > 0) {
+    const incomplete = brief.unfinished_work.slice(0, 3).join(", ");
+    lines.push(`▸ Incomplete from last session: ${incomplete}.`);
+  }
+
+  if (brief.key_facts && brief.key_facts.length > 0) {
+    for (const fact of brief.key_facts.slice(0, 3)) {
+      lines.push(`▸ ${fact}`);
+    }
+  }
+
+  if (lines.length === 0) return "";
+  return `${lines.join("\n")}\n`;
+}
+
+function formatElapsed(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
 let instance: SessionBriefBuilder | null = null;
 
 /**

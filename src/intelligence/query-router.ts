@@ -58,6 +58,7 @@ import {
   smartTruncate,
   truncateResultList,
 } from "./smart-truncate.js";
+import type { RouterGateway } from "../proxy/router-gateway.js";
 
 export type ToolSource = "local";
 
@@ -477,6 +478,15 @@ export interface ToolResult {
       interactions: number;
       failure_modes: string[];
     };
+    /**
+     * P0-3: Tier-2/3 exposure-gate status. Set to "locked" when the
+     * tool call was refused by the RouterGateway because its unlock
+     * condition has not yet fired. The MCP proxy wrapper reads this
+     * and stamps `isError: true` on the wire frame.
+     */
+    gate_status?: "locked";
+    /** P0-3: Tools newly unlocked by the call that produced this result. */
+    unlocked_tools?: readonly string[];
   };
   /** Sprint 2: Agent-readable context hints */
   _context?: ContextHints;
@@ -505,9 +515,53 @@ const ENRICHABLE_TOOLS = new Set([
   "get_callees",
 ]);
 
+/**
+ * P0-3: Prepend an unlock announcement to a tool result's content body.
+ *
+ * Two body shapes are observed in practice:
+ *   1. A string (custom encoded format — `_fmt:columnar`, `@meta …`, etc.).
+ *      The announcement is concatenated as a prefix, separator already
+ *      included in `announceText` via `formatUnlockAnnounce`.
+ *   2. An MCP-style `[{type:"text", text:"…"}]` array. Prepend the
+ *      announcement to the first text block's text. If no text block
+ *      exists, prepend a fresh one.
+ *
+ * For any other shape (raw object, etc.) we wrap with an MCP-style
+ * text-block array carrying the announcement followed by the JSON-
+ * stringified original — preserving the agent's ability to read the
+ * `ur|hnt` line without losing structured data.
+ */
+function prependAnnounceToBody(content: unknown, announceText: string): unknown {
+  if (announceText.length === 0) return content;
+  if (typeof content === "string") return `${announceText}${content}`;
+  if (Array.isArray(content)) {
+    const blocks = content as Array<{ type?: string; text?: string } & Record<string, unknown>>;
+    const firstTextIdx = blocks.findIndex(
+      (b) => b && b.type === "text" && typeof b.text === "string"
+    );
+    if (firstTextIdx >= 0) {
+      const existing = blocks[firstTextIdx]?.text ?? "";
+      const updated = [...blocks];
+      updated[firstTextIdx] = {
+        ...blocks[firstTextIdx],
+        type: "text",
+        text: `${announceText}${existing}`,
+      } as { type: "text"; text: string };
+      return updated;
+    }
+    return [{ type: "text", text: announceText }, ...blocks];
+  }
+  return [
+    { type: "text", text: announceText },
+    { type: "text", text: JSON.stringify(content) },
+  ];
+}
+
 export class QueryRouter {
   private ruleEvaluator: typeof EvaluateRulesFn | null;
   private branchContext: BranchContext | null = null;
+  /** P0-3: Tier-aware exposure gateway. Null until proxy injects via `setRouterGateway`. */
+  private routerGateway: RouterGateway | null = null;
   private currentMode: ProxyMode = "local";
   private modeReason = "";
   readonly sessionContext: SessionContext;
@@ -585,6 +639,11 @@ export class QueryRouter {
     filesModified: string[];
     incompleteEntities: string[];
   } | null = null;
+
+  /** Unix-ms timestamp of the previous session's end — drives the elapsed-time
+   * line of the visible `[unerr:session-resume]` block. Null when the agent
+   * starts a fresh session with no prior history. */
+  private previousSessionEndedAt: number | null = null;
 
   /** S7.5: Durability scorer — scores entity fragility across sessions. */
   private durabilityScorer: ReturnType<
@@ -895,13 +954,18 @@ export class QueryRouter {
 
   /**
    * S7.4: Set session resume context (injected on first response).
+   * `previousSessionEndedAt` is the unix-ms timestamp of the prior session's
+   * end — used to render the elapsed-time line of the visible resume block.
    */
   setSessionResumeContext(ctx: {
     summary: string;
     filesModified: string[];
     incompleteEntities: string[];
+    previousSessionEndedAt?: number;
   }): void {
-    this.sessionResumeContext = ctx;
+    const { previousSessionEndedAt, ...rest } = ctx;
+    this.sessionResumeContext = rest;
+    this.previousSessionEndedAt = previousSessionEndedAt ?? null;
   }
 
   /**
@@ -1042,6 +1106,20 @@ export class QueryRouter {
   }
 
   /**
+   * P0-3: Wire the RouterGateway. Called once at proxy boot. The gateway
+   * owns SessionState + ToolExposureStore; the router consults it before
+   * each dispatch (gate) and after each success (record + unlock).
+   */
+  setRouterGateway(gateway: RouterGateway): void {
+    this.routerGateway = gateway;
+  }
+
+  /** P0-3: Read-only access to the gateway for the proxy's tools/list handler. */
+  getRouterGateway(): RouterGateway | null {
+    return this.routerGateway;
+  }
+
+  /**
    * S8: Get accumulated session dollar savings for scorecard/guard.
    */
   getSessionDollarsSaved(): number {
@@ -1170,6 +1248,33 @@ export class QueryRouter {
         `Unknown tool '${toolName}'. Run 'unerr status' to see available tools.`
       );
       return r;
+    }
+
+    // P0-3 exposure gate. Tier-1 tools are always exposed; tier-2/3
+    // tools whose unlock condition has not yet fired short-circuit here
+    // with a soft-refuse — proxy.ts stamps `isError: true` on the wire
+    // frame when it reads `_meta.gate_status === "locked"`.
+    if (this.routerGateway) {
+      const refusal = this.routerGateway.gate(toolName);
+      if (refusal) {
+        const totalMs = Math.round(performance.now() - t0);
+        const gated: ToolResult = {
+          content: refusal.content,
+          _meta: {
+            source: "local",
+            latency_ms: totalMs,
+            gate_status: "locked",
+          },
+        };
+        this.routerGateway.recordTelemetry(
+          toolName,
+          "soft_refused",
+          0,
+          0,
+          { classify: totalMs, total: totalMs },
+        );
+        return gated;
+      }
     }
 
     try {
@@ -1369,6 +1474,40 @@ export class QueryRouter {
         _meta: meta,
       };
       const enrichStats = await this.enrichResult(toolName, args, toolResult);
+
+      // P0-3 post-execute: fold signals, evaluate unlocks, prepend
+      // `ur|hnt <tool> unlocked — …` lines to the body when new tools
+      // come online. The gateway also persists the unlock event.
+      if (this.routerGateway) {
+        const outcome = await this.routerGateway.recordAndUnlock(
+          toolName,
+          args,
+          toolResult,
+          (err) =>
+            process.stderr.write(
+              `[unerr] router-gateway: persistence failed: ${formatUnknownError(err)}\n`
+            )
+        );
+        if (outcome.unlocks.length > 0) {
+          toolResult.content = prependAnnounceToBody(
+            toolResult.content,
+            outcome.announceText
+          );
+          toolResult._meta.unlocked_tools = outcome.unlocks.map(
+            (u) => u.toolName
+          );
+        }
+
+        const telemetryTotalMs = Math.round(performance.now() - t0);
+        this.routerGateway.recordTelemetry(
+          toolName,
+          "executed",
+          0,
+          0,
+          { forward: telemetryTotalMs, total: telemetryTotalMs },
+          outcome.unlocks.map((u) => u.toolName),
+        );
+      }
 
       // Layer 7: Emit tool_call event for dashboard SSE — stats stay internal,
       // never written to wire `_meta` (vanity-strip pass).
@@ -1703,7 +1842,7 @@ export class QueryRouter {
     if (this.sessionContext.isFirstCall()) {
       // Build structured brief (replaces flat greeting + resume)
       try {
-        const { SessionBriefBuilder } = await import(
+        const { SessionBriefBuilder, formatBriefAsVisibleBlock } = await import(
           "./session-brief-builder.js"
         );
         const briefBuilder = new SessionBriefBuilder(
@@ -1715,6 +1854,16 @@ export class QueryRouter {
         const brief = await briefBuilder.build(this.sessionResumeContext);
         context.session_brief = brief;
         hasContext = true;
+        // MCP clients strip `_meta` before the model sees the response, so the
+        // structured brief is invisible to the agent. Emit the same intel as
+        // an inline `[unerr:session-resume]` block prepended to content[0].
+        const elapsedMs = this.previousSessionEndedAt
+          ? Date.now() - this.previousSessionEndedAt
+          : undefined;
+        const resumeBlock = formatBriefAsVisibleBlock(brief, elapsedMs);
+        if (resumeBlock.length > 0) {
+          result.content = prependAnnounceToBody(result.content, resumeBlock);
+        }
       } catch {
         // Fallback to flat greeting if brief builder fails
         const greeting = this.buildSessionGreeting();

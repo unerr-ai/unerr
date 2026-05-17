@@ -32,7 +32,7 @@ interface FactStoreWriter {
     content: string;
     source: string;
     confidence?: number;
-  }): Promise<string>;
+  }): Promise<{ fact_id: string; deduplicated: boolean }>;
 }
 
 /** Minimal shadow ledger interface. */

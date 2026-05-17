@@ -180,9 +180,11 @@ export class TemporalFactStore {
 
   /**
    * Create a new fact or reinforce an existing one with matching (fact_type, scope, subject).
-   * Returns the fact_id (new or existing).
+   * Returns the fact_id (new or existing) and whether a duplicate was found.
    */
-  async createFact(input: CreateFactInput): Promise<string> {
+  async createFact(
+    input: CreateFactInput
+  ): Promise<{ fact_id: string; deduplicated: boolean }> {
     const limit = TYPE_CONTENT_LIMITS[input.fact_type] ?? MAX_CONTENT_LENGTH;
     const content = input.content.slice(0, limit);
     const now = Date.now();
@@ -199,7 +201,7 @@ export class TemporalFactStore {
         action: "reinforced",
         timestamp: now,
       });
-      return existing;
+      return { fact_id: existing, deduplicated: true };
     }
 
     const factId = randomUUID();
@@ -236,7 +238,7 @@ export class TemporalFactStore {
       }
     );
 
-    return factId;
+    return { fact_id: factId, deduplicated: false };
   }
 
   /**

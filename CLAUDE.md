@@ -176,6 +176,8 @@ Before writing code: `get_conventions`. To record decisions: `record_fact`.
 4. **Named Datalog syntax for 4+ column relations.** `*edges{from_key, to_key, type}` not `*edges[a, b, c]`. See [Datalog Rules](#datalog-rules) below.
 5. **MCP config is project-level only.** Never write to global/home config. Each repo gets its own `.mcp.json` (Claude Code), `.cursor/mcp.json` (Cursor), etc.
 6. **Imports use `.js` extensions.** NodeNext module resolution requires it. ESM throughout.
+7. **Autostart is opt-in.** `unerr install <agent>` must NEVER call `installForCurrentPlatform()` / `autoInstallIfNeeded()` or any platform installer. Registering a boot-time launch unit silently from an install command is the exact pattern AV/EDR scanners flag as persistence (Socket flagged `0.1.6` for this). The only entry points that may install a launch unit are explicit user verbs: `unerr daemon initialize`, `unerr daemon enable-autostart`. The Windows path uses `schtasks /XML` only — no Startup-folder `.cmd` fallback. Executable paths for the launch unit come from `resolveAutostartExec(import.meta.url)`, never from `process.argv[1]` or `which/where` shim parsing. Enforced by `src/__tests__/persistence-pattern-guard.test.ts`.
+8. **npm tarball excludes `dist/__tests__/**` and `dist/ui/**`.** Bundled tests and the vis-network dashboard chunk are dev-time only; shipping them blows up tarball size and trips base64 / packaged-binary scanner heuristics. Keep the `files` array in `package.json` selective. Same guard test asserts this.
 
 ## What This Is
 

@@ -165,7 +165,8 @@ A single `unerrd` supervisor manages all repos. Starts at login, spawns per-repo
 | Command | What it does | What it does NOT do |
 |---------|------|------|
 | `unerr daemon initialize` | Registers unerrd at boot (launchd/systemd/schtasks) + starts it | - |
-| `unerr install <agent>` | MCP config + skills + hooks + instructions + gitignore. If unerrd running: registers the repo | Start unerrd, start per-repo process |
+| `unerr daemon enable-autostart` | Opt-in registration of the boot unit only (no daemon start). Prompts on TTY, `--yes` to skip | Start unerrd |
+| `unerr install <agent>` | MCP config + skills + hooks + instructions + gitignore. If unerrd running: registers the repo | Start unerrd, register autostart, start per-repo process |
 | `unerr --mcp` | Bridges to running process (standalone or daemon-managed) | Spawn unerrd, register repos, start processes |
 | `unerr` (no args) | Starts a standalone per-repo proxy | Touch the daemon |
 
@@ -412,7 +413,9 @@ unerr daemon status             # Show all managed repos, PIDs, memory, idle tim
 unerr daemon add <path>         # Register a repo (indexes on next access)
 unerr daemon remove <path>      # Unregister a repo
 unerr daemon config <path> <k=v> # Set per-repo settings (idleTimeout, javaBuildTool, etc.)
-unerr daemon autostart on|off|status  # Manage start-at-login (launchd/systemd/schtasks)
+unerr daemon enable-autostart   # Opt-in: register start-at-login (launchd/systemd/schtasks)
+unerr daemon disable-autostart  # Remove the start-at-login registration
+unerr daemon autostart-status   # Show whether auto-start is installed
 unerr daemon logs [--repo <path>] [--follow]  # Tail daemon/repo logs
 unerr daemon dashboard          # Open the unified dashboard in browser
 unerr daemon update             # Check for updates, install, restart
@@ -518,17 +521,31 @@ unerr daemon config <path> <key>=<value>  # Set per-repo settings:
 
 ### Auto-Start (Start at Login)
 
-```bash
-unerr daemon autostart on       # Install platform service:
-                                #   macOS: ~/Library/LaunchAgents/dev.unerr.daemon.plist
-                                #   Linux: ~/.config/systemd/user/unerr-daemon.service
-                                #   Windows: schtasks /create ... (or Startup folder .cmd)
+Auto-start is **opt-in**. `unerr install <agent>` never registers a boot-time
+launch unit on its own — the install flow prints a hint pointing to the
+explicit command below. This avoids triggering EDR/AV persistence heuristics
+that fire on any package which silently writes a launch unit at install time.
 
-unerr daemon autostart off      # Remove the platform service
-unerr daemon autostart status   # Show whether auto-start is installed and running
+```bash
+unerr daemon enable-autostart   # Register platform service (prompts unless --yes):
+                                #   macOS:   ~/Library/LaunchAgents/com.unerr.daemon.plist
+                                #   Linux:   ~/.config/systemd/user/unerrd.service
+                                #   Windows: scheduled task "Unerr Daemon" (schtasks /XML)
+                                # All units run in user context, no admin/sudo.
+
+unerr daemon disable-autostart  # Remove the platform service
+unerr daemon autostart-status   # Show whether auto-start is installed
 ```
 
-Auto-start is also installed automatically on your first `unerr install` or `daemon add` — no manual step needed. Skipped in CI/container environments.
+The Windows path uses **only** the per-user scheduled task — there is no
+Startup-folder `.cmd` fallback. If `schtasks` fails, registration fails
+cleanly; you can still run `unerr daemon start` to run the supervisor for
+the current session.
+
+The scheduled task XML carries `<Author>@unerr-ai/unerr</Author>`,
+`<Source>https://www.npmjs.com/package/@unerr-ai/unerr</Source>`, and
+`<RunLevel>LeastPrivilege</RunLevel>` so EDR tooling can attribute the
+unit to this package.
 
 ### Warm Start
 

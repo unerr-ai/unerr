@@ -214,39 +214,77 @@ describe("Linux systemd unit content invariants", () => {
   });
 });
 
-describe("Windows schtasks/startup invariants", () => {
-  it("schtasks /TR properly escapes inner quotes", () => {
-    const nodeBin = "C:\\Program Files\\nodejs\\node.exe";
-    const cliEntry = "C:\\Users\\test\\project\\dist\\cli.js";
+describe("Windows scheduled-task XML invariants", () => {
+  // Build the XML the same shape platform-windows.ts emits, so we can assert
+  // on the contract without invoking schtasks (Windows-only) or touching disk.
+  const e = (s: string) =>
+    s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+  const sampleXml = (nodeBin: string, cliEntry: string) => {
+    const args = `"${cliEntry}" daemon start --foreground`;
+    return `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Author>@unerr-ai/unerr</Author>
+    <Description>unerr local code-intelligence daemon...</Description>
+    <URI>\\Unerr Daemon</URI>
+    <Source>https://www.npmjs.com/package/@unerr-ai/unerr</Source>
+  </RegistrationInfo>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Actions Context="Author">
+    <Exec>
+      <Command>${e(nodeBin)}</Command>
+      <Arguments>${e(args)}</Arguments>
+    </Exec>
+  </Actions>
+</Task>`;
+  };
 
-    // The format schtasks expects for /TR with quoted inner paths:
-    const innerCmd = `\\"${nodeBin}\\" \\"${cliEntry}\\" daemon start --foreground`;
-    const trArg = `"${innerCmd}"`;
-
-    expect(trArg).toContain(nodeBin);
-    expect(trArg).toContain(cliEntry);
-    // Outer quotes present
-    expect(trArg.startsWith('"')).toBe(true);
-    expect(trArg.endsWith('"')).toBe(true);
+  it("XML declares UTF-16 encoding (schtasks /XML requirement)", () => {
+    const xml = sampleXml("C:\\node.exe", "C:\\unerr\\dist\\cli.js");
+    expect(xml.startsWith('<?xml version="1.0" encoding="UTF-16"?>')).toBe(
+      true
+    );
   });
 
-  it("startup .cmd script quotes paths", () => {
-    const nodeBin = "C:\\Program Files\\nodejs\\node.exe";
-    const cliEntry = "C:\\Users\\test\\project\\dist\\cli.js";
-
-    const script = `@echo off\r\n"${nodeBin}" "${cliEntry}" daemon start --foreground\r\n`;
-
-    expect(script).toContain(`"${nodeBin}"`);
-    expect(script).toContain(`"${cliEntry}"`);
-    expect(script).not.toMatch(/^node\s/m);
+  it("XML carries author/URI/source metadata for EDR attribution", () => {
+    const xml = sampleXml("C:\\node.exe", "C:\\unerr\\dist\\cli.js");
+    expect(xml).toContain("<Author>@unerr-ai/unerr</Author>");
+    expect(xml).toContain("<URI>\\Unerr Daemon</URI>");
+    expect(xml).toContain(
+      "<Source>https://www.npmjs.com/package/@unerr-ai/unerr</Source>"
+    );
   });
 
-  it("resolveCliEntry handles Windows .cmd shim format", () => {
-    // npm .cmd shims contain lines like:
-    //   "%~dp0\node.exe" "%~dp0\node_modules\unerr\dist\cli.js" %*
-    const shimContent = `@ECHO off\r\n"%~dp0\\node.exe" "%~dp0\\node_modules\\unerr\\dist\\cli.js" %*\r\n`;
-    const jsMatch = /"%~dp0\\([^"]+\.js)"/m.exec(shimContent);
-    expect(jsMatch).toBeTruthy();
-    expect(jsMatch![1]).toBe("node_modules\\unerr\\dist\\cli.js");
+  it("Principal runs as LeastPrivilege with InteractiveToken (no admin)", () => {
+    const xml = sampleXml("C:\\node.exe", "C:\\unerr\\dist\\cli.js");
+    expect(xml).toContain("<RunLevel>LeastPrivilege</RunLevel>");
+    expect(xml).toContain("<LogonType>InteractiveToken</LogonType>");
+  });
+
+  it("Exec uses absolute node + cli paths, not bare 'node'", () => {
+    const nodeBin = "C:\\Program Files\\nodejs\\node.exe";
+    const cliEntry = "C:\\Users\\test\\project\\dist\\cli.js";
+    const xml = sampleXml(nodeBin, cliEntry);
+    expect(xml).toContain(`<Command>${e(nodeBin)}</Command>`);
+    expect(xml).toContain(e(cliEntry));
+    expect(xml).not.toMatch(/<Command>node<\/Command>/);
+  });
+
+  it("XML-escapes special characters in paths", () => {
+    expect(e('C:\\path with "quotes"')).toBe(
+      "C:\\path with &quot;quotes&quot;"
+    );
+    expect(e("/path/with&ampersand")).toBe("/path/with&amp;ampersand");
+    expect(e("/path/with<angles>")).toBe("/path/with&lt;angles&gt;");
   });
 });

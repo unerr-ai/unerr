@@ -10,8 +10,14 @@
  *   - .gitignore entries (shared across agents)
  */
 
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  readFileSync,
+  rmdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import type { Command } from "commander";
 import {
   AGENT_REGISTRY,
@@ -122,6 +128,8 @@ function runUninstall(cwd: string, ide: IdeType): UninstallResult {
     settingsHookRemoved = removePreToolUseBashHook(cwd);
   } else if (ide === "cursor") {
     hookRemoved = removeCursorHooks(cwd);
+  } else if (ide === "windsurf") {
+    hookRemoved = removeWindsurfHooks(cwd);
   } else if (ide === "cline") {
     hookRemoved = removeClineHooks(cwd);
   }
@@ -146,6 +154,10 @@ function runUninstall(cwd: string, ide: IdeType): UninstallResult {
     }
   }
 
+  // 7. Prune now-empty agent directories the install created. `rmdirSync`
+  // refuses to remove non-empty dirs, so user-authored files are safe.
+  pruneAgentDirs(cwd, ide);
+
   return {
     mcpRemoved,
     skillsRemoved,
@@ -154,6 +166,42 @@ function runUninstall(cwd: string, ide: IdeType): UninstallResult {
     instructionsRemoved,
     disallowedToolsRemoved,
   };
+}
+
+/**
+ * Best-effort prune of empty parent directories for a single agent.
+ * Touches only paths the install would have created. `rmdirSync` errors
+ * silently when a directory still holds user files, so this is safe to
+ * run across every agent without coordination.
+ */
+function pruneAgentDirs(cwd: string, ide: IdeType): void {
+  const agent = AGENT_REGISTRY.find((a) => a.id === ide);
+  if (!agent) return;
+
+  const candidates = new Set<string>();
+  // Parent of the project-scoped MCP config (global configs are co-owned).
+  if (agent.configScope !== "global") {
+    candidates.add(dirname(join(cwd, agent.projectConfigPath)));
+  }
+  // Parent of the instruction file (e.g., .agents/rules/, .windsurf/rules/).
+  if (agent.instructionFilePath) {
+    candidates.add(dirname(join(cwd, agent.instructionFilePath)));
+  }
+  // The agent's own marker directories (e.g., .antigravity, .agents).
+  for (const marker of agent.dirMarkers ?? []) {
+    candidates.add(join(cwd, marker));
+  }
+
+  // Walk inside-out: skills/rules first, then the agent root.
+  const ordered = [...candidates].sort((a, b) => b.length - a.length);
+  for (const path of ordered) {
+    if (path === cwd) continue;
+    try {
+      rmdirSync(path);
+    } catch {
+      /* dir not empty (user files inside) or already gone */
+    }
+  }
 }
 
 /**
@@ -281,6 +329,85 @@ function removeCursorHooks(cwd: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Remove unerr hook entries from Windsurf Cascade's `.windsurf/hooks.json`
+ * and delete the four `.windsurf/hooks/unerr-*.sh` scripts. Symmetric to
+ * `installWindsurfHooks`. Empty `hooks.json` is unlinked; the `hooks/` dir
+ * is removed only when empty (other user scripts stay put).
+ */
+function removeWindsurfHooks(cwd: string): boolean {
+  const hooksJsonPath = join(cwd, ".windsurf", "hooks.json");
+  const hooksDir = join(cwd, ".windsurf", "hooks");
+  let changed = false;
+
+  // Strip unerr entries out of hooks.json. Match by command path so
+  // user-authored hooks pointing at other scripts are preserved.
+  if (existsSync(hooksJsonPath)) {
+    try {
+      const config = JSON.parse(readFileSync(hooksJsonPath, "utf-8")) as {
+        hooks?: Record<string, Array<{ command?: string }>>;
+      };
+      const hooks = config.hooks ?? {};
+      let anyChanged = false;
+      for (const [event, entries] of Object.entries(hooks)) {
+        if (!Array.isArray(entries)) continue;
+        const filtered = entries.filter(
+          (h) => !(h.command ?? "").includes(".windsurf/hooks/unerr-")
+        );
+        if (filtered.length !== entries.length) {
+          anyChanged = true;
+          if (filtered.length === 0) {
+            delete hooks[event];
+          } else {
+            hooks[event] = filtered;
+          }
+        }
+      }
+      if (anyChanged) {
+        changed = true;
+        if (Object.keys(hooks).length === 0) {
+          unlinkSync(hooksJsonPath);
+        } else {
+          writeFileSync(
+            hooksJsonPath,
+            `${JSON.stringify({ hooks }, null, 2)}\n`
+          );
+        }
+      }
+    } catch {
+      /* corrupt or missing — fall through to script cleanup */
+    }
+  }
+
+  // Drop the four unerr hook scripts. Other user scripts in the same dir
+  // are left untouched.
+  for (const name of [
+    "unerr-pre-tool.sh",
+    "unerr-post-tool.sh",
+    "unerr-prompt.sh",
+    "unerr-pre-shell.sh",
+  ]) {
+    const p = join(hooksDir, name);
+    if (existsSync(p)) {
+      try {
+        unlinkSync(p);
+        changed = true;
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
+  // Prune the hooks/ dir when empty.
+  try {
+    rmdirSync(hooksDir);
+  } catch {
+    /* dir not empty or already gone */
+  }
+
+  return changed;
 }
 
 /**

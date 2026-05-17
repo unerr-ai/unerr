@@ -21,6 +21,8 @@ import { GraphVisualPage } from "@/pages/GraphVisualPage";
 import { ReasoningQualityPage } from "@/pages/ReasoningQualityPage";
 import { SessionTimelinePage } from "@/pages/SessionTimelinePage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { RouterSessionPage } from "@/pages/RouterSession";
+import { RouterStatusPage } from "@/pages/RouterStatus";
 import { TokenFlowPage } from "@/pages/TokenFlowPage";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -140,6 +142,12 @@ export function App() {
       break;
     case "activity":
       body = <SessionTimelinePage />;
+      break;
+    case "router":
+      body = <RouterStatusPage />;
+      break;
+    case "router-sessions":
+      body = <RouterSessionPage />;
       break;
     case "settings":
       body = <SettingsPage />;

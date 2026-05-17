@@ -35,7 +35,7 @@ describe("TemporalFactStore", () => {
         content: "The auth module uses JWT tokens for session management",
         source: "agent_explicit",
       };
-      const factId = await store.createFact(input);
+      const { fact_id: factId } = await store.createFact(input);
       expect(factId).toBeDefined();
       expect(factId.length).toBe(36);
     });
@@ -48,8 +48,8 @@ describe("TemporalFactStore", () => {
         content: "We use PostgreSQL",
         source: "agent_explicit",
       };
-      const id1 = await store.createFact(input);
-      const id2 = await store.createFact({
+      const { fact_id: id1 } = await store.createFact(input);
+      const { fact_id: id2 } = await store.createFact({
         ...input,
         content: "We use PostgreSQL for all data",
       });
@@ -58,7 +58,7 @@ describe("TemporalFactStore", () => {
 
     it("truncates content at 280 characters", async () => {
       const longContent = "x".repeat(500);
-      const factId = await store.createFact({
+      const { fact_id: factId } = await store.createFact({
         fact_type: "procedural",
         scope: "project",
         subject: "testing",
@@ -71,7 +71,7 @@ describe("TemporalFactStore", () => {
 
   describe("convention fact type", () => {
     it("creates and recalls a convention fact with slow decay", async () => {
-      const factId = await store.createFact({
+      const { fact_id: factId } = await store.createFact({
         fact_type: "convention",
         scope: "project",
         subject: "api-standards",
@@ -168,7 +168,7 @@ describe("TemporalFactStore", () => {
 
   describe("reinforceFact", () => {
     it("increases reinforcement_count", async () => {
-      const factId = await store.createFact({
+      const { fact_id: factId } = await store.createFact({
         fact_type: "semantic",
         scope: "src/index.ts",
         subject: "arch",
@@ -189,7 +189,7 @@ describe("TemporalFactStore", () => {
     });
 
     it("increases effective confidence via evidence factor", async () => {
-      const factId = await store.createFact({
+      const { fact_id: factId } = await store.createFact({
         fact_type: "semantic",
         scope: "src/util.ts",
         subject: "utils",
@@ -220,7 +220,7 @@ describe("TemporalFactStore", () => {
 
   describe("contradictFact", () => {
     it("halves base_confidence", async () => {
-      const factId = await store.createFact({
+      const { fact_id: factId } = await store.createFact({
         fact_type: "semantic",
         scope: "src/db.ts",
         subject: "db",
@@ -265,7 +265,7 @@ describe("TemporalFactStore", () => {
 
   describe("pruneDecayed", () => {
     it("removes facts below prune threshold", async () => {
-      const factId = await store.createFact({
+      const { fact_id: factId } = await store.createFact({
         fact_type: "semantic",
         scope: "src/old.ts",
         subject: "prune-target",
@@ -296,7 +296,7 @@ describe("TemporalFactStore", () => {
         source: "agent_explicit",
       });
 
-      const negId = await store.createFact({
+      const { fact_id: negId } = await store.createFact({
         fact_type: "negative",
         scope: "project",
         subject: "security",

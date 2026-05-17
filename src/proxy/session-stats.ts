@@ -276,6 +276,8 @@ export interface PreviousSessionSnapshot {
   toolCallsLocal: number;
   violationsCaught: number;
   sessionStartedAt: string;
+  /** ISO-8601 timestamp of the previous session's last activity. */
+  endedAt: string;
   durationMinutes: number;
 }
 
@@ -362,6 +364,7 @@ export function detectSessionResume(
       toolCallsLocal: raw.toolCallsLocal ?? 0,
       violationsCaught: raw.violationsCaught ?? 0,
       sessionStartedAt: raw.sessionStartedAt ?? new Date().toISOString(),
+      endedAt: raw.updatedAt ?? new Date(endTime).toISOString(),
       durationMinutes: durationMin > 0 ? durationMin : 0,
     };
   } catch {

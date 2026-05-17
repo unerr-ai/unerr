@@ -12,6 +12,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  rmdirSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -566,7 +567,7 @@ export function listInstalledSkills(
  */
 export function removeInstalledSkills(ide: IdeType, cwd: string): number {
   const skills = listInstalledSkills(ide, cwd);
-  const { dirPerSkill } = getSkillDir(ide, cwd);
+  const { dir, dirPerSkill } = getSkillDir(ide, cwd);
   let removed = 0;
 
   for (const skill of skills) {
@@ -581,6 +582,14 @@ export function removeInstalledSkills(ide: IdeType, cwd: string): number {
     } catch {
       // Non-blocking
     }
+  }
+
+  // Prune the skills parent directory if it's now empty. Silent on
+  // ENOTEMPTY — leaves user-authored files untouched.
+  try {
+    rmdirSync(dir);
+  } catch {
+    /* dir not empty or already gone */
   }
 
   return removed;

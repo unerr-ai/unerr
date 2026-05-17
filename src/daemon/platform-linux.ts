@@ -15,13 +15,13 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  realpathSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import type { PlatformInstallResult } from "./platform-macos.js";
+import { resolveAutostartExec, UnresolvedExecError } from "./resolve-exec.js";
 
 const UNIT_NAME = "unerrd.service";
 
@@ -31,42 +31,6 @@ function unitDir(): string {
 
 function unitPath(): string {
   return join(unitDir(), UNIT_NAME);
-}
-
-function resolveNodeBin(): string {
-  try {
-    return realpathSync(process.execPath);
-  } catch {
-    return process.execPath;
-  }
-}
-
-function resolveCliEntry(): string {
-  if (process.argv[1]) {
-    const resolved = resolve(process.argv[1]);
-    if (existsSync(resolved)) return resolved;
-  }
-
-  // Fallback: parse the shell shim installed by pnpm/npm
-  try {
-    const shimPath = execSync("which unerr", { encoding: "utf-8" }).trim();
-    if (shimPath && existsSync(shimPath)) {
-      const shimContent = readFileSync(shimPath, "utf-8");
-      const jsMatch = /"\$basedir\/((?:\.\.\/)*[^"]+\.js)"/m.exec(shimContent);
-      if (jsMatch?.[1]) {
-        const basedir = dirname(shimPath);
-        const abs = resolve(basedir, jsMatch[1]);
-        if (existsSync(abs)) return abs;
-      }
-    }
-  } catch {
-    // non-fatal
-  }
-
-  const fallbackBase = process.argv[1]
-    ? dirname(resolve(process.argv[1]))
-    : process.cwd();
-  return join(fallbackBase, "cli.js");
 }
 
 function isWSL(): boolean {
@@ -117,9 +81,26 @@ export function installSystemd(): PlatformInstallResult {
     };
   }
 
+  let nodeBin: string;
+  let cliEntry: string;
   try {
-    const nodeBin = resolveNodeBin();
-    const cliEntry = resolveCliEntry();
+    const exec = resolveAutostartExec(import.meta.url);
+    nodeBin = exec.nodeBin;
+    cliEntry = exec.cliEntry;
+  } catch (err) {
+    return {
+      installed: false,
+      path,
+      error:
+        err instanceof UnresolvedExecError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err),
+    };
+  }
+
+  try {
     const dir = unitDir();
     mkdirSync(dir, { recursive: true });
 

@@ -10,6 +10,8 @@ export type RepoRouteId =
   | "token-trace"
   | "reasoning"
   | "activity"
+  | "router"
+  | "router-sessions"
   | "settings";
 
 // ── Global routes (daemon-level pages) ──────────────────────────
@@ -28,6 +30,8 @@ const ROUTE_TITLES: Record<RouteId, string> = {
   "token-trace": "Token Trace",
   reasoning: "Reasoning Quality",
   activity: "Activity",
+  router: "MCP Router",
+  "router-sessions": "Router Sessions",
   settings: "Settings",
   "all-repos": "All Repositories",
   daemon: "Daemon Supervisor",
@@ -81,6 +85,10 @@ function matchRepoRoute(seg: string | undefined): RepoRouteId {
     case "session-timeline":
     case "timeline":
       return "activity";
+    case "router":
+      return "router";
+    case "router-sessions":
+      return "router-sessions";
     case "settings":
       return "settings";
     default:

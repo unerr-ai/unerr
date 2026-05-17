@@ -101,15 +101,12 @@ export async function generateFromConventions(
       base_confidence: Math.min(0.9, conv.confidence),
     };
 
-    const factId = await factStore.createFact(input);
-    if (factId) {
-      const isNew = !details.some((d) => d.includes(conv.name));
-      if (isNew) {
-        created++;
-        details.push(`[convention] ${conv.name}: ${content.slice(0, 80)}`);
-      } else {
-        reinforced++;
-      }
+    const { deduplicated } = await factStore.createFact(input);
+    if (deduplicated) {
+      reinforced++;
+    } else {
+      created++;
+      details.push(`[convention] ${conv.name}: ${content.slice(0, 80)}`);
     }
   }
 
@@ -129,7 +126,7 @@ export async function generateFromNegativeKnowledge(
   corrections: CorrectionEntry[]
 ): Promise<FactGeneratorResult> {
   let created = 0;
-  const reinforced = 0;
+  let reinforced = 0;
   const details: string[] = [];
 
   for (const correction of corrections) {
@@ -144,8 +141,10 @@ export async function generateFromNegativeKnowledge(
       base_confidence: 0.9,
     };
 
-    const factId = await factStore.createFact(input);
-    if (factId) {
+    const { deduplicated } = await factStore.createFact(input);
+    if (deduplicated) {
+      reinforced++;
+    } else {
       created++;
       details.push(
         `[negative] ${correction.entityKey}: ${content.slice(0, 60)}`
@@ -170,7 +169,7 @@ export async function generateFromCausalBridge(
   events: CausalBridgeEvent[]
 ): Promise<FactGeneratorResult> {
   let created = 0;
-  const reinforced = 0;
+  let reinforced = 0;
   const details: string[] = [];
 
   for (const event of events) {
@@ -186,8 +185,10 @@ export async function generateFromCausalBridge(
         base_confidence: 1.0,
       };
 
-      const factId = await factStore.createFact(input);
-      if (factId) {
+      const { deduplicated } = await factStore.createFact(input);
+      if (deduplicated) {
+        reinforced++;
+      } else {
         created++;
         details.push(`[episodic:survived] ${event.entity_key}`);
       }
@@ -203,8 +204,10 @@ export async function generateFromCausalBridge(
         base_confidence: 0.85,
       };
 
-      const factId = await factStore.createFact(input);
-      if (factId) {
+      const { deduplicated } = await factStore.createFact(input);
+      if (deduplicated) {
+        reinforced++;
+      } else {
         created++;
         details.push(`[negative:reverted] ${event.entity_key}`);
       }

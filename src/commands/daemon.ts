@@ -150,6 +150,136 @@ export function registerDaemonCommand(program: Command): void {
       }
     });
 
+  // ── daemon enable-autostart ───────────────────────────────
+  //
+  // Registers a boot-time launch unit (launchd / systemd / scheduled task).
+  // Explicitly opt-in: TTY prompt + --yes flag for non-interactive use.
+  // Auto-installing a boot unit is the exact pattern AV/EDR scanners flag
+  // as persistence, so this is intentionally gated behind a user command.
+
+  daemon
+    .command("enable-autostart")
+    .description(
+      "Register unerrd to start at user login (launchd / systemd / scheduled task)"
+    )
+    .option("--yes", "Skip interactive confirmation", false)
+    .action(async (opts: { yes?: boolean }) => {
+      const {
+        installForCurrentPlatform,
+        isAutostartInstalled,
+        getAutostartStatus,
+      } = await import("../daemon/autostart.js");
+      const { existsSync, mkdirSync, writeFileSync } = await import("node:fs");
+      const { homedir } = await import("node:os");
+      const { join } = await import("node:path");
+
+      const status = await getAutostartStatus();
+      if (isAutostartInstalled()) {
+        write(
+          `\x1b[38;2;52;211;153m✓\x1b[0m Autostart already registered (${status.platform}).\n` +
+            "  To remove: \x1b[1munerr daemon disable-autostart\x1b[0m\n"
+        );
+        return;
+      }
+
+      write(
+        "\x1b[38;2;139;92;246m▸\x1b[0m About to register a boot-time launch unit:\n" +
+          `    Platform: ${status.platform}\n` +
+          "    Scope:    current user only (no admin/sudo)\n" +
+          "    Action:   start unerrd at login\n" +
+          "    Manage:   unerr daemon disable-autostart\n\n"
+      );
+
+      if (!opts.yes) {
+        if (!process.stdin.isTTY) {
+          write(
+            "\x1b[38;2;248;113;113m✗\x1b[0m Refusing to register without confirmation (no TTY). Pass --yes to proceed.\n"
+          );
+          process.exitCode = 1;
+          return;
+        }
+        const { createInterface } = await import("node:readline");
+        const rl = createInterface({
+          input: process.stdin,
+          output: process.stderr,
+        });
+        const answer = await new Promise<string>((resolveAns) => {
+          rl.question("  Register autostart now? [y/N] ", (ans) => {
+            rl.close();
+            resolveAns(ans.trim().toLowerCase());
+          });
+        });
+        if (answer !== "y" && answer !== "yes") {
+          write("  Cancelled.\n");
+          return;
+        }
+      }
+
+      const result = await installForCurrentPlatform();
+      if (result.installed) {
+        const dir = join(homedir(), ".unerr");
+        try {
+          if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+          writeFileSync(
+            join(dir, ".autostart-installed"),
+            new Date().toISOString(),
+            "utf-8"
+          );
+        } catch {
+          // Sentinel is informational — install succeeded regardless.
+        }
+        write(
+          `\x1b[38;2;52;211;153m✓\x1b[0m Autostart registered: ${result.path}\n`
+        );
+        return;
+      }
+
+      write(
+        `\x1b[38;2;248;113;113m✗\x1b[0m Autostart registration failed: ${result.error ?? "unknown error"}\n` +
+          "  You can still run unerrd manually with: \x1b[1munerr daemon start\x1b[0m\n"
+      );
+      process.exitCode = 1;
+    });
+
+  // ── daemon disable-autostart ──────────────────────────────
+
+  daemon
+    .command("disable-autostart")
+    .description("Remove the unerrd boot-time launch unit")
+    .action(async () => {
+      const { uninstallForCurrentPlatform, removeSentinel } = await import(
+        "../daemon/autostart.js"
+      );
+      const result = await uninstallForCurrentPlatform();
+      removeSentinel();
+      if (result.error) {
+        write(
+          `\x1b[38;2;251;191;36m⚠\x1b[0m Autostart removal reported: ${result.error}\n`
+        );
+      }
+      write(
+        `\x1b[38;2;52;211;153m✓\x1b[0m Autostart removed (${result.path || "no unit found"}).\n`
+      );
+    });
+
+  // ── daemon autostart-status ───────────────────────────────
+
+  daemon
+    .command("autostart-status")
+    .description("Show whether unerrd is registered to start at login")
+    .action(async () => {
+      const { getAutostartStatus } = await import("../daemon/autostart.js");
+      const status = await getAutostartStatus();
+      write(
+        `Platform:  ${status.platform}\n` +
+          `Sentinel:  ${status.sentinelExists ? "present" : "absent"}\n` +
+          `Installed: ${status.installed ? "yes" : "no"}\n`
+      );
+      for (const [k, v] of Object.entries(status.details)) {
+        write(`  ${k}: ${typeof v === "string" ? v : JSON.stringify(v)}\n`);
+      }
+    });
+
   // ── daemon start ──────────────────────────────────────────
 
   daemon

@@ -12,6 +12,8 @@ const REPO_NAV: { id: RepoRouteId; label: string }[] = [
   { id: "graph", label: "Code Intelligence" },
   { id: "facts", label: "Project Memory" },
   { id: "activity", label: "Activity" },
+  { id: "router", label: "MCP Router" },
+  { id: "router-sessions", label: "Router Sessions" },
   { id: "settings", label: "Settings" },
 ];
 

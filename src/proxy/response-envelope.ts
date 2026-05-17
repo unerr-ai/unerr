@@ -421,3 +421,39 @@ export async function wrapResponse(
     originalTokens
   );
 }
+
+/**
+ * Format the inline announcement prepended to the response body when one
+ * or more tier-2/3 tools just unlocked. Sprint P0-3, task 6.
+ *
+ * Contract:
+ *   - One `ur|hnt` line per newly-unlocked tool. We do not coalesce — a
+ *     reader (human or model) parses each line independently, and
+ *     duplicate prefixes are how the dedup layer already groups signals.
+ *   - Imperative verb + named tool: "<name> unlocked — call <name>(...)
+ *     to use it". No "you may now", no "consider".
+ *   - Returns "" (empty string) when the input is empty, so callers can
+ *     `prepend(formatUnlockAnnounce(events))` unconditionally.
+ *
+ * Body shape per line:
+ *   `ur|hnt <toolName> unlocked — <reasonText>; call <toolName>(...) to use it`
+ *
+ * The trailing semi-colon delimits the *trigger* (reasonText, from
+ * describeCondition) from the *action* (call-it-now). Two pieces of
+ * information, one line — the model parses both in a single read.
+ */
+export function formatUnlockAnnounce(
+  unlocks: ReadonlyArray<{
+    readonly toolName: string;
+    readonly reasonText: string;
+  }>
+): string {
+  if (unlocks.length === 0) return "";
+  const lines = unlocks.map(
+    (u) =>
+      `ur|hnt ${u.toolName} unlocked — ${u.reasonText}; call ${u.toolName}(...) to use it`
+  );
+  // Trailing newline so the caller can prepend directly to body text
+  // without thinking about separators.
+  return `${lines.join("\n")}\n`;
+}

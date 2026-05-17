@@ -11,7 +11,14 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { IdeType } from "../utils/detect.js";
@@ -185,10 +192,49 @@ export function removeMcpConfig(cwd: string, ide: IdeType): boolean {
       if (!existing.mcpServers?.[UNERR_SERVER_KEY]) return false;
       delete existing.mcpServers[UNERR_SERVER_KEY];
     }
-    writeFileSync(configPath, JSON.stringify(existing, null, 2), "utf-8");
+
+    // If the config has no remaining servers and is project-scoped, delete the
+    // file and prune the parent directory if empty. We own the file when no
+    // other entries remain — global configs are co-owned and left in place.
+    if (
+      agent.configScope !== "global" &&
+      isConfigEmpty(existing, agent.configFormat)
+    ) {
+      unlinkSync(configPath);
+      tryRmdir(dirname(configPath));
+    } else {
+      writeFileSync(configPath, JSON.stringify(existing, null, 2), "utf-8");
+    }
     return true;
   } catch {
     return false;
+  }
+}
+
+/** True when the config has no MCP servers in the shape its format expects. */
+function isConfigEmpty(
+  config: Record<string, unknown>,
+  format: McpConfigFormat
+): boolean {
+  if (format === "continue-config") {
+    const servers = config.mcpServers;
+    return Array.isArray(servers) && servers.length === 0;
+  }
+  if (format === "settings-json") {
+    const servers = (config.mcp as { servers?: Record<string, unknown> } | undefined)
+      ?.servers;
+    return !servers || Object.keys(servers).length === 0;
+  }
+  const servers = config.mcpServers as Record<string, unknown> | undefined;
+  return !servers || Object.keys(servers).length === 0;
+}
+
+/** rmdir if empty; silent on ENOTEMPTY/ENOENT. */
+function tryRmdir(dir: string): void {
+  try {
+    rmdirSync(dir);
+  } catch {
+    /* dir not empty or already gone */
   }
 }
 

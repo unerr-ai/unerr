@@ -24,6 +24,7 @@
     "format": "biome format --write src/",
     "typecheck": "tsc --noEmit",
     "test:local-mode": "vitest run src/__tests__/local-mode-offline.test.ts src/__tests__/network-boundary.test.ts",
+    "check:tool-budget": "tsx scripts/check-tool-budget.ts",
     "postinstall": "node scripts/postinstall.mjs || true"
   },
   "dependencies": {
@@ -46,6 +47,7 @@
     "commander": "^12.1.0",
     "consola": "^3.4.2",
     "cozo-node": "^0.7.6",
+    "gpt-tokenizer": "^3.4.0",
     "graphology": "^0.25.4",
     "graphology-communities-louvain": "^2.0.1",
     "graphology-layout-forceatlas2": "^0.10.1",
@@ -94,7 +96,12 @@
     "node": ">=20.9.0"
   },
   "files": [
-    "dist",
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.json",
+    "dist/**/*.wasm",
+    "!dist/__tests__/**",
+    "!dist/ui/**",
     "scripts/postinstall.mjs"
   ],
   "license": "Elastic-2.0",

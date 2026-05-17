@@ -53,6 +53,14 @@ import {
   type TokenFlowRouteDeps,
   createTokenFlowRoutes,
 } from "./routes/token-flow.js";
+import {
+  type RouterRouteDeps,
+  createRouterRoutes,
+} from "./routes/router.js";
+import {
+  type RouterApiV2Deps,
+  createRouterApiV2,
+} from "./router-api-v2.js";
 
 export interface DashboardServerOptions {
   /** Dependencies for system routes */
@@ -71,6 +79,10 @@ export interface DashboardServerOptions {
   tokenFlow?: TokenFlowRouteDeps;
   /** Dependencies for reasoning quality API (reuses token flow deps) */
   reasoningQuality?: ReasoningQualityRouteDeps;
+  /** Sprint P0-6: Dependencies for MCP router dashboard API */
+  router?: RouterRouteDeps;
+  /** Sprint P2-6: Dependencies for v2 router insights/associations/intent API */
+  routerV2?: RouterApiV2Deps;
   /** Path to .unerr/state/ for server.json */
   stateDir: string;
   /** When true, skip SPA static files — serve API routes only (daemon children). */
@@ -152,6 +164,12 @@ export async function startDashboardServer(
       "/api/reasoning-quality",
       createReasoningQualityRoutes(opts.reasoningQuality)
     );
+  }
+  if (opts.router) {
+    app.route("/api/router", createRouterRoutes(opts.router));
+  }
+  if (opts.routerV2) {
+    app.route("/api/router", createRouterApiV2(opts.routerV2));
   }
 
   // SPA serving — skipped for daemon children (supervisor serves UI on :9847)
