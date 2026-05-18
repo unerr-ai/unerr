@@ -15,7 +15,7 @@
 
 import { resolve } from "node:path";
 import type { Command } from "commander";
-import { verifyUnerrOnPath } from "./doctor.js";
+import { runEnvironmentChecks } from "./doctor.js";
 import {
   addRepo,
   findRepo,
@@ -46,7 +46,17 @@ export function registerDaemonCommand(program: Command): void {
       "One-time daemon setup: register at boot (launchd/systemd/schtasks) and start unerrd"
     )
     .action(async () => {
-      verifyUnerrOnPath();
+      // Pre-flight environment checks (PATH, Node version, multi-node,
+      // ~/.unerr writability, dashboard port, native module). Blocking
+      // failures abort before any boot-unit registration or daemon spawn.
+      const checks = await runEnvironmentChecks({ interactive: true });
+      if (checks.blocking) {
+        write(
+          "\x1b[38;2;248;113;113m✗\x1b[0m Environment check failed. Resolve the blocking issues above and re-run \x1b[1munerr daemon initialize\x1b[0m.\n"
+        );
+        process.exitCode = 1;
+        return;
+      }
 
       const { installForCurrentPlatform } = await import(
         "../daemon/autostart.js"

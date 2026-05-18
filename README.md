@@ -128,6 +128,8 @@ unerr daemon initialize
 
 Starts `unerrd` and prompts you to register it for start-at-login. Autostart is **opt-in** — answer no if you'd rather invoke `unerr daemon start` yourself each session. You only need this step once per machine.
 
+> **Dashboard is now live at <http://localhost:9847>.** Open it any time to watch token savings, reasoning quality, and the codebase map update as your agent works. Standalone mode (no daemon) uses a per-repo port instead — `unerr status` prints it.
+
 > Working in a single repo and don't want a long-lived supervisor? Skip this step. After step 3, run `unerr` (no args) inside the repo — it spawns a standalone per-repo proxy instead.
 
 ### 3. Install for your agent (per repo)

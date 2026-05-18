@@ -9,7 +9,15 @@
  */
 
 import { execSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  accessSync,
+  appendFileSync,
+  constants as fsConstants,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+} from "node:fs";
+import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join, normalize } from "node:path";
 import { createInterface } from "node:readline";
@@ -373,6 +381,32 @@ function isUnerrOnPathViaWhere(): boolean {
   }
 }
 
+// ── Binary reachability in a fresh shell ─────────────────────
+//
+// True iff typing `unerr` in a freshly-opened terminal would resolve.
+// On Unix this spawns a login shell so RC files load (mirrors what
+// the user gets when they open a new terminal). On Windows we reuse
+// the existing `where unerr` check.
+function isUnerrReachableInFreshShell(): boolean {
+  if (isWin) {
+    return isUnerrOnPathViaWhere();
+  }
+  try {
+    const shellPath = process.env.SHELL || "/bin/bash";
+    const out = execSync(
+      `${shellPath} -lc 'command -v unerr 2>/dev/null'`,
+      {
+        encoding: "utf-8",
+        timeout: 3000,
+        stdio: ["pipe", "pipe", "pipe"],
+      }
+    ).trim();
+    return out.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 // ── Quick PATH verification (non-interactive) ───────────────
 
 /**
@@ -400,100 +434,452 @@ export function verifyUnerrOnPath(): boolean {
   return false;
 }
 
+// ── Environment check runner ─────────────────────────────────
+//
+// Each check returns a CheckResult. The runner orchestrates and aggregates.
+// PATH may print interactive diagnostics inline; other checks just return.
+
+type CheckStatus = "ok" | "warn" | "fail" | "skip";
+
+interface CheckResult {
+  name: string;
+  status: CheckStatus;
+  message: string;
+  detail?: string;
+  blocking?: boolean;
+}
+
+function statusIcon(s: CheckStatus): string {
+  switch (s) {
+    case "ok":
+      return `${G}✓${R}`;
+    case "warn":
+      return `${W}⚠${R}`;
+    case "fail":
+      return `\x1b[31m✗${R}`;
+    case "skip":
+      return `${D}○${R}`;
+  }
+}
+
+function printCheckResult(result: CheckResult): void {
+  log(
+    `   ${statusIcon(result.status)} ${B}${result.name}${R}: ${result.message}\n`
+  );
+  if (result.detail) {
+    for (const line of result.detail.split("\n")) {
+      log(`     ${D}${line}${R}\n`);
+    }
+  }
+}
+
+function compareSemver(a: string, b: string): number {
+  const pa = a.split(".").map((n) => Number.parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => Number.parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+// 1. PATH — npm global bin reachable in new terminals.
+//    Interactive: offers to patch the user's shell RC if broken.
+async function checkPath(opts: { interactive: boolean }): Promise<CheckResult> {
+  const globalBin = getGlobalBin();
+  if (!globalBin) {
+    return {
+      name: "PATH",
+      status: "fail",
+      message: "could not determine npm global bin directory",
+      detail: "Run `npm prefix -g` to verify npm is working.",
+      blocking: true,
+    };
+  }
+
+  const normalizedBin = normalize(globalBin).replace(/[/\\]+$/, "");
+  const reachable = isUnerrReachableInFreshShell();
+
+  if (reachable) {
+    const displayBin = isWin
+      ? normalizedBin.replace(homedir(), "%USERPROFILE%")
+      : normalizedBin.replace(homedir(), "~");
+    return {
+      name: "PATH",
+      status: "ok",
+      message: `unerr reachable in all terminals (${displayBin})`,
+    };
+  }
+
+  // Not reachable. If the bin dir IS on PATH, something else is wrong —
+  // unerr was uninstalled, shadowed by an alias, or the install is broken.
+  const dirOnPath = isOnPath(normalizedBin);
+  if (dirOnPath) {
+    log(`     ${C}${normalizedBin}${R}\n`);
+    log(
+      `     ${D}is on PATH, but ${B}unerr${D} doesn't resolve in a fresh ${process.env.SHELL ?? "shell"} session.${R}\n`
+    );
+    log(
+      `     ${D}Likely: uninstalled, shadowed by an alias, or partial install.\n     Confirm with: ${C}npm ls -g @unerr-ai/unerr${D}, then reinstall: ${C}npm i -g @unerr-ai/unerr${R}\n\n`
+    );
+    return {
+      name: "PATH",
+      status: "warn",
+      message: "bin dir on PATH but `unerr` doesn't resolve in a fresh shell",
+    };
+  }
+
+  // PATH is broken — print diagnostic, offer fix if interactive + TTY
+  const shell = detectShell();
+  const rcPath = getRcPath(shell);
+  const rcName = getRcDisplayName(shell);
+  const fix = getFixPayload(shell, normalizedBin);
+
+  log(`     ${C}${normalizedBin}${R}\n`);
+  log(
+    `     ${D}is not on PATH — ${B}unerr${D} won't be found in new terminal sessions.${R}\n\n`
+  );
+
+  if (isAlreadyInRc(rcPath, fix)) {
+    if (shell === "cmd" || shell === "powershell") {
+      log(
+        `     ${D}Required lines already in ${rcName} but PATH still missing the bin dir. Open a new terminal, or run: ${C}refreshenv${R}\n\n`
+      );
+    } else {
+      log(
+        `     ${D}Required lines already in ${rcName} but PATH still missing the bin dir. Try: ${C}${fix.reloadInstruction}${R}\n\n`
+      );
+    }
+    return {
+      name: "PATH",
+      status: "warn",
+      message: "RC configured but bin dir still missing — reload your shell",
+    };
+  }
+
+  if (!fix.canAutoFix) {
+    printManualSteps(shell, fix, rcName);
+    return {
+      name: "PATH",
+      status: "warn",
+      message: "fix requires manual steps (printed above)",
+    };
+  }
+
+  if (!opts.interactive || !process.stdin.isTTY) {
+    log(
+      `     ${D}Run ${C}unerr doctor${D} from a TTY to apply the fix interactively.${R}\n\n`
+    );
+    return {
+      name: "PATH",
+      status: "warn",
+      message: "not configured; run unerr doctor to apply fix",
+    };
+  }
+
+  const commentPrefix = shell === "cmd" ? "::" : "#";
+  const preview = fix.lines
+    .filter((l) => l.trim() && !l.trim().startsWith(commentPrefix))
+    .join("\n       ");
+  log(`     ${B}Fix:${R} ${fix.description}\n`);
+  log(`     ${D}Target: ${C}${rcName}${R}\n`);
+  log(`       ${D}${preview}${R}\n\n`);
+
+  const answer = await askYesNo(`     Apply this fix now? ${D}[Y/n]${R} `);
+  if (answer) {
+    applyFix(shell, rcPath, rcName, fix, normalizedBin);
+    return {
+      name: "PATH",
+      status: "ok",
+      message: "fix applied — reload your shell or open a new terminal",
+    };
+  }
+
+  log(`     ${D}No changes made.${R}\n`);
+  printManualSteps(shell, fix, rcName);
+  return {
+    name: "PATH",
+    status: "warn",
+    message: "declined; re-run unerr doctor later to apply",
+  };
+}
+
+// 2. Node version meets engines.node minimum (≥20.9.0)
+function checkNodeVersion(): CheckResult {
+  const required = "20.9.0";
+  const current = process.versions.node;
+  if (compareSemver(current, required) >= 0) {
+    return {
+      name: "Node version",
+      status: "ok",
+      message: `v${current} (≥${required} required)`,
+    };
+  }
+  return {
+    name: "Node version",
+    status: "fail",
+    message: `v${current} is below the required ≥${required}`,
+    detail:
+      "Upgrade Node — e.g. `nvm install 20 && nvm use 20` — then reinstall: `npm i -g @unerr-ai/unerr`.",
+    blocking: true,
+  };
+}
+
+// 3. Multi-node detection — process.execPath vs the shell's default `node`
+async function checkMultiNode(): Promise<CheckResult> {
+  const ours = process.execPath;
+  let theirs = "";
+  try {
+    if (isWin) {
+      const out = execSync("where node", {
+        encoding: "utf-8",
+        timeout: 3000,
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
+      theirs = out.split("\n")[0]?.trim() ?? "";
+    } else {
+      const shellPath = process.env.SHELL || "/bin/bash";
+      const out = execSync(
+        `${shellPath} -lc 'command -v node 2>/dev/null'`,
+        {
+          encoding: "utf-8",
+          timeout: 3000,
+          stdio: ["pipe", "pipe", "pipe"],
+        }
+      ).trim();
+      theirs = out.split("\n").pop()?.trim() ?? "";
+    }
+  } catch {
+    return {
+      name: "Default node",
+      status: "skip",
+      message: "couldn't probe your shell's default node (non-fatal)",
+    };
+  }
+
+  if (!theirs) {
+    return {
+      name: "Default node",
+      status: "warn",
+      message: "no `node` found in your shell's PATH",
+      detail:
+        "New terminals won't be able to invoke unerr. Install Node or activate your version manager (nvm/fnm/volta).",
+    };
+  }
+
+  const oursNorm = normalize(ours);
+  const theirsNorm = normalize(theirs);
+  if (oursNorm === theirsNorm) {
+    return {
+      name: "Default node",
+      status: "ok",
+      message: ours.replace(homedir(), "~"),
+    };
+  }
+
+  return {
+    name: "Default node",
+    status: "warn",
+    message: "differs from the node currently running unerr",
+    detail:
+      `unerr running under: ${ours.replace(homedir(), "~")}\n` +
+      `Your shell's default:  ${theirs.replace(homedir(), "~")}\n` +
+      "If cozo-node was built against one Node ABI but loaded by the other, it will fail to load at runtime.\n" +
+      "Recommended: open a shell using your default node, then `npm i -g @unerr-ai/unerr`.",
+  };
+}
+
+// 4. Write access to ~/.unerr/
+function checkUnerrDirAccess(): CheckResult {
+  const dir = join(homedir(), ".unerr");
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      name: "Filesystem",
+      status: "fail",
+      message: `cannot create ${dir.replace(homedir(), "~")}`,
+      detail: msg,
+      blocking: true,
+    };
+  }
+  try {
+    accessSync(dir, fsConstants.W_OK);
+  } catch {
+    return {
+      name: "Filesystem",
+      status: "fail",
+      message: `${dir.replace(homedir(), "~")} is not writable`,
+      detail: "Check ownership: `ls -ld ~/.unerr`.",
+      blocking: true,
+    };
+  }
+  return {
+    name: "Filesystem",
+    status: "ok",
+    message: `${dir.replace(homedir(), "~")} writable`,
+  };
+}
+
+// 5. Dashboard port 9847 free (or already held by a live daemon)
+function checkDashboardPort(): Promise<CheckResult> {
+  const port = 9847;
+  return new Promise((resolve) => {
+    const server = createServer();
+    let settled = false;
+    const finish = (r: CheckResult) => {
+      if (settled) return;
+      settled = true;
+      try {
+        server.close();
+      } catch {
+        // ignore
+      }
+      resolve(r);
+    };
+
+    const timer = setTimeout(() => {
+      finish({
+        name: `Dashboard port ${port}`,
+        status: "skip",
+        message: "probe timed out",
+      });
+    }, 2000);
+
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
+      if (err.code === "EADDRINUSE") {
+        finish({
+          name: `Dashboard port ${port}`,
+          status: "warn",
+          message: "in use",
+          detail:
+            "If unerrd is already running, this is expected — visit http://localhost:9847.\n" +
+            "Otherwise another process holds the port and the dashboard won't be reachable.",
+        });
+      } else {
+        finish({
+          name: `Dashboard port ${port}`,
+          status: "warn",
+          message: `probe failed: ${err.message}`,
+        });
+      }
+    });
+
+    server.listen(port, "127.0.0.1", () => {
+      clearTimeout(timer);
+      finish({
+        name: `Dashboard port ${port}`,
+        status: "ok",
+        message: "available (dashboard will serve at http://localhost:9847)",
+      });
+    });
+  });
+}
+
+// 6. Native module (cozo-node) actually loads under the current Node
+async function checkNativeModule(): Promise<CheckResult> {
+  try {
+    const cozo = (await import("cozo-node")) as { CozoDb?: unknown };
+    if (cozo?.CozoDb) {
+      return {
+        name: "Native module",
+        status: "ok",
+        message: "cozo-node loaded",
+      };
+    }
+    return {
+      name: "Native module",
+      status: "warn",
+      message: "cozo-node loaded but CozoDb export missing",
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      name: "Native module",
+      status: "fail",
+      message: "cozo-node failed to load",
+      detail:
+        `${msg}\n` +
+        "The native binary is likely built for a different Node ABI or platform.\n" +
+        "Reinstall under the node you intend to use: `npm i -g @unerr-ai/unerr`.",
+      blocking: true,
+    };
+  }
+}
+
+/**
+ * Run every environment check. Used by both `unerr doctor` and `unerr
+ * daemon initialize` so they share a single source of truth.
+ *
+ * - `ok`       — every check returned status:'ok'
+ * - `blocking` — caller should abort (a blocking failure was hit)
+ */
+export async function runEnvironmentChecks(opts: {
+  interactive: boolean;
+}): Promise<{ ok: boolean; blocking: boolean; results: CheckResult[] }> {
+  log(`\n  ${B}unerr environment checks${R}\n\n`);
+
+  const results: CheckResult[] = [];
+
+  const path = await checkPath(opts);
+  printCheckResult(path);
+  results.push(path);
+
+  const nodeVer = checkNodeVersion();
+  printCheckResult(nodeVer);
+  results.push(nodeVer);
+
+  const multiNode = await checkMultiNode();
+  printCheckResult(multiNode);
+  results.push(multiNode);
+
+  const fsAccess = checkUnerrDirAccess();
+  printCheckResult(fsAccess);
+  results.push(fsAccess);
+
+  const port = await checkDashboardPort();
+  printCheckResult(port);
+  results.push(port);
+
+  const native = await checkNativeModule();
+  printCheckResult(native);
+  results.push(native);
+
+  const blocking = results.some(
+    (r) => r.status === "fail" && r.blocking === true
+  );
+  const ok = results.every((r) => r.status === "ok");
+
+  const warnCount = results.filter((r) => r.status === "warn").length;
+  const failCount = results.filter((r) => r.status === "fail").length;
+  log("\n");
+  if (ok) {
+    log(`  ${G}✓ All checks passed.${R}\n\n`);
+  } else if (blocking) {
+    log(
+      `  ${W}${failCount} blocking failure(s), ${warnCount} warning(s) — resolve the blocking items before continuing.${R}\n\n`
+    );
+  } else {
+    log(
+      `  ${W}${warnCount} warning(s) — unerr will run, but new terminals or related flows may fail.${R}\n\n`
+    );
+  }
+
+  return { ok, blocking, results };
+}
+
 // ── Command registration ─────────────────────────────────────
 
 export function registerDoctorCommand(program: Command): void {
   program
     .command("doctor")
-    .description("Check environment and fix PATH issues")
+    .description("Check environment (PATH, Node, native modules, port, perms)")
     .action(async () => {
-      log(`\n  ${B}unerr doctor${R}\n\n`);
-
-      // Step 1: Resolve global bin
-      const globalBin = getGlobalBin();
-      if (!globalBin) {
-        log(`   ${W}⚠${R}  Could not determine npm global bin directory.\n`);
-        log(
-          `   ${D}Run ${C}npm prefix -g${D} to verify npm is working.${R}\n\n`
-        );
+      const result = await runEnvironmentChecks({ interactive: true });
+      if (result.blocking) {
         process.exitCode = 1;
-        return;
-      }
-
-      const normalizedBin = normalize(globalBin).replace(/[/\\]+$/, "");
-
-      // Step 2: Check if already on PATH
-      // On Windows, also verify via `where` for robustness
-      const onPath =
-        isOnPath(normalizedBin) || (isWin && isUnerrOnPathViaWhere());
-      if (onPath) {
-        const displayBin = isWin
-          ? normalizedBin.replace(homedir(), "%USERPROFILE%")
-          : normalizedBin.replace(homedir(), "~");
-        log(
-          `   ${G}✓${R} ${B}unerr${R} is on PATH and ready to use in all terminals.\n`
-        );
-        log(`   ${D}Global bin: ${displayBin}${R}\n\n`);
-        return;
-      }
-
-      // Step 3: PATH is broken — diagnose and offer fix
-      const shell = detectShell();
-      const rcPath = getRcPath(shell);
-      const rcName = getRcDisplayName(shell);
-      const fix = getFixPayload(shell, normalizedBin);
-
-      log(
-        `   ${W}⚠${R}  npm global bin directory is ${B}not on your PATH${R}:\n`
-      );
-      log(`   ${C}${normalizedBin}${R}\n\n`);
-      log(
-        `   ${D}This means ${B}unerr${D} won't be found in new terminal sessions.${R}\n\n`
-      );
-
-      // Already in RC but PATH still broken
-      if (isAlreadyInRc(rcPath, fix)) {
-        log(
-          `   ${D}The required lines already exist in ${rcName} but PATH still doesn't include the bin dir.${R}\n`
-        );
-        if (shell === "cmd" || shell === "powershell") {
-          log(
-            `   ${D}Try opening a new terminal window, or run: ${C}refreshenv${R}\n\n`
-          );
-        } else {
-          log(
-            `   ${D}This may mean ${rcName} isn't being sourced by your terminal.${R}\n`
-          );
-          log(
-            `   ${D}Check your terminal app settings, or try: ${C}${fix.reloadInstruction}${R}\n\n`
-          );
-        }
-        return;
-      }
-
-      // Can't auto-fix
-      if (!fix.canAutoFix) {
-        printManualSteps(shell, fix, rcName);
-        return;
-      }
-
-      // Show what we'd add
-      const commentPrefix = shell === "cmd" ? "::" : "#";
-      const preview = fix.lines
-        .filter((l) => l.trim() && !l.trim().startsWith(commentPrefix))
-        .join("\n     ");
-      log(`   ${B}Fix:${R} ${fix.description}\n`);
-      log(`   ${D}Target: ${C}${rcName}${R}\n\n`);
-      log(`     ${D}${preview}${R}\n\n`);
-
-      // Ask for consent
-      const answer = await askYesNo(`   Apply this fix now? ${D}[Y/n]${R} `);
-
-      if (answer) {
-        applyFix(shell, rcPath, rcName, fix, normalizedBin);
-      } else {
-        log(`\n   ${D}No changes made.${R}\n`);
-        printManualSteps(shell, fix, rcName);
       }
     });
 }
