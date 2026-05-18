@@ -34,12 +34,25 @@ describe("installFileLogger", () => {
   });
 
   it("strips ANSI escape codes from the file copy", () => {
-    uninstall = installFileLogger({ filePath: logPath });
+    uninstall = installFileLogger({ filePath: logPath, prefix: false });
     const colored = "\x1b[31mred text\x1b[0m\n";
     process.stderr.write(colored);
     const fileContent = readFileSync(logPath, "utf-8");
     expect(fileContent).toBe("red text\n");
     expect(fileContent).not.toContain("\x1b[");
+  });
+
+  it("prefixes each line with [pid=N sid=xxxxxx]", () => {
+    uninstall = installFileLogger({ filePath: logPath });
+    process.stderr.write("line one\nline two\n");
+    const lines = readFileSync(logPath, "utf-8").trimEnd().split("\n");
+    for (const line of lines) {
+      expect(line).toMatch(/^\[pid=\d+ sid=[a-z0-9]{6}\] /);
+    }
+    expect(lines.map((l) => l.replace(/^\[[^\]]+\] /, ""))).toEqual([
+      "line one",
+      "line two",
+    ]);
   });
 
   it("rotates when the file exceeds maxBytes", () => {

@@ -49,7 +49,7 @@ describe("Daemon API (api.ts)", () => {
       "utf-8"
     );
 
-    expect(content).toContain('"/api/daemon"');
+    expect(content).toContain('"/api/pm"');
     expect(content).toContain('"/api/repos"');
     expect(content).toContain('"/api/repos/aggregate"');
     expect(content).toContain('"/api/repo/:label/*"');
@@ -193,8 +193,8 @@ describe("UI pages", () => {
     );
 
     expect(content).toContain("export function DaemonPage");
-    expect(content).toContain("/api/daemon");
-    expect(content).toContain("Supervisor");
+    expect(content).toContain("/api/pm");
+    expect(content).toContain("Process Manager");
   });
 
   it("DaemonPage shows process table", () => {
@@ -248,15 +248,15 @@ describe("AppShell (layout)", () => {
 // ── App.tsx integration ────────────────────────────────────────────
 
 describe("App.tsx integration", () => {
-  it("detects daemon mode via /api/daemon", () => {
+  it("detects process-manager mode via /api/pm", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/ui/App.tsx"),
       "utf-8"
     );
 
     expect(content).toContain("isDaemonMode");
-    expect(content).toContain('["daemon", "info"]');
-    expect(content).toContain("/api/daemon");
+    expect(content).toContain('["pm", "info"]');
+    expect(content).toContain("/api/pm");
   });
 
   it("renders global pages (AllReposPage, DaemonPage)", () => {

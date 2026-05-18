@@ -1,35 +1,39 @@
 /**
  * Persistence-pattern regression guard.
  *
- * AV/EDR scanners flagged @unerr-ai/unerr@0.1.6 for two specific patterns:
- *   1. silent install of a boot-time launch unit from `unerr install <agent>`
- *   2. Windows %APPDATA%\...\Startup\ .cmd-drop persistence fallback
+ * AV/EDR scanners flagged @unerr-ai/unerr@0.1.6 for installing a boot-time
+ * launch unit. The fix was structural: remove all "register at boot"
+ * mechanisms entirely. The process manager is now lazily auto-spawned by
+ * the MCP bridge on first contact and exits after 30 minutes idle — same
+ * lifecycle pattern as tsserver / rust-analyzer / esbuild. No LaunchAgent
+ * plist, no systemd user unit, no Windows scheduled task, no Startup
+ * folder drop, ever.
  *
- * These tests pin the source-level contract so the patterns can't quietly
- * come back. They use static reads rather than mocks because the contract
- * we care about is "this code is not in the source", not "this code wasn't
- * called this turn".
+ * This file pins the source-level contract so the boot-persistence pattern
+ * can't quietly come back. It walks the entire `src/` tree and bans any
+ * reference to platform-specific scheduler paths or APIs.
  */
 
-import { readFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(thisDir, "..", "..");
+const srcRoot = join(repoRoot, "src");
+
 const readSrc = (rel: string) =>
   readFileSync(join(repoRoot, "src", rel), "utf-8");
 
-/**
- * Read source with comments stripped, so the regex guards below match real
- * code only and not the explanatory comments that *describe* the patterns
- * we're banning.
- */
+/** Strip comments so guards match real code, not the docs describing them. */
 const readCode = (rel: string): string => {
   const raw = readSrc(rel);
-  // Drop /* ... */ blocks, then drop // line tails. Crude but enough for
-  // banning identifier-shaped tokens.
   return raw
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
@@ -37,57 +41,137 @@ const readCode = (rel: string): string => {
     .join("\n");
 };
 
+/** Walk every .ts file under src/ (with comments stripped). */
+function* walkTsSources(dir: string): Generator<{ path: string; code: string }> {
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    const st = statSync(full);
+    if (st.isDirectory()) {
+      yield* walkTsSources(full);
+      continue;
+    }
+    if (!name.endsWith(".ts")) continue;
+    // Skip the guard itself — it intentionally names the banned tokens.
+    if (full.endsWith("persistence-pattern-guard.test.ts")) continue;
+    const rel = full.slice(srcRoot.length + 1);
+    const raw = readFileSync(full, "utf-8");
+    const code = raw
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .map((line) => line.replace(/\/\/.*$/, ""))
+      .join("\n");
+    yield { path: rel, code };
+  }
+}
+
 describe("persistence-pattern regression guard", () => {
-  it("runInstall does not call autoInstallIfNeeded", () => {
-    const src = readSrc("commands/install.ts");
-    // The pre-fix code imported and awaited autoInstallIfNeeded inside
-    // runInstall step 7. Surface any reintroduction immediately.
-    expect(src).not.toMatch(/autoInstallIfNeeded\s*\(/);
+  it("deleted boot-persistence modules stay deleted", () => {
+    // These were the legacy autostart modules. They have no replacement —
+    // boot persistence is gone entirely.
+    const gone = [
+      "daemon/autostart.ts",
+      "daemon/platform-macos.ts",
+      "daemon/platform-linux.ts",
+      "daemon/platform-windows.ts",
+      "daemon/resolve-exec.ts",
+      "daemon/bootstrap.ts",
+      "daemon/version-checker.ts",
+    ];
+    for (const rel of gone) {
+      expect(existsSync(join(srcRoot, rel))).toBe(false);
+    }
   });
 
-  it("runInstall imports the read-only sentinel check only", () => {
-    const src = readSrc("commands/install.ts");
-    // It's fine to import isAutostartInstalled (read-only); not fine to
-    // import the installer or platform modules from install.ts.
-    expect(src).not.toMatch(/from\s+["']\.\.\/daemon\/platform-/);
-    expect(src).not.toMatch(/installForCurrentPlatform/);
+  it("no source file installs a LaunchAgent / launchd plist", () => {
+    for (const { path, code } of walkTsSources(srcRoot)) {
+      // It's OK for the shell-output classifier to recognise the read-only
+      // `launchctl list` / `launchctl print` commands. What's banned is
+      // *installing* one, which uses load/bootstrap/enable subcommands.
+      expect(
+        code,
+        `${path} must not invoke launchctl load|bootstrap|enable`
+      ).not.toMatch(/launchctl\s+(load|bootstrap|enable|kickstart)/);
+      expect(
+        code,
+        `${path} must not reference LaunchAgents/launchd plist paths`
+      ).not.toMatch(/LaunchAgents/);
+      expect(
+        code,
+        `${path} must not name a unerr launchd plist`
+      ).not.toMatch(/com\.unerr[\w.]*\.plist/);
+    }
   });
 
-  it("Windows platform module has no Startup-folder drop", () => {
-    const src = readCode("daemon/platform-windows.ts");
-    // The classic scanner-flagged pattern: drop a .cmd into Startup.
-    expect(src).not.toMatch(/Start Menu/);
-    expect(src).not.toMatch(/[Ss]tartup\\unerrd?\.cmd/);
-    expect(src).not.toMatch(/unerrd\.cmd/);
-    expect(src).not.toMatch(/installStartupCmd/);
+  it("no source file installs a systemd user unit", () => {
+    for (const { path, code } of walkTsSources(srcRoot)) {
+      // The install-shape invocations: enable / link a unit at user scope.
+      expect(
+        code,
+        `${path} must not invoke systemctl --user enable|link`
+      ).not.toMatch(/systemctl\s+--user\s+(enable|link|reenable)/);
+      expect(
+        code,
+        `${path} must not write into ~/.config/systemd/user`
+      ).not.toMatch(/\.config\/systemd\/user/);
+      expect(
+        code,
+        `${path} must not name a unerr systemd unit`
+      ).not.toMatch(/unerrd?\.service/);
+    }
   });
 
-  it("Windows platform module does not derive exec from process.argv[1]", () => {
-    const src = readCode("daemon/platform-windows.ts");
-    // Inline argv lookups are the "exec path influenced by runtime
-    // invocation" red flag scanners specifically cite.
-    expect(src).not.toMatch(/process\.argv\[1\]/);
-    expect(src).not.toMatch(/where unerr/);
+  it("no source file references Windows scheduled tasks or Startup folder", () => {
+    for (const { path, code } of walkTsSources(srcRoot)) {
+      expect(
+        code,
+        `${path} must not invoke schtasks`
+      ).not.toMatch(/\bschtasks\b/);
+      expect(
+        code,
+        `${path} must not reference the Startup folder`
+      ).not.toMatch(/Start Menu\\\\Programs\\\\Startup/);
+      expect(
+        code,
+        `${path} must not drop a startup .cmd`
+      ).not.toMatch(/[Ss]tartup\\\\unerrd?\.cmd/);
+      expect(
+        code,
+        `${path} must not name a scheduled-task XML helper`
+      ).not.toMatch(/installScheduledTask|installStartupCmd/);
+    }
   });
 
-  it("macOS platform module does not derive exec from process.argv[1]", () => {
-    const src = readCode("daemon/platform-macos.ts");
-    expect(src).not.toMatch(/process\.argv\[1\]/);
-    expect(src).not.toMatch(/which unerr/);
+  it("install/uninstall commands carry no boot-persistence machinery", () => {
+    const install = readCode("commands/install.ts");
+    expect(install).not.toMatch(/autoInstallIfNeeded\s*\(/);
+    expect(install).not.toMatch(/installForCurrentPlatform/);
+    expect(install).not.toMatch(/from\s+["']\.\.\/daemon\/platform-/);
+    expect(install).not.toMatch(/from\s+["']\.\.\/daemon\/autostart/);
+
+    const uninstall = readCode("commands/uninstall.ts");
+    expect(uninstall).not.toMatch(/uninstallForCurrentPlatform/);
+    expect(uninstall).not.toMatch(/from\s+["']\.\.\/daemon\/platform-/);
+    expect(uninstall).not.toMatch(/from\s+["']\.\.\/daemon\/autostart/);
+    // --autostart removal was deleted; reintroducing it is a regression.
+    expect(uninstall).not.toMatch(/--autostart/);
   });
 
-  it("Linux platform module does not derive exec from process.argv[1]", () => {
-    const src = readCode("daemon/platform-linux.ts");
-    expect(src).not.toMatch(/process\.argv\[1\]/);
-    expect(src).not.toMatch(/which unerr/);
+  it("pm command exposes no enable-autostart / disable-autostart subcommands", () => {
+    const pm = readCode("commands/pm.ts");
+    expect(pm).not.toMatch(/enable-autostart/);
+    expect(pm).not.toMatch(/disable-autostart/);
+    expect(pm).not.toMatch(/autostart-status/);
+    expect(pm).not.toMatch(/installAutostart/);
   });
 
-  it("Windows scheduled task uses /XML form with author metadata", () => {
-    const src = readSrc("daemon/platform-windows.ts");
-    expect(src).toMatch(/schtasks\s+\/Create\s+\/TN.*\/XML/);
-    expect(src).toMatch(/<Author>/);
-    expect(src).toMatch(/<RegistrationInfo>/);
-    expect(src).toMatch(/LeastPrivilege/);
+  it("the bridge auto-spawns via spawn-lock, not a boot unit", () => {
+    const cli = readSrc("entrypoints/cli.ts");
+    expect(cli).toContain("tryAcquireSpawnLock");
+    expect(cli).toContain("spawn-lock.js");
+    expect(cli).toContain('"pm", "start", "--detached"');
+    // The spawn must be detached & ignore stdio — same shape as tsserver.
+    expect(cli).toContain("detached: true");
+    expect(cli).toContain('stdio: "ignore"');
   });
 
   it("npm tarball excludes test artifacts and dashboard bundle", () => {

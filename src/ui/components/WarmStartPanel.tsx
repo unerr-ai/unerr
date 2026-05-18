@@ -35,8 +35,8 @@ const statusIcons: Record<string, string> = {
 
 export function WarmStartPanel() {
   const { data, isLoading } = useQuery<WarmStartInfo>({
-    queryKey: ["daemon", "warm-start"],
-    queryFn: () => fetchJson("/api/daemon/warm-start"),
+    queryKey: ["pm", "warm-start"],
+    queryFn: () => fetchJson("/api/pm/warm-start"),
     refetchInterval: 30_000,
   });
 

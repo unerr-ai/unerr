@@ -35,6 +35,12 @@ import {
   removeRepo,
 } from "../daemon/registry.js";
 import { installFileLogger } from "../utils/file-logger.js";
+import {
+  cleanupLegacyLogs,
+  getOrCreateSid,
+  globalLog,
+  globalLogsDir,
+} from "../utils/log-paths.js";
 
 // ── Paths ───────────────────────────────────────────────────────
 
@@ -273,10 +279,10 @@ export async function startDaemon(opts: {
   background?: boolean;
 }): Promise<void> {
   // Install file logger as first action
-  const logsDir = join(globalDir(), "logs");
-  if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
+  getOrCreateSid();
+  cleanupLegacyLogs(globalLogsDir(globalDir()));
   installFileLogger({
-    filePath: join(logsDir, "unerrd.log"),
+    filePath: globalLog.unerrd(globalDir()),
     maxBytes: 10_000_000,
     keep: 5,
   });
@@ -402,20 +408,10 @@ export async function startDaemon(opts: {
     log.warn(`Warm-start scheduler failed: ${(err as Error).message}`);
   }
 
-  // Start periodic version checking (non-critical)
-  let cancelVersionCheck: (() => void) | null = null;
-  try {
-    const { startPeriodicCheck } = await import("../daemon/version-checker.js");
-    cancelVersionCheck = startPeriodicCheck();
-  } catch (err) {
-    log.warn(`Version checker failed: ${(err as Error).message}`);
-  }
-
-  // Add warm-start + version-check cancellation to shutdown
+  // Add warm-start cancellation to shutdown
   const origShutdown = shutdown;
   const wrappedShutdown = async (reason: string) => {
     cancelWarmStart?.();
-    cancelVersionCheck?.();
     await origShutdown(reason);
   };
   process.removeAllListeners("SIGTERM");

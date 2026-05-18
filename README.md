@@ -110,7 +110,7 @@ The agent reads from the same store through MCP — every claim on the dashboard
 
 ## Quick Start
 
-Four steps. Steps 1–2 happen once per machine; steps 3–4 are per repo.
+Three steps. Step 1 is once per machine; steps 2–3 are per repo.
 
 ### 1. Install the CLI
 
@@ -120,88 +120,20 @@ npm install -g @unerr-ai/unerr
 
 Puts the `unerr` binary on your PATH. If the global `npm` directory isn't already in your shell's PATH (common with nvm, fnm, volta, pnpm), run `unerr doctor` once — it patches your shell config and won't need to run again.
 
-### 2. Start the supervisor
-
-```bash
-unerr daemon initialize
-```
-
-Starts `unerrd` and prompts you to register it for start-at-login. Autostart is **opt-in** — answer no if you'd rather invoke `unerr daemon start` yourself each session. You only need this step once per machine.
-
-> **Dashboard is now live at <http://localhost:9847>.** Open it any time to watch token savings, reasoning quality, and the codebase map update as your agent works. Standalone mode (no daemon) uses a per-repo port instead — `unerr status` prints it.
-
-> Working in a single repo and don't want a long-lived supervisor? Skip this step. After step 3, run `unerr` (no args) inside the repo — it spawns a standalone per-repo proxy instead.
-
-### 3. Install for your agent (per repo)
+### 2. Install for your agent (per repo)
 
 ```bash
 cd ~/your-project
 unerr install cursor
 ```
 
-Writes the MCP config + skills + hooks + instructions for your agent. With the daemon already running (step 2), this also registers the repo and starts the per-repo process. Swap `cursor` for any of the [supported agents](#supported-agents): `claude-code`, `windsurf`, `gemini-cli`, `antigravity`, `github-copilot-cli`.
+Writes the MCP config, skills, hooks, and instructions for that agent in the current repo. Swap `cursor` for any of the [supported agents](#supported-agents): `claude-code`, `windsurf`, `gemini-cli`, `antigravity`, `github-copilot-cli`.
 
-### 4. Restart your IDE
+### 3. Restart your IDE
 
-Close and reopen your IDE (or start a new chat session). On reconnect it spawns `unerr --mcp`, which connects to the running daemon over a Unix socket. Your agent now has graph-backed tools.
+Close and reopen your IDE (or start a new chat session). Your agent picks up unerr through MCP — graph-backed tools, persistent memory, shell compression all available immediately.
 
-> **The daemon must be running before step 4.** `unerr --mcp` polls for the daemon socket — it does **not** auto-spawn `unerrd`. If your IDE hangs on MCP tool calls after restart, run `unerr daemon status` to confirm the supervisor is up.
-
-<details>
-<summary><strong>Standalone vs daemon — which mode am I in?</strong></summary>
-
-Both work out of the box; you don't have to choose up front.
-
-<table>
-<tr>
-<th width="50%">Standalone (default — single repo)</th>
-<th width="50%">Daemon (recommended for multi-repo)</th>
-</tr>
-<tr>
-<td>
-
-```bash
-cd ~/project
-unerr install cursor   # install MCP config + skills
-unerr                  # start per-repo process (optional —
-                       #   IDE auto-spawns this on first MCP call)
-```
-
-One `unerr` process per repo, auto-spawned by `unerr --mcp` on first IDE connection. No background services. Good for single-project workflows.
-
-</td>
-<td>
-
-```bash
-unerr daemon initialize       # one-time: register at boot + start
-cd ~/project
-unerr install cursor          # install config + register repo
-# done — IDE auto-connects via unerrd
-```
-
-A single `unerrd` supervisor manages every registered repo. Starts at login, spawns per-repo children on demand, idles unused ones, unified dashboard at `localhost:9847`.
-
-</td>
-</tr>
-</table>
-
-You can promote from standalone to daemon at any time by running `unerr daemon initialize` — existing repo installs are picked up automatically.
-
-</details>
-
-<details>
-<summary><strong>What each command does (no hidden behaviors)</strong></summary>
-
-| Command | What it does | What it does NOT do |
-|---------|------|------|
-| `unerr install <agent>` | MCP config + skills + hooks + instructions + gitignore. If unerrd running: registers the repo | Start unerrd, register autostart, start per-repo process |
-| `unerr` (no args) | Starts a standalone per-repo proxy | Touch the daemon |
-| `unerr --mcp` | Bridges to running process (standalone or daemon-managed); auto-spawns supervisor if needed | Register autostart |
-| `unerr daemon initialize` | Registers unerrd at boot (launchd/systemd/schtasks) + starts it | - |
-| `unerr daemon enable-autostart` | Opt-in registration of the boot unit only (no daemon start). Prompts on TTY, `--yes` to skip | Start unerrd |
-| `unerr doctor` | Detects and fixes PATH issues so `unerr` resolves in every shell | Change daemon state |
-
-</details>
+> **Dashboard:** <http://localhost:9847> — open any time to watch token savings, reasoning quality, and the codebase map update as your agent works.
 
 ### Supported agents
 
@@ -214,11 +146,11 @@ unerr install gemini-cli         # → .gemini/settings.json + GEMINI.md + .gemi
 unerr install github-copilot-cli # → .copilot/mcp-config.json + .github/copilot-instructions.md + .github/skills/
 ```
 
-You can install multiple agents in the same repo — each writes its own config, the repo is registered once:
+Install multiple agents in the same repo — each writes its own config:
 
 ```bash
-unerr install cursor        # registers repo (if daemon running), writes cursor config
-unerr install claude-code   # skips registration (already done), writes claude-code config
+unerr install cursor
+unerr install claude-code
 ```
 
 > Need manual setup? `unerr install --show-instructions <agent>` prints copy-pasteable steps.
@@ -240,17 +172,16 @@ unerr install claude-code   # skips registration (already done), writes claude-c
 </details>
 
 <details>
-<summary>What <code>unerr install</code> does (detailed)</summary>
+<summary>What <code>unerr install</code> writes</summary>
 
-| Step | What | File(s) written |
-|------|------|------|
-| MCP config | Agent-specific config pointing to `unerr --mcp` | `.mcp.json`, `.cursor/mcp.json`, etc. |
-| Skills | 12 skill definitions teaching the agent when to use each tool | `.claude/skills/`, `.cursor/rules/`, etc. |
-| Instructions | Tool-routing table injected into agent instruction file | `CLAUDE.md`, `.cursor/rules/unerr-instructions.mdc` |
-| Hooks | Shell compression + tool-adoption nudging | `.claude/settings.json`, `.cursor/hooks.json` |
-| Repo registration | If unerrd is running: registers repo with supervisor | Only when daemon is active |
-| Gitignore | Ensures `.unerr/` isn't committed | `.gitignore` |
-| Force tools | Claude Code only: denies built-in Read/Grep/Glob (opt out: `--no-force-tools`) | `.claude/settings.json` |
+| Item | File(s) |
+|------|------|
+| MCP config pointing to `unerr --mcp` | `.mcp.json`, `.cursor/mcp.json`, … |
+| Skills — 12 definitions teaching the agent when to use each tool | `.claude/skills/`, `.cursor/rules/`, … |
+| Instructions — tool-routing table injected into the agent's instruction file | `CLAUDE.md`, `.cursor/rules/unerr-instructions.mdc` |
+| Hooks — shell compression + tool-adoption nudging | `.claude/settings.json`, `.cursor/hooks.json` |
+| Gitignore — keeps `.unerr/` out of commits | `.gitignore` |
+| Force tools (Claude Code only) — denies built-in Read/Grep/Glob so the agent uses graph tools. Opt out with `--no-force-tools`. | `.claude/settings.json` |
 
 Idempotent — re-running updates if content changed, skips if identical. Remove with `unerr uninstall`.
 
@@ -277,9 +208,9 @@ Idempotent — re-running updates if content changed, skips if identical. Remove
 - **Loop prevention** — a circuit breaker fires after repeated failed attempts on the same entity, surfacing the failure mode instead of letting the agent thrash.
 - **Memory-effectiveness scoring** — every fact and convention opens a 5-turn observation window and resolves to a verdict (reinforced / acted_on / caught / ignored / corrected). The Reasoning Quality pane shows the **load-bearing rate** — not just how much the agent remembered, but how much of it actually mattered.
 
-### Daemon mode — automated behaviors
+### Background behaviors
 
-When `unerr` is running long-lived, these activate in the background:
+While unerr is running these activate automatically — no extra commands:
 
 - **Architecture guard** — flags structural violations before they ship.
 - **Cascade guard** — warns when an edit has wide blast radius.
@@ -355,20 +286,23 @@ AI Agent (Claude Code / Cursor / Windsurf / any MCP client)
     │
     ├── stdio MCP ──→ unerr --mcp (bridge, per IDE session)
     │                       │
-    │                       └── UDS ──→ unerr (long-lived daemon, owns everything)
+    │                       └── UDS ──→ unerrd (lightweight Node process,
+    │                                           one per machine, auto-spawned)
     │                                       │
-    │                                       ├── CozoDB graph     (in-process, <5ms)
-    │                                       ├── Fact store       (cross-session memory)
-    │                                       ├── Timeline + ledger (every tool call)
-    │                                       ├── File watcher     (incremental reindex)
-    │                                       ├── Convention engine
-    │                                       ├── Compression engine (11 strategies, 645+ classifiers)
-    │                                       └── Behavior modules (cascade-guard, loop-breaker, auto-doc…)
+    │                                       └── per-repo unerr process(es)
+    │                                              │
+    │                                              ├── CozoDB graph     (in-process, <5ms)
+    │                                              ├── Fact store       (cross-session memory)
+    │                                              ├── Timeline + ledger (every tool call)
+    │                                              ├── File watcher     (incremental reindex)
+    │                                              ├── Convention engine
+    │                                              ├── Compression engine (11 strategies, 645+ classifiers)
+    │                                              └── Behavior modules (cascade-guard, loop-breaker, auto-doc…)
     │
-    └── Dashboard ──→ http://localhost:<port> (SSE-streamed live)
+    └── Dashboard ──→ http://localhost:9847 (SSE-streamed live)
 ```
 
-Two processes, one local DB. Zero network calls. No API keys. No cloud. Your code never leaves the machine.
+One local DB per repo. Zero network calls. No API keys. No cloud. Your code never leaves the machine.
 
 ---
 
@@ -428,33 +362,17 @@ Every response includes `_meta` (latency, risk level, drift status) and inline `
 <summary><strong>CLI commands</strong></summary>
 
 ```bash
-unerr                 # Start per-repo daemon (or resume; auto-spawned by IDE if missing)
-unerr --mcp           # Stdio bridge — what your IDE invokes via .mcp.json
-unerr doctor          # Check PATH + environment; auto-fix if unerr isn't in all terminals
-unerr install <agent> # Install MCP config + skills + instructions for one agent
-unerr uninstall       # Remove unerr integration from agents in this repo
-unerr status          # Show proxy health, entity count, graph age
+unerr install <agent> # MCP config + skills + hooks + instructions for one agent
+unerr uninstall       # Remove unerr integration from this repo
+unerr doctor          # Check PATH + environment, auto-fix if unerr isn't on all shells
+unerr status          # Proxy health, entity count, graph age
 unerr stats           # Session statistics (tokens, tool calls, compression)
+
+unerr --mcp           # Stdio bridge — what your IDE invokes via .mcp.json
+unerr                 # Start a standalone per-repo proxy (rare — IDE invocation covers this)
 ```
 
-**Daemon supervisor** (multi-repo management):
-
-```bash
-unerr daemon start              # Start the unerrd supervisor
-unerr daemon stop               # Gracefully stop unerrd + all managed repos
-unerr daemon status             # Show all managed repos, PIDs, memory, idle time
-unerr daemon add <path>         # Register a repo (indexes on next access)
-unerr daemon remove <path>      # Unregister a repo
-unerr daemon config <path> <k=v> # Set per-repo settings (idleTimeout, javaBuildTool, etc.)
-unerr daemon enable-autostart   # Opt-in: register start-at-login (launchd/systemd/schtasks)
-unerr daemon disable-autostart  # Remove the start-at-login registration
-unerr daemon autostart-status   # Show whether auto-start is installed
-unerr daemon logs [--repo <path>] [--follow]  # Tail daemon/repo logs
-unerr daemon dashboard          # Open the unified dashboard in browser
-unerr daemon update             # Check for updates, install, restart
-```
-
-See the [full command reference](#daemon-command-reference) below.
+`unerr pm …` manages the cross-repo `unerrd` process — see the [reference](#process-manager-command-reference) below.
 
 </details>
 
@@ -464,16 +382,17 @@ See the [full command reference](#daemon-command-reference) below.
 ```
 src/
   entrypoints/   CLI entry + boot state machine
-  proxy/         MCP server (daemon), stdio↔UDS bridge, session stats, shell compression
+  proxy/         Per-repo MCP server, stdio↔UDS bridge, session stats, shell compression
+  daemon/        Process manager (unerrd) — registry, supervisor, spawn lock, HTTP API
   intelligence/  CozoDB graph, AST extraction, conventions, rules, search, semantic
   tracking/      Prompt ledger, drift detection, git attribution
   behaviors/     Cascade guard, loop breaker, auto-doc, change narrative…
-  commands/      CLI commands (install, status, stats, timeline, learn, debug, …)
+  commands/      CLI commands (install, status, stats, pm, debug, …)
   tools/         MCP tool implementations (intelligence + coding)
   hooks/         Claude Code hook system integration
-  skills/        11 bundled skill definitions
+  skills/        12 bundled skill definitions
   server/ + ui/  HTTP API + React (Vite) dashboard
-  config/        Agent registry (16 agents), MCP config writer, instruction injector
+  config/        Agent registry, MCP config writer, instruction injector
   schemas/       Zod schemas
 ```
 
@@ -522,124 +441,30 @@ See [CLAUDE.md](./CLAUDE.md) for full conventions.
 
 ---
 
-## Daemon Command Reference
+## Process Manager Command Reference
 
-The `unerrd` supervisor is a single lightweight process that manages all your registered repositories. It replaces the need to run `unerr` separately in each repo.
-
-### Lifecycle
+`unerrd` is a lightweight Node process that supervises every registered repo. Your IDE invocation auto-spawns it; it exits cleanly after 30 minutes of no MCP activity. You rarely run these commands directly, but they're here when you want a look under the hood.
 
 ```bash
-unerr daemon start              # Start supervisor (PID-locked, one instance per machine)
-unerr daemon stop               # Graceful shutdown — stops all child processes, flushes state
-unerr daemon status             # Overview: all repos, their state (running/stopped/idle), PIDs,
-                                #   memory usage, connection count, idle time, update notices
+unerr pm status                       # PID, uptime, repos, memory, idle countdown
+unerr pm start                        # Start manually (auto-spawn usually covers this)
+unerr pm stop                         # Graceful shutdown — stops children, flushes state
+
+unerr pm add <path>                   # Register a repo (auto-registered on first MCP call)
+unerr pm remove <path>                # Unregister a repo
+unerr pm config <path> <key>=<value>  # Per-repo settings (idleTimeout, javaBuildTool, …)
+
+unerr pm logs                         # Tail ~/.unerr/logs/unerrd.log
+unerr pm logs --repo <path>           # Tail a specific repo's log
+unerr pm logs --bridge --follow       # Stream bridge session logs continuously
+unerr pm logs --boot                  # Most recent spawn sequence only
+
+unerr pm dashboard                    # Open http://localhost:9847 in your browser
 ```
 
-### Repository Management
+**Dashboard** shows the global overview (registered repos, health, active sessions), a repo switcher into each repo's full intelligence dashboard, and process-manager info (uptime, memory, idle countdown).
 
-```bash
-unerr daemon add <path>         # Register a repo with the supervisor
-                                #   - Auto-derives a unique label from the directory name
-                                #   - Mirrors settings to <repo>/.unerr/config.json
-                                #   - Detects parent/child directory conflicts
-                                #   - Installs platform auto-start on first add
-
-unerr daemon remove <path>      # Unregister — stops the child process if running, removes entry
-
-unerr daemon config <path> <key>=<value>  # Set per-repo settings:
-                                #   idleTimeout=600       seconds before idle sweep stops the repo
-                                #   javaBuildTool=gradle  skip detection heuristic
-                                #   autostart=false       exclude from warm-start at boot
-```
-
-### Auto-Start (Start at Login)
-
-Auto-start is **opt-in**. `unerr install <agent>` never registers a boot-time
-launch unit on its own — the install flow prints a hint pointing to the
-explicit command below. This avoids triggering EDR/AV persistence heuristics
-that fire on any package which silently writes a launch unit at install time.
-
-```bash
-unerr daemon enable-autostart   # Register platform service (prompts unless --yes):
-                                #   macOS:   ~/Library/LaunchAgents/com.unerr.daemon.plist
-                                #   Linux:   ~/.config/systemd/user/unerrd.service
-                                #   Windows: scheduled task "Unerr Daemon" (schtasks /XML)
-                                # All units run in user context, no admin/sudo.
-
-unerr daemon disable-autostart  # Remove the platform service
-unerr daemon autostart-status   # Show whether auto-start is installed
-```
-
-The Windows path uses **only** the per-user scheduled task — there is no
-Startup-folder `.cmd` fallback. If `schtasks` fails, registration fails
-cleanly; you can still run `unerr daemon start` to run the supervisor for
-the current session.
-
-The scheduled task XML carries `<Author>@unerr-ai/unerr</Author>`,
-`<Source>https://www.npmjs.com/package/@unerr-ai/unerr</Source>`, and
-`<RunLevel>LeastPrivilege</RunLevel>` so EDR tooling can attribute the
-unit to this package.
-
-### Warm Start
-
-After boot, the supervisor pre-spawns your Most Recently Used repos at low priority:
-
-```bash
-unerr daemon set --warm-start-budget 3      # Max repos to warm-start (default: 3)
-unerr daemon set --warm-start-idle-days 7   # Skip repos inactive for >N days
-unerr daemon set --warm-start-delay-ms 5000 # Delay before warm-start begins
-```
-
-Warm-start aborts if the system is on battery or under high load.
-
-### Logs
-
-```bash
-unerr daemon logs                     # Tail the supervisor log (~/.unerr/logs/unerrd.log)
-unerr daemon logs --repo <path>       # Tail a specific repo's log
-unerr daemon logs --bridge            # Tail bridge session logs
-unerr daemon logs --follow            # Stream continuously (like tail -f)
-unerr daemon logs -n 50              # Last N lines
-unerr daemon logs --boot              # Show only the most recent boot sequence
-```
-
-### Dashboard
-
-```bash
-unerr daemon dashboard          # Opens http://localhost:9847 in your default browser
-```
-
-The unified dashboard shows:
-- **Global overview** — all registered repos, their health, active sessions
-- **Repo switcher** — click into any repo for its full intelligence dashboard
-- **Supervisor info** — uptime, memory, warm-start events, version status
-
-### Updates
-
-```bash
-unerr daemon update             # Check npm registry → confirm → stop → install → restart → verify
-unerr daemon dismiss-update <version>  # Suppress notification for a specific version
-```
-
-Update notifications appear as:
-- A CLI banner on `unerr daemon status` and `unerr` startup
-- A dashboard banner with version diff and changelog link
-- An `_meta["dev.unerr/update_available"]` field in MCP responses (when >2 minor versions behind)
-
-Updates are never auto-applied — the agent and supervisor remain stable mid-session.
-
-### How the bridge finds the daemon
-
-When your IDE opens and spawns `unerr --mcp`:
-
-1. Bridge polls for a per-repo standalone socket (`.unerr/state/proxy.sock`)
-2. If not found, polls for the supervisor socket (`~/.unerr/state/unerrd.sock`)
-3. When the supervisor responds, asks it to ensure the per-repo process is running
-4. Bridge connects to the per-repo proxy — MCP requests flow through
-
-If neither socket exists, the bridge retries with exponential backoff until one appears. **The bridge never spawns `unerrd`** — that's an explicit user action via `unerr daemon initialize` (one-time, with optional autostart-at-login) or `unerr daemon start` (session-only). If your IDE hangs waiting for MCP tools after restart, that's typically the cause — run `unerr daemon status` to confirm the supervisor is up.
-
-Once a daemon is running, connect time is dominated by the local Unix socket round-trip (sub-second in practice).
+**Updates** — `npm i -g @unerr-ai/unerr` and restart the IDE. The next bridge invocation re-spawns the manager on the new version.
 
 ---
 

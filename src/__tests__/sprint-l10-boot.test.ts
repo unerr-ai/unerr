@@ -12,7 +12,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -53,18 +52,16 @@ describe("Session Logger", () => {
     logger.info({ module: "test", msg: "hello world" });
     flushSessionLogger();
 
-    // Give pino async transport a moment to flush
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     const logPath = getSessionLogPath();
     expect(logPath).toBeTruthy();
     expect(existsSync(logPath!)).toBe(true);
 
-    // Verify path is under .unerr/logs/
-    expect(logPath!).toContain(join(".unerr", "logs", "session-"));
-    expect(logPath!).toMatch(/\.log$/);
+    // Canonical filename — no PID, no timestamp.
+    expect(logPath!).toBe(join(tempDir, ".unerr", "logs", "session.log"));
 
-    // Verify NDJSON format — each line is valid JSON
+    // Verify NDJSON format — each line is valid JSON with pid + sid.
     const content = readFileSync(logPath!, "utf-8").trim();
     const lines = content.split("\n").filter((l) => l.trim());
     expect(lines.length).toBeGreaterThanOrEqual(1);
@@ -72,7 +69,8 @@ describe("Session Logger", () => {
     for (const line of lines) {
       const parsed = JSON.parse(line);
       expect(parsed).toHaveProperty("level");
-      expect(parsed).toHaveProperty("session_id");
+      expect(parsed).toHaveProperty("pid");
+      expect(parsed).toHaveProperty("sid");
     }
   });
 
@@ -112,51 +110,12 @@ describe("Session Logger", () => {
     expect(bootLine).toBeTruthy();
   });
 
-  it("getSessionId returns a UUID-format string", async () => {
+  it("getSessionId returns the 6-char hex lineage sid", async () => {
     vi.resetModules();
+    process.env.UNERR_SID = undefined;
     const { getSessionId } = await import("../utils/session-logger.js");
     const id = getSessionId();
-    expect(id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-    );
-  });
-
-  it("cleanup removes files older than retention period", async () => {
-    vi.resetModules();
-
-    // Create fake old log files
-    const logsDir = join(tempDir, ".unerr", "logs");
-    mkdirSync(logsDir, { recursive: true });
-
-    // Create 12 fake log files (exceeds MAX_FILES of 10)
-    for (let i = 0; i < 12; i++) {
-      const fakePath = join(
-        logsDir,
-        `session-2020-01-${String(i + 1).padStart(2, "0")}-120000.log`
-      );
-      writeFileSync(fakePath, `{"level":"info","msg":"old"}\n`);
-      // Set mtime to 60 days ago
-      const oldTime = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
-      const { utimesSync } = await import("node:fs");
-      utimesSync(fakePath, oldTime, oldTime);
-    }
-
-    // Init logger triggers cleanup
-    const { initSessionLogger, flushSessionLogger } = await import(
-      "../utils/session-logger.js"
-    );
-    initSessionLogger({ cwd: tempDir });
-    flushSessionLogger();
-
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // Old files should be cleaned up (>30 days)
-    const remaining = readdirSync(logsDir).filter(
-      (f) => f.startsWith("session-") && f.endsWith(".log")
-    );
-    // Should have at most MAX_FILES (10) + 1 new session log, but old ones (>30 days) deleted
-    // The 12 old files are all >30 days, so they get deleted. Only the new session log remains.
-    expect(remaining.length).toBeLessThanOrEqual(2); // new session + maybe 1 surviving
+    expect(id).toMatch(/^[a-f0-9]{6}$/);
   });
 });
 

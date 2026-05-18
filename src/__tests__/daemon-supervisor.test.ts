@@ -423,20 +423,20 @@ describe("ProxyOptions daemonChild", () => {
   });
 });
 
-// ── daemon.ts CLI start/stop commands ──────────────────────────────
+// ── pm.ts CLI start/stop commands ──────────────────────────────────
 
-describe("Daemon CLI commands", () => {
-  it("daemon.ts registers start and stop subcommands", async () => {
+describe("Process-manager CLI commands", () => {
+  it("pm.ts registers start and stop subcommands", async () => {
     const { readFileSync: readSync } = await import("node:fs");
     const { resolve: res } = await import("node:path");
     const content = readSync(
-      res(process.cwd(), "src/commands/daemon.ts"),
+      res(process.cwd(), "src/commands/pm.ts"),
       "utf-8"
     );
 
     expect(content).toContain('.command("start")');
     expect(content).toContain('.command("stop")');
-    expect(content).toContain("--background");
+    expect(content).toContain("--detached");
     expect(content).toContain("startDaemon");
   });
 });

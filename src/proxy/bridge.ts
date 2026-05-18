@@ -38,8 +38,17 @@ export interface BridgeResult {
  *
  * Safe to call multiple times (reconnect loop). Each call removes its
  * stdin listeners on cleanup so they don't accumulate across retries.
+ *
+ * `preBufferedChunks` carries any stdin data captured before the bridge
+ * could connect (e.g. while mcpBoot was auto-spawning the supervisor).
+ * The caller is expected to detach its capture handler and pass the
+ * buffer in; we drain it into the socket immediately after connect so
+ * the first MCP frame (`initialize`) isn't lost.
  */
-export function startUdsBridge(sockPath: string): Promise<BridgeResult> {
+export function startUdsBridge(
+  sockPath: string,
+  preBufferedChunks?: Buffer[]
+): Promise<BridgeResult> {
   return new Promise((resolve) => {
     const socket: Socket = connect(sockPath);
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
@@ -67,6 +76,16 @@ export function startUdsBridge(sockPath: string): Promise<BridgeResult> {
 
     socket.on("connect", () => {
       log.info(`Connected to proxy at ${sockPath}`);
+
+      // Drain frames the caller captured before we could connect (e.g. the
+      // IDE's `initialize` arriving during auto-spawn). Order is preserved.
+      if (preBufferedChunks && preBufferedChunks.length > 0) {
+        log.info(`Draining ${preBufferedChunks.length} pre-buffered chunk(s)`);
+        for (const chunk of preBufferedChunks) {
+          if (!socket.destroyed) socket.write(chunk);
+        }
+        preBufferedChunks.length = 0;
+      }
 
       // stdin → UDS: forward MCP requests from IDE to proxy
       stdinDataHandler = (chunk: Buffer) => {

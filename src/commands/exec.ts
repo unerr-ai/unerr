@@ -14,6 +14,7 @@ import { formatDriftNudge, isDriftCommand } from "../proxy/drift-detector.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { compressShellOutput } from "../proxy/shell-compressor.js";
 import { exec } from "../utils/exec.js";
+import { getOrCreateSid } from "../utils/log-paths.js";
 import { initFileLog, startupLog } from "../utils/startup-log.js";
 
 // ── Exec nudge — rotating tool adoption reminder appended to stdout ──
@@ -173,6 +174,7 @@ export async function runExecMain(argv: string[]): Promise<number> {
     return 1;
   }
 
+  getOrCreateSid();
   initFileLog(process.cwd());
 
   // Use the user's actual shell (not hardcoded bash) so nvm/fnm/volta load correctly

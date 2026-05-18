@@ -4,12 +4,12 @@
  *
  * Three streams (compression, token_flow, file_read) live in `.unerr/metrics.db`
  * and are polled by `id > lastSeen` every `pollIntervalMs` (default 500ms).
- * One stream (`logs/unerr.jsonl`) stays JSONL and is tailed via `fs.watch`.
+ * One stream (`logs/events.jsonl`) stays JSONL and is tailed via `fs.watch`.
  *
  * Why this shape: SQLite gives ordered-by-id polling for free, so we no
  * longer have to track byte offsets or worry about partial writes. The
  * remaining JSONL file is structured log output that doesn't need indexed
- * aggregation, so leaving it as a flat file keeps `tail -f .../unerr.jsonl`
+ * aggregation, so leaving it as a flat file keeps `tail -f .../events.jsonl`
  * useful for debugging.
  */
 
@@ -121,7 +121,7 @@ function printFileReadEntry(entry: Record<string, unknown>): void {
   );
 }
 
-/** Format and print a general unerr.jsonl entry from child processes. */
+/** Format and print a general events.jsonl entry from child processes. */
 function printGeneralEntry(entry: Record<string, unknown>): void {
   const pid = Number(entry.pid ?? 0);
   // Only relay entries from OTHER processes (not our own PID)
@@ -240,7 +240,7 @@ function tokenFlowRowToEntry(r: TokenFlowEventRow): Record<string, unknown> {
  *
  *   - compression / token_flow / file_read: polled from `.unerr/metrics.db`
  *     via `id > lastSeen` (no offsets, no partial-read races).
- *   - unerr.jsonl: still `fs.watch`-tailed — it's a flat structured log,
+ *   - events.jsonl: still `fs.watch`-tailed — it's a flat structured log,
  *     not a metric stream.
  */
 export function startLogTailer(
@@ -249,10 +249,10 @@ export function startLogTailer(
 ): LogTailerHandle {
   const unerrDir = join(cwd, ".unerr");
   const logsDir = join(unerrDir, "logs");
-  const generalPath = join(logsDir, "unerr.jsonl");
+  const generalPath = join(logsDir, "events.jsonl");
   const pollIntervalMs = options?.pollIntervalMs ?? 500;
 
-  // ── JSONL path: unerr.jsonl via fs.watch + offset ────────────────
+  // ── JSONL path: events.jsonl via fs.watch + offset ────────────────
   const generalState: TailState = {
     path: generalPath,
     offset: existsSync(generalPath) ? statSync(generalPath).size : 0,
@@ -308,7 +308,7 @@ export function startLogTailer(
   }, pollIntervalMs);
   sqlPoll.unref();
 
-  // ── JSONL poll fallback (unerr.jsonl appears after startup) ──────
+  // ── JSONL poll fallback (events.jsonl appears after startup) ──────
   const jsonlPoll = setInterval(() => {
     if (!generalState.watcher && existsSync(generalState.path)) {
       try {

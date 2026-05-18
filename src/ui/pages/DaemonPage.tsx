@@ -31,13 +31,13 @@ function formatUptime(seconds: number): string {
 
 export function DaemonPage() {
   const { data: daemon } = useQuery<DaemonInfo>({
-    queryKey: ["daemon", "info"],
-    queryFn: () => fetchJson("/api/daemon"),
+    queryKey: ["pm", "info"],
+    queryFn: () => fetchJson("/api/pm"),
     refetchInterval: 10_000,
   });
 
   const { data: reposData } = useQuery<{ repos: RepoStatusEntry[] }>({
-    queryKey: ["daemon", "repos"],
+    queryKey: ["pm", "repos"],
     queryFn: () => fetchJson("/api/repos"),
     refetchInterval: 5000,
   });
@@ -46,11 +46,11 @@ export function DaemonPage() {
 
   return (
     <div className="space-y-6">
-      {/* Daemon info */}
+      {/* Process manager info */}
       {daemon && (
         <div className="el-raised rounded-lg p-6">
           <h2 className="text-lg font-semibold text-foreground-emphasis mb-4">
-            Supervisor
+            Process Manager
           </h2>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4 text-sm">
             <div>
@@ -87,7 +87,7 @@ export function DaemonPage() {
         {repos.length === 0 ? (
           <p className="t-tertiary text-sm">
             No repos registered. Run{" "}
-            <code className="font-mono">unerr daemon add .</code> from a
+            <code className="font-mono">unerr pm add .</code> from a
             project.
           </p>
         ) : (

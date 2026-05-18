@@ -12,14 +12,14 @@ describe("startup-log file logging", () => {
     tmpDir = join(os.tmpdir(), `unerr-log-test-${Date.now()}`);
     mkdirSync(tmpDir, { recursive: true });
     initFileLog(tmpDir);
-    logPath = join(tmpDir, ".unerr", "logs", "unerr.jsonl");
+    logPath = join(tmpDir, ".unerr", "logs", "events.jsonl");
   });
 
   afterEach(() => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("creates .unerr/logs/unerr.jsonl on initFileLog", () => {
+  it("creates .unerr/logs/events.jsonl on initFileLog", () => {
     // initFileLog creates the directory; file created on first write
     startupLog.step("test step");
     expect(existsSync(logPath)).toBe(true);

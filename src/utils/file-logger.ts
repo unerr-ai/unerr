@@ -1,16 +1,23 @@
 /**
- * Layer 12 / DM-0: rotating stderr → file mirror.
+ * Rotating stderr → file mirror.
  *
  * Tees every `process.stderr.write` call to a `.log` file on disk so the
- * three Layer-12 processes (`unerrd`, `unerr`, `unerr --mcp`) still produce
- * inspectable output when they leave the foreground (auto-spawn from DM-3,
- * stdio-only IDE bridge, etc.).
+ * three processes (`unerrd`, `unerr`, `unerr --mcp`) still produce
+ * inspectable output when they leave the foreground.
+ *
+ * Filenames are stable (no PID, no timestamp) — multiple processes share
+ * one file via O_APPEND. POSIX `appendFileSync` is atomic for chunks
+ * smaller than `PIPE_BUF`, which covers every line we write.
+ *
+ * Each written chunk is prefixed with `[pid=N sid=xxxxxx]` so the consumer
+ * can disambiguate processes inside a shared file. The `sid` is the
+ * spawn-lineage correlation ID from `log-paths.ts`.
  *
  * Rotation: when the current file passes `maxBytes`, rename `*.log` →
  * `*.log.1` (shift the rest), keep the last `keep` files, drop the oldest.
  *
  * Independent of `startupLog`: that tool writes structured JSONL events
- * (`unerr.jsonl`); this one mirrors the raw stderr byte stream (`*.log`).
+ * (`events.jsonl`); this one mirrors the raw stderr byte stream (`*.log`).
  */
 
 import {
@@ -22,6 +29,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import { getOrCreateSid } from "./log-paths.js";
 
 export interface FileLoggerOptions {
   filePath: string;
@@ -29,6 +37,13 @@ export interface FileLoggerOptions {
   maxBytes?: number;
   /** Default 5. Number of rotated files to retain (`*.log.1` … `*.log.N`). */
   keep?: number;
+  /**
+   * If true (default), prefix each line with `[pid=N sid=xxxxxx]`. The
+   * prefix is what makes a shared file readable across processes.
+   *
+   * Disable only for tests, or for streams that are already structured.
+   */
+  prefix?: boolean;
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape codes are control characters by definition.
@@ -59,15 +74,31 @@ function rotate(filePath: string, keep: number): void {
 }
 
 /**
+ * Insert the per-process prefix at the start of every line in `text`.
+ * A trailing `\n` is preserved verbatim.
+ */
+function prefixLines(text: string, prefix: string): string {
+  if (text.length === 0) return text;
+  const endsWithNewline = text.endsWith("\n");
+  const body = endsWithNewline ? text.slice(0, -1) : text;
+  const prefixed = body
+    .split("\n")
+    .map((line) => (line.length === 0 ? line : prefix + line))
+    .join("\n");
+  return endsWithNewline ? `${prefixed}\n` : prefixed;
+}
+
+/**
  * Mirror `process.stderr.write` to `filePath` with ANSI codes stripped.
  * Returns an uninstaller that restores the original `stderr.write`.
- *
- * Side effects: ensures `dirname(filePath)` exists, opens the file in append
- * mode, never closes it (process lifetime). Terminal stderr is unchanged —
- * the original colored bytes still reach the TTY.
  */
 export function installFileLogger(opts: FileLoggerOptions): () => void {
-  const { filePath, maxBytes = 5_000_000, keep = 5 } = opts;
+  const {
+    filePath,
+    maxBytes = 5_000_000,
+    keep = 5,
+    prefix: usePrefix = true,
+  } = opts;
   mkdirSync(dirname(filePath), { recursive: true });
 
   let bytesWritten = 0;
@@ -76,6 +107,10 @@ export function installFileLogger(opts: FileLoggerOptions): () => void {
   } catch {
     /* file doesn't exist yet */
   }
+
+  const linePrefix = usePrefix
+    ? `[pid=${process.pid} sid=${getOrCreateSid()}] `
+    : "";
 
   const original = process.stderr.write;
   const bound = original.bind(process.stderr);
@@ -92,9 +127,10 @@ export function installFileLogger(opts: FileLoggerOptions): () => void {
           ? chunk
           : Buffer.from(chunk).toString("utf-8");
       const clean = stripAnsi(text);
-      appendFileSync(filePath, clean);
+      const out = usePrefix ? prefixLines(clean, linePrefix) : clean;
+      appendFileSync(filePath, out);
 
-      bytesWritten += clean.length;
+      bytesWritten += out.length;
       if (bytesWritten >= maxBytes) {
         rotate(filePath, keep);
         bytesWritten = 0;

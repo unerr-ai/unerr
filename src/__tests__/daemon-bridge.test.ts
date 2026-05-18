@@ -1,26 +1,23 @@
 /**
- * DM-3: MCP Bridge Integration tests.
+ * MCP Bridge integration tests (post process-manager migration).
+ *
+ * After the daemon→pm rename and lazy-spawn migration, the bridge
+ * (`unerr --mcp`) auto-spawns the process manager via O_EXCL spawn lock on
+ * first MCP contact. There is no boot-time registration, no LaunchAgent /
+ * systemd unit / schtasks task — same lifecycle pattern as tsserver.
  *
  * Tests cover:
  *   - client.ts: sendRequest, sendFireAndForget, probeDaemon
- *   - bootstrap.ts: waitForDaemonReady (poll-only, no spawn)
- *   - mcpBoot socket discovery order (repo sock → unerrd if running + registered)
- *   - Retry/reconnect behavior when no process available
- *   - Bridge lifecycle: connect/disconnect through daemon
- *   - Activity throttling
- *   - Module isolation (no intelligence imports)
+ *   - spawn-lock.ts: O_EXCL acquire, release, stale-recovery
+ *   - mcpBoot socket discovery (repo sock → unerrd if running → auto-spawn)
+ *   - Bridge lifecycle: connect/disconnect through unerrd
+ *   - Module isolation (bridge imports nothing from intelligence/)
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 // ── Client module tests ────────────────────────────────────────────
 
@@ -60,7 +57,6 @@ describe("Daemon client (client.ts)", () => {
 
   it("sendFireAndForget does not throw on nonexistent socket", async () => {
     const { sendFireAndForget } = await import("../daemon/client.js");
-    // Should not throw — it's fire-and-forget
     expect(() =>
       sendFireAndForget("/tmp/nonexistent-unerr-test.sock", {
         cmd: "activity",
@@ -70,20 +66,89 @@ describe("Daemon client (client.ts)", () => {
   });
 });
 
-// ── Bootstrap module tests ─────────────────────────────────────────
+// ── Spawn lock tests ───────────────────────────────────────────────
 
-describe("Daemon bootstrap (bootstrap.ts)", () => {
-  it("exports waitForDaemonReady and ensureDaemonRunning alias", async () => {
-    const bootstrap = await import("../daemon/bootstrap.js");
-    expect(typeof bootstrap.waitForDaemonReady).toBe("function");
-    expect(typeof bootstrap.ensureDaemonRunning).toBe("function");
-    expect(bootstrap.ensureDaemonRunning).toBe(bootstrap.waitForDaemonReady);
+describe("Spawn lock (spawn-lock.ts)", () => {
+  let testHome: string;
+  let originalHome: string | undefined;
+
+  beforeEach(() => {
+    testHome = join(tmpdir(), `unerr-spawnlock-${Date.now()}-${Math.random()}`);
+    mkdirSync(testHome, { recursive: true });
+    originalHome = process.env.HOME;
+    process.env.HOME = testHome;
+  });
+
+  afterEach(() => {
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    if (existsSync(testHome)) rmSync(testHome, { recursive: true, force: true });
+  });
+
+  it("exports tryAcquireSpawnLock, releaseSpawnLock, spawnLockPath", async () => {
+    const m = await import("../daemon/spawn-lock.js");
+    expect(typeof m.tryAcquireSpawnLock).toBe("function");
+    expect(typeof m.releaseSpawnLock).toBe("function");
+    expect(typeof m.spawnLockPath).toBe("function");
+  });
+
+  it("acquires the lock when it does not exist", async () => {
+    const { tryAcquireSpawnLock, releaseSpawnLock, spawnLockPath } =
+      await import("../daemon/spawn-lock.js");
+    expect(tryAcquireSpawnLock()).toBe(true);
+    expect(existsSync(spawnLockPath())).toBe(true);
+    releaseSpawnLock();
+    expect(existsSync(spawnLockPath())).toBe(false);
+  });
+
+  it("returns false when a fresh lock is already held", async () => {
+    const { tryAcquireSpawnLock, releaseSpawnLock } = await import(
+      "../daemon/spawn-lock.js"
+    );
+    expect(tryAcquireSpawnLock()).toBe(true);
+    expect(tryAcquireSpawnLock()).toBe(false);
+    releaseSpawnLock();
+  });
+
+  it("reclaims a stale lock owned by a dead PID", async () => {
+    const { tryAcquireSpawnLock, releaseSpawnLock, spawnLockPath } =
+      await import("../daemon/spawn-lock.js");
+    const { mkdirSync: mk, writeFileSync, readFileSync: rf } = await import(
+      "node:fs"
+    );
+    const path = spawnLockPath();
+    mk(join(testHome, ".unerr", "state"), { recursive: true });
+    // PID 1 is alive; use PID 999999 (unlikely to exist) with old timestamp.
+    writeFileSync(
+      path,
+      JSON.stringify({ pid: 999_999, startedAt: Date.now() - 60_000 })
+    );
+    expect(tryAcquireSpawnLock()).toBe(true);
+    const body = JSON.parse(rf(path, "utf8"));
+    expect(body.pid).toBe(process.pid);
+    releaseSpawnLock();
+  });
+
+  it("refuses to reclaim a fresh lock even if PID is dead", async () => {
+    const { tryAcquireSpawnLock, spawnLockPath } = await import(
+      "../daemon/spawn-lock.js"
+    );
+    const { mkdirSync: mk, writeFileSync, unlinkSync } = await import(
+      "node:fs"
+    );
+    const path = spawnLockPath();
+    mk(join(testHome, ".unerr", "state"), { recursive: true });
+    writeFileSync(
+      path,
+      JSON.stringify({ pid: 999_999, startedAt: Date.now() })
+    );
+    expect(tryAcquireSpawnLock()).toBe(false);
+    unlinkSync(path);
   });
 });
 
 // ── Module isolation tests ─────────────────────────────────────────
 
-describe("DM-3 module isolation", () => {
+describe("Bridge module isolation", () => {
   it("client.ts imports only from daemon/ and node builtins", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/client.ts"),
@@ -101,32 +166,11 @@ describe("DM-3 module isolation", () => {
       expect(content).not.toMatch(pattern);
     }
 
-    // Must import from daemon/
     expect(content).toMatch(/from\s+["']\.\/registry/);
     expect(content).toMatch(/from\s+["']\.\/protocol/);
   });
 
-  it("bootstrap.ts imports only from daemon/ and node builtins", () => {
-    const content = readFileSync(
-      resolve(process.cwd(), "src/daemon/bootstrap.ts"),
-      "utf-8"
-    );
-
-    const forbidden = [
-      /from\s+["']\.\.\/intelligence\//,
-      /from\s+["']\.\.\/behaviors\//,
-      /from\s+["']\.\.\/tracking\//,
-      /from\s+["']\.\.\/proxy\//,
-    ];
-
-    for (const pattern of forbidden) {
-      expect(content).not.toMatch(pattern);
-    }
-
-    expect(content).toMatch(/from\s+["']\.\/client/);
-  });
-
-  it("bridge.ts still imports nothing from intelligence/", () => {
+  it("bridge.ts still imports nothing from intelligence/, behaviors/, tracking/", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/proxy/bridge.ts"),
       "utf-8"
@@ -142,44 +186,96 @@ describe("DM-3 module isolation", () => {
       expect(content).not.toMatch(pattern);
     }
   });
+
+  it("spawn-lock.ts imports only from daemon/ and node builtins", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/daemon/spawn-lock.ts"),
+      "utf-8"
+    );
+
+    const forbidden = [
+      /from\s+["']\.\.\/intelligence\//,
+      /from\s+["']\.\.\/behaviors\//,
+      /from\s+["']\.\.\/tracking\//,
+      /from\s+["']\.\.\/proxy\//,
+    ];
+
+    for (const pattern of forbidden) {
+      expect(content).not.toMatch(pattern);
+    }
+
+    expect(content).toMatch(/from\s+["']\.\/registry/);
+  });
 });
 
-// ── Socket discovery flow tests ────────────────────────────────────
+// ── Auto-spawn behavior tests ──────────────────────────────────────
 
-describe("mcpBoot socket discovery", () => {
-  it("cli.ts mcpBoot checks per-repo sock first", () => {
+describe("mcpBoot auto-spawn", () => {
+  it("imports spawn-lock primitives", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
       "utf-8"
     );
+    expect(content).toContain("tryAcquireSpawnLock");
+    expect(content).toContain("releaseSpawnLock");
+    expect(content).toContain("../daemon/spawn-lock.js");
+  });
 
-    // Step 1: per-repo proxy sock
+  it("auto-spawns the process manager on first MCP contact", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      "utf-8"
+    );
+    // Lock-acquire branch performs spawn + wait.
+    expect(content).toContain("spawnProcessManager(");
+    expect(content).toContain("waitForSupervisor(");
+    // Double-checked locking: losers wait without spawning.
+    expect(content).toContain("waiting for concurrent process-manager spawn");
+  });
+
+  it("spawns detached via `pm start --detached` (no boot persistence)", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      "utf-8"
+    );
+    expect(content).toContain('"pm", "start", "--detached"');
+    expect(content).toContain("detached: true");
+    expect(content).toContain('stdio: "ignore"');
+    expect(content).toContain("windowsHide: true");
+    expect(content).toContain("child.unref()");
+  });
+
+  it("checks per-repo proxy sock before falling through to unerrd", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      "utf-8"
+    );
     expect(content).toContain("proxy.sock");
     expect(content).toContain("probeResult.alive");
-
-    // Step 2: unerrd (no auto-spawn, just probe + bridge)
     expect(content).toContain("probeDaemon");
     expect(content).toContain("ensureRepo");
     expect(content).toContain("connectRepo");
     expect(content).toContain("disconnectRepo");
   });
 
-  it("mcpBoot does NOT auto-register repos (explicit registration only)", () => {
+  it("does NOT auto-register repos (registration goes through ensureRepo only)", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
       "utf-8"
     );
-
-    expect(content).toContain("findRepo(cwd)");
+    // The bridge must never silently call addRepo() from MCP boot.
+    // Registration happens via the explicit `unerr pm add` path or via
+    // the supervisor's ensureRepo handler — never from the bridge itself.
     expect(content).not.toContain("addRepo(cwd, {})");
+    expect(content).not.toContain("addRepo(cwd,{})");
+    expect(content).toContain("ensureRepo(daemonSock, cwd)");
   });
 
-  it("mcpBoot includes activity throttle at 60s", () => {
+  it("uses 60s activity-throttle on the supervisor", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
       "utf-8"
     );
-
     expect(content).toContain("ACTIVITY_THROTTLE_MS = 60_000");
     expect(content).toContain("sendActivity(discovery.daemonSock, cwd)");
   });
@@ -194,7 +290,6 @@ describe("Bridge connect/disconnect lifecycle", () => {
       "utf-8"
     );
 
-    // Find the daemon code block (starts after 'discovery.kind === "daemon"')
     const daemonBlockStart = content.indexOf('discovery.kind === "daemon"');
     expect(daemonBlockStart).toBeGreaterThan(-1);
     const daemonBlock = content.slice(daemonBlockStart);
@@ -208,52 +303,6 @@ describe("Bridge connect/disconnect lifecycle", () => {
     expect(disconnectIdx).toBeGreaterThan(-1);
     expect(connectIdx).toBeLessThan(bridgeIdx);
     expect(bridgeIdx).toBeLessThan(disconnectIdx);
-  });
-});
-
-// ── Readiness polling design tests (bootstrap.ts) ─────────────────
-
-describe("Readiness polling (bootstrap.ts)", () => {
-  it("does NOT spawn processes (poll-only, no child_process)", () => {
-    const content = readFileSync(
-      resolve(process.cwd(), "src/daemon/bootstrap.ts"),
-      "utf-8"
-    );
-
-    expect(content).not.toContain("detached: true");
-    expect(content).not.toContain("child_process");
-    expect(content).not.toContain("spawn(");
-  });
-
-  it("polls at 100ms intervals with 5s timeout", () => {
-    const content = readFileSync(
-      resolve(process.cwd(), "src/daemon/bootstrap.ts"),
-      "utf-8"
-    );
-
-    expect(content).toContain("POLL_INTERVAL_MS = 100");
-    expect(content).toContain("WAIT_TIMEOUT_MS = 5_000");
-  });
-
-  it("uses probeDaemon for fast-path check", () => {
-    const content = readFileSync(
-      resolve(process.cwd(), "src/daemon/bootstrap.ts"),
-      "utf-8"
-    );
-
-    expect(content).toContain("probeDaemon(sock)");
-  });
-
-  it("exports waitForDaemonReady as primary + ensureDaemonRunning alias", () => {
-    const content = readFileSync(
-      resolve(process.cwd(), "src/daemon/bootstrap.ts"),
-      "utf-8"
-    );
-
-    expect(content).toContain("export async function waitForDaemonReady");
-    expect(content).toContain(
-      "export const ensureDaemonRunning = waitForDaemonReady"
-    );
   });
 });
 
@@ -279,9 +328,7 @@ describe("Client protocol integration", () => {
       "utf-8"
     );
 
-    // Sends JSON with newline delimiter
     expect(content).toContain("JSON.stringify(request)}\\n");
-    // Parses response up to newline
     expect(content).toContain('buffer.indexOf("\\n")');
   });
 
@@ -292,22 +339,6 @@ describe("Client protocol integration", () => {
     );
 
     expect(content).toContain("timeoutMs = 30_000");
-  });
-});
-
-// ── Race safety tests ──────────────────────────────────────────────
-
-describe("Race safety", () => {
-  it("bootstrap.ts is poll-only (no file locks, no spawn)", () => {
-    const content = readFileSync(
-      resolve(process.cwd(), "src/daemon/bootstrap.ts"),
-      "utf-8"
-    );
-
-    expect(content).not.toContain("lockFile");
-    expect(content).not.toContain("flock");
-    expect(content).not.toContain("spawn(");
-    expect(content).toContain("probeDaemon(sock)");
   });
 });
 
@@ -335,10 +366,7 @@ describe("mcpBoot retry behavior", () => {
     expect(content).toContain(
       "Waiting for unerr process to become available"
     );
-    // No hard exit on "no process found" — retries instead
-    expect(content).not.toContain(
-      'No unerr process found for this project'
-    );
+    expect(content).not.toContain('No unerr process found for this project');
   });
 
   it("reconnects on daemon_dead or socket_closed (not stdin_closed)", () => {
@@ -347,7 +375,6 @@ describe("mcpBoot retry behavior", () => {
       "utf-8"
     );
 
-    // stdin_closed is the only reason that exits the main loop
     expect(content).toContain('result.reason === "stdin_closed"');
     expect(content).toContain("Connection lost");
     expect(content).toContain("will retry");
@@ -372,7 +399,6 @@ describe("mcpBoot retry behavior", () => {
     );
 
     expect(content).toContain('"connect_error"');
-    // The bridge promise should never reject — always resolve with a reason
     expect(content).not.toContain("reject(err)");
     expect(content).not.toContain("reject(");
   });
@@ -381,16 +407,6 @@ describe("mcpBoot retry behavior", () => {
 // ── Error handling tests ───────────────────────────────────────────
 
 describe("Error handling", () => {
-  it("mcpBoot logs when repo not registered (retry, not exit)", () => {
-    const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
-      "utf-8"
-    );
-
-    expect(content).toContain("not registered with unerrd");
-    expect(content).toContain("waiting for registration");
-  });
-
   it("mcpBoot logs ensureRepo failures and retries", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
@@ -409,7 +425,6 @@ describe("Error handling", () => {
 
     expect(content).toContain("Connection lost");
     expect(content).toContain("will retry");
-    // Only stdin_closed exits the loop — all other reasons trigger retry
     expect(content).toContain('result.reason === "stdin_closed"');
   });
 });

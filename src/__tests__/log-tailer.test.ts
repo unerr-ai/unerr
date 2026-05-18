@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs"; // appendFileSync + writeFileSync still used for unerr.jsonl JSONL tests
+import { appendFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs"; // appendFileSync + writeFileSync still used for events.jsonl JSONL tests
 import os from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -149,8 +149,8 @@ describe("log-tailer", () => {
     handle.close();
   });
 
-  it("filters own-PID entries from unerr.jsonl", async () => {
-    const generalPath = join(logsDir, "unerr.jsonl");
+  it("filters own-PID entries from events.jsonl", async () => {
+    const generalPath = join(logsDir, "events.jsonl");
     writeFileSync(generalPath, "");
 
     const { startLogTailer } = await import("../proxy/log-tailer.js");

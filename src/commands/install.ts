@@ -278,23 +278,7 @@ export async function runInstall(
     }
   }
 
-  // 7. Daemon autostart is opt-in. Surface the command the user must run
-  // explicitly to register a boot-time launch unit. Auto-installing a
-  // launchd / systemd / scheduled-task entry from `unerr install` is the
-  // exact pattern AV/EDR scanners flag as persistence, so this is gated
-  // behind `unerr daemon enable-autostart`.
-  try {
-    const { isAutostartInstalled } = await import("../daemon/autostart.js");
-    if (!isAutostartInstalled()) {
-      process.stderr.write(
-        "\x1b[38;2;34;211;238m▸\x1b[0m To launch unerrd at login, run \x1b[1munerr daemon enable-autostart\x1b[0m.\n"
-      );
-    }
-  } catch {
-    // Non-blocking — autostart hint is informational only.
-  }
-
-  // 8. Register repo with daemon supervisor and start the per-repo process (only if unerrd is running)
+  // 7. Register repo with the process manager and start the per-repo process (only if unerrd is running)
   let repoRegistered = false;
   try {
     const { daemonSockPath, probeDaemon, ensureRepo } = await import(

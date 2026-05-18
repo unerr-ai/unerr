@@ -59,7 +59,7 @@ When your next action is Edit, use built-in Read with offset/limit on the target
     ? "\nNEVER use built-in Read/Grep/Glob for code navigation. EXCEPTION: built-in Read (with offset/limit) is REQUIRED immediately before Edit (file_read cannot substitute — Edit will fail without it)."
     : "\nNEVER use built-in Read/Grep/Glob for code navigation — use unerr MCP tools instead.";
 
-  return `## REQUIRED: Use unerr Graph Intelligence Tools (22 MCP tools)
+  return `## REQUIRED: Use unerr Graph Intelligence Tools (19 MCP tools)
 
 This project has unerr MCP tools installed. You MUST use these instead of built-in Read/Grep/Glob for code navigation. unerr tools are graph-backed, return results in <5ms, and include project context that built-in tools miss.
 

@@ -1,15 +1,15 @@
 /**
- * unerrd HTTP API — served on port 9847 by the daemon supervisor.
+ * unerrd HTTP API — served on port 9847 by the process manager.
  *
  * Route layout:
- *   /api/daemon          — supervisor metadata (uptime, version, pid)
+ *   /api/pm              — supervisor metadata (uptime, version, pid)
  *   /api/repos           — all registered repos with status
  *   /api/repos/aggregate — aggregated metrics across all running repos
  *   /api/repo/:label/*   — proxy to the per-repo HTTP API (token-flow, reasoning, etc.)
  *
  * Static assets (the React SPA) are served from the same dist/ui/ directory
  * used by per-repo dashboards. The SPA detects whether it's served by unerrd
- * (via /api/daemon) and shows the global overview vs per-repo view.
+ * (via /api/pm) and shows the global overview vs per-repo view.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -43,9 +43,9 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
 
   app.use("*", cors({ origin: "*" }));
 
-  // ── /api/daemon — supervisor metadata ───────────────────────
+  // ── /api/pm — supervisor metadata ───────────────────────────
 
-  app.get("/api/daemon", (c) => {
+  app.get("/api/pm", (c) => {
     return c.json({
       pid: process.pid,
       uptime: Math.round((Date.now() - startedAt) / 1000),
@@ -162,7 +162,7 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
     });
   });
 
-  // ── /api/daemon/warm-start — warm-start status ───────────────
+  // ── /api/pm/warm-start — warm-start status ──────────────────
 
   const warmStartEvents: Array<{
     repo: string;
@@ -173,7 +173,7 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
   }> = [];
   let warmStartLastRun: string | null = null;
 
-  app.get("/api/daemon/warm-start", async (c) => {
+  app.get("/api/pm/warm-start", async (c) => {
     let config = {
       warmStartBudget: 3,
       warmStartIdleDays: 14,
@@ -203,36 +203,6 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
     warmStartEvents.push(event);
     warmStartLastRun = new Date().toISOString();
   };
-
-  // ── /api/daemon/version — update notification ────────────────
-
-  app.get("/api/daemon/version", async (c) => {
-    try {
-      const { getCachedUpdateInfo } = await import("./version-checker.js");
-      return c.json(getCachedUpdateInfo());
-    } catch {
-      return c.json({
-        available: false,
-        current: "0.0.1",
-        latest: "0.0.1",
-        behindMinor: 0,
-        dismissed: false,
-      });
-    }
-  });
-
-  app.post("/api/daemon/version/dismiss", async (c) => {
-    try {
-      const body = await c.req.json<{ version: string }>();
-      if (body.version) {
-        const { dismissVersion } = await import("./version-checker.js");
-        dismissVersion(body.version);
-      }
-      return c.json({ ok: true });
-    } catch {
-      return c.json({ ok: false }, 400);
-    }
-  });
 
   // ── /api/repo/:label/* — proxy to per-repo HTTP ─────────────
 
@@ -309,7 +279,7 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
         message: "unerrd dashboard API is running. UI not built yet.",
         hint: "Run 'pnpm run build' to build the dashboard SPA.",
         api: {
-          daemon: "/api/daemon",
+          pm: "/api/pm",
           repos: "/api/repos",
           aggregate: "/api/repos/aggregate",
           proxy: "/api/repo/<label>/api/...",

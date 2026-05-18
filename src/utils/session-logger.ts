@@ -1,86 +1,61 @@
 /**
- * Session Logger — consola-based structured logging to .unerr/logs/.
+ * Session Logger — consola-based structured logging to `<repo>/.unerr/logs/session.log`.
  *
  * All debug and diagnostic data goes here, never to the terminal.
  * Terminal shows only user-facing output (ora spinners, styled stats).
  *
- * Format: NDJSON — one JSON object per line.
- * Rotation: max 10 files, max 10MB each.
- * Retention: 30 days (older files auto-deleted on boot).
+ * One canonical filename (`session.log`) shared across all CLI invocations
+ * for the repo. Multi-process safety relies on POSIX `appendFileSync` line
+ * atomicity, same as `file-logger.ts`.
+ *
+ * Format: NDJSON — one JSON object per line, with `pid` + `sid` fields so
+ * concurrent invocations are disambiguable. Size-based rotation (5 MB →
+ * `session.log.1` … `session.log.5`, drop oldest) is performed inside
+ * the reporter so writes self-bound their growth.
  *
  * Temporal intelligence note: session log entries form the episodic memory
- * tier (fast decay, power-law half-life ~3 days). The consolidation daemon
- * compresses these into semantic facts during idle phases.
+ * tier the upcoming extractor will consume. Joining on `sid` correlates
+ * these entries with `proxy.log` / `bridge.log` / `events.jsonl` lines.
  */
 
-import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
   existsSync,
   mkdirSync,
-  readdirSync,
+  renameSync,
   statSync,
   unlinkSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname } from "node:path";
 import { type ConsolaInstance, createConsola } from "consola";
+import { getOrCreateSid, repoLog } from "./log-paths.js";
 
-const SESSION_ID = randomUUID();
-const RETENTION_DAYS = 30;
-const MAX_FILES = 10;
+const MAX_BYTES = 5_000_000;
+const KEEP = 5;
 
-function formatTimestamp(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-}
-
-function cleanupOldLogs(logsDir: string): void {
-  if (!existsSync(logsDir)) return;
-
-  try {
-    const files = readdirSync(logsDir)
-      .filter((f) => f.startsWith("session-") && f.endsWith(".log"))
-      .map((f) => {
-        const fullPath = join(logsDir, f);
-        const stat = statSync(fullPath);
-        return {
-          name: f,
-          path: fullPath,
-          mtimeMs: stat.mtimeMs,
-        };
-      })
-      .sort((a, b) => b.mtimeMs - a.mtimeMs);
-
-    const cutoff = Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000;
-
-    for (const file of files) {
-      if (file.mtimeMs < cutoff) {
-        try {
-          unlinkSync(file.path);
-        } catch {
-          /* best effort */
-        }
+function rotate(filePath: string): void {
+  for (let i = KEEP; i >= 1; i--) {
+    const cur = i === 1 ? filePath : `${filePath}.${i - 1}`;
+    const next = `${filePath}.${i}`;
+    if (!existsSync(cur)) continue;
+    if (i === KEEP && existsSync(next)) {
+      try {
+        unlinkSync(next);
+      } catch {
+        /* best effort */
       }
     }
-
-    const remaining = files.filter((f) => existsSync(f.path));
-    if (remaining.length > MAX_FILES) {
-      for (const file of remaining.slice(MAX_FILES)) {
-        try {
-          unlinkSync(file.path);
-        } catch {
-          /* best effort */
-        }
-      }
+    try {
+      renameSync(cur, next);
+    } catch {
+      /* best effort */
     }
-  } catch {
-    /* never crash on log cleanup failure */
   }
 }
 
 let _logger: ConsolaInstance | null = null;
 let _logFilePath: string | null = null;
+let _bytesWritten = 0;
 
 export interface SessionLoggerOptions {
   cwd?: string;
@@ -97,13 +72,17 @@ export function initSessionLogger(
   if (_logger) return _logger;
 
   const cwd = opts.cwd ?? process.cwd();
-  const logsDir = join(cwd, ".unerr", "logs");
-  mkdirSync(logsDir, { recursive: true });
+  _logFilePath = repoLog.session(cwd);
+  mkdirSync(dirname(_logFilePath), { recursive: true });
 
-  cleanupOldLogs(logsDir);
+  try {
+    _bytesWritten = statSync(_logFilePath).size;
+  } catch {
+    _bytesWritten = 0;
+  }
 
-  const timestamp = formatTimestamp();
-  _logFilePath = join(logsDir, `session-${timestamp}.log`);
+  const sid = getOrCreateSid();
+  const pid = process.pid;
 
   const levelNum = opts.level !== undefined ? Number(opts.level) : undefined;
   const envLevel = process.env.UNERR_LOG_LEVEL;
@@ -121,13 +100,20 @@ export function initSessionLogger(
             const entry = {
               time: new Date().toISOString(),
               level: logObj.type,
-              session_id: SESSION_ID,
+              pid,
+              sid,
               tag: logObj.tag,
               msg: logObj.args
                 .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
                 .join(" "),
             };
-            appendFileSync(_logFilePath, `${JSON.stringify(entry)}\n`);
+            const line = `${JSON.stringify(entry)}\n`;
+            appendFileSync(_logFilePath, line);
+            _bytesWritten += line.length;
+            if (_bytesWritten >= MAX_BYTES) {
+              rotate(_logFilePath);
+              _bytesWritten = 0;
+            }
           } catch {
             /* best effort */
           }
@@ -153,30 +139,22 @@ export function getSessionLogger(): ConsolaInstance {
   return createConsola({ level: -999 });
 }
 
-/**
- * Create a child logger scoped to a specific module.
- */
+/** Create a child logger scoped to a specific module. */
 export function createSessionModuleLogger(module: string): ConsolaInstance {
   return getSessionLogger().withTag(module);
 }
 
-/**
- * Get the current session log file path.
- */
+/** Get the current session log file path. */
 export function getSessionLogPath(): string | null {
   return _logFilePath;
 }
 
-/**
- * Get the current session ID.
- */
+/** Get the current session ID (alias of the lineage sid). */
 export function getSessionId(): string {
-  return SESSION_ID;
+  return getOrCreateSid();
 }
 
-/**
- * Flush the logger (for graceful shutdown). No-op for consola (writes are sync).
- */
+/** Flush the logger (for graceful shutdown). No-op — writes are sync. */
 export function flushSessionLogger(): void {
   /* consola file writes are synchronous via appendFileSync — no flush needed */
 }

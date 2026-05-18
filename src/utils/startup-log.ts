@@ -19,7 +19,7 @@
  *
  * All output to stderr (stdout is MCP JSON-RPC sacred).
  * File logging: call `initFileLog(cwd)` once at boot to enable parallel
- * NDJSON logging to `.unerr/logs/unerr.jsonl` with richer metadata than console.
+ * NDJSON logging to `.unerr/logs/events.jsonl` with richer metadata than console.
  */
 
 import {
@@ -28,7 +28,8 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname } from "node:path";
+import { getOrCreateSid, repoLog } from "./log-paths.js";
 
 // ── File logging ────────────────────────────────────────────────────
 
@@ -61,9 +62,8 @@ function rotateIfNeeded(
 
 /** Initialize file logging for this process. Call once at boot. */
 export function initFileLog(cwd: string): void {
-  const logsDir = join(cwd, ".unerr", "logs");
-  mkdirSync(logsDir, { recursive: true });
-  _fileLogPath = join(logsDir, "unerr.jsonl");
+  _fileLogPath = repoLog.events(cwd);
+  mkdirSync(dirname(_fileLogPath), { recursive: true });
   rotateIfNeeded(_fileLogPath, 2000, 1000);
 }
 
@@ -76,6 +76,7 @@ function writeToFile(
   const entry: Record<string, unknown> = {
     ts: new Date().toISOString(),
     pid: process.pid,
+    sid: getOrCreateSid(),
     level,
     msg: stripAnsi(message),
     ...meta,
@@ -248,7 +249,7 @@ export const startupLog = {
   },
 
   /**
-   * File-only log entry — writes to .unerr/logs/unerr.jsonl without touching
+   * File-only log entry — writes to .unerr/logs/events.jsonl without touching
    * stderr. Use this on hot paths like `unerr exec` where stderr gets merged
    * into the agent's tool-result context (every byte we emit is LLM tokens),
    * but we still want the event in the JSONL log for dashboards / debugging.

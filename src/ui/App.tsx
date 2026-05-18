@@ -1,4 +1,3 @@
-import { UpdateBanner } from "@/components/UpdateBanner";
 import { AppShell } from "@/components/layout/AppShell";
 import { fetchJson } from "@/lib/api";
 import { queryClient } from "@/lib/query-client";
@@ -33,13 +32,13 @@ export function App() {
   const parsed = useParsedRoute();
   const [sseConnected, setSseConnected] = useState(false);
 
-  // Detect daemon mode by probing /api/daemon.
+  // Detect process-manager mode by probing /api/pm.
   // `daemonResolved` gates standalone-only side effects (SSE, /api/system/status)
-  // so they don't fire before we know whether we're in daemon mode.
+  // so they don't fire before we know whether we're served by the process manager.
   const { data: daemonInfo, isFetched: daemonResolved } = useQuery({
-    queryKey: ["daemon", "info"],
+    queryKey: ["pm", "info"],
     queryFn: () =>
-      fetchJson<{ pid: number; port: number }>("/api/daemon").catch(() => null),
+      fetchJson<{ pid: number; port: number }>("/api/pm").catch(() => null),
     staleTime: 60_000,
     retry: false,
   });
@@ -156,7 +155,6 @@ export function App() {
 
   return (
     <RepoContext.Provider value={repoCtx}>
-      {isDaemonMode && <UpdateBanner />}
       <AppShell
         title={title}
         activeRoute={effectiveRoute}

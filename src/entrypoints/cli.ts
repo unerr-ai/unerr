@@ -18,7 +18,6 @@ import { registerBranchesCommand } from "../commands/branches.js";
 import { registerCheckCommitCommand } from "../commands/check-commit.js";
 import { registerCompressOutputCommand } from "../commands/compress-output.js";
 import { registerConfigVerifyCommand } from "../commands/config-verify.js";
-import { registerDaemonCommand } from "../commands/daemon.js";
 import { registerDashboardCommand } from "../commands/dashboard.js";
 import { registerDebugCommand } from "../commands/debug.js";
 import {
@@ -37,14 +36,21 @@ import { registerInitCommand } from "../commands/init.js";
 import { registerInstallCommand } from "../commands/install.js";
 import { registerLearnCommand } from "../commands/learn.js";
 import { registerManifestCommand } from "../commands/manifest.js";
+import { registerPmCommand } from "../commands/pm.js";
 import { registerRewindCommand } from "../commands/rewind.js";
+import { registerRouterCommands } from "../commands/router.js";
 import { registerSkillsCommand } from "../commands/skills.js";
 import { registerStatsCommand } from "../commands/stats.js";
 import { registerStatusCommand } from "../commands/status.js";
 import { registerTimelineCommand } from "../commands/timeline.js";
 import { registerUninstallCommand } from "../commands/uninstall.js";
-import { registerRouterCommands } from "../commands/router.js";
 import { installFileLogger } from "../utils/file-logger.js";
+import {
+  cleanupLegacyLogs,
+  getOrCreateSid,
+  repoLog,
+  repoLogsDir,
+} from "../utils/log-paths.js";
 import { initFileLog } from "../utils/startup-log.js";
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -731,6 +737,8 @@ function readLocalConfig(cwd: string): Record<string, unknown> | null {
  */
 async function resumeBoot(config: Record<string, unknown>): Promise<void> {
   verifyUnerrOnPath();
+  getOrCreateSid();
+  cleanupLegacyLogs(repoLogsDir(process.cwd()));
   initFileLog(process.cwd());
 
   // Verify this is still a valid project directory (config may be stale)
@@ -754,21 +762,6 @@ async function resumeBoot(config: Record<string, unknown>): Promise<void> {
   const log = createSessionModuleLogger("boot");
   log.info({ msg: "Resume boot", mode: "local", repoId: config.repoId });
 
-  // Show update notice (non-blocking, from cache only)
-  try {
-    const { getCachedUpdateInfo } = await import(
-      "../daemon/version-checker.js"
-    );
-    const info = getCachedUpdateInfo();
-    if (info.available && !info.dismissed) {
-      process.stderr.write(
-        `\x1b[38;2;34;211;238m▸\x1b[0m Update available: ${info.current} → ${info.latest} — run \x1b[38;2;139;92;246munerr daemon update\x1b[0m\n`
-      );
-    }
-  } catch {
-    // Non-blocking
-  }
-
   process.stderr.write("[unerr] Starting proxy...\n");
 
   await autoVerifyIdeConfigs();
@@ -780,6 +773,8 @@ async function resumeBoot(config: Record<string, unknown>): Promise<void> {
  */
 async function firstRunBoot(): Promise<void> {
   verifyUnerrOnPath();
+  getOrCreateSid();
+  cleanupLegacyLogs(repoLogsDir(process.cwd()));
   initFileLog(process.cwd());
 
   const { initSessionLogger, createSessionModuleLogger } = await import(
@@ -836,8 +831,10 @@ async function firstRunBoot(): Promise<void> {
  *   - Activity reports: stats sent every 60s while running
  */
 async function daemonChildBoot(cwd: string): Promise<void> {
+  getOrCreateSid();
+  cleanupLegacyLogs(repoLogsDir(cwd));
   installFileLogger({
-    filePath: join(cwd, ".unerr", "logs", `child-${process.pid}.log`),
+    filePath: repoLog.proxy(cwd),
     maxBytes: 5_000_000,
     keep: 5,
   });
@@ -884,22 +881,6 @@ async function daemonChildBoot(cwd: string): Promise<void> {
   const sockPath = join(stateDir, "proxy.sock");
   if (process.send) {
     process.send({ type: "ready", sock: sockPath });
-  }
-
-  // Inject update notification into MCP _meta if behind >2 minor versions
-  try {
-    const { getCachedUpdateInfo } = await import(
-      "../daemon/version-checker.js"
-    );
-    const { setUpdateNotification } = await import(
-      "../proxy/response-envelope.js"
-    );
-    const info = getCachedUpdateInfo();
-    if (info.available && !info.dismissed && info.behindMinor > 2) {
-      setUpdateNotification(info.latest, info.current);
-    }
-  } catch {
-    // Non-critical
   }
 
   function collectStats(): { entities: number; edges: number; memory: number } {
@@ -970,13 +951,52 @@ type DiscoveryResult =
  * the unerr process restarts.
  */
 async function mcpBoot(cwd: string): Promise<void> {
+  getOrCreateSid();
+  cleanupLegacyLogs(repoLogsDir(cwd));
   installFileLogger({
-    filePath: join(cwd, ".unerr", "logs", `mcp-${process.pid}.log`),
+    filePath: repoLog.bridge(cwd),
     maxBytes: 5_000_000,
     keep: 5,
   });
 
   initFileLog(cwd);
+
+  // Pre-buffer stdin BEFORE any async work. Two reasons:
+  //   1. Liveness — paused stdin doesn't ref the Node event loop. During
+  //      auto-spawn, our only other pending work is an unrefed setTimeout,
+  //      so Node would exit silently between probes. An attached `data`
+  //      listener refs the loop and keeps the process alive.
+  //   2. Frame preservation — the IDE may send `initialize` immediately
+  //      after spawn; we must not drop those bytes while we're auto-
+  //      spawning the supervisor. We hand the buffer to startUdsBridge.
+  const stdinPreBuffer: Buffer[] = [];
+  const preBufferHandler = (chunk: Buffer) => stdinPreBuffer.push(chunk);
+  process.stdin.on("data", preBufferHandler);
+
+  // Stdin EOF before bridging: IDE killed us during auto-spawn. Exit clean.
+  let stdinEndedEarly = false;
+  const earlyEndHandler = () => {
+    stdinEndedEarly = true;
+  };
+  process.stdin.on("end", earlyEndHandler);
+
+  // Signal handlers — guarantee spawn.lock is released even on SIGTERM/SIGHUP.
+  // Without this, a killed bridge leaves a stale lock and the next bridge
+  // must wait STALE_LOCK_AGE_MS (10s) before reclaiming.
+  const { tryAcquireSpawnLock, releaseSpawnLock } = await import(
+    "../daemon/spawn-lock.js"
+  );
+  let signalCleanupRan = false;
+  const onFatalSignal = (signal: NodeJS.Signals) => {
+    if (signalCleanupRan) return;
+    signalCleanupRan = true;
+    releaseSpawnLock();
+    process.stderr.write(`[unerr:mcp] received ${signal}, exiting\n`);
+    process.exit(0);
+  };
+  process.once("SIGTERM", () => onFatalSignal("SIGTERM"));
+  process.once("SIGHUP", () => onFatalSignal("SIGHUP"));
+  process.once("SIGINT", () => onFatalSignal("SIGINT"));
 
   const detection = await detectProjectRoot(cwd);
   if (!detection.isProject) {
@@ -1000,7 +1020,7 @@ async function mcpBoot(cwd: string): Promise<void> {
     disconnectRepo,
     sendActivity,
   } = await import("../daemon/client.js");
-  const { findRepo } = await import("../daemon/registry.js");
+  // spawn-lock helpers were imported above for signal handlers; reuse them.
 
   // Main loop: discover → bridge → on disconnect, rediscover
   // Exits only when stdin closes (IDE killed the process) or process.exit
@@ -1010,14 +1030,36 @@ async function mcpBoot(cwd: string): Promise<void> {
       daemonSockPath,
       probeDaemon,
       ensureRepo,
-      findRepo
+      tryAcquireSpawnLock,
+      releaseSpawnLock
     );
+
+    // If the IDE closed stdin while we were auto-spawning, there's nobody
+    // to bridge to. Exit cleanly rather than connecting and immediately
+    // detecting the closure.
+    if (stdinEndedEarly) {
+      process.stderr.write(
+        "[unerr:mcp] stdin closed during auto-spawn — exiting\n"
+      );
+      return;
+    }
+
+    // Hand off stdin: detach the pre-buffer handler exactly once on the
+    // first bridge attempt. Subsequent reconnects re-attach inside
+    // startUdsBridge directly.
+    let bufferForBridge: Buffer[] | undefined;
+    if (process.stdin.listenerCount("data") > 0 && stdinPreBuffer.length >= 0) {
+      process.stdin.removeListener("data", preBufferHandler);
+      process.stdin.removeListener("end", earlyEndHandler);
+      bufferForBridge = stdinPreBuffer.slice();
+      stdinPreBuffer.length = 0;
+    }
 
     if (discovery.kind === "standalone") {
       process.stderr.write(
         `[unerr:mcp] Bridging to running proxy (PID ${discovery.pid})\n`
       );
-      const result = await startUdsBridge(discovery.sockPath);
+      const result = await startUdsBridge(discovery.sockPath, bufferForBridge);
       if (result.reason === "stdin_closed") return;
       process.stderr.write(
         `[unerr:mcp] Connection lost (${result.reason}), will retry...\n`
@@ -1047,7 +1089,7 @@ async function mcpBoot(cwd: string): Promise<void> {
       }, ACTIVITY_THROTTLE_MS);
       activityInterval.unref();
 
-      const result = await startUdsBridge(discovery.sockPath);
+      const result = await startUdsBridge(discovery.sockPath, bufferForBridge);
 
       clearInterval(activityInterval);
       try {
@@ -1074,10 +1116,12 @@ async function discoverWithRetry(
   daemonSockPath: () => string,
   probeDaemon: (sock: string) => Promise<boolean>,
   ensureRepo: (sock: string, repo: string) => Promise<string>,
-  findRepo: (repo: string) => unknown
+  tryAcquireSpawnLock: () => boolean,
+  releaseSpawnLock: () => void
 ): Promise<DiscoveryResult> {
   let retryMs = MCP_INITIAL_RETRY_MS;
   let attempt = 0;
+  let spawnAttempted = false;
 
   for (;;) {
     // ── Try per-repo proxy sock (standalone `unerr` running) ──
@@ -1095,26 +1139,48 @@ async function discoverWithRetry(
       }
     }
 
-    // ── Try unerrd (must already be running, repo must be registered) ──
+    // ── Try unerrd (process manager) ──
     const daemonSock = daemonSockPath();
     const daemonRunning = await probeDaemon(daemonSock);
 
     if (daemonRunning) {
-      const repoEntry = findRepo(cwd);
-      if (repoEntry) {
-        try {
-          const sockPath = await ensureRepo(daemonSock, cwd);
-          return { kind: "daemon", sockPath, daemonSock };
-        } catch (err) {
-          process.stderr.write(
-            `[unerr:mcp] ensureRepo failed: ${(err as Error).message}, retrying...\n`
-          );
-        }
-      } else if (attempt === 0) {
+      try {
+        const sockPath = await ensureRepo(daemonSock, cwd);
+        return { kind: "daemon", sockPath, daemonSock };
+      } catch (err) {
         process.stderr.write(
-          "[unerr:mcp] Repo not registered with unerrd — waiting for registration...\n"
+          `[unerr:mcp] ensureRepo failed: ${(err as Error).message}, retrying...\n`
         );
       }
+    } else if (!spawnAttempted) {
+      // ── Auto-spawn the process manager on first MCP contact ──
+      spawnAttempted = true;
+      const acquired = tryAcquireSpawnLock();
+      if (acquired) {
+        try {
+          await spawnProcessManager();
+          process.stderr.write(
+            "unerr| started process manager. Dashboard: http://localhost:9847\n"
+          );
+          process.stderr.write(
+            "unerr| to stop: unerr pm stop  (idle exit after 30 min)\n"
+          );
+          await waitForSupervisor(daemonSock, probeDaemon, 8000);
+        } catch (err) {
+          process.stderr.write(
+            `[unerr:mcp] auto-spawn failed: ${(err as Error).message}\n`
+          );
+        } finally {
+          releaseSpawnLock();
+        }
+      } else {
+        process.stderr.write(
+          "[unerr:mcp] waiting for concurrent process-manager spawn...\n"
+        );
+        await waitForSupervisor(daemonSock, probeDaemon, 8000);
+      }
+      // Loop back to re-probe immediately rather than backing off.
+      continue;
     }
 
     // ── Nothing available yet — wait and retry ──
@@ -1133,6 +1199,45 @@ async function discoverWithRetry(
 
     retryMs = Math.min(retryMs * MCP_RETRY_BACKOFF, MCP_MAX_RETRY_MS);
   }
+}
+
+/**
+ * Spawn the process manager detached from this bridge. Returns once spawn() has
+ * been invoked — the caller polls for socket availability separately.
+ *
+ * Mirrors the lifecycle pattern of `tsserver`, `rust-analyzer`, and `esbuild`:
+ * detached child, stdio ignored, parent unrefs so its exit does not orphan
+ * the manager. NEVER writes a launchd plist / systemd unit / scheduled task.
+ */
+async function spawnProcessManager(): Promise<void> {
+  const { spawn } = await import("node:child_process");
+  const exec = process.execPath;
+  const entry = process.argv[1];
+  if (!entry) throw new Error("process.argv[1] is undefined — cannot spawn pm");
+  const child = spawn(exec, [entry, "pm", "start", "--detached"], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+    env: { ...process.env, UNERR_SPAWNED_BY_BRIDGE: "1" },
+  });
+  child.unref();
+}
+
+/** Poll for the supervisor socket to become reachable. */
+async function waitForSupervisor(
+  sock: string,
+  probe: (s: string) => Promise<boolean>,
+  timeoutMs: number
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await probe(sock)) return true;
+    await new Promise<void>((r) => {
+      const t = setTimeout(r, 100);
+      if (typeof t.unref === "function") t.unref();
+    });
+  }
+  return false;
 }
 
 // ── Commander Setup ─────────────────────────────────────────
@@ -1198,7 +1303,7 @@ registerDebugCommand(program);
 registerDoctorCommand(program);
 registerGainCommand(program);
 registerDiscoverCommand(program);
-registerDaemonCommand(program);
+registerPmCommand(program);
 registerRouterCommands(program);
 
 // ── Hidden Commands (callable but not shown in --help) ──────
@@ -1233,9 +1338,7 @@ const visibleCommands = new Set([
   "dashboard",
   "debug",
   "init",
-  "daemon",
-  "enable",
-  "disable",
+  "pm",
   "router",
 ]);
 for (const cmd of program.commands) {

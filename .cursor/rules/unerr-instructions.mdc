@@ -3,7 +3,7 @@ description: REQUIRED — use unerr graph intelligence tools instead of built-in
 alwaysApply: true
 ---
 
-## REQUIRED: Use unerr Graph Intelligence Tools (22 MCP tools)
+## REQUIRED: Use unerr Graph Intelligence Tools (19 MCP tools)
 
 This project has unerr MCP tools installed. You MUST use these instead of built-in Read/Grep/Glob for code navigation. unerr tools are graph-backed, return results in <5ms, and include project context that built-in tools miss.
 

@@ -48,61 +48,22 @@ export function registerUninstallCommand(program: Command): void {
   program
     .command("uninstall [agent]")
     .description("Remove unerr configs and hooks from this project")
-    .option(
-      "--autostart",
-      "Remove the platform auto-start service (launchd/systemd/schtasks)"
-    )
-    .action(
-      async (agent: string | undefined, opts: { autostart?: boolean }) => {
-        const cwd = process.cwd();
+    .action(async (agent: string | undefined) => {
+      const cwd = process.cwd();
 
-        if (opts.autostart) {
-          try {
-            const { uninstallForCurrentPlatform, removeSentinel } =
-              await import("../daemon/autostart.js");
-            const result = await uninstallForCurrentPlatform();
-            removeSentinel();
-            process.stderr.write(
-              `\x1b[38;2;52;211;153m✓\x1b[0m Platform auto-start removed${result.error ? ` (note: ${result.error})` : ""}\n`
-            );
-          } catch (err) {
-            process.stderr.write(
-              `\x1b[38;2;248;113;113m✗\x1b[0m Failed to remove auto-start: ${(err as Error).message}\n`
-            );
-          }
+      if (agent) {
+        const normalized = normalizeAgentName(agent);
+        const agentDef = getAgent(normalized as IdeType);
+        if (!agentDef) {
+          process.stderr.write(`\x1b[31m✗\x1b[0m Unknown agent: "${agent}"\n`);
           return;
         }
-
-        if (agent) {
-          const normalized = normalizeAgentName(agent);
-          const agentDef = getAgent(normalized as IdeType);
-          if (!agentDef) {
-            process.stderr.write(
-              `\x1b[31m✗\x1b[0m Unknown agent: "${agent}"\n`
-            );
-            return;
-          }
-          const result = runUninstall(cwd, normalized as IdeType);
-          displayUninstallResult(agentDef.name, result);
-        } else {
-          runUninstallAll(cwd);
-        }
-
-        // Hint about autostart removal
-        try {
-          const { isAutostartInstalled } = await import(
-            "../daemon/autostart.js"
-          );
-          if (isAutostartInstalled()) {
-            process.stderr.write(
-              "\n  \x1b[38;2;251;191;36m⚠\x1b[0m Platform auto-start is still active. Remove with: unerr uninstall --autostart\n\n"
-            );
-          }
-        } catch {
-          // Non-blocking
-        }
+        const result = runUninstall(cwd, normalized as IdeType);
+        displayUninstallResult(agentDef.name, result);
+      } else {
+        runUninstallAll(cwd);
       }
-    );
+    });
 }
 
 /**

@@ -1,5 +1,5 @@
 <!-- unerr:start -->
-## REQUIRED: Use unerr Graph Intelligence Tools (22 MCP tools)
+## REQUIRED: Use unerr Graph Intelligence Tools (19 MCP tools)
 
 This project has unerr MCP tools installed. You MUST use these instead of built-in Read/Grep/Glob for code navigation. unerr tools are graph-backed, return results in <5ms, and include project context that built-in tools miss.
 
@@ -170,27 +170,30 @@ Before writing code: `get_conventions`. To record decisions: `record_fact`.
 
 ## Critical Rules (Always Apply)
 
-1. **Read files in chunks.** 95K LOC codebase. Use `offset`/`limit` (100–200 lines). Search first (grep/glob), then read only the sections you need. Never dump entire files.
+1. **Read files in chunks.** ~108K LOC production code (~178K including tests + UI). Use `offset`/`limit` (100–200 lines). Search first (grep/glob), then read only the sections you need. Never dump entire files.
 2. **stdout is MCP JSON-RPC only.** All logging, all UI, all messages go to stderr via `process.stderr.write()`. A single stray `console.log()` breaks every IDE integration.
 3. **All CozoDB access is async.** `db.run()` returns a Promise. Always `await`. See [CozoDB Rules](#cozodb-rules) below.
 4. **Named Datalog syntax for 4+ column relations.** `*edges{from_key, to_key, type}` not `*edges[a, b, c]`. See [Datalog Rules](#datalog-rules) below.
 5. **MCP config is project-level only.** Never write to global/home config. Each repo gets its own `.mcp.json` (Claude Code), `.cursor/mcp.json` (Cursor), etc.
 6. **Imports use `.js` extensions.** NodeNext module resolution requires it. ESM throughout.
-7. **Autostart is opt-in.** `unerr install <agent>` must NEVER call `installForCurrentPlatform()` / `autoInstallIfNeeded()` or any platform installer. Registering a boot-time launch unit silently from an install command is the exact pattern AV/EDR scanners flag as persistence (Socket flagged `0.1.6` for this). The only entry points that may install a launch unit are explicit user verbs: `unerr daemon initialize`, `unerr daemon enable-autostart`. The Windows path uses `schtasks /XML` only — no Startup-folder `.cmd` fallback. Executable paths for the launch unit come from `resolveAutostartExec(import.meta.url)`, never from `process.argv[1]` or `which/where` shim parsing. Enforced by `src/__tests__/persistence-pattern-guard.test.ts`.
+7. **No boot-time persistence, ever.** `unerrd` is a lazy **process manager**, not a system service. No source file may write to launchd plists, systemd user units, Windows scheduled tasks, or Startup folder. No command exists to register the manager at boot. The bridge (`unerr --mcp`) auto-spawns the manager on first MCP connection via an O_EXCL spawn lock at `~/.unerr/state/spawn.lock` — same lifecycle pattern as `tsserver`, `rust-analyzer`, or `esbuild`. The manager exits cleanly after 30 minutes of zero MCP activity. This eliminates the AV/EDR persistence pattern that flagged 0.1.6. Enforced by `src/__tests__/persistence-pattern-guard.test.ts` — the test forbids any source file from referencing LaunchAgents / systemd / schtasks paths.
 8. **npm tarball excludes `dist/__tests__/**` and `dist/ui/**`.** Bundled tests and the vis-network dashboard chunk are dev-time only; shipping them blows up tarball size and trips base64 / packaged-binary scanner heuristics. Keep the `files` array in `package.json` selective. Same guard test asserts this.
 
 ## What This Is
 
-unerr CLI — lands your AI agent at the right code in fewer turns, tokens, & breakages. Local-first code intelligence proxy serving graph-backed MCP tools to AI coding agents (Cursor, Claude Code, VS Code). Two modes:
+unerr CLI — lands your AI agent at the right code in fewer turns, tokens, & breakages. Local-first code intelligence proxy serving graph-backed MCP tools to AI coding agents (Cursor, Claude Code, VS Code). Three process types:
 
-- **`unerr`** (no args) — Long-lived MCP server **+ the only owner of intelligence (graph, facts, behaviors, drift)**. First-run: wizard → index → serve. Subsequent: resume → serve.
-- **`unerr --mcp`** — Bridge process for IDE integration (what `.mcp.json` invokes). Pure stdio↔UDS relay: forwards MCP frames to the per-repo `unerr` process. Imports zero intelligence modules. Errors out if no per-repo `unerr` is running (DM-3 will add auto-spawn).
+There is **one binary** — `unerr` (`./dist/cli.js`, the only `"bin"` entry in `package.json`). The three "process types" below are the same binary entered through different argv shapes; the process title is renamed so they're distinguishable in `ps`.
+
+- **`unerr`** (no args) — Per-repo MCP server **+ the only owner of intelligence (graph, facts, behaviors, drift)**. Started lazily by the process manager (or directly, for standalone mode). First-run: wizard → index → serve. Subsequent: resume → serve.
+- **`unerrd`** (process manager) — `unerr pm start --detached` with `process.title = "unerrd"`. Single lightweight Node process per machine. Manages per-repo `unerr` children, the registry, the dashboard, and the cross-repo log file. Auto-spawned by the bridge on first MCP connection. Exits after 30 min of no MCP activity. **No boot-time registration** (no launchd / systemd / schtasks).
+- **`unerr --mcp`** — Bridge process for IDE integration (what `.mcp.json` invokes). Pure stdio↔UDS relay: forwards MCP frames to the per-repo `unerr` process. Imports zero intelligence modules. On first contact, auto-spawns `unerrd` via O_EXCL spawn lock at `~/.unerr/state/spawn.lock`. Pre-buffers stdin so the IDE's `initialize` frame isn't lost during auto-spawn.
 
 MCP config format: `{ "command": "<absolute-path-to-unerr>", "args": ["--mcp"] }` (resolved at install time via `process.argv[1]` or `which unerr`)
 
-### Service Scope: `unerr` vs `unerr --mcp`
+### Service Scope: `unerr` vs `unerr --mcp` vs `unerrd`
 
-After Layer 12 DM-0, the bridge owns no intelligence at all — every Tier-2 / Tier-3 module lives in the per-repo `unerr` process. Touching anything under `src/intelligence/`, `src/behaviors/`, or `src/tracking/` rebuilds and re-tests only the proxy; the bridge binary is unaffected.
+The bridge owns no intelligence at all — every Tier-2 / Tier-3 module lives in the per-repo `unerr` process. Touching anything under `src/intelligence/`, `src/behaviors/`, or `src/tracking/` rebuilds and re-tests only the per-repo proxy; the bridge binary and process manager are unaffected. The process manager owns the registry, the cross-repo log file, the dashboard server, and the idle-sweep loop — but no per-repo intelligence.
 
 | Capability | `unerr` (long-lived) | `unerr --mcp` (bridge) |
 |------------|---------------------|------------------------|
@@ -213,7 +216,7 @@ After Layer 12 DM-0, the bridge owns no intelligence at all — every Tier-2 / T
 | HTTP dashboard server | ✓ SSE events, REST API | ✗ Not started |
 | CLI wizard (first run) | ✓ Interactive setup | ✗ N/A |
 | Tool Adoption Nudging | ✓ Active — exec nudges, hook interception, instruction reinforcement | ✓ Active — exec nudges + instruction reinforcement |
-| File logger (stderr→.log) | ✓ `.unerr/logs/unerr.log` | ✓ `.unerr/logs/mcp-<pid>.log` (per-session) |
+| File logger (stderr→.log) | ✓ `.unerr/logs/proxy.log` (shared, O_APPEND) | ✓ `.unerr/logs/bridge.log` (shared across IDE sessions) |
 
 **Design rationale:** `unerr --mcp` is spawned by IDEs (Cursor, Claude Code) per-session. It must connect stdio instantly (<50 ms) and own no state. The heavy stateful work (graph, watchers, intelligence) belongs in `unerr` which the user runs once as a long-lived daemon. Every MCP request the bridge receives is forwarded over UDS to the daemon — the IDE sees a normal stdio MCP transport while everything actually happens server-side. **Invariant:** `src/proxy/bridge.ts` imports nothing from `src/intelligence/`, `src/behaviors/`, or `src/tracking/` — enforced by `src/__tests__/bridge-isolation.test.ts`.
 
@@ -222,7 +225,7 @@ After Layer 12 DM-0, the bridge owns no intelligence at all — every Tier-2 / T
 ```bash
 pnpm run build          # tsup → dist/ (ESM, node20 target)
 pnpm run dev            # tsx watch for live reload
-pnpm run test:run       # vitest (126 test files, 1576 tests)
+pnpm run test:run       # vitest (~218 test files, ~3070 tests)
 pnpm exec vitest run src/__tests__/<file>.test.ts  # single test
 pnpm run lint           # biome check
 pnpm run lint:fix       # biome auto-fix
@@ -234,17 +237,24 @@ pnpm run typecheck      # tsc --noEmit
 ```
 src/
   entrypoints/cli.ts    — Commander entry + boot state machine
+  entrypoints/daemon.ts — unerrd entrypoint (process manager mode)
   intelligence/         — CozoDB graph, AST extraction, rules, search index
-  proxy/                — MCP server (stdio), PID lock, session stats, shell compression
+  proxy/                — MCP server (stdio), bridge.ts, PID lock, session stats, shell compression
+  daemon/               — Process manager: api.ts, client.ts, process-manager.ts, protocol.ts,
+                          registry.ts, spawn-lock.ts, warm-start.ts, system-health.ts
+  router/               — Router intent classification, associations, client
   behaviors/            — Agent behavior automation (auto-doc, cascade-guard, etc.)
   tracking/             — Intent ledger, drift detection, git attribution
-  commands/             — CLI commands (visible: status, stats, install, dashboard, debug, init)
+  commands/             — CLI subcommands (pm, status, stats, install, uninstall, dashboard,
+                          debug, doctor, init, exec, hook, learn, manifest, rewind, router,
+                          serve, setup-wizard, skills, timeline, branches, check-commit,
+                          compress-output, config-verify, enrich, gain)
   tools/                — MCP tool implementations (coding/, intelligence/)
   hooks/                — Claude Code hook system integration
   server/               — HTTP dashboard API server
   ui/                   — React (Vite) dashboard frontend
   schemas/              — Zod schemas for entity/edge/rule types
-  config/               — MCP config writer, agent registry, settings
+  config/               — MCP config writer, agent registry, instruction writer, settings
   core/                 — Query engine, context assembly (scaffolded)
   skills/               — Bundled skill definitions for agent installation
   utils/                — Shared utilities (startup-log, exec, git)
@@ -287,7 +297,20 @@ src/
 
 - Graph: `.unerr/graph.db` (CozoDB persistent) or `.unerr/snapshots/*.msgpack` (legacy gzip)
 - Config: `.unerr/config.json` (per-repo, created on first run)
-- State: `.unerr/state/proxy.pid`, `.unerr/state/proxy.sock` (UDS)
+- Per-repo state: `.unerr/state/proxy.pid`, `.unerr/state/proxy.sock` (per-repo UDS)
+- Global state (process manager): `~/.unerr/unerrd.sock`, `~/.unerr/unerrd.pid`,
+  `~/.unerr/state/spawn.lock` (O_EXCL bridge spawn lock), `~/.unerr/repos.json` (registry)
+- Logs (per-repo, `.unerr/logs/`): `proxy.log` (per-repo proxy stderr),
+  `bridge.log` (all `unerr --mcp` sessions, O_APPEND-shared), `session.log`
+  (CLI / exec / wizard, NDJSON), `events.jsonl` (structured startup +
+  intelligence events). Every line prefixed `[pid=N sid=xxxxxx]`; grep
+  `sid=` to trace one spawn lineage across files.
+- Logs (global, `~/.unerr/logs/`): `unerrd.log` (process manager stderr),
+  `events.jsonl` (manager structured events).
+- Filenames are stable — no PID, no timestamp. Size rotation: 5 MB →
+  `*.log.1` … `*.log.5`. Legacy `mcp-*.log` / `child-*.log` /
+  `session-*-*.log` / `unerr.jsonl` are swept at boot
+  (`src/utils/log-paths.ts:cleanupLegacyLogs`).
 - SCIP: `.unerr/scip/` (compiler-verified edge data)
 
 ## CozoDB Rules
@@ -352,7 +375,7 @@ unerr install cursor           # Writes .cursor/mcp.json + .cursor/rules/
 
 **Verify:**
 - `.mcp.json` contains `{ "command": "<resolved-unerr-path>", "args": ["--mcp"] }` (absolute path)
-- `.claude/skills/unerr-*` files exist (10 skills)
+- `.claude/skills/unerr-*` files exist (12 skills)
 - `.cursor/rules/unerr-*.mdc` files exist
 - stderr shows: entity/edge counts, SCIP enrichment, conventions detected
 - Tool latency `<5ms` (check `_meta.latency_ms` in MCP responses)
