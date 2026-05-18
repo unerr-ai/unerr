@@ -57,6 +57,10 @@ The agent reads from the same store through MCP — every claim on the dashboard
 
 ### See it in action
 
+<p align="center">
+  <img src="https://unerr.dev/open-cli/video/unerr_short.gif" alt="unerr in action" width="720" />
+</p>
+
 <table align="center">
   <tr>
     <td align="center" width="240">
@@ -106,28 +110,50 @@ The agent reads from the same store through MCP — every claim on the dashboard
 
 ## Quick Start
 
-### 1. Install globally
+Four steps. Steps 1–2 happen once per machine; steps 3–4 are per repo.
+
+### 1. Install the CLI
 
 ```bash
 npm install -g @unerr-ai/unerr
 ```
 
-### 2. Verify your environment
+Puts the `unerr` binary on your PATH. If the global `npm` directory isn't already in your shell's PATH (common with nvm, fnm, volta, pnpm), run `unerr doctor` once — it patches your shell config and won't need to run again.
+
+### 2. Start the supervisor
 
 ```bash
-unerr doctor
+unerr daemon initialize
 ```
 
-This ensures `unerr` is available in **all** terminal sessions — not just the one you installed from. If your PATH isn't configured correctly (common with nvm, fnm, volta, or pnpm), `unerr doctor` detects the issue and offers to fix it automatically by updating your shell config (`~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`).
+Starts `unerrd` and prompts you to register it for start-at-login. Autostart is **opt-in** — answer no if you'd rather invoke `unerr daemon start` yourself each session. You only need this step once per machine.
 
-> **Why this matters:** Global npm packages are installed to a directory that some shells don't include by default. Without this step, `unerr` might work in your current terminal but fail in new ones — which breaks IDE integrations that spawn `unerr --mcp` in a fresh shell.
+> Working in a single repo and don't want a long-lived supervisor? Skip this step. After step 3, run `unerr` (no args) inside the repo — it spawns a standalone per-repo proxy instead.
 
-### 3. Choose your mode
+### 3. Install for your agent (per repo)
+
+```bash
+cd ~/your-project
+unerr install cursor
+```
+
+Writes the MCP config + skills + hooks + instructions for your agent. With the daemon already running (step 2), this also registers the repo and starts the per-repo process. Swap `cursor` for any of the [supported agents](#supported-agents): `claude-code`, `windsurf`, `gemini-cli`, `antigravity`, `github-copilot-cli`.
+
+### 4. Restart your IDE
+
+Close and reopen your IDE (or start a new chat session). On reconnect it spawns `unerr --mcp`, which connects to the running daemon over a Unix socket. Your agent now has graph-backed tools.
+
+> **The daemon must be running before step 4.** `unerr --mcp` polls for the daemon socket — it does **not** auto-spawn `unerrd`. If your IDE hangs on MCP tool calls after restart, run `unerr daemon status` to confirm the supervisor is up.
+
+<details>
+<summary><strong>Standalone vs daemon — which mode am I in?</strong></summary>
+
+Both work out of the box; you don't have to choose up front.
 
 <table>
 <tr>
-<th width="50%">Standalone (single repo, simple)</th>
-<th width="50%">Daemon Mode (multi-repo, recommended)</th>
+<th width="50%">Standalone (default — single repo)</th>
+<th width="50%">Daemon (recommended for multi-repo)</th>
 </tr>
 <tr>
 <td>
@@ -135,10 +161,11 @@ This ensures `unerr` is available in **all** terminal sessions — not just the 
 ```bash
 cd ~/project
 unerr install cursor   # install MCP config + skills
-unerr                  # start per-repo process
+unerr                  # start per-repo process (optional —
+                       #   IDE auto-spawns this on first MCP call)
 ```
 
-One `unerr` process per repo. You start it manually. Good for single-project workflows.
+One `unerr` process per repo, auto-spawned by `unerr --mcp` on first IDE connection. No background services. Good for single-project workflows.
 
 </td>
 <td>
@@ -150,25 +177,29 @@ unerr install cursor          # install config + register repo
 # done — IDE auto-connects via unerrd
 ```
 
-A single `unerrd` supervisor manages all repos. Starts at login, spawns per-repo processes on demand, idles unused ones, unified dashboard at `localhost:9847`.
+A single `unerrd` supervisor manages every registered repo. Starts at login, spawns per-repo children on demand, idles unused ones, unified dashboard at `localhost:9847`.
 
 </td>
 </tr>
 </table>
 
-> **Important:** After running `unerr install`, restart your coding AI session (close and reopen the IDE or start a new chat) for unerr to take effect. The agent needs to pick up the newly installed MCP config, skills, and instructions.
+You can promote from standalone to daemon at any time by running `unerr daemon initialize` — existing repo installs are picked up automatically.
 
-> **`unerr: command not found` in a new terminal?** Run `unerr doctor` in the terminal where it works — it will detect the PATH issue and fix it so `unerr` is recognized everywhere.
+</details>
 
-### What each command does (no hidden behaviors)
+<details>
+<summary><strong>What each command does (no hidden behaviors)</strong></summary>
 
 | Command | What it does | What it does NOT do |
 |---------|------|------|
+| `unerr install <agent>` | MCP config + skills + hooks + instructions + gitignore. If unerrd running: registers the repo | Start unerrd, register autostart, start per-repo process |
+| `unerr` (no args) | Starts a standalone per-repo proxy | Touch the daemon |
+| `unerr --mcp` | Bridges to running process (standalone or daemon-managed); auto-spawns supervisor if needed | Register autostart |
 | `unerr daemon initialize` | Registers unerrd at boot (launchd/systemd/schtasks) + starts it | - |
 | `unerr daemon enable-autostart` | Opt-in registration of the boot unit only (no daemon start). Prompts on TTY, `--yes` to skip | Start unerrd |
-| `unerr install <agent>` | MCP config + skills + hooks + instructions + gitignore. If unerrd running: registers the repo | Start unerrd, register autostart, start per-repo process |
-| `unerr --mcp` | Bridges to running process (standalone or daemon-managed) | Spawn unerrd, register repos, start processes |
-| `unerr` (no args) | Starts a standalone per-repo proxy | Touch the daemon |
+| `unerr doctor` | Detects and fixes PATH issues so `unerr` resolves in every shell | Change daemon state |
+
+</details>
 
 ### Supported agents
 
@@ -595,17 +626,18 @@ Update notifications appear as:
 
 Updates are never auto-applied — the agent and supervisor remain stable mid-session.
 
-### How auto-spawn works
+### How the bridge finds the daemon
 
 When your IDE opens and spawns `unerr --mcp`:
 
-1. Bridge checks for a per-repo UDS socket (`.unerr/state/proxy.sock`)
-2. If not found, queries the supervisor's UDS socket (`~/.unerr/state/unerrd.sock`)
-3. If supervisor isn't running, auto-spawns it as a detached background process
-4. Supervisor ensures the repo is registered and its child process is running
-5. Bridge connects — MCP requests flow through
+1. Bridge polls for a per-repo standalone socket (`.unerr/state/proxy.sock`)
+2. If not found, polls for the supervisor socket (`~/.unerr/state/unerrd.sock`)
+3. When the supervisor responds, asks it to ensure the per-repo process is running
+4. Bridge connects to the per-repo proxy — MCP requests flow through
 
-Total cold-start latency (supervisor not running → first MCP response): **<2 seconds**.
+If neither socket exists, the bridge retries with exponential backoff until one appears. **The bridge never spawns `unerrd`** — that's an explicit user action via `unerr daemon initialize` (one-time, with optional autostart-at-login) or `unerr daemon start` (session-only). If your IDE hangs waiting for MCP tools after restart, that's typically the cause — run `unerr daemon status` to confirm the supervisor is up.
+
+Once a daemon is running, connect time is dominated by the local Unix socket round-trip (sub-second in practice).
 
 ---
 
