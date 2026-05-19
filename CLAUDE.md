@@ -313,13 +313,16 @@ src/
 - Logs (per-repo, `.unerr/logs/`): `proxy.log` (per-repo proxy stderr),
   `bridge.log` (all `unerr --mcp` sessions, O_APPEND-shared), `session.log`
   (CLI / exec / wizard, NDJSON), `events.jsonl` (structured startup +
-  intelligence events). Every line prefixed `[pid=N sid=xxxxxx]`; grep
-  `sid=` to trace one spawn lineage across files.
+  intelligence events). Every line prefixed
+  `[ISO_TIMESTAMP pid=N sid=xxxxxx]` (UTC, ms-precision); grep `sid=` to
+  trace one spawn lineage across files, or grep by date to find activity
+  in a given window.
 - Logs (global, `~/.unerr/logs/`): `unerrd.log` (process manager stderr),
   `events.jsonl` (manager structured events).
-- Filenames are stable — no PID, no timestamp. Size rotation: 5 MB →
-  `*.log.1` … `*.log.5`. Legacy `mcp-*.log` / `child-*.log` /
-  `session-*-*.log` / `unerr.jsonl` are swept at boot
+- Filenames are stable — no PID, no timestamp in the *filename* (the
+  timestamp is on every line instead). Size rotation: 5 MB → `*.log.1`
+  … `*.log.5`. Legacy `mcp-*.log` / `child-*.log` / `session-*-*.log` /
+  `unerr.jsonl` are swept at boot
   (`src/utils/log-paths.ts:cleanupLegacyLogs`).
 - SCIP: `.unerr/scip/` (compiler-verified edge data)
 

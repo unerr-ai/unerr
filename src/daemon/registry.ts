@@ -300,6 +300,19 @@ export function writeNeedsInput(
   );
 }
 
+/**
+ * Remove a single needs_input signal by `key`, preserving any other subsystems'
+ * signals. Used by the SCIP orchestrator after cascade retry resolves a prior
+ * ambiguous javaBuildTool pick.
+ */
+export function clearNeedsInputKey(repoPath: string, key: string): void {
+  const existing = readNeedsInput(repoPath);
+  if (existing.length === 0) return;
+  const remaining = existing.filter((s) => s.key !== key);
+  if (remaining.length === existing.length) return;
+  writeNeedsInput(repoPath, remaining);
+}
+
 // ── Internal helpers ────────────────────────────────────────────
 
 /** Build a clean settings object from partial input. */

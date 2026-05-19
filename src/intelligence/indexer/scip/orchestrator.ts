@@ -133,6 +133,7 @@ export async function enrichWithScip(
     const outputDir = join(projectRoot, ".unerr", "scip");
     const binaryPath = binaryInfo.path ?? binaryInfo.binaryName;
     let extraArgs: string[] | undefined;
+    let javaPlan: JavaBuildToolPlan | null = null;
 
     if (language === "typescript") {
       // scip-typescript requires a tsconfig.json (or jsconfig.json) to resolve the project
@@ -148,10 +149,14 @@ export async function enrichWithScip(
     }
 
     if (language === "java") {
-      const buildToolResult = await resolveJavaBuildTool(projectRoot, options);
-      if (buildToolResult) {
-        extraArgs = buildToolResult.extraArgs;
+      javaPlan = await resolveJavaBuildTool(projectRoot, options);
+      if (!javaPlan) {
+        log.info(
+          "SCIP skipping java: no recognized build tool (Maven/Gradle/Bazel/Sbt) detected"
+        );
+        continue;
       }
+      // extraArgs will be set per-attempt inside the cascade.
     }
 
     if (language === "cpp") {
@@ -172,14 +177,23 @@ export async function enrichWithScip(
       `SCIP enrichment: ${language} (${binaryInfo.bundled ? "bundled" : "external"}: ${binaryInfo.binaryName})`
     );
 
-    const runResult = await runScipIndexer({
-      language,
-      binaryPath,
-      projectRoot,
-      outputDir,
-      timeoutMs: 30_000,
-      extraArgs,
-    });
+    const runResult =
+      language === "java" && javaPlan
+        ? await runJavaScipWithCascade({
+            binaryPath,
+            projectRoot,
+            outputDir,
+            timeoutMs: 30_000,
+            plan: javaPlan,
+          })
+        : await runScipIndexer({
+            language,
+            binaryPath,
+            projectRoot,
+            outputDir,
+            timeoutMs: 30_000,
+            extraArgs,
+          });
 
     lastRunResult = runResult;
 
@@ -237,11 +251,15 @@ export async function enrichWithScip(
 
 // ── Java Build Tool Detection ─────────────────────────────────────
 
-import type {
-  JavaBuildTool,
-  NeedsInputSignal,
+import {
+  JAVA_BUILD_TOOLS,
+  type JavaBuildTool,
+  type NeedsInputSignal,
 } from "../../../daemon/protocol.js";
-import { writeNeedsInput } from "../../../daemon/registry.js";
+import {
+  clearNeedsInputKey,
+  writeNeedsInput,
+} from "../../../daemon/registry.js";
 
 export type { JavaBuildTool };
 
@@ -416,60 +434,193 @@ function tiebreakByMtime(
   };
 }
 
+export interface JavaBuildToolPlan {
+  primary: JavaBuildTool;
+  /** Fallback candidates in priority order (most-preferred first). */
+  alternatives: JavaBuildTool[];
+  reason: string;
+  ambiguous: boolean;
+  fromConfig: boolean;
+}
+
 /**
- * Resolve the Java build tool for scip-java --build-tool flag.
+ * Resolve the Java build tool plan for scip-java.
  *
- * Deterministic, pure-function resolution — no interactive prompts,
- * no process.stdin.isTTY checks. Works identically under TTY and headless.
+ * Returns the full ranked list (primary + alternatives) so the caller can
+ * cascade-retry if scip-java rejects the primary choice. Persistence of the
+ * winning tool and any cascade-exhausted needs_input signal happen in the
+ * caller — once the cascade outcome is known.
  *
  * Priority:
- *   1. Explicit config in .unerr/config.json → use it
- *   2. Exactly one detected → use it
- *   3. Multiple → chooseBuildTool heuristic
- *   4. Cache choice + emit needs_input signal for ambiguous picks
+ *   1. Explicit config in .unerr/config.json → use it (no alternatives)
+ *   2. Exactly one detected → use it (no alternatives)
+ *   3. Multiple → chooseBuildTool heuristic produces the primary + ranked alternatives
  */
 async function resolveJavaBuildTool(
   projectRoot: string,
   _options?: ScipEnrichmentOptions
-): Promise<{ tool: JavaBuildTool; extraArgs: string[] } | null> {
+): Promise<JavaBuildToolPlan | null> {
   const detected = detectJavaBuildTools(projectRoot);
-
   if (detected.length === 0) return null;
 
   // Explicit config takes absolute precedence
   const stored = getStoredBuildTool(projectRoot);
   if (stored && detected.includes(stored)) {
     log.info(`Java build tool: ${stored} (from config)`);
-    return { tool: stored, extraArgs: [`--build-tool=${stored}`] };
+    return {
+      primary: stored,
+      alternatives: [],
+      reason: "from config",
+      ambiguous: false,
+      fromConfig: true,
+    };
   }
 
   const choice = chooseBuildTool(detected, projectRoot);
   if (!choice) return null;
 
-  // Cache the deterministic choice for O(1) subsequent boots
-  storeBuildTool(projectRoot, choice.tool);
-
-  // Emit needs_input signal when the choice was ambiguous
   if (choice.ambiguous) {
-    const signal: NeedsInputSignal = {
-      type: "needs_input",
-      key: "javaBuildTool",
-      auto: choice.tool,
-      alternatives: choice.alternatives,
-      reason: choice.reason,
-    };
-    writeNeedsInput(projectRoot, [signal]);
     log.info(
-      `Java build tool: ${choice.tool} (auto: ${choice.reason}). Override: unerr pm config . --java-build-tool=<tool>`
+      `Java build tool: ${choice.tool} (auto: ${choice.reason}; fallbacks: ${choice.alternatives.join(", ")})`
     );
   } else {
     log.info(`Java build tool: ${choice.tool} (${choice.reason})`);
   }
 
   return {
-    tool: choice.tool,
-    extraArgs: [`--build-tool=${choice.tool}`],
+    primary: choice.tool,
+    alternatives: choice.alternatives,
+    reason: choice.reason,
+    ambiguous: choice.ambiguous,
+    fromConfig: false,
   };
+}
+
+/**
+ * Parse scip-java's "build tool mismatch" error and extract the build tools
+ * it actually detected. Returns an empty array if the error isn't a
+ * mismatch (i.e., not a cascade-recoverable failure).
+ *
+ * Error shape we match:
+ *   "Automatically detected the build tool(s) Maven, Gradle but none of
+ *    them match the explicitly provided flag '--build-tool=Bazel'."
+ */
+export function parseScipJavaBuildToolMismatch(
+  error: string | null | undefined
+): JavaBuildTool[] {
+  if (!error) return [];
+  const match = error.match(
+    /Automatically detected the build tool\(s\) ([^.]+?) but none of them match/i
+  );
+  if (!match?.[1]) return [];
+  const known = new Set(JAVA_BUILD_TOOLS);
+  return match[1]
+    .split(/[,\s]+/)
+    .map((s) => s.trim())
+    .filter((s): s is JavaBuildTool => known.has(s as JavaBuildTool));
+}
+
+/**
+ * Run scip-java with cascade-on-mismatch retry.
+ *
+ * Tries the plan's primary tool first; if scip-java rejects it with the
+ * "build tool mismatch" error, parses the tools scip-java actually detected,
+ * intersects them with the plan's ranked alternatives, and retries with the
+ * next viable candidate. On success, persists the working tool and clears any
+ * stale ambiguous-pick needs_input signal. On exhaustion, writes a fresh
+ * needs_input describing what was tried so the operator can override.
+ */
+async function runJavaScipWithCascade(opts: {
+  binaryPath: string;
+  projectRoot: string;
+  outputDir: string;
+  timeoutMs: number;
+  plan: JavaBuildToolPlan;
+}): Promise<ScipRunResult> {
+  const candidates: JavaBuildTool[] = [
+    opts.plan.primary,
+    ...opts.plan.alternatives,
+  ];
+  const attempted: JavaBuildTool[] = [];
+  let lastResult: ScipRunResult | null = null;
+
+  for (let i = 0; i < candidates.length; i++) {
+    const tool = candidates[i]!;
+    attempted.push(tool);
+
+    if (i === 0) {
+      log.info(`scip-java attempting --build-tool=${tool}`);
+    } else {
+      log.info(
+        `scip-java retrying --build-tool=${tool} (fallback #${i}, after ${attempted.slice(0, -1).join(" → ")})`
+      );
+    }
+
+    const result = await runScipIndexer({
+      language: "java",
+      binaryPath: opts.binaryPath,
+      projectRoot: opts.projectRoot,
+      outputDir: opts.outputDir,
+      timeoutMs: opts.timeoutMs,
+      extraArgs: [`--build-tool=${tool}`],
+    });
+    lastResult = result;
+
+    if (result.success) {
+      storeBuildTool(opts.projectRoot, tool);
+      clearNeedsInputKey(opts.projectRoot, "javaBuildTool");
+      if (attempted.length > 1) {
+        log.info(
+          `scip-java cascade resolved: ${tool} (${attempted.join(" → ")})`
+        );
+      }
+      return result;
+    }
+
+    // Only cascade on the "build tool mismatch" class of failure. Anything
+    // else (missing JDK, network failure, source-tree errors) won't be
+    // fixed by switching tools.
+    const detectedByScip = parseScipJavaBuildToolMismatch(result.error);
+    if (detectedByScip.length === 0) {
+      return result;
+    }
+
+    const detectedSet = new Set(detectedByScip);
+    const remaining = candidates
+      .slice(i + 1)
+      .filter((t) => detectedSet.has(t) && !attempted.includes(t));
+
+    if (remaining.length === 0) {
+      log.warn(
+        `scip-java cascade exhausted: tried ${attempted.join(" → ")}; scip-java detected ${detectedByScip.join(", ")} but no viable fallback remains`
+      );
+      const signal: NeedsInputSignal = {
+        type: "needs_input",
+        key: "javaBuildTool",
+        auto: opts.plan.primary,
+        alternatives: opts.plan.alternatives,
+        reason: `cascade exhausted (tried ${attempted.join(" → ")}); override with unerr pm config <repo> --java-build-tool=<tool>`,
+      };
+      writeNeedsInput(opts.projectRoot, [signal]);
+      return result;
+    }
+
+    // Narrow remaining candidates to the intersection of (our ranked
+    // alternatives) ∩ (scip-java's detected list), preserving our priority.
+    candidates.splice(i + 1, candidates.length - i - 1, ...remaining);
+    log.warn(
+      `scip-java rejected --build-tool=${tool} (scip-java detected: ${detectedByScip.join(", ")}); cascading to ${candidates[i + 1]}`
+    );
+  }
+
+  return (
+    lastResult ?? {
+      success: false,
+      outputPath: null,
+      durationMs: 0,
+      error: "no Java build tool candidates available",
+    }
+  );
 }
 
 // ── C/C++ Compile Commands Detection ─────────────────────────────

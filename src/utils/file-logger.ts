@@ -9,9 +9,11 @@
  * one file via O_APPEND. POSIX `appendFileSync` is atomic for chunks
  * smaller than `PIPE_BUF`, which covers every line we write.
  *
- * Each written chunk is prefixed with `[pid=N sid=xxxxxx]` so the consumer
- * can disambiguate processes inside a shared file. The `sid` is the
- * spawn-lineage correlation ID from `log-paths.ts`.
+ * Each written line is prefixed with `[ISO_TIMESTAMP pid=N sid=xxxxxx]` so
+ * the consumer can disambiguate when (and by which process) each line was
+ * written inside a shared file. The `sid` is the spawn-lineage correlation
+ * ID from `log-paths.ts`. The timestamp is `new Date().toISOString()` —
+ * UTC, millisecond-precision (e.g. `2026-05-19T20:11:23.456Z`).
  *
  * Rotation: when the current file passes `maxBytes`, rename `*.log` →
  * `*.log.1` (shift the rest), keep the last `keep` files, drop the oldest.
@@ -108,8 +110,11 @@ export function installFileLogger(opts: FileLoggerOptions): () => void {
     /* file doesn't exist yet */
   }
 
-  const linePrefix = usePrefix
-    ? `[pid=${process.pid} sid=${getOrCreateSid()}] `
+  // pid + sid are stable for the life of the process; the timestamp is
+  // recomputed at write time so a single shared log file is grep-able by date
+  // when multiple processes interleave append-writes.
+  const idSuffix = usePrefix
+    ? ` pid=${process.pid} sid=${getOrCreateSid()}] `
     : "";
 
   const original = process.stderr.write;
@@ -127,6 +132,9 @@ export function installFileLogger(opts: FileLoggerOptions): () => void {
           ? chunk
           : Buffer.from(chunk).toString("utf-8");
       const clean = stripAnsi(text);
+      const linePrefix = usePrefix
+        ? `[${new Date().toISOString()}${idSuffix}`
+        : "";
       const out = usePrefix ? prefixLines(clean, linePrefix) : clean;
       appendFileSync(filePath, out);
 

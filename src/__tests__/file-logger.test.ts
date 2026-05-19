@@ -42,12 +42,14 @@ describe("installFileLogger", () => {
     expect(fileContent).not.toContain("\x1b[");
   });
 
-  it("prefixes each line with [pid=N sid=xxxxxx]", () => {
+  it("prefixes each line with [ISO_TIMESTAMP pid=N sid=xxxxxx]", () => {
     uninstall = installFileLogger({ filePath: logPath });
     process.stderr.write("line one\nline two\n");
     const lines = readFileSync(logPath, "utf-8").trimEnd().split("\n");
     for (const line of lines) {
-      expect(line).toMatch(/^\[pid=\d+ sid=[a-z0-9]{6}\] /);
+      expect(line).toMatch(
+        /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z pid=\d+ sid=[a-z0-9]{6}\] /
+      );
     }
     expect(lines.map((l) => l.replace(/^\[[^\]]+\] /, ""))).toEqual([
       "line one",
