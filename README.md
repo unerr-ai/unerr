@@ -48,7 +48,7 @@ Run `unerr` and open the dashboard. Four panes, all live:
 
 | Pane | Answers the question | Powered by |
 |---|---|---|
-| **Token Optimization** | *How much context did unerr save my agent this session?* — saved vs. delivered, compounding multiplier, breakdown by mechanism (compression, graph hits, skipped re-reads). | Per-turn ledger of every tool call |
+| **Token Optimization** | *How much context did unerr save my agent this session?* — saved vs. delivered, compounding multiplier, breakdown by mechanism (compression, graph hits, skipped re-reads, web fetches). | Per-turn ledger of every tool call |
 | **Reasoning Quality** | *Did the agent actually use what it remembered?* — 4-pillar score across exploration, planning, execution, persistent memory. | 5-turn outcome window per fact/convention |
 | **Codebase Map + Code Intelligence** | *What's the call graph and where are the blast-radius landmines?* — entities, edges, fan-in/out chokepoints, cross-module surprise links. | CozoDB graph (in-process, <5ms) |
 | **Project Memory + Activity** | *What did we already learn, and what was I doing last time?* — facts the agent recorded, sessions stitched into intents, open blockers. | Append-only fact store + timeline.db |
@@ -69,7 +69,7 @@ The agent reads from the same store through MCP — every claim on the dashboard
     </td>
     <td align="center" width="240">
       <img src="https://unerr.dev/open-cli/screenshots/token-trace-main.png" alt="unerr token trace — global" width="240" height="150" />
-      <br/><sub><strong>Token Trace · global</strong><br/>Aggregate savings across every session, broken down by mechanism (graph, file_read, shell, dedup, format).</sub>
+      <br/><sub><strong>Token Trace · global</strong><br/>Aggregate savings across every session, broken down by mechanism (graph, file_read, fetch_url, shell, dedup, format).</sub>
     </td>
     <td align="center" width="240">
       <img src="https://unerr.dev/open-cli/screenshots/token-session.png" alt="unerr token trace — session" width="240" height="150" />
@@ -197,6 +197,7 @@ Idempotent — re-running updates if content changed, skips if identical. Remove
 - **Blast radius before edits** — `get_references` returns every caller. No more confident wrong changes that ripple across services.
 - **Targeted file reads** — `file_read({entity: "fnName"})` returns just that function + relevant conventions/facts, not 2000 lines.
 - **Shell compression** — 11 strategies, 645+ command classifiers. Diffs, errors, logs, test runs, YAML — each compressed differently. **93% average compression** across real-world benchmarks (2 MB → 138 KB). Raw output is kept on disk; the agent can recover it on demand.
+- **Web fetches** — `fetch_url` strips page chrome via Defuddle/Readability, converts to markdown, splits into heading-bounded passages, optionally re-ranks with BM25 when a `prompt` is supplied, and caches by content hash. Replaces built-in WebFetch — **5–10× fewer tokens** per page.
 - **Convention awareness** — naming, structure, import patterns auto-detected and injected into the agent's context.
 - **Tool adoption nudging** — five reinforcement layers (exec nudges, hook interception, instruction injection, skill reminders, default-deny of built-ins on Claude Code) push the agent to use the graph instead of grep.
 

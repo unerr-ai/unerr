@@ -193,7 +193,7 @@ export function registerInstallCommand(program: Command): void {
 
         process.stderr.write("\n");
         process.stderr.write(
-          "  \x1b[38;2;161;161;170mRun \x1b[0munerr\x1b[38;2;161;161;170m to start the intelligence engine.\x1b[0m\n"
+          `  \x1b[38;2;161;161;170mRestart ${agentDef.name} to start using unerr.\x1b[0m\n`
         );
         process.stderr.write("\n");
       }
@@ -278,7 +278,10 @@ export async function runInstall(
     }
   }
 
-  // 7. Register repo with the process manager and start the per-repo process (only if unerrd is running)
+  // 7. Best-effort, silent pre-warm: if the process manager is already running,
+  //    register the repo and ask it to spin up the per-repo process so the next
+  //    IDE connect is instant. If the manager isn't running, do nothing — the
+  //    bridge auto-spawns it on first MCP connection via the spawn-lock.
   let repoRegistered = false;
   try {
     const { daemonSockPath, probeDaemon, ensureRepo } = await import(
@@ -286,34 +289,15 @@ export async function runInstall(
     );
     const { addRepo, findRepo } = await import("../daemon/registry.js");
     const sock = daemonSockPath();
-    const daemonRunning = await probeDaemon(sock);
-
-    if (daemonRunning) {
+    if (await probeDaemon(sock)) {
       if (!findRepo(cwd)) {
         addRepo(cwd, {});
         repoRegistered = true;
-        process.stderr.write(
-          "\x1b[38;2;52;211;153m✓\x1b[0m Registered repo with unerrd.\n"
-        );
       }
-      // Ask the daemon to start the per-repo process
-      try {
-        await ensureRepo(sock, cwd);
-        process.stderr.write(
-          "\x1b[38;2;52;211;153m✓\x1b[0m unerr process started via daemon.\n"
-        );
-      } catch {
-        process.stderr.write(
-          "\x1b[38;2;251;191;36m⚠\x1b[0m Repo registered but process did not start. It will start on next IDE connection.\n"
-        );
-      }
-    } else {
-      process.stderr.write(
-        "\x1b[38;2;34;211;238m▸\x1b[0m unerrd will auto-start when your IDE first connects to the MCP server (no manual setup needed).\n"
-      );
+      await ensureRepo(sock, cwd).catch(() => {});
     }
   } catch {
-    // Non-blocking — user can register later
+    // Non-blocking — IDE connection will register on demand.
   }
 
   return {
@@ -477,12 +461,12 @@ function showSetupInstructions(agentName: string): void {
     w("  You should see tools like: get_callers, search_code, file_read,\n");
     w("  file_outline, get_imports, get_callees.\n\n");
 
-    w("  \x1b[1mStep 4: Start unerr\x1b[0m\n");
-    w("  \x1b[2m────────────────────\x1b[0m\n");
+    w("  \x1b[1mStep 4: Restart your agent\x1b[0m\n");
+    w("  \x1b[2m──────────────────────────\x1b[0m\n");
     w(
-      "  Run \x1b[1munerr\x1b[0m in your project root to start the intelligence engine.\n"
+      "  unerr starts automatically when your agent first connects to its MCP server.\n"
     );
-    w("  The MCP server will be available at \x1b[1munerr --mcp\x1b[0m.\n");
+    w("  No background service to install — no boot-time setup needed.\n");
   }
 
   w("\n");
