@@ -82,6 +82,7 @@ const MECHANISM_LABELS: Record<string, string> = {
   shell_compression: "Shell Compression",
   format_encoding: "Format Encoding",
   file_read: "File Read",
+  fetch_url: "Fetch URL",
   session_dedup: "Session Dedup",
   smart_truncation: "Smart Truncation",
   behavior_automation: "Behavior Automation",

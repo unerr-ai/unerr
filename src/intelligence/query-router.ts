@@ -115,6 +115,9 @@ const LOCAL_TOOLS = new Set([
   // Sprint FE-B: file read protocol
   "file_outline",
   "file_read",
+
+  // Sprint FU-1: web fetch
+  "fetch_url",
 ]);
 
 export interface EntityRiskMeta {
@@ -1715,15 +1718,20 @@ export class QueryRouter {
         // File-navigation tools (file_read, file_outline, get_file) save tokens
         // by NOT making the agent read the whole file. They belong in the
         // "file_read" mechanism bucket, not "graph_query" (which is for entity-
-        // graph lookups that replaced grep/glob). Categorization is purely a
-        // measurement/dashboard concern — the agent sees no difference.
+        // graph lookups that replaced grep/glob). fetch_url is its own bucket —
+        // it's a web-extraction pipeline (DOM → markdown → BM25), not a graph
+        // query. Categorization is purely a measurement/dashboard concern —
+        // the agent sees no difference.
         const isFileNav =
           toolName === "file_read" ||
           toolName === "file_outline" ||
           toolName === "get_file";
-        const mechanism: "file_read" | "graph_query" = isFileNav
-          ? "file_read"
-          : "graph_query";
+        const isFetchUrl = toolName === "fetch_url";
+        const mechanism: "file_read" | "fetch_url" | "graph_query" = isFetchUrl
+          ? "fetch_url"
+          : isFileNav
+            ? "file_read"
+            : "graph_query";
 
         enrichTokensSaved = saved;
         enrichSavingsMechanism = mechanism;
@@ -3273,6 +3281,14 @@ export class QueryRouter {
         return runFileReadForRouter(args, {
           cwd: this.projectRoot ?? process.cwd(),
           graph: this.localGraph,
+        });
+      }
+      case "fetch_url": {
+        const { runFetchUrl } = await import(
+          "../tools/web/fetch-url-protocol.js"
+        );
+        return runFetchUrl(args as unknown as Parameters<typeof runFetchUrl>[0], {
+          cwd: this.projectRoot ?? process.cwd(),
         });
       }
       default:

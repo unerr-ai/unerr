@@ -12,6 +12,7 @@ export interface CompressionEvent {
     | "test_output"
     | "directory"
     | "file_content"
+    | "fetch_url"
     | "generic";
   originalTokens: number;
   compressedTokens: number;

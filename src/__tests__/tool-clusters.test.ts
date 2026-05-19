@@ -15,9 +15,10 @@ import {
 // ── Cluster Definitions ──────────────────────────────────────────────
 
 describe("TOOL_CLUSTERS", () => {
-  it("has 6 semantic clusters", () => {
+  it("has 7 semantic clusters", () => {
     // ST-2: session-narrative cluster added (mark_* tools)
-    expect(TOOL_CLUSTERS).toHaveLength(6);
+    // fetch_url: web cluster added
+    expect(TOOL_CLUSTERS).toHaveLength(7);
   });
 
   it("clusters have unique IDs", () => {

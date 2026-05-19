@@ -1702,8 +1702,19 @@ async function removeFileEntities(
  * Remove entities (and their edges, file_index, search_tokens) that are NOT in the
  * current index run. This prunes stale data from deleted files/entities without
  * clearing the graph upfront — so queries remain valid during the reindex window.
+ *
+ * Batched: collects orphan keys into one 2D array parameter and issues exactly 5
+ * `:rm` queries (out-edges, in-edges, search_tokens, file_index, entities) instead
+ * of 5 per orphan. For 4525 orphans this drops 22,625 sequential full scans to 5,
+ * keeping the libuv loop responsive so the MCP bridge can connect during boot.
+ *
+ * Chunked at ORPHAN_BATCH_SIZE to stay within Datalog parameter limits and to give
+ * the loop yield points between chunks. On any batch failure we fall back to the
+ * per-key loop for that chunk so correctness is preserved.
  */
-async function removeOrphanedEntities(
+const ORPHAN_BATCH_SIZE = 1000;
+
+export async function removeOrphanedEntities(
   graphStore: CozoGraphStore,
   liveKeys: Set<string>
 ): Promise<void> {
@@ -1723,9 +1734,55 @@ async function removeOrphanedEntities(
 
   log.info(`Removing ${orphanKeys.length} orphaned entities from graph`);
 
-  for (const key of orphanKeys) {
+  for (let i = 0; i < orphanKeys.length; i += ORPHAN_BATCH_SIZE) {
+    const chunk = orphanKeys.slice(i, i + ORPHAN_BATCH_SIZE);
+    const keyRows = chunk.map((k) => [k]);
     try {
-      // Remove edges referencing this entity
+      await db.run(
+        `orphan[k] <- $keys
+         ?[from_key, to_key, type] := orphan[from_key], *edges{from_key, to_key, type}
+         :rm edges {from_key, to_key, type}`,
+        { keys: keyRows }
+      );
+      await db.run(
+        `orphan[k] <- $keys
+         ?[from_key, to_key, type] := orphan[to_key], *edges{from_key, to_key, type}
+         :rm edges {from_key, to_key, type}`,
+        { keys: keyRows }
+      );
+      await db.run(
+        `orphan[k] <- $keys
+         ?[token, entity_key] := orphan[entity_key], *search_tokens[token, entity_key]
+         :rm search_tokens {token, entity_key}`,
+        { keys: keyRows }
+      );
+      await db.run(
+        `orphan[k] <- $keys
+         ?[file_path, entity_key] := orphan[entity_key], *file_index[file_path, entity_key]
+         :rm file_index {file_path, entity_key}`,
+        { keys: keyRows }
+      );
+      await db.run("?[key] <- $keys :rm entities {key}", { keys: keyRows });
+    } catch (err) {
+      log.info(
+        `Batched orphan removal failed for chunk of ${chunk.length} (${formatUnknownError(err)}); falling back to per-key`
+      );
+      await removeOrphansPerKey(db, chunk);
+    }
+  }
+}
+
+/**
+ * Fallback path: the original per-key removal loop, used only when a batched
+ * `:rm` fails (Datalog parser quirk, schema mismatch, etc.). Slow but always
+ * correct — same query shapes as the pre-batch implementation.
+ */
+async function removeOrphansPerKey(
+  db: CozoGraphStore["db"],
+  keys: string[]
+): Promise<void> {
+  for (const key of keys) {
+    try {
       await db.run(
         "?[from_key, to_key, type] := *edges{from_key, to_key, type}, from_key = $key :rm edges {from_key, to_key, type}",
         { key }
@@ -1734,20 +1791,17 @@ async function removeOrphanedEntities(
         "?[from_key, to_key, type] := *edges{from_key, to_key, type}, to_key = $key :rm edges {from_key, to_key, type}",
         { key }
       );
-      // Remove search tokens
       await db.run(
         "?[token, entity_key] := *search_tokens[token, entity_key], entity_key = $key :rm search_tokens {token, entity_key}",
         { key }
       );
-      // Remove file index entries
       await db.run(
         "?[file_path, entity_key] := *file_index[file_path, entity_key], entity_key = $key :rm file_index {file_path, entity_key}",
         { key }
       );
-      // Remove the entity itself
       await db.run("?[key] <- [[$key]] :rm entities {key}", { key });
     } catch {
-      // Ignore per-entity removal failures
+      // Ignore per-entity removal failures (same as pre-batch behavior)
     }
   }
 }

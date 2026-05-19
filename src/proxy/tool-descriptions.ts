@@ -76,6 +76,12 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
 			"Find callers or callees of an entity across the codebase. Pass direction:'callers' (default) or 'callees'. Catches indirect refs grep misses.",
 		locked: "[tier 1 — always exposed]",
 	},
+	fetch_url: {
+		tier: 1,
+		active:
+			"Fetch a web page and return DOM-extracted markdown passages. Strips chrome, converts to ATX-markdown, splits by heading, ranks by BM25 when prompt is set, caches by content hash. Use instead of built-in WebFetch — 5–10× fewer tokens.",
+		locked: "[tier 1 — always exposed]",
+	},
 
 	// ── Tier 2 — structural unlock ─────────────────────────────────────────
 	get_critical_nodes: {

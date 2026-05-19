@@ -130,6 +130,24 @@ export const TOOL_CLUSTERS: ToolCluster[] = [
       "planning",
     ],
   },
+  {
+    id: "web",
+    name: "Web Fetch",
+    tools: ["fetch_url"],
+    triggerKeywords: [
+      "fetch",
+      "url",
+      "webpage",
+      "web page",
+      "http",
+      "https",
+      "scrape",
+      "docs at",
+      "documentation at",
+      "blog",
+      "article",
+    ],
+  },
 ];
 
 /**

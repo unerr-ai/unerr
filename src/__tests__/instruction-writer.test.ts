@@ -37,6 +37,8 @@ describe("instruction-writer", () => {
       expect(content).toContain("<!-- unerr:end -->");
       expect(content).toContain("get_references");
       expect(content).toContain("search_code");
+      expect(content).toContain("fetch_url");
+      expect(content).toContain("Built-in WebFetch");
     });
 
     it("appends to existing CLAUDE.md without sentinel", () => {

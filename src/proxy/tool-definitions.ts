@@ -71,6 +71,41 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
 		},
 	},
 
+	fetch_url: {
+		inputSchema: {
+			type: "object",
+			properties: {
+				url: {
+					type: "string",
+					description:
+						"Absolute URL to fetch (http or https). Localhost is allowed without TLS upgrade.",
+				},
+				prompt: {
+					type: "string",
+					description:
+						"Optional. When set AND extracted markdown > 8 KB, passages are re-ranked by BM25 relevance to this prompt (default top 20).",
+				},
+				offset: {
+					type: "integer",
+					description:
+						"Passage index to start at for pagination (default 0). Pair with limit to walk long pages without re-fetching.",
+				},
+				limit: {
+					type: "integer",
+					description:
+						"Maximum passages to return (default 30, max 300). Also acts as BM25 topK when prompt is set.",
+				},
+				token_budget: TOKEN_BUDGET_PROP,
+			},
+			required: ["url"],
+		},
+		annotations: {
+			title: "Fetch Web Page (Markdown + BM25)",
+			readOnlyHint: true,
+			openWorldHint: true,
+		},
+	},
+
 	file_outline: {
 		inputSchema: {
 			type: "object",

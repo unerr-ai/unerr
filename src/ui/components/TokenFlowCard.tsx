@@ -34,6 +34,7 @@ const MECH_COLORS: Record<string, string> = {
   smart_truncation: "bg-amber-500",
   session_dedup: "bg-emerald-500",
   file_read: "bg-indigo-500",
+  fetch_url: "bg-teal-500",
   behavior_automation: "bg-rose-500",
 };
 

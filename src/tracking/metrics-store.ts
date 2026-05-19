@@ -105,6 +105,18 @@ export interface SessionSummaryRow {
   branch: string;
 }
 
+export interface FetchCacheRow {
+  url: string;
+  content_hash: string;
+  markdown: string;
+  title: string;
+  extractor: string;
+  raw_bytes: number;
+  compressed_bytes: number;
+  fetched_at: number;
+  hit_count: number;
+}
+
 // ── Insert input types — what writers pass in ─────────────────────────
 
 export type CompressionEventInsert = Omit<CompressionEventRow, "id">;
@@ -207,6 +219,19 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS fetch_cache (
+  url TEXT PRIMARY KEY,
+  content_hash TEXT NOT NULL,
+  markdown TEXT NOT NULL,
+  title TEXT NOT NULL,
+  extractor TEXT NOT NULL,
+  raw_bytes INTEGER NOT NULL,
+  compressed_bytes INTEGER NOT NULL,
+  fetched_at INTEGER NOT NULL,
+  hit_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_fetch_cache_fetched ON fetch_cache(fetched_at);
 `;
 
 const SCHEMA_VERSION = "1";
@@ -227,6 +252,9 @@ interface Statements {
   allSessionHistory: ReturnType<DatabaseT["prepare"]>;
   sessionSummaryById: ReturnType<DatabaseT["prepare"]>;
   allSessionSummaries: ReturnType<DatabaseT["prepare"]>;
+  upsertFetchCache: ReturnType<DatabaseT["prepare"]>;
+  getFetchCache: ReturnType<DatabaseT["prepare"]>;
+  bumpFetchCacheHit: ReturnType<DatabaseT["prepare"]>;
 }
 
 export class MetricsStore {
@@ -341,7 +369,40 @@ export class MetricsStore {
       allSessionSummaries: this.db.prepare(`
         SELECT * FROM session_summaries ORDER BY ended_at DESC
       `),
+      upsertFetchCache: this.db.prepare(`
+        INSERT INTO fetch_cache
+          (url, content_hash, markdown, title, extractor,
+           raw_bytes, compressed_bytes, fetched_at, hit_count)
+        VALUES (@url, @content_hash, @markdown, @title, @extractor,
+                @raw_bytes, @compressed_bytes, @fetched_at, 0)
+        ON CONFLICT(url) DO UPDATE SET
+          content_hash = excluded.content_hash,
+          markdown = excluded.markdown,
+          title = excluded.title,
+          extractor = excluded.extractor,
+          raw_bytes = excluded.raw_bytes,
+          compressed_bytes = excluded.compressed_bytes,
+          fetched_at = excluded.fetched_at
+      `),
+      getFetchCache: this.db.prepare(`
+        SELECT * FROM fetch_cache WHERE url = @url
+      `),
+      bumpFetchCacheHit: this.db.prepare(`
+        UPDATE fetch_cache SET hit_count = hit_count + 1 WHERE url = @url
+      `),
     };
+  }
+
+  upsertFetchCacheRow(row: FetchCacheRow): void {
+    this.stmt.upsertFetchCache.run(row);
+  }
+
+  getFetchCacheRow(url: string): FetchCacheRow | null {
+    return (this.stmt.getFetchCache.get({ url }) as FetchCacheRow | undefined) ?? null;
+  }
+
+  bumpFetchCacheHitFor(url: string): void {
+    this.stmt.bumpFetchCacheHit.run({ url });
   }
 
   // ── Writes ──────────────────────────────────────────────────────────

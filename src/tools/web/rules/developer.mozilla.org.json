@@ -1,0 +1,9 @@
+{
+  "host": "developer.mozilla.org",
+  "description": "Drop MDN language-selector and 'Find a translation' chrome lines.",
+  "drop": [
+    "^\\s*\\[Find a translation\\][^\\n]*$",
+    "^\\s*In this article\\s*$",
+    "^\\s*\\* \\[.*Edit this page.*\\][^\\n]*$"
+  ]
+}

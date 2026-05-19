@@ -354,6 +354,12 @@ Inline markers the agent emits as it works. Persisted to the shadow ledger and `
 | `mark_blocker` | Flags an unresolved obstacle. Carries into the next session's resume strip |
 | `mark_resolution` | Resolves a prior blocker by `marker_id` |
 
+### Web Fetch (1)
+
+| Tool | What the agent gets |
+|------|-----|
+| `fetch_url` | DOM-extracted markdown of a web page (Defuddle/Readability), split into heading-bounded passages, optionally re-ranked by BM25 against a `prompt`, cached by content hash. Replaces built-in WebFetch — 5–10× fewer tokens. Optional Playwright SPA fallback. |
+
 Every response includes `_meta` (latency, risk level, drift status) and inline `ur|<tag>` signals for high-priority guidance (drift, blast-radius warnings, circuit-breaker halts).
 
 ---

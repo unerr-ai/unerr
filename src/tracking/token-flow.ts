@@ -27,6 +27,7 @@ export type TokenFlowMechanism =
   | "format_encoding"
   | "smart_truncation"
   | "file_read"
+  | "fetch_url"
   | "behavior_automation"
   | "persistent_memory";
 

@@ -217,6 +217,7 @@ describe("QueryRouter", () => {
       // expect(router.isKnownTool("semantic_search")).toBe(true);
       // expect(router.isKnownTool("find_similar")).toBe(true);
       expect(router.isKnownTool("get_project_stats")).toBe(true);
+      expect(router.isKnownTool("fetch_url")).toBe(true);
     });
 
     it("returns false for unknown tools", () => {
@@ -578,8 +579,8 @@ describe("QueryRouter", () => {
       router.setMode("setup");
 
       const result = await router.execute("get_function", { key: "fn1" });
-      // All tools should be degraded in setup mode (17 after disabling get_rules, check_rules, get_business_context, semantic_search, find_similar, unerr_revert_entity, 8 blueprint tools)
-      expect(result._meta.tools_degraded?.length).toBe(17);
+      // All tools should be degraded in setup mode (18 after disabling get_rules, check_rules, get_business_context, semantic_search, find_similar, unerr_revert_entity, 8 blueprint tools; +1 fetch_url)
+      expect(result._meta.tools_degraded?.length).toBe(18);
     });
   });
 

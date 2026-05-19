@@ -1,0 +1,10 @@
+{
+  "host": "github.com",
+  "description": "Drop README badge image lines and GitHub UI chrome from extracted markdown.",
+  "drop": [
+    "^\\s*!\\[[^\\]]*\\]\\(https://img\\.shields\\.io[^)]*\\)\\s*$",
+    "^\\s*!\\[[^\\]]*\\]\\(https://badge\\.fury\\.io[^)]*\\)\\s*$",
+    "^\\s*!\\[[^\\]]*\\]\\(https://[^)]*badge[^)]*\\)\\s*$",
+    "^\\s*\\[!\\[[^\\]]*\\]\\([^)]+\\)\\]\\([^)]+\\)\\s*$"
+  ]
+}

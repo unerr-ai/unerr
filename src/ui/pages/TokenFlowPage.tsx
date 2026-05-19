@@ -167,6 +167,12 @@ const MECH_COLORS: Record<
     bar: "bg-indigo-500",
     ring: "ring-indigo-500/40",
   },
+  fetch_url: {
+    bg: "bg-teal-500/20",
+    text: "text-teal-400",
+    bar: "bg-teal-500",
+    ring: "ring-teal-500/40",
+  },
   behavior_automation: {
     bg: "bg-rose-500/20",
     text: "text-rose-400",
@@ -182,6 +188,7 @@ const ALL_MECHANISMS = [
   "session_dedup",
   "smart_truncation",
   "file_read",
+  "fetch_url",
   "behavior_automation",
 ];
 

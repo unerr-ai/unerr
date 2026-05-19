@@ -1,7 +1,7 @@
 <!-- unerr:start -->
-## REQUIRED: Use unerr Graph Intelligence Tools (19 MCP tools)
+## REQUIRED: Use unerr Graph Intelligence Tools (20 MCP tools)
 
-This project has unerr MCP tools installed. You MUST use these instead of built-in Read/Grep/Glob for code navigation. unerr tools are graph-backed, return results in <5ms, and include project context that built-in tools miss.
+This project has unerr MCP tools installed. You MUST use these instead of built-in Read/Grep/Glob for code navigation, and `fetch_url` instead of built-in WebFetch. unerr tools are graph-backed, return results in <5ms, and include project context that built-in tools miss.
 
 ### Tool Routing (MANDATORY — match your goal before calling any tool)
 
@@ -15,6 +15,7 @@ This project has unerr MCP tools installed. You MUST use these instead of built-
 | Get a specific function or class | `get_entity` or `file_read` with `entity` param | Reading entire file |
 | Trace imports/dependencies | `get_imports` or `get_references` (direction: callees) | Manual import scanning |
 | Find hotspots / high fan-in / blast-radius candidates | `get_critical_nodes` | `get_entity` (won't show ranked list), guessing |
+| Fetch a web page by URL | `fetch_url` (Defuddle/Readability → markdown passages → BM25 ranking when `prompt` supplied → diff-cache) | Built-in WebFetch |
 | Run a shell command | Automatic — routed through shell intelligence | N/A |
 
 ### FORBIDDEN Patterns (these waste tokens and miss context)
@@ -26,6 +27,7 @@ This project has unerr MCP tools installed. You MUST use these instead of built-
 - Guessing code style for new code -> use `get_conventions`
 - Guessing which entity has the highest fan-in / is the biggest hotspot -> use `get_critical_nodes`
 - Reading a full file when you only need a section -> use `file_read` with `entity` param or offset/limit
+- Using built-in WebFetch for a URL -> use `fetch_url` (DOM extraction + markdown + BM25 passage selection cuts 5–10× tokens; pass `prompt` to rank passages by relevance)
 ### IMPORTANT: Two-step Read Routing (Claude Code specific)
 
 **Why this matters:** Claude Code's Edit tool requires built-in `Read` to have been called on the file first. `file_read` (unerr MCP) does NOT satisfy this because it's a separate MCP tool. Meanwhile, built-in Read misses project conventions and facts that `file_read` auto-injects.
@@ -76,6 +78,14 @@ When your next action is Edit, use built-in Read with offset/limit on the target
 **`purpose` parameter:** Controls read behavior — set it to match your intent:
 - `purpose:'explore'` (default) — budget-capped, returns outline for large files. Use for browsing and pre-edit understanding.
 - `purpose:'reference'` — tight budget, entity/offset reads only. Use for quick lookups.
+
+#### Web Fetch (1 tool)
+
+| Task | Tool | Replaces |
+|------|------|----------|
+| Fetch a web page by URL | `fetch_url` | Built-in WebFetch |
+
+`fetch_url` strips chrome (nav, footer, ads), converts to markdown, splits into heading-bounded passages, optionally re-ranks passages with BM25 when you pass `prompt`, and caches by content hash so re-fetching an unchanged page costs near-zero tokens. Pass `offset`/`limit` to paginate large pages.
 
 #### Shell Compression (automatic)
 

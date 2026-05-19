@@ -59,9 +59,9 @@ When your next action is Edit, use built-in Read with offset/limit on the target
     ? "\nNEVER use built-in Read/Grep/Glob for code navigation. EXCEPTION: built-in Read (with offset/limit) is REQUIRED immediately before Edit (file_read cannot substitute — Edit will fail without it)."
     : "\nNEVER use built-in Read/Grep/Glob for code navigation — use unerr MCP tools instead.";
 
-  return `## REQUIRED: Use unerr Graph Intelligence Tools (19 MCP tools)
+  return `## REQUIRED: Use unerr Graph Intelligence Tools (20 MCP tools)
 
-This project has unerr MCP tools installed. You MUST use these instead of built-in Read/Grep/Glob for code navigation. unerr tools are graph-backed, return results in <5ms, and include project context that built-in tools miss.
+This project has unerr MCP tools installed. You MUST use these instead of built-in Read/Grep/Glob for code navigation, and \`fetch_url\` instead of built-in WebFetch. unerr tools are graph-backed, return results in <5ms, and include project context that built-in tools miss.
 
 ### Tool Routing (MANDATORY — match your goal before calling any tool)
 
@@ -75,6 +75,7 @@ ${readForEditRow}
 | Get a specific function or class | \`get_entity\` or \`file_read\` with \`entity\` param | Reading entire file |
 | Trace imports/dependencies | \`get_imports\` or \`get_references\` (direction: callees) | Manual import scanning |
 | Find hotspots / high fan-in / blast-radius candidates | \`get_critical_nodes\` | \`get_entity\` (won't show ranked list), guessing |
+| Fetch a web page by URL | \`fetch_url\` (Defuddle/Readability → markdown passages → BM25 ranking when \`prompt\` supplied → diff-cache) | Built-in WebFetch |
 | Run a shell command | Automatic — routed through shell intelligence | N/A |
 
 ### FORBIDDEN Patterns (these waste tokens and miss context)
@@ -85,7 +86,8 @@ ${readForEditRow}
 - Reading multiple files to understand conventions -> use \`get_conventions\`
 - Guessing code style for new code -> use \`get_conventions\`
 - Guessing which entity has the highest fan-in / is the biggest hotspot -> use \`get_critical_nodes\`
-- Reading a full file when you only need a section -> use \`file_read\` with \`entity\` param or offset/limit${twoStepSection}
+- Reading a full file when you only need a section -> use \`file_read\` with \`entity\` param or offset/limit
+- Using built-in WebFetch for a URL -> use \`fetch_url\` (DOM extraction + markdown + BM25 passage selection cuts 5–10× tokens; pass \`prompt\` to rank passages by relevance)${twoStepSection}
 
 ### Tool Reference
 
@@ -122,6 +124,14 @@ ${readForEditRow}
 **\`purpose\` parameter:** Controls read behavior — set it to match your intent:
 - \`purpose:'explore'\` (default) — budget-capped, returns outline for large files. Use for browsing and pre-edit understanding.
 - \`purpose:'reference'\` — tight budget, entity/offset reads only. Use for quick lookups.
+
+#### Web Fetch (1 tool)
+
+| Task | Tool | Replaces |
+|------|------|----------|
+| Fetch a web page by URL | \`fetch_url\` | Built-in WebFetch |
+
+\`fetch_url\` strips chrome (nav, footer, ads), converts to markdown, splits into heading-bounded passages, optionally re-ranks passages with BM25 when you pass \`prompt\`, and caches by content hash so re-fetching an unchanged page costs near-zero tokens. Pass \`offset\`/\`limit\` to paginate large pages.
 
 #### Shell Compression (automatic)
 

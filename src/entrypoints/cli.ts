@@ -961,7 +961,7 @@ async function mcpBoot(cwd: string): Promise<void> {
 
   initFileLog(cwd);
 
-  // Pre-buffer stdin BEFORE any async work. Two reasons:
+  // Pre-buffer stdin BEFORE any async work. Three reasons:
   //   1. Liveness — paused stdin doesn't ref the Node event loop. During
   //      auto-spawn, our only other pending work is an unrefed setTimeout,
   //      so Node would exit silently between probes. An attached `data`
@@ -969,8 +969,27 @@ async function mcpBoot(cwd: string): Promise<void> {
   //   2. Frame preservation — the IDE may send `initialize` immediately
   //      after spawn; we must not drop those bytes while we're auto-
   //      spawning the supervisor. We hand the buffer to startUdsBridge.
+  //   3. Static-catalog insurance (SF-2) — the IDE's MCP runtime expects a
+  //      reply to `initialize` / `tools/list` within seconds or it marks the
+  //      server disconnected and never retries. The interceptor parses each
+  //      complete JSON-RPC line and answers those two methods locally from
+  //      `TOOL_DEFINITIONS` so the IDE stays connected during slow daemon
+  //      or proxy cold-start. Other frames (including `tools/call`) flow
+  //      into the buffer unchanged and reach the proxy once it's up.
+  const { StaticCatalogInterceptor } = await import(
+    "../proxy/bridge-catalog.js"
+  );
+  const interceptor = new StaticCatalogInterceptor();
   const stdinPreBuffer: Buffer[] = [];
-  const preBufferHandler = (chunk: Buffer) => stdinPreBuffer.push(chunk);
+  const preBufferHandler = (chunk: Buffer) => {
+    const out = interceptor.ingest(chunk);
+    for (const reply of out.replies) {
+      process.stdout.write(reply);
+    }
+    for (const buf of out.forward) {
+      stdinPreBuffer.push(buf);
+    }
+  };
   process.stdin.on("data", preBufferHandler);
 
   // Stdin EOF before bridging: IDE killed us during auto-spawn. Exit clean.
@@ -1046,11 +1065,14 @@ async function mcpBoot(cwd: string): Promise<void> {
 
     // Hand off stdin: detach the pre-buffer handler exactly once on the
     // first bridge attempt. Subsequent reconnects re-attach inside
-    // startUdsBridge directly.
+    // startUdsBridge directly. Drain any unfinished line out of the
+    // interceptor so a frame that arrived mid-chunk isn't dropped.
     let bufferForBridge: Buffer[] | undefined;
     if (process.stdin.listenerCount("data") > 0 && stdinPreBuffer.length >= 0) {
       process.stdin.removeListener("data", preBufferHandler);
       process.stdin.removeListener("end", earlyEndHandler);
+      const partial = interceptor.drainPartial();
+      if (partial) stdinPreBuffer.push(partial);
       bufferForBridge = stdinPreBuffer.slice();
       stdinPreBuffer.length = 0;
     }

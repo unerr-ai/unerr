@@ -112,6 +112,24 @@ const LlmConfigSchema = z.object({
 
 export type LlmConfig = z.infer<typeof LlmConfigSchema>;
 
+export const FetchUrlConfigSchema = z.object({
+  playwright: z
+    .object({
+      enabled: z.boolean().default(false),
+      timeoutMs: z.number().int().min(1000).max(60_000).default(15_000),
+      waitUntil: z
+        .enum(["load", "domcontentloaded", "networkidle"])
+        .default("networkidle"),
+    })
+    .default(() => ({
+      enabled: false,
+      timeoutMs: 15_000,
+      waitUntil: "networkidle" as const,
+    })),
+});
+
+export type FetchUrlConfig = z.infer<typeof FetchUrlConfigSchema>;
+
 export const SettingsSchema = z.object({
   /** Default Claude model for interactive sessions */
   model: z.string().default("claude-sonnet-4-20250514"),
@@ -127,6 +145,14 @@ export const SettingsSchema = z.object({
   llm: LlmConfigSchema.optional(),
   /** BYO-LLM configuration for local LLM providers */
   localLlm: LocalLlmConfigSchema.optional(),
+  /** fetch_url runtime config (Playwright SPA fallback, etc.) */
+  fetchUrl: FetchUrlConfigSchema.default(() => ({
+    playwright: {
+      enabled: false,
+      timeoutMs: 15_000,
+      waitUntil: "networkidle" as const,
+    },
+  })),
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;

@@ -104,6 +104,12 @@ const PER_TOOL_CAPS: Record<string, ToolCap> = {
     // and re-call file_read with that exact value. A literal `entity:<name>`
     // hint trains the agent to paste the placeholder verbatim.
   },
+  fetch_url: {
+    arrayKey: "passages",
+    defaultLimit: 30,
+    maxLimit: 300,
+    cursorArg: "limit",
+  },
 };
 
 /** Final safety net: even if a tool ignored its own cap, never let one
