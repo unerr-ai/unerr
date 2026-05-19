@@ -5,8 +5,8 @@
  * Manages per-repo child processes via ProcessManager.
  *
  * Entry points:
- *   `unerr daemon start`             — foreground (for debugging)
- *   `unerr daemon start --background` — detached (auto-spawned by bridge)
+ *   `unerr pm start --foreground` — foreground (for debugging)
+ *   `unerr pm start --detached`   — detached (auto-spawned by bridge)
  *
  * Lifecycle:
  *   1. Acquire PID lock (~/.unerr/unerrd.pid)

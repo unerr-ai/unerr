@@ -171,9 +171,7 @@ export function AllReposPage() {
             <p className="text-lg font-medium">No repos registered</p>
             <p className="mt-2 text-sm">
               Run{" "}
-              <code className="font-mono text-foreground">
-                unerr daemon add .
-              </code>{" "}
+              <code className="font-mono text-foreground">unerr pm add .</code>{" "}
               from a project directory.
             </p>
           </div>

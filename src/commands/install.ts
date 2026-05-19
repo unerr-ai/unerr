@@ -184,7 +184,7 @@ export function registerInstallCommand(program: Command): void {
             "  \x1b[38;2;251;191;36m⚠\x1b[0m Cursor requires one-time approval:\n"
           );
           process.stderr.write(
-            "    Open \x1b[1mSettings → Tools & MCP\x1b[0m and toggle \x1b[1m\"unerr\"\x1b[0m on.\n"
+            '    Open \x1b[1mSettings → Tools & MCP\x1b[0m and toggle \x1b[1m"unerr"\x1b[0m on.\n'
           );
           process.stderr.write(
             "    \x1b[38;2;161;161;170m(Required since Cursor 1.3 — CVE-2025-54136)\x1b[0m\n"
@@ -309,8 +309,7 @@ export async function runInstall(
       }
     } else {
       process.stderr.write(
-        "\x1b[38;2;34;211;238m▸\x1b[0m Daemon not running. To use daemon mode: \x1b[1munerr daemon initialize\x1b[0m\n" +
-          "  For standalone mode: run \x1b[1munerr\x1b[0m in this directory.\n"
+        "\x1b[38;2;34;211;238m▸\x1b[0m unerrd will auto-start when your IDE first connects to the MCP server (no manual setup needed).\n"
       );
     }
   } catch {

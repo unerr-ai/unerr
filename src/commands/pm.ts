@@ -15,7 +15,6 @@
 
 import { resolve } from "node:path";
 import type { Command } from "commander";
-import { runEnvironmentChecks } from "./doctor.js";
 import {
   addRepo,
   findRepo,
@@ -28,6 +27,7 @@ import {
   SETTINGS_SCHEMA,
   parseSettingsFlags,
 } from "../daemon/settings-schema.js";
+import { runEnvironmentChecks } from "./doctor.js";
 
 const write = (msg: string) => process.stderr.write(msg);
 const PACKAGE_NAME = "unerr";
@@ -39,11 +39,16 @@ export function registerPmCommand(program: Command): void {
 
   // ── pm start ──────────────────────────────────────────
 
-  pm
-    .command("start")
+  pm.command("start")
     .description("Start the unerr process manager")
-    .option("--foreground", "Run in foreground (blocks terminal — useful for debugging)")
-    .option("--detached", "Run in-process as a detached supervisor (used by auto-spawn)")
+    .option(
+      "--foreground",
+      "Run in foreground (blocks terminal — useful for debugging)"
+    )
+    .option(
+      "--detached",
+      "Run in-process as a detached supervisor (used by auto-spawn)"
+    )
     .action(async (opts: { foreground?: boolean; detached?: boolean }) => {
       if (opts.foreground || opts.detached) {
         // Run in-process. --detached is set when auto-spawn by the bridge; identical
@@ -60,7 +65,12 @@ export function registerPmCommand(program: Command): void {
       const child = spawn(
         process.execPath,
         [unerrBin, "pm", "start", "--detached"],
-        { detached: true, stdio: "ignore", windowsHide: true, env: { ...process.env } }
+        {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+          env: { ...process.env },
+        }
       );
       child.unref();
 
@@ -105,8 +115,7 @@ export function registerPmCommand(program: Command): void {
 
   // ── pm stop ───────────────────────────────────────────
 
-  pm
-    .command("stop")
+  pm.command("stop")
     .description("Stop the unerrd supervisor")
     .action(async () => {
       const { createConnection } = await import("node:net");
@@ -235,8 +244,7 @@ export function registerPmCommand(program: Command): void {
 
   // ── pm remove <path> ────────────────────────────────────
 
-  pm
-    .command("remove [path]")
+  pm.command("remove [path]")
     .description("Unregister a repo from unerrd")
     .action((pathArg: string | undefined) => {
       const targetPath = resolve(pathArg ?? ".");
@@ -253,13 +261,12 @@ export function registerPmCommand(program: Command): void {
 
   // ── pm status ───────────────────────────────────────────
 
-  pm
-    .command("status")
+  pm.command("status")
     .description("List all registered repos and their state")
     .action(async () => {
       const repos = listRepos();
       if (repos.length === 0) {
-        write("No repos registered. Use `unerr daemon add .` to register.\n");
+        write("No repos registered. Use `unerr pm add .` to register.\n");
         return;
       }
 
@@ -331,7 +338,7 @@ export function registerPmCommand(program: Command): void {
       }
 
       write(
-        `\n  \x1b[1munerr daemon\x1b[0m — ${repos.length} repo${repos.length === 1 ? "" : "s"} registered\n\n`
+        `\n  \x1b[1munerr pm\x1b[0m — ${repos.length} repo${repos.length === 1 ? "" : "s"} registered\n\n`
       );
 
       for (const repo of repos) {
@@ -371,7 +378,7 @@ export function registerPmCommand(program: Command): void {
             write(
               `      ${ni.key}: auto-selected \x1b[1m${ni.auto}\x1b[0m (${ni.reason})\n` +
                 `        Alternatives: ${ni.alternatives.join(", ")}\n` +
-                `        Override: unerr daemon config ${repo.path} --${toKebab(ni.key)}=${ni.alternatives[0]}\n`
+                `        Override: unerr pm config ${repo.path} --${toKebab(ni.key)}=${ni.alternatives[0]}\n`
             );
           }
         }
@@ -417,7 +424,7 @@ export function registerPmCommand(program: Command): void {
         if (!entry) {
           write(
             `\x1b[38;2;248;113;113m\u2717\x1b[0m Not registered: ${targetPath}\n` +
-              `  Register first: unerr daemon add ${targetPath}\n`
+              `  Register first: unerr pm add ${targetPath}\n`
           );
           process.exitCode = 1;
           return;
@@ -472,7 +479,7 @@ export function registerPmCommand(program: Command): void {
       if (!updated) {
         write(
           `\x1b[38;2;248;113;113m\u2717\x1b[0m Not registered: ${targetPath}\n` +
-            `  Register first: unerr daemon add ${targetPath}\n`
+            `  Register first: unerr pm add ${targetPath}\n`
         );
         process.exitCode = 1;
         return;
@@ -490,8 +497,7 @@ export function registerPmCommand(program: Command): void {
 
   // ── pm logs ──────────────────────────────────────────────
 
-  pm
-    .command("logs")
+  pm.command("logs")
     .description("Tail daemon and repo log files")
     .option("--repo <label>", "Filter to a specific repo by label")
     .option("--bridge", "Include bridge session logs")
@@ -599,8 +605,7 @@ export function registerPmCommand(program: Command): void {
 
   // ── pm dashboard ────────────────────────────────────────
 
-  pm
-    .command("dashboard")
+  pm.command("dashboard")
     .description("Open the unerr dashboard in browser")
     .option("--port <port>", "Dashboard port (default: 9847)")
     .action(async (opts: { port?: string }) => {
@@ -630,8 +635,7 @@ export function registerPmCommand(program: Command): void {
 
   // ── pm config (global warm-start flags) ─────────────────
 
-  pm
-    .command("set")
+  pm.command("set")
     .description("Set global daemon configuration")
     .option(
       "--warm-start-budget <n>",
@@ -710,7 +714,6 @@ export function registerPmCommand(program: Command): void {
         );
       }
     );
-
 }
 
 /** Convert camelCase key to kebab-case for CLI flags. */

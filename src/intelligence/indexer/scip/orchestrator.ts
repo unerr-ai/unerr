@@ -460,7 +460,7 @@ async function resolveJavaBuildTool(
     };
     writeNeedsInput(projectRoot, [signal]);
     log.info(
-      `Java build tool: ${choice.tool} (auto: ${choice.reason}). Override: unerr daemon config . --java-build-tool=<tool>`
+      `Java build tool: ${choice.tool} (auto: ${choice.reason}). Override: unerr pm config . --java-build-tool=<tool>`
     );
   } else {
     log.info(`Java build tool: ${choice.tool} (${choice.reason})`);

@@ -810,8 +810,8 @@ async function checkNativeModule(): Promise<CheckResult> {
 }
 
 /**
- * Run every environment check. Used by both `unerr doctor` and `unerr
- * daemon initialize` so they share a single source of truth.
+ * Run every environment check. Used by `unerr doctor` and `unerr pm start`
+ * so they share a single source of truth.
  *
  * - `ok`       — every check returned status:'ok'
  * - `blocking` — caller should abort (a blocking failure was hit)
