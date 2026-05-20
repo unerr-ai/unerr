@@ -1284,8 +1284,19 @@ export class QueryRouter {
       // Phase 1: Tool-level timeout prevents stuck MCP calls from CozoDB contention.
       // Content-heavy tools (file_read, file_outline, search_code) hit CozoDB hard and
       // can legitimately exceed 3s under indexer contention, so they get a higher tier.
+      //
+      // Network tools (fetch_url) own their own retry + deadline machinery
+      // (FETCH_PROTOCOL_LIMITS.totalDeadlineMs = 120_000ms). The outer race must NOT
+      // pre-empt that or the typed `deadline_exceeded` http_error never wins —
+      // agents see a generic `tool_timeout` instead. 130_000ms = 120_000 + 10_000
+      // buffer so the inner deadline fires first.
       const HEAVY_TOOLS = new Set(["file_read", "file_outline", "search_code"]);
-      const TOOL_TIMEOUT_MS = HEAVY_TOOLS.has(toolName) ? 5000 : 3000;
+      const NETWORK_TOOLS = new Set(["fetch_url"]);
+      const TOOL_TIMEOUT_MS = NETWORK_TOOLS.has(toolName)
+        ? 130_000
+        : HEAVY_TOOLS.has(toolName)
+          ? 5_000
+          : 3_000;
       const rawLocal = await Promise.race([
         this.executeLocal(toolName, args),
         new Promise<never>((_, reject) =>

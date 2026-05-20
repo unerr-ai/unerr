@@ -315,6 +315,11 @@ function enforceByteCap(
 
   let hintTail: string;
   let reason: string;
+  const isFetchUrl = toolName === "fetch_url";
+  const promptArg =
+    typeof args.prompt === "string" && args.prompt.trim().length > 0
+      ? (args.prompt as string)
+      : null;
   if (entityArg) {
     // Entity is already the narrowest selector. Don't tell the caller to
     // narrow further by entity — they did.
@@ -333,6 +338,19 @@ function enforceByteCap(
       ? `limit:${suggestedLimit}`
       : "smaller limit";
     hintTail = `${limitHint} or token_budget:${cappedBudget}`;
+  } else if (isFetchUrl) {
+    // fetch_url's narrowing lever is *not* `entity:` — it's `prompt:<words>`
+    // (BM25 re-ranks passages by relevance) plus offset/limit pagination.
+    // Surface paste-ready values so the agent doesn't need to interpret the
+    // hint before retrying.
+    reason = "page_too_large";
+    const limitGuess = Math.max(
+      5,
+      Math.floor((30 * byteCap) / serialized.length)
+    );
+    hintTail = promptArg
+      ? `limit:${limitGuess} (prompt already set — BM25-ranked) or token_budget:${cappedBudget}`
+      : `pass prompt:<keywords> to BM25-rank passages, or limit:${limitGuess}, or token_budget:${cappedBudget}`;
   } else if (byteCap > HARD_BYTE_CAP) {
     // Budget was already lifted but still overflowed — caller must narrow.
     reason = "narrow_required";

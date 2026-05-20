@@ -8,7 +8,10 @@
 
 const TRACKING_PARAMS = /^(utm_|mc_|gclid$|fbclid$|yclid$|msclkid$|ref$|ref_)/i;
 
-export async function htmlToMarkdown(html: string): Promise<string> {
+export async function htmlToMarkdown(
+  html: string,
+  baseUrl?: string
+): Promise<string> {
   if (!html.trim()) return "";
   const TurndownModule = (await import("turndown")) as {
     default: new (opts?: Record<string, unknown>) => TurndownInstance;
@@ -36,7 +39,7 @@ export async function htmlToMarkdown(html: string): Promise<string> {
     filter: (node: HTMLElement) => node.nodeName === "A",
     replacement: (content: string, node: HTMLElement) => {
       const rawHref = node.getAttribute("href") ?? "";
-      const cleanHref = cleanUrl(rawHref);
+      const cleanHref = cleanUrl(rawHref, baseUrl);
       const title = node.getAttribute("title");
       if (!cleanHref) return content;
       const titleSuffix = title ? ` "${title}"` : "";
@@ -47,21 +50,30 @@ export async function htmlToMarkdown(html: string): Promise<string> {
   return td.turndown(html);
 }
 
-export function cleanUrl(href: string): string {
+/**
+ * Normalize a link href: drop tracking query params and, when `baseUrl` is
+ * provided, resolve relative/root-relative/protocol-relative URLs against it
+ * so emitted markdown contains absolute URLs the agent can re-fetch. Returns
+ * the href unchanged if it's a fragment, javascript: pseudo-protocol, or
+ * already absolute. Falls back to the raw href on parse failure.
+ */
+export function cleanUrl(href: string, baseUrl?: string): string {
   if (!href || href.startsWith("#") || href.startsWith("javascript:")) {
     return href;
   }
   try {
-    const url = new URL(href, "https://example.invalid");
+    const base = baseUrl ?? "https://example.invalid";
+    const url = new URL(href, base);
     const params = url.searchParams;
     const drop: string[] = [];
     for (const key of params.keys()) {
       if (TRACKING_PARAMS.test(key)) drop.push(key);
     }
     for (const key of drop) params.delete(key);
-    return url.protocol === "https:" && url.hostname === "example.invalid"
-      ? url.pathname + url.search + url.hash
-      : url.toString();
+    if (!baseUrl && url.hostname === "example.invalid") {
+      return url.pathname + url.search + url.hash;
+    }
+    return url.toString();
   } catch {
     return href;
   }

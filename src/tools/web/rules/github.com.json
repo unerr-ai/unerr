@@ -1,10 +1,28 @@
 {
   "host": "github.com",
-  "description": "Drop README badge image lines and GitHub UI chrome from extracted markdown.",
+  "description": "Drop README badge image lines, GitHub UI chrome, signed-out repo banner, and Discussions reaction/action menu widgets that render as orphaned 'Uh oh!' fallback headings when their progressive-enhancement JS isn't loaded.",
   "drop": [
     "^\\s*!\\[[^\\]]*\\]\\(https://img\\.shields\\.io[^)]*\\)\\s*$",
     "^\\s*!\\[[^\\]]*\\]\\(https://badge\\.fury\\.io[^)]*\\)\\s*$",
     "^\\s*!\\[[^\\]]*\\]\\(https://[^)]*badge[^)]*\\)\\s*$",
     "^\\s*\\[!\\[[^\\]]*\\]\\([^)]+\\)\\]\\([^)]+\\)\\s*$"
-  ]
+  ],
+  "extractor": {
+    "removeSelectors": [
+      "header.Header",
+      "div.js-header-wrapper",
+      "footer.footer",
+      "div.notification-shelf",
+      "div.flash-warn",
+      "details.dropdown",
+      "div.Bgc-shadow-secondary",
+      "details[data-show-actions]",
+      "details-menu",
+      ".js-pick-reaction",
+      ".comment-reactions",
+      ".reactions-menu-popover",
+      ".timeline-comment-actions",
+      ".dropdown-details"
+    ]
+  }
 }

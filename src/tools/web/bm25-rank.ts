@@ -15,6 +15,13 @@ export interface RankOptions {
   topK?: number;
 }
 
+const MIN_RANKABLE_TEXT_CHARS = 150;
+const MAX_LINK_DENSITY = 0.4;
+const HEADING_WEIGHT = 1.2;
+const TEXT_WEIGHT = 1.0;
+const MARKDOWN_LINK_PATTERN = /\[[^\]]+\]\([^)]+\)/g;
+const BM25_MIN_CORPUS_SIZE = 3;
+
 const STOPWORDS = new Set([
   "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
   "of", "and", "or", "but", "in", "on", "at", "to", "for", "with", "by",
@@ -30,6 +37,20 @@ function tokenize(text: string): string[] {
     .filter((t) => t.length > 1 && !STOPWORDS.has(t));
 }
 
+function linkDensity(text: string): number {
+  if (text.length === 0) return 0;
+  const links = text.match(MARKDOWN_LINK_PATTERN);
+  if (!links) return 0;
+  const linkBytes = links.reduce((sum, link) => sum + link.length, 0);
+  return linkBytes / text.length;
+}
+
+function isProseCandidate(passage: Passage): boolean {
+  if (passage.text.length < MIN_RANKABLE_TEXT_CHARS) return false;
+  if (linkDensity(passage.text) > MAX_LINK_DENSITY) return false;
+  return true;
+}
+
 export async function rankPassagesByPrompt(
   passages: Passage[],
   opts: RankOptions
@@ -39,15 +60,25 @@ export async function rankPassagesByPrompt(
   const promptTokens = tokenize(prompt);
   if (promptTokens.length === 0) return passages;
 
+  const prose = passages.filter(isProseCandidate);
+  const candidates = prose.length > 0 ? prose : passages;
+  const topK = Math.max(1, opts.topK ?? Math.min(20, candidates.length));
+
+  if (candidates.length < BM25_MIN_CORPUS_SIZE) {
+    return candidates.slice(0, topK);
+  }
+
   // @ts-expect-error -- wink-bm25-text-search ships no type declarations
   const mod = (await import("wink-bm25-text-search")) as unknown as {
     default: () => BM25Engine;
   };
   const engine = mod.default();
-  engine.defineConfig({ fldWeights: { text: 1, heading: 2 } });
+  engine.defineConfig({
+    fldWeights: { text: TEXT_WEIGHT, heading: HEADING_WEIGHT },
+  });
   engine.definePrepTasks([tokenize]);
 
-  for (const p of passages) {
+  for (const p of candidates) {
     engine.addDoc(
       { text: p.text, heading: p.heading ?? "" },
       String(p.index)
@@ -56,20 +87,22 @@ export async function rankPassagesByPrompt(
   engine.consolidate();
 
   const hits = engine.search(prompt) as Array<[string, number]>;
-  if (hits.length === 0) return passages;
+  // When BM25 returns no hits (rare-term prompt on a heavily-nav page),
+  // return the prose-filtered candidates rather than the original passage
+  // list — keeps chrome out even when ranking is uninformative.
+  if (hits.length === 0) return candidates.slice(0, topK);
 
-  const topK = Math.max(1, opts.topK ?? Math.min(20, passages.length));
   const ranked: Passage[] = [];
   const seen = new Set<number>();
   for (const [docId] of hits.slice(0, topK)) {
     const idx = Number(docId);
-    const p = passages.find((x) => x.index === idx);
+    const p = candidates.find((x) => x.index === idx);
     if (p && !seen.has(idx)) {
       ranked.push(p);
       seen.add(idx);
     }
   }
-  if (ranked.length === 0) return passages;
+  if (ranked.length === 0) return candidates.slice(0, topK);
   return ranked;
 }
 

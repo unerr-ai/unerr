@@ -49,8 +49,8 @@ describe("tool-tiers: UNLOCK_CONDITIONS alignment with TIER_ENTRIES", () => {
 		}
 	});
 
-	it("expected tier sizes — 5 / 8 / 6", () => {
-		expect(toolsByTier(1)).toHaveLength(5);
+	it("expected tier sizes — 6 / 8 / 6", () => {
+		expect(toolsByTier(1)).toHaveLength(6);
 		expect(toolsByTier(2)).toHaveLength(8);
 		expect(toolsByTier(3)).toHaveLength(6);
 	});

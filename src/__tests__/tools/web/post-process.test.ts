@@ -61,4 +61,32 @@ describe("postProcessMarkdown", () => {
     });
     expect(out).toBe("text");
   });
+
+  it("collapses inline base64 data-URI images to a short placeholder", () => {
+    const payload = "A".repeat(20_000);
+    const md = [
+      "intro",
+      `![diagram](data:image/png;base64,${payload})`,
+      "outro",
+    ].join("\n");
+    const out = postProcessMarkdown(md);
+    expect(out).toContain("intro");
+    expect(out).toContain("outro");
+    expect(out).not.toContain(payload);
+    expect(out).toContain("[image: diagram]");
+    expect(out.length).toBeLessThan(200);
+  });
+
+  it("strips a base64 data-URI with no alt text", () => {
+    const md = "before\n![](data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)\nafter";
+    const out = postProcessMarkdown(md);
+    expect(out).toContain("`[image]`");
+    expect(out).not.toContain("base64,");
+  });
+
+  it("ignores normal http/https image URLs", () => {
+    const md = "![logo](https://example.com/a.png)\ntext";
+    const out = postProcessMarkdown(md);
+    expect(out).toContain("![logo](https://example.com/a.png)");
+  });
 });

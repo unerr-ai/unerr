@@ -87,17 +87,17 @@ describe("tool-budget: enforceBudget", () => {
 describe("tool-descriptions: tier registry", () => {
 	const ALL = listToolNames();
 
-	it("contains exactly 19 tools", () => {
-		expect(ALL.length).toBe(19);
+	it("contains exactly 20 tools", () => {
+		expect(ALL.length).toBe(20);
 	});
 
-	it("partitions tools into exactly 5 / 8 / 6 across tiers 1 / 2 / 3", () => {
-		expect(toolsByTier(1)).toHaveLength(5);
+	it("partitions tools into exactly 6 / 8 / 6 across tiers 1 / 2 / 3", () => {
+		expect(toolsByTier(1)).toHaveLength(6);
 		expect(toolsByTier(2)).toHaveLength(8);
 		expect(toolsByTier(3)).toHaveLength(6);
 	});
 
-	it("places the 5 starter tools in tier 1", () => {
+	it("places the 6 starter tools in tier 1", () => {
 		const tier1 = new Set(toolsByTier(1));
 		for (const name of [
 			"search_code",
@@ -105,6 +105,7 @@ describe("tool-descriptions: tier registry", () => {
 			"file_read",
 			"get_entity",
 			"get_references",
+			"fetch_url",
 		]) {
 			expect(tier1.has(name)).toBe(true);
 		}

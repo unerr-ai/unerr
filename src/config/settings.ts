@@ -126,6 +126,13 @@ export const FetchUrlConfigSchema = z.object({
       timeoutMs: 15_000,
       waitUntil: "networkidle" as const,
     })),
+  /**
+   * Accept-Language header sent on every fetch. English-first default
+   * matches the agent's prompt language and avoids hosts that geo-redirect
+   * to localised pages with worse extraction yield. Override to opt into a
+   * different locale.
+   */
+  acceptLanguage: z.string().default("en-US,en;q=0.9"),
 });
 
 export type FetchUrlConfig = z.infer<typeof FetchUrlConfigSchema>;
@@ -152,6 +159,7 @@ export const SettingsSchema = z.object({
       timeoutMs: 15_000,
       waitUntil: "networkidle" as const,
     },
+    acceptLanguage: "en-US,en;q=0.9",
   })),
 });
 

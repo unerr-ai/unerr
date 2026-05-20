@@ -112,7 +112,7 @@ describe("MCP Envelope Integration", () => {
 
     const parsed = JSON.parse(content[0]!.text);
     expect(parsed._meta).toBeDefined();
-    expect(parsed._meta["dev.unerr/version"]).toBe("0.1.0");
+    expect(parsed._meta["dev.unerr/version"]).toBe("0.1.3");
     expect(typeof parsed._meta["dev.unerr/latency_ms"]).toBe("number");
     expect(typeof parsed._meta["dev.unerr/tokens_saved"]).toBe("number");
 
@@ -170,7 +170,7 @@ describe("MCP Envelope Integration", () => {
     const content = result.content as Array<{ type: string; text: string }>;
     const parsed = JSON.parse(content[0]!.text);
 
-    expect(parsed._meta["dev.unerr/version"]).toBe("0.1.0");
+    expect(parsed._meta["dev.unerr/version"]).toBe("0.1.3");
     expect(parsed._context).toBeUndefined();
 
     await harness.close();

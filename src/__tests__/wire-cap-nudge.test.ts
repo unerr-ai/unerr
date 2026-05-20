@@ -83,3 +83,51 @@ describe("wire-cap pagination hint — concrete next cursor", () => {
     expect(pageHint).not.toMatch(/:N(\s|\/|$)/);
   });
 });
+
+describe("wire-cap fetch_url too_large hint", () => {
+  function oversizedFetchBody() {
+    return {
+      result_status: "ok" as const,
+      url: "https://x",
+      final_url: "https://x",
+      status: 200,
+      title: "t",
+      extractor: "defuddle" as const,
+      word_count: 1000,
+      raw_bytes: 50_000,
+      extracted_bytes: 30_000,
+      compression_ratio: 0.4,
+      cache_hit: false,
+      passages: Array.from({ length: 1 }, (_, i) => ({
+        index: i,
+        heading: null,
+        text: "x".repeat(20_000),
+        start_line: 1,
+      })),
+      total: 1,
+      quality: {
+        playwright_rescued: false,
+        bm25_ranked: false,
+        rule_applied: null,
+      },
+    };
+  }
+
+  it("recommends `prompt:<keywords>` when no prompt is set", () => {
+    const { pageHint, body } = applyWireCap("fetch_url", oversizedFetchBody(), {});
+    const obj = body as Record<string, unknown>;
+    expect(obj.status).toBe("too_large");
+    expect(pageHint).toMatch(/prompt:<keywords>/);
+    expect(pageHint).toMatch(/limit:\d+/);
+    expect(pageHint).toMatch(/token_budget:\d+/);
+    expect(pageHint).not.toMatch(/entity:<name>/);
+  });
+
+  it("does not re-suggest prompt when one is already set", () => {
+    const { pageHint } = applyWireCap("fetch_url", oversizedFetchBody(), {
+      prompt: "rate limits and quotas",
+    });
+    expect(pageHint).toMatch(/BM25-ranked/);
+    expect(pageHint).not.toMatch(/prompt:<keywords>/);
+  });
+});

@@ -1,14 +1,14 @@
 <p align="center">
-  <a href="https://www.unerr.dev/"><img src="https://unerr.dev/icon-wordmark.svg" alt="unerr — local intelligence layer for AI coding agents" width="320" /></a>
+  <a href="https://www.unerr.dev/"><img src="https://unerr.dev/icon-wordmark.svg" alt="unerr — stateful cognitive guardrail for AI coding agents" width="320" /></a>
 </p>
 
 <p align="center">
-  <strong>Lands your AI agent at the right code in fewer turns, tokens, & breakages.</strong>
+  <strong>Stop babysitting your AI.</strong>
 </p>
 
 <p align="center">
-  A local intelligence layer that sits between your AI agent and your codebase —<br/>
-  indexes every call, remembers every decision, and gets sharper the longer you use it.
+  A stateful cognitive guardrail that sits beneath Claude Code, Cursor, and every other coding agent —<br/>
+  forces them to respect your architecture, remember your decisions, and stay sharp 50+ turns into a session.
 </p>
 
 <p align="center">
@@ -29,61 +29,72 @@
 
 ---
 
-## The agent isn't stupid. It's flying blind.
+## The slop isn't your agent's fault. It's flying blind and forgetting everything.
 
-Watch any AI coding session for ten minutes and you'll see the same loop:
+You've felt all four of these in the last 48 hours:
 
-- It **reads 30 files** to find one function — burning the context window before it writes a line.
-- It **edits something with 40 callers** and never knows it just broke three services.
-- It **re-derives the same conventions** you taught it yesterday, this morning, and an hour ago.
-- It **forgets the entire session** the moment the window closes.
+- **The Slop Threshold.** Claude is brilliant for 20 minutes, then hallucinates a duplicate component and forgets the styling rules you set five turns ago. Turn 30 isn't worse because the model got dumber — it's worse because the context window is now polluted with 15k tokens of file dumps and the agent has lost the plot.
+- **The Babysitter Tax.** More time writing `MEMORY.md`, updating `.cursorrules`, and pasting session summaries than writing code. You've become a middle manager for a junior dev with amnesia.
+- **The Blind Grep.** The agent reads a 2,000-line file to find a 5-line function. Its context window is now full of garbage and it still doesn't know that function has 24 callers across three services.
+- **The Silent Blast Radius.** You don't trust the agent to refactor anything important. It treats your codebase like a flat string of text — locally correct, globally wrong.
 
-Every one of these is the same root cause: the agent has **no persistent memory of your code, your team's style, or its own past mistakes**. unerr is that memory. One process, fully local, indexed in seconds — and your agent picks it up automatically through MCP.
+These aren't four problems. They're one: **Agentic Entropy** — the inevitable decay of AI logic and architectural integrity in long-running sessions. Today's agents are incredibly smart but structurally blind and severely amnesiac. They grep when a senior engineer would check the call graph. They forget on Tuesday what they learned on Monday.
+
+`unerr` is the substrate that fixes that. One local process, picked up automatically through MCP, that gives every agent on your machine a shared brain — a dependency graph it can see and a memory that survives the next session.
 
 ---
 
-## What you actually see
+## What changes (mapped to what you actually feel)
 
-Run `unerr` and open the dashboard. Four panes, all live:
-
-| Pane | Answers the question | Powered by |
+| You feel | The mechanism | What it changes |
 |---|---|---|
-| **Token Optimization** | *How much context did unerr save my agent this session?* — saved vs. delivered, compounding multiplier, breakdown by mechanism (compression, graph hits, skipped re-reads, web fetches). | Per-turn ledger of every tool call |
-| **Reasoning Quality** | *Did the agent actually use what it remembered?* — 4-pillar score across exploration, planning, execution, persistent memory. | 5-turn outcome window per fact/convention |
-| **Codebase Map + Code Intelligence** | *What's the call graph and where are the blast-radius landmines?* — entities, edges, fan-in/out chokepoints, cross-module surprise links. | CozoDB graph (in-process, <5ms) |
-| **Project Memory + Activity** | *What did we already learn, and what was I doing last time?* — facts the agent recorded, sessions stitched into intents, open blockers. | Append-only fact store + timeline.db |
+| **Trust returns.** You let the agent run for an hour without watching. | Every edit is preceded by a graph lookup. The agent sees all 24 callers *before* it touches the function. | Cascade guard fires on wide blast radius. `get_references` is one tool call away. Refactors stop rippling silently. |
+| **The babysitter tax disappears.** You delete `MEMORY.md` and `.cursorrules`. | Local fact store + timeline that survives sessions. Decisions, conventions, and anti-patterns persist with decay-adjusted confidence; auto-detected from coding sessions. | Open the laptop on Tuesday and the agent already knows what you decided on Monday — and why. |
+| **The agent stays sharp at turn 50.** Slop doesn't set in. | Surgical context. `file_read({entity})` returns 200 lines + relevant conventions instead of a 3,000-line dump. Shell output compressed 93% on average. Context window stays uncluttered. | The model isn't fighting "lost in the middle." It's fed exactly what it needs, when it needs it. |
+| **Tool sprawl dies.** No more "which search tool should I use?" | One graph, one set of tools, project-aware routing. Tool-adoption nudging keeps agents on the graph instead of reverting to grep within 3–5 turns. | Five MCP servers no longer compete for the agent's attention. |
 
-The agent reads from the same store through MCP — every claim on the dashboard is also a tool call it just made.
+What you're really getting is **agents that behave like senior engineers** — checking dependencies before editing, remembering project history, refusing to thrash on a function they've already failed on three times.
 
-### See it in action
+---
+
+## See it in action
 
 <p align="center">
   <img src="https://unerr.dev/open-cli/video/unerr_short.gif" alt="unerr in action" width="720" />
 </p>
 
+The dashboard is the evidence. Every claim above is something the agent is actively doing — and every panel reads from the same store the agent reads from over MCP.
+
+| Pane | What it shows |
+|---|---|
+| **Token Optimization** | How much context the agent *didn't* have to chew through this session — saved vs. delivered, by mechanism (graph hits, skipped re-reads, compressed shell output, deduped fetches). The compounding multiplier is the real number. |
+| **Reasoning Quality** | Did the agent actually act on what it remembered? A 4-pillar score with a 5-turn outcome window per fact and convention. Reinforced / acted-on / ignored / corrected — the load-bearing rate is what matters. |
+| **Codebase Map + Code Intelligence** | The graph the agent reads from. Fan-in chokepoints, cross-module surprise links, risk grade per file. This is what stops the silent blast radius. |
+| **Project Memory + Activity** | The facts that survived. Conventions auto-detected, decisions recorded, blockers still open. Sessions stitched into intents — your continuous thread across Cursor, Claude Code, and whatever you open tomorrow. |
+
 <table align="center">
   <tr>
     <td align="center" width="240">
       <img src="https://unerr.dev/open-cli/screenshots/dashboard.png" alt="unerr dashboard — live overview" width="240" height="150" />
-      <br/><sub><strong>Dashboard</strong><br/>Live overview — active sessions, recent tool calls, tokens saved this turn.</sub>
+      <br/><sub><strong>Dashboard</strong><br/>Live overview — active sessions, recent tool calls, tokens the agent skipped this turn.</sub>
     </td>
     <td align="center" width="240">
       <img src="https://unerr.dev/open-cli/screenshots/token-trace-main.png" alt="unerr token trace — global" width="240" height="150" />
-      <br/><sub><strong>Token Trace · global</strong><br/>Aggregate savings across every session, broken down by mechanism (graph, file_read, fetch_url, shell, dedup, format).</sub>
+      <br/><sub><strong>Token Trace · global</strong><br/>Aggregate context kept out of the window, broken down by mechanism (graph, file_read, fetch_url, shell, dedup, format).</sub>
     </td>
     <td align="center" width="240">
       <img src="https://unerr.dev/open-cli/screenshots/token-session.png" alt="unerr token trace — session" width="240" height="150" />
-      <br/><sub><strong>Token Trace · session</strong><br/>Single session: per-turn savings, mechanism mix, and the compounding multiplier.</sub>
+      <br/><sub><strong>Token Trace · session</strong><br/>Single session: per-turn impact, mechanism mix, and the compounding multiplier.</sub>
     </td>
     <td align="center" width="240">
       <img src="https://unerr.dev/open-cli/screenshots/token-turn.png" alt="unerr token trace — turn" width="240" height="150" />
-      <br/><sub><strong>Token Trace · turn</strong><br/>Single turn: which tool calls fired, tokens each would have cost without unerr vs what was delivered.</sub>
+      <br/><sub><strong>Token Trace · turn</strong><br/>Single turn: which tool calls fired, what each would have dumped into context without unerr vs what was delivered.</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="240">
       <img src="https://unerr.dev/open-cli/screenshots/reasoning-quality.png" alt="unerr reasoning quality — global" width="240" height="150" />
-      <br/><sub><strong>Reasoning Quality · global</strong><br/>Four-pillar score across cleaner context, fewer wasted turns, fewer breakages, persistent memory.</sub>
+      <br/><sub><strong>Reasoning Quality · global</strong><br/>Four-pillar score: cleaner context, fewer wasted turns, fewer breakages, persistent memory.</sub>
     </td>
     <td align="center" width="240">
       <img src="https://unerr.dev/open-cli/screenshots/reasoning-session.png" alt="unerr reasoning quality — session" width="240" height="150" />
@@ -91,7 +102,7 @@ The agent reads from the same store through MCP — every claim on the dashboard
     </td>
     <td align="center" width="240">
       <img src="https://unerr.dev/open-cli/screenshots/code-base-intelligence.png" alt="unerr code intelligence" width="240" height="150" />
-      <br/><sub><strong>Code Intelligence</strong><br/>Call graph, fan-in/out chokepoints, cross-module surprise links, and a risk grade per file.</sub>
+      <br/><sub><strong>Code Intelligence</strong><br/>Call graph, fan-in/out chokepoints, cross-module surprise links, risk grade per file.</sub>
     </td>
     <td align="center" width="240">
       <img src="https://unerr.dev/open-cli/screenshots/project-memory.png" alt="unerr project memory — facts" width="240" height="150" />
@@ -133,7 +144,7 @@ Writes the MCP config, skills, hooks, and instructions for that agent in the cur
 
 Close and reopen your IDE (or start a new chat session). Your agent picks up unerr through MCP — graph-backed tools, persistent memory, shell compression all available immediately.
 
-> **Dashboard:** <http://localhost:9847> — open any time to watch token savings, reasoning quality, and the codebase map update as your agent works.
+> **Dashboard:** <http://localhost:9847> — open any time to watch the guardrail at work in real time.
 
 ### Supported agents
 
@@ -189,33 +200,41 @@ Idempotent — re-running updates if content changed, skips if identical. Remove
 
 ---
 
-## What changes the moment you connect
+## Who it's for
 
-### First session — instant value
+- **Vibe coders.** The thing that stops your app from breaking on turn 30 when the AI gets confused. Slop never sets in.
+- **Solo builders.** The continuous thread. Switch from Claude Code in the terminal to Cursor in the IDE — your project memory comes with you.
+- **Senior / staff engineers.** A cognitive guardrail. Forces AI to respect dependency graphs and architectural boundaries the way a human engineer would.
 
-- **Graph navigation in <5ms** — `get_entity`, `get_references`, `get_imports`, `search_code`. The agent stops reading 30 files to find one function.
-- **Blast radius before edits** — `get_references` returns every caller. No more confident wrong changes that ripple across services.
-- **Targeted file reads** — `file_read({entity: "fnName"})` returns just that function + relevant conventions/facts, not 2000 lines.
-- **Shell compression** — 11 strategies, 645+ command classifiers. Diffs, errors, logs, test runs, YAML — each compressed differently. **93% average compression** across real-world benchmarks (2 MB → 138 KB). Raw output is kept on disk; the agent can recover it on demand.
-- **Web fetches** — `fetch_url` strips page chrome via Defuddle/Readability, converts to markdown, splits into heading-bounded passages, optionally re-ranks with BM25 when a `prompt` is supplied, and caches by content hash. Replaces built-in WebFetch — **5–10× fewer tokens** per page.
-- **Convention awareness** — naming, structure, import patterns auto-detected and injected into the agent's context.
-- **Tool adoption nudging** — five reinforcement layers (exec nudges, hook interception, instruction injection, skill reminders, default-deny of built-ins on Claude Code) push the agent to use the graph instead of grep.
+---
 
-### Session 2+ — it starts compounding
+## What happens the moment you connect
 
-- **Session persistence** — what the agent learned today is available tomorrow. No more starting from zero.
-- **Fact memory** — `record_fact` persists conventions, decisions, and anti-patterns; `recall_facts` retrieves them with decay-adjusted confidence. Facts also auto-detect from coding sessions.
-- **Episodic narratives** — when you reopen a file, the agent sees what was modified there, when, and why.
-- **Loop prevention** — a circuit breaker fires after repeated failed attempts on the same entity, surfacing the failure mode instead of letting the agent thrash.
-- **Memory-effectiveness scoring** — every fact and convention opens a 5-turn observation window and resolves to a verdict (reinforced / acted_on / caught / ignored / corrected). The Reasoning Quality pane shows the **load-bearing rate** — not just how much the agent remembered, but how much of it actually mattered.
+### Day 1 — instant relief
 
-### Background behaviors
+- **Architecturally aware navigation** — `get_entity`, `get_references`, `get_imports`, `search_code`. The agent stops reading 30 files to find one function.
+- **Blast-radius checks before every edit** — `get_references` returns every caller. No more confident wrong changes that ripple across services.
+- **Surgical file reads** — `file_read({entity: "fnName"})` returns just the function + relevant conventions, not 2,000 lines of attention-dilution.
+- **Shell compression** — 11 strategies, 645+ command classifiers. Diffs, errors, logs, test runs, YAML — each compressed differently. **93% average compression** across real-world benchmarks (2 MB → 138 KB). Raw output kept on disk; the agent can recover it on demand.
+- **Web fetches that don't bloat the context** — `fetch_url` strips chrome via Defuddle/Readability, converts to markdown, splits into heading-bounded passages, optionally re-ranks with BM25 when a `prompt` is supplied, and caches by content hash. **5–10× fewer tokens** than built-in WebFetch.
+- **Conventions detected automatically** — naming, structure, import direction. No `.cursorrules` to maintain.
+- **Tool adoption that sticks** — five reinforcement layers (exec nudges, hook interception, instruction injection, skill reminders, default-deny of built-ins on Claude Code) stop the agent from reverting to grep within 3–5 turns.
 
-While unerr is running these activate automatically — no extra commands:
+### Day 2 onward — the compounding starts
 
+- **Memory that survives** — what the agent learned today is available tomorrow. The continuous thread across Cursor, Claude Code, and any other MCP client on your machine.
+- **Decay-adjusted facts** — `record_fact` and `recall_facts` with per-type decay and contradiction handling. Facts also auto-detect from coding sessions.
+- **Episodic narratives** — reopen a file and the agent sees what was modified, when, and why.
+- **Loop prevention** — a circuit breaker fires after repeated failed attempts on the same entity. No more silent thrashing.
+- **Memory-effectiveness scoring** — every fact opens a 5-turn observation window. The Reasoning Quality pane shows the **load-bearing rate** — not how much the agent remembered, how much actually mattered.
+
+### Running quietly in the background
+
+These activate automatically — no extra commands:
+
+- **Cascade guard** — warns before an edit ripples wide.
 - **Architecture guard** — flags structural violations before they ship.
-- **Cascade guard** — warns when an edit has wide blast radius.
-- **Convention drift** — detects when new code diverges from established patterns.
+- **Convention drift** — catches new code diverging from established patterns.
 - **Auto-doc** — generates docs for undocumented entities.
 - **Change narrative** — tracks the story behind multi-step refactors.
 - **Loop breaker** — intervenes when the agent is stuck retrying.
@@ -237,7 +256,7 @@ While unerr is running these activate automatically — no extra commands:
 | **yaml** | YAML configs, `kubectl get -o yaml`, Helm output | adaptive |
 | **omni** | Fallback for unrecognized output | adaptive |
 
-**Overall: 93% compression** (2 MB → 138 KB across 40 real-world test cases).
+**Overall: 93% compression** (2 MB → 138 KB across 40 real-world test cases). This is the mechanism behind "agent stays sharp at turn 50" — not a token-cost play.
 
 ### Language support
 
@@ -255,7 +274,7 @@ While unerr is running these activate automatically — no extra commands:
 
 ## How unerr compares
 
-Adjacent tools each own one layer — graph navigation, persistent memory, or output compression. unerr integrates all three, plus the drift prevention that keeps the graph tools in active rotation. Peer strengths are real; the table credits them where they win.
+Adjacent tools each own one layer — graph navigation, persistent memory, or output compression. `unerr` integrates all three plus the drift prevention that keeps the graph tools in active rotation. Peer strengths are real; the table credits them where they win.
 
 | Capability | unerr | Graphify (~47K) | Serena (~23K) | claude-mem (~75K) | RTK (~40K) |
 |---|:---:|:---:|:---:|:---:|:---:|
@@ -272,11 +291,11 @@ Adjacent tools each own one layer — graph navigation, persistent memory, or ou
 
 Three numbers behind the table:
 
-- **~84%** of an AI coding agent's tokens are tool output, mostly file reads (JetBrains, NeurIPS 2025 DL4Code Workshop) — unerr intercepts before the read.
-- **0** LLM calls per query in the Free tier — facts, conventions, and drift signals are algorithmic.
-- **3–5** turns is how long agents take to revert to built-in Read/Grep/Glob without drift prevention.
+- **~84%** of an AI coding agent's tokens are tool output, mostly file reads (JetBrains, NeurIPS 2025 DL4Code Workshop) — `unerr` intercepts before the read so attention isn't diluted.
+- **0** LLM calls per query in the core — facts, conventions, and drift signals are algorithmic.
+- **3–5** turns is how long agents take to revert to built-in Read/Grep/Glob without drift prevention. The agent's mental model decays without active reinforcement.
 
-Honest acknowledgements: unerr is the new entrant with fewer stars than every peer; the install is heavier than `brew install` (Node + index step); TypeScript is deepest, other languages run on tree-sitter; no semantic vector retrieval and no narrative session resume in the Free tier.
+Honest acknowledgements: `unerr` is the new entrant with fewer stars than every peer; the install is heavier than `brew install` (Node + index step); TypeScript is deepest, other languages run on tree-sitter; no semantic vector retrieval and no narrative session resume in the core.
 
 ---
 
@@ -361,7 +380,7 @@ Inline markers the agent emits as it works. Persisted to the shadow ledger and `
 |------|-----|
 | `fetch_url` | DOM-extracted markdown of a web page (Defuddle/Readability), split into heading-bounded passages, optionally re-ranked by BM25 against a `prompt`, cached by content hash. Replaces built-in WebFetch — 5–10× fewer tokens. Optional Playwright SPA fallback. |
 
-Every response includes `_meta` (latency, risk level, drift status) and inline `ur|<tag>` signals for high-priority guidance (drift, blast-radius warnings, circuit-breaker halts).
+Every response carries inline `ur|<tag>` signals for high-priority guidance — drift, blast-radius warnings, circuit-breaker halts — so the agent acts on what it just learned without burning a turn.
 
 ---
 
@@ -409,7 +428,7 @@ src/
 - stdout is sacred — MCP JSON-RPC only; everything else to stderr.
 - <5 ms query responses — CozoDB runs in-process (Rust via NAPI).
 - First useful output <5 s — shallow index first, deep enrichment in background.
-- Graceful degradation — the agent still works if unerr is down, you just lose the intelligence layer.
+- Graceful degradation — the agent still works if unerr is down, you just lose the guardrail.
 
 **Tech stack** TypeScript (ESM) · CozoDB (Rust/NAPI) · web-tree-sitter (WASM) · MCP SDK · Ink (React CLI) · React + Vite (dashboard) · tsup · Vitest
 
@@ -472,6 +491,14 @@ unerr pm dashboard                    # Open http://localhost:9847 in your brows
 **Dashboard** shows the global overview (registered repos, health, active sessions), a repo switcher into each repo's full intelligence dashboard, and process-manager info (uptime, memory, idle countdown).
 
 **Updates** — `npm i -g @unerr-ai/unerr` and restart the IDE. The next bridge invocation re-spawns the manager on the new version.
+
+---
+
+## The truth this is built on
+
+Today's agents are incredibly smart — and structurally blind and severely amnesiac. They treat complex software like a flat text document. They grep when a senior engineer would check the call graph. They forget on Tuesday what they learned on Monday.
+
+`unerr` forces them to act like senior engineers instead — checking dependencies, respecting boundaries, remembering project history. The invisible substrate that turns a brilliant-but-flaky junior into something you can actually trust to run for an hour without watching.
 
 ---
 

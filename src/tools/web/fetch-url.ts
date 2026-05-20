@@ -31,6 +31,11 @@ export const fetchUrlTool: Tool = {
         type: "number",
         description: "Raise wire byte cap when full payload is needed",
       },
+      refresh: {
+        type: "boolean",
+        description:
+          "Skip the stale-while-revalidate cache shortcut and force a fresh network fetch",
+      },
     },
     required: ["url"],
   },
@@ -48,15 +53,33 @@ export const fetchUrlTool: Tool = {
         offset: args.offset as number | undefined,
         limit: args.limit as number | undefined,
         token_budget: args.token_budget as number | undefined,
+        refresh: args.refresh as boolean | undefined,
       },
       { cwd: ctx.cwd, abortSignal: ctx.abortSignal }
     );
-    return {
-      content: result as unknown as Record<string, unknown>,
-      metadata: {
+    let metadata: Record<string, unknown>;
+    if (result.result_status === "ok") {
+      metadata = {
+        result_status: "ok",
         extractor: result.extractor,
         compression_ratio: result.compression_ratio,
-      },
+      };
+    } else if (result.result_status === "blocked") {
+      metadata = {
+        result_status: "blocked",
+        reason: result.reason,
+        detected: result.detected,
+      };
+    } else {
+      metadata = {
+        result_status: "http_error",
+        reason: result.reason,
+        status: result.status,
+      };
+    }
+    return {
+      content: result as unknown as Record<string, unknown>,
+      metadata,
     };
   },
 };

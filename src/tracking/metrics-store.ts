@@ -115,6 +115,23 @@ export interface FetchCacheRow {
   compressed_bytes: number;
   fetched_at: number;
   hit_count: number;
+  /**
+   * Negative-cache marker. Non-null when the last attempt returned a typed
+   * blocked status; the value is the anti-bot kind ("cloudflare", "hcaptcha",
+   * "perimeterx"). Combined with `fetched_at`, the cache treats this row as
+   * a hint to skip the network until the negative-cache TTL elapses.
+   */
+  blocked_reason: string | null;
+  /** ISO 8601 publication date if found (article:published_time / time[datetime]). */
+  published_at: string | null;
+  /** Author byline (article:author / meta[name=author] / Readability byline). */
+  author: string | null;
+  /** Open Graph type ("article", "website", "video.movie", etc.). */
+  og_type: string | null;
+  /** Open Graph site_name ("MDN Web Docs", "GitHub"). */
+  site_name: string | null;
+  /** Absolute favicon URL resolved against final_url. */
+  favicon: string | null;
 }
 
 // ── Insert input types — what writers pass in ─────────────────────────
@@ -229,12 +246,47 @@ CREATE TABLE IF NOT EXISTS fetch_cache (
   raw_bytes INTEGER NOT NULL,
   compressed_bytes INTEGER NOT NULL,
   fetched_at INTEGER NOT NULL,
-  hit_count INTEGER NOT NULL DEFAULT 0
+  hit_count INTEGER NOT NULL DEFAULT 0,
+  blocked_reason TEXT,
+  published_at TEXT,
+  author TEXT,
+  og_type TEXT,
+  site_name TEXT,
+  favicon TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_fetch_cache_fetched ON fetch_cache(fetched_at);
 `;
 
 const SCHEMA_VERSION = "1";
+
+// Columns added after a table's initial `CREATE TABLE` shipped. SQLite's
+// `CREATE TABLE IF NOT EXISTS` won't add new columns to existing tables, so
+// without reconciliation a stale schema makes `db.prepare()` throw at proxy
+// startup → silent code=1 crash loop. Pre-release policy is "edit schema in
+// place" — this list lets us do that without forcing devs to drop tables.
+const ADDITIVE_COLUMNS: ReadonlyArray<{
+  table: string;
+  column: string;
+  decl: string;
+}> = [
+  { table: "fetch_cache", column: "blocked_reason", decl: "TEXT" },
+  { table: "fetch_cache", column: "published_at", decl: "TEXT" },
+  { table: "fetch_cache", column: "author", decl: "TEXT" },
+  { table: "fetch_cache", column: "og_type", decl: "TEXT" },
+  { table: "fetch_cache", column: "site_name", decl: "TEXT" },
+  { table: "fetch_cache", column: "favicon", decl: "TEXT" },
+];
+
+function reconcileAdditiveColumns(db: DatabaseT): void {
+  for (const { table, column, decl } of ADDITIVE_COLUMNS) {
+    const cols = db
+      .prepare(`PRAGMA table_info(${table})`)
+      .all() as Array<{ name: string }>;
+    if (cols.length === 0) continue; // table not created yet — SCHEMA already covers it
+    if (cols.some((c) => c.name === column)) continue;
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+  }
+}
 
 interface Statements {
   insertCompression: ReturnType<DatabaseT["prepare"]>;
@@ -267,6 +319,7 @@ export class MetricsStore {
     this.db.pragma("synchronous = NORMAL");
     this.db.pragma("foreign_keys = ON");
     this.db.exec(SCHEMA);
+    reconcileAdditiveColumns(this.db);
     this.db
       .prepare("INSERT OR IGNORE INTO meta(key, value) VALUES (?, ?)")
       .run("schema_version", SCHEMA_VERSION);
@@ -372,9 +425,11 @@ export class MetricsStore {
       upsertFetchCache: this.db.prepare(`
         INSERT INTO fetch_cache
           (url, content_hash, markdown, title, extractor,
-           raw_bytes, compressed_bytes, fetched_at, hit_count)
+           raw_bytes, compressed_bytes, fetched_at, hit_count, blocked_reason,
+           published_at, author, og_type, site_name, favicon)
         VALUES (@url, @content_hash, @markdown, @title, @extractor,
-                @raw_bytes, @compressed_bytes, @fetched_at, 0)
+                @raw_bytes, @compressed_bytes, @fetched_at, 0, @blocked_reason,
+                @published_at, @author, @og_type, @site_name, @favicon)
         ON CONFLICT(url) DO UPDATE SET
           content_hash = excluded.content_hash,
           markdown = excluded.markdown,
@@ -382,7 +437,13 @@ export class MetricsStore {
           extractor = excluded.extractor,
           raw_bytes = excluded.raw_bytes,
           compressed_bytes = excluded.compressed_bytes,
-          fetched_at = excluded.fetched_at
+          fetched_at = excluded.fetched_at,
+          blocked_reason = excluded.blocked_reason,
+          published_at = excluded.published_at,
+          author = excluded.author,
+          og_type = excluded.og_type,
+          site_name = excluded.site_name,
+          favicon = excluded.favicon
       `),
       getFetchCache: this.db.prepare(`
         SELECT * FROM fetch_cache WHERE url = @url

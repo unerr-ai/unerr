@@ -3,9 +3,20 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runFetchUrl } from "../../../tools/web/fetch-url-protocol.js";
+import {
+  type FetchUrlOk,
+  type FetchUrlResult,
+  runFetchUrl,
+} from "../../../tools/web/fetch-url-protocol.js";
 import { summarizeMarkdownDiff } from "../../../tools/web/diff-cache.js";
 import { openMetricsStore } from "../../../tracking/metrics-store.js";
+
+function ok(result: FetchUrlResult): FetchUrlOk {
+  if (result.result_status !== "ok") {
+    throw new Error(`expected ok, got ${result.result_status}`);
+  }
+  return result;
+}
 
 let server: Server;
 let baseUrl = "";
@@ -44,11 +55,11 @@ describe("fetch_url diff-cache", () => {
     const cwd = mkdtempSync(join(tmpdir(), "fetch-url-cache-"));
     try {
       currentVersion = 1;
-      const first = await runFetchUrl({ url: baseUrl }, { cwd });
+      const first = ok(await runFetchUrl({ url: baseUrl }, { cwd }));
       expect(first.cache_hit).toBe(false);
       expect(first.extractor).not.toBe("cache");
 
-      const second = await runFetchUrl({ url: baseUrl }, { cwd });
+      const second = ok(await runFetchUrl({ url: baseUrl }, { cwd }));
       expect(second.cache_hit).toBe(true);
       expect(second.extractor).toBe("cache");
       expect(second.diff?.unchanged).toBe(true);
@@ -67,7 +78,9 @@ describe("fetch_url diff-cache", () => {
       currentVersion = 1;
       await runFetchUrl({ url: baseUrl }, { cwd });
       currentVersion = 2;
-      const refreshed = await runFetchUrl({ url: baseUrl }, { cwd });
+      const refreshed = ok(
+        await runFetchUrl({ url: baseUrl, refresh: true }, { cwd })
+      );
       expect(refreshed.cache_hit).toBe(false);
       expect(refreshed.diff?.unchanged).toBe(false);
       expect(
@@ -75,6 +88,69 @@ describe("fetch_url diff-cache", () => {
       ).toBeGreaterThan(0);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("fetch_url stale-while-revalidate + negative cache", () => {
+  it("serves a fresh cache row without hitting the network on rapid re-fetch", async () => {
+    let networkHits = 0;
+    const swrServer = createServer((_req, res) => {
+      networkHits++;
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(versions[1]);
+    });
+    await new Promise<void>((resolve) =>
+      swrServer.listen(0, "127.0.0.1", () => resolve())
+    );
+    const addr = swrServer.address();
+    if (!addr || typeof addr === "string") throw new Error("no server addr");
+    const url = `http://127.0.0.1:${addr.port}/fresh`;
+    const cwd = mkdtempSync(join(tmpdir(), "fetch-url-swr-"));
+    try {
+      const first = ok(await runFetchUrl({ url }, { cwd }));
+      expect(first.cache_hit).toBe(false);
+      expect(networkHits).toBe(1);
+
+      const second = await runFetchUrl({ url }, { cwd });
+      expect(second.result_status).toBe("ok");
+      if (second.result_status !== "ok") return;
+      expect(second.cache_hit).toBe(true);
+      expect(second.extractor).toBe("cache");
+      expect(networkHits).toBe(1);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+      await new Promise<void>((resolve) => swrServer.close(() => resolve()));
+    }
+  });
+
+  it("replays a negative cache verdict without hitting the network", async () => {
+    let networkHits = 0;
+    const cfHtml = `<!doctype html><html><head><title>Just a moment...</title></head>
+      <body><div class="cf-browser-verification"></div></body></html>`;
+    const cfServer = createServer((_req, res) => {
+      networkHits++;
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(cfHtml);
+    });
+    await new Promise<void>((resolve) =>
+      cfServer.listen(0, "127.0.0.1", () => resolve())
+    );
+    const addr = cfServer.address();
+    if (!addr || typeof addr === "string") throw new Error("no server addr");
+    const url = `http://127.0.0.1:${addr.port}/gated`;
+    const cwd = mkdtempSync(join(tmpdir(), "fetch-url-neg-"));
+    try {
+      const first = await runFetchUrl({ url }, { cwd });
+      expect(first.result_status).toBe("blocked");
+      expect(networkHits).toBe(1);
+
+      const second = await runFetchUrl({ url }, { cwd });
+      expect(second.result_status).toBe("blocked");
+      expect(networkHits).toBe(1);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+      await new Promise<void>((resolve) => cfServer.close(() => resolve()));
     }
   });
 });

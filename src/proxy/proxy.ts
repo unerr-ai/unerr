@@ -335,6 +335,22 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     keep: 5,
   });
 
+  // Surface startup crashes loudly. Without these handlers a thrown DB
+  // schema mismatch (or any sync error inside a top-level await chain) can
+  // exit with code=1 silently — unerrd respawns endlessly with no clue.
+  process.on("uncaughtException", (err) => {
+    process.stderr.write(
+      `[unerr] FATAL uncaughtException: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`
+    );
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    process.stderr.write(
+      `[unerr] FATAL unhandledRejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}\n`
+    );
+    process.exit(1);
+  });
+
   const stats = createSessionStats(true);
   const startup = new StartupRenderer();
   if (!opts.daemonChild) {

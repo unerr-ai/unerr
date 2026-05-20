@@ -9,7 +9,10 @@ export { fetchUrlTool } from "./fetch-url.js";
 export { runFetchUrl } from "./fetch-url-protocol.js";
 export type {
   FetchUrlArgs,
+  FetchUrlBlocked,
   FetchUrlContext,
+  FetchUrlHttpError,
+  FetchUrlOk,
   FetchUrlResult,
 } from "./fetch-url-protocol.js";
 

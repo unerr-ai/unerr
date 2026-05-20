@@ -325,9 +325,8 @@ export function removeDisallowedTools(cwd: string): boolean {
     if (removed === 0) return false;
 
     // Clean up empty deny array and permissions object
-    if ((permissions.deny as string[]).length === 0)
-      permissions.deny = undefined;
-    if (Object.keys(permissions).length === 0) settings.permissions = undefined;
+    if ((permissions.deny as string[]).length === 0) delete permissions.deny;
+    if (Object.keys(permissions).length === 0) delete settings.permissions;
 
     writeFileSync(
       settingsPath,
