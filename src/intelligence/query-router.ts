@@ -21,8 +21,8 @@ import type {
 } from "../proxy/compression-quality-monitor.js";
 import type { ContextRotDetector } from "../proxy/context-rot-detector.js";
 import type { EfficiencyTracker } from "../proxy/efficiency-tracker.js";
-import { formatToolOutput } from "../proxy/format-encoder.js";
 import { calculateDollarSavings } from "../proxy/model-pricing.js";
+import { formatToolOutput } from "../proxy/format-encoder.js";
 import {
   type EntityRiskInfo,
   compressOutput,
@@ -38,12 +38,8 @@ import type { PendingViolationStore } from "../tracking/pending-violations.js";
 import type { PersistenceEffectivenessTracker } from "../tracking/persistence-effectiveness.js";
 import type { TokenFlowWriter } from "../tracking/token-flow.js";
 import { formatUnknownError } from "../utils/format-error.js";
+import type { BehaviorEventWriter } from "../tracking/behavior-events.js";
 import type { BackgroundIndexer } from "./background-indexer.js";
-import {
-  type ExplorationCostEstimate,
-  estimateExplorationCost,
-} from "./exploration-cost.js";
-import type { createExplorationAccumulator } from "./exploration-cost.js";
 import type { LocalEmbeddingStore } from "./local-embeddings.js";
 import type {
   CozoGraphStore,
@@ -616,10 +612,10 @@ export class QueryRouter {
   private healthMonitor: ReturnType<typeof createSessionHealthMonitor> | null =
     null;
 
-  /** S2: Exploration cost accumulator — tracks cumulative token savings. */
-  private explorationAccumulator: ReturnType<
-    typeof createExplorationAccumulator
-  > | null = null;
+  /** Verb-noun behavior events — named counters for PREVENT-class wins
+   *  (graph_query_served, loop_broken, cascade_guard, etc.). Replaces the
+   *  deleted exploration-cost estimator. */
+  private behaviorEvents: BehaviorEventWriter | null = null;
 
   /** S3: Context rot detector — detects long-session degradation. */
   private contextRotDetector: ContextRotDetector | null = null;
@@ -892,24 +888,9 @@ export class QueryRouter {
     this.healthMonitor = monitor;
   }
 
-  /**
-   * S2: Set exploration cost accumulator for token savings tracking.
-   */
-  setExplorationAccumulator(
-    accumulator: ReturnType<typeof createExplorationAccumulator>
-  ): void {
-    this.explorationAccumulator = accumulator;
-  }
-
-  /**
-   * S2: Get cumulative exploration savings (for session summary at shutdown).
-   */
-  getExplorationSavings(): {
-    saved: number;
-    without: number;
-    ratio: number;
-  } | null {
-    return this.explorationAccumulator?.getTotal() ?? null;
+  /** Set the writer for verb-noun behavior events. */
+  setBehaviorEvents(writer: BehaviorEventWriter): void {
+    this.behaviorEvents = writer;
   }
 
   /**
@@ -1547,7 +1528,7 @@ export class QueryRouter {
           this.eventBus.emit("token_flow", {
             turn: this.sessionContext.getToolCallCount(),
             tool: toolName,
-            mechanism: enrichStats.savingsMechanism ?? "graph_query",
+            mechanism: enrichStats.savingsMechanism ?? "fetch_url",
             tokens_saved: enrichStats.tokensSaved,
             tokens_delivered: tokensDelivered,
             session_total: sessionTotal,
@@ -1716,90 +1697,90 @@ export class QueryRouter {
       }
     }
 
-    // S2.7+S2.8: Track exploration cost \u2014 vanity fields stripped from wire,
-    // accumulators continue to feed dashboard via direct calls.
+    // Honest accounting split:
+    //   * fetch_url is COMPRESS-class. raw_bytes (what came off the wire) vs
+    //     extracted_bytes (what reaches the agent) are physical measurements.
+    //     Recorded to token_flow with mechanism "fetch_url".
+    //   * Everything else here is PREVENT-class. We cannot measure "the grep
+    //     and 5 file reads the agent didn't do" without inventing a number.
+    //     Per RTK_VS_UNERR_PERCEPTION_GAP doc we ship discrete named events
+    //     (graph_query_served, full_read_avoided) instead of fabricated ratios.
+    //   * file_read has its own real measurement at the file-read protocol
+    //     site (line ~1330) using actual char counts \u2014 left untouched here.
     let enrichTokensSaved = 0;
     let enrichSavingsMechanism: string | undefined;
-    if (this.explorationAccumulator && LOCAL_TOOLS.has(toolName)) {
-      const resultSize = this.estimateResultSize(result.content);
-      const estimate = estimateExplorationCost(toolName, resultSize);
-      this.explorationAccumulator.record(estimate);
-      const saved = estimate.tokensWithout - estimate.tokensUsed;
-      if (saved > 0) {
-        // File-navigation tools (file_read, file_outline, get_file) save tokens
-        // by NOT making the agent read the whole file. They belong in the
-        // "file_read" mechanism bucket, not "graph_query" (which is for entity-
-        // graph lookups that replaced grep/glob). fetch_url is its own bucket —
-        // it's a web-extraction pipeline (DOM → markdown → BM25), not a graph
-        // query. Categorization is purely a measurement/dashboard concern —
-        // the agent sees no difference.
-        const isFileNav =
-          toolName === "file_read" ||
-          toolName === "file_outline" ||
-          toolName === "get_file";
-        const isFetchUrl = toolName === "fetch_url";
-        const mechanism: "file_read" | "fetch_url" | "graph_query" = isFetchUrl
-          ? "fetch_url"
-          : isFileNav
-            ? "file_read"
-            : "graph_query";
+    if (LOCAL_TOOLS.has(toolName) && toolName !== "file_read") {
+      const turn = this.sessionContext.getToolCallCount();
+      const entityKey =
+        (args.key as string) ?? (args.name as string) ?? null;
+      const responseBytes = this.estimateResponseBytes(result.content);
 
-        enrichTokensSaved = saved;
-        enrichSavingsMechanism = mechanism;
-
-        // S8.5: Accumulate session dollars and run guard. Surface value_guard nudge
-        // (anti-drift; one-time when threshold crossed). Other monetary fields stay internal.
-        const dollarSavings = calculateDollarSavings(saved);
-        this.sessionDollarsSaved += dollarSavings;
-        if (this.valueGuard) {
-          const guardMsg = this.valueGuard.check(this.sessionDollarsSaved);
-          if (guardMsg) {
-            result._meta.value_guard = guardMsg;
-          }
-        }
-
-        // S4.1+S4.2: Feed into token counter and efficiency tracker
-        if (this.tokenCounter) {
-          this.tokenCounter.record(saved, estimate.tokensWithout);
-        }
-        if (this.efficiencyTracker) {
-          this.efficiencyTracker.record(
-            estimate.tokensWithout,
-            estimate.tokensUsed
-          );
-        }
-
-        // Layer 10: Record savings to token flow under the appropriate mechanism.
-        // `file_read` tool has its own more-accurate recording at line ~1217
-        // (based on actual file-slice delta from _layer6_meta), so skip the
-        // exploration-cost estimate here for it to avoid double-counting on
-        // the same call. `file_outline` / `get_file` rely on the estimate here.
-        if (toolName !== "file_read") {
+      if (toolName === "fetch_url") {
+        const c = result.content as {
+          raw_bytes?: number;
+          extracted_bytes?: number;
+        };
+        const rawBytes =
+          typeof c?.raw_bytes === "number" ? c.raw_bytes : 0;
+        const extractedBytes =
+          typeof c?.extracted_bytes === "number" ? c.extracted_bytes : 0;
+        // 4 chars/token: cl100k_base prose ratio (HTML + markdown are both
+        // prose-shaped). See intelligence/token-estimator.ts CHARS_PER_TOKEN.
+        const tokensWithout = Math.ceil(rawBytes / 4);
+        const tokensWith = Math.ceil(extractedBytes / 4);
+        const saved = Math.max(0, tokensWithout - tokensWith);
+        if (saved > 0) {
+          enrichTokensSaved = saved;
+          enrichSavingsMechanism = "fetch_url";
           this.tokenFlow?.record({
             session_id: this.tokenFlow.sessionId,
-            turn: this.sessionContext.getToolCallCount(),
-            mechanism,
+            turn,
+            mechanism: "fetch_url",
             tool: toolName,
-            tokens_without: estimate.tokensWithout,
-            tokens_with: estimate.tokensUsed,
+            tokens_without: tokensWithout,
+            tokens_with: tokensWith,
             tokens_saved: saved,
-            detail: { counterfactual: estimate.counterfactualMethod },
+            detail: {
+              raw_bytes: rawBytes,
+              extracted_bytes: extractedBytes,
+              source: "measured-bytes",
+            },
           });
-        }
-
-        // Q: Intent token tracker — attribute savings to active intent
-        if (this.intentTracker) {
-          const activeIntent = this.intentTracker.getActiveIntentId();
-          if (activeIntent) {
-            const entityKey = (args.key as string) ?? (args.name as string);
-            this.intentTracker.recordToolCall(
-              activeIntent,
-              estimate.tokensUsed,
-              saved,
-              entityKey
-            );
+          // Feed real-measurement values into legacy trackers. PREVENT-class
+          // events (graph queries, behaviors) are intentionally excluded —
+          // they record discrete counts via behaviorEvents, not synthetic
+          // saved/used numbers.
+          this.tokenCounter?.record(saved, tokensWithout);
+          this.sessionDollarsSaved += calculateDollarSavings(saved);
+          this.valueGuard?.check(this.sessionDollarsSaved);
+          if (this.intentTracker && entityKey) {
+            const activeIntentId = this.intentTracker.getActiveIntentId();
+            if (activeIntentId) {
+              this.intentTracker.recordToolCall(
+                activeIntentId,
+                tokensWith,
+                saved,
+                entityKey
+              );
+            }
           }
         }
+      } else {
+        // PREVENT-class: emit a verb-noun behavior event. file_outline /
+        // get_file replace full file reads; everything else (search_code,
+        // get_references, get_entity, file_connections, ...) is a graph
+        // query.
+        const isFileNav =
+          toolName === "file_outline" || toolName === "get_file";
+        const type = isFileNav ? "full_read_avoided" : "graph_query_served";
+        this.behaviorEvents?.record({
+          session_id: this.behaviorEvents.sessionId,
+          turn,
+          type,
+          tool: toolName,
+          entity_key: entityKey,
+          response_bytes: responseBytes,
+        });
       }
     }
 
@@ -2875,22 +2856,18 @@ export class QueryRouter {
   /**
    * S2: Estimate result size (number of items/entities) for exploration cost calculation.
    */
-  private estimateResultSize(content: unknown): number {
+  /** Measured size (bytes) of the response content delivered to the agent.
+   *  Used as the `response_bytes` field on behavior_events so the dashboard
+   *  can show what each graph query actually returned, without claiming any
+   *  counterfactual savings. */
+  private estimateResponseBytes(content: unknown): number {
     if (content === null || content === undefined) return 0;
-    if (Array.isArray(content)) return content.length;
-    if (typeof content === "string")
-      return Math.max(1, Math.ceil(content.length / 200));
-    if (typeof content === "object") {
-      // Entity objects, blast radius results, etc.
-      const obj = content as Record<string, unknown>;
-      if (Array.isArray(obj.entities)) return obj.entities.length;
-      if (Array.isArray(obj.callers)) return obj.callers.length;
-      if (Array.isArray(obj.callees)) return obj.callees.length;
-      if (typeof obj.direct_callers === "number")
-        return obj.direct_callers as number;
-      return 1;
+    if (typeof content === "string") return content.length;
+    try {
+      return JSON.stringify(content).length;
+    } catch {
+      return 0;
     }
-    return 1;
   }
 
   /**

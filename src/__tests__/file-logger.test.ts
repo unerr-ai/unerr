@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -57,34 +63,18 @@ describe("installFileLogger", () => {
     ]);
   });
 
-  it("rotates when the file exceeds maxBytes", () => {
+  it("rotates when the file exceeds maxBytes — rolled file is gzipped", () => {
     uninstall = installFileLogger({
       filePath: logPath,
       maxBytes: 512,
-      keep: 3,
     });
-    // Write enough bytes to trigger rotation
     for (let i = 0; i < 20; i++) {
       process.stderr.write(`${"x".repeat(100)}\n`);
     }
-    // After rotation, at least one .log.1 should exist
-    expect(existsSync(`${logPath}.1`)).toBe(true);
-  });
-
-  it("honors the `keep` parameter — older rotations get dropped", () => {
-    uninstall = installFileLogger({
-      filePath: logPath,
-      maxBytes: 256,
-      keep: 2,
-    });
-    // Trigger many rotations
-    for (let cycle = 0; cycle < 6; cycle++) {
-      for (let i = 0; i < 10; i++) {
-        process.stderr.write(`${"x".repeat(100)}\n`);
-      }
-    }
-    // .log, .log.1, .log.2 may exist; .log.3 must not
-    expect(existsSync(`${logPath}.3`)).toBe(false);
+    const rolled = readdirSync(tmpDir).filter((n) =>
+      /\.log\.\d{4}-\d{2}-\d{2}(?:\.\d+)?\.gz$/.test(n)
+    );
+    expect(rolled.length).toBeGreaterThanOrEqual(1);
   });
 
   it("uninstaller restores original stderr.write", () => {

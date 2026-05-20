@@ -31,65 +31,9 @@ describe("token-flow-instrumentation", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  // ── TF-B.1: Graph Query Instrumentation ─────────────────────────
-
-  describe("graph_query mechanism", () => {
-    it("records savings from graph query vs file exploration counterfactual", () => {
-      writer.record({
-        session_id: "test-session",
-        turn: 1,
-        mechanism: "graph_query",
-        tool: "get_callers",
-        tokens_without: 5000,
-        tokens_with: 1800,
-        tokens_saved: 3200,
-        detail: { counterfactual: "file_read" },
-      });
-
-      const events = writer.getSessionEvents();
-      expect(events).toHaveLength(1);
-      expect(events[0]!.mechanism).toBe("graph_query");
-      expect(events[0]!.tokens_saved).toBe(3200);
-      expect(events[0]!.detail?.counterfactual).toBe("file_read");
-    });
-
-    it("graph_query dominates typical session savings", () => {
-      writer.record({
-        session_id: "test-session",
-        turn: 1,
-        mechanism: "graph_query",
-        tool: "search_code",
-        tokens_without: 5000,
-        tokens_with: 1800,
-        tokens_saved: 3200,
-      });
-      writer.record({
-        session_id: "test-session",
-        turn: 2,
-        mechanism: "graph_query",
-        tool: "get_entity",
-        tokens_without: 3000,
-        tokens_with: 2400,
-        tokens_saved: 600,
-      });
-      writer.record({
-        session_id: "test-session",
-        turn: 3,
-        mechanism: "graph_query",
-        tool: "get_callers",
-        tokens_without: 6800,
-        tokens_with: 2000,
-        tokens_saved: 4800,
-      });
-
-      const summary = aggregateSession(
-        writer.getSessionEvents(),
-        "test-session"
-      );
-      expect(summary.by_mechanism.graph_query!.tokens_saved).toBe(8600);
-      expect(summary.by_mechanism.graph_query!.pct_of_total).toBe(100);
-    });
-  });
+  // TF-B.1: Graph query instrumentation removed — graph queries are now
+  // PREVENT-class behavior events, not synthetic token_flow rows.
+  // See src/__tests__/behavior-events.test.ts for the replacement coverage.
 
   // ── TF-B.2: Session Dedup Instrumentation ───────────────────────
 
@@ -244,27 +188,9 @@ describe("token-flow-instrumentation", () => {
     });
   });
 
-  // ── TF-B.7: Behavior Automation Instrumentation ────────────────
-
-  describe("behavior_automation mechanism", () => {
-    it("records halted tool call as savings", () => {
-      writer.record({
-        session_id: "test-session",
-        turn: 7,
-        mechanism: "behavior_automation",
-        tool: "get_entity",
-        tokens_without: 3200,
-        tokens_with: 400,
-        tokens_saved: 2800,
-        detail: { behavior: "cascade_guard", action: "halted" },
-      });
-
-      const events = writer.getSessionEvents();
-      expect(events).toHaveLength(1);
-      expect(events[0]!.mechanism).toBe("behavior_automation");
-      expect(events[0]!.detail?.behavior).toBe("cascade_guard");
-    });
-  });
+  // TF-B.7: Behavior automation instrumentation removed — behavior wins
+  // are now BehaviorEvents rows (intervention_halted / intervention_warned),
+  // not token_flow rows with fabricated savings. See behavior-events tests.
 
   // ── TF-B.8: _meta Enrichment ───────────────────────────────────
 
@@ -273,7 +199,7 @@ describe("token-flow-instrumentation", () => {
       writer.record({
         session_id: "test-session",
         turn: 1,
-        mechanism: "graph_query",
+        mechanism: "shell_compression",
         tool: "t",
         tokens_without: 5000,
         tokens_with: 1800,
@@ -296,7 +222,7 @@ describe("token-flow-instrumentation", () => {
       writer.record({
         session_id: "test-session",
         turn: 1,
-        mechanism: "graph_query",
+        mechanism: "shell_compression",
         tool: "t",
         tokens_without: 10000,
         tokens_with: 4000,
@@ -314,7 +240,7 @@ describe("token-flow-instrumentation", () => {
       writer.record({
         session_id: "test-session",
         turn: 1,
-        mechanism: "graph_query",
+        mechanism: "shell_compression",
         tool: "get_callers",
         tokens_without: 5000,
         tokens_with: 1800,
@@ -355,7 +281,7 @@ describe("token-flow-instrumentation", () => {
       writer.record({
         session_id: "test-session",
         turn: 1,
-        mechanism: "graph_query",
+        mechanism: "shell_compression",
         tool: "t",
         tokens_without: 10000,
         tokens_with: 3000,
@@ -370,7 +296,7 @@ describe("token-flow-instrumentation", () => {
       writer.record({
         session_id: "test-session",
         turn: 1,
-        mechanism: "graph_query",
+        mechanism: "shell_compression",
         tool: "t",
         tokens_without: 5000,
         tokens_with: 2000,
@@ -398,7 +324,7 @@ describe("token-flow-instrumentation", () => {
   // ── Multi-Mechanism Session ────────────────────────────────────
 
   describe("multi-mechanism session scenario", () => {
-    it("aggregates 7 mechanism types with correct attribution", () => {
+    it("aggregates COMPRESS-class mechanisms with correct attribution", () => {
       const events: Array<{
         mechanism: string;
         saved: number;
@@ -406,22 +332,16 @@ describe("token-flow-instrumentation", () => {
         with_: number;
       }> = [
         {
-          mechanism: "graph_query",
+          mechanism: "shell_compression",
           saved: 38400,
           without: 52000,
           with_: 13600,
         },
         {
-          mechanism: "shell_compression",
+          mechanism: "fetch_url",
           saved: 4200,
           without: 6200,
           with_: 2000,
-        },
-        {
-          mechanism: "behavior_automation",
-          saved: 2400,
-          without: 2400,
-          with_: 0,
         },
         {
           mechanism: "smart_truncation",
@@ -456,23 +376,23 @@ describe("token-flow-instrumentation", () => {
         "test-session"
       );
 
-      expect(summary.total_turns).toBe(7);
-      expect(summary.total_tokens_saved).toBe(51600);
+      expect(summary.total_turns).toBe(6);
+      expect(summary.total_tokens_saved).toBe(49200);
       expect(summary.total_tokens_with).toBe(21600);
-      expect(summary.total_tokens_without).toBe(73200);
+      expect(summary.total_tokens_without).toBe(70800);
 
-      // graph_query should be the top mechanism
-      expect(summary.by_mechanism.graph_query!.pct_of_total).toBeGreaterThan(
-        70
-      );
+      // shell_compression should be the top mechanism
+      expect(
+        summary.by_mechanism.shell_compression!.pct_of_total
+      ).toBeGreaterThan(70);
 
-      // All 7 mechanisms present
-      expect(Object.keys(summary.by_mechanism)).toHaveLength(7);
+      // All 6 COMPRESS-class mechanisms present
+      expect(Object.keys(summary.by_mechanism)).toHaveLength(6);
 
-      // Top turn should be graph_query
-      expect(summary.top_turns[0]!.primary_mechanism).toBe("graph_query");
+      // Top turn should be shell_compression
+      expect(summary.top_turns[0]!.primary_mechanism).toBe("shell_compression");
 
-      // Efficiency matches the doc scenario (~70%)
+      // Efficiency in the expected band
       expect(summary.efficiency_pct).toBeGreaterThan(60);
       expect(summary.efficiency_pct).toBeLessThan(80);
     });

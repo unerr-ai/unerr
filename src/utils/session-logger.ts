@@ -9,53 +9,36 @@
  * atomicity, same as `file-logger.ts`.
  *
  * Format: NDJSON — one JSON object per line, with `pid` + `sid` fields so
- * concurrent invocations are disambiguable. Size-based rotation (5 MB →
- * `session.log.1` … `session.log.5`, drop oldest) is performed inside
- * the reporter so writes self-bound their growth.
+ * concurrent invocations are disambiguable. Rotation rolls on UTC date
+ * change or `MAX_BYTES`, gzips the rolled file, and sweeps rolls older
+ * than the retention window. See `log-rotation.ts` for the policy.
  *
  * Temporal intelligence note: session log entries form the episodic memory
  * tier the upcoming extractor will consume. Joining on `sid` correlates
  * these entries with `proxy.log` / `bridge.log` / `events.jsonl` lines.
  */
 
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-} from "node:fs";
+import { appendFileSync, mkdirSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { type ConsolaInstance, createConsola } from "consola";
 import { getOrCreateSid, repoLog } from "./log-paths.js";
+import {
+  DEFAULT_MAX_BYTES,
+  DEFAULT_RETENTION_DAYS,
+  rotateLogIfNeeded,
+} from "./log-rotation.js";
 
-const MAX_BYTES = 5_000_000;
-const KEEP = 5;
+const MAX_BYTES = DEFAULT_MAX_BYTES;
+const RETENTION_DAYS = DEFAULT_RETENTION_DAYS;
 
-function rotate(filePath: string): void {
-  for (let i = KEEP; i >= 1; i--) {
-    const cur = i === 1 ? filePath : `${filePath}.${i - 1}`;
-    const next = `${filePath}.${i}`;
-    if (!existsSync(cur)) continue;
-    if (i === KEEP && existsSync(next)) {
-      try {
-        unlinkSync(next);
-      } catch {
-        /* best effort */
-      }
-    }
-    try {
-      renameSync(cur, next);
-    } catch {
-      /* best effort */
-    }
-  }
+function utcDay(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 let _logger: ConsolaInstance | null = null;
 let _logFilePath: string | null = null;
 let _bytesWritten = 0;
+let _currentDay = utcDay();
 
 export interface SessionLoggerOptions {
   cwd?: string;
@@ -80,6 +63,7 @@ export function initSessionLogger(
   } catch {
     _bytesWritten = 0;
   }
+  _currentDay = utcDay();
 
   const sid = getOrCreateSid();
   const pid = process.pid;
@@ -110,9 +94,17 @@ export function initSessionLogger(
             const line = `${JSON.stringify(entry)}\n`;
             appendFileSync(_logFilePath, line);
             _bytesWritten += line.length;
-            if (_bytesWritten >= MAX_BYTES) {
-              rotate(_logFilePath);
-              _bytesWritten = 0;
+            const today = utcDay();
+            if (today !== _currentDay || _bytesWritten >= MAX_BYTES) {
+              if (
+                rotateLogIfNeeded(_logFilePath, {
+                  maxBytes: MAX_BYTES,
+                  retentionDays: RETENTION_DAYS,
+                })
+              ) {
+                _bytesWritten = 0;
+              }
+              _currentDay = today;
             }
           } catch {
             /* best effort */

@@ -4,7 +4,7 @@
  * Tests the complete persistent intelligence loop:
  * Q.1: Causal bridge, Q.2: Auto-snapshots, Q.3: Convention learning,
  * Q.4: Session resume, Q.5: Timeline forks, Q.6: Prompt durability,
- * Q.9: Session health + exploration cost
+ * Q.9: Session health (exploration cost estimator removed)
  */
 
 import { describe, expect, it } from "vitest";
@@ -201,29 +201,6 @@ describe("Q.9: Session Health Monitor", () => {
       (s) => s.type === "convention_violation_spike"
     );
     expect(spike).toBeDefined();
-  });
-});
-
-describe("Q.9: Exploration Cost Estimator", () => {
-  it("estimates counterfactual for blast_radius query", async () => {
-    const { estimateExplorationCost } = await import(
-      "../intelligence/exploration-cost.js"
-    );
-    const estimate = estimateExplorationCost("blast_radius", 500, 10);
-    expect(estimate.tokensWithout).toBeGreaterThan(estimate.tokensUsed);
-    expect(estimate.counterfactualMethod).toBeTruthy();
-    expect(estimate.explanation).toBeTruthy();
-  });
-
-  it("accumulates session savings", async () => {
-    const { createExplorationAccumulator, estimateExplorationCost } =
-      await import("../intelligence/exploration-cost.js");
-    const acc = createExplorationAccumulator();
-    acc.record(estimateExplorationCost("blast_radius", 500, 10));
-    acc.record(estimateExplorationCost("find_callers", 200, 5));
-    const total = acc.getTotal();
-    expect(total.saved).toBeGreaterThan(0);
-    expect(total.ratio).toBeGreaterThan(0);
   });
 });
 

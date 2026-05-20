@@ -10,6 +10,10 @@
  */
 
 import { Hono } from "hono";
+import {
+  type BehaviorEvent,
+  readBehaviorEvents,
+} from "../../tracking/behavior-events.js";
 import { readSessionHistory } from "../../tracking/session-history.js";
 import type { TokenFlowWriter } from "../../tracking/token-flow.js";
 import {
@@ -23,14 +27,27 @@ export interface ReasoningQualityRouteDeps {
   getAgentName?: (sessionId: string) => string | undefined;
 }
 
-/** Mechanisms that indicate graph-backed precision queries */
-const GRAPH_MECHANISMS = new Set(["graph_query", "file_read"]);
+/** Mechanisms that indicate graph-backed precision queries.
+ *  `graph_query` was retired — graph hits are now counted from
+ *  behavior_events (`graph_query_served`) since they produce no
+ *  measurable byte savings, only a counter. */
+const GRAPH_MECHANISMS = new Set(["file_read"]);
 
 /** Mechanisms that indicate shell/exec compression */
 const SHELL_MECHANISMS = new Set(["shell_compression"]);
 
-/** Mechanisms that prevent breakages */
-const SAFETY_MECHANISMS = new Set(["behavior_automation"]);
+/** Behavior event types that prevent breakages / save the user from a
+ *  failed call. Counted alongside file_read graph hits. */
+const SAFETY_BEHAVIOR_TYPES = new Set([
+  "intervention_halted",
+  "intervention_warned",
+  "cascade_guard",
+  "loop_broken",
+]);
+
+/** Behavior event type for graph queries served (the replacement for
+ *  the deleted `graph_query` token_flow mechanism). */
+const GRAPH_QUERY_BEHAVIOR_TYPE = "graph_query_served";
 
 /** Mechanism that carries persistent-memory effectiveness verdicts */
 const PERSISTENT_MEMORY_MECHANISM = "persistent_memory";
@@ -111,8 +128,11 @@ interface QualityMetrics {
   memory_effectiveness_pct: number;
 }
 
-function computeQualityMetrics(events: TokenFlowEvent[]): QualityMetrics {
-  if (events.length === 0) {
+function computeQualityMetrics(
+  events: TokenFlowEvent[],
+  behaviorRows: BehaviorEvent[] = []
+): QualityMetrics {
+  if (events.length === 0 && behaviorRows.length === 0) {
     return {
       signal_to_noise_ratio: 0,
       noise_removed_pct: 0,
@@ -194,10 +214,6 @@ function computeQualityMetrics(events: TokenFlowEvent[]): QualityMetrics {
       shellCompressionEvents++;
     }
 
-    if (SAFETY_MECHANISMS.has(e.mechanism)) {
-      behaviorEvents++;
-    }
-
     // Extract detail-based counts
     const d = e.detail;
     if (d) {
@@ -273,8 +289,22 @@ function computeQualityMetrics(events: TokenFlowEvent[]): QualityMetrics {
     }
   }
 
+  // Fold behavior_event counts in. graph_query_served = a graph hit;
+  // intervention_halted/warned + cascade_guard + loop_broken = safety
+  // wins. No bytes attributed (PREVENT-class) — counters only.
+  for (const b of behaviorRows) {
+    sessions.add(b.session_id);
+    turns.add(`${b.session_id}:${b.turn}`);
+    if (b.type === GRAPH_QUERY_BEHAVIOR_TYPE) {
+      graphCalls++;
+    }
+    if (SAFETY_BEHAVIOR_TYPES.has(b.type)) {
+      behaviorEvents++;
+    }
+  }
+
   const totalSaved = totalWithout - totalWith;
-  const totalToolCalls = events.length;
+  const totalToolCalls = events.length + behaviorRows.length;
 
   // ── Category 1: Context Quality ──
   // SNR: what fraction of original content was signal (delivered / original)
@@ -305,8 +335,8 @@ function computeQualityMetrics(events: TokenFlowEvent[]): QualityMetrics {
   const turnsSaved = Math.round(graphCalls * 2.5);
 
   // ── Category 3: Fewer Breakages ──
-  // Also count behavior_automation events as convention injections if not
-  // otherwise categorized
+  // Safety behavior events (intervention_halted/warned, cascade_guard,
+  // loop_broken) roll into the convention-injections count.
   const totalConventionInjections = conventionInjections + behaviorEvents;
   const preventionScore =
     blastRadiusWarnings +
@@ -383,8 +413,12 @@ export function createReasoningQualityRoutes(
       from_ts: fromTs || undefined,
       to_ts: toTs || undefined,
     });
+    const behaviorRows = readBehaviorEvents(deps.unerrDir, {
+      from_ts: fromTs ?? undefined,
+      to_ts: toTs ?? undefined,
+    });
 
-    const metrics = computeQualityMetrics(events);
+    const metrics = computeQualityMetrics(events, behaviorRows);
 
     return c.json({
       data: metrics,
@@ -418,8 +452,11 @@ export function createReasoningQualityRoutes(
       : allEvents.filter(
           (e) => e.session_id === sessionId || e.session_id === "unknown"
         );
+    const sessionBehavior = readBehaviorEvents(deps.unerrDir, {
+      session_id: sessionId,
+    });
 
-    const metrics = computeQualityMetrics(sessionEvents);
+    const metrics = computeQualityMetrics(sessionEvents, sessionBehavior);
 
     // Per-turn quality trajectory (for session health chart)
     const turnGroups = new Map<number, TokenFlowEvent[]>();
@@ -511,10 +548,20 @@ export function createReasoningQualityRoutes(
       group.push(e);
       sessionMap.set(e.session_id, group);
     }
+    const allBehavior = readBehaviorEvents(deps.unerrDir);
+    const behaviorBySession = new Map<string, BehaviorEvent[]>();
+    for (const b of allBehavior) {
+      const group = behaviorBySession.get(b.session_id) ?? [];
+      group.push(b);
+      behaviorBySession.set(b.session_id, group);
+    }
 
     const allSessions = [...sessionMap.entries()]
       .map(([sessionId, events]) => {
-        const m = computeQualityMetrics(events);
+        const m = computeQualityMetrics(
+          events,
+          behaviorBySession.get(sessionId) ?? []
+        );
         const lastTs = events.reduce(
           (max, e) => (e.ts > max ? e.ts : max),
           events[0]!.ts
@@ -578,11 +625,24 @@ export function createReasoningQualityRoutes(
       group.push(e);
       sessionMap.set(e.session_id, group);
     }
+    const allBehaviorTrend = readBehaviorEvents(deps.unerrDir, {
+      from_ts: fromTs ?? undefined,
+      to_ts: toTs ?? undefined,
+    });
+    const behaviorBySessionTrend = new Map<string, BehaviorEvent[]>();
+    for (const b of allBehaviorTrend) {
+      const group = behaviorBySessionTrend.get(b.session_id) ?? [];
+      group.push(b);
+      behaviorBySessionTrend.set(b.session_id, group);
+    }
 
     // Build chronological trend — one data point per session, ordered by time
     const trend = [...sessionMap.entries()]
       .map(([sessionId, events]) => {
-        const m = computeQualityMetrics(events);
+        const m = computeQualityMetrics(
+          events,
+          behaviorBySessionTrend.get(sessionId) ?? []
+        );
         const firstTs = events.reduce(
           (min, e) => (e.ts < min ? e.ts : min),
           events[0]!.ts

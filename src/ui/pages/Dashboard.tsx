@@ -78,14 +78,23 @@ function formatPayload(data: unknown): string {
 }
 
 const MECHANISM_LABELS: Record<string, string> = {
-  graph_query: "Graph Query",
   shell_compression: "Shell Compression",
   format_encoding: "Format Encoding",
   file_read: "File Read",
   fetch_url: "Fetch URL",
   session_dedup: "Session Dedup",
   smart_truncation: "Smart Truncation",
-  behavior_automation: "Behavior Automation",
+};
+
+const BEHAVIOR_EVENT_LABELS: Record<string, string> = {
+  graph_query_served: "Graph queries served",
+  full_read_avoided: "Full reads avoided",
+  loop_broken: "Retry loops broken",
+  cascade_guard: "Cascade guards",
+  drift_consumed: "Drift signals consumed",
+  intervention_halted: "Interventions halted",
+  intervention_warned: "Warnings emitted",
+  defuddle_selector_skipped: "Defuddle selectors skipped",
 };
 
 /* ------------------------------------------------------------------ */
@@ -187,6 +196,22 @@ export function Dashboard({
     queryFn: () => fetchJson<SystemStatusEnvelope>(url("/api/system/status")),
   });
 
+  const behaviorEventsQ = useQuery({
+    queryKey: queryKey(["behavior-events", "global"]),
+    queryFn: () =>
+      fetchJson<{
+        data: {
+          total_sessions: number;
+          counts: {
+            by_type: Record<string, number>;
+            by_tool: Record<string, number>;
+            total: number;
+          };
+        };
+      }>(url("/api/behavior-events/global")),
+    refetchInterval: 10_000,
+  });
+
   const factsHealthQ = useQuery({
     queryKey: queryKey(["facts", "health"]),
     queryFn: () =>
@@ -280,6 +305,9 @@ export function Dashboard({
                   <span className="t-tertiary text-xs font-medium uppercase tracking-wider">
                     Savings by mechanism
                   </span>
+                  <p className="t-tertiary text-[11px] leading-snug">
+                    COMPRESS-class — measured bytes removed from responses.
+                  </p>
                   <div className="mt-2 space-y-1.5">
                     {mechanisms.map(([key, val]) => (
                       <MechanismBar
@@ -292,6 +320,37 @@ export function Dashboard({
                   </div>
                 </div>
               ) : null}
+
+              {/* Behavioral events overview — PREVENT-class counters */}
+              {(() => {
+                const bc = behaviorEventsQ.data?.data.counts;
+                const entries = bc
+                  ? Object.entries(bc.by_type).sort(([, a], [, b]) => b - a)
+                  : [];
+                if (entries.length === 0) return null;
+                const maxCount = entries[0][1] || 1;
+                return (
+                  <div className="mt-6 space-y-2">
+                    <span className="t-tertiary text-xs font-medium uppercase tracking-wider">
+                      Behavioral events
+                    </span>
+                    <p className="t-tertiary text-[11px] leading-snug">
+                      PREVENT-class — discrete named counters. No counterfactual
+                      token estimate; the count is the measure.
+                    </p>
+                    <div className="mt-2 space-y-1.5">
+                      {entries.map(([type, n]) => (
+                        <MechanismBar
+                          key={type}
+                          label={BEHAVIOR_EVENT_LABELS[type] ?? type}
+                          tokens={n}
+                          maxTokens={maxCount}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </>
           ) : (
             <p className="mt-4 t-tertiary text-sm">

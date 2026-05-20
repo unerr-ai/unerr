@@ -27,15 +27,15 @@ interface TokenFlowCardProps {
   };
 }
 
+// COMPRESS-class mechanisms only. PREVENT-class (graph queries, behavior
+// interventions) live in the Behavioral Events pane on Token Trace.
 const MECH_COLORS: Record<string, string> = {
-  graph_query: "bg-violet-500",
   shell_compression: "bg-cyan-500",
   format_encoding: "bg-blue-500",
   smart_truncation: "bg-amber-500",
   session_dedup: "bg-emerald-500",
   file_read: "bg-indigo-500",
   fetch_url: "bg-teal-500",
-  behavior_automation: "bg-rose-500",
 };
 
 function formatTokens(n: number): string {

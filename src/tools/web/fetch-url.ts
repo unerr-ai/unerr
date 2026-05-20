@@ -29,7 +29,14 @@ export const fetchUrlTool: Tool = {
       },
       token_budget: {
         type: "number",
-        description: "Raise wire byte cap when full payload is needed",
+        description:
+          "Raise wire byte cap when full payload is needed (default ceiling ~65k tokens; pass purpose:'explore' to reach ~131k)",
+      },
+      purpose: {
+        type: "string",
+        enum: ["explore", "reference"],
+        description:
+          "explore = browsing/research (lifts token_budget ceiling to ~131k tokens); reference = quick lookup (default ceiling ~65k tokens)",
       },
       refresh: {
         type: "boolean",

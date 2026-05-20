@@ -2,15 +2,18 @@
  * Sprint S4: Token Accounting & Visibility — Integration Tests.
  *
  * Verifies:
- *   - Every MCP response includes _meta.tokens_saved (combined sources)
- *   - Every MCP response includes _meta.dollar_savings (model-priced)
- *   - TokenCounter emits to stderr at configurable interval (default: every 5th)
+ *   - TokenCounter accumulates totals and emits at configurable interval
  *   - EfficiencyTracker accumulates session totals
  *   - Session summary displays: total tokens saved, dollar savings, efficiency %
+ *
+ * NOTE: Tests no longer use estimateExplorationCost — counterfactual savings
+ * estimates were removed. Tokens_saved now comes from real-measurement sources
+ * (file_read, fetch_url, shell_compression) recorded via TokenFlowWriter.
+ * PREVENT-class events (graph queries, behaviors) are tracked via
+ * BehaviorEventWriter as named counters, not synthetic savings.
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { createExplorationAccumulator } from "../intelligence/exploration-cost.js";
 import type { CozoGraphStore } from "../intelligence/local-graph.js";
 import { QueryRouter } from "../intelligence/query-router.js";
 import { createEfficiencyTracker } from "../proxy/efficiency-tracker.js";
@@ -63,80 +66,43 @@ function createMockGraph(
 }
 
 describe("Sprint S4: Token Accounting & Visibility Wiring", () => {
-  describe("S4.1+S4.3: Combined tokens_saved on every response", () => {
-    it("tracks tokens saved from exploration cost (internal accumulator)", async () => {
+  describe("S4.2: Efficiency tracker exposed via router", () => {
+    it("returns null when no efficiency tracker set", () => {
       const graph = createMockGraph();
       const router = new QueryRouter(graph);
-      const accumulator = createExplorationAccumulator();
-      const tokenCounter = createTokenCounter({ emitEveryN: 10 });
+      expect(router.getEfficiencySnapshot()).toBeNull();
+    });
+
+    it("getEfficiencySnapshot returns a snapshot when tracker is wired", async () => {
+      const graph = createMockGraph();
+      const router = new QueryRouter(graph);
       const efficiencyTracker = createEfficiencyTracker();
-      router.setExplorationAccumulator(accumulator);
-      router.setTokenCounter(tokenCounter);
       router.setEfficiencyTracker(efficiencyTracker);
 
       await router.execute("get_function", { key: "fn1" });
 
-      // Vanity wire fields stripped; verify via internal counter.
-      expect(tokenCounter.getTotalSaved()).toBeGreaterThan(0);
-    });
-
-    it("feeds savings into token counter and efficiency tracker", async () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      const accumulator = createExplorationAccumulator();
-      const tokenCounter = createTokenCounter({ emitEveryN: 100 });
-      const efficiencyTracker = createEfficiencyTracker();
-      router.setExplorationAccumulator(accumulator);
-      router.setTokenCounter(tokenCounter);
-      router.setEfficiencyTracker(efficiencyTracker);
-
-      await router.execute("get_function", { key: "fn1" });
-      await router.execute("get_function", { key: "fn2" });
-
-      expect(tokenCounter.getTotalSaved()).toBeGreaterThan(0);
-      expect(tokenCounter.getCallCount()).toBe(2);
-      expect(efficiencyTracker.getSavedTokens()).toBeGreaterThan(0);
-    });
-  });
-
-  describe("S4.4: Dollar savings tracked internally", () => {
-    it("derivable from token counter via model pricing", async () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      const accumulator = createExplorationAccumulator();
-      const tokenCounter = createTokenCounter({ emitEveryN: 100 });
-      router.setExplorationAccumulator(accumulator);
-      router.setTokenCounter(tokenCounter);
-
-      await router.execute("get_function", { key: "fn1" });
-
-      // Dollar savings stripped from wire to reduce metadata overhead;
-      // dashboard derives them from the internal token counter.
-      const tokensSaved = tokenCounter.getTotalSaved();
-      expect(tokensSaved).toBeGreaterThan(0);
-      const dollars = calculateDollarSavings(tokensSaved);
-      expect(dollars).toBeGreaterThan(0);
+      // The tracker is fed by TokenFlowWriter (COMPRESS-class real
+      // measurements), wired in proxy.ts — not by router.execute
+      // directly. Graph queries are PREVENT-class behavior events with
+      // no byte savings, so they don't feed the efficiency tracker.
+      const snap = router.getEfficiencySnapshot();
+      expect(snap).not.toBeNull();
     });
   });
 
   describe("S4.5: Stderr live counter at configurable interval", () => {
-    it("emits to stderr every Nth response (default: 5)", async () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      const accumulator = createExplorationAccumulator();
+    it("emits to stderr every Nth response when savings are recorded", () => {
       const messages: string[] = [];
       const tokenCounter = createTokenCounter({
         emitEveryN: 5,
         sink: (msg) => messages.push(msg),
       });
-      const efficiencyTracker = createEfficiencyTracker();
-      router.setExplorationAccumulator(accumulator);
-      router.setTokenCounter(tokenCounter);
-      router.setEfficiencyTracker(efficiencyTracker);
 
-      // Make 5 calls to trigger the first emission
+      // Counter operates independently of the data source — simulate
+      // recorded savings directly (real source: TokenFlowWriter +
+      // BehaviorEventWriter, exercised in proxy integration tests).
       for (let i = 0; i < 5; i++) {
-        await router.execute("get_function", { key: `fn${i}` });
+        tokenCounter.record(100, 150);
       }
 
       expect(messages.length).toBe(1);
@@ -145,82 +111,18 @@ describe("Sprint S4: Token Accounting & Visibility Wiring", () => {
       expect(messages[0]).toContain("efficiency");
     });
 
-    it("does not emit before reaching the interval", async () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      const accumulator = createExplorationAccumulator();
+    it("does not emit before reaching the interval", () => {
       const messages: string[] = [];
       const tokenCounter = createTokenCounter({
         emitEveryN: 5,
         sink: (msg) => messages.push(msg),
       });
-      router.setExplorationAccumulator(accumulator);
-      router.setTokenCounter(tokenCounter);
 
-      // Make 4 calls — should NOT emit
       for (let i = 0; i < 4; i++) {
-        await router.execute("get_function", { key: `fn${i}` });
+        tokenCounter.record(100, 150);
       }
 
       expect(messages.length).toBe(0);
-    });
-  });
-
-  describe("S4.2: Efficiency tracker session totals", () => {
-    it("getEfficiencySnapshot returns cumulative data", async () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      const accumulator = createExplorationAccumulator();
-      const tokenCounter = createTokenCounter({ emitEveryN: 100 });
-      const efficiencyTracker = createEfficiencyTracker();
-      router.setExplorationAccumulator(accumulator);
-      router.setTokenCounter(tokenCounter);
-      router.setEfficiencyTracker(efficiencyTracker);
-
-      await router.execute("get_function", { key: "fn1" });
-      await router.execute("get_function", { key: "fn2" });
-      await router.execute("search_code", { query: "test" });
-
-      const snap = router.getEfficiencySnapshot();
-      expect(snap).not.toBeNull();
-      expect(snap?.totalCalls).toBe(3);
-      expect(snap?.savedTokens).toBeGreaterThan(0);
-      expect(snap?.efficiency).toBeGreaterThan(0);
-      expect(snap?.efficiency).toBeLessThanOrEqual(100);
-    });
-
-    it("returns null when no efficiency tracker set", () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      expect(router.getEfficiencySnapshot()).toBeNull();
-    });
-  });
-
-  describe("S4.6+S4.7: Session summary data", () => {
-    it("token counter provides formatted summary data", async () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      const accumulator = createExplorationAccumulator();
-      const tokenCounter = createTokenCounter({ emitEveryN: 100 });
-      const efficiencyTracker = createEfficiencyTracker();
-      router.setExplorationAccumulator(accumulator);
-      router.setTokenCounter(tokenCounter);
-      router.setEfficiencyTracker(efficiencyTracker);
-
-      for (let i = 0; i < 10; i++) {
-        await router.execute("get_function", { key: `fn${i}` });
-      }
-
-      // Token counter provides totals for session summary
-      expect(tokenCounter.getTotalSaved()).toBeGreaterThan(0);
-      expect(tokenCounter.getTotalProcessed()).toBeGreaterThan(0);
-      expect(tokenCounter.getEfficiency()).toBeGreaterThan(0);
-
-      // Efficiency tracker provides snapshot for session card
-      const snap = efficiencyTracker.getSnapshot();
-      expect(snap.totalCalls).toBe(10);
-      expect(snap.savedTokens).toBeGreaterThan(0);
-      expect(snap.avgSavingsPerCall).toBeGreaterThan(0);
     });
   });
 

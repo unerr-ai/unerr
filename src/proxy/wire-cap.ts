@@ -123,22 +123,32 @@ const BYTES_PER_TOKEN = 4;
 
 /** Upper bound on the byte cap reachable via `token_budget`, even if the
  * agent passes a very large value. Keeps a runaway client from blowing the
- * model context. ~16K tokens. */
-const MAX_BYTE_CAP = 65536;
+ * model context. ~64K tokens (frontier models routinely run with 1–3M
+ * context windows; the prior 16K bound was set when 200K was the ceiling). */
+const MAX_BYTE_CAP = 262_144;
+
+/** Higher bound when the caller signals `purpose:'explore'` — exploration
+ * reads (browsing a long page, scanning a large entity) tolerate larger
+ * payloads than reference reads. ~128K tokens. */
+const MAX_BYTE_CAP_EXPLORE = 524_288;
 
 /**
  * Resolve the effective byte cap for this call. Defaults to HARD_BYTE_CAP;
- * agents can lift it (up to MAX_BYTE_CAP) by passing `token_budget:N` —
- * the documented escape hatch for full-payload reads (e.g. function bodies
- * for refactors). Anything <= the default keeps the default; we never
- * shrink below HARD_BYTE_CAP based on a small budget.
+ * agents can lift it (up to MAX_BYTE_CAP, or MAX_BYTE_CAP_EXPLORE when
+ * `purpose:'explore'` is set) by passing `token_budget:N` — the documented
+ * escape hatch for full-payload reads (e.g. function bodies for refactors,
+ * long-form research pages). Anything <= the default keeps the default;
+ * we never shrink below HARD_BYTE_CAP based on a small budget.
  */
 function resolveByteCap(args: Record<string, unknown>): number {
   const tb = args.token_budget;
   if (typeof tb !== "number" || tb <= 0) return HARD_BYTE_CAP;
+  const purpose =
+    typeof args.purpose === "string" ? args.purpose.trim() : undefined;
+  const upper = purpose === "explore" ? MAX_BYTE_CAP_EXPLORE : MAX_BYTE_CAP;
   const scaled = Math.floor(tb) * BYTES_PER_TOKEN;
   if (scaled <= HARD_BYTE_CAP) return HARD_BYTE_CAP;
-  return Math.min(scaled, MAX_BYTE_CAP);
+  return Math.min(scaled, upper);
 }
 
 /**
@@ -296,7 +306,11 @@ function enforceByteCap(
   // up to the next 100 so the caller doesn't bounce off a fractional miss.
   const neededTokensRaw = Math.ceil(serialized.length / BYTES_PER_TOKEN);
   const neededTokens = Math.ceil(neededTokensRaw / 100) * 100;
-  const cappedBudget = Math.min(neededTokens, MAX_BYTE_CAP / BYTES_PER_TOKEN);
+  const purposeArg =
+    typeof args.purpose === "string" ? args.purpose.trim() : undefined;
+  const upperCap =
+    purposeArg === "explore" ? MAX_BYTE_CAP_EXPLORE : MAX_BYTE_CAP;
+  const cappedBudget = Math.min(neededTokens, upperCap / BYTES_PER_TOKEN);
   const requestedBudget =
     typeof args.token_budget === "number" && args.token_budget > 0
       ? Math.floor(args.token_budget)

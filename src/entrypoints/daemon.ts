@@ -41,6 +41,7 @@ import {
   globalLog,
   globalLogsDir,
 } from "../utils/log-paths.js";
+import { sweepRotatedLogs } from "../utils/log-rotation.js";
 
 // ── Paths ───────────────────────────────────────────────────────
 
@@ -281,10 +282,10 @@ export async function startDaemon(opts: {
   // Install file logger as first action
   getOrCreateSid();
   cleanupLegacyLogs(globalLogsDir(globalDir()));
+  sweepRotatedLogs(globalLogsDir(globalDir()));
   installFileLogger({
     filePath: globalLog.unerrd(globalDir()),
     maxBytes: 10_000_000,
-    keep: 5,
   });
 
   // Acquire PID lock

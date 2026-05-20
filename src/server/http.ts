@@ -54,6 +54,10 @@ import {
   createTokenFlowRoutes,
 } from "./routes/token-flow.js";
 import {
+  type BehaviorEventRouteDeps,
+  createBehaviorEventRoutes,
+} from "./routes/behavior-events.js";
+import {
   type RouterRouteDeps,
   createRouterRoutes,
 } from "./routes/router.js";
@@ -77,6 +81,8 @@ export interface DashboardServerOptions {
   timeline?: TimelineRouteDeps;
   /** Layer 10: Dependencies for token flow API */
   tokenFlow?: TokenFlowRouteDeps;
+  /** Behavior events API (PREVENT-class verb-noun counters) */
+  behaviorEvents?: BehaviorEventRouteDeps;
   /** Dependencies for reasoning quality API (reuses token flow deps) */
   reasoningQuality?: ReasoningQualityRouteDeps;
   /** Sprint P0-6: Dependencies for MCP router dashboard API */
@@ -158,6 +164,12 @@ export async function startDashboardServer(
   }
   if (opts.tokenFlow) {
     app.route("/api/token-flow", createTokenFlowRoutes(opts.tokenFlow));
+  }
+  if (opts.behaviorEvents) {
+    app.route(
+      "/api/behavior-events",
+      createBehaviorEventRoutes(opts.behaviorEvents)
+    );
   }
   if (opts.reasoningQuality) {
     app.route(

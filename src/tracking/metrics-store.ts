@@ -85,6 +85,28 @@ export interface SessionHistoryRow {
   token_flow_summary: string | null; // JSON-encoded
 }
 
+export interface BehaviorEventRow {
+  id: number;
+  ts: number;
+  ts_iso: string;
+  session_id: string;
+  pid: number;
+  turn: number;
+  /** Event type — verb-noun key (e.g. "graph_query_served", "loop_broken",
+   *  "cascade_guard", "drift_consumed", "caller_aware_edit",
+   *  "intervention_halted", "intervention_warned"). */
+  type: string;
+  /** MCP tool name when the event was tool-bound; null for behaviors that
+   *  fired outside a tool call. */
+  tool: string | null;
+  /** Entity / file / URL the event was attached to. Null when N/A. */
+  entity_key: string | null;
+  /** Response bytes delivered when the event came from a tool response;
+   *  null for purely-behavioral intercepts (no response to measure). */
+  response_bytes: number | null;
+  detail: string | null; // JSON-encoded
+}
+
 export interface SessionSummaryRow {
   session_id: string;
   written_at: string;
@@ -141,6 +163,7 @@ export type FileReadEventInsert = Omit<FileReadEventRow, "id">;
 export type TokenFlowEventInsert = Omit<TokenFlowEventRow, "id">;
 export type SessionHistoryInsert = Omit<SessionHistoryRow, "id">;
 export type SessionSummaryInsert = SessionSummaryRow;
+export type BehaviorEventInsert = Omit<BehaviorEventRow, "id">;
 
 // ── Store ─────────────────────────────────────────────────────────────
 
@@ -237,6 +260,23 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS behavior_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  ts_iso TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  pid INTEGER NOT NULL,
+  turn INTEGER NOT NULL,
+  type TEXT NOT NULL,
+  tool TEXT,
+  entity_key TEXT,
+  response_bytes INTEGER,
+  detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_behavior_events_ts ON behavior_events(ts);
+CREATE INDEX IF NOT EXISTS idx_behavior_events_session ON behavior_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_behavior_events_type ON behavior_events(type);
+
 CREATE TABLE IF NOT EXISTS fetch_cache (
   url TEXT PRIMARY KEY,
   content_hash TEXT NOT NULL,
@@ -292,6 +332,7 @@ interface Statements {
   insertCompression: ReturnType<DatabaseT["prepare"]>;
   insertFileRead: ReturnType<DatabaseT["prepare"]>;
   insertTokenFlow: ReturnType<DatabaseT["prepare"]>;
+  insertBehaviorEvent: ReturnType<DatabaseT["prepare"]>;
   upsertSessionHistory: ReturnType<DatabaseT["prepare"]>;
   upsertSessionSummary: ReturnType<DatabaseT["prepare"]>;
   recentCompression: ReturnType<DatabaseT["prepare"]>;
@@ -301,6 +342,9 @@ interface Statements {
   tokenFlowSince: ReturnType<DatabaseT["prepare"]>;
   tokenFlowAll: ReturnType<DatabaseT["prepare"]>;
   tokenFlowBySession: ReturnType<DatabaseT["prepare"]>;
+  behaviorEventsAll: ReturnType<DatabaseT["prepare"]>;
+  behaviorEventsBySession: ReturnType<DatabaseT["prepare"]>;
+  behaviorEventsSince: ReturnType<DatabaseT["prepare"]>;
   allSessionHistory: ReturnType<DatabaseT["prepare"]>;
   sessionSummaryById: ReturnType<DatabaseT["prepare"]>;
   allSessionSummaries: ReturnType<DatabaseT["prepare"]>;
@@ -345,6 +389,13 @@ export class MetricsStore {
            tokens_without, tokens_with, tokens_saved, detail)
         VALUES (@ts, @ts_iso, @session_id, @pid, @turn, @mechanism, @tool,
                 @tokens_without, @tokens_with, @tokens_saved, @detail)
+      `),
+      insertBehaviorEvent: this.db.prepare(`
+        INSERT INTO behavior_events
+          (ts, ts_iso, session_id, pid, turn, type, tool,
+           entity_key, response_bytes, detail)
+        VALUES (@ts, @ts_iso, @session_id, @pid, @turn, @type, @tool,
+                @entity_key, @response_bytes, @detail)
       `),
       upsertSessionHistory: this.db.prepare(`
         INSERT INTO session_history
@@ -413,6 +464,15 @@ export class MetricsStore {
       tokenFlowBySession: this.db.prepare(`
         SELECT * FROM token_flow_events WHERE session_id = @sessionId ORDER BY id ASC
       `),
+      behaviorEventsAll: this.db.prepare(`
+        SELECT * FROM behavior_events ORDER BY id ASC
+      `),
+      behaviorEventsBySession: this.db.prepare(`
+        SELECT * FROM behavior_events WHERE session_id = @sessionId ORDER BY id ASC
+      `),
+      behaviorEventsSince: this.db.prepare(`
+        SELECT * FROM behavior_events WHERE id > @lastId ORDER BY id ASC LIMIT @limit
+      `),
       allSessionHistory: this.db.prepare(`
         SELECT * FROM session_history ORDER BY ended_at ASC
       `),
@@ -480,6 +540,10 @@ export class MetricsStore {
     return Number(this.stmt.insertTokenFlow.run(row).lastInsertRowid);
   }
 
+  insertBehaviorEvent(row: BehaviorEventInsert): number {
+    return Number(this.stmt.insertBehaviorEvent.run(row).lastInsertRowid);
+  }
+
   upsertSessionHistory(row: SessionHistoryInsert): void {
     this.stmt.upsertSessionHistory.run(row);
   }
@@ -530,6 +594,23 @@ export class MetricsStore {
     }) as TokenFlowEventRow[];
   }
 
+  allBehaviorEvents(): BehaviorEventRow[] {
+    return this.stmt.behaviorEventsAll.all({}) as BehaviorEventRow[];
+  }
+
+  behaviorEventsBySession(sessionId: string): BehaviorEventRow[] {
+    return this.stmt.behaviorEventsBySession.all({
+      sessionId,
+    }) as BehaviorEventRow[];
+  }
+
+  behaviorEventsSince(lastId: number, limit = 500): BehaviorEventRow[] {
+    return this.stmt.behaviorEventsSince.all({
+      lastId,
+      limit,
+    }) as BehaviorEventRow[];
+  }
+
   allSessionHistory(): SessionHistoryRow[] {
     return this.stmt.allSessionHistory.all({}) as SessionHistoryRow[];
   }
@@ -552,6 +633,7 @@ export class MetricsStore {
     compression: number;
     fileRead: number;
     tokenFlow: number;
+    behaviorEvent: number;
   } {
     const c = this.db
       .prepare("SELECT COALESCE(MAX(id), 0) AS id FROM compression_events")
@@ -562,7 +644,15 @@ export class MetricsStore {
     const t = this.db
       .prepare("SELECT COALESCE(MAX(id), 0) AS id FROM token_flow_events")
       .get() as { id: number };
-    return { compression: c.id, fileRead: f.id, tokenFlow: t.id };
+    const b = this.db
+      .prepare("SELECT COALESCE(MAX(id), 0) AS id FROM behavior_events")
+      .get() as { id: number };
+    return {
+      compression: c.id,
+      fileRead: f.id,
+      tokenFlow: t.id,
+      behaviorEvent: b.id,
+    };
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────
@@ -577,10 +667,11 @@ export class MetricsStore {
       DELETE FROM compression_events;
       DELETE FROM file_read_events;
       DELETE FROM token_flow_events;
+      DELETE FROM behavior_events;
       DELETE FROM session_history;
       DELETE FROM session_summaries;
       DELETE FROM sqlite_sequence WHERE name IN
-        ('compression_events','file_read_events','token_flow_events','session_history');
+        ('compression_events','file_read_events','token_flow_events','behavior_events','session_history');
     `);
   }
 }

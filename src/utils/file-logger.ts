@@ -15,30 +15,30 @@
  * ID from `log-paths.ts`. The timestamp is `new Date().toISOString()` —
  * UTC, millisecond-precision (e.g. `2026-05-19T20:11:23.456Z`).
  *
- * Rotation: when the current file passes `maxBytes`, rename `*.log` →
- * `*.log.1` (shift the rest), keep the last `keep` files, drop the oldest.
+ * Rotation: rolls on either a UTC date change or `maxBytes` (whichever
+ * fires first). Rolled files are gzipped to `*.log.YYYY-MM-DD.gz`. Files
+ * older than `retentionDays` are swept on each roll and at boot. See
+ * `log-rotation.ts` for the policy.
  *
  * Independent of `startupLog`: that tool writes structured JSONL events
  * (`events.jsonl`); this one mirrors the raw stderr byte stream (`*.log`).
  */
 
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-} from "node:fs";
+import { appendFileSync, mkdirSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { getOrCreateSid } from "./log-paths.js";
+import {
+  DEFAULT_MAX_BYTES,
+  DEFAULT_RETENTION_DAYS,
+  rotateLogIfNeeded,
+} from "./log-rotation.js";
 
 export interface FileLoggerOptions {
   filePath: string;
   /** Default 5_000_000 (5 MB). */
   maxBytes?: number;
-  /** Default 5. Number of rotated files to retain (`*.log.1` … `*.log.N`). */
-  keep?: number;
+  /** Days of rolled-file history to keep. Default 7. */
+  retentionDays?: number;
   /**
    * If true (default), prefix each line with `[pid=N sid=xxxxxx]`. The
    * prefix is what makes a shared file readable across processes.
@@ -53,26 +53,6 @@ const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z~]|\x1b\][^\x07]*\x07/g;
 
 function stripAnsi(s: string): string {
   return s.replace(ANSI_RE, "");
-}
-
-function rotate(filePath: string, keep: number): void {
-  for (let i = keep; i >= 1; i--) {
-    const cur = i === 1 ? filePath : `${filePath}.${i - 1}`;
-    const next = `${filePath}.${i}`;
-    if (!existsSync(cur)) continue;
-    if (i === keep && existsSync(next)) {
-      try {
-        unlinkSync(next);
-      } catch {
-        /* best effort */
-      }
-    }
-    try {
-      renameSync(cur, next);
-    } catch {
-      /* best effort */
-    }
-  }
 }
 
 /**
@@ -90,6 +70,10 @@ function prefixLines(text: string, prefix: string): string {
   return endsWithNewline ? `${prefixed}\n` : prefixed;
 }
 
+function utcDay(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 /**
  * Mirror `process.stderr.write` to `filePath` with ANSI codes stripped.
  * Returns an uninstaller that restores the original `stderr.write`.
@@ -97,13 +81,14 @@ function prefixLines(text: string, prefix: string): string {
 export function installFileLogger(opts: FileLoggerOptions): () => void {
   const {
     filePath,
-    maxBytes = 5_000_000,
-    keep = 5,
+    maxBytes = DEFAULT_MAX_BYTES,
+    retentionDays = DEFAULT_RETENTION_DAYS,
     prefix: usePrefix = true,
   } = opts;
   mkdirSync(dirname(filePath), { recursive: true });
 
   let bytesWritten = 0;
+  let currentDay = utcDay();
   try {
     bytesWritten = statSync(filePath).size;
   } catch {
@@ -139,9 +124,12 @@ export function installFileLogger(opts: FileLoggerOptions): () => void {
       appendFileSync(filePath, out);
 
       bytesWritten += out.length;
-      if (bytesWritten >= maxBytes) {
-        rotate(filePath, keep);
-        bytesWritten = 0;
+      const today = utcDay();
+      if (today !== currentDay || bytesWritten >= maxBytes) {
+        if (rotateLogIfNeeded(filePath, { maxBytes, retentionDays })) {
+          bytesWritten = 0;
+        }
+        currentDay = today;
       }
     } catch {
       /* file logging is best-effort — never block stderr */

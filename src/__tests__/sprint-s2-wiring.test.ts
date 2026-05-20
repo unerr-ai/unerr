@@ -11,7 +11,6 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { createExplorationAccumulator } from "../intelligence/exploration-cost.js";
 import type { CozoGraphStore } from "../intelligence/local-graph.js";
 import { QueryRouter } from "../intelligence/query-router.js";
 import { createSessionHealthMonitor } from "../intelligence/session-health-monitor.js";
@@ -61,66 +60,12 @@ function createMockGraph(
   } as unknown as CozoGraphStore;
 }
 
-describe("Sprint S2: Session Health & Exploration Cost Wiring", () => {
-  describe("S2.7-S2.8: Exploration cost on every graph response", () => {
-    it("tracks tokens saved internally for graph tool responses", async () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      const accumulator = createExplorationAccumulator();
-      router.setExplorationAccumulator(accumulator);
-
-      await router.execute("get_function", { key: "fn1" });
-
-      // Vanity fields stripped from wire; verify via internal accumulator instead.
-      const savings = router.getExplorationSavings();
-      expect(savings).not.toBeNull();
-      expect(savings!.saved).toBeGreaterThan(0);
-    });
-
-    it("accumulates savings across multiple tool calls", async () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      const accumulator = createExplorationAccumulator();
-      router.setExplorationAccumulator(accumulator);
-
-      await router.execute("get_function", { key: "fn1" });
-      await router.execute("get_function", { key: "fn2" });
-      await router.execute("search_code", { query: "test" });
-
-      const savings = router.getExplorationSavings();
-      expect(savings).not.toBeNull();
-      expect(savings!.saved).toBeGreaterThan(0);
-      expect(savings!.without).toBeGreaterThan(savings!.saved);
-    });
-
-    it("different tool types produce different cost estimates", async () => {
-      const graph = createMockGraph({
-        getBlastRadius: vi.fn().mockReturnValue({
-          direct_callers: 15,
-          direct_callees: 3,
-          transitive_count: 30,
-          is_chokepoint: true,
-          summary: "15 callers, 30 transitive",
-        }),
-        getBlastRadiusEntities: vi
-          .fn()
-          .mockReturnValue(Array.from({ length: 15 }, (_, i) => `caller${i}`)),
-      });
-      const router = new QueryRouter(graph);
-      const accumulator = createExplorationAccumulator();
-      router.setExplorationAccumulator(accumulator);
-
-      await router.execute("get_function", { key: "fn1" });
-      const beforeSecond = router.getExplorationSavings()!.saved;
-      await router.execute("search_code", { query: "test" });
-      const afterSecond = router.getExplorationSavings()!.saved;
-
-      // Both calls should add to the internal savings accumulator.
-      expect(beforeSecond).toBeGreaterThan(0);
-      expect(afterSecond).toBeGreaterThan(beforeSecond);
-    });
-  });
-
+describe("Sprint S2: Session Health Wiring", () => {
+  // Sprint S2.7-S2.8 and S2.10 exploration-cost tests removed alongside
+  // the deletion of estimateExplorationCost / createExplorationAccumulator.
+  // Token-flow now uses real measurements (file_read, fetch_url, etc.)
+  // and behavior_events for PREVENT-class wins — neither produces a
+  // counterfactual savings number.
   describe("S2.4-S2.5: Health monitor feeds from tool calls and blast radius", () => {
     it("records tool calls into health monitor", async () => {
       const graph = createMockGraph();
@@ -250,31 +195,6 @@ describe("Sprint S2: Session Health & Exploration Cost Wiring", () => {
         expect(result._meta.session_health!.recommendation).toBeDefined();
         expect(result._meta.session_health!.signals.length).toBeGreaterThan(0);
       }
-    });
-  });
-
-  describe("S2.10: Cumulative savings accessible for session summary", () => {
-    it("getExplorationSavings returns null when no accumulator set", () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-
-      expect(router.getExplorationSavings()).toBeNull();
-    });
-
-    it("getExplorationSavings returns cumulative data after queries", async () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      const accumulator = createExplorationAccumulator();
-      router.setExplorationAccumulator(accumulator);
-
-      await router.execute("get_function", { key: "fn1" });
-      await router.execute("get_function", { key: "fn2" });
-
-      const savings = router.getExplorationSavings();
-      expect(savings).not.toBeNull();
-      expect(savings!.saved).toBeGreaterThan(0);
-      expect(savings!.ratio).toBeGreaterThan(0);
-      expect(savings!.ratio).toBeLessThan(1);
     });
   });
 

@@ -127,16 +127,13 @@ interface CumulativeResponse {
 
 // ── Constants ────────────────────────────────────────────────────────
 
+// COMPRESS-class mechanisms only. Graph queries and behavior interventions
+// are PREVENT-class — they have no counterfactual byte count, so they
+// appear in the Behavioral Events pane (verb-noun counters) instead.
 const MECH_COLORS: Record<
   string,
   { bg: string; text: string; bar: string; ring: string }
 > = {
-  graph_query: {
-    bg: "bg-violet-500/20",
-    text: "text-violet-400",
-    bar: "bg-violet-500",
-    ring: "ring-violet-500/40",
-  },
   shell_compression: {
     bg: "bg-cyan-500/20",
     text: "text-cyan-400",
@@ -173,24 +170,49 @@ const MECH_COLORS: Record<
     bar: "bg-teal-500",
     ring: "ring-teal-500/40",
   },
-  behavior_automation: {
-    bg: "bg-rose-500/20",
-    text: "text-rose-400",
-    bar: "bg-rose-500",
-    ring: "ring-rose-500/40",
-  },
 };
 
 const ALL_MECHANISMS = [
-  "graph_query",
   "shell_compression",
   "format_encoding",
   "session_dedup",
   "smart_truncation",
   "file_read",
   "fetch_url",
-  "behavior_automation",
 ];
+
+// Behavioral event types (PREVENT-class). Each one is a discrete named
+// count surfaced in the Behavioral Events pane. The legend lives next to
+// the pane so users can read what each counter means.
+const BEHAVIOR_EVENT_LABELS: Record<string, string> = {
+  graph_query_served: "Graph query served",
+  full_read_avoided: "Full file read avoided",
+  loop_broken: "Retry loop broken",
+  cascade_guard: "Cascade guard fired",
+  drift_consumed: "Drift signal consumed",
+  intervention_halted: "Behavior intervention halted",
+  intervention_warned: "Behavior warning emitted",
+  defuddle_selector_skipped: "Defuddle selector skipped",
+};
+
+const BEHAVIOR_EVENT_DESCRIPTIONS: Record<string, string> = {
+  graph_query_served:
+    "Agent's graph-tool call (search_code, get_references, …) was served from the local graph instead of grep + N file reads.",
+  full_read_avoided:
+    "file_outline / get_file delivered a structural summary instead of a full file read.",
+  loop_broken:
+    "Circuit breaker halted a retry loop the agent was about to enter on the same entity.",
+  cascade_guard:
+    "A high fan-in edit was gated by the cascade guard before propagating.",
+  drift_consumed:
+    "A drift signal (`ur|dft`) was consumed — agent re-read the file before editing.",
+  intervention_halted:
+    "A pre-tool-use behavior halted a tool call before it ran.",
+  intervention_warned:
+    "A behavior emitted a warning but allowed the call to proceed.",
+  defuddle_selector_skipped:
+    "fetch_url's Defuddle extractor hit a non-fatal selector-parse error (nwsapi rejected a `:has()`/Tailwind arbitrary-value selector). First occurrence per signature is logged once; subsequent occurrences are counted only.",
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -495,6 +517,254 @@ function Pagination({
   );
 }
 
+// ── Behavioral Events Pane ───────────────────────────────────────────
+//
+// Surfaces PREVENT-class counters (graph queries served, file reads
+// avoided, retry loops broken, …). These are *not* token-savings rows
+// — they're discrete named events. We deliberately do not invent a
+// "would have cost N tokens" number because the counterfactual is
+// unknowable. The user reads the counts; the count *is* the value.
+//
+// Pattern: Turborepo "FULL TURBO" / GitHub Security "alerts dismissed".
+
+interface BehaviorCounts {
+  by_type: Record<string, number>;
+  by_tool: Record<string, number>;
+  total: number;
+}
+
+interface BehaviorSessionResponse {
+  data: { session_id: string | null; counts: BehaviorCounts };
+}
+
+interface BehaviorGlobalResponse {
+  data: { total_sessions: number; counts: BehaviorCounts };
+}
+
+function BehaviorEventsPane({
+  scope,
+  sessionId,
+  fromTs,
+  toTs,
+}: {
+  scope: "global" | "session";
+  sessionId?: string;
+  fromTs?: string;
+  toTs?: string;
+}) {
+  const { url, queryKey } = useRepoApi();
+  const dateParams =
+    fromTs || toTs
+      ? `${fromTs ? `&from_ts=${fromTs}` : ""}${toTs ? `&to_ts=${toTs}` : ""}`
+      : "";
+
+  const q = useQuery({
+    queryKey: queryKey([
+      "behavior-events",
+      scope,
+      sessionId ?? "",
+      fromTs ?? "",
+      toTs ?? "",
+    ]),
+    queryFn: () => {
+      if (scope === "global") {
+        return fetchJson<BehaviorGlobalResponse>(
+          url(`/api/behavior-events/global?_=1${dateParams}`)
+        ).then((r) => r.data.counts);
+      }
+      const sidParam = sessionId ? `session_id=${sessionId}` : "_=1";
+      return fetchJson<BehaviorSessionResponse>(
+        url(`/api/behavior-events/session?${sidParam}`)
+      ).then((r) => r.data.counts);
+    },
+    refetchInterval: 5_000,
+  });
+
+  const counts = q.data;
+  const headerSuffix =
+    scope === "global"
+      ? fromTs || toTs
+        ? " (Filtered)"
+        : " (All Time)"
+      : " (This Session)";
+
+  const entries = useMemo(() => {
+    if (!counts) return [] as Array<[string, number]>;
+    return Object.entries(counts.by_type).sort(([, a], [, b]) => b - a);
+  }, [counts]);
+
+  return (
+    <div className="el-raised rounded-lg p-5">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="t-secondary text-sm font-medium">
+          Behavioral Events{headerSuffix}
+        </h3>
+        <span className="t-tertiary text-xs">
+          {counts ? counts.total : 0} total
+        </span>
+      </div>
+      <p className="t-tertiary text-xs mb-3 leading-snug">
+        Discrete named counters for PREVENT-class wins — graph queries served,
+        file reads avoided, retry loops broken. No counterfactual byte count:
+        the count itself is the measure.
+      </p>
+      {q.isLoading ? (
+        <SkeletonBlock height={120} />
+      ) : entries.length === 0 ? (
+        <p className="t-secondary text-sm py-3">No behavioral events yet.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {entries.map(([type, n]) => (
+            <div
+              key={type}
+              className="flex items-center gap-3 py-1"
+              title={BEHAVIOR_EVENT_DESCRIPTIONS[type] ?? type}
+            >
+              <span className="text-violet-300 text-xs font-medium w-52 shrink-0 truncate">
+                {BEHAVIOR_EVENT_LABELS[type] ?? type.replace(/_/g, " ")}
+              </span>
+              <div className="flex-1 h-5 rounded bg-surface-secondary overflow-hidden">
+                <div
+                  className="h-full bg-violet-500 opacity-80 rounded"
+                  style={{
+                    width: `${Math.max(
+                      3,
+                      (n / (entries[0]?.[1] || 1)) * 100
+                    )}%`,
+                  }}
+                />
+              </div>
+              <span className="text-violet-200 font-mono text-xs w-14 text-right shrink-0">
+                {fmt(n)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Turn-scoped behavioral events list ────────────────────────────────
+//
+// Raw, time-ordered events for a single turn. The Session view shows
+// aggregates; the Turn view shows the actual events one-by-one so the
+// user can read what the agent was prevented from doing.
+
+interface BehaviorEventRow {
+  id: number;
+  ts: string;
+  session_id: string;
+  pid: number;
+  turn: number;
+  type: string;
+  tool: string | null;
+  entity_key: string | null;
+  response_bytes: number | null;
+  detail?: Record<string, unknown>;
+}
+
+interface BehaviorEventsResponse {
+  data: BehaviorEventRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+function TurnBehaviorEvents({
+  sessionId,
+  turn,
+}: {
+  sessionId: string;
+  turn: number;
+}) {
+  const { url, queryKey } = useRepoApi();
+  const q = useQuery({
+    queryKey: queryKey(["behavior-events-turn", sessionId, turn]),
+    queryFn: () =>
+      fetchJson<BehaviorEventsResponse>(
+        url(
+          `/api/behavior-events/events?session_id=${sessionId}&turn=${turn}&limit=200`
+        )
+      ),
+    refetchInterval: 5_000,
+  });
+
+  if (q.isLoading) {
+    return (
+      <div className="el-raised rounded-lg p-5">
+        <SkeletonBlock height={80} />
+      </div>
+    );
+  }
+
+  const events = q.data?.data ?? [];
+
+  return (
+    <div className="el-raised rounded-lg p-5">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="t-secondary text-sm font-medium">
+          Behavioral Events in this Turn
+        </h3>
+        <span className="t-tertiary text-xs">
+          {events.length} event{events.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+      <p className="t-tertiary text-xs mb-3 leading-snug">
+        PREVENT-class events fired during turn #{turn}. Each row is a discrete
+        win — a graph query served, a full read avoided, a retry loop broken.
+      </p>
+      {events.length === 0 ? (
+        <p className="t-secondary text-sm py-3">
+          No behavioral events in this turn.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs min-w-[700px]">
+            <thead>
+              <tr className="border-b border-border-subtle t-tertiary uppercase">
+                <th className="px-3 py-2 font-medium">Time</th>
+                <th className="px-3 py-2 font-medium">Type</th>
+                <th className="px-3 py-2 font-medium">Tool</th>
+                <th className="px-3 py-2 font-medium">Entity</th>
+                <th className="px-3 py-2 font-medium text-right">Bytes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {events.map((e) => (
+                <tr
+                  key={`${e.session_id}-${e.id}-${e.ts}`}
+                  className="border-b border-border-subtle/40 hover:bg-surface-secondary/40"
+                  title={BEHAVIOR_EVENT_DESCRIPTIONS[e.type] ?? e.type}
+                >
+                  <td className="px-3 py-1.5 font-mono t-tertiary whitespace-nowrap">
+                    {fmtTime(e.ts)}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <span className="text-violet-300">
+                      {BEHAVIOR_EVENT_LABELS[e.type] ??
+                        e.type.replace(/_/g, " ")}
+                    </span>
+                  </td>
+                  <td className="px-3 py-1.5 font-mono t-secondary">
+                    {e.tool ?? "—"}
+                  </td>
+                  <td className="px-3 py-1.5 font-mono t-secondary truncate max-w-[260px]">
+                    {e.entity_key ?? "—"}
+                  </td>
+                  <td className="px-3 py-1.5 font-mono t-secondary text-right">
+                    {e.response_bytes != null ? fmt(e.response_bytes) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // LEVEL 0 — GLOBAL VIEW
 // ══════════════════════════════════════════════════════════════════════
@@ -729,14 +999,21 @@ function GlobalView({
 
       {/* Global mechanism breakdown */}
       <div className="el-raised rounded-lg p-5">
-        <h3 className="t-secondary text-sm font-medium mb-3">
+        <h3 className="t-secondary text-sm font-medium mb-1">
           Savings by Mechanism{fromTs || toTs ? " (Filtered)" : " (All Time)"}
         </h3>
+        <p className="t-tertiary text-xs mb-3 leading-snug">
+          COMPRESS-class: physically measured bytes removed before the response
+          reached the agent.
+        </p>
         <MechanismBars
           mechanisms={g.by_mechanism}
           totalSaved={g.total_tokens_saved}
         />
       </div>
+
+      {/* Global behavioral events — PREVENT-class verb-noun counters */}
+      <BehaviorEventsPane scope="global" fromTs={fromTs} toTs={toTs} />
 
       {/* Session list — the primary navigation into drill-down */}
       <div className="el-raised rounded-lg overflow-hidden">
@@ -1105,7 +1382,7 @@ function SessionView({
                   const mechs = Object.entries(turn.mechanisms_this_turn).sort(
                     ([, a], [, b]) => b - a
                   );
-                  const primary = mechs[0]?.[0] ?? "graph_query";
+                  const primary = mechs[0]?.[0] ?? "shell_compression";
                   const colors = mc(primary);
 
                   return (
@@ -1174,14 +1451,21 @@ function SessionView({
 
         {/* Mechanism breakdown */}
         <div className="el-raised rounded-lg p-5">
-          <h3 className="t-secondary text-sm font-medium mb-3">
+          <h3 className="t-secondary text-sm font-medium mb-1">
             Savings by Mechanism
           </h3>
+          <p className="t-tertiary text-xs mb-3 leading-snug">
+            COMPRESS-class: measured bytes removed from this session's tool
+            responses.
+          </p>
           <MechanismBars
             mechanisms={s.by_mechanism}
             totalSaved={s.total_tokens_saved}
           />
         </div>
+
+        {/* Behavioral events for this session */}
+        <BehaviorEventsPane scope="session" sessionId={sessionId} />
       </div>
 
       {/* Turn list — the drill-down into individual turns */}
@@ -1574,6 +1858,9 @@ function TurnView({
           <MechanismBars mechanisms={mechBreakdown} totalSaved={totalSaved} />
         </div>
       )}
+
+      {/* Behavioral events fired during this turn */}
+      <TurnBehaviorEvents sessionId={sessionId} turn={turn} />
 
       {/* Event table — Splunk-style expandable rows */}
       <div className="el-raised rounded-lg overflow-hidden">

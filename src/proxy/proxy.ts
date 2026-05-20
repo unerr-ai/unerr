@@ -331,8 +331,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // disk even when the process is detached (DM-3 auto-spawn).
   installFileLogger({
     filePath: join(process.cwd(), ".unerr", "logs", "unerr.log"),
-    maxBytes: 5_000_000,
-    keep: 5,
   });
 
   // Surface startup crashes loudly. Without these handlers a thrown DB
@@ -340,13 +338,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // exit with code=1 silently — unerrd respawns endlessly with no clue.
   process.on("uncaughtException", (err) => {
     process.stderr.write(
-      `[unerr] FATAL uncaughtException: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`
+      `[unerr] FATAL uncaughtException: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`
     );
     process.exit(1);
   });
   process.on("unhandledRejection", (reason) => {
     process.stderr.write(
-      `[unerr] FATAL unhandledRejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}\n`
+      `[unerr] FATAL unhandledRejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)}\n`
     );
     process.exit(1);
   });
@@ -638,7 +636,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           // reindex so the graph reflects current files, orphans are pruned,
           // and the drift overlay is cleared (Phase 6.3 of indexLocalProject).
           needsBackgroundIndex = true;
-          log.info("Snapshot migration complete — scheduling background reindex to refresh graph");
+          log.info(
+            "Snapshot migration complete — scheduling background reindex to refresh graph"
+          );
           startupLog.step(
             `${startupLog.fmt.muted("Background reindex will refresh graph after MCP ready")}`
           );
@@ -719,17 +719,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   router.setSessionDedup(sessionDedup);
   router.setCompressionMonitor(compressionMonitor);
 
-  // Sprint S2: Wire session health monitor & exploration cost accumulator
+  // Sprint S2: Wire session health monitor
   const { createSessionHealthMonitor } = await import(
     "../intelligence/session-health-monitor.js"
   );
-  const { createExplorationAccumulator } = await import(
-    "../intelligence/exploration-cost.js"
-  );
   const healthMonitor = createSessionHealthMonitor();
-  const explorationAccumulator = createExplorationAccumulator();
   router.setHealthMonitor(healthMonitor);
-  router.setExplorationAccumulator(explorationAccumulator);
 
   // Sprint S3: Wire context rot detector
   const { createContextRotDetector } = await import(
@@ -1110,7 +1105,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       renderToolsListForExposure(exposed).map((t) => [t.name, t])
     );
     const merged = baseTools.map((t) =>
-      knownNames.has(t.name) ? exposureRendered.get(t.name) ?? t : t
+      knownNames.has(t.name) ? (exposureRendered.get(t.name) ?? t) : t
     );
     return {
       tools: reorderToolsByCluster(merged, toolUsageTracker),
@@ -1139,9 +1134,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   router.setRouterGateway(routerGateway);
 
   // P0-5: Rotate stale metrics.jsonl from previous day on startup.
-  routerGateway.rotateMetrics((err) => {
-    log.warn(`Telemetry rotation failed: ${err}`);
-  }).catch(() => {});
+  routerGateway
+    .rotateMetrics((err) => {
+      log.warn(`Telemetry rotation failed: ${err}`);
+    })
+    .catch(() => {});
 
   // ST-1c: Timeline subsystem (kill-switch UNERR_TIMELINE_V2=0). Additive,
   // never touches existing facts.db / graph.db code paths.
@@ -1285,6 +1282,39 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   router.setTokenFlow(tokenFlowWriter);
   efficiencyTracker = createEfficiencyTracker(tokenFlowWriter);
   router.setEfficiencyTracker(efficiencyTracker);
+
+  // Behavior events writer — verb-noun counters for PREVENT-class wins
+  // (graph_query_served, loop_broken, cascade_guard, drift_consumed, ...).
+  // Pairs with TokenFlowWriter (COMPRESS-class) for the full picture.
+  const { BehaviorEventWriter } = await import(
+    "../tracking/behavior-events.js"
+  );
+  const behaviorEventWriter = new BehaviorEventWriter(
+    unerrDirForLedger,
+    shadowLedger.getSessionId()
+  );
+  behaviorEventWriter.onRecord((event) => {
+    eventBus.emit("behavior_event", event);
+  });
+  router.setBehaviorEvents(behaviorEventWriter);
+
+  // Bridge defuddle suppression into the BehaviorEventWriter so the dashboard
+  // shows how often nwsapi rejects one of defuddle's selectors (a non-fatal
+  // log-noise source). First occurrence per signature prints one summary
+  // line to stderr; every occurrence — including the first — increments the
+  // counter so trend lines stay accurate.
+  const { setDefuddleNoiseSink } = await import("../tools/web/extract.js");
+  setDefuddleNoiseSink((signature, firstOccurrence) => {
+    behaviorEventWriter.record({
+      session_id: behaviorEventWriter.sessionId,
+      turn: stats.toolCallsLocal,
+      type: "defuddle_selector_skipped",
+      tool: "fetch_url",
+      entity_key: null,
+      response_bytes: null,
+      detail: { signature, first_occurrence: firstOccurrence },
+    });
+  });
 
   // Persistent memory effectiveness tracker — emits verdict events when
   // fact/convention/resume injections close their observation window.
@@ -1450,24 +1480,22 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       };
       const preOutput = await behaviorDispatcher.firePreToolUse(behaviorCtx);
       if (preOutput?.halt) {
-        // Layer 10: Record behavior automation savings (prevented a full tool call)
-        if (tokenFlowWriter) {
-          const haltContent = preOutput._context
-            ? JSON.stringify(preOutput._context)
-            : "";
-          const avoidedTokens = 3200;
-          const deliveredTokens = Math.ceil(haltContent.length / 4);
-          tokenFlowWriter.record({
-            session_id: tokenFlowWriter.sessionId,
-            turn: stats.toolCallsLocal + 1,
-            mechanism: "behavior_automation",
-            tool: name,
-            tokens_without: avoidedTokens,
-            tokens_with: deliveredTokens,
-            tokens_saved: Math.max(0, avoidedTokens - deliveredTokens),
-            detail: { behavior: preOutput.behaviorId, action: "halted" },
-          });
-        }
+        // PREVENT-class: a behavior halted the tool call before it ran. We
+        // cannot honestly measure "what the halted call would have cost" —
+        // the old `avoidedTokens = 3200` constant was a fabrication. Record
+        // a discrete intervention event instead so the dashboard surfaces
+        // *what was prevented*, not a guessed token number.
+        behaviorEventWriter.record({
+          session_id: behaviorEventWriter.sessionId,
+          turn: stats.toolCallsLocal + 1,
+          type: "intervention_halted",
+          tool: name,
+          entity_key: behaviorCtx.entityKey ?? behaviorCtx.filePath ?? null,
+          response_bytes: preOutput._context
+            ? JSON.stringify(preOutput._context).length
+            : null,
+          detail: { behavior_id: preOutput.behaviorId },
+        });
 
         return {
           content: [
@@ -2935,6 +2963,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           const last = [...agentNameByClient.values()].pop();
           return last ?? server.getClientVersion?.()?.name ?? undefined;
         },
+      },
+      behaviorEvents: {
+        unerrDir: unerrDirForApi,
+        getBehaviorEventWriter: () => behaviorEventWriter,
       },
       reasoningQuality: {
         unerrDir: unerrDirForApi,

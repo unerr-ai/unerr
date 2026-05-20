@@ -51,6 +51,7 @@ import {
   repoLog,
   repoLogsDir,
 } from "../utils/log-paths.js";
+import { sweepRotatedLogs } from "../utils/log-rotation.js";
 import { initFileLog } from "../utils/startup-log.js";
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -739,6 +740,7 @@ async function resumeBoot(config: Record<string, unknown>): Promise<void> {
   verifyUnerrOnPath();
   getOrCreateSid();
   cleanupLegacyLogs(repoLogsDir(process.cwd()));
+  sweepRotatedLogs(repoLogsDir(process.cwd()));
   initFileLog(process.cwd());
 
   // Verify this is still a valid project directory (config may be stale)
@@ -775,6 +777,7 @@ async function firstRunBoot(): Promise<void> {
   verifyUnerrOnPath();
   getOrCreateSid();
   cleanupLegacyLogs(repoLogsDir(process.cwd()));
+  sweepRotatedLogs(repoLogsDir(process.cwd()));
   initFileLog(process.cwd());
 
   const { initSessionLogger, createSessionModuleLogger } = await import(
@@ -833,10 +836,9 @@ async function firstRunBoot(): Promise<void> {
 async function daemonChildBoot(cwd: string): Promise<void> {
   getOrCreateSid();
   cleanupLegacyLogs(repoLogsDir(cwd));
+  sweepRotatedLogs(repoLogsDir(cwd));
   installFileLogger({
     filePath: repoLog.proxy(cwd),
-    maxBytes: 5_000_000,
-    keep: 5,
   });
 
   initFileLog(cwd);
@@ -953,10 +955,9 @@ type DiscoveryResult =
 async function mcpBoot(cwd: string): Promise<void> {
   getOrCreateSid();
   cleanupLegacyLogs(repoLogsDir(cwd));
+  sweepRotatedLogs(repoLogsDir(cwd));
   installFileLogger({
     filePath: repoLog.bridge(cwd),
-    maxBytes: 5_000_000,
-    keep: 5,
   });
 
   initFileLog(cwd);

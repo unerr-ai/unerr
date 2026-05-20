@@ -97,12 +97,36 @@ export function rawBodyFromHtmlSync(html: string): ExtractedContent {
  * web without per-host configuration.
  */
 const UNIVERSAL_CHROME_SELECTORS: ReadonlyArray<string> = [
-  "header", "footer", "nav", "aside",
-  ".header", ".footer", ".sidebar", ".navbar", ".menu", ".navigation",
-  ".breadcrumbs", ".cookie", ".modal", ".popup", ".overlay",
-  ".ad", ".ads", ".advert", ".share", ".widget",
-  ".lang-selector", ".language", ".social", ".social-media",
-  "#header", "#footer", "#sidebar", "#nav", "#breadcrumbs", "#cookie",
+  "header",
+  "footer",
+  "nav",
+  "aside",
+  ".header",
+  ".footer",
+  ".sidebar",
+  ".navbar",
+  ".menu",
+  ".navigation",
+  ".breadcrumbs",
+  ".cookie",
+  ".modal",
+  ".popup",
+  ".overlay",
+  ".ad",
+  ".ads",
+  ".advert",
+  ".share",
+  ".widget",
+  ".lang-selector",
+  ".language",
+  ".social",
+  ".social-media",
+  "#header",
+  "#footer",
+  "#sidebar",
+  "#nav",
+  "#breadcrumbs",
+  "#cookie",
 ];
 
 /**
@@ -111,8 +135,13 @@ const UNIVERSAL_CHROME_SELECTORS: ReadonlyArray<string> = [
  * `<nav>` or `<aside>`).
  */
 const FORCE_KEEP_SELECTORS: ReadonlyArray<string> = [
-  "#content", "#main", "main", "article",
-  ".markdown-body", ".prose", ".post-content",
+  "#content",
+  "#main",
+  "main",
+  "article",
+  ".markdown-body",
+  ".prose",
+  ".post-content",
 ];
 
 export async function extractMainContent(
@@ -150,7 +179,10 @@ export async function extractMainContent(
   }
 
   const defuddled = await tryDefuddle(dom);
-  if (defuddled && stripTags(defuddled.contentHtml).length >= MIN_USEFUL_CHARS) {
+  if (
+    defuddled &&
+    stripTags(defuddled.contentHtml).length >= MIN_USEFUL_CHARS
+  ) {
     return defuddled;
   }
 
@@ -165,10 +197,7 @@ export async function extractMainContent(
   return rawBodyFallback(dom);
 }
 
-function applyUniversalStrip(
-  dom: import("jsdom").JSDOM,
-  skip: boolean
-): void {
+function applyUniversalStrip(dom: import("jsdom").JSDOM, skip: boolean): void {
   if (skip) return;
   const doc = dom.window.document;
   for (const sel of UNIVERSAL_CHROME_SELECTORS) {
@@ -216,53 +245,163 @@ function applyHostShape(
   }
 }
 
+// Defuddle noise instrumentation — counts every suppressed selector error
+// via a process-wide sink (BehaviorEventWriter, wired in proxy.ts) and
+// emits one summary line per distinct signature so users still know which
+// nwsapi-rejected selector is firing.
+export type DefuddleNoiseSink = (
+  signature: string,
+  firstOccurrence: boolean
+) => void;
+const seenDefuddleSignatures = new Set<string>();
+let defuddleNoiseSink: DefuddleNoiseSink | null = null;
+
+export function setDefuddleNoiseSink(sink: DefuddleNoiseSink | null): void {
+  defuddleNoiseSink = sink;
+}
+
+/** Test-only: reset module state between cases. */
+export function _resetDefuddleNoiseState(): void {
+  seenDefuddleSignatures.clear();
+  defuddleNoiseSink = null;
+}
+
+function defuddleSignatureFromParts(parts: unknown[]): string {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    if (p instanceof Error) return p.message || String(p);
+    if (
+      p &&
+      typeof p === "object" &&
+      "message" in p &&
+      typeof (p as { message: unknown }).message === "string"
+    ) {
+      return (p as { message: string }).message;
+    }
+  }
+  return typeof parts[0] === "string" ? parts[0] : "unknown";
+}
+
+/**
+ * Walk every stylesheet on the document and drop rules whose selector
+ * nwsapi can't compile (Tailwind 4 arbitrary-value classes like
+ * `:text-foreground *`, React Aria IDs like `#react-aria-:R...`,
+ * malformed selectors like `:has(p+p)):not(:has(img)`). Defuddle's CSS
+ * analysis would otherwise call `querySelectorAll(rule.selectorText)`
+ * on each rule and trigger a SyntaxError per offender. We pre-validate
+ * with `matches()` on a throwaway element so the bad rule is gone
+ * before defuddle ever sees it. defuddle's *own* internal selectors
+ * (the `:not(:has(p + p))` family) are out of scope here — those fire
+ * inside defuddle's traversal regardless of stylesheet state and remain
+ * covered by the noise counter below.
+ */
+function pruneUnparseableStyleRules(dom: import("jsdom").JSDOM): void {
+  const doc = dom.window.document;
+  const probe = doc.createElement("div");
+  const sheets = doc.styleSheets;
+  for (let s = 0; s < sheets.length; s++) {
+    let rules: CSSRuleList | null = null;
+    try {
+      rules = sheets[s]?.cssRules ?? null;
+    } catch {
+      // cross-origin or otherwise inaccessible; skip
+      continue;
+    }
+    if (!rules) continue;
+    // Iterate backwards so deleteRule() doesn't shift remaining indices.
+    for (let i = rules.length - 1; i >= 0; i--) {
+      const rule = rules[i] as CSSRule & { selectorText?: string };
+      const sel = rule?.selectorText;
+      if (typeof sel !== "string" || sel.length === 0) continue;
+      try {
+        probe.matches(sel);
+      } catch {
+        try {
+          (sheets[s] as CSSStyleSheet).deleteRule(i);
+        } catch {
+          /* read-only sheet — best effort, defuddle will still emit
+             a single Error per offender which the counter absorbs */
+        }
+      }
+    }
+  }
+}
+
 async function tryDefuddle(
   dom: import("jsdom").JSDOM
 ): Promise<ExtractedContent | null> {
+  // Two-layer noise control:
+  //   1. pruneUnparseableStyleRules() — engine-level fix. Drops page
+  //      stylesheet rules whose selectors nwsapi rejects, so defuddle's
+  //      CSS analysis never asks jsdom to compile them. Eliminates the
+  //      Tailwind 4 / React Aria SyntaxError stream at the source.
+  //   2. console.error/log filter — covers what (1) can't: defuddle's
+  //      *internal* selectors (e.g. `header:not(:has(p+p)):not(:has(img))`)
+  //      that fire inside defuddle's own traversal regardless of input
+  //      stylesheet state. Counted via the sink, summarized once per
+  //      signature on stderr.
+  pruneUnparseableStyleRules(dom);
+
+  const originalConsoleError = console.error;
+  const originalConsoleLog = console.log;
+  const isDefuddleNoise = (parts: unknown[]): boolean => {
+    const head = typeof parts[0] === "string" ? parts[0] : "";
+    return (
+      head.startsWith("Defuddle") ||
+      head.startsWith("Error: Could not parse CSS stylesheet")
+    );
+  };
+  const handleNoise = (
+    parts: unknown[],
+    rawWriter: (...args: unknown[]) => void
+  ): void => {
+    const signature = defuddleSignatureFromParts(parts);
+    const firstOccurrence = !seenDefuddleSignatures.has(signature);
+    if (firstOccurrence) {
+      seenDefuddleSignatures.add(signature);
+      rawWriter(
+        `[unerr] defuddle: ${signature} — suppressed (further occurrences counted only)`
+      );
+    }
+    try {
+      defuddleNoiseSink?.(signature, firstOccurrence);
+    } catch {
+      /* sink must never break extraction */
+    }
+  };
+  console.error = (...parts: unknown[]) => {
+    if (isDefuddleNoise(parts)) {
+      handleNoise(parts, (...a) => originalConsoleError.apply(console, a));
+      return;
+    }
+    originalConsoleError.apply(console, parts);
+  };
+  console.log = (...parts: unknown[]) => {
+    if (isDefuddleNoise(parts)) {
+      handleNoise(parts, (...a) => originalConsoleLog.apply(console, a));
+      return;
+    }
+    originalConsoleLog.apply(console, parts);
+  };
+
   try {
     const mod = (await import("defuddle")) as unknown as {
       default: new (
         doc: Document,
         opts?: { markdown?: boolean }
-      ) => { parse(): { content: string | null; title?: string; description?: string; author?: string; wordCount?: number } };
+      ) => {
+        parse(): {
+          content: string | null;
+          title?: string;
+          description?: string;
+          author?: string;
+          wordCount?: number;
+        };
+      };
     };
     const DefuddleCtor = mod.default;
     const doc = dom.window.document as unknown as Document;
-    // Defuddle traverses every CSS selector on the page; modern Tailwind /
-    // arbitrary-value selectors like `:has(p+p)):not(:has(img)` or
-    // `:text-foreground *` make jsdom's nwsapi throw SyntaxError per selector.
-    // These are non-fatal — Defuddle catches them internally — but the logged
-    // errors flood stderr and crowd out real failures. Suppress them here.
-    //
-    // Defuddle's call shapes (defuddle/dist/defuddle.js):
-    //   console.error('Defuddle', 'Error processing document:', err)   ← 3 args, parts[0]='Defuddle'
-    //   console.error('Defuddle: Error evaluating media queries:', e)  ← 1 arg, parts[0]='Defuddle: …'
-    //   console.log  ('Defuddle:', ...args)                            ← 1 arg, parts[0]='Defuddle:'
-    // A single `head.startsWith("Defuddle")` predicate covers all four.
-    const originalConsoleError = console.error;
-    const originalConsoleLog = console.log;
-    const isDefuddleNoise = (parts: unknown[]): boolean => {
-      const head = typeof parts[0] === "string" ? parts[0] : "";
-      return (
-        head.startsWith("Defuddle") ||
-        head.startsWith("Error: Could not parse CSS stylesheet")
-      );
-    };
-    console.error = (...parts: unknown[]) => {
-      if (isDefuddleNoise(parts)) return;
-      originalConsoleError.apply(console, parts);
-    };
-    console.log = (...parts: unknown[]) => {
-      if (isDefuddleNoise(parts)) return;
-      originalConsoleLog.apply(console, parts);
-    };
-    let result: ReturnType<InstanceType<typeof DefuddleCtor>["parse"]>;
-    try {
-      result = new DefuddleCtor(doc, { markdown: false }).parse();
-    } finally {
-      console.error = originalConsoleError;
-      console.log = originalConsoleLog;
-    }
+    const result = new DefuddleCtor(doc, { markdown: false }).parse();
     if (!result?.content) return null;
     return {
       title: result.title ?? "",
@@ -274,6 +413,9 @@ async function tryDefuddle(
     };
   } catch {
     return null;
+  } finally {
+    console.error = originalConsoleError;
+    console.log = originalConsoleLog;
   }
 }
 
