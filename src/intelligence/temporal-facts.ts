@@ -34,12 +34,23 @@ export type FactSource =
   | "negative_knowledge"
   | "causal_bridge"
   | "session_analysis"
-  | "agent_explicit";
+  | "agent_explicit"
+  | "user_fed";
 
 export interface EvidenceEntry {
   session_id: string;
   action: "created" | "reinforced" | "contradicted";
   timestamp: number;
+  /** Phase 2 Sprint 5a — verbatim user phrase that produced a user_fed
+   *  fact. Stored on the first EvidenceEntry of a user_fed write so the
+   *  attribution panel can quote it back to the user. Null/absent for
+   *  every non-user_fed source (preserves the existing evidence shape). */
+  quote?: string;
+  /** Phase 2 Sprint 5a — list of file paths / entity keys the user said
+   *  the fact applies to. Persisted on evidence so multi-target user-fed
+   *  facts don't require a schema column. The primary `scope` column
+   *  still holds the deepest match (file path or directory prefix). */
+  applies_to?: string[];
 }
 
 export interface CreateFactInput {
@@ -49,6 +60,13 @@ export interface CreateFactInput {
   content: string;
   source: FactSource;
   base_confidence?: number;
+  /** Phase 2 Sprint 5a — verbatim user phrasing. Required when
+   *  `source === "user_fed"`, ignored otherwise. Round-tripped through
+   *  the first EvidenceEntry. */
+  source_quote?: string;
+  /** Phase 2 Sprint 5a — additional file/entity targets. Only honored
+   *  when `source === "user_fed"`. Stored on the first EvidenceEntry. */
+  applies_to?: string[];
 }
 
 export interface TemporalFact {
@@ -108,6 +126,7 @@ const DEFAULT_CONFIDENCE: Record<FactSource, number> = {
   causal_bridge: 1.0,
   convention_detector: 0.75,
   session_analysis: 0.6,
+  user_fed: 0.95,
 };
 
 const MAX_CONTENT_LENGTH = 500;
@@ -207,9 +226,23 @@ export class TemporalFactStore {
     const factId = randomUUID();
     const baseConfidence =
       input.base_confidence ?? DEFAULT_CONFIDENCE[input.source] ?? 0.8;
-    const evidence: EvidenceEntry[] = [
-      { session_id: "initial", action: "created", timestamp: now },
-    ];
+    const initialEvidence: EvidenceEntry = {
+      session_id: "initial",
+      action: "created",
+      timestamp: now,
+    };
+    // Phase 2 Sprint 5a — round-trip user-fed metadata via evidence so
+    // no schema column is added. Non-user_fed writes leave these fields
+    // absent (existing readers see the same evidence shape they always did).
+    if (input.source === "user_fed") {
+      if (input.source_quote && input.source_quote.trim().length > 0) {
+        initialEvidence.quote = input.source_quote.trim();
+      }
+      if (input.applies_to && input.applies_to.length > 0) {
+        initialEvidence.applies_to = [...input.applies_to];
+      }
+    }
+    const evidence: EvidenceEntry[] = [initialEvidence];
 
     await this.db.run(
       `
@@ -683,7 +716,9 @@ export class TemporalFactStore {
                  if(fact_type == "negative", $lambda_negative,
                  if(fact_type == "convention", $lambda_convention, 0.0)))),
         recency = exp(-1.0 * lambda * max(0.0, days)),
-        ev_factor = if(source == "agent_explicit", 1.0, min(1.0, reinforcement_count / 3.0)),
+        ev_factor = if(source == "agent_explicit", 1.0,
+                    if(source == "user_fed", 1.0,
+                    min(1.0, reinforcement_count / 3.0))),
         effective_conf = base_confidence * recency * ev_factor,
         effective_conf >= $min_confidence
       :order -effective_conf
@@ -714,5 +749,231 @@ export class TemporalFactStore {
       last_contradicted_at: row[9] as number,
       source: row[10] as FactSource,
     }));
+  }
+
+  /**
+   * Phase 2 Sprint 5a — convenience wrapper for the user-fed write path.
+   *
+   * Routes through `createFact` with `source: "user_fed"` and embeds the
+   * verbatim user quote + applies_to list on the initial EvidenceEntry.
+   * Returns the same shape as `createFact` so the MCP interception path
+   * (proxy.ts) treats it identically to `record_fact`.
+   *
+   * Confidence floor (0.5) is enforced by the calling tool
+   * (`src/tools/intelligence/unerr-remember.ts`), not here — this method
+   * is the raw write primitive.
+   */
+  async recordUserFedFact(input: {
+    content: string;
+    fact_type: FactType;
+    scope: string;
+    subject: string;
+    source_quote: string;
+    applies_to?: string[];
+    base_confidence?: number;
+  }): Promise<{ fact_id: string; deduplicated: boolean }> {
+    return this.createFact({
+      fact_type: input.fact_type,
+      scope: input.scope,
+      subject: input.subject,
+      content: input.content,
+      source: "user_fed",
+      base_confidence: input.base_confidence,
+      source_quote: input.source_quote,
+      applies_to: input.applies_to,
+    });
+  }
+
+  // ── Phase 3 Sprint 11 — Sidekick Memory mutate API ────────────────
+  //
+  // Additive surface for the Sidekick Memory page. Existing read/write
+  // paths (createFact, reinforceFact, contradictFact, recall*) are
+  // untouched — these methods extend the store with edit/disable
+  // operations the dashboard needs but did not previously have.
+
+  /**
+   * Edit the content of an existing fact in place. Used when the user
+   * refines wording on the Sidekick Memory page. Appends an evidence
+   * entry recording the edit; confidence is preserved (this is a wording
+   * change, not a reinforcement or contradiction).
+   *
+   * Returns true when the fact existed and was updated, false otherwise.
+   */
+  async editFactContent(
+    factId: string,
+    newContent: string,
+    options?: { session_id?: string; quote?: string }
+  ): Promise<boolean> {
+    const rows = await this.getRawFact(factId);
+    if (!rows) return false;
+
+    const limit =
+      TYPE_CONTENT_LIMITS[rows.fact_type as string] ?? MAX_CONTENT_LENGTH;
+    const content = newContent.slice(0, limit);
+
+    const existingEvidence: EvidenceEntry[] = JSON.parse(
+      rows.evidence as string
+    );
+    const editEntry: EvidenceEntry = {
+      session_id: options?.session_id ?? "dashboard-edit",
+      action: "reinforced",
+      timestamp: Date.now(),
+    };
+    if (options?.quote && options.quote.trim().length > 0) {
+      editEntry.quote = options.quote.trim();
+    }
+    existingEvidence.push(editEntry);
+
+    await this.db.run(
+      `
+      ?[fact_id, fact_type, scope, subject, content, base_confidence,
+        reinforcement_count, created_at, last_reinforced_at,
+        last_contradicted_at, source, evidence] <- [[
+        $fact_id, $fact_type, $scope, $subject, $content, $base_confidence,
+        $reinforcement_count, $created_at, $last_reinforced_at,
+        $last_contradicted_at, $source, $evidence
+      ]]
+      :put facts {
+        fact_id => fact_type, scope, subject, content, base_confidence,
+        reinforcement_count, created_at, last_reinforced_at,
+        last_contradicted_at, source, evidence
+      }
+      `,
+      {
+        fact_id: factId,
+        fact_type: rows.fact_type,
+        scope: rows.scope,
+        subject: rows.subject,
+        content,
+        base_confidence: rows.base_confidence,
+        reinforcement_count: rows.reinforcement_count,
+        created_at: rows.created_at,
+        last_reinforced_at: rows.last_reinforced_at,
+        last_contradicted_at: rows.last_contradicted_at,
+        source: rows.source,
+        evidence: JSON.stringify(existingEvidence.slice(-20)),
+      }
+    );
+    return true;
+  }
+
+  /**
+   * Disable a fact — soft-removes it from recall by collapsing its
+   * base_confidence to near zero so it falls below every recall
+   * threshold. The row is preserved so the audit log remains intact and
+   * the user can re-enable it later via `editFactContent`/`reinforceFact`.
+   *
+   * Returns true when the fact existed and was disabled.
+   */
+  async disableFact(factId: string): Promise<boolean> {
+    const rows = await this.getRawFact(factId);
+    if (!rows) return false;
+
+    const existingEvidence: EvidenceEntry[] = JSON.parse(
+      rows.evidence as string
+    );
+    existingEvidence.push({
+      session_id: "dashboard-disable",
+      action: "contradicted",
+      timestamp: Date.now(),
+    });
+
+    await this.db.run(
+      `
+      ?[fact_id, fact_type, scope, subject, content, base_confidence,
+        reinforcement_count, created_at, last_reinforced_at,
+        last_contradicted_at, source, evidence] <- [[
+        $fact_id, $fact_type, $scope, $subject, $content, $base_confidence,
+        $reinforcement_count, $created_at, $last_reinforced_at,
+        $now, $source, $evidence
+      ]]
+      :put facts {
+        fact_id => fact_type, scope, subject, content, base_confidence,
+        reinforcement_count, created_at, last_reinforced_at,
+        last_contradicted_at, source, evidence
+      }
+      `,
+      {
+        fact_id: factId,
+        fact_type: rows.fact_type,
+        scope: rows.scope,
+        subject: rows.subject,
+        content: rows.content,
+        base_confidence: 0.01,
+        reinforcement_count: rows.reinforcement_count,
+        created_at: rows.created_at,
+        last_reinforced_at: rows.last_reinforced_at,
+        now: Date.now(),
+        source: rows.source,
+        evidence: JSON.stringify(existingEvidence.slice(-20)),
+      }
+    );
+    return true;
+  }
+
+  /**
+   * List facts filtered by source, returning evidence-decoded provenance
+   * alongside the temporal-fact projection. Used by the Sidekick Memory
+   * page to split user_fed facts from auto-detected facts and render the
+   * verbatim quote + applies_to list.
+   *
+   * `minConfidence` defaults to 0 (no decay filter) so the dashboard can
+   * see facts the agent would no longer recall — the user may want to
+   * re-enable them.
+   */
+  async listFactsBySource(
+    source: FactSource,
+    minConfidence = 0
+  ): Promise<
+    Array<TemporalFact & { source_quote: string | null; applies_to: string[] }>
+  > {
+    const all = await this.runDecayQuery(
+      `*facts{fact_id, fact_type, scope, subject, content,
+              base_confidence, reinforcement_count, created_at,
+              last_reinforced_at, last_contradicted_at, source, evidence},
+        source == $filter_source`,
+      { filter_source: source },
+      minConfidence
+    );
+
+    const enriched: Array<
+      TemporalFact & { source_quote: string | null; applies_to: string[] }
+    > = [];
+    for (const fact of all) {
+      const provenance = await this.readProvenance(fact.fact_id);
+      enriched.push({
+        ...fact,
+        source_quote: provenance.source_quote,
+        applies_to: provenance.applies_to,
+      });
+    }
+    return enriched;
+  }
+
+  /**
+   * Read the verbatim quote + applies_to list off the fact's evidence
+   * blob. Returns the merged applies_to set across every evidence entry
+   * (multiple user reinforcements may expand it), and the most recent
+   * non-empty quote.
+   */
+  async readProvenance(
+    factId: string
+  ): Promise<{ source_quote: string | null; applies_to: string[] }> {
+    const rows = await this.getRawFact(factId);
+    if (!rows) return { source_quote: null, applies_to: [] };
+    const evidence: EvidenceEntry[] = JSON.parse(rows.evidence as string);
+    let quote: string | null = null;
+    const targets = new Set<string>();
+    for (const ev of evidence) {
+      if (typeof ev.quote === "string" && ev.quote.length > 0) {
+        quote = ev.quote;
+      }
+      if (Array.isArray(ev.applies_to)) {
+        for (const t of ev.applies_to) {
+          if (typeof t === "string" && t.length > 0) targets.add(t);
+        }
+      }
+    }
+    return { source_quote: quote, applies_to: [...targets] };
   }
 }

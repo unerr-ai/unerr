@@ -15,10 +15,11 @@ import {
 // ── Cluster Definitions ──────────────────────────────────────────────
 
 describe("TOOL_CLUSTERS", () => {
-  it("has 7 semantic clusters", () => {
+  it("has 8 semantic clusters", () => {
     // ST-2: session-narrative cluster added (mark_* tools)
     // fetch_url: web cluster added
-    expect(TOOL_CLUSTERS).toHaveLength(7);
+    // recovery: agents reach for recall_facts + get_test_coverage when things break
+    expect(TOOL_CLUSTERS).toHaveLength(8);
   });
 
   it("clusters have unique IDs", () => {
@@ -73,6 +74,14 @@ describe("getToolCluster", () => {
 
   it("maps record_fact to persistence", () => {
     expect(getToolCluster("record_fact")).toBe("persistence");
+  });
+
+  it("maps recall_facts to recovery", () => {
+    expect(getToolCluster("recall_facts")).toBe("recovery");
+  });
+
+  it("maps get_test_coverage to recovery", () => {
+    expect(getToolCluster("get_test_coverage")).toBe("recovery");
   });
 
   // Disabled: safety cluster removed (shadow ledger tools not exposed)

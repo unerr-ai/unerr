@@ -26,15 +26,26 @@ import {
   errorMiddleware,
   timingMiddleware,
 } from "./middleware.js";
+import { type RouterApiV2Deps, createRouterApiV2 } from "./router-api-v2.js";
+import {
+  type BehaviorEventRouteDeps,
+  createBehaviorEventRoutes,
+} from "./routes/behavior-events.js";
 import { createDriftRoutes } from "./routes/drift.js";
+import { type FactsRouteDeps, createFactsRoutes } from "./routes/facts.js";
 import {
   type IntelligenceRouteDeps,
   createIntelligenceRoutes,
 } from "./routes/intelligence.js";
 import {
+  type LogbookRouteDeps,
+  createLogbookRoutes,
+} from "./routes/logbook.js";
+import {
   type ReasoningQualityRouteDeps,
   createReasoningQualityRoutes,
 } from "./routes/reasoning-quality.js";
+import { type RouterRouteDeps, createRouterRoutes } from "./routes/router.js";
 import {
   type SessionRouteDeps,
   createSessionRoutes,
@@ -53,18 +64,6 @@ import {
   type TokenFlowRouteDeps,
   createTokenFlowRoutes,
 } from "./routes/token-flow.js";
-import {
-  type BehaviorEventRouteDeps,
-  createBehaviorEventRoutes,
-} from "./routes/behavior-events.js";
-import {
-  type RouterRouteDeps,
-  createRouterRoutes,
-} from "./routes/router.js";
-import {
-  type RouterApiV2Deps,
-  createRouterApiV2,
-} from "./router-api-v2.js";
 
 export interface DashboardServerOptions {
   /** Dependencies for system routes */
@@ -83,6 +82,10 @@ export interface DashboardServerOptions {
   tokenFlow?: TokenFlowRouteDeps;
   /** Behavior events API (PREVENT-class verb-noun counters) */
   behaviorEvents?: BehaviorEventRouteDeps;
+  /** Phase 3 Sprint 9 — Logbook (Surface 1 dashboard) */
+  logbook?: LogbookRouteDeps;
+  /** Phase 3 Sprint 11 — Sidekick Memory facts CRUD */
+  facts?: FactsRouteDeps;
   /** Dependencies for reasoning quality API (reuses token flow deps) */
   reasoningQuality?: ReasoningQualityRouteDeps;
   /** Sprint P0-6: Dependencies for MCP router dashboard API */
@@ -170,6 +173,12 @@ export async function startDashboardServer(
       "/api/behavior-events",
       createBehaviorEventRoutes(opts.behaviorEvents)
     );
+  }
+  if (opts.logbook) {
+    app.route("/api/logbook", createLogbookRoutes(opts.logbook));
+  }
+  if (opts.facts) {
+    app.route("/api/facts-v2", createFactsRoutes(opts.facts));
   }
   if (opts.reasoningQuality) {
     app.route(

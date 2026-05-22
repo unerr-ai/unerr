@@ -76,18 +76,18 @@ export const clineAdapter: HookAdapter = {
   },
 
   formatPreToolUse(result: HookResult): string {
-    if (result.type === "passthrough") {
+    if (result.action === "passthrough") {
       return JSON.stringify({ allow: true });
     }
 
-    if (result.type === "nudge" && result.message) {
+    if (result.action === "nudge" && result.message) {
       return JSON.stringify({
         allow: true,
         context: result.message,
       });
     }
 
-    if (result.type === "rewrite" && result.updatedInput) {
+    if (result.action === "rewrite" && result.updatedInput) {
       // Cline doesn't support input rewriting directly — allow with context
       return JSON.stringify({
         allow: true,
@@ -99,10 +99,10 @@ export const clineAdapter: HookAdapter = {
   },
 
   formatPostToolUse(result: HookResult): string {
-    if (result.type === "passthrough") return "{}";
+    if (result.action === "passthrough") return "{}";
 
     if (
-      (result.type === "enrich" || result.type === "nudge") &&
+      (result.action === "enrich" || result.action === "nudge") &&
       result.message
     ) {
       return JSON.stringify({ context: result.message });
@@ -112,7 +112,7 @@ export const clineAdapter: HookAdapter = {
   },
 
   formatPromptSubmit(result: HookResult): string {
-    if (result.type === "passthrough") return "{}";
+    if (result.action === "passthrough") return "{}";
 
     if (result.message) {
       return JSON.stringify({ context: result.message });

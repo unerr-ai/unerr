@@ -29,6 +29,19 @@
 
 ---
 
+## How you'll know it's working — the four surfaces
+
+unerr is not a silent background daemon you hope is doing something. It shows up at the four moments of the day when you're already paying attention:
+
+1. **Start-of-turn preface** — the first response of every turn opens with `unerr · context: 3 stored facts loaded, 1 file cached`. You always know what the agent walked into the turn with.
+2. **End-of-turn footer** — the final response closes with `unerr · this turn: 2 catches · ≈ 4.2k tokens saved · +5 turns of headroom this session`. Catches are *named, countable events*, not a ratio.
+3. **Multi-day archive dashboard** — `http://localhost:9847/` hosts a Logbook page that reads as a story for today / this week / since install, a Token Trace page that headlines turns of headroom (compounded) alongside the raw tokens-saved trail, and a Sidekick Memory page that shows every fact you fed it — verbatim, editable, replayable.
+4. **Named-sidekick persistence** — say *"from now on, always X"* and the agent calls `unerr_remember` with your verbatim quote. Next session — even from a different IDE — the next-turn preface includes the fact, and any file edit covered by your `applies_to` list pulls a `ur|fct …` enforcement line into the agent's prompt.
+
+The proof of presence is the channel. The `unerr · ` prefix (middle-dot, human-facing) is text inside `content[].text` — every supported IDE preserves it. The `ur|<tag>` prefix (pipe, model-facing) is the same channel but addressed to the agent. For the one-page overview and the full sprint plan, see [docs/open-cli/PERCEPTION_TO_PRESENCE.md](https://github.com/unerr-ai/unerr-web-landing/blob/main/docs/open-cli/PERCEPTION_TO_PRESENCE.md#overview--the-four-surface-presence-model-at-a-glance).
+
+---
+
 ## The slop isn't your agent's fault. It's flying blind and forgetting everything.
 
 You've felt all four of these in the last 48 hours:
@@ -356,11 +369,12 @@ One local DB per repo. Zero network calls. No API keys. No cloud. Your code neve
 | `file_read` | Context-aware read — auto-injects conventions and facts |
 | `file_outline` | File structure (entities, exports) without reading the body |
 
-### Persistent Memory (2)
+### Persistent Memory (3)
 
 | Tool | What the agent gets |
 |------|-----|
-| `record_fact` | Persist a convention, decision, or anti-pattern |
+| `unerr_remember` | Persist a fact the **user** just stated ("remember", "always", "from now on", project rule). Carries the verbatim `source_quote` and the agent's `confidence`; <0.5 abandoned, 0.5–<0.7 flagged ambiguous, ≥0.7 stored cleanly. |
+| `record_fact` | Persist an **agent-detected** convention, decision, or anti-pattern (no explicit user statement) |
 | `recall_facts` | Retrieve facts with hierarchical scope + decay-adjusted confidence |
 
 ### Session Narrative — Markers (4)

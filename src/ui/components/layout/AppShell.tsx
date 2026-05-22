@@ -5,9 +5,11 @@ import type { ReactNode } from "react";
 // ── Per-repo nav items ──────────────────────────────────────────
 
 const REPO_NAV: { id: RepoRouteId; label: string }[] = [
+  { id: "logbook", label: "Logbook" },
   { id: "overview", label: "Dashboard" },
+  { id: "sidekick-memory", label: "Sidekick Memory" },
   { id: "token-trace", label: "Token Trace" },
-  { id: "reasoning", label: "Reasoning Quality" },
+  { id: "reasoning", label: "Reasoning Trace" },
   { id: "visual", label: "Codebase Map" },
   { id: "graph", label: "Code Intelligence" },
   { id: "facts", label: "Project Memory" },
@@ -162,7 +164,7 @@ export function AppShell({
             {REPO_NAV.map((item) => (
               <a
                 key={item.id}
-                href={item.id === "overview" ? "#/" : `#/${item.id}`}
+                href={item.id === "logbook" ? "#/" : `#/${item.id}`}
                 className={`block rounded-md px-3 py-2 text-sm transition-colors ${
                   activeRoute === item.id
                     ? "el-raised font-medium text-foreground-emphasis"

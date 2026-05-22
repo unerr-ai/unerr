@@ -36,6 +36,8 @@ const EXEC_NUDGES = [
   "[unerr] Structure: get_critical_nodes (chokepoints) · get_cross_boundary_links (surprise coupling) · file_connections · get_test_coverage · get_project_stats",
   // #10 TRIM — narrative markers with when-tags
   "[unerr] Markers: mark_intent (task start) · mark_decision (choice) · mark_blocker (stuck) · mark_resolution (fixed) — power timeline + resume",
+  // #11 — user-fed memory: prompt agent to persist explicit user statements
+  '[unerr] User said "remember" / "always" / "from now on"? Call unerr_remember with source_quote + confidence (NOT record_fact — that\'s for agent-detected facts).',
 ];
 
 /**

@@ -457,3 +457,115 @@ export function formatUnlockAnnounce(
   // without thinking about separators.
   return `${lines.join("\n")}\n`;
 }
+
+/**
+ * User-facing prose channel — Phase 1 of the four-surface presence model.
+ *
+ * `buildUserBlock()` is the SECOND channel injected into `content[].text`,
+ * running AFTER `buildSignalPrefix()`. It produces lines prefixed with
+ * `unerr · ` (note: middle dot U+00B7, not regular dot). These lines are
+ * for the human reading the chat. The LLM is instructed (via the
+ * FORBIDDEN row in `src/config/instruction-writer.ts`) to NOT echo,
+ * summarize, or act on them — they're telemetry for the user, not
+ * signals for the agent. The dot character itself is the visual cue
+ * that distinguishes user-prose lines from `ur|<tag>` agent signals.
+ *
+ * Why a separate channel:
+ *   - `ur|<tag>` lines are actionable — the agent acts on them and they
+ *     get capped tightly (`MAX_SIGNAL_LINES = 2`).
+ *   - `unerr · …` lines are narrative — they describe what unerr did
+ *     this turn, what changed in context, what was remembered, what the
+ *     session economy looks like. They're seen by the user, ignored by
+ *     the agent.
+ *   - Mixing the two audiences in one channel forces a per-line "is
+ *     this for me?" choice the model gets wrong under load. The middle
+ *     dot prefix solves it visually and the FORBIDDEN instruction
+ *     closes the loop semantically.
+ *
+ * Cross-client rendering:
+ *   - Plain text only — no ANSI codes (break in IDE chat), no markdown
+ *     blockquotes (break in CLI), no emoji (per project convention).
+ *   - One line per logical fact. Lines join with `\n`. Block ends with
+ *     `\n\n` so the model can locate the boundary easily.
+ *
+ * Ambient-marker fallback (Sprint 3c): when the caller passes
+ * `ambientMarker: true`, the block collapses to a single line
+ * `unerr · ⋯` — used after 3 consecutive zero-content turns to avoid
+ * banner-blindness. The full lines come back the moment a turn produces
+ * real content again. Honest-zero on the dashboard is unaffected; this
+ * applies only to the in-chat surfaces.
+ *
+ * Honest-zero contract: if `lines` is non-empty, render exactly those
+ * lines. Do not silently drop empty strings — the caller decides what
+ * counts as content. `buildUserBlock([])` returns the empty string (no
+ * "ambient marker" magic) so the response stays clean when the caller
+ * has truly nothing to say.
+ */
+const MAX_USER_BLOCK_LINES = 5;
+const MAX_USER_BLOCK_BYTES = 500;
+/** Visible cue distinguishing user-prose lines from `ur|<tag>` signals.
+ *  Middle dot (U+00B7) tokenizes cheaply across the major BPE schemes. */
+export const USER_BLOCK_PREFIX = "unerr · ";
+/** Ambient marker — collapsed form after consecutive zero-content turns. */
+export const USER_BLOCK_AMBIENT = "unerr · ⋯";
+
+export interface BuildUserBlockOptions {
+  /** When true, render the ambient marker ignoring `lines`. Caller is
+   *  responsible for tracking consecutive-zero-turn counts (Sprint 3c). */
+  ambientMarker?: boolean;
+}
+
+/**
+ * Build the user-prose block. Each entry in `lines` is rendered as a
+ * single `unerr · <line>` line. Multi-line entries (containing `\n`)
+ * have their continuations indented under the prefix for visual
+ * alignment in IDE chat panes.
+ *
+ * Returns the empty string when there is nothing to say (and
+ * `ambientMarker` is false). Returns `unerr · ⋯\n\n` when
+ * `ambientMarker` is true. Otherwise returns the assembled block with a
+ * trailing `\n\n` boundary marker.
+ */
+export function buildUserBlock(
+  lines: ReadonlyArray<string>,
+  options: BuildUserBlockOptions = {}
+): string {
+  if (options.ambientMarker) {
+    return `${USER_BLOCK_AMBIENT}\n\n`;
+  }
+  if (lines.length === 0) return "";
+
+  const rendered: string[] = [];
+  // Indent continuation lines by the visible width of the prefix so
+  // wrapped lines in IDE chat panes stay vertically aligned. The exact
+  // width is the rendered glyph count of "unerr · " (8 chars).
+  const continuationIndent = " ".repeat(USER_BLOCK_PREFIX.length);
+  for (const raw of lines) {
+    if (rendered.length >= MAX_USER_BLOCK_LINES) break;
+    const trimmed = raw.replace(/\s+$/g, "");
+    if (trimmed.length === 0) continue;
+    const parts = trimmed.split("\n");
+    rendered.push(`${USER_BLOCK_PREFIX}${parts[0]}`);
+    for (let i = 1; i < parts.length; i++) {
+      if (rendered.length >= MAX_USER_BLOCK_LINES) break;
+      rendered.push(`${continuationIndent}${parts[i]}`);
+    }
+  }
+
+  if (rendered.length === 0) return "";
+
+  let block = `${rendered.join("\n")}\n\n`;
+  if (block.length > MAX_USER_BLOCK_BYTES) {
+    // Truncate from the tail; first lines are typically the most
+    // informative (preface > supplements > steering, footer > extras).
+    const kept: string[] = [];
+    let used = 0;
+    for (const line of rendered) {
+      if (used + line.length + 1 > MAX_USER_BLOCK_BYTES - 2) break;
+      kept.push(line);
+      used += line.length + 1;
+    }
+    block = kept.length > 0 ? `${kept.join("\n")}\n\n` : "";
+  }
+  return block;
+}

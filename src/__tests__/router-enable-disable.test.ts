@@ -297,12 +297,15 @@ describe("ide-mcp-rewriter", () => {
       },
     });
 
-    const modified = rewriteIdeConfig(configPath, "mcp-json");
+    const modified = rewriteIdeConfig(configPath, "mcp-json", "cursor");
     expect(modified).toBe(true);
 
     const result = readJson(configPath) as { mcpServers: Record<string, unknown> };
     expect(Object.keys(result.mcpServers)).toEqual(["unerr"]);
-    expect(result.mcpServers.unerr).toHaveProperty("args", ["--mcp"]);
+    expect(result.mcpServers.unerr).toHaveProperty("args", [
+      "--mcp",
+      "--coding-agent=cursor",
+    ]);
   });
 
   it("is idempotent — returns false when already correct", () => {
@@ -312,8 +315,8 @@ describe("ide-mcp-rewriter", () => {
       },
     });
 
-    rewriteIdeConfig(configPath, "mcp-json");
-    const secondResult = rewriteIdeConfig(configPath, "mcp-json");
+    rewriteIdeConfig(configPath, "mcp-json", "cursor");
+    const secondResult = rewriteIdeConfig(configPath, "mcp-json", "cursor");
     expect(secondResult).toBe(false);
   });
 
@@ -325,7 +328,7 @@ describe("ide-mcp-rewriter", () => {
       customSetting: "preserved",
     });
 
-    rewriteIdeConfig(configPath, "mcp-json");
+    rewriteIdeConfig(configPath, "mcp-json", "cursor");
 
     const result = readJson(configPath) as { customSetting: string };
     expect(result.customSetting).toBe("preserved");
@@ -341,7 +344,7 @@ describe("ide-mcp-rewriter", () => {
       },
     });
 
-    const modified = rewriteIdeConfig(configPath, "settings-json");
+    const modified = rewriteIdeConfig(configPath, "settings-json", "vscode");
     expect(modified).toBe(true);
 
     const result = readJson(configPath) as {
@@ -384,9 +387,9 @@ describe("enable → disable roundtrip", () => {
 
     for (const inspection of inspections) {
       if (inspection.agentId === "cursor") {
-        rewriteIdeConfig(inspection.configPath, "mcp-json");
+        rewriteIdeConfig(inspection.configPath, "mcp-json", "cursor");
       } else if (inspection.agentId === "claude-code") {
-        rewriteIdeConfig(inspection.configPath, "mcp-json");
+        rewriteIdeConfig(inspection.configPath, "mcp-json", "claude-code");
       }
     }
 

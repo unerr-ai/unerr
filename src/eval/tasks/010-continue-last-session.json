@@ -1,0 +1,8 @@
+{
+  "id": "010-continue-last-session",
+  "title": "Continue last session's feature work",
+  "repo": "self",
+  "prompt": "Continue the feature work from the previous session. Use unerr to recall the last session's anchors, decisions, and blockers, then pick up where the work stopped.",
+  "exercises": ["prompt_receipt_query", "anchor_query", "cite_in_plan", "save_at_task_end"],
+  "assertions": []
+}

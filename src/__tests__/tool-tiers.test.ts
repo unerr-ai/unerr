@@ -49,9 +49,9 @@ describe("tool-tiers: UNLOCK_CONDITIONS alignment with TIER_ENTRIES", () => {
 		}
 	});
 
-	it("expected tier sizes — 6 / 8 / 6", () => {
-		expect(toolsByTier(1)).toHaveLength(6);
-		expect(toolsByTier(2)).toHaveLength(8);
+	it("expected tier sizes — 9 / 7 / 6 (Tier 1 added get_project_stats — orientation tool)", () => {
+		expect(toolsByTier(1)).toHaveLength(9);
+		expect(toolsByTier(2)).toHaveLength(7);
 		expect(toolsByTier(3)).toHaveLength(6);
 	});
 });

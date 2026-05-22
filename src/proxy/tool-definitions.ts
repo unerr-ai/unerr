@@ -549,6 +549,151 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
 			openWorldHint: false,
 		},
 	},
+
+	unerr_remember: {
+		inputSchema: {
+			type: "object",
+			properties: {
+				// ── Active-cognition (new, consolidated) payload ──
+				type: {
+					type: "string",
+					enum: ["note", "cochange", "move_anchor", "promote_to_claude_md"],
+					description:
+						"NEW (active-cognition): discriminates the consolidated payload. When set, the legacy free-form fields (source_quote/content/scope/...) are ignored.",
+				},
+				note: {
+					type: "string",
+					description:
+						"For type:'note' — wire-format DSL string 'kind|anchor|polarity|content' (kind ∈ {cnv,rul,wrn,dec,blk,fct}; anchor ∈ {f:<path>, e:<entity>, g:<glob>, p:}; polarity ∈ {+,-,~}).",
+				},
+				anchors: {
+					type: "array",
+					items: { type: "string" },
+					description:
+						"For type:'cochange' — wire-format anchors that should be cited together (≥2).",
+				},
+				old_anchor: {
+					type: "string",
+					description:
+						"For type:'move_anchor' — current wire-format anchor to retarget.",
+				},
+				new_anchor: {
+					type: "string",
+					description:
+						"For type:'move_anchor' — destination wire-format anchor.",
+				},
+				note_ids: {
+					type: "array",
+					items: { type: "string" },
+					description:
+						"For type:'promote_to_claude_md' — note ids to write into the CLAUDE.md sentinel block.",
+				},
+				supersedes_note_id: {
+					type: "string",
+					description:
+						"For type:'note' — id of an older note this one intentionally replaces (flips it to inactive).",
+				},
+				session_id: {
+					type: "string",
+					description:
+						"For active-cognition writes — session id from the resume strip or current run.",
+				},
+				prompt_hash: {
+					type: "string",
+					description:
+						"For active-cognition writes — hash of the originating prompt, used for provenance.",
+				},
+				// ── Legacy free-form (TemporalFactStore) payload ──
+				content: {
+					type: "string",
+					description:
+						"Normalised statement of the user's fact (max 280 chars). Keep terse.",
+				},
+				source_quote: {
+					type: "string",
+					description:
+						"Verbatim user statement that triggered this capture. Required for provenance.",
+				},
+				fact_type: {
+					type: "string",
+					enum: ["procedural", "semantic", "negative", "convention"],
+					description:
+						"procedural=how-to, semantic=architecture, negative=anti-pattern, convention=standard",
+				},
+				scope: {
+					type: "string",
+					description: "File path, entity key, or 'project' for project-wide facts",
+				},
+				subject: {
+					type: "string",
+					description: "What entity/topic this fact is about",
+				},
+				confidence: {
+					type: "number",
+					description:
+						"Agent's confidence in [0,1]. <0.5 abandoned; 0.5–<0.7 stored but flagged ambiguous; ≥0.7 stored cleanly.",
+				},
+				applies_to: {
+					type: "array",
+					items: { type: "string" },
+					description:
+						"Optional list of paths/entity keys this fact governs (used for retrieval-time matching).",
+				},
+			},
+			// `required` intentionally omitted: with two payload modes the union
+			// is enforced at handler dispatch, not by the JSON-schema validator.
+		},
+		annotations: {
+			title: "Remember User-Asserted Fact",
+			readOnlyHint: false,
+			openWorldHint: false,
+		},
+	},
+
+	unerr_recall_notes: {
+		inputSchema: {
+			type: "object",
+			properties: {
+				action: {
+					type: "string",
+					enum: ["for_prompt", "for_anchors"],
+					description:
+						"Defaults: 'for_prompt' when `prompt` is set, else 'for_anchors' when `anchors[]` is non-empty.",
+				},
+				prompt: {
+					type: "string",
+					description:
+						"Verbatim user prompt. The store extracts candidate anchors + topic-shift signal.",
+				},
+				anchors: {
+					type: "array",
+					items: { type: "string" },
+					description:
+						"Wire-format anchors to recall — e.g. ['f:src/x.ts','e:fooBar','g:*.test.ts','p:'].",
+				},
+				candidate_anchors: {
+					type: "array",
+					items: { type: "string" },
+					description:
+						"Pre-computed candidates (from search_code etc.) to seed the recall.",
+				},
+				tier: {
+					type: "string",
+					enum: ["hot", "all"],
+					description: "Hot returns just the active tier; all returns warm/cold too.",
+				},
+				session_id: {
+					type: "string",
+					description: "Session id for telemetry.",
+				},
+			},
+		},
+		annotations: {
+			title: "Recall Active-Cognition Notes",
+			readOnlyHint: true,
+			openWorldHint: false,
+		},
+	},
 };
 
 /**

@@ -69,17 +69,17 @@ describe("RouterGateway: unlock lifecycle", () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 
-	it("first file_read unlocks get_project_stats", async () => {
-		expect(gateway.isExposed("get_project_stats")).toBe(false);
+	it("first file_read unlocks get_conventions", async () => {
+		expect(gateway.isExposed("get_conventions")).toBe(false);
 		const outcome = await gateway.recordAndUnlock(
 			"file_read",
 			{ file_path: "src/app.ts" },
 			{ content: { lines: [] } },
 		);
 		expect(outcome.unlocks.map((u) => u.toolName)).toContain(
-			"get_project_stats",
+			"get_conventions",
 		);
-		expect(gateway.isExposed("get_project_stats")).toBe(true);
+		expect(gateway.isExposed("get_conventions")).toBe(true);
 	});
 
 	it("subsequent gate on the same tool returns null", async () => {
@@ -88,7 +88,7 @@ describe("RouterGateway: unlock lifecycle", () => {
 			{ file_path: "src/app.ts" },
 			{ content: {} },
 		);
-		expect(gateway.gate("get_project_stats")).toBeNull();
+		expect(gateway.gate("get_conventions")).toBeNull();
 	});
 
 	it("monotonic exposure across noise calls", async () => {
@@ -104,7 +104,7 @@ describe("RouterGateway: unlock lifecycle", () => {
 				{ content: {} },
 			);
 		}
-		expect(gateway.isExposed("get_project_stats")).toBe(true);
+		expect(gateway.isExposed("get_conventions")).toBe(true);
 	});
 
 	it("ur|rsk emission unlocks get_critical_nodes", async () => {
@@ -227,9 +227,9 @@ describe("RouterGateway: announce + persistence", () => {
 			{ content: {} },
 		);
 		expect(outcome.announceText).toContain(
-			"ur|hnt get_project_stats unlocked",
+			"ur|hnt get_conventions unlocked",
 		);
-		expect(outcome.announceText).toContain("call get_project_stats(...)");
+		expect(outcome.announceText).toContain("call get_conventions(...)");
 		expect(outcome.announceText.endsWith("\n")).toBe(true);
 	});
 
@@ -250,7 +250,7 @@ describe("RouterGateway: announce + persistence", () => {
 		);
 		const store = new ToolExposureStore(dir, "session-test");
 		const rows = await store.readAll();
-		expect(rows.map((r) => r.tool)).toContain("get_project_stats");
+		expect(rows.map((r) => r.tool)).toContain("get_conventions");
 		expect(rows[0]?.session_id).toBe("session-test");
 	});
 
@@ -271,7 +271,7 @@ describe("RouterGateway: announce + persistence", () => {
 			},
 		);
 		expect(outcome.unlocks.length).toBeGreaterThan(0);
-		expect(gateway.isExposed("get_project_stats")).toBe(true);
+		expect(gateway.isExposed("get_conventions")).toBe(true);
 		expect(observed).toBe(true);
 	});
 });

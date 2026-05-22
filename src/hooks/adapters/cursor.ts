@@ -61,18 +61,18 @@ export const cursorAdapter: HookAdapter = {
   },
 
   formatPreToolUse(result: HookResult): string {
-    if (result.type === "passthrough") {
+    if (result.action === "passthrough") {
       return JSON.stringify({ permission: "allow" });
     }
 
-    if (result.type === "nudge" && result.message) {
+    if (result.action === "nudge" && result.message) {
       return JSON.stringify({
         permission: "allow",
         agent_message: result.message,
       });
     }
 
-    if (result.type === "rewrite" && result.updatedInput) {
+    if (result.action === "rewrite" && result.updatedInput) {
       return JSON.stringify({
         permission: "allow",
         updated_input: result.updatedInput,
@@ -83,12 +83,12 @@ export const cursorAdapter: HookAdapter = {
   },
 
   formatPostToolUse(result: HookResult): string {
-    if (result.type === "passthrough") {
+    if (result.action === "passthrough") {
       return "{}";
     }
 
     if (
-      (result.type === "enrich" || result.type === "nudge") &&
+      (result.action === "enrich" || result.action === "nudge") &&
       result.message
     ) {
       return JSON.stringify({
@@ -105,7 +105,7 @@ export const cursorAdapter: HookAdapter = {
     // user_message is shown to the USER in the client, not injected into agent context.
     // There is no agent_message or additionalContext field for this hook.
     // So we always continue — the prompt-submit nudge only works in Claude Code.
-    if (result.type === "passthrough") {
+    if (result.action === "passthrough") {
       return JSON.stringify({ continue: true });
     }
 

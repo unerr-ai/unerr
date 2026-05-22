@@ -1138,11 +1138,12 @@ function NowStrip({
           type="button"
           onClick={() => navigateRoute("reasoning")}
           className="flex items-center gap-1.5 text-foreground hover:text-cyan-300 transition-colors"
+          title="Counted on operations unerr handled (file reads, web fetches, shell output, dedup). Not whole-turn savings."
         >
           <span className="text-emerald-400 font-semibold">
             {fmtTokens(savedTokens)}
           </span>
-          <span>tokens saved today</span>
+          <span>tokens saved today · on ops unerr handled</span>
           <span className="text-cyan-400">→</span>
         </button>
       )}

@@ -14,6 +14,17 @@
  */
 
 import { Hono } from "hono";
+import {
+  CONTEXT_LIMIT_TOKENS,
+  DEFAULT_UNOBSERVED_OVERHEAD_TOKENS,
+  computeCompoundedHeadroom,
+} from "../../tracking/headroom.js";
+import {
+  type SessionEconomySummary,
+  averageInputTokensPerTurn,
+  summarizeSessionEconomy,
+  totalTokensSavedInSession,
+} from "../../tracking/session-economy.js";
 import { readSessionHistory } from "../../tracking/session-history.js";
 import type { TokenFlowWriter } from "../../tracking/token-flow.js";
 import {
@@ -22,6 +33,93 @@ import {
   aggregateSession,
   readTokenFlowEvents,
 } from "../../tracking/token-flow.js";
+
+type HeadroomWindow = "today" | "this_week" | "since_install";
+
+interface HeadroomBlock {
+  window: HeadroomWindow;
+  headroom_turns: number;
+  turns_observed: number;
+  avg_turn_tokens_without: number;
+  avg_saved_per_turn: number;
+  turns_to_limit_with: number;
+  turns_to_limit_without: number;
+  sessions: number;
+  total_tokens_saved: number;
+}
+
+function windowFromTs(w: HeadroomWindow): string | undefined {
+  const now = new Date();
+  const localMidnight = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    0,
+    0,
+    0,
+    0
+  );
+  if (w === "today") {
+    return localMidnight.toISOString();
+  }
+  if (w === "this_week") {
+    // Anchor exactly 7 days before today's local midnight (not a rolling
+    // 7-day window from now() — the boundary must not jitter during the
+    // day). Result is the local-midnight 7 calendar days ago.
+    const start = new Date(localMidnight);
+    start.setDate(start.getDate() - 7);
+    return start.toISOString();
+  }
+  return undefined;
+}
+
+function computeHeadroomBlock(
+  unerrDir: string,
+  window: HeadroomWindow
+): HeadroomBlock {
+  const from = windowFromTs(window);
+  // Strip persistent_memory events: they carry verdicts not byte-savings
+  // (tokens_without / tokens_saved are 0 by design — see
+  // persistence-effectiveness.ts). Counting them in turnCount drags the
+  // avg-saved-per-turn down without contributing real headroom.
+  const events = stripPersistentMemory(
+    readTokenFlowEvents(unerrDir, {
+      from_ts: from ?? undefined,
+    })
+  );
+  const sessions = new Set<string>();
+  const turns = new Set<string>();
+  let saved = 0;
+  let totalInput = 0;
+  for (const e of events) {
+    sessions.add(e.session_id);
+    turns.add(`${e.session_id}|${e.turn}`);
+    saved += e.tokens_saved;
+    totalInput += e.tokens_without;
+  }
+  const turnCount = turns.size;
+  const avgInputWithout =
+    turnCount === 0 ? 0 : Math.floor(totalInput / turnCount);
+  const avgSavedPerTurn = turnCount === 0 ? 0 : saved / turnCount;
+  const compounded = computeCompoundedHeadroom({
+    contextLimit: CONTEXT_LIMIT_TOKENS,
+    avgTurnTokensWithout: avgInputWithout,
+    avgSavedPerTurn,
+    turnsObserved: turnCount,
+    unobservedOverheadPerTurn: DEFAULT_UNOBSERVED_OVERHEAD_TOKENS,
+  });
+  return {
+    window,
+    headroom_turns: compounded.headroomTurns,
+    turns_observed: turnCount,
+    avg_turn_tokens_without: avgInputWithout,
+    avg_saved_per_turn: Math.floor(avgSavedPerTurn),
+    turns_to_limit_with: compounded.turnsToLimitWith,
+    turns_to_limit_without: compounded.turnsToLimitWithout,
+    sessions: sessions.size,
+    total_tokens_saved: saved,
+  };
+}
 
 export interface TokenFlowRouteDeps {
   unerrDir: string;
@@ -518,6 +616,201 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
       avg_context_reduction: avgContextReduction,
       peak_context_reduction: cumulativeSaved, // max = final cumulative
       total_context_avoided: contextTurnsTotal, // sum of cumulative savings at each turn
+      _meta: {
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+      },
+    });
+  });
+
+  // ── /headroom — Compounded turn headroom for Today / This week / Since install ──
+  // Powers the Dashboard hero strip and Token Trace's headroom-first metric strip.
+  // Supports ?window=today|this_week|since_install to return just one block.
+  app.get("/headroom", (c) => {
+    const start = performance.now();
+    const windowFilter = c.req.query("window") as HeadroomWindow | undefined;
+    const windows: HeadroomWindow[] = windowFilter
+      ? [windowFilter]
+      : ["today", "this_week", "since_install"];
+
+    const blocks: Record<string, HeadroomBlock> = {};
+    for (const w of windows) {
+      blocks[w] = computeHeadroomBlock(deps.unerrDir, w);
+    }
+
+    return c.json({
+      data: blocks,
+      _meta: {
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+        context_limit: CONTEXT_LIMIT_TOKENS,
+      },
+    });
+  });
+
+  // ── /headroom/sessions — Per-session list with headroom column ──
+  app.get("/headroom/sessions", (c) => {
+    const start = performance.now();
+    const limit = Math.min(Number(c.req.query("limit") ?? 25), 200);
+    const windowParam = (c.req.query("window") ?? "since_install") as
+      | HeadroomWindow
+      | "all";
+    const from =
+      windowParam === "all"
+        ? undefined
+        : windowFromTs(windowParam as HeadroomWindow);
+
+    const events = stripPersistentMemory(
+      readTokenFlowEvents(deps.unerrDir, {
+        from_ts: from ?? undefined,
+      })
+    );
+    const sessionIds = new Set<string>();
+    const lastTsBySession = new Map<string, string>();
+    for (const e of events) {
+      sessionIds.add(e.session_id);
+      const prev = lastTsBySession.get(e.session_id);
+      if (!prev || prev < e.ts) lastTsBySession.set(e.session_id, e.ts);
+    }
+
+    const summaries: (SessionEconomySummary & { last_ts: string })[] = [];
+    for (const sid of sessionIds) {
+      const summary = summarizeSessionEconomy(events, sid);
+      summaries.push({ ...summary, last_ts: lastTsBySession.get(sid) ?? "" });
+    }
+    summaries.sort((a, b) => (a.last_ts < b.last_ts ? 1 : -1));
+
+    return c.json({
+      data: summaries.slice(0, limit),
+      total: summaries.length,
+      _meta: {
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+      },
+    });
+  });
+
+  // ── /headroom/session/:id — Single-session detail with per-turn breakdown ──
+  app.get("/headroom/session/:id", (c) => {
+    const start = performance.now();
+    const sid = c.req.param("id");
+    const events = stripPersistentMemory(
+      readTokenFlowEvents(deps.unerrDir, { session_id: sid })
+    );
+    if (events.length === 0) {
+      return c.json({
+        data: {
+          session_id: sid,
+          turn_count: 0,
+          avg_input_tokens_per_turn: 0,
+          total_tokens_saved: 0,
+          extra_turns_bought: 0,
+          headroom_compounded: 0,
+          turns_to_limit_with: 0,
+          turns_to_limit_without: 0,
+          per_turn: [],
+        },
+        _meta: {
+          latency_ms: Math.round((performance.now() - start) * 100) / 100,
+        },
+      });
+    }
+    const summary = summarizeSessionEconomy(events, sid);
+    const avgIn = averageInputTokensPerTurn(events, sid);
+    const saved = totalTokensSavedInSession(events, sid);
+
+    const byTurn = new Map<
+      number,
+      { saved: number; input: number; first_ts: string }
+    >();
+    for (const e of events) {
+      const cur = byTurn.get(e.turn) ?? {
+        saved: 0,
+        input: 0,
+        first_ts: e.ts,
+      };
+      cur.saved += e.tokens_saved;
+      cur.input += e.tokens_without;
+      if (e.ts < cur.first_ts) cur.first_ts = e.ts;
+      byTurn.set(e.turn, cur);
+    }
+    const perTurn = [...byTurn.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([turn, v]) => {
+        const turnCompounded = computeCompoundedHeadroom({
+          contextLimit: CONTEXT_LIMIT_TOKENS,
+          avgTurnTokensWithout: avgIn,
+          avgSavedPerTurn: v.saved,
+          turnsObserved: 1,
+          unobservedOverheadPerTurn: DEFAULT_UNOBSERVED_OVERHEAD_TOKENS,
+        });
+        return {
+          turn,
+          tokens_saved: v.saved,
+          input_tokens: v.input,
+          ts: v.first_ts,
+          headroom: turnCompounded.headroomTurns,
+        };
+      });
+
+    return c.json({
+      data: {
+        ...summary,
+        avg_input_tokens_per_turn: avgIn,
+        total_tokens_saved: saved,
+        per_turn: perTurn,
+      },
+      _meta: {
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+        context_limit: CONTEXT_LIMIT_TOKENS,
+      },
+    });
+  });
+
+  // ── /series — Time-bucketed savings for the SavingsTrend chart ──
+  // Returns { buckets: [{ ts, by_mechanism: {...}, total_saved }] }.
+  // Buckets are aligned to UTC day starts; mechanisms with zero savings
+  // in a bucket simply omit the key.
+  app.get("/series", (c) => {
+    const start = performance.now();
+    const fromTs = c.req.query("from_ts");
+    const toTs = c.req.query("to_ts");
+    const bucket = (c.req.query("bucket") ?? "day") as "hour" | "day";
+    const bucketMs = bucket === "hour" ? 3_600_000 : 86_400_000;
+
+    const events = stripPersistentMemory(
+      readTokenFlowEvents(deps.unerrDir, {
+        from_ts: fromTs || undefined,
+        to_ts: toTs || undefined,
+      })
+    );
+
+    const bucketed = new Map<
+      number,
+      { by_mechanism: Record<string, number>; total_saved: number }
+    >();
+    for (const e of events) {
+      const t = Date.parse(e.ts);
+      if (!Number.isFinite(t)) continue;
+      const key = Math.floor(t / bucketMs) * bucketMs;
+      let row = bucketed.get(key);
+      if (!row) {
+        row = { by_mechanism: {}, total_saved: 0 };
+        bucketed.set(key, row);
+      }
+      row.by_mechanism[e.mechanism] =
+        (row.by_mechanism[e.mechanism] ?? 0) + e.tokens_saved;
+      row.total_saved += e.tokens_saved;
+    }
+
+    const data = [...bucketed.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([ts, row]) => ({
+        ts: new Date(ts).toISOString(),
+        by_mechanism: row.by_mechanism,
+        total_saved: row.total_saved,
+      }));
+
+    return c.json({
+      data,
+      bucket,
       _meta: {
         latency_ms: Math.round((performance.now() - start) * 100) / 100,
       },

@@ -1,0 +1,216 @@
+/**
+ * Two consolidated MCP tools — see ACTIVE_COGNITION_REASON_LAYER.md §6.
+ *
+ *   unerr_recall_notes — read tool, dispatches by input shape (prompt
+ *   vs anchors) into NotesStore.recallByPrompt / recallByAnchors.
+ *
+ *   unerr_remember — write tool, dispatches by `type` field
+ *   (note | cochange | move_anchor | promote_to_claude_md) into
+ *   NotesStore.upsertNote / upsertCoChange / moveAnchor (and into the
+ *   CLAUDE.md mirror writer for the promote path; see notes-promote.ts).
+ *
+ * Action-dispatch keeps the MCP tool count flat — two registered names
+ * instead of five — so the cognitive-load budget on every agent's
+ * tools/list stays under the practical limit (~26-30 tools). See §6.1
+ * for the rationale.
+ *
+ * These wrappers stay thin: input validation, dispatch, and result
+ * envelope only. All semantics live in NotesStore.
+ */
+
+import { promoteNotesToClaudeMd } from "../../intelligence/claude-md-mirror.js";
+import type { NotesStore, StoredNote } from "../../intelligence/notes-store.js";
+
+export interface RecallNotesInput {
+  /** Discriminator. Defaults to "anchors" when omitted (and anchors[] is set). */
+  action?: "for_prompt" | "for_anchors";
+  prompt?: string;
+  anchors?: string[];
+  candidate_anchors?: string[];
+  tier?: "hot" | "all";
+  session_id?: string;
+}
+
+export interface RememberInput {
+  /** Discriminator. Defaults to "note" when omitted (for legacy alias compat). */
+  type?: "note" | "cochange" | "move_anchor" | "promote_to_claude_md";
+  // type:"note" payload
+  note?: string;
+  supersedes_note_id?: string;
+  // type:"cochange" payload
+  anchors?: string[];
+  content?: string;
+  // type:"move_anchor" payload
+  old_anchor?: string;
+  new_anchor?: string;
+  // type:"promote_to_claude_md" payload
+  note_ids?: string[];
+  // shared
+  session_id?: string;
+  prompt_hash?: string;
+}
+
+export interface ToolResult<T> {
+  ok: boolean;
+  data?: T;
+  error?: string;
+  hint?: string;
+}
+
+function err<T>(message: string): ToolResult<T> {
+  return { ok: false, error: message };
+}
+
+/** Dispatch unerr_recall_notes by input shape. */
+export async function recallNotes(
+  store: NotesStore,
+  input: RecallNotesInput,
+): Promise<ToolResult<unknown>> {
+  const action =
+    input.action ??
+    (input.prompt
+      ? "for_prompt"
+      : input.anchors && input.anchors.length > 0
+        ? "for_anchors"
+        : null);
+  if (action === null) {
+    return err("recall_notes: must provide `prompt` or `anchors`");
+  }
+  try {
+    if (action === "for_prompt") {
+      if (!input.prompt) return err("recall_notes: prompt required");
+      const result = await store.recallByPrompt({
+        prompt: input.prompt,
+        candidate_anchors: input.candidate_anchors,
+        session_id: input.session_id,
+      });
+      return {
+        ok: true,
+        data: result,
+        hint:
+          result.notes.length === 0
+            ? "0 notes recalled — proceed with the task; call unerr_remember at task close if you learn something non-obvious + anchorable"
+            : `${result.notes.length} note(s) recalled — cite by note_id in your plan`,
+      };
+    }
+    // for_anchors
+    if (!input.anchors || input.anchors.length === 0) {
+      return err("recall_notes: anchors[] required for for_anchors action");
+    }
+    const result = await store.recallByAnchors({
+      anchors: input.anchors,
+      tier: input.tier,
+      session_id: input.session_id,
+    });
+    const requestedAnchors = input.anchors.length;
+    return {
+      ok: true,
+      data: result,
+      hint:
+        result.notes.length === 0
+          ? `0 notes for ${requestedAnchors} anchor(s) — proceed; write a note at task close if non-obvious + anchorable`
+          : `${result.notes.length} note(s) — cite by note_id in your plan`,
+    };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return err(`recall_notes failed: ${msg}`);
+  }
+}
+
+/** Dispatch unerr_remember by `type` field. */
+export async function remember(
+  store: NotesStore,
+  input: RememberInput,
+  /** When type=promote_to_claude_md, the caller injects the writer. Kept as a
+   *  function pointer so this module stays decoupled from filesystem I/O. */
+  promoteWriter?: (noteIds: string[]) => Promise<{ written: number; path: string }>,
+): Promise<ToolResult<unknown>> {
+  const type = input.type ?? "note";
+  try {
+    switch (type) {
+      case "note": {
+        if (!input.note) return err("remember: note (DSL wire string) required");
+        if (!input.session_id) return err("remember: session_id required");
+        const result = await store.upsertNote({
+          note: input.note,
+          session_id: input.session_id,
+          prompt_hash: input.prompt_hash ?? "",
+          supersedes_note_id: input.supersedes_note_id,
+        });
+        return {
+          ok: result.stored || result.outcome === "rate_limited",
+          data: result,
+          hint: result.hint,
+        };
+      }
+      case "cochange": {
+        if (!input.anchors || input.anchors.length < 2) {
+          return err("remember(cochange): anchors[] (≥2) required");
+        }
+        if (!input.content) return err("remember(cochange): content required");
+        const result = await store.upsertCoChange({
+          anchors: input.anchors,
+          content: input.content,
+        });
+        return { ok: true, data: result };
+      }
+      case "move_anchor": {
+        if (!input.old_anchor || !input.new_anchor) {
+          return err("remember(move_anchor): old_anchor + new_anchor required");
+        }
+        const result = await store.moveAnchor({
+          old_anchor: input.old_anchor,
+          new_anchor: input.new_anchor,
+        });
+        return {
+          ok: true,
+          data: result,
+          hint:
+            result.migrated === 0
+              ? "no notes migrated — no rows pointed at old_anchor"
+              : `migrated ${result.migrated} note(s) ${input.old_anchor} → ${input.new_anchor}`,
+        };
+      }
+      case "promote_to_claude_md": {
+        if (!input.note_ids || input.note_ids.length === 0) {
+          return err("remember(promote_to_claude_md): note_ids[] required");
+        }
+        if (!promoteWriter) {
+          return err(
+            "remember(promote_to_claude_md): promoteWriter not provided — proxy must inject the CLAUDE.md mirror writer",
+          );
+        }
+        const result = await promoteWriter(input.note_ids);
+        return {
+          ok: true,
+          data: result,
+          hint: `wrote ${result.written} entry/entries to ${result.path}`,
+        };
+      }
+      default:
+        return err(`remember: unknown type '${type}'`);
+    }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return err(`remember failed: ${msg}`);
+  }
+}
+
+/**
+ * Build the CLAUDE.md `promoteWriter` callback the proxy injects into
+ * `remember({type:"promote_to_claude_md"})`. Resolves note_ids via a
+ * caller-supplied loader, then writes the sentinel block.
+ */
+export function buildClaudeMdPromoter(opts: {
+  claude_md_path: string;
+  loadNotes: (ids: readonly string[]) => Promise<StoredNote[]>;
+}): (noteIds: string[]) => Promise<{ written: number; path: string }> {
+  return async (noteIds) => {
+    const notes = await opts.loadNotes(noteIds);
+    const result = promoteNotesToClaudeMd({
+      claude_md_path: opts.claude_md_path,
+      notes,
+    });
+    return { written: result.written, path: result.path };
+  };
+}

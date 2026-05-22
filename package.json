@@ -14,7 +14,7 @@
     "build:cli": "tsup src/entrypoints/cli.ts --format esm --target node20 --dts --no-splitting",
     "dev": "tsx watch src/entrypoints/cli.ts",
     "test": "vitest",
-    "test:run": "vitest run",
+    "test:run": "vitest run < /dev/null",
     "dev:ui": "vite",
     "build:ui": "vite build && node scripts/check-ui-bundle.mjs",
     "preview:ui": "vite preview",

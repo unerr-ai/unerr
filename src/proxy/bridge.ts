@@ -32,6 +32,50 @@ export interface BridgeResult {
   reason: "socket_closed" | "daemon_dead" | "stdin_closed" | "connect_error";
 }
 
+export interface BridgeOptions {
+  /** Coding-agent id baked into the MCP config (`claude-code`, `cursor`, …).
+   *  When set, the bridge rewrites the `initialize` frame's
+   *  `params.clientInfo.name` so the per-repo proxy attributes every
+   *  tool call from this bridge to the named agent — works even when
+   *  two IDEs share one daemon. */
+  codingAgent?: string;
+}
+
+/**
+ * Rewrite outgoing JSON-RPC frames so `initialize.params.clientInfo.name`
+ * is the install-time-known coding-agent id. Newline-delimited frames are
+ * parsed lazily; non-`initialize` frames pass through unchanged. Returns
+ * the rewritten Buffer (same length when nothing matched, so the caller
+ * can write it as-is). A malformed line falls back to the original chunk
+ * — we never block forwarding on a parse failure.
+ */
+function rewriteInitializeFrame(chunk: Buffer, codingAgent: string): Buffer {
+  const str = chunk.toString();
+  // Fast bail: most chunks aren't `initialize`. Avoid JSON.parse() entirely.
+  if (!str.includes('"initialize"')) return chunk;
+  const lines = str.split("\n");
+  let mutated = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line || !line.includes('"initialize"')) continue;
+    try {
+      const frame = JSON.parse(line) as {
+        method?: string;
+        params?: { clientInfo?: { name?: string; version?: string } };
+      };
+      if (frame.method !== "initialize") continue;
+      frame.params = frame.params ?? {};
+      frame.params.clientInfo = frame.params.clientInfo ?? {};
+      frame.params.clientInfo.name = codingAgent;
+      lines[i] = JSON.stringify(frame);
+      mutated = true;
+    } catch {
+      // Partial line or malformed JSON — leave it alone.
+    }
+  }
+  return mutated ? Buffer.from(lines.join("\n")) : chunk;
+}
+
 /**
  * Start bridging stdin/stdout to the proxy's UDS socket.
  * Returns when the connection closes, with a reason indicating why.
@@ -47,7 +91,8 @@ export interface BridgeResult {
  */
 export function startUdsBridge(
   sockPath: string,
-  preBufferedChunks?: Buffer[]
+  preBufferedChunks?: Buffer[],
+  options?: BridgeOptions
 ): Promise<BridgeResult> {
   return new Promise((resolve) => {
     const socket: Socket = connect(sockPath);
@@ -77,12 +122,16 @@ export function startUdsBridge(
     socket.on("connect", () => {
       log.info(`Connected to proxy at ${sockPath}`);
 
+      const codingAgent = options?.codingAgent;
+      const maybeRewrite = (chunk: Buffer): Buffer =>
+        codingAgent ? rewriteInitializeFrame(chunk, codingAgent) : chunk;
+
       // Drain frames the caller captured before we could connect (e.g. the
       // IDE's `initialize` arriving during auto-spawn). Order is preserved.
       if (preBufferedChunks && preBufferedChunks.length > 0) {
         log.info(`Draining ${preBufferedChunks.length} pre-buffered chunk(s)`);
         for (const chunk of preBufferedChunks) {
-          if (!socket.destroyed) socket.write(chunk);
+          if (!socket.destroyed) socket.write(maybeRewrite(chunk));
         }
         preBufferedChunks.length = 0;
       }
@@ -90,7 +139,7 @@ export function startUdsBridge(
       // stdin → UDS: forward MCP requests from IDE to proxy
       stdinDataHandler = (chunk: Buffer) => {
         if (!socket.destroyed) {
-          socket.write(chunk);
+          socket.write(maybeRewrite(chunk));
         }
       };
       process.stdin.on("data", stdinDataHandler);

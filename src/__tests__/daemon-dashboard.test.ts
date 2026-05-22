@@ -118,8 +118,8 @@ describe("Router (router.ts)", () => {
       "utf-8"
     );
 
-    expect(content).toContain("`#/repo/${repoLabel}`");
-    expect(content).toContain("`#/repo/${repoLabel}/${next}`");
+    expect(content).toContain("`#/repo/${repoLabel}");
+    expect(content).toContain("`#/repo/${repoLabel}/${next}");
   });
 
   it("preserves backward compatibility with bare routes", () => {

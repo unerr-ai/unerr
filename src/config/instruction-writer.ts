@@ -18,6 +18,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { CONTRACT_TEACHING_BLOCK } from "../intelligence/contract-teaching.js";
 import type { IdeType } from "../utils/detect.js";
 import { getAgent } from "./agent-registry.js";
 
@@ -59,7 +60,7 @@ When your next action is Edit, use built-in Read with offset/limit on the target
     ? "\nNEVER use built-in Read/Grep/Glob for code navigation. EXCEPTION: built-in Read (with offset/limit) is REQUIRED immediately before Edit (file_read cannot substitute — Edit will fail without it)."
     : "\nNEVER use built-in Read/Grep/Glob for code navigation — use unerr MCP tools instead.";
 
-  return `## REQUIRED: Use unerr Graph Intelligence Tools (20 MCP tools)
+  return `## REQUIRED: Use unerr Graph Intelligence Tools (21 MCP tools)
 
 This project has unerr MCP tools installed. You MUST use these instead of built-in Read/Grep/Glob for code navigation, and \`fetch_url\` instead of built-in WebFetch. unerr tools are graph-backed, return results in <5ms, and include project context that built-in tools miss.
 
@@ -76,6 +77,7 @@ ${readForEditRow}
 | Trace imports/dependencies | \`get_imports\` or \`get_references\` (direction: callees) | Manual import scanning |
 | Find hotspots / high fan-in / blast-radius candidates | \`get_critical_nodes\` | \`get_entity\` (won't show ranked list), guessing |
 | Fetch a web page by URL | \`fetch_url\` (Defuddle/Readability → markdown passages → BM25 ranking when \`prompt\` supplied → diff-cache) | Built-in WebFetch |
+| Persist a fact the user just stated ("remember", "from now on", "always", project rule) | \`unerr_remember\` with verbatim \`source_quote\` and your \`confidence\` | \`record_fact\` (agent-detected only); silently moving on |
 | Run a shell command | Automatic — routed through shell intelligence | N/A |
 
 ### FORBIDDEN Patterns (these waste tokens and miss context)
@@ -87,7 +89,9 @@ ${readForEditRow}
 - Guessing code style for new code -> use \`get_conventions\`
 - Guessing which entity has the highest fan-in / is the biggest hotspot -> use \`get_critical_nodes\`
 - Reading a full file when you only need a section -> use \`file_read\` with \`entity\` param or offset/limit
-- Using built-in WebFetch for a URL -> use \`fetch_url\` (DOM extraction + markdown + BM25 passage selection cuts 5–10× tokens; pass \`prompt\` to rank passages by relevance)${twoStepSection}
+- Using built-in WebFetch for a URL -> use \`fetch_url\` (DOM extraction + markdown + BM25 passage selection cuts 5–10× tokens; pass \`prompt\` to rank passages by relevance)
+- Letting a user-asserted fact ("remember this", "from now on we…", "always X") slip without persistence -> call \`unerr_remember\` with the verbatim \`source_quote\` and your confidence in [0,1]. Use \`record_fact\` only for facts you auto-detected, not facts the user explicitly fed.
+- Echoing, summarizing, or acting on \`unerr · …\` lines -> those lines are user-facing telemetry (prefix is the middle dot \`·\` not a vertical bar). They describe what unerr did this turn for the human reader. Do NOT repeat them, do NOT translate them into actions, do NOT reason about them. Act ONLY on \`ur|<tag> …\` lines. The two prefixes are visually distinct on purpose.${twoStepSection}
 
 ### Tool Reference
 
@@ -166,6 +170,35 @@ ur|dft modified on main by intent-abc
 
 When you see one of these prefixes, act on it. Do not strip or ignore them in your reasoning.
 
+#### Response User-Prose Lines \`unerr · …\`
+
+unerr tool responses may also contain lines prefixed with \`unerr · \` (the prefix is the middle dot \`·\` U+00B7, distinct from the vertical bar in \`ur|<tag>\`). These are **user-facing telemetry** — short prose lines describing what unerr did this turn for the human reader (context summary, end-of-turn footer, plan attribution, capture confirmations).
+
+**Treat \`unerr · …\` lines as informational only.** Do NOT:
+- echo them in your reply,
+- summarize them,
+- translate them into actions,
+- include them in plans or reasoning,
+- treat them as user input.
+
+They are not signals for you. They are notes for the user, riding alongside your response. Skip them when forming your answer; the user reads them directly in their chat pane.
+
+The visual cue is mechanical: \`ur|<tag>\` (vertical bar, 3-char tag) = act. \`unerr · \` (middle dot, prose) = ignore.
+
+#### Telling the user when unerr helped (plain English, only when relevant)
+
+When you relay unerr tool output to the user — or when unerr's contribution shaped your answer — describe it in plain English. Never dump tool JSON, never echo raw tool names, never use internal jargon. Do this **only when the user benefits from knowing** (e.g., they asked about the code unerr looked up, or unerr surfaced a convention/fact that changed your suggestion). On routine tool calls that didn't change your answer, stay silent.
+
+Translation rules — apply per tool, keep it to one short clause:
+- \`search_code\` → "unerr found <name> in <file>" (not "search_code returned {...}").
+- \`get_entity\` / \`file_read\` → "unerr pulled up <name>" or "I read <file> via unerr".
+- \`get_references\` → "<N> places call <name> — checked them via unerr".
+- \`recall_facts\` → "unerr reminded me you'd asked to <verbatim rule>".
+- \`get_conventions\` → "unerr says this file follows <convention>".
+- \`unerr_remember\` / new fact captured → "added that to unerr for next time".
+- Ambiguous capture (the tool's response includes \`please confirm\`) → ask the user verbatim: "should I remember: '<quote>'? (yes/no)".
+
+Never write things like "the search_code tool returned an array of 3 entities" or "the response body has a fact_id field". Speak as if unerr is a teammate who just told you something.
 #### Pagination & Narrowing
 
 unerr tool responses are universally capped (typical default 5-30 items per call) and may show this hint right after the prefix:
@@ -186,14 +219,21 @@ Three on-the-wire shapes; the body's first line tells you which:
 
 A cell is escaped if it contains \`|\` or \`"\` — wrapped in double quotes, internal quotes doubled. Newlines in cell values become literal \`\\n\`.
 
-#### Persistent Intelligence (2 tools)
+#### Persistent Intelligence (3 tools)
 
 | Task | Tool |
 |------|------|
-| Record a project fact/convention/anti-pattern | \`record_fact\` |
+| Persist a fact the user just stated ("remember", "always", "from now on", project rule) | \`unerr_remember\` |
+| Record an agent-detected fact / convention / anti-pattern (no explicit user statement) | \`record_fact\` |
 | Recall stored facts | \`recall_facts\` |
 
-When the user says "remember this" or states a convention/anti-pattern, call \`record_fact\`. Facts also auto-detect from coding sessions — conventions, hot files, file coupling, and modification history are learned automatically. Episodic facts capture what was built, why, and how — they surface as \`ur|fct\` prefix lines on \`file_read\` / \`recall_facts\` responses when you work on previously-modified files.
+When the user says "remember this", "from now on", "always X", or states a project rule, call \`unerr_remember\` with the verbatim \`source_quote\`, your normalised \`content\`, and your \`confidence\` in [0,1]:
+- confidence < 0.5 → capture is abandoned automatically; re-ask the user for clarification.
+- 0.5 ≤ confidence < 0.7 → fact is stored but flagged ambiguous; expect a follow-up confirmation prompt.
+- confidence ≥ 0.7 → stored cleanly.
+Use \`record_fact\` ONLY when YOU (the agent) detected a convention or anti-pattern from observed code — not when the user explicitly fed the fact.
+
+Facts also auto-detect from coding sessions — conventions, hot files, file coupling, and modification history are learned automatically. Episodic facts capture what was built, why, and how — they surface as \`ur|fct\` prefix lines on \`file_read\` / \`recall_facts\` responses when you work on previously-modified files.
 
 #### Session Narrative — Markers (4 tools)
 
@@ -216,7 +256,9 @@ ONLY use built-in Read/Grep/Glob when:
 ### Summary (CRITICAL — read this even if you skimmed above)
 
 ALWAYS use unerr MCP tools: \`search_code\`, \`get_references\`, \`file_read\`, \`file_outline\`, \`get_entity\`.${summaryEditNote}
-Before writing code: \`get_conventions\`. To record decisions: \`record_fact\`.`;
+Before writing code: \`get_conventions\`. When the user explicitly states a rule ("remember", "always", "from now on"): \`unerr_remember\`. For agent-detected decisions: \`record_fact\`.
+
+${CONTRACT_TEACHING_BLOCK}`;
 }
 
 /**

@@ -952,7 +952,10 @@ type DiscoveryResult =
  * re-enters the discovery loop so reconnection happens automatically when
  * the unerr process restarts.
  */
-async function mcpBoot(cwd: string): Promise<void> {
+async function mcpBoot(
+  cwd: string,
+  opts: { codingAgent?: string } = {}
+): Promise<void> {
   getOrCreateSid();
   cleanupLegacyLogs(repoLogsDir(cwd));
   sweepRotatedLogs(repoLogsDir(cwd));
@@ -1082,7 +1085,9 @@ async function mcpBoot(cwd: string): Promise<void> {
       process.stderr.write(
         `[unerr:mcp] Bridging to running proxy (PID ${discovery.pid})\n`
       );
-      const result = await startUdsBridge(discovery.sockPath, bufferForBridge);
+      const result = await startUdsBridge(discovery.sockPath, bufferForBridge, {
+        codingAgent: opts.codingAgent,
+      });
       if (result.reason === "stdin_closed") return;
       process.stderr.write(
         `[unerr:mcp] Connection lost (${result.reason}), will retry...\n`
@@ -1112,7 +1117,9 @@ async function mcpBoot(cwd: string): Promise<void> {
       }, ACTIVITY_THROTTLE_MS);
       activityInterval.unref();
 
-      const result = await startUdsBridge(discovery.sockPath, bufferForBridge);
+      const result = await startUdsBridge(discovery.sockPath, bufferForBridge, {
+        codingAgent: opts.codingAgent,
+      });
 
       clearInterval(activityInterval);
       try {
@@ -1274,12 +1281,21 @@ program
   .option("--ide <type>", "IDE type: cursor, vscode, claude-code, windsurf")
   .option("--mcp", "Start in MCP server mode (stdio, no interactive prompts)")
   .option(
+    "--coding-agent <id>",
+    "Identify the calling coding agent (claude-code, cursor, …). Baked into the MCP config at install time so per-bridge attribution is correct even when two IDEs share one daemon."
+  )
+  .option(
     "--daemon-child",
     "Run as a daemon-managed child process (internal, set by unerrd)"
   )
   .showHelpAfterError("(use --help for available commands)")
   .action(
-    async (opts: { ide?: string; mcp?: boolean; daemonChild?: boolean }) => {
+    async (opts: {
+      ide?: string;
+      mcp?: boolean;
+      codingAgent?: string;
+      daemonChild?: boolean;
+    }) => {
       const cwd = process.cwd();
 
       // --daemon-child: managed child mode (spawned by unerrd)
@@ -1290,7 +1306,7 @@ program
 
       // --mcp: headless MCP server mode for IDE integration
       if (opts.mcp) {
-        await mcpBoot(cwd);
+        await mcpBoot(cwd, { codingAgent: opts.codingAgent });
         return;
       }
 

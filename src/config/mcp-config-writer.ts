@@ -91,20 +91,43 @@ export function getUnerrCommand(): string {
   return _resolvedCommand;
 }
 
-function createUnerrServerEntry(): McpServerEntry {
+/** Build the `args` array for the MCP server entry. The coding-agent id is
+ *  baked in at install time so the bridge can attribute every tool call
+ *  from this entry to the named agent — works even when two IDEs share
+ *  one daemon. */
+function buildArgs(ide: IdeType): string[] {
+  return ["--mcp", `--coding-agent=${ide}`];
+}
+
+function createUnerrServerEntry(ide: IdeType): McpServerEntry {
   return {
     type: "stdio",
     command: getUnerrCommand(),
-    args: ["--mcp"],
+    args: buildArgs(ide),
   };
 }
 
-function createCopilotServerEntry(): McpServerEntry {
+function createCopilotServerEntry(ide: IdeType): McpServerEntry {
   return {
     type: "local",
     command: getUnerrCommand(),
-    args: ["--mcp"],
+    args: buildArgs(ide),
   };
+}
+
+/** True when an existing config entry matches both binary AND args exactly.
+ *  Comparing args ensures that a re-install upgrades older entries that
+ *  pre-date the `--coding-agent` flag. */
+function entryMatches(
+  current: McpServerEntry,
+  desired: McpServerEntry
+): boolean {
+  if (current.command !== desired.command) return false;
+  const a = current.args ?? [];
+  const b = desired.args ?? [];
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 /**
@@ -133,15 +156,15 @@ export function writeMcpConfig(
 
   switch (agent.configFormat) {
     case "mcp-json":
-      return writeMcpJsonFormat(configPath);
+      return writeMcpJsonFormat(configPath, ide);
     case "settings-json":
-      return writeSettingsJsonFormat(configPath);
+      return writeSettingsJsonFormat(configPath, ide);
     case "copilot-json":
-      return writeCopilotJsonFormat(configPath);
+      return writeCopilotJsonFormat(configPath, ide);
     case "continue-config":
-      return writeContinueFormat(configPath);
+      return writeContinueFormat(configPath, ide);
     default:
-      return writeMcpJsonFormat(configPath);
+      return writeMcpJsonFormat(configPath, ide);
   }
 }
 
@@ -221,8 +244,9 @@ function isConfigEmpty(
     return Array.isArray(servers) && servers.length === 0;
   }
   if (format === "settings-json") {
-    const servers = (config.mcp as { servers?: Record<string, unknown> } | undefined)
-      ?.servers;
+    const servers = (
+      config.mcp as { servers?: Record<string, unknown> } | undefined
+    )?.servers;
     return !servers || Object.keys(servers).length === 0;
   }
   const servers = config.mcpServers as Record<string, unknown> | undefined;
@@ -281,7 +305,7 @@ export function generateConfigSnippet(ide: IdeType): string {
   const agent = getAgent(ide);
   if (!agent) return "";
 
-  const entry = createUnerrServerEntry();
+  const entry = createUnerrServerEntry(ide);
 
   switch (agent.configFormat) {
     case "settings-json":
@@ -291,7 +315,7 @@ export function generateConfigSnippet(ide: IdeType): string {
         2
       );
     case "copilot-json": {
-      const copilotEntry = createCopilotServerEntry();
+      const copilotEntry = createCopilotServerEntry(ide);
       return JSON.stringify(
         { mcpServers: { [UNERR_SERVER_KEY]: copilotEntry } },
         null,
@@ -329,7 +353,10 @@ export function getConfigInfo(
 
 // ── Format-specific writers ─────────────────────────────────────
 
-function writeMcpJsonFormat(configPath: string): {
+function writeMcpJsonFormat(
+  configPath: string,
+  ide: IdeType
+): {
   path: string;
   action: "created" | "updated" | "skipped";
 } {
@@ -339,8 +366,8 @@ function writeMcpJsonFormat(configPath: string): {
         readFileSync(configPath, "utf-8")
       ) as McpConfig;
       const current = existing.mcpServers?.[UNERR_SERVER_KEY];
-      const desired = createUnerrServerEntry();
-      if (current && current.command === desired.command) {
+      const desired = createUnerrServerEntry(ide);
+      if (current && entryMatches(current, desired)) {
         return { path: configPath, action: "skipped" };
       }
       existing.mcpServers = existing.mcpServers ?? {};
@@ -353,13 +380,16 @@ function writeMcpJsonFormat(configPath: string): {
   }
 
   const config: McpConfig = {
-    mcpServers: { [UNERR_SERVER_KEY]: createUnerrServerEntry() },
+    mcpServers: { [UNERR_SERVER_KEY]: createUnerrServerEntry(ide) },
   };
   writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
   return { path: configPath, action: "created" };
 }
 
-function writeSettingsJsonFormat(configPath: string): {
+function writeSettingsJsonFormat(
+  configPath: string,
+  ide: IdeType
+): {
   path: string;
   action: "created" | "updated" | "skipped";
 } {
@@ -372,8 +402,8 @@ function writeSettingsJsonFormat(configPath: string): {
       const mcp = (existing.mcp ?? {}) as Record<string, unknown>;
       const servers = (mcp.servers ?? {}) as Record<string, McpServerEntry>;
       const current = servers[UNERR_SERVER_KEY];
-      const desired = createUnerrServerEntry();
-      if (current && current.command === desired.command) {
+      const desired = createUnerrServerEntry(ide);
+      if (current && entryMatches(current, desired)) {
         return { path: configPath, action: "skipped" };
       }
       servers[UNERR_SERVER_KEY] = desired;
@@ -387,17 +417,20 @@ function writeSettingsJsonFormat(configPath: string): {
   }
 
   const config = {
-    mcp: { servers: { [UNERR_SERVER_KEY]: createUnerrServerEntry() } },
+    mcp: { servers: { [UNERR_SERVER_KEY]: createUnerrServerEntry(ide) } },
   };
   writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
   return { path: configPath, action: "created" };
 }
 
-function writeContinueFormat(configPath: string): {
+function writeContinueFormat(
+  configPath: string,
+  ide: IdeType
+): {
   path: string;
   action: "created" | "updated" | "skipped";
 } {
-  const entry = { name: UNERR_SERVER_KEY, ...createUnerrServerEntry() };
+  const entry = { name: UNERR_SERVER_KEY, ...createUnerrServerEntry(ide) };
 
   if (existsSync(configPath)) {
     try {
@@ -405,12 +438,11 @@ function writeContinueFormat(configPath: string): {
         string,
         unknown
       >;
-      const servers = (existing.mcpServers ?? []) as Array<{
-        name?: string;
-        command?: string;
-      }>;
+      const servers = (existing.mcpServers ?? []) as Array<
+        McpServerEntry & { name?: string }
+      >;
       const idx = servers.findIndex((s) => s.name === UNERR_SERVER_KEY);
-      if (idx >= 0 && servers[idx]?.command === entry.command) {
+      if (idx >= 0 && entryMatches(servers[idx] as McpServerEntry, entry)) {
         return { path: configPath, action: "skipped" };
       }
       if (idx >= 0) {
@@ -431,7 +463,10 @@ function writeContinueFormat(configPath: string): {
   return { path: configPath, action: "created" };
 }
 
-function writeCopilotJsonFormat(configPath: string): {
+function writeCopilotJsonFormat(
+  configPath: string,
+  ide: IdeType
+): {
   path: string;
   action: "created" | "updated" | "skipped";
 } {
@@ -441,8 +476,8 @@ function writeCopilotJsonFormat(configPath: string): {
         readFileSync(configPath, "utf-8")
       ) as McpConfig;
       const current = existing.mcpServers?.[UNERR_SERVER_KEY];
-      const desired = createCopilotServerEntry();
-      if (current && current.command === desired.command) {
+      const desired = createCopilotServerEntry(ide);
+      if (current && entryMatches(current, desired)) {
         return { path: configPath, action: "skipped" };
       }
       existing.mcpServers = existing.mcpServers ?? {};
@@ -455,7 +490,7 @@ function writeCopilotJsonFormat(configPath: string): {
   }
 
   const config: McpConfig = {
-    mcpServers: { [UNERR_SERVER_KEY]: createCopilotServerEntry() },
+    mcpServers: { [UNERR_SERVER_KEY]: createCopilotServerEntry(ide) },
   };
   writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
   return { path: configPath, action: "created" };

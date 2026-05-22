@@ -84,7 +84,6 @@ export const TOOL_CLUSTERS: ToolCluster[] = [
       "get_critical_nodes",
       "get_cross_boundary_links",
       "file_connections",
-      "get_test_coverage",
       "get_project_stats",
     ],
     triggerKeywords: [
@@ -105,9 +104,15 @@ export const TOOL_CLUSTERS: ToolCluster[] = [
   {
     id: "persistence",
     name: "Persistent Intelligence",
-    tools: ["record_fact", "recall_facts"],
+    tools: ["unerr_remember", "record_fact"],
     triggerKeywords: [
       "remember",
+      "store",
+      "always",
+      "from now on",
+      "hold",
+      "keep in mind",
+      "note that",
       "fact",
       "convention",
       "anti-pattern",
@@ -147,6 +152,12 @@ export const TOOL_CLUSTERS: ToolCluster[] = [
       "blog",
       "article",
     ],
+  },
+  {
+    id: "recovery",
+    name: "Recovery",
+    tools: ["recall_facts", "get_test_coverage"],
+    triggerKeywords: ["debug", "broken", "revert", "undo"],
   },
 ];
 

@@ -49,7 +49,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
 	search_code: {
 		tier: 1,
 		active:
-			"Search code entities (function/class/type/variable) by name across project. Returns ranked results with file paths and kinds, <5ms.",
+			"Search code entities (function/class/type/variable) by name across project. Returns ranked results with file paths and kinds, <5ms. Then call unerr_recall_notes({anchors:['e:<top_hit_key>']}) for notes on the top result.",
 		locked: "[tier 1 — always exposed]",
 	},
 	file_outline: {
@@ -61,25 +61,43 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
 	file_read: {
 		tier: 1,
 		active:
-			"Read file with auto-injected conventions, facts, and drift status. Supports entity param for targeted single-function reads.",
+			"Read file with auto-injected conventions, facts, and drift status. Supports entity param for targeted single-function reads. Before editing, call unerr_recall_notes({anchors:['f:<file_path>']}) for rule-notes.",
 		locked: "[tier 1 — always exposed]",
 	},
 	get_entity: {
 		tier: 1,
 		active:
-			"Get a code entity (function/class/type/variable) by key — signature, callers, callees, metadata. Pass include_body:true for full source.",
+			"Get a code entity (function/class/type/variable) by key — signature, callers, callees, metadata. Pass include_body:true for full source. If contract surprises you, call unerr_remember({type:'note', note:'fct|e:<entity_key>|~|<one-line>'}).",
 		locked: "[tier 1 — always exposed]",
 	},
 	get_references: {
 		tier: 1,
 		active:
-			"Find callers or callees of an entity across the codebase. Pass direction:'callers' (default) or 'callees'. Catches indirect refs grep misses.",
+			"Find callers or callees of an entity across the codebase. Pass direction:'callers' (default) or 'callees'. Catches indirect refs grep misses. If fan_in≥10, call unerr_remember({type:'note', note:'wrn|e:<entity_key>|-|<chokepoint reason>'}).",
 		locked: "[tier 1 — always exposed]",
 	},
 	fetch_url: {
 		tier: 1,
 		active:
 			"Fetch a web page and return DOM-extracted markdown passages. Strips chrome, converts to ATX-markdown, splits by heading, ranks by BM25 when prompt is set, caches by content hash. Use instead of built-in WebFetch — 5–10× fewer tokens.",
+		locked: "[tier 1 — always exposed]",
+	},
+	unerr_remember: {
+		tier: 1,
+		active:
+			"Persist user-asserted facts ('remember', 'always', project rules). Pass source_quote + confidence (≥0.5 stored). For anchored Layer B notes pass {type:'note', note:'kind|anchor|polarity|content', session_id}.",
+		locked: "[tier 1 — always exposed]",
+	},
+	unerr_recall_notes: {
+		tier: 1,
+		active:
+			"Recall anchored notes. On prompt receipt: {prompt:'<verbatim>'}. After identifying targets: {anchors:['f:src/x.ts','e:foo']}. Empty result is fine.",
+		locked: "[tier 1 — always exposed]",
+	},
+	get_project_stats: {
+		tier: 1,
+		active:
+			"Project-wide stats — entity/edge counts, language breakdown, community count, health grade. Call before search_code for orientation in an unfamiliar repo.",
 		locked: "[tier 1 — always exposed]",
 	},
 
@@ -119,15 +137,6 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
 			"[locked, unlock: test file accessed] Tests covering an entity. Use get_references first.",
 		unlocked:
 			"Test files covering an entity, traced through the graph. include_transitive walks callers too. Use before modifying an entity.",
-	},
-	get_project_stats: {
-		tier: 2,
-		active:
-			"Project-wide stats — entity/edge counts, language breakdown, community count, health grade.",
-		locked:
-			"[locked, unlock: first file read] Project-wide entity and edge counts. Use search_code first.",
-		unlocked:
-			"Project-wide stats: entity counts, edge counts, language breakdown, community count, health grade.",
 	},
 	get_imports: {
 		tier: 2,

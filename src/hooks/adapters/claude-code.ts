@@ -54,9 +54,9 @@ export const claudeCodeAdapter: HookAdapter = {
   },
 
   formatPreToolUse(result: HookResult): string {
-    if (result.type === "passthrough") return "{}";
+    if (result.action === "passthrough") return "{}";
 
-    if (result.type === "nudge" && result.message) {
+    if (result.action === "nudge" && result.message) {
       return JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
@@ -66,7 +66,7 @@ export const claudeCodeAdapter: HookAdapter = {
       });
     }
 
-    if (result.type === "rewrite" && result.updatedInput) {
+    if (result.action === "rewrite" && result.updatedInput) {
       return JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
@@ -80,10 +80,10 @@ export const claudeCodeAdapter: HookAdapter = {
   },
 
   formatPostToolUse(result: HookResult): string {
-    if (result.type === "passthrough") return "{}";
+    if (result.action === "passthrough") return "{}";
 
     if (
-      (result.type === "enrich" || result.type === "nudge") &&
+      (result.action === "enrich" || result.action === "nudge") &&
       result.message
     ) {
       return JSON.stringify({
@@ -98,7 +98,7 @@ export const claudeCodeAdapter: HookAdapter = {
   },
 
   formatPromptSubmit(result: HookResult): string {
-    if (result.type === "passthrough") return "{}";
+    if (result.action === "passthrough") return "{}";
 
     if (result.message) {
       return JSON.stringify({

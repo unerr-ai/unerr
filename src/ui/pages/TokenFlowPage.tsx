@@ -12,341 +12,40 @@
  */
 
 import { DateRangeFilter } from "@/components/DateRangeFilter";
+import { HeadroomStrip, type HeadroomWindow } from "@/components/HeadroomStrip";
 import { CardGridSkeleton, SkeletonBlock } from "@/components/ui/Skeleton";
 import { fetchJson } from "@/lib/api";
 import { useRepoApi } from "@/lib/repo-context";
+import { setHashQueryParams, useHashQueryParam } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
-
-// ── Types ────────────────────────────────────────────────────────────
-
-interface MechanismSummary {
-  tokens_saved: number;
-  tokens_delivered: number;
-  event_count: number;
-  pct_of_total: number;
-}
-
-interface GlobalResponse {
-  data: {
-    total_sessions: number;
-    total_turns: number;
-    total_tokens_without: number;
-    total_tokens_with: number;
-    total_tokens_saved: number;
-    efficiency_pct: number;
-    by_mechanism: Record<string, MechanismSummary>;
-    event_count: number;
-    avg_context_reduction: number;
-    peak_context_reduction: number;
-    total_context_avoided: number;
-  };
-}
-
-interface SessionListEntry {
-  session_id: string;
-  event_count: number;
-  total_saved: number;
-  total_turns: number;
-  avg_context_reduction: number;
-  first_ts: string;
-  last_ts: string;
-  mechanisms: string[];
-  agent_name: string | null;
-}
-
-interface SessionListResponse {
-  data: SessionListEntry[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-interface EventsResponse {
-  data: TokenFlowEvent[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-interface SessionSummaryResponse {
-  data: {
-    session_id: string;
-    total_turns: number;
-    total_tokens_without: number;
-    total_tokens_with: number;
-    total_tokens_saved: number;
-    efficiency_pct: number;
-    by_mechanism: Record<string, MechanismSummary>;
-    top_turns: Array<{
-      turn: number;
-      tool: string;
-      tokens_without: number;
-      tokens_delivered: number;
-      tokens_saved: number;
-      primary_mechanism: string;
-    }>;
-    event_count: number;
-  } | null;
-  _meta: { latency_ms: number };
-}
-
-interface TokenFlowEvent {
-  id: number;
-  ts: string;
-  pid: number;
-  turn: number;
-  mechanism: string;
-  tool: string | null;
-  tokens_without: number;
-  tokens_with: number;
-  tokens_saved: number;
-  session_id: string;
-  detail?: Record<string, unknown>;
-}
-
-interface CumulativeTurn {
-  turn: number;
-  tools: string[];
-  tokens_saved_this_turn: number;
-  cumulative_tokens_saved: number;
-  context_avoided: number;
-  mechanisms_this_turn: Record<string, number>;
-  cumulative_by_mechanism: Record<string, number>;
-  event_count: number;
-}
-
-interface CumulativeResponse {
-  data: CumulativeTurn[];
-  total_turns: number;
-  total_saved: number;
-  avg_context_reduction: number;
-  peak_context_reduction: number;
-  total_context_avoided: number;
-}
-
-// ── Constants ────────────────────────────────────────────────────────
-
-// COMPRESS-class mechanisms only. Graph queries and behavior interventions
-// are PREVENT-class — they have no counterfactual byte count, so they
-// appear in the Behavioral Events pane (verb-noun counters) instead.
-const MECH_COLORS: Record<
-  string,
-  { bg: string; text: string; bar: string; ring: string }
-> = {
-  shell_compression: {
-    bg: "bg-cyan-500/20",
-    text: "text-cyan-400",
-    bar: "bg-cyan-500",
-    ring: "ring-cyan-500/40",
-  },
-  format_encoding: {
-    bg: "bg-amber-500/20",
-    text: "text-amber-400",
-    bar: "bg-amber-500",
-    ring: "ring-amber-500/40",
-  },
-  session_dedup: {
-    bg: "bg-emerald-500/20",
-    text: "text-emerald-400",
-    bar: "bg-emerald-500",
-    ring: "ring-emerald-500/40",
-  },
-  smart_truncation: {
-    bg: "bg-blue-500/20",
-    text: "text-blue-400",
-    bar: "bg-blue-500",
-    ring: "ring-blue-500/40",
-  },
-  file_read: {
-    bg: "bg-indigo-500/20",
-    text: "text-indigo-400",
-    bar: "bg-indigo-500",
-    ring: "ring-indigo-500/40",
-  },
-  fetch_url: {
-    bg: "bg-teal-500/20",
-    text: "text-teal-400",
-    bar: "bg-teal-500",
-    ring: "ring-teal-500/40",
-  },
-};
-
-const ALL_MECHANISMS = [
-  "shell_compression",
-  "format_encoding",
-  "session_dedup",
-  "smart_truncation",
-  "file_read",
-  "fetch_url",
-];
-
-// Behavioral event types (PREVENT-class). Each one is a discrete named
-// count surfaced in the Behavioral Events pane. The legend lives next to
-// the pane so users can read what each counter means.
-const BEHAVIOR_EVENT_LABELS: Record<string, string> = {
-  graph_query_served: "Graph query served",
-  full_read_avoided: "Full file read avoided",
-  loop_broken: "Retry loop broken",
-  cascade_guard: "Cascade guard fired",
-  drift_consumed: "Drift signal consumed",
-  intervention_halted: "Behavior intervention halted",
-  intervention_warned: "Behavior warning emitted",
-  defuddle_selector_skipped: "Defuddle selector skipped",
-};
-
-const BEHAVIOR_EVENT_DESCRIPTIONS: Record<string, string> = {
-  graph_query_served:
-    "Agent's graph-tool call (search_code, get_references, …) was served from the local graph instead of grep + N file reads.",
-  full_read_avoided:
-    "file_outline / get_file delivered a structural summary instead of a full file read.",
-  loop_broken:
-    "Circuit breaker halted a retry loop the agent was about to enter on the same entity.",
-  cascade_guard:
-    "A high fan-in edit was gated by the cascade guard before propagating.",
-  drift_consumed:
-    "A drift signal (`ur|dft`) was consumed — agent re-read the file before editing.",
-  intervention_halted:
-    "A pre-tool-use behavior halted a tool call before it ran.",
-  intervention_warned:
-    "A behavior emitted a warning but allowed the call to proceed.",
-  defuddle_selector_skipped:
-    "fetch_url's Defuddle extractor hit a non-fatal selector-parse error (nwsapi rejected a `:has()`/Tailwind arbitrary-value selector). First occurrence per signature is logged once; subsequent occurrences are counted only.",
-};
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-function fmt(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function timeAgo(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(ms / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
-
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function mc(mechanism: string) {
-  return (
-    MECH_COLORS[mechanism] ?? {
-      bg: "bg-zinc-500/20",
-      text: "text-zinc-400",
-      bar: "bg-zinc-500",
-      ring: "ring-zinc-500/40",
-    }
-  );
-}
-
-/** Human-readable description of a single event from its detail field */
-function describeEvent(evt: TokenFlowEvent): string {
-  const d = evt.detail;
-  if (!d) return evt.tool ?? "optimization";
-
-  // Shell compression — show the actual command
-  if (d.command) {
-    const cmd = String(d.command);
-    // Shorten long commands: keep first 80 chars
-    return cmd.length > 80 ? `${cmd.slice(0, 77)}…` : cmd;
-  }
-
-  // File read optimization — show the window/entity info
-  if (d.optimization) {
-    return String(d.optimization);
-  }
-
-  // Graph query / format encoding — show counterfactual or format
-  if (d.counterfactual && d.counterfactual !== "generic file exploration") {
-    return String(d.counterfactual);
-  }
-  if (d.format) {
-    return `${evt.tool ?? "query"} → ${d.format} format`;
-  }
-
-  return evt.tool ?? "optimization";
-}
-
-/** Human-readable summary label for an entire turn (group of events) */
-function describeTurn(events: TokenFlowEvent[]): {
-  label: string;
-  subtitle: string;
-} {
-  if (events.length === 0) return { label: "Empty turn", subtitle: "" };
-
-  const tools = [
-    ...new Set(events.map((e) => e.tool).filter(Boolean)),
-  ] as string[];
-  const mechs = [...new Set(events.map((e) => e.mechanism))];
-
-  // Shell compression turns — show the actual command
-  const shellEvt = events.find((e) => e.detail?.command);
-  if (shellEvt) {
-    const cmd = String(shellEvt.detail?.command);
-    // Extract the meaningful part of the command
-    const short = cmd.length > 60 ? `${cmd.slice(0, 57)}…` : cmd;
-    return {
-      label: short,
-      subtitle: `shell → ${events.length} optimization${events.length > 1 ? "s" : ""}`,
-    };
-  }
-
-  // File read with entity/window info
-  const fileEvt = events.find((e) => e.detail?.optimization);
-  if (fileEvt) {
-    const opt = String(fileEvt.detail?.optimization);
-    const extra = events.length > 1 ? ` +${events.length - 1} more` : "";
-    return { label: opt, subtitle: tools.join(", ") + extra };
-  }
-
-  // Graph query turns — describe by tool combination
-  if (tools.length > 0) {
-    const toolSummary = tools.join(" → ");
-    const evtCount = events.length;
-    const primaryMech = mechs[0]?.replace(/_/g, " ") ?? "";
-    return {
-      label: toolSummary,
-      subtitle: `${evtCount} event${evtCount > 1 ? "s" : ""} · ${primaryMech}`,
-    };
-  }
-
-  return {
-    label: mechs.map((m) => m.replace(/_/g, " ")).join(", "),
-    subtitle: `${events.length} event${events.length > 1 ? "s" : ""}`,
-  };
-}
+import { useMemo, useState } from "react";
+import { AgentBadge } from "./token-trace/components/AgentBadge";
+import { Breadcrumb } from "./token-trace/components/Breadcrumb";
+import { KpiStatCard } from "./token-trace/components/KpiStatCard";
+import { MechanismPill } from "./token-trace/components/MechanismPill";
+import { Pagination } from "./token-trace/components/Pagination";
+import { SavingsTrend } from "./token-trace/components/SavingsTrend";
+import {
+  ALL_MECHANISMS,
+  BEHAVIOR_EVENT_DESCRIPTIONS,
+  BEHAVIOR_EVENT_LABELS,
+  type CumulativeResponse,
+  type CumulativeTurn,
+  type EventsResponse,
+  type GlobalResponse,
+  type MechanismSummary,
+  type SessionListResponse,
+  type SessionSummaryResponse,
+  type TokenFlowEvent,
+  describeEvent,
+  describeTurn,
+  fmt,
+  fmtTime,
+  mc,
+  timeAgo,
+} from "./token-trace/shared";
 
 // ── Shared sub-components ───────────────────────────────────────────
-
-function KpiCard({
-  label,
-  value,
-  accent,
-  hint,
-}: { label: string; value: string | number; accent?: string; hint?: string }) {
-  return (
-    <div className="el-raised rounded-lg p-4" title={hint}>
-      <p className="t-tertiary text-xs uppercase tracking-wider">{label}</p>
-      <p
-        className={`mt-1 text-2xl font-bold font-mono tabular-nums ${accent ?? "text-foreground"}`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
 
 function MechanismBars({
   mechanisms,
@@ -393,131 +92,7 @@ function MechanismBars({
   );
 }
 
-function MechanismPill({ mechanism }: { mechanism: string }) {
-  const colors = mc(mechanism);
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 ${colors.bg} ${colors.text} text-[10px] font-medium`}
-    >
-      {mechanism.replace(/_/g, " ")}
-    </span>
-  );
-}
-
-/** Breadcrumb navigation */
-function Breadcrumb({
-  items,
-}: {
-  items: Array<{ label: string; onClick?: () => void }>;
-}) {
-  return (
-    <nav className="flex items-center gap-1.5 text-sm mb-5">
-      {items.map((item, i) => {
-        const isLast = i === items.length - 1;
-        return (
-          <span key={item.label} className="flex items-center gap-1.5">
-            {i > 0 && <span className="t-tertiary">›</span>}
-            {isLast ? (
-              <span className="text-foreground font-medium">{item.label}</span>
-            ) : (
-              <button
-                type="button"
-                className="text-violet-400 hover:text-violet-300 transition-colors cursor-pointer"
-                onClick={item.onClick}
-              >
-                {item.label}
-              </button>
-            )}
-          </span>
-        );
-      })}
-    </nav>
-  );
-}
-
-const AGENT_STYLES: Record<
-  string,
-  { bg: string; text: string; label: string }
-> = {
-  "claude-code": {
-    bg: "bg-amber-500/20",
-    text: "text-amber-400",
-    label: "Claude Code",
-  },
-  "claude-desktop": {
-    bg: "bg-amber-500/20",
-    text: "text-amber-400",
-    label: "Claude Desktop",
-  },
-  cursor: { bg: "bg-blue-500/20", text: "text-blue-400", label: "Cursor" },
-  cline: { bg: "bg-emerald-500/20", text: "text-emerald-400", label: "Cline" },
-  windsurf: { bg: "bg-cyan-500/20", text: "text-cyan-400", label: "Windsurf" },
-  copilot: { bg: "bg-zinc-500/20", text: "text-zinc-400", label: "Copilot" },
-};
-
-function AgentBadge({ name }: { name: string | null }) {
-  if (!name) return <span className="t-tertiary text-[10px]">unknown</span>;
-  const normalized = name.toLowerCase().replace(/\s+/g, "-");
-  const style = AGENT_STYLES[normalized] ?? {
-    bg: "bg-zinc-500/20",
-    text: "text-zinc-400",
-    label: name,
-  };
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 ${style.bg} ${style.text} text-[10px] font-medium`}
-    >
-      {style.label}
-    </span>
-  );
-}
-
-function Pagination({
-  total,
-  limit,
-  offset,
-  onPageChange,
-}: {
-  total: number;
-  limit: number;
-  offset: number;
-  onPageChange: (newOffset: number) => void;
-}) {
-  const totalPages = Math.ceil(total / limit);
-  const currentPage = Math.floor(offset / limit) + 1;
-  if (totalPages <= 1) return null;
-
-  return (
-    <div className="flex items-center justify-between px-1 py-2">
-      <span className="t-tertiary text-xs">
-        {offset + 1}–{Math.min(offset + limit, total)} of {total}
-      </span>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          disabled={currentPage <= 1}
-          className="px-2.5 py-1 rounded text-xs font-medium bg-surface-secondary hover:bg-surface-tertiary disabled:opacity-30 disabled:cursor-not-allowed text-foreground transition-colors"
-          onClick={() => onPageChange(Math.max(0, offset - limit))}
-        >
-          ‹ Prev
-        </button>
-        <span className="t-secondary text-xs px-2 font-mono">
-          {currentPage}/{totalPages}
-        </span>
-        <button
-          type="button"
-          disabled={currentPage >= totalPages}
-          className="px-2.5 py-1 rounded text-xs font-medium bg-surface-secondary hover:bg-surface-tertiary disabled:opacity-30 disabled:cursor-not-allowed text-foreground transition-colors"
-          onClick={() => onPageChange(offset + limit)}
-        >
-          Next ›
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Behavioral Events Pane ───────────────────────────────────────────
+// ── Preventions Pane ─────────────────────────────────────────────────
 //
 // Surfaces PREVENT-class counters (graph queries served, file reads
 // avoided, retry loops broken, …). These are *not* token-savings rows
@@ -541,7 +116,7 @@ interface BehaviorGlobalResponse {
   data: { total_sessions: number; counts: BehaviorCounts };
 }
 
-function BehaviorEventsPane({
+function PreventionsPane({
   scope,
   sessionId,
   fromTs,
@@ -597,7 +172,7 @@ function BehaviorEventsPane({
     <div className="el-raised rounded-lg p-5">
       <div className="flex items-center justify-between mb-1">
         <h3 className="t-secondary text-sm font-medium">
-          Behavioral Events{headerSuffix}
+          Preventions{headerSuffix}
         </h3>
         <span className="t-tertiary text-xs">
           {counts ? counts.total : 0} total
@@ -671,7 +246,7 @@ interface BehaviorEventsResponse {
   offset: number;
 }
 
-function TurnBehaviorEvents({
+function TurnPreventionsList({
   sessionId,
   turn,
 }: {
@@ -704,7 +279,7 @@ function TurnBehaviorEvents({
     <div className="el-raised rounded-lg p-5">
       <div className="flex items-center justify-between mb-1">
         <h3 className="t-secondary text-sm font-medium">
-          Behavioral Events in this Turn
+          Preventions in this Turn
         </h3>
         <span className="t-tertiary text-xs">
           {events.length} event{events.length !== 1 ? "s" : ""}
@@ -775,10 +350,19 @@ function GlobalView({
   onSelectSession: (id: string) => void;
 }) {
   const { url, queryKey } = useRepoApi();
-  const [fromTs, setFromTs] = useState("");
-  const [toTs, setToTs] = useState("");
-  const [sessionOffset, setSessionOffset] = useState(0);
-  const sessionLimit = 20;
+  const fromTs = useHashQueryParam("from") ?? "";
+  const toTs = useHashQueryParam("to") ?? "";
+  const sessionOffsetParam = useHashQueryParam("session_offset");
+  const sessionOffset = Number(sessionOffsetParam) || 0;
+  const sessionLimit = 10;
+  const setRange = (f: string, t: string) =>
+    setHashQueryParams({
+      from: f || null,
+      to: t || null,
+      session_offset: null,
+    });
+  const setSessionOffset = (next: number) =>
+    setHashQueryParams({ session_offset: next > 0 ? String(next) : null });
 
   const dateParams =
     fromTs || toTs
@@ -831,11 +415,7 @@ function GlobalView({
         <DateRangeFilter
           fromTs={fromTs}
           toTs={toTs}
-          onChange={(f, t) => {
-            setFromTs(f);
-            setToTs(t);
-            setSessionOffset(0);
-          }}
+          onChange={(f, t) => setRange(f, t)}
         />
         <button
           type="button"
@@ -906,101 +486,68 @@ function GlobalView({
         </button>
       </div>
 
-      {/* Global KPI row */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <KpiCard
-          label="Total Tokens Saved"
+      {/* Global KPI row — Big Four (matches Reasoning Trace aesthetic) */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiStatCard
+          label="Tokens Saved"
           value={fmt(g.total_tokens_saved)}
-          accent="text-success"
-          hint="Total tokens removed from responses across all sessions — direct savings before context compounding"
+          subtitle="direct rescue"
+          accent="emerald"
+          hint="Tokens removed from agent responses before they could weigh down context"
         />
-        <KpiCard
+        <KpiStatCard
           label="Context Avoided"
           value={fmt(g.total_context_avoided)}
-          accent="text-cyan-400"
-          hint="Total token-turns of context pressure prevented — savings compound because each turn's reduction carries forward to all future turns"
+          subtitle={
+            g.total_tokens_saved > 0
+              ? `${(g.total_context_avoided / g.total_tokens_saved).toFixed(1)}× compounded`
+              : "carried forward"
+          }
+          accent="cyan"
+          hint="Total token-turns of context pressure prevented — savings compound because each turn's rescue carries forward to all future turns"
         />
-        <KpiCard
-          label="Total Delivered"
-          value={fmt(g.total_tokens_with)}
-          hint="Total tokens actually sent to the agent after optimization"
-        />
-        <KpiCard
-          label="Efficiency"
+        <KpiStatCard
+          label="Rescue Rate"
           value={`${g.efficiency_pct}%`}
-          accent="text-violet-400"
-          hint="Percentage of original tokens that were optimized away (saved ÷ original)"
+          subtitle="tokens kept out"
+          accent="violet"
+          hint="Share of original tokens that unerr rescued (saved ÷ original)"
         />
-        <KpiCard
+        <KpiStatCard
           label="Sessions"
           value={g.total_sessions}
-          hint="Number of distinct agent sessions tracked"
+          subtitle={`${g.total_turns} turn${g.total_turns === 1 ? "" : "s"}`}
+          accent="fuchsia"
+          hint="Distinct agent sessions tracked, plus total turns across them"
         />
       </div>
 
-      {/* Context pressure prevented — shows cascading impact */}
+      {/* Carry-forward savings — narrative; numbers live in the KPI row */}
       {g.avg_context_reduction > 0 && (
-        <div className="el-raised rounded-lg p-5 border-l-4 border-cyan-500/60">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <h3 className="text-foreground text-sm font-medium">
-                Context Pressure Prevented
-              </h3>
-              <p className="t-tertiary text-xs mt-1 max-w-xl">
-                Across {g.total_sessions} session
-                {g.total_sessions !== 1 ? "s" : ""} and {g.total_turns} turns,{" "}
-                <span className="text-cyan-400 font-medium">
-                  {fmt(g.total_context_avoided)}
-                </span>{" "}
-                total token-turns of context avoided — each turn ran with{" "}
-                {fmt(g.avg_context_reduction)} fewer tokens on average, peaking
-                at {fmt(g.peak_context_reduction)}.
-              </p>
-            </div>
-            <div className="flex gap-6 shrink-0">
-              <div className="text-right">
-                <p className="t-tertiary text-[10px] uppercase tracking-wider">
-                  Total Context Avoided
-                </p>
-                <p className="text-cyan-400 font-mono font-medium text-lg">
-                  {fmt(g.total_context_avoided)}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="t-tertiary text-[10px] uppercase tracking-wider">
-                  Avg / Turn
-                </p>
-                <p className="text-foreground font-mono font-medium text-lg">
-                  {fmt(g.avg_context_reduction)}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="t-tertiary text-[10px] uppercase tracking-wider">
-                  Direct Savings
-                </p>
-                <p className="text-success font-mono font-medium text-lg">
-                  {fmt(g.total_tokens_saved)}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="t-tertiary text-[10px] uppercase tracking-wider">
-                  Compound Multiplier
-                </p>
-                <p className="text-violet-400 font-mono font-medium text-lg">
-                  {g.total_tokens_saved > 0
-                    ? `${(g.total_context_avoided / g.total_tokens_saved).toFixed(1)}×`
-                    : "—"}
-                </p>
-              </div>
-            </div>
-          </div>
+        <div className="el-raised rounded-lg p-4 border-l-2 border-cyan-500/60">
+          <h3 className="text-foreground text-sm font-medium">
+            Carry-Forward Savings
+          </h3>
+          <p className="t-tertiary text-xs mt-1 max-w-2xl leading-snug">
+            Each turn ran with{" "}
+            <span className="text-cyan-400 font-medium">
+              {fmt(g.avg_context_reduction)}
+            </span>{" "}
+            fewer tokens on average across {g.total_turns} turn
+            {g.total_turns === 1 ? "" : "s"}, peaking at{" "}
+            {fmt(g.peak_context_reduction)}.
+          </p>
         </div>
       )}
+
+      {/* Time-series trend — stacked area by mechanism */}
+      <SavingsTrend fromTs={fromTs} toTs={toTs} bucket="day" />
 
       {/* Global mechanism breakdown */}
       <div className="el-raised rounded-lg p-5">
         <h3 className="t-secondary text-sm font-medium mb-1">
-          Savings by Mechanism{fromTs || toTs ? " (Filtered)" : " (All Time)"}
+          Savings by Mechanism
+          {fromTs || toTs ? " (Filtered)" : " (All Time)"}
         </h3>
         <p className="t-tertiary text-xs mb-3 leading-snug">
           COMPRESS-class: physically measured bytes removed before the response
@@ -1013,7 +560,7 @@ function GlobalView({
       </div>
 
       {/* Global behavioral events — PREVENT-class verb-noun counters */}
-      <BehaviorEventsPane scope="global" fromTs={fromTs} toTs={toTs} />
+      <PreventionsPane scope="global" fromTs={fromTs} toTs={toTs} />
 
       {/* Session list — the primary navigation into drill-down */}
       <div className="el-raised rounded-lg overflow-hidden">
@@ -1052,27 +599,27 @@ function GlobalView({
                     </th>
                     <th
                       className="px-3 py-2.5 font-medium"
-                      title="Number of optimization events in this session"
+                      title="Number of savings events in this session"
                     >
                       Events
                     </th>
                     <th
                       className="px-3 py-2.5 font-medium"
-                      title="Types of optimization applied (e.g. graph query, shell compression)"
+                      title="Types of rescue applied (e.g. graph query, shell compression)"
                     >
                       Mechanisms
                     </th>
                     <th
                       className="px-3 py-2.5 font-medium text-right"
-                      title="Total tokens removed from responses (direct savings)"
+                      title="Total tokens saved from agent responses (direct rescue)"
                     >
                       Tokens Saved
                     </th>
                     <th
                       className="px-3 py-2.5 font-medium text-right"
-                      title="Average tokens of context pressure avoided per turn — savings compound because each turn's reduction carries to all future turns"
+                      title="Average tokens of context pressure avoided per turn — savings compound because each turn's rescue carries to all future turns"
                     >
-                      Avg Context Reduced
+                      Avg Context Saved
                     </th>
                     <th className="px-3 py-2.5 pr-5 font-medium w-16" />
                   </tr>
@@ -1188,7 +735,7 @@ function SessionView({
 }) {
   const { url, queryKey } = useRepoApi();
   const [turnPage, setTurnPage] = useState(0);
-  const turnsPerPage = 20;
+  const turnsPerPage = 10;
 
   const sessionQ = useQuery({
     queryKey: queryKey(["token-flow-session", sessionId]),
@@ -1262,95 +809,61 @@ function SessionView({
 
   return (
     <div className="space-y-6">
-      {/* Session KPIs */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <KpiCard
+      {/* Session KPIs — Big Four */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiStatCard
           label="Tokens Saved"
           value={fmt(s.total_tokens_saved)}
-          accent="text-success"
-          hint="Tokens removed from responses in this session"
+          subtitle="direct rescue"
+          accent="emerald"
+          hint="Tokens unerr rescued from agent responses this session"
         />
-        <KpiCard
-          label="Delivered"
-          value={fmt(s.total_tokens_with)}
-          hint="Tokens actually sent to the agent after optimization"
+        <KpiStatCard
+          label="Context Avoided"
+          value={fmt(cumulativeQ.data?.total_context_avoided ?? 0)}
+          subtitle={
+            s.total_tokens_saved > 0 &&
+            (cumulativeQ.data?.total_context_avoided ?? 0) > 0
+              ? `${((cumulativeQ.data?.total_context_avoided ?? 0) / s.total_tokens_saved).toFixed(1)}× compounded`
+              : "carried forward"
+          }
+          accent="cyan"
+          hint="Cumulative token-turns of context pressure prevented this session"
         />
-        <KpiCard
-          label="Without unerr"
-          value={fmt(s.total_tokens_without)}
-          hint="Tokens that would have been sent without unerr"
-        />
-        <KpiCard
-          label="Efficiency"
+        <KpiStatCard
+          label="Rescue Rate"
           value={`${s.efficiency_pct}%`}
-          accent="text-violet-400"
-          hint="Percentage of original tokens optimized away"
+          subtitle="tokens kept out"
+          accent="violet"
+          hint="Share of original tokens rescued (saved ÷ original)"
         />
-        <KpiCard
+        <KpiStatCard
           label="Turns"
           value={s.total_turns}
-          hint="Number of conversation turns in this session"
+          subtitle={`${s.event_count} event${s.event_count === 1 ? "" : "s"}`}
+          accent="fuchsia"
+          hint="Conversation turns in this session"
         />
       </div>
 
-      {/* Context pressure prevented for this session */}
+      {/* Carry-forward savings — narrative; numbers live in the KPI row */}
       {(cumulativeQ.data?.avg_context_reduction ?? 0) > 0 &&
         (() => {
           const cs = cumulativeQ.data!;
           return (
-            <div className="el-raised rounded-lg p-5 border-l-4 border-cyan-500/60">
-              <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div>
-                  <h3 className="text-foreground text-sm font-medium">
-                    Context Pressure Prevented
-                  </h3>
-                  <p className="t-tertiary text-xs mt-1 max-w-xl">
-                    Across {s.total_turns} turns,{" "}
-                    <span className="text-cyan-400 font-medium">
-                      {fmt(cs.total_context_avoided)}
-                    </span>{" "}
-                    total token-turns of context avoided — each turn ran with{" "}
-                    {fmt(cs.avg_context_reduction)} fewer tokens on average,
-                    peaking at {fmt(cs.peak_context_reduction)}.
-                  </p>
-                </div>
-                <div className="flex gap-6 shrink-0">
-                  <div className="text-right">
-                    <p className="t-tertiary text-[10px] uppercase tracking-wider">
-                      Total Context Avoided
-                    </p>
-                    <p className="text-cyan-400 font-mono font-medium text-lg">
-                      {fmt(cs.total_context_avoided)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="t-tertiary text-[10px] uppercase tracking-wider">
-                      Avg / Turn
-                    </p>
-                    <p className="text-foreground font-mono font-medium text-lg">
-                      {fmt(cs.avg_context_reduction)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="t-tertiary text-[10px] uppercase tracking-wider">
-                      Direct Savings
-                    </p>
-                    <p className="text-success font-mono font-medium text-lg">
-                      {fmt(s.total_tokens_saved)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="t-tertiary text-[10px] uppercase tracking-wider">
-                      Compound Multiplier
-                    </p>
-                    <p className="text-violet-400 font-mono font-medium text-lg">
-                      {s.total_tokens_saved > 0
-                        ? `${(cs.total_context_avoided / s.total_tokens_saved).toFixed(1)}×`
-                        : "—"}
-                    </p>
-                  </div>
-                </div>
-              </div>
+            <div className="el-raised rounded-lg p-4 border-l-2 border-cyan-500/60">
+              <h3 className="text-foreground text-sm font-medium">
+                Carry-Forward Savings
+              </h3>
+              <p className="t-tertiary text-xs mt-1 max-w-2xl leading-snug">
+                Each turn ran with{" "}
+                <span className="text-cyan-400 font-medium">
+                  {fmt(cs.avg_context_reduction)}
+                </span>{" "}
+                fewer tokens on average across {s.total_turns} turn
+                {s.total_turns === 1 ? "" : "s"}, peaking at{" "}
+                {fmt(cs.peak_context_reduction)}.
+              </p>
             </div>
           );
         })()}
@@ -1465,7 +978,7 @@ function SessionView({
         </div>
 
         {/* Behavioral events for this session */}
-        <BehaviorEventsPane scope="session" sessionId={sessionId} />
+        <PreventionsPane scope="session" sessionId={sessionId} />
       </div>
 
       {/* Turn list — the drill-down into individual turns */}
@@ -1509,13 +1022,13 @@ function SessionView({
                   </th>
                   <th
                     className="px-3 py-2.5 font-medium"
-                    title="Types of optimization applied in this turn"
+                    title="Types of rescue applied this turn"
                   >
                     Mechanisms
                   </th>
                   <th
                     className="px-3 py-2.5 font-medium text-right"
-                    title="Tokens removed from responses in this turn (direct savings)"
+                    title="Tokens unerr rescued from agent responses this turn (direct savings)"
                   >
                     Saved
                   </th>
@@ -1527,7 +1040,7 @@ function SessionView({
                   </th>
                   <th
                     className="px-3 py-2.5 font-medium text-right"
-                    title="Number of optimization events in this turn"
+                    title="Number of savings events this turn"
                   >
                     Events
                   </th>
@@ -1729,7 +1242,7 @@ function TurnView({
       : 0;
 
   const events = eventsQ.data?.data ?? [];
-  const eventsPerPage = 20;
+  const eventsPerPage = 10;
   const [eventOffset, setEventOffset] = useState(0);
   const pagedEvents = events.slice(eventOffset, eventOffset + eventsPerPage);
   const totalSaved = events.reduce((s, e) => s + e.tokens_saved, 0);
@@ -1779,75 +1292,39 @@ function TurnView({
         );
       })()}
 
-      {/* Turn KPIs */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <KpiCard
+      {/* Turn KPIs — 3 cards (tokens / rescue rate / context avoided) */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <KpiStatCard
           label="Tokens Saved"
           value={fmt(totalSaved)}
-          accent="text-success"
-          hint="Tokens removed in this turn"
+          subtitle={
+            tools.length > 0
+              ? tools.slice(0, 2).join(", ") +
+                (tools.length > 2 ? ` +${tools.length - 2}` : "")
+              : "exec"
+          }
+          accent="emerald"
+          hint="Tokens unerr rescued from agent responses this turn"
         />
-        <KpiCard
-          label="Without unerr"
-          value={fmt(totalWithout)}
-          hint="Tokens that would have been sent without optimization"
-        />
-        <KpiCard
-          label="Delivered"
-          value={fmt(totalWith)}
-          hint="Tokens actually sent to the agent"
-        />
-        <KpiCard
-          label="Efficiency"
+        <KpiStatCard
+          label="Rescue Rate"
           value={`${effPct}%`}
-          accent="text-violet-400"
-          hint="Percentage of tokens optimized away this turn"
+          subtitle={`${fmt(totalWithout)} → ${fmt(totalWith)}`}
+          accent="violet"
+          hint="Share of original tokens rescued this turn (Without − Delivered)"
         />
-        <KpiCard
-          label="Tools"
-          value={tools.join(", ") || "exec"}
-          hint="MCP tools that triggered optimizations in this turn"
+        <KpiStatCard
+          label="Context Avoided"
+          value={fmt(thisTurnCumulative?.context_avoided ?? 0)}
+          subtitle={
+            remainingTurns > 0
+              ? `carries to ${remainingTurns} more turn${remainingTurns === 1 ? "" : "s"}`
+              : "carry-forward"
+          }
+          accent="cyan"
+          hint="Cumulative token-turns of context pressure prevented at this point"
         />
       </div>
-
-      {/* Context impact for this turn */}
-      {thisTurnCumulative && (
-        <div className="el-raised rounded-lg p-4 border-l-4 border-cyan-500/60">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <h3 className="text-foreground text-sm font-medium">
-                Context Impact
-              </h3>
-              <p className="t-tertiary text-xs mt-1">
-                At this point, {fmt(thisTurnCumulative.context_avoided)} tokens
-                of cumulative context avoided
-                {remainingTurns > 0
-                  ? ` — this turn's ${fmt(thisTurnCumulative.tokens_saved_this_turn)} savings carry forward to ${remainingTurns} more turn${remainingTurns !== 1 ? "s" : ""}`
-                  : ""}
-                .
-              </p>
-            </div>
-            <div className="flex gap-5 shrink-0">
-              <div className="text-right">
-                <p className="t-tertiary text-[10px] uppercase tracking-wider">
-                  This Turn
-                </p>
-                <p className="text-success font-mono font-medium">
-                  {fmt(thisTurnCumulative.tokens_saved_this_turn)}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="t-tertiary text-[10px] uppercase tracking-wider">
-                  Context Avoided
-                </p>
-                <p className="text-cyan-400 font-mono font-medium">
-                  {fmt(thisTurnCumulative.context_avoided)}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Mechanism breakdown for this turn */}
       {Object.keys(mechBreakdown).length > 0 && (
@@ -1860,7 +1337,7 @@ function TurnView({
       )}
 
       {/* Behavioral events fired during this turn */}
-      <TurnBehaviorEvents sessionId={sessionId} turn={turn} />
+      <TurnPreventionsList sessionId={sessionId} turn={turn} />
 
       {/* Event table — Splunk-style expandable rows */}
       <div className="el-raised rounded-lg overflow-hidden">
@@ -1868,8 +1345,8 @@ function TurnView({
           <div>
             <h3 className="t-secondary text-sm font-medium">Events</h3>
             <p className="t-tertiary text-xs mt-0.5">
-              Every optimization event in turn #{turn}: tool calls, exec
-              commands, and the mechanism that reduced tokens.
+              Every savings event in turn #{turn}: tool calls, exec commands,
+              and the mechanism that rescued tokens.
             </p>
           </div>
           <span className="t-tertiary text-xs">
@@ -1888,19 +1365,19 @@ function TurnView({
                 <tr className="border-b border-border-subtle t-tertiary text-xs uppercase">
                   <th
                     className="px-5 py-3 font-medium"
-                    title="When this optimization event occurred"
+                    title="When this savings event occurred"
                   >
                     Time
                   </th>
                   <th
                     className="px-3 py-3 font-medium"
-                    title="Type of optimization applied (e.g. graph query, shell compression)"
+                    title="Type of rescue applied (e.g. graph query, shell compression)"
                   >
                     Mechanism
                   </th>
                   <th
                     className="px-3 py-3 font-medium"
-                    title="MCP tool that triggered this optimization"
+                    title="MCP tool that triggered this rescue"
                   >
                     Tool
                   </th>
@@ -1912,19 +1389,19 @@ function TurnView({
                   </th>
                   <th
                     className="px-3 py-3 font-medium text-right"
-                    title="Tokens actually delivered to the agent after optimization"
+                    title="Tokens actually delivered to the agent after unerr's rescue"
                   >
                     Delivered
                   </th>
                   <th
                     className="px-3 py-3 font-medium text-right"
-                    title="Tokens removed by this optimization (Without − Delivered)"
+                    title="Tokens rescued by this savings event (Without − Delivered)"
                   >
                     Saved
                   </th>
                   <th
                     className="px-3 py-3 pr-5 font-medium"
-                    title="Description of what was optimized"
+                    title="Description of what was rescued"
                   >
                     Detail
                   </th>
@@ -2026,13 +1503,35 @@ type ViewState =
   | { level: "turn"; sessionId: string; turn: number };
 
 export function TokenFlowPage() {
-  const [view, setView] = useState<ViewState>({ level: "global" });
+  // URL-backed state — view (session+turn) and window are all driven from
+  // the hash query-string, so reloads and shared links land in the same
+  // drill-down level. `?session=` and `?turn=` together describe the view
+  // level: neither → global, session only → session, both → turn.
+  const sessionId = useHashQueryParam("session") || null;
+  const turnParam = useHashQueryParam("turn");
+  const turn = turnParam ? Number(turnParam) : null;
+  const windowParam = useHashQueryParam("window");
+  const headroomWindow: HeadroomWindow =
+    windowParam === "today" ||
+    windowParam === "this_week" ||
+    windowParam === "since_install"
+      ? windowParam
+      : "since_install";
 
-  const goGlobal = () => setView({ level: "global" });
-  const goSession = (sessionId: string) =>
-    setView({ level: "session", sessionId });
-  const goTurn = (sessionId: string, turn: number) =>
-    setView({ level: "turn", sessionId, turn });
+  const view: ViewState =
+    sessionId && Number.isFinite(turn)
+      ? { level: "turn", sessionId, turn: turn as number }
+      : sessionId
+        ? { level: "session", sessionId }
+        : { level: "global" };
+
+  const setHeadroomWindow = (w: HeadroomWindow) =>
+    setHashQueryParams({ window: w });
+  const goGlobal = () => setHashQueryParams({ session: null, turn: null });
+  const goSession = (id: string) =>
+    setHashQueryParams({ session: id, turn: null });
+  const goTurn = (id: string, t: number) =>
+    setHashQueryParams({ session: id, turn: String(t) });
 
   // Build breadcrumb — only shown when drilled into session/turn (header already says "Token Trace")
   const crumbs: Array<{ label: string; onClick?: () => void }> = [];
@@ -2054,6 +1553,12 @@ export function TokenFlowPage() {
 
   return (
     <div>
+      <HeadroomStrip
+        windowSelected={headroomWindow}
+        onWindowChange={setHeadroomWindow}
+        sessionId={view.level === "global" ? undefined : view.sessionId}
+      />
+
       {crumbs.length > 0 && <Breadcrumb items={crumbs} />}
 
       {view.level === "global" && <GlobalView onSelectSession={goSession} />}

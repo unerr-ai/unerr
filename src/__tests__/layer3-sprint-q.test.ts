@@ -156,17 +156,22 @@ describe("Skills Pack (Q.11-Q.12)", () => {
   it("getSkillsContext returns always-on skills", () => {
     const context = getSkillsContext();
     const skills = context["dev.unerr/active_skills"] as Array<{ id: string }>;
-    // Only always-on skills are injected into active context
-    expect(skills.length).toBe(5);
+    // Only always-on skills are injected into active context. The active-cognition
+    // skills (D10) are also always-on; existing six remain present.
+    expect(skills.length).toBe(9);
     expect(skills.map((s) => s.id)).toContain("token-efficient");
     expect(skills.map((s) => s.id)).toContain("graph-first-navigation");
     expect(skills.map((s) => s.id)).toContain("understand-before-modify");
     expect(skills.map((s) => s.id)).toContain("file-read-protocol");
     expect(skills.map((s) => s.id)).toContain("turn-discipline");
+    expect(skills.map((s) => s.id)).toContain("user-fed-memory");
+    expect(skills.map((s) => s.id)).toContain("unerr-prompt-receipt");
+    expect(skills.map((s) => s.id)).toContain("unerr-anchor-query");
+    expect(skills.map((s) => s.id)).toContain("unerr-save-at-end");
   });
 
   it("LOCAL_SKILLS has correct count", () => {
-    expect(LOCAL_SKILLS).toHaveLength(12);
+    expect(LOCAL_SKILLS).toHaveLength(16);
   });
 });
 

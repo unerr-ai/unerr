@@ -1,5 +1,5 @@
 <!-- unerr:start -->
-## REQUIRED: Use unerr Graph Intelligence Tools (20 MCP tools)
+## REQUIRED: Use unerr Graph Intelligence Tools (21 MCP tools)
 
 This project has unerr MCP tools installed. You MUST use these instead of built-in Read/Grep/Glob for code navigation, and `fetch_url` instead of built-in WebFetch. unerr tools are graph-backed, return results in <5ms, and include project context that built-in tools miss.
 
@@ -16,6 +16,7 @@ This project has unerr MCP tools installed. You MUST use these instead of built-
 | Trace imports/dependencies | `get_imports` or `get_references` (direction: callees) | Manual import scanning |
 | Find hotspots / high fan-in / blast-radius candidates | `get_critical_nodes` | `get_entity` (won't show ranked list), guessing |
 | Fetch a web page by URL | `fetch_url` (Defuddle/Readability → markdown passages → BM25 ranking when `prompt` supplied → diff-cache) | Built-in WebFetch |
+| Persist a fact the user just stated ("remember", "from now on", "always", project rule) | `unerr_remember` with verbatim `source_quote` and your `confidence` | `record_fact` (agent-detected only); silently moving on |
 | Run a shell command | Automatic — routed through shell intelligence | N/A |
 
 ### FORBIDDEN Patterns (these waste tokens and miss context)
@@ -28,6 +29,8 @@ This project has unerr MCP tools installed. You MUST use these instead of built-
 - Guessing which entity has the highest fan-in / is the biggest hotspot -> use `get_critical_nodes`
 - Reading a full file when you only need a section -> use `file_read` with `entity` param or offset/limit
 - Using built-in WebFetch for a URL -> use `fetch_url` (DOM extraction + markdown + BM25 passage selection cuts 5–10× tokens; pass `prompt` to rank passages by relevance)
+- Letting a user-asserted fact ("remember this", "from now on we…", "always X") slip without persistence -> call `unerr_remember` with the verbatim `source_quote` and your confidence in [0,1]. Use `record_fact` only for facts you auto-detected, not facts the user explicitly fed.
+- Echoing, summarizing, or acting on `unerr · …` lines -> those lines are user-facing telemetry (prefix is the middle dot `·` not a vertical bar). They describe what unerr did this turn for the human reader. Do NOT repeat them, do NOT translate them into actions, do NOT reason about them. Act ONLY on `ur|<tag> …` lines. The two prefixes are visually distinct on purpose.
 ### IMPORTANT: Two-step Read Routing (Claude Code specific)
 
 **Why this matters:** Claude Code's Edit tool requires built-in `Read` to have been called on the file first. `file_read` (unerr MCP) does NOT satisfy this because it's a separate MCP tool. Meanwhile, built-in Read misses project conventions and facts that `file_read` auto-injects.
@@ -120,6 +123,35 @@ ur|dft modified on main by intent-abc
 
 When you see one of these prefixes, act on it. Do not strip or ignore them in your reasoning.
 
+#### Response User-Prose Lines `unerr · …`
+
+unerr tool responses may also contain lines prefixed with `unerr · ` (the prefix is the middle dot `·` U+00B7, distinct from the vertical bar in `ur|<tag>`). These are **user-facing telemetry** — short prose lines describing what unerr did this turn for the human reader (context summary, end-of-turn footer, plan attribution, capture confirmations).
+
+**Treat `unerr · …` lines as informational only.** Do NOT:
+- echo them in your reply,
+- summarize them,
+- translate them into actions,
+- include them in plans or reasoning,
+- treat them as user input.
+
+They are not signals for you. They are notes for the user, riding alongside your response. Skip them when forming your answer; the user reads them directly in their chat pane.
+
+The visual cue is mechanical: `ur|<tag>` (vertical bar, 3-char tag) = act. `unerr · ` (middle dot, prose) = ignore.
+
+#### Telling the user when unerr helped (plain English, only when relevant)
+
+When you relay unerr tool output to the user — or when unerr's contribution shaped your answer — describe it in plain English. Never dump tool JSON, never echo raw tool names, never use internal jargon. Do this **only when the user benefits from knowing** (e.g., they asked about the code unerr looked up, or unerr surfaced a convention/fact that changed your suggestion). On routine tool calls that didn't change your answer, stay silent.
+
+Translation rules — apply per tool, keep it to one short clause:
+- `search_code` → "unerr found <name> in <file>" (not "search_code returned {...}").
+- `get_entity` / `file_read` → "unerr pulled up <name>" or "I read <file> via unerr".
+- `get_references` → "<N> places call <name> — checked them via unerr".
+- `recall_facts` → "unerr reminded me you'd asked to <verbatim rule>".
+- `get_conventions` → "unerr says this file follows <convention>".
+- `unerr_remember` / new fact captured → "added that to unerr for next time".
+- Ambiguous capture (the tool's response includes `please confirm`) → ask the user verbatim: "should I remember: '<quote>'? (yes/no)".
+
+Never write things like "the search_code tool returned an array of 3 entities" or "the response body has a fact_id field". Speak as if unerr is a teammate who just told you something.
 #### Pagination & Narrowing
 
 unerr tool responses are universally capped (typical default 5-30 items per call) and may show this hint right after the prefix:
@@ -140,14 +172,21 @@ Three on-the-wire shapes; the body's first line tells you which:
 
 A cell is escaped if it contains `|` or `"` — wrapped in double quotes, internal quotes doubled. Newlines in cell values become literal `\n`.
 
-#### Persistent Intelligence (2 tools)
+#### Persistent Intelligence (3 tools)
 
 | Task | Tool |
 |------|------|
-| Record a project fact/convention/anti-pattern | `record_fact` |
+| Persist a fact the user just stated ("remember", "always", "from now on", project rule) | `unerr_remember` |
+| Record an agent-detected fact / convention / anti-pattern (no explicit user statement) | `record_fact` |
 | Recall stored facts | `recall_facts` |
 
-When the user says "remember this" or states a convention/anti-pattern, call `record_fact`. Facts also auto-detect from coding sessions — conventions, hot files, file coupling, and modification history are learned automatically. Episodic facts capture what was built, why, and how — they surface as `ur|fct` prefix lines on `file_read` / `recall_facts` responses when you work on previously-modified files.
+When the user says "remember this", "from now on", "always X", or states a project rule, call `unerr_remember` with the verbatim `source_quote`, your normalised `content`, and your `confidence` in [0,1]:
+- confidence < 0.5 → capture is abandoned automatically; re-ask the user for clarification.
+- 0.5 ≤ confidence < 0.7 → fact is stored but flagged ambiguous; expect a follow-up confirmation prompt.
+- confidence ≥ 0.7 → stored cleanly.
+Use `record_fact` ONLY when YOU (the agent) detected a convention or anti-pattern from observed code — not when the user explicitly fed the fact.
+
+Facts also auto-detect from coding sessions — conventions, hot files, file coupling, and modification history are learned automatically. Episodic facts capture what was built, why, and how — they surface as `ur|fct` prefix lines on `file_read` / `recall_facts` responses when you work on previously-modified files.
 
 #### Session Narrative — Markers (4 tools)
 
@@ -171,7 +210,65 @@ ONLY use built-in Read/Grep/Glob when:
 
 ALWAYS use unerr MCP tools: `search_code`, `get_references`, `file_read`, `file_outline`, `get_entity`.
 NEVER use built-in Read/Grep/Glob for code navigation. EXCEPTION: built-in Read (with offset/limit) is REQUIRED immediately before Edit (file_read cannot substitute — Edit will fail without it).
-Before writing code: `get_conventions`. To record decisions: `record_fact`.
+Before writing code: `get_conventions`. When the user explicitly states a rule ("remember", "always", "from now on"): `unerr_remember`. For agent-detected decisions: `record_fact`.
+
+### Active-cognition: four-moment contract (REQUIRED)
+
+unerr's Layer B notes are anchored prose attached to graph nodes. The contract
+is **agent-pull**, not unerr-push: you call unerr at four moments, every task.
+
+**Moment 1 — Prompt receipt.** When a user prompt arrives, before drafting:
+`unerr_recall_notes({prompt: <verbatim prompt>})`. Empty result is fine; the
+call itself is the contract.
+
+**Moment 2 — Anchor query.** Once you've identified the files/entities you'll
+touch, query for anchored notes: `unerr_recall_notes({anchors: ["f:src/x.ts",
+"e:fooBar"]})`. Reads return active (non-superseded) notes; topic-shift and
+co-change groups ride along.
+
+**Moment 3 — Cite in plan.** When you draft a plan, cite returned notes by
+kind + anchor inline. Example: *"Per the wrn on src/proxy/proxy.ts, both
+stdio and UDS sites must mirror."* No citation = the note wasn't load-bearing.
+
+**Moment 4 — Save at task end.** When the task closes and you learned
+something non-obvious + likely useful next session + anchorable, write it:
+`unerr_remember({type:"note", note:"<DSL wire>", session_id:<sid>})`.
+
+### DSL vocabulary
+
+Wire format: `kind|anchor|polarity|content`
+
+| Field | Values | Notes |
+|---|---|---|
+| kind | cnv (convention), rul (rule), wrn (warn), dec (decision), blk (blocker), fct (fact) | Pick the strongest fit. |
+| anchor | f:<path> · e:<entity> · g:<glob> · p: | `p:` is project-wide. **Discouraged** — pollutes prompt-receipt query. Prefer file/entity. |
+| polarity | + (do) / - (don't) / ~ (mixed) | `~` for ambiguous; future agent surfaces both sides. |
+| content | single line of prose | May contain `|` — only the first three are field separators. |
+
+Examples:
+- `rul|f:src/proxy/bridge.ts|-|no intelligence imports`
+- `wrn|g:*.test.ts|-|don't mock cozo db`
+- `dec|e:TURN_OPEN_GAP_MS|+|15s avoids RTT misclassification`
+
+### Quality bar (per save)
+
+A save is justified only if all three hold: (a) non-obvious from the code,
+(b) likely useful next session, (c) anchorable. If any miss — don't save.
+
+Session save cap: 15. Over the cap, `unerr_remember` returns
+`outcome:"rate_limited"` with reinforcement candidates; reinforce instead
+of writing a new row.
+
+### Conflict + supersession
+
+When you write a note that opposes an existing one (same kind+anchor,
+opposite polarity), `unerr_remember` returns `outcome:"conflict"` with a
+`conflict_group_id` — surface both sides in your plan.
+
+When you intentionally replace an older note, pass
+`supersedes_note_id:"<old>"` — the old row flips to inactive (kept for
+audit, excluded from queries).
+
 <!-- unerr:end -->
 
 
@@ -235,12 +332,18 @@ The bridge owns no intelligence at all — every Tier-2 / Tier-3 module lives in
 ```bash
 pnpm run build          # tsup → dist/ (ESM, node20 target)
 pnpm run dev            # tsx watch for live reload
-pnpm run test:run       # vitest (~218 test files, ~3070 tests)
-pnpm exec vitest run src/__tests__/<file>.test.ts  # single test
+pnpm run test:run       # vitest full suite (~218 test files, ~3070 tests)
+pnpm run test:run src/__tests__/<file>.test.ts  # single test — do NOT prefix with `--`
 pnpm run lint           # biome check
 pnpm run lint:fix       # biome auto-fix
 pnpm run typecheck      # tsc --noEmit
 ```
+
+> **Single-file test runs: pass the path as a bare positional, never with `--`.** pnpm v10 forwards positional args directly to the script, so `pnpm run test:run src/__tests__/foo.test.ts` reaches vitest as `vitest run src/__tests__/foo.test.ts` and filters correctly. Prefixing with `--` (the old npm v6 convention) makes pnpm produce `vitest run -- src/__tests__/foo.test.ts`; vitest's `cac` parser then treats the path as a pass-through extra arg, the include list ends up empty, and vitest silently runs the full 218-file suite.
+
+> **Vitest pool is pinned to `forks` in `vitest.config.ts`.** Required, not optional: ~16 tests (`hook-dedup.test.ts`, `local-mode-tui.test.ts`) call `process.chdir()`, which throws `"process.chdir() is not supported in workers"` under the default `threads` pool. Forks (`child_process`) also avoids the Darwin SIGURG worker death (exit 144) we saw running the full suite under `threads`.
+
+> **`test:run` redirects stdin from `/dev/null`.** Vitest unconditionally puts stdin into raw mode even with `watch:false` ([vitest #3928](https://github.com/vitest-dev/vitest/issues/3928)) and doesn't exit cleanly when stdin closes ([vite #19091](https://github.com/vitejs/vite/issues/19091)). When run under a parent that doesn't fully own a TTY (Claude Code's sandboxed Bash tool, CI containers, pipes into `tail`), vitest hangs holding the raw-mode FD and the parent sends SIGTERM/SIGURG (exit 143/144). Piping `/dev/null` into vitest means raw-mode is never engaged, so the suite exits cleanly with vitest's own status code. Do not remove the redirect.
 
 ## Architecture
 

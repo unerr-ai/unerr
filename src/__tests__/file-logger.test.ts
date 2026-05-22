@@ -4,6 +4,8 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  utimesSync,
+  writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
@@ -63,18 +65,31 @@ describe("installFileLogger", () => {
     ]);
   });
 
-  it("rotates when the file exceeds maxBytes — rolled file is gzipped", () => {
-    uninstall = installFileLogger({
-      filePath: logPath,
-      maxBytes: 512,
-    });
-    for (let i = 0; i < 20; i++) {
-      process.stderr.write(`${"x".repeat(100)}\n`);
-    }
-    const rolled = readdirSync(tmpDir).filter((n) =>
-      /\.log\.\d{4}-\d{2}-\d{2}(?:\.\d+)?\.gz$/.test(n)
+  it("rotates yesterday's live file at install time and starts fresh", () => {
+    // Seed the live file with previous-day content, then install — the
+    // one-shot rotate at install should archive it and leave a fresh file.
+    writeFileSync(logPath, "yesterday's bytes\n");
+    const t = (Date.now() - 2 * 86_400_000) / 1000;
+    utimesSync(logPath, t, t);
+
+    uninstall = installFileLogger({ filePath: logPath, rotateCheckMs: 0 });
+
+    const gzs = readdirSync(tmpDir).filter((n) =>
+      /\.log\.\d{4}-\d{2}-\d{2}\.gz$/.test(n)
     );
-    expect(rolled.length).toBeGreaterThanOrEqual(1);
+    expect(gzs.length).toBe(1);
+    // Live file should be gone (rotated) until the next write recreates it.
+    expect(existsSync(logPath)).toBe(false);
+
+    process.stderr.write("fresh line\n");
+    expect(existsSync(logPath)).toBe(true);
+    expect(readFileSync(logPath, "utf-8")).toContain("fresh line");
+
+    // Still only one gz — no per-write proliferation.
+    const gzsAfter = readdirSync(tmpDir).filter((n) =>
+      /\.log\.\d{4}-\d{2}-\d{2}\.gz$/.test(n)
+    );
+    expect(gzsAfter.length).toBe(1);
   });
 
   it("uninstaller restores original stderr.write", () => {

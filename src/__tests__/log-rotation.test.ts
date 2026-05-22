@@ -12,7 +12,6 @@ import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  DEFAULT_MAX_BYTES,
   DEFAULT_RETENTION_DAYS,
   isRotatedLog,
   rotateLogIfNeeded,
@@ -73,49 +72,44 @@ describe("log-rotation", () => {
       expect(rotateLogIfNeeded(p)).toBe(false);
     });
 
-    it("does not roll a fresh small file", () => {
+    it("does not roll a fresh same-day file", () => {
       const p = join(tmpDir, "proxy.log");
       writeFileSync(p, "hello\n");
       expect(rotateLogIfNeeded(p)).toBe(false);
       expect(existsSync(p)).toBe(true);
     });
 
-    it("rolls when the size cap is exceeded and gzips the content", () => {
+    it("does not roll a large same-day file (size is not a trigger)", () => {
       const p = join(tmpDir, "proxy.log");
-      const big = "x".repeat(64);
-      writeFileSync(p, big);
-      expect(rotateLogIfNeeded(p, { maxBytes: 16 })).toBe(true);
-      expect(existsSync(p)).toBe(false);
-      const rolled = readdirSync(tmpDir).find((n) => n.endsWith(".gz"));
-      expect(rolled).toBeDefined();
-      const inflated = gunzipSync(readFileSync(join(tmpDir, rolled!)));
-      expect(inflated.toString("utf-8")).toBe(big);
+      writeFileSync(p, "x".repeat(10_000_000));
+      expect(rotateLogIfNeeded(p)).toBe(false);
+      expect(existsSync(p)).toBe(true);
     });
 
-    it("rolls when the file's mtime is on a previous UTC day", () => {
+    it("rolls when the file's mtime is on a previous local day and gzips the content", () => {
       const p = join(tmpDir, "proxy.log");
-      writeFileSync(p, "yesterday\n");
+      const content = "yesterday's bytes\n";
+      writeFileSync(p, content);
       setMtimeDaysAgo(p, 2);
       expect(rotateLogIfNeeded(p)).toBe(true);
       expect(existsSync(p)).toBe(false);
       const rolled = readdirSync(tmpDir).find((n) => /\.gz$/.test(n));
       expect(rolled).toBeDefined();
-      // The rolled name should encode a UTC date older than today.
       expect(rolled).toMatch(/\.\d{4}-\d{2}-\d{2}\.gz$/);
+      const inflated = gunzipSync(readFileSync(join(tmpDir, rolled!)));
+      expect(inflated.toString("utf-8")).toBe(content);
     });
 
-    it("handles same-day repeat rolls with numeric suffix", () => {
+    it("produces exactly one gz per day even on repeated rotation calls", () => {
       const p = join(tmpDir, "proxy.log");
-      writeFileSync(p, "x".repeat(64));
-      expect(rotateLogIfNeeded(p, { maxBytes: 16 })).toBe(true);
-      writeFileSync(p, "y".repeat(64));
-      expect(rotateLogIfNeeded(p, { maxBytes: 16 })).toBe(true);
-      const rolls = readdirSync(tmpDir).filter((n) => n.endsWith(".gz"));
-      expect(rolls.length).toBe(2);
-      // One bare YYYY-MM-DD.gz and one .1.gz collision slot.
-      expect(rolls.some((n) => /\.\d{4}-\d{2}-\d{2}\.1\.gz$/.test(n))).toBe(
-        true
-      );
+      writeFileSync(p, "day-1 bytes\n");
+      setMtimeDaysAgo(p, 1);
+      expect(rotateLogIfNeeded(p)).toBe(true);
+      // Subsequent calls with no live file should be no-ops, not new gzs.
+      expect(rotateLogIfNeeded(p)).toBe(false);
+      expect(rotateLogIfNeeded(p)).toBe(false);
+      const gzs = readdirSync(tmpDir).filter((n) => n.endsWith(".gz"));
+      expect(gzs.length).toBe(1);
     });
 
     it("sweeps stale rolls while rotating", () => {
@@ -123,10 +117,9 @@ describe("log-rotation", () => {
       writeFileSync(stale, "old");
       setMtimeDaysAgo(stale, 30);
       const fresh = join(tmpDir, "proxy.log");
-      writeFileSync(fresh, "x".repeat(64));
-      expect(rotateLogIfNeeded(fresh, { maxBytes: 16, retentionDays: 7 })).toBe(
-        true
-      );
+      writeFileSync(fresh, "yesterday\n");
+      setMtimeDaysAgo(fresh, 1);
+      expect(rotateLogIfNeeded(fresh, { retentionDays: 7 })).toBe(true);
       expect(existsSync(stale)).toBe(false);
     });
   });
@@ -157,6 +150,21 @@ describe("log-rotation", () => {
       expect(existsSync(legacy)).toBe(false);
     });
 
+    it("deletes buggy same-day `.N.gz` artifacts once they age out", () => {
+      // Simulates the v0.1.10 bug where the size-cap fired multiple times
+      // per day. The new sweep does not discriminate by suffix — it just
+      // ages out the artifact when it crosses the retention window.
+      const buggy1 = join(tmpDir, "bridge.log.2020-01-01.1.gz");
+      const buggy45 = join(tmpDir, "bridge.log.2020-01-01.45.gz");
+      writeFileSync(buggy1, "old");
+      writeFileSync(buggy45, "old");
+      setMtimeDaysAgo(buggy1, 30);
+      setMtimeDaysAgo(buggy45, 30);
+      expect(sweepRotatedLogs(tmpDir, 7)).toBe(2);
+      expect(existsSync(buggy1)).toBe(false);
+      expect(existsSync(buggy45)).toBe(false);
+    });
+
     it("never touches canonical live files", () => {
       const live = join(tmpDir, "proxy.log");
       writeFileSync(live, "live");
@@ -174,8 +182,7 @@ describe("log-rotation", () => {
   });
 
   describe("module constants", () => {
-    it("exposes the default cap and retention", () => {
-      expect(DEFAULT_MAX_BYTES).toBe(5_000_000);
+    it("exposes the default retention window", () => {
       expect(DEFAULT_RETENTION_DAYS).toBe(7);
     });
   });

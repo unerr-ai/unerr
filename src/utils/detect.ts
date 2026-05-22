@@ -170,6 +170,38 @@ export async function detectIde(cwd: string): Promise<IdeType> {
 }
 
 /**
+ * Synchronous env-only agent detection — safe to call in session-end
+ * handlers where we can't await a `ps` lookup. Mirrors `detectIde` but
+ * skips the process-ancestry probe and any filesystem hops. Returns
+ * `null` when no marker is present so the caller can keep its existing
+ * fallback chain.
+ *
+ * Returned ids match the IdeType set so the UI's AgentBadge style map
+ * resolves them directly (`claude-code`, `cursor`, `vscode`, …).
+ */
+export function detectAgentNameFromEnv(): IdeType | null {
+  if (process.env.CURSOR_TRACE_ID) return "cursor";
+  if (process.env.CLAUDE_CODE === "1" || process.env.CLAUDE_CODE === "true")
+    return "claude-code";
+  if (process.env.CLAUDECODE === "1") return "claude-code";
+  if (process.env.WINDSURF_SESSION || process.env.WINDSURF_TRACE_ID)
+    return "windsurf";
+  if (process.env.ZED_TERM === "true") return "zed";
+  if (process.env.ANTIGRAVITY_PROJECT_DIR || process.env.ANTIGRAVITY_VERSION)
+    return "antigravity";
+  if (process.env.CODEX_SESSION_ID) return "codex";
+  if (process.env.AIDER_CHAT_HISTORY_FILE) return "aider";
+  const termProgram = process.env.TERM_PROGRAM ?? "";
+  if (termProgram === "vscode") {
+    const vscodeCwd = (process.env.VSCODE_CWD ?? "").toLowerCase();
+    if (vscodeCwd.includes("cursor")) return "cursor";
+    if (vscodeCwd.includes("windsurf")) return "windsurf";
+    return "vscode";
+  }
+  return null;
+}
+
+/**
  * Human-readable IDE name for display.
  */
 export function ideDisplayName(ide: IdeType): string {

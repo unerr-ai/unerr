@@ -15,11 +15,13 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Command } from "commander";
 
+import { getAgent } from "../config/agent-registry.js";
 import {
+  type IdeConfigResult,
   analyzeToolCaps,
   inspectIdeMcpConfigs,
-  type IdeConfigResult,
 } from "../config/ide-mcp-inspector.js";
+import { rewriteIdeConfig } from "../config/ide-mcp-rewriter.js";
 import {
   backupIdeConfigs,
   buildRouterConfig,
@@ -28,12 +30,18 @@ import {
   restoreIdeConfigs,
   writeRouterConfig,
 } from "../config/router-config-writer.js";
-import { rewriteIdeConfig } from "../config/ide-mcp-rewriter.js";
-import { getAgent } from "../config/agent-registry.js";
-import { detectAliasCollisions } from "../router/aliasing.js";
-import { scanServerUsage, type ServerUsageProfile } from "../router/usage-scanner.js";
 import { RouterTelemetryRecorder } from "../proxy/router-telemetry.js";
-import { addUnmaskOverride, addMaskOverride, clearOverrides, readOverrides } from "../router/overrides.js";
+import { detectAliasCollisions } from "../router/aliasing.js";
+import {
+  addMaskOverride,
+  addUnmaskOverride,
+  clearOverrides,
+  readOverrides,
+} from "../router/overrides.js";
+import {
+  type ServerUsageProfile,
+  scanServerUsage,
+} from "../router/usage-scanner.js";
 
 const write = (msg: string) => process.stderr.write(msg);
 
@@ -64,13 +72,20 @@ function unerrDir(cwd: string): string {
 
 // ── enable mcp-router ────────────────────────────────────────────
 
-async function enableRouter(cwd: string, opts: { yes?: boolean }): Promise<void> {
+async function enableRouter(
+  cwd: string,
+  opts: { yes?: boolean }
+): Promise<void> {
   const inspections = inspectIdeMcpConfigs(cwd);
 
   if (inspections.length === 0) {
     write(`\n  ${R}✗${X} No IDE MCP configs found in this repo.\n`);
-    write(`  ${D}Expected: .cursor/mcp.json, .mcp.json, .vscode/mcp.json, etc.${X}\n`);
-    write(`  ${D}Run \`unerr install <agent>\` first to set up MCP config.${X}\n\n`);
+    write(
+      `  ${D}Expected: .cursor/mcp.json, .mcp.json, .vscode/mcp.json, etc.${X}\n`
+    );
+    write(
+      `  ${D}Run \`unerr install <agent>\` first to set up MCP config.${X}\n\n`
+    );
     process.exit(1);
   }
 
@@ -79,7 +94,9 @@ async function enableRouter(cwd: string, opts: { yes?: boolean }): Promise<void>
     const existing = readRouterConfig(unerrDir(cwd));
     if (existing?.enabled) {
       write(`\n  ${D}·${X} MCP router is already enabled.\n`);
-      write(`  ${D}Run \`unerr router status\` to inspect, or \`unerr disable mcp-router\` to revert.${X}\n\n`);
+      write(
+        `  ${D}Run \`unerr router status\` to inspect, or \`unerr disable mcp-router\` to revert.${X}\n\n`
+      );
       return;
     }
   }
@@ -88,11 +105,17 @@ async function enableRouter(cwd: string, opts: { yes?: boolean }): Promise<void>
 
   const collisions = detectAliasCollisions(proxiedServers);
   if (collisions.length > 0) {
-    write(`\n  ${R}✗${X} ${B}Alias collision detected — cannot activate router${X}\n\n`);
+    write(
+      `\n  ${R}✗${X} ${B}Alias collision detected — cannot activate router${X}\n\n`
+    );
     for (const c of collisions) {
-      write(`    ${R}•${X} Alias prefix ${B}${c.prefixedName}${X} is shared by: ${c.servers.join(", ")}\n`);
+      write(
+        `    ${R}•${X} Alias prefix ${B}${c.prefixedName}${X} is shared by: ${c.servers.join(", ")}\n`
+      );
     }
-    write(`\n  ${D}Fix: edit .unerr/router/config.json to assign unique aliases, or rename the conflicting servers.${X}\n\n`);
+    write(
+      `\n  ${D}Fix: edit .unerr/router/config.json to assign unique aliases, or rename the conflicting servers.${X}\n\n`
+    );
     process.exit(1);
   }
 
@@ -101,20 +124,30 @@ async function enableRouter(cwd: string, opts: { yes?: boolean }): Promise<void>
 
   write(`  Detected MCP servers in your IDE config:\n`);
   for (const inspection of inspections) {
-    write(`    ${D}-${X} ${inspection.relativeConfigPath}  ${D}(${inspection.servers.length} server${inspection.servers.length !== 1 ? "s" : ""} found)${X}\n`);
+    write(
+      `    ${D}-${X} ${inspection.relativeConfigPath}  ${D}(${inspection.servers.length} server${inspection.servers.length !== 1 ? "s" : ""} found)${X}\n`
+    );
     for (const server of inspection.servers) {
       if (server.name === "unerr") {
-        write(`        ${G}${server.name}${X}  ${D}→ already routed through unerr${X}\n`);
+        write(
+          `        ${G}${server.name}${X}  ${D}→ already routed through unerr${X}\n`
+        );
       } else {
-        const alias = proxiedServers.find((p) => p.name === server.name)?.alias ?? server.name;
+        const alias =
+          proxiedServers.find((p) => p.name === server.name)?.alias ??
+          server.name;
         write(`        ${server.name}  ${D}→ ${alias}_*${X}\n`);
       }
     }
   }
 
   if (proxiedServers.length === 0) {
-    write(`\n  ${A}⚠${X} No third-party servers to proxy. unerr is the only MCP server.\n`);
-    write(`  ${D}The router is valuable when you have multiple MCP servers (GitHub, Postgres, Slack, etc.).${X}\n\n`);
+    write(
+      `\n  ${A}⚠${X} No third-party servers to proxy. unerr is the only MCP server.\n`
+    );
+    write(
+      `  ${D}The router is valuable when you have multiple MCP servers (GitHub, Postgres, Slack, etc.).${X}\n\n`
+    );
     return;
   }
 
@@ -125,9 +158,15 @@ async function enableRouter(cwd: string, opts: { yes?: boolean }): Promise<void>
   if (capViolations.length > 0) {
     write(`\n  ${V}⚡${X} ${B}Tool cap relief detected:${X}\n`);
     for (const violation of capViolations) {
-      write(`    ${A}▸${X} ${B}${violation.agentName}${X} has ${B}${violation.totalTools} tools${X} but only supports ${B}${violation.cap}${X}\n`);
-      write(`      ${R}${violation.droppedCount} tools silently dropped${X} from: ${violation.droppedServers.map((s) => B + s + X).join(", ")}\n`);
-      write(`      ${G}→ With unerr router: all ${violation.totalTools} tools accessible through a single endpoint${X}\n`);
+      write(
+        `    ${A}▸${X} ${B}${violation.agentName}${X} has ${B}${violation.totalTools} tools${X} but only supports ${B}${violation.cap}${X}\n`
+      );
+      write(
+        `      ${R}${violation.droppedCount} tools silently dropped${X} from: ${violation.droppedServers.map((s) => B + s + X).join(", ")}\n`
+      );
+      write(
+        `      ${G}→ With unerr router: all ${violation.totalTools} tools accessible through a single endpoint${X}\n`
+      );
     }
     write(`\n`);
   }
@@ -136,10 +175,16 @@ async function enableRouter(cwd: string, opts: { yes?: boolean }): Promise<void>
   write(`    1. unerr becomes the single MCP endpoint in each IDE config\n`);
   for (let i = 0; i < proxiedServers.length; i++) {
     const s = proxiedServers[i]!;
-    write(`    ${i + 2}. ${B}${s.name}${X} will be proxied through unerr ${D}(prefix: ${s.alias}_*)${X}\n`);
+    write(
+      `    ${i + 2}. ${B}${s.name}${X} will be proxied through unerr ${D}(prefix: ${s.alias}_*)${X}\n`
+    );
   }
-  write(`    ${proxiedServers.length + 2}. Original IDE configs backed up to ${D}*.pre-router${X}\n`);
-  write(`    ${proxiedServers.length + 3}. Router state written to ${D}.unerr/router/config.json${X}\n`);
+  write(
+    `    ${proxiedServers.length + 2}. Original IDE configs backed up to ${D}*.pre-router${X}\n`
+  );
+  write(
+    `    ${proxiedServers.length + 3}. Router state written to ${D}.unerr/router/config.json${X}\n`
+  );
   write(`\n`);
 
   if (!opts.yes) {
@@ -164,26 +209,44 @@ async function enableRouter(cwd: string, opts: { yes?: boolean }): Promise<void>
     const scanResult = scanServerUsage(records, proxiedServers, pinnedServers);
 
     if (scanResult.autoMaskCandidates.length > 0) {
-      write(`  ${V}◆${X} ${B}Ledger analysis:${X} ${scanResult.totalSessions} sessions analyzed\n`);
-      write(`\n  ${A}▸${X} ${B}${scanResult.autoMaskCandidates.length} server${scanResult.autoMaskCandidates.length !== 1 ? "s" : ""} never used${X} (0 calls across ${scanResult.totalSessions} sessions):\n`);
+      write(
+        `  ${V}◆${X} ${B}Ledger analysis:${X} ${scanResult.totalSessions} sessions analyzed\n`
+      );
+      write(
+        `\n  ${A}▸${X} ${B}${scanResult.autoMaskCandidates.length} server${scanResult.autoMaskCandidates.length !== 1 ? "s" : ""} never used${X} (0 calls across ${scanResult.totalSessions} sessions):\n`
+      );
 
       for (const candidate of scanResult.autoMaskCandidates) {
-        write(`      ${D}•${X} ${candidate.serverName} ${D}(${candidate.alias}_*)${X}\n`);
+        write(
+          `      ${D}•${X} ${candidate.serverName} ${D}(${candidate.alias}_*)${X}\n`
+        );
       }
 
-      write(`\n  ${D}Auto-masking saves ~${scanResult.autoMaskCandidates.length * 2000} tokens/session by hiding unused tools.${X}\n`);
+      write(
+        `\n  ${D}Auto-masking saves ~${scanResult.autoMaskCandidates.length * 2000} tokens/session by hiding unused tools.${X}\n`
+      );
 
       if (!opts.yes) {
-        const maskConfirmed = await askConfirm(`  Auto-mask these never-used servers? [Y/n] `);
+        const maskConfirmed = await askConfirm(
+          `  Auto-mask these never-used servers? [Y/n] `
+        );
         if (maskConfirmed) {
-          autoMaskedServers = scanResult.autoMaskCandidates.map((c) => c.serverName);
-          write(`  ${G}✓${X} ${autoMaskedServers.length} server${autoMaskedServers.length !== 1 ? "s" : ""} will be auto-masked\n`);
+          autoMaskedServers = scanResult.autoMaskCandidates.map(
+            (c) => c.serverName
+          );
+          write(
+            `  ${G}✓${X} ${autoMaskedServers.length} server${autoMaskedServers.length !== 1 ? "s" : ""} will be auto-masked\n`
+          );
         } else {
           write(`  ${D}Skipped auto-masking.${X}\n`);
         }
       } else {
-        autoMaskedServers = scanResult.autoMaskCandidates.map((c) => c.serverName);
-        write(`  ${G}✓${X} ${autoMaskedServers.length} server${autoMaskedServers.length !== 1 ? "s" : ""} auto-masked (--yes)\n`);
+        autoMaskedServers = scanResult.autoMaskCandidates.map(
+          (c) => c.serverName
+        );
+        write(
+          `  ${G}✓${X} ${autoMaskedServers.length} server${autoMaskedServers.length !== 1 ? "s" : ""} auto-masked (--yes)\n`
+        );
       }
       write(`\n`);
     }
@@ -191,15 +254,25 @@ async function enableRouter(cwd: string, opts: { yes?: boolean }): Promise<void>
 
   backupIdeConfigs(rewrittenConfigs);
   for (const record of rewrittenConfigs) {
-    write(`  ${G}✓${X} Backed up ${record.configPath} → ${record.backupPath}\n`);
+    write(
+      `  ${G}✓${X} Backed up ${record.configPath} → ${record.backupPath}\n`
+    );
   }
 
   for (const inspection of inspections) {
-    const agent = getAgent(inspection.agentId as Parameters<typeof getAgent>[0]);
+    const agent = getAgent(
+      inspection.agentId as Parameters<typeof getAgent>[0]
+    );
     if (agent) {
-      const modified = rewriteIdeConfig(inspection.configPath, agent.configFormat);
+      const modified = rewriteIdeConfig(
+        inspection.configPath,
+        agent.configFormat,
+        agent.id
+      );
       if (modified) {
-        write(`  ${G}✓${X} Wrote ${inspection.relativeConfigPath} ${D}(1 endpoint: unerr)${X}\n`);
+        write(
+          `  ${G}✓${X} Wrote ${inspection.relativeConfigPath} ${D}(1 endpoint: unerr)${X}\n`
+        );
       }
     }
   }
@@ -209,24 +282,32 @@ async function enableRouter(cwd: string, opts: { yes?: boolean }): Promise<void>
     proxiedServers,
     rewrittenConfigs,
     {
-      autoMaskedServers: autoMaskedServers.length > 0 ? autoMaskedServers : undefined,
+      autoMaskedServers:
+        autoMaskedServers.length > 0 ? autoMaskedServers : undefined,
       pinnedServers: pinnedServers.size > 0 ? [...pinnedServers] : undefined,
-    },
+    }
   );
   write(`  ${G}✓${X} Wrote ${configOutPath}\n`);
   write(`  ${G}✓${X} Router enabled. Restart your IDE to apply.\n`);
 
   if (autoMaskedServers.length > 0) {
-    write(`  ${G}✓${X} ${autoMaskedServers.length} never-used server${autoMaskedServers.length !== 1 ? "s" : ""} masked (run \`unerr router status\` to unmask)\n`);
+    write(
+      `  ${G}✓${X} ${autoMaskedServers.length} never-used server${autoMaskedServers.length !== 1 ? "s" : ""} masked (run \`unerr router status\` to unmask)\n`
+    );
   }
 
-  write(`\n  ${D}Tip: run \`unerr router status\` to see what's proxied and how it's performing.${X}\n`);
+  write(
+    `\n  ${D}Tip: run \`unerr router status\` to see what's proxied and how it's performing.${X}\n`
+  );
   write(`  ${D}     run \`unerr disable mcp-router\` to revert.${X}\n\n`);
 }
 
 // ── disable mcp-router ───────────────────────────────────────────
 
-async function disableRouter(cwd: string, opts: { yes?: boolean }): Promise<void> {
+async function disableRouter(
+  cwd: string,
+  opts: { yes?: boolean }
+): Promise<void> {
   const config = readRouterConfig(unerrDir(cwd));
 
   if (!config || !config.enabled) {
@@ -234,8 +315,12 @@ async function disableRouter(cwd: string, opts: { yes?: boolean }): Promise<void
     return;
   }
 
-  write(`\n  ${A}⚠${X} This will restore your IDE configs from ${D}*.pre-router${X} backups and stop proxying.\n`);
-  write(`  Router metrics will be preserved in ${D}.unerr/router/${X} for reference.\n\n`);
+  write(
+    `\n  ${A}⚠${X} This will restore your IDE configs from ${D}*.pre-router${X} backups and stop proxying.\n`
+  );
+  write(
+    `  Router metrics will be preserved in ${D}.unerr/router/${X} for reference.\n\n`
+  );
 
   if (!opts.yes) {
     const confirmed = await askConfirm(`  Continue? [y/N] `);
@@ -273,7 +358,9 @@ function routerStatus(cwd: string): void {
   if (config.proxiedServers.length > 0) {
     write(`  Proxied servers (${config.proxiedServers.length}):\n`);
     for (const server of config.proxiedServers) {
-      write(`    ${G}✓${X} ${B}${server.name}${X}  ${D}(${server.alias}_*)${X}  ${D}source: ${server.sourceAgent}${X}\n`);
+      write(
+        `    ${G}✓${X} ${B}${server.name}${X}  ${D}(${server.alias}_*)${X}  ${D}source: ${server.sourceAgent}${X}\n`
+      );
     }
   } else {
     write(`  ${D}No third-party servers proxied (own tools only).${X}\n`);
@@ -332,11 +419,19 @@ export function registerRouterCommands(program: Command): void {
       const state = addUnmaskOverride(dir, family);
 
       if (family === "all") {
-        write(`\n  ${G}✓${X} All families unmasked — intent masking disabled for this session\n`);
-        write(`  ${D}Run \`unerr router clear-overrides\` to restore intent-based masking${X}\n\n`);
+        write(
+          `\n  ${G}✓${X} All families unmasked — intent masking disabled for this session\n`
+        );
+        write(
+          `  ${D}Run \`unerr router clear-overrides\` to restore intent-based masking${X}\n\n`
+        );
       } else {
-        write(`\n  ${G}✓${X} Family "${family}" unmasked — tools now visible regardless of intent score\n`);
-        write(`  ${D}Active overrides: ${state.unmasked.length} unmasked, ${state.masked.length} masked${X}\n\n`);
+        write(
+          `\n  ${G}✓${X} Family "${family}" unmasked — tools now visible regardless of intent score\n`
+        );
+        write(
+          `  ${D}Active overrides: ${state.unmasked.length} unmasked, ${state.masked.length} masked${X}\n\n`
+        );
       }
     });
 
@@ -348,19 +443,27 @@ export function registerRouterCommands(program: Command): void {
       const dir = join(cwd, ".unerr");
       const state = addMaskOverride(dir, family);
 
-      write(`\n  ${A}▸${X} Family "${family}" masked — tools hidden until override is cleared\n`);
-      write(`  ${D}Active overrides: ${state.unmasked.length} unmasked, ${state.masked.length} masked${X}\n\n`);
+      write(
+        `\n  ${A}▸${X} Family "${family}" masked — tools hidden until override is cleared\n`
+      );
+      write(
+        `  ${D}Active overrides: ${state.unmasked.length} unmasked, ${state.masked.length} masked${X}\n\n`
+      );
     });
 
   router
     .command("clear-overrides")
-    .description("Clear all mask/unmask overrides and restore intent-based masking")
+    .description(
+      "Clear all mask/unmask overrides and restore intent-based masking"
+    )
     .action(() => {
       const cwd = process.cwd();
       const dir = join(cwd, ".unerr");
       clearOverrides(dir);
 
-      write(`\n  ${G}✓${X} All overrides cleared — intent-based masking restored\n\n`);
+      write(
+        `\n  ${G}✓${X} All overrides cleared — intent-based masking restored\n\n`
+      );
     });
 
   router
@@ -373,7 +476,9 @@ export function registerRouterCommands(program: Command): void {
 
       write(`\n  ${V}◆${X} ${B}Active Overrides${X}\n`);
       if (state.unmaskAll) {
-        write(`  ${G}▸${X} unmask-all: ${G}active${X} (all families exposed)\n`);
+        write(
+          `  ${G}▸${X} unmask-all: ${G}active${X} (all families exposed)\n`
+        );
       } else if (state.unmasked.length === 0 && state.masked.length === 0) {
         write(`  ${D}(none — using intent-based masking)${X}\n`);
       } else {

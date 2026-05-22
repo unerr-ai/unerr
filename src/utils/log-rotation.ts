@@ -2,16 +2,26 @@
  * Log rotation + retention — shared by `file-logger`, `session-logger`,
  * and the boot-time sweep wired in `cli.ts` / `daemon.ts`.
  *
- * Two policies, layered:
- *   1. Roll on UTC date change, OR on byte cap (whichever fires first).
- *      Rolled files are gzipped: `<base>.log.YYYY-MM-DD.gz`.
- *      Same-day repeat rolls (size-triggered after a daily roll) get a
- *      numeric suffix: `<base>.log.YYYY-MM-DD.1.gz`, `.2.gz`, …
- *   2. Delete rolled files (new gzip form + legacy `.log.N` form) whose
- *      mtime is older than `retentionDays` (default 7).
+ * Policy: one gzipped archive per logfile per **local** day.
+ *   - On the first observation that the live file's mtime is on a
+ *     previous local day, the live file is renamed → gzipped to
+ *     `<base>.log.YYYY-MM-DD.gz` (the date comes from the file's
+ *     mtime, i.e. the day the bytes were actually written), then
+ *     truncated so the day starts fresh.
+ *   - Rolled archives older than `retentionDays` (default 7) are
+ *     deleted on every roll and at boot. Net steady state: ≤ 7
+ *     `.gz` archives + 1 live file per logfile.
+ *
+ * No size-based rotation. The previous size cap produced dozens of
+ * `<base>.log.<date>.N.gz` files per heavy day, which is exactly
+ * what this policy fixes.
  *
  * Race-safe: rotation renames the live file into a per-pid temp slot
  * before gzipping, so two processes colliding produce at most one roll.
+ * If a `.YYYY-MM-DD.gz` already exists (e.g. a partial rotation crashed
+ * then a peer raced in), a numeric collision suffix (`.1.gz`, `.2.gz`)
+ * is appended as defensive insurance. In normal operation this path
+ * never fires.
  *
  * Best-effort: every fs call is guarded; failures never throw.
  */
@@ -28,12 +38,9 @@ import {
 import { dirname, join } from "node:path";
 import { gzipSync } from "node:zlib";
 
-export const DEFAULT_MAX_BYTES = 5_000_000;
 export const DEFAULT_RETENTION_DAYS = 7;
 
 export interface LogRotationOptions {
-  /** Size cap; rolls when the live file passes this. Default 5 MB. */
-  maxBytes?: number;
   /** Days of rolled-file history to keep. Default 7. */
   retentionDays?: number;
 }
@@ -46,22 +53,29 @@ export function isRotatedLog(name: string): boolean {
   return ROTATED_GZ_RE.test(name) || LEGACY_NUMBERED_RE.test(name);
 }
 
-function utcDateString(d: Date): string {
-  return d.toISOString().slice(0, 10);
+/**
+ * `YYYY-MM-DD` in the host's local timezone. Local — not UTC — so the
+ * rotation boundary matches the user's wall-clock day (the user's stated
+ * requirement: rotate "post local day start time").
+ */
+function localDateString(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 /**
- * Roll `filePath` if it has crossed a UTC date boundary or `maxBytes`.
- * On roll: rename → gzip → write to `<filePath>.YYYY-MM-DD[.N].gz`,
- * then sweep stale rolls in the same directory. Returns true if a roll
- * happened, false if the file is fresh, missing, or another process beat
- * us to the rename.
+ * Roll `filePath` if its mtime is on a previous local day.
+ * On roll: rename → gzip → write to `<filePath>.YYYY-MM-DD.gz`, then
+ * sweep stale rolls in the same directory. Returns true if a roll
+ * happened, false if the file is fresh, missing, empty, or another
+ * process beat us to the rename.
  */
 export function rotateLogIfNeeded(
   filePath: string,
   opts: LogRotationOptions = {}
 ): boolean {
-  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
   const retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
 
   let st: ReturnType<typeof statSync>;
@@ -72,14 +86,14 @@ export function rotateLogIfNeeded(
   }
   if (st.size === 0) return false;
 
-  const today = utcDateString(new Date());
-  const fileDay = utcDateString(st.mtime);
-  if (st.size < maxBytes && fileDay >= today) return false;
+  const today = localDateString(new Date());
+  const fileDay = localDateString(st.mtime);
+  if (fileDay >= today) return false;
 
-  // Roll naming uses the source file's UTC day — the date the bytes were
-  // actually written, not the wall clock at rotation time. Lets you find
-  // "yesterday's logs" by name even if the daemon noticed the date change
-  // hours into today.
+  // Roll naming uses the source file's local day — the date the bytes
+  // were actually written, not the wall clock at rotation time. Lets you
+  // find "yesterday's logs" by name even if the daemon noticed the date
+  // change hours into today.
   let target = `${filePath}.${fileDay}.gz`;
   let n = 1;
   while (existsSync(target)) {
@@ -144,4 +158,4 @@ export function sweepRotatedLogs(
 }
 
 /** Exposed for tests. */
-export const _internal = { ROTATED_GZ_RE, LEGACY_NUMBERED_RE, utcDateString };
+export const _internal = { ROTATED_GZ_RE, LEGACY_NUMBERED_RE, localDateString };

@@ -35,7 +35,48 @@ export type BehaviorEventType =
   /** Defuddle (fetch_url extractor) threw a non-fatal selector-parse
    *  error that was suppressed from logs. First occurrence per signature
    *  prints one summary line; subsequent ones bump this counter only. */
-  | "defuddle_selector_skipped";
+  | "defuddle_selector_skipped"
+  // ── Phase 1 additions — feeds the named-events projection layer.
+  // Pure additions: existing emit sites are unchanged. The four-surface
+  // model (preface, footer, attribution, capture) consumes these via
+  // `src/tracking/named-events.ts` without modifying the underlying
+  // behavior_events table or any existing reader.
+  /** A pre-edit caller check (`get_references({direction:'callers'})`)
+   *  was enforced before an edit on a high-fan-in entity. */
+  | "caller_check_enforced"
+  /** A stale-edit attempt was caught — agent re-read after `ur|dft` and
+   *  avoided overwriting changed content. */
+  | "stale_edit_prevented"
+  /** A stored fact surfaced into context this turn via auto-injection
+   *  or explicit `recall_facts`. */
+  | "fact_recalled"
+  /** A detected project convention was applied to new code in this turn. */
+  | "convention_applied"
+  /** A cache hit served the request (web fetch diff-cache, file outline
+   *  cache, search index cache). */
+  | "cache_hit"
+  /** Session-resume reused work from a prior session (facts, conventions,
+   *  blockers carried over) instead of re-deriving from scratch. */
+  | "cross_session_resume"
+  /** User-asserted fact captured via the `unerr_remember` tool. */
+  | "fact_stored_user_fed"
+  /** Auto-detected fact captured via `record_fact` or behavior auto-doc. */
+  | "fact_stored_auto"
+  /** Cascade-guard warning was consumed by the agent (read + acted on
+   *  before edit). Pair to `cascade_guard` which only fires; this one
+   *  measures whether the agent actually adjusted. */
+  | "cascade_warning_consumed"
+  // ── Phase 2 additions
+  /** `unerr_remember` was called but confidence fell below the floor
+   *  (0.5). Tool returned `{ stored: false }` instead of writing. */
+  | "fact_capture_abandoned"
+  /** A pending capture / retrieval confirmation expired without a
+   *  resolution turn (Sprint 6 ambiguity-gated path). */
+  | "confirmation_expired"
+  // ── Phase 3 additions (Sprint 12 telemetry)
+  /** Surface 2/3 preface/footer collapsed to the `unerr · ⋯` ambient
+   *  marker because there was nothing to report this turn. */
+  | "presence_ambient_marker";
 
 export interface BehaviorEvent {
   /** Monotonic counter per-process. */

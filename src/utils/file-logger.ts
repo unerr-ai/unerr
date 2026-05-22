@@ -15,28 +15,33 @@
  * ID from `log-paths.ts`. The timestamp is `new Date().toISOString()` —
  * UTC, millisecond-precision (e.g. `2026-05-19T20:11:23.456Z`).
  *
- * Rotation: rolls on either a UTC date change or `maxBytes` (whichever
- * fires first). Rolled files are gzipped to `*.log.YYYY-MM-DD.gz`. Files
- * older than `retentionDays` are swept on each roll and at boot. See
- * `log-rotation.ts` for the policy.
+ * Rotation: one gzipped archive per logfile per **local** day. The live
+ * file is renamed → gzipped to `*.log.YYYY-MM-DD.gz` on the first write
+ * (or periodic check) that observes a previous-day mtime, then truncated
+ * so today starts fresh. Archives older than `retentionDays` (default 7)
+ * are swept on every roll. No size-based rotation. See `log-rotation.ts`.
+ *
+ * Three triggers cover all cases:
+ *   1. Install-time one-shot — handles "process starts on day N with
+ *      day N-1's data still in the live file" (server was offline
+ *      across the boundary).
+ *   2. Per-write check — handles long-lived processes that write at
+ *      least once per day (the common case).
+ *   3. Hourly periodic timer (unref'd) — handles long-lived processes
+ *      that are silent across the boundary; ensures rotation lands
+ *      shortly after midnight even if no log line is written.
  *
  * Independent of `startupLog`: that tool writes structured JSONL events
  * (`events.jsonl`); this one mirrors the raw stderr byte stream (`*.log`).
  */
 
-import { appendFileSync, mkdirSync, statSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { getOrCreateSid } from "./log-paths.js";
-import {
-  DEFAULT_MAX_BYTES,
-  DEFAULT_RETENTION_DAYS,
-  rotateLogIfNeeded,
-} from "./log-rotation.js";
+import { DEFAULT_RETENTION_DAYS, rotateLogIfNeeded } from "./log-rotation.js";
 
 export interface FileLoggerOptions {
   filePath: string;
-  /** Default 5_000_000 (5 MB). */
-  maxBytes?: number;
   /** Days of rolled-file history to keep. Default 7. */
   retentionDays?: number;
   /**
@@ -46,6 +51,12 @@ export interface FileLoggerOptions {
    * Disable only for tests, or for streams that are already structured.
    */
   prefix?: boolean;
+  /**
+   * Periodic rotation-check interval (ms). Default 1 hour. The timer
+   * is `unref`'d so it never blocks process exit. Set to 0 to disable
+   * (tests only — production callers always want the timer).
+   */
+  rotateCheckMs?: number;
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape codes are control characters by definition.
@@ -70,30 +81,40 @@ function prefixLines(text: string, prefix: string): string {
   return endsWithNewline ? `${prefixed}\n` : prefixed;
 }
 
-function utcDay(): string {
-  return new Date().toISOString().slice(0, 10);
+function localDay(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
+
+const DEFAULT_ROTATE_CHECK_MS = 60 * 60 * 1000;
 
 /**
  * Mirror `process.stderr.write` to `filePath` with ANSI codes stripped.
- * Returns an uninstaller that restores the original `stderr.write`.
+ * Returns an uninstaller that restores the original `stderr.write`
+ * (and clears the periodic rotation timer).
  */
 export function installFileLogger(opts: FileLoggerOptions): () => void {
   const {
     filePath,
-    maxBytes = DEFAULT_MAX_BYTES,
     retentionDays = DEFAULT_RETENTION_DAYS,
     prefix: usePrefix = true,
+    rotateCheckMs = DEFAULT_ROTATE_CHECK_MS,
   } = opts;
   mkdirSync(dirname(filePath), { recursive: true });
 
-  let bytesWritten = 0;
-  let currentDay = utcDay();
+  // One-shot rotate at install time: if the live file's mtime is on a
+  // previous local day (server was offline across the boundary), roll
+  // it before any new writes land.
   try {
-    bytesWritten = statSync(filePath).size;
+    rotateLogIfNeeded(filePath, { retentionDays });
   } catch {
-    /* file doesn't exist yet */
+    /* best effort */
   }
+
+  let currentDay = localDay();
 
   // pid + sid are stable for the life of the process; the timestamp is
   // recomputed at write time so a single shared log file is grep-able by date
@@ -112,6 +133,17 @@ export function installFileLogger(opts: FileLoggerOptions): () => void {
     const result = (bound as (...args: unknown[]) => boolean)(chunk, ...rest);
 
     try {
+      // Rotate BEFORE appending so the live file's mtime still reflects
+      // yesterday's last write — that's what `rotateLogIfNeeded` reads to
+      // name the gz. Once we append the new chunk, the mtime would shift
+      // to today and rotation would label today's bytes as today's, which
+      // is correct only if we rotated first.
+      const today = localDay();
+      if (today !== currentDay) {
+        rotateLogIfNeeded(filePath, { retentionDays });
+        currentDay = today;
+      }
+
       const text =
         typeof chunk === "string"
           ? chunk
@@ -122,15 +154,6 @@ export function installFileLogger(opts: FileLoggerOptions): () => void {
         : "";
       const out = usePrefix ? prefixLines(clean, linePrefix) : clean;
       appendFileSync(filePath, out);
-
-      bytesWritten += out.length;
-      const today = utcDay();
-      if (today !== currentDay || bytesWritten >= maxBytes) {
-        if (rotateLogIfNeeded(filePath, { maxBytes, retentionDays })) {
-          bytesWritten = 0;
-        }
-        currentDay = today;
-      }
     } catch {
       /* file logging is best-effort — never block stderr */
     }
@@ -140,7 +163,29 @@ export function installFileLogger(opts: FileLoggerOptions): () => void {
 
   process.stderr.write = wrapped;
 
+  // Periodic check catches the day boundary for silent processes
+  // (long-lived daemons with no log writes across midnight).
+  let timer: NodeJS.Timeout | null = null;
+  if (rotateCheckMs > 0) {
+    timer = setInterval(() => {
+      try {
+        const today = localDay();
+        if (today !== currentDay) {
+          rotateLogIfNeeded(filePath, { retentionDays });
+          currentDay = today;
+        }
+      } catch {
+        /* best effort */
+      }
+    }, rotateCheckMs);
+    timer.unref();
+  }
+
   return () => {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
     process.stderr.write = original;
   };
 }

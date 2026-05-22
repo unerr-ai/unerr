@@ -375,6 +375,115 @@ export const TURN_DISCIPLINE_SKILL: SkillDefinition = {
   version: "1.0.0",
 };
 
+export const USER_FED_MEMORY_SKILL: SkillDefinition = {
+  id: "user-fed-memory",
+  name: "User-Fed Memory",
+  description:
+    "Detect user statements that should persist across sessions and call unerr_remember instead of letting them evaporate",
+  instructions: [
+    "Watch every user turn for fact-bearing statements. When you see ANY of these patterns, the user is teaching you a durable rule — persist it via `unerr_remember`:",
+    "",
+    "Triggering phrases:",
+    "  - \"remember (this/that)\", \"don't forget\", \"keep in mind\"",
+    "  - \"from now on\", \"going forward\", \"always\", \"never\"",
+    "  - \"the rule is\", \"the convention is\", \"we use X for Y\"",
+    "  - direct assertion of project facts (\"X is the canonical Y\", \"never edit Z directly\")",
+    "",
+    "How to call `unerr_remember`:",
+    "  1. `content` — your normalised, terse statement of the rule (≤ 280 chars). Strip filler.",
+    "  2. `source_quote` — the user's verbatim sentence (REQUIRED — this is the provenance the dashboard surfaces).",
+    "  3. `fact_type` — pick one: procedural (how-to), semantic (architecture), negative (anti-pattern), convention (standard).",
+    "  4. `scope` — file path, entity key, or the literal string `project`.",
+    "  5. `subject` — the entity, file, or topic name the fact is about.",
+    "  6. `confidence` — your honest [0,1] read of how sure you are you captured intent correctly.",
+    "     - <0.5  → capture is abandoned automatically; ask the user a clarifying question.",
+    "     - 0.5–<0.7 → stored but flagged ambiguous; expect a follow-up confirmation in the next turn.",
+    "     - ≥0.7  → stored cleanly.",
+    "  7. `applies_to` (optional) — paths/entities this fact governs.",
+    "",
+    "DO use `unerr_remember` (not `record_fact`) whenever the source is the user.",
+    "DO call it inline as soon as you see the trigger — do NOT batch into an end-of-turn summary.",
+    "DO NOT silently move on after the user said \"remember\" — that loses the fact.",
+    "DO NOT use `unerr_remember` for facts you auto-detected from observed code; use `record_fact` for those.",
+  ].join("\n"),
+  category: "quality",
+  trigger: { type: "always" },
+  tools: ["unerr_remember", "recall_facts"],
+  version: "1.0.0",
+};
+
+// ── Active-cognition four-moment contract (Sprint D item 10) ──
+// Three bundled skills derived from src/intelligence/contract-teaching.ts.
+
+export const UNERR_PROMPT_RECEIPT_SKILL: SkillDefinition = {
+  id: "unerr-prompt-receipt",
+  name: "Active-Cognition: Prompt-Receipt Recall",
+  description:
+    "First action on every user prompt — call unerr_recall_notes with the verbatim prompt",
+  instructions: [
+    "When a user prompt arrives, your FIRST tool call is:",
+    "",
+    "  unerr_recall_notes({prompt: '<verbatim prompt text>'})",
+    "",
+    "Empty result is fine. The call is the contract — it loads anchored notes for likely targets and a topic-shift flag.",
+    "Skip this only if the prompt is trivially small-talk ('thanks', 'ok').",
+  ].join("\n"),
+  category: "workflow",
+  trigger: { type: "always" },
+  tools: ["unerr_recall_notes"],
+  version: "1.0.0",
+};
+
+export const UNERR_ANCHOR_QUERY_SKILL: SkillDefinition = {
+  id: "unerr-anchor-query",
+  name: "Active-Cognition: Anchor Query Before Edit",
+  description:
+    "After identifying files/entities the task will touch, pull their anchored notes",
+  instructions: [
+    "Once you've identified the files / entities the task will touch, pull their anchored notes:",
+    "",
+    "  unerr_recall_notes({anchors: ['f:src/x.ts', 'e:fooBar']})",
+    "",
+    "Use wire-format anchors (f:<path>, e:<entity>, g:<glob>, p:). Returned notes are active only; superseded rows are excluded.",
+    "Cite returned notes by note_id in your plan so the reader can see what was load-bearing.",
+  ].join("\n"),
+  category: "navigation",
+  trigger: { type: "always" },
+  tools: ["unerr_recall_notes"],
+  version: "1.0.0",
+};
+
+export const UNERR_SAVE_AT_END_SKILL: SkillDefinition = {
+  id: "unerr-save-at-end",
+  name: "Active-Cognition: Save At Task End",
+  description:
+    "At the close of every non-trivial task, write a note only if all three quality gates hold",
+  instructions: [
+    "At the close of every non-trivial task, write a note ONLY if all three hold:",
+    "",
+    "1. Non-obvious — not derivable from the code itself.",
+    "2. Likely useful next session — would change a future approach.",
+    "3. Anchorable — fits a file, entity, glob, or (rarely) project-wide.",
+    "",
+    "DSL: kind|anchor|polarity|content",
+    "  kind ∈ {cnv,rul,wrn,dec,blk,fct}",
+    "  anchor ∈ {f:<path>, e:<entity>, g:<glob>, p:}",
+    "  polarity ∈ {+,-,~}",
+    "",
+    "  unerr_remember({",
+    "    type: 'note',",
+    "    note: 'rul|f:src/proxy/bridge.ts|-|no intelligence imports',",
+    "    session_id: '<sid>'",
+    "  })",
+    "",
+    "Session save cap: 15. Over the cap, you'll get reinforcement candidates back — reinforce instead of writing new.",
+  ].join("\n"),
+  category: "workflow",
+  trigger: { type: "always" },
+  tools: ["unerr_remember"],
+  version: "1.0.0",
+};
+
 export const LOCAL_SKILLS: SkillDefinition[] = [
   TOKEN_EFFICIENT_SKILL,
   FILE_READ_PROTOCOL_SKILL,
@@ -388,6 +497,10 @@ export const LOCAL_SKILLS: SkillDefinition[] = [
   SESSION_CONTEXT_PRESERVATION_SKILL,
   TIMELINE_MARKERS_SKILL,
   TURN_DISCIPLINE_SKILL,
+  USER_FED_MEMORY_SKILL,
+  UNERR_PROMPT_RECEIPT_SKILL,
+  UNERR_ANCHOR_QUERY_SKILL,
+  UNERR_SAVE_AT_END_SKILL,
 ];
 
 /**

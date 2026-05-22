@@ -137,15 +137,13 @@ export const UNLOCK_CONDITIONS: Readonly<Record<string, Condition>> = {
 
 	get_test_coverage: C.testFile(),
 
-	get_project_stats: C.firstRead(),
-
 	get_imports: C.imports(5),
 
 	// Conventions help the agent write to project style. The intended flow
 	// is "ask conventions → write code", so the gate fires on the first
-	// file read (same trigger as get_project_stats). `editOrWrite` would
-	// invert the value — and is unreachable in a pure MCP session anyway
-	// because built-in Edit/Write don't route through QueryRouter.
+	// file read. `editOrWrite` would invert the value — and is unreachable
+	// in a pure MCP session anyway because built-in Edit/Write don't route
+	// through QueryRouter.
 	get_conventions: C.firstRead(),
 
 	get_file: C.readTruncated(),

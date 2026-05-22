@@ -17,11 +17,13 @@ import { Dashboard } from "@/pages/Dashboard";
 import { FactsPage } from "@/pages/FactsPage";
 import { GraphExplorer } from "@/pages/GraphExplorer";
 import { GraphVisualPage } from "@/pages/GraphVisualPage";
+import { LogbookPage } from "@/pages/LogbookPage";
 import { ReasoningQualityPage } from "@/pages/ReasoningQualityPage";
-import { SessionTimelinePage } from "@/pages/SessionTimelinePage";
-import { SettingsPage } from "@/pages/SettingsPage";
 import { RouterSessionPage } from "@/pages/RouterSession";
 import { RouterStatusPage } from "@/pages/RouterStatus";
+import { SessionTimelinePage } from "@/pages/SessionTimelinePage";
+import { SettingsPage } from "@/pages/SettingsPage";
+import { SidekickMemoryPage } from "@/pages/SidekickMemoryPage";
 import { TokenFlowPage } from "@/pages/TokenFlowPage";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -98,10 +100,16 @@ export function App() {
     [parsed.repoLabel, selectedRepo, isDaemonMode]
   );
 
-  // In daemon mode, redirect to all-repos when landing on per-repo overview
-  // without a repo selected (no hash or bare #/).
+  // In daemon mode, redirect to all-repos when landing on the bare hash
+  // without a repo selected. Step 3 of the honest-headroom migration: the
+  // bare hash now resolves to "logbook" (Logbook is the default), so the
+  // redirect targets "logbook" instead of "overview". An explicit
+  // /overview hit in daemon mode also redirects so users get the repo
+  // picker first.
   const effectiveRoute: RouteId =
-    isDaemonMode && route === "overview" && !parsed.repoLabel
+    isDaemonMode &&
+    (route === "logbook" || route === "overview") &&
+    !parsed.repoLabel
       ? "all-repos"
       : route;
 
@@ -116,13 +124,7 @@ export function App() {
       body = <DaemonPage />;
       break;
     case "overview":
-      body = (
-        <Dashboard
-          sseConnected={sseConnected}
-          liveFeed={liveFeed}
-          sessionSnapshot={sessionSnapshot}
-        />
-      );
+      body = <Dashboard />;
       break;
     case "visual":
       body = <GraphVisualPage />;
@@ -132,6 +134,12 @@ export function App() {
       break;
     case "facts":
       body = <FactsPage />;
+      break;
+    case "logbook":
+      body = <LogbookPage />;
+      break;
+    case "sidekick-memory":
+      body = <SidekickMemoryPage />;
       break;
     case "token-trace":
       body = <TokenFlowPage />;

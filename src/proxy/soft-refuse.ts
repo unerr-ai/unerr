@@ -35,7 +35,6 @@ import {
  *   - get_cross_boundary_links → file_outline (see boundary from outline)
  *   - file_connections → file_outline    (start with the file's outline)
  *   - get_test_coverage → search_code    (locate target before coverage)
- *   - get_project_stats → file_read      (any first read seeds stats)
  *   - get_imports → file_outline         (imports already in outline)
  *   - get_conventions → file_read        (read a file to anchor style)
  *   - get_file → file_read               (use file_read with entity arg)
@@ -63,10 +62,6 @@ const TIER1_ALTERNATIVE: Readonly<
 	get_test_coverage: {
 		tool: "search_code",
 		example: 'search_code({query:"<symbol>"})',
-	},
-	get_project_stats: {
-		tool: "file_read",
-		example: 'file_read({file_path:"<path>"})',
 	},
 	get_imports: {
 		tool: "file_outline",

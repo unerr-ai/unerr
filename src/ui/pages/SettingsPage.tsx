@@ -383,8 +383,8 @@ export function SettingsPage() {
           value={st ? formatNumber(st.session.tokens_saved) : "—"}
           sub={
             st?.session.violations_caught
-              ? `${st.session.violations_caught} violations caught`
-              : "via compression"
+              ? `${st.session.violations_caught} violations caught · on operations unerr handled`
+              : "on operations unerr handled"
           }
           color="amber"
         />
@@ -625,12 +625,18 @@ export function SettingsPage() {
               {st ? formatNumber(st.session.tool_calls) : "—"}
             </p>
           </div>
-          <div className="rounded-lg border border-border-subtle/50 p-3">
+          <div
+            className="rounded-lg border border-border-subtle/50 p-3"
+            title="Counted on operations unerr handled (file reads, web fetches, shell output, dedup). Not whole-turn savings."
+          >
             <p className="t-tertiary text-[10px] uppercase tracking-wide">
               Tokens Saved
             </p>
             <p className="mt-1 text-xl font-mono font-bold text-foreground">
               {st ? formatNumber(st.session.tokens_saved) : "—"}
+            </p>
+            <p className="mt-0.5 t-tertiary text-[9px] leading-snug">
+              on ops unerr handled
             </p>
           </div>
           <div className="rounded-lg border border-border-subtle/50 p-3">

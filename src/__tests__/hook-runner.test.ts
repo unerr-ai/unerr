@@ -326,21 +326,21 @@ describe("runPromptSubmitHook", () => {
 
 describe("result constructors", () => {
   it("passthrough creates correct shape", () => {
-    expect(passthrough()).toEqual({ type: "passthrough" });
+    expect(passthrough()).toEqual({ action: "passthrough" });
   });
 
   it("nudge creates correct shape", () => {
-    expect(nudge("msg")).toEqual({ type: "nudge", message: "msg" });
+    expect(nudge("msg")).toEqual({ action: "nudge", message: "msg" });
   });
 
   it("rewrite creates correct shape", () => {
     expect(rewrite({ cmd: "x" })).toEqual({
-      type: "rewrite",
+      action: "rewrite",
       updatedInput: { cmd: "x" },
     });
   });
 
   it("enrich creates correct shape", () => {
-    expect(enrich("ctx")).toEqual({ type: "enrich", message: "ctx" });
+    expect(enrich("ctx")).toEqual({ action: "enrich", message: "ctx" });
   });
 });

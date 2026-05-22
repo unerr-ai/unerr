@@ -30,7 +30,7 @@ export type HookEvent = "PreToolUse" | "PostToolUse" | "UserPromptSubmit";
  */
 export interface HookResult {
   /** passthrough = no-op, nudge = advisory message, rewrite = change input, enrich = add context */
-  type: "passthrough" | "nudge" | "rewrite" | "enrich";
+  action: "passthrough" | "nudge" | "rewrite" | "enrich";
   /** Advisory or enrichment message (used by nudge + enrich). */
   message?: string;
   /** Rewritten tool input (used by rewrite). */
@@ -179,20 +179,20 @@ export function runPromptSubmitHook(
 
 /** Create a passthrough result. */
 export function passthrough(): HookResult {
-  return { type: "passthrough" };
+  return { action: "passthrough" };
 }
 
 /** Create a nudge (advisory systemMessage) result. */
 export function nudge(message: string): HookResult {
-  return { type: "nudge", message };
+  return { action: "nudge", message };
 }
 
 /** Create a rewrite (updatedInput) result. */
 export function rewrite(updatedInput: Record<string, unknown>): HookResult {
-  return { type: "rewrite", updatedInput };
+  return { action: "rewrite", updatedInput };
 }
 
 /** Create an enrich (additionalContext) result. */
 export function enrich(message: string): HookResult {
-  return { type: "enrich", message };
+  return { action: "enrich", message };
 }

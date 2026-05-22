@@ -4,7 +4,8 @@
       "type": "stdio",
       "command": "/Users/jaswanth/Library/pnpm/unerr",
       "args": [
-        "--mcp"
+        "--mcp",
+        "--coding-agent=cursor"
       ]
     }
   }

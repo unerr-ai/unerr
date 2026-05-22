@@ -285,7 +285,6 @@ export async function startDaemon(opts: {
   sweepRotatedLogs(globalLogsDir(globalDir()));
   installFileLogger({
     filePath: globalLog.unerrd(globalDir()),
-    maxBytes: 10_000_000,
   });
 
   // Acquire PID lock

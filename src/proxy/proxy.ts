@@ -84,6 +84,11 @@ type SignalShowStoreType = import(
 ).SignalShowStore;
 let proxyFactStore: FactStoreType | null | undefined = undefined; // undefined = not yet initialized
 let proxyShowStore: SignalShowStoreType | null = null;
+let proxyPendingConfirmations:
+  | import(
+      "../intelligence/pending-confirmations.js"
+    ).PendingConfirmationRegistry
+  | null = null;
 
 async function getProxyFactStore(
   unerrDir: string
@@ -100,6 +105,127 @@ async function getProxyFactStore(
     proxyFactStore = null;
     return null;
   }
+}
+
+// ── Active-cognition Layer B: NotesStore (shares facts.db with TemporalFactStore) ──
+type NotesStoreType = import("../intelligence/notes-store.js").NotesStore;
+let proxyNotesStore: NotesStoreType | null | undefined = undefined;
+
+async function getProxyNotesStore(
+  unerrDir: string
+): Promise<NotesStoreType | null> {
+  if (proxyNotesStore !== undefined) return proxyNotesStore;
+  const factStore = await getProxyFactStore(unerrDir);
+  if (!factStore) {
+    proxyNotesStore = null;
+    return null;
+  }
+  try {
+    const { NotesStore } = await import("../intelligence/notes-store.js");
+    proxyNotesStore = new NotesStore(factStore.getDb());
+    return proxyNotesStore;
+  } catch (err: unknown) {
+    process.stderr.write(
+      `[unerr] notes-store init failed: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    proxyNotesStore = null;
+    return null;
+  }
+}
+
+async function handleUnerrRecallNotesProxy(
+  args: Record<string, unknown>,
+  unerrDir: string
+): Promise<{
+  content: Array<{ type: string; text: string }>;
+  isError?: boolean;
+}> {
+  const store = await getProxyNotesStore(unerrDir);
+  if (!store) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            error: "notes store not available. Ensure .unerr/ exists.",
+          }),
+        },
+      ],
+      isError: true,
+    };
+  }
+  try {
+    const { recallNotes } = await import(
+      "../tools/intelligence/notes-mcp.js"
+    );
+    const result = await recallNotes(
+      store,
+      args as Parameters<typeof recallNotes>[1]
+    );
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }],
+      ...(result.ok ? {} : { isError: true }),
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[unerr] unerr_recall_notes failed: ${msg}\n`);
+    return {
+      content: [{ type: "text", text: JSON.stringify({ error: msg }) }],
+      isError: true,
+    };
+  }
+}
+
+async function handleUnerrRememberNotePath(
+  args: Record<string, unknown>,
+  unerrDir: string
+): Promise<{
+  content: Array<{ type: string; text: string }>;
+  isError?: boolean;
+}> {
+  const store = await getProxyNotesStore(unerrDir);
+  if (!store) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            error: "notes store not available. Ensure .unerr/ exists.",
+          }),
+        },
+      ],
+      isError: true,
+    };
+  }
+  try {
+    const { remember } = await import("../tools/intelligence/notes-mcp.js");
+    const result = await remember(
+      store,
+      args as Parameters<typeof remember>[1]
+    );
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }],
+      ...(result.ok ? {} : { isError: true }),
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[unerr] unerr_remember (note) failed: ${msg}\n`);
+    return {
+      content: [{ type: "text", text: JSON.stringify({ error: msg }) }],
+      isError: true,
+    };
+  }
+}
+
+/** Discriminator: presence of `type` field routes to the new Layer B note path. */
+function isActiveCognitionRemember(args: Record<string, unknown>): boolean {
+  const t = args.type;
+  return (
+    t === "note" ||
+    t === "cochange" ||
+    t === "move_anchor" ||
+    t === "promote_to_claude_md"
+  );
 }
 
 async function handleRecordFactProxy(
@@ -170,6 +296,95 @@ async function handleRecordFactProxy(
     // it, an error body looks like a normal successful response and the
     // agent reads it as data.
     process.stderr.write(`[unerr] record_fact failed: ${errMsg}\n`);
+    return {
+      content: [{ type: "text", text: JSON.stringify({ error: errMsg }) }],
+      isError: true,
+    };
+  }
+}
+
+async function ensurePendingConfirmations(
+  behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter
+): Promise<
+  | import(
+      "../intelligence/pending-confirmations.js"
+    ).PendingConfirmationRegistry
+  | null
+> {
+  if (proxyPendingConfirmations) return proxyPendingConfirmations;
+  if (!behaviorEvents) return null;
+  const { PendingConfirmationRegistry } = await import(
+    "../intelligence/pending-confirmations.js"
+  );
+  proxyPendingConfirmations = new PendingConfirmationRegistry(behaviorEvents);
+  proxyPendingConfirmations.start();
+  return proxyPendingConfirmations;
+}
+
+async function handleUnerrRememberProxy(
+  args: Record<string, unknown>,
+  unerrDir: string,
+  shadowLedger: import("../tracking/shadow-ledger.js").ShadowLedger,
+  behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter,
+  effectiveness?: {
+    tracker: import(
+      "../tracking/persistence-effectiveness.js"
+    ).PersistenceEffectivenessTracker;
+    turn: number;
+  }
+): Promise<{
+  content: Array<{ type: string; text: string }>;
+  _meta?: unknown;
+  isError?: boolean;
+}> {
+  const factStore = await getProxyFactStore(unerrDir);
+  if (!factStore) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            error: "Fact store not available. Ensure .unerr/ directory exists.",
+          }),
+        },
+      ],
+    };
+  }
+  try {
+    const { executeUnerrRemember } = await import(
+      "../tools/intelligence/unerr-remember.js"
+    );
+    const turn = effectiveness?.turn ?? 0;
+    const pending = await ensurePendingConfirmations(behaviorEvents);
+    const result = await executeUnerrRemember(
+      args as unknown as Parameters<typeof executeUnerrRemember>[0],
+      factStore,
+      shadowLedger.getSessionId(),
+      turn,
+      behaviorEvents,
+      pending ?? undefined
+    );
+    if (result.stored && effectiveness) {
+      effectiveness.tracker.recordSignalFired({
+        kind: "fact_recorded",
+        signal_id: result.fact_id,
+        entity_key: (args.subject as string | undefined) ?? null,
+        turn: effectiveness.turn,
+      });
+    }
+    shadowLedger.record(
+      "unerr_remember",
+      args,
+      result.stored ? { fact_id: result.fact_id } : { stored: false },
+      "unknown",
+      ""
+    );
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }],
+    };
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[unerr] unerr_remember failed: ${errMsg}\n`);
     return {
       content: [{ type: "text", text: JSON.stringify({ error: errMsg }) }],
       isError: true,
@@ -257,15 +472,27 @@ async function handleRecallFactsProxy(
       }
     }
 
-    const response = sliced.map((f) => ({
-      fact_id: f.fact_id,
-      type: f.fact_type,
-      content: f.content,
-      confidence: Math.round(f.effective_confidence * 100) / 100,
-      subject: f.subject,
-      source: f.source,
-      reinforced: f.reinforcement_count,
-    }));
+    const { REMEMBER_AMBIGUITY_THRESHOLD: RAT } = await import(
+      "../tools/intelligence/unerr-remember.js"
+    );
+    const response = sliced.map((f) => {
+      const isUserFed = f.source === "user_fed";
+      const lowConfidence = f.effective_confidence < RAT;
+      const isPending =
+        proxyPendingConfirmations?.isPending(f.fact_id) ?? false;
+      const needsConfirmation = isPending || (isUserFed && lowConfidence);
+      const base: Record<string, unknown> = {
+        fact_id: f.fact_id,
+        type: f.fact_type,
+        content: f.content,
+        confidence: Math.round(f.effective_confidence * 100) / 100,
+        subject: f.subject,
+        source: f.source,
+        reinforced: f.reinforcement_count,
+      };
+      if (needsConfirmation) base.needs_confirmation = true;
+      return base;
+    });
 
     const body: Record<string, unknown> = {
       facts: response,
@@ -1555,8 +1782,26 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         }
       }
 
-      // ── Layer 9: record_fact + recall_facts ──
-      if (name === "record_fact" || name === "recall_facts") {
+      // ── Active-cognition Layer B: unerr_recall_notes ──
+      if (name === "unerr_recall_notes") {
+        return handleUnerrRecallNotesProxy(args, unerrDirForLedger);
+      }
+
+      // ── Layer 9: record_fact + recall_facts + unerr_remember ──
+      if (
+        name === "record_fact" ||
+        name === "recall_facts" ||
+        name === "unerr_remember"
+      ) {
+        // Active-cognition dispatch: when `unerr_remember` carries a `type`
+        // field (note/cochange/move_anchor/promote_to_claude_md), route to
+        // the new NotesStore path; otherwise stay on the TemporalFactStore.
+        if (
+          name === "unerr_remember" &&
+          isActiveCognitionRemember(args)
+        ) {
+          return handleUnerrRememberNotePath(args, unerrDirForLedger);
+        }
         const factResult =
           name === "record_fact"
             ? await handleRecordFactProxy(
@@ -1568,10 +1813,21 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                   turn: router.sessionContext.getToolCallCount(),
                 }
               )
-            : await handleRecallFactsProxy(args, unerrDirForLedger, {
-                tracker: effectivenessTracker,
-                turn: router.sessionContext.getToolCallCount(),
-              });
+            : name === "unerr_remember"
+              ? await handleUnerrRememberProxy(
+                  args,
+                  unerrDirForLedger,
+                  shadowLedger,
+                  behaviorEventWriter,
+                  {
+                    tracker: effectivenessTracker,
+                    turn: router.sessionContext.getToolCallCount(),
+                  }
+                )
+              : await handleRecallFactsProxy(args, unerrDirForLedger, {
+                  tracker: effectivenessTracker,
+                  turn: router.sessionContext.getToolCallCount(),
+                });
         const { applyWireCap: applyWireCapFact } = await import(
           "./wire-cap.js"
         );
@@ -1880,8 +2136,33 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const pageBlock = pageHint ? `\n${pageHint}` : "";
       const footerBlock = signalFooter ? `\n${signalFooter.trimEnd()}` : "";
       const bodyEnd = bodyText.endsWith("\n") ? "" : "\n";
-      // Final assembly: data → page-hint → signal footer (signals trail).
-      const finalText = bodyText + bodyEnd + pageBlock + footerBlock;
+
+      // Surfaces 2/3/4 (user-prose channel): preface above body, footer
+      // below the page hint and above the signal footer. Failures here
+      // never break the response.
+      const { buildUserBlockForResponse } = await import(
+        "./user-block-emitter.js"
+      );
+      const userBlock = await buildUserBlockForResponse({
+        unerrDir: join(process.cwd(), ".unerr"),
+        sessionId: shadowLedger.getSessionId(),
+        toolCallCount: router.sessionContext.getToolCallCount(),
+        filePath:
+          ((args as Record<string, unknown>).file_path as
+            | string
+            | undefined) ?? entityKey,
+        factStore: proxyFactStore ?? undefined,
+        pendingConfirmations: proxyPendingConfirmations ?? undefined,
+      });
+
+      // Final assembly: preface → data → page-hint → user footer → signal footer.
+      const finalText =
+        userBlock.head +
+        bodyText +
+        bodyEnd +
+        pageBlock +
+        userBlock.tail +
+        footerBlock;
 
       // P0-3: A soft-refused (locked) tool call surfaces as a tool error
       // so every known MCP client (Cursor, Cline, Codex, Claude Code)
@@ -2066,8 +2347,32 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         }
       }
 
-      // ── Layer 9: record_fact + recall_facts (independent of graph) ──
-      if (name === "record_fact" || name === "recall_facts") {
+      // ── Active-cognition Layer B: unerr_recall_notes (UDS) ──
+      if (name === "unerr_recall_notes") {
+        const recallRes = await handleUnerrRecallNotesProxy(
+          toolArgs,
+          unerrDirForLedger
+        );
+        return { jsonrpc: "2.0" as const, result: recallRes };
+      }
+
+      // ── Layer 9: record_fact + recall_facts + unerr_remember (independent of graph) ──
+      if (
+        name === "record_fact" ||
+        name === "recall_facts" ||
+        name === "unerr_remember"
+      ) {
+        // Active-cognition dispatch (UDS mirror of stdio path).
+        if (
+          name === "unerr_remember" &&
+          isActiveCognitionRemember(toolArgs)
+        ) {
+          const noteRes = await handleUnerrRememberNotePath(
+            toolArgs,
+            unerrDirForLedger
+          );
+          return { jsonrpc: "2.0" as const, result: noteRes };
+        }
         const factResult =
           name === "record_fact"
             ? await handleRecordFactProxy(
@@ -2079,10 +2384,21 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                   turn: router.sessionContext.getToolCallCount(),
                 }
               )
-            : await handleRecallFactsProxy(toolArgs, unerrDirForLedger, {
-                tracker: effectivenessTracker,
-                turn: router.sessionContext.getToolCallCount(),
-              });
+            : name === "unerr_remember"
+              ? await handleUnerrRememberProxy(
+                  toolArgs,
+                  unerrDirForLedger,
+                  shadowLedger,
+                  behaviorEventWriter,
+                  {
+                    tracker: effectivenessTracker,
+                    turn: router.sessionContext.getToolCallCount(),
+                  }
+                )
+              : await handleRecallFactsProxy(toolArgs, unerrDirForLedger, {
+                  tracker: effectivenessTracker,
+                  turn: router.sessionContext.getToolCallCount(),
+                });
         // Apply universal pagination cap so recall_facts surfaces page hints
         // when more facts are available beyond what the handler returned.
         const { applyWireCap: applyWireCapFact } = await import(
@@ -2242,6 +2558,22 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const pageBlock2 = pageHint2 ? `\n${pageHint2}` : "";
       const footerBlock2 = signalFooter2 ? `\n${signalFooter2.trimEnd()}` : "";
       const bodyEnd2 = bodyText2.endsWith("\n") ? "" : "\n";
+
+      // Surfaces 2/3/4 (user-prose channel) — mirror of stdio path.
+      const { buildUserBlockForResponse: buildUserBlockForResponse2 } =
+        await import("./user-block-emitter.js");
+      const userBlock2 = await buildUserBlockForResponse2({
+        unerrDir: join(process.cwd(), ".unerr"),
+        sessionId: shadowLedger.getSessionId(),
+        toolCallCount: router.sessionContext.getToolCallCount(),
+        filePath:
+          ((toolArgs as Record<string, unknown>).file_path as
+            | string
+            | undefined) ?? entityKey2,
+        factStore: proxyFactStore ?? undefined,
+        pendingConfirmations: proxyPendingConfirmations ?? undefined,
+      });
+
       // P0-3 mirror of stdio: surface a locked-tool refusal as isError so
       // the bridge → IDE → model path treats the body as a model-visible
       // error rather than a silent framework retry.
@@ -2253,7 +2585,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           content: [
             {
               type: "text",
-              text: bodyText2 + bodyEnd2 + pageBlock2 + footerBlock2,
+              text:
+                userBlock2.head +
+                bodyText2 +
+                bodyEnd2 +
+                pageBlock2 +
+                userBlock2.tail +
+                footerBlock2,
             },
           ],
           ...(isGateLocked2 ? { isError: true } : {}),
@@ -2425,6 +2763,54 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         projectRoot: cwd,
         debounceMs: 100,
         onEvents: (events) => {
+          // Active-cognition: when an indexed source file is deleted,
+          // run the three-tier anchor migration (agent-driven move →
+          // git rename detection → silent decay). Fire-and-forget; the
+          // notes store guards its own writes.
+          const deletedSourcePaths: string[] = [];
+          for (const evt of events) {
+            if (evt.type !== "delete") continue;
+            const ext = evt.path.slice(evt.path.lastIndexOf(".")).toLowerCase();
+            // Match the same indexable extensions used by filterIndexableEvents.
+            if (
+              ext === ".ts" ||
+              ext === ".tsx" ||
+              ext === ".js" ||
+              ext === ".jsx" ||
+              ext === ".mjs" ||
+              ext === ".cjs" ||
+              ext === ".mts" ||
+              ext === ".cts" ||
+              ext === ".py" ||
+              ext === ".go"
+            ) {
+              deletedSourcePaths.push(evt.path);
+            }
+          }
+          if (deletedSourcePaths.length > 0) {
+            void (async () => {
+              try {
+                const store = await getProxyNotesStore(
+                  join(process.cwd(), ".unerr")
+                );
+                if (!store) return;
+                const { handleFileDeletion } = await import(
+                  "../intelligence/anchor-migration.js"
+                );
+                for (const deleted of deletedSourcePaths) {
+                  await handleFileDeletion(store, {
+                    deleted_path: deleted,
+                    repo_dir: process.cwd(),
+                  });
+                }
+              } catch (err: unknown) {
+                process.stderr.write(
+                  `[unerr] anchor-migration on delete failed: ${err instanceof Error ? err.message : String(err)}\n`
+                );
+              }
+            })();
+          }
+
           const indexable = filterIndexableEvents(events);
           if (indexable.length === 0) return;
           // Notify GraphHolder of file change (resets idle timer, tracks paths for incremental)
@@ -2910,6 +3296,25 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     const ideType = await detectIdeDashboard(process.cwd());
 
     const unerrDirForApi = join(process.cwd(), ".unerr");
+
+    // Phase 3 Sprint 11 — share TemporalFactStore across temporal + facts deps.
+    // Pre-built here so both routes use the same handle.
+    let sharedFactStore: Awaited<
+      ReturnType<
+        typeof import(
+          "../intelligence/temporal-facts.js"
+        )["TemporalFactStore"]["create"]
+      >
+    > | null = null;
+    try {
+      const { TemporalFactStore } = await import(
+        "../intelligence/temporal-facts.js"
+      );
+      sharedFactStore = await TemporalFactStore.create(process.cwd());
+    } catch {
+      sharedFactStore = null;
+    }
+
     dashboardHandle = await startDashboardServer({
       system: {
         stats,
@@ -2968,6 +3373,22 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         unerrDir: unerrDirForApi,
         getBehaviorEventWriter: () => behaviorEventWriter,
       },
+      logbook: {
+        unerrDir: unerrDirForApi,
+        getAgentName: () => {
+          const last = [...agentNameByClient.values()].pop();
+          return last ?? server.getClientVersion?.()?.name ?? null;
+        },
+      },
+      facts: sharedFactStore
+        ? {
+            factStore: sharedFactStore,
+            getDirtyFiles: () => new Set<string>(),
+            emitEvent: (_type: string, _data: unknown) => {
+              // SSE event bus — wired to dashboard EventSource
+            },
+          }
+        : undefined,
       reasoningQuality: {
         unerrDir: unerrDirForApi,
         getTokenFlowWriter: () => tokenFlowWriter,
@@ -2985,11 +3406,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         : undefined,
       temporal: await (async () => {
         try {
-          const { TemporalFactStore } = await import(
-            "../intelligence/temporal-facts.js"
-          );
           const { readdirSync, readFileSync } = await import("node:fs");
-          const factStore = await TemporalFactStore.create(process.cwd());
+          if (!sharedFactStore) return undefined;
+          const factStore = sharedFactStore;
           return {
             factStore,
             loadRecentSessions: (limit: number) => {
@@ -3140,6 +3559,14 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
               agentName:
                 agentNameByClient.values().next().value ??
                 server.getClientVersion?.()?.name ??
+                // Last-resort env probe so the session row never falls
+                // back to "Unknown Agent" when the IDE skipped sending
+                // clientInfo (some bridges + older clients do this).
+                (
+                  require("../utils/detect.js") as typeof import(
+                    "../utils/detect.js"
+                  )
+                ).detectAgentNameFromEnv() ??
                 undefined,
               tokenFlowSummary: {
                 by_mechanism: Object.fromEntries(

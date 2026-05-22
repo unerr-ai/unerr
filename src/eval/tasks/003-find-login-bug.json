@@ -1,0 +1,8 @@
+{
+  "id": "003-find-login-bug",
+  "title": "Find why the login button breaks on mobile",
+  "repo": "react",
+  "prompt": "The login button does nothing on mobile breakpoints (<=640px). Investigate root cause without making changes; report findings.",
+  "exercises": ["prompt_receipt_query", "anchor_query"],
+  "assertions": []
+}

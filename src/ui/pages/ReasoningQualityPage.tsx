@@ -1,5 +1,5 @@
 /**
- * Reasoning Quality dashboard page.
+ * Reasoning Trace dashboard page.
  *
  * 3-level hierarchical drill-down (same pattern as Token Trace):
  *
@@ -14,11 +14,12 @@
  */
 
 import { DateRangeFilter } from "@/components/DateRangeFilter";
+import { HeadroomStrip, type HeadroomWindow } from "@/components/HeadroomStrip";
 import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { fetchJson } from "@/lib/api";
 import { useRepoApi } from "@/lib/repo-context";
+import { setHashQueryParams, useHashQueryParam } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -204,6 +205,10 @@ function Breadcrumb({
   );
 }
 
+// Mirror of token-trace/components/AgentBadge.AGENT_STYLES — keeps the
+// hue mapping consistent across Token Trace and Reasoning Trace. The
+// install-time `--coding-agent=<id>` flag now guarantees every session
+// arrives here with a known id from agent-registry.ts.
 const AGENT_STYLES: Record<
   string,
   { bg: string; text: string; label: string }
@@ -222,6 +227,50 @@ const AGENT_STYLES: Record<
   cline: { bg: "bg-emerald-500/20", text: "text-emerald-400", label: "Cline" },
   windsurf: { bg: "bg-cyan-500/20", text: "text-cyan-400", label: "Windsurf" },
   copilot: { bg: "bg-zinc-500/20", text: "text-zinc-400", label: "Copilot" },
+  vscode: { bg: "bg-blue-500/20", text: "text-blue-400", label: "VS Code" },
+  zed: { bg: "bg-violet-500/20", text: "text-violet-400", label: "Zed" },
+  kiro: {
+    bg: "bg-fuchsia-500/20",
+    text: "text-fuchsia-400",
+    label: "Kiro",
+  },
+  "gemini-cli": {
+    bg: "bg-cyan-500/20",
+    text: "text-cyan-400",
+    label: "Gemini CLI",
+  },
+  codex: {
+    bg: "bg-emerald-500/20",
+    text: "text-emerald-400",
+    label: "Codex",
+  },
+  aider: { bg: "bg-rose-500/20", text: "text-rose-400", label: "Aider" },
+  opencode: {
+    bg: "bg-violet-500/20",
+    text: "text-violet-400",
+    label: "OpenCode",
+  },
+  trae: { bg: "bg-amber-500/20", text: "text-amber-400", label: "Trae" },
+  augment: {
+    bg: "bg-emerald-500/20",
+    text: "text-emerald-400",
+    label: "Augment",
+  },
+  "github-copilot-cli": {
+    bg: "bg-zinc-500/20",
+    text: "text-zinc-400",
+    label: "Copilot CLI",
+  },
+  continue: {
+    bg: "bg-violet-500/20",
+    text: "text-violet-400",
+    label: "Continue",
+  },
+  antigravity: {
+    bg: "bg-fuchsia-500/20",
+    text: "text-fuchsia-400",
+    label: "Antigravity",
+  },
 };
 
 function AgentBadge({ name }: { name: string | null }) {
@@ -325,10 +374,19 @@ function GlobalView({
   onSelectSession,
 }: { onSelectSession: (id: string) => void }) {
   const { url, queryKey } = useRepoApi();
-  const [fromTs, setFromTs] = useState("");
-  const [toTs, setToTs] = useState("");
-  const [sessionOffset, setSessionOffset] = useState(0);
-  const sessionLimit = 20;
+  const fromTs = useHashQueryParam("from") ?? "";
+  const toTs = useHashQueryParam("to") ?? "";
+  const sessionOffsetParam = useHashQueryParam("session_offset");
+  const sessionOffset = Number(sessionOffsetParam) || 0;
+  const sessionLimit = 10;
+  const setRange = (f: string, t: string) =>
+    setHashQueryParams({
+      from: f || null,
+      to: t || null,
+      session_offset: null,
+    });
+  const setSessionOffset = (next: number) =>
+    setHashQueryParams({ session_offset: next > 0 ? String(next) : null });
 
   const dateParams =
     fromTs || toTs
@@ -398,11 +456,7 @@ function GlobalView({
         <DateRangeFilter
           fromTs={fromTs}
           toTs={toTs}
-          onChange={(f, t) => {
-            setFromTs(f);
-            setToTs(t);
-            setSessionOffset(0);
-          }}
+          onChange={(f, t) => setRange(f, t)}
         />
       </div>
 
@@ -481,7 +535,7 @@ function GlobalView({
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h3 className="text-foreground text-sm font-medium">
-              Reasoning Quality Multiplier
+              Reasoning Trace Multiplier
             </h3>
             <p
               className="t-tertiary text-xs mt-1"
@@ -542,7 +596,10 @@ function GlobalView({
                         : 4;
                     const dateLabel = new Date(pt.first_ts).toLocaleDateString(
                       [],
-                      { month: "short", day: "numeric" }
+                      {
+                        month: "short",
+                        day: "numeric",
+                      }
                     );
                     return (
                       <div
@@ -593,7 +650,10 @@ function GlobalView({
                         : 4;
                     const dateLabel = new Date(pt.first_ts).toLocaleDateString(
                       [],
-                      { month: "short", day: "numeric" }
+                      {
+                        month: "short",
+                        day: "numeric",
+                      }
                     );
                     return (
                       <div
@@ -645,7 +705,10 @@ function GlobalView({
                         : 4;
                     const dateLabel = new Date(pt.first_ts).toLocaleDateString(
                       [],
-                      { month: "short", day: "numeric" }
+                      {
+                        month: "short",
+                        day: "numeric",
+                      }
                     );
                     return (
                       <div
@@ -682,7 +745,10 @@ function GlobalView({
                 <span className="t-tertiary text-[10px] font-mono">
                   {new Date(
                     trend[Math.max(0, trend.length - 40)].first_ts
-                  ).toLocaleDateString([], { month: "short", day: "numeric" })}
+                  ).toLocaleDateString([], {
+                    month: "short",
+                    day: "numeric",
+                  })}
                 </span>
                 <span className="t-tertiary text-[10px]">
                   {Math.min(40, trend.length)} sessions shown
@@ -690,7 +756,10 @@ function GlobalView({
                 <span className="t-tertiary text-[10px] font-mono">
                   {new Date(
                     trend[trend.length - 1].first_ts
-                  ).toLocaleDateString([], { month: "short", day: "numeric" })}
+                  ).toLocaleDateString([], {
+                    month: "short",
+                    day: "numeric",
+                  })}
                 </span>
               </div>
             )}
@@ -1559,11 +1628,26 @@ function SessionView({ sessionId }: { sessionId: string }) {
 type ViewState = { level: "global" } | { level: "session"; sessionId: string };
 
 export function ReasoningQualityPage() {
-  const [view, setView] = useState<ViewState>({ level: "global" });
+  // URL-backed view state — `?session=` controls drill-down level, so a
+  // reload or shared link lands in the same session view. Same model as
+  // Token Trace for consistency.
+  const sessionId = useHashQueryParam("session") || null;
+  const windowParam = useHashQueryParam("window");
+  const headroomWindow: HeadroomWindow =
+    windowParam === "today" ||
+    windowParam === "this_week" ||
+    windowParam === "since_install"
+      ? windowParam
+      : "since_install";
 
-  const goGlobal = () => setView({ level: "global" });
-  const goSession = (sessionId: string) =>
-    setView({ level: "session", sessionId });
+  const view: ViewState = sessionId
+    ? { level: "session", sessionId }
+    : { level: "global" };
+
+  const setHeadroomWindow = (w: HeadroomWindow) =>
+    setHashQueryParams({ window: w });
+  const goGlobal = () => setHashQueryParams({ session: null });
+  const goSession = (id: string) => setHashQueryParams({ session: id });
 
   const crumbs: Array<{ label: string; onClick?: () => void }> = [];
 
@@ -1576,6 +1660,12 @@ export function ReasoningQualityPage() {
 
   return (
     <div>
+      <HeadroomStrip
+        windowSelected={headroomWindow}
+        onWindowChange={setHeadroomWindow}
+        sessionId={view.level === "session" ? view.sessionId : undefined}
+      />
+
       {crumbs.length > 0 && <Breadcrumb items={crumbs} />}
 
       {view.level === "global" && <GlobalView onSelectSession={goSession} />}

@@ -28,7 +28,7 @@ interface TokenFlowCardProps {
 }
 
 // COMPRESS-class mechanisms only. PREVENT-class (graph queries, behavior
-// interventions) live in the Behavioral Events pane on Token Trace.
+// interventions) live in the Preventions pane on Token Trace.
 const MECH_COLORS: Record<string, string> = {
   shell_compression: "bg-cyan-500",
   format_encoding: "bg-blue-500",
@@ -83,12 +83,18 @@ export function TokenFlowCard({
     <div className="space-y-6">
       {/* Headline numbers */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <div className="el-raised rounded-lg p-4">
+        <div
+          className="el-raised rounded-lg p-4"
+          title="Counted on operations unerr handled. Not whole-turn savings — excludes system prompt, tool schemas, conversation history, and reasoning tokens."
+        >
           <p className="t-tertiary text-xs uppercase tracking-wider">
             Tokens Saved
           </p>
           <p className="mt-1 text-2xl font-bold text-success">
             {formatTokens(totalSaved)}
+          </p>
+          <p className="mt-0.5 t-tertiary text-[10px] leading-snug">
+            on operations unerr handled
           </p>
         </div>
         <div className="el-raised rounded-lg p-4">
