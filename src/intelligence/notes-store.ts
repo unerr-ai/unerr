@@ -25,6 +25,10 @@
  */
 
 import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { recordCoChangeGroup } from "./cochange-index.js";
+
+const UNERR_DIR_FOR_COCHANGE = join(process.cwd(), ".unerr");
 import type { CozoDb } from "./cozo-schema.js";
 import {
   type NoteAnchorType,
@@ -179,7 +183,7 @@ export class NotesStore {
       await this.db.run(
         `?[note_id, reinforcement_count, last_seen_at] <- [[$id, $rc, $now]]
          :update notes {note_id => reinforcement_count, last_seen_at}`,
-        { id: existing.note_id, rc: existing.reinforcement_count + 1, now },
+        { id: existing.note_id, rc: existing.reinforcement_count + 1, now }
       );
       return {
         stored: true,
@@ -195,7 +199,9 @@ export class NotesStore {
     // 3) Session save cap.
     const state =
       this.sessions.get(input.session_id) ??
-      this.sessions.set(input.session_id, { saves_this_session: 0 }).get(input.session_id);
+      this.sessions
+        .set(input.session_id, { saves_this_session: 0 })
+        .get(input.session_id);
     if (!state) throw new Error("session-state init failed");
     if (state.saves_this_session >= SESSION_SAVE_CAP) {
       const candidates = await this.findReinforcementCandidates(parsed);
@@ -221,7 +227,7 @@ export class NotesStore {
           await this.db.run(
             `?[note_id, conflict_group_id] <- [[$id, $cgid]]
              :update notes {note_id => conflict_group_id}`,
-            { id: c.note_id, cgid: conflictGroupId },
+            { id: c.note_id, cgid: conflictGroupId }
           );
         }
       }
@@ -232,7 +238,7 @@ export class NotesStore {
       await this.db.run(
         `?[note_id, inactive] <- [[$id, true]]
          :update notes {note_id => inactive}`,
-        { id: input.supersedes_note_id },
+        { id: input.supersedes_note_id }
       );
     }
 
@@ -263,7 +269,7 @@ export class NotesStore {
         now,
         cgid: conflictGroupId,
         sup: input.supersedes_note_id ?? "",
-      },
+      }
     );
 
     state.saves_this_session++;
@@ -272,7 +278,8 @@ export class NotesStore {
       stored: true,
       note_id: noteId,
       outcome: conflicts.length > 0 ? "conflict" : "created",
-      conflict_group_id: conflictGroupId.length > 0 ? conflictGroupId : undefined,
+      conflict_group_id:
+        conflictGroupId.length > 0 ? conflictGroupId : undefined,
       hint:
         conflicts.length > 0
           ? `stored as ${noteId}; conflict group ${conflictGroupId} now has ${conflicts.length + 1} active notes — surface all when citing ${wire}`
@@ -282,7 +289,7 @@ export class NotesStore {
 
   /** §6.1 `unerr_remember({type:"cochange"})`. Dedupes on sorted-anchor join. */
   async upsertCoChange(
-    input: CoChangeUpsertInput,
+    input: CoChangeUpsertInput
   ): Promise<CoChangeUpsertResult> {
     if (input.anchors.length < 2) {
       throw new Error("co-change groups require at least two anchors");
@@ -294,24 +301,29 @@ export class NotesStore {
 
     const existing = await this.db.run(
       `?[reinforcement_count] := *co_change_groups{group_id, reinforcement_count}, group_id = $gid`,
-      { gid: groupId },
+      { gid: groupId }
     );
     if (existing.rows.length > 0) {
       const rc = (existing.rows[0]?.[0] as number) + 1;
       await this.db.run(
         `?[group_id, reinforcement_count, last_seen_at] <- [[$gid, $rc, $now]]
          :update co_change_groups {group_id => reinforcement_count, last_seen_at}`,
-        { gid: groupId, rc, now },
+        { gid: groupId, rc, now }
       );
-      return { group_id: groupId, reinforcement_count: rc, outcome: "reinforced" };
+      return {
+        group_id: groupId,
+        reinforcement_count: rc,
+        outcome: "reinforced",
+      };
     }
 
     await this.db.run(
       `?[group_id, anchors, content, reinforcement_count, created_at, last_seen_at]
        <- [[$gid, $a, $c, 0, $now, $now]]
        :put co_change_groups`,
-      { gid: groupId, a: anchorsJson, c: input.content, now },
+      { gid: groupId, a: anchorsJson, c: input.content, now }
     );
+    recordCoChangeGroup(UNERR_DIR_FOR_COCHANGE, sorted);
     return { group_id: groupId, reinforcement_count: 0, outcome: "created" };
   }
 
@@ -322,14 +334,14 @@ export class NotesStore {
    */
   async markAnchorMissing(
     anchor: string,
-    nowMs?: number,
+    nowMs?: number
   ): Promise<{ flagged: number; anchor: string }> {
     const parsed = parseAnchor(anchor);
     const now = nowMs ?? Date.now();
     const rows = await this.db.run(
       `?[note_id] := *notes{note_id, anchor_type, anchor_value, anchor_missing},
          anchor_type = $atype, anchor_value = $aval, anchor_missing = false`,
-      { atype: parsed.anchor_type, aval: parsed.anchor_value },
+      { atype: parsed.anchor_type, aval: parsed.anchor_value }
     );
     let flagged = 0;
     for (const row of rows.rows) {
@@ -338,7 +350,7 @@ export class NotesStore {
         `?[note_id, anchor_missing, anchor_missing_since]
          <- [[$id, true, $now]]
          :update notes {note_id => anchor_missing, anchor_missing_since}`,
-        { id, now },
+        { id, now }
       );
       flagged++;
     }
@@ -352,7 +364,7 @@ export class NotesStore {
     const rows = await this.db.run(
       `?[note_id] := *notes{note_id, anchor_type, anchor_value},
          anchor_type = $atype, anchor_value = $aval`,
-      { atype: oldParsed.anchor_type, aval: oldParsed.anchor_value },
+      { atype: oldParsed.anchor_type, aval: oldParsed.anchor_value }
     );
     const now = input.now_ms ?? Date.now();
     let migrated = 0;
@@ -367,7 +379,7 @@ export class NotesStore {
           atype: newParsed.anchor_type,
           aval: newParsed.anchor_value,
           now,
-        },
+        }
       );
       migrated++;
     }
@@ -398,7 +410,7 @@ export class NotesStore {
             anchor_type = $atype,
             anchor_value = $aval,
             inactive = false`,
-        { atype: anchor_type, aval: anchor_value },
+        { atype: anchor_type, aval: anchor_value }
       );
       for (const r of rows.rows) out.push(rowToStoredNote(r));
     }
@@ -447,7 +459,7 @@ export class NotesStore {
             created_at, last_seen_at
           },
           inactive = false,
-          conflict_group_id != ''`,
+          conflict_group_id != ''`
     );
     const groups = new Map<string, StoredNote[]>();
     for (const r of rows.rows) {
@@ -472,7 +484,7 @@ export class NotesStore {
             created_at, last_seen_at
           },
           dedupe_key = $dk`,
-      { dk },
+      { dk }
     );
     if (rows.rows.length === 0) return null;
     const first = rows.rows[0];
@@ -480,9 +492,7 @@ export class NotesStore {
     return rowToStoredNote(first);
   }
 
-  private async findOpposingPolarity(
-    note: ParsedNote,
-  ): Promise<StoredNote[]> {
+  private async findOpposingPolarity(note: ParsedNote): Promise<StoredNote[]> {
     const rows = await this.db.run(
       `?[note_id, kind, anchor_type, anchor_value, polarity, content,
          dedupe_key, reinforcement_count, contradiction_count,
@@ -505,13 +515,13 @@ export class NotesStore {
         atype: note.anchor_type,
         aval: note.anchor_value,
         pol: note.polarity,
-      },
+      }
     );
     return rows.rows.map(rowToStoredNote);
   }
 
   private async findReinforcementCandidates(
-    note: ParsedNote,
+    note: ParsedNote
   ): Promise<StoredNote[]> {
     const rows = await this.db.run(
       `?[note_id, kind, anchor_type, anchor_value, polarity, content,
@@ -532,7 +542,7 @@ export class NotesStore {
         k: note.kind,
         atype: note.anchor_type,
         aval: note.anchor_value,
-      },
+      }
     );
     return rows.rows.map(rowToStoredNote);
   }

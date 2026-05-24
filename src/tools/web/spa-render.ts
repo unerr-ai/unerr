@@ -132,7 +132,9 @@ interface PlaywrightPage {
 
 async function loadPlaywright(): Promise<PlaywrightModule | null> {
   try {
-    return (await import("playwright" as string)) as unknown as PlaywrightModule;
+    return (await import(
+      "playwright" as string
+    )) as unknown as PlaywrightModule;
   } catch {
     return null;
   }

@@ -26,7 +26,7 @@ export type BehaviorEventType =
   | "loop_broken"
   /** Cascade-guard fired before a high-fan-in edit (caller-aware edit). */
   | "cascade_guard"
-  /** `ur|dft` signal was consumed (agent re-read after a drift signal). */
+  /** `ur|ctx` (drift) signal was consumed (agent re-read after a drift signal). */
   | "drift_consumed"
   /** A behavior halted a tool call before it ran (pre-tool-use hook). */
   | "intervention_halted"
@@ -44,7 +44,7 @@ export type BehaviorEventType =
   /** A pre-edit caller check (`get_references({direction:'callers'})`)
    *  was enforced before an edit on a high-fan-in entity. */
   | "caller_check_enforced"
-  /** A stale-edit attempt was caught — agent re-read after `ur|dft` and
+  /** A stale-edit attempt was caught — agent re-read after `ur|ctx` (drift) and
    *  avoided overwriting changed content. */
   | "stale_edit_prevented"
   /** A stored fact surfaced into context this turn via auto-injection
@@ -74,9 +74,42 @@ export type BehaviorEventType =
    *  resolution turn (Sprint 6 ambiguity-gated path). */
   | "confirmation_expired"
   // ── Phase 3 additions (Sprint 12 telemetry)
-  /** Surface 2/3 preface/footer collapsed to the `unerr · ⋯` ambient
+  /** Surface 2/3 preface/footer collapsed to the `unerr » ⋯` ambient
    *  marker because there was nothing to report this turn. */
-  | "presence_ambient_marker";
+  | "presence_ambient_marker"
+  // ── Fix K (Surface-Reliability) addition
+  /** Session-resume surfaced ≥1 open blocker carried over from a prior
+   *  session into the resume strip. Counts per emission, not per blocker —
+   *  one row per resume block render with `detail.count` for the population. */
+  | "resume_blockers_surfaced"
+  // ── Fix B/D (Surface-Reliability) additions
+  /** Agent called `unerr_surface2_line` this turn — Surface 2 directive
+   *  was honoured. One row per dispatch. */
+  | "surface2_emitted"
+  /** Coding-task prompt arrived but the prior turn's `unerr_surface2_line`
+   *  call never fired — Surface 2 directive was missed. One row per
+   *  detection (i.e. each fired buildSurface2Line that follows a miss). */
+  | "surface2_missed"
+  // ── Fix I (Surface-Reliability) Surface 4 trace events ─────────────
+  /** Surface 4a — proxy emitted a user-block attribution panel
+   *  (fact-attribution rows). One row per buildUserBlockForResponse
+   *  fire that produced ≥1 attribution row. */
+  | "surface4a_emitted"
+  /** Surface 4c — pending-confirmation prompt rendered (ambiguity-gated
+   *  capture). One row per fire. */
+  | "surface4c_emitted"
+  /** Surface 4d — enforced-fact prefix rendered ahead of an agent
+   *  response (e.g. user-fed rule re-injected into context). One row
+   *  per fire. */
+  | "surface4d_emitted"
+  // ── Fix J (Surface-Reliability) verbatim-prompt capture ────────────
+  /** A user prompt arrived via the UserPromptSubmit hook. `detail.prompt`
+   *  carries the verbatim string ONLY when `capture_prompts: true` in
+   *  `.unerr/config.json`; otherwise `prompt` is null and only `length +
+   *  classified_as` are populated. Anchored on `{session_id, turn}` —
+   *  joined into Token Flow / Reasoning Quality / Logbook trace pages
+   *  as the per-turn execution anchor. */
+  | "user_prompt_received";
 
 export interface BehaviorEvent {
   /** Monotonic counter per-process. */
@@ -87,8 +120,12 @@ export interface BehaviorEvent {
   session_id: string;
   /** Process ID that produced this event. */
   pid: number;
-  /** Turn number within session (1-indexed; 0 for exec processes). */
+  /** Turn number within session (1-indexed; 0 means "no turn open yet"). */
   turn: number;
+  /** Canonical coding-agent id (claude-code, cursor, codex, …). Resolved
+   *  by the writer from its `agent` field, with an optional per-call
+   *  override on the input. */
+  agent: string;
   /** Verb-noun event type. */
   type: BehaviorEventType;
   /** MCP tool name when tool-bound; null for behaviors that fired
@@ -103,7 +140,19 @@ export interface BehaviorEvent {
   detail?: Record<string, unknown>;
 }
 
-export type BehaviorEventInput = Omit<BehaviorEvent, "id" | "ts" | "pid">;
+/** Input the caller passes to `BehaviorEventWriter.record`. `turn` and
+ *  `agent` are optional — the writer fills them from its turnProvider /
+ *  stored agent unless the caller explicitly overrides (used by
+ *  persistence-effectiveness, which carries the historical turn at
+ *  signal-fire time, and by the proxy initialize handler for per-client
+ *  agent attribution on a shared daemon). */
+export type BehaviorEventInput = Omit<
+  BehaviorEvent,
+  "id" | "ts" | "pid" | "turn" | "agent"
+> & {
+  turn?: number;
+  agent?: string;
+};
 
 // ── Writer ──────────────────────────────────────────────────────────
 
@@ -124,6 +173,7 @@ function rowToEvent(r: BehaviorEventRow): BehaviorEvent {
     session_id: r.session_id,
     pid: r.pid,
     turn: r.turn,
+    agent: r.agent ?? "unknown",
     type: r.type as BehaviorEventType,
     tool: r.tool ?? null,
     entity_key: r.entity_key ?? null,
@@ -134,16 +184,52 @@ function rowToEvent(r: BehaviorEventRow): BehaviorEvent {
 
 export type BehaviorEventSink = (event: BehaviorEvent) => void;
 
+export interface BehaviorEventWriterOptions {
+  /** Coding-agent id stamped on every row. Defaults to "unknown" and can
+   *  be rotated later via `setAgent()` when the MCP initialize frame
+   *  arrives. */
+  agent?: string;
+  /** Returns the current 1-indexed turn number for this session. Wired
+   *  to `TurnSegmenter.getCurrentTurnNumber(sessionId)` in production;
+   *  defaults to `() => 0` so tests / standalone usage still work. */
+  turnProvider?: () => number;
+}
+
 export class BehaviorEventWriter {
   readonly sessionId: string;
   private readonly unerrDir: string;
   private sessionEvents: BehaviorEvent[] = [];
   private sinks: BehaviorEventSink[] = [];
+  private agent: string;
+  private turnProvider: () => number;
 
-  constructor(unerrDir: string, sessionId: string) {
+  constructor(
+    unerrDir: string,
+    sessionId: string,
+    options: BehaviorEventWriterOptions = {}
+  ) {
     this.sessionId = sessionId;
     this.unerrDir = unerrDir;
+    this.agent = options.agent ?? "unknown";
+    this.turnProvider = options.turnProvider ?? (() => 0);
     openMetricsStore(unerrDir);
+  }
+
+  /** Update the agent id (called by the proxy after MCP initialize
+   *  arrives and `clientInfo.name` is known). Idempotent. */
+  setAgent(agent: string): void {
+    if (agent?.trim()) this.agent = agent;
+  }
+
+  /** Swap the turn provider — used when the writer is constructed before
+   *  ShadowLedger is ready and re-wired afterward. */
+  setTurnProvider(provider: () => number): void {
+    this.turnProvider = provider;
+  }
+
+  /** Current agent id stamped on every row (for diagnostics / tests). */
+  getAgent(): string {
+    return this.agent;
   }
 
   /** Register a callback invoked after every `record()`. Used to bridge
@@ -160,6 +246,8 @@ export class BehaviorEventWriter {
     const now = new Date();
     const tsIso = now.toISOString();
     let rowId = 0;
+    const turn = input.turn ?? this.turnProvider();
+    const agent = input.agent ?? this.agent;
 
     try {
       rowId = openMetricsStore(this.unerrDir).insertBehaviorEvent({
@@ -167,7 +255,8 @@ export class BehaviorEventWriter {
         ts_iso: tsIso,
         session_id: input.session_id,
         pid: process.pid,
-        turn: input.turn,
+        turn,
+        agent,
         type: input.type,
         tool: input.tool,
         entity_key: input.entity_key,
@@ -182,7 +271,14 @@ export class BehaviorEventWriter {
       id: rowId,
       ts: tsIso,
       pid: process.pid,
-      ...input,
+      session_id: input.session_id,
+      turn,
+      agent,
+      type: input.type,
+      tool: input.tool,
+      entity_key: input.entity_key,
+      response_bytes: input.response_bytes,
+      detail: input.detail,
     };
 
     this.sessionEvents.push(event);

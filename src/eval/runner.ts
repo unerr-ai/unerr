@@ -63,7 +63,7 @@ export interface RunOptions {
  */
 async function stageWorkspace(
   task: TaskDef,
-  workspaceRoot: string,
+  workspaceRoot: string
 ): Promise<string> {
   await mkdirIfMissing(workspaceRoot);
   const ws = await mkdtemp(join(workspaceRoot, `eval-${task.id}-`));
@@ -72,7 +72,7 @@ async function stageWorkspace(
   writeFileSync(
     join(ws, "TASK.md"),
     `# ${task.title}\n\nrepo: ${task.repo}\n\n${task.prompt}\n`,
-    "utf8",
+    "utf8"
   );
   return ws;
 }
@@ -90,14 +90,14 @@ function maybeRunInstall(config: AgentConfig, workspace: string): void {
   writeFileSync(
     join(workspace, ".unerr-install-marker"),
     `would-install: claude-code\nconfig: ${config.id}\n`,
-    "utf8",
+    "utf8"
   );
 }
 
 async function invokeAgent(
   config: AgentConfig,
   workspace: string,
-  task: TaskDef,
+  task: TaskDef
 ): Promise<{ transcript: string; events: string; durationMs: number }> {
   const start = Date.now();
   if (config.agent_cli === "noop") {
@@ -114,14 +114,14 @@ async function invokeAgent(
   void _unused;
   void task;
   throw new Error(
-    `agent_cli '${config.agent_cli}' is not implemented in the smoke harness — Sprint C wires the real headless path`,
+    `agent_cli '${config.agent_cli}' is not implemented in the smoke harness — Sprint C wires the real headless path`
   );
 }
 
 function persistArtifacts(
   workspace: string,
   transcript: string,
-  events: string,
+  events: string
 ): RunArtifacts {
   const transcriptPath = join(workspace, "transcript.txt");
   const eventsPath = join(workspace, "events.jsonl");
@@ -138,13 +138,13 @@ function summarize(
   task: TaskDef,
   config: AgentConfig,
   artifacts: RunArtifacts,
-  durationMs: number,
+  durationMs: number
 ): RunSummary {
   const transcript = readFileSync(artifacts.transcript_path, "utf8");
   const events = parseEventsJsonl(readFileSync(artifacts.events_path, "utf8"));
   const { moment_detail, moments_hit } = computeMomentDetail(
     events,
-    transcript,
+    transcript
   );
   const notes_saved = countNotesSaved(events);
   const tools_called = listToolsCalled(events);
@@ -172,7 +172,7 @@ function summarize(
 export async function runOne(
   taskId: string,
   configId: string,
-  opts: RunOptions = {},
+  opts: RunOptions = {}
 ): Promise<RunSummary> {
   const task = loadTask(taskId);
   const config = getConfig(configId);
@@ -182,7 +182,7 @@ export async function runOne(
   const { transcript, events, durationMs } = await invokeAgent(
     config,
     workspace,
-    task,
+    task
   );
   const artifacts = persistArtifacts(workspace, transcript, events);
   return summarize(task, config, artifacts, durationMs);
@@ -192,7 +192,7 @@ export async function runOne(
 export async function runOneAndCleanup(
   taskId: string,
   configId: string,
-  opts: RunOptions = {},
+  opts: RunOptions = {}
 ): Promise<RunSummary> {
   const summary = await runOne(taskId, configId, opts);
   // best-effort cleanup; ignore errors
@@ -211,7 +211,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (!taskId || !configId) {
     process.stderr.write(
       "usage: tsx eval/runner.ts <task-id> <config-id>\n" +
-        "  e.g. tsx eval/runner.ts 001-add-health-endpoint a-naive\n",
+        "  e.g. tsx eval/runner.ts 001-add-health-endpoint a-naive\n"
     );
     process.exit(1);
   }
@@ -222,6 +222,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     (err: unknown) => {
       process.stderr.write(`eval-runner error: ${(err as Error).message}\n`);
       process.exit(2);
-    },
+    }
   );
 }

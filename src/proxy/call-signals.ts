@@ -25,8 +25,7 @@
  *                       from the suffix.
  *   - priorSessionFactSurfaced — true when the tool surfaced a stored
  *                       fact (recall_facts with non-empty result, or any
- *                       tool whose body begins with a `ur|fct` / `ur|hst`
- *                       prefix).
+ *                       tool whose body begins with a `ur|fct` prefix).
  *   - urTags            the `ur|<tag>` tags present on the body (when
  *                       content is or contains a text payload).
  *
@@ -50,15 +49,15 @@ const EDIT_LIKE_TOOLS: ReadonlySet<string> = new Set(["edit", "write"]);
  * sequence as a tag.
  */
 const KNOWN_UR_TAGS: ReadonlySet<UrTag> = new Set<UrTag>([
-	"hlt",
-	"dft",
-	"rsk",
-	"wrn",
-	"hnt",
-	"fct",
-	"hth",
-	"hst",
-	"pg",
+  "hlt",
+  "dft",
+  "rsk",
+  "wrn",
+  "hnt",
+  "fct",
+  "hth",
+  "hst",
+  "pg",
 ]);
 
 /** Match `ur|<3-letter-tag>` at the start of a line, capturing the tag. */
@@ -67,10 +66,10 @@ const UR_TAG_RE = /^ur\|([a-z]{2,3})\b/gm;
 const TEST_PATH_RE = /(?:^|\/)(?:__tests__\/|.*\.(?:test|spec)\.[a-zA-Z]+$)/;
 
 const MARK_TOOL_TO_TYPE: ReadonlyMap<string, IntentMarkerType> = new Map([
-	["mark_intent", "intent"],
-	["mark_decision", "decision"],
-	["mark_blocker", "blocker"],
-	["mark_resolution", "resolution"],
+  ["mark_intent", "intent"],
+  ["mark_decision", "decision"],
+  ["mark_blocker", "blocker"],
+  ["mark_resolution", "resolution"],
 ]);
 
 /**
@@ -85,68 +84,69 @@ const MARK_TOOL_TO_TYPE: ReadonlyMap<string, IntentMarkerType> = new Map([
  * paths in sync: whatever it WILL emit, we already saw.
  */
 export interface SignalSource {
-	readonly args: Record<string, unknown>;
-	readonly content: unknown;
-	readonly meta?: {
-		readonly entity_risk?: {
-			readonly fan_in?: number;
-			readonly risk_level?: string;
-		};
-		readonly truncated?: boolean;
-		readonly drift?: { readonly entityStatus?: string | null };
-		readonly circuit_breaker?: unknown;
-		readonly session_health?: { readonly grade?: string };
-		readonly causal_history?: { readonly failure_modes?: readonly string[] };
-		readonly _unerr_page_hint?: string;
-	};
+  readonly args: Record<string, unknown>;
+  readonly content: unknown;
+  readonly meta?: {
+    readonly entity_risk?: {
+      readonly fan_in?: number;
+      readonly risk_level?: string;
+    };
+    readonly truncated?: boolean;
+    readonly drift?: { readonly entityStatus?: string | null };
+    readonly circuit_breaker?: unknown;
+    readonly session_health?: { readonly grade?: string };
+    readonly causal_history?: { readonly failure_modes?: readonly string[] };
+    readonly _unerr_page_hint?: string;
+  };
 }
 
 export function extractSignals(
-	toolName: string,
-	source: SignalSource,
+  toolName: string,
+  source: SignalSource
 ): CallSignals {
-	const args = source.args ?? {};
-	const meta = source.meta;
-	const content = source.content;
+  const args = source.args ?? {};
+  const meta = source.meta;
+  const content = source.content;
 
-	const filePath = readFilePathArg(args);
-	const bodyText = collectBodyText(content);
-	const urTags = mergeTagSources(parseUrTags(bodyText), deriveTagsFromMeta(meta));
-	const fileImports = countImports(toolName, content);
-	const entityFanIn = meta?.entity_risk?.fan_in;
-	const intentMarker = MARK_TOOL_TO_TYPE.get(toolName);
-	const fileReadTruncated =
-		(toolName === "file_read" ||
-			toolName === "file_outline" ||
-			toolName === "get_file") &&
-		meta?.truncated === true;
-	const priorSessionFactSurfaced = derivePriorFact(
-		toolName,
-		content,
-		urTags,
-	);
+  const filePath = readFilePathArg(args);
+  const bodyText = collectBodyText(content);
+  const urTags = mergeTagSources(
+    parseUrTags(bodyText),
+    deriveTagsFromMeta(meta)
+  );
+  const fileImports = countImports(toolName, content);
+  const entityFanIn = meta?.entity_risk?.fan_in;
+  const intentMarker = MARK_TOOL_TO_TYPE.get(toolName);
+  const fileReadTruncated =
+    (toolName === "file_read" ||
+      toolName === "file_outline" ||
+      toolName === "get_file") &&
+    meta?.truncated === true;
+  const priorSessionFactSurfaced = derivePriorFact(toolName, content, urTags);
 
-	return {
-		toolName,
-		...(urTags.length > 0 ? { urTags } : {}),
-		...(entityFanIn !== undefined ? { entityFanIn } : {}),
-		...(fileImports !== undefined ? { fileImports } : {}),
-		...(filePath !== undefined ? { filePath } : {}),
-		...(filePath !== undefined ? { testFile: TEST_PATH_RE.test(filePath) } : {}),
-		...(EDIT_LIKE_TOOLS.has(toolName) ? { editOrWrite: true } : {}),
-		...(fileReadTruncated ? { fileReadTruncated: true } : {}),
-		...(intentMarker ? { intentMarker } : {}),
-		...(priorSessionFactSurfaced ? { priorSessionFactSurfaced: true } : {}),
-	};
+  return {
+    toolName,
+    ...(urTags.length > 0 ? { urTags } : {}),
+    ...(entityFanIn !== undefined ? { entityFanIn } : {}),
+    ...(fileImports !== undefined ? { fileImports } : {}),
+    ...(filePath !== undefined ? { filePath } : {}),
+    ...(filePath !== undefined
+      ? { testFile: TEST_PATH_RE.test(filePath) }
+      : {}),
+    ...(EDIT_LIKE_TOOLS.has(toolName) ? { editOrWrite: true } : {}),
+    ...(fileReadTruncated ? { fileReadTruncated: true } : {}),
+    ...(intentMarker ? { intentMarker } : {}),
+    ...(priorSessionFactSurfaced ? { priorSessionFactSurfaced: true } : {}),
+  };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function readFilePathArg(args: Record<string, unknown>): string | undefined {
-	const candidate = args.file_path ?? args.path ?? args.filePath;
-	return typeof candidate === "string" && candidate.length > 0
-		? candidate
-		: undefined;
+  const candidate = args.file_path ?? args.path ?? args.filePath;
+  return typeof candidate === "string" && candidate.length > 0
+    ? candidate
+    : undefined;
 }
 
 /**
@@ -158,45 +158,45 @@ function readFilePathArg(args: Record<string, unknown>): string | undefined {
  * The view is used only for `ur|<tag>` parsing; no JSON inspection here.
  */
 function collectBodyText(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (Array.isArray(content)) {
-		let out = "";
-		for (const block of content) {
-			if (
-				block &&
-				typeof block === "object" &&
-				"text" in block &&
-				typeof (block as { text: unknown }).text === "string"
-			) {
-				out += `${(block as { text: string }).text}\n`;
-			}
-		}
-		return out;
-	}
-	if (
-		content &&
-		typeof content === "object" &&
-		"text" in content &&
-		typeof (content as { text: unknown }).text === "string"
-	) {
-		return (content as { text: string }).text;
-	}
-	return "";
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    let out = "";
+    for (const block of content) {
+      if (
+        block &&
+        typeof block === "object" &&
+        "text" in block &&
+        typeof (block as { text: unknown }).text === "string"
+      ) {
+        out += `${(block as { text: string }).text}\n`;
+      }
+    }
+    return out;
+  }
+  if (
+    content &&
+    typeof content === "object" &&
+    "text" in content &&
+    typeof (content as { text: unknown }).text === "string"
+  ) {
+    return (content as { text: string }).text;
+  }
+  return "";
 }
 
 function parseUrTags(bodyText: string): UrTag[] {
-	if (bodyText.length === 0) return [];
-	const seen = new Set<UrTag>();
-	UR_TAG_RE.lastIndex = 0;
-	let m: RegExpExecArray | null;
-	// biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex loop
-	while ((m = UR_TAG_RE.exec(bodyText)) !== null) {
-		const tag = m[1];
-		if (tag && (KNOWN_UR_TAGS as ReadonlySet<string>).has(tag)) {
-			seen.add(tag as UrTag);
-		}
-	}
-	return [...seen];
+  if (bodyText.length === 0) return [];
+  const seen = new Set<UrTag>();
+  UR_TAG_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex loop
+  while ((m = UR_TAG_RE.exec(bodyText)) !== null) {
+    const tag = m[1];
+    if (tag && (KNOWN_UR_TAGS as ReadonlySet<string>).has(tag)) {
+      seen.add(tag as UrTag);
+    }
+  }
+  return [...seen];
 }
 
 /**
@@ -213,21 +213,21 @@ function parseUrTags(bodyText: string): UrTag[] {
  * the file's import count (a few dozen at most).
  */
 function countImports(toolName: string, content: unknown): number | undefined {
-	if (toolName !== "file_outline" && toolName !== "get_file") return undefined;
-	if (typeof content === "string") return countImportsFromMultiString(content);
-	if (!content || typeof content !== "object") return undefined;
-	const obj = content as Record<string, unknown>;
-	const direct = obj.imports;
-	if (Array.isArray(direct)) return direct.length;
-	const nested =
-		(obj.outline && typeof obj.outline === "object"
-			? (obj.outline as Record<string, unknown>).imports
-			: undefined) ??
-		(obj.result && typeof obj.result === "object"
-			? (obj.result as Record<string, unknown>).imports
-			: undefined);
-	if (Array.isArray(nested)) return nested.length;
-	return undefined;
+  if (toolName !== "file_outline" && toolName !== "get_file") return undefined;
+  if (typeof content === "string") return countImportsFromMultiString(content);
+  if (!content || typeof content !== "object") return undefined;
+  const obj = content as Record<string, unknown>;
+  const direct = obj.imports;
+  if (Array.isArray(direct)) return direct.length;
+  const nested =
+    (obj.outline && typeof obj.outline === "object"
+      ? (obj.outline as Record<string, unknown>).imports
+      : undefined) ??
+    (obj.result && typeof obj.result === "object"
+      ? (obj.result as Record<string, unknown>).imports
+      : undefined);
+  if (Array.isArray(nested)) return nested.length;
+  return undefined;
 }
 
 /**
@@ -251,22 +251,22 @@ function countImports(toolName: string, content: unknown): number | undefined {
  * has no `@imports` section.
  */
 function countImportsFromMultiString(body: string): number | undefined {
-	const headerIdx = body.indexOf("\n@imports");
-	if (headerIdx === -1) return undefined;
-	// Skip the header line itself
-	const sectionStart = body.indexOf("\n", headerIdx + 1);
-	if (sectionStart === -1) return 0;
-	// Section ends at the next `\n@<word>` header or end of body
-	const nextSectionRe = /\n@[a-zA-Z]/g;
-	nextSectionRe.lastIndex = sectionStart + 1;
-	const nextMatch = nextSectionRe.exec(body);
-	const sectionEnd = nextMatch ? nextMatch.index : body.length;
-	const section = body.slice(sectionStart + 1, sectionEnd);
-	let count = 0;
-	for (const line of section.split("\n")) {
-		if (line.trim().length > 0) count += 1;
-	}
-	return count;
+  const headerIdx = body.indexOf("\n@imports");
+  if (headerIdx === -1) return undefined;
+  // Skip the header line itself
+  const sectionStart = body.indexOf("\n", headerIdx + 1);
+  if (sectionStart === -1) return 0;
+  // Section ends at the next `\n@<word>` header or end of body
+  const nextSectionRe = /\n@[a-zA-Z]/g;
+  nextSectionRe.lastIndex = sectionStart + 1;
+  const nextMatch = nextSectionRe.exec(body);
+  const sectionEnd = nextMatch ? nextMatch.index : body.length;
+  const section = body.slice(sectionStart + 1, sectionEnd);
+  let count = 0;
+  for (const line of section.split("\n")) {
+    if (line.trim().length > 0) count += 1;
+  }
+  return count;
 }
 
 /**
@@ -289,55 +289,53 @@ function countImportsFromMultiString(body: string): number | undefined {
  * after recordAndUnlock would have run, and the body-text parser
  * catches them on subsequent calls if they end up in content.
  */
-function deriveTagsFromMeta(
-	meta: SignalSource["meta"],
-): readonly UrTag[] {
-	if (!meta) return [];
-	const tags: UrTag[] = [];
-	if (meta.circuit_breaker) tags.push("hlt");
-	if (meta.drift?.entityStatus) tags.push("dft");
-	if (meta.entity_risk?.risk_level === "high") tags.push("rsk");
-	const grade = meta.session_health?.grade;
-	if (grade && (grade.startsWith("D") || grade.startsWith("F"))) {
-		tags.push("hth");
-	}
-	if (
-		meta.causal_history?.failure_modes &&
-		meta.causal_history.failure_modes.length > 0
-	) {
-		tags.push("hst");
-	}
-	if (meta._unerr_page_hint) tags.push("pg");
-	return tags;
+function deriveTagsFromMeta(meta: SignalSource["meta"]): readonly UrTag[] {
+  if (!meta) return [];
+  const tags: UrTag[] = [];
+  if (meta.circuit_breaker) tags.push("hlt");
+  if (meta.drift?.entityStatus) tags.push("dft");
+  if (meta.entity_risk?.risk_level === "high") tags.push("rsk");
+  const grade = meta.session_health?.grade;
+  if (grade && (grade.startsWith("D") || grade.startsWith("F"))) {
+    tags.push("hth");
+  }
+  if (
+    meta.causal_history?.failure_modes &&
+    meta.causal_history.failure_modes.length > 0
+  ) {
+    tags.push("hst");
+  }
+  if (meta._unerr_page_hint) tags.push("pg");
+  return tags;
 }
 
 /** Merge two tag streams, deduping while preserving first-seen order. */
 function mergeTagSources(
-	a: readonly UrTag[],
-	b: readonly UrTag[],
+  a: readonly UrTag[],
+  b: readonly UrTag[]
 ): readonly UrTag[] {
-	if (b.length === 0) return a;
-	if (a.length === 0) return b;
-	const seen = new Set<UrTag>(a);
-	const out = [...a];
-	for (const tag of b) {
-		if (!seen.has(tag)) {
-			seen.add(tag);
-			out.push(tag);
-		}
-	}
-	return out;
+  if (b.length === 0) return a;
+  if (a.length === 0) return b;
+  const seen = new Set<UrTag>(a);
+  const out = [...a];
+  for (const tag of b) {
+    if (!seen.has(tag)) {
+      seen.add(tag);
+      out.push(tag);
+    }
+  }
+  return out;
 }
 
 function derivePriorFact(
-	toolName: string,
-	content: unknown,
-	urTags: readonly UrTag[],
+  toolName: string,
+  content: unknown,
+  urTags: readonly UrTag[]
 ): boolean {
-	if (urTags.includes("fct") || urTags.includes("hst")) return true;
-	if (toolName !== "recall_facts") return false;
-	if (!content || typeof content !== "object") return false;
-	const obj = content as Record<string, unknown>;
-	const facts = obj.facts ?? obj.results ?? obj.rows;
-	return Array.isArray(facts) && facts.length > 0;
+  if (urTags.includes("fct") || urTags.includes("hst")) return true;
+  if (toolName !== "recall_facts") return false;
+  if (!content || typeof content !== "object") return false;
+  const obj = content as Record<string, unknown>;
+  const facts = obj.facts ?? obj.results ?? obj.rows;
+  return Array.isArray(facts) && facts.length > 0;
 }

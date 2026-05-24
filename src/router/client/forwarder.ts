@@ -45,7 +45,7 @@ export class Forwarder {
         response: makeErrorResponse(
           nextForwardId++,
           -32001,
-          `Unknown server: ${request.serverId}`,
+          `Unknown server: ${request.serverId}`
         ),
         serverId: request.serverId,
         latencyMs: performance.now() - start,
@@ -57,7 +57,7 @@ export class Forwarder {
         response: makeErrorResponse(
           nextForwardId++,
           -32002,
-          `Server ${request.serverId} is ${server.status}`,
+          `Server ${request.serverId} is ${server.status}`
         ),
         serverId: request.serverId,
         latencyMs: performance.now() - start,
@@ -87,7 +87,7 @@ export class Forwarder {
         response: makeErrorResponse(
           id,
           -32003,
-          `Forward to ${request.serverId} failed: ${(err as Error).message}`,
+          `Forward to ${request.serverId} failed: ${(err as Error).message}`
         ),
         serverId: request.serverId,
         latencyMs: performance.now() - start,
@@ -107,7 +107,7 @@ export class Forwarder {
 function makeErrorResponse(
   id: number,
   code: number,
-  message: string,
+  message: string
 ): JsonRpcResponse {
   return {
     jsonrpc: "2.0",

@@ -9,8 +9,16 @@ function p(index: number, heading: string | null, text: string): Passage {
 describe("rankPassagesByPrompt", () => {
   const passages: Passage[] = [
     p(0, "Intro", "Welcome to the documentation home page."),
-    p(1, "Authentication", "Use OAuth2 access tokens to authenticate API calls."),
-    p(2, "Pagination", "Endpoints accept cursor and limit query params for paging."),
+    p(
+      1,
+      "Authentication",
+      "Use OAuth2 access tokens to authenticate API calls."
+    ),
+    p(
+      2,
+      "Pagination",
+      "Endpoints accept cursor and limit query params for paging."
+    ),
     p(3, "Rate Limits", "API requests are throttled at 1000 per hour per key."),
     p(4, "Webhooks", "Subscribe to events through the webhook endpoint."),
   ];

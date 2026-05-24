@@ -12,11 +12,13 @@ export interface SessionLegendTracker {
   invalidateAll(): void;
 }
 
-/** One-time output format legend text (~30 tokens). */
+/** One-time output format legend text (~40 tokens). Advertises the once-per-session
+ *  output conventions: unified diff for edits, path references over content, and
+ *  the `ur|ctx` signal that means context already delivered — proceed without re-querying. */
 export const OUTPUT_FORMAT_LEGEND =
   "Output conventions: use unified diff (---/+++/@@ hunks) for edits. " +
-  "When a response begins with `ur|ctx`, all context for this entity was already delivered — skip restatement. " +
-  "Prefer file path references over content repetition.";
+  "Prefer file path references over content repetition. " +
+  "When a response carries `ur|ctx` for an entity, context is already delivered — do not re-query.";
 
 export function createSessionLegendTracker(): SessionLegendTracker {
   let columnarSent = false;

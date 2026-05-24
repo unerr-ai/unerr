@@ -12,7 +12,7 @@
  *   - unknown: insufficient data to determine
  */
 
-import type { SubsequentCall, OutcomeQuality } from "./types.js";
+import type { OutcomeQuality, SubsequentCall } from "./types.js";
 
 const MEANINGFUL_TOKEN_THRESHOLD = 100;
 const HIGH_TOKEN_THRESHOLD = 300;
@@ -26,13 +26,16 @@ const HIGH_TOKEN_THRESHOLD = 300;
  */
 export function scoreOutcomeQuality(
   call: SubsequentCall,
-  hasSubsequentEdit: boolean,
+  hasSubsequentEdit: boolean
 ): OutcomeQuality {
   if (call.outcome === "error") return "low";
   if (call.outcome === "empty") return "low";
 
   if (call.outcome === "success") {
-    if (hasSubsequentEdit && call.responseTokens >= MEANINGFUL_TOKEN_THRESHOLD) {
+    if (
+      hasSubsequentEdit &&
+      call.responseTokens >= MEANINGFUL_TOKEN_THRESHOLD
+    ) {
       return "high";
     }
     if (call.responseTokens >= HIGH_TOKEN_THRESHOLD) {
@@ -53,10 +56,14 @@ export function scoreOutcomeQuality(
  */
 export function qualityToNumeric(quality: OutcomeQuality): number {
   switch (quality) {
-    case "high": return 1.0;
-    case "medium": return 0.66;
-    case "low": return 0.33;
-    case "unknown": return 0.0;
+    case "high":
+      return 1.0;
+    case "medium":
+      return 0.66;
+    case "low":
+      return 0.33;
+    case "unknown":
+      return 0.0;
   }
 }
 

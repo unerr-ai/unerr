@@ -44,7 +44,9 @@ export interface UnerrFamilyEntry {
   readonly tools: readonly string[];
 }
 
-export const UNERR_FAMILIES: Readonly<Record<UnerrFamilyName, UnerrFamilyEntry>> = {
+export const UNERR_FAMILIES: Readonly<
+  Record<UnerrFamilyName, UnerrFamilyEntry>
+> = {
   graph: {
     name: "graph",
     label: "Code graph navigation",
@@ -79,7 +81,13 @@ export const UNERR_FAMILIES: Readonly<Record<UnerrFamilyName, UnerrFamilyEntry>>
   markers: {
     name: "markers",
     label: "Session markers",
-    tools: ["mark_intent", "mark_decision", "mark_blocker", "mark_resolution"],
+    tools: [
+      "mark_intent",
+      "mark_decision",
+      "mark_blocker",
+      "mark_resolution",
+      "unerr_turn_summary",
+    ],
   },
   web: {
     name: "web",
@@ -89,25 +97,26 @@ export const UNERR_FAMILIES: Readonly<Record<UnerrFamilyName, UnerrFamilyEntry>>
 };
 
 /** Reverse lookup: tool name → family name. Built once at module load. */
-export const UNERR_TOOL_TO_FAMILY: ReadonlyMap<string, UnerrFamilyName> = (() => {
-  const m = new Map<string, UnerrFamilyName>();
-  for (const family of Object.values(UNERR_FAMILIES)) {
-    for (const tool of family.tools) {
-      if (m.has(tool)) {
-        throw new Error(
-          `unerr-families: tool "${tool}" registered to multiple families ` +
-            `("${m.get(tool)}" and "${family.name}"). Each tool must belong to exactly one family.`,
-        );
+export const UNERR_TOOL_TO_FAMILY: ReadonlyMap<string, UnerrFamilyName> =
+  (() => {
+    const m = new Map<string, UnerrFamilyName>();
+    for (const family of Object.values(UNERR_FAMILIES)) {
+      for (const tool of family.tools) {
+        if (m.has(tool)) {
+          throw new Error(
+            `unerr-families: tool "${tool}" registered to multiple families ` +
+              `("${m.get(tool)}" and "${family.name}"). Each tool must belong to exactly one family.`
+          );
+        }
+        m.set(tool, family.name);
       }
-      m.set(tool, family.name);
     }
-  }
-  return m;
-})();
+    return m;
+  })();
 
 /** Every unerr family name (always-on set for FamilyMaskEngine). */
 export const UNERR_FAMILY_NAMES: ReadonlySet<UnerrFamilyName> = new Set(
-  Object.keys(UNERR_FAMILIES) as UnerrFamilyName[],
+  Object.keys(UNERR_FAMILIES) as UnerrFamilyName[]
 );
 
 /**
@@ -125,7 +134,7 @@ export const UNERR_FAMILY_NAMES: ReadonlySet<UnerrFamilyName> = new Set(
   if (missing.length > 0) {
     throw new Error(
       `unerr-families: TIER_ENTRIES contains tools not registered to any family: ${missing.join(", ")}. ` +
-        `Add them to src/router/unerr-families.ts.`,
+        `Add them to src/router/unerr-families.ts.`
     );
   }
   const registered = [...UNERR_TOOL_TO_FAMILY.keys()];
@@ -133,7 +142,7 @@ export const UNERR_FAMILY_NAMES: ReadonlySet<UnerrFamilyName> = new Set(
   if (orphaned.length > 0) {
     throw new Error(
       `unerr-families: registry contains tools not in TIER_ENTRIES: ${orphaned.join(", ")}. ` +
-        `Remove from src/router/unerr-families.ts or add to TIER_ENTRIES.`,
+        `Remove from src/router/unerr-families.ts or add to TIER_ENTRIES.`
     );
   }
 })();
@@ -141,14 +150,14 @@ export const UNERR_FAMILY_NAMES: ReadonlySet<UnerrFamilyName> = new Set(
 /** Extend an always-on set with every unerr family. Used when constructing
  *  FamilyMaskEngine so unerr's own tools are never masked by intent scoring. */
 export function withAllUnerrAlwaysOn(
-  existingAlwaysOn: ReadonlySet<string>,
+  existingAlwaysOn: ReadonlySet<string>
 ): Set<string> {
   return new Set([...existingAlwaysOn, ...UNERR_FAMILY_NAMES]);
 }
 
 /** Extend a known-families set with every unerr family. */
 export function withAllUnerrKnown(
-  existingKnown: ReadonlySet<string>,
+  existingKnown: ReadonlySet<string>
 ): Set<string> {
   return new Set([...existingKnown, ...UNERR_FAMILY_NAMES]);
 }

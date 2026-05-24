@@ -83,7 +83,7 @@ export function detectGitRename(input: DetectRenameInput): DetectRenameResult {
         "--",
         input.old_path,
       ],
-      input.repo_dir,
+      input.repo_dir
     );
   } catch {
     return { reason: "git_error" };
@@ -137,7 +137,7 @@ export interface HandleFileDeletionResult {
  */
 export async function handleFileDeletion(
   store: NotesStore,
-  input: HandleFileDeletionInput,
+  input: HandleFileDeletionInput
 ): Promise<HandleFileDeletionResult> {
   const oldAnchor = `f:${input.deleted_path}`;
 

@@ -9,7 +9,7 @@
  * preface; every other call falls inside the same turn and only renders
  * Surface 3's footer.
  *
- * Ambient-marker tracking (consecutive-zero collapse to `unerr · ⋯`)
+ * Ambient-marker tracking (consecutive-zero collapse to `unerr » ⋯`)
  * lives in `ambient-marker.ts` and is composed with this module by the
  * `user-block-emitter.ts` caller — keep the two concerns separate so
  * each can be tested in isolation.

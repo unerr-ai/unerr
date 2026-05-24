@@ -1,8 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { FamilyNudgeEmitter, type NudgeResult } from "../router/family-nudge.js";
+import {
+  FamilyNudgeEmitter,
+  type NudgeResult,
+} from "../router/family-nudge.js";
 
-function makeEmitter(aliases: string[] = ["gh", "pg", "slk"]): FamilyNudgeEmitter {
+function makeEmitter(
+  aliases: string[] = ["gh", "pg", "slk"]
+): FamilyNudgeEmitter {
   return new FamilyNudgeEmitter(new Set(aliases));
 }
 
@@ -14,7 +19,7 @@ describe("FamilyNudgeEmitter", () => {
     const result = emitter.evaluate(["db/schema.sql"]);
 
     expect(result.emitted).toBe(true);
-    expect(result.nudgeText).toContain("ur|hnt");
+    expect(result.nudgeText).toContain("ur|fct");
     expect(result.nudgeText).toContain("pg_*");
     expect(result.nudgeText).toContain("DB/Postgres");
   });
@@ -24,7 +29,7 @@ describe("FamilyNudgeEmitter", () => {
     const result = emitter.evaluate([".github/workflows/ci.yml"]);
 
     expect(result.emitted).toBe(true);
-    expect(result.nudgeText).toContain("ur|hnt");
+    expect(result.nudgeText).toContain("ur|fct");
     expect(result.nudgeText).toContain("gh_*");
     expect(result.nudgeText).toContain("GitHub/CI");
   });
@@ -37,7 +42,7 @@ describe("FamilyNudgeEmitter", () => {
     ]);
 
     expect(result.emitted).toBe(true);
-    expect(result.nudgeText).toContain("ur|hnt");
+    expect(result.nudgeText).toContain("ur|fct");
     expect(result.nudgeText).toContain("Multi-domain");
   });
 

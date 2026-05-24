@@ -20,6 +20,7 @@
 
 import { promoteNotesToClaudeMd } from "../../intelligence/claude-md-mirror.js";
 import type { NotesStore, StoredNote } from "../../intelligence/notes-store.js";
+import { setPendingTopicShift } from "../../intelligence/topic-shift.js";
 
 export interface RecallNotesInput {
   /** Discriminator. Defaults to "anchors" when omitted (and anchors[] is set). */
@@ -64,7 +65,7 @@ function err<T>(message: string): ToolResult<T> {
 /** Dispatch unerr_recall_notes by input shape. */
 export async function recallNotes(
   store: NotesStore,
-  input: RecallNotesInput,
+  input: RecallNotesInput
 ): Promise<ToolResult<unknown>> {
   const action =
     input.action ??
@@ -84,6 +85,12 @@ export async function recallNotes(
         candidate_anchors: input.candidate_anchors,
         session_id: input.session_id,
       });
+      if (input.session_id && result.topic_shift === true) {
+        setPendingTopicShift(input.session_id, {
+          flag: true,
+          overlap: result.topic_shift_overlap ?? 0,
+        });
+      }
       return {
         ok: true,
         data: result,
@@ -123,13 +130,16 @@ export async function remember(
   input: RememberInput,
   /** When type=promote_to_claude_md, the caller injects the writer. Kept as a
    *  function pointer so this module stays decoupled from filesystem I/O. */
-  promoteWriter?: (noteIds: string[]) => Promise<{ written: number; path: string }>,
+  promoteWriter?: (
+    noteIds: string[]
+  ) => Promise<{ written: number; path: string }>
 ): Promise<ToolResult<unknown>> {
   const type = input.type ?? "note";
   try {
     switch (type) {
       case "note": {
-        if (!input.note) return err("remember: note (DSL wire string) required");
+        if (!input.note)
+          return err("remember: note (DSL wire string) required");
         if (!input.session_id) return err("remember: session_id required");
         const result = await store.upsertNote({
           note: input.note,
@@ -177,7 +187,7 @@ export async function remember(
         }
         if (!promoteWriter) {
           return err(
-            "remember(promote_to_claude_md): promoteWriter not provided — proxy must inject the CLAUDE.md mirror writer",
+            "remember(promote_to_claude_md): promoteWriter not provided — proxy must inject the CLAUDE.md mirror writer"
           );
         }
         const result = await promoteWriter(input.note_ids);

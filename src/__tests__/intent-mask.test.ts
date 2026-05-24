@@ -1,10 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
+import { IntentDispatcher } from "../router/dispatch.js";
 import { FamilyMaskEngine, type MaskSnapshot } from "../router/family-mask.js";
 import { buildIntentMaskRefuse } from "../router/intent-mask-refuse.js";
-import { IntentDispatcher } from "../router/dispatch.js";
-import { scoreIntent, type ScorerInput } from "../router/intent/scorer.js";
-import { createStickinessState, recordFamilyCall } from "../router/intent/stickiness.js";
+import { type ScorerInput, scoreIntent } from "../router/intent/scorer.js";
+import {
+  createStickinessState,
+  recordFamilyCall,
+} from "../router/intent/stickiness.js";
 import { createEmptyDecayState } from "../router/intent/threshold-decay.js";
 
 const ALL_FAMILIES = new Set(["pg", "gh", "slk", "str", "aws"]);
@@ -177,7 +180,7 @@ describe("IntentMaskRefuse — Soft-refuse for masked tools", () => {
     expect(result._gate.family).toBe("gh");
     expect(result._gate.dominant_intent).toBe("pg");
     expect(result._gate.override_command).toBe("unerr router unmask gh");
-    expect(result.content[0]!.text).toContain("ur|hnt gh_search hidden");
+    expect(result.content[0]!.text).toContain("ur|fct gh_search hidden");
     expect(result.content[0]!.text).toContain("pg work");
     expect(result.content[0]!.text).toContain("unerr router unmask gh");
   });

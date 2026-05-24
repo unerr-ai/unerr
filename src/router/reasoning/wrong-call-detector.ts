@@ -27,7 +27,10 @@ export interface ToolCallTrace {
 export interface WrongCallDetection {
   readonly wrongCall: ToolCallTrace;
   readonly correction: ToolCallTrace;
-  readonly heuristic: "empty_then_retry" | "error_then_retry" | "same_family_switch";
+  readonly heuristic:
+    | "empty_then_retry"
+    | "error_then_retry"
+    | "same_family_switch";
   readonly confidence: number;
 }
 
@@ -41,7 +44,9 @@ export interface DetectionResult {
  * Detect wrong tool calls from a session trace.
  * Scans for retry patterns within the same turn or consecutive turns.
  */
-export function detectWrongCalls(trace: readonly ToolCallTrace[]): DetectionResult {
+export function detectWrongCalls(
+  trace: readonly ToolCallTrace[]
+): DetectionResult {
   if (trace.length < 2) {
     return { wrongCalls: [], totalCalls: trace.length, wrongCallRate: 0 };
   }
@@ -55,7 +60,7 @@ export function detectWrongCalls(trace: readonly ToolCallTrace[]): DetectionResu
     const sameTurn = next.turnNumber === current.turnNumber;
     const consecutiveTurn = next.turnNumber === current.turnNumber + 1;
     const differentTool = next.toolName !== current.toolName;
-    const quickRetry = (next.timestamp - current.timestamp) < 10_000;
+    const quickRetry = next.timestamp - current.timestamp < 10_000;
 
     if (!differentTool) continue;
     if (!sameTurn && !consecutiveTurn) continue;
@@ -72,7 +77,7 @@ export function detectWrongCalls(trace: readonly ToolCallTrace[]): DetectionResu
         wrongCall: current,
         correction: next,
         heuristic: "error_then_retry",
-        confidence: 0.90,
+        confidence: 0.9,
       });
     } else if (
       current.family === next.family &&
@@ -84,14 +89,12 @@ export function detectWrongCalls(trace: readonly ToolCallTrace[]): DetectionResu
         wrongCall: current,
         correction: next,
         heuristic: "same_family_switch",
-        confidence: 0.60,
+        confidence: 0.6,
       });
     }
   }
 
-  const wrongCallRate = trace.length > 0
-    ? detections.length / trace.length
-    : 0;
+  const wrongCallRate = trace.length > 0 ? detections.length / trace.length : 0;
 
   return {
     wrongCalls: detections,
@@ -104,7 +107,9 @@ export function detectWrongCalls(trace: readonly ToolCallTrace[]): DetectionResu
  * Compute selection accuracy from a trace.
  * Accuracy = 1 - wrongCallRate (based on detected wrong calls).
  */
-export function computeSelectionAccuracy(trace: readonly ToolCallTrace[]): number {
+export function computeSelectionAccuracy(
+  trace: readonly ToolCallTrace[]
+): number {
   const result = detectWrongCalls(trace);
   return 1 - result.wrongCallRate;
 }

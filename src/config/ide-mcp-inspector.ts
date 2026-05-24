@@ -43,7 +43,7 @@ function isUnerrRouterEntry(entry: McpServerEntry): boolean {
 }
 
 function extractMcpJsonServers(
-  raw: Record<string, unknown>,
+  raw: Record<string, unknown>
 ): Record<string, McpServerEntry> | null {
   const servers = raw.mcpServers;
   if (servers && typeof servers === "object" && !Array.isArray(servers)) {
@@ -53,7 +53,7 @@ function extractMcpJsonServers(
 }
 
 function extractSettingsJsonServers(
-  raw: Record<string, unknown>,
+  raw: Record<string, unknown>
 ): Record<string, McpServerEntry> | null {
   const mcp = raw.mcp as Record<string, unknown> | undefined;
   if (!mcp) return null;
@@ -65,7 +65,7 @@ function extractSettingsJsonServers(
 }
 
 function extractContinueServers(
-  raw: Record<string, unknown>,
+  raw: Record<string, unknown>
 ): Record<string, McpServerEntry> | null {
   const arr = raw.mcpServers;
   if (!Array.isArray(arr)) return null;
@@ -81,7 +81,7 @@ function extractContinueServers(
 
 function extractServers(
   format: AgentDefinition["configFormat"],
-  raw: Record<string, unknown>,
+  raw: Record<string, unknown>
 ): Record<string, McpServerEntry> | null {
   switch (format) {
     case "mcp-json":
@@ -98,7 +98,7 @@ function extractServers(
 
 function inspectOneAgent(
   cwd: string,
-  agent: AgentDefinition,
+  agent: AgentDefinition
 ): IdeConfigResult | null {
   if (agent.configScope === "global") return null;
 
@@ -157,12 +157,9 @@ export function inspectIdeMcpConfigs(cwd: string): readonly IdeConfigResult[] {
  * Used to build the activation plan.
  */
 export function getNonUnerrServers(
-  configs: readonly IdeConfigResult[],
+  configs: readonly IdeConfigResult[]
 ): ReadonlyMap<string, { agentIds: string[]; entry: McpServerEntry }> {
-  const map = new Map<
-    string,
-    { agentIds: string[]; entry: McpServerEntry }
-  >();
+  const map = new Map<string, { agentIds: string[]; entry: McpServerEntry }>();
   for (const config of configs) {
     for (const server of config.servers) {
       if (server.name === UNERR_SERVER_KEY) continue;
@@ -206,7 +203,7 @@ export interface ToolCapAnalysis {
  * which servers' tools are being silently dropped.
  */
 export function analyzeToolCaps(
-  configs: readonly IdeConfigResult[],
+  configs: readonly IdeConfigResult[]
 ): readonly ToolCapAnalysis[] {
   const results: ToolCapAnalysis[] = [];
 
@@ -214,7 +211,7 @@ export function analyzeToolCaps(
     const cap = CLIENT_TOOL_CAPS[config.agentId] ?? null;
     const totalTools = config.servers.reduce(
       (sum, s) => sum + (s.toolCount ?? estimateToolCount(s.name)),
-      0,
+      0
     );
 
     if (cap === null) {

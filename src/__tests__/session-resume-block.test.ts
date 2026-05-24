@@ -45,6 +45,8 @@ function makePayload(
       },
     ],
     decayed_since_last_session: [],
+    open_blockers: [],
+    last_intents: [],
     ...overrides,
   };
 }
@@ -116,5 +118,98 @@ describe("formatSessionResumeBlock", () => {
     });
     const block = formatSessionResumeBlock(payload);
     expect(block).not.toContain("No specific continuity context");
+  });
+
+  // ── Fix K — open blockers + last intents ────────────────────────────
+
+  it("renders the last intent above blockers when present", () => {
+    const payload = makePayload({
+      last_intents: [
+        {
+          marker_id: "i1",
+          text: "wire fact-store recall into resume strip",
+          ts: Date.now(),
+        },
+      ],
+    });
+    const block = formatSessionResumeBlock(payload);
+    expect(block).toContain("last intent: wire fact-store recall");
+  });
+
+  it("renders open blockers with file anchor when present", () => {
+    const payload = makePayload({
+      open_blockers: [
+        {
+          marker_id: "b1",
+          text: "PaymentGateway has 8 callers — refactor blocked",
+          file_path: "src/payment/gateway.ts",
+          ts: Date.now(),
+        },
+      ],
+    });
+    const block = formatSessionResumeBlock(payload);
+    expect(block).toContain("unresolved blocker: PaymentGateway has 8 callers");
+    expect(block).toContain("[src/payment/gateway.ts]");
+  });
+
+  it("renders blockers without anchor when file_path is empty", () => {
+    const payload = makePayload({
+      open_blockers: [
+        {
+          marker_id: "b2",
+          text: "session_id collision across IDEs",
+          file_path: "",
+          ts: Date.now(),
+        },
+      ],
+    });
+    const block = formatSessionResumeBlock(payload);
+    expect(block).toContain("unresolved blocker: session_id collision");
+    expect(block).not.toContain("[]");
+  });
+
+  it("caps open blockers at 3 even when more are present", () => {
+    const payload = makePayload({
+      open_blockers: Array.from({ length: 6 }, (_, i) => ({
+        marker_id: `b${i}`,
+        text: `blocker number ${i}`,
+        file_path: `src/file-${i}.ts`,
+        ts: Date.now() - i * 1000,
+      })),
+    });
+    const block = formatSessionResumeBlock(payload);
+    const matches = block.match(/unresolved blocker:/g) ?? [];
+    expect(matches.length).toBeLessThanOrEqual(3);
+  });
+
+  it("orders intent line BEFORE blocker lines (narrative arc)", () => {
+    const payload = makePayload({
+      last_intents: [
+        {
+          marker_id: "i1",
+          text: "ship Fix K",
+          ts: Date.now(),
+        },
+      ],
+      open_blockers: [
+        {
+          marker_id: "b1",
+          text: "tests failing on edge case",
+          file_path: "src/a.ts",
+          ts: Date.now(),
+        },
+      ],
+    });
+    const block = formatSessionResumeBlock(payload);
+    const intentIdx = block.indexOf("last intent");
+    const blockerIdx = block.indexOf("unresolved blocker");
+    expect(intentIdx).toBeGreaterThan(-1);
+    expect(blockerIdx).toBeGreaterThan(intentIdx);
+  });
+
+  it("omits both lines when neither field is populated", () => {
+    const block = formatSessionResumeBlock(makePayload());
+    expect(block).not.toContain("last intent");
+    expect(block).not.toContain("unresolved blocker");
   });
 });

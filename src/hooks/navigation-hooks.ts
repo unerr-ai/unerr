@@ -7,15 +7,39 @@
  * Design: NEVER block — always allow, only advise or enrich.
  */
 
+import { join } from "node:path";
+import { lookupCoChangePartners } from "../intelligence/cochange-index.js";
 import { shouldEmitOnce } from "./hook-dedup.js";
 import {
   type HookHandler,
+  deny,
   enrich,
   nudge,
   passthrough,
   runPostToolUseHook,
   runPreToolUseHook,
 } from "./hook-runner.js";
+
+/** Dedup TTL for deny decisions. Per Anthropic #43189/#47565, denying
+ *  the same call twice in a row causes 10x retry loops — after the
+ *  first deny we fall back to a nudge so the agent moves on. 5 minutes
+ *  is long enough that the same prompt won't re-deny, short enough
+ *  that a genuinely new session/task still gets the deny treatment. */
+const DENY_ONCE_TTL_MS = 5 * 60 * 1000;
+
+/** Append a co-change clause to a base hint when the index has partners
+ *  for the given file. Best-effort: returns the base hint unchanged on
+ *  any read error or empty result. */
+function appendCoChangeClause(base: string, filePath: string): string {
+  try {
+    const unerrDir = join(process.cwd(), ".unerr");
+    const partners = lookupCoChangePartners(unerrDir, filePath, 3);
+    if (partners.length === 0) return base;
+    return `${base}; commonly co-changed with: ${partners.join(", ")}`;
+  } catch {
+    return base;
+  }
+}
 
 // ── Helper ───────────────────────────────────────────────────────────
 
@@ -36,6 +60,9 @@ function isCodeFile(filePath: string): boolean {
 
 // ── PreToolUse Handlers (agent-agnostic) ─────────────────────────────
 
+// Read is the ONE tool we never `deny()` — Claude Code's Edit workflow
+// requires built-in Read on the file first, so a deny here would break
+// editing entirely. Nudge-only.
 const preReadHandler: HookHandler = (normalized) => {
   const input = normalized.toolInput;
   const filePath = extractFilePath(input);
@@ -76,9 +103,15 @@ const preGrepHandler: HookHandler = (normalized) => {
   const looksLikeImportSearch = /import|require|from\s/.test(pattern);
 
   if (looksLikeFunctionSearch) {
-    return nudge(
-      `STOP: You MUST use unerr graph tools instead of Grep for "${pattern}".\n- \`search_code("${pattern}")\` — finds ALL matching functions/classes/types in <5ms (zero false positives)\n- \`get_references("${pattern}")\` — finds all callers including indirect references\nText grep matches comments, strings, and unrelated code. Graph tools are precise and faster.`
-    );
+    // High-confidence drift: an identifier-shaped pattern in Grep has a
+    // direct graph-tool replacement. Deny the first attempt to force a
+    // redirect to search_code; subsequent attempts in the same window
+    // fall back to a nudge so the agent doesn't get stuck retrying.
+    const reason = `Grep("${pattern}") — use \`search_code("${pattern}")\` (graph-indexed, <5ms, zero false positives) or \`get_references("${pattern}")\` for callers. Text grep matches comments/strings; graph tools are precise.`;
+    if (shouldEmitOnce(`deny:Grep:${pattern}`, DENY_ONCE_TTL_MS)) {
+      return deny(reason);
+    }
+    return nudge(reason);
   }
 
   if (looksLikeImportSearch) {
@@ -99,9 +132,15 @@ const preGlobHandler: HookHandler = (normalized) => {
     | undefined;
   if (typeof pattern !== "string" || pattern.length === 0) return passthrough();
 
-  return nudge(
-    `STOP: You MUST use unerr graph tools instead of Glob.\n- \`search_code("${pattern}")\` — finds ALL matching functions/classes/types across the entire codebase in <5ms\n- \`file_outline\` — get file structure without reading entire files\n- \`get_file\` — get all entities in a file with structured metadata\nGlob+Grep is a multi-step pattern that wastes tokens. search_code does it in one call.`
-  );
+  // Same deny-once policy as Grep: Glob has a clean graph-tool
+  // replacement (search_code), so the first attempt gets denied to
+  // force the redirect. Subsequent attempts in the dedup window nudge
+  // instead, so the agent never enters a deny-retry loop.
+  const reason = `Glob("${pattern}") — use \`search_code("${pattern}")\` (graph-indexed, finds entities across the whole codebase in <5ms) or \`file_outline\` for structure. Glob+Grep is a multi-step pattern; search_code does it in one call.`;
+  if (shouldEmitOnce(`deny:Glob:${pattern}`, DENY_ONCE_TTL_MS)) {
+    return deny(reason);
+  }
+  return nudge(reason);
 };
 
 const preWriteHandler: HookHandler = (normalized) => {
@@ -154,11 +193,11 @@ const postReadHandler: HookHandler = (normalized) => {
   const isClaudeCode = normalized.agentName === "claude-code";
   if (isClaudeCode) {
     return enrich(
-      "ur|hnt Edit needs built-in Read first; for understanding use `file_read` (auto-injects facts/drift)."
+      "ur|fct Edit needs built-in Read first; for understanding use `file_read` (auto-injects facts/drift)."
     );
   }
   return enrich(
-    "ur|hnt Prefer `file_read` over built-in Read — it auto-injects conventions, facts, drift."
+    "ur|fct Prefer `file_read` over built-in Read — it auto-injects conventions, facts, drift."
   );
 };
 
@@ -201,10 +240,8 @@ const postWriteHandler: HookHandler = (normalized) => {
   if (!filePath || !isCodeFile(filePath)) return passthrough();
   if (!shouldEmitOnce(`Write:${filePath}`)) return passthrough();
 
-  // Table row #27 TRIM — slash-command fragments replaced with "why".
-  return enrich(
-    `ur|hnt Wrote ${filePath} — get_references on exports to check blast radius`
-  );
+  const base = `ur|fct Wrote ${filePath} — get_references on exports to check blast radius`;
+  return enrich(appendCoChangeClause(base, filePath));
 };
 
 const postEditHandler: HookHandler = (normalized) => {
@@ -212,10 +249,8 @@ const postEditHandler: HookHandler = (normalized) => {
   if (!filePath || !isCodeFile(filePath)) return passthrough();
   if (!shouldEmitOnce(`Edit:${filePath}`)) return passthrough();
 
-  // Table row #28 TRIM — drop slash-command fragments, keep concrete next call.
-  return enrich(
-    `ur|hnt Edited ${filePath} — get_references to check callers of changed entities`
-  );
+  const base = `ur|fct Edited ${filePath} — get_references to check callers of changed entities`;
+  return enrich(appendCoChangeClause(base, filePath));
 };
 
 // ── Public API ───────────────────────────────────────────────────────

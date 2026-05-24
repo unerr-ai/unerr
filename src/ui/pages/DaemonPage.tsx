@@ -87,8 +87,7 @@ export function DaemonPage() {
         {repos.length === 0 ? (
           <p className="t-tertiary text-sm">
             No repos registered. Run{" "}
-            <code className="font-mono">unerr pm add .</code> from a
-            project.
+            <code className="font-mono">unerr pm add .</code> from a project.
           </p>
         ) : (
           <div className="overflow-x-auto">

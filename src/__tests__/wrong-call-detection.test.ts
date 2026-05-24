@@ -1,13 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
+import { ReasoningCounter, countRetries } from "../router/reasoning/counter.js";
 import {
-  detectWrongCalls,
-  computeSelectionAccuracy,
   type ToolCallTrace,
+  computeSelectionAccuracy,
+  detectWrongCalls,
 } from "../router/reasoning/wrong-call-detector.js";
-import { countRetries, ReasoningCounter } from "../router/reasoning/counter.js";
 
-function makeTrace(overrides: Partial<ToolCallTrace> & { toolName: string; family: string }): ToolCallTrace {
+function makeTrace(
+  overrides: Partial<ToolCallTrace> & { toolName: string; family: string }
+): ToolCallTrace {
   return {
     turnNumber: 0,
     timestamp: Date.now(),
@@ -20,8 +22,19 @@ function makeTrace(overrides: Partial<ToolCallTrace> & { toolName: string; famil
 describe("Wrong-call detector — empty_then_retry heuristic", () => {
   it("detects empty response + different tool retry in same turn", () => {
     const trace: ToolCallTrace[] = [
-      makeTrace({ toolName: "gh_search", family: "gh", outcome: "empty", turnNumber: 0, timestamp: 1000 }),
-      makeTrace({ toolName: "gh_list_repos", family: "gh", turnNumber: 0, timestamp: 2000 }),
+      makeTrace({
+        toolName: "gh_search",
+        family: "gh",
+        outcome: "empty",
+        turnNumber: 0,
+        timestamp: 1000,
+      }),
+      makeTrace({
+        toolName: "gh_list_repos",
+        family: "gh",
+        turnNumber: 0,
+        timestamp: 2000,
+      }),
     ];
     const result = detectWrongCalls(trace);
     expect(result.wrongCalls).toHaveLength(1);
@@ -33,8 +46,19 @@ describe("Wrong-call detector — empty_then_retry heuristic", () => {
 
   it("detects empty response + retry in consecutive turn (quick)", () => {
     const trace: ToolCallTrace[] = [
-      makeTrace({ toolName: "pg_query", family: "pg", outcome: "empty", turnNumber: 0, timestamp: 1000 }),
-      makeTrace({ toolName: "pg_schema", family: "pg", turnNumber: 1, timestamp: 5000 }),
+      makeTrace({
+        toolName: "pg_query",
+        family: "pg",
+        outcome: "empty",
+        turnNumber: 0,
+        timestamp: 1000,
+      }),
+      makeTrace({
+        toolName: "pg_schema",
+        family: "pg",
+        turnNumber: 1,
+        timestamp: 5000,
+      }),
     ];
     const result = detectWrongCalls(trace);
     expect(result.wrongCalls).toHaveLength(1);
@@ -43,8 +67,19 @@ describe("Wrong-call detector — empty_then_retry heuristic", () => {
 
   it("does NOT detect retry if too slow (>10s gap)", () => {
     const trace: ToolCallTrace[] = [
-      makeTrace({ toolName: "gh_search", family: "gh", outcome: "empty", turnNumber: 0, timestamp: 1000 }),
-      makeTrace({ toolName: "gh_list_repos", family: "gh", turnNumber: 1, timestamp: 15000 }),
+      makeTrace({
+        toolName: "gh_search",
+        family: "gh",
+        outcome: "empty",
+        turnNumber: 0,
+        timestamp: 1000,
+      }),
+      makeTrace({
+        toolName: "gh_list_repos",
+        family: "gh",
+        turnNumber: 1,
+        timestamp: 15000,
+      }),
     ];
     const result = detectWrongCalls(trace);
     expect(result.wrongCalls).toHaveLength(0);
@@ -52,8 +87,19 @@ describe("Wrong-call detector — empty_then_retry heuristic", () => {
 
   it("does NOT flag same tool called twice (not a retry)", () => {
     const trace: ToolCallTrace[] = [
-      makeTrace({ toolName: "gh_search", family: "gh", outcome: "empty", turnNumber: 0, timestamp: 1000 }),
-      makeTrace({ toolName: "gh_search", family: "gh", turnNumber: 0, timestamp: 2000 }),
+      makeTrace({
+        toolName: "gh_search",
+        family: "gh",
+        outcome: "empty",
+        turnNumber: 0,
+        timestamp: 1000,
+      }),
+      makeTrace({
+        toolName: "gh_search",
+        family: "gh",
+        turnNumber: 0,
+        timestamp: 2000,
+      }),
     ];
     const result = detectWrongCalls(trace);
     expect(result.wrongCalls).toHaveLength(0);
@@ -63,19 +109,41 @@ describe("Wrong-call detector — empty_then_retry heuristic", () => {
 describe("Wrong-call detector — error_then_retry heuristic", () => {
   it("detects error response + different tool retry", () => {
     const trace: ToolCallTrace[] = [
-      makeTrace({ toolName: "pg_query", family: "pg", outcome: "error", turnNumber: 0, timestamp: 1000 }),
-      makeTrace({ toolName: "pg_schema", family: "pg", turnNumber: 0, timestamp: 2000 }),
+      makeTrace({
+        toolName: "pg_query",
+        family: "pg",
+        outcome: "error",
+        turnNumber: 0,
+        timestamp: 1000,
+      }),
+      makeTrace({
+        toolName: "pg_schema",
+        family: "pg",
+        turnNumber: 0,
+        timestamp: 2000,
+      }),
     ];
     const result = detectWrongCalls(trace);
     expect(result.wrongCalls).toHaveLength(1);
     expect(result.wrongCalls[0]!.heuristic).toBe("error_then_retry");
-    expect(result.wrongCalls[0]!.confidence).toBe(0.90);
+    expect(result.wrongCalls[0]!.confidence).toBe(0.9);
   });
 
   it("detects cross-family error → retry", () => {
     const trace: ToolCallTrace[] = [
-      makeTrace({ toolName: "gh_search", family: "gh", outcome: "error", turnNumber: 0, timestamp: 1000 }),
-      makeTrace({ toolName: "pg_query", family: "pg", turnNumber: 0, timestamp: 2000 }),
+      makeTrace({
+        toolName: "gh_search",
+        family: "gh",
+        outcome: "error",
+        turnNumber: 0,
+        timestamp: 1000,
+      }),
+      makeTrace({
+        toolName: "pg_query",
+        family: "pg",
+        turnNumber: 0,
+        timestamp: 2000,
+      }),
     ];
     const result = detectWrongCalls(trace);
     expect(result.wrongCalls).toHaveLength(1);
@@ -85,19 +153,43 @@ describe("Wrong-call detector — error_then_retry heuristic", () => {
 describe("Wrong-call detector — same_family_switch heuristic", () => {
   it("detects low-token success + same family different tool", () => {
     const trace: ToolCallTrace[] = [
-      makeTrace({ toolName: "gh_search", family: "gh", outcome: "success", responseTokens: 20, turnNumber: 0, timestamp: 1000 }),
-      makeTrace({ toolName: "gh_list_prs", family: "gh", turnNumber: 0, timestamp: 2000 }),
+      makeTrace({
+        toolName: "gh_search",
+        family: "gh",
+        outcome: "success",
+        responseTokens: 20,
+        turnNumber: 0,
+        timestamp: 1000,
+      }),
+      makeTrace({
+        toolName: "gh_list_prs",
+        family: "gh",
+        turnNumber: 0,
+        timestamp: 2000,
+      }),
     ];
     const result = detectWrongCalls(trace);
     expect(result.wrongCalls).toHaveLength(1);
     expect(result.wrongCalls[0]!.heuristic).toBe("same_family_switch");
-    expect(result.wrongCalls[0]!.confidence).toBe(0.60);
+    expect(result.wrongCalls[0]!.confidence).toBe(0.6);
   });
 
   it("does NOT flag high-token response (meaningful result)", () => {
     const trace: ToolCallTrace[] = [
-      makeTrace({ toolName: "gh_search", family: "gh", outcome: "success", responseTokens: 500, turnNumber: 0, timestamp: 1000 }),
-      makeTrace({ toolName: "gh_list_prs", family: "gh", turnNumber: 0, timestamp: 2000 }),
+      makeTrace({
+        toolName: "gh_search",
+        family: "gh",
+        outcome: "success",
+        responseTokens: 500,
+        turnNumber: 0,
+        timestamp: 1000,
+      }),
+      makeTrace({
+        toolName: "gh_list_prs",
+        family: "gh",
+        turnNumber: 0,
+        timestamp: 2000,
+      }),
     ];
     const result = detectWrongCalls(trace);
     expect(result.wrongCalls).toHaveLength(0);
@@ -107,11 +199,40 @@ describe("Wrong-call detector — same_family_switch heuristic", () => {
 describe("Wrong-call detector — multi-call traces", () => {
   it("detects multiple wrong calls in a session", () => {
     const trace: ToolCallTrace[] = [
-      makeTrace({ toolName: "gh_search", family: "gh", outcome: "empty", turnNumber: 0, timestamp: 1000 }),
-      makeTrace({ toolName: "gh_list_prs", family: "gh", turnNumber: 0, timestamp: 2000 }),
-      makeTrace({ toolName: "pg_query", family: "pg", outcome: "error", turnNumber: 1, timestamp: 3000 }),
-      makeTrace({ toolName: "pg_schema", family: "pg", turnNumber: 1, timestamp: 4000 }),
-      makeTrace({ toolName: "slk_post", family: "slk", outcome: "success", responseTokens: 300, turnNumber: 2, timestamp: 5000 }),
+      makeTrace({
+        toolName: "gh_search",
+        family: "gh",
+        outcome: "empty",
+        turnNumber: 0,
+        timestamp: 1000,
+      }),
+      makeTrace({
+        toolName: "gh_list_prs",
+        family: "gh",
+        turnNumber: 0,
+        timestamp: 2000,
+      }),
+      makeTrace({
+        toolName: "pg_query",
+        family: "pg",
+        outcome: "error",
+        turnNumber: 1,
+        timestamp: 3000,
+      }),
+      makeTrace({
+        toolName: "pg_schema",
+        family: "pg",
+        turnNumber: 1,
+        timestamp: 4000,
+      }),
+      makeTrace({
+        toolName: "slk_post",
+        family: "slk",
+        outcome: "success",
+        responseTokens: 300,
+        turnNumber: 2,
+        timestamp: 5000,
+      }),
     ];
     const result = detectWrongCalls(trace);
     expect(result.wrongCalls).toHaveLength(2);
@@ -125,11 +246,35 @@ describe("Wrong-call detector — multi-call traces", () => {
 
     for (let turn = 0; turn < 40; turn++) {
       if (turn % 10 === 3) {
-        trace.push(makeTrace({ toolName: "gh_search", family: "gh", outcome: "empty", turnNumber: turn, timestamp: ts }));
+        trace.push(
+          makeTrace({
+            toolName: "gh_search",
+            family: "gh",
+            outcome: "empty",
+            turnNumber: turn,
+            timestamp: ts,
+          })
+        );
         ts += 1000;
-        trace.push(makeTrace({ toolName: "gh_list_prs", family: "gh", turnNumber: turn, timestamp: ts }));
+        trace.push(
+          makeTrace({
+            toolName: "gh_list_prs",
+            family: "gh",
+            turnNumber: turn,
+            timestamp: ts,
+          })
+        );
       } else {
-        trace.push(makeTrace({ toolName: "file_read", family: "unerr", outcome: "success", responseTokens: 500, turnNumber: turn, timestamp: ts }));
+        trace.push(
+          makeTrace({
+            toolName: "file_read",
+            family: "unerr",
+            outcome: "success",
+            responseTokens: 500,
+            turnNumber: turn,
+            timestamp: ts,
+          })
+        );
       }
       ts += 2000;
     }
@@ -158,7 +303,13 @@ describe("Wrong-call detector — multi-call traces", () => {
 describe("Selection accuracy computation", () => {
   it("perfect trace returns 1.0", () => {
     const trace: ToolCallTrace[] = Array.from({ length: 20 }, (_, i) =>
-      makeTrace({ toolName: "file_read", family: "unerr", turnNumber: i, timestamp: i * 2000, responseTokens: 500 }),
+      makeTrace({
+        toolName: "file_read",
+        family: "unerr",
+        turnNumber: i,
+        timestamp: i * 2000,
+        responseTokens: 500,
+      })
     );
     expect(computeSelectionAccuracy(trace)).toBe(1.0);
   });
@@ -166,8 +317,24 @@ describe("Selection accuracy computation", () => {
   it("all-wrong trace returns expected rate", () => {
     const trace: ToolCallTrace[] = [];
     for (let i = 0; i < 10; i++) {
-      trace.push(makeTrace({ toolName: "gh_search", family: "gh", outcome: "empty", turnNumber: i, timestamp: i * 1000 }));
-      trace.push(makeTrace({ toolName: "gh_list", family: "gh", outcome: "success", turnNumber: i, timestamp: i * 1000 + 500 }));
+      trace.push(
+        makeTrace({
+          toolName: "gh_search",
+          family: "gh",
+          outcome: "empty",
+          turnNumber: i,
+          timestamp: i * 1000,
+        })
+      );
+      trace.push(
+        makeTrace({
+          toolName: "gh_list",
+          family: "gh",
+          outcome: "success",
+          turnNumber: i,
+          timestamp: i * 1000 + 500,
+        })
+      );
     }
     const accuracy = computeSelectionAccuracy(trace);
     expect(accuracy).toBe(0.5);
@@ -177,25 +344,60 @@ describe("Selection accuracy computation", () => {
 describe("Retry counting", () => {
   it("counts same-family different-tool retries", () => {
     const trace: ToolCallTrace[] = [
-      makeTrace({ toolName: "pg_query", family: "pg", turnNumber: 0, timestamp: 1000 }),
-      makeTrace({ toolName: "pg_schema", family: "pg", turnNumber: 0, timestamp: 2000 }),
-      makeTrace({ toolName: "pg_tables", family: "pg", turnNumber: 1, timestamp: 3000 }),
+      makeTrace({
+        toolName: "pg_query",
+        family: "pg",
+        turnNumber: 0,
+        timestamp: 1000,
+      }),
+      makeTrace({
+        toolName: "pg_schema",
+        family: "pg",
+        turnNumber: 0,
+        timestamp: 2000,
+      }),
+      makeTrace({
+        toolName: "pg_tables",
+        family: "pg",
+        turnNumber: 1,
+        timestamp: 3000,
+      }),
     ];
     expect(countRetries(trace)).toBe(2);
   });
 
   it("does not count different-family switches as retries", () => {
     const trace: ToolCallTrace[] = [
-      makeTrace({ toolName: "pg_query", family: "pg", turnNumber: 0, timestamp: 1000 }),
-      makeTrace({ toolName: "gh_search", family: "gh", turnNumber: 1, timestamp: 3000 }),
+      makeTrace({
+        toolName: "pg_query",
+        family: "pg",
+        turnNumber: 0,
+        timestamp: 1000,
+      }),
+      makeTrace({
+        toolName: "gh_search",
+        family: "gh",
+        turnNumber: 1,
+        timestamp: 3000,
+      }),
     ];
     expect(countRetries(trace)).toBe(0);
   });
 
   it("does not count non-consecutive turns as retries", () => {
     const trace: ToolCallTrace[] = [
-      makeTrace({ toolName: "pg_query", family: "pg", turnNumber: 0, timestamp: 1000 }),
-      makeTrace({ toolName: "pg_schema", family: "pg", turnNumber: 5, timestamp: 50000 }),
+      makeTrace({
+        toolName: "pg_query",
+        family: "pg",
+        turnNumber: 0,
+        timestamp: 1000,
+      }),
+      makeTrace({
+        toolName: "pg_schema",
+        family: "pg",
+        turnNumber: 5,
+        timestamp: 50000,
+      }),
     ];
     expect(countRetries(trace)).toBe(0);
   });

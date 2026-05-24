@@ -50,7 +50,9 @@ export interface RunMatrixInput {
 }
 
 /** Run the full matrix. Returns a MatrixReport with per-config rollups. */
-export async function runMatrix(input: RunMatrixInput = {}): Promise<MatrixReport> {
+export async function runMatrix(
+  input: RunMatrixInput = {}
+): Promise<MatrixReport> {
   const tasks = input.task_ids ?? listAllTaskIds();
   const configs = input.config_ids ?? ALL_CONFIGS.map((c) => c.id);
   const cells: RunSummary[] = [];
@@ -98,6 +100,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     (err: unknown) => {
       process.stderr.write(`eval-matrix error: ${(err as Error).message}\n`);
       process.exit(2);
-    },
+    }
   );
 }

@@ -87,7 +87,7 @@ interface PhrasingRow {
   /** Past-tense verb. Single token preferred. */
   verb: string;
   /** Singular noun phrase shown to the user. Plain English, no jargon.
-   *  Read literally — this string lands in `unerr · …` lines the user
+   *  Read literally — this string lands in `unerr » …` lines the user
    *  sees in their chat pane. ≤4 words preferred. */
   object: string;
   /** Plural form. Optional — when omitted, callers append "s" to
@@ -229,14 +229,14 @@ const TOKEN_FLOW_PHRASING: Record<string, PhrasingRow> = {
     plural: "trimmed shell outputs",
   },
   format_encoding: {
-    verb: "packed",
-    object: "packed response",
-    plural: "packed responses",
+    verb: "compacted",
+    object: "compact reply",
+    plural: "compact replies",
   },
   smart_truncation: {
     verb: "trimmed",
-    object: "low-value text trim",
-    plural: "low-value text trims",
+    object: "trimmed boilerplate",
+    plural: "trimmed boilerplate",
   },
   file_read: {
     verb: "trimmed",
@@ -254,9 +254,9 @@ const TOKEN_FLOW_PHRASING: Record<string, PhrasingRow> = {
     plural: "automated steps",
   },
   persistent_memory: {
-    verb: "reused",
-    object: "reused note",
-    plural: "reused notes",
+    verb: "recalled",
+    object: "recalled note",
+    plural: "recalled notes",
   },
 };
 
@@ -278,7 +278,10 @@ function phrasingFor(eventType: string): PhrasingRow {
 
 // ── Agent resolver ────────────────────────────────────────────────────
 
-/** Resolve session_id → agent_name from existing session_history rows.
+/** Resolve session_id → agent_name for LEGACY rows that pre-date the
+ *  per-event `agent` column. New rows carry `agent` directly and bypass
+ *  this resolver. Falls back to the session_history join (set only when
+ *  a session ended with tokens_saved > 0) and finally "unknown".
  *  Cached for the duration of a single `readNamedEvents` call. */
 function buildAgentResolver(unerrDir: string): (sessionId: string) => string {
   const store = openMetricsStore(unerrDir);
@@ -366,7 +369,11 @@ export function readNamedEvents(
 
   for (const ev of behaviorRows) {
     const phrasing = phrasingFor(ev.type);
-    const agent = agentOf(ev.session_id);
+    // Row-level agent is the source of truth (P1 added the column to
+    // every event row); the session_history resolver is a legacy fallback
+    // for rows persisted before the schema change.
+    const agent =
+      ev.agent && ev.agent !== "unknown" ? ev.agent : agentOf(ev.session_id);
     if (filter.agent && agent !== filter.agent) continue;
 
     const filePath = deriveFilePath(ev.entity_key, ev.detail);
@@ -401,7 +408,9 @@ export function readNamedEvents(
     const eventType = `tokenflow.${ev.mechanism}`;
     if (filter.event_type && filter.event_type !== eventType) continue;
     const phrasing = phrasingFor(eventType);
-    const agent = agentOf(ev.session_id);
+    // Row-level agent first; resolver fallback for legacy rows.
+    const agent =
+      ev.agent && ev.agent !== "unknown" ? ev.agent : agentOf(ev.session_id);
     if (filter.agent && agent !== filter.agent) continue;
 
     const filePath = deriveFilePath(null, ev.detail);

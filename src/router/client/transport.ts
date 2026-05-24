@@ -34,7 +34,11 @@ export interface JsonRpcResponse {
   };
 }
 
-export type TransportState = "disconnected" | "connecting" | "connected" | "error";
+export type TransportState =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "error";
 
 export interface TransportEvents {
   onNotification?: (notification: JsonRpcNotification) => void;

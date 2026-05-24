@@ -13,14 +13,14 @@
  * no side effects. Suitable for import from dashboard pages or CLI.
  */
 
-import { createGunzip } from "node:zlib";
 import { createReadStream, existsSync, readdirSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
+import { createGunzip } from "node:zlib";
 
 import type {
-  RouterTelemetryRecord,
   RouterSessionSummary,
+  RouterTelemetryRecord,
 } from "./router-telemetry.js";
 
 // ── Per-session aggregation ──────────────────────────────────────
@@ -39,7 +39,7 @@ export interface SessionMetricsSummary extends RouterSessionSummary {
 }
 
 export function aggregateSession(
-  records: readonly RouterTelemetryRecord[],
+  records: readonly RouterTelemetryRecord[]
 ): SessionMetricsSummary | null {
   if (records.length === 0) return null;
 
@@ -96,9 +96,8 @@ export function aggregateSession(
     totalTokensIn,
     softRefuseCount,
     unlockCount,
-    efficiency: totalBase > 0
-      ? Math.round((totalTokensSaved / totalBase) * 100)
-      : 0,
+    efficiency:
+      totalBase > 0 ? Math.round((totalTokensSaved / totalBase) * 100) : 0,
     firstCallTs,
     lastCallTs,
     topTools,
@@ -108,16 +107,15 @@ export function aggregateSession(
       passthroughDegraded,
       childError,
     },
-    avgLatencyMs: records.length > 0
-      ? Math.round(totalLatency / records.length)
-      : 0,
+    avgLatencyMs:
+      records.length > 0 ? Math.round(totalLatency / records.length) : 0,
   };
 }
 
 // ── Multi-session aggregation from disk ──────────────────────────
 
 export function groupBySession(
-  records: readonly RouterTelemetryRecord[],
+  records: readonly RouterTelemetryRecord[]
 ): ReadonlyMap<string, readonly RouterTelemetryRecord[]> {
   const map = new Map<string, RouterTelemetryRecord[]>();
   for (const rec of records) {
@@ -136,7 +134,7 @@ export function groupBySession(
  * Used by the dashboard. Returns sessions sorted by most recent first.
  */
 export async function readAllSessionMetrics(
-  unerrDir: string,
+  unerrDir: string
 ): Promise<readonly SessionMetricsSummary[]> {
   const routerDir = join(unerrDir, "router");
   const allRecords: RouterTelemetryRecord[] = [];
@@ -183,7 +181,7 @@ export async function readAllSessionMetrics(
 }
 
 async function readGzipJsonl(
-  filePath: string,
+  filePath: string
 ): Promise<RouterTelemetryRecord[]> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];

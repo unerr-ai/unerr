@@ -9,20 +9,20 @@
  *   6. Wire-cap path returns the tool body through applyWireCap.
  */
 
-import { createServer, type Server } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
+import { type Server, createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { applyWireCap } from "../../../proxy/wire-cap.js";
+import { safeSavedPct } from "../../../tools/web/compression-ratio.js";
 import {
   FETCH_PROTOCOL_LIMITS,
   runFetchUrl,
   safeCompressionRatio,
 } from "../../../tools/web/fetch-url-protocol.js";
-import { safeSavedPct } from "../../../tools/web/compression-ratio.js";
-import { applyWireCap } from "../../../proxy/wire-cap.js";
-import { splitMarkdownIntoPassages } from "../../../tools/web/passage-split.js";
 import { cleanUrl, htmlToMarkdown } from "../../../tools/web/markdown.js";
+import { splitMarkdownIntoPassages } from "../../../tools/web/passage-split.js";
 import { openMetricsStore } from "../../../tracking/metrics-store.js";
 
 const ARTICLE_BODY = Array.from(
@@ -110,18 +110,18 @@ describe("fetch_url pipeline", () => {
   });
 
   it("absolutizes root-relative hrefs against the base URL", () => {
-    expect(
-      cleanUrl("/docs/intro", "https://example.com/blog/post")
-    ).toBe("https://example.com/docs/intro");
+    expect(cleanUrl("/docs/intro", "https://example.com/blog/post")).toBe(
+      "https://example.com/docs/intro"
+    );
   });
 
   it("absolutizes path-relative hrefs against the base URL", () => {
-    expect(
-      cleanUrl("./next", "https://example.com/blog/post")
-    ).toBe("https://example.com/blog/next");
-    expect(
-      cleanUrl("../sibling", "https://example.com/blog/post/")
-    ).toBe("https://example.com/blog/sibling");
+    expect(cleanUrl("./next", "https://example.com/blog/post")).toBe(
+      "https://example.com/blog/next"
+    );
+    expect(cleanUrl("../sibling", "https://example.com/blog/post/")).toBe(
+      "https://example.com/blog/sibling"
+    );
   });
 
   it("absolutizes protocol-relative hrefs against the base URL", () => {
@@ -146,9 +146,7 @@ describe("fetch_url pipeline", () => {
   });
 
   it("produces ATX headings (no setext separators)", async () => {
-    const md = await htmlToMarkdown(
-      "<h1>Title</h1><h2>Sub</h2><p>Body</p>"
-    );
+    const md = await htmlToMarkdown("<h1>Title</h1><h2>Sub</h2><p>Body</p>");
     expect(md).toMatch(/^# Title/m);
     expect(md).toMatch(/^## Sub/m);
     expect(md).not.toMatch(/^={3,}$/m);
@@ -167,12 +165,12 @@ describe("fetch_url pipeline", () => {
   it("writes a compression_events row with category=fetch_url", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "fetch-url-"));
     try {
-      const before = openMetricsStore(join(cwd, ".unerr")).recentCompression(50);
+      const before = openMetricsStore(join(cwd, ".unerr")).recentCompression(
+        50
+      );
       await runFetchUrl({ url: baseUrl }, { cwd });
       const after = openMetricsStore(join(cwd, ".unerr")).recentCompression(50);
-      const newEvents = after.filter(
-        (e) => !before.some((b) => b.id === e.id)
-      );
+      const newEvents = after.filter((e) => !before.some((b) => b.id === e.id));
       const fetchEvent = newEvents.find((e) => e.category === "fetch_url");
       expect(fetchEvent).toBeDefined();
       expect(fetchEvent?.raw_bytes).toBeGreaterThan(0);
@@ -222,9 +220,9 @@ describe("fetch_url pipeline", () => {
   it("rejects calls with missing url with a paste-ready hint", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "fetch-url-"));
     try {
-      await expect(
-        runFetchUrl({ url: "" }, { cwd })
-      ).rejects.toThrow(/url:"https:\/\/example\.com/);
+      await expect(runFetchUrl({ url: "" }, { cwd })).rejects.toThrow(
+        /url:"https:\/\/example\.com/
+      );
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -337,8 +335,10 @@ describe("fetch_url pipeline", () => {
     const ssrPayload = JSON.stringify({
       props: {
         pageProps: {
-          body: Array.from({ length: 50 }, (_, i) =>
-            `Section ${i + 1} hydrated body text from the Next.js SSR payload — this is the real article content the agent will eventually read once Defuddle pulls it out of the JSON script tag.`
+          body: Array.from(
+            { length: 50 },
+            (_, i) =>
+              `Section ${i + 1} hydrated body text from the Next.js SSR payload — this is the real article content the agent will eventually read once Defuddle pulls it out of the JSON script tag.`
           ).join(" "),
         },
       },

@@ -8,7 +8,7 @@
  *   - meta.confidence: propagated confidence level
  *   - meta.risk_level: entity risk classification → `ur|rsk` when high
  *   - meta.resolution_ms: query execution time
- *   - context.conventions: applicable conventions → `ur|hnt` / `ur|fct` lines
+ *   - context.conventions: applicable conventions → `ur|fct` lines
  */
 
 import { confidenceToScore } from "../intelligence/confidence-propagation.js";

@@ -8,12 +8,12 @@
  * This matches the MCP stdio transport spec.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 
 import type {
+  JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
-  JsonRpcNotification,
   McpTransport,
   StdioTransportConfig,
   TransportState,
@@ -62,13 +62,17 @@ export class StdioTransport implements McpTransport {
 
     this.child.stderr!.setEncoding("utf-8");
     this.child.stderr!.on("data", (chunk: string) => {
-      this.config.events.onError?.(new Error(`[${this.config.serverId}] stderr: ${chunk.trim()}`));
+      this.config.events.onError?.(
+        new Error(`[${this.config.serverId}] stderr: ${chunk.trim()}`)
+      );
     });
 
     this.child.on("exit", (code, signal) => {
       this.setState("error");
       this.rejectAllPending(
-        new Error(`[${this.config.serverId}] process exited: code=${code} signal=${signal}`),
+        new Error(
+          `[${this.config.serverId}] process exited: code=${code} signal=${signal}`
+        )
       );
     });
 
@@ -89,7 +93,11 @@ export class StdioTransport implements McpTransport {
     return new Promise<JsonRpcResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(request.id);
-        reject(new Error(`[${this.config.serverId}] request ${request.id} timed out after ${REQUEST_TIMEOUT_MS}ms`));
+        reject(
+          new Error(
+            `[${this.config.serverId}] request ${request.id} timed out after ${REQUEST_TIMEOUT_MS}ms`
+          )
+        );
       }, REQUEST_TIMEOUT_MS);
 
       this.pending.set(request.id, { resolve, reject, timer });
@@ -99,14 +107,18 @@ export class StdioTransport implements McpTransport {
         if (err) {
           clearTimeout(timer);
           this.pending.delete(request.id);
-          reject(new Error(`[${this.config.serverId}] write error: ${err.message}`));
+          reject(
+            new Error(`[${this.config.serverId}] write error: ${err.message}`)
+          );
         }
       });
     });
   }
 
   async close(): Promise<void> {
-    this.rejectAllPending(new Error(`[${this.config.serverId}] transport closing`));
+    this.rejectAllPending(
+      new Error(`[${this.config.serverId}] transport closing`)
+    );
 
     if (this.child) {
       this.child.stdin!.end();
@@ -154,7 +166,9 @@ export class StdioTransport implements McpTransport {
           pending.resolve(msg as unknown as JsonRpcResponse);
         }
       } else if ("method" in msg) {
-        this.config.events.onNotification?.(msg as unknown as JsonRpcNotification);
+        this.config.events.onNotification?.(
+          msg as unknown as JsonRpcNotification
+        );
       }
     }
   }

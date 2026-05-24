@@ -15,7 +15,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { inspectIdeMcpConfigs, getNonUnerrServers } from "../config/ide-mcp-inspector.js";
+import {
+  getNonUnerrServers,
+  inspectIdeMcpConfigs,
+} from "../config/ide-mcp-inspector.js";
+import { rewriteIdeConfig } from "../config/ide-mcp-rewriter.js";
 import {
   backupIdeConfigs,
   backupPath,
@@ -25,12 +29,14 @@ import {
   restoreIdeConfigs,
   writeRouterConfig,
 } from "../config/router-config-writer.js";
-import { rewriteIdeConfig } from "../config/ide-mcp-rewriter.js";
 
 let tempDir: string;
 
 function makeTempDir(): string {
-  const dir = join(tmpdir(), `unerr-router-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const dir = join(
+    tmpdir(),
+    `unerr-router-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -198,7 +204,9 @@ describe("router-config-writer", () => {
     expect(proxiedServers.length).toBe(2);
     expect(proxiedServers.find((s) => s.name === "unerr")).toBeUndefined();
     expect(proxiedServers.find((s) => s.name === "github")?.alias).toBe("gh");
-    expect(proxiedServers.find((s) => s.name === "slack-mcp")?.alias).toBe("slk");
+    expect(proxiedServers.find((s) => s.name === "slack-mcp")?.alias).toBe(
+      "slk"
+    );
   });
 
   it("writeRouterConfig creates config.json in .unerr/router/", () => {
@@ -238,7 +246,9 @@ describe("router-config-writer", () => {
 
     const bkPath = backupPath(configPath);
     expect(existsSync(bkPath)).toBe(true);
-    expect(readFileSync(bkPath, "utf-8")).toBe(readFileSync(configPath, "utf-8"));
+    expect(readFileSync(bkPath, "utf-8")).toBe(
+      readFileSync(configPath, "utf-8")
+    );
   });
 
   it("backupIdeConfigs is idempotent — does not overwrite existing backup", () => {
@@ -256,12 +266,16 @@ describe("router-config-writer", () => {
     const bkContent = readFileSync(rewrittenConfigs[0]!.backupPath, "utf-8");
 
     writeCursorConfig(tempDir, {
-      mcpServers: { changed: { type: "stdio", command: "different", args: [] } },
+      mcpServers: {
+        changed: { type: "stdio", command: "different", args: [] },
+      },
     });
 
     backupIdeConfigs(rewrittenConfigs);
 
-    expect(readFileSync(rewrittenConfigs[0]!.backupPath, "utf-8")).toBe(bkContent);
+    expect(readFileSync(rewrittenConfigs[0]!.backupPath, "utf-8")).toBe(
+      bkContent
+    );
   });
 
   it("readRouterConfig returns null when no config exists", () => {
@@ -300,7 +314,9 @@ describe("ide-mcp-rewriter", () => {
     const modified = rewriteIdeConfig(configPath, "mcp-json", "cursor");
     expect(modified).toBe(true);
 
-    const result = readJson(configPath) as { mcpServers: Record<string, unknown> };
+    const result = readJson(configPath) as {
+      mcpServers: Record<string, unknown>;
+    };
     expect(Object.keys(result.mcpServers)).toEqual(["unerr"]);
     expect(result.mcpServers.unerr).toHaveProperty("args", [
       "--mcp",
@@ -362,7 +378,11 @@ describe("enable → disable roundtrip", () => {
   it("enable rewrites all IDE configs; disable restores originals exactly", () => {
     const cursorOriginal = {
       mcpServers: {
-        github: { type: "stdio", command: "github-mcp", args: ["--token", "abc"] },
+        github: {
+          type: "stdio",
+          command: "github-mcp",
+          args: ["--token", "abc"],
+        },
         "postgres-dev": { type: "stdio", command: "pg-mcp", args: [] },
         unerr: { type: "stdio", command: "unerr", args: ["--mcp"] },
       },
@@ -396,14 +416,22 @@ describe("enable → disable roundtrip", () => {
     const unerr = join(tempDir, ".unerr");
     writeRouterConfig(unerr, proxiedServers, rewrittenConfigs);
 
-    const cursorRewritten = readJson(cursorPath) as { mcpServers: Record<string, unknown> };
+    const cursorRewritten = readJson(cursorPath) as {
+      mcpServers: Record<string, unknown>;
+    };
     expect(Object.keys(cursorRewritten.mcpServers)).toEqual(["unerr"]);
 
-    const claudeRewritten = readJson(claudePath) as { mcpServers: Record<string, unknown> };
+    const claudeRewritten = readJson(claudePath) as {
+      mcpServers: Record<string, unknown>;
+    };
     expect(Object.keys(claudeRewritten.mcpServers)).toEqual(["unerr"]);
 
     expect(proxiedServers.length).toBe(3);
-    expect(proxiedServers.map((s) => s.name).sort()).toEqual(["github", "postgres-dev", "slack-mcp"]);
+    expect(proxiedServers.map((s) => s.name).sort()).toEqual([
+      "github",
+      "postgres-dev",
+      "slack-mcp",
+    ]);
 
     // ── Disable ──
     const config = readRouterConfig(unerr);
@@ -448,7 +476,12 @@ describe("enable → disable roundtrip", () => {
     const { proxiedServers } = buildRouterConfig(inspections);
 
     expect(proxiedServers[0]!.command).toBe("github-mcp-server");
-    expect(proxiedServers[0]!.args).toEqual(["--token", "ghp_abc123", "--org", "myorg"]);
+    expect(proxiedServers[0]!.args).toEqual([
+      "--token",
+      "ghp_abc123",
+      "--org",
+      "myorg",
+    ]);
     expect(proxiedServers[0]!.env).toEqual({ GITHUB_TOKEN: "ghp_abc123" });
   });
 });

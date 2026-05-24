@@ -1,9 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
-  createRouterRoutes,
   type RouterRouteDeps,
   type ServerHealthInfo,
+  createRouterRoutes,
 } from "../server/routes/router.js";
 
 function makeDeps(overrides: Partial<RouterRouteDeps> = {}): RouterRouteDeps {
@@ -27,7 +27,11 @@ function makeDeps(overrides: Partial<RouterRouteDeps> = {}): RouterRouteDeps {
   };
 }
 
-function makeHealthyServer(id: string, name: string, alias: string): ServerHealthInfo {
+function makeHealthyServer(
+  id: string,
+  name: string,
+  alias: string
+): ServerHealthInfo {
   return {
     id,
     name,
@@ -42,7 +46,11 @@ function makeHealthyServer(id: string, name: string, alias: string): ServerHealt
   };
 }
 
-function makeUnhealthyServer(id: string, name: string, alias: string): ServerHealthInfo {
+function makeUnhealthyServer(
+  id: string,
+  name: string,
+  alias: string
+): ServerHealthInfo {
   return {
     id,
     name,
@@ -92,9 +100,7 @@ describe("Router server health REST API", () => {
   });
 
   it("includes unhealthy server details", async () => {
-    const servers = [
-      makeUnhealthyServer("gh", "github", "gh"),
-    ];
+    const servers = [makeUnhealthyServer("gh", "github", "gh")];
     const deps = makeDeps({ getServerHealth: () => servers });
 
     const app = createRouterRoutes(deps);
@@ -134,7 +140,9 @@ describe("Router server health REST API", () => {
     });
 
     const app = createRouterRoutes(deps);
-    const res = await app.request("/servers/unknown/restart", { method: "POST" });
+    const res = await app.request("/servers/unknown/restart", {
+      method: "POST",
+    });
     const body = await res.json();
 
     expect(res.status).toBe(404);
@@ -211,7 +219,9 @@ describe("Router server health REST API", () => {
     const healthBody = await healthRes.json();
     expect(healthBody.data.servers[0].status).toBe("unhealthy");
 
-    const restartRes = await app.request("/servers/gh/restart", { method: "POST" });
+    const restartRes = await app.request("/servers/gh/restart", {
+      method: "POST",
+    });
     const restartBody = await restartRes.json();
     expect(restartRes.status).toBe(200);
     expect(restartBody.data.server.status).toBe("healthy");

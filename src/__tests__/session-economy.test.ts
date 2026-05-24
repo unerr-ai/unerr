@@ -23,6 +23,7 @@ function ev(overrides: Partial<TokenFlowEvent>): TokenFlowEvent {
     session_id: "s1",
     pid: 1,
     turn: 1,
+    agent: "test",
     mechanism: "graph_query",
     tool: null,
     tokens_without: 1000,

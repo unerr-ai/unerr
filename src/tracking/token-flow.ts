@@ -40,8 +40,12 @@ export interface TokenFlowEvent {
   session_id: string;
   /** Process ID that produced this event */
   pid: number;
-  /** Turn number within session (1-indexed; 0 for exec processes without turn context) */
+  /** Turn number within session (1-indexed; 0 means "no turn open yet"). */
   turn: number;
+  /** Canonical coding-agent id (claude-code, cursor, codex, …). Resolved
+   *  by the writer from its `agent` field, with an optional per-call
+   *  override on the input. */
+  agent: string;
   /** Savings mechanism tag */
   mechanism: TokenFlowMechanism;
   /** MCP tool name (null for shell compression — not a tool call) */
@@ -85,7 +89,19 @@ export interface SessionTokenSummary {
 
 // ── Input type for record() — fields auto-populated by writer ───────
 
-export type TokenFlowInput = Omit<TokenFlowEvent, "id" | "ts" | "pid">;
+/** Input the caller passes to `TokenFlowWriter.record`. `turn` and
+ *  `agent` are optional — the writer fills them from its turnProvider /
+ *  stored agent unless the caller explicitly overrides (used by
+ *  persistence-effectiveness, which carries the historical turn at
+ *  signal-fire time, and by the proxy initialize handler for per-client
+ *  agent attribution on a shared daemon). */
+export type TokenFlowInput = Omit<
+  TokenFlowEvent,
+  "id" | "ts" | "pid" | "turn" | "agent"
+> & {
+  turn?: number;
+  agent?: string;
+};
 
 // ── Writer ──────────────────────────────────────────────────────────
 
@@ -107,6 +123,7 @@ function rowToEvent(r: TokenFlowEventRow): TokenFlowEvent {
     session_id: r.session_id,
     pid: r.pid,
     turn: r.turn,
+    agent: r.agent ?? "unknown",
     mechanism: r.mechanism as TokenFlowMechanism,
     tool: r.tool ?? null,
     tokens_without: r.tokens_without,
@@ -116,17 +133,53 @@ function rowToEvent(r: TokenFlowEventRow): TokenFlowEvent {
   };
 }
 
+export interface TokenFlowWriterOptions {
+  /** Coding-agent id stamped on every row. Defaults to "unknown" and can
+   *  be rotated later via `setAgent()` when the MCP initialize frame
+   *  arrives. */
+  agent?: string;
+  /** Returns the current 1-indexed turn number for this session. Wired
+   *  to `TurnSegmenter.getCurrentTurnNumber(sessionId)` in production;
+   *  defaults to `() => 0` so tests / standalone usage still work. */
+  turnProvider?: () => number;
+}
+
 export class TokenFlowWriter {
   readonly sessionId: string;
   private readonly unerrDir: string;
   /** In-memory buffer of this process's events for fast aggregation + SSE relay. */
   private sessionEvents: TokenFlowEvent[] = [];
+  private agent: string;
+  private turnProvider: () => number;
 
-  constructor(unerrDir: string, sessionId: string) {
+  constructor(
+    unerrDir: string,
+    sessionId: string,
+    options: TokenFlowWriterOptions = {}
+  ) {
     this.sessionId = sessionId;
     this.unerrDir = unerrDir;
+    this.agent = options.agent ?? "unknown";
+    this.turnProvider = options.turnProvider ?? (() => 0);
     // Eager-open the store so first record() doesn't pay the bootstrap cost.
     openMetricsStore(unerrDir);
+  }
+
+  /** Update the agent id (called by the proxy after MCP initialize
+   *  arrives and `clientInfo.name` is known). Idempotent. */
+  setAgent(agent: string): void {
+    if (agent?.trim()) this.agent = agent;
+  }
+
+  /** Swap the turn provider — used when the writer is constructed before
+   *  ShadowLedger is ready and re-wired afterward. */
+  setTurnProvider(provider: () => number): void {
+    this.turnProvider = provider;
+  }
+
+  /** Current agent id stamped on every row (for diagnostics / tests). */
+  getAgent(): string {
+    return this.agent;
   }
 
   /**
@@ -138,6 +191,8 @@ export class TokenFlowWriter {
     const now = new Date();
     const tsIso = now.toISOString();
     let rowId = 0;
+    const turn = input.turn ?? this.turnProvider();
+    const agent = input.agent ?? this.agent;
 
     try {
       rowId = openMetricsStore(this.unerrDir).insertTokenFlow({
@@ -145,7 +200,8 @@ export class TokenFlowWriter {
         ts_iso: tsIso,
         session_id: input.session_id,
         pid: process.pid,
-        turn: input.turn,
+        turn,
+        agent,
         mechanism: input.mechanism,
         tool: input.tool,
         tokens_without: input.tokens_without,
@@ -161,7 +217,15 @@ export class TokenFlowWriter {
       id: rowId,
       ts: tsIso,
       pid: process.pid,
-      ...input,
+      session_id: input.session_id,
+      turn,
+      agent,
+      mechanism: input.mechanism,
+      tool: input.tool,
+      tokens_without: input.tokens_without,
+      tokens_with: input.tokens_with,
+      tokens_saved: input.tokens_saved,
+      detail: input.detail,
     };
 
     this.sessionEvents.push(event);

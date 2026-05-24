@@ -98,10 +98,10 @@ describe("note-dsl parser (A2)", () => {
   it("rejects invalid kind, anchor_type, and polarity", () => {
     expect(() => parseNote("xxx|f:src/a.ts|+|content")).toThrow(/invalid kind/);
     expect(() => parseNote("rul|x:foo|+|content")).toThrow(
-      /invalid anchor_type/,
+      /invalid anchor_type/
     );
     expect(() => parseNote("rul|f:src/a.ts|*|content")).toThrow(
-      /invalid polarity/,
+      /invalid polarity/
     );
   });
 
@@ -138,7 +138,7 @@ describe("note-dsl serializer (A2)", () => {
         anchor_value: "a.ts",
         polarity: "+",
         content: "x",
-      }),
+      })
     ).toThrow(/invalid kind/);
 
     expect(() =>
@@ -148,7 +148,7 @@ describe("note-dsl serializer (A2)", () => {
         anchor_value: "",
         polarity: "+",
         content: "x",
-      }),
+      })
     ).toThrow(/anchor required/);
   });
 });
@@ -182,7 +182,7 @@ describe("note-dsl dedupe key (A2)", () => {
     const base = parseNote("rul|f:src/a.ts|+|content here");
     expect(dedupeKey({ ...base, kind: "wrn" })).not.toBe(dedupeKey(base));
     expect(dedupeKey({ ...base, anchor_value: "src/b.ts" })).not.toBe(
-      dedupeKey(base),
+      dedupeKey(base)
     );
     expect(dedupeKey({ ...base, polarity: "-" })).not.toBe(dedupeKey(base));
   });

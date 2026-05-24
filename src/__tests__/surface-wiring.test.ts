@@ -48,7 +48,7 @@ describe("surface wiring — buildUserBlockForResponse", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("renders preface head on first call and footer tail on every call", async () => {
+  it("renders preface head on first call and emits empty tail (Surface 3 is now MCP-tool-driven)", async () => {
     const tokenWriter = new TokenFlowWriter(unerrDir, sessionId);
     tokenWriter.record({
       session_id: sessionId,
@@ -79,11 +79,12 @@ describe("surface wiring — buildUserBlockForResponse", () => {
 
     // First call is always turn-open → preface block is non-empty.
     expect(first.head).toContain(USER_BLOCK_PREFIX);
-    expect(first.tail).toContain(USER_BLOCK_PREFIX);
-    // Footer reports both events (BehaviorEvent + TokenFlow projection
-    // per Sprint 1 contract) and the real saved-token figure.
-    expect(first.tail).toMatch(/this turn:.*helped 2 times/);
-    expect(first.tail).toContain("saved ~4.2k tokens");
+    // Surface 3 (end-of-turn footer) no longer auto-attaches to every
+    // response — the agent now fetches it once via `unerr_turn_summary`
+    // at end-of-turn and includes the rendered line verbatim in its
+    // closing message. Tail is always empty (unless the ambient-marker
+    // fallback fires; see the test below).
+    expect(first.tail).toBe("");
 
     // Second call well below TURN_OPEN_GAP_MS later → same turn, no preface head.
     const second = await buildUserBlockForResponse({
@@ -94,7 +95,7 @@ describe("surface wiring — buildUserBlockForResponse", () => {
       now: nowMs + 500,
     });
     expect(second.head).toBe("");
-    expect(second.tail).toContain(USER_BLOCK_PREFIX);
+    expect(second.tail).toBe("");
   });
 
   it("re-opens the turn after the quiescence gap", async () => {
@@ -124,7 +125,7 @@ describe("surface wiring — buildUserBlockForResponse", () => {
     //   call 1 → zero-content → counter 1
     //   call 2 → zero-content → counter 2
     //   call 3 → zero-content → counter 3 (threshold)
-    // call 4 → shouldUseAmbientMarker fires → tail collapses to `unerr · ⋯`.
+    // call 4 → shouldUseAmbientMarker fires → tail collapses to `unerr » ⋯`.
     for (let i = 0; i < 4; i++) {
       await buildUserBlockForResponse({
         unerrDir,

@@ -1,16 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  type OverrideState,
+  addMaskOverride,
+  addUnmaskOverride,
+  applyOverrides,
+  clearOverrides,
   readOverrides,
   writeOverrides,
-  addUnmaskOverride,
-  addMaskOverride,
-  clearOverrides,
-  applyOverrides,
-  type OverrideState,
 } from "../router/overrides.js";
 
 let testDir: string;
@@ -215,7 +215,10 @@ describe("Verification gate: mid-session unmask all", () => {
 
     expect(result.size).toBe(known.size);
     for (const family of known) {
-      expect(result.has(family), `Expected ${family} to be exposed after unmask all`).toBe(true);
+      expect(
+        result.has(family),
+        `Expected ${family} to be exposed after unmask all`
+      ).toBe(true);
     }
   });
 

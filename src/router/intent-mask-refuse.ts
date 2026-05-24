@@ -35,21 +35,23 @@ export interface IntentMaskRefuseInput {
  * Build the refusal response for an intent-masked tool call.
  * Pure, synchronous, no side effects.
  */
-export function buildIntentMaskRefuse(input: IntentMaskRefuseInput): IntentMaskRefuseResult {
+export function buildIntentMaskRefuse(
+  input: IntentMaskRefuseInput
+): IntentMaskRefuseResult {
   const { toolName, maskedFamily, dominantFamilies, dominantReasons } = input;
 
-  const dominantLabel = dominantFamilies.length > 0
-    ? dominantFamilies.join(", ")
-    : "unknown";
+  const dominantLabel =
+    dominantFamilies.length > 0 ? dominantFamilies.join(", ") : "unknown";
 
-  const reasonStr = dominantReasons.length > 0
-    ? dominantReasons[0]!
-    : "no strong signal for this family";
+  const reasonStr =
+    dominantReasons.length > 0
+      ? dominantReasons[0]!
+      : "no strong signal for this family";
 
   const overrideCmd = `unerr router unmask ${maskedFamily}`;
 
   const text =
-    `ur|hnt ${toolName} hidden — current intent: ${dominantLabel} work (${reasonStr}). ` +
+    `ur|fct ${toolName} hidden — current intent: ${dominantLabel} work (${reasonStr}). ` +
     `Run \`${overrideCmd}\` to override.\n` +
     `\n` +
     `_error: intent_masked\n` +

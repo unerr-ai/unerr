@@ -14,9 +14,9 @@
  * incrementally as more unrouted sessions complete.
  */
 
+import { countRetries } from "./counter.js";
 import type { ToolCallTrace } from "./wrong-call-detector.js";
 import { detectWrongCalls } from "./wrong-call-detector.js";
-import { countRetries } from "./counter.js";
 
 export interface BaselineSession {
   readonly sessionId: string;
@@ -39,7 +39,9 @@ export interface BaselineStats {
  * Compute baseline stats from a set of historical session traces.
  * Each session is analyzed independently, then aggregated.
  */
-export function computeBaseline(sessions: readonly { sessionId: string; traces: readonly ToolCallTrace[] }[]): BaselineStats {
+export function computeBaseline(
+  sessions: readonly { sessionId: string; traces: readonly ToolCallTrace[] }[]
+): BaselineStats {
   if (sessions.length === 0) {
     return {
       sessionCount: 0,
@@ -66,9 +68,15 @@ export function computeBaseline(sessions: readonly { sessionId: string; traces: 
   const totalCalls = analyzed.reduce((sum, s) => sum + s.totalCalls, 0);
   const totalSessions = analyzed.length;
 
-  const averageAccuracy = analyzed.reduce((sum, s) => sum + s.accuracy, 0) / totalSessions;
-  const averageRetries = analyzed.reduce((sum, s) => sum + s.retries, 0) / totalSessions;
-  const averageWrongCallRate = analyzed.reduce((sum, s) => sum + (s.wrongCalls / Math.max(1, s.totalCalls)), 0) / totalSessions;
+  const averageAccuracy =
+    analyzed.reduce((sum, s) => sum + s.accuracy, 0) / totalSessions;
+  const averageRetries =
+    analyzed.reduce((sum, s) => sum + s.retries, 0) / totalSessions;
+  const averageWrongCallRate =
+    analyzed.reduce(
+      (sum, s) => sum + s.wrongCalls / Math.max(1, s.totalCalls),
+      0
+    ) / totalSessions;
 
   return {
     sessionCount: totalSessions,
@@ -82,7 +90,10 @@ export function computeBaseline(sessions: readonly { sessionId: string; traces: 
 /**
  * Analyze a single session for baseline comparison.
  */
-export function analyzeSession(sessionId: string, traces: readonly ToolCallTrace[]): BaselineSession {
+export function analyzeSession(
+  sessionId: string,
+  traces: readonly ToolCallTrace[]
+): BaselineSession {
   const detection = detectWrongCalls(traces);
   const retries = countRetries(traces);
   return {

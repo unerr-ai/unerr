@@ -56,7 +56,7 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 export function computeDecayScore(
   input: NoteDecayInput,
   currentTurn: number,
-  nowMs: number,
+  nowMs: number
 ): number {
   const turnsSinceLastSeen = Math.max(0, currentTurn - input.last_seen_turn);
   const baseScore =
@@ -75,7 +75,7 @@ export function computeDecayScore(
 export function computeDecayScores(
   notes: readonly NoteDecayInput[],
   currentTurn: number,
-  nowMs: number,
+  nowMs: number
 ): DecayResult[] {
   return notes.map((n) => ({
     note_id: n.note_id,
@@ -91,18 +91,16 @@ export function computeDecayScores(
 export function assignTiers(
   notes: readonly NoteDecayInput[],
   currentTurn: number,
-  nowMs: number,
+  nowMs: number
 ): TierResult[] {
   const active = notes.filter((n) => !n.inactive);
   const inactive = notes.filter((n) => n.inactive);
 
   if (active.length < MIN_POPULATION_FOR_TIERS) {
     return [
-      ...active.map(
-        (n) => ({ note_id: n.note_id, tier: "hot" }) as TierResult,
-      ),
+      ...active.map((n) => ({ note_id: n.note_id, tier: "hot" }) as TierResult),
       ...inactive.map(
-        (n) => ({ note_id: n.note_id, tier: "cold" }) as TierResult,
+        (n) => ({ note_id: n.note_id, tier: "cold" }) as TierResult
       ),
     ];
   }

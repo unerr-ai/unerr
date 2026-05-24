@@ -25,6 +25,7 @@ import {
   runPreWriteHook,
 } from "../hooks/navigation-hooks.js";
 import { runUserPromptSubmitHook } from "../hooks/prompt-hooks.js";
+import { runSessionStartHookAsync } from "../hooks/session-hooks.js";
 import { runPreBashHook } from "../hooks/shell-hooks.js";
 
 /**
@@ -37,6 +38,21 @@ function safeHookAction(handler: (stdin: string) => string): () => void {
     try {
       const stdin = readFileSync(0, "utf-8");
       process.stdout.write(handler(stdin));
+    } catch (e) {
+      process.stderr.write(`[unerr] hook error: ${e}\n`);
+      process.stdout.write("{}");
+    }
+  };
+}
+
+/** Async variant of safeHookAction for handlers that touch facts.db. */
+function safeAsyncHookAction(
+  handler: (stdin: string) => Promise<string>
+): () => Promise<void> {
+  return async () => {
+    try {
+      const stdin = readFileSync(0, "utf-8");
+      process.stdout.write(await handler(stdin));
     } catch (e) {
       process.stderr.write(`[unerr] hook error: ${e}\n`);
       process.stdout.write("{}");
@@ -114,4 +130,11 @@ export function registerHookCommand(program: Command): void {
     .command("prompt-submit")
     .description("Inject unerr tool reminder on each user prompt")
     .action(safeHookAction(runUserPromptSubmitHook));
+
+  // ── SessionStart hook (Claude Code only — Cursor/Cline fall back to Surface 1) ──
+
+  hook
+    .command("session-start")
+    .description("Inject resume strip into agent context at session boot")
+    .action(safeAsyncHookAction(runSessionStartHookAsync));
 }

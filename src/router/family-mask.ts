@@ -48,7 +48,7 @@ export class FamilyMaskEngine {
 
   constructor(
     knownFamilies: ReadonlySet<string>,
-    alwaysExposedFamilies?: ReadonlySet<string>,
+    alwaysExposedFamilies?: ReadonlySet<string>
   ) {
     this.knownFamilies = knownFamilies;
     if (alwaysExposedFamilies) {
@@ -67,7 +67,10 @@ export class FamilyMaskEngine {
    * @param turnNumber - current turn for telemetry
    * @returns snapshot of all decisions
    */
-  recompute(scorerExposed: ReadonlySet<string>, turnNumber: number): MaskSnapshot {
+  recompute(
+    scorerExposed: ReadonlySet<string>,
+    turnNumber: number
+  ): MaskSnapshot {
     const decisions: MaskDecision[] = [];
     const newMasked = new Set<string>();
     const exposed = new Set<string>();
@@ -83,25 +86,41 @@ export class FamilyMaskEngine {
       if (this.manualOverrides.has(family)) {
         exposed.add(family);
         this.everExposed.add(family);
-        decisions.push({ family, masked: false, reason: "manual override (unmask)" });
+        decisions.push({
+          family,
+          masked: false,
+          reason: "manual override (unmask)",
+        });
         continue;
       }
 
       if (this.everExposed.has(family)) {
         exposed.add(family);
-        decisions.push({ family, masked: false, reason: "monotonic: previously exposed" });
+        decisions.push({
+          family,
+          masked: false,
+          reason: "monotonic: previously exposed",
+        });
         continue;
       }
 
       if (scorerExposed.has(family)) {
         exposed.add(family);
         this.everExposed.add(family);
-        decisions.push({ family, masked: false, reason: "intent scorer: above threshold" });
+        decisions.push({
+          family,
+          masked: false,
+          reason: "intent scorer: above threshold",
+        });
         continue;
       }
 
       newMasked.add(family);
-      decisions.push({ family, masked: true, reason: "below threshold — not relevant to current intent" });
+      decisions.push({
+        family,
+        masked: true,
+        reason: "below threshold — not relevant to current intent",
+      });
     }
 
     this.currentMasked = newMasked;

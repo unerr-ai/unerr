@@ -14,12 +14,7 @@
  * reference to platform-specific scheduler paths or APIs.
  */
 
-import {
-  existsSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-} from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -42,7 +37,9 @@ const readCode = (rel: string): string => {
 };
 
 /** Walk every .ts file under src/ (with comments stripped). */
-function* walkTsSources(dir: string): Generator<{ path: string; code: string }> {
+function* walkTsSources(
+  dir: string
+): Generator<{ path: string; code: string }> {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     const st = statSync(full);
@@ -95,10 +92,9 @@ describe("persistence-pattern regression guard", () => {
         code,
         `${path} must not reference LaunchAgents/launchd plist paths`
       ).not.toMatch(/LaunchAgents/);
-      expect(
-        code,
-        `${path} must not name a unerr launchd plist`
-      ).not.toMatch(/com\.unerr[\w.]*\.plist/);
+      expect(code, `${path} must not name a unerr launchd plist`).not.toMatch(
+        /com\.unerr[\w.]*\.plist/
+      );
     }
   });
 
@@ -113,27 +109,23 @@ describe("persistence-pattern regression guard", () => {
         code,
         `${path} must not write into ~/.config/systemd/user`
       ).not.toMatch(/\.config\/systemd\/user/);
-      expect(
-        code,
-        `${path} must not name a unerr systemd unit`
-      ).not.toMatch(/unerrd?\.service/);
+      expect(code, `${path} must not name a unerr systemd unit`).not.toMatch(
+        /unerrd?\.service/
+      );
     }
   });
 
   it("no source file references Windows scheduled tasks or Startup folder", () => {
     for (const { path, code } of walkTsSources(srcRoot)) {
-      expect(
-        code,
-        `${path} must not invoke schtasks`
-      ).not.toMatch(/\bschtasks\b/);
-      expect(
-        code,
-        `${path} must not reference the Startup folder`
-      ).not.toMatch(/Start Menu\\\\Programs\\\\Startup/);
-      expect(
-        code,
-        `${path} must not drop a startup .cmd`
-      ).not.toMatch(/[Ss]tartup\\\\unerrd?\.cmd/);
+      expect(code, `${path} must not invoke schtasks`).not.toMatch(
+        /\bschtasks\b/
+      );
+      expect(code, `${path} must not reference the Startup folder`).not.toMatch(
+        /Start Menu\\\\Programs\\\\Startup/
+      );
+      expect(code, `${path} must not drop a startup .cmd`).not.toMatch(
+        /[Ss]tartup\\\\unerrd?\.cmd/
+      );
       expect(
         code,
         `${path} must not name a scheduled-task XML helper`

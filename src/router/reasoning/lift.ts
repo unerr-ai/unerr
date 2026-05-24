@@ -47,9 +47,10 @@ export function computeLift(input: LiftInput): LiftMetrics {
 
   const accuracyLift = currentAccuracy - baseline.averageAccuracy;
   const retryReduction = baseline.averageRetries - counter.totalRetries;
-  const preventionRate = counter.totalSoftRefuses > 0
-    ? counter.preventedWrongCalls / counter.totalSoftRefuses
-    : 0;
+  const preventionRate =
+    counter.totalSoftRefuses > 0
+      ? counter.preventedWrongCalls / counter.totalSoftRefuses
+      : 0;
 
   let confidence: "low" | "medium" | "high";
   if (sessionCalls >= 30 && baseline.sessionCount >= 5) {
@@ -78,9 +79,10 @@ export function computeLift(input: LiftInput): LiftMetrics {
 export function formatLiftSummary(lift: LiftMetrics): string {
   const sign = lift.accuracyLift >= 0 ? "+" : "";
   const pct = (lift.accuracyLift * 100).toFixed(1);
-  const retries = lift.retryReduction >= 0
-    ? `${lift.retryReduction.toFixed(1)} fewer retries`
-    : `${Math.abs(lift.retryReduction).toFixed(1)} more retries`;
+  const retries =
+    lift.retryReduction >= 0
+      ? `${lift.retryReduction.toFixed(1)} fewer retries`
+      : `${Math.abs(lift.retryReduction).toFixed(1)} more retries`;
 
   return (
     `Accuracy lift: ${sign}${pct}% ` +

@@ -4,7 +4,7 @@
  * Drives every pure renderer in the four-surface presence model through
  * the AGENT_REGISTRY and proves that:
  *
- *   1. Every renderer produces an `unerr · ...` body line that buildUserBlock
+ *   1. Every renderer produces an `unerr » ...` body line that buildUserBlock
  *      wraps verbatim — i.e., agents that pass `content[].text` through
  *      unmodified will see the surface unmodified. (S2 preface, S3 footer,
  *      S4a attribution, S4d enforcement.)
@@ -35,6 +35,7 @@ import {
   AGENT_REGISTRY,
   type AgentDefinition,
 } from "../config/agent-registry.js";
+import type { TemporalFact } from "../intelligence/temporal-facts.js";
 import {
   type FactProvenance,
   renderFactAttribution,
@@ -47,7 +48,6 @@ import {
   buildUserBlock,
 } from "../proxy/response-envelope.js";
 import { renderTurnFooter } from "../proxy/turn-footer.js";
-import type { TemporalFact } from "../intelligence/temporal-facts.js";
 import type { NamedEvent } from "../tracking/named-events.js";
 
 // ── Per-agent surface profile ────────────────────────────────────────
@@ -192,86 +192,84 @@ describe("Phase 4 Sprint 14 — surface coverage matrix", () => {
     });
   });
 
-  describe.each(REPRESENTATIVE_AGENTS)(
-    "agent %#: $name ($id)",
-    (agent) => {
-      const profile = profileFor(agent);
+  describe.each(REPRESENTATIVE_AGENTS)("agent %#: $name ($id)", (agent) => {
+    const profile = profileFor(agent);
 
-      it("S2 preface renders bare lines suitable for buildUserBlock", () => {
-        const lines = renderContextPreface({
-          turnIndex: 0,
-          events: [
-            makeNamedEvent({ event_type: "fact_recalled", file_path: null }),
-          ],
-        });
-        // Bare lines (no `unerr · ` prefix yet) — buildUserBlock adds it.
-        expect(lines.length).toBeGreaterThan(0);
-        for (const line of lines) {
-          expect(line.startsWith(USER_BLOCK_PREFIX)).toBe(false);
-        }
-        const wrapped = buildUserBlock(lines);
-        expect(wrapped.startsWith(USER_BLOCK_PREFIX)).toBe(true);
-        // No ANSI / no markdown — plain-text body content (the contract
-        // every agent's MCP client preserves).
-        expect(wrapped).not.toMatch(/\x1b\[/);
-        expect(wrapped).not.toMatch(/^\*\*/m);
+    it("S2 preface renders bare lines suitable for buildUserBlock", () => {
+      const lines = renderContextPreface({
+        turnIndex: 0,
+        events: [
+          makeNamedEvent({ event_type: "fact_recalled", file_path: null }),
+        ],
       });
+      // Bare lines (no `unerr » ` prefix yet) — buildUserBlock adds it.
+      expect(lines.length).toBeGreaterThan(0);
+      for (const line of lines) {
+        expect(line.startsWith(USER_BLOCK_PREFIX)).toBe(false);
+      }
+      const wrapped = buildUserBlock(lines);
+      expect(wrapped.startsWith(USER_BLOCK_PREFIX)).toBe(true);
+      // No ANSI / no markdown — plain-text body content (the contract
+      // every agent's MCP client preserves).
+      expect(wrapped).not.toMatch(/\x1b\[/);
+      expect(wrapped).not.toMatch(/^\*\*/m);
+    });
 
-      it("S3 footer renders one line with the four-surface separator", () => {
-        const line = renderTurnFooter({
-          events: [
-            makeNamedEvent({ event_type: "loop_broken", file_path: null }),
-            makeNamedEvent({ event_type: "stale_edit_prevented" }),
-          ],
-          tokensSavedThisTurn: 4200,
-          turnsOfHeadroomThisSession: 5,
-        });
-        // Single line, the middle-dot separator (Phase 1 contract).
-        expect(line.split("\n")).toHaveLength(1);
-        expect(line).toContain(" · ");
-        // Body content; no markdown/ANSI.
-        expect(line).not.toMatch(/[*_`]/);
-        // buildUserBlock wraps it cleanly.
-        const wrapped = buildUserBlock([line]);
-        expect(wrapped).toContain(`${USER_BLOCK_PREFIX}this turn:`);
+    it("S3 footer renders one line with the four-surface separator", () => {
+      const line = renderTurnFooter({
+        events: [
+          makeNamedEvent({ event_type: "loop_broken", file_path: null }),
+          makeNamedEvent({ event_type: "stale_edit_prevented" }),
+        ],
+        tokensSavedThisTurn: 4200,
+        turnsOfHeadroomThisSession: 5,
       });
+      // Single line, the middle-dot separator (Phase 1 contract).
+      expect(line.split("\n")).toHaveLength(1);
+      expect(line).toContain(" · ");
+      // Body content; no markdown/ANSI.
+      expect(line).not.toMatch(/[*_`]/);
+      // buildUserBlock wraps it cleanly.
+      const wrapped = buildUserBlock([line]);
+      expect(wrapped).toContain(`${USER_BLOCK_PREFIX}this turn:`);
+    });
 
-      it("S4a attribution emits a user-verbatim quote for user_fed facts", () => {
-        const row = renderFactAttribution(makeProvenance());
-        // user_fed facts → head names "user", detail carries the verbatim quote.
-        expect(row.head).toContain("user");
-        expect(row.detail).toContain(
-          "from now on, always use cozo-node ≥ 0.7.6"
+    it("S4a attribution emits a user-verbatim quote for user_fed facts", () => {
+      const row = renderFactAttribution(makeProvenance());
+      // user_fed facts → head names "user", detail carries the verbatim quote.
+      expect(row.head).toContain("user");
+      expect(row.detail).toContain("from now on, always use cozo-node ≥ 0.7.6");
+      // Wrapped through the unerr » channel.
+      const block = renderFactAttributionBlock([makeProvenance()]);
+      expect(block.length).toBeGreaterThan(0);
+    });
+
+    it("S4d enforcement renders a `ur|fct` body line for the agent", () => {
+      const line = renderEnforcedFactPrefix(
+        makeFact({
+          fact_type: "negative",
+          content: "never console.log from proxy",
+        })
+      );
+      expect(line).toMatch(/^ur\|fct \[negative\] avoid:/);
+      // The `ur|fct` line is the *signal* channel, but it goes through
+      // the same body-content path as buildUserBlock. Verify it's not
+      // accidentally wrapped in markdown.
+      expect(line).not.toMatch(/[*_`]/);
+    });
+
+    it("profile lookup is deterministic and exposes L1-L3 booleans", () => {
+      expect(profile.l2_skills).toBe(true);
+      if (agent.id === "zed") {
+        expect(profile.l3_instructions).toBe(false);
+      } else {
+        expect(profile.l3_instructions).toBe(
+          agent.instructionFilePath !== null
         );
-        // Wrapped through the unerr · channel.
-        const block = renderFactAttributionBlock([makeProvenance()]);
-        expect(block.length).toBeGreaterThan(0);
-      });
-
-      it("S4d enforcement renders a `ur|fct` body line for the agent", () => {
-        const line = renderEnforcedFactPrefix(
-          makeFact({ fact_type: "negative", content: "never console.log from proxy" })
-        );
-        expect(line).toMatch(/^ur\|fct \[negative\] avoid:/);
-        // The `ur|fct` line is the *signal* channel, but it goes through
-        // the same body-content path as buildUserBlock. Verify it's not
-        // accidentally wrapped in markdown.
-        expect(line).not.toMatch(/[*_`]/);
-      });
-
-      it("profile lookup is deterministic and exposes L1-L3 booleans", () => {
-        expect(profile.l2_skills).toBe(true);
-        if (agent.id === "zed") {
-          expect(profile.l3_instructions).toBe(false);
-        } else {
-          expect(profile.l3_instructions).toBe(
-            agent.instructionFilePath !== null
-          );
-        }
-        expect(profile.l1_hooks).toBe(agent.hookSupport);
-      });
-    }
-  );
+      }
+      expect(profile.l1_hooks).toBe(agent.hookSupport);
+    });
+  });
 
   describe("surface body channel is agent-neutral", () => {
     // Phase 4's invariant: every renderer is pure and returns body-content
@@ -296,7 +294,9 @@ describe("Phase 4 Sprint 14 — surface coverage matrix", () => {
     it("renderContextPreface output is identical regardless of agent", () => {
       const inputs = {
         turnIndex: 1,
-        events: [makeNamedEvent({ event_type: "fact_recalled", file_path: null })],
+        events: [
+          makeNamedEvent({ event_type: "fact_recalled", file_path: null }),
+        ],
       };
       const reference = renderContextPreface(inputs);
       for (const _agent of REPRESENTATIVE_AGENTS) {
@@ -304,13 +304,13 @@ describe("Phase 4 Sprint 14 — surface coverage matrix", () => {
       }
     });
 
-    it("buildUserBlock prefix is `unerr · ` for every agent", () => {
+    it("buildUserBlock prefix is `unerr » ` for every agent", () => {
       // The body-content channel exists once; no agent has a custom
       // prefix override. If a per-agent prefix is ever added it must
       // route through a separate channel — this test guards against
       // accidental forking.
       for (const _agent of REPRESENTATIVE_AGENTS) {
-        expect(USER_BLOCK_PREFIX).toBe("unerr · ");
+        expect(USER_BLOCK_PREFIX).toBe("unerr » ");
       }
     });
   });

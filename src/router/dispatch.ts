@@ -24,11 +24,15 @@
  *   4. Mask decisions recorded for telemetry
  */
 
-import { ExposureTracker } from "./tools-list.js";
-import { NotificationEmitter } from "./notifications.js";
-import { FamilyMaskEngine, type MaskSnapshot } from "../router/family-mask.js";
-import { scoreIntent, type ScorerInput, type ScorerOutput } from "../router/intent/scorer.js";
-import { type IntentTraceWriter } from "../router/intent/traces.js";
+import type { FamilyMaskEngine, MaskSnapshot } from "../router/family-mask.js";
+import {
+  type ScorerInput,
+  type ScorerOutput,
+  scoreIntent,
+} from "../router/intent/scorer.js";
+import type { IntentTraceWriter } from "../router/intent/traces.js";
+import type { NotificationEmitter } from "./notifications.js";
+import type { ExposureTracker } from "./tools-list.js";
 
 export interface UnlockRecord {
   readonly prefixedName: string;
@@ -55,7 +59,9 @@ export class UnlockDispatcher {
     });
   }
 
-  recordUnlocks(unlocks: readonly { prefixedName: string; reason: string }[]): void {
+  recordUnlocks(
+    unlocks: readonly { prefixedName: string; reason: string }[]
+  ): void {
     for (const u of unlocks) {
       this.recordUnlock(u.prefixedName, u.reason);
     }
@@ -132,7 +138,10 @@ export class IntentDispatcher {
    */
   evaluateIntent(input: ScorerInput, turnNumber: number): IntentEvaluation {
     const scorerOutput = scoreIntent(input);
-    const maskSnapshot = this.maskEngine.recompute(scorerOutput.exposedFamilies, turnNumber);
+    const maskSnapshot = this.maskEngine.recompute(
+      scorerOutput.exposedFamilies,
+      turnNumber
+    );
 
     const newlyExposed: string[] = [];
     for (const family of maskSnapshot.exposedFamilies) {

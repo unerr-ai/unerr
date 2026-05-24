@@ -19,8 +19,8 @@
  */
 
 import {
-	type ToolDefinition,
-	renderToolDefinition,
+  type ToolDefinition,
+  renderToolDefinition,
 } from "./tool-definitions.js";
 import { listToolNames } from "./tool-descriptions.js";
 
@@ -39,9 +39,9 @@ import { listToolNames } from "./tool-descriptions.js";
  * `TOOL_DEFINITIONS` — so `tools/list` is deterministic across calls.
  */
 export function renderToolsListForExposure(
-	exposed: ReadonlySet<string>,
+  exposed: ReadonlySet<string>
 ): readonly ToolDefinition[] {
-	return listToolNames().map((name) =>
-		renderToolDefinition(name, exposed.has(name) ? "active" : "locked"),
-	);
+  return listToolNames().map((name) =>
+    renderToolDefinition(name, exposed.has(name) ? "active" : "locked")
+  );
 }

@@ -70,7 +70,9 @@ export function RouterIntentPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-zinc-100">Intent Decisions</h2>
+        <h2 className="text-lg font-semibold text-zinc-100">
+          Intent Decisions
+        </h2>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSelectedTurn(Math.max(0, selectedTurn - 1))}
@@ -78,7 +80,9 @@ export function RouterIntentPage() {
           >
             ← Prev
           </button>
-          <span className="text-xs text-zinc-400 font-mono tabular-nums">Turn {selectedTurn}</span>
+          <span className="text-xs text-zinc-400 font-mono tabular-nums">
+            Turn {selectedTurn}
+          </span>
           <button
             onClick={() => setSelectedTurn(selectedTurn + 1)}
             className="rounded border border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-800"
@@ -115,7 +119,12 @@ export function RouterIntentPage() {
           {intent.newlyExposedFamilies.length > 0 && (
             <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
               <p className="text-xs text-emerald-400">
-                Newly exposed: {intent.newlyExposedFamilies.map((f) => <span key={f} className="font-mono mx-1">{f}</span>)}
+                Newly exposed:{" "}
+                {intent.newlyExposedFamilies.map((f) => (
+                  <span key={f} className="font-mono mx-1">
+                    {f}
+                  </span>
+                ))}
               </p>
             </div>
           )}
@@ -133,17 +142,27 @@ export function RouterIntentPage() {
               </thead>
               <tbody className="divide-y divide-zinc-800">
                 {intent.scores.map((s) => (
-                  <tr key={s.family} className={`${s.exposed ? "" : "opacity-50"}`}>
+                  <tr
+                    key={s.family}
+                    className={`${s.exposed ? "" : "opacity-50"}`}
+                  >
                     <td className="px-4 py-3 font-mono text-xs">{s.family}</td>
                     <td className="px-4 py-3 w-40">
-                      <ScoreBar score={s.score} threshold={s.thresholdApplied} />
-                      <span className="text-[10px] text-zinc-500 tabular-nums">{(s.score * 100).toFixed(0)}%</span>
+                      <ScoreBar
+                        score={s.score}
+                        threshold={s.thresholdApplied}
+                      />
+                      <span className="text-[10px] text-zinc-500 tabular-nums">
+                        {(s.score * 100).toFixed(0)}%
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       {s.exposed ? (
                         <span className="inline-flex items-center gap-1">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                          <span className="text-xs text-emerald-400">exposed</span>
+                          <span className="text-xs text-emerald-400">
+                            exposed
+                          </span>
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1">
@@ -151,7 +170,11 @@ export function RouterIntentPage() {
                           <span className="text-xs text-zinc-500">masked</span>
                         </span>
                       )}
-                      {s.sticky && <span className="ml-2 text-[10px] text-amber-400">sticky</span>}
+                      {s.sticky && (
+                        <span className="ml-2 text-[10px] text-amber-400">
+                          sticky
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs text-zinc-400 max-w-xs truncate">
                       {s.reasons.join("; ")}

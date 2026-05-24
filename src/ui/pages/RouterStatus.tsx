@@ -76,7 +76,9 @@ function KpiCard({
   return (
     <div className="card p-4 flex flex-col gap-1">
       <span className="section-label">{label}</span>
-      <span className={`font-mono font-semibold text-2xl tabular-nums ${color}`}>
+      <span
+        className={`font-mono font-semibold text-2xl tabular-nums ${color}`}
+      >
         {value}
       </span>
       {sub ? <span className="t-tertiary text-xs">{sub}</span> : null}
@@ -92,7 +94,9 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
         ? "bg-warning/15 text-warning"
         : "bg-error/15 text-error";
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}
+    >
       {outcome.replace(/_/g, " ")}
     </span>
   );
@@ -124,8 +128,11 @@ export function RouterStatusPage() {
           <div className="text-4xl mb-4">⏸</div>
           <h2 className="text-xl font-semibold mb-2">MCP Router is Disabled</h2>
           <p className="t-secondary max-w-md mx-auto">
-            Run <code className="font-mono text-sm bg-muted px-1.5 py-0.5 rounded">unerr enable mcp-router</code> in
-            your repository to activate the gateway. It will inspect your IDE
+            Run{" "}
+            <code className="font-mono text-sm bg-muted px-1.5 py-0.5 rounded">
+              unerr enable mcp-router
+            </code>{" "}
+            in your repository to activate the gateway. It will inspect your IDE
             MCP configs and consolidate them into a single intelligent endpoint.
           </p>
         </div>
@@ -159,10 +166,7 @@ export function RouterStatusPage() {
       {/* KPI cards */}
       {session && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <KpiCard
-            label="Tool Calls"
-            value={fmtNum(session.totalCalls)}
-          />
+          <KpiCard label="Tool Calls" value={fmtNum(session.totalCalls)} />
           <KpiCard
             label="Tokens Saved"
             value={fmtNum(session.totalTokensSaved)}
@@ -186,10 +190,13 @@ export function RouterStatusPage() {
       {data.proxiedServers.length > 0 && (
         <div className="card">
           <div className="p-4 border-b border-border-subtle">
-            <h3 className="font-semibold">Proxied Servers ({data.proxiedServers.length})</h3>
+            <h3 className="font-semibold">
+              Proxied Servers ({data.proxiedServers.length})
+            </h3>
             {maskedSet.size > 0 && (
               <p className="text-xs t-tertiary mt-1">
-                {maskedSet.size} auto-masked (never used) — saves ~{maskedSet.size * 2000} tokens/session
+                {maskedSet.size} auto-masked (never used) — saves ~
+                {maskedSet.size * 2000} tokens/session
               </p>
             )}
           </div>
@@ -197,10 +204,19 @@ export function RouterStatusPage() {
             {data.proxiedServers.map((s) => {
               const isMasked = maskedSet.has(s.name);
               return (
-                <div key={s.name} className="flex items-center justify-between px-4 py-3">
+                <div
+                  key={s.name}
+                  className="flex items-center justify-between px-4 py-3"
+                >
                   <div className="flex items-center gap-3">
-                    <span className={`h-2 w-2 rounded-full ${isMasked ? "bg-zinc-500" : "bg-success"}`} />
-                    <span className={`font-medium ${isMasked ? "t-tertiary" : ""}`}>{s.name}</span>
+                    <span
+                      className={`h-2 w-2 rounded-full ${isMasked ? "bg-zinc-500" : "bg-success"}`}
+                    />
+                    <span
+                      className={`font-medium ${isMasked ? "t-tertiary" : ""}`}
+                    >
+                      {s.name}
+                    </span>
                     {isMasked && (
                       <span className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
                         auto-masked
@@ -219,47 +235,56 @@ export function RouterStatusPage() {
       )}
 
       {/* Active overrides */}
-      {data.overrides && (data.overrides.unmaskAll || data.overrides.unmasked.length > 0 || data.overrides.masked.length > 0) && (
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold">Active Overrides</h3>
-            <button
-              className="text-xs t-tertiary hover:text-error transition-colors"
-              onClick={() => fetch("/api/router/clear-overrides", { method: "POST" }).then(() => statusQ.refetch())}
-            >
-              Clear All
-            </button>
+      {data.overrides &&
+        (data.overrides.unmaskAll ||
+          data.overrides.unmasked.length > 0 ||
+          data.overrides.masked.length > 0) && (
+          <div className="card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Active Overrides</h3>
+              <button
+                className="text-xs t-tertiary hover:text-error transition-colors"
+                onClick={() =>
+                  fetch("/api/router/clear-overrides", { method: "POST" }).then(
+                    () => statusQ.refetch()
+                  )
+                }
+              >
+                Clear All
+              </button>
+            </div>
+            {data.overrides.unmaskAll ? (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="h-2 w-2 rounded-full bg-success" />
+                <span className="font-medium">All families unmasked</span>
+                <span className="t-tertiary text-xs">
+                  (intent masking disabled)
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {data.overrides.unmasked.map((f) => (
+                  <div key={f} className="flex items-center gap-2 text-sm">
+                    <span className="h-2 w-2 rounded-full bg-success" />
+                    <span className="font-mono">{f}</span>
+                    <span className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success">
+                      unmasked
+                    </span>
+                  </div>
+                ))}
+                {data.overrides.masked.map((f) => (
+                  <div key={f} className="flex items-center gap-2 text-sm">
+                    <span className="h-2 w-2 rounded-full bg-warning" />
+                    <span className="font-mono">{f}</span>
+                    <span className="inline-flex items-center rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning">
+                      masked
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          {data.overrides.unmaskAll ? (
-            <div className="flex items-center gap-2 text-sm">
-              <span className="h-2 w-2 rounded-full bg-success" />
-              <span className="font-medium">All families unmasked</span>
-              <span className="t-tertiary text-xs">(intent masking disabled)</span>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {data.overrides.unmasked.map((f) => (
-                <div key={f} className="flex items-center gap-2 text-sm">
-                  <span className="h-2 w-2 rounded-full bg-success" />
-                  <span className="font-mono">{f}</span>
-                  <span className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success">
-                    unmasked
-                  </span>
-                </div>
-              ))}
-              {data.overrides.masked.map((f) => (
-                <div key={f} className="flex items-center gap-2 text-sm">
-                  <span className="h-2 w-2 rounded-full bg-warning" />
-                  <span className="font-mono">{f}</span>
-                  <span className="inline-flex items-center rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning">
-                    masked
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+        )}
 
       {/* Efficiency bar */}
       {session && session.totalCalls > 0 && (
@@ -291,27 +316,38 @@ export function RouterStatusPage() {
                 <tr className="border-b border-border-subtle t-tertiary">
                   <th className="px-4 py-2 text-left font-medium">Tool</th>
                   <th className="px-4 py-2 text-left font-medium">Outcome</th>
-                  <th className="px-4 py-2 text-right font-medium">Tokens In</th>
+                  <th className="px-4 py-2 text-right font-medium">
+                    Tokens In
+                  </th>
                   <th className="px-4 py-2 text-right font-medium">Saved</th>
                   <th className="px-4 py-2 text-right font-medium">Latency</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-subtle">
-                {recent.slice().reverse().map((r, i) => (
-                  <tr key={`${r.ts}-${i}`} className="hover:bg-muted/50">
-                    <td className="px-4 py-2 font-mono text-xs">{r.toolName}</td>
-                    <td className="px-4 py-2">
-                      <OutcomeBadge outcome={r.outcome} />
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums">{r.tokensIn}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-success">
-                      {r.tokensSaved > 0 ? `+${r.tokensSaved}` : r.tokensSaved}
-                    </td>
-                    <td className="px-4 py-2 text-right tabular-nums t-tertiary">
-                      {r.latencyMs.total.toFixed(1)}ms
-                    </td>
-                  </tr>
-                ))}
+                {recent
+                  .slice()
+                  .reverse()
+                  .map((r, i) => (
+                    <tr key={`${r.ts}-${i}`} className="hover:bg-muted/50">
+                      <td className="px-4 py-2 font-mono text-xs">
+                        {r.toolName}
+                      </td>
+                      <td className="px-4 py-2">
+                        <OutcomeBadge outcome={r.outcome} />
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums">
+                        {r.tokensIn}
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums text-success">
+                        {r.tokensSaved > 0
+                          ? `+${r.tokensSaved}`
+                          : r.tokensSaved}
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums t-tertiary">
+                        {r.latencyMs.total.toFixed(1)}ms
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>

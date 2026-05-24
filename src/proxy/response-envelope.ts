@@ -187,59 +187,113 @@ export function wireifyMeta(
  * (CLAUDE.md, .cursor/rules/*, etc.) via instruction-writer.ts so the LLM
  * knows what each one means without paying for the full word every call.
  *
- *   hlt   halt   loop/circuit break — stop retrying
- *   dft   drift  file/entity changed — re-read before edit
- *   rsk   risk   high blast radius — verify callers
- *   wrn   warn   anti-pattern / negative fact
- *   hnt   hint   guidance / co-change suggestion
- *   fct   fact   surfaced project fact (procedural / convention / semantic)
- *   ctx          context already delivered — don't re-query
- *   hth   health session degraded — consider new session
- *   hst   hist   prior failures on this entity
- *   ur|          generic nudge (no tag)
+ * **2026-05-24 consolidation 14 → 4.** The legend collapsed from 14 distinct
+ * tags (hlt/dft/rsk/wrn/hnt/unl/fct/ctx/hth/hst/pg/skl/act/rsm) to 4 priority
+ * buckets. Each emission still passes a *semantic* tag internally; the
+ * `WIRE_TAG_ALIAS` map below translates it to one of the four wire tags
+ * before the line is written. The body of every signal is self-describing
+ * (action verb is in the message text), so the priority bucket is sufficient
+ * for the agent to decide whether to act now or read on.
+ *
+ *   act   action  do something NOW — halt/switch, invoke skill, use unlocked tool,
+ *                 paginate, pick up from resume strip
+ *   ctx   context state changed — drift, context already delivered, session health
+ *   rsk   risk    risk on this path — blast radius, anti-pattern, prior failures
+ *   fct   fact    information — surfaced fact, co-change hint, fact-type passthroughs
+ *   ur|           generic nudge (no tag)
  *
  * Only emitted when actionable. Marketing/metrics/"survived" causal histories
  * are dropped.
  */
-export const SIGNAL_PREFIX_LEGEND = `ur|<tag> is an unerr signal appended to MCP responses (as a footer). Tags:
-  hlt  halt — loop/circuit break: stop retrying this entity, mark_blocker and switch approach
-  dft  drift — file/entity changed: re-read with file_read/get_entity before edit
-  rsk  risk — high blast radius: call get_references({direction:'callers'}) before edit
-  wrn  warn — anti-pattern / negative fact: do not reintroduce the listed pattern
-  hnt  hint — guidance: apply the named pattern or co-modify the listed files
-  fct  fact — surfaced project fact (procedural / convention / semantic). Fact subtype is in [brackets] in the message.
-  hth  health — session degraded: start a new session before the next non-trivial task
-  hst  hist — prior failure modes: read each mode before retrying the same approach
-  pg   page — pagination/wire-cap: response was capped. Format: "ur|pg <tool> +<remaining> — <cursorArg>:<nextValue>". Paste <nextValue> back into the same arg to fetch the next slice; the values are concrete numbers, not placeholders.
-  ur|  generic nudge (no tag)`;
+export const SIGNAL_PREFIX_LEGEND = `ur|<tag> is an unerr signal in MCP response bodies. Four wire tags (consolidated 14→4 in 2026-05; body is self-describing — tag is priority bucket only):
+  act  action — do something NOW. Covers halt/switch, Skill invocation, unlocked tool, pagination cursor, resume-strip pickup. Body names the exact call.
+  ctx  context — state changed. Covers drift (re-read), context already delivered (don't re-query), session health degraded (consider new session). Body names what changed.
+  rsk  risk — caution on this code path. Covers blast radius (callers first), anti-pattern (don't reintroduce), prior failure history (read modes before retry). Body names the risk.
+  fct  fact — information for context. Covers surfaced project facts (subtype in [brackets]), co-change hints, convention/procedural/semantic/episodic passthroughs. Body carries the fact.
+  ur|  generic nudge (no tag).
 
-/** Map signal-scorer types → 3-char wire tag. The scorer emits exactly 4
+Fix F — two-register pattern (Surface-Reliability, 2026-05-24): ur|<tag> is reserved for FACTS (ctx, rsk, fct) — information the agent should weigh. COMMANDS are emitted as bare imperatives starting with an RFC 2119 verb (CALL, RUN, READ, MUST, DO NOT, STEP-N), no \`ur|\` wrapper. New emission sites SHOULD use the bare-imperative form for commands; existing \`ur|act\` lines remain valid for backward compatibility (the agent treats both identically).`;
+
+/**
+ * Wire-tag alias map (14 → 4 consolidation, 2026-05).
+ *
+ * Internal emission sites pass a *semantic* tag (hlt, dft, rsk, wrn, hnt,
+ * unl, fct, ctx, hth, hst, pg, skl, act, rsm). At the wire boundary
+ * (`tryPush`, `formatUnlockAnnounce`, hand-rolled `ur|<tag>` literals)
+ * the alias translates the semantic tag to one of four wire tags:
+ *
+ *   act ← hlt, skl, unl, act, pg, rsm  (do something now)
+ *   ctx ← dft, ctx, hth                 (state changed)
+ *   rsk ← rsk, wrn, hst                 (caution on path)
+ *   fct ← fct, hnt, cnv, pro, sem, epi  (information)
+ *
+ * Why a translation layer rather than rewriting every emission site:
+ * preserves the semantic vocabulary at the call site for log/dedup
+ * scoping while shrinking the surface the agent has to memorise.
+ *
+ * If a tag is not in the map, it passes through unchanged — used for
+ * truly unique tags (e.g. test fixtures) and the generic `ur|` line.
+ */
+export const WIRE_TAG_ALIAS: Readonly<Record<string, string>> = Object.freeze({
+  hlt: "act",
+  skl: "act",
+  unl: "act",
+  act: "act",
+  pg: "act",
+  rsm: "act",
+  dft: "ctx",
+  ctx: "ctx",
+  hth: "ctx",
+  rsk: "rsk",
+  wrn: "rsk",
+  hst: "rsk",
+  fct: "fct",
+  hnt: "fct",
+  cnv: "fct",
+  pro: "fct",
+  sem: "fct",
+  epi: "fct",
+});
+
+/**
+ * Translate an internal semantic tag to its wire-level priority bucket.
+ * Unknown tags pass through unchanged so the helper stays safe to call
+ * on arbitrary strings.
+ */
+export function toWireTag(internal: string): string {
+  return WIRE_TAG_ALIAS[internal] ?? internal;
+}
+
+/** Map signal-scorer types → wire tag. The scorer emits exactly 4
  * types (see SignalType in signal-scorer.ts): warning, guidance, context,
  * history. The fact_type ([procedural], [convention], etc.) is already
- * embedded in the message content by the scorer. */
+ * embedded in the message content by the scorer.
+ *
+ * Returns the **wire tag** (one of act/ctx/rsk/fct) — callers no longer
+ * need to translate; the alias is applied here. */
 export function signalTag(type: string | undefined): string {
   switch (type) {
     case "warning":
-      return "wrn";
+      return toWireTag("wrn");
     case "guidance":
-      return "hnt";
+      return toWireTag("hnt");
     case "context":
-      return "fct"; // surfaced fact (procedural / convention / semantic)
+      return toWireTag("fct"); // surfaced fact (procedural / convention / semantic)
     case "history":
-      return "hst";
-    // Direct fact-type passthrough (not currently emitted but reserved):
+      return toWireTag("hst");
+    // Direct fact-type passthroughs — all collapse into ur|fct on the wire.
     case "convention":
-      return "cnv";
+      return toWireTag("cnv");
     case "procedural":
-      return "pro";
+      return toWireTag("pro");
     case "semantic":
-      return "sem";
+      return toWireTag("sem");
     case "episodic":
-      return "epi";
+      return toWireTag("epi");
     case "negative":
-      return "wrn";
+      return toWireTag("wrn");
     default:
-      return (type ?? "inf").slice(0, 3);
+      return toWireTag((type ?? "inf").slice(0, 3));
   }
 }
 
@@ -263,8 +317,11 @@ export function buildSignalPrefix(
 
   function tryPush(tag: string, scopeKey: string | null, body: string): void {
     if (lines.length >= MAX_SIGNAL_LINES) return;
+    // Dedup scope keeps the *semantic* tag so e.g. a hlt and a skl line on
+    // the same entity don't suppress each other after they collapse onto
+    // the same wire bucket. The wire output uses the aliased tag.
     if (!dedup.shouldEmit(tag, scopeKey, body)) return;
-    lines.push(`ur|${tag} ${body}`);
+    lines.push(`ur|${toWireTag(tag)} ${body}`);
   }
 
   if (meta?.circuit_breaker) {
@@ -313,20 +370,34 @@ export function buildSignalPrefix(
       entity_key?: string;
     };
     if (r.risk_level === "high") {
-      // For array/envelope results (e.g. get_references), `r.entity_key` is the
-      // max-risk reference's key, NOT the queried entity. Scoping dedup on that
-      // key means each new high-risk neighbor re-fires `ur|rsk` instead of
-      // being suppressed by `on_change` against the queried entity.
-      const refKey = r.entity_key
-        ? `${entityKey ?? "?"}:ref:${r.entity_key}`
-        : entityKey;
-      // Table row #15 TRIM — replace vague "verify blast radius" imperative
-      // with a concrete next-call the agent can paste.
-      tryPush(
-        "rsk",
-        refKey,
-        `fan_in=${r.fan_in ?? 0} fan_out=${r.fan_out ?? 0} (high blast radius — get_references first)`
-      );
+      // Bleed guard: `extractMaxRiskFromArray` surfaces the highest-risk
+      // NEIGHBOR's risk on get_references / get_callers / get_callees
+      // results. If we emit `ur|rsk fan_in=… high blast radius` against
+      // the queried entity, the agent reads it as the queried entity's
+      // risk — but it's actually a neighbor's. That's cross-entity bleed.
+      // When the risk came from a named neighbor (entity_key ≠ queried
+      // entityKey), name the neighbor explicitly so the warning attaches
+      // to the right target. When entity_key matches the queried key (or
+      // is absent, meaning a single-entity tool like get_function), emit
+      // the standard form.
+      const isNeighborRisk =
+        r.entity_key !== undefined &&
+        entityKey !== null &&
+        r.entity_key !== entityKey;
+      if (isNeighborRisk) {
+        const refKey = `${entityKey}:ref:${r.entity_key}`;
+        tryPush(
+          "rsk",
+          refKey,
+          `${r.entity_key} (returned by this query) is high-risk: fan_in=${r.fan_in ?? 0} fan_out=${r.fan_out ?? 0} — call get_references({name:'${r.entity_key}', direction:'callers'}) before editing ${r.entity_key}`
+        );
+      } else {
+        tryPush(
+          "rsk",
+          entityKey,
+          `fan_in=${r.fan_in ?? 0} fan_out=${r.fan_out ?? 0} (high blast radius — get_references first)`
+        );
+      }
     }
   }
 
@@ -427,16 +498,19 @@ export async function wrapResponse(
  * or more tier-2/3 tools just unlocked. Sprint P0-3, task 6.
  *
  * Contract:
- *   - One `ur|hnt` line per newly-unlocked tool. We do not coalesce — a
+ *   - One `ur|act` line per newly-unlocked tool. We do not coalesce — a
  *     reader (human or model) parses each line independently, and
  *     duplicate prefixes are how the dedup layer already groups signals.
+ *   - `ur|act` (unlock — "call X to use it") is distinct from `ur|fct`
+ *     (co-change hint): unlock signals tier promotion / a new tool
+ *     surfaced; facts suggest co-modifying files.
  *   - Imperative verb + named tool: "<name> unlocked — call <name>(...)
  *     to use it". No "you may now", no "consider".
  *   - Returns "" (empty string) when the input is empty, so callers can
  *     `prepend(formatUnlockAnnounce(events))` unconditionally.
  *
  * Body shape per line:
- *   `ur|hnt <toolName> unlocked — <reasonText>; call <toolName>(...) to use it`
+ *   `ur|act <toolName> unlocked — <reasonText>; call <toolName>(...) to use it`
  *
  * The trailing semi-colon delimits the *trigger* (reasonText, from
  * describeCondition) from the *action* (call-it-now). Two pieces of
@@ -451,7 +525,7 @@ export function formatUnlockAnnounce(
   if (unlocks.length === 0) return "";
   const lines = unlocks.map(
     (u) =>
-      `ur|hnt ${u.toolName} unlocked — ${u.reasonText}; call ${u.toolName}(...) to use it`
+      `ur|${toWireTag("unl")} ${u.toolName} unlocked — ${u.reasonText}; call ${u.toolName}(...) to use it`
   );
   // Trailing newline so the caller can prepend directly to body text
   // without thinking about separators.
@@ -463,7 +537,7 @@ export function formatUnlockAnnounce(
  *
  * `buildUserBlock()` is the SECOND channel injected into `content[].text`,
  * running AFTER `buildSignalPrefix()`. It produces lines prefixed with
- * `unerr · ` (note: middle dot U+00B7, not regular dot). These lines are
+ * `unerr » ` (note: right-pointing double angle U+00BB; markdown-safe — `>` would render as a blockquote in GitHub / Slack / Discord). These lines are
  * for the human reading the chat. The LLM is instructed (via the
  * FORBIDDEN row in `src/config/instruction-writer.ts`) to NOT echo,
  * summarize, or act on them — they're telemetry for the user, not
@@ -473,7 +547,7 @@ export function formatUnlockAnnounce(
  * Why a separate channel:
  *   - `ur|<tag>` lines are actionable — the agent acts on them and they
  *     get capped tightly (`MAX_SIGNAL_LINES = 2`).
- *   - `unerr · …` lines are narrative — they describe what unerr did
+ *   - `unerr » …` lines are narrative — they describe what unerr did
  *     this turn, what changed in context, what was remembered, what the
  *     session economy looks like. They're seen by the user, ignored by
  *     the agent.
@@ -490,7 +564,7 @@ export function formatUnlockAnnounce(
  *
  * Ambient-marker fallback (Sprint 3c): when the caller passes
  * `ambientMarker: true`, the block collapses to a single line
- * `unerr · ⋯` — used after 3 consecutive zero-content turns to avoid
+ * `unerr » ⋯` — used after 3 consecutive zero-content turns to avoid
  * banner-blindness. The full lines come back the moment a turn produces
  * real content again. Honest-zero on the dashboard is unaffected; this
  * applies only to the in-chat surfaces.
@@ -504,10 +578,13 @@ export function formatUnlockAnnounce(
 const MAX_USER_BLOCK_LINES = 5;
 const MAX_USER_BLOCK_BYTES = 500;
 /** Visible cue distinguishing user-prose lines from `ur|<tag>` signals.
- *  Middle dot (U+00B7) tokenizes cheaply across the major BPE schemes. */
-export const USER_BLOCK_PREFIX = "unerr · ";
+ *  Right-pointing double angle (U+00BB) tokenizes as a single BPE token
+ *  across cl100k / o200k / Llama3 / Claude tokenizers — same cost as `·`.
+ *  Chosen over `>` because GitHub / Slack / Discord render leading `>` as
+ *  a blockquote, exactly the channels these lines need to travel through. */
+export const USER_BLOCK_PREFIX = "unerr » ";
 /** Ambient marker — collapsed form after consecutive zero-content turns. */
-export const USER_BLOCK_AMBIENT = "unerr · ⋯";
+export const USER_BLOCK_AMBIENT = "unerr » ⋯";
 
 export interface BuildUserBlockOptions {
   /** When true, render the ambient marker ignoring `lines`. Caller is
@@ -517,12 +594,12 @@ export interface BuildUserBlockOptions {
 
 /**
  * Build the user-prose block. Each entry in `lines` is rendered as a
- * single `unerr · <line>` line. Multi-line entries (containing `\n`)
+ * single `unerr » <line>` line. Multi-line entries (containing `\n`)
  * have their continuations indented under the prefix for visual
  * alignment in IDE chat panes.
  *
  * Returns the empty string when there is nothing to say (and
- * `ambientMarker` is false). Returns `unerr · ⋯\n\n` when
+ * `ambientMarker` is false). Returns `unerr » ⋯\n\n` when
  * `ambientMarker` is true. Otherwise returns the assembled block with a
  * trailing `\n\n` boundary marker.
  */
@@ -538,7 +615,7 @@ export function buildUserBlock(
   const rendered: string[] = [];
   // Indent continuation lines by the visible width of the prefix so
   // wrapped lines in IDE chat panes stay vertically aligned. The exact
-  // width is the rendered glyph count of "unerr · " (8 chars).
+  // width is the rendered glyph count of "unerr » " (8 chars).
   const continuationIndent = " ".repeat(USER_BLOCK_PREFIX.length);
   for (const raw of lines) {
     if (rendered.length >= MAX_USER_BLOCK_LINES) break;

@@ -1,9 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { FamilyMaskEngine } from "../router/family-mask.js";
 import { IntentDispatcher } from "../router/dispatch.js";
-import { type ScorerInput } from "../router/intent/scorer.js";
-import { createStickinessState, recordFamilyCall } from "../router/intent/stickiness.js";
+import { FamilyMaskEngine } from "../router/family-mask.js";
+import type { ScorerInput } from "../router/intent/scorer.js";
+import {
+  createStickinessState,
+  recordFamilyCall,
+} from "../router/intent/stickiness.js";
 import { createEmptyDecayState } from "../router/intent/threshold-decay.js";
 
 const ALL_FAMILIES = new Set(["pg", "gh", "slk", "str", "aws"]);
@@ -31,7 +34,7 @@ describe("Monotonic Exposure — Intent shifts mid-session", () => {
     // Turn 0: pure DB intent
     const eval0 = dispatcher.evaluateIntent(
       baseInput({ entityFamilyTags: new Map([["UserRepo", new Set(["pg"])]]) }),
-      0,
+      0
     );
     expect(eval0.maskSnapshot.exposedFamilies.has("pg")).toBe(true);
     expect(eval0.maskSnapshot.maskedFamilies.has("gh")).toBe(true);
@@ -39,8 +42,10 @@ describe("Monotonic Exposure — Intent shifts mid-session", () => {
 
     // Turn 1: intent shifts to GitHub
     const eval1 = dispatcher.evaluateIntent(
-      baseInput({ entityFamilyTags: new Map([["PRService", new Set(["gh"])]]) }),
-      1,
+      baseInput({
+        entityFamilyTags: new Map([["PRService", new Set(["gh"])]]),
+      }),
+      1
     );
     expect(eval1.maskSnapshot.exposedFamilies.has("pg")).toBe(true);
     expect(eval1.maskSnapshot.exposedFamilies.has("gh")).toBe(true);
@@ -57,15 +62,17 @@ describe("Monotonic Exposure — Intent shifts mid-session", () => {
 
     dispatcher.evaluateIntent(
       baseInput({ entityFamilyTags: new Map([["UserRepo", new Set(["pg"])]]) }),
-      0,
+      0
     );
     dispatcher.evaluateIntent(
-      baseInput({ entityFamilyTags: new Map([["PRService", new Set(["gh"])]]) }),
-      1,
+      baseInput({
+        entityFamilyTags: new Map([["PRService", new Set(["gh"])]]),
+      }),
+      1
     );
     const eval2 = dispatcher.evaluateIntent(
       baseInput({ recentFiles: ["src/integrations/slack/bot.ts"] }),
-      2,
+      2
     );
 
     expect(eval2.maskSnapshot.exposedFamilies.has("pg")).toBe(true);
@@ -90,13 +97,13 @@ describe("Monotonic Exposure — Intent shifts mid-session", () => {
           ["PRService", new Set(["gh"])],
         ]),
       }),
-      0,
+      0
     );
 
     // Only pg signal (gh signal gone)
     const eval1 = dispatcher.evaluateIntent(
       baseInput({ entityFamilyTags: new Map([["UserRepo", new Set(["pg"])]]) }),
-      1,
+      1
     );
 
     expect(eval1.maskSnapshot.exposedFamilies.has("pg")).toBe(true);
@@ -113,7 +120,7 @@ describe("Monotonic Exposure — Intent shifts mid-session", () => {
 
     dispatcher.evaluateIntent(
       baseInput({ entityFamilyTags: new Map([["UserRepo", new Set(["pg"])]]) }),
-      0,
+      0
     );
 
     const eval1 = dispatcher.evaluateIntent(baseInput(), 1);
@@ -137,7 +144,7 @@ describe("Monotonic Exposure — Intent shifts mid-session", () => {
         stickinessState: state,
         entityFamilyTags: new Map([["UserRepo", new Set(["pg"])]]),
       }),
-      0,
+      0
     );
 
     expect(eval0.maskSnapshot.exposedFamilies.has("pg")).toBe(true);
@@ -155,14 +162,16 @@ describe("Monotonic Exposure — Override interaction", () => {
 
     dispatcher.evaluateIntent(
       baseInput({ entityFamilyTags: new Map([["UserRepo", new Set(["pg"])]]) }),
-      0,
+      0
     );
 
     dispatcher.unmaskFamily("aws");
 
     const eval1 = dispatcher.evaluateIntent(
-      baseInput({ entityFamilyTags: new Map([["PRService", new Set(["gh"])]]) }),
-      1,
+      baseInput({
+        entityFamilyTags: new Map([["PRService", new Set(["gh"])]]),
+      }),
+      1
     );
 
     expect(eval1.maskSnapshot.exposedFamilies.has("pg")).toBe(true);
@@ -179,15 +188,17 @@ describe("Monotonic Exposure — Override interaction", () => {
 
     dispatcher.evaluateIntent(
       baseInput({ entityFamilyTags: new Map([["UserRepo", new Set(["pg"])]]) }),
-      0,
+      0
     );
     dispatcher.evaluateIntent(
-      baseInput({ entityFamilyTags: new Map([["PRService", new Set(["gh"])]]) }),
-      1,
+      baseInput({
+        entityFamilyTags: new Map([["PRService", new Set(["gh"])]]),
+      }),
+      1
     );
     dispatcher.evaluateIntent(
       baseInput({ recentFiles: ["src/integrations/slack/bot.ts"] }),
-      2,
+      2
     );
 
     const evals = dispatcher.getEvaluations();
@@ -215,7 +226,7 @@ describe("Monotonic Exposure — Verification gate (end-to-end session)", () => 
           entityFamilyTags: new Map([["UserRepo", new Set(["pg"])]]),
           recentFiles: ["db/schema.sql"],
         }),
-        turn,
+        turn
       );
       expect(eval_.maskSnapshot.exposedFamilies.has("pg")).toBe(true);
       expect(eval_.maskSnapshot.maskedFamilies.has("gh")).toBe(true);
@@ -227,7 +238,7 @@ describe("Monotonic Exposure — Verification gate (end-to-end session)", () => 
         entityFamilyTags: new Map([["PRService", new Set(["gh"])]]),
         recentFiles: [".github/workflows/ci.yml"],
       }),
-      3,
+      3
     );
     expect(evalShift.intentShifted).toBe(true);
     expect(evalShift.newlyExposedFamilies).toContain("gh");

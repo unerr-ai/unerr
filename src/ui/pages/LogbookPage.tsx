@@ -32,6 +32,16 @@ import { useEffect, useMemo, useState } from "react";
 
 // ── Types ────────────────────────────────────────────────────────────
 
+// Fix J — verbatim prompt joined onto the row by the server.
+interface PromptForTurn {
+  session_id: string;
+  turn: number;
+  prompt: string | null;
+  length: number;
+  classified_as: string | null;
+  ts: string;
+}
+
 interface NamedEvent {
   event_type: string;
   verb: string;
@@ -43,6 +53,9 @@ interface NamedEvent {
   turn: number;
   ts: string;
   metadata: Record<string, unknown>;
+  /** Fix J — captured user prompt for this turn (LEFT JOIN on
+   *  {session_id, turn}). Null when capture is off or no row exists. */
+  prompt?: PromptForTurn | null;
 }
 
 interface StoryResponse {
@@ -64,6 +77,30 @@ interface TimelineResponse {
   total: number;
   limit: number;
   offset: number;
+}
+
+// Fix H — directive-compliance ribbon shape.
+interface ComplianceCounter {
+  required: number;
+  called: number;
+  ratio: number;
+  consecutive_misses: number;
+}
+
+interface ComplianceResponse {
+  data: {
+    surface2: ComplianceCounter;
+    surface3: ComplianceCounter;
+    mark_intent: ComplianceCounter;
+    skill: ComplianceCounter;
+    surface4: ComplianceCounter;
+    runtime_joins: {
+      memory_to_graph: number;
+      graph_to_drift: number;
+      three_way: number;
+      total: number;
+    };
+  };
 }
 
 interface FacetsResponse {
@@ -1568,6 +1605,18 @@ function ActivityRow({
         {/* Sentence + (mobile-only) meta sub-row */}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-foreground">{n.sentence}</span>
+          {/* Fix J — italicized verbatim prompt below the sentence. Only
+              renders when capture is on AND a row exists; otherwise omits
+              entirely (the drill view carries the "enable capture" hint
+              so we don't repeat it on every timeline row). */}
+          {ev.prompt && ev.prompt.prompt ? (
+            <span
+              className="mt-0.5 block truncate text-[11px] italic t-tertiary"
+              title={ev.prompt.prompt}
+            >
+              “{ev.prompt.prompt}”
+            </span>
+          ) : null}
           {/* Mobile fallback — columns collapse beneath the sentence so
               agent/session/turn are still always visible. */}
           <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-mono tabular-nums t-tertiary md:hidden">
@@ -1913,6 +1962,24 @@ export function LogbookPage() {
     refetchInterval: REFETCH_MS,
   });
 
+  // Fix H — compliance ribbon (Surface 2/3/mark_intent/skill).
+  const complianceQ = useQuery({
+    queryKey: queryKey([
+      "logbook",
+      "compliance",
+      bounds?.from_ts ?? "",
+      bounds?.to_ts ?? "",
+      agent,
+      sessionId,
+    ]),
+    queryFn: () =>
+      fetchJson<ComplianceResponse>(
+        url(`/api/logbook/compliance?${sharedFilter.toString()}`)
+      ),
+    refetchInterval: REFETCH_MS,
+  });
+  const compliance = complianceQ.data?.data;
+
   const facetsQ = useQuery({
     queryKey: queryKey([
       "logbook",
@@ -2054,6 +2121,70 @@ export function LogbookPage() {
               <div className="info-card-label">{c.label}</div>
               <div className="info-card-value font-mono tabular-nums text-lg text-foreground">
                 {fmtNum(c.count)}
+              </div>
+            </div>
+          ))}
+        </section>
+      ) : null}
+
+      {/* Fix L — cross-tier runtime joins row. Renders ABOVE the
+          compliance grid because joins are the highest-leverage
+          positioning artefact (§12). Visible only when total>0 so the
+          row stays out of the way on join-free windows. */}
+      {compliance && compliance.runtime_joins.total > 0 ? (
+        <section
+          aria-label="Cross-tier runtime joins"
+          className="rounded-xl border border-violet-500/30 bg-violet-500/5 px-4 py-3"
+        >
+          <div className="flex items-center gap-2 text-sm">
+            <span aria-hidden="true">⚡</span>
+            <span className="font-medium text-foreground">unerr runtime</span>
+            <span className="t-tertiary">·</span>
+            <span className="font-mono tabular-nums text-foreground">
+              memory→graph {compliance.runtime_joins.memory_to_graph}
+            </span>
+            <span className="t-tertiary">·</span>
+            <span className="font-mono tabular-nums text-foreground">
+              graph→drift {compliance.runtime_joins.graph_to_drift}
+            </span>
+            <span className="t-tertiary">·</span>
+            <span className="font-mono tabular-nums text-foreground">
+              three-way {compliance.runtime_joins.three_way}
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] t-tertiary">
+            joins point tools cannot produce — per-repo runtime context
+          </div>
+        </section>
+      ) : null}
+
+      {/* Fix H — directive compliance ribbon */}
+      {compliance ? (
+        <section
+          aria-label="Directive compliance"
+          className="grid grid-cols-2 gap-3 sm:grid-cols-5"
+        >
+          {(
+            [
+              ["Surface 2", compliance.surface2],
+              ["Surface 3", compliance.surface3],
+              ["Surface 4", compliance.surface4],
+              ["mark_intent", compliance.mark_intent],
+              ["Skill invoke", compliance.skill],
+            ] as const
+          ).map(([label, c]) => (
+            <div key={label} className="info-card">
+              <div className="info-card-label">{label}</div>
+              <div className="info-card-value font-mono tabular-nums text-lg text-foreground">
+                {Math.round(c.ratio * 100)}%
+              </div>
+              <div className="text-xs t-tertiary">
+                {c.called} / {c.required}
+                {c.consecutive_misses > 0 ? (
+                  <span className="ml-2 text-amber-400">
+                    {c.consecutive_misses}× miss streak
+                  </span>
+                ) : null}
               </div>
             </div>
           ))}

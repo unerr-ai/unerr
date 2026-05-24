@@ -13,7 +13,10 @@ import { Hono } from "hono";
 
 import type { RouterConfig } from "../../config/router-config-writer.js";
 import type { SessionMetricsSummary } from "../../proxy/router-session-metrics.js";
-import type { RouterSessionSummary, RouterTelemetryRecord } from "../../proxy/router-telemetry.js";
+import type {
+  RouterSessionSummary,
+  RouterTelemetryRecord,
+} from "../../proxy/router-telemetry.js";
 
 export interface ServerHealthInfo {
   readonly id: string;
@@ -36,17 +39,27 @@ export interface RouterRouteDeps {
   /** Read all telemetry records from current JSONL + archives. */
   readAllRecords: () => Promise<readonly RouterTelemetryRecord[]>;
   /** Aggregate records into per-session summaries. */
-  aggregateRecords: (records: readonly RouterTelemetryRecord[]) => readonly SessionMetricsSummary[];
+  aggregateRecords: (
+    records: readonly RouterTelemetryRecord[]
+  ) => readonly SessionMetricsSummary[];
   /** Group records by session ID. */
-  groupRecords: (records: readonly RouterTelemetryRecord[]) => ReadonlyMap<string, RouterTelemetryRecord[]>;
+  groupRecords: (
+    records: readonly RouterTelemetryRecord[]
+  ) => ReadonlyMap<string, RouterTelemetryRecord[]>;
   /** Aggregate a single session's records. */
-  aggregateSingle: (records: readonly RouterTelemetryRecord[]) => SessionMetricsSummary | null;
+  aggregateSingle: (
+    records: readonly RouterTelemetryRecord[]
+  ) => SessionMetricsSummary | null;
   /** Get health status for all proxied child servers. */
   getServerHealth?: () => readonly ServerHealthInfo[];
   /** Restart a specific child server by ID. Returns new health status or null if not found. */
   restartServer?: (serverId: string) => Promise<ServerHealthInfo | null>;
   /** Get family nudge accuracy stats. */
-  getNudgeStats?: () => { totalNudges: number; totalFollowed: number; accuracyRate: number | null };
+  getNudgeStats?: () => {
+    totalNudges: number;
+    totalFollowed: number;
+    accuracyRate: number | null;
+  };
   /** Get alias collision rewrite count. */
   getCollisionRewriteCount?: () => number;
 }
@@ -158,7 +171,7 @@ export function createRouterRoutes(deps: RouterRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        404,
+        404
       );
     }
 
@@ -175,7 +188,7 @@ export function createRouterRoutes(deps: RouterRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        404,
+        404
       );
     }
 
@@ -189,7 +202,7 @@ export function createRouterRoutes(deps: RouterRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        404,
+        404
       );
     }
 
@@ -208,7 +221,9 @@ export function createRouterRoutes(deps: RouterRouteDeps): Hono {
   app.get("/recent", async (c) => {
     const start = performance.now();
     const limitParam = c.req.query("limit");
-    const limit = limitParam ? Math.min(Number.parseInt(limitParam, 10), 100) : 20;
+    const limit = limitParam
+      ? Math.min(Number.parseInt(limitParam, 10), 100)
+      : 20;
 
     const config = deps.getRouterConfig();
     if (!config || !config.enabled) {
@@ -272,7 +287,7 @@ export function createRouterRoutes(deps: RouterRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        503,
+        503
       );
     }
 
@@ -287,7 +302,7 @@ export function createRouterRoutes(deps: RouterRouteDeps): Hono {
             latency_ms: Math.round((performance.now() - start) * 100) / 100,
           },
         },
-        404,
+        404
       );
     }
 

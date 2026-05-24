@@ -20,10 +20,10 @@
  */
 
 import {
-  getClientProfile,
   type ClientProfile,
-  type ListChangedCapability,
   type DisclosureChannel,
+  type ListChangedCapability,
+  getClientProfile,
 } from "./client-profiles.js";
 
 export interface ClientInfo {
@@ -31,7 +31,10 @@ export interface ClientInfo {
   readonly version?: string;
 }
 
-export type CapabilityOverride = "force-list-changed" | "force-static" | undefined;
+export type CapabilityOverride =
+  | "force-list-changed"
+  | "force-static"
+  | undefined;
 
 export interface ClientCapabilities {
   readonly clientName: string;
@@ -56,7 +59,7 @@ export interface CapabilityProbeCallbacks {
 export function detectCapabilities(
   clientInfo: ClientInfo | undefined,
   override: CapabilityOverride,
-  probeCallbacks?: CapabilityProbeCallbacks,
+  probeCallbacks?: CapabilityProbeCallbacks
 ): ClientCapabilities {
   const name = clientInfo?.name ?? "unknown";
 
@@ -134,7 +137,7 @@ const PROBE_WINDOW_MS = 2_000;
  */
 function scheduleProbe(
   clientName: string,
-  callbacks: CapabilityProbeCallbacks,
+  callbacks: CapabilityProbeCallbacks
 ): void {
   setTimeout(() => {
     callbacks.sendListChanged();
@@ -153,12 +156,14 @@ function scheduleProbe(
  */
 export function createProbeMonitor(): {
   markRefetch: () => void;
-  getCallbacks: (onComplete: (supported: boolean) => void) => CapabilityProbeCallbacks;
+  getCallbacks: (
+    onComplete: (supported: boolean) => void
+  ) => CapabilityProbeCallbacks;
 } {
   let probeActive = false;
   let refetchObserved = false;
   let completeCallback: ((supported: boolean) => void) | null = null;
-  let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  const timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   return {
     markRefetch(): void {
@@ -170,7 +175,9 @@ export function createProbeMonitor(): {
       }
     },
 
-    getCallbacks(onComplete: (supported: boolean) => void): CapabilityProbeCallbacks {
+    getCallbacks(
+      onComplete: (supported: boolean) => void
+    ): CapabilityProbeCallbacks {
       completeCallback = onComplete;
 
       return {
@@ -194,7 +201,7 @@ export function createProbeMonitor(): {
  */
 export function finalizeProbeResult(
   clientName: string,
-  supportsListChanged: boolean,
+  supportsListChanged: boolean
 ): ClientCapabilities {
   logCapability(clientName, supportsListChanged, "probe (confirmed)");
   return {
@@ -209,15 +216,13 @@ export function finalizeProbeResult(
 function logCapability(
   clientName: string,
   listChanged: boolean,
-  method: string,
+  method: string
 ): void {
   process.stderr.write(
-    `  ▸ Client capability: ${clientName} → listChanged=${listChanged} (${method})\n`,
+    `  ▸ Client capability: ${clientName} → listChanged=${listChanged} (${method})\n`
   );
 }
 
 function logProbe(clientName: string, event: string): void {
-  process.stderr.write(
-    `  ▸ Capability probe [${clientName}]: ${event}\n`,
-  );
+  process.stderr.write(`  ▸ Capability probe [${clientName}]: ${event}\n`);
 }

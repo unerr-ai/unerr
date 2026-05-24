@@ -1,13 +1,16 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ConnectionManager, type ConnectionManagerEvents } from "../router/client/connection-manager.js";
-import { SchemaCache } from "../router/client/schema-cache.js";
-import { Forwarder } from "../router/client/forwarder.js";
 import type { ProxiedServerConfig } from "../config/router-config-writer.js";
+import {
+  ConnectionManager,
+  type ConnectionManagerEvents,
+} from "../router/client/connection-manager.js";
+import { Forwarder } from "../router/client/forwarder.js";
+import { SchemaCache } from "../router/client/schema-cache.js";
 import type {
-  McpTransport,
   JsonRpcRequest,
   JsonRpcResponse,
+  McpTransport,
   TransportState,
 } from "../router/client/transport.js";
 
@@ -23,7 +26,11 @@ class MockTransport implements McpTransport {
   connectDelay: number;
   shouldFail = false;
 
-  constructor(id: string, tools: { name: string; description: string }[], connectDelay = 0) {
+  constructor(
+    id: string,
+    tools: { name: string; description: string }[],
+    connectDelay = 0
+  ) {
     this.id = id;
     this.tools = tools;
     this.connectDelay = connectDelay;
@@ -60,7 +67,10 @@ class MockTransport implements McpTransport {
     }
 
     if (request.method === "tools/call") {
-      const params = request.params as { name: string; arguments: Record<string, unknown> };
+      const params = request.params as {
+        name: string;
+        arguments: Record<string, unknown>;
+      };
       return {
         jsonrpc: "2.0",
         id: request.id,
@@ -93,7 +103,7 @@ class MockTransport implements McpTransport {
 
 function mockServer(
   name: string,
-  tools: { name: string; description: string }[],
+  tools: { name: string; description: string }[]
 ): { config: ProxiedServerConfig; transport: MockTransport } {
   return {
     config: {
@@ -112,7 +122,7 @@ function mockServer(
  */
 function createMockConnectionManager(
   mocks: Map<string, MockTransport>,
-  events: ConnectionManagerEvents = {},
+  events: ConnectionManagerEvents = {}
 ): ConnectionManager {
   const cm = new ConnectionManager(events);
 
@@ -189,7 +199,11 @@ describe("Router Multi-Server Roundtrip", () => {
     slack.transport.shouldFail = false;
 
     cm = createMockConnectionManager(mocks);
-    const failures = await cm.connectAll([github.config, postgres.config, slack.config]);
+    const failures = await cm.connectAll([
+      github.config,
+      postgres.config,
+      slack.config,
+    ]);
     expect(failures).toHaveLength(0);
 
     schemaCache = new SchemaCache(cm);
@@ -312,8 +326,12 @@ describe("Router Multi-Server Roundtrip", () => {
         const server = servers[i % 3]!;
         const serverTools = tools[server]!;
         const tool = serverTools[i % serverTools.length]!;
-        return forwarder.forward({ serverId: server, toolName: tool, args: { i } });
-      }),
+        return forwarder.forward({
+          serverId: server,
+          toolName: tool,
+          args: { i },
+        });
+      })
     );
 
     for (const result of results) {

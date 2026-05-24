@@ -5,13 +5,13 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ALL_CONFIGS, getConfig } from "../eval/configs.js";
 import {
+  type ProxyEvent,
   classifyToolCall,
   computeMomentDetail,
   countNotesSaved,
   detectCiteInPlan,
   listToolsCalled,
   parseEventsJsonl,
-  type ProxyEvent,
 } from "../eval/metrics.js";
 import { loadTask, runOne } from "../eval/runner.js";
 
@@ -40,9 +40,12 @@ describe("eval/tasks loader", () => {
 
 describe("eval/metrics — pure extractors", () => {
   it("parseEventsJsonl skips blank and malformed lines", () => {
-    const raw = ['{"ts":1,"kind":"tool_call","tool":"x"}', "", "not-json", "  "].join(
-      "\n",
-    );
+    const raw = [
+      '{"ts":1,"kind":"tool_call","tool":"x"}',
+      "",
+      "not-json",
+      "  ",
+    ].join("\n");
     const evs = parseEventsJsonl(raw);
     expect(evs).toHaveLength(1);
     expect(evs[0]?.tool).toBe("x");
@@ -99,10 +102,11 @@ describe("eval/metrics — pure extractors", () => {
         payload: { type: "note" },
       },
     ];
-    const transcript = "I'll follow the wrn at src/proxy/proxy.ts when editing.";
+    const transcript =
+      "I'll follow the wrn at src/proxy/proxy.ts when editing.";
     const { moment_detail, moments_hit } = computeMomentDetail(
       events,
-      transcript,
+      transcript
     );
     expect(moment_detail.prompt_receipt_query).toBe(true);
     expect(moment_detail.cite_in_plan).toBe(true);
@@ -113,9 +117,24 @@ describe("eval/metrics — pure extractors", () => {
 
   it("countNotesSaved counts only unerr_remember type=note", () => {
     const events: ProxyEvent[] = [
-      { ts: 1, kind: "tool_call", tool: "unerr_remember", payload: { type: "note" } },
-      { ts: 2, kind: "tool_call", tool: "unerr_remember", payload: { type: "cochange" } },
-      { ts: 3, kind: "tool_call", tool: "unerr_remember", payload: { type: "note" } },
+      {
+        ts: 1,
+        kind: "tool_call",
+        tool: "unerr_remember",
+        payload: { type: "note" },
+      },
+      {
+        ts: 2,
+        kind: "tool_call",
+        tool: "unerr_remember",
+        payload: { type: "cochange" },
+      },
+      {
+        ts: 3,
+        kind: "tool_call",
+        tool: "unerr_remember",
+        payload: { type: "note" },
+      },
     ];
     expect(countNotesSaved(events)).toBe(2);
   });
@@ -150,7 +169,9 @@ describe("eval/runner — end-to-end against no-op agent", () => {
     expect(summary.moments_hit).toBe(0);
     expect(summary.notes_saved).toBe(0);
     expect(summary.assertions_passed).toBe(true);
-    expect(summary.notes).toContain("noop agent — no transcript or events captured");
+    expect(summary.notes).toContain(
+      "noop agent — no transcript or events captured"
+    );
   });
 
   it("config B writes an install marker into the workspace", async () => {

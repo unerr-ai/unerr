@@ -24,9 +24,9 @@ import { encode } from "gpt-tokenizer";
  *                        than the historical verbose format.
  */
 export const BUDGETS = {
-	tier1Active: 80,
-	locked: 30,
-	unlockedExtended: 60,
+  tier1Active: 80,
+  locked: 30,
+  unlockedExtended: 60,
 } as const;
 
 export type BudgetKey = keyof typeof BUDGETS;
@@ -36,18 +36,18 @@ export type BudgetKey = keyof typeof BUDGETS;
  * data for the CI gate to format a precise actionable error.
  */
 export class ToolBudgetError extends Error {
-	constructor(
-		readonly toolName: string,
-		readonly budgetKey: BudgetKey,
-		readonly observed: number,
-		readonly cap: number,
-	) {
-		super(
-			`Tool "${toolName}" description exceeds ${budgetKey} budget: ${observed} > ${cap} tokens. ` +
-				`Compress the description until it fits, or move the tool to a different tier.`,
-		);
-		this.name = "ToolBudgetError";
-	}
+  constructor(
+    readonly toolName: string,
+    readonly budgetKey: BudgetKey,
+    readonly observed: number,
+    readonly cap: number
+  ) {
+    super(
+      `Tool "${toolName}" description exceeds ${budgetKey} budget: ${observed} > ${cap} tokens. ` +
+        `Compress the description until it fits, or move the tool to a different tier.`
+    );
+    this.name = "ToolBudgetError";
+  }
 }
 
 /**
@@ -57,7 +57,7 @@ export class ToolBudgetError extends Error {
  * caps and observations are always computed identically.
  */
 export function countTokens(text: string): number {
-	return encode(text).length;
+  return encode(text).length;
 }
 
 /**
@@ -66,15 +66,15 @@ export function countTokens(text: string): number {
  * during module initialization.
  */
 export function enforceBudget(
-	toolName: string,
-	description: string,
-	key: BudgetKey,
+  toolName: string,
+  description: string,
+  key: BudgetKey
 ): void {
-	const observed = countTokens(description);
-	const cap = BUDGETS[key];
-	if (observed > cap) {
-		throw new ToolBudgetError(toolName, key, observed, cap);
-	}
+  const observed = countTokens(description);
+  const cap = BUDGETS[key];
+  if (observed > cap) {
+    throw new ToolBudgetError(toolName, key, observed, cap);
+  }
 }
 
 /**
@@ -83,10 +83,10 @@ export function enforceBudget(
  * |N| tokens. Used by the CI gate to print a compact per-tool table.
  */
 export function budgetHeadroom(
-	description: string,
-	key: BudgetKey,
+  description: string,
+  key: BudgetKey
 ): { observed: number; cap: number; headroom: number } {
-	const observed = countTokens(description);
-	const cap = BUDGETS[key];
-	return { observed, cap, headroom: cap - observed };
+  const observed = countTokens(description);
+  const cap = BUDGETS[key];
+  return { observed, cap, headroom: cap - observed };
 }

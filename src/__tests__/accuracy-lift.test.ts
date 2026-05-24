@@ -1,11 +1,21 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { computeBaseline, analyzeSession, type BaselineStats } from "../router/reasoning/baseline.js";
-import { computeLift, formatLiftSummary, type LiftInput } from "../router/reasoning/lift.js";
-import { type ToolCallTrace } from "../router/reasoning/wrong-call-detector.js";
-import { type CounterSnapshot } from "../router/reasoning/counter.js";
+import {
+  type BaselineStats,
+  analyzeSession,
+  computeBaseline,
+} from "../router/reasoning/baseline.js";
+import type { CounterSnapshot } from "../router/reasoning/counter.js";
+import {
+  type LiftInput,
+  computeLift,
+  formatLiftSummary,
+} from "../router/reasoning/lift.js";
+import type { ToolCallTrace } from "../router/reasoning/wrong-call-detector.js";
 
-function makeTrace(overrides: Partial<ToolCallTrace> & { toolName: string; family: string }): ToolCallTrace {
+function makeTrace(
+  overrides: Partial<ToolCallTrace> & { toolName: string; family: string }
+): ToolCallTrace {
   return {
     turnNumber: 0,
     timestamp: Date.now(),
@@ -22,11 +32,34 @@ function makeSession(wrongCallRatio: number, totalCalls: number) {
 
   for (let i = 0; i < totalCalls; i++) {
     if (i < wrongCount) {
-      traces.push(makeTrace({ toolName: `tool_a`, family: "pg", outcome: "empty", turnNumber: i, timestamp: ts }));
+      traces.push(
+        makeTrace({
+          toolName: `tool_a`,
+          family: "pg",
+          outcome: "empty",
+          turnNumber: i,
+          timestamp: ts,
+        })
+      );
       ts += 500;
-      traces.push(makeTrace({ toolName: `tool_b`, family: "pg", turnNumber: i, timestamp: ts }));
+      traces.push(
+        makeTrace({
+          toolName: `tool_b`,
+          family: "pg",
+          turnNumber: i,
+          timestamp: ts,
+        })
+      );
     } else {
-      traces.push(makeTrace({ toolName: `tool_ok`, family: "pg", responseTokens: 300, turnNumber: i, timestamp: ts }));
+      traces.push(
+        makeTrace({
+          toolName: `tool_ok`,
+          family: "pg",
+          responseTokens: 300,
+          turnNumber: i,
+          timestamp: ts,
+        })
+      );
     }
     ts += 2000;
   }
@@ -43,7 +76,13 @@ describe("Baseline computation", () => {
 
   it("single perfect session = 1.0 accuracy", () => {
     const traces = Array.from({ length: 20 }, (_, i) =>
-      makeTrace({ toolName: "file_read", family: "unerr", turnNumber: i, timestamp: i * 2000, responseTokens: 500 }),
+      makeTrace({
+        toolName: "file_read",
+        family: "unerr",
+        turnNumber: i,
+        timestamp: i * 2000,
+        responseTokens: 500,
+      })
     );
     const stats = computeBaseline([{ sessionId: "s1", traces }]);
     expect(stats.sessionCount).toBe(1);
@@ -60,7 +99,13 @@ describe("Baseline computation", () => {
 
   it("multiple sessions are averaged", () => {
     const perfect = Array.from({ length: 20 }, (_, i) =>
-      makeTrace({ toolName: "file_read", family: "unerr", turnNumber: i, timestamp: i * 2000, responseTokens: 500 }),
+      makeTrace({
+        toolName: "file_read",
+        family: "unerr",
+        turnNumber: i,
+        timestamp: i * 2000,
+        responseTokens: 500,
+      })
     );
     const bad = makeSession(0.5, 10);
 
@@ -91,9 +136,9 @@ describe("analyzeSession", () => {
 describe("Lift computation", () => {
   const goodBaseline: BaselineStats = {
     sessionCount: 10,
-    averageAccuracy: 0.70,
+    averageAccuracy: 0.7,
     averageRetries: 8,
-    averageWrongCallRate: 0.30,
+    averageWrongCallRate: 0.3,
     totalCalls: 400,
   };
 
@@ -110,12 +155,12 @@ describe("Lift computation", () => {
   it("positive lift when current accuracy > baseline", () => {
     const input: LiftInput = {
       baseline: goodBaseline,
-      currentAccuracy: 0.90,
+      currentAccuracy: 0.9,
       counter: goodCounter,
       sessionCalls: 40,
     };
     const lift = computeLift(input);
-    expect(lift.accuracyLift).toBeCloseTo(0.20);
+    expect(lift.accuracyLift).toBeCloseTo(0.2);
     expect(lift.isPositive).toBe(true);
     expect(lift.confidence).toBe("high");
   });
@@ -123,19 +168,19 @@ describe("Lift computation", () => {
   it("negative lift when current accuracy < baseline", () => {
     const input: LiftInput = {
       baseline: goodBaseline,
-      currentAccuracy: 0.60,
+      currentAccuracy: 0.6,
       counter: goodCounter,
       sessionCalls: 40,
     };
     const lift = computeLift(input);
-    expect(lift.accuracyLift).toBeCloseTo(-0.10);
+    expect(lift.accuracyLift).toBeCloseTo(-0.1);
     expect(lift.isPositive).toBe(false);
   });
 
   it("zero lift when accuracy matches baseline", () => {
     const input: LiftInput = {
       baseline: goodBaseline,
-      currentAccuracy: 0.70,
+      currentAccuracy: 0.7,
       counter: goodCounter,
       sessionCalls: 40,
     };
@@ -180,9 +225,9 @@ describe("Lift computation", () => {
 describe("Lift confidence levels", () => {
   const baseline: BaselineStats = {
     sessionCount: 10,
-    averageAccuracy: 0.70,
+    averageAccuracy: 0.7,
     averageRetries: 8,
-    averageWrongCallRate: 0.30,
+    averageWrongCallRate: 0.3,
     totalCalls: 400,
   };
 
@@ -197,22 +242,42 @@ describe("Lift confidence levels", () => {
   };
 
   it("high confidence: ≥30 calls + ≥5 baseline sessions", () => {
-    const lift = computeLift({ baseline, currentAccuracy: 0.85, counter, sessionCalls: 30 });
+    const lift = computeLift({
+      baseline,
+      currentAccuracy: 0.85,
+      counter,
+      sessionCalls: 30,
+    });
     expect(lift.confidence).toBe("high");
   });
 
   it("medium confidence: ≥15 calls", () => {
-    const lift = computeLift({ baseline: { ...baseline, sessionCount: 2 }, currentAccuracy: 0.85, counter, sessionCalls: 20 });
+    const lift = computeLift({
+      baseline: { ...baseline, sessionCount: 2 },
+      currentAccuracy: 0.85,
+      counter,
+      sessionCalls: 20,
+    });
     expect(lift.confidence).toBe("medium");
   });
 
   it("medium confidence: ≥3 baseline sessions", () => {
-    const lift = computeLift({ baseline: { ...baseline, sessionCount: 3 }, currentAccuracy: 0.85, counter, sessionCalls: 10 });
+    const lift = computeLift({
+      baseline: { ...baseline, sessionCount: 3 },
+      currentAccuracy: 0.85,
+      counter,
+      sessionCalls: 10,
+    });
     expect(lift.confidence).toBe("medium");
   });
 
   it("low confidence: few calls + few sessions", () => {
-    const lift = computeLift({ baseline: { ...baseline, sessionCount: 1 }, currentAccuracy: 0.85, counter, sessionCalls: 5 });
+    const lift = computeLift({
+      baseline: { ...baseline, sessionCount: 1 },
+      currentAccuracy: 0.85,
+      counter,
+      sessionCalls: 5,
+    });
     expect(lift.confidence).toBe("low");
   });
 });
@@ -220,9 +285,23 @@ describe("Lift confidence levels", () => {
 describe("formatLiftSummary", () => {
   it("formats positive lift correctly", () => {
     const lift = computeLift({
-      baseline: { sessionCount: 10, averageAccuracy: 0.70, averageRetries: 8, averageWrongCallRate: 0.30, totalCalls: 400 },
-      currentAccuracy: 0.90,
-      counter: { preventedWrongCalls: 5, totalSoftRefuses: 8, alternativesTaken: 6, alternativesSucceeded: 5, retriesSaved: 5, totalRetries: 3, baselineRetries: 8 },
+      baseline: {
+        sessionCount: 10,
+        averageAccuracy: 0.7,
+        averageRetries: 8,
+        averageWrongCallRate: 0.3,
+        totalCalls: 400,
+      },
+      currentAccuracy: 0.9,
+      counter: {
+        preventedWrongCalls: 5,
+        totalSoftRefuses: 8,
+        alternativesTaken: 6,
+        alternativesSucceeded: 5,
+        retriesSaved: 5,
+        totalRetries: 3,
+        baselineRetries: 8,
+      },
       sessionCalls: 40,
     });
     const summary = formatLiftSummary(lift);
@@ -234,9 +313,23 @@ describe("formatLiftSummary", () => {
 
   it("formats negative lift correctly", () => {
     const lift = computeLift({
-      baseline: { sessionCount: 10, averageAccuracy: 0.80, averageRetries: 4, averageWrongCallRate: 0.20, totalCalls: 400 },
-      currentAccuracy: 0.70,
-      counter: { preventedWrongCalls: 1, totalSoftRefuses: 3, alternativesTaken: 2, alternativesSucceeded: 1, retriesSaved: 0, totalRetries: 6, baselineRetries: 4 },
+      baseline: {
+        sessionCount: 10,
+        averageAccuracy: 0.8,
+        averageRetries: 4,
+        averageWrongCallRate: 0.2,
+        totalCalls: 400,
+      },
+      currentAccuracy: 0.7,
+      counter: {
+        preventedWrongCalls: 1,
+        totalSoftRefuses: 3,
+        alternativesTaken: 2,
+        alternativesSucceeded: 1,
+        retriesSaved: 0,
+        totalRetries: 6,
+        baselineRetries: 4,
+      },
       sessionCalls: 40,
     });
     const summary = formatLiftSummary(lift);
@@ -250,8 +343,8 @@ describe("Verification gate: 40-turn session lift", () => {
     const unroutedTraces = makeSession(0.25, 20);
     const baseline = computeBaseline([
       { sessionId: "unrouted-1", traces: unroutedTraces },
-      { sessionId: "unrouted-2", traces: makeSession(0.30, 20) },
-      { sessionId: "unrouted-3", traces: makeSession(0.20, 20) },
+      { sessionId: "unrouted-2", traces: makeSession(0.3, 20) },
+      { sessionId: "unrouted-3", traces: makeSession(0.2, 20) },
       { sessionId: "unrouted-4", traces: makeSession(0.25, 20) },
       { sessionId: "unrouted-5", traces: makeSession(0.28, 20) },
     ]);

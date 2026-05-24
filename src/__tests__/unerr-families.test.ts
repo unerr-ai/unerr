@@ -9,16 +9,19 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { TIER_ENTRIES } from "../proxy/tool-descriptions.js";
+import { FamilyMaskEngine } from "../router/family-mask.js";
 import {
-  withAllUnerrAlwaysOn,
-  withAllUnerrKnown,
+  NOTES_FAMILY_NAME,
+  NOTES_FAMILY_TOOLS,
+} from "../router/notes-family.js";
+import {
   UNERR_FAMILIES,
   UNERR_FAMILY_NAMES,
   UNERR_TOOL_TO_FAMILY,
+  withAllUnerrAlwaysOn,
+  withAllUnerrKnown,
 } from "../router/unerr-families.js";
-import { NOTES_FAMILY_NAME, NOTES_FAMILY_TOOLS } from "../router/notes-family.js";
-import { FamilyMaskEngine } from "../router/family-mask.js";
-import { TIER_ENTRIES } from "../proxy/tool-descriptions.js";
 
 describe("UNERR_FAMILIES — every TIER_ENTRIES tool has a family", () => {
   it("registers all 22 tools currently in TIER_ENTRIES", () => {
@@ -28,9 +31,14 @@ describe("UNERR_FAMILIES — every TIER_ENTRIES tool has a family", () => {
   });
 
   it("six families: graph, file, notes, fact, markers, web", () => {
-    expect([...UNERR_FAMILY_NAMES].sort()).toEqual(
-      ["fact", "file", "graph", "markers", "notes", "web"],
-    );
+    expect([...UNERR_FAMILY_NAMES].sort()).toEqual([
+      "fact",
+      "file",
+      "graph",
+      "markers",
+      "notes",
+      "web",
+    ]);
   });
 
   it("each family has at least one tool", () => {

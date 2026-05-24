@@ -41,11 +41,17 @@ import {
   writeMcpConfig,
 } from "../config/mcp-config-writer.js";
 import { BUNDLED_SKILLS } from "../skills/local-pack.js";
-import { resolveAndInstallSkills } from "../skills/resolver.js";
+import {
+  removeInstalledSkills,
+  resolveAndInstallSkills,
+} from "../skills/resolver.js";
 
 export interface InstallResult {
   agent: string;
   mcpConfig: { path: string; action: "created" | "updated" | "skipped" };
+  /** Number of stale `unerr-*` skills removed from disk before this install
+   *  (post-27→7 consolidation cleanup). Zero on fresh installs. */
+  skillsRemoved: number;
   skillsInstalled: number;
   hookInstalled: boolean;
   gitignoreUpdated: boolean;
@@ -214,8 +220,18 @@ export async function runInstall(
   // 1. Write MCP config (project-level)
   const mcpConfig = writeMcpConfig(cwd, ide);
 
-  // 2. Install skills into agent-specific directory
+  // 2. Wipe stale `unerr-*` skills from disk, then install the current set.
+  //    The consolidation (27→7) means any prior install left behind 20
+  //    legacy SKILL.md files. removeInstalledSkills only touches the
+  //    `unerr-*` namespace; user-authored skills are preserved (covered by
+  //    src/__tests__/skill-install-idempotency.test.ts).
+  let skillsRemoved = 0;
   let skillsInstalled = 0;
+  try {
+    skillsRemoved = removeInstalledSkills(ide, cwd);
+  } catch {
+    // Non-blocking — fall through and install regardless.
+  }
   try {
     const result = await resolveAndInstallSkills({ ide, cwd });
     skillsInstalled = result.installed.length;
@@ -303,6 +319,7 @@ export async function runInstall(
   return {
     agent: agentName,
     mcpConfig,
+    skillsRemoved,
     skillsInstalled,
     hookInstalled,
     gitignoreUpdated,

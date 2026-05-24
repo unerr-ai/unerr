@@ -12,18 +12,24 @@
  */
 
 import type { ProxiedServerConfig } from "../../config/router-config-writer.js";
+import { HttpTransport } from "./http-transport.js";
+import { SseTransport } from "./sse-transport.js";
+import { StdioTransport } from "./stdio-transport.js";
 import type {
-  McpTransport,
-  TransportState,
+  JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
-  JsonRpcNotification,
+  McpTransport,
+  TransportState,
 } from "./transport.js";
-import { StdioTransport } from "./stdio-transport.js";
-import { SseTransport } from "./sse-transport.js";
-import { HttpTransport } from "./http-transport.js";
 
-export type ServerStatus = "idle" | "connecting" | "connected" | "error" | "restarting" | "stopped";
+export type ServerStatus =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "error"
+  | "restarting"
+  | "stopped";
 
 export interface ManagedServer {
   readonly config: ProxiedServerConfig;
@@ -36,7 +42,10 @@ export interface ManagedServer {
 
 export interface ConnectionManagerEvents {
   onServerStateChange?: (serverId: string, status: ServerStatus) => void;
-  onServerNotification?: (serverId: string, notification: JsonRpcNotification) => void;
+  onServerNotification?: (
+    serverId: string,
+    notification: JsonRpcNotification
+  ) => void;
   onServerError?: (serverId: string, error: Error) => void;
 }
 
@@ -46,7 +55,7 @@ const MAX_BACKOFF_MS = 30_000;
 
 function createTransport(
   config: ProxiedServerConfig,
-  events: ConnectionManagerEvents,
+  events: ConnectionManagerEvents
 ): McpTransport {
   const transportEvents = {
     onNotification: (n: JsonRpcNotification) =>
@@ -87,7 +96,10 @@ export class ConnectionManager {
   private readonly maxRestarts: number;
   private shutdownRequested = false;
 
-  constructor(events: ConnectionManagerEvents = {}, maxRestarts = DEFAULT_MAX_RESTARTS) {
+  constructor(
+    events: ConnectionManagerEvents = {},
+    maxRestarts = DEFAULT_MAX_RESTARTS
+  ) {
     this.events = events;
     this.maxRestarts = maxRestarts;
   }
@@ -96,7 +108,9 @@ export class ConnectionManager {
    * Register and connect all configured servers.
    * Returns the list of server IDs that failed to connect.
    */
-  async connectAll(configs: readonly ProxiedServerConfig[]): Promise<readonly string[]> {
+  async connectAll(
+    configs: readonly ProxiedServerConfig[]
+  ): Promise<readonly string[]> {
     const failures: string[] = [];
 
     const connectPromises = configs.map(async (config) => {
@@ -147,7 +161,10 @@ export class ConnectionManager {
   /**
    * Send a request to a specific server's transport.
    */
-  async send(serverId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+  async send(
+    serverId: string,
+    request: JsonRpcRequest
+  ): Promise<JsonRpcResponse> {
     const managed = this.servers.get(serverId);
     if (!managed) {
       throw new Error(`Unknown server: ${serverId}`);
@@ -178,7 +195,7 @@ export class ConnectionManager {
 
     const backoffMs = Math.min(
       BASE_BACKOFF_MS * 2 ** managed.restartCount,
-      MAX_BACKOFF_MS,
+      MAX_BACKOFF_MS
     );
 
     await new Promise((resolve) => setTimeout(resolve, backoffMs));
@@ -216,14 +233,16 @@ export class ConnectionManager {
   async shutdown(): Promise<void> {
     this.shutdownRequested = true;
 
-    const closePromises = Array.from(this.servers.values()).map(async (managed) => {
-      try {
-        await managed.transport.close();
-      } catch {
-        // best-effort
+    const closePromises = Array.from(this.servers.values()).map(
+      async (managed) => {
+        try {
+          await managed.transport.close();
+        } catch {
+          // best-effort
+        }
+        managed.status = "stopped";
       }
-      managed.status = "stopped";
-    });
+    );
 
     await Promise.all(closePromises);
     this.servers.clear();

@@ -81,7 +81,8 @@ describe("Spawn lock (spawn-lock.ts)", () => {
 
   afterEach(() => {
     if (originalHome !== undefined) process.env.HOME = originalHome;
-    if (existsSync(testHome)) rmSync(testHome, { recursive: true, force: true });
+    if (existsSync(testHome))
+      rmSync(testHome, { recursive: true, force: true });
   });
 
   it("exports tryAcquireSpawnLock, releaseSpawnLock, spawnLockPath", async () => {
@@ -112,9 +113,11 @@ describe("Spawn lock (spawn-lock.ts)", () => {
   it("reclaims a stale lock owned by a dead PID", async () => {
     const { tryAcquireSpawnLock, releaseSpawnLock, spawnLockPath } =
       await import("../daemon/spawn-lock.js");
-    const { mkdirSync: mk, writeFileSync, readFileSync: rf } = await import(
-      "node:fs"
-    );
+    const {
+      mkdirSync: mk,
+      writeFileSync,
+      readFileSync: rf,
+    } = await import("node:fs");
     const path = spawnLockPath();
     mk(join(testHome, ".unerr", "state"), { recursive: true });
     // PID 1 is alive; use PID 999999 (unlikely to exist) with old timestamp.
@@ -132,9 +135,11 @@ describe("Spawn lock (spawn-lock.ts)", () => {
     const { tryAcquireSpawnLock, spawnLockPath } = await import(
       "../daemon/spawn-lock.js"
     );
-    const { mkdirSync: mk, writeFileSync, unlinkSync } = await import(
-      "node:fs"
-    );
+    const {
+      mkdirSync: mk,
+      writeFileSync,
+      unlinkSync,
+    } = await import("node:fs");
     const path = spawnLockPath();
     mk(join(testHome, ".unerr", "state"), { recursive: true });
     writeFileSync(
@@ -363,10 +368,8 @@ describe("mcpBoot retry behavior", () => {
     );
 
     expect(content).toContain("discoverWithRetry");
-    expect(content).toContain(
-      "Waiting for unerr process to become available"
-    );
-    expect(content).not.toContain('No unerr process found for this project');
+    expect(content).toContain("Waiting for unerr process to become available");
+    expect(content).not.toContain("No unerr process found for this project");
   });
 
   it("reconnects on daemon_dead or socket_closed (not stdin_closed)", () => {

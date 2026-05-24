@@ -45,7 +45,7 @@ const OCCASIONAL_THRESHOLD = 20;
 export function scanServerUsage(
   records: readonly RouterTelemetryRecord[],
   proxiedServers: readonly { name: string; alias: string }[],
-  pinnedServers: ReadonlySet<string> = new Set(),
+  pinnedServers: ReadonlySet<string> = new Set()
 ): UsageScanResult {
   const sessionIds = new Set<string>();
   const serverCallCounts = new Map<string, number>();
@@ -98,7 +98,7 @@ export function scanServerUsage(
   });
 
   const autoMaskCandidates = profiles.filter(
-    (p) => p.bucket === "never-used" && !pinnedServers.has(p.serverName),
+    (p) => p.bucket === "never-used" && !pinnedServers.has(p.serverName)
   );
 
   return { profiles, totalSessions, autoMaskCandidates };
@@ -113,7 +113,7 @@ export function scanServerUsage(
  */
 export function resolveAutoMask(
   candidates: readonly ServerUsageProfile[],
-  confirmed: readonly string[],
+  confirmed: readonly string[]
 ): ReadonlySet<string> {
   const confirmedSet = new Set(confirmed);
   const masked = new Set<string>();
@@ -133,7 +133,7 @@ export function resolveAutoMask(
 export function isAutoMasked(
   serverName: string,
   autoMaskedServers: ReadonlySet<string>,
-  pinnedServers: ReadonlySet<string>,
+  pinnedServers: ReadonlySet<string>
 ): boolean {
   if (pinnedServers.has(serverName)) return false;
   return autoMaskedServers.has(serverName);

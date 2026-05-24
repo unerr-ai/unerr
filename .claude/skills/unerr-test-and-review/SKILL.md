@@ -1,0 +1,96 @@
+---
+name: unerr-test-and-review
+description: "MANDATORY when implementing with TDD (Track A) or addressing review comments / PR feedback (Track B). Track A — STEP-1: failing test. STEP-2: minimal implementation to pass. STEP-3: refactor. Track B — STEP-1: classify EVERY review comment as ACCEPT / PUSHBACK / CLARIFY. Do NOT silently drop a comment. Absorbs the prior test-driven-development and receiving-code-review skills."
+user-invocable: false
+---
+
+## Two tracks — pick at Phase 0
+
+**Track A — TDD.** User wants tests to drive the design.
+**Track B — Receiving Review.** User pasted review comments / PR feedback.
+
+## Track A — Test-Driven Development
+
+### Iron Law A
+
+<EXTREMELY-IMPORTANT>
+Write the failing test BEFORE the implementation. Confirm RED (test fails as expected) before drafting any production code. Skipping RED ships a test that may pass for the wrong reason.
+</EXTREMELY-IMPORTANT>
+
+### Phases (A)
+
+Phase A1 — Recall.
+  Call `unerr_recall_notes({prompt:'<verbatim user prompt>'})`. Prior testing conventions and decisions ride along.
+
+Phase A2 — Conventions.
+  Call `get_conventions({file_path:'<test_file_path>'})`. Match the project's test framework, assertion style, fixture pattern.
+
+Phase A3 — Mark intent.
+  Call `mark_intent({text:'TDD <feature/bug>: red → green → refactor'})`.
+
+Phase A4 — RED.
+  Write the smallest failing test that captures the acceptance criterion. Run the single test file — confirm it fails for the EXPECTED reason (not a typo, not a missing import).
+
+Phase A5 — GREEN.
+  Write the minimal production code that makes the test pass. No speculative features, no extra branches. Built-in `Read` (offset/limit) before each `Edit`.
+
+Phase A6 — Re-run.
+  Run the single test file again. Confirm green.
+
+Phase A7 — REFACTOR.
+  Improve the implementation only if the test still passes after each refactor step. If a refactor breaks the test, revert and try smaller.
+
+Phase A8 — Coverage check.
+  Run `get_test_coverage({entity:'<entity_key>'})` (if available) to confirm the new code is covered.
+
+Phase A9 — Close out.
+  Call `unerr_turn_summary({})` once and include the returned `line` verbatim.
+
+## Track B — Receiving Code Review
+
+### Iron Law B
+
+<EXTREMELY-IMPORTANT>
+Every review comment receives one of three responses: ACCEPT (apply the change), PUSHBACK (explain why not, with reasoning), or CLARIFY (ask the reviewer for missing context). Silently dropping a comment is a regression.
+</EXTREMELY-IMPORTANT>
+
+### Phases (B)
+
+Phase B1 — Recall.
+  Call `unerr_recall_notes({prompt:'<verbatim user prompt>'})`. Prior conventions and decisions tied to the reviewed files ride along.
+
+Phase B2 — Parse comments.
+  Enumerate every comment in the input. Number them. Do not skip 'nit:' comments — classify and respond.
+
+Phase B3 — Classify each.
+  For each comment: ACCEPT, PUSHBACK, or CLARIFY. State the classification inline before drafting any response.
+
+Phase B4 — Mark intent.
+  Call `mark_intent({text:'addressing N review comments on <PR>'})`.
+
+Phase B5 — Apply ACCEPTs.
+  For each ACCEPT: locate the entity via `search_code`, run blast-radius check (`get_references` if exported), apply the change. Built-in `Read` (offset/limit) before each `Edit`.
+
+Phase B6 — Draft PUSHBACKs.
+  For each PUSHBACK: cite a project convention (`get_conventions`), a prior decision (`unerr_recall_notes`), or a concrete tradeoff. Hedging ('I think', 'maybe') is not pushback.
+
+Phase B7 — Ask CLARIFYs.
+  For each CLARIFY: surface the specific missing context to the user. Do not assume.
+
+Phase B8 — Verify.
+  Run the targeted test for every changed file. `mark_resolution` for the review.
+
+Phase B9 — Close out.
+  Call `unerr_turn_summary({})` once and include the returned `line` verbatim.
+
+## Red Flags
+
+Track A — writing production code in A1 → skips RED; test may be tautological.
+Track A — test passes on first run (skipping RED) → test is tautological or import is wrong.
+Track A — writing more implementation than the test demands → speculative; deletes YAGNI.
+Track A — refactoring while the test is red → loses the safety net; revert, get green, then refactor.
+Track A — skipping A8 coverage check → ships untested branches.
+Track B — addressing 'most' comments → every comment needs ACCEPT/PUSHBACK/CLARIFY; partial coverage is a regression.
+Track B — hedge-pushback ('not sure', 'I think') → cite a convention or a tradeoff; otherwise it's an ACCEPT.
+Track B — applying a fix to a hot entity without `get_references` → review comments on exported entities cascade.
+Track B — skipping B8 → applied fixes regress unrelated tests.

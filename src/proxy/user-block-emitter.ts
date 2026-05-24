@@ -22,7 +22,10 @@ import { isAbsolute } from "node:path";
 
 import type { PendingConfirmationRegistry } from "../intelligence/pending-confirmations.js";
 import type { TemporalFactStore } from "../intelligence/temporal-facts.js";
+import type { BehaviorEventWriter } from "../tracking/behavior-events.js";
+import { readNamedEvents } from "../tracking/named-events.js";
 import { noteTurnContent, shouldUseAmbientMarker } from "./ambient-marker.js";
+import { renderEventAttributionBlock } from "./attribution-panel.js";
 import { renderContextPrefaceLive } from "./context-preface.js";
 import {
   type EnforcementCandidate,
@@ -30,7 +33,10 @@ import {
   factsApplyingTo,
 } from "./enforcement-loop.js";
 import { USER_BLOCK_AMBIENT, buildUserBlock } from "./response-envelope.js";
-import { renderTurnFooterLive } from "./turn-footer.js";
+import {
+  formatSessionResumeBlock,
+  generateSessionResumePayload,
+} from "./session-persistence.js";
 import { noteToolCall } from "./turn-state.js";
 
 export interface UserBlockContext {
@@ -49,6 +55,21 @@ export interface UserBlockContext {
    *  preface so the user sees the question instead of the agent silently
    *  carrying an ambiguous note. */
   pendingConfirmations?: PendingConfirmationRegistry;
+  /** True when the proxy was resumed from a prior session. The resume
+   *  strip is spliced onto userBlock.head on the FIRST call of the
+   *  session — once per process. Pulled from `stats.isResumedSession`. */
+  isResumedSession?: boolean;
+  /** Fix K — optional timeline store handle. When set, the resume strip
+   *  pulls top-3 open blockers and top-3 most-recent mark_intent rows
+   *  from the prior session. When undefined, the resume block renders
+   *  without those lines (graceful degradation). */
+  timelineStore?: Parameters<
+    typeof generateSessionResumePayload
+  >[2];
+  /** Fix K — optional behavior-event writer. When set and the resume
+   *  strip emits ≥1 carried-over blocker, a `resume_blockers_surfaced`
+   *  event is recorded for the dashboard compliance ribbon. */
+  behaviorEvents?: BehaviorEventWriter;
   /** Override Date.now() — tests only. */
   now?: number;
 }
@@ -152,22 +173,73 @@ function renderPendingConfirmations(ctx: UserBlockContext): string[] {
 }
 
 /**
- * Detect whether a rendered footer line carries real content or is the
- * honest-zero placeholder. The footer renderer emits an exact triple
- * of honest-zero substrings when nothing happened this turn — match on
- * that contract so the ambient-marker counter advances correctly.
- *
- * Kept here (rather than exported from turn-footer.ts) because it's a
- * detail of the emitter's contract with the renderer, not a renderer
- * property other callers need.
+ * Per-session emit-once guard for the resume strip. Keyed by sessionId
+ * so multiple concurrent sessions on the same process never collide;
+ * cleared implicitly when the process exits. The strip is large
+ * (≤500 chars) and only useful on the very first response of a resumed
+ * session — re-emitting it would just dilute later signals.
  */
-function footerHasContent(footerLine: string): boolean {
-  if (footerLine.length === 0) return false;
-  return !(
-    footerLine.includes("nothing to help with this turn") &&
-    footerLine.includes("no token savings this turn") &&
-    footerLine.includes("session length unchanged")
-  );
+const RESUME_STRIP_EMITTED = new Set<string>();
+
+/**
+ * Build the resume strip for the first response of a resumed session.
+ * Returns the empty string when there is no prior session, when this
+ * session isn't a resume, or when the strip has already been emitted
+ * once for this sessionId.
+ */
+async function buildResumeStrip(ctx: UserBlockContext): Promise<string> {
+  if (!ctx.isResumedSession) return "";
+  if (RESUME_STRIP_EMITTED.has(ctx.sessionId)) return "";
+  try {
+    const payload = await generateSessionResumePayload(
+      ctx.unerrDir,
+      ctx.factStore as Parameters<typeof generateSessionResumePayload>[1],
+      ctx.timelineStore
+    );
+    if (!payload) {
+      RESUME_STRIP_EMITTED.add(ctx.sessionId);
+      return "";
+    }
+    const block = formatSessionResumeBlock(payload);
+    if (block.length > 0) {
+      RESUME_STRIP_EMITTED.add(ctx.sessionId);
+      // Fix K — record the magic-moment telemetry when ≥1 blocker
+      // carried over. Best-effort: never block the response on the write.
+      const blockerCount = payload.open_blockers?.length ?? 0;
+      if (blockerCount > 0 && ctx.behaviorEvents) {
+        try {
+          ctx.behaviorEvents.record({
+            session_id: ctx.sessionId,
+            type: "resume_blockers_surfaced",
+            tool: null,
+            entity_key: null,
+            response_bytes: null,
+            detail: { count: blockerCount },
+          });
+        } catch {
+          /* never break the response on telemetry failure */
+        }
+      }
+    }
+    return block;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Read this turn's attribution-worthy named events and render the
+ * provenance block. Best-effort: any IO failure returns an empty list so
+ * the preface still renders.
+ */
+function renderAttributionForTurn(ctx: UserBlockContext): string[] {
+  try {
+    const events = readNamedEvents(ctx.unerrDir, { session_id: ctx.sessionId });
+    const turnEvents = events.filter((e) => e.turn === ctx.toolCallCount);
+    return renderEventAttributionBlock(turnEvents);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -204,7 +276,7 @@ export async function buildUserBlockForResponse(
 
   // Ambient-marker fallback: after ≥ZERO_TURN_THRESHOLD consecutive
   // zero-content turns the in-chat surfaces collapse to a single
-  // `unerr · ⋯` line. The decision is read here BEFORE we render so
+  // `unerr » ⋯` line. The decision is read here BEFORE we render so
   // the threshold check sees the prior-turn counter, not this turn's.
   if (shouldUseAmbientMarker(ctx.sessionId)) {
     const marker = `${USER_BLOCK_AMBIENT}\n\n`;
@@ -228,37 +300,65 @@ export async function buildUserBlockForResponse(
         isFirstCall
       );
       const pendingLines = renderPendingConfirmations(ctx);
+      const attributionLines = renderAttributionForTurn(ctx);
+      // Fix I — Surface 4a/4c trace events. Best-effort; telemetry only.
+      if (ctx.behaviorEvents) {
+        try {
+          if (attributionLines.length > 0) {
+            ctx.behaviorEvents.record({
+              session_id: ctx.sessionId,
+              turn: ctx.toolCallCount,
+              type: "surface4a_emitted",
+              tool: null,
+              entity_key: null,
+              response_bytes: null,
+              detail: { count: attributionLines.length },
+            });
+          }
+          if (pendingLines.length > 0) {
+            ctx.behaviorEvents.record({
+              session_id: ctx.sessionId,
+              turn: ctx.toolCallCount,
+              type: "surface4c_emitted",
+              tool: null,
+              entity_key: null,
+              response_bytes: null,
+              detail: { count: pendingLines.length },
+            });
+          }
+        } catch {
+          /* best effort — telemetry only */
+        }
+      }
       // Pending-confirmation prompt comes FIRST so the user sees the
       // question above any "loaded for this turn" line — answering it
-      // unblocks the captured note.
-      const allLines = [...pendingLines, ...prefaceLines];
-      head = buildUserBlock(allLines);
+      // unblocks the captured note. Attribution rides after the preface
+      // so plan-shaped turns can show provenance ("user → \"…\" said: …").
+      const allLines = [...pendingLines, ...prefaceLines, ...attributionLines];
+      const baseHead = buildUserBlock(allLines);
+      // Resume strip: prepend ABOVE everything else on the first response
+      // of a resumed session. It is its own self-formatted block (already
+      // includes `[unerr:session-resume]` prefix and bullets) — keep it
+      // outside `buildUserBlock` so its existing structure is preserved.
+      const resumeStrip = await buildResumeStrip(ctx);
+      const resumeBlock = resumeStrip ? `${resumeStrip}\n\n` : "";
+      head = resumeBlock + baseHead;
       headHadContent =
-        pendingLines.length > 0 || prefaceHasContent(prefaceLines);
+        resumeStrip.length > 0 ||
+        pendingLines.length > 0 ||
+        prefaceHasContent(prefaceLines) ||
+        attributionLines.length > 0;
     } catch {
       head = "";
     }
   }
 
-  let tail = "";
-  let tailHadContent = false;
-  try {
-    const footerLine = renderTurnFooterLive(
-      ctx.unerrDir,
-      ctx.sessionId,
-      ctx.toolCallCount
-    );
-    if (footerLine.length > 0) {
-      const block = buildUserBlock([footerLine]);
-      // The tail is inserted mid-response — prepend a newline so it
-      // doesn't collide with the page-hint block that runs before it.
-      tail = block.length > 0 ? `\n${block.trimEnd()}` : "";
-      tailHadContent = footerHasContent(footerLine);
-    }
-  } catch {
-    tail = "";
-  }
+  // Surface 3 (end-of-turn economy line) no longer auto-attaches to
+  // every tool response — that was noisy and burned tokens on every
+  // call. Agents now fetch the same data once via `unerr_turn_summary`
+  // and include the rendered line verbatim in their closing message.
+  const tail = "";
 
-  noteTurnContent(ctx.sessionId, headHadContent || tailHadContent);
+  noteTurnContent(ctx.sessionId, headHadContent);
   return { head, tail };
 }

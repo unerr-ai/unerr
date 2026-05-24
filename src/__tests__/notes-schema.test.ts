@@ -76,9 +76,30 @@ describe("notes + co_change_groups schema (A1)", () => {
       ["n1", "cnv", "p", "", "+", "all CozoDB calls use await"],
       ["n2", "rul", "f", "src/proxy/bridge.ts", "-", "no intelligence imports"],
       ["n3", "wrn", "g", "*.test.ts", "-", "do not mock cozo db"],
-      ["n4", "dec", "e", "TURN_OPEN_GAP_MS", "+", "15s avoids RTT misclassification"],
-      ["n5", "blk", "f", "src/proxy/proxy.ts", "~", "stdio + UDS sites must mirror"],
-      ["n6", "fct", "f", "src/proxy/turn-state.ts", "+", "noteToolCall returns ToolCallNote"],
+      [
+        "n4",
+        "dec",
+        "e",
+        "TURN_OPEN_GAP_MS",
+        "+",
+        "15s avoids RTT misclassification",
+      ],
+      [
+        "n5",
+        "blk",
+        "f",
+        "src/proxy/proxy.ts",
+        "~",
+        "stdio + UDS sites must mirror",
+      ],
+      [
+        "n6",
+        "fct",
+        "f",
+        "src/proxy/turn-state.ts",
+        "+",
+        "noteToolCall returns ToolCallNote",
+      ],
     ];
 
     for (const [id, kind, atype, aval, pol, content] of cases) {
@@ -119,7 +140,9 @@ describe("notes + co_change_groups schema (A1)", () => {
        ]]
        :put co_change_groups`
     );
-    const stored = await db.run(`?[group_id, anchors] := *co_change_groups{group_id, anchors}`);
+    const stored = await db.run(
+      `?[group_id, anchors] := *co_change_groups{group_id, anchors}`
+    );
     expect(stored.rows.length).toBe(1);
     const anchors = JSON.parse(stored.rows[0]?.[1] as string);
     expect(anchors).toEqual(["f:src/a.ts", "f:src/b.ts"]);

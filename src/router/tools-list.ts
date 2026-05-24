@@ -17,7 +17,7 @@
  * Both modes apply alias prefixing from the AliasRegistry.
  */
 
-import type { AliasedTool, AliasRegistry } from "./aliasing.js";
+import type { AliasRegistry, AliasedTool } from "./aliasing.js";
 
 export interface ToolDefinition {
   readonly name: string;
@@ -82,7 +82,7 @@ export function buildToolsList(
   aliasRegistry: AliasRegistry,
   exposureTracker: ExposureTracker,
   unerrOwnTools: readonly ToolDefinition[],
-  mode: "dynamic" | "static",
+  mode: "dynamic" | "static"
 ): ExposedToolSet {
   const allAliased = aliasRegistry.getAllTools();
   const totalAvailable = allAliased.length + unerrOwnTools.length;
@@ -98,7 +98,10 @@ export function buildToolsList(
         tools.push({
           name: aliased.prefixedName,
           description: aliased.description,
-          inputSchema: aliased.inputSchema ?? { type: "object", properties: {} },
+          inputSchema: aliased.inputSchema ?? {
+            type: "object",
+            properties: {},
+          },
         });
       }
     }
@@ -108,13 +111,19 @@ export function buildToolsList(
         tools.push({
           name: aliased.prefixedName,
           description: aliased.description,
-          inputSchema: aliased.inputSchema ?? { type: "object", properties: {} },
+          inputSchema: aliased.inputSchema ?? {
+            type: "object",
+            properties: {},
+          },
         });
       } else {
         tools.push({
           name: aliased.prefixedName,
           description: buildSoftRefuseDescription(aliased),
-          inputSchema: aliased.inputSchema ?? { type: "object", properties: {} },
+          inputSchema: aliased.inputSchema ?? {
+            type: "object",
+            properties: {},
+          },
         });
       }
     }

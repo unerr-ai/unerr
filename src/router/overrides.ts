@@ -50,7 +50,12 @@ export function readOverrides(unerrDir: string): OverrideState {
       updatedAt: parsed.updatedAt ?? new Date().toISOString(),
     };
   } catch {
-    return { unmasked: [], masked: [], unmaskAll: false, updatedAt: new Date().toISOString() };
+    return {
+      unmasked: [],
+      masked: [],
+      unmaskAll: false,
+      updatedAt: new Date().toISOString(),
+    };
   }
 }
 
@@ -70,7 +75,10 @@ export function writeOverrides(unerrDir: string, state: OverrideState): void {
  * Add an unmask override for a family (or "all").
  * Removes conflicting mask entry if present.
  */
-export function addUnmaskOverride(unerrDir: string, familyOrAll: string): OverrideState {
+export function addUnmaskOverride(
+  unerrDir: string,
+  familyOrAll: string
+): OverrideState {
   const current = readOverrides(unerrDir);
 
   if (familyOrAll === "all") {
@@ -103,7 +111,10 @@ export function addUnmaskOverride(unerrDir: string, familyOrAll: string): Overri
  * Add a mask override for a family.
  * Removes conflicting unmask entry if present.
  */
-export function addMaskOverride(unerrDir: string, family: string): OverrideState {
+export function addMaskOverride(
+  unerrDir: string,
+  family: string
+): OverrideState {
   const current = readOverrides(unerrDir);
 
   const newMasked = current.masked.includes(family)
@@ -147,7 +158,7 @@ export function clearOverrides(unerrDir: string): OverrideState {
 export function applyOverrides(
   currentExposed: ReadonlySet<string>,
   knownFamilies: ReadonlySet<string>,
-  overrides: OverrideState,
+  overrides: OverrideState
 ): ReadonlySet<string> {
   if (overrides.unmaskAll) {
     return new Set(knownFamilies);

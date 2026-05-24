@@ -12,7 +12,7 @@
  */
 
 import { promises as fs } from "node:fs";
-import { existsSync, mkdirSync, appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { ScorerOutput } from "./scorer.js";
@@ -51,7 +51,7 @@ export class IntentTraceWriter {
     sessionId: string,
     turnNumber: number,
     output: ScorerOutput,
-    triggerTool?: string,
+    triggerTool?: string
   ): void {
     this.ensureDir();
 

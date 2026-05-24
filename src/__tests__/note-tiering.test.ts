@@ -28,7 +28,7 @@ describe("computeDecayScore (A4)", () => {
     const high = computeDecayScore(
       input({ reinforcement_count: 5 }),
       1,
-      NOW_MS,
+      NOW_MS
     );
     expect(high).toBeGreaterThan(low);
   });
@@ -37,7 +37,7 @@ describe("computeDecayScore (A4)", () => {
     const recent = computeDecayScore(
       input({ last_seen_turn: 100 }),
       100,
-      NOW_MS,
+      NOW_MS
     );
     const stale = computeDecayScore(input({ last_seen_turn: 0 }), 100, NOW_MS);
     expect(recent).toBeGreaterThan(stale);
@@ -47,12 +47,12 @@ describe("computeDecayScore (A4)", () => {
     const clean = computeDecayScore(
       input({ reinforcement_count: 5 }),
       1,
-      NOW_MS,
+      NOW_MS
     );
     const contradicted = computeDecayScore(
       input({ reinforcement_count: 5, contradiction_count: 2 }),
       1,
-      NOW_MS,
+      NOW_MS
     );
     expect(clean - contradicted).toBeCloseTo(1.0, 5);
   });
@@ -61,7 +61,7 @@ describe("computeDecayScore (A4)", () => {
     const present = computeDecayScore(
       input({ reinforcement_count: 5 }),
       1,
-      NOW_MS,
+      NOW_MS
     );
     const missing4Weeks = computeDecayScore(
       input({
@@ -70,7 +70,7 @@ describe("computeDecayScore (A4)", () => {
         anchor_missing_since_ms: NOW_MS - 4 * WEEK_MS,
       }),
       1,
-      NOW_MS,
+      NOW_MS
     );
     expect(missing4Weeks).toBeLessThan(present);
     // 4 weeks * 0.5 penalty = 2.0 reduction
@@ -85,12 +85,12 @@ describe("computeDecayScore (A4)", () => {
         anchor_missing_since_ms: NOW_MS - 1000,
       }),
       1,
-      NOW_MS,
+      NOW_MS
     );
     const noMissing = computeDecayScore(
       input({ reinforcement_count: 5 }),
       1,
-      NOW_MS,
+      NOW_MS
     );
     expect(Math.abs(sameDay - noMissing)).toBeLessThan(0.01);
   });
@@ -99,7 +99,7 @@ describe("computeDecayScore (A4)", () => {
     const futureTurn = computeDecayScore(
       input({ last_seen_turn: 100 }),
       50,
-      NOW_MS,
+      NOW_MS
     );
     expect(Number.isFinite(futureTurn)).toBe(true);
     expect(futureTurn).toBeGreaterThan(0);
@@ -119,7 +119,7 @@ describe("assignTiers (A4)", () => {
 
   it("large population → 20/50/30 split", () => {
     const notes = Array.from({ length: 100 }, (_, i) =>
-      input({ note_id: `n${i}`, reinforcement_count: 100 - i }),
+      input({ note_id: `n${i}`, reinforcement_count: 100 - i })
     );
     const tiers = assignTiers(notes, 1, NOW_MS);
     const counts = { hot: 0, warm: 0, cold: 0 };
@@ -150,11 +150,11 @@ describe("assignTiers (A4)", () => {
 
   it("highest-score notes land in hot tier", () => {
     const notes = Array.from({ length: 20 }, (_, i) =>
-      input({ note_id: `n${i}`, reinforcement_count: i }),
+      input({ note_id: `n${i}`, reinforcement_count: i })
     );
     const tiers = assignTiers(notes, 1, NOW_MS);
     const hotIds = new Set(
-      tiers.filter((t) => t.tier === "hot").map((t) => t.note_id),
+      tiers.filter((t) => t.tier === "hot").map((t) => t.note_id)
     );
     expect(hotIds.has("n19")).toBe(true);
     expect(hotIds.has("n18")).toBe(true);
@@ -169,7 +169,7 @@ describe("assignTiers (A4)", () => {
       }),
       input({ note_id: "fresh", reinforcement_count: 2 }),
       ...Array.from({ length: 8 }, (_, i) =>
-        input({ note_id: `filler${i}`, reinforcement_count: 1 }),
+        input({ note_id: `filler${i}`, reinforcement_count: 1 })
       ),
     ];
     const tiers = assignTiers(notes, 1, NOW_MS);

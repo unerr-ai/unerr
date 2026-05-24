@@ -1,14 +1,14 @@
-import { createServer, type Server } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
+import { type Server, createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { summarizeMarkdownDiff } from "../../../tools/web/diff-cache.js";
 import {
   type FetchUrlOk,
   type FetchUrlResult,
   runFetchUrl,
 } from "../../../tools/web/fetch-url-protocol.js";
-import { summarizeMarkdownDiff } from "../../../tools/web/diff-cache.js";
 import { openMetricsStore } from "../../../tracking/metrics-store.js";
 
 function ok(result: FetchUrlResult): FetchUrlOk {
@@ -84,7 +84,8 @@ describe("fetch_url diff-cache", () => {
       expect(refreshed.cache_hit).toBe(false);
       expect(refreshed.diff?.unchanged).toBe(false);
       expect(
-        (refreshed.diff?.added_lines ?? 0) + (refreshed.diff?.removed_lines ?? 0)
+        (refreshed.diff?.added_lines ?? 0) +
+          (refreshed.diff?.removed_lines ?? 0)
       ).toBeGreaterThan(0);
     } finally {
       rmSync(cwd, { recursive: true, force: true });

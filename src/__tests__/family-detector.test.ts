@@ -1,9 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
+  type DetectionResult,
   detectFamilies,
   detectFamilyForFile,
-  type DetectionResult,
 } from "../router/family-detector.js";
 
 describe("Family Detector", () => {
@@ -121,7 +121,7 @@ describe("Family Detector", () => {
     const known = new Set(["gh", "pg"]);
     const result = detectFamilies(
       ["db/schema.sql", "src/integrations/slack/bot.ts"],
-      known,
+      known
     );
     const families = result.signals.map((s) => s.family);
     expect(families).toContain("pg");
@@ -200,9 +200,7 @@ describe("Family Detector", () => {
   });
 
   it("includes multiple reasons in signal", () => {
-    const result = detectFamilies([
-      "db/migrations/001.sql",
-    ]);
+    const result = detectFamilies(["db/migrations/001.sql"]);
     const pgSignal = result.signals.find((s) => s.family === "pg")!;
     expect(pgSignal.reason.split(", ").length).toBeGreaterThanOrEqual(2);
   });

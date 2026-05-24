@@ -42,7 +42,7 @@ const VALID_POLARITIES: ReadonlySet<NotePolarity> = new Set(["+", "-", "~"]);
 export class NoteDslError extends Error {
   constructor(
     message: string,
-    public readonly field: string,
+    public readonly field: string
   ) {
     super(`note-dsl: ${field}: ${message}`);
     this.name = "NoteDslError";
@@ -60,10 +60,7 @@ export function parseNote(wire: string): ParsedNote {
   }
   const parts = splitAtMost(wire.trim(), "|", 4);
   if (parts.length !== 4) {
-    throw new NoteDslError(
-      `expected 4 fields, got ${parts.length}`,
-      "wire",
-    );
+    throw new NoteDslError(`expected 4 fields, got ${parts.length}`, "wire");
   }
   const [kindRaw, anchorRaw, polarityRaw, contentRaw] = parts as [
     string,
@@ -97,7 +94,7 @@ function parseAnchor(s: string): {
   if (s.length < 2 || s[1] !== ":") {
     throw new NoteDslError(
       `malformed anchor '${s}' — expected '<type>:<value>'`,
-      "anchor",
+      "anchor"
     );
   }
   const anchor_type = s[0] as NoteAnchorType;
@@ -120,7 +117,7 @@ export function serializeNote(note: ParsedNote): string {
   if (!VALID_ANCHOR_TYPES.has(note.anchor_type)) {
     throw new NoteDslError(
       `invalid anchor_type '${note.anchor_type}'`,
-      "anchor",
+      "anchor"
     );
   }
   if (!VALID_POLARITIES.has(note.polarity)) {

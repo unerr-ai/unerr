@@ -27,10 +27,10 @@ export type ToolTier = 1 | 2 | 3;
 export type DescriptionState = "active" | "locked" | "unlocked";
 
 export interface TierEntry {
-	readonly tier: ToolTier;
-	readonly active: string;
-	readonly locked: string;
-	readonly unlocked?: string;
+  readonly tier: ToolTier;
+  readonly active: string;
+  readonly locked: string;
+  readonly unlocked?: string;
 }
 
 /**
@@ -45,180 +45,192 @@ export interface TierEntry {
  *      by mistake, it returns a precise diagnostic rather than throwing.
  */
 export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
-	// ── Tier 1 — always exposed ────────────────────────────────────────────
-	search_code: {
-		tier: 1,
-		active:
-			"Search code entities (function/class/type/variable) by name across project. Returns ranked results with file paths and kinds, <5ms. Then call unerr_recall_notes({anchors:['e:<top_hit_key>']}) for notes on the top result.",
-		locked: "[tier 1 — always exposed]",
-	},
-	file_outline: {
-		tier: 1,
-		active:
-			"Structural outline of a file — entities, imports, exports, line ranges. Call before reading large files; pair with file_read entity param.",
-		locked: "[tier 1 — always exposed]",
-	},
-	file_read: {
-		tier: 1,
-		active:
-			"Read file with auto-injected conventions, facts, and drift status. Supports entity param for targeted single-function reads. Before editing, call unerr_recall_notes({anchors:['f:<file_path>']}) for rule-notes.",
-		locked: "[tier 1 — always exposed]",
-	},
-	get_entity: {
-		tier: 1,
-		active:
-			"Get a code entity (function/class/type/variable) by key — signature, callers, callees, metadata. Pass include_body:true for full source. If contract surprises you, call unerr_remember({type:'note', note:'fct|e:<entity_key>|~|<one-line>'}).",
-		locked: "[tier 1 — always exposed]",
-	},
-	get_references: {
-		tier: 1,
-		active:
-			"Find callers or callees of an entity across the codebase. Pass direction:'callers' (default) or 'callees'. Catches indirect refs grep misses. If fan_in≥10, call unerr_remember({type:'note', note:'wrn|e:<entity_key>|-|<chokepoint reason>'}).",
-		locked: "[tier 1 — always exposed]",
-	},
-	fetch_url: {
-		tier: 1,
-		active:
-			"Fetch a web page and return DOM-extracted markdown passages. Strips chrome, converts to ATX-markdown, splits by heading, ranks by BM25 when prompt is set, caches by content hash. Use instead of built-in WebFetch — 5–10× fewer tokens.",
-		locked: "[tier 1 — always exposed]",
-	},
-	unerr_remember: {
-		tier: 1,
-		active:
-			"Persist user-asserted facts ('remember', 'always', project rules). Pass source_quote + confidence (≥0.5 stored). For anchored Layer B notes pass {type:'note', note:'kind|anchor|polarity|content', session_id}.",
-		locked: "[tier 1 — always exposed]",
-	},
-	unerr_recall_notes: {
-		tier: 1,
-		active:
-			"Recall anchored notes. On prompt receipt: {prompt:'<verbatim>'}. After identifying targets: {anchors:['f:src/x.ts','e:foo']}. Empty result is fine.",
-		locked: "[tier 1 — always exposed]",
-	},
-	get_project_stats: {
-		tier: 1,
-		active:
-			"Project-wide stats — entity/edge counts, language breakdown, community count, health grade. Call before search_code for orientation in an unfamiliar repo.",
-		locked: "[tier 1 — always exposed]",
-	},
+  // ── Tier 1 — always exposed ────────────────────────────────────────────
+  search_code: {
+    tier: 1,
+    active:
+      "Search code entities (function/class/type/variable) by name across project. Returns ranked results with file paths and kinds, <5ms. Then call unerr_recall_notes({anchors:['e:<top_hit_key>']}) for notes on the top result.",
+    locked: "[tier 1 — always exposed]",
+  },
+  file_outline: {
+    tier: 1,
+    active:
+      "Structural outline of a file — entities, imports, exports, line ranges. Call before reading large files; pair with file_read entity param.",
+    locked: "[tier 1 — always exposed]",
+  },
+  file_read: {
+    tier: 1,
+    active:
+      "Read file with auto-injected conventions, facts, and drift status. Supports entity param for targeted single-function reads. Before editing, call unerr_recall_notes({anchors:['f:<file_path>']}) for rule-notes.",
+    locked: "[tier 1 — always exposed]",
+  },
+  get_entity: {
+    tier: 1,
+    active:
+      "Get a code entity (function/class/type/variable) by key — signature, callers, callees, metadata. Pass include_body:true for full source. If contract surprises you, call unerr_remember({type:'note', note:'fct|e:<entity_key>|~|<one-line>'}).",
+    locked: "[tier 1 — always exposed]",
+  },
+  get_references: {
+    tier: 1,
+    active:
+      "Find callers or callees of an entity across the codebase. Pass direction:'callers' (default) or 'callees'. Catches indirect refs grep misses. If fan_in≥10, call unerr_remember({type:'note', note:'wrn|e:<entity_key>|-|<chokepoint reason>'}).",
+    locked: "[tier 1 — always exposed]",
+  },
+  fetch_url: {
+    tier: 1,
+    active:
+      "Fetch a web page and return DOM-extracted markdown passages. Strips chrome, converts to ATX-markdown, splits by heading, ranks by BM25 when prompt is set, caches by content hash. Use instead of built-in WebFetch — 5–10× fewer tokens.",
+    locked: "[tier 1 — always exposed]",
+  },
+  unerr_remember: {
+    tier: 1,
+    active:
+      "Persist user-asserted facts ('remember', 'always', project rules). Pass source_quote + confidence (≥0.5 stored). For anchored Layer B notes pass {type:'note', note:'kind|anchor|polarity|content', session_id}.",
+    locked: "[tier 1 — always exposed]",
+  },
+  unerr_recall_notes: {
+    tier: 1,
+    active:
+      "Recall anchored notes. On prompt receipt: {prompt:'<verbatim>'}. After identifying targets: {anchors:['f:src/x.ts','e:foo']}. Empty result is fine.",
+    locked: "[tier 1 — always exposed]",
+  },
+  get_project_stats: {
+    tier: 1,
+    active:
+      "Project-wide stats — entity/edge counts, language breakdown, community count, health grade. Call before search_code for orientation in an unfamiliar repo.",
+    locked: "[tier 1 — always exposed]",
+  },
+  unerr_turn_summary: {
+    tier: 1,
+    active:
+      "REQUIRED at end of every coding turn — call ONCE before drafting your closing summary, then include the returned `line` verbatim in your final message. Returns {line, total_events, total_tokens_saved, headroom_compounded}.",
+    locked: "[tier 1 — always exposed]",
+  },
+  unerr_surface2_line: {
+    tier: 1,
+    active:
+      "REQUIRED at the start of every coding turn after `unerr_recall_notes` — call ONCE then paste the returned `line` verbatim, prefixed with `unerr » `, into your first user-facing response. Returns {line, suppressed_reason?} — when `line` is empty, emit nothing (do not invent prose).",
+    locked: "[tier 1 — always exposed]",
+  },
 
-	// ── Tier 2 — structural unlock ─────────────────────────────────────────
-	get_critical_nodes: {
-		tier: 2,
-		active:
-			"Rank entities by structural importance (fan_in + fan_out). Surfaces chokepoints to inspect before refactoring.",
-		locked:
-			"[locked, unlock: high blast radius] Chokepoint entities ranked by fan_in. Use get_references first.",
-		unlocked:
-			"Rank entities by fan_in + fan_out (chokepoints). Scope with community_id; top_n controls result count. Use before risky refactors.",
-	},
-	get_cross_boundary_links: {
-		tier: 2,
-		active:
-			"Find edges that cross module or directory boundaries. Scope with from_path and to_path. Reveals coupling before splits.",
-		locked:
-			"[locked, unlock: cross-module access] Edges crossing module boundaries. Use get_references first.",
-		unlocked:
-			"Edges that cross module or directory boundaries. Scope with from_path and to_path. Reveals hidden coupling before splits.",
-	},
-	file_connections: {
-		tier: 2,
-		active:
-			"Files connected to a target via imports, importers, and co-change. Reveals the dependency neighborhood.",
-		locked:
-			"[locked, unlock: directory pattern] Dependency neighborhood of a file. Use file_outline first.",
-		unlocked:
-			"Files connected via imports, importers, and co-change. Returns the full dependency neighborhood. Use before move or rename.",
-	},
-	get_test_coverage: {
-		tier: 2,
-		active:
-			"Find test files covering an entity, traced through the graph (direct + transitive).",
-		locked:
-			"[locked, unlock: test file accessed] Tests covering an entity. Use get_references first.",
-		unlocked:
-			"Test files covering an entity, traced through the graph. include_transitive walks callers too. Use before modifying an entity.",
-	},
-	get_imports: {
-		tier: 2,
-		active: "All imports for a file with resolved paths and entity types.",
-		locked:
-			"[locked, unlock: file with 5+ imports] Resolved imports for a file. Use file_outline first.",
-		unlocked:
-			"Resolved imports for a file, mapped to entity types. Use for cross-module dependency tracing.",
-	},
-	get_conventions: {
-		tier: 2,
-		active:
-			"All detected code conventions with adherence rates — naming, patterns, structure.",
-		locked:
-			"[locked, unlock: first file read] Project code conventions. Call file_read on any file first.",
-		unlocked:
-			"Detected code conventions with adherence rates. Call before writing new code to match project style.",
-	},
-	get_file: {
-		tier: 2,
-		active:
-			"All entities in a file — functions, classes, types, exports — structured.",
-		locked:
-			"[locked, unlock: large-file truncation] All entities in a file. Use file_outline first.",
-		unlocked:
-			"All entities in a file with line ranges and kinds. Use after file_read truncates on a large file.",
-	},
+  // ── Tier 2 — structural unlock ─────────────────────────────────────────
+  get_critical_nodes: {
+    tier: 2,
+    active:
+      "Rank entities by structural importance (fan_in + fan_out). Surfaces chokepoints to inspect before refactoring.",
+    locked:
+      "[locked, unlock: high blast radius] Chokepoint entities ranked by fan_in. Use get_references first.",
+    unlocked:
+      "Rank entities by fan_in + fan_out (chokepoints). Scope with community_id; top_n controls result count. Use before risky refactors.",
+  },
+  get_cross_boundary_links: {
+    tier: 2,
+    active:
+      "Find edges that cross module or directory boundaries. Scope with from_path and to_path. Reveals coupling before splits.",
+    locked:
+      "[locked, unlock: cross-module access] Edges crossing module boundaries. Use get_references first.",
+    unlocked:
+      "Edges that cross module or directory boundaries. Scope with from_path and to_path. Reveals hidden coupling before splits.",
+  },
+  file_connections: {
+    tier: 2,
+    active:
+      "Files connected to a target via imports, importers, and co-change. Reveals the dependency neighborhood.",
+    locked:
+      "[locked, unlock: directory pattern] Dependency neighborhood of a file. Use file_outline first.",
+    unlocked:
+      "Files connected via imports, importers, and co-change. Returns the full dependency neighborhood. Use before move or rename.",
+  },
+  get_test_coverage: {
+    tier: 2,
+    active:
+      "Find test files covering an entity, traced through the graph (direct + transitive).",
+    locked:
+      "[locked, unlock: test file accessed] Tests covering an entity. Use get_references first.",
+    unlocked:
+      "Test files covering an entity, traced through the graph. include_transitive walks callers too. Use before modifying an entity.",
+  },
+  get_imports: {
+    tier: 2,
+    active: "All imports for a file with resolved paths and entity types.",
+    locked:
+      "[locked, unlock: file with 5+ imports] Resolved imports for a file. Use file_outline first.",
+    unlocked:
+      "Resolved imports for a file, mapped to entity types. Use for cross-module dependency tracing.",
+  },
+  get_conventions: {
+    tier: 2,
+    active:
+      "All detected code conventions with adherence rates — naming, patterns, structure.",
+    locked:
+      "[locked, unlock: first file read] Project code conventions. Call file_read on any file first.",
+    unlocked:
+      "Detected code conventions with adherence rates. Call before writing new code to match project style.",
+  },
+  get_file: {
+    tier: 2,
+    active:
+      "All entities in a file — functions, classes, types, exports — structured.",
+    locked:
+      "[locked, unlock: large-file truncation] All entities in a file. Use file_outline first.",
+    unlocked:
+      "All entities in a file with line ranges and kinds. Use after file_read truncates on a large file.",
+  },
 
-	// ── Tier 3 — intent unlock ─────────────────────────────────────────────
-	mark_intent: {
-		tier: 3,
-		active:
-			"Mark task start with one short sentence (≤80 chars). Powers turn titles + cross-session resume strip.",
-		locked:
-			"[locked, unlock: first non-trivial action] Mark a task's start. Powers timeline + resume.",
-		unlocked:
-			"Mark a non-trivial task's start (≤80 chars). One emission per task; powers turn titles + cross-session resume strip.",
-	},
-	mark_decision: {
-		tier: 3,
-		active:
-			"Record a deliberate choice between alternatives (≤140 chars). Optional list of considered alternatives.",
-		locked:
-			"[locked, unlock: after mark_intent] Record a deliberate choice between alternatives.",
-		unlocked:
-			"Record a deliberate choice (≤140 chars). Optional alternatives list (≤5, each ≤80 chars). Surfaces in timeline.",
-	},
-	mark_blocker: {
-		tier: 3,
-		active:
-			"Record an unresolved obstacle (≤140 chars). Returned marker_id is required by mark_resolution when fixed.",
-		locked:
-			"[locked, unlock: after mark_intent] Record an unresolved obstacle.",
-		unlocked:
-			"Record an obstacle (≤140 chars). Returned marker_id must be passed to mark_resolution when fixed. Surfaces in resume.",
-	},
-	mark_resolution: {
-		tier: 3,
-		active:
-			"Resolve a prior blocker. blocker_ref is the marker_id from mark_blocker; text describes the fix.",
-		locked: "[locked, unlock: after mark_blocker] Resolve a prior blocker.",
-		unlocked:
-			"Resolve a prior blocker. blocker_ref is the marker_id from mark_blocker. Text (≤140 chars) describes the fix.",
-	},
-	recall_facts: {
-		tier: 3,
-		active:
-			"Recall stored facts for a file, entity, or 'project' scope with decay-adjusted confidence.",
-		locked:
-			"[locked, unlock: editing prior-modified file] Recall stored facts.",
-		unlocked:
-			"Recall stored facts for a scope with decay-adjusted confidence. fact_type filters; rotation:'decay' rotates top-N across calls.",
-	},
-	record_fact: {
-		tier: 3,
-		active:
-			"Record a fact (procedural/semantic/negative/convention) scoped to a file, entity, or project. Persists cross-session.",
-		locked:
-			"[locked, unlock: after mark_decision] Record a project fact cross-session.",
-		unlocked:
-			"Record a fact: procedural, semantic, negative, or convention. scope = file path, entity key, or 'project'. Persists cross-session.",
-	},
+  // ── Tier 3 — intent unlock ─────────────────────────────────────────────
+  mark_intent: {
+    tier: 3,
+    active:
+      "REQUIRED first on coding tasks (implement/fix/refactor/build). ≤80 chars summary. Skip only for read-only questions. Powers resume strip.",
+    locked:
+      "[locked, unlock: first non-trivial action] REQUIRED first on coding tasks. ≤80 chars summary.",
+    unlocked:
+      "REQUIRED first on coding tasks. ≤80 chars summary. One per task; powers turn titles + cross-session resume.",
+  },
+  mark_decision: {
+    tier: 3,
+    active:
+      "Record a deliberate choice between alternatives (≤140 chars). Optional list of considered alternatives.",
+    locked:
+      "[locked, unlock: after mark_intent] Record a deliberate choice between alternatives.",
+    unlocked:
+      "Record a deliberate choice (≤140 chars). Optional alternatives list (≤5, each ≤80 chars). Surfaces in timeline.",
+  },
+  mark_blocker: {
+    tier: 3,
+    active:
+      "Record an unresolved obstacle (≤140 chars). Returned marker_id is required by mark_resolution when fixed.",
+    locked:
+      "[locked, unlock: after mark_intent] Record an unresolved obstacle.",
+    unlocked:
+      "Record an obstacle (≤140 chars). Returned marker_id must be passed to mark_resolution when fixed. Surfaces in resume.",
+  },
+  mark_resolution: {
+    tier: 3,
+    active:
+      "Resolve a prior blocker. blocker_ref is the marker_id from mark_blocker; text describes the fix.",
+    locked: "[locked, unlock: after mark_blocker] Resolve a prior blocker.",
+    unlocked:
+      "Resolve a prior blocker. blocker_ref is the marker_id from mark_blocker. Text (≤140 chars) describes the fix.",
+  },
+  recall_facts: {
+    tier: 3,
+    active:
+      "Recall stored facts for a file, entity, or 'project' scope with decay-adjusted confidence.",
+    locked:
+      "[locked, unlock: editing prior-modified file] Recall stored facts.",
+    unlocked:
+      "Recall stored facts for a scope with decay-adjusted confidence. fact_type filters; rotation:'decay' rotates top-N across calls.",
+  },
+  record_fact: {
+    tier: 3,
+    active:
+      "Record a fact (procedural/semantic/negative/convention) scoped to a file, entity, or project. Persists cross-session.",
+    locked:
+      "[locked, unlock: after mark_decision] Record a project fact cross-session.",
+    unlocked:
+      "Record a fact: procedural, semantic, negative, or convention. scope = file path, entity key, or 'project'. Persists cross-session.",
+  },
 };
 
 /**
@@ -227,27 +239,27 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
  * for an unknown name. Always a caller bug; never silently coerced.
  */
 export class UnknownToolError extends Error {
-	constructor(toolName: string) {
-		super(`Unknown tool: "${toolName}". Not present in TIER_ENTRIES.`);
-		this.name = "UnknownToolError";
-	}
+  constructor(toolName: string) {
+    super(`Unknown tool: "${toolName}". Not present in TIER_ENTRIES.`);
+    this.name = "UnknownToolError";
+  }
 }
 
 export class InvalidStateError extends Error {
-	constructor(toolName: string, state: DescriptionState) {
-		super(
-			`Tool "${toolName}" has no "${state}" description. ` +
-				`Tier 1 tools have no meaningful 'locked' state; tier 1 tools have no 'unlocked' state.`,
-		);
-		this.name = "InvalidStateError";
-	}
+  constructor(toolName: string, state: DescriptionState) {
+    super(
+      `Tool "${toolName}" has no "${state}" description. ` +
+        `Tier 1 tools have no meaningful 'locked' state; tier 1 tools have no 'unlocked' state.`
+    );
+    this.name = "InvalidStateError";
+  }
 }
 
 /** Tier (1, 2, or 3) for a known tool. Throws on unknown name. */
 export function getTier(toolName: string): ToolTier {
-	const entry = TIER_ENTRIES[toolName];
-	if (!entry) throw new UnknownToolError(toolName);
-	return entry.tier;
+  const entry = TIER_ENTRIES[toolName];
+  if (!entry) throw new UnknownToolError(toolName);
+  return entry.tier;
 }
 
 /**
@@ -262,43 +274,43 @@ export function getTier(toolName: string): ToolTier {
  * just returns the right string for the state the dispatcher asked for.
  */
 export function getDescription(
-	toolName: string,
-	state: DescriptionState,
+  toolName: string,
+  state: DescriptionState
 ): string {
-	const entry = TIER_ENTRIES[toolName];
-	if (!entry) throw new UnknownToolError(toolName);
+  const entry = TIER_ENTRIES[toolName];
+  if (!entry) throw new UnknownToolError(toolName);
 
-	if (state === "active") return entry.active;
+  if (state === "active") return entry.active;
 
-	if (entry.tier === 1) {
-		// Tier 1 is never masked. Asking for locked/unlocked is a caller bug.
-		throw new InvalidStateError(toolName, state);
-	}
+  if (entry.tier === 1) {
+    // Tier 1 is never masked. Asking for locked/unlocked is a caller bug.
+    throw new InvalidStateError(toolName, state);
+  }
 
-	if (state === "locked") return entry.locked;
-	if (state === "unlocked") {
-		// Tier 2/3 must have an unlocked variant. Module-load validation
-		// guarantees this, so this branch is defensive only.
-		if (!entry.unlocked) throw new InvalidStateError(toolName, state);
-		return entry.unlocked;
-	}
+  if (state === "locked") return entry.locked;
+  if (state === "unlocked") {
+    // Tier 2/3 must have an unlocked variant. Module-load validation
+    // guarantees this, so this branch is defensive only.
+    if (!entry.unlocked) throw new InvalidStateError(toolName, state);
+    return entry.unlocked;
+  }
 
-	// Exhaustive: `state` is now `never`.
-	const _exhaustive: never = state;
-	throw new Error(`Unhandled description state: ${String(_exhaustive)}`);
+  // Exhaustive: `state` is now `never`.
+  const _exhaustive: never = state;
+  throw new Error(`Unhandled description state: ${String(_exhaustive)}`);
 }
 
 /** All known tool names, sorted. */
 export function listToolNames(): readonly string[] {
-	return Object.keys(TIER_ENTRIES).sort();
+  return Object.keys(TIER_ENTRIES).sort();
 }
 
 /** Tool names belonging to a given tier, sorted. */
 export function toolsByTier(tier: ToolTier): readonly string[] {
-	return Object.entries(TIER_ENTRIES)
-		.filter(([, e]) => e.tier === tier)
-		.map(([name]) => name)
-		.sort();
+  return Object.entries(TIER_ENTRIES)
+    .filter(([, e]) => e.tier === tier)
+    .map(([name]) => name)
+    .sort();
 }
 
 /**
@@ -306,18 +318,18 @@ export function toolsByTier(tier: ToolTier): readonly string[] {
  * validate every (tool, state) pair against its cap.
  */
 export function statesToValidate(
-	toolName: string,
+  toolName: string
 ): ReadonlyArray<{ state: DescriptionState; budget: BudgetKey }> {
-	const entry = TIER_ENTRIES[toolName];
-	if (!entry) throw new UnknownToolError(toolName);
-	if (entry.tier === 1) {
-		return [{ state: "active", budget: "tier1Active" }];
-	}
-	return [
-		{ state: "active", budget: "tier1Active" },
-		{ state: "locked", budget: "locked" },
-		{ state: "unlocked", budget: "unlockedExtended" },
-	];
+  const entry = TIER_ENTRIES[toolName];
+  if (!entry) throw new UnknownToolError(toolName);
+  if (entry.tier === 1) {
+    return [{ state: "active", budget: "tier1Active" }];
+  }
+  return [
+    { state: "active", budget: "tier1Active" },
+    { state: "locked", budget: "locked" },
+    { state: "unlocked", budget: "unlockedExtended" },
+  ];
 }
 
 // ── Module-load-time validation ───────────────────────────────────────────
@@ -331,14 +343,14 @@ export function statesToValidate(
 // (it is optional in the type to allow tier 1 entries to omit it cleanly).
 
 for (const [name, entry] of Object.entries(TIER_ENTRIES)) {
-	enforceBudget(name, entry.active, "tier1Active");
-	if (entry.tier !== 1) {
-		enforceBudget(name, entry.locked, "locked");
-		if (!entry.unlocked) {
-			throw new Error(
-				`Tool "${name}" is tier ${entry.tier} but has no 'unlocked' description.`,
-			);
-		}
-		enforceBudget(name, entry.unlocked, "unlockedExtended");
-	}
+  enforceBudget(name, entry.active, "tier1Active");
+  if (entry.tier !== 1) {
+    enforceBudget(name, entry.locked, "locked");
+    if (!entry.unlocked) {
+      throw new Error(
+        `Tool "${name}" is tier ${entry.tier} but has no 'unlocked' description.`
+      );
+    }
+    enforceBudget(name, entry.unlocked, "unlockedExtended");
+  }
 }

@@ -1,19 +1,19 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  getClientProfile,
-  getAllProfiles,
-  isKnownClient,
   type ClientProfile,
+  getAllProfiles,
+  getClientProfile,
+  isKnownClient,
 } from "../router/client-profiles.js";
 
 import {
-  detectCapabilities,
-  createProbeMonitor,
-  finalizeProbeResult,
-  type ClientInfo,
   type CapabilityOverride,
   type ClientCapabilities,
+  type ClientInfo,
+  createProbeMonitor,
+  detectCapabilities,
+  finalizeProbeResult,
 } from "../router/client-capability.js";
 
 // ── Client Profiles ──────────────────────────────────────────────

@@ -429,10 +429,7 @@ describe("Process-manager CLI commands", () => {
   it("pm.ts registers start and stop subcommands", async () => {
     const { readFileSync: readSync } = await import("node:fs");
     const { resolve: res } = await import("node:path");
-    const content = readSync(
-      res(process.cwd(), "src/commands/pm.ts"),
-      "utf-8"
-    );
+    const content = readSync(res(process.cwd(), "src/commands/pm.ts"), "utf-8");
 
     expect(content).toContain('.command("start")');
     expect(content).toContain('.command("stop")');

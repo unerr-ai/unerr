@@ -10,13 +10,17 @@
  *   - Clear-overrides and unmask actions
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { createRouterApiV2, type RouterApiV2Deps, type TrendDataPoint } from "../server/router-api-v2.js";
-import type { LiftMetrics } from "../router/reasoning/lift.js";
-import type { CounterSnapshot } from "../router/reasoning/counter.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssociationAggregate } from "../router/associations/types.js";
 import type { IntentEvaluation } from "../router/dispatch.js";
+import type { CounterSnapshot } from "../router/reasoning/counter.js";
+import type { LiftMetrics } from "../router/reasoning/lift.js";
+import {
+  type RouterApiV2Deps,
+  type TrendDataPoint,
+  createRouterApiV2,
+} from "../server/router-api-v2.js";
 
 function makeLift(overrides: Partial<LiftMetrics> = {}): LiftMetrics {
   return {
@@ -24,14 +28,16 @@ function makeLift(overrides: Partial<LiftMetrics> = {}): LiftMetrics {
     retryReduction: 3,
     preventionRate: 0.6,
     currentAccuracy: 0.85,
-    baselineAccuracy: 0.70,
+    baselineAccuracy: 0.7,
     isPositive: true,
     confidence: "medium" as const,
     ...overrides,
   };
 }
 
-function makeCounter(overrides: Partial<CounterSnapshot> = {}): CounterSnapshot {
+function makeCounter(
+  overrides: Partial<CounterSnapshot> = {}
+): CounterSnapshot {
   return {
     preventedWrongCalls: 4,
     totalSoftRefuses: 8,
@@ -44,19 +50,39 @@ function makeCounter(overrides: Partial<CounterSnapshot> = {}): CounterSnapshot 
   };
 }
 
-function makeAssociations(overrides: Partial<AssociationAggregate> = {}): AssociationAggregate {
+function makeAssociations(
+  overrides: Partial<AssociationAggregate> = {}
+): AssociationAggregate {
   return {
     weekStart: "2026-05-11T00:00:00.000Z",
     weekEnd: "2026-05-17T23:59:59.999Z",
     totalAssociations: 12,
-    byTriggerType: new Map([["ur_tag", 8], ["nudge", 4]]),
-    byFamily: new Map([["db", 7], ["github", 5]]),
+    byTriggerType: new Map([
+      ["ur_tag", 8],
+      ["nudge", 4],
+    ]),
+    byFamily: new Map([
+      ["db", 7],
+      ["github", 5],
+    ]),
     highQualityCount: 6,
     mediumQualityCount: 4,
     lowQualityCount: 2,
     topAssociations: [
-      { triggerType: "ur_tag", triggerDetail: "ur|rsk", family: "db", count: 5, avgQuality: 0.8 },
-      { triggerType: "nudge", triggerDetail: "file_pattern", family: "github", count: 3, avgQuality: 0.6 },
+      {
+        triggerType: "ur_tag",
+        triggerDetail: "ur|rsk",
+        family: "db",
+        count: 5,
+        avgQuality: 0.8,
+      },
+      {
+        triggerType: "nudge",
+        triggerDetail: "file_pattern",
+        family: "github",
+        count: 3,
+        avgQuality: 0.6,
+      },
     ],
     driverPercentage: 0.35,
     ...overrides,
@@ -70,8 +96,22 @@ function makeEvaluation(turn: number): IntentEvaluation {
     newlyExposedFamilies: turn > 1 ? ["github"] : [],
     scorerOutput: {
       scores: [
-        { family: "db", score: 0.8, exposed: true, sticky: false, reasons: ["entity tag: postgres"], thresholdApplied: 0.3 },
-        { family: "github", score: 0.2, exposed: false, sticky: false, reasons: ["no signal"], thresholdApplied: 0.3 },
+        {
+          family: "db",
+          score: 0.8,
+          exposed: true,
+          sticky: false,
+          reasons: ["entity tag: postgres"],
+          thresholdApplied: 0.3,
+        },
+        {
+          family: "github",
+          score: 0.2,
+          exposed: false,
+          sticky: false,
+          reasons: ["no signal"],
+          thresholdApplied: 0.3,
+        },
       ],
       exposedFamilies: new Set(["db"]),
       multiDomain: false,
@@ -89,9 +129,30 @@ function makeEvaluation(turn: number): IntentEvaluation {
 
 function makeTrends(): TrendDataPoint[] {
   return [
-    { sessionId: "s1", date: "2026-05-15T10:00:00Z", accuracyLift: 0.10, retriesSaved: 2, maskingEffectiveness: 0.7, associationsDetected: 5 },
-    { sessionId: "s2", date: "2026-05-16T10:00:00Z", accuracyLift: 0.15, retriesSaved: 4, maskingEffectiveness: 0.75, associationsDetected: 8 },
-    { sessionId: "s3", date: "2026-05-17T10:00:00Z", accuracyLift: 0.20, retriesSaved: 6, maskingEffectiveness: 0.8, associationsDetected: 12 },
+    {
+      sessionId: "s1",
+      date: "2026-05-15T10:00:00Z",
+      accuracyLift: 0.1,
+      retriesSaved: 2,
+      maskingEffectiveness: 0.7,
+      associationsDetected: 5,
+    },
+    {
+      sessionId: "s2",
+      date: "2026-05-16T10:00:00Z",
+      accuracyLift: 0.15,
+      retriesSaved: 4,
+      maskingEffectiveness: 0.75,
+      associationsDetected: 8,
+    },
+    {
+      sessionId: "s3",
+      date: "2026-05-17T10:00:00Z",
+      accuracyLift: 0.2,
+      retriesSaved: 6,
+      maskingEffectiveness: 0.8,
+      associationsDetected: 12,
+    },
   ];
 }
 
@@ -103,7 +164,12 @@ function createTestApp(overrides: Partial<RouterApiV2Deps> = {}): Hono {
     getIntentEvaluation: (turn: number) => makeEvaluation(turn),
     getIntentHistory: () => [makeEvaluation(0), makeEvaluation(1)],
     getTrendData: () => makeTrends(),
-    getOverrides: () => ({ unmasked: [], masked: [], unmaskAll: false, updatedAt: "" }),
+    getOverrides: () => ({
+      unmasked: [],
+      masked: [],
+      unmaskAll: false,
+      updatedAt: "",
+    }),
     clearOverrides: vi.fn(),
     unmaskFamily: vi.fn(),
     ...overrides,
@@ -240,7 +306,7 @@ describe("Router Dashboard v2 API", () => {
       const body = await res.json();
       expect(body.data).toHaveLength(3);
       expect(body.data[0].sessionId).toBe("s1");
-      expect(body.data[2].accuracyLift).toBe(0.20);
+      expect(body.data[2].accuracyLift).toBe(0.2);
     });
 
     it("returns empty array when no sessions", async () => {
@@ -257,7 +323,9 @@ describe("Router Dashboard v2 API", () => {
     it("calls clearOverrides and returns ok", async () => {
       const clearFn = vi.fn();
       const app = createTestApp({ clearOverrides: clearFn });
-      const res = await app.request("/api/router/clear-overrides", { method: "POST" });
+      const res = await app.request("/api/router/clear-overrides", {
+        method: "POST",
+      });
       expect(res.status).toBe(200);
 
       const body = await res.json();
@@ -270,7 +338,9 @@ describe("Router Dashboard v2 API", () => {
     it("calls unmaskFamily with correct family", async () => {
       const unmaskFn = vi.fn();
       const app = createTestApp({ unmaskFamily: unmaskFn });
-      const res = await app.request("/api/router/unmask/github", { method: "POST" });
+      const res = await app.request("/api/router/unmask/github", {
+        method: "POST",
+      });
       expect(res.status).toBe(200);
 
       const body = await res.json();
@@ -285,17 +355,20 @@ describe("Router Dashboard v2 API", () => {
   describe("confidence levels", () => {
     it.each([
       { confidence: "high" as const, lift: 0.25 },
-      { confidence: "medium" as const, lift: 0.10 },
+      { confidence: "medium" as const, lift: 0.1 },
       { confidence: "low" as const, lift: 0.02 },
-    ])("returns $confidence confidence correctly", async ({ confidence, lift }) => {
-      const app = createTestApp({
-        getLiftMetrics: () => makeLift({ confidence, accuracyLift: lift }),
-      });
-      const res = await app.request("/api/router/insights/v2");
-      const body = await res.json();
-      expect(body.data.lift.confidence).toBe(confidence);
-      expect(body.data.lift.accuracyLift).toBe(lift);
-    });
+    ])(
+      "returns $confidence confidence correctly",
+      async ({ confidence, lift }) => {
+        const app = createTestApp({
+          getLiftMetrics: () => makeLift({ confidence, accuracyLift: lift }),
+        });
+        const res = await app.request("/api/router/insights/v2");
+        const body = await res.json();
+        expect(body.data.lift.confidence).toBe(confidence);
+        expect(body.data.lift.accuracyLift).toBe(lift);
+      }
+    );
   });
 
   // ── Edge cases ────────────────────────────────────────────────────────────
@@ -303,7 +376,8 @@ describe("Router Dashboard v2 API", () => {
   describe("edge cases", () => {
     it("handles zero-division in prevention rate gracefully", async () => {
       const app = createTestApp({
-        getCounterSnapshot: () => makeCounter({ totalSoftRefuses: 0, preventedWrongCalls: 0 }),
+        getCounterSnapshot: () =>
+          makeCounter({ totalSoftRefuses: 0, preventedWrongCalls: 0 }),
       });
       const res = await app.request("/api/router/insights/v2");
       const body = await res.json();
@@ -313,7 +387,8 @@ describe("Router Dashboard v2 API", () => {
 
     it("handles negative accuracy lift", async () => {
       const app = createTestApp({
-        getLiftMetrics: () => makeLift({ accuracyLift: -0.05, isPositive: false }),
+        getLiftMetrics: () =>
+          makeLift({ accuracyLift: -0.05, isPositive: false }),
       });
       const res = await app.request("/api/router/insights/v2");
       const body = await res.json();

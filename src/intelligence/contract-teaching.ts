@@ -10,7 +10,10 @@
  *   - CONTRACT_TEACHING_BLOCK — the contract section (~500 tokens) that
  *     explains the four moments, the DSL vocabulary, the cite-in-plan
  *     rule, the quality bar, and the save ritual.
- *   - NOTES_SKILLS — the three bundled skills that ship in .claude/skills/.
+ *   - NOTES_SKILLS — pointer to the consolidated `unerr-memory` skill that
+ *     ships in `.claude/skills/` (post-27→7 consolidation; the three prior
+ *     entries were folded into one). The canonical body lives in
+ *     `src/skills/local-pack.ts → MEMORY_SKILL`.
  *   - TOOL_DESCRIPTION_NUDGES — one-line additions for existing tool
  *     descriptions in src/proxy/tool-descriptions.ts.
  *
@@ -84,78 +87,35 @@ export interface SkillSpec {
   body: string;
 }
 
+// Post-consolidation (27→7): the prior `unerr-prompt-receipt`,
+// `unerr-anchor-query`, and `unerr-save-at-end` skills are folded into the
+// single `unerr-memory` skill defined in src/skills/local-pack.ts. The
+// canonical skill body ships from `local-pack.ts → MEMORY_SKILL`. This
+// re-export is a slim pointer so consumers that historically iterated
+// NOTES_SKILLS still see a single coherent entry.
 export const NOTES_SKILLS: readonly SkillSpec[] = [
   {
-    slug: "unerr-prompt-receipt",
-    title: "unerr: prompt-receipt recall",
+    slug: "unerr-memory",
+    title: "unerr: memory (four-moment contract + user-fed capture)",
     body: `---
-title: unerr: prompt-receipt recall
-description: First action on every user prompt — call unerr_recall_notes
+title: unerr: memory (four-moment contract + user-fed capture)
+description: Use on every user prompt (Moment 1 recall) and when the user says remember / always / never. Persist anchored notes at task close.
 ---
 
-# unerr: prompt-receipt recall
+# unerr: memory
 
-When a user prompt arrives, your FIRST tool call is:
+The full body ships from \`src/skills/local-pack.ts → MEMORY_SKILL\`.
+See \`.claude/skills/unerr-memory/SKILL.md\` after install.
 
-\`\`\`
-unerr_recall_notes({prompt: "<verbatim prompt text>"})
-\`\`\`
+The four moments:
 
-Empty result is fine. The call is the contract — it loads anchored notes for
-likely targets and a topic-shift flag.
+1. **Prompt receipt** — first tool call is \`unerr_recall_notes({prompt: "<verbatim>"})\`.
+2. **Anchor query** — once files/entities are known, \`unerr_recall_notes({anchors: ["f:...","e:..."]})\`.
+3. **Cite in plan** — cite returned notes by \`kind + anchor\`.
+4. **Save at task end** — \`unerr_remember({type: "note", note: "<DSL>", session_id})\` only if non-obvious + useful next session + anchorable.
 
-Skip this only if the prompt is trivially small-talk ("thanks", "ok").
-`,
-  },
-  {
-    slug: "unerr-anchor-query",
-    title: "unerr: anchor query before edit",
-    body: `---
-title: unerr: anchor query before edit
-description: After identifying files/entities — pull their anchored notes
----
-
-# unerr: anchor query before edit
-
-Once you've identified the files / entities the task will touch, pull their
-anchored notes:
-
-\`\`\`
-unerr_recall_notes({anchors: ["f:src/x.ts", "e:fooBar"]})
-\`\`\`
-
-Use wire-format anchors (\`f:<path>\`, \`e:<entity>\`, \`g:<glob>\`, \`p:\`).
-Returned notes are active only; superseded rows are excluded.
-`,
-  },
-  {
-    slug: "unerr-save-at-end",
-    title: "unerr: save-at-task-end",
-    body: `---
-title: unerr: save-at-task-end
-description: At task close, persist non-obvious learnings as anchored notes
----
-
-# unerr: save-at-task-end
-
-At the close of every non-trivial task, write a note only if all three hold:
-
-1. **Non-obvious** — not derivable from the code itself.
-2. **Likely useful next session** — would change a future approach.
-3. **Anchorable** — fits a file, entity, glob, or (rarely) project-wide.
-
-DSL: \`kind|anchor|polarity|content\`
-
-\`\`\`
-unerr_remember({
-  type: "note",
-  note: "rul|f:src/proxy/bridge.ts|-|no intelligence imports",
-  session_id: "<sid>"
-})
-\`\`\`
-
-Session save cap: 15. Over the cap, you'll get reinforcement candidates back —
-reinforce instead of writing new.
+User-fed capture: when the user says "remember", "always", "from now on", or
+"never", call \`unerr_remember({source_quote, content, fact_type, scope, subject, confidence})\` BEFORE replying.
 `,
   },
 ];

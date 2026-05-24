@@ -33,7 +33,12 @@ export interface ResolvedSkill extends Skill {
 }
 
 export interface SkillResolutionResult {
+  /** Skills that were installed or already present (full set the cascade resolved). */
   installed: string[];
+  /** Skills whose files were actually written (created or content-changed). */
+  written: string[];
+  /** Skills whose on-disk content already matched the bundled output (no write). */
+  skipped: string[];
   source: string;
   skills: ResolvedSkill[];
 }
@@ -103,13 +108,19 @@ function getSkillDir(
   }
 }
 
+interface WriteSkillFileResult {
+  filePath: string;
+  /** `true` when on-disk content already matched and no write occurred. */
+  skipped: boolean;
+}
+
 function writeSkillFile(
   skill: ResolvedSkill,
   ide: IdeType,
   skillDir: string,
   ext: string,
   dirPerSkill: boolean
-): string {
+): WriteSkillFileResult {
   mkdirSync(skillDir, { recursive: true });
 
   // Strip existing "unerr-" prefix to avoid double-prefixing (e.g., from Tier 2 local skills)
@@ -153,8 +164,22 @@ function writeSkillFile(
     content = formatMarkdownSkill(skill);
   }
 
+  // Idempotency: skip the write when on-disk content already matches.
+  // Protects against mtime churn on repeat installs and gives callers a
+  // way to count actual changes (not just attempted writes).
+  if (existsSync(filePath)) {
+    try {
+      const existing = readFileSync(filePath, "utf-8");
+      if (existing === content) {
+        return { filePath, skipped: true };
+      }
+    } catch {
+      // Unreadable — fall through and overwrite.
+    }
+  }
+
   writeFileSync(filePath, content);
-  return filePath;
+  return { filePath, skipped: false };
 }
 
 /** Claude Code SKILL.md format — directory-per-skill with proper frontmatter */
@@ -185,8 +210,22 @@ function formatClaudeCodeSkill(skill: ResolvedSkill): string {
       break;
   }
 
-  // Build frontmatter
-  let frontmatter = `description: "${skill.description}"`;
+  // Build frontmatter — `name:` first, then `description:`, then optional fields.
+  // `name:` and `when_to_use:` are Claude Code's official trigger-phrase fields
+  // (see code.claude.com/docs/en/skills). Without them the model only sees the
+  // description for auto-invocation; with them the model gets explicit trigger
+  // phrases that match natural-language verb clusters.
+  //
+  // The on-disk directory always becomes `unerr-<baseName>` (see writeSkillFile),
+  // so `name:` mirrors that so Claude Code's skill resolver matches the dir.
+  const normalizedName = `unerr-${skill.name.replace(/^unerr-/, "")}`;
+  let frontmatter = `name: ${normalizedName}\ndescription: "${escapeFrontmatter(skill.description)}"`;
+  if (skill.whenToUse) {
+    frontmatter += `\nwhen_to_use: "${escapeFrontmatter(skill.whenToUse)}"`;
+  }
+  if (skill.allowedTools) {
+    frontmatter += `\nallowed-tools: "${escapeFrontmatter(skill.allowedTools)}"`;
+  }
   if (disableModelInvocation) {
     frontmatter += "\ndisable-model-invocation: true";
   }
@@ -203,6 +242,10 @@ ${frontmatter}
 
 ${skill.content}
 `;
+}
+
+function escapeFrontmatter(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 /** Cursor .mdc format with trigger-aware frontmatter */
@@ -471,11 +514,18 @@ export async function resolveAndInstallSkills(opts: {
   const skills = Array.from(byName.values());
   const { dir, ext, dirPerSkill } = getSkillDir(opts.ide, opts.cwd);
   const installed: string[] = [];
+  const written: string[] = [];
+  const skipped: string[] = [];
 
   for (const skill of skills) {
     try {
-      writeSkillFile(skill, opts.ide, dir, ext, dirPerSkill);
+      const result = writeSkillFile(skill, opts.ide, dir, ext, dirPerSkill);
       installed.push(skill.name);
+      if (result.skipped) {
+        skipped.push(skill.name);
+      } else {
+        written.push(skill.name);
+      }
     } catch {
       // Non-blocking: skip failed installs
     }
@@ -485,44 +535,59 @@ export async function resolveAndInstallSkills(opts: {
   const sources = new Set(skills.map((s) => s.source));
   const source = Array.from(sources).join("+");
 
-  return { installed, source, skills };
+  return { installed, written, skipped, source, skills };
 }
 
 /**
  * Check if skills are present in the IDE directory.
- * If missing, run the full cascade silently.
+ *
+ * Migration-aware: if legacy `unerr-*` skills (no longer in LOCAL_SKILLS) are
+ * found, runs `removeInstalledSkills` first to wipe them before the cascade.
+ * Required for the 27→7 consolidation — old installs left behind 20 stale
+ * SKILL.md files that need to leave disk.
  *
  * Called on every proxy boot for self-healing.
- * Returns the number of skills installed (0 = already present).
+ * Returns the number of skills installed (0 = already present, fully current).
  */
 export async function ensureSkillsPresent(opts: {
   ide: IdeType;
   cwd: string;
 }): Promise<number> {
   const { dir, ext, dirPerSkill } = getSkillDir(opts.ide, opts.cwd);
+  const expectedNames = new Set(
+    LOCAL_SKILLS.map((s) => `unerr-${s.id.replace(/^unerr-/, "")}`)
+  );
 
-  // Check if any unerr skills exist
   if (existsSync(dir)) {
     try {
       const entries = readdirSync(dir);
-      let hasSkills: boolean;
+      let presentNames: string[];
       if (dirPerSkill) {
         // Claude Code: check for unerr-*/SKILL.md directories
-        hasSkills = entries.some(
+        presentNames = entries.filter(
           (f) => f.startsWith("unerr-") && existsSync(join(dir, f, "SKILL.md"))
         );
       } else {
-        hasSkills = entries.some(
-          (f) => f.startsWith("unerr-") && f.endsWith(ext)
-        );
+        presentNames = entries
+          .filter((f) => f.startsWith("unerr-") && f.endsWith(ext))
+          .map((f) => f.replace(ext, ""));
       }
-      if (hasSkills) return 0; // Skills present, nothing to do
+      const hasLegacy = presentNames.some((n) => !expectedNames.has(n));
+      const hasAllExpected = LOCAL_SKILLS.every((s) =>
+        presentNames.includes(`unerr-${s.id.replace(/^unerr-/, "")}`)
+      );
+      if (hasAllExpected && !hasLegacy) return 0; // Fully current.
+      if (hasLegacy) {
+        // Legacy unerr-* entries from a pre-consolidation install — wipe
+        // before re-running the cascade so the directory reflects only the
+        // current LOCAL_SKILLS set.
+        removeInstalledSkills(opts.ide, opts.cwd);
+      }
     } catch {
       // Directory unreadable, reinstall
     }
   }
 
-  // Skills missing — run cascade
   const result = await resolveAndInstallSkills(opts);
   return result.installed.length;
 }

@@ -26,6 +26,7 @@ import {
   totalTokensSavedInSession,
 } from "../../tracking/session-economy.js";
 import { readSessionHistory } from "../../tracking/session-history.js";
+import { getPromptForTurn } from "../../tracking/prompt-trace.js";
 import type { TokenFlowWriter } from "../../tracking/token-flow.js";
 import {
   type TokenFlowEvent,
@@ -380,6 +381,7 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
         last_ts: string;
         mechanisms: Set<string>;
         turnSaved: Map<number, number>;
+        agentFromRow: string | null;
       }
     >();
 
@@ -391,6 +393,7 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
         last_ts: e.ts,
         mechanisms: new Set<string>(),
         turnSaved: new Map<number, number>(),
+        agentFromRow: null as string | null,
       };
       entry.event_count++;
       entry.total_saved += e.tokens_saved;
@@ -401,6 +404,9 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
         e.turn,
         (entry.turnSaved.get(e.turn) ?? 0) + e.tokens_saved
       );
+      // Latest non-"unknown" agent stamped on a row wins — this is the
+      // P1 row-level column and beats the legacy session_history join.
+      if (e.agent && e.agent !== "unknown") entry.agentFromRow = e.agent;
       sessionMap.set(e.session_id, entry);
     }
 
@@ -427,7 +433,11 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
           first_ts: data.first_ts,
           last_ts: data.last_ts,
           mechanisms: [...data.mechanisms],
-          agent_name: agentBySession.get(id) ?? deps.getAgentName?.(id) ?? null,
+          agent_name:
+            data.agentFromRow ??
+            agentBySession.get(id) ??
+            deps.getAgentName?.(id) ??
+            null,
         };
       })
       .sort((a, b) => b.last_ts.localeCompare(a.last_ts));
@@ -559,6 +569,9 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
       mechanisms_this_turn: Record<string, number>;
       cumulative_by_mechanism: Record<string, number>;
       event_count: number;
+      /** Fix J — verbatim prompt captured for this turn (redacted at READ
+       *  time). Null when `capture_prompts: false` or no row exists. */
+      prompt: ReturnType<typeof getPromptForTurn>;
     }> = [];
 
     const cumulativeMechanisms: Record<string, number> = {};
@@ -592,6 +605,14 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
       cumulativeSaved += turnSaved;
       contextTurnsTotal += cumulativeSaved;
 
+      // Fix J — LEFT JOIN behavior_events ON session_id+turn AND
+      // type='user_prompt_received'. Uses the first event in the turn to
+      // resolve session_id (all events in a turn share one).
+      const sessionForTurn = turnEvents[0]?.session_id ?? targetSession ?? "";
+      const prompt = sessionForTurn
+        ? getPromptForTurn(deps.unerrDir, sessionForTurn, turn)
+        : null;
+
       turnData.push({
         turn,
         tools: [...tools],
@@ -601,6 +622,7 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
         mechanisms_this_turn: mechanismsThisTurn,
         cumulative_by_mechanism: { ...cumulativeMechanisms },
         event_count: turnEvents.length,
+        prompt,
       });
     }
 

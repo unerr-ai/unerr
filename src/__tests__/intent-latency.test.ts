@@ -1,10 +1,24 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { scoreIntent, type ScorerInput } from "../router/intent/scorer.js";
-import { createStickinessState, recordFamilyCall } from "../router/intent/stickiness.js";
+import { type ScorerInput, scoreIntent } from "../router/intent/scorer.js";
+import {
+  createStickinessState,
+  recordFamilyCall,
+} from "../router/intent/stickiness.js";
 import { buildDecayState } from "../router/intent/threshold-decay.js";
 
-const ALL_FAMILIES = new Set(["pg", "gh", "slk", "str", "aws", "rds", "mdb", "k8s", "dkr", "sup"]);
+const ALL_FAMILIES = new Set([
+  "pg",
+  "gh",
+  "slk",
+  "str",
+  "aws",
+  "rds",
+  "mdb",
+  "k8s",
+  "dkr",
+  "sup",
+]);
 
 function heavyInput(): ScorerInput {
   const entityTags = new Map<string, ReadonlySet<string>>();
@@ -24,7 +38,7 @@ function heavyInput(): ScorerInput {
       ["slk", { sessionsActive: 0, sessionsTotal: 25 }],
       ["str", { sessionsActive: 5, sessionsTotal: 25 }],
       ["aws", { sessionsActive: 0, sessionsTotal: 25 }],
-    ]),
+    ])
   );
 
   return {
@@ -41,7 +55,18 @@ function heavyInput(): ScorerInput {
       "src/cache/redis/client.ts",
     ],
     entityFamilyTags: entityTags,
-    recentToolFamilies: ["pg", "pg", "gh", "pg", "slk", "str", "pg", "gh", "aws", "rds"],
+    recentToolFamilies: [
+      "pg",
+      "pg",
+      "gh",
+      "pg",
+      "slk",
+      "str",
+      "pg",
+      "gh",
+      "aws",
+      "rds",
+    ],
     stickinessState: state,
     decayState,
     knownFamilies: ALL_FAMILIES,
@@ -68,7 +93,9 @@ describe("Intent Scorer — Latency Budget", () => {
     expect(p50).toBeLessThan(2);
 
     // Log for visibility (this is a test, logging is acceptable)
-    console.error(`  Latency: p50=${p50.toFixed(3)}ms p95=${p95.toFixed(3)}ms p99=${p99.toFixed(3)}ms max=${max.toFixed(3)}ms`);
+    console.error(
+      `  Latency: p50=${p50.toFixed(3)}ms p95=${p95.toFixed(3)}ms p99=${p99.toFixed(3)}ms max=${max.toFixed(3)}ms`
+    );
   });
 
   it("light input: 100 calls under 1ms each", () => {

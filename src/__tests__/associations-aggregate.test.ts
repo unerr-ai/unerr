@@ -1,9 +1,19 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { aggregateWeek, getWeekBounds, formatDriverSummary } from "../router/associations/aggregate.js";
-import type { AssociationRecord, TriggerSignal, SubsequentCall } from "../router/associations/types.js";
+import {
+  aggregateWeek,
+  formatDriverSummary,
+  getWeekBounds,
+} from "../router/associations/aggregate.js";
+import type {
+  AssociationRecord,
+  SubsequentCall,
+  TriggerSignal,
+} from "../router/associations/types.js";
 
-function makeRecord(overrides: Partial<AssociationRecord> = {}): AssociationRecord {
+function makeRecord(
+  overrides: Partial<AssociationRecord> = {}
+): AssociationRecord {
   return {
     id: `assoc_${Math.random().toString(36).slice(2)}`,
     ts: "2026-05-12T10:00:00.000Z",
@@ -75,9 +85,30 @@ describe("aggregateWeek — quality distribution", () => {
 describe("aggregateWeek — breakdown by type and family", () => {
   it("groups by trigger type", () => {
     const records = [
-      makeRecord({ triggerSignal: { type: "ur_tag", tag: "rsk", turnNumber: 0, timestamp: 1000 } }),
-      makeRecord({ triggerSignal: { type: "ur_tag", tag: "hnt", turnNumber: 0, timestamp: 1000 } }),
-      makeRecord({ triggerSignal: { type: "family_nudge", family: "pg", turnNumber: 0, timestamp: 1000 } }),
+      makeRecord({
+        triggerSignal: {
+          type: "ur_tag",
+          tag: "rsk",
+          turnNumber: 0,
+          timestamp: 1000,
+        },
+      }),
+      makeRecord({
+        triggerSignal: {
+          type: "ur_tag",
+          tag: "hnt",
+          turnNumber: 0,
+          timestamp: 1000,
+        },
+      }),
+      makeRecord({
+        triggerSignal: {
+          type: "family_nudge",
+          family: "pg",
+          turnNumber: 0,
+          timestamp: 1000,
+        },
+      }),
     ];
     const agg = aggregateWeek(records, 20, "2026-05-12", "2026-05-18");
     expect(agg.byTriggerType.get("ur_tag")).toBe(2);
@@ -86,9 +117,36 @@ describe("aggregateWeek — breakdown by type and family", () => {
 
   it("groups by family", () => {
     const records = [
-      makeRecord({ subsequentCall: { toolName: "gh_search", family: "gh", turnNumber: 1, timestamp: 5000, outcome: "success", responseTokens: 200 } }),
-      makeRecord({ subsequentCall: { toolName: "gh_list", family: "gh", turnNumber: 1, timestamp: 5000, outcome: "success", responseTokens: 200 } }),
-      makeRecord({ subsequentCall: { toolName: "pg_query", family: "pg", turnNumber: 1, timestamp: 5000, outcome: "success", responseTokens: 200 } }),
+      makeRecord({
+        subsequentCall: {
+          toolName: "gh_search",
+          family: "gh",
+          turnNumber: 1,
+          timestamp: 5000,
+          outcome: "success",
+          responseTokens: 200,
+        },
+      }),
+      makeRecord({
+        subsequentCall: {
+          toolName: "gh_list",
+          family: "gh",
+          turnNumber: 1,
+          timestamp: 5000,
+          outcome: "success",
+          responseTokens: 200,
+        },
+      }),
+      makeRecord({
+        subsequentCall: {
+          toolName: "pg_query",
+          family: "pg",
+          turnNumber: 1,
+          timestamp: 5000,
+          outcome: "success",
+          responseTokens: 200,
+        },
+      }),
     ];
     const agg = aggregateWeek(records, 20, "2026-05-12", "2026-05-18");
     expect(agg.byFamily.get("gh")).toBe(2);
@@ -99,10 +157,42 @@ describe("aggregateWeek — breakdown by type and family", () => {
 describe("aggregateWeek — top-association ranking", () => {
   it("ranks by count × quality", () => {
     const records = [
-      makeRecord({ triggerSignal: { type: "ur_tag", tag: "rsk", turnNumber: 0, timestamp: 1000 }, outcomeQuality: "high" }),
-      makeRecord({ triggerSignal: { type: "ur_tag", tag: "rsk", turnNumber: 0, timestamp: 1000 }, outcomeQuality: "high" }),
-      makeRecord({ triggerSignal: { type: "ur_tag", tag: "rsk", turnNumber: 0, timestamp: 1000 }, outcomeQuality: "medium" }),
-      makeRecord({ triggerSignal: { type: "ur_tag", tag: "hnt", turnNumber: 0, timestamp: 1000 }, outcomeQuality: "low" }),
+      makeRecord({
+        triggerSignal: {
+          type: "ur_tag",
+          tag: "rsk",
+          turnNumber: 0,
+          timestamp: 1000,
+        },
+        outcomeQuality: "high",
+      }),
+      makeRecord({
+        triggerSignal: {
+          type: "ur_tag",
+          tag: "rsk",
+          turnNumber: 0,
+          timestamp: 1000,
+        },
+        outcomeQuality: "high",
+      }),
+      makeRecord({
+        triggerSignal: {
+          type: "ur_tag",
+          tag: "rsk",
+          turnNumber: 0,
+          timestamp: 1000,
+        },
+        outcomeQuality: "medium",
+      }),
+      makeRecord({
+        triggerSignal: {
+          type: "ur_tag",
+          tag: "hnt",
+          turnNumber: 0,
+          timestamp: 1000,
+        },
+        outcomeQuality: "low",
+      }),
     ];
     const agg = aggregateWeek(records, 20, "2026-05-12", "2026-05-18");
     expect(agg.topAssociations.length).toBeGreaterThan(0);
@@ -113,10 +203,24 @@ describe("aggregateWeek — top-association ranking", () => {
   it("limits to 10 entries", () => {
     const records: AssociationRecord[] = [];
     for (let i = 0; i < 15; i++) {
-      records.push(makeRecord({
-        triggerSignal: { type: "ur_tag", tag: `tag${i}`, turnNumber: 0, timestamp: 1000 },
-        subsequentCall: { toolName: `tool_${i}`, family: `fam${i}`, turnNumber: 1, timestamp: 5000, outcome: "success", responseTokens: 200 },
-      }));
+      records.push(
+        makeRecord({
+          triggerSignal: {
+            type: "ur_tag",
+            tag: `tag${i}`,
+            turnNumber: 0,
+            timestamp: 1000,
+          },
+          subsequentCall: {
+            toolName: `tool_${i}`,
+            family: `fam${i}`,
+            turnNumber: 1,
+            timestamp: 5000,
+            outcome: "success",
+            responseTokens: 200,
+          },
+        })
+      );
     }
     const agg = aggregateWeek(records, 50, "2026-05-12", "2026-05-18");
     expect(agg.topAssociations.length).toBeLessThanOrEqual(10);
@@ -161,7 +265,7 @@ describe("formatDriverSummary", () => {
       ],
       13,
       "2026-05-12",
-      "2026-05-18",
+      "2026-05-18"
     );
     const summary = formatDriverSummary(agg);
     expect(summary).toContain("23%");
@@ -182,19 +286,49 @@ describe("Verification gate: weekly rollup with known input", () => {
     const records: AssociationRecord[] = [];
 
     for (let i = 0; i < 10; i++) {
-      records.push(makeRecord({
-        triggerSignal: { type: "ur_tag", tag: "rsk", entityName: "User.ts", family: "gh", turnNumber: i * 2, timestamp: i * 5000 },
-        subsequentCall: { toolName: "gh_search", family: "gh", turnNumber: i * 2 + 1, timestamp: i * 5000 + 3000, outcome: "success", responseTokens: 400 },
-        outcomeQuality: i < 7 ? "high" : "medium",
-      }));
+      records.push(
+        makeRecord({
+          triggerSignal: {
+            type: "ur_tag",
+            tag: "rsk",
+            entityName: "User.ts",
+            family: "gh",
+            turnNumber: i * 2,
+            timestamp: i * 5000,
+          },
+          subsequentCall: {
+            toolName: "gh_search",
+            family: "gh",
+            turnNumber: i * 2 + 1,
+            timestamp: i * 5000 + 3000,
+            outcome: "success",
+            responseTokens: 400,
+          },
+          outcomeQuality: i < 7 ? "high" : "medium",
+        })
+      );
     }
 
     for (let i = 0; i < 5; i++) {
-      records.push(makeRecord({
-        triggerSignal: { type: "family_nudge", family: "pg", turnNumber: i * 3, timestamp: 50000 + i * 5000 },
-        subsequentCall: { toolName: "pg_query", family: "pg", turnNumber: i * 3 + 1, timestamp: 50000 + i * 5000 + 2000, outcome: "success", responseTokens: 200 },
-        outcomeQuality: "medium",
-      }));
+      records.push(
+        makeRecord({
+          triggerSignal: {
+            type: "family_nudge",
+            family: "pg",
+            turnNumber: i * 3,
+            timestamp: 50000 + i * 5000,
+          },
+          subsequentCall: {
+            toolName: "pg_query",
+            family: "pg",
+            turnNumber: i * 3 + 1,
+            timestamp: 50000 + i * 5000 + 2000,
+            outcome: "success",
+            responseTokens: 200,
+          },
+          outcomeQuality: "medium",
+        })
+      );
     }
 
     const agg = aggregateWeek(records, 60, "2026-05-12", "2026-05-18");

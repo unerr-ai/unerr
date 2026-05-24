@@ -48,7 +48,11 @@ export class ReasoningCounter {
   /**
    * Record a soft-refuse event (tool was gated).
    */
-  recordSoftRefuse(toolName: string, suggestedAlternative: string, turnNumber: number): void {
+  recordSoftRefuse(
+    toolName: string,
+    suggestedAlternative: string,
+    turnNumber: number
+  ): void {
     this.softRefuseCount++;
     this.lastRefusedTool = toolName;
     this.lastSuggestedAlt = suggestedAlternative;
@@ -63,7 +67,8 @@ export class ReasoningCounter {
   recordFollowUp(toolName: string, success: boolean, turnNumber: number): void {
     if (
       this.lastRefusedTool !== null &&
-      (turnNumber === this.lastRefuseTurn || turnNumber === this.lastRefuseTurn + 1)
+      (turnNumber === this.lastRefuseTurn ||
+        turnNumber === this.lastRefuseTurn + 1)
     ) {
       const tookAlternative = toolName === this.lastSuggestedAlt;
       this.prevented.push({
@@ -100,10 +105,10 @@ export class ReasoningCounter {
    */
   getSnapshot(): CounterSnapshot {
     const alternativesTaken = this.prevented.filter(
-      (p) => p.agentUsed === p.suggestedAlternative,
+      (p) => p.agentUsed === p.suggestedAlternative
     ).length;
     const alternativesSucceeded = this.prevented.filter(
-      (p) => p.agentUsed === p.suggestedAlternative && p.wasSuccess,
+      (p) => p.agentUsed === p.suggestedAlternative && p.wasSuccess
     ).length;
 
     return {
@@ -137,7 +142,8 @@ export function countRetries(trace: readonly ToolCallTrace[]): number {
     if (
       curr.family === prev.family &&
       curr.toolName !== prev.toolName &&
-      (curr.turnNumber === prev.turnNumber || curr.turnNumber === prev.turnNumber + 1)
+      (curr.turnNumber === prev.turnNumber ||
+        curr.turnNumber === prev.turnNumber + 1)
     ) {
       retries++;
     }

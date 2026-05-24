@@ -25,7 +25,7 @@ describe("jaccardOverlap (C6)", () => {
     // {a,b} vs {a,c} → inter=1 union=3 → 1/3
     expect(jaccardOverlap(["a", "a", "b"], ["a", "c", "c"])).toBeCloseTo(
       1 / 3,
-      5,
+      5
     );
   });
 });
@@ -52,11 +52,7 @@ describe("detectTopicShift (C6)", () => {
   it("high overlap → no shift", () => {
     const r = detectTopicShift({
       current_anchors: ["f:src/a.ts", "f:src/b.ts"],
-      recent_anchors_by_turn: [
-        ["f:src/a.ts"],
-        ["f:src/b.ts"],
-        ["f:src/a.ts"],
-      ],
+      recent_anchors_by_turn: [["f:src/a.ts"], ["f:src/b.ts"], ["f:src/a.ts"]],
     });
     expect(r.topic_shift).toBe(false);
     expect(r.reason).toBe("overlap_above_threshold");

@@ -67,7 +67,9 @@ export class SchemaCache {
    * Fetch schemas for all connected servers in parallel.
    * Returns a map of serverId → entry. Failed fetches are omitted.
    */
-  async fetchAll(serverIds: readonly string[]): Promise<ReadonlyMap<string, ServerSchemaEntry>> {
+  async fetchAll(
+    serverIds: readonly string[]
+  ): Promise<ReadonlyMap<string, ServerSchemaEntry>> {
     const results = new Map<string, ServerSchemaEntry>();
 
     await Promise.all(
@@ -78,7 +80,7 @@ export class SchemaCache {
         } catch {
           // Failed fetch — server may be unhealthy; skip
         }
-      }),
+      })
     );
 
     return results;

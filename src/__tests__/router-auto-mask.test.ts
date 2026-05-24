@@ -1,18 +1,18 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
+import type { RouterTelemetryRecord } from "../proxy/router-telemetry.js";
 import {
-  scanServerUsage,
-  resolveAutoMask,
-  isAutoMasked,
   type ServerUsageProfile,
   type UsageScanResult,
+  isAutoMasked,
+  resolveAutoMask,
+  scanServerUsage,
 } from "../router/usage-scanner.js";
-import type { RouterTelemetryRecord } from "../proxy/router-telemetry.js";
 
 function makeRecord(
   server: string,
   sessionId: string,
-  opts?: { outcome?: "executed" | "soft_refused" | "child_error"; ts?: string },
+  opts?: { outcome?: "executed" | "soft_refused" | "child_error"; ts?: string }
 ): RouterTelemetryRecord {
   return {
     v: 1,
@@ -31,7 +31,7 @@ function makeRecord(
 
 function makeRecords(
   serverCalls: Record<string, number>,
-  sessionCount: number,
+  sessionCount: number
 ): RouterTelemetryRecord[] {
   const records: RouterTelemetryRecord[] = [];
   for (let s = 0; s < sessionCount; s++) {
@@ -163,7 +163,7 @@ describe("Usage Scanner — Auto-mask candidates", () => {
   it("returns empty candidates when all servers are used", () => {
     const records = makeRecords(
       { github: 5, postgres: 3, slack: 1, sentry: 1, stripe: 1 },
-      12,
+      12
     );
     const result = scanServerUsage(records, SERVERS);
     expect(result.autoMaskCandidates).toHaveLength(0);
@@ -178,9 +178,33 @@ describe("Usage Scanner — Auto-mask candidates", () => {
 
 describe("Usage Scanner — resolveAutoMask", () => {
   const candidates: ServerUsageProfile[] = [
-    { serverName: "slack", alias: "slk", bucket: "never-used", totalCalls: 0, sessionsSeen: 0, totalSessions: 12, lastUsedAt: null },
-    { serverName: "sentry", alias: "snt", bucket: "never-used", totalCalls: 0, sessionsSeen: 0, totalSessions: 12, lastUsedAt: null },
-    { serverName: "stripe", alias: "str", bucket: "never-used", totalCalls: 0, sessionsSeen: 0, totalSessions: 12, lastUsedAt: null },
+    {
+      serverName: "slack",
+      alias: "slk",
+      bucket: "never-used",
+      totalCalls: 0,
+      sessionsSeen: 0,
+      totalSessions: 12,
+      lastUsedAt: null,
+    },
+    {
+      serverName: "sentry",
+      alias: "snt",
+      bucket: "never-used",
+      totalCalls: 0,
+      sessionsSeen: 0,
+      totalSessions: 12,
+      lastUsedAt: null,
+    },
+    {
+      serverName: "stripe",
+      alias: "str",
+      bucket: "never-used",
+      totalCalls: 0,
+      sessionsSeen: 0,
+      totalSessions: 12,
+      lastUsedAt: null,
+    },
   ];
 
   it("masks only confirmed servers", () => {
@@ -250,12 +274,20 @@ describe("Usage Scanner — Verification gate scenario", () => {
     expect(result.totalSessions).toBe(10);
     expect(result.autoMaskCandidates).toHaveLength(5);
 
-    const candidateNames = result.autoMaskCandidates.map((c) => c.serverName).sort();
-    expect(candidateNames).toEqual(["figma", "jira", "sentry", "slack", "stripe"]);
+    const candidateNames = result.autoMaskCandidates
+      .map((c) => c.serverName)
+      .sort();
+    expect(candidateNames).toEqual([
+      "figma",
+      "jira",
+      "sentry",
+      "slack",
+      "stripe",
+    ]);
 
     const masked = resolveAutoMask(
       result.autoMaskCandidates,
-      result.autoMaskCandidates.map((c) => c.serverName),
+      result.autoMaskCandidates.map((c) => c.serverName)
     );
     expect(masked.size).toBe(5);
 

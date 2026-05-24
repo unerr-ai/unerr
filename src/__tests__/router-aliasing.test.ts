@@ -1,13 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
-  defaultAlias,
-  AliasRegistry,
-  detectAliasCollisions,
-  detectToolCollisions,
-  createAliasRegistry,
+  type AliasRegistry,
   type AliasedTool,
   type ResolvedTool,
+  createAliasRegistry,
+  defaultAlias,
+  detectAliasCollisions,
+  detectToolCollisions,
 } from "../router/aliasing.js";
 import type { CachedToolDefinition } from "../router/client/schema-cache.js";
 
@@ -76,7 +76,9 @@ describe("AliasRegistry", () => {
   it("rewrites tool names with alias prefix", () => {
     const registry = makeRegistry();
     expect(registry.rewriteName("github", "search")).toBe("gh_search");
-    expect(registry.rewriteName("github", "create_issue")).toBe("gh_create_issue");
+    expect(registry.rewriteName("github", "create_issue")).toBe(
+      "gh_create_issue"
+    );
     expect(registry.rewriteName("postgres", "query")).toBe("pg_query");
     expect(registry.rewriteName("slack", "search")).toBe("slk_search");
   });
@@ -100,9 +102,18 @@ describe("AliasRegistry", () => {
 
   it("resolves prefixed names back to server + tool", () => {
     const registry = makeRegistry();
-    expect(registry.resolve("gh_search")).toEqual({ serverId: "github", toolName: "search" });
-    expect(registry.resolve("pg_query")).toEqual({ serverId: "postgres", toolName: "query" });
-    expect(registry.resolve("slk_send_message")).toEqual({ serverId: "slack", toolName: "send_message" });
+    expect(registry.resolve("gh_search")).toEqual({
+      serverId: "github",
+      toolName: "search",
+    });
+    expect(registry.resolve("pg_query")).toEqual({
+      serverId: "postgres",
+      toolName: "query",
+    });
+    expect(registry.resolve("slk_send_message")).toEqual({
+      serverId: "slack",
+      toolName: "send_message",
+    });
   });
 
   it("returns undefined for non-aliased tools", () => {
@@ -141,8 +152,12 @@ describe("AliasRegistry", () => {
 
   it("prepends server name to description", () => {
     const registry = makeRegistry();
-    expect(registry.rewriteDescription("github", "Search repos")).toBe("[github] Search repos");
-    expect(registry.rewriteDescription("postgres", "Run SQL")).toBe("[postgres] Run SQL");
+    expect(registry.rewriteDescription("github", "Search repos")).toBe(
+      "[github] Search repos"
+    );
+    expect(registry.rewriteDescription("postgres", "Run SQL")).toBe(
+      "[postgres] Run SQL"
+    );
   });
 
   it("handles empty/undefined descriptions", () => {
@@ -196,26 +211,41 @@ describe("AliasRegistry", () => {
   // ── registerFromSchemas ──────────────────────────────────────
 
   it("populates from schema cache snapshot", () => {
-    const aliases = new Map([["github", "gh"], ["postgres", "pg"]]);
+    const aliases = new Map([
+      ["github", "gh"],
+      ["postgres", "pg"],
+    ]);
     const registry = createAliasRegistry(aliases);
 
     const schemas = new Map([
-      ["github", {
-        serverId: "github",
-        tools: [{ name: "search", description: "Search" }],
-        fetchedAt: Date.now(),
-      }],
-      ["postgres", {
-        serverId: "postgres",
-        tools: [{ name: "query", description: "Query" }],
-        fetchedAt: Date.now(),
-      }],
+      [
+        "github",
+        {
+          serverId: "github",
+          tools: [{ name: "search", description: "Search" }],
+          fetchedAt: Date.now(),
+        },
+      ],
+      [
+        "postgres",
+        {
+          serverId: "postgres",
+          tools: [{ name: "query", description: "Query" }],
+          fetchedAt: Date.now(),
+        },
+      ],
     ]);
 
     registry.registerFromSchemas(schemas);
     expect(registry.toolCount).toBe(2);
-    expect(registry.resolve("gh_search")).toEqual({ serverId: "github", toolName: "search" });
-    expect(registry.resolve("pg_query")).toEqual({ serverId: "postgres", toolName: "query" });
+    expect(registry.resolve("gh_search")).toEqual({
+      serverId: "github",
+      toolName: "search",
+    });
+    expect(registry.resolve("pg_query")).toEqual({
+      serverId: "postgres",
+      toolName: "query",
+    });
   });
 });
 
@@ -256,7 +286,9 @@ describe("detectAliasCollisions", () => {
   });
 
   it("returns empty for single server", () => {
-    expect(detectAliasCollisions([{ name: "github", alias: "gh" }])).toHaveLength(0);
+    expect(
+      detectAliasCollisions([{ name: "github", alias: "gh" }])
+    ).toHaveLength(0);
   });
 
   it("returns empty for empty array", () => {
@@ -301,7 +333,10 @@ describe("detectToolCollisions", () => {
       ["github", []],
       ["slack", [{ name: "search" }]],
     ]);
-    const aliases = new Map([["github", "gh"], ["slack", "slk"]]);
+    const aliases = new Map([
+      ["github", "gh"],
+      ["slack", "slk"],
+    ]);
 
     const collisions = detectToolCollisions(serverTools, aliases);
     expect(collisions).toHaveLength(0);

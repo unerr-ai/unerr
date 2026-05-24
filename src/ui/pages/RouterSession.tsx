@@ -226,7 +226,7 @@ export function RouterSessionPage() {
   }
 
   const selected = selectedId
-    ? sessions.find((s) => s.sessionId === selectedId) ?? sessions[0]
+    ? (sessions.find((s) => s.sessionId === selectedId) ?? sessions[0])
     : sessions[0];
 
   return (
@@ -256,11 +256,15 @@ export function RouterSessionPage() {
                 <span className="font-mono text-xs truncate max-w-[140px]">
                   {s.sessionId.slice(0, 12)}…
                 </span>
-                <span className="t-tertiary text-xs">{timeAgo(s.lastCallTs)}</span>
+                <span className="t-tertiary text-xs">
+                  {timeAgo(s.lastCallTs)}
+                </span>
               </div>
               <div className="flex items-center gap-3 mt-1 text-xs t-secondary">
                 <span>{s.totalCalls} calls</span>
-                <span className="text-success">+{fmtNum(s.totalTokensSaved)} tok</span>
+                <span className="text-success">
+                  +{fmtNum(s.totalTokensSaved)} tok
+                </span>
               </div>
             </button>
           ))}

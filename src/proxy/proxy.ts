@@ -20,7 +20,7 @@ import {
   readFileSync,
   readdirSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { aliasAndValidate } from "./arg-validator.js";
 import { PidLock } from "./pid-lock.js";
 import {
@@ -72,6 +72,10 @@ export interface ProxyOptions {
   httpPort?: number;
   /** Running as a daemon-managed child (suppresses startup renderer, PID lock is per-repo) */
   daemonChild?: boolean;
+  /** Coding-agent id (from `--coding-agent=<id>` install-time flag). Most
+   *  authoritative source for agent attribution; stamped on every event
+   *  unless a per-client UDS handshake overrides it for that client. */
+  codingAgent?: string;
 }
 
 // ── Layer 9: Fact tool handlers for long-lived proxy ────────────────
@@ -135,7 +139,9 @@ async function getProxyNotesStore(
 
 async function handleUnerrRecallNotesProxy(
   args: Record<string, unknown>,
-  unerrDir: string
+  unerrDir: string,
+  behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter,
+  currentTurn?: number
 ): Promise<{
   content: Array<{ type: string; text: string }>;
   isError?: boolean;
@@ -155,13 +161,57 @@ async function handleUnerrRecallNotesProxy(
     };
   }
   try {
-    const { recallNotes } = await import(
-      "../tools/intelligence/notes-mcp.js"
-    );
+    const { recallNotes } = await import("../tools/intelligence/notes-mcp.js");
     const result = await recallNotes(
       store,
       args as Parameters<typeof recallNotes>[1]
     );
+    // Emit a fact_recalled behavior event carrying rich DSL fields from the
+    // top returned note. Surface 2 reads these via
+    // `renderContextPrefaceLive` → `renderLoadedNoteLine` so the preface can
+    // name the note's kind/anchor/polarity without a second NotesStore
+    // round-trip on the hot prompt-receipt path.
+    if (behaviorEvents && result.ok && result.data) {
+      const data = result.data as {
+        notes?: Array<{
+          kind: string;
+          anchor_type: string;
+          anchor_value: string;
+          polarity: string;
+          content: string;
+          created_at: number;
+          reinforcement_count: number;
+          anchor_missing: boolean;
+          conflict_group_id: string;
+        }>;
+      };
+      const notes = data.notes ?? [];
+      if (notes.length > 0) {
+        const top = notes[0];
+        if (top) {
+          behaviorEvents.record({
+            session_id: behaviorEvents.sessionId,
+            turn: currentTurn ?? 0,
+            type: "fact_recalled",
+            tool: "unerr_recall_notes",
+            entity_key: top.anchor_value || null,
+            response_bytes: null,
+            detail: {
+              count: notes.length,
+              top_content: top.content,
+              top_created_at: top.created_at,
+              top_kind: top.kind,
+              top_anchor_type: top.anchor_type,
+              top_anchor_value: top.anchor_value,
+              top_polarity: top.polarity,
+              top_reinforcement_count: top.reinforcement_count,
+              top_anchor_missing: top.anchor_missing,
+              top_conflict_group_id: top.conflict_group_id,
+            },
+          });
+        }
+      }
+    }
     return {
       content: [{ type: "text", text: JSON.stringify(result) }],
       ...(result.ok ? {} : { isError: true }),
@@ -237,7 +287,8 @@ async function handleRecordFactProxy(
       "../tracking/persistence-effectiveness.js"
     ).PersistenceEffectivenessTracker;
     turn: number;
-  }
+  },
+  behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter
 ): Promise<{
   content: Array<{ type: string; text: string }>;
   _meta?: unknown;
@@ -279,6 +330,19 @@ async function handleRecordFactProxy(
         turn: effectiveness.turn,
       });
     }
+    behaviorEvents?.record({
+      session_id: shadowLedger.getSessionId(),
+      turn: effectiveness?.turn ?? 0,
+      type: "fact_stored_auto",
+      tool: "record_fact",
+      entity_key: (args.subject as string | undefined) ?? null,
+      response_bytes: null,
+      detail: {
+        fact_id: result.fact_id,
+        fact_type: args.fact_type,
+        scope: args.scope,
+      },
+    });
     shadowLedger.record(
       "record_fact",
       args,
@@ -400,7 +464,8 @@ async function handleRecallFactsProxy(
       "../tracking/persistence-effectiveness.js"
     ).PersistenceEffectivenessTracker;
     turn: number;
-  }
+  },
+  behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter
 ): Promise<{
   content: Array<{ type: string; text: string }>;
   _meta?: unknown;
@@ -470,6 +535,26 @@ async function handleRecallFactsProxy(
           turn: effectiveness.turn,
         });
       }
+    }
+    if (behaviorEvents && sliced.length > 0) {
+      // The first sliced fact rides in the event detail so Surface 2 can
+      // name it verbatim ("loaded: \"<content>\" (you set <age>)") without
+      // a second NotesStore round-trip on the hot prompt-receipt path.
+      const top = sliced[0];
+      behaviorEvents.record({
+        session_id: behaviorEvents.sessionId,
+        turn: effectiveness?.turn ?? 0,
+        type: "fact_recalled",
+        tool: "recall_facts",
+        entity_key: scope ?? null,
+        response_bytes: null,
+        detail: {
+          count: sliced.length,
+          fact_types: Array.from(new Set(sliced.map((f) => f.fact_type))),
+          top_content: top?.content ?? null,
+          top_created_at: top?.created_at ?? null,
+        },
+      });
     }
 
     const { REMEMBER_AMBIGUITY_THRESHOLD: RAT } = await import(
@@ -1490,11 +1575,33 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
   // ── Layer 10: Token Flow Writer — unified savings attribution ────
   const { TokenFlowWriter } = await import("../tracking/token-flow.js");
+  const { resolveAgentId } = await import("../config/agent-registry.js");
+  const { detectAgentNameFromEnv } = await import("../utils/detect.js");
+  // Canonical turn source: TurnSegmenter inside ShadowLedger. The writer
+  // asks for the current turn at record() time so every row stamps the
+  // exact turn the agent was in — no more competing counters.
+  const sessionTurnProvider = () =>
+    shadowLedger
+      .getTurnSegmenter()
+      .getCurrentTurnNumber(shadowLedger.getSessionId());
+  // Initial agent for the standalone (stdio) path. Per-client bridged
+  // calls override this via the UDS initialize handshake below.
+  const initialAgent = resolveAgentId({
+    codingAgent: opts.codingAgent ?? null,
+    clientInfoName: null,
+    detectFromEnv: () => detectAgentNameFromEnv(),
+  });
   const tokenFlowWriter = new TokenFlowWriter(
     unerrDirForLedger,
-    shadowLedger.getSessionId()
+    shadowLedger.getSessionId(),
+    { turnProvider: sessionTurnProvider, agent: initialAgent }
   );
   process.env.UNERR_SESSION_ID = shadowLedger.getSessionId();
+  // Exec-process attribution: shell-compressor (spawned from agent shell)
+  // reads UNERR_AGENT to stamp the row with the right coding-agent id.
+  // UNERR_TURN is updated per-tool-call below so out-of-band exec output
+  // attaches to the live turn instead of falling back to 0.
+  process.env.UNERR_AGENT = initialAgent;
   // RC3 fix: Write session ID to file for exec processes
   try {
     const { writeFileSync } = await import("node:fs");
@@ -1518,12 +1625,52 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   );
   const behaviorEventWriter = new BehaviorEventWriter(
     unerrDirForLedger,
-    shadowLedger.getSessionId()
+    shadowLedger.getSessionId(),
+    { turnProvider: sessionTurnProvider, agent: initialAgent }
   );
   behaviorEventWriter.onRecord((event) => {
     eventBus.emit("behavior_event", event);
   });
   router.setBehaviorEvents(behaviorEventWriter);
+
+  // Emit a single cross_session_resume event at boot when this proxy run
+  // is resuming a prior session. Drives Surface 1 attribution + footer
+  // ("loaded earlier session") and the engagement-telemetry resume bucket.
+  if (stats.isResumedSession && stats.previousSession) {
+    behaviorEventWriter.record({
+      session_id: behaviorEventWriter.sessionId,
+      turn: 0,
+      type: "cross_session_resume",
+      tool: null,
+      entity_key: null,
+      response_bytes: null,
+      detail: {
+        prior_tool_calls: stats.previousSession.toolCallsLocal,
+        prior_duration_minutes: stats.previousSession.durationMinutes,
+      },
+    });
+
+    // Mirror the resume strip into instruction-only agents (Cursor,
+    // Cline, Codex, Gemini CLI, GitHub Copilot CLI). Claude Code gets
+    // it live via the SessionStart hook; these agents have no hook
+    // surface, so we drop the strip into a file the IDE auto-loads.
+    // Best-effort and non-blocking — boot does not wait on this.
+    (async () => {
+      try {
+        const [{ writeSessionStateForAllAgents }, sharedFactStore] =
+          await Promise.all([
+            import("./session-state-writer.js"),
+            getProxyFactStore(unerrDirForLedger),
+          ]);
+        await writeSessionStateForAllAgents(process.cwd(), {
+          unerrDir: unerrDirForLedger,
+          factStore: sharedFactStore ?? undefined,
+        });
+      } catch {
+        /* best-effort — instruction-only agents fall back to file-mod heuristics */
+      }
+    })();
+  }
 
   // Bridge defuddle suppression into the BehaviorEventWriter so the dashboard
   // shows how often nwsapi rejects one of defuddle's selectors (a non-fatal
@@ -1669,6 +1816,14 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     (async (request: any) => {
       const { name, arguments: args = {} } = request.params;
 
+      // Advance the canonical turn counter at the tools/call boundary so
+      // every writer.record() inside this dispatch stamps the correct turn
+      // before ShadowLedger.record() (which happens AFTER tool execution).
+      shadowLedger.getTurnSegmenter().noteTurnOpen(shadowLedger.getSessionId());
+      // Mirror live turn into env so out-of-band exec processes (shell
+      // compressor, hook-runner) attach their rows to the active turn.
+      process.env.UNERR_TURN = String(sessionTurnProvider());
+
       // ── Boundary validation: alias normalization + required-field check ──
       // Centralized in arg-validator so every tool with a schema-level
       // `required: [...]` is enforced uniformly. Catches the silent-failure
@@ -1784,7 +1939,38 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
       // ── Active-cognition Layer B: unerr_recall_notes ──
       if (name === "unerr_recall_notes") {
-        return handleUnerrRecallNotesProxy(args, unerrDirForLedger);
+        return handleUnerrRecallNotesProxy(
+          args,
+          unerrDirForLedger,
+          behaviorEventWriter,
+          sessionTurnProvider()
+        );
+      }
+
+      // ── Close-out summary: unerr_turn_summary ──
+      if (name === "unerr_turn_summary") {
+        const { handleTurnSummaryProxy } = await import(
+          "./turn-summary-handler.js"
+        );
+        return handleTurnSummaryProxy(
+          unerrDirForLedger,
+          shadowLedger.getSessionId(),
+          sessionTurnProvider()
+        );
+      }
+
+      // ── Surface 2 renderer: unerr_surface2_line (Fix B) ──
+      if (name === "unerr_surface2_line") {
+        const { handleSurface2LineProxy } = await import(
+          "./surface2-line-handler.js"
+        );
+        return handleSurface2LineProxy(
+          unerrDirForLedger,
+          shadowLedger.getSessionId(),
+          sessionTurnProvider(),
+          dirname(unerrDirForLedger),
+          behaviorEventWriter
+        );
       }
 
       // ── Layer 9: record_fact + recall_facts + unerr_remember ──
@@ -1796,10 +1982,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         // Active-cognition dispatch: when `unerr_remember` carries a `type`
         // field (note/cochange/move_anchor/promote_to_claude_md), route to
         // the new NotesStore path; otherwise stay on the TemporalFactStore.
-        if (
-          name === "unerr_remember" &&
-          isActiveCognitionRemember(args)
-        ) {
+        if (name === "unerr_remember" && isActiveCognitionRemember(args)) {
           return handleUnerrRememberNotePath(args, unerrDirForLedger);
         }
         const factResult =
@@ -1811,7 +1994,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                 {
                   tracker: effectivenessTracker,
                   turn: router.sessionContext.getToolCallCount(),
-                }
+                },
+                behaviorEventWriter
               )
             : name === "unerr_remember"
               ? await handleUnerrRememberProxy(
@@ -1824,10 +2008,15 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                     turn: router.sessionContext.getToolCallCount(),
                   }
                 )
-              : await handleRecallFactsProxy(args, unerrDirForLedger, {
-                  tracker: effectivenessTracker,
-                  turn: router.sessionContext.getToolCallCount(),
-                });
+              : await handleRecallFactsProxy(
+                  args,
+                  unerrDirForLedger,
+                  {
+                    tracker: effectivenessTracker,
+                    turn: router.sessionContext.getToolCallCount(),
+                  },
+                  behaviorEventWriter
+                );
         const { applyWireCap: applyWireCapFact } = await import(
           "./wire-cap.js"
         );
@@ -2148,11 +2337,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         sessionId: shadowLedger.getSessionId(),
         toolCallCount: router.sessionContext.getToolCallCount(),
         filePath:
-          ((args as Record<string, unknown>).file_path as
-            | string
-            | undefined) ?? entityKey,
+          ((args as Record<string, unknown>).file_path as string | undefined) ??
+          entityKey,
         factStore: proxyFactStore ?? undefined,
         pendingConfirmations: proxyPendingConfirmations ?? undefined,
+        isResumedSession: stats.isResumedSession,
+        timelineStore: timelineHandle?.store,
+        behaviorEvents: behaviorEventWriter,
       });
 
       // Final assembly: preface → data → page-hint → user footer → signal footer.
@@ -2204,14 +2395,53 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   });
 
   transportMux.setHandler(async (clientId, message) => {
+    // Bridge-side hello: independent of MCP `initialize`. The bridge sends
+    // this notification immediately on connect with its install-time
+    // `--coding-agent` flag so attribution still works on reconnects where
+    // the IDE never re-sends `initialize`.
+    if (message.method === "unerr/hello") {
+      const helloAgent = (message.params as { agent?: string } | undefined)
+        ?.agent;
+      if (helloAgent) {
+        const resolved = resolveAgentId({
+          codingAgent: helloAgent,
+          clientInfoName: null,
+          detectFromEnv: () => null,
+        });
+        agentNameByClient.set(clientId, resolved);
+        tokenFlowWriter.setAgent(resolved);
+        behaviorEventWriter.setAgent(resolved);
+        // Shell-compressor exec processes inherit this env to stamp
+        // out-of-band compression rows with the right agent id.
+        process.env.UNERR_AGENT = resolved;
+      }
+      return { jsonrpc: "2.0" as const };
+    }
+
     // MCP protocol: handle initialize handshake for bridged clients
     if (message.method === "initialize") {
-      // Capture agent name from clientInfo (e.g. "claude-code", "cursor")
+      // Capture agent name from clientInfo (e.g. "claude-code", "cursor").
+      // The bridge (`unerr --mcp --coding-agent=<id>`) rewrites clientInfo.name
+      // to the install-time codingAgent flag, so this is the most reliable
+      // attribution source for bridged sessions.
       const clientName = (
         message.params as { clientInfo?: { name?: string } } | undefined
       )?.clientInfo?.name;
       if (clientName) {
-        agentNameByClient.set(clientId, clientName);
+        const resolved = resolveAgentId({
+          codingAgent: null,
+          clientInfoName: clientName,
+          detectFromEnv: () => null,
+        });
+        agentNameByClient.set(clientId, resolved);
+        // Update the global writer agent. For multi-client daemons serving
+        // multiple coding agents simultaneously this is last-writer-wins;
+        // per-call override via input.agent (passed from the UDS dispatcher
+        // below) keeps individual rows attributed correctly even when the
+        // global value lags.
+        tokenFlowWriter.setAgent(resolved);
+        behaviorEventWriter.setAgent(resolved);
+        process.env.UNERR_AGENT = resolved;
       }
       return {
         jsonrpc: "2.0" as const,
@@ -2272,6 +2502,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       }
 
       const { name, arguments: toolArgs = {} } = params;
+
+      // Advance canonical turn counter at the tools/call boundary so every
+      // writer.record() inside this dispatch stamps the correct turn (UDS
+      // path mirrors stdio handler).
+      shadowLedger.getTurnSegmenter().noteTurnOpen(shadowLedger.getSessionId());
+      process.env.UNERR_TURN = String(sessionTurnProvider());
 
       // ── Boundary validation (mirrors stdio handler) ──
       // Bridged IDE clients via `unerr --mcp` hit THIS handler, not the
@@ -2351,9 +2587,39 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       if (name === "unerr_recall_notes") {
         const recallRes = await handleUnerrRecallNotesProxy(
           toolArgs,
-          unerrDirForLedger
+          unerrDirForLedger,
+          behaviorEventWriter,
+          sessionTurnProvider()
         );
         return { jsonrpc: "2.0" as const, result: recallRes };
+      }
+
+      // ── Close-out summary: unerr_turn_summary (UDS) ──
+      if (name === "unerr_turn_summary") {
+        const { handleTurnSummaryProxy } = await import(
+          "./turn-summary-handler.js"
+        );
+        const summaryRes = await handleTurnSummaryProxy(
+          unerrDirForLedger,
+          shadowLedger.getSessionId(),
+          sessionTurnProvider()
+        );
+        return { jsonrpc: "2.0" as const, result: summaryRes };
+      }
+
+      // ── Surface 2 renderer: unerr_surface2_line (UDS, Fix B) ──
+      if (name === "unerr_surface2_line") {
+        const { handleSurface2LineProxy } = await import(
+          "./surface2-line-handler.js"
+        );
+        const s2Res = await handleSurface2LineProxy(
+          unerrDirForLedger,
+          shadowLedger.getSessionId(),
+          sessionTurnProvider(),
+          dirname(unerrDirForLedger),
+          behaviorEventWriter
+        );
+        return { jsonrpc: "2.0" as const, result: s2Res };
       }
 
       // ── Layer 9: record_fact + recall_facts + unerr_remember (independent of graph) ──
@@ -2363,10 +2629,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         name === "unerr_remember"
       ) {
         // Active-cognition dispatch (UDS mirror of stdio path).
-        if (
-          name === "unerr_remember" &&
-          isActiveCognitionRemember(toolArgs)
-        ) {
+        if (name === "unerr_remember" && isActiveCognitionRemember(toolArgs)) {
           const noteRes = await handleUnerrRememberNotePath(
             toolArgs,
             unerrDirForLedger
@@ -2382,7 +2645,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                 {
                   tracker: effectivenessTracker,
                   turn: router.sessionContext.getToolCallCount(),
-                }
+                },
+                behaviorEventWriter
               )
             : name === "unerr_remember"
               ? await handleUnerrRememberProxy(
@@ -2395,10 +2659,15 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                     turn: router.sessionContext.getToolCallCount(),
                   }
                 )
-              : await handleRecallFactsProxy(toolArgs, unerrDirForLedger, {
-                  tracker: effectivenessTracker,
-                  turn: router.sessionContext.getToolCallCount(),
-                });
+              : await handleRecallFactsProxy(
+                  toolArgs,
+                  unerrDirForLedger,
+                  {
+                    tracker: effectivenessTracker,
+                    turn: router.sessionContext.getToolCallCount(),
+                  },
+                  behaviorEventWriter
+                );
         // Apply universal pagination cap so recall_facts surfaces page hints
         // when more facts are available beyond what the handler returned.
         const { applyWireCap: applyWireCapFact } = await import(
@@ -2572,6 +2841,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             | undefined) ?? entityKey2,
         factStore: proxyFactStore ?? undefined,
         pendingConfirmations: proxyPendingConfirmations ?? undefined,
+        isResumedSession: stats.isResumedSession,
+        timelineStore: timelineHandle?.store,
+        behaviorEvents: behaviorEventWriter,
       });
 
       // P0-3 mirror of stdio: surface a locked-tool refusal as isError so

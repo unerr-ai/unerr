@@ -12,11 +12,11 @@
 
 import { Hono } from "hono";
 
-import type { LiftMetrics } from "../router/reasoning/lift.js";
-import type { CounterSnapshot } from "../router/reasoning/counter.js";
 import type { AssociationAggregate } from "../router/associations/types.js";
 import type { IntentEvaluation } from "../router/dispatch.js";
 import type { OverrideState } from "../router/overrides.js";
+import type { CounterSnapshot } from "../router/reasoning/counter.js";
+import type { LiftMetrics } from "../router/reasoning/lift.js";
 
 export interface RouterApiV2Deps {
   getLiftMetrics: () => LiftMetrics | null;
@@ -67,12 +67,14 @@ export function createRouterApiV2(deps: RouterApiV2Deps): Hono {
           totalRetries: 0,
           baselineRetries: 0,
         },
-        associations: associations ? {
-          totalAssociations: associations.totalAssociations,
-          highQualityCount: associations.highQualityCount,
-          driverPercentage: associations.driverPercentage,
-          topAssociations: associations.topAssociations.slice(0, 5),
-        } : null,
+        associations: associations
+          ? {
+              totalAssociations: associations.totalAssociations,
+              highQualityCount: associations.highQualityCount,
+              driverPercentage: associations.driverPercentage,
+              topAssociations: associations.topAssociations.slice(0, 5),
+            }
+          : null,
       },
     });
   });
@@ -100,7 +102,7 @@ export function createRouterApiV2(deps: RouterApiV2Deps): Hono {
   });
 
   app.get("/intent/:turn", (c) => {
-    const turn = parseInt(c.req.param("turn"), 10);
+    const turn = Number.parseInt(c.req.param("turn"), 10);
     if (isNaN(turn)) {
       return c.json({ error: "Invalid turn number" }, 400);
     }

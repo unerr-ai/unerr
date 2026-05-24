@@ -156,7 +156,9 @@ export async function executeUnerrRemember(
     scope.trim() === "project" ? "the whole project" : `\`${scope.trim()}\``;
   // Plain-English echo so any agent that relays this string to the user
   // reads naturally — no `[brackets]`, no `conf 0.85`, no `→`.
-  const verb = deduplicated ? "reinforced an existing note" : "added a new note";
+  const verb = deduplicated
+    ? "reinforced an existing note"
+    : "added a new note";
   const tail = ambiguity_flag
     ? ` — I'm only ${Math.round(confidence * 100)}% sure I got that right, please confirm or correct`
     : "";
@@ -175,6 +177,23 @@ export async function executeUnerrRemember(
   } else if (!ambiguity_flag && pendingConfirmations) {
     pendingConfirmations.resolve(fact_id);
   }
+
+  behaviorEvents?.record({
+    session_id: sessionId,
+    turn,
+    type: "fact_stored_user_fed",
+    tool: "unerr_remember",
+    entity_key: subject.trim(),
+    response_bytes: null,
+    detail: {
+      fact_id,
+      fact_type,
+      scope: scope.trim(),
+      confidence,
+      deduplicated,
+      ambiguity_flag,
+    },
+  });
 
   return {
     stored: true,

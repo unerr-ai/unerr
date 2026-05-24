@@ -12,12 +12,12 @@
  *   "Your graph drove 23% of GitHub calls this week"
  */
 
+import { qualityToNumeric } from "./quality.js";
 import type {
-  AssociationRecord,
   AssociationAggregate,
+  AssociationRecord,
   RankedAssociation,
 } from "./types.js";
-import { qualityToNumeric } from "./quality.js";
 
 /**
  * Aggregate association records for a given week.
@@ -29,7 +29,7 @@ export function aggregateWeek(
   records: readonly AssociationRecord[],
   totalCallsInWeek: number,
   weekStart: string,
-  weekEnd: string,
+  weekEnd: string
 ): AssociationAggregate {
   const byTriggerType = new Map<string, number>();
   const byFamily = new Map<string, number>();
@@ -37,30 +37,43 @@ export function aggregateWeek(
   let mediumQuality = 0;
   let lowQuality = 0;
 
-  const groupedAssociations = new Map<string, {
-    triggerType: string;
-    triggerDetail: string;
-    family: string;
-    count: number;
-    qualities: number[];
-  }>();
+  const groupedAssociations = new Map<
+    string,
+    {
+      triggerType: string;
+      triggerDetail: string;
+      family: string;
+      count: number;
+      qualities: number[];
+    }
+  >();
 
   for (const record of records) {
     const triggerType = record.triggerSignal.type;
     byTriggerType.set(triggerType, (byTriggerType.get(triggerType) ?? 0) + 1);
-    byFamily.set(record.subsequentCall.family, (byFamily.get(record.subsequentCall.family) ?? 0) + 1);
+    byFamily.set(
+      record.subsequentCall.family,
+      (byFamily.get(record.subsequentCall.family) ?? 0) + 1
+    );
 
     switch (record.outcomeQuality) {
-      case "high": highQuality++; break;
-      case "medium": mediumQuality++; break;
-      case "low": lowQuality++; break;
+      case "high":
+        highQuality++;
+        break;
+      case "medium":
+        mediumQuality++;
+        break;
+      case "low":
+        lowQuality++;
+        break;
     }
 
-    const triggerDetail = record.triggerSignal.tag
-      ?? record.triggerSignal.entityName
-      ?? record.triggerSignal.filePath
-      ?? record.triggerSignal.family
-      ?? "unknown";
+    const triggerDetail =
+      record.triggerSignal.tag ??
+      record.triggerSignal.entityName ??
+      record.triggerSignal.filePath ??
+      record.triggerSignal.family ??
+      "unknown";
 
     const key = `${triggerType}:${triggerDetail}:${record.subsequentCall.family}`;
     const existing = groupedAssociations.get(key);
@@ -93,9 +106,8 @@ export function aggregateWeek(
     })
     .slice(0, 10);
 
-  const driverPercentage = totalCallsInWeek > 0
-    ? records.length / totalCallsInWeek
-    : 0;
+  const driverPercentage =
+    totalCallsInWeek > 0 ? records.length / totalCallsInWeek : 0;
 
   return {
     weekStart,
@@ -115,7 +127,10 @@ export function aggregateWeek(
  * Compute week boundaries from a date.
  * Returns ISO strings for Monday 00:00:00 → Sunday 23:59:59.
  */
-export function getWeekBounds(date: Date): { weekStart: string; weekEnd: string } {
+export function getWeekBounds(date: Date): {
+  weekStart: string;
+  weekEnd: string;
+} {
   const d = new Date(date);
   const day = d.getDay();
   const diffToMonday = day === 0 ? -6 : 1 - day;

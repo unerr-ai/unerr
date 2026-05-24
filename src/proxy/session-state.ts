@@ -21,8 +21,8 @@
  * grows unbounded under adversarial input.
  */
 
-import type { IntentMarkerType, UrTag } from "./tool-tiers.js";
 import { toolsByTier } from "./tool-descriptions.js";
+import type { IntentMarkerType, UrTag } from "./tool-tiers.js";
 
 /**
  * Maximum distinct directories tracked for the `FilesInSameDirAtLeast`
@@ -52,61 +52,61 @@ const NON_TRIVIAL_READ_THRESHOLD = 5;
  * evaluator never reads an undefined field as false.
  */
 export interface CallSignals {
-	/** The tool that just responded. Required — drives `toolCallCount`. */
-	readonly toolName: string;
-	/**
-	 * `ur|<tag>` prefix tags observed on this response's body, in order.
-	 * Duplicates allowed; the state stores them as a Set.
-	 */
-	readonly urTags?: readonly UrTag[];
-	/**
-	 * Highest entity fan_in surfaced by this response (from get_entity,
-	 * get_critical_nodes, get_references payloads). The state tracks the
-	 * max-ever-seen; smaller subsequent values are ignored.
-	 */
-	readonly entityFanIn?: number;
-	/**
-	 * Number of imports in the file this response describes (from
-	 * file_outline, file_read with import enumeration). Same max-tracking.
-	 */
-	readonly fileImports?: number;
-	/**
-	 * Absolute file path accessed by this call (file_read, file_outline,
-	 * file_connections). Used for the FilesInSameDir heuristic and the
-	 * NonTrivialActionObserved threshold. May be repeated; the state
-	 * deduplicates internally.
-	 */
-	readonly filePath?: string;
-	/**
-	 * True when the response describes a file under a test directory or
-	 * with a recognised test suffix. The extractor (in proxy.ts) decides;
-	 * we don't re-classify here.
-	 */
-	readonly testFile?: boolean;
-	/**
-	 * True when this call was an Edit or Write attempt (not necessarily
-	 * successful). Drives the `EditOrWriteAttempted` condition and bumps
-	 * `nonTrivialActionObserved` immediately.
-	 */
-	readonly editOrWrite?: boolean;
-	/**
-	 * True when file_read returned a truncated body (response_envelope
-	 * sets `_truncated: true` or includes a `ur|pg` page hint).
-	 */
-	readonly fileReadTruncated?: boolean;
-	/**
-	 * Intent-marker writes only. When a mark_* tool succeeds, the proxy
-	 * sets this to the marker's category. `null` / undefined for every
-	 * other tool.
-	 */
-	readonly intentMarker?: IntentMarkerType;
-	/**
-	 * True when a prior-session fact was surfaced (ur|fct or ur|hst on
-	 * file_read / recall_facts). Distinct from `urTags` because the
-	 * condition is independent of whether the tag actually got emitted
-	 * in the prefix (a recall_facts row count > 0 also counts).
-	 */
-	readonly priorSessionFactSurfaced?: boolean;
+  /** The tool that just responded. Required — drives `toolCallCount`. */
+  readonly toolName: string;
+  /**
+   * `ur|<tag>` prefix tags observed on this response's body, in order.
+   * Duplicates allowed; the state stores them as a Set.
+   */
+  readonly urTags?: readonly UrTag[];
+  /**
+   * Highest entity fan_in surfaced by this response (from get_entity,
+   * get_critical_nodes, get_references payloads). The state tracks the
+   * max-ever-seen; smaller subsequent values are ignored.
+   */
+  readonly entityFanIn?: number;
+  /**
+   * Number of imports in the file this response describes (from
+   * file_outline, file_read with import enumeration). Same max-tracking.
+   */
+  readonly fileImports?: number;
+  /**
+   * Absolute file path accessed by this call (file_read, file_outline,
+   * file_connections). Used for the FilesInSameDir heuristic and the
+   * NonTrivialActionObserved threshold. May be repeated; the state
+   * deduplicates internally.
+   */
+  readonly filePath?: string;
+  /**
+   * True when the response describes a file under a test directory or
+   * with a recognised test suffix. The extractor (in proxy.ts) decides;
+   * we don't re-classify here.
+   */
+  readonly testFile?: boolean;
+  /**
+   * True when this call was an Edit or Write attempt (not necessarily
+   * successful). Drives the `EditOrWriteAttempted` condition and bumps
+   * `nonTrivialActionObserved` immediately.
+   */
+  readonly editOrWrite?: boolean;
+  /**
+   * True when file_read returned a truncated body (response_envelope
+   * sets `_truncated: true` or includes a `ur|pg` page hint).
+   */
+  readonly fileReadTruncated?: boolean;
+  /**
+   * Intent-marker writes only. When a mark_* tool succeeds, the proxy
+   * sets this to the marker's category. `null` / undefined for every
+   * other tool.
+   */
+  readonly intentMarker?: IntentMarkerType;
+  /**
+   * True when a prior-session fact was surfaced (ur|fct on
+   * file_read / recall_facts). Distinct from `urTags` because the
+   * condition is independent of whether the tag actually got emitted
+   * in the prefix (a recall_facts row count > 0 also counts).
+   */
+  readonly priorSessionFactSurfaced?: boolean;
 }
 
 /**
@@ -124,180 +124,180 @@ export interface CallSignals {
  * connection, so a single owning thread is the only writer.
  */
 export class SessionState {
-	private readonly _exposedTools: Set<string>;
-	private readonly _urTags = new Set<UrTag>();
-	private readonly _toolCallCounts = new Map<string, number>();
-	private readonly _intentMarkerCounts = new Map<IntentMarkerType, number>();
-	private readonly _filesAccessed = new Set<string>();
-	private readonly _filesByDir = new Map<string, number>();
+  private readonly _exposedTools: Set<string>;
+  private readonly _urTags = new Set<UrTag>();
+  private readonly _toolCallCounts = new Map<string, number>();
+  private readonly _intentMarkerCounts = new Map<IntentMarkerType, number>();
+  private readonly _filesAccessed = new Set<string>();
+  private readonly _filesByDir = new Map<string, number>();
 
-	private _maxEntityFanIn = 0;
-	private _maxFileImports = 0;
-	private _testFileSeen = false;
-	private _editOrWriteAttempted = false;
-	private _fileReadTruncatedSeen = false;
-	private _priorSessionFactSurfaced = false;
-	private _turnCount = 0;
+  private _maxEntityFanIn = 0;
+  private _maxFileImports = 0;
+  private _testFileSeen = false;
+  private _editOrWriteAttempted = false;
+  private _fileReadTruncatedSeen = false;
+  private _priorSessionFactSurfaced = false;
+  private _turnCount = 0;
 
-	constructor() {
-		this._exposedTools = new Set<string>(toolsByTier(1));
-	}
+  constructor() {
+    this._exposedTools = new Set<string>(toolsByTier(1));
+  }
 
-	// ── Mutation ────────────────────────────────────────────────────────────
+  // ── Mutation ────────────────────────────────────────────────────────────
 
-	/**
-	 * Fold one response's signals into the session. Idempotent on repeats
-	 * (urTags/file paths dedupe; max-trackers only grow). Always O(1) per
-	 * field; the dir bookkeeping is O(1) amortised given `MAX_DIRS_TRACKED`.
-	 */
-	recordCall(signals: CallSignals): void {
-		this._toolCallCounts.set(
-			signals.toolName,
-			(this._toolCallCounts.get(signals.toolName) ?? 0) + 1,
-		);
+  /**
+   * Fold one response's signals into the session. Idempotent on repeats
+   * (urTags/file paths dedupe; max-trackers only grow). Always O(1) per
+   * field; the dir bookkeeping is O(1) amortised given `MAX_DIRS_TRACKED`.
+   */
+  recordCall(signals: CallSignals): void {
+    this._toolCallCounts.set(
+      signals.toolName,
+      (this._toolCallCounts.get(signals.toolName) ?? 0) + 1
+    );
 
-		if (signals.urTags) {
-			for (const tag of signals.urTags) {
-				this._urTags.add(tag);
-			}
-		}
+    if (signals.urTags) {
+      for (const tag of signals.urTags) {
+        this._urTags.add(tag);
+      }
+    }
 
-		if (
-			signals.entityFanIn !== undefined &&
-			signals.entityFanIn > this._maxEntityFanIn
-		) {
-			this._maxEntityFanIn = signals.entityFanIn;
-		}
+    if (
+      signals.entityFanIn !== undefined &&
+      signals.entityFanIn > this._maxEntityFanIn
+    ) {
+      this._maxEntityFanIn = signals.entityFanIn;
+    }
 
-		if (
-			signals.fileImports !== undefined &&
-			signals.fileImports > this._maxFileImports
-		) {
-			this._maxFileImports = signals.fileImports;
-		}
+    if (
+      signals.fileImports !== undefined &&
+      signals.fileImports > this._maxFileImports
+    ) {
+      this._maxFileImports = signals.fileImports;
+    }
 
-		if (signals.filePath && !this._filesAccessed.has(signals.filePath)) {
-			this._filesAccessed.add(signals.filePath);
-			const dir = directoryOf(signals.filePath);
-			if (this._filesByDir.has(dir)) {
-				this._filesByDir.set(dir, (this._filesByDir.get(dir) ?? 0) + 1);
-			} else if (this._filesByDir.size < MAX_DIRS_TRACKED) {
-				this._filesByDir.set(dir, 1);
-			}
-			// If size === MAX_DIRS_TRACKED and dir is new: drop silently.
-			// The condition uses the max, so unseen dirs don't matter.
-		}
+    if (signals.filePath && !this._filesAccessed.has(signals.filePath)) {
+      this._filesAccessed.add(signals.filePath);
+      const dir = directoryOf(signals.filePath);
+      if (this._filesByDir.has(dir)) {
+        this._filesByDir.set(dir, (this._filesByDir.get(dir) ?? 0) + 1);
+      } else if (this._filesByDir.size < MAX_DIRS_TRACKED) {
+        this._filesByDir.set(dir, 1);
+      }
+      // If size === MAX_DIRS_TRACKED and dir is new: drop silently.
+      // The condition uses the max, so unseen dirs don't matter.
+    }
 
-		if (signals.testFile) this._testFileSeen = true;
-		if (signals.editOrWrite) this._editOrWriteAttempted = true;
-		if (signals.fileReadTruncated) this._fileReadTruncatedSeen = true;
-		if (signals.priorSessionFactSurfaced) {
-			this._priorSessionFactSurfaced = true;
-		}
+    if (signals.testFile) this._testFileSeen = true;
+    if (signals.editOrWrite) this._editOrWriteAttempted = true;
+    if (signals.fileReadTruncated) this._fileReadTruncatedSeen = true;
+    if (signals.priorSessionFactSurfaced) {
+      this._priorSessionFactSurfaced = true;
+    }
 
-		if (signals.intentMarker) {
-			this._intentMarkerCounts.set(
-				signals.intentMarker,
-				(this._intentMarkerCounts.get(signals.intentMarker) ?? 0) + 1,
-			);
-		}
-	}
+    if (signals.intentMarker) {
+      this._intentMarkerCounts.set(
+        signals.intentMarker,
+        (this._intentMarkerCounts.get(signals.intentMarker) ?? 0) + 1
+      );
+    }
+  }
 
-	/** Bump the turn counter. Called once per `tools/call` round-trip. */
-	advanceTurn(): void {
-		this._turnCount += 1;
-	}
+  /** Bump the turn counter. Called once per `tools/call` round-trip. */
+  advanceTurn(): void {
+    this._turnCount += 1;
+  }
 
-	/**
-	 * Atomically add a set of tool names to the exposed surface. Returns
-	 * the subset that was actually newly added (already-exposed names are
-	 * filtered out). The caller — `unlock-evaluator.ts` — uses this delta
-	 * to (a) emit `tools/list_changed` and (b) persist the unlock event.
-	 */
-	expose(toolNames: readonly string[]): readonly string[] {
-		const added: string[] = [];
-		for (const name of toolNames) {
-			if (!this._exposedTools.has(name)) {
-				this._exposedTools.add(name);
-				added.push(name);
-			}
-		}
-		return added;
-	}
+  /**
+   * Atomically add a set of tool names to the exposed surface. Returns
+   * the subset that was actually newly added (already-exposed names are
+   * filtered out). The caller — `unlock-evaluator.ts` — uses this delta
+   * to (a) emit `tools/list_changed` and (b) persist the unlock event.
+   */
+  expose(toolNames: readonly string[]): readonly string[] {
+    const added: string[] = [];
+    for (const name of toolNames) {
+      if (!this._exposedTools.has(name)) {
+        this._exposedTools.add(name);
+        added.push(name);
+      }
+    }
+    return added;
+  }
 
-	// ── Read-only views consumed by the unlock evaluator ───────────────────
+  // ── Read-only views consumed by the unlock evaluator ───────────────────
 
-	exposedTools(): ReadonlySet<string> {
-		return this._exposedTools;
-	}
+  exposedTools(): ReadonlySet<string> {
+    return this._exposedTools;
+  }
 
-	isExposed(toolName: string): boolean {
-		return this._exposedTools.has(toolName);
-	}
+  isExposed(toolName: string): boolean {
+    return this._exposedTools.has(toolName);
+  }
 
-	hasUrTag(tag: UrTag): boolean {
-		return this._urTags.has(tag);
-	}
+  hasUrTag(tag: UrTag): boolean {
+    return this._urTags.has(tag);
+  }
 
-	maxEntityFanInSeen(): number {
-		return this._maxEntityFanIn;
-	}
+  maxEntityFanInSeen(): number {
+    return this._maxEntityFanIn;
+  }
 
-	maxFileImportsSeen(): number {
-		return this._maxFileImports;
-	}
+  maxFileImportsSeen(): number {
+    return this._maxFileImports;
+  }
 
-	maxFilesPerDirSeen(): number {
-		let max = 0;
-		for (const n of this._filesByDir.values()) {
-			if (n > max) max = n;
-		}
-		return max;
-	}
+  maxFilesPerDirSeen(): number {
+    let max = 0;
+    for (const n of this._filesByDir.values()) {
+      if (n > max) max = n;
+    }
+    return max;
+  }
 
-	testFileSeen(): boolean {
-		return this._testFileSeen;
-	}
+  testFileSeen(): boolean {
+    return this._testFileSeen;
+  }
 
-	filesAccessedCount(): number {
-		return this._filesAccessed.size;
-	}
+  filesAccessedCount(): number {
+    return this._filesAccessed.size;
+  }
 
-	editOrWriteAttempted(): boolean {
-		return this._editOrWriteAttempted;
-	}
+  editOrWriteAttempted(): boolean {
+    return this._editOrWriteAttempted;
+  }
 
-	fileReadTruncatedSeen(): boolean {
-		return this._fileReadTruncatedSeen;
-	}
+  fileReadTruncatedSeen(): boolean {
+    return this._fileReadTruncatedSeen;
+  }
 
-	intentMarkerCount(type: IntentMarkerType): number {
-		return this._intentMarkerCounts.get(type) ?? 0;
-	}
+  intentMarkerCount(type: IntentMarkerType): number {
+    return this._intentMarkerCounts.get(type) ?? 0;
+  }
 
-	toolCallCount(name: string): number {
-		return this._toolCallCounts.get(name) ?? 0;
-	}
+  toolCallCount(name: string): number {
+    return this._toolCallCounts.get(name) ?? 0;
+  }
 
-	priorSessionFactSurfaced(): boolean {
-		return this._priorSessionFactSurfaced;
-	}
+  priorSessionFactSurfaced(): boolean {
+    return this._priorSessionFactSurfaced;
+  }
 
-	turnCount(): number {
-		return this._turnCount;
-	}
+  turnCount(): number {
+    return this._turnCount;
+  }
 
-	/**
-	 * "Non-trivial action" — either an edit/write was attempted, or the
-	 * agent has read ≥ NON_TRIVIAL_READ_THRESHOLD distinct files. Used to
-	 * gate tier-3 intent markers behind real session activity.
-	 */
-	nonTrivialActionObserved(): boolean {
-		return (
-			this._editOrWriteAttempted ||
-			this._filesAccessed.size >= NON_TRIVIAL_READ_THRESHOLD
-		);
-	}
+  /**
+   * "Non-trivial action" — either an edit/write was attempted, or the
+   * agent has read ≥ NON_TRIVIAL_READ_THRESHOLD distinct files. Used to
+   * gate tier-3 intent markers behind real session activity.
+   */
+  nonTrivialActionObserved(): boolean {
+    return (
+      this._editOrWriteAttempted ||
+      this._filesAccessed.size >= NON_TRIVIAL_READ_THRESHOLD
+    );
+  }
 }
 
 /**
@@ -307,6 +307,6 @@ export class SessionState {
  * separator is treated as living in the synthetic root `""`.
  */
 function directoryOf(filePath: string): string {
-	const idx = filePath.lastIndexOf("/");
-	return idx === -1 ? "" : filePath.slice(0, idx);
+  const idx = filePath.lastIndexOf("/");
+  return idx === -1 ? "" : filePath.slice(0, idx);
 }

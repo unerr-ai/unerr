@@ -264,7 +264,9 @@ describe("runPreToolUseHook", () => {
       runPreToolUseHook(stdin, () => nudge("Use file_read"))
     );
     expect(result.permission).toBe("allow");
-    expect(result.agent_message).toBe("Use file_read");
+    // Ambient injection (mark_intent + topic-shift) may prepend the
+    // handler's nudge — assert the nudge survives in the joined message.
+    expect(result.agent_message).toContain("Use file_read");
   });
 
   it("routes Cline payload through handler and formats correctly", () => {
@@ -277,7 +279,9 @@ describe("runPreToolUseHook", () => {
       runPreToolUseHook(stdin, () => nudge("Use file_read"))
     );
     expect(result.allow).toBe(true);
-    expect(result.context).toBe("Use file_read");
+    // See note above — ambient injection rides on the first PreToolUse
+    // for non-Claude-Code agents.
+    expect(result.context).toContain("Use file_read");
   });
 });
 
@@ -319,6 +323,40 @@ describe("runPromptSubmitHook", () => {
     );
     expect(result.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
     expect(result.hookSpecificOutput.additionalContext).toBe("Use unerr tools");
+  });
+
+  // T3.2 — the default prompt-submit handler must include the
+  // always-on skill catalog in its emitted additionalContext.
+  it("default handler emits the Path B 'available skills' catalog", async () => {
+    const { runUserPromptSubmitHook } = await import(
+      "../hooks/prompt-hooks.js"
+    );
+    const stdin = JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      user_message: "fix the failing auth tests right now",
+    });
+    const result = JSON.parse(runUserPromptSubmitHook(stdin));
+    const ctx = result.hookSpecificOutput.additionalContext ?? "";
+    expect(ctx).toContain("available skills");
+    // Post-27→7 consolidation: bug verbs route to unerr-build-and-debug.
+    expect(ctx).toContain("unerr-build-and-debug");
+    expect(ctx).toContain("using-unerr");
+  });
+
+  // T3.1 — Path A routes the matched cluster to a named skill in the
+  // emitted ur|act line.
+  it("default handler emits ur|act Path A line for matched verb clusters", async () => {
+    const { runUserPromptSubmitHook } = await import(
+      "../hooks/prompt-hooks.js"
+    );
+    const stdin = JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      user_message: "rename QueryRouter to RouterDispatcher across files",
+    });
+    const result = JSON.parse(runUserPromptSubmitHook(stdin));
+    const ctx = result.hookSpecificOutput.additionalContext ?? "";
+    // Post-27→7: refactor verbs route to unerr-safe-modification.
+    expect(ctx).toContain("ur|act unerr-safe-modification");
   });
 });
 

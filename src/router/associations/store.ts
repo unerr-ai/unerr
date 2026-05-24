@@ -11,7 +11,7 @@
  */
 
 import { promises as fs } from "node:fs";
-import { existsSync, mkdirSync, appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssociationRecord } from "./types.js";
@@ -69,7 +69,10 @@ export class AssociationStore {
   /**
    * Read records within a date range.
    */
-  async readRange(startTs: string, endTs: string): Promise<readonly AssociationRecord[]> {
+  async readRange(
+    startTs: string,
+    endTs: string
+  ): Promise<readonly AssociationRecord[]> {
     const all = await this.readAll();
     return all.filter((r) => r.ts >= startTs && r.ts <= endTs);
   }

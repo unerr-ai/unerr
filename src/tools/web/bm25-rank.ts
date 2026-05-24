@@ -23,10 +23,47 @@ const MARKDOWN_LINK_PATTERN = /\[[^\]]+\]\([^)]+\)/g;
 const BM25_MIN_CORPUS_SIZE = 3;
 
 const STOPWORDS = new Set([
-  "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-  "of", "and", "or", "but", "in", "on", "at", "to", "for", "with", "by",
-  "from", "up", "down", "out", "off", "over", "under", "as", "this", "that",
-  "these", "those", "it", "its", "into", "if", "then", "do", "does", "did",
+  "a",
+  "an",
+  "the",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "of",
+  "and",
+  "or",
+  "but",
+  "in",
+  "on",
+  "at",
+  "to",
+  "for",
+  "with",
+  "by",
+  "from",
+  "up",
+  "down",
+  "out",
+  "off",
+  "over",
+  "under",
+  "as",
+  "this",
+  "that",
+  "these",
+  "those",
+  "it",
+  "its",
+  "into",
+  "if",
+  "then",
+  "do",
+  "does",
+  "did",
 ]);
 
 function tokenize(text: string): string[] {
@@ -79,10 +116,7 @@ export async function rankPassagesByPrompt(
   engine.definePrepTasks([tokenize]);
 
   for (const p of candidates) {
-    engine.addDoc(
-      { text: p.text, heading: p.heading ?? "" },
-      String(p.index)
-    );
+    engine.addDoc({ text: p.text, heading: p.heading ?? "" }, String(p.index));
   }
   engine.consolidate();
 

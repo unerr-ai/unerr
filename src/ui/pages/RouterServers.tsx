@@ -12,7 +12,7 @@
 
 import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { fetchJson } from "@/lib/api";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface ServerHealth {
   id: string;
@@ -130,8 +130,7 @@ function ServerCard({ server }: { server: ServerHealth }) {
 
       {server.lastRestartAt && (
         <p className="mt-2 text-[10px] text-zinc-600">
-          Last restart:{" "}
-          {new Date(server.lastRestartAt).toLocaleString()}
+          Last restart: {new Date(server.lastRestartAt).toLocaleString()}
         </p>
       )}
 

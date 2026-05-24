@@ -20,7 +20,7 @@
 
 import { detectFamilies } from "../family-detector.js";
 import { type StickinessState, isSticky } from "./stickiness.js";
-import { getAdjustedThreshold, type DecayState } from "./threshold-decay.js";
+import { type DecayState, getAdjustedThreshold } from "./threshold-decay.js";
 
 export interface IntentScore {
   readonly family: string;
@@ -50,10 +50,10 @@ export interface ScorerOutput {
 
 const HARD_BUDGET_MS = 5;
 const ENTITY_TAG_WEIGHT = 0.45;
-const FILE_PATTERN_WEIGHT = 0.50;
-const TOOL_HISTORY_WEIGHT = 0.30;
-const DEFAULT_THRESHOLD = 0.30;
-const MULTI_DOMAIN_THRESHOLD = 0.40;
+const FILE_PATTERN_WEIGHT = 0.5;
+const TOOL_HISTORY_WEIGHT = 0.3;
+const DEFAULT_THRESHOLD = 0.3;
+const MULTI_DOMAIN_THRESHOLD = 0.4;
 const MULTI_DOMAIN_MIN_FAMILIES = 2;
 
 /**
@@ -84,7 +84,9 @@ export function scoreIntent(input: ScorerInput): ScorerOutput {
           entry.score = ENTITY_TAG_WEIGHT;
         }
         if (!entry.reasons.some((r) => r.includes("import-graph"))) {
-          entry.reasons.push(`import-graph: ${entityName} imports ${tag}-family library`);
+          entry.reasons.push(
+            `import-graph: ${entityName} imports ${tag}-family library`
+          );
         }
       }
     }
@@ -119,7 +121,9 @@ export function scoreIntent(input: ScorerInput): ScorerOutput {
         const toolScore = (count / maxCount) * TOOL_HISTORY_WEIGHT;
         if (toolScore > entry.score) {
           entry.score = toolScore;
-          entry.reasons.push(`recent tool calls: ${count}× in last ${input.recentToolFamilies.length} calls`);
+          entry.reasons.push(
+            `recent tool calls: ${count}× in last ${input.recentToolFamilies.length} calls`
+          );
         }
       }
     }
@@ -140,13 +144,19 @@ export function scoreIntent(input: ScorerInput): ScorerOutput {
 
   for (const [family, { score, reasons }] of familyScores) {
     const sticky = isSticky(family, input.stickinessState);
-    const threshold = getAdjustedThreshold(family, input.decayState, DEFAULT_THRESHOLD);
+    const threshold = getAdjustedThreshold(
+      family,
+      input.decayState,
+      DEFAULT_THRESHOLD
+    );
 
     let exposed: boolean;
     if (multiDomain && highScoreFamilies.includes(family)) {
       exposed = true;
       if (!reasons.some((r) => r.includes("multi-domain"))) {
-        reasons.push(`multi-domain: ${highScoreFamilies.length} families scored ≥${MULTI_DOMAIN_THRESHOLD}`);
+        reasons.push(
+          `multi-domain: ${highScoreFamilies.length} families scored ≥${MULTI_DOMAIN_THRESHOLD}`
+        );
       }
     } else {
       exposed = sticky || score >= threshold;

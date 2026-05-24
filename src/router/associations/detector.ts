@@ -15,13 +15,13 @@
  * No side effects, no persistence.
  */
 
+import { scoreOutcomeQuality } from "./quality.js";
 import type {
   AssociationRecord,
-  TriggerSignal,
-  SubsequentCall,
   OutcomeQuality,
+  SubsequentCall,
+  TriggerSignal,
 } from "./types.js";
-import { scoreOutcomeQuality } from "./quality.js";
 
 const MAX_GAP_TURNS = 3;
 const MAX_GAP_MS = 30_000;
@@ -49,7 +49,9 @@ export interface DetectorInput {
  *   3. Time gap ≤ MAX_GAP_MS
  *   4. Family match (if signal has family context)
  */
-export function detectAssociations(input: DetectorInput): readonly AssociationRecord[] {
+export function detectAssociations(
+  input: DetectorInput
+): readonly AssociationRecord[] {
   const { sessionId, signals, calls, editAfterCalls } = input;
   const associations: AssociationRecord[] = [];
   const usedCalls = new Set<number>();
@@ -96,7 +98,14 @@ export function detectAssociations(input: DetectorInput): readonly AssociationRe
  * Maps each tag event to a TriggerSignal with type classification.
  */
 export function extractSignalsFromUrTags(
-  tags: readonly { tag: string; turnNumber: number; timestamp: number; entityName?: string; filePath?: string; family?: string }[],
+  tags: readonly {
+    tag: string;
+    turnNumber: number;
+    timestamp: number;
+    entityName?: string;
+    filePath?: string;
+    family?: string;
+  }[]
 ): readonly TriggerSignal[] {
   return tags.map((t) => ({
     type: "ur_tag" as const,
@@ -113,7 +122,7 @@ export function extractSignalsFromUrTags(
  * Extract trigger signals from family nudge emissions.
  */
 export function extractSignalsFromNudges(
-  nudges: readonly { family: string; turnNumber: number; timestamp: number }[],
+  nudges: readonly { family: string; turnNumber: number; timestamp: number }[]
 ): readonly TriggerSignal[] {
   return nudges.map((n) => ({
     type: "family_nudge" as const,

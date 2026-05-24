@@ -20,9 +20,9 @@
 
 import type { SessionState } from "./session-state.js";
 import {
-	type Condition,
-	UNLOCK_CONDITIONS,
-	describeCondition,
+  type Condition,
+  UNLOCK_CONDITIONS,
+  describeCondition,
 } from "./tool-tiers.js";
 
 /**
@@ -32,10 +32,10 @@ import {
  * so persistence can reconstruct ordering without a separate clock.
  */
 export interface UnlockEvent {
-	readonly toolName: string;
-	readonly reasonText: string;
-	readonly firedAtTurn: number;
-	readonly timestampMs: number;
+  readonly toolName: string;
+  readonly reasonText: string;
+  readonly firedAtTurn: number;
+  readonly timestampMs: number;
 }
 
 /**
@@ -46,21 +46,21 @@ export interface UnlockEvent {
  * testable.
  */
 export function evaluateUnlocks(session: SessionState): readonly UnlockEvent[] {
-	const events: UnlockEvent[] = [];
-	const turn = session.turnCount();
-	const now = Date.now();
+  const events: UnlockEvent[] = [];
+  const turn = session.turnCount();
+  const now = Date.now();
 
-	for (const [name, condition] of Object.entries(UNLOCK_CONDITIONS)) {
-		if (session.isExposed(name)) continue;
-		if (!evaluateCondition(condition, session)) continue;
-		events.push({
-			toolName: name,
-			reasonText: describeCondition(condition),
-			firedAtTurn: turn,
-			timestampMs: now,
-		});
-	}
-	return events;
+  for (const [name, condition] of Object.entries(UNLOCK_CONDITIONS)) {
+    if (session.isExposed(name)) continue;
+    if (!evaluateCondition(condition, session)) continue;
+    events.push({
+      toolName: name,
+      reasonText: describeCondition(condition),
+      firedAtTurn: turn,
+      timestampMs: now,
+    });
+  }
+  return events;
 }
 
 /**
@@ -68,46 +68,43 @@ export function evaluateUnlocks(session: SessionState): readonly UnlockEvent[] {
  * exhaustive switch; the `never` default ensures a missed branch becomes
  * a TypeScript compile error rather than a silent false-negative.
  */
-export function evaluateCondition(
-	c: Condition,
-	s: SessionState,
-): boolean {
-	switch (c.kind) {
-		case "UrTagEmitted":
-			return s.hasUrTag(c.tag);
-		case "EntityFanInAtLeast":
-			return s.maxEntityFanInSeen() >= c.min;
-		case "FileImportCountAtLeast":
-			return s.maxFileImportsSeen() >= c.min;
-		case "FilesInSameDirAtLeast":
-			return s.maxFilesPerDirSeen() >= c.min;
-		case "TestFileAccessed":
-			return s.testFileSeen();
-		case "FirstFileReadCompleted":
-			return s.filesAccessedCount() >= 1;
-		case "EditOrWriteAttempted":
-			return s.editOrWriteAttempted();
-		case "FileReadTruncated":
-			return s.fileReadTruncatedSeen();
-		case "IntentMarkerAtLeast":
-			return s.intentMarkerCount(c.type) >= c.min;
-		case "ToolCallCountAtLeast":
-			return s.toolCallCount(c.name) >= c.min;
-		case "PriorSessionFactSurfaced":
-			return s.priorSessionFactSurfaced();
-		case "SessionTurnsAtLeast":
-			return s.turnCount() >= c.min;
-		case "NonTrivialActionObserved":
-			return s.nonTrivialActionObserved();
-		case "And":
-			return c.all.every((child) => evaluateCondition(child, s));
-		case "Or":
-			return c.any.some((child) => evaluateCondition(child, s));
-		default: {
-			const _exhaustive: never = c;
-			throw new Error(
-				`Unhandled condition kind: ${JSON.stringify(_exhaustive)}`,
-			);
-		}
-	}
+export function evaluateCondition(c: Condition, s: SessionState): boolean {
+  switch (c.kind) {
+    case "UrTagEmitted":
+      return s.hasUrTag(c.tag);
+    case "EntityFanInAtLeast":
+      return s.maxEntityFanInSeen() >= c.min;
+    case "FileImportCountAtLeast":
+      return s.maxFileImportsSeen() >= c.min;
+    case "FilesInSameDirAtLeast":
+      return s.maxFilesPerDirSeen() >= c.min;
+    case "TestFileAccessed":
+      return s.testFileSeen();
+    case "FirstFileReadCompleted":
+      return s.filesAccessedCount() >= 1;
+    case "EditOrWriteAttempted":
+      return s.editOrWriteAttempted();
+    case "FileReadTruncated":
+      return s.fileReadTruncatedSeen();
+    case "IntentMarkerAtLeast":
+      return s.intentMarkerCount(c.type) >= c.min;
+    case "ToolCallCountAtLeast":
+      return s.toolCallCount(c.name) >= c.min;
+    case "PriorSessionFactSurfaced":
+      return s.priorSessionFactSurfaced();
+    case "SessionTurnsAtLeast":
+      return s.turnCount() >= c.min;
+    case "NonTrivialActionObserved":
+      return s.nonTrivialActionObserved();
+    case "And":
+      return c.all.every((child) => evaluateCondition(child, s));
+    case "Or":
+      return c.any.some((child) => evaluateCondition(child, s));
+    default: {
+      const _exhaustive: never = c;
+      throw new Error(
+        `Unhandled condition kind: ${JSON.stringify(_exhaustive)}`
+      );
+    }
+  }
 }

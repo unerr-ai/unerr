@@ -16,12 +16,23 @@
  * it needs to compute family scores.
  */
 
-import { type StickinessState, createStickinessState, recordFamilyCall, advanceTurn } from "./stickiness.js";
-import { type DecayState, createEmptyDecayState } from "./threshold-decay.js";
 import { resolveFamiliesFromImports } from "./library-families.js";
+import {
+  type StickinessState,
+  advanceTurn,
+  createStickinessState,
+  recordFamilyCall,
+} from "./stickiness.js";
+import { type DecayState, createEmptyDecayState } from "./threshold-decay.js";
 
 export interface SignalEvent {
-  readonly type: "file" | "entity" | "ur_tag" | "intent_marker" | "tool_call" | "shell_drift";
+  readonly type:
+    | "file"
+    | "entity"
+    | "ur_tag"
+    | "intent_marker"
+    | "tool_call"
+    | "shell_drift";
   readonly value: string;
   readonly family?: string;
   readonly turnNumber: number;
@@ -70,7 +81,12 @@ export class SignalCollector {
     this.files.unshift(filePath);
     if (this.files.length > MAX_RECENT_FILES) this.files.pop();
 
-    this.pushEvent({ type: "file", value: filePath, turnNumber: this.turn, ts: Date.now() });
+    this.pushEvent({
+      type: "file",
+      value: filePath,
+      turnNumber: this.turn,
+      ts: Date.now(),
+    });
   }
 
   /**
@@ -80,7 +96,12 @@ export class SignalCollector {
     const families = resolveFamiliesFromImports(imports);
     if (families.size > 0) {
       this.entityTags.set(entityName, families as Set<string>);
-      this.pushEvent({ type: "entity", value: entityName, turnNumber: this.turn, ts: Date.now() });
+      this.pushEvent({
+        type: "entity",
+        value: entityName,
+        turnNumber: this.turn,
+        ts: Date.now(),
+      });
     }
   }
 
@@ -99,8 +120,18 @@ export class SignalCollector {
   recordToolCall(family: string): void {
     this.toolFamilies.unshift(family);
     if (this.toolFamilies.length > MAX_TOOL_HISTORY) this.toolFamilies.pop();
-    this.stickinessState = recordFamilyCall(this.stickinessState, family, this.turn);
-    this.pushEvent({ type: "tool_call", value: family, family, turnNumber: this.turn, ts: Date.now() });
+    this.stickinessState = recordFamilyCall(
+      this.stickinessState,
+      family,
+      this.turn
+    );
+    this.pushEvent({
+      type: "tool_call",
+      value: family,
+      family,
+      turnNumber: this.turn,
+      ts: Date.now(),
+    });
   }
 
   /**
@@ -109,7 +140,12 @@ export class SignalCollector {
   recordIntentMarker(text: string): void {
     this.intentMarkers.unshift(text);
     if (this.intentMarkers.length > 10) this.intentMarkers.pop();
-    this.pushEvent({ type: "intent_marker", value: text, turnNumber: this.turn, ts: Date.now() });
+    this.pushEvent({
+      type: "intent_marker",
+      value: text,
+      turnNumber: this.turn,
+      ts: Date.now(),
+    });
   }
 
   /**
@@ -118,7 +154,12 @@ export class SignalCollector {
   recordUrTag(tagLine: string): void {
     this.urTags.unshift(tagLine);
     if (this.urTags.length > 20) this.urTags.pop();
-    this.pushEvent({ type: "ur_tag", value: tagLine, turnNumber: this.turn, ts: Date.now() });
+    this.pushEvent({
+      type: "ur_tag",
+      value: tagLine,
+      turnNumber: this.turn,
+      ts: Date.now(),
+    });
   }
 
   /**
@@ -127,7 +168,12 @@ export class SignalCollector {
   recordShellDrift(path: string): void {
     this.shellDrifts.unshift(path);
     if (this.shellDrifts.length > 5) this.shellDrifts.pop();
-    this.pushEvent({ type: "shell_drift", value: path, turnNumber: this.turn, ts: Date.now() });
+    this.pushEvent({
+      type: "shell_drift",
+      value: path,
+      turnNumber: this.turn,
+      ts: Date.now(),
+    });
   }
 
   /**

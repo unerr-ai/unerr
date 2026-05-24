@@ -37,7 +37,10 @@ export class NotificationEmitter {
   private _totalEmitted = 0;
   private _totalStale = 0;
 
-  constructor(send: NotificationSender, events: NotificationEmitterEvents = {}) {
+  constructor(
+    send: NotificationSender,
+    events: NotificationEmitterEvents = {}
+  ) {
     this.send = send;
     this.events = events;
   }
@@ -155,7 +158,7 @@ export class NotificationEmitter {
       this._totalStale++;
 
       process.stderr.write(
-        `  ⚠ Stale list: client did not refetch within ${STALE_TIMEOUT_MS}ms (consecutive: ${this.consecutiveStale})\n`,
+        `  ⚠ Stale list: client did not refetch within ${STALE_TIMEOUT_MS}ms (consecutive: ${this.consecutiveStale})\n`
       );
 
       this.events.onStaleDetected?.(this.consecutiveStale);
@@ -163,7 +166,7 @@ export class NotificationEmitter {
       if (this.consecutiveStale >= MAX_CONSECUTIVE_STALE) {
         this._demoted = true;
         process.stderr.write(
-          `  ⚠ Client demoted to static mode after ${MAX_CONSECUTIVE_STALE} consecutive stale notifications\n`,
+          `  ⚠ Client demoted to static mode after ${MAX_CONSECUTIVE_STALE} consecutive stale notifications\n`
         );
         this.events.onDemotedToStatic?.();
       }

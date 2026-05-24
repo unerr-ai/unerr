@@ -56,7 +56,7 @@ export function detectChallenge(html: string): ChallengeDetection | null {
     return {
       kind: "cloudflare",
       suggestion:
-        'enable .unerr/settings.json fetchUrl.playwright.enabled=true and retry; if still blocked, fetch via an authenticated session or skip this host',
+        "enable .unerr/settings.json fetchUrl.playwright.enabled=true and retry; if still blocked, fetch via an authenticated session or skip this host",
     };
   }
   if (matchesAny(html, HCAPTCHA_MARKERS)) {

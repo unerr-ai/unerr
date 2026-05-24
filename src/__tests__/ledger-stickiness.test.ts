@@ -1,18 +1,18 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
-  isSticky,
-  getStickyFamilies,
-  recordFamilyCall,
+  type StickinessState,
   advanceTurn,
   createStickinessState,
-  type StickinessState,
+  getStickyFamilies,
+  isSticky,
+  recordFamilyCall,
 } from "../router/intent/stickiness.js";
 import {
-  getAdjustedThreshold,
+  type DecayState,
   buildDecayState,
   createEmptyDecayState,
-  type DecayState,
+  getAdjustedThreshold,
 } from "../router/intent/threshold-decay.js";
 
 describe("Ledger Stickiness", () => {
@@ -118,47 +118,47 @@ describe("Threshold Decay", () => {
 
   it("never-used family gets raised threshold (capped at 0.60)", () => {
     const state = buildDecayState(
-      new Map([["slk", { sessionsActive: 0, sessionsTotal: 10 }]]),
+      new Map([["slk", { sessionsActive: 0, sessionsTotal: 10 }]])
     );
 
     const threshold = getAdjustedThreshold("slk", state);
-    expect(threshold).toBe(0.60);
+    expect(threshold).toBe(0.6);
   });
 
   it("never-used family with few sessions gets moderate raise", () => {
     const state = buildDecayState(
-      new Map([["slk", { sessionsActive: 0, sessionsTotal: 4 }]]),
+      new Map([["slk", { sessionsActive: 0, sessionsTotal: 4 }]])
     );
 
     const threshold = getAdjustedThreshold("slk", state);
-    expect(threshold).toBe(0.30 + 4 * 0.05);
-    expect(threshold).toBe(0.50);
+    expect(threshold).toBe(0.3 + 4 * 0.05);
+    expect(threshold).toBe(0.5);
   });
 
   it("threshold caps at 0.60", () => {
     const state = buildDecayState(
-      new Map([["slk", { sessionsActive: 0, sessionsTotal: 100 }]]),
+      new Map([["slk", { sessionsActive: 0, sessionsTotal: 100 }]])
     );
 
     const threshold = getAdjustedThreshold("slk", state);
-    expect(threshold).toBe(0.60);
+    expect(threshold).toBe(0.6);
   });
 
   // ── Frequently-used families ───────────────────────────────────
 
   it("frequently-used family gets lowered threshold", () => {
     const state = buildDecayState(
-      new Map([["pg", { sessionsActive: 10, sessionsTotal: 15 }]]),
+      new Map([["pg", { sessionsActive: 10, sessionsTotal: 15 }]])
     );
 
     const threshold = getAdjustedThreshold("pg", state);
-    expect(threshold).toBeLessThan(0.30);
+    expect(threshold).toBeLessThan(0.3);
     expect(threshold).toBeGreaterThanOrEqual(0.15);
   });
 
   it("threshold floors at 0.15", () => {
     const state = buildDecayState(
-      new Map([["pg", { sessionsActive: 100, sessionsTotal: 100 }]]),
+      new Map([["pg", { sessionsActive: 100, sessionsTotal: 100 }]])
     );
 
     const threshold = getAdjustedThreshold("pg", state);
@@ -169,11 +169,11 @@ describe("Threshold Decay", () => {
 
   it("occasional usage (< 50% ratio) returns base threshold", () => {
     const state = buildDecayState(
-      new Map([["gh", { sessionsActive: 3, sessionsTotal: 10 }]]),
+      new Map([["gh", { sessionsActive: 3, sessionsTotal: 10 }]])
     );
 
     const threshold = getAdjustedThreshold("gh", state);
-    expect(threshold).toBe(0.30);
+    expect(threshold).toBe(0.3);
   });
 
   // ── Unknown family (no record) ─────────────────────────────────
@@ -181,7 +181,7 @@ describe("Threshold Decay", () => {
   it("unknown family returns base threshold", () => {
     const state = createEmptyDecayState();
     const threshold = getAdjustedThreshold("unknown", state);
-    expect(threshold).toBe(0.30);
+    expect(threshold).toBe(0.3);
   });
 
   // ── Custom base threshold ──────────────────────────────────────
@@ -196,11 +196,11 @@ describe("Threshold Decay", () => {
 
   it("zero total sessions returns base threshold", () => {
     const state = buildDecayState(
-      new Map([["pg", { sessionsActive: 0, sessionsTotal: 0 }]]),
+      new Map([["pg", { sessionsActive: 0, sessionsTotal: 0 }]])
     );
 
     const threshold = getAdjustedThreshold("pg", state);
-    expect(threshold).toBe(0.30);
+    expect(threshold).toBe(0.3);
   });
 
   // ── Multiple families with different histories ─────────────────
@@ -211,7 +211,7 @@ describe("Threshold Decay", () => {
         ["pg", { sessionsActive: 20, sessionsTotal: 25 }],
         ["slk", { sessionsActive: 0, sessionsTotal: 15 }],
         ["gh", { sessionsActive: 3, sessionsTotal: 10 }],
-      ]),
+      ])
     );
 
     const pgT = getAdjustedThreshold("pg", state);
@@ -231,7 +231,7 @@ describe("Combined: Stickiness + Decay in Scorer", () => {
     state = recordFamilyCall(state, "slk", 0);
 
     const decayState = buildDecayState(
-      new Map([["slk", { sessionsActive: 0, sessionsTotal: 20 }]]),
+      new Map([["slk", { sessionsActive: 0, sessionsTotal: 20 }]])
     );
 
     const result = scoreIntent({
@@ -252,7 +252,7 @@ describe("Combined: Stickiness + Decay in Scorer", () => {
     const { scoreIntent } = await import("../router/intent/scorer.js");
 
     const decayState = buildDecayState(
-      new Map([["slk", { sessionsActive: 0, sessionsTotal: 10 }]]),
+      new Map([["slk", { sessionsActive: 0, sessionsTotal: 10 }]])
     );
 
     const result = scoreIntent({
@@ -266,6 +266,6 @@ describe("Combined: Stickiness + Decay in Scorer", () => {
 
     const slkScore = result.scores.find((s) => s.family === "slk")!;
     expect(slkScore.exposed).toBe(false);
-    expect(slkScore.thresholdApplied).toBeGreaterThan(0.30);
+    expect(slkScore.thresholdApplied).toBeGreaterThan(0.3);
   });
 });

@@ -26,9 +26,7 @@ export interface BehaviorEventRouteDeps {
   getBehaviorEventWriter: () => BehaviorEventWriter | null;
 }
 
-export function createBehaviorEventRoutes(
-  deps: BehaviorEventRouteDeps
-): Hono {
+export function createBehaviorEventRoutes(deps: BehaviorEventRouteDeps): Hono {
   const app = new Hono();
 
   // ── /session — Current-session counts ──────────────────────────────

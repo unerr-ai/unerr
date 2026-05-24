@@ -30,56 +30,86 @@ export interface ClientProfile {
  * by lowercasing and matching against known patterns.
  */
 const PROFILES: ReadonlyMap<string, ClientProfile> = new Map([
-  ["claude-code", {
-    name: "Claude Code",
-    listChanged: true,
-    channel: "dynamic",
-  }],
-  ["claude_code_cli", {
-    name: "Claude Code CLI",
-    listChanged: true,
-    channel: "dynamic",
-  }],
-  ["cursor", {
-    name: "Cursor",
-    listChanged: false,
-    channel: "soft-refuse",
-  }],
-  ["cline", {
-    name: "Cline",
-    listChanged: false,
-    channel: "soft-refuse",
-  }],
-  ["vscode-copilot-chat", {
-    name: "VS Code Copilot",
-    listChanged: "probe",
-    channel: "auto-detect",
-  }],
-  ["openai-codex", {
-    name: "Codex CLI",
-    listChanged: false,
-    channel: "soft-refuse",
-  }],
-  ["continue-dev", {
-    name: "Continue",
-    listChanged: "probe",
-    channel: "auto-detect",
-  }],
-  ["windsurf", {
-    name: "Windsurf",
-    listChanged: false,
-    channel: "soft-refuse",
-  }],
-  ["zed", {
-    name: "Zed",
-    listChanged: "probe",
-    channel: "auto-detect",
-  }],
-  ["gemini-cli", {
-    name: "Gemini CLI",
-    listChanged: false,
-    channel: "soft-refuse",
-  }],
+  [
+    "claude-code",
+    {
+      name: "Claude Code",
+      listChanged: true,
+      channel: "dynamic",
+    },
+  ],
+  [
+    "claude_code_cli",
+    {
+      name: "Claude Code CLI",
+      listChanged: true,
+      channel: "dynamic",
+    },
+  ],
+  [
+    "cursor",
+    {
+      name: "Cursor",
+      listChanged: false,
+      channel: "soft-refuse",
+    },
+  ],
+  [
+    "cline",
+    {
+      name: "Cline",
+      listChanged: false,
+      channel: "soft-refuse",
+    },
+  ],
+  [
+    "vscode-copilot-chat",
+    {
+      name: "VS Code Copilot",
+      listChanged: "probe",
+      channel: "auto-detect",
+    },
+  ],
+  [
+    "openai-codex",
+    {
+      name: "Codex CLI",
+      listChanged: false,
+      channel: "soft-refuse",
+    },
+  ],
+  [
+    "continue-dev",
+    {
+      name: "Continue",
+      listChanged: "probe",
+      channel: "auto-detect",
+    },
+  ],
+  [
+    "windsurf",
+    {
+      name: "Windsurf",
+      listChanged: false,
+      channel: "soft-refuse",
+    },
+  ],
+  [
+    "zed",
+    {
+      name: "Zed",
+      listChanged: "probe",
+      channel: "auto-detect",
+    },
+  ],
+  [
+    "gemini-cli",
+    {
+      name: "Gemini CLI",
+      listChanged: false,
+      channel: "soft-refuse",
+    },
+  ],
 ]);
 
 /**
@@ -96,7 +126,9 @@ const UNKNOWN_PROFILE: ClientProfile = {
  * Look up a client profile by `clientInfo.name`.
  * Returns the known profile or the default unknown profile.
  */
-export function getClientProfile(clientName: string | undefined): ClientProfile {
+export function getClientProfile(
+  clientName: string | undefined
+): ClientProfile {
   if (!clientName) return UNKNOWN_PROFILE;
   return PROFILES.get(clientName.toLowerCase()) ?? UNKNOWN_PROFILE;
 }

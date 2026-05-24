@@ -16,10 +16,10 @@
  */
 
 const THRESHOLD_FLOOR = 0.15;
-const THRESHOLD_CAP = 0.60;
+const THRESHOLD_CAP = 0.6;
 const DECAY_PER_UNUSED_SESSION = 0.05;
 const BOOST_PER_ACTIVE_SESSION = 0.02;
-const BASE_THRESHOLD = 0.30;
+const BASE_THRESHOLD = 0.3;
 
 export interface FamilyDecayRecord {
   readonly family: string;
@@ -42,7 +42,7 @@ export interface DecayState {
 export function getAdjustedThreshold(
   family: string,
   state: DecayState,
-  baseThreshold = BASE_THRESHOLD,
+  baseThreshold = BASE_THRESHOLD
 ): number {
   const record = state.records.find((r) => r.family === family);
   if (!record) return baseThreshold;
@@ -68,7 +68,10 @@ export function getAdjustedThreshold(
  * Build decay state from telemetry summary (per-family usage counts).
  */
 export function buildDecayState(
-  familyUsage: ReadonlyMap<string, { sessionsActive: number; sessionsTotal: number }>,
+  familyUsage: ReadonlyMap<
+    string,
+    { sessionsActive: number; sessionsTotal: number }
+  >
 ): DecayState {
   const records: FamilyDecayRecord[] = [];
   for (const [family, usage] of familyUsage) {

@@ -1,0 +1,52 @@
+---
+name: unerr-safe-modification
+description: "MANDATORY before editing any existing function, class, file, or exported entity — covers fix/modify/change/update/refactor/rename/move/restructure/extract. STEP-1: recall. STEP-2: blast-radius (`get_references`). STEP-3: conventions. STEP-4: drift-check. STEP-5: edit. Do NOT edit without completing STEP-1 through STEP-4. Absorbs the prior understand-before-modify, blast-radius, convention, drift, and dependency-aware-refactor skills."
+---
+
+## Iron Law
+
+<EXTREMELY-IMPORTANT>
+Never call `Edit` on existing code without first running, in order: `unerr_recall_notes` (anchored notes) → `get_references` (caller fan-in) → `get_conventions` (local style) → drift check (re-read if `ur|ctx`) → built-in `Read` on the target lines. Skipping any step ships a confident hallucination.
+</EXTREMELY-IMPORTANT>
+
+## Phases
+
+Phase 1 — Recall.
+  Call `unerr_recall_notes({anchors:['f:<target_path>','e:<entity_name>']})`. Read every returned note. Cite by `note_id` in Phase 4.
+
+Phase 2 — Understand.
+  Call `file_read({file_path:'<path>', entity:'<name>', purpose:'explore'})`. Read every `ur|<tag>` line (act/ctx/rsk/fct) before the body.
+
+Phase 3 — Blast radius.
+  Call `get_references({key:'<entity_key>', direction:'callers'})`. Classify:
+    - callers ≤ 5  → low; proceed.
+    - 6 ≤ callers ≤ 19 → medium; enumerate every caller path to the user before the edit.
+    - callers ≥ 20 or response carries `ur|rsk fan_in=<N>` → high; call `get_critical_nodes({})`, propose a non-breaking change (overload / deprecation shim / additive interface) first.
+  Call `get_references({key:'<entity_key>', direction:'callees'})` to see how the edit ripples downstream.
+
+Phase 4 — Conventions + Plan.
+  Call `get_conventions({file_path:'<path>'})`. Apply naming, import-order, error-handling, async pattern, return type conventions.
+  Write the plan inline. Cite each recalled note by `note_id` next to the step it constrains.
+
+Phase 5 — Drift check.
+  Scan every prior tool response for `ur|ctx` lines on this file. If present: call `file_read` again on the drifted file and re-call `unerr_recall_notes({anchors:['f:<path>']})`. Discard any plan premise that depended on the pre-drift contents.
+
+Phase 6 — Edit.
+  Call built-in `Read({offset,limit})` on the exact target lines (built-in Read is required immediately before Edit — `file_read` does NOT satisfy Edit's read-gate). Then apply the Edit.
+  Cross-file refactor (rename/move/extract) — for every reference returned by Phase 3, repeat: built-in Read on the caller's reference site, then Edit.
+
+Phase 7 — Verify.
+  Re-call `get_conventions({file_path:'<path>'})`; confirm no new violations.
+  Re-call `get_references({key:'<entity_key>'})`; confirm caller signatures still match.
+  Run the targeted test for the changed file.
+
+## Red Flags
+
+Editing without calling `unerr_recall_notes` first → abort, run Phase 1.
+Calling `Edit` after `file_read` without a built-in `Read` → Edit will reject; call built-in Read on the target lines, then retry.
+Skipping `get_references` because the function looks small → small entities can have 20 callers; always check.
+Drafting a plan without citing returned `note_id`s → no citation means the note was not load-bearing; re-read the recall response.
+Editing a file flagged `ur|ctx` (drift) without re-reading → call `file_read` again before Edit.
+Treating `ur|rsk fan_in=<N>` as advisory → run Phase 3's non-breaking proposal before the contract change.
+Renaming an entity but only updating direct callers → `get_references` returns indirect refs too; walk every one.
+Generating new code in the same file without `get_conventions` → drifts from project style.

@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import type { CozoGraphStore } from "../intelligence/local-graph.js";
 import { TokenFlowWriter } from "../tracking/token-flow.js";
+import { detectAgentNameFromEnv } from "../utils/detect.js";
 import type { CompressionQualityMonitor } from "./compression-quality-monitor.js";
 import {
   type ClassifyResult,
@@ -554,10 +555,23 @@ function recordShellTokenFlow(
         sessionId = "unknown";
       }
     }
-    const writer = new TokenFlowWriter(unerrDir, sessionId);
+    // Exec processes inherit attribution from the proxy via env vars set in
+    // proxy.ts at boot. Turn defaults to 0 when no current turn is known —
+    // the exec ran outside an open MCP tool boundary.
+    const turn = Number.parseInt(process.env.UNERR_TURN ?? "0", 10) || 0;
+    // PostToolUse hooks (`.claude/hooks/PostToolUse.sh`) spawn `unerr
+    // compress-output` from the IDE's own shell, so this exec doesn't inherit
+    // UNERR_AGENT from the proxy. Fall back to the IDE's own env markers
+    // (CLAUDECODE, CURSOR_TRACE_ID, …) so the row still attributes correctly.
+    let agent = process.env.UNERR_AGENT?.trim() || "";
+    if (!agent || agent === "unknown") {
+      agent = detectAgentNameFromEnv() ?? "unknown";
+    }
+    const writer = new TokenFlowWriter(unerrDir, sessionId, { agent });
     writer.record({
       session_id: sessionId,
-      turn: 0,
+      turn,
+      agent,
       mechanism: "shell_compression",
       tool: null,
       tokens_without: rawTokens,

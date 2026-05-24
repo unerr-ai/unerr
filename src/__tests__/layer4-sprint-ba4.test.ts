@@ -14,28 +14,32 @@ import {
   OUTPUT_FORMAT_LEGEND,
   createSessionLegendTracker,
 } from "../proxy/session-legend.js";
-import { TOKEN_EFFICIENT_SKILL } from "../skills/local-pack.js";
+// Post-consolidation (27→7): the token-efficient guidance is folded into
+// USING_UNERR_SKILL (the always-on master). Tests assert the rules still
+// ship — they just ride inside the master skill body now.
+import { USING_UNERR_SKILL } from "../skills/local-pack.js";
 
-describe("BA-4.1: token-efficient skill", () => {
-  it("version is 1.1.0", () => {
-    expect(TOKEN_EFFICIENT_SKILL.version).toBe("1.1.0");
+describe("BA-4.1: token-efficient guidance (folded into using-unerr)", () => {
+  it("master skill is on version ≥ 2.0.0 (post-consolidation)", () => {
+    expect(USING_UNERR_SKILL.version.startsWith("2.")).toBe(true);
   });
 
   it("includes unified diff rule", () => {
-    expect(TOKEN_EFFICIENT_SKILL.instructions).toContain("unified diff format");
-    expect(TOKEN_EFFICIENT_SKILL.instructions).toContain("---/+++");
+    expect(USING_UNERR_SKILL.instructions).toContain("unified diff format");
+    expect(USING_UNERR_SKILL.instructions).toContain("---/+++");
   });
 
   it("includes ur|ctx rule", () => {
-    expect(TOKEN_EFFICIENT_SKILL.instructions).toContain("ur|ctx");
-    expect(TOKEN_EFFICIENT_SKILL.instructions).toContain(
+    expect(USING_UNERR_SKILL.instructions).toContain("ur|ctx");
+    expect(USING_UNERR_SKILL.instructions).toContain(
       "proceed directly to the action"
     );
   });
 
-  it("has 9 instruction rules", () => {
-    const rules = TOKEN_EFFICIENT_SKILL.instructions.split("\n");
-    expect(rules).toHaveLength(9);
+  it("includes the diff-only rule (no full-file regeneration)", () => {
+    expect(USING_UNERR_SKILL.instructions).toContain(
+      "show only the diff, not surrounding unchanged code"
+    );
   });
 });
 

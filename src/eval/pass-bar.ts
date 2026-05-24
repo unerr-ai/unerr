@@ -36,7 +36,10 @@ export interface PassBarInput {
    * proxy (every note saved has an anchor by construction, so default to
    * 100% — explicit judgments tighten the gate, never loosen it).
    */
-  note_quality?: ReadonlyMap<string, { anchored: boolean; non_obvious: boolean }>;
+  note_quality?: ReadonlyMap<
+    string,
+    { anchored: boolean; non_obvious: boolean }
+  >;
   /** Set by the cross-session driver for task 10. */
   task_10_continuity?: {
     anchor_query_returned_non_empty: boolean;
@@ -79,10 +82,20 @@ export function evaluate(input: PassBarInput): PassBarResult {
   const bCells = input.matrix_b.cells.filter((c) => c.config_id === configB);
 
   const c1 = criterionAdoptionFourMoments(bCells, taskCount);
-  const c2 = criterionAdoptionRatio(input.matrix_b, input.matrix_a, configB, configA);
+  const c2 = criterionAdoptionRatio(
+    input.matrix_b,
+    input.matrix_a,
+    configB,
+    configA
+  );
   const c3 = criterionQualityAnchored(bCells, input.note_quality);
   const c4 = criterionNoNoteStorms(bCells);
-  const c5 = criterionOutcomeTurns(input.matrix_b, input.matrix_a, configB, configA);
+  const c5 = criterionOutcomeTurns(
+    input.matrix_b,
+    input.matrix_a,
+    configB,
+    configA
+  );
   const c6 = criterionTaskTenContinuity(input.task_10_continuity);
 
   const criteria = [c1, c2, c3, c4, c5, c6];
@@ -92,7 +105,7 @@ export function evaluate(input: PassBarInput): PassBarResult {
 
 function criterionAdoptionFourMoments(
   bCells: readonly RunSummary[],
-  taskCount: number,
+  taskCount: number
 ): CriterionResult {
   const byTask = new Map<string, number>();
   for (const c of bCells) {
@@ -117,7 +130,7 @@ function criterionAdoptionRatio(
   matrixB: MatrixReport,
   matrixA: MatrixReport | undefined,
   configB: string,
-  configA: string,
+  configA: string
 ): CriterionResult {
   if (!matrixA) {
     return {
@@ -151,7 +164,7 @@ function criterionAdoptionRatio(
 
 function criterionQualityAnchored(
   bCells: readonly RunSummary[],
-  judgments: PassBarInput["note_quality"],
+  judgments: PassBarInput["note_quality"]
 ): CriterionResult {
   const notesSaved = bCells.reduce((n, c) => n + c.notes_saved, 0);
   if (notesSaved === 0) {
@@ -201,7 +214,7 @@ function criterionOutcomeTurns(
   matrixB: MatrixReport,
   matrixA: MatrixReport | undefined,
   configB: string,
-  configA: string,
+  configA: string
 ): CriterionResult {
   if (!matrixA) {
     return {
@@ -219,8 +232,12 @@ function criterionOutcomeTurns(
   let pass = 0;
   let evaluable = 0;
   for (const id of taskIds) {
-    const b = matrixB.cells.find((c) => c.task_id === id && c.config_id === configB);
-    const a = matrixA.cells.find((c) => c.task_id === id && c.config_id === configA);
+    const b = matrixB.cells.find(
+      (c) => c.task_id === id && c.config_id === configB
+    );
+    const a = matrixA.cells.find(
+      (c) => c.task_id === id && c.config_id === configA
+    );
     if (!b?.turns || !a?.turns) continue;
     evaluable++;
     if (b.turns <= a.turns) pass++;
@@ -238,27 +255,33 @@ function criterionOutcomeTurns(
     label: `B uses ≤ A turns on ≥ ${threshold} of ${taskIds.size} tasks`,
     status: pass >= threshold ? "pass" : "fail",
     measured: `${pass}/${evaluable}`,
-    reason: pass >= threshold ? undefined : `only ${pass} task(s) met the turn bar`,
+    reason:
+      pass >= threshold ? undefined : `only ${pass} task(s) met the turn bar`,
   };
 }
 
 function criterionTaskTenContinuity(
-  input: PassBarInput["task_10_continuity"],
+  input: PassBarInput["task_10_continuity"]
 ): CriterionResult {
   if (!input) {
     return {
       id: "task-10-continuity",
-      label: "task 10 second session reuses prior notes (anchor non-empty + plan cites)",
+      label:
+        "task 10 second session reuses prior notes (anchor non-empty + plan cites)",
       status: "skipped",
       reason: "cross-session driver did not report task_10_continuity",
     };
   }
-  const ok = input.anchor_query_returned_non_empty && input.plan_cited_prior_note;
+  const ok =
+    input.anchor_query_returned_non_empty && input.plan_cited_prior_note;
   return {
     id: "task-10-continuity",
-    label: "task 10 second session reuses prior notes (anchor non-empty + plan cites)",
+    label:
+      "task 10 second session reuses prior notes (anchor non-empty + plan cites)",
     status: ok ? "pass" : "fail",
     measured: `anchor=${input.anchor_query_returned_non_empty} cite=${input.plan_cited_prior_note}`,
-    reason: ok ? undefined : "either anchor query was empty or plan did not cite",
+    reason: ok
+      ? undefined
+      : "either anchor query was empty or plan did not cite",
   };
 }

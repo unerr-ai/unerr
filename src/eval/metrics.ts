@@ -99,7 +99,7 @@ export function detectCiteInPlan(transcript: string): boolean {
 /** Roll events + transcript up into the moment-hit summary. */
 export function computeMomentDetail(
   events: readonly ProxyEvent[],
-  transcript: string,
+  transcript: string
 ): MomentDetail {
   const detail: Record<ContractMoment, boolean> = {
     prompt_receipt_query: false,

@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { CozoDb } from "../intelligence/cozo-schema.js";
 import { initFactsSchema } from "../intelligence/facts-schema.js";
 import {
-  NotesStore,
   NOTES_SESSION_SAVE_CAP,
+  NotesStore,
 } from "../intelligence/notes-store.js";
 import {
   NOTES_FAMILY_NAME,
@@ -146,7 +146,9 @@ describe("NotesStore.recallByAnchors (B3a)", () => {
   });
 
   it("returns empty for unknown anchors", async () => {
-    const result = await store.recallByAnchors({ anchors: ["f:src/missing.ts"] });
+    const result = await store.recallByAnchors({
+      anchors: ["f:src/missing.ts"],
+    });
     expect(result.notes).toEqual([]);
   });
 
@@ -238,7 +240,7 @@ describe("NotesStore.upsertCoChange (B3a)", () => {
       store.upsertCoChange({
         anchors: ["f:src/a.ts"],
         content: "x",
-      }),
+      })
     ).rejects.toThrow(/at least two anchors/);
   });
 });
@@ -356,7 +358,7 @@ describe("notes-mcp dispatch (B3a)", () => {
       async (ids) => {
         called = true;
         return { written: ids.length, path: "CLAUDE.md" };
-      },
+      }
     );
     expect(called).toBe(true);
     expect(result.ok).toBe(true);

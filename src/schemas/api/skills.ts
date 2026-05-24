@@ -15,6 +15,10 @@ export const SkillSchema = z.object({
   content: z.string(),
   /** Skill version */
   version: z.string().optional(),
+  /** Optional trigger phrases — emitted as `when_to_use:` frontmatter on Claude Code */
+  whenToUse: z.string().optional(),
+  /** Optional allow-list of tools — emitted as `allowed-tools:` frontmatter on Claude Code */
+  allowedTools: z.string().optional(),
 });
 
 export type Skill = z.infer<typeof SkillSchema>;

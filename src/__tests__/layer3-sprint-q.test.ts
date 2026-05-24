@@ -136,16 +136,18 @@ describe("Compression Quality Monitor (Q.13)", () => {
   });
 });
 
-describe("Skills Pack (Q.11-Q.12)", () => {
-  it("has token-efficient skill", () => {
-    const skill = getSkill("token-efficient");
+describe("Skills Pack (Q.11-Q.12, post-27→7 consolidation)", () => {
+  it("token-efficient guidance lives inside the master skill body", () => {
+    // Folded into using-unerr (always-on master).
+    const skill = getSkill("using-unerr");
     expect(skill).not.toBeNull();
-    expect(skill?.category).toBe("behavior");
+    expect(skill?.category).toBe("workflow");
     expect(skill?.instructions).toContain("bullet points");
   });
 
-  it("has graph-first navigation skill", () => {
-    const skill = getSkill("graph-first-navigation");
+  it("graph-first navigation lives inside unerr-exploration", () => {
+    // Absorbed graph-first-navigation, architecture-exploration, file-read-protocol.
+    const skill = getSkill("exploration");
     expect(skill).not.toBeNull();
     expect(skill?.category).toBe("navigation");
     expect(skill?.instructions).toContain("get_references");
@@ -153,25 +155,32 @@ describe("Skills Pack (Q.11-Q.12)", () => {
     expect(skill?.instructions).toContain("search_code");
   });
 
-  it("getSkillsContext returns always-on skills", () => {
+  it("getSkillsContext returns always-on skills (post-27→7 consolidation)", () => {
     const context = getSkillsContext();
     const skills = context["dev.unerr/active_skills"] as Array<{ id: string }>;
-    // Only always-on skills are injected into active context. The active-cognition
-    // skills (D10) are also always-on; existing six remain present.
-    expect(skills.length).toBe(9);
-    expect(skills.map((s) => s.id)).toContain("token-efficient");
-    expect(skills.map((s) => s.id)).toContain("graph-first-navigation");
-    expect(skills.map((s) => s.id)).toContain("understand-before-modify");
-    expect(skills.map((s) => s.id)).toContain("file-read-protocol");
-    expect(skills.map((s) => s.id)).toContain("turn-discipline");
-    expect(skills.map((s) => s.id)).toContain("user-fed-memory");
-    expect(skills.map((s) => s.id)).toContain("unerr-prompt-receipt");
-    expect(skills.map((s) => s.id)).toContain("unerr-anchor-query");
-    expect(skills.map((s) => s.id)).toContain("unerr-save-at-end");
+    // The 4 always-on skills in the consolidated 7-skill set.
+    expect(skills.map((s) => s.id)).toContain("using-unerr");
+    expect(skills.map((s) => s.id)).toContain("safe-modification");
+    expect(skills.map((s) => s.id)).toContain("memory");
+    expect(skills.map((s) => s.id)).toContain("markers");
+    expect(skills.length).toBe(
+      LOCAL_SKILLS.filter((s) => s.trigger.type === "always").length
+    );
   });
 
-  it("LOCAL_SKILLS has correct count", () => {
-    expect(LOCAL_SKILLS).toHaveLength(16);
+  it("LOCAL_SKILLS has the 7 consolidated skills", () => {
+    // Hard cut: the 22 absorbed legacy skills are gone.
+    expect(LOCAL_SKILLS).toHaveLength(7);
+    const ids = LOCAL_SKILLS.map((s) => s.id);
+    expect(ids).toEqual([
+      "using-unerr",
+      "safe-modification",
+      "exploration",
+      "memory",
+      "markers",
+      "build-and-debug",
+      "test-and-review",
+    ]);
   });
 });
 

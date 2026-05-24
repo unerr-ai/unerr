@@ -10,41 +10,36 @@
  *   6. Integration: 100 synthetic calls → metrics.jsonl → aggregate → summary
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-  CallLatencyTracker,
-  RouterTelemetryRecorder,
-  calculateTokenSavings,
-  type RouterTelemetryRecord,
-} from "../proxy/router-telemetry.js";
-import {
   aggregateSession,
   groupBySession,
   readAllSessionMetrics,
 } from "../proxy/router-session-metrics.js";
+import {
+  CallLatencyTracker,
+  type RouterTelemetryRecord,
+  RouterTelemetryRecorder,
+  calculateTokenSavings,
+} from "../proxy/router-telemetry.js";
 
 let tempDir: string;
 
 function makeTempDir(): string {
   const dir = join(
     tmpdir(),
-    `unerr-telemetry-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    `unerr-telemetry-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   );
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
 function makeRecord(
-  overrides: Partial<Omit<RouterTelemetryRecord, "v">> = {},
+  overrides: Partial<Omit<RouterTelemetryRecord, "v">> = {}
 ): Omit<RouterTelemetryRecord, "v" | "ts" | "sessionId"> {
   return {
     toolName: overrides.toolName ?? "search_code",
@@ -162,14 +157,11 @@ describe("RouterTelemetryRecorder", () => {
     await recorder.append(
       makeRecord({
         unlocks: ["get_critical_nodes", "get_imports"],
-      }),
+      })
     );
 
     const records = await recorder.readAll();
-    expect(records[0]!.unlocks).toEqual([
-      "get_critical_nodes",
-      "get_imports",
-    ]);
+    expect(records[0]!.unlocks).toEqual(["get_critical_nodes", "get_imports"]);
   });
 
   it("tracks in-memory session summary correctly", async () => {
@@ -177,14 +169,14 @@ describe("RouterTelemetryRecorder", () => {
 
     await recorder.append(makeRecord({ tokensSaved: 10, tokensIn: 25 }));
     await recorder.append(
-      makeRecord({ outcome: "soft_refused", tokensSaved: 0, tokensIn: 0 }),
+      makeRecord({ outcome: "soft_refused", tokensSaved: 0, tokensIn: 0 })
     );
     await recorder.append(
       makeRecord({
         tokensSaved: 20,
         tokensIn: 30,
         unlocks: ["get_imports"],
-      }),
+      })
     );
 
     const summary = recorder.getSessionSummary();
@@ -364,7 +356,7 @@ describe("100-call integration: record → readAll → aggregate", () => {
           tokensSaved: isSoftRefuse ? 0 : 10,
           latencyMs: { total: 2 + (i % 5) },
           unlocks: hasUnlock ? ["get_critical_nodes"] : undefined,
-        }),
+        })
       );
     }
 

@@ -123,7 +123,14 @@ export const TOOL_CLUSTERS: ToolCluster[] = [
   {
     id: "session-narrative",
     name: "Session Narrative",
-    tools: ["mark_intent", "mark_decision", "mark_blocker", "mark_resolution"],
+    tools: [
+      "mark_intent",
+      "mark_decision",
+      "mark_blocker",
+      "mark_resolution",
+      "unerr_turn_summary",
+      "unerr_surface2_line",
+    ],
     triggerKeywords: [
       "intent",
       "decision",
@@ -133,6 +140,9 @@ export const TOOL_CLUSTERS: ToolCluster[] = [
       "fixed",
       "starting",
       "planning",
+      "summary",
+      "wrap up",
+      "close out",
     ],
   },
   {

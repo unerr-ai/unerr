@@ -13,7 +13,7 @@
  *   - confirmation answer rate (Sprint 6 `pending_confirmation` →
  *     resolved vs expired)
  *   - ambient-marker fallback rate (fraction of turns where the
- *     preface/footer collapsed to `unerr · ⋯`)
+ *     preface/footer collapsed to `unerr » ⋯`)
  *   - enforcement correlation (Sprint 8 `ur|fct` line emitted, agent's
  *     next-turn behavior matched the stored fact)
  *   - user-fed retention (facts surviving N days vs edited/deleted)
@@ -140,7 +140,7 @@ export interface AmbientFallbackStats {
 
 /**
  * Ambient-marker fallback = turns where the preface/footer collapsed to
- * the `unerr · ⋯` ambient marker because there was nothing to report.
+ * the `unerr » ⋯` ambient marker because there was nothing to report.
  * The proxy emits a `behavior_events` row with type
  * `presence_ambient_marker` for those turns. We project that here.
  */

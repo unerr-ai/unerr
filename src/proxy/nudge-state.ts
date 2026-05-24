@@ -23,6 +23,69 @@ export interface NudgeSessionState {
   tier2_emitted: boolean;
   /** Timestamp of the last successful unerr MCP tool call this session. */
   last_unerr_tool_at?: string;
+  /** Whether the prompt-submit hook has already injected the mark_intent
+   *  one-shot reminder this session. Per Anthropic #47565 (argue-back
+   *  failure), this reminder fires AT MOST once — repeating it makes the
+   *  agent argue with the hook instead of complying. */
+  mark_intent_emitted: boolean;
+  /** Number of times the agent satisfied the mark_intent contract this
+   *  session (mark_intent tool call landed). Telemetry only — not used
+   *  for gating. */
+  mark_intent_compliant_count: number;
+  /** Number of code-task prompts seen this session where mark_intent was
+   *  expected. Pairs with mark_intent_compliant_count for a session-level
+   *  compliance ratio. */
+  mark_intent_required_count: number;
+  /** T3.4 — Whether the prompt-submit hook has already injected the
+   *  cross-session stitch line (last intent + open blockers from the
+   *  prior session's ledger) for this session. Fires AT MOST once per
+   *  UNERR_SESSION_ID. */
+  cross_session_stitch_emitted: boolean;
+  /** Fix B/D — DEPRECATED (kept for state-file forward-compatibility only).
+   *  The one-shot Surface 2 directive collapsed under Fix B; the new
+   *  every-turn directive uses `surface2_required_count` /
+   *  `surface2_called_count` instead. */
+  surface2_emitted: boolean;
+  /** Lever C — number of times the prompt-submit hook injected the
+   *  Moment 1 (`unerr_recall_notes`) directive this session. Fires every
+   *  coding-task prompt (not one-shot) — the four-moment contract requires
+   *  Moment 1 on every prompt receipt. */
+  moment1_emitted_count: number;
+  /** Moment 3 plan-cite directive — one-shot per session. Once the agent
+   *  has been told to cite recalled notes by note_id in its plan,
+   *  re-injecting is argue-back noise. */
+  moment3_emitted: boolean;
+  /** Implementation-phase "speak plainly" directive — one-shot per
+   *  session. Fires the first turn where the agent has demonstrably leaned
+   *  on unerr tools (≥2 MCP calls) so the reminder lands when it's
+   *  relevant rather than ahead of demand. */
+  impl_mention_emitted: boolean;
+  /** Running count of coding-task prompts where the close-out reminder
+   *  (`buildTurnSummaryLine`) was injected. Pairs with
+   *  `turn_summary_emitted_count` to detect when the agent skipped the
+   *  `unerr_turn_summary` call. */
+  turn_summary_required_count: number;
+  /** Running count of `unerr_turn_summary` tool invocations actually
+   *  observed this session. Bumped by the proxy on every dispatch to
+   *  `handleTurnSummaryProxy`. */
+  turn_summary_emitted_count: number;
+  /** Tier-2 accumulator — consecutive coding-task turns where the
+   *  close-out reminder was injected but the agent did NOT call
+   *  `unerr_turn_summary`. Resets to 0 the moment the tool runs. When this
+   *  hits the threshold the next prompt receives the escalated receipt
+   *  nudge instead of the standard one-liner. */
+  consecutive_receipt_misses: number;
+  /** Fix B/D — running count of coding-task prompts where the Surface 2
+   *  directive was injected (every coding turn under Fix D). Pairs with
+   *  `surface2_called_count` for a miss ratio. */
+  surface2_required_count: number;
+  /** Fix B/D — running count of `unerr_surface2_line` MCP tool invocations
+   *  observed this session. */
+  surface2_called_count: number;
+  /** Fix D — consecutive coding-task turns where the Surface 2 directive
+   *  was injected but the agent did NOT call `unerr_surface2_line`. Resets
+   *  to 0 the moment the tool runs. */
+  consecutive_surface2_misses: number;
 }
 
 function defaultState(): NudgeSessionState {
@@ -31,6 +94,20 @@ function defaultState(): NudgeSessionState {
     tier1_emitted_kinds: [],
     drift_count: 0,
     tier2_emitted: false,
+    mark_intent_emitted: false,
+    mark_intent_compliant_count: 0,
+    mark_intent_required_count: 0,
+    cross_session_stitch_emitted: false,
+    surface2_emitted: false,
+    moment1_emitted_count: 0,
+    moment3_emitted: false,
+    impl_mention_emitted: false,
+    turn_summary_required_count: 0,
+    turn_summary_emitted_count: 0,
+    consecutive_receipt_misses: 0,
+    surface2_required_count: 0,
+    surface2_called_count: 0,
+    consecutive_surface2_misses: 0,
   };
 }
 
@@ -57,6 +134,49 @@ export function readNudgeState(cwd: string): NudgeSessionState {
         typeof parsed.last_unerr_tool_at === "string"
           ? parsed.last_unerr_tool_at
           : undefined,
+      mark_intent_emitted: Boolean(parsed.mark_intent_emitted),
+      mark_intent_compliant_count:
+        typeof parsed.mark_intent_compliant_count === "number"
+          ? parsed.mark_intent_compliant_count
+          : 0,
+      mark_intent_required_count:
+        typeof parsed.mark_intent_required_count === "number"
+          ? parsed.mark_intent_required_count
+          : 0,
+      cross_session_stitch_emitted: Boolean(
+        parsed.cross_session_stitch_emitted
+      ),
+      surface2_emitted: Boolean(parsed.surface2_emitted),
+      moment1_emitted_count:
+        typeof parsed.moment1_emitted_count === "number"
+          ? parsed.moment1_emitted_count
+          : 0,
+      moment3_emitted: Boolean(parsed.moment3_emitted),
+      impl_mention_emitted: Boolean(parsed.impl_mention_emitted),
+      turn_summary_required_count:
+        typeof parsed.turn_summary_required_count === "number"
+          ? parsed.turn_summary_required_count
+          : 0,
+      turn_summary_emitted_count:
+        typeof parsed.turn_summary_emitted_count === "number"
+          ? parsed.turn_summary_emitted_count
+          : 0,
+      consecutive_receipt_misses:
+        typeof parsed.consecutive_receipt_misses === "number"
+          ? parsed.consecutive_receipt_misses
+          : 0,
+      surface2_required_count:
+        typeof parsed.surface2_required_count === "number"
+          ? parsed.surface2_required_count
+          : 0,
+      surface2_called_count:
+        typeof parsed.surface2_called_count === "number"
+          ? parsed.surface2_called_count
+          : 0,
+      consecutive_surface2_misses:
+        typeof parsed.consecutive_surface2_misses === "number"
+          ? parsed.consecutive_surface2_misses
+          : 0,
     };
   } catch {
     return defaultState();

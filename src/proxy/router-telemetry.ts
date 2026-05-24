@@ -20,10 +20,17 @@
  */
 
 import { promises as fs } from "node:fs";
-import { createGzip } from "node:zlib";
-import { createReadStream, createWriteStream, existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
-import { dirname, join, basename } from "node:path";
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
 
 import { countTokens } from "./tool-budget.js";
 
@@ -96,12 +103,14 @@ export class CallLatencyTracker {
   finish(): RouterTelemetryRecord["latencyMs"] {
     const now = performance.now();
     return {
-      classify: this.classifyEndMs !== null
-        ? Math.round(this.classifyEndMs - this.startMs)
-        : undefined,
-      forward: this.forwardEndMs !== null
-        ? Math.round(this.forwardEndMs - (this.classifyEndMs ?? this.startMs))
-        : undefined,
+      classify:
+        this.classifyEndMs !== null
+          ? Math.round(this.classifyEndMs - this.startMs)
+          : undefined,
+      forward:
+        this.forwardEndMs !== null
+          ? Math.round(this.forwardEndMs - (this.classifyEndMs ?? this.startMs))
+          : undefined,
       total: Math.round(now - this.startMs),
     };
   }
@@ -136,7 +145,7 @@ export class RouterTelemetryRecorder {
    */
   async append(
     record: Omit<RouterTelemetryRecord, "v" | "ts" | "sessionId">,
-    onError?: (err: unknown) => void,
+    onError?: (err: unknown) => void
   ): Promise<void> {
     const full: RouterTelemetryRecord = {
       v: 1,
@@ -156,11 +165,9 @@ export class RouterTelemetryRecorder {
         await fs.mkdir(this.dir, { recursive: true });
         this.ensuredDir = true;
       }
-      await fs.appendFile(
-        this.filePath,
-        `${JSON.stringify(full)}\n`,
-        { encoding: "utf8" },
-      );
+      await fs.appendFile(this.filePath, `${JSON.stringify(full)}\n`, {
+        encoding: "utf8",
+      });
     } catch (err) {
       onError?.(err);
     }
@@ -177,9 +184,14 @@ export class RouterTelemetryRecorder {
       totalTokensIn: this.totalTokensIn,
       softRefuseCount: this.softRefuseCount,
       unlockCount: this.unlockCount,
-      efficiency: this.totalTokensIn > 0
-        ? Math.round((this.totalTokensSaved / (this.totalTokensIn + this.totalTokensSaved)) * 100)
-        : 0,
+      efficiency:
+        this.totalTokensIn > 0
+          ? Math.round(
+              (this.totalTokensSaved /
+                (this.totalTokensIn + this.totalTokensSaved)) *
+                100
+            )
+          : 0,
     };
   }
 
@@ -239,7 +251,7 @@ export class RouterTelemetryRecorder {
         await pipeline(
           createReadStream(this.filePath),
           createGzip(),
-          createWriteStream(archivePath),
+          createWriteStream(archivePath)
         );
       }
 
@@ -262,7 +274,8 @@ export class RouterTelemetryRecorder {
     }
 
     for (const entry of entries) {
-      if (!entry.startsWith("metrics-") || !entry.endsWith(".jsonl.gz")) continue;
+      if (!entry.startsWith("metrics-") || !entry.endsWith(".jsonl.gz"))
+        continue;
       const match = entry.match(/^metrics-(\d{4}-\d{2}-\d{2})\.jsonl\.gz$/);
       if (!match) continue;
       const fileDate = new Date(match[1]!);

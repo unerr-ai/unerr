@@ -15,6 +15,7 @@ import {
   readBehaviorEvents,
 } from "../../tracking/behavior-events.js";
 import { readSessionHistory } from "../../tracking/session-history.js";
+import { getPromptForTurn } from "../../tracking/prompt-trace.js";
 import type { TokenFlowWriter } from "../../tracking/token-flow.js";
 import {
   type TokenFlowEvent,
@@ -472,6 +473,9 @@ export function createReasoningQualityRoutes(
       cumulative_noise_removed_pct: number;
       graph_calls_this_turn: number;
       context_density: number;
+      /** Fix J — verbatim prompt for this turn (redacted at READ time).
+       *  Null when capture is off or no row exists. */
+      prompt: ReturnType<typeof getPromptForTurn>;
     }> = [];
 
     let cumWithout = 0;
@@ -506,6 +510,8 @@ export function createReasoningQualityRoutes(
             ? Math.round((turnGraphCalls / (turnGraphDelivered / 1000)) * 10) /
               10
             : 0,
+        // Fix J — LEFT JOIN on {session_id, turn}.
+        prompt: getPromptForTurn(deps.unerrDir, sessionId, turn),
       });
     }
 

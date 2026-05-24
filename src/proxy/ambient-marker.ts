@@ -3,7 +3,7 @@
  *
  * Banner-blindness mitigation for in-chat surfaces (Surface 2 preface +
  * Surface 3 footer). After N consecutive zero-content turns, the
- * preface/footer collapses to the single ambient line `unerr · ⋯`. The
+ * preface/footer collapses to the single ambient line `unerr » ⋯`. The
  * full lines come back the moment a turn produces real content again.
  *
  * Honest-zero on the dashboard is unaffected — only the in-chat
@@ -64,7 +64,7 @@ export function noteTurnContent(sessionId: string, hadContent: boolean): void {
  *
  * Pure inspection — does not mutate the counter. Call this before
  * rendering the preface/footer to decide whether to use the collapsed
- * `unerr · ⋯` form or the full block.
+ * `unerr » ⋯` form or the full block.
  *
  * Returns true once the consecutive-zero counter reaches the threshold
  * (default: 3). Stays true on subsequent calls until `noteTurnContent`

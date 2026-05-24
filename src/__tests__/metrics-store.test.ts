@@ -27,6 +27,67 @@ describe("MetricsStore", () => {
     expect(openMetricsStore(dir)).toBe(openMetricsStore(dir));
   });
 
+  it("upgrades a legacy DB (no `agent` column) without crashing", async () => {
+    // Reproduce the failure mode reported by the user: an existing
+    // metrics.db created before the `agent` column shipped. The SCHEMA
+    // can't create the agent index until reconcileAdditiveColumns has
+    // added the column to the legacy table — ordering bug must not
+    // resurface.
+    const Database = (await import("better-sqlite3")).default;
+    const dbPath = join(dir, "metrics.db");
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE token_flow_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        ts_iso TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        pid INTEGER NOT NULL,
+        turn INTEGER NOT NULL,
+        mechanism TEXT NOT NULL,
+        tool TEXT,
+        tokens_without INTEGER NOT NULL,
+        tokens_with INTEGER NOT NULL,
+        tokens_saved INTEGER NOT NULL,
+        detail TEXT
+      );
+      CREATE TABLE behavior_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        ts_iso TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        pid INTEGER NOT NULL,
+        turn INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        tool TEXT,
+        entity_key TEXT,
+        response_bytes INTEGER,
+        detail TEXT
+      );
+    `);
+    legacy.close();
+
+    // Opening MUST succeed — adds the agent column and the index that
+    // depends on it.
+    const s = openMetricsStore(dir);
+    s.insertTokenFlow({
+      ts: Date.now(),
+      ts_iso: new Date().toISOString(),
+      session_id: "legacy",
+      pid: 1,
+      turn: 1,
+      mechanism: "graph_query",
+      tool: "search_code",
+      tokens_without: 100,
+      tokens_with: 10,
+      tokens_saved: 90,
+      detail: null,
+    });
+    const rows = s.tokenFlowBySession("legacy");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.agent).toBe("unknown");
+  });
+
   it("inserts + reads compression events with monotonic id", () => {
     const s = openMetricsStore(dir);
     const id1 = s.insertCompression({

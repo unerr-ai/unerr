@@ -12,21 +12,26 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { createRouterRoutes, type RouterRouteDeps } from "../server/routes/router.js";
+import type { RouterConfig } from "../config/router-config-writer.js";
+import type { SessionMetricsSummary } from "../proxy/router-session-metrics.js";
+import type { RouterTelemetryRecord } from "../proxy/router-telemetry.js";
+import { eventBus } from "../server/event-bus.js";
 import {
+  emitRouterSessionStats,
+  emitRouterSoftRefuse,
   emitRouterToolCall,
   emitRouterUnlock,
-  emitRouterSoftRefuse,
-  emitRouterSessionStats,
 } from "../server/router-sse.js";
-import { eventBus } from "../server/event-bus.js";
-import type { RouterConfig } from "../config/router-config-writer.js";
-import type { RouterTelemetryRecord } from "../proxy/router-telemetry.js";
-import type { SessionMetricsSummary } from "../proxy/router-session-metrics.js";
+import {
+  type RouterRouteDeps,
+  createRouterRoutes,
+} from "../server/routes/router.js";
 
 // ── Helpers ──────────────────────────────────────────────────────
 
-function makeRecord(overrides: Partial<RouterTelemetryRecord> = {}): RouterTelemetryRecord {
+function makeRecord(
+  overrides: Partial<RouterTelemetryRecord> = {}
+): RouterTelemetryRecord {
   return {
     v: 1,
     ts: new Date().toISOString(),
@@ -43,7 +48,9 @@ function makeRecord(overrides: Partial<RouterTelemetryRecord> = {}): RouterTelem
   };
 }
 
-function makeSummary(overrides: Partial<SessionMetricsSummary> = {}): SessionMetricsSummary {
+function makeSummary(
+  overrides: Partial<SessionMetricsSummary> = {}
+): SessionMetricsSummary {
   return {
     sessionId: "test-session",
     totalCalls: 10,
@@ -71,7 +78,12 @@ const ENABLED_CONFIG: RouterConfig = {
   enabled: true,
   enabledAt: "2026-05-17T14:00:00Z",
   proxiedServers: [
-    { name: "github", alias: "gh", command: "github-mcp", sourceAgent: "cursor" },
+    {
+      name: "github",
+      alias: "gh",
+      command: "github-mcp",
+      sourceAgent: "cursor",
+    },
   ],
   rewrittenConfigs: [],
 };
@@ -96,7 +108,10 @@ function makeDeps(overrides: Partial<RouterRouteDeps> = {}): RouterRouteDeps {
   };
 }
 
-async function fetch(app: ReturnType<typeof createRouterRoutes>, path: string): Promise<Response> {
+async function fetch(
+  app: ReturnType<typeof createRouterRoutes>,
+  path: string
+): Promise<Response> {
   return app.request(path);
 }
 
@@ -108,7 +123,7 @@ describe("GET /status", () => {
     const res = await fetch(app, "/status");
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { data: Record<string, unknown> };
+    const body = (await res.json()) as { data: Record<string, unknown> };
 
     expect(body.data.enabled).toBe(true);
     expect(body.data.phase).toBe(0);
@@ -120,11 +135,13 @@ describe("GET /status", () => {
   });
 
   it("returns disabled status when no config", async () => {
-    const app = createRouterRoutes(makeDeps({
-      getRouterConfig: () => null,
-    }));
+    const app = createRouterRoutes(
+      makeDeps({
+        getRouterConfig: () => null,
+      })
+    );
     const res = await fetch(app, "/status");
-    const body = await res.json() as { data: Record<string, unknown> };
+    const body = (await res.json()) as { data: Record<string, unknown> };
 
     expect(body.data.enabled).toBe(false);
     expect(body.data.session).toBeNull();
@@ -132,11 +149,13 @@ describe("GET /status", () => {
   });
 
   it("returns disabled status when config exists but enabled=false", async () => {
-    const app = createRouterRoutes(makeDeps({
-      getRouterConfig: () => ({ ...ENABLED_CONFIG, enabled: false }),
-    }));
+    const app = createRouterRoutes(
+      makeDeps({
+        getRouterConfig: () => ({ ...ENABLED_CONFIG, enabled: false }),
+      })
+    );
     const res = await fetch(app, "/status");
-    const body = await res.json() as { data: Record<string, unknown> };
+    const body = (await res.json()) as { data: Record<string, unknown> };
 
     expect(body.data.enabled).toBe(false);
   });
@@ -144,7 +163,7 @@ describe("GET /status", () => {
   it("includes _meta.latency_ms in response", async () => {
     const app = createRouterRoutes(makeDeps());
     const res = await fetch(app, "/status");
-    const body = await res.json() as { _meta: { latency_ms: number } };
+    const body = (await res.json()) as { _meta: { latency_ms: number } };
 
     expect(body._meta.latency_ms).toBeTypeOf("number");
     expect(body._meta.latency_ms).toBeGreaterThanOrEqual(0);
@@ -155,23 +174,29 @@ describe("GET /status", () => {
 
 describe("GET /sessions", () => {
   it("returns empty sessions when disabled", async () => {
-    const app = createRouterRoutes(makeDeps({
-      getRouterConfig: () => null,
-    }));
+    const app = createRouterRoutes(
+      makeDeps({
+        getRouterConfig: () => null,
+      })
+    );
     const res = await fetch(app, "/sessions");
-    const body = await res.json() as { data: { sessions: unknown[] } };
+    const body = (await res.json()) as { data: { sessions: unknown[] } };
 
     expect(body.data.sessions).toHaveLength(0);
   });
 
   it("returns aggregated session summaries", async () => {
     const summary = makeSummary();
-    const app = createRouterRoutes(makeDeps({
-      readAllRecords: async () => [makeRecord()],
-      aggregateRecords: () => [summary],
-    }));
+    const app = createRouterRoutes(
+      makeDeps({
+        readAllRecords: async () => [makeRecord()],
+        aggregateRecords: () => [summary],
+      })
+    );
     const res = await fetch(app, "/sessions");
-    const body = await res.json() as { data: { sessions: SessionMetricsSummary[] } };
+    const body = (await res.json()) as {
+      data: { sessions: SessionMetricsSummary[] };
+    };
 
     expect(body.data.sessions).toHaveLength(1);
     expect(body.data.sessions[0]!.sessionId).toBe("test-session");
@@ -183,19 +208,23 @@ describe("GET /sessions", () => {
 
 describe("GET /sessions/:id", () => {
   it("returns 404 when router disabled", async () => {
-    const app = createRouterRoutes(makeDeps({
-      getRouterConfig: () => null,
-    }));
+    const app = createRouterRoutes(
+      makeDeps({
+        getRouterConfig: () => null,
+      })
+    );
     const res = await fetch(app, "/sessions/abc");
 
     expect(res.status).toBe(404);
   });
 
   it("returns 404 when session not found", async () => {
-    const app = createRouterRoutes(makeDeps({
-      readAllRecords: async () => [],
-      groupRecords: () => new Map(),
-    }));
+    const app = createRouterRoutes(
+      makeDeps({
+        readAllRecords: async () => [],
+        groupRecords: () => new Map(),
+      })
+    );
     const res = await fetch(app, "/sessions/nonexistent");
 
     expect(res.status).toBe(404);
@@ -206,13 +235,17 @@ describe("GET /sessions/:id", () => {
     const grouped = new Map([["test-session", records]]);
     const summary = makeSummary();
 
-    const app = createRouterRoutes(makeDeps({
-      readAllRecords: async () => records,
-      groupRecords: () => grouped,
-      aggregateSingle: () => summary,
-    }));
+    const app = createRouterRoutes(
+      makeDeps({
+        readAllRecords: async () => records,
+        groupRecords: () => grouped,
+        aggregateSingle: () => summary,
+      })
+    );
     const res = await fetch(app, "/sessions/test-session");
-    const body = await res.json() as { data: SessionMetricsSummary & { records: unknown[] } };
+    const body = (await res.json()) as {
+      data: SessionMetricsSummary & { records: unknown[] };
+    };
 
     expect(res.status).toBe(200);
     expect(body.data.sessionId).toBe("test-session");
@@ -224,24 +257,30 @@ describe("GET /sessions/:id", () => {
 
 describe("GET /recent", () => {
   it("returns empty when disabled", async () => {
-    const app = createRouterRoutes(makeDeps({
-      getRouterConfig: () => null,
-    }));
+    const app = createRouterRoutes(
+      makeDeps({
+        getRouterConfig: () => null,
+      })
+    );
     const res = await fetch(app, "/recent");
-    const body = await res.json() as { data: { records: unknown[] } };
+    const body = (await res.json()) as { data: { records: unknown[] } };
 
     expect(body.data.records).toHaveLength(0);
   });
 
   it("returns last N records", async () => {
     const records = Array.from({ length: 30 }, (_, i) =>
-      makeRecord({ toolName: `tool_${i}` }),
+      makeRecord({ toolName: `tool_${i}` })
     );
-    const app = createRouterRoutes(makeDeps({
-      readAllRecords: async () => records,
-    }));
+    const app = createRouterRoutes(
+      makeDeps({
+        readAllRecords: async () => records,
+      })
+    );
     const res = await fetch(app, "/recent?limit=10");
-    const body = await res.json() as { data: { records: RouterTelemetryRecord[] } };
+    const body = (await res.json()) as {
+      data: { records: RouterTelemetryRecord[] };
+    };
 
     expect(body.data.records).toHaveLength(10);
     expect(body.data.records[0]!.toolName).toBe("tool_20");
@@ -249,13 +288,17 @@ describe("GET /recent", () => {
 
   it("caps limit at 100", async () => {
     const records = Array.from({ length: 150 }, (_, i) =>
-      makeRecord({ toolName: `tool_${i}` }),
+      makeRecord({ toolName: `tool_${i}` })
     );
-    const app = createRouterRoutes(makeDeps({
-      readAllRecords: async () => records,
-    }));
+    const app = createRouterRoutes(
+      makeDeps({
+        readAllRecords: async () => records,
+      })
+    );
     const res = await fetch(app, "/recent?limit=200");
-    const body = await res.json() as { data: { records: RouterTelemetryRecord[] } };
+    const body = (await res.json()) as {
+      data: { records: RouterTelemetryRecord[] };
+    };
 
     expect(body.data.records).toHaveLength(100);
   });
@@ -286,7 +329,10 @@ describe("router SSE emitters", () => {
     const listener = vi.fn();
     const unsub = eventBus.subscribe(listener);
 
-    emitRouterUnlock({ toolName: "get_imports", reason: "file_outline seen ≥5 imports" });
+    emitRouterUnlock({
+      toolName: "get_imports",
+      reason: "file_outline seen ≥5 imports",
+    });
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener.mock.calls[0]![0]!.type).toBe("router:unlock");
@@ -298,7 +344,10 @@ describe("router SSE emitters", () => {
     const listener = vi.fn();
     const unsub = eventBus.subscribe(listener);
 
-    emitRouterSoftRefuse({ toolName: "get_critical_nodes", alternative: "get_references" });
+    emitRouterSoftRefuse({
+      toolName: "get_critical_nodes",
+      alternative: "get_references",
+    });
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener.mock.calls[0]![0]!.type).toBe("router:soft_refuse");

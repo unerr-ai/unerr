@@ -275,3 +275,43 @@ export function normalizeAgentName(input: string): string {
   };
   return aliases[input.toLowerCase()] ?? input.toLowerCase();
 }
+
+/**
+ * Canonical agent-id resolver. Single source of truth for "what
+ * coding-agent produced this event" — used by every writer that stamps
+ * events into the SQLite tables.
+ *
+ * Resolution order (first non-empty wins):
+ *   1. `codingAgent` — the `--coding-agent=<id>` flag baked into the MCP
+ *      config at install time. Most authoritative because the user (or
+ *      install command) explicitly chose it.
+ *   2. `clientInfoName` — the `clientInfo.name` field MCP clients send in
+ *      their `initialize` handshake. Reliable for clients that send it.
+ *   3. `detectFromEnv()` — process-env probes for the same ids. Last
+ *      resort when neither flag nor handshake carries a value.
+ *   4. "unknown".
+ *
+ * The returned id is normalized through `normalizeAgentName` (kebab-case,
+ * alias-resolved). Ids that aren't in the registry today still flow
+ * through — a clientInfo.name of "future-agent-7" lowercases to
+ * "future-agent-7" and lands on the row, so a future agent we haven't
+ * added to the registry is still attributed correctly.
+ */
+export function resolveAgentId(input: {
+  codingAgent?: string | null;
+  clientInfoName?: string | null;
+  detectFromEnv?: () => string | null;
+}): string {
+  const candidates = [
+    input.codingAgent,
+    input.clientInfoName,
+    input.detectFromEnv?.() ?? null,
+  ];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    const trimmed = String(raw).trim();
+    if (!trimmed) continue;
+    return normalizeAgentName(trimmed);
+  }
+  return "unknown";
+}

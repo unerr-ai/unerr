@@ -114,7 +114,11 @@ describe("wire-cap fetch_url too_large hint", () => {
   }
 
   it("recommends `prompt:<keywords>` when no prompt is set", () => {
-    const { pageHint, body } = applyWireCap("fetch_url", oversizedFetchBody(), {});
+    const { pageHint, body } = applyWireCap(
+      "fetch_url",
+      oversizedFetchBody(),
+      {}
+    );
     const obj = body as Record<string, unknown>;
     expect(obj.status).toBe("too_large");
     expect(pageHint).toMatch(/prompt:<keywords>/);

@@ -1,6 +1,6 @@
 /**
- * SignalShowStore — persistent, cross-session rotation state for `ur|fct`,
- * `ur|hnt`, `ur|wrn`, conventions, and any other deduplicated signal.
+ * SignalShowStore — persistent, cross-session rotation state for `ur|act`,
+ * `ur|ctx`, `ur|rsk`, `ur|fct`, conventions, and any other deduplicated signal.
  *
  * Backed by `signal_shows` relation in facts.db (per-session rows, no write
  * contention across parallel `unerr --mcp` instances). Each session writes

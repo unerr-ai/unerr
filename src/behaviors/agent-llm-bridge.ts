@@ -120,7 +120,7 @@ export class AgentLlmBridge {
   }
 
   /**
-   * Inject a sub-prompt into the internal `context` carrier; surfaces as `ur|hnt` prefix line on the response.
+   * Inject a sub-prompt into the internal `context` carrier; surfaces as `ur|fct` prefix line on the response.
    * Returns the prompt content if within budget, or the fallback if over budget.
    */
   inject(prompt: SubPrompt): string {

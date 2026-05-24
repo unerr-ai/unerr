@@ -1,7 +1,7 @@
 /**
  * Family-routing nudge emitter.
  *
- * Appends `ur|hnt` lines to tool responses when the gateway detects
+ * Appends `ur|fct` lines to tool responses when the gateway detects
  * the agent is working in a specific server-family context (e.g., DB,
  * GitHub, Slack). These nudges are advisory in Phase 1 — they train
  * the agent toward family-prefixed tool names and let unerr measure
@@ -16,7 +16,7 @@
  * Throttle: max 1 family nudge per 5 turns to avoid fatigue.
  */
 
-import { detectFamilies, type DetectionResult } from "./family-detector.js";
+import { type DetectionResult, detectFamilies } from "./family-detector.js";
 
 const NUDGE_COOLDOWN_TURNS = 5;
 
@@ -66,7 +66,7 @@ function familyLabel(alias: string): string {
 function buildNudgeText(
   primary: string,
   secondary: readonly string[],
-  allAliases: readonly string[],
+  allAliases: readonly string[]
 ): string {
   const label = familyLabel(primary);
   const prefix = `${primary}_`;
@@ -78,29 +78,27 @@ function buildNudgeText(
       .join(", ");
 
     if (locked) {
-      return `ur|hnt ${label} context detected. Use ${prefix}* family for this task; ${locked} locked for this turn.`;
+      return `ur|fct ${label} context detected. Use ${prefix}* family for this task; ${locked} locked for this turn.`;
     }
-    return `ur|hnt ${label} context detected. Use ${prefix}* family for this task.`;
+    return `ur|fct ${label} context detected. Use ${prefix}* family for this task.`;
   }
 
-  const unlocked = [primary, ...secondary]
-    .map((a) => `${a}_*`)
-    .join(" and ");
+  const unlocked = [primary, ...secondary].map((a) => `${a}_*`).join(" and ");
   const locked = allAliases
     .filter((a) => a !== primary && !secondary.includes(a))
     .map((a) => `${a}_*`)
     .join(", ");
 
   if (locked) {
-    return `ur|hnt Multi-domain (${[primary, ...secondary].map(familyLabel).join(" + ")}). Both ${unlocked} unlocked; ${locked} locked.`;
+    return `ur|fct Multi-domain (${[primary, ...secondary].map(familyLabel).join(" + ")}). Both ${unlocked} unlocked; ${locked} locked.`;
   }
-  return `ur|hnt Multi-domain (${[primary, ...secondary].map(familyLabel).join(" + ")}). ${unlocked} unlocked.`;
+  return `ur|fct Multi-domain (${[primary, ...secondary].map(familyLabel).join(" + ")}). ${unlocked} unlocked.`;
 }
 
 export class FamilyNudgeEmitter {
   private readonly knownAliases: ReadonlySet<string>;
   private readonly allAliases: readonly string[];
-  private lastNudgeTurn = -Infinity;
+  private lastNudgeTurn = Number.NEGATIVE_INFINITY;
   private currentTurn = 0;
   private readonly accuracyLog: NudgeAccuracyRecord[] = [];
   private lastNudgedFamily: string | null = null;
@@ -122,7 +120,7 @@ export class FamilyNudgeEmitter {
    * Evaluate whether to emit a nudge based on recent file context.
    *
    * Returns the nudge result. If emitted, the nudge text should be
-   * appended to the next tool response as a `ur|hnt` line.
+   * appended to the next tool response as a `ur|fct` line.
    */
   evaluate(recentFiles: readonly string[]): NudgeResult {
     const detection = detectFamilies(recentFiles, this.knownAliases);
@@ -139,7 +137,7 @@ export class FamilyNudgeEmitter {
     const nudgeText = buildNudgeText(
       detection.primary,
       detection.secondary,
-      this.allAliases,
+      this.allAliases
     );
 
     this.lastNudgeTurn = this.currentTurn;

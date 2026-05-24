@@ -27,7 +27,9 @@
  * suppressed.
  */
 
+import { dirname } from "node:path";
 import { Hono } from "hono";
+import { readNudgeState } from "../../proxy/nudge-state.js";
 import {
   type NamedEvent,
   type NamedEventFilter,
@@ -35,6 +37,11 @@ import {
   readNamedEvents,
   totalNamedEvents,
 } from "../../tracking/named-events.js";
+import {
+  getPromptForTurn,
+  getPromptsForSession,
+} from "../../tracking/prompt-trace.js";
+import { computeRuntimeJoins } from "../../tracking/runtime-joins.js";
 
 export interface LogbookRouteDeps {
   unerrDir: string;
@@ -361,6 +368,173 @@ function buildRightRail(events: NamedEvent[]): RightRail {
   };
 }
 
+// ── Compliance ribbon (Fix H) ────────────────────────────────────────
+
+/** Four-counter directive-compliance ribbon. Surfaces how reliably the
+ *  agent is honouring the per-turn unerr contracts:
+ *    - Surface 2 (loaded-note line via `unerr_surface2_line`)
+ *    - Surface 3 (close-out receipt via `unerr_turn_summary`)
+ *    - mark_intent (first-tool-call commitment)
+ *    - skill invocation (Path A dispatch acknowledged)
+ *  Data: per-counter pairs read from `nudge-state.json` (required vs
+ *  called) plus `behavior_events` for the skill-invoked side. No new
+ *  schema, no new tables. */
+export interface ComplianceCounter {
+  required: number;
+  called: number;
+  ratio: number;
+  consecutive_misses: number;
+}
+
+export interface ComplianceRibbon {
+  surface2: ComplianceCounter;
+  surface3: ComplianceCounter;
+  mark_intent: ComplianceCounter;
+  skill: ComplianceCounter;
+  /** Surface 4 (Fix I) — attribution / capture-confirm / enforced-fact
+   *  lines actually emitted into the user-visible wrapper. Derived from
+   *  `surface4a_emitted` + `surface4c_emitted` + `surface4d_emitted`
+   *  behavior_events rows. `required` is the count of `fact_recalled`
+   *  events (each recalled note is a candidate for plain-English
+   *  attribution), which keeps the ratio honest when no facts were ever
+   *  recalled. */
+  surface4: ComplianceCounter;
+  /** Fix L — cross-tier runtime joins aggregated across the window:
+   *  memory↔graph, graph↔drift, three-way. Surfaced as a fourth row in
+   *  the ribbon ("Runtime joins · memory→graph N · graph→drift M ·
+   *  three-way K"). The user reads this as the positioning artefact —
+   *  no point tool can produce it because the join requires per-repo
+   *  runtime context. */
+  runtime_joins: {
+    memory_to_graph: number;
+    graph_to_drift: number;
+    three_way: number;
+    total: number;
+  };
+}
+
+function ratio(called: number, required: number): number {
+  if (required <= 0) return 1;
+  return Math.round((called / required) * 1000) / 1000;
+}
+
+export function buildComplianceRibbon(
+  unerrDir: string,
+  events: NamedEvent[]
+): ComplianceRibbon {
+  const cwd = dirname(unerrDir);
+  const state = readNudgeState(cwd);
+
+  // The skill-invoked side comes from behavior events (Path A nudges
+  // emit a Skill() invocation which the runner records as a tool call).
+  // We approximate skill calls as the count of `cascade_warning_consumed`
+  // and `intervention_warned` rows that mention a Skill — proxy for "the
+  // agent ran a Skill in response to a directive". Falls back to 0 cleanly
+  // when telemetry is empty.
+  let skillCalls = 0;
+  let surface4Emitted = 0;
+  let surface4Required = 0;
+  for (const ev of events) {
+    if (ev.event_type === "intervention_warned") {
+      const tool = (ev.metadata as { tool?: unknown }).tool;
+      if (typeof tool === "string" && tool === "Skill") {
+        skillCalls += 1;
+      }
+      continue;
+    }
+    if (
+      ev.event_type === "surface4a_emitted" ||
+      ev.event_type === "surface4c_emitted" ||
+      ev.event_type === "surface4d_emitted"
+    ) {
+      const count = (ev.metadata as { count?: unknown }).count;
+      surface4Emitted += typeof count === "number" ? count : 1;
+      continue;
+    }
+    if (ev.event_type === "fact_recalled") {
+      surface4Required += 1;
+    }
+  }
+
+  return {
+    surface2: {
+      required: state.surface2_required_count,
+      called: state.surface2_called_count,
+      ratio: ratio(state.surface2_called_count, state.surface2_required_count),
+      consecutive_misses: state.consecutive_surface2_misses,
+    },
+    surface3: {
+      required: state.turn_summary_required_count,
+      called: state.turn_summary_emitted_count,
+      ratio: ratio(
+        state.turn_summary_emitted_count,
+        state.turn_summary_required_count
+      ),
+      consecutive_misses: state.consecutive_receipt_misses,
+    },
+    mark_intent: {
+      required: state.mark_intent_required_count,
+      called: state.mark_intent_compliant_count,
+      ratio: ratio(
+        state.mark_intent_compliant_count,
+        state.mark_intent_required_count
+      ),
+      consecutive_misses: 0,
+    },
+    skill: {
+      required: state.mark_intent_required_count,
+      called: skillCalls,
+      ratio: ratio(skillCalls, state.mark_intent_required_count),
+      consecutive_misses: 0,
+    },
+    surface4: {
+      required: surface4Required,
+      called: surface4Emitted,
+      ratio: ratio(surface4Emitted, surface4Required),
+      consecutive_misses: 0,
+    },
+    runtime_joins: computeWindowJoins(events),
+  };
+}
+
+/** Fix L — aggregate cross-tier joins across the entire window
+ *  (every `{session_id, turn}` pair represented in `events`). Returns
+ *  the summed counts plus a `total` so the ribbon can show a single
+ *  headline number alongside the per-axis breakdown. */
+function computeWindowJoins(events: NamedEvent[]): {
+  memory_to_graph: number;
+  graph_to_drift: number;
+  three_way: number;
+  total: number;
+} {
+  const buckets = new Map<string, NamedEvent[]>();
+  for (const ev of events) {
+    const key = `${ev.session_id}::${ev.turn}`;
+    const arr = buckets.get(key) ?? [];
+    arr.push(ev);
+    buckets.set(key, arr);
+  }
+  let mg = 0;
+  let gd = 0;
+  let tw = 0;
+  for (const [key, bucket] of buckets) {
+    const [sid, turnStr] = key.split("::");
+    if (!sid) continue;
+    const turn = Number(turnStr);
+    if (!Number.isFinite(turn)) continue;
+    const j = computeRuntimeJoins(bucket, sid, turn);
+    mg += j.memory_to_graph;
+    gd += j.graph_to_drift;
+    tw += j.three_way;
+  }
+  return {
+    memory_to_graph: mg,
+    graph_to_drift: gd,
+    three_way: tw,
+    total: mg + gd + tw,
+  };
+}
+
 // ── Route factory ────────────────────────────────────────────────────
 
 export function createLogbookRoutes(deps: LogbookRouteDeps): Hono {
@@ -422,8 +596,17 @@ export function createLogbookRoutes(deps: LogbookRouteDeps): Hono {
     const events = [...eventsAsc].reverse();
     const paginated = events.slice(offset, offset + limit);
 
+    // Fix J — attach per-turn verbatim prompt to each row (LEFT JOIN
+    // behavior_events ON session_id+turn AND type='user_prompt_received').
+    // Null `prompt` when capture is off (operational metadata only) or
+    // when no row exists for the session.
+    const enriched = paginated.map((ev) => ({
+      ...ev,
+      prompt: getPromptForTurn(deps.unerrDir, ev.session_id, ev.turn),
+    }));
+
     return c.json({
-      data: paginated,
+      data: enriched,
       total: events.length,
       limit,
       offset,
@@ -498,6 +681,62 @@ export function createLogbookRoutes(deps: LogbookRouteDeps): Hono {
     });
   });
 
+  // ── /compliance — directive-compliance ribbon (Fix H) ─────────────
+  app.get("/compliance", (c) => {
+    const start = performance.now();
+    const period = (c.req.query("period") ?? "today") as Period;
+    const agent = c.req.query("agent");
+    const sessionId = c.req.query("session_id");
+    const filter: NamedEventFilter = {
+      ...periodFilter(period, c.req.query("from_ts"), c.req.query("to_ts")),
+      agent: agent ?? undefined,
+      session_id: sessionId ?? undefined,
+    };
+    const events = readNamedEvents(deps.unerrDir, filter);
+    const ribbon = buildComplianceRibbon(deps.unerrDir, events);
+    return c.json({
+      data: ribbon,
+      _meta: {
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+      },
+    });
+  });
+
+  // ── /prompt/:session/:turn — Fix J per-turn verbatim prompt lookup
+  // Returns the captured `user_prompt_received` row for `{session_id,
+  // turn}` (read-redacted). Null `data` when no row exists (agent does
+  // not emit the UserPromptSubmit hook, or capture happened before the
+  // hook landed). Consumed by Token Flow + Reasoning Quality + Logbook.
+  app.get("/prompt/:session/:turn", (c) => {
+    const start = performance.now();
+    const session = c.req.param("session");
+    const turn = Number(c.req.param("turn"));
+    if (!session || !Number.isFinite(turn) || turn < 0) {
+      return c.json({ error: "invalid_params" }, 400);
+    }
+    const data = getPromptForTurn(deps.unerrDir, session, turn);
+    return c.json({
+      data,
+      _meta: {
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+      },
+    });
+  });
+
+  // ── /prompts/:session — every captured prompt for one session
+  app.get("/prompts/:session", (c) => {
+    const start = performance.now();
+    const session = c.req.param("session");
+    if (!session) return c.json({ error: "invalid_params" }, 400);
+    const data = getPromptsForSession(deps.unerrDir, session);
+    return c.json({
+      data,
+      _meta: {
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+      },
+    });
+  });
+
   // ── /event/:idx — drill view for a single event ───────────────────
   app.get("/event/:idx", (c) => {
     const start = performance.now();
@@ -517,8 +756,14 @@ export function createLogbookRoutes(deps: LogbookRouteDeps): Hono {
     const ev = events[idx];
     if (!ev) return c.json({ error: "not_found" }, 404);
 
+    // Fix J — attach the verbatim prompt to the drill view payload.
+    const enriched = {
+      ...ev,
+      prompt: getPromptForTurn(deps.unerrDir, ev.session_id, ev.turn),
+    };
+
     return c.json({
-      data: ev,
+      data: enriched,
       _meta: {
         latency_ms: Math.round((performance.now() - start) * 100) / 100,
       },

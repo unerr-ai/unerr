@@ -129,3 +129,48 @@ export function renderFactAttributionBlock(
 ): string[] {
   return renderAttributionBlock(facts.map(renderFactAttribution));
 }
+
+function stringOf(value: unknown, fallback = ""): string {
+  return typeof value === "string" && value.length > 0 ? value : fallback;
+}
+
+function eventToAttributionRow(event: NamedEvent): AttributionRow | null {
+  const meta = event.metadata;
+  const content = stringOf(meta.content) || stringOf(meta.fact_content);
+  if (content.length === 0) return null;
+  const source =
+    stringOf(meta.source) ||
+    (event.event_type === "fact_stored_user_fed" ? "user_fed" : "");
+  const sourceQuote = stringOf(meta.source_quote);
+  const who = attributedFor(source, stringOf(meta.attributed_to));
+  const head = truncate(`${who} → "${content}"`, MAX_HEAD);
+  const detail =
+    sourceQuote.length > 0
+      ? `said: "${truncate(sourceQuote, MAX_DETAIL - 8)}"`
+      : `via ${who}`;
+  const scope = stringOf(meta.scope) || event.file_path || "";
+  return {
+    head,
+    detail,
+    where: scope.length > 0 ? `scope: ${scope}` : "",
+    when: event.ts,
+  };
+}
+
+/**
+ * Convert this turn's attribution-worthy events directly into rendered
+ * attribution lines. Cap at 3 rows per turn — three or more provenance
+ * blocks crowd the preface and dilute the signal.
+ */
+export function renderEventAttributionBlock(
+  events: readonly NamedEvent[]
+): string[] {
+  const filtered = eventsWithAttribution(events as NamedEvent[]);
+  if (filtered.length === 0) return [];
+  const rows: AttributionRow[] = [];
+  for (const e of filtered.slice(0, 3)) {
+    const row = eventToAttributionRow(e);
+    if (row) rows.push(row);
+  }
+  return renderAttributionBlock(rows);
+}

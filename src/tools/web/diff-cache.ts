@@ -48,7 +48,8 @@ export function lookupFetchCache(cwd: string, url: string): CacheLookup {
     if (!row) return { hit: false, prior: null, fresh: false, negative: false };
     const ageMs = Date.now() - row.fetched_at;
     const negative = row.blocked_reason !== null && ageMs < NEGATIVE_TTL_MS;
-    const fresh = !negative && row.blocked_reason === null && ageMs < FRESH_TTL_MS;
+    const fresh =
+      !negative && row.blocked_reason === null && ageMs < FRESH_TTL_MS;
     return { hit: true, prior: row, fresh, negative };
   } catch {
     return { hit: false, prior: null, fresh: false, negative: false };
@@ -147,7 +148,12 @@ export function summarizeMarkdownDiff(
   newMd: string
 ): DiffSummary {
   if (oldMd === newMd) {
-    return { unchanged: true, changedRegions: 0, addedLines: 0, removedLines: 0 };
+    return {
+      unchanged: true,
+      changedRegions: 0,
+      addedLines: 0,
+      removedLines: 0,
+    };
   }
   const oldLines = new Set(oldMd.split("\n"));
   const newLines = newMd.split("\n");

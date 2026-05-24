@@ -43,7 +43,7 @@ export class CircuitBreaker {
   constructor(
     events: CircuitBreakerEvents = {},
     failureThreshold = DEFAULT_FAILURE_THRESHOLD,
-    recoveryIntervalMs = DEFAULT_RECOVERY_INTERVAL_MS,
+    recoveryIntervalMs = DEFAULT_RECOVERY_INTERVAL_MS
   ) {
     this.events = events;
     this.failureThreshold = failureThreshold;
@@ -69,7 +69,10 @@ export class CircuitBreaker {
     this.failureCount++;
     if (this._state === "half-open") {
       this.trip(reason);
-    } else if (this.failureCount >= this.failureThreshold && this._state === "closed") {
+    } else if (
+      this.failureCount >= this.failureThreshold &&
+      this._state === "closed"
+    ) {
       this.trip(reason);
     }
   }
@@ -101,7 +104,7 @@ export class CircuitBreaker {
     const elapsed = performance.now() - start;
     if (elapsed > TRIP_LATENCY_BUDGET_MS) {
       process.stderr.write(
-        `[circuit-breaker] WARNING: trip took ${elapsed.toFixed(1)}ms (budget: ${TRIP_LATENCY_BUDGET_MS}ms)\n`,
+        `[circuit-breaker] WARNING: trip took ${elapsed.toFixed(1)}ms (budget: ${TRIP_LATENCY_BUDGET_MS}ms)\n`
       );
     }
   }

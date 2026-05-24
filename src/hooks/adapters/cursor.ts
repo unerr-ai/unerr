@@ -65,6 +65,13 @@ export const cursorAdapter: HookAdapter = {
       return JSON.stringify({ permission: "allow" });
     }
 
+    if (result.action === "deny") {
+      return JSON.stringify({
+        permission: "deny",
+        agent_message: result.message ?? "Blocked by unerr policy.",
+      });
+    }
+
     if (result.action === "nudge" && result.message) {
       return JSON.stringify({
         permission: "allow",
@@ -119,5 +126,12 @@ export const cursorAdapter: HookAdapter = {
     }
 
     return JSON.stringify({ continue: true });
+  },
+
+  formatSessionStart(_result: HookResult): string {
+    // Cursor has no SessionStart equivalent — the resume strip falls back
+    // to first-tool-call injection via Surface 1 (`unerr » ` lines on the
+    // first MCP response).
+    return "{}";
   },
 };

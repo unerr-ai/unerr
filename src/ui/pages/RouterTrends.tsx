@@ -35,7 +35,13 @@ function MiniBarChart({
   formatValue,
 }: {
   data: TrendPoint[];
-  valueKey: keyof Pick<TrendPoint, "accuracyLift" | "retriesSaved" | "maskingEffectiveness" | "associationsDetected">;
+  valueKey: keyof Pick<
+    TrendPoint,
+    | "accuracyLift"
+    | "retriesSaved"
+    | "maskingEffectiveness"
+    | "associationsDetected"
+  >;
   maxValue: number;
   color: string;
   formatValue: (v: number) => string;
@@ -50,7 +56,11 @@ function MiniBarChart({
         const isNeg = val < 0;
 
         return (
-          <div key={i} className="flex-1 flex flex-col items-center group relative" title={`${point.date}: ${formatValue(val)}`}>
+          <div
+            key={i}
+            className="flex-1 flex flex-col items-center group relative"
+            title={`${point.date}: ${formatValue(val)}`}
+          >
             <div
               className={`w-full rounded-t transition-all ${isNeg ? "bg-red-500/60" : color} group-hover:opacity-80`}
               style={{ height: `${heightPct}%` }}
@@ -77,7 +87,13 @@ function TrendCard({
   title: string;
   subtitle: string;
   data: TrendPoint[];
-  valueKey: keyof Pick<TrendPoint, "accuracyLift" | "retriesSaved" | "maskingEffectiveness" | "associationsDetected">;
+  valueKey: keyof Pick<
+    TrendPoint,
+    | "accuracyLift"
+    | "retriesSaved"
+    | "maskingEffectiveness"
+    | "associationsDetected"
+  >;
   color: string;
   formatValue: (v: number) => string;
   currentValue: string;
@@ -88,12 +104,22 @@ function TrendCard({
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-5">
       <div className="flex items-center justify-between mb-1">
-        <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">{title}</p>
-        <span className="text-xs font-mono text-zinc-300 tabular-nums">{currentValue}</span>
+        <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+          {title}
+        </p>
+        <span className="text-xs font-mono text-zinc-300 tabular-nums">
+          {currentValue}
+        </span>
       </div>
       <p className="text-[10px] text-zinc-600 mb-3">{subtitle}</p>
       {data.length > 1 ? (
-        <MiniBarChart data={data} valueKey={valueKey} maxValue={maxVal} color={color} formatValue={formatValue} />
+        <MiniBarChart
+          data={data}
+          valueKey={valueKey}
+          maxValue={maxVal}
+          color={color}
+          formatValue={formatValue}
+        />
       ) : (
         <div className="h-24 flex items-center justify-center text-xs text-zinc-600">
           Need ≥2 sessions for trend
@@ -101,8 +127,14 @@ function TrendCard({
       )}
       {data.length > 0 && (
         <div className="mt-2 flex items-center justify-between text-[10px] text-zinc-600">
-          <span>{data.length > 0 ? new Date(data[0].date).toLocaleDateString() : ""}</span>
-          <span>{data.length > 1 ? new Date(data[data.length - 1].date).toLocaleDateString() : ""}</span>
+          <span>
+            {data.length > 0 ? new Date(data[0].date).toLocaleDateString() : ""}
+          </span>
+          <span>
+            {data.length > 1
+              ? new Date(data[data.length - 1].date).toLocaleDateString()
+              : ""}
+          </span>
         </div>
       )}
     </div>
@@ -131,10 +163,13 @@ export function RouterTrendsPage() {
   if (trends.length === 0) {
     return (
       <div className="space-y-6">
-        <h2 className="text-lg font-semibold text-zinc-100">Cross-Session Trends</h2>
+        <h2 className="text-lg font-semibold text-zinc-100">
+          Cross-Session Trends
+        </h2>
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6 text-center">
           <p className="text-sm text-zinc-400">
-            No trend data available. Trends populate after multiple sessions with the intent classifier active.
+            No trend data available. Trends populate after multiple sessions
+            with the intent classifier active.
           </p>
         </div>
       </div>
@@ -145,7 +180,9 @@ export function RouterTrendsPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-zinc-100">Cross-Session Trends</h2>
+      <h2 className="text-lg font-semibold text-zinc-100">
+        Cross-Session Trends
+      </h2>
       <p className="text-xs text-zinc-500">{trends.length} sessions tracked</p>
 
       <div className="grid gap-4 sm:grid-cols-2">

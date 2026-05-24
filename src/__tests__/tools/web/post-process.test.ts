@@ -52,7 +52,9 @@ describe("postProcessMarkdown", () => {
   });
 
   it("returns input unchanged when no rules and no url given", () => {
-    expect(postProcessMarkdown("# a\n\n## b\n\ntext")).toBe("# a\n\n## b\n\ntext");
+    expect(postProcessMarkdown("# a\n\n## b\n\ntext")).toBe(
+      "# a\n\n## b\n\ntext"
+    );
   });
 
   it("survives malformed regex rules without throwing", () => {

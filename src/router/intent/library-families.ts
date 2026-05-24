@@ -186,7 +186,7 @@ export function resolveLibraryFamily(packageName: string): string | null {
  * Returns a deduplicated set of family IDs.
  */
 export function resolveFamiliesFromImports(
-  imports: readonly string[],
+  imports: readonly string[]
 ): ReadonlySet<string> {
   const families = new Set<string>();
   for (const imp of imports) {

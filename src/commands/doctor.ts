@@ -12,8 +12,8 @@ import { execSync } from "node:child_process";
 import {
   accessSync,
   appendFileSync,
-  constants as fsConstants,
   existsSync,
+  constants as fsConstants,
   mkdirSync,
   readFileSync,
 } from "node:fs";
@@ -393,14 +393,11 @@ function isUnerrReachableInFreshShell(): boolean {
   }
   try {
     const shellPath = process.env.SHELL || "/bin/bash";
-    const out = execSync(
-      `${shellPath} -lc 'command -v unerr 2>/dev/null'`,
-      {
-        encoding: "utf-8",
-        timeout: 3000,
-        stdio: ["pipe", "pipe", "pipe"],
-      }
-    ).trim();
+    const out = execSync(`${shellPath} -lc 'command -v unerr 2>/dev/null'`, {
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
     return out.length > 0;
   } catch {
     return false;
@@ -639,14 +636,11 @@ async function checkMultiNode(): Promise<CheckResult> {
       theirs = out.split("\n")[0]?.trim() ?? "";
     } else {
       const shellPath = process.env.SHELL || "/bin/bash";
-      const out = execSync(
-        `${shellPath} -lc 'command -v node 2>/dev/null'`,
-        {
-          encoding: "utf-8",
-          timeout: 3000,
-          stdio: ["pipe", "pipe", "pipe"],
-        }
-      ).trim();
+      const out = execSync(`${shellPath} -lc 'command -v node 2>/dev/null'`, {
+        encoding: "utf-8",
+        timeout: 3000,
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
       theirs = out.split("\n").pop()?.trim() ?? "";
     }
   } catch {

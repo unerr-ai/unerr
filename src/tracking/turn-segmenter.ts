@@ -44,6 +44,11 @@ const DEFAULT_IDLE_GAP_MS = 20_000;
 
 interface SessionTurnState {
   currentTurnId: string | null;
+  /** Monotonic 1-indexed turn number — bumped each time we open a new
+   *  turn. Stored separately from currentTurnId because event-table rows
+   *  carry `turn INTEGER` and need a stable integer, not a UUID. 0 means
+   *  no turn has opened yet on this session. */
+  currentTurnNumber: number;
   lastEntryTs: number;
   /** Confidence label for the CURRENT turn. Carried by every entry in it. */
   openedBy: TurnConfidence;
@@ -86,6 +91,7 @@ export class TurnSegmenter {
       // Opening a new turn — openedBy is whatever the prior closeTurn or
       // initState set ("first_call" for the very first or after stop_hook).
       s.currentTurnId = generateTurnId();
+      s.currentTurnNumber += 1;
     } else if (
       Number.isFinite(ts) &&
       ts - s.lastEntryTs > this.idleGapMs &&
@@ -98,6 +104,7 @@ export class TurnSegmenter {
         reason: "idle_gap",
       });
       s.currentTurnId = generateTurnId();
+      s.currentTurnNumber += 1;
       s.openedBy = "idle_gap";
     }
 
@@ -105,6 +112,45 @@ export class TurnSegmenter {
     entry.turn_confidence = s.openedBy;
     if (Number.isFinite(ts)) s.lastEntryTs = ts;
     this.state.set(entry.session_id, s);
+  }
+
+  /**
+   * Current monotonic 1-indexed turn number for a session. Returns 0 if
+   * `observe()` has never been called for this session — callers can use
+   * 0 as the sentinel meaning "no turn has opened yet".
+   *
+   * Distinct from `getCurrentTurnId` (UUID): event tables carry an
+   * INTEGER `turn` column, and this is the writer-side source.
+   */
+  getCurrentTurnNumber(sessionId: string): number {
+    return this.state.get(sessionId)?.currentTurnNumber ?? 0;
+  }
+
+  /**
+   * Note an external turn boundary (no entry observed yet). Used by the
+   * proxy when the JSON-RPC `tools/call` arrives, before any
+   * behavior/token-flow event has been recorded — so the very first
+   * event of that turn already carries the correct turn number.
+   */
+  noteTurnOpen(sessionId: string, nowMs: number = Date.now()): void {
+    const s = this.state.get(sessionId) ?? this.initState();
+    const gapElapsed =
+      s.lastEntryTs > 0 && nowMs - s.lastEntryTs > this.idleGapMs;
+    if (s.currentTurnId === null || gapElapsed) {
+      if (s.currentTurnId !== null) {
+        this.emitClose({
+          turn_id: s.currentTurnId,
+          session_id: sessionId,
+          closed_at: s.lastEntryTs,
+          reason: "idle_gap",
+        });
+      }
+      s.currentTurnId = generateTurnId();
+      s.currentTurnNumber += 1;
+      s.openedBy = gapElapsed ? "idle_gap" : s.openedBy;
+    }
+    s.lastEntryTs = nowMs;
+    this.state.set(sessionId, s);
   }
 
   /**
@@ -147,6 +193,7 @@ export class TurnSegmenter {
   private initState(): SessionTurnState {
     return {
       currentTurnId: null,
+      currentTurnNumber: 0,
       lastEntryTs: 0,
       openedBy: "first_call",
     };

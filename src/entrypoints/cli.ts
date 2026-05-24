@@ -853,12 +853,16 @@ async function daemonChildBoot(cwd: string): Promise<void> {
 
   const originalPpid = process.ppid;
 
+  // Declared up-front so closures captured by orphan/SIGTERM handlers that
+  // fire during the `await bootProxy()` below don't hit a TDZ on statsTimer.
+  let statsTimer: ReturnType<typeof setInterval> | undefined;
+
   // Orphan detection: if parent (unerrd) dies, self-exit
   const orphanTimer = setInterval(() => {
     if (process.ppid !== originalPpid) {
       process.stderr.write("[unerr:child] Parent died — orphan exit.\n");
       clearInterval(orphanTimer);
-      clearInterval(statsTimer);
+      if (statsTimer) clearInterval(statsTimer);
       shutdownProxy("orphan");
     }
   }, 60_000);
@@ -867,7 +871,7 @@ async function daemonChildBoot(cwd: string): Promise<void> {
   // SIGTERM from parent: graceful shutdown
   process.on("SIGTERM", () => {
     clearInterval(orphanTimer);
-    clearInterval(statsTimer);
+    if (statsTimer) clearInterval(statsTimer);
     shutdownProxy("sigterm");
   });
 
@@ -895,7 +899,7 @@ async function daemonChildBoot(cwd: string): Promise<void> {
   }
 
   // Periodic stats report to parent
-  const statsTimer = setInterval(() => {
+  statsTimer = setInterval(() => {
     if (!process.send) return;
     process.send({ type: "stats", ...collectStats() });
   }, 60_000);
@@ -905,7 +909,7 @@ async function daemonChildBoot(cwd: string): Promise<void> {
   process.on("message", (msg: { type: string }) => {
     if (msg.type === "shutdown") {
       clearInterval(orphanTimer);
-      clearInterval(statsTimer);
+      if (statsTimer) clearInterval(statsTimer);
       shutdownProxy("parent-shutdown");
     }
     if (msg.type === "get-stats") {

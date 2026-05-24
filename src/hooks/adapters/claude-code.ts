@@ -49,12 +49,24 @@ export const claudeCodeAdapter: HookAdapter = {
     if (eventName === "PreToolUse") event = "PreToolUse";
     else if (eventName === "PostToolUse") event = "PostToolUse";
     else if (eventName === "UserPromptSubmit") event = "UserPromptSubmit";
+    else if (eventName === "SessionStart") event = "SessionStart";
 
     return { raw: payload, toolInput, toolName, event };
   },
 
   formatPreToolUse(result: HookResult): string {
     if (result.action === "passthrough") return "{}";
+
+    if (result.action === "deny") {
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason:
+            result.message ?? "Blocked by unerr policy.",
+        },
+      });
+    }
 
     if (result.action === "nudge" && result.message) {
       return JSON.stringify({
@@ -104,6 +116,21 @@ export const claudeCodeAdapter: HookAdapter = {
       return JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "UserPromptSubmit",
+          additionalContext: result.message,
+        },
+      });
+    }
+
+    return "{}";
+  },
+
+  formatSessionStart(result: HookResult): string {
+    if (result.action === "passthrough") return "{}";
+
+    if (result.message) {
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "SessionStart",
           additionalContext: result.message,
         },
       });

@@ -6,7 +6,7 @@
  * Features:
  *   - Drift overlay merge: overlay entities replace/augment base graph results
  *   - Drift injection: branch context + entity drift status attach to the internal
- *     `meta.drift` carrier and surface as a `ur|dft` prefix line on every response
+ *     `meta.drift` carrier and surface as a `ur|ctx` prefix line on every response
  *     (MCP clients filter `_meta` envelopes, so signals must ride inline in the body)
  *   - get_business_context, get_conventions: from justifications/patterns
  */
@@ -21,16 +21,18 @@ import type {
 } from "../proxy/compression-quality-monitor.js";
 import type { ContextRotDetector } from "../proxy/context-rot-detector.js";
 import type { EfficiencyTracker } from "../proxy/efficiency-tracker.js";
-import { calculateDollarSavings } from "../proxy/model-pricing.js";
 import { formatToolOutput } from "../proxy/format-encoder.js";
+import { calculateDollarSavings } from "../proxy/model-pricing.js";
 import {
   type EntityRiskInfo,
   compressOutput,
 } from "../proxy/output-compressor.js";
+import type { RouterGateway } from "../proxy/router-gateway.js";
 import type { SessionDedup } from "../proxy/session-dedup.js";
 import { createSessionLegendTracker } from "../proxy/session-legend.js";
 import type { SessionEvents } from "../proxy/session-stats.js";
 import type { TokenCounter } from "../proxy/token-counter.js";
+import type { BehaviorEventWriter } from "../tracking/behavior-events.js";
 import type { BranchContext } from "../tracking/branch-context.js";
 import type { DriftTracker } from "../tracking/drift-tracker.js";
 import { revertEntity } from "../tracking/entity-rewind.js";
@@ -38,7 +40,6 @@ import type { PendingViolationStore } from "../tracking/pending-violations.js";
 import type { PersistenceEffectivenessTracker } from "../tracking/persistence-effectiveness.js";
 import type { TokenFlowWriter } from "../tracking/token-flow.js";
 import { formatUnknownError } from "../utils/format-error.js";
-import type { BehaviorEventWriter } from "../tracking/behavior-events.js";
 import type { BackgroundIndexer } from "./background-indexer.js";
 import type { LocalEmbeddingStore } from "./local-embeddings.js";
 import type {
@@ -54,7 +55,6 @@ import {
   smartTruncate,
   truncateResultList,
 } from "./smart-truncate.js";
-import type { RouterGateway } from "../proxy/router-gateway.js";
 
 export type ToolSource = "local";
 
@@ -182,14 +182,14 @@ export interface CrossCommunityEdgeMeta {
   relation: string;
 }
 
-/** Convention adherence metadata carried on internal `meta`; surfaces as `ur|hnt` / `ur|fct` prefix lines. */
+/** Convention adherence metadata carried on internal `meta`; surfaces as `ur|fct` prefix lines. */
 export interface ConventionMeta {
   name: string;
   adherence_pct: number;
   rule: string;
 }
 
-/** Health context metadata carried on internal `meta`; surfaces as `ur|hth` prefix line when degraded. */
+/** Health context metadata carried on internal `meta`; surfaces as `ur|ctx` prefix line when degraded. */
 export interface HealthContextMeta {
   contributes_to_issues: string[];
   entity_risk_level: "low" | "medium" | "high";
@@ -528,13 +528,18 @@ const ENRICHABLE_TOOLS = new Set([
  * For any other shape (raw object, etc.) we wrap with an MCP-style
  * text-block array carrying the announcement followed by the JSON-
  * stringified original — preserving the agent's ability to read the
- * `ur|hnt` line without losing structured data.
+ * `ur|act` line without losing structured data.
  */
-function prependAnnounceToBody(content: unknown, announceText: string): unknown {
+function prependAnnounceToBody(
+  content: unknown,
+  announceText: string
+): unknown {
   if (announceText.length === 0) return content;
   if (typeof content === "string") return `${announceText}${content}`;
   if (Array.isArray(content)) {
-    const blocks = content as Array<{ type?: string; text?: string } & Record<string, unknown>>;
+    const blocks = content as Array<
+      { type?: string; text?: string } & Record<string, unknown>
+    >;
     const firstTextIdx = blocks.findIndex(
       (b) => b && b.type === "text" && typeof b.text === "string"
     );
@@ -1046,7 +1051,7 @@ export class QueryRouter {
   }
 
   /**
-   * Q.1: Wire causal bridge for entity history — surfaces as `ur|hst` / `ur|fct` prefix lines.
+   * Q.1: Wire causal bridge for entity history — surfaces as `ur|fct` prefix lines.
    */
   setCausalBridge(bridge: typeof this.causalBridge): void {
     this.causalBridge = bridge;
@@ -1250,13 +1255,10 @@ export class QueryRouter {
             gate_status: "locked",
           },
         };
-        this.routerGateway.recordTelemetry(
-          toolName,
-          "soft_refused",
-          0,
-          0,
-          { classify: totalMs, total: totalMs },
-        );
+        this.routerGateway.recordTelemetry(toolName, "soft_refused", 0, 0, {
+          classify: totalMs,
+          total: totalMs,
+        });
         return gated;
       }
     }
@@ -1471,7 +1473,7 @@ export class QueryRouter {
       const enrichStats = await this.enrichResult(toolName, args, toolResult);
 
       // P0-3 post-execute: fold signals, evaluate unlocks, prepend
-      // `ur|hnt <tool> unlocked — …` lines to the body when new tools
+      // `ur|act <tool> unlocked — …` lines to the body when new tools
       // come online. The gateway also persists the unlock event.
       if (this.routerGateway) {
         const outcome = await this.routerGateway.recordAndUnlock(
@@ -1500,7 +1502,7 @@ export class QueryRouter {
           0,
           0,
           { forward: telemetryTotalMs, total: telemetryTotalMs },
-          outcome.unlocks.map((u) => u.toolName),
+          outcome.unlocks.map((u) => u.toolName)
         );
       }
 
@@ -1676,6 +1678,18 @@ export class QueryRouter {
             entityKey,
             "circuit_breaker"
           );
+          this.behaviorEvents?.record({
+            session_id: this.behaviorEvents.sessionId,
+            turn: this.sessionContext.getToolCallCount(),
+            type: "loop_broken",
+            tool: toolName,
+            entity_key: entityKey,
+            response_bytes: null,
+            detail: {
+              attempts: breakerResult?.attempts ?? 0,
+              forced_by_health: Boolean(forceBreak && !breakerResult),
+            },
+          });
           // S9.7: Stderr notification on circuit break
           process.stderr.write(
             `[unerr] Circuit breaker: halting repeated attempts on ${entityKey}\n`
@@ -1711,8 +1725,7 @@ export class QueryRouter {
     let enrichSavingsMechanism: string | undefined;
     if (LOCAL_TOOLS.has(toolName) && toolName !== "file_read") {
       const turn = this.sessionContext.getToolCallCount();
-      const entityKey =
-        (args.key as string) ?? (args.name as string) ?? null;
+      const entityKey = (args.key as string) ?? (args.name as string) ?? null;
       const responseBytes = this.estimateResponseBytes(result.content);
 
       if (toolName === "fetch_url") {
@@ -1720,8 +1733,7 @@ export class QueryRouter {
           raw_bytes?: number;
           extracted_bytes?: number;
         };
-        const rawBytes =
-          typeof c?.raw_bytes === "number" ? c.raw_bytes : 0;
+        const rawBytes = typeof c?.raw_bytes === "number" ? c.raw_bytes : 0;
         const extractedBytes =
           typeof c?.extracted_bytes === "number" ? c.extracted_bytes : 0;
         // 4 chars/token: cl100k_base prose ratio (HTML + markdown are both
@@ -3275,9 +3287,12 @@ export class QueryRouter {
         const { runFetchUrl } = await import(
           "../tools/web/fetch-url-protocol.js"
         );
-        return runFetchUrl(args as unknown as Parameters<typeof runFetchUrl>[0], {
-          cwd: this.projectRoot ?? process.cwd(),
-        });
+        return runFetchUrl(
+          args as unknown as Parameters<typeof runFetchUrl>[0],
+          {
+            cwd: this.projectRoot ?? process.cwd(),
+          }
+        );
       }
       default:
         throw new Error(`Unknown local tool: ${toolName}`);

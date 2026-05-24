@@ -37,7 +37,7 @@ describe("renderNoteBullet (C8)", () => {
   it("renders polarity + as 'do' and includes note_id in HTML comment", () => {
     const bullet = renderNoteBullet(makeNote());
     expect(bullet).toBe(
-      "- [rul|do|project-wide] all CozoDB calls use await <!-- n-1 -->",
+      "- [rul|do|project-wide] all CozoDB calls use await <!-- n-1 -->"
     );
   });
 
@@ -50,10 +50,10 @@ describe("renderNoteBullet (C8)", () => {
         content: "no intelligence imports",
         kind: "wrn",
         note_id: "n-7",
-      }),
+      })
     );
     expect(bullet).toBe(
-      "- [wrn|don't|f:src/proxy/bridge.ts] no intelligence imports <!-- n-7 -->",
+      "- [wrn|don't|f:src/proxy/bridge.ts] no intelligence imports <!-- n-7 -->"
     );
   });
 });
@@ -68,9 +68,7 @@ describe("renderBlock (C8)", () => {
 
   it("emits one bullet per note", () => {
     const block = renderBlock([makeNote(), makeNote({ note_id: "n-2" })]);
-    const bullets = block
-      .split("\n")
-      .filter((l) => l.startsWith("- "));
+    const bullets = block.split("\n").filter((l) => l.startsWith("- "));
     expect(bullets).toHaveLength(2);
   });
 });
@@ -143,7 +141,7 @@ describe("promoteNotesToClaudeMd (C8)", () => {
     writeFileSync(
       path,
       `# Important\n\nHand-written.\n\n${SENTINEL_OPEN}\nold\n${SENTINEL_CLOSE}\n\n## Tail\nMore.\n`,
-      "utf8",
+      "utf8"
     );
     promoteNotesToClaudeMd({
       claude_md_path: path,

@@ -60,6 +60,10 @@ export interface TokenFlowEventRow {
   session_id: string;
   pid: number;
   turn: number;
+  /** Canonical coding-agent id (claude-code, cursor, codex, …) resolved
+   *  at writer construction / per-call. "unknown" only when nothing in
+   *  the resolution chain (flag → clientInfo → env) yielded a value. */
+  agent: string;
   mechanism: string;
   tool: string | null;
   tokens_without: number;
@@ -92,6 +96,10 @@ export interface BehaviorEventRow {
   session_id: string;
   pid: number;
   turn: number;
+  /** Canonical coding-agent id (claude-code, cursor, codex, …) resolved
+   *  at writer construction / per-call. "unknown" only when nothing in
+   *  the resolution chain (flag → clientInfo → env) yielded a value. */
+  agent: string;
   /** Event type — verb-noun key (e.g. "graph_query_served", "loop_broken",
    *  "cascade_guard", "drift_consumed", "caller_aware_edit",
    *  "intervention_halted", "intervention_warned"). */
@@ -160,10 +168,16 @@ export interface FetchCacheRow {
 
 export type CompressionEventInsert = Omit<CompressionEventRow, "id">;
 export type FileReadEventInsert = Omit<FileReadEventRow, "id">;
-export type TokenFlowEventInsert = Omit<TokenFlowEventRow, "id">;
+/** `agent` defaults to "unknown" via DB DEFAULT + writer coalesce, so it's
+ *  optional on insert. The on-disk row always has a concrete value. */
+export type TokenFlowEventInsert = Omit<TokenFlowEventRow, "id" | "agent"> & {
+  agent?: string;
+};
 export type SessionHistoryInsert = Omit<SessionHistoryRow, "id">;
 export type SessionSummaryInsert = SessionSummaryRow;
-export type BehaviorEventInsert = Omit<BehaviorEventRow, "id">;
+export type BehaviorEventInsert = Omit<BehaviorEventRow, "id" | "agent"> & {
+  agent?: string;
+};
 
 // ── Store ─────────────────────────────────────────────────────────────
 
@@ -205,6 +219,7 @@ CREATE TABLE IF NOT EXISTS token_flow_events (
   session_id TEXT NOT NULL,
   pid INTEGER NOT NULL,
   turn INTEGER NOT NULL,
+  agent TEXT NOT NULL DEFAULT 'unknown',
   mechanism TEXT NOT NULL,
   tool TEXT,
   tokens_without INTEGER NOT NULL,
@@ -215,6 +230,9 @@ CREATE TABLE IF NOT EXISTS token_flow_events (
 CREATE INDEX IF NOT EXISTS idx_token_flow_ts ON token_flow_events(ts);
 CREATE INDEX IF NOT EXISTS idx_token_flow_session ON token_flow_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_token_flow_mechanism ON token_flow_events(mechanism);
+-- idx_token_flow_agent is created after reconcileAdditiveColumns runs so
+-- legacy DBs (pre-agent-column) can ALTER first before the index references
+-- the column.
 
 CREATE TABLE IF NOT EXISTS session_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -267,6 +285,7 @@ CREATE TABLE IF NOT EXISTS behavior_events (
   session_id TEXT NOT NULL,
   pid INTEGER NOT NULL,
   turn INTEGER NOT NULL,
+  agent TEXT NOT NULL DEFAULT 'unknown',
   type TEXT NOT NULL,
   tool TEXT,
   entity_key TEXT,
@@ -276,6 +295,7 @@ CREATE TABLE IF NOT EXISTS behavior_events (
 CREATE INDEX IF NOT EXISTS idx_behavior_events_ts ON behavior_events(ts);
 CREATE INDEX IF NOT EXISTS idx_behavior_events_session ON behavior_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_behavior_events_type ON behavior_events(type);
+-- idx_behavior_events_agent: same rationale as the token-flow agent index.
 
 CREATE TABLE IF NOT EXISTS fetch_cache (
   url TEXT PRIMARY KEY,
@@ -315,18 +335,40 @@ const ADDITIVE_COLUMNS: ReadonlyArray<{
   { table: "fetch_cache", column: "og_type", decl: "TEXT" },
   { table: "fetch_cache", column: "site_name", decl: "TEXT" },
   { table: "fetch_cache", column: "favicon", decl: "TEXT" },
+  // Canonical coding-agent attribution stamped on every event row at
+  // write time. Default 'unknown' keeps legacy rows queryable; resolution
+  // chain at the writer (codingAgent flag → clientInfo.name → env) fills
+  // it correctly for every new row.
+  {
+    table: "token_flow_events",
+    column: "agent",
+    decl: "TEXT NOT NULL DEFAULT 'unknown'",
+  },
+  {
+    table: "behavior_events",
+    column: "agent",
+    decl: "TEXT NOT NULL DEFAULT 'unknown'",
+  },
 ];
 
 function reconcileAdditiveColumns(db: DatabaseT): void {
   for (const { table, column, decl } of ADDITIVE_COLUMNS) {
-    const cols = db
-      .prepare(`PRAGMA table_info(${table})`)
-      .all() as Array<{ name: string }>;
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name: string;
+    }>;
     if (cols.length === 0) continue; // table not created yet — SCHEMA already covers it
     if (cols.some((c) => c.name === column)) continue;
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
   }
 }
+
+// Indexes that depend on additive columns. Must run AFTER
+// reconcileAdditiveColumns or legacy DBs (created before the column shipped)
+// fail at startup with `no such column: <name>`.
+const POST_RECONCILE_INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_token_flow_agent ON token_flow_events(agent);
+CREATE INDEX IF NOT EXISTS idx_behavior_events_agent ON behavior_events(agent);
+`;
 
 interface Statements {
   insertCompression: ReturnType<DatabaseT["prepare"]>;
@@ -364,6 +406,7 @@ export class MetricsStore {
     this.db.pragma("foreign_keys = ON");
     this.db.exec(SCHEMA);
     reconcileAdditiveColumns(this.db);
+    this.db.exec(POST_RECONCILE_INDEXES);
     this.db
       .prepare("INSERT OR IGNORE INTO meta(key, value) VALUES (?, ?)")
       .run("schema_version", SCHEMA_VERSION);
@@ -385,16 +428,16 @@ export class MetricsStore {
       `),
       insertTokenFlow: this.db.prepare(`
         INSERT INTO token_flow_events
-          (ts, ts_iso, session_id, pid, turn, mechanism, tool,
+          (ts, ts_iso, session_id, pid, turn, agent, mechanism, tool,
            tokens_without, tokens_with, tokens_saved, detail)
-        VALUES (@ts, @ts_iso, @session_id, @pid, @turn, @mechanism, @tool,
+        VALUES (@ts, @ts_iso, @session_id, @pid, @turn, @agent, @mechanism, @tool,
                 @tokens_without, @tokens_with, @tokens_saved, @detail)
       `),
       insertBehaviorEvent: this.db.prepare(`
         INSERT INTO behavior_events
-          (ts, ts_iso, session_id, pid, turn, type, tool,
+          (ts, ts_iso, session_id, pid, turn, agent, type, tool,
            entity_key, response_bytes, detail)
-        VALUES (@ts, @ts_iso, @session_id, @pid, @turn, @type, @tool,
+        VALUES (@ts, @ts_iso, @session_id, @pid, @turn, @agent, @type, @tool,
                 @entity_key, @response_bytes, @detail)
       `),
       upsertSessionHistory: this.db.prepare(`
@@ -519,7 +562,10 @@ export class MetricsStore {
   }
 
   getFetchCacheRow(url: string): FetchCacheRow | null {
-    return (this.stmt.getFetchCache.get({ url }) as FetchCacheRow | undefined) ?? null;
+    return (
+      (this.stmt.getFetchCache.get({ url }) as FetchCacheRow | undefined) ??
+      null
+    );
   }
 
   bumpFetchCacheHitFor(url: string): void {
@@ -537,11 +583,13 @@ export class MetricsStore {
   }
 
   insertTokenFlow(row: TokenFlowEventInsert): number {
-    return Number(this.stmt.insertTokenFlow.run(row).lastInsertRowid);
+    const withAgent = { ...row, agent: row.agent ?? "unknown" };
+    return Number(this.stmt.insertTokenFlow.run(withAgent).lastInsertRowid);
   }
 
   insertBehaviorEvent(row: BehaviorEventInsert): number {
-    return Number(this.stmt.insertBehaviorEvent.run(row).lastInsertRowid);
+    const withAgent = { ...row, agent: row.agent ?? "unknown" };
+    return Number(this.stmt.insertBehaviorEvent.run(withAgent).lastInsertRowid);
   }
 
   upsertSessionHistory(row: SessionHistoryInsert): void {

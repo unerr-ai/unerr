@@ -1,0 +1,83 @@
+---
+unerr_skill_version: "1.0.0"
+description: "MANDATORY on every user prompt and at every task close — runs the four-moment contract (recall → anchor query → cite → save) and captures durable user-fed facts (remember / always / from now on / never). STEP-1: Moment 1 recall fires on EVERY prompt, no exceptions. STEP-4: save ONLY what is non-obvious + likely useful next session + anchorable. Do NOT save activity logs or generic facts."
+alwaysApply: true
+---
+
+## Iron Law
+
+<EXTREMELY-IMPORTANT>
+On every coding-task prompt the FIRST tool call is `unerr_recall_notes({prompt:'<verbatim user prompt>'})` (Moment 1). When the user says 'remember', 'always', 'from now on', or 'never', capture it via `unerr_remember` BEFORE replying. At task close, save anchored notes only if they pass all three quality gates (non-obvious + useful next session + anchorable).
+</EXTREMELY-IMPORTANT>
+
+## The four moments
+
+**Moment 1 — Prompt receipt.**
+  First tool call on any coding prompt: `unerr_recall_notes({prompt:'<verbatim prompt>'})`. Empty result is fine; the call is the contract.
+
+**Moment 2 — Anchor query.**
+  Once you've identified the files/entities the task will touch: `unerr_recall_notes({anchors:['f:src/x.ts','e:fooBar']})`. Reads return active notes only; topic-shift and co-change groups ride along.
+
+**Moment 3 — Cite in plan.**
+  When drafting the plan, cite returned notes by `kind + anchor` inline. Example: `Per the wrn on src/proxy/proxy.ts, both stdio and UDS sites must mirror.` No citation = the note was not load-bearing.
+
+**Moment 4 — Save at task end.**
+  At task close, write a note ONLY if all three hold:
+    1. Non-obvious — not derivable from the code itself.
+    2. Likely useful next session — would change a future approach.
+    3. Anchorable — fits a file, entity, glob, or (rarely) project-wide.
+  Call: `unerr_remember({type:'note', note:'<DSL wire>', session_id:<sid>})`.
+
+## DSL vocabulary
+
+Wire format: `kind|anchor|polarity|content`
+
+  - kind ∈ {cnv,rul,wrn,dec,blk,fct} — pick the strongest fit.
+  - anchor ∈ {f:<path>, e:<entity>, g:<glob>, p:} — `p:` is project-wide, discouraged.
+  - polarity ∈ {+,-,~} — `~` for ambiguous.
+  - content — single line of prose; may contain `|` (only the first three are field separators).
+
+Examples:
+  - `rul|f:src/proxy/bridge.ts|-|no intelligence imports`
+  - `wrn|g:*.test.ts|-|don't mock cozo db`
+  - `dec|e:TURN_OPEN_GAP_MS|+|15s avoids RTT misclassification`
+
+Session save cap: 15. Over the cap, `unerr_remember` returns `outcome:'rate_limited'` with reinforcement candidates — reinforce instead of writing a new row.
+
+## User-fed memory (capture rule)
+
+Watch every user turn for fact-bearing statements. Triggering phrases:
+  - 'remember (this/that)', 'don't forget', 'keep in mind'
+  - 'from now on', 'going forward', 'always', 'never'
+  - 'the rule is', 'the convention is', 'we use X for Y'
+  - direct assertion of project facts ('X is the canonical Y', 'never edit Z directly')
+
+When you see one, persist it BEFORE replying:
+
+  `unerr_remember({source_quote:'<verbatim user sentence>', content:'<normalised, ≤280 chars>', fact_type:'<procedural|semantic|negative|convention>', scope:'<file_path|entity_key|project>', subject:'<entity/topic>', confidence:<0..1>})`
+
+  - confidence < 0.5  → capture abandoned automatically; ask the user a clarifying question.
+  - 0.5 ≤ confidence < 0.7 → stored ambiguous; expect a follow-up.
+  - confidence ≥ 0.7 → stored cleanly.
+
+Use `unerr_remember` (NOT `record_fact`) whenever the source is the user. Use `record_fact` only when you auto-detected a convention from observed code.
+
+## Session resume
+
+On the first response of a session, watch for `ur|<tag>` continuity lines on early tool responses:
+  - `ur|ctx` — session degraded, consider starting fresh.
+  - `ur|ctx` — drift on previously modified files (re-read before editing).
+  - `ur|rsk` — prior failures on this entity (read failure modes carefully).
+  - `ur|fct` — episodic facts about prior modifications.
+
+Build on prior work; don't re-explore what was already understood.
+
+## Red Flags
+
+Drafting code before `unerr_recall_notes` on Moment 1 → restart the turn at recall.
+Treating a recalled note as a soft preference → notes are user-fed rules; they override auto-detected conventions.
+Bundling Surface 4b ('added that to unerr') into the end-of-turn summary → emit inline at the capture moment.
+Saving a note that is obvious from the code → fails the quality bar; don't save.
+Using `p:` anchor for a fact that fits a file or entity → pollutes prompt-receipt query; use the narrower anchor.
+Skipping `unerr_remember` after the user said 'remember' → loses the fact; capture before replying.
+Using `record_fact` for a user-fed rule → wrong tool; `unerr_remember` is for user-sourced facts.

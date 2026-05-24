@@ -15,6 +15,11 @@
  * Fallback: Claude Code (most common MCP hook consumer).
  */
 
+import {
+  consumeAnyPendingTopicShift,
+  setPendingTopicShift,
+} from "../intelligence/topic-shift.js";
+import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { claudeCodeAdapter } from "./adapters/claude-code.js";
 import { clineAdapter } from "./adapters/cline.js";
 import { cursorAdapter } from "./adapters/cursor.js";
@@ -22,16 +27,24 @@ import { cursorAdapter } from "./adapters/cursor.js";
 // ── Types ────────────────────────────────────────────────────────────
 
 /** Hook event categories. */
-export type HookEvent = "PreToolUse" | "PostToolUse" | "UserPromptSubmit";
+export type HookEvent =
+  | "PreToolUse"
+  | "PostToolUse"
+  | "UserPromptSubmit"
+  | "SessionStart";
+
+/** SessionStart matcher — Claude Code emits one of these per session boot. */
+export type SessionStartMatcher = "startup" | "resume" | "clear" | "compact";
 
 /**
  * Agent-agnostic hook result returned by handler functions.
  * Adapters convert this to their agent's wire format.
  */
 export interface HookResult {
-  /** passthrough = no-op, nudge = advisory message, rewrite = change input, enrich = add context */
-  action: "passthrough" | "nudge" | "rewrite" | "enrich";
-  /** Advisory or enrichment message (used by nudge + enrich). */
+  /** passthrough = no-op, nudge = advisory message, rewrite = change
+   *  input, enrich = add context, deny = block the tool call outright. */
+  action: "passthrough" | "nudge" | "rewrite" | "enrich" | "deny";
+  /** Advisory, enrichment, or deny reason (used by nudge + enrich + deny). */
   message?: string;
   /** Rewritten tool input (used by rewrite). */
   updatedInput?: Record<string, unknown>;
@@ -77,6 +90,11 @@ export interface HookAdapter {
 
   /** Format a UserPromptSubmit hook result into agent-specific stdout JSON. */
   formatPromptSubmit(result: HookResult): string;
+
+  /** Format a SessionStart hook result into agent-specific stdout JSON.
+   *  Adapters without a session-start equivalent should return "{}" — the
+   *  resume strip falls back to first-tool-call injection in that case. */
+  formatSessionStart(result: HookResult): string;
 }
 
 // ── Adapter Registry ─────────────────────────────────────────────────
@@ -138,7 +156,8 @@ export function runPreToolUseHook(
   const normalized = adapter.normalize(payload);
   normalized.agentName = adapter.name;
   const result = handler(normalized);
-  return adapter.formatPreToolUse(result);
+  const augmented = augmentForAmbientPreInjection(normalized, result);
+  return adapter.formatPreToolUse(augmented);
 }
 
 /**
@@ -175,6 +194,27 @@ export function runPromptSubmitHook(
   return adapter.formatPromptSubmit(result);
 }
 
+/**
+ * Run a SessionStart hook through the universal runner. Currently only
+ * Claude Code implements a meaningful SessionStart format; Cursor/Cline
+ * adapters return "{}" and the resume strip falls back to first-tool-call
+ * injection (Surface 1) for those clients.
+ */
+export function runSessionStartHook(
+  stdinJson: string,
+  handler: HookHandler
+): string {
+  const payload = parseStdin(stdinJson);
+  if (!payload) return "{}";
+
+  const adapter = detectAdapter(payload);
+  const normalized = adapter.normalize(payload);
+  normalized.agentName = adapter.name;
+  normalized.event = "SessionStart";
+  const result = handler(normalized);
+  return adapter.formatSessionStart(result);
+}
+
 // ── Convenience Constructors ─────────────────────────────────────────
 
 /** Create a passthrough result. */
@@ -195,4 +235,102 @@ export function rewrite(updatedInput: Record<string, unknown>): HookResult {
 /** Create an enrich (additionalContext) result. */
 export function enrich(message: string): HookResult {
   return { action: "enrich", message };
+}
+
+/** Create a deny result — blocks the tool call. The `reason` is shown
+ *  to the agent so it knows why the call was rejected and what to do
+ *  instead. Adapters that lack a true deny channel fall back to a
+ *  strongly-worded nudge. */
+export function deny(reason: string): HookResult {
+  return { action: "deny", message: reason };
+}
+
+// ── Ambient PreToolUse injection (non-Claude-Code agents) ─────────────
+//
+// Claude Code receives the topic-shift signal + mark_intent reminder
+// via UserPromptSubmit `additionalContext` (see prompt-hooks.ts). Cursor
+// and Cline have no UserPromptSubmit injection channel — their only
+// ambient surface is `agent_message` / `context` on PreToolUse. To keep
+// the topic-shift + mark_intent contract working across all clients, we
+// drain those signals into the FIRST PreToolUse result of the session
+// for non-Claude-Code agents.
+
+/** Build the ambient prefix for non-Claude-Code agents. Returns an
+ *  empty string when nothing is pending. */
+function buildAmbientPreInjection(): string {
+  const lines: string[] = [];
+
+  // mark_intent one-shot reminder. Fires AT MOST once per session (the
+  // `mark_intent_emitted` flag gates re-emission) so we don't argue
+  // with the agent across every tool call.
+  try {
+    const cwd = process.cwd();
+    const state = readNudgeState(cwd);
+    if (!state.mark_intent_emitted) {
+      updateNudgeState(cwd, (s) => {
+        s.mark_intent_emitted = true;
+      });
+      lines.push(
+        "ur|act before continuing, call `mark_intent({text:'<one-sentence summary>'})` if this turn is a coding task (implement/fix/refactor/build). Skip for pure read-only questions."
+      );
+    }
+  } catch {
+    /* nudge-state unavailable — skip */
+  }
+
+  // Topic-shift reminder — drains any pending signal stashed by the
+  // last recall_notes call.
+  try {
+    const shift = consumeAnyPendingTopicShift();
+    if (shift?.flag) {
+      const pct = Math.round(shift.overlap * 100);
+      lines.push(
+        `ur|fct topic-shift detected (overlap ${pct}%) — call unerr_recall_notes({prompt:"<recent user prompt>"}) before continuing to load fresh anchors`
+      );
+    }
+  } catch {
+    /* topic-shift module unavailable — skip */
+  }
+  return lines.join("\n");
+}
+
+/** Splice the ambient prefix into a PreToolUse HookResult. Used only
+ *  for non-Claude-Code agents (Cursor, Cline). Promotes passthrough →
+ *  nudge when there's content to deliver. */
+function augmentForAmbientPreInjection(
+  normalized: NormalizedPayload,
+  result: HookResult
+): HookResult {
+  if (normalized.agentName === "claude-code") return result;
+  const prefix = buildAmbientPreInjection();
+  if (prefix.length === 0) return result;
+
+  // Don't override a deny — that decision is load-bearing. Topic-shift
+  // can ride on the next PreToolUse after the deny is acknowledged.
+  if (result.action === "deny") return result;
+
+  if (result.action === "passthrough") {
+    return { action: "nudge", message: prefix };
+  }
+  if (result.action === "rewrite") {
+    // Rewrites don't carry a message — a separate nudge frame is not
+    // possible. Re-queue the prefix by re-stashing the topic-shift so
+    // the next PreToolUse gets it. Best-effort with a sentinel session
+    // id; precision lost is acceptable — the signal still surfaces on
+    // the next call.
+    try {
+      setPendingTopicShift("__ambient_requeue__", {
+        flag: true,
+        overlap: 0,
+      });
+    } catch {
+      /* ignore */
+    }
+    return result;
+  }
+  const existing = result.message ?? "";
+  return {
+    ...result,
+    message: existing.length > 0 ? `${prefix}\n${existing}` : prefix,
+  };
 }

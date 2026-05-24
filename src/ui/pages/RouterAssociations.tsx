@@ -35,7 +35,11 @@ interface AssociationsResponse {
   data: AssociationData | null;
 }
 
-function QualityDistribution({ high, medium, low }: { high: number; medium: number; low: number }) {
+function QualityDistribution({
+  high,
+  medium,
+  low,
+}: { high: number; medium: number; low: number }) {
   const total = high + medium + low;
   if (total === 0) return null;
 
@@ -44,45 +48,79 @@ function QualityDistribution({ high, medium, low }: { high: number; medium: numb
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">Quality Distribution</p>
+      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">
+        Quality Distribution
+      </p>
       <div className="h-4 w-full rounded-full overflow-hidden bg-zinc-800 flex">
         {highPct > 0 && (
-          <div className="bg-emerald-500 transition-all" style={{ width: `${highPct}%` }} title={`High: ${high}`} />
+          <div
+            className="bg-emerald-500 transition-all"
+            style={{ width: `${highPct}%` }}
+            title={`High: ${high}`}
+          />
         )}
         {medPct > 0 && (
-          <div className="bg-amber-500 transition-all" style={{ width: `${medPct}%` }} title={`Medium: ${medium}`} />
+          <div
+            className="bg-amber-500 transition-all"
+            style={{ width: `${medPct}%` }}
+            title={`Medium: ${medium}`}
+          />
         )}
         {total - high - medium > 0 && (
-          <div className="bg-red-500/50 transition-all flex-1" title={`Low: ${low}`} />
+          <div
+            className="bg-red-500/50 transition-all flex-1"
+            title={`Low: ${low}`}
+          />
         )}
       </div>
       <div className="mt-2 flex items-center gap-4 text-xs text-zinc-500">
-        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500" />{high} high</span>
-        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />{medium} medium</span>
-        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-red-500/50" />{low} low</span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          {high} high
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-amber-500" />
+          {medium} medium
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-red-500/50" />
+          {low} low
+        </span>
       </div>
     </div>
   );
 }
 
-function BreakdownTable({ title, data }: { title: string; data: Record<string, number> }) {
+function BreakdownTable({
+  title,
+  data,
+}: { title: string; data: Record<string, number> }) {
   const entries = Object.entries(data).sort(([, a], [, b]) => b - a);
   if (entries.length === 0) return null;
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">{title}</p>
+      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">
+        {title}
+      </p>
       <div className="space-y-2">
         {entries.map(([key, count]) => {
           const maxCount = entries[0][1];
           const pct = (count / maxCount) * 100;
           return (
             <div key={key} className="flex items-center gap-3">
-              <span className="text-xs font-mono text-zinc-300 w-28 truncate">{key}</span>
+              <span className="text-xs font-mono text-zinc-300 w-28 truncate">
+                {key}
+              </span>
               <div className="flex-1 h-2 rounded-full bg-zinc-800">
-                <div className="h-2 rounded-full bg-violet-500/70" style={{ width: `${pct}%` }} />
+                <div
+                  className="h-2 rounded-full bg-violet-500/70"
+                  style={{ width: `${pct}%` }}
+                />
               </div>
-              <span className="text-xs text-zinc-500 tabular-nums w-8 text-right">{count}</span>
+              <span className="text-xs text-zinc-500 tabular-nums w-8 text-right">
+                {count}
+              </span>
             </div>
           );
         })}
@@ -113,11 +151,13 @@ export function RouterAssociationsPage() {
   if (!assoc) {
     return (
       <div className="space-y-6">
-        <h2 className="text-lg font-semibold text-zinc-100">Intelligence Associations</h2>
+        <h2 className="text-lg font-semibold text-zinc-100">
+          Intelligence Associations
+        </h2>
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6 text-center">
           <p className="text-sm text-zinc-400">
             No association data yet. Associations are detected when a signal
-            (like ur|rsk or ur|hnt) precedes a tool call within a 3-turn window.
+            (like ur|rsk or ur|fct) precedes a tool call within a 3-turn window.
           </p>
         </div>
       </div>
@@ -129,29 +169,51 @@ export function RouterAssociationsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-zinc-100">Intelligence Associations</h2>
+        <h2 className="text-lg font-semibold text-zinc-100">
+          Intelligence Associations
+        </h2>
         <span className="text-xs text-zinc-500">{weekLabel}</span>
       </div>
 
       {/* Top stats */}
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-          <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Total Associations</p>
-          <p className="mt-2 text-2xl font-bold text-violet-400 tabular-nums">{assoc.totalAssociations}</p>
+          <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            Total Associations
+          </p>
+          <p className="mt-2 text-2xl font-bold text-violet-400 tabular-nums">
+            {assoc.totalAssociations}
+          </p>
         </div>
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-          <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Driver %</p>
-          <p className="mt-2 text-2xl font-bold text-cyan-400 tabular-nums">{Math.round(assoc.driverPercentage * 100)}%</p>
-          <p className="mt-1 text-xs text-zinc-500">of calls intelligence-driven</p>
+          <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            Driver %
+          </p>
+          <p className="mt-2 text-2xl font-bold text-cyan-400 tabular-nums">
+            {Math.round(assoc.driverPercentage * 100)}%
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            of calls intelligence-driven
+          </p>
         </div>
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-          <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">High-Quality</p>
-          <p className="mt-2 text-2xl font-bold text-emerald-400 tabular-nums">{assoc.highQualityCount}</p>
-          <p className="mt-1 text-xs text-zinc-500">successful driven outcomes</p>
+          <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            High-Quality
+          </p>
+          <p className="mt-2 text-2xl font-bold text-emerald-400 tabular-nums">
+            {assoc.highQualityCount}
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            successful driven outcomes
+          </p>
         </div>
       </div>
 
-      <QualityDistribution high={assoc.highQualityCount} medium={assoc.mediumQualityCount} low={assoc.lowQualityCount} />
+      <QualityDistribution
+        high={assoc.highQualityCount}
+        medium={assoc.mediumQualityCount}
+        low={assoc.lowQualityCount}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <BreakdownTable title="By Trigger Type" data={assoc.byTriggerType} />
@@ -162,7 +224,9 @@ export function RouterAssociationsPage() {
       {assoc.topAssociations.length > 0 && (
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 overflow-hidden">
           <div className="px-4 py-3 border-b border-zinc-800">
-            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Top Associations</p>
+            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+              Top Associations
+            </p>
           </div>
           <table className="w-full text-sm">
             <thead>
@@ -177,17 +241,29 @@ export function RouterAssociationsPage() {
               {assoc.topAssociations.map((a, i) => (
                 <tr key={i}>
                   <td className="px-4 py-2.5 text-xs">
-                    <span className="font-mono text-violet-400">{a.triggerType}</span>
-                    <span className="text-zinc-500 ml-1">{a.triggerDetail}</span>
+                    <span className="font-mono text-violet-400">
+                      {a.triggerType}
+                    </span>
+                    <span className="text-zinc-500 ml-1">
+                      {a.triggerDetail}
+                    </span>
                   </td>
-                  <td className="px-4 py-2.5 text-xs font-mono text-cyan-400">{a.family}</td>
-                  <td className="px-4 py-2.5 text-xs text-right tabular-nums">{a.count}</td>
+                  <td className="px-4 py-2.5 text-xs font-mono text-cyan-400">
+                    {a.family}
+                  </td>
                   <td className="px-4 py-2.5 text-xs text-right tabular-nums">
-                    <span className={`${
-                      a.avgQuality >= 0.7 ? "text-emerald-400" :
-                      a.avgQuality >= 0.4 ? "text-amber-400" :
-                      "text-red-400"
-                    }`}>
+                    {a.count}
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-right tabular-nums">
+                    <span
+                      className={`${
+                        a.avgQuality >= 0.7
+                          ? "text-emerald-400"
+                          : a.avgQuality >= 0.4
+                            ? "text-amber-400"
+                            : "text-red-400"
+                      }`}
+                    >
                       {Math.round(a.avgQuality * 100)}%
                     </span>
                   </td>

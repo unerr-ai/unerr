@@ -1,15 +1,15 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ProxiedServerConfig } from "../config/router-config-writer.js";
+import { CircuitBreaker } from "../router/circuit-breaker.js";
 import { ConnectionManager } from "../router/client/connection-manager.js";
-import { SchemaCache } from "../router/client/schema-cache.js";
 import { Forwarder } from "../router/client/forwarder.js";
 import { HealthChecker } from "../router/client/health.js";
-import { CircuitBreaker } from "../router/circuit-breaker.js";
-import type { ProxiedServerConfig } from "../config/router-config-writer.js";
+import { SchemaCache } from "../router/client/schema-cache.js";
 import type {
-  McpTransport,
   JsonRpcRequest,
   JsonRpcResponse,
+  McpTransport,
   TransportState,
 } from "../router/client/transport.js";
 
@@ -40,7 +40,11 @@ class MockTransport implements McpTransport {
       return {
         jsonrpc: "2.0",
         id: request.id,
-        result: { tools: [{ name: `${this.id}_tool`, description: `Tool from ${this.id}` }] },
+        result: {
+          tools: [
+            { name: `${this.id}_tool`, description: `Tool from ${this.id}` },
+          ],
+        },
       };
     }
 
@@ -49,7 +53,9 @@ class MockTransport implements McpTransport {
       return {
         jsonrpc: "2.0",
         id: request.id,
-        result: { content: [{ type: "text", text: `[${this.id}] OK: ${params.name}` }] },
+        result: {
+          content: [{ type: "text", text: `[${this.id}] OK: ${params.name}` }],
+        },
       };
     }
 
@@ -57,7 +63,11 @@ class MockTransport implements McpTransport {
       return { jsonrpc: "2.0", id: request.id, result: {} };
     }
 
-    return { jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Unknown" } };
+    return {
+      jsonrpc: "2.0",
+      id: request.id,
+      error: { code: -32601, message: "Unknown" },
+    };
   }
 
   async close(): Promise<void> {
@@ -65,16 +75,17 @@ class MockTransport implements McpTransport {
   }
 }
 
-function createMockCM(
-  mocks: Map<string, MockTransport>,
-): ConnectionManager {
+function createMockCM(mocks: Map<string, MockTransport>): ConnectionManager {
   const cm = new ConnectionManager();
 
   cm.connectAll = async (configs: readonly ProxiedServerConfig[]) => {
     const failures: string[] = [];
     for (const config of configs) {
       const mock = mocks.get(config.name);
-      if (!mock) { failures.push(config.name); continue; }
+      if (!mock) {
+        failures.push(config.name);
+        continue;
+      }
 
       const managed = {
         config,
@@ -104,7 +115,13 @@ function createMockCM(
 }
 
 function makeConfig(name: string): ProxiedServerConfig {
-  return { name, alias: name.slice(0, 2), command: "mock", args: [], sourceAgent: "test" };
+  return {
+    name,
+    alias: name.slice(0, 2),
+    command: "mock",
+    args: [],
+    sourceAgent: "test",
+  };
 }
 
 describe("Router Failure Isolation", () => {
@@ -121,7 +138,11 @@ describe("Router Failure Isolation", () => {
     ]);
 
     cm = createMockCM(mocks);
-    await cm.connectAll([makeConfig("server-a"), makeConfig("server-b"), makeConfig("server-c")]);
+    await cm.connectAll([
+      makeConfig("server-a"),
+      makeConfig("server-b"),
+      makeConfig("server-c"),
+    ]);
 
     schemaCache = new SchemaCache(cm);
     forwarder = new Forwarder(cm);
@@ -166,7 +187,11 @@ describe("Router Failure Isolation", () => {
     const bTransport = mocks.get("server-b")!;
     bTransport.sendShouldFail = true;
 
-    const refreshed = await schemaCache.fetchAll(["server-a", "server-b", "server-c"]);
+    const refreshed = await schemaCache.fetchAll([
+      "server-a",
+      "server-b",
+      "server-c",
+    ]);
     expect(refreshed.get("server-a")).toBeDefined();
     expect(refreshed.get("server-b")).toBeUndefined();
     expect(refreshed.get("server-c")).toBeDefined();
@@ -219,7 +244,7 @@ describe("Circuit Breaker", () => {
         onRecover: () => recoverCount++,
       },
       3,
-      100,
+      100
     );
   });
 
@@ -282,7 +307,7 @@ describe("Circuit Breaker", () => {
 
     const result = await breaker.execute(
       async () => "real",
-      () => "fallback",
+      () => "fallback"
     );
     expect(result).toBe("fallback");
   });
@@ -290,7 +315,7 @@ describe("Circuit Breaker", () => {
   it("execute() uses real function when closed", async () => {
     const result = await breaker.execute(
       async () => "real",
-      () => "fallback",
+      () => "fallback"
     );
     expect(result).toBe("real");
   });
@@ -298,8 +323,10 @@ describe("Circuit Breaker", () => {
   it("execute() records failure on throw", async () => {
     try {
       await breaker.execute(
-        async () => { throw new Error("boom"); },
-        () => "fallback",
+        async () => {
+          throw new Error("boom");
+        },
+        () => "fallback"
       );
     } catch {
       // expected
@@ -339,7 +366,10 @@ describe("Health Checker", () => {
     ]);
 
     cm = createMockCM(mocks);
-    await cm.connectAll([makeConfig("healthy-server"), makeConfig("flaky-server")]);
+    await cm.connectAll([
+      makeConfig("healthy-server"),
+      makeConfig("flaky-server"),
+    ]);
 
     schemaCache = new SchemaCache(cm);
     healthChecker = new HealthChecker(cm, schemaCache, 60_000);

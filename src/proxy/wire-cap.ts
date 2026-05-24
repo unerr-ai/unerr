@@ -21,6 +21,8 @@
  * proxy.ts, AFTER buildSignalPrefix but BEFORE serialization.
  */
 
+import { toWireTag } from "./response-envelope.js";
+
 export interface WireCapResult {
   /** Possibly-truncated body — still the same JSON shape, smaller arrays. */
   body: unknown;
@@ -186,7 +188,7 @@ function buildPageHint(
       typeof args.offset === "number" && args.offset >= 0 ? args.offset : 0;
     nextCursor = curOffset + delivered;
   }
-  return `ur|pg ${toolName} +${remaining} — ${cursorArg}:${nextCursor}${filter}`;
+  return `ur|${toWireTag("pg")} ${toolName} +${remaining} — ${cursorArg}:${nextCursor}${filter}`;
 }
 
 /**
@@ -389,6 +391,6 @@ function enforceByteCap(
   if (entityArg) {
     oversize.entity = entityArg;
   }
-  const overHint = `ur|pg ${toolName} ${serialized.length}B>${byteCap}B (≈${neededTokens}tok) — ${hintTail}`;
+  const overHint = `ur|${toWireTag("pg")} ${toolName} ${serialized.length}B>${byteCap}B (≈${neededTokens}tok) — ${hintTail}`;
   return { body: oversize, pageHint: overHint };
 }

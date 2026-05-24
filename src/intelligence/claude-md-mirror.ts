@@ -51,7 +51,9 @@ export interface PromoteResult {
 /** Render one note as a CLAUDE.md bullet. Pure. Stable formatting. */
 export function renderNoteBullet(note: StoredNote): string {
   const anchorPart =
-    note.anchor_type === "p" ? "project-wide" : `${note.anchor_type}:${note.anchor_value}`;
+    note.anchor_type === "p"
+      ? "project-wide"
+      : `${note.anchor_type}:${note.anchor_value}`;
   const polarity =
     note.polarity === "+" ? "do" : note.polarity === "-" ? "don't" : "mixed";
   return `- [${note.kind}|${polarity}|${anchorPart}] ${note.content} <!-- ${note.note_id} -->`;
@@ -60,10 +62,7 @@ export function renderNoteBullet(note: StoredNote): string {
 /** Render the sentinel-bounded block including a stable header line. */
 export function renderBlock(notes: readonly StoredNote[]): string {
   const bullets = notes.map(renderNoteBullet).join("\n");
-  const body =
-    notes.length === 0
-      ? "_(no promoted notes)_"
-      : bullets;
+  const body = notes.length === 0 ? "_(no promoted notes)_" : bullets;
   return `${SENTINEL_OPEN}\n## Project notes (synced from unerr)\n\n${body}\n${SENTINEL_CLOSE}`;
 }
 
@@ -108,7 +107,10 @@ export function promoteNotesToClaudeMd(input: PromoteInput): PromoteResult {
 function extractBlock(source: string): string | null {
   const openIdx = source.indexOf(SENTINEL_OPEN);
   if (openIdx === -1) return null;
-  const closeIdx = source.indexOf(SENTINEL_CLOSE, openIdx + SENTINEL_OPEN.length);
+  const closeIdx = source.indexOf(
+    SENTINEL_CLOSE,
+    openIdx + SENTINEL_OPEN.length
+  );
   if (closeIdx === -1) return null;
   return source.slice(openIdx, closeIdx + SENTINEL_CLOSE.length);
 }
@@ -116,7 +118,10 @@ function extractBlock(source: string): string | null {
 /** Replace the sentinel block in `source` with `newBlock`. Caller has verified existence. */
 function replaceBlock(source: string, newBlock: string): string {
   const openIdx = source.indexOf(SENTINEL_OPEN);
-  const closeIdx = source.indexOf(SENTINEL_CLOSE, openIdx + SENTINEL_OPEN.length);
+  const closeIdx = source.indexOf(
+    SENTINEL_CLOSE,
+    openIdx + SENTINEL_OPEN.length
+  );
   return (
     source.slice(0, openIdx) +
     newBlock +

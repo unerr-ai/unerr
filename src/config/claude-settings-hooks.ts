@@ -11,7 +11,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
 /** Hook event type. */
-type HookEvent = "PreToolUse" | "PostToolUse" | "UserPromptSubmit";
+type HookEvent =
+  | "PreToolUse"
+  | "PostToolUse"
+  | "UserPromptSubmit"
+  | "SessionStart";
 
 /**
  * Resolve the absolute path to the `unerr` binary.
@@ -96,6 +100,13 @@ function buildMatcherHooks(): {
       command: `${bin} hook post-write`,
     },
     { event: "PostToolUse", matcher: "Edit", command: `${bin} hook post-edit` },
+    // SessionStart — emits resume strip on session boot. Matcher alternation
+    // fires for all four start modes (startup, resume, clear, compact).
+    {
+      event: "SessionStart",
+      matcher: "startup|resume|clear|compact",
+      command: `${bin} hook session-start`,
+    },
   ];
 }
 
@@ -163,6 +174,7 @@ export function mergePreToolUseBashHook(cwd: string): MergePreToolResult {
       "PreToolUse",
       "PostToolUse",
       "UserPromptSubmit",
+      "SessionStart",
     ] as HookEvent[]) {
       if (Array.isArray(hooks[eventType])) {
         hooks[eventType] = (hooks[eventType] as unknown[]).filter(
@@ -356,6 +368,7 @@ export function removePreToolUseBashHook(cwd: string): boolean {
       "PreToolUse",
       "PostToolUse",
       "UserPromptSubmit",
+      "SessionStart",
     ];
 
     for (const eventType of eventTypes) {

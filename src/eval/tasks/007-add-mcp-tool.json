@@ -3,6 +3,11 @@
   "title": "Add a new MCP tool to the unerr-cli proxy",
   "repo": "self",
   "prompt": "Add a new MCP tool 'get_recent_changes' to the unerr-cli proxy that returns the last N commits touching a given file. Wire it through the query router and add tests.",
-  "exercises": ["prompt_receipt_query", "anchor_query", "cite_in_plan", "save_at_task_end"],
+  "exercises": [
+    "prompt_receipt_query",
+    "anchor_query",
+    "cite_in_plan",
+    "save_at_task_end"
+  ],
   "assertions": []
 }

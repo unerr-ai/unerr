@@ -19,6 +19,7 @@
  *   mark_resolution  ≤ 140 chars
  */
 
+import { updateNudgeState } from "../../proxy/nudge-state.js";
 import type { CozoTimelineStore } from "../../timeline/timeline-store.js";
 import type { ShadowLedger } from "../../tracking/shadow-ledger.js";
 
@@ -147,6 +148,19 @@ export async function handleMarkerCall(
       `[unerr:timeline-markers] WARN: insertMarker failed: ${err instanceof Error ? err.message : String(err)}\n`
     );
     // Continue: ledger row already persisted, miners can still recover from it.
+  }
+
+  // Compliance telemetry: pair every successful mark_intent with the
+  // required-count tick the prompt hook emits (#109). Best-effort —
+  // counter drift is preferable to crashing the marker call.
+  if (toolName === "mark_intent") {
+    try {
+      updateNudgeState(process.cwd(), (s) => {
+        s.mark_intent_compliant_count += 1;
+      });
+    } catch {
+      /* best effort */
+    }
   }
 
   return {

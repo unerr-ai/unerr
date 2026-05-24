@@ -80,6 +80,13 @@ export const clineAdapter: HookAdapter = {
       return JSON.stringify({ allow: true });
     }
 
+    if (result.action === "deny") {
+      return JSON.stringify({
+        allow: false,
+        reason: result.message ?? "Blocked by unerr policy.",
+      });
+    }
+
     if (result.action === "nudge" && result.message) {
       return JSON.stringify({
         allow: true,
@@ -118,6 +125,12 @@ export const clineAdapter: HookAdapter = {
       return JSON.stringify({ context: result.message });
     }
 
+    return "{}";
+  },
+
+  formatSessionStart(_result: HookResult): string {
+    // Cline has no SessionStart equivalent — the resume strip falls back
+    // to first-tool-call injection via Surface 1.
     return "{}";
   },
 };

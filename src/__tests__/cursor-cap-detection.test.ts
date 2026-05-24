@@ -1,15 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
-  analyzeToolCaps,
   type IdeConfigResult,
   type ToolCapAnalysis,
+  analyzeToolCaps,
 } from "../config/ide-mcp-inspector.js";
 
 function makeConfig(
   agentId: string,
   servers: { name: string; toolCount?: number }[],
-  agentName = "Cursor",
+  agentName = "Cursor"
 ): IdeConfigResult {
   return {
     agentId,
@@ -87,7 +87,11 @@ describe("Cursor 40-tool cap detection", () => {
 
   it("returns null cap for unknown agents", () => {
     const configs = [
-      makeConfig("claude-code", [{ name: "github", toolCount: 100 }], "Claude Code"),
+      makeConfig(
+        "claude-code",
+        [{ name: "github", toolCount: 100 }],
+        "Claude Code"
+      ),
     ];
 
     const results = analyzeToolCaps(configs);
@@ -124,7 +128,11 @@ describe("Cursor 40-tool cap detection", () => {
         { name: "github", toolCount: 25 },
         { name: "postgres", toolCount: 20 },
       ]),
-      makeConfig("claude-code", [{ name: "github", toolCount: 100 }], "Claude Code"),
+      makeConfig(
+        "claude-code",
+        [{ name: "github", toolCount: 100 }],
+        "Claude Code"
+      ),
     ];
 
     const results = analyzeToolCaps(configs);

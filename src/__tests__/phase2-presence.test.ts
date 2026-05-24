@@ -173,7 +173,11 @@ describe("unerr_remember (executeUnerrRemember)", () => {
       expect(res.ambiguity_flag).toBe(false);
       expect(res.echo_summary).not.toContain("needs confirmation");
     }
-    expect(events.record).not.toHaveBeenCalled();
+    // A clean store emits exactly one fact_stored_user_fed behavior event.
+    expect(events.record).toHaveBeenCalledTimes(1);
+    expect(events.record).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "fact_stored_user_fed" })
+    );
   });
 
   it("registers a pending confirmation when ambiguous and clears it when confident", async () => {

@@ -12,9 +12,9 @@
  */
 
 import type {
+  JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
-  JsonRpcNotification,
   McpTransport,
   SseTransportConfig,
   TransportState,
@@ -59,7 +59,9 @@ export class SseTransport implements McpTransport {
       });
 
       if (!response.ok) {
-        throw new Error(`SSE connect failed: ${response.status} ${response.statusText}`);
+        throw new Error(
+          `SSE connect failed: ${response.status} ${response.statusText}`
+        );
       }
 
       this.setState("connected");
@@ -81,7 +83,9 @@ export class SseTransport implements McpTransport {
     return new Promise<JsonRpcResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(request.id);
-        reject(new Error(`[${this.config.serverId}] request ${request.id} timed out`));
+        reject(
+          new Error(`[${this.config.serverId}] request ${request.id} timed out`)
+        );
       }, REQUEST_TIMEOUT_MS);
 
       this.pending.set(request.id, { resolve, reject, timer });
@@ -93,13 +97,19 @@ export class SseTransport implements McpTransport {
       }).catch((err) => {
         clearTimeout(timer);
         this.pending.delete(request.id);
-        reject(new Error(`[${this.config.serverId}] POST error: ${(err as Error).message}`));
+        reject(
+          new Error(
+            `[${this.config.serverId}] POST error: ${(err as Error).message}`
+          )
+        );
       });
     });
   }
 
   async close(): Promise<void> {
-    this.rejectAllPending(new Error(`[${this.config.serverId}] SSE transport closing`));
+    this.rejectAllPending(
+      new Error(`[${this.config.serverId}] SSE transport closing`)
+    );
     this.abortController?.abort();
     this.abortController = null;
     this.postEndpoint = null;
@@ -175,7 +185,9 @@ export class SseTransport implements McpTransport {
         pending.resolve(msg as unknown as JsonRpcResponse);
       }
     } else if ("method" in msg) {
-      this.config.events.onNotification?.(msg as unknown as JsonRpcNotification);
+      this.config.events.onNotification?.(
+        msg as unknown as JsonRpcNotification
+      );
     }
   }
 

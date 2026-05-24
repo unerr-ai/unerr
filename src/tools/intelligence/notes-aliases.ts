@@ -21,7 +21,7 @@ import type {
   NotePolarity,
 } from "../../intelligence/note-dsl.js";
 import type { NotesStore } from "../../intelligence/notes-store.js";
-import { recallNotes, remember, type ToolResult } from "./notes-mcp.js";
+import { type ToolResult, recallNotes, remember } from "./notes-mcp.js";
 
 export interface LegacyRememberInput {
   /** Free-form sentence the user said. Required. */
@@ -72,7 +72,7 @@ export function inferDslFromLegacy(input: {
   const text = (input.content ?? input.source_quote ?? "").trim();
   if (text.length === 0) {
     throw new Error(
-      "legacy alias: source_quote OR content is required to infer DSL",
+      "legacy alias: source_quote OR content is required to infer DSL"
     );
   }
   const kind = inferKind(input.fact_type);
@@ -123,7 +123,7 @@ function inferPolarity(text: string): NotePolarity {
 /** Legacy `unerr_remember(source_quote, content, …)` → new note path. */
 export async function legacyRemember(
   store: NotesStore,
-  input: LegacyRememberInput,
+  input: LegacyRememberInput
 ): Promise<ToolResult<unknown>> {
   if ((input.confidence ?? 1) < 0.5) {
     return {
@@ -143,7 +143,7 @@ export async function legacyRemember(
 /** Legacy `record_fact(scope, content, fact_type)` → new note path. */
 export async function legacyRecordFact(
   store: NotesStore,
-  input: LegacyRecordFactInput,
+  input: LegacyRecordFactInput
 ): Promise<ToolResult<unknown>> {
   const wire = inferDslFromLegacy({
     content: input.content,
@@ -160,7 +160,7 @@ export async function legacyRecordFact(
 /** Legacy `recall_facts(scope, fact_type)` → new recall_notes path. */
 export async function legacyRecallFacts(
   store: NotesStore,
-  input: LegacyRecallFactsInput,
+  input: LegacyRecallFactsInput
 ): Promise<ToolResult<unknown>> {
   if (input.scope && input.scope.length > 0) {
     const anchor = inferAnchor(input.scope);

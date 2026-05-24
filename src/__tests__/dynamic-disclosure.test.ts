@@ -1,14 +1,17 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { NotificationEmitter, type NotificationSender } from "../router/notifications.js";
+import { type AliasRegistry, createAliasRegistry } from "../router/aliasing.js";
+import type { JsonRpcNotification } from "../router/client/transport.js";
+import { UnlockDispatcher } from "../router/dispatch.js";
+import {
+  NotificationEmitter,
+  type NotificationSender,
+} from "../router/notifications.js";
 import {
   ExposureTracker,
-  buildToolsList,
   type ToolDefinition,
+  buildToolsList,
 } from "../router/tools-list.js";
-import { UnlockDispatcher } from "../router/dispatch.js";
-import { AliasRegistry, createAliasRegistry } from "../router/aliasing.js";
-import type { JsonRpcNotification } from "../router/client/transport.js";
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -37,8 +40,16 @@ function makeAliasRegistry(): AliasRegistry {
 }
 
 const UNERR_TOOLS: ToolDefinition[] = [
-  { name: "search_code", description: "Search code", inputSchema: { type: "object" } },
-  { name: "file_read", description: "Read file", inputSchema: { type: "object" } },
+  {
+    name: "search_code",
+    description: "Search code",
+    inputSchema: { type: "object" },
+  },
+  {
+    name: "file_read",
+    description: "Read file",
+    inputSchema: { type: "object" },
+  },
 ];
 
 // ── NotificationEmitter ──────────────────────────────────────────
@@ -121,7 +132,9 @@ describe("NotificationEmitter", () => {
   it("detects stale list after 5s without refetch", () => {
     let staleCount = 0;
     const emitter = new NotificationEmitter(sender, {
-      onStaleDetected: (count) => { staleCount = count; },
+      onStaleDetected: (count) => {
+        staleCount = count;
+      },
     });
 
     emitter.notify();
@@ -135,7 +148,9 @@ describe("NotificationEmitter", () => {
   it("demotes to static after 3 consecutive stale notifications", () => {
     let demoted = false;
     const emitter = new NotificationEmitter(sender, {
-      onDemotedToStatic: () => { demoted = true; },
+      onDemotedToStatic: () => {
+        demoted = true;
+      },
     });
 
     emitter.notify();
@@ -219,7 +234,11 @@ describe("ExposureTracker", () => {
     const tracker = new ExposureTracker();
     tracker.expose("gh_search");
 
-    const newly = tracker.exposeMany(["gh_search", "pg_query", "slk_send_message"]);
+    const newly = tracker.exposeMany([
+      "gh_search",
+      "pg_query",
+      "slk_send_message",
+    ]);
     expect(newly).toEqual(["pg_query", "slk_send_message"]);
     expect(tracker.size).toBe(3);
   });
@@ -286,7 +305,10 @@ describe("buildToolsList", () => {
 
     const result = buildToolsList(registry, tracker, UNERR_TOOLS, "dynamic");
     expect(result.tools).toHaveLength(2);
-    expect(result.tools.map((t) => t.name)).toEqual(["search_code", "file_read"]);
+    expect(result.tools.map((t) => t.name)).toEqual([
+      "search_code",
+      "file_read",
+    ]);
   });
 
   it("reports correct totalAvailable including all aliased + own", () => {
@@ -448,10 +470,11 @@ describe("Full Dynamic Disclosure Flow", () => {
 
   it("misbehaving client → demotion → static mode fallback", () => {
     let demoted = false;
-    const emitter = new NotificationEmitter(
-      () => {},
-      { onDemotedToStatic: () => { demoted = true; } },
-    );
+    const emitter = new NotificationEmitter(() => {}, {
+      onDemotedToStatic: () => {
+        demoted = true;
+      },
+    });
     const tracker = new ExposureTracker();
     const dispatcher = new UnlockDispatcher(tracker, emitter);
     const registry = makeAliasRegistry();
@@ -470,7 +493,10 @@ describe("Full Dynamic Disclosure Flow", () => {
     expect(staticList.tools.length).toBeGreaterThan(tracker.size);
 
     const lockedTool = staticList.tools.find(
-      (t) => !tracker.isExposed(t.name) && t.name !== "search_code" && t.name !== "file_read",
+      (t) =>
+        !tracker.isExposed(t.name) &&
+        t.name !== "search_code" &&
+        t.name !== "file_read"
     );
     expect(lockedTool?.description).toContain("[locked]");
 

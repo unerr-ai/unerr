@@ -10,11 +10,18 @@
  *   <configPath>.pre-router      — exact copy before rewrite (one per IDE config)
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, unlinkSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
-import type { IdeConfigResult, DiscoveredServer } from "./ide-mcp-inspector.js";
 import { defaultAlias } from "../router/aliasing.js";
+import type { DiscoveredServer, IdeConfigResult } from "./ide-mcp-inspector.js";
 
 export interface ProxiedServerConfig {
   readonly name: string;
@@ -47,7 +54,6 @@ const ROUTER_DIR = "router";
 const CONFIG_FILE = "config.json";
 const BACKUP_SUFFIX = ".pre-router";
 
-
 function routerDir(unerrDir: string): string {
   return join(unerrDir, ROUTER_DIR);
 }
@@ -64,9 +70,7 @@ export function backupPath(originalConfigPath: string): string {
  * Build the canonical router config from inspection results.
  * Filters out unerr's own server entry — only third-party servers are proxied.
  */
-export function buildRouterConfig(
-  inspections: readonly IdeConfigResult[],
-): {
+export function buildRouterConfig(inspections: readonly IdeConfigResult[]): {
   proxiedServers: ProxiedServerConfig[];
   rewrittenConfigs: RewrittenConfigRecord[];
 } {
@@ -106,7 +110,7 @@ export function buildRouterConfig(
  * Skips backups that already exist (idempotent).
  */
 export function backupIdeConfigs(
-  records: readonly RewrittenConfigRecord[],
+  records: readonly RewrittenConfigRecord[]
 ): void {
   for (const record of records) {
     if (!existsSync(record.backupPath)) {
@@ -125,7 +129,7 @@ export function writeRouterConfig(
   opts?: {
     autoMaskedServers?: readonly string[];
     pinnedServers?: readonly string[];
-  },
+  }
 ): string {
   const dir = routerDir(unerrDir);
   if (!existsSync(dir)) {
@@ -138,7 +142,9 @@ export function writeRouterConfig(
     enabledAt: new Date().toISOString(),
     proxiedServers,
     rewrittenConfigs,
-    ...(opts?.autoMaskedServers?.length && { autoMaskedServers: opts.autoMaskedServers }),
+    ...(opts?.autoMaskedServers?.length && {
+      autoMaskedServers: opts.autoMaskedServers,
+    }),
     ...(opts?.pinnedServers?.length && { pinnedServers: opts.pinnedServers }),
   };
 
@@ -164,9 +170,7 @@ export function readRouterConfig(unerrDir: string): RouterConfig | null {
  * Restore all IDE configs from their `.pre-router` backups.
  * Returns the list of restored config paths.
  */
-export function restoreIdeConfigs(
-  config: RouterConfig,
-): readonly string[] {
+export function restoreIdeConfigs(config: RouterConfig): readonly string[] {
   const restored: string[] = [];
   for (const record of config.rewrittenConfigs) {
     if (existsSync(record.backupPath)) {

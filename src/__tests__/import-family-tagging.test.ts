@@ -1,11 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
-  resolveLibraryFamily,
-  resolveFamiliesFromImports,
   getLibraryFamilyMap,
+  resolveFamiliesFromImports,
+  resolveLibraryFamily,
 } from "../router/intent/library-families.js";
-import { scoreIntent, type ScorerInput } from "../router/intent/scorer.js";
+import { type ScorerInput, scoreIntent } from "../router/intent/scorer.js";
 import { createStickinessState } from "../router/intent/stickiness.js";
 import { createEmptyDecayState } from "../router/intent/threshold-decay.js";
 
@@ -166,7 +166,7 @@ describe("Scorer — Entity family tags", () => {
     const result = scoreIntent(input);
 
     const pgScore = result.scores.find((s) => s.family === "pg")!;
-    expect(pgScore.score).toBeGreaterThanOrEqual(0.40);
+    expect(pgScore.score).toBeGreaterThanOrEqual(0.4);
     expect(pgScore.exposed).toBe(true);
     expect(pgScore.reasons.some((r) => r.includes("import-graph"))).toBe(true);
   });
@@ -182,22 +182,20 @@ describe("Scorer — Entity family tags", () => {
     const result = scoreIntent(input);
 
     const pgScore = result.scores.find((s) => s.family === "pg")!;
-    expect(pgScore.score).toBeLessThanOrEqual(0.50);
+    expect(pgScore.score).toBeLessThanOrEqual(0.5);
   });
 
   it("entities with multiple family tags score both", () => {
     const input: ScorerInput = {
       ...baseScorerInput(),
-      entityFamilyTags: new Map([
-        ["SyncService", new Set(["pg", "gh"])],
-      ]),
+      entityFamilyTags: new Map([["SyncService", new Set(["pg", "gh"])]]),
     };
     const result = scoreIntent(input);
 
     const pgScore = result.scores.find((s) => s.family === "pg")!;
     const ghScore = result.scores.find((s) => s.family === "gh")!;
-    expect(pgScore.score).toBeGreaterThanOrEqual(0.40);
-    expect(ghScore.score).toBeGreaterThanOrEqual(0.40);
+    expect(pgScore.score).toBeGreaterThanOrEqual(0.4);
+    expect(ghScore.score).toBeGreaterThanOrEqual(0.4);
     expect(pgScore.exposed).toBe(true);
     expect(ghScore.exposed).toBe(true);
   });
@@ -230,9 +228,15 @@ describe("Scorer — Entity family tags", () => {
     const input: ScorerInput = {
       ...baseScorerInput(),
       entityFamilyTags: new Map(
-        Array.from({ length: 50 }, (_, i) => [`Entity${i}`, new Set(["pg"])] as const),
+        Array.from(
+          { length: 50 },
+          (_, i) => [`Entity${i}`, new Set(["pg"])] as const
+        )
       ),
-      recentFiles: Array.from({ length: 20 }, (_, i) => `db/migrations/${i}.sql`),
+      recentFiles: Array.from(
+        { length: 20 },
+        (_, i) => `db/migrations/${i}.sql`
+      ),
     };
     const result = scoreIntent(input);
     expect(result.latencyMs).toBeLessThan(5);
@@ -245,7 +249,9 @@ describe("Scorer — Entity family tags", () => {
     };
     const result = scoreIntent(input);
     for (let i = 1; i < result.scores.length; i++) {
-      expect(result.scores[i]!.score).toBeLessThanOrEqual(result.scores[i - 1]!.score);
+      expect(result.scores[i]!.score).toBeLessThanOrEqual(
+        result.scores[i - 1]!.score
+      );
     }
   });
 });

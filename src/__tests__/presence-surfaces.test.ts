@@ -60,7 +60,7 @@ describe("buildUserBlock", () => {
     expect(buildUserBlock([])).toBe("");
   });
 
-  it("renders each line with the `unerr · ` prefix", () => {
+  it("renders each line with the `unerr » ` prefix", () => {
     const out = buildUserBlock(["this turn: 1 catch", "context: 2 facts"]);
     expect(out).toContain(`${USER_BLOCK_PREFIX}this turn: 1 catch`);
     expect(out).toContain(`${USER_BLOCK_PREFIX}context: 2 facts`);
@@ -78,8 +78,8 @@ describe("buildUserBlock", () => {
     expect(out).toBe(`${USER_BLOCK_AMBIENT}\n\n`);
   });
 
-  it("uses the middle dot U+00B7 character, not a regular dot", () => {
-    expect(USER_BLOCK_PREFIX.charCodeAt("unerr ".length)).toBe(0x00b7);
+  it("uses the right-pointing double-angle U+00BB character", () => {
+    expect(USER_BLOCK_PREFIX.charCodeAt("unerr ".length)).toBe(0x00bb);
   });
 
   it("never emits ANSI codes or emoji", () => {
@@ -176,9 +176,7 @@ describe("turn-footer", () => {
         tokensSavedThisTurn: 12345,
         turnsOfHeadroomThisSession: 3,
       });
-      expect(out).toBe(
-        `helped ${many.length}× · ~3 extra turns of room`
-      );
+      expect(out).toBe(`helped ${many.length}× · ~3 extra turns of room`);
     });
   });
 });

@@ -15,6 +15,7 @@
 
 import type { TemporalFact } from "../intelligence/temporal-facts.js";
 import type { SessionSummaryRecord } from "../tracking/session-summary-writer.js";
+import type { MarkerRow } from "../timeline/timeline-store.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -52,6 +53,24 @@ export interface SessionResumePayload {
     content: string;
     confidence: number;
   }>;
+  /** Fix K — top-3 still-open blockers carried over from prior sessions.
+   *  Surfaced in the resume block as the "5-minute first win" — user opens
+   *  chat next morning and sees what they were stuck on. Optional because
+   *  callers may not have a timelineStore handle (graceful degradation). */
+  open_blockers?: Array<{
+    marker_id: string;
+    text: string;
+    file_path: string;
+    ts: number;
+  }>;
+  /** Fix K — top-3 most-recent `mark_intent` rows from the prior session.
+   *  Anchors what the user was trying to do so the next turn's plan can
+   *  cite it ("picking up: <verbatim intent>"). */
+  last_intents?: Array<{
+    marker_id: string;
+    text: string;
+    ts: number;
+  }>;
 }
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -75,6 +94,13 @@ export async function generateSessionResumePayload(
   factStore?: {
     recallByScope(scope: string, minConf?: number): Promise<TemporalFact[]>;
     recallDecaying?(minConf: number, maxConf: number): Promise<TemporalFact[]>;
+  } | null,
+  timelineStore?: {
+    listMarkers(opts: {
+      sessionId?: string;
+      type?: string;
+      limit?: number;
+    }): Promise<MarkerRow[]>;
   } | null
 ): Promise<SessionResumePayload | null> {
   try {
@@ -118,6 +144,45 @@ export async function generateSessionResumePayload(
       }
     }
 
+    // Fix K — open-blocker + last-intent injection. Both queries are
+    // best-effort and silently no-op when the timelineStore handle is
+    // missing or throws (e.g. timeline.db not yet initialised).
+    let openBlockers: SessionResumePayload["open_blockers"] = [];
+    let lastIntents: SessionResumePayload["last_intents"] = [];
+    if (timelineStore) {
+      try {
+        const { getOpenThreads } = await import(
+          "../timeline/open-threads.js"
+        );
+        const blockers = await getOpenThreads(
+          timelineStore as Parameters<typeof getOpenThreads>[0],
+          { limit: 50 }
+        );
+        openBlockers = blockers.slice(0, 3).map((b) => ({
+          marker_id: b.marker_id,
+          text: b.text,
+          file_path: b.file_path,
+          ts: b.ts,
+        }));
+      } catch {
+        // Non-critical — resume block still renders without blockers.
+      }
+      try {
+        const intentRows = await timelineStore.listMarkers({
+          sessionId: lastSession.session_id,
+          type: "mark_intent",
+          limit: 3,
+        });
+        lastIntents = intentRows.map((m) => ({
+          marker_id: m.marker_id,
+          text: m.text,
+          ts: m.ts,
+        }));
+      } catch {
+        // Non-critical.
+      }
+    }
+
     return {
       session_resumed: true,
       previous_session: {
@@ -141,6 +206,8 @@ export async function generateSessionResumePayload(
       },
       recalled_facts: recalledFacts,
       decayed_since_last_session: decayedFacts,
+      open_blockers: openBlockers,
+      last_intents: lastIntents,
     };
   } catch {
     return null;
@@ -273,6 +340,23 @@ export function formatSessionResumeBlock(
   parts.push(
     `[unerr:session-resume] Previous session (${elapsed} ago): worked on ${filesStr}.`
   );
+
+  // Fix K — last intent first (narrative arc: what you were doing → what
+  // stopped you → relevant rules). Single-line, ≤80 chars per marker spec.
+  if (payload.last_intents && payload.last_intents.length > 0) {
+    const intent = payload.last_intents[0];
+    if (intent) parts.push(`▸ last intent: ${intent.text}`);
+  }
+
+  // Fix K — open blockers carried over. The "5-minute first win" — user
+  // opens chat next morning and sees what they were stuck on, with the
+  // file anchor so they can jump straight back in.
+  if (payload.open_blockers && payload.open_blockers.length > 0) {
+    for (const b of payload.open_blockers.slice(0, 3)) {
+      const anchor = b.file_path ? ` [${b.file_path}]` : "";
+      parts.push(`▸ unresolved blocker: ${b.text}${anchor}`);
+    }
+  }
 
   // High-confidence recalled facts
   const importantFacts = payload.recalled_facts

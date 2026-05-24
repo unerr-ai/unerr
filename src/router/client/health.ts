@@ -32,14 +32,18 @@ export class HealthChecker {
   private readonly timers = new Map<string, ReturnType<typeof setInterval>>();
   private readonly state = new Map<
     string,
-    { consecutiveFailures: number; lastCheckAt: number | null; lastSuccessAt: number | null }
+    {
+      consecutiveFailures: number;
+      lastCheckAt: number | null;
+      lastSuccessAt: number | null;
+    }
   >();
   private stopped = false;
 
   constructor(
     connectionManager: ConnectionManager,
     schemaCache: SchemaCache,
-    intervalMs = DEFAULT_INTERVAL_MS,
+    intervalMs = DEFAULT_INTERVAL_MS
   ) {
     this.connectionManager = connectionManager;
     this.schemaCache = schemaCache;
@@ -53,7 +57,11 @@ export class HealthChecker {
     this.stopped = false;
     for (const id of serverIds) {
       if (this.timers.has(id)) continue;
-      this.state.set(id, { consecutiveFailures: 0, lastCheckAt: null, lastSuccessAt: null });
+      this.state.set(id, {
+        consecutiveFailures: 0,
+        lastCheckAt: null,
+        lastSuccessAt: null,
+      });
       const timer = setInterval(() => void this.check(id), this.intervalMs);
       this.timers.set(id, timer);
     }

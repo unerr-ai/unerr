@@ -44,23 +44,23 @@ describe("CONTRACT_TEACHING_BLOCK (D10)", () => {
   });
 });
 
-describe("NOTES_SKILLS (D10)", () => {
-  it("bundles the three required skills with stable slugs", () => {
+describe("NOTES_SKILLS (D10, post-27→7 consolidation)", () => {
+  it("ships the consolidated memory pointer (single slug)", () => {
+    // The prior three slugs (unerr-prompt-receipt, unerr-anchor-query,
+    // unerr-save-at-end) are folded into the single unerr-memory skill
+    // whose canonical body ships from src/skills/local-pack.ts → MEMORY_SKILL.
     const slugs = NOTES_SKILLS.map((s) => s.slug);
-    expect(slugs).toEqual([
-      "unerr-prompt-receipt",
-      "unerr-anchor-query",
-      "unerr-save-at-end",
-    ]);
+    expect(slugs).toEqual(["unerr-memory"]);
   });
 
-  it("every skill body has YAML frontmatter and references the relevant tool", () => {
+  it("the consolidated body has YAML frontmatter and references the contract tools", () => {
     for (const skill of NOTES_SKILLS) {
       expect(skill.body.startsWith("---\n")).toBe(true);
       expect(skill.body).toMatch(/title:.+\n/);
       expect(skill.body).toMatch(/description:.+\n/);
-      // Each skill must reference at least one of the two MCP tools by name.
-      expect(skill.body).toMatch(/unerr_(recall_notes|remember)/);
+      // Memory skill references both contract tools.
+      expect(skill.body).toMatch(/unerr_recall_notes/);
+      expect(skill.body).toMatch(/unerr_remember/);
     }
   });
 });

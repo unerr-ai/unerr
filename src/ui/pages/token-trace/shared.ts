@@ -192,7 +192,7 @@ export const BEHAVIOR_EVENT_DESCRIPTIONS: Record<string, string> = {
   cascade_guard:
     "A high fan-in edit was gated by the cascade guard before propagating.",
   drift_consumed:
-    "A drift signal (`ur|dft`) was consumed — agent re-read the file before editing.",
+    "A drift signal (`ur|ctx`) was consumed — agent re-read the file before editing.",
   intervention_halted:
     "A pre-tool-use behavior halted a tool call before it ran.",
   intervention_warned:

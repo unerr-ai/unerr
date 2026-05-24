@@ -46,7 +46,10 @@ export function isSticky(family: string, state: StickinessState): boolean {
  * Get the last turn number where a family was called, or null if never
  * called within the lookback window.
  */
-function getLastCallTurn(family: string, state: StickinessState): number | null {
+function getLastCallTurn(
+  family: string,
+  state: StickinessState
+): number | null {
   let latest: number | null = null;
   const lookbackFloor = state.currentTurn - STICKY_LOOKBACK_TURNS;
 
@@ -87,7 +90,7 @@ export function getStickyFamilies(state: StickinessState): ReadonlySet<string> {
 export function recordFamilyCall(
   state: StickinessState,
   family: string,
-  turnNumber?: number,
+  turnNumber?: number
 ): StickinessState {
   const turn = turnNumber ?? state.currentTurn;
   const window = STICKY_LOOKBACK_TURNS + STICKY_FORWARD_TURNS;

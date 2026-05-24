@@ -519,10 +519,10 @@ export function Dashboard() {
         ) : headroom && headroomImplausible ? (
           <div className="px-6 py-5">
             <p className="t-secondary text-sm leading-snug">
-              Headroom is still calibrating — the ratio between saved tokens
-              and the slice of per-turn cost unerr can measure looks larger
-              than your actual usage. Run a few more sessions and the number
-              will stabilise.
+              Headroom is still calibrating — the ratio between saved tokens and
+              the slice of per-turn cost unerr can measure looks larger than
+              your actual usage. Run a few more sessions and the number will
+              stabilise.
             </p>
             <p className="mt-2 t-tertiary text-xs leading-snug">
               In the meantime, the named-event counters on{" "}
@@ -653,9 +653,8 @@ export function Dashboard() {
               <h2 className="section-label text-violet-500">Tokens Saved</h2>
               <p className="mt-0.5 t-tertiary text-[11px] leading-snug">
                 Bytes unerr kept out of the agent's context before they could
-                weigh it down — counted on operations unerr handled (file
-                reads, web fetches, shell output, dedup). Not whole-turn
-                savings.
+                weigh it down — counted on operations unerr handled (file reads,
+                web fetches, shell output, dedup). Not whole-turn savings.
               </p>
             </div>
             <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider t-tertiary">

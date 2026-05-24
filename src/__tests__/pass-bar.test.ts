@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { NOTES_SAVE_CAP, evaluate } from "../eval/pass-bar.js";
 import type { MatrixReport } from "../eval/matrix.js";
+import { NOTES_SAVE_CAP, evaluate } from "../eval/pass-bar.js";
 import type { RunSummary } from "../eval/types.js";
 
 function cell(over: Partial<RunSummary> = {}): RunSummary {
@@ -53,7 +53,7 @@ describe("pass-bar evaluate (D-eval)", () => {
         moments_hit: 4,
         notes_saved: 3,
         turns: 5,
-      }),
+      })
     );
     const a: RunSummary[] = Array.from({ length: 10 }, (_, i) =>
       cell({
@@ -62,7 +62,7 @@ describe("pass-bar evaluate (D-eval)", () => {
         moments_hit: 1,
         notes_saved: 0,
         turns: 10,
-      }),
+      })
     );
     const result = evaluate({
       matrix_b: matrix(b),
@@ -82,10 +82,12 @@ describe("pass-bar evaluate (D-eval)", () => {
         task_id: `t${i}`,
         config_id: "b-instructed",
         moments_hit: i < 5 ? 4 : 2, // only 5 tasks at 4
-      }),
+      })
     );
     const result = evaluate({ matrix_b: matrix(b), task_count: 10 });
-    const adoption = result.criteria.find((c) => c.id === "adoption-four-moments");
+    const adoption = result.criteria.find(
+      (c) => c.id === "adoption-four-moments"
+    );
     expect(adoption?.status).toBe("fail");
     expect(result.overall).toBe("fail");
   });

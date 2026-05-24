@@ -8,10 +8,10 @@
  */
 
 import type {
+  HttpTransportConfig,
   JsonRpcRequest,
   JsonRpcResponse,
   McpTransport,
-  HttpTransportConfig,
   TransportState,
 } from "./transport.js";
 
@@ -76,7 +76,7 @@ export class HttpTransport implements McpTransport {
 
     if (!response.ok) {
       throw new Error(
-        `[${this.config.serverId}] HTTP ${response.status}: ${response.statusText}`,
+        `[${this.config.serverId}] HTTP ${response.status}: ${response.statusText}`
       );
     }
 

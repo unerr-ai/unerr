@@ -28,14 +28,14 @@ export const NOTES_FAMILY_TOOLS: readonly string[] = [
 
 /** Single-call helper for callers that just need the always-on set extended. */
 export function withNotesAlwaysOn(
-  existingAlwaysOn: ReadonlySet<string>,
+  existingAlwaysOn: ReadonlySet<string>
 ): Set<string> {
   return new Set([...existingAlwaysOn, NOTES_FAMILY_NAME]);
 }
 
 /** Single-call helper for callers that need the known-families set extended. */
 export function withNotesKnown(
-  existingKnown: ReadonlySet<string>,
+  existingKnown: ReadonlySet<string>
 ): Set<string> {
   return new Set([...existingKnown, NOTES_FAMILY_NAME]);
 }

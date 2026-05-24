@@ -1,17 +1,24 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-  detectAssociations,
-  extractSignalsFromUrTags,
-  extractSignalsFromNudges,
   type DetectorInput,
+  detectAssociations,
+  extractSignalsFromNudges,
+  extractSignalsFromUrTags,
 } from "../router/associations/detector.js";
-import { scoreOutcomeQuality, qualityToNumeric, averageQuality } from "../router/associations/quality.js";
+import {
+  averageQuality,
+  qualityToNumeric,
+  scoreOutcomeQuality,
+} from "../router/associations/quality.js";
 import { AssociationStore } from "../router/associations/store.js";
-import type { TriggerSignal, SubsequentCall } from "../router/associations/types.js";
+import type {
+  SubsequentCall,
+  TriggerSignal,
+} from "../router/associations/types.js";
 
 function makeSignal(overrides: Partial<TriggerSignal> = {}): TriggerSignal {
   return {
@@ -115,7 +122,9 @@ describe("Association detector — family matching", () => {
   it("matches signal without family context (any call matches)", () => {
     const input: DetectorInput = {
       sessionId: "s1",
-      signals: [makeSignal({ family: undefined, turnNumber: 0, timestamp: 1000 })],
+      signals: [
+        makeSignal({ family: undefined, turnNumber: 0, timestamp: 1000 }),
+      ],
       calls: [makeCall({ family: "gh", turnNumber: 1, timestamp: 5000 })],
     };
     const result = detectAssociations(input);
@@ -128,12 +137,32 @@ describe("Association detector — multi-signal traces", () => {
     const input: DetectorInput = {
       sessionId: "s1",
       signals: [
-        makeSignal({ tag: "rsk", family: "gh", turnNumber: 0, timestamp: 1000 }),
-        makeSignal({ tag: "hnt", family: "pg", turnNumber: 2, timestamp: 10000 }),
+        makeSignal({
+          tag: "rsk",
+          family: "gh",
+          turnNumber: 0,
+          timestamp: 1000,
+        }),
+        makeSignal({
+          tag: "hnt",
+          family: "pg",
+          turnNumber: 2,
+          timestamp: 10000,
+        }),
       ],
       calls: [
-        makeCall({ toolName: "gh_search", family: "gh", turnNumber: 1, timestamp: 5000 }),
-        makeCall({ toolName: "pg_query", family: "pg", turnNumber: 3, timestamp: 15000 }),
+        makeCall({
+          toolName: "gh_search",
+          family: "gh",
+          turnNumber: 1,
+          timestamp: 5000,
+        }),
+        makeCall({
+          toolName: "pg_query",
+          family: "pg",
+          turnNumber: 3,
+          timestamp: 15000,
+        }),
       ],
     };
     const result = detectAssociations(input);
@@ -149,9 +178,7 @@ describe("Association detector — multi-signal traces", () => {
         makeSignal({ turnNumber: 0, timestamp: 1000 }),
         makeSignal({ turnNumber: 0, timestamp: 1500 }),
       ],
-      calls: [
-        makeCall({ turnNumber: 1, timestamp: 5000 }),
-      ],
+      calls: [makeCall({ turnNumber: 1, timestamp: 5000 })],
     };
     const result = detectAssociations(input);
     expect(result).toHaveLength(1);
@@ -164,9 +191,7 @@ describe("Association detector — multi-signal traces", () => {
         makeSignal({ tag: "rsk", turnNumber: 0, timestamp: 1000 }),
         makeSignal({ tag: "hnt", turnNumber: 0, timestamp: 1200 }),
       ],
-      calls: [
-        makeCall({ turnNumber: 1, timestamp: 5000 }),
-      ],
+      calls: [makeCall({ turnNumber: 1, timestamp: 5000 })],
     };
     const result = detectAssociations(input);
     expect(result).toHaveLength(1);
@@ -176,12 +201,18 @@ describe("Association detector — multi-signal traces", () => {
 
 describe("Outcome quality scorer", () => {
   it("returns high for success + edit + meaningful tokens", () => {
-    const q = scoreOutcomeQuality(makeCall({ outcome: "success", responseTokens: 300 }), true);
+    const q = scoreOutcomeQuality(
+      makeCall({ outcome: "success", responseTokens: 300 }),
+      true
+    );
     expect(q).toBe("high");
   });
 
   it("returns medium for success + high tokens without edit", () => {
-    const q = scoreOutcomeQuality(makeCall({ outcome: "success", responseTokens: 500 }), false);
+    const q = scoreOutcomeQuality(
+      makeCall({ outcome: "success", responseTokens: 500 }),
+      false
+    );
     expect(q).toBe("medium");
   });
 
@@ -196,7 +227,10 @@ describe("Outcome quality scorer", () => {
   });
 
   it("returns low for success with tiny response and no edit", () => {
-    const q = scoreOutcomeQuality(makeCall({ outcome: "success", responseTokens: 20 }), false);
+    const q = scoreOutcomeQuality(
+      makeCall({ outcome: "success", responseTokens: 20 }),
+      false
+    );
     expect(q).toBe("low");
   });
 

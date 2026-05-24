@@ -17,7 +17,10 @@
  * and never auto-rewritten across sessions (agent muscle-memory preserved).
  */
 
-import type { CachedToolDefinition, ServerSchemaEntry } from "./client/schema-cache.js";
+import type {
+  CachedToolDefinition,
+  ServerSchemaEntry,
+} from "./client/schema-cache.js";
 
 const KNOWN_ALIASES: Readonly<Record<string, string>> = {
   github: "gh",
@@ -91,7 +94,10 @@ export interface AliasCollision {
  * falls back to first 4 chars of lowercased name.
  */
 export function defaultAlias(serverName: string): string {
-  return KNOWN_ALIASES[serverName.toLowerCase()] ?? serverName.toLowerCase().slice(0, 4);
+  return (
+    KNOWN_ALIASES[serverName.toLowerCase()] ??
+    serverName.toLowerCase().slice(0, 4)
+  );
 }
 
 /**
@@ -123,7 +129,10 @@ export class AliasRegistry {
    * Register all tools from a server's schema.
    * Call this for each connected server after fetching tools/list.
    */
-  registerServer(serverId: string, tools: readonly CachedToolDefinition[]): void {
+  registerServer(
+    serverId: string,
+    tools: readonly CachedToolDefinition[]
+  ): void {
     const alias = this.serverAliases.get(serverId);
     if (!alias) return;
 
@@ -245,7 +254,7 @@ export class AliasRegistry {
  * Returns an array of collisions. Empty array = safe to activate.
  */
 export function detectAliasCollisions(
-  servers: readonly { readonly name: string; readonly alias: string }[],
+  servers: readonly { readonly name: string; readonly alias: string }[]
 ): readonly AliasCollision[] {
   const aliasToServers = new Map<string, string[]>();
 
@@ -278,7 +287,7 @@ export function detectAliasCollisions(
  */
 export function detectToolCollisions(
   serverTools: ReadonlyMap<string, readonly CachedToolDefinition[]>,
-  serverAliases: ReadonlyMap<string, string>,
+  serverAliases: ReadonlyMap<string, string>
 ): readonly AliasCollision[] {
   const nameToServers = new Map<string, string[]>();
 
@@ -313,7 +322,7 @@ export function detectToolCollisions(
  * Create an AliasRegistry from a server alias map (typically from RouterConfig).
  */
 export function createAliasRegistry(
-  serverAliases: ReadonlyMap<string, string>,
+  serverAliases: ReadonlyMap<string, string>
 ): AliasRegistry {
   return new AliasRegistry(serverAliases);
 }

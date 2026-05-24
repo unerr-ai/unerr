@@ -126,6 +126,23 @@ export function startUdsBridge(
       const maybeRewrite = (chunk: Buffer): Buffer =>
         codingAgent ? rewriteInitializeFrame(chunk, codingAgent) : chunk;
 
+      // Announce the coding-agent id to the proxy independently of the IDE's
+      // MCP `initialize` handshake. IDEs only send `initialize` once per MCP
+      // transport; on bridge reconnects (proxy restart, daemon respawn) the
+      // IDE-side client treats the MCP session as already initialized and
+      // never re-sends the frame, so the proxy would otherwise have no way to
+      // attribute events from this bridge. The `unerr/hello` notification is
+      // a notification (no `id`) — proxy dispatches setAgent and never
+      // replies. Safe to send before draining the pre-buffer.
+      if (codingAgent && !socket.destroyed) {
+        const hello = `${JSON.stringify({
+          jsonrpc: "2.0",
+          method: "unerr/hello",
+          params: { agent: codingAgent },
+        })}\n`;
+        socket.write(hello);
+      }
+
       // Drain frames the caller captured before we could connect (e.g. the
       // IDE's `initialize` arriving during auto-spawn). Order is preserved.
       if (preBufferedChunks && preBufferedChunks.length > 0) {

@@ -31,7 +31,7 @@ export function getConfig(id: string): AgentConfig {
   const match = ALL_CONFIGS.find((c) => c.id === id);
   if (!match) {
     throw new Error(
-      `unknown config '${id}' — valid ids: ${ALL_CONFIGS.map((c) => c.id).join(", ")}`,
+      `unknown config '${id}' — valid ids: ${ALL_CONFIGS.map((c) => c.id).join(", ")}`
     );
   }
   return match;

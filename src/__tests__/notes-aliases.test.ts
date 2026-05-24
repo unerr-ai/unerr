@@ -55,7 +55,7 @@ describe("inferDslFromLegacy — anchor inference", () => {
   });
   it("treats paths with '/' as file anchors", () => {
     expect(_internal.inferAnchor("src/proxy/bridge.ts")).toBe(
-      "f:src/proxy/bridge.ts",
+      "f:src/proxy/bridge.ts"
     );
   });
   it("treats TS/JS extensions as file anchors even without a slash", () => {
@@ -95,7 +95,7 @@ describe("inferDslFromLegacy — polarity inference", () => {
   });
   it("returns ~ for ambiguous text", () => {
     expect(_internal.inferPolarity("the file holds two responsibilities")).toBe(
-      "~",
+      "~"
     );
     expect(_internal.inferPolarity("anything goes here")).toBe("~");
   });
@@ -109,7 +109,7 @@ describe("inferDslFromLegacy — wire assembly", () => {
       fact_type: "rule",
     });
     expect(wire).toBe(
-      "rul|f:src/proxy/bridge.ts|-|never import intelligence here",
+      "rul|f:src/proxy/bridge.ts|-|never import intelligence here"
     );
   });
   it("falls back to source_quote when content is absent", () => {
@@ -249,7 +249,7 @@ describe("legacyRecallFacts — scope→anchor", () => {
     expect(result.ok).toBe(true);
     const data = result.data as { notes: { content: string }[] };
     expect(data.notes.some((n) => n.content === "project-wide bravo")).toBe(
-      true,
+      true
     );
   });
 });
