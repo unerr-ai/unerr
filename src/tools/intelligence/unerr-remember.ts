@@ -192,6 +192,8 @@ export async function executeUnerrRemember(
       confidence,
       deduplicated,
       ambiguity_flag,
+      content: content.trim(),
+      source_quote: source_quote.trim(),
     },
   });
 

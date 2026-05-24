@@ -1,17 +1,19 @@
 /**
- * Surface 2/3/4 emitter — the production wire-up for the user-prose
+ * User-block emitter — the production wire-up for the user-prose
  * channel introduced by `buildUserBlock()` in response-envelope.ts.
  *
  * Called from `proxy.ts` immediately after `buildSignalPrefix()` on
  * every tool response. Returns two pre-rendered strings the caller
  * splices into the final body text:
  *
- *   - `head`: preface + steering line (Surface 2 + Surface 4d steering),
+ *   - `head`: preface + fact-steering preface (Surface 2 + the inline
+ *     enforcement line for facts that apply to the current file),
  *     prepended ABOVE the tool body so the user reads it while the
  *     response is still streaming.
- *   - `tail`: end-of-turn footer (Surface 3), spliced AFTER the page
- *     hint but BEFORE the trailing `ur|<tag>` signal footer so the
- *     agent-signal block stays the last thing on the wire.
+ *   - `tail`: end-of-turn placeholder; the Surface 3 receipt itself is
+ *     rendered by `unerr_turn_summary` and pasted by the agent, not
+ *     spliced here. (§10.7: Surface 4 inline attribution rows were
+ *     merged into that receipt.)
  *
  * All renderers are best-effort: any IO error returns the empty string
  * for that part rather than throwing. The response pipeline must never
@@ -23,9 +25,7 @@ import { isAbsolute } from "node:path";
 import type { PendingConfirmationRegistry } from "../intelligence/pending-confirmations.js";
 import type { TemporalFactStore } from "../intelligence/temporal-facts.js";
 import type { BehaviorEventWriter } from "../tracking/behavior-events.js";
-import { readNamedEvents } from "../tracking/named-events.js";
 import { noteTurnContent, shouldUseAmbientMarker } from "./ambient-marker.js";
-import { renderEventAttributionBlock } from "./attribution-panel.js";
 import { renderContextPrefaceLive } from "./context-preface.js";
 import {
   type EnforcementCandidate,
@@ -48,7 +48,8 @@ export interface UserBlockContext {
   toolCallCount: number;
   /** Repo-relative or absolute path the call touched; null when N/A. */
   filePath: string | null;
-  /** Optional fact-store for Surface 4d steering. Skipped when undefined. */
+  /** Optional fact-store for the fact-steering preface (formerly Surface 4d).
+   *  Skipped when undefined. */
   factStore?: TemporalFactStore;
   /** Optional pending-confirmation registry. When set, any pending entry
    *  for this session is surfaced as a "please confirm" line in the
@@ -110,7 +111,7 @@ function liftCandidates(
 /**
  * Format one TemporalFact as the user-prose `steering` line that gets
  * appended to the Surface 2 preface. Plain text — no `ur|<tag>` prefix
- * (the agent-facing `ur|fct` line is a separate Surface 4d emission
+ * (the agent-facing `ur|fct` line is a separate fact-steering emission
  * that rides `buildSignalPrefix()` and is not produced here).
  */
 function steeringTextFor(fact: {
@@ -140,7 +141,7 @@ async function computeSteering(ctx: UserBlockContext): Promise<string> {
     const hits = factsApplyingTo(relPath, candidates);
     const top = hits[0];
     if (!top) return "";
-    // Cap one fact per preface — §9.4d "over-surfacing" risk mitigation.
+    // Cap one fact per preface — fact-steering "over-surfacing" risk mitigation.
     return steeringTextFor(top);
   } catch {
     return "";
@@ -228,21 +229,6 @@ async function buildResumeStrip(ctx: UserBlockContext): Promise<string> {
 }
 
 /**
- * Read this turn's attribution-worthy named events and render the
- * provenance block. Best-effort: any IO failure returns an empty list so
- * the preface still renders.
- */
-function renderAttributionForTurn(ctx: UserBlockContext): string[] {
-  try {
-    const events = readNamedEvents(ctx.unerrDir, { session_id: ctx.sessionId });
-    const turnEvents = events.filter((e) => e.turn === ctx.toolCallCount);
-    return renderEventAttributionBlock(turnEvents);
-  } catch {
-    return [];
-  }
-}
-
-/**
  * Detect whether a rendered preface carries real content. The renderer
  * emits exactly `["nothing new to load this turn"]` when there is
  * nothing to report on a non-first turn — that string is the honest-zero
@@ -300,41 +286,12 @@ export async function buildUserBlockForResponse(
         isFirstCall
       );
       const pendingLines = renderPendingConfirmations(ctx);
-      const attributionLines = renderAttributionForTurn(ctx);
-      // Fix I — Surface 4a/4c trace events. Best-effort; telemetry only.
-      if (ctx.behaviorEvents) {
-        try {
-          if (attributionLines.length > 0) {
-            ctx.behaviorEvents.record({
-              session_id: ctx.sessionId,
-              turn: ctx.toolCallCount,
-              type: "surface4a_emitted",
-              tool: null,
-              entity_key: null,
-              response_bytes: null,
-              detail: { count: attributionLines.length },
-            });
-          }
-          if (pendingLines.length > 0) {
-            ctx.behaviorEvents.record({
-              session_id: ctx.sessionId,
-              turn: ctx.toolCallCount,
-              type: "surface4c_emitted",
-              tool: null,
-              entity_key: null,
-              response_bytes: null,
-              detail: { count: pendingLines.length },
-            });
-          }
-        } catch {
-          /* best effort — telemetry only */
-        }
-      }
-      // Pending-confirmation prompt comes FIRST so the user sees the
-      // question above any "loaded for this turn" line — answering it
-      // unblocks the captured note. Attribution rides after the preface
-      // so plan-shaped turns can show provenance ("user → \"…\" said: …").
-      const allLines = [...pendingLines, ...prefaceLines, ...attributionLines];
+      // §10.7 — inline attribution removed; all provenance now consolidated
+      // into the end-of-turn Surface 3 receipt rendered by
+      // `unerr_turn_summary`. Pending-confirmation prompts stay inline
+      // because they're a USER-FACING question that has to unblock the
+      // next turn.
+      const allLines = [...pendingLines, ...prefaceLines];
       const baseHead = buildUserBlock(allLines);
       // Resume strip: prepend ABOVE everything else on the first response
       // of a resumed session. It is its own self-formatted block (already
@@ -346,8 +303,7 @@ export async function buildUserBlockForResponse(
       headHadContent =
         resumeStrip.length > 0 ||
         pendingLines.length > 0 ||
-        prefaceHasContent(prefaceLines) ||
-        attributionLines.length > 0;
+        prefaceHasContent(prefaceLines);
     } catch {
       head = "";
     }

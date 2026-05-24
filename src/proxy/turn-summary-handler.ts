@@ -17,9 +17,13 @@ import { readNamedEvents } from "../tracking/named-events.js";
 import {
   type RuntimeJoinCounts,
   computeRuntimeJoins,
-  renderRuntimeJoinSegment,
 } from "../tracking/runtime-joins.js";
 import { updateNudgeState } from "./nudge-state.js";
+import {
+  type ReceiptAttribution,
+  extractReceiptAttribution,
+} from "./receipt-attribution.js";
+import { renderReceiptBlock } from "./receipt-renderer.js";
 import { renderSessionEconomyLineLive } from "./turn-footer.js";
 
 export interface TurnSummaryResult {
@@ -57,6 +61,12 @@ export interface TurnSummaryResult {
    *  line no point tool can produce). Backwards-compatible: when all
    *  counts are zero, `line` is byte-identical to the legacy output. */
   runtime_joins: RuntimeJoinCounts;
+  /** §10.7 — Surface 4 → Surface 3 merge. Per-turn provenance payload
+   *  the receipt formatter (Task #133) consumes to render the
+   *  attribution rows (`↳ applied your rule "…"`). Empty arrays when
+   *  nothing fired this turn — receipt falls through to the legacy
+   *  single-line `nothing to help with …` form. */
+  attribution: ReceiptAttribution;
 }
 
 export interface TurnSummaryError {
@@ -104,21 +114,30 @@ export async function handleTurnSummaryProxy(
       three_way: 0,
       entities: [],
     };
-    let lineWithJoins = data.line;
+    let attribution: ReceiptAttribution = {
+      recalls: [],
+      captures: [],
+      drift: [],
+    };
+    let blockLines: string[] = data.line ? [data.line] : [];
     try {
       const events = readNamedEvents(unerrDir, { session_id: sessionId });
       runtimeJoins = computeRuntimeJoins(events, sessionId, currentTurn);
-      const segment = renderRuntimeJoinSegment(runtimeJoins);
-      if (segment) {
-        lineWithJoins = data.line ? `${segment} · ${data.line}` : segment;
-      }
+      attribution = extractReceiptAttribution(events, currentTurn);
+      blockLines = renderReceiptBlock({
+        attribution,
+        runtimeJoins,
+        turnTokensSaved: data.turn_tokens_saved,
+        sessionTokensSaved: data.total_tokens_saved,
+        fallbackLine: data.line,
+      });
     } catch {
-      /* best effort — segment is purely additive */
+      /* best effort — receipt falls through to legacy single-liner */
     }
 
     const result: TurnSummaryResult = {
       ok: true,
-      line: lineWithJoins,
+      line: blockLines.join("\n"),
       total_events: data.total_events,
       total_tokens_saved: data.total_tokens_saved,
       headroom_compounded: data.headroom_compounded,
@@ -128,6 +147,7 @@ export async function handleTurnSummaryProxy(
       highlights: data.highlights,
       turn_highlights: data.turn_highlights,
       runtime_joins: runtimeJoins,
+      attribution,
     };
     return {
       content: [{ type: "text", text: JSON.stringify(result) }],

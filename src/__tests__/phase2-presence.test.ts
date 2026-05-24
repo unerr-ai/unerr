@@ -1,27 +1,20 @@
 /**
- * Phase 2 — User-fed memory, ambiguity, attribution, enforcement.
+ * Phase 2 — User-fed memory, ambiguity, enforcement.
  *
  * Pure (IO-free) tests for the Phase 2 modules:
  *   - unerr-remember.ts (Sprint 5a)
  *   - pending-confirmations.ts (Sprint 6)
- *   - attribution-panel.ts (Sprint 7)
  *   - enforcement-loop.ts (Sprint 8)
  *
- * The TemporalFactStore-backed integration path is exercised by the
- * Phase 1 tests (temporal-facts.test.ts) — these specs cover the new
- * additive logic without touching the disk-backed store.
+ * Surface 4 inline attribution (formerly Sprint 7) was merged into the
+ * Surface 3 receipt rendered by `unerr_turn_summary` in §10.7. Its
+ * regression coverage now lives in receipt-attribution.test.ts +
+ * receipt-renderer.test.ts.
  */
 
 import { describe, expect, it, vi } from "vitest";
 import { PendingConfirmationRegistry } from "../intelligence/pending-confirmations.js";
 import type { TemporalFact } from "../intelligence/temporal-facts.js";
-import {
-  type FactProvenance,
-  eventsWithAttribution,
-  renderAttributionBlock,
-  renderFactAttribution,
-  renderFactAttributionBlock,
-} from "../proxy/attribution-panel.js";
 import {
   appliesToFor,
   factsApplyingTo,
@@ -33,7 +26,6 @@ import {
   executeUnerrRemember,
 } from "../tools/intelligence/unerr-remember.js";
 import type { BehaviorEvent } from "../tracking/behavior-events.js";
-import type { NamedEvent } from "../tracking/named-events.js";
 
 // ── Shared fixtures ──────────────────────────────────────────────────
 
@@ -51,21 +43,6 @@ function makeFact(overrides: Partial<TemporalFact> = {}): TemporalFact {
     last_reinforced_at: overrides.last_reinforced_at ?? Date.now(),
     last_contradicted_at: overrides.last_contradicted_at ?? 0,
     source: overrides.source ?? "user_fed",
-  };
-}
-
-function makeProvenance(
-  overrides: Partial<FactProvenance> = {}
-): FactProvenance {
-  return {
-    fact_id: "f1",
-    content: "always use Foo for Bar",
-    source: "user_fed",
-    created_at: "2026-05-21T10:00:00Z",
-    source_quote: "from now on, always use Foo for Bar",
-    subject: "project",
-    scope: "project",
-    ...overrides,
   };
 }
 
@@ -428,86 +405,16 @@ describe("PendingConfirmationRegistry", () => {
   });
 });
 
-// ── attribution-panel (Sprint 7) ─────────────────────────────────────
+// ── attribution-panel (Sprint 7) — REMOVED ──────────────────────────
+// Surface 4 inline attribution merged into the Surface 3 receipt in
+// §10.7. Regression coverage moved to:
+//   - src/__tests__/receipt-attribution.test.ts (data extractor)
+//   - src/__tests__/receipt-renderer.test.ts (block formatter)
+// Both reproduce the df6410f6 cold-start contract and the source-default
+// guard the deleted tests previously pinned.
 
-describe("attribution-panel", () => {
-  it("quotes the user verbatim for user_fed facts", () => {
-    const row = renderFactAttribution(
-      makeProvenance({
-        source: "user_fed",
-        source_quote: "from now on, always use Foo for Bar",
-      })
-    );
-    expect(row.head.startsWith("user → ")).toBe(true);
-    expect(row.detail).toContain('said: "from now on, always use Foo for Bar"');
-    expect(row.where).toBe("scope: project");
-  });
-
-  it("names the detector for auto-detected facts", () => {
-    const row = renderFactAttribution(
-      makeProvenance({ source: "convention_detector", source_quote: undefined })
-    );
-    expect(row.head.startsWith("convention detector → ")).toBe(true);
-    expect(row.detail).toBe("via convention detector");
-  });
-
-  it("truncates long content in the head", () => {
-    const longContent = "a".repeat(120);
-    const row = renderFactAttribution(makeProvenance({ content: longContent }));
-    expect(row.head.length).toBeLessThanOrEqual(80);
-    expect(row.head.endsWith("…")).toBe(true);
-  });
-
-  it("renderAttributionBlock returns one line per row", () => {
-    const lines = renderFactAttributionBlock([
-      makeProvenance({ fact_id: "a", content: "rule A" }),
-      makeProvenance({
-        fact_id: "b",
-        content: "rule B",
-        source: "convention_detector",
-        source_quote: undefined,
-      }),
-    ]);
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toMatch(/^attribution: /);
-    expect(lines[1]).toMatch(/^attribution: /);
-  });
-
-  it("renderAttributionBlock is empty when input is empty", () => {
-    expect(renderAttributionBlock([])).toEqual([]);
-  });
-
-  it("eventsWithAttribution filters out non-fact events", () => {
-    const events: NamedEvent[] = [
-      {
-        event_type: "fact_stored_user_fed",
-        verb: "stored",
-        object: "user-asserted fact",
-        agent: "claude-code",
-        file_path: null,
-        entity_key: null,
-        session_id: "s1",
-        turn: 1,
-        ts: new Date().toISOString(),
-        metadata: {},
-      },
-      {
-        event_type: "cache_hit",
-        verb: "served",
-        object: "cache hit",
-        agent: "claude-code",
-        file_path: null,
-        entity_key: null,
-        session_id: "s1",
-        turn: 1,
-        ts: new Date().toISOString(),
-        metadata: {},
-      },
-    ];
-    const filtered = eventsWithAttribution(events);
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0]?.event_type).toBe("fact_stored_user_fed");
-  });
+describe.skip("attribution-panel (DELETED — see receipt-* tests)", () => {
+  // Intentionally empty. The renderer module was removed in §10.7.
 });
 
 // ── enforcement-loop (Sprint 8) ──────────────────────────────────────

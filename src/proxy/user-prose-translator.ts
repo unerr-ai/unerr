@@ -123,8 +123,8 @@ export function translateSignalToUserProse(
     case "act": {
       // act bucket covers hlt / skl / unl / pg / rsm / act. Only hlt is
       // user-relevant — the others are agent-facing imperatives whose
-      // *result* is what the user sees (the master skill describes any
-      // work it did via Surface 4 prose).
+      // *result* is what the user sees (the master skill consolidates
+      // any provenance into the end-of-turn Surface 3 receipt).
       if (payload.subtype === "hlt") {
         const where = payload.entity ? ` on ${payload.entity}` : "";
         return `unerr stopped me — looks like a retry loop${where}`;

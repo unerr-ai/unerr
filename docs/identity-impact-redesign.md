@@ -481,18 +481,25 @@ This is the **proof-of-value the user feels**. Three lines, each a distinct kind
 
 **Ambient-marker collapse (per `src/proxy/ambient-marker.ts`):** after 3 consecutive zero-value turns, footer collapses to `unerr · ⋯` until the next turn produces a real catch. No banner blindness.
 
-### Surface 4 — Named-sidekick persistence (the four sub-surfaces)
+### Surface 4 — Named-sidekick persistence (SUPERSEDED — see surface-reliability-root-cause.md §10.7)
 
-**Where:** inside `content[].text` on plan/decision/capture-shaped turns.
+> **Superseded 2026-05-25 by `docs/surface-reliability-root-cause.md` §10.7.** The four sub-surfaces below collapsed into three surviving placements after we measured Surface 4a's out-of-band attribution at ~30–50 % reliability. The merge:
+>
+> - **4a (attribution)** → folded into Surface 3 as additional receipt rows. Same data (what fact shaped the answer), but the LLM pastes it as part of the end-of-turn block instead of mid-turn. Reliability climbs to ~100 % because it rides the same skill-driven paste path Surface 3 already uses.
+> - **4b (capture confirmation)** → unchanged inline placement after `unerr_remember` succeeds.
+> - **4c (ambiguity confirmation)** → unchanged inline placement on low-confidence captures.
+> - **4d (enforcement)** → renamed **fact-steering preface**; same mechanic (auto-injected on file-touch), just no longer Surface-numbered.
+>
+> The §10.7 doc carries the authoritative receipt block format (1–4 lines, `↳` arrow glyph, fold-in rules). Treat the table below as a historical record of what we tried first.
 
-| Sub-surface | When it fires | What the user sees |
+**Where (historical):** inside `content[].text` on plan/decision/capture-shaped turns.
+
+| Sub-surface | When it fired | What the user saw |
 |---|---|---|
 | **4a Attribution panel** | LLM produces a plan or decision | `unerr · this plan drew on: your rule "MCP config is project-level only", your decision from last week to gate router-tier-3, and 6 conventions auto-detected from the codebase.` |
 | **4b User-fed capture** | User says "remember X", "from now on Y", "always Z" | `unerr · stored: "MCP config is project-level only" — I'll enforce this silently. Edit / disable on the Sidekick Memory page.` |
 | **4c Ambiguity confirmation** | A capture lands at 0.5 ≤ confidence < 0.7 | `unerr · please confirm: "MCP config is project-level only" — should I remember this? Yes / clarify / no.` |
 | **4d Enforcement loop** | LLM touches a file with a stored rule | `unerr · reminder while we're in src/proxy/proxy.ts: you've said "don't import intelligence here" — keeping that.` |
-
-All four exist as concepts in `PERCEPTION_TO_PRESENCE.md`; we adopt them verbatim. Our job is to make sure they're rendered as `unerr · …` user-prose on every applicable turn, not buried in MCP response telemetry.
 
 ### How the three surfaces feel together (one-turn walkthrough)
 
@@ -509,21 +516,12 @@ unerr · brief for this prompt
           before any rename
 ```
 
-**Surface 4a (mid-turn, when the LLM produces the plan):**
+**Surface 3 (end of turn — now carries the attribution rows that used to be Surface 4a):**
 ```
-unerr · this plan drew on: your rule "gate before dispatch, record
-        after" (May 12), the cross-boundary check I ran on the gateway,
-        and 17 call sites I tracked through the graph
-```
-
-**Surface 3 (end of turn) — what unerr did, in dollars and cents:**
-```
-unerr · this turn
-        prevented 1 broken edit by surfacing 17 callers before the
-          refactor went out
-        used the graph instead of grepping 240 files (~18k tokens
-          saved → about 6 extra turns of headroom this session)
-        nothing new to learn this turn
+unerr » this turn caught 1 stale edit by surfacing 17 callers · saved 18k tokens
+        ↳ applied your rule "gate before dispatch, record after"  (recall)
+        ↳ joined 17 graph nodes through the gateway  (graph)
+        — about 6 extra turns of headroom this session
 ```
 
 The user scrolls and sees, in plain English, three discrete moments where unerr earned its place. No technical jargon. No `ur|<tag>`. No anchor wire format. Exactly the "ohh!! unerr helped here" reaction the user described.
@@ -532,12 +530,12 @@ The user scrolls and sees, in plain English, three discrete moments where unerr 
 
 | Surface | Assembly point | Source data |
 |---------|---------------|-------------|
-| 2 (brief) | `src/hooks/prompt-hooks.ts` UserPromptSubmit, into context **and** as a `unerr · …` line in the LLM's first response | `unerr_recall_notes`, `recall_facts`, `topic-shift`, skill router from §3, current tier-exposure state |
-| 3 (debrief) | `src/proxy/turn-footer.ts` + `src/proxy/ambient-marker.ts` (already exist for tool-response footers) | `EfficiencyTracker.getSnapshot()` (`src/proxy/efficiency-tracker.ts:16`), 7 mechanism rows in `metrics.db`, the per-turn `behavior_events` rows |
-| 4a (attribution) | `attribution-panel.ts` renderer (per PERCEPTION_TO_PRESENCE §11 Phase 3) | `recall_facts`, `unerr_recall_notes` results from the turn |
-| 4b (capture) | `unerr_remember` tool response | tool input |
-| 4c (ambiguity) | next-turn Surface 2 preface | `confidence` field from `unerr_remember` |
-| 4d (enforcement) | inline `ur|fct …` line + user-channel `unerr · reminder …` line on file-touching responses | `temporal_facts` table |
+| 2 (brief) | `src/hooks/prompt-hooks.ts` UserPromptSubmit, into context **and** as a `unerr » …` line in the LLM's first response | `unerr_recall_notes`, `recall_facts`, `topic-shift`, skill router from §3, current tier-exposure state |
+| 3 (debrief, consolidated) | `src/proxy/turn-summary-handler.ts` → `receipt-attribution.ts` (data) + `receipt-renderer.ts` (render). The master skill pastes the returned `line` verbatim. | `EfficiencyTracker.getSnapshot()`, `behavior_events` (recalls, captures, drift) keyed by `currentTurn` |
+| 4a (attribution) | **MERGED into Surface 3** — `receipt-renderer.ts` emits an `↳ applied your rule "…"  (recall)` row inside the receipt block | `behavior_events.event_type ∈ {fact_recalled, convention_applied}` |
+| 4b (capture confirmation) | inline `added that to unerr for next time` after `unerr_remember` succeeds | tool response |
+| 4c (ambiguity confirmation) | inline `should I remember: '<quote>'? (yes/no)` when `unerr_remember` returns `please confirm` | `confidence` field from `unerr_remember` |
+| 4d → fact-steering preface | inline `ur\|fct …` (LLM channel) + plain-English `unerr » …` line on file-touching responses | `temporal_facts` table; rendered by `enforcement-loop.ts` |
 
 ### Constraints to preserve
 - `_meta/_context fields removed` (project memory) — brief + footer go inline in the response body as `ur|<tag>` (LLM) and `unerr · …` (user) lines. No `_meta` regrowth.
@@ -633,18 +631,18 @@ A task is closed only when status = `verified`. Hold this bar — `done` is not 
 | T4.4 | Master skill body includes explicit instructions for Surface 2 (start preface) and Surface 3 (end footer) — this is how decision #4 (assistant-body rendering) is implemented. | master skill body (file from T4.2) | pending | `using-unerr` SKILL.md body contains "First response in a session: open with `unerr · context: …` summarizing what unerr loaded." and "Every assistant turn: end with `unerr · this turn: …` summarizing what unerr caught." in plain English. |
 | T4.5 | Master skill body composes with user skills — explicit "if the user defines their own SKILL.md, dispatch to it before falling back to `using-unerr`'s default workflow". | master skill body | pending | `using-unerr` SKILL.md body has a "user-defined skills run first" clause. |
 
-### §5 Impact surfacing (Surfaces 2, 3, 4 — execution-trace channels)
+### §5 Impact surfacing (Surfaces 2 + 3, plus the surviving inline placements)
 
-Surfaces 2 and 3 land via the master skill's instructions (T4.4). Surface 4 is the existing capture / ambiguity / enforcement plumbing — these rows audit and reinforce it.
+Surfaces 2 and 3 land via the master skill's instructions (T4.4). The historical "Surface 4" plumbing collapsed into three surviving placements after the §10.7 merge (2026-05-25): attribution moved into Surface 3 as receipt rows, capture/ambiguity stayed inline next to `unerr_remember`, enforcement renamed to fact-steering preface.
 
 | ID | Subject | File(s) | Status | Verify |
 | --- | --- | --- | --- | --- |
-| T5.1 | Surface 2 — start-of-turn preface emitted by LLM per T4.4. Jargon-free wording: `unerr · context: 3 stored facts loaded, 1 file cached`. | master skill body (T4.4) | pending | First response in a fresh session with stored facts opens with `unerr · context: …`. |
-| T5.2 | Surface 3 — end-of-turn footer emitted by LLM per T4.4. Jargon-free wording: `unerr · this turn: 2 catches (1 stale edit, 1 cascade) · ≈ 4.2k tokens saved`. | master skill body (T4.4) | pending | Last line of every assistant turn (after a coding action) is `unerr · this turn: …`. |
-| T5.3 | Surface 4a (attribution) — when unerr fed a fact that shaped the answer, the LLM says it in plain English ("unerr reminded me you'd asked to X"). | master skill body | pending | Turn where `recall_facts` returned a load-bearing fact contains an attribution phrase like the one above. |
-| T5.4 | Surface 4b (capture confirmation) — after `unerr_remember`, LLM emits "added that to unerr for next time". This is already half-wired in the agent instructions; verify it survives the rewrite. | master skill body + capture path | pending | User says "remember X always", LLM calls `unerr_remember`, next assistant line includes "added that to unerr for next time". |
-| T5.5 | Surface 4c (ambiguity) — when `unerr_remember` returns `please confirm`, LLM asks the user verbatim: "should I remember: '<quote>'? (yes/no)". Already in current CLAUDE.md; verify it's preserved in Draft D rewrite. | `src/config/instruction-writer.ts` (Draft D body) | pending | Low-confidence capture (0.5 ≤ conf < 0.7) → next assistant turn contains the verbatim yes/no question. |
-| T5.6 | Surface 4d (enforcement) — explicit rule in master skill: "if the user says 'always', 'from now on', 'remember', call `unerr_remember` with verbatim `source_quote` and your `confidence`". | master skill body | pending | Rule present; manual test prompt `from now on always X` triggers `unerr_remember` call in tool transcript. |
+| T5.1 | Surface 2 — start-of-turn preface emitted by LLM per T4.4. Jargon-free wording: `unerr » loaded a convention you wrote 3 days ago for src/proxy/proxy.ts: "<verbatim>"`. | master skill body (T4.4) | done | First response in a fresh session with stored facts opens with `unerr » loaded …`. |
+| T5.2 | Surface 3 — end-of-turn receipt **block** (1–4 lines) emitted by LLM per T4.4. Carries the merged attribution rows + savings footer per surface-reliability-root-cause.md §10.7. The master skill pastes `unerr_turn_summary({}).line` verbatim. | `src/proxy/turn-summary-handler.ts`, `src/proxy/receipt-renderer.ts`, master skill body | done | Last lines of every coding turn are the block returned by `unerr_turn_summary`. |
+| T5.3 | ~~Surface 4a (attribution)~~ — **MERGED into Surface 3 as receipt rows** (`receipt-attribution.ts` + `receipt-renderer.ts`). Out-of-band mid-turn placement deleted because reliability was ~30–50 %; the in-band receipt placement runs at ~100 %. | `src/proxy/receipt-attribution.ts` (new), `src/proxy/receipt-renderer.ts` (new), `src/proxy/attribution-panel.ts` (DELETED) | done | Turn where a load-bearing fact was recalled produces an `↳ applied your rule "…"  (recall)` row in the Surface 3 block. |
+| T5.4 | Capture confirmation (formerly 4b) — after `unerr_remember`, LLM emits "added that to unerr for next time". This is inline next to the tool call, not a separate Surface. | master skill body + capture path | done | User says "remember X always", LLM calls `unerr_remember`, next assistant line includes "added that to unerr for next time". |
+| T5.5 | Ambiguity confirmation (formerly 4c) — when `unerr_remember` returns `please confirm`, LLM asks the user verbatim: "should I remember: '<quote>'? (yes/no)". | master skill body | done | Low-confidence capture (0.5 ≤ conf < 0.7) → next assistant turn contains the verbatim yes/no question. |
+| T5.6 | Fact-steering preface (formerly 4d enforcement) — explicit rule in master skill: "if the user says 'always', 'from now on', 'remember', call `unerr_remember` with verbatim `source_quote` and your `confidence`". On subsequent file-touches the `ur\|fct` preface auto-surfaces via `enforcement-loop.ts`. | master skill body, `src/proxy/enforcement-loop.ts` | done | Rule present; manual test prompt `from now on always X` triggers `unerr_remember` call in tool transcript; subsequent touches on the named file carry a `ur\|fct` preface line. |
 | T5.7 | Codify the jargon-free transformation rules (raw `ur\|<tag>` → user-prose) in a single translator module so future signals follow the same discipline. | new `src/proxy/user-prose-translator.ts` (or extend `src/proxy/ambient-marker.ts`) | pending | Unit test asserts every `ur\|<tag>` from `SIGNAL_PREFIX_LEGEND` has a plain-English mapping that contains no internal jargon (`ur\|`, `<tag>`, `_meta`, `fan_in`, etc.). |
 | T5.8 | Ambient marker integration — keep current "collapse to `unerr · ⋯` after 3 zero-content turns" behavior; ensure it does NOT swallow Surface 2/3 lines. | `src/proxy/ambient-marker.ts` | pending | 3 zero-content tool calls → 4th turn emits `unerr · ⋯`; a turn with a real Surface 3 footer is not collapsed. |
 

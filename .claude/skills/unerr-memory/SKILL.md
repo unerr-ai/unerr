@@ -75,7 +75,7 @@ Build on prior work; don't re-explore what was already understood.
 
 Drafting code before `unerr_recall_notes` on Moment 1 → restart the turn at recall.
 Treating a recalled note as a soft preference → notes are user-fed rules; they override auto-detected conventions.
-Bundling Surface 4b ('added that to unerr') into the end-of-turn summary → emit inline at the capture moment.
+Emitting standalone `attribution:` rows inline → the end-of-turn `unerr_turn_summary` receipt now consolidates all attribution into its block; do not echo it inline.
 Saving a note that is obvious from the code → fails the quality bar; don't save.
 Using `p:` anchor for a fact that fits a file or entity → pollutes prompt-receipt query; use the narrower anchor.
 Skipping `unerr_remember` after the user said 'remember' → loses the fact; capture before replying.

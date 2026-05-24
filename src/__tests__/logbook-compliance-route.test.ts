@@ -95,43 +95,9 @@ describe("buildComplianceRibbon (Fix H)", () => {
     expect(ribbon.mark_intent.ratio).toBe(1);
   });
 
-  it("derives Surface 4 ratio from emitted vs fact_recalled events (Fix I)", () => {
-    mkdirSync(unerrDir, { recursive: true });
-    const sessionId = process.env.UNERR_SESSION_ID ?? "test";
-    const writer = new BehaviorEventWriter(unerrDir, sessionId);
-    // Two fact_recalled candidates ...
-    writer.record({
-      session_id: sessionId,
-      type: "fact_recalled",
-      tool: null,
-      entity_key: null,
-      response_bytes: null,
-      detail: {},
-    });
-    writer.record({
-      session_id: sessionId,
-      type: "fact_recalled",
-      tool: null,
-      entity_key: null,
-      response_bytes: null,
-      detail: {},
-    });
-    // ... one Surface 4a emission (attribution line, count=2)
-    writer.record({
-      session_id: sessionId,
-      type: "surface4a_emitted",
-      tool: null,
-      entity_key: null,
-      response_bytes: null,
-      detail: { count: 2 },
-    });
-
-    const events = readNamedEvents(unerrDir, { session_id: sessionId });
-    const ribbon = buildComplianceRibbon(unerrDir, events);
-    expect(ribbon.surface4.required).toBe(2);
-    expect(ribbon.surface4.called).toBe(2);
-    expect(ribbon.surface4.ratio).toBe(1);
-  });
+  // §10.7 — Surface 4 ribbon row deleted (merged into Surface 3 receipt).
+  // The Surface 4 ratio test that previously lived here has been removed
+  // along with the underlying ComplianceRibbon.surface4 field.
 });
 
 describe("/api/logbook/compliance route (Fix H)", () => {

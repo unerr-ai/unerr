@@ -356,6 +356,8 @@ The `UserPromptSubmit` hook already receives the verbatim prompt on stdin: `src/
 
 ### Fix I — Surface 4 trace + dashboard display (attribution, capture, ambiguity, enforcement)
 
+> **STATUS — 2026-05-25: SUPERSEDED by §10.7.** Post-ship verification across two fresh sessions (df6410f6, ac0d8355) confirmed Fix I's inline-attribution wiring is structurally unreliable (~30–50% emission rate, see §10.7 §A). Replacement plan in §10.7 collapses Surface 4 into the Surface 3 close-out receipt, removes the inline attribution channel and the Surface-4-specific compliance ribbon row, and folds the surviving 4b capture confirmation into the receipt's "captured" section. Keep this section for archaeological context but do NOT use it as the implementation contract.
+
 Surface 4 is the *presence layer* — the four sub-surfaces by which unerr surfaces its participation in the conversation. Their reliability profile is the inverse of Surfaces 2/3: three of the four (4a / 4c / 4d) are already **rendered server-side** by `src/proxy/user-block-emitter.ts:240` (`buildUserBlockForResponse`) and reach the user without agent reasoning. The fourth (4b — *"added that to unerr for next time"*) is the only one that requires the agent to echo a confirmation, and only after `unerr_remember` succeeds. The problem is **observability**, not compliance: today, none of these emissions are logged to `behavior_events`, so the execution trace (JSONL + Logbook dashboard) shows zero evidence that Surface 4 fired.
 
 - **Code-ground for each sub-surface (verified against current tree):**
@@ -618,6 +620,199 @@ Per the agreed cadence — small batches green-on-each, confirmed before each he
 
 All 11 fixes shipped on 2026-05-24. Final verification: 178 tests across every Fix-touched file passing, `pnpm run typecheck` clean. No new schema migrations introduced; every change is additive (optional fields, new event types in the existing `behavior_events` union, one new helper file).
 
+> **2026-05-25 amendment:** post-ship verification (sessions df6410f6 + ac0d8355) revealed Fix I (inline Surface 4) is structurally unreliable. Replacement plan in §10.7 below — Fix I is superseded, Surface 4 is collapsed into Surface 3's receipt, and all inline-Surface-4 plumbing is removed in the same change. Fix L (`⚡ unerr runtime`) remains shipped but is folded into the receipt body instead of being a separate prefix segment so the user sees one consolidated end-of-turn line.
+
+---
+
+## 10.7 — Surface 4 → Surface 3 merge plan (proposed 2026-05-25)
+
+This section replaces Fix I (§9 line 357) and reshapes Fix L (§9 line 424) into a single user-facing surface — the close-out receipt — that owns provenance, capture confirmation, runtime joins, and savings in one consolidated line. The two verifications below ground the change in code, not opinion.
+
+### A — Why Surface 4 inline cannot be made reliable
+
+| Aspect | Surface 3 (close-out receipt) | Surface 4a/c/d (inline wrapper) |
+|---|---|---|
+| Emission owner | Agent (single tool call + paste) | Proxy (`buildUserBlockForResponse`, `user-block-emitter.ts:272`) |
+| Trigger | Skill contract — agent calls `unerr_turn_summary` | Out-of-band — proxy injects on the next first-tool-call wrapper |
+| Per-turn render points | Always once (final assistant message) | At most once per turn (`isFirstCall` gate at `user-block-emitter.ts:275`) |
+| Turn-stamp coupling | Independent | `e.turn === ctx.toolCallCount` strict equality required (`user-block-emitter.ts:238`) |
+| User visibility | 100% (assistant message is always shown) | UI-dependent (Claude Code collapsible tool-result views) |
+| Observed reliability | 100% (every coding session) | Session ac0d8355: 2 rendered × ~5 candidate events = ~40% |
+| Failure modes | Agent forgets to call — handled by hook reminders | Five serial dependencies, each can drop the row silently |
+
+Observed evidence (sessions df6410f6 + ac0d8355, both grounded against `/Users/jaswanth/.claude/projects/-Users-jaswanth-IdeaProjects-unerr-cli/<sid>.jsonl`):
+
+- df6410f6: zero inline `attribution:` rows despite a `fact_recalled` event with `top_content` populated (metadata-key mismatch — now fixed, but row still required wrapper render which never came after `unerr_remember`).
+- ac0d8355: 2 inline rows fired correctly (`attribution: unerr recall → …`) BUT capture-side `attribution: user → …` from `unerr_remember` never rendered (the recall came first on the same turn, so `isFirstCall` consumed the only render window).
+
+Industry context (2026 web survey):
+
+- No memory framework (mem0, Letta, LlamaIndex Memory, Cloudflare Agent Memory, Zep) has shipped an inline-attribution UX pattern. Storage and retrieval are solved; user-facing provenance display is an unsolved problem.
+- [CHI 2026 — When Help Hurts](https://dl.acm.org/doi/full/10.1145/3772318.3791176) finds developer distrust in AI tools is up from 31% (2024) to 46% (2026). Intermittent provenance display measurably worsens trust — "scaffold appropriate reliance rather than generic confidence readouts."
+- Claude Code's collapsible tool-result UI ([Truefoundry MCP integrations guide](https://www.truefoundry.com/blog/claude-code-mcp-integrations-guide)) means wrapper-injected text is often hidden from the user even when emission succeeded.
+
+Conclusion: inline Surface 4 is fighting an unsolved problem on fragile infrastructure for a marginal emotional-impact gain. The merge into Surface 3 buys 2.1× expected wow factor (100% reliability × ~85% per-event impact vs ~40% × 100%) at small implementation cost.
+
+### B — Target receipt format (the consolidated block, 1–4 lines)
+
+The receipt becomes the only place "what unerr did this turn" is surfaced — recalls, captures, joins, savings — composed as a short block of 1 to 4 lines. The single-line constraint from the original spec is **relaxed (2026-05-25)**: because the receipt now absorbs Surface 4's attribution payload, allowing 2–4 lines lets us preserve verbatim quotes + attribution without truncating to noise. Three or four short lines of receipt do not impose meaningful cost on the user's reading flow — they read as one ambient block, the way a CI summary reads — and the verbatim quoting is what makes the wow factor land.
+
+Wire shape:
+
+```
+unerr » <headline line>
+        <attribution line 1 (optional)>
+        <attribution line 2 (optional)>
+        <savings + session footer (optional, fold into headline when short)>
+```
+
+Headline is always line 1; everything else is optional and elided when the underlying event is missing. Indentation on lines 2-4 (8 spaces / `        `) signals continuation of the same block to terminal renderers without forcing a true table or markdown construct.
+
+**Line 1 — headline.** The verb-phrase + counts, ≤ 100 chars. Switches on what fired this turn:
+
+| Turn shape | Headline template |
+|---|---|
+| 1 recall, 0 captures | `unerr » applied 1 rule this turn` |
+| ≥2 recalls, 0 captures | `unerr » applied N rules this turn` |
+| 0 recalls, 1 capture | `unerr » remembered 1 new rule this turn` |
+| 0 recalls, ≥2 captures | `unerr » remembered N new rules this turn` |
+| 1+ recalls AND 1+ captures | `unerr » applied N rules · remembered M new` |
+| Recalls + memory↔graph join | `unerr » applied N rules · joined K graph nodes` |
+| Drift validation hit | `unerr » caught drift on F file(s)` |
+| Nothing happened | (legacy single line — `unerr » nothing to help with this turn · …`) |
+
+**Lines 2–3 — attribution rows.** Verbatim quote of what was applied / captured. One per row, max 2 rows. If more than 2 events fired, render the top 2 and append a `+N more` tail on the savings footer.
+
+```
+        ↳ applied your rule "no console.log in production"           (recall)
+        ↳ remembered "tests live next to code"                       (capture)
+        ↳ caught drift: src/proxy/bridge.ts changed since last note  (drift)
+```
+
+The `↳` (U+21B3 downwards-arrow-with-tip-rightwards) marks attribution rows visually distinct from the headline. Each row ends with a parenthetical tag (`recall` / `capture` / `drift` / `join`) so the user can tell at a glance which kind of evidence is on each line.
+
+**Line 4 (or appended to line 1) — savings + session footer.** Pulled from existing `unerr_turn_summary` numbers:
+
+```
+        · saved 6.3k tokens this turn · 7.4k saved this session
+```
+
+If the headline + footer together stay under 120 chars and no attribution lines fire, fold the footer into line 1 (preserves backwards-compatibility on no-attribution turns).
+
+**Worked examples:**
+
+```
+unerr » applied 1 rule this turn
+        ↳ applied your rule "no console.log in production"          (recall)
+        · saved 6.3k tokens this turn · 7.4k saved this session
+```
+
+```
+unerr » remembered 1 new rule this turn
+        ↳ remembered "tests live next to code"                       (capture)
+        · 2.1k saved this session
+```
+
+```
+unerr » applied 2 rules · remembered 1 new
+        ↳ applied "type returns from public APIs"                    (recall)
+        ↳ remembered "use Foo for Bar"                               (capture)
+        · saved 1.2k tokens this turn · 9.8k saved this session
+```
+
+```
+unerr » applied 1 rule · joined 3 graph nodes · caught drift on 1 file
+        ↳ applied your rule "stdout is MCP JSON-RPC only"            (recall)
+        ↳ caught drift: src/proxy/bridge.ts                          (drift)
+        · saved 4.1k tokens this turn · 12k saved this session
+```
+
+```
+unerr » nothing to help with this turn · 0 tokens saved
+```
+
+Hard constraints:
+- Block is 1 to 4 lines total — never more, never zero (the no-events shape is the legacy one-liner).
+- Line 1 (headline) is always present and ≤ 100 chars.
+- Attribution lines (2–3) capped at 2 rows; overflow becomes `+N more` on the footer.
+- Each attribution row ≤ 80 chars; content quotes truncated to 60 chars with `…` if needed.
+- Verbatim user content only on attribution rows — no agent paraphrase. If `source_quote` is present and ≤ 60 chars, prefer it over `content` (it's what the user said).
+- Elide segments and rows that are zero — never emit `saved 0 tokens`, `applied 0 rules`, or an empty `↳` row.
+- Continuation rows use 8-space indent + `↳` — keeps the block visually grouped in `cat`/terminal renderers without requiring markdown or ANSI escapes.
+
+### C — Surface 4 cleanup matrix (every reference, with verdict)
+
+| File:line(s) | What lives there today | Verdict |
+|---|---|---|
+| `src/proxy/attribution-panel.ts` (entire file, 176 LOC) | `renderFactAttribution`, `renderAttributionBlock`, `renderFactAttributionBlock`, `renderEventAttributionBlock`, `eventToAttributionRow`, `eventsWithAttribution`, `attributedFor`, `FactProvenance`, `AttributionRow` interfaces | **Repurpose, don't delete.** Keep `eventsWithAttribution` + `eventToAttributionRow` + `attributedFor` as the receipt-builder's data source (turn-summary-handler imports them). Delete the inline renderers (`renderAttributionBlock`, `renderFactAttributionBlock`, `renderEventAttributionBlock`, `renderFactAttribution`). Move the file under `src/tracking/` and rename to `attribution-data.ts` to reflect the new role. |
+| `src/proxy/user-block-emitter.ts:235–243` (`renderAttributionForTurn`) | Inline attribution renderer call | **Delete.** No replacement — provenance moves to receipt. |
+| `src/proxy/user-block-emitter.ts:303–332` (Surface 4a/4c emission block) | `behaviorEvents.record({type:"surface4a_emitted"|"surface4c_emitted"})` | **Delete.** The compliance ribbon row goes away with §10.7; the events are no longer surfaced anywhere. |
+| `src/proxy/user-block-emitter.ts:145–160` (`renderPendingConfirmations` — Surface 4c) | Ambiguity confirmation prompt | **Keep.** This is a USER-FACING question ("should I remember: '<quote>'? (yes/no)") that requires inline placement to unblock the next user turn. Receipt placement would lose the conversational gate. Rename references from "Surface 4c" to "ambiguity prompt" — single-line standalone surface. |
+| `src/proxy/enforcement-loop.ts` (entire file: `appliesToFor`, `factsApplyingTo`, `renderEnforcedFactPrefix`) — Surface 4d | Steering line that prepends `you've previously said: …` to the next response | **Keep but rename.** Rename references from "Surface 4d" to "fact-steering preface" (it's distinct from attribution — it's an in-context reminder of an enforced rule, not a post-hoc attribution). |
+| `src/tools/intelligence/unerr-remember.ts:181–196` (`fact_stored_user_fed` event write — Surface 4b source) | Capture confirmation event | **Keep.** Receipt reads this event to build the "captured" segment. |
+| `src/skills/local-pack.ts:147–166` (Surface 4a/4b/4c/4d skill prompt text) | Agent instructions: "emit `attribution:` lines, say `added that to unerr for next time`, etc." | **Rewrite.** Replace with: "Surface 4a (attribution) is now consolidated into the Surface 3 receipt — the agent does NOT emit `attribution:` lines. Surface 4b (capture confirmation) stays: after `unerr_remember` succeeds, say `added that to unerr for next time` as a one-line follow-up. Surface 4c (ambiguity prompt) stays: when `unerr_remember` returns `please confirm`, ask the user verbatim. Surface 4d (fact-steering) is server-rendered — agent acknowledges by acting, not by echoing." |
+| `src/skills/local-pack.ts:424` ("Bundling Surface 4b into the end-of-turn summary → emit inline at the capture moment") | Red-flag rule against bundling 4b | **Delete.** Inverted by the merge — bundling IS the new contract. |
+| `.claude/skills/unerr-using-unerr/SKILL.md:85–101` (mirror of `local-pack.ts` text) | Same skill text emitted to disk on `unerr install claude-code` | **Rewrite in lockstep.** Anything that ships from `local-pack.ts` flows into installed skill files; the rewrite at `local-pack.ts` propagates here at install time. Verify with `git diff` after install. |
+| `.claude/skills/unerr-memory/SKILL.md:78` (mirror — bundling rule) | Same red flag | **Delete.** |
+| `src/proxy/user-prose-translator.ts:127` (comment referencing Surface 4 prose translation) | Code comment only | **Edit.** Update wording — Surface 4 is now Surface 3 receipt's attribution segment, not an inline prose surface. |
+| `src/tracking/behavior-events.ts:18` (`BehaviorEventType` union members `surface4a_emitted`, `surface4c_emitted`, `surface4d_emitted`) | Union members | **Delete `surface4a_emitted` + `surface4c_emitted`. Keep `surface4d_emitted`** (renamed `fact_steering_emitted` for clarity if we touch every callsite). The agent-facing skill prompt text changes mean nothing emits 4a/4c any more. |
+| `src/server/routes/logbook.ts:395–402` + `:440–460` + `:513–520` (ComplianceRibbon.surface4 field + computation) | Compliance ribbon's "Surface 4" row | **Delete the row.** The ribbon collapses from 5 columns to 4 (surface2, surface3, mark_intent, skill). The dashboard gains a NEW receipt-attribution column in the timeline drill-down, not the ribbon. |
+| `src/ui/pages/LogbookPage.tsx:96` (interface field) + `:2171` (`["Surface 4", compliance.surface4]` grid entry) | UI row | **Delete the row.** Grid switches from `sm:grid-cols-5` back to `sm:grid-cols-4`. |
+| `src/__tests__/phase2-presence.test.ts:480–574` (4 Surface-4 regression tests + defensive guard) | Tests of the inline renderers | **Migrate.** Rewrite to assert the NEW receipt format includes the verbatim content + source_quote, instead of inline `attribution:` rows. The df6410f6 / ac0d8355 regression intent is preserved — just on the receipt side. |
+| `src/__tests__/logbook-compliance-route.test.ts:98–134` (Surface 4 ratio test) | Test of the dashboard ribbon row | **Delete.** Ribbon row no longer exists. |
+| `src/__tests__/surface-coverage.test.ts:21` (4b wire-level coverage comment) | Comment only | **Edit.** Update the surface taxonomy comment to reflect 3 user-visible surfaces (1/2/3) + 2 server-rendered prefaces (ambiguity prompt, fact-steering). |
+| CLAUDE.md (no current `Surface 4` mention found — verified) | n/a | **No change.** |
+| AGENTS.md (no current `Surface 4` mention found — verified) | n/a | **No change.** |
+| `docs/identity-impact-redesign.md` (Surface 4 reference) | Design doc | **Edit.** Update narrative to reflect merged receipt. |
+| `src/config/instruction-writer.ts` (writes CLAUDE.md / AGENTS.md sentinel blocks) | Installer for instruction files | **Audit.** If any sentinel-block text references "Surface 4", rewrite to the new surface taxonomy. |
+| `src/hooks/prompt-hooks.ts:332` (nudge text mentions attribution but not "Surface 4" verbatim) | Hook reminder — *"attribute concrete unerr findings in plain English"* | **Keep.** This is the prose attribution convention the agent uses inline ("unerr found X in Y") and is independent of the receipt merge. |
+
+### D — Implementation tasks (sequenced, each green-on-merge)
+
+1. **Receipt format upgrade (`turn-summary-handler.ts`)** — extend `TurnSummaryResult` with `attribution: { recalls: Array<{content, source_quote?, scope?}>, captures: Array<{content, source_quote?, scope?}>, drift_hits: Array<{file_path}> }`. Build the verb-phrase per the §B template. Quote selection: source_quote first if ≤60 chars, else content truncated to 60. Receipt builder reads `behavior_events` for the current turn via the existing reader (the data is already there).
+2. **Receipt formatter (`turn-summary-handler.ts`)** — pure function `renderReceiptLine({attribution, savings, headroom})`. Single line, ≤240 chars, elision rules per §B. Unit test against ~12 turn-shape permutations.
+3. **Skill prompt rewrite (`src/skills/local-pack.ts:147–166` + `:424`)** — replace Surface 4 contract with the new surface taxonomy (3 user-visible + 2 server-rendered prefaces). Re-install the bundled skills (`.claude/skills/unerr-*/SKILL.md` files regenerate from `local-pack.ts`).
+4. **Inline renderer removal** — delete `renderAttributionForTurn` (`user-block-emitter.ts:235`), the 4a/4c `behaviorEvents.record` block (`:303–332`), and the inline renderers in `attribution-panel.ts`. Keep `eventsWithAttribution` + `eventToAttributionRow` + `attributedFor` for the receipt builder; move them into a new `src/tracking/attribution-data.ts` (or repurpose the existing file with the deletions).
+5. **Compliance ribbon collapse (`logbook.ts` + `LogbookPage.tsx`)** — drop the `surface4` field, the grid column, the computation in `buildComplianceRibbon`, and the test. Grid switches back to `sm:grid-cols-4`.
+6. **Timeline drill-down enrichment (`logbook.ts` `/timeline` + `/event/:idx`)** — add per-row `attribution` field that reads the same `behavior_events` the receipt does. This is where the audit-trail serious-dev use case is preserved (per §A — they get full provenance in the dashboard, not in chat noise).
+7. **`BehaviorEventType` union cleanup (`behavior-events.ts:18`)** — delete `surface4a_emitted` + `surface4c_emitted`. Rename `surface4d_emitted` → `fact_steering_emitted` (touches `enforcement-loop.ts` write site + any reader). Both deletes are safe because nothing reads them after step 5.
+8. **Naming sweep** — rename `attribution-panel.ts` (or move to `src/tracking/`); rename `renderPendingConfirmations` references from "Surface 4c" to "ambiguity prompt"; rename `renderEnforcedFactPrefix` references from "Surface 4d" to "fact-steering preface". Pure rename — no behavior change.
+9. **Test migration (`phase2-presence.test.ts`, `logbook-compliance-route.test.ts`, `surface-coverage.test.ts`)** — rewrite the four Surface 4 inline-render tests as receipt-format tests; delete the compliance ribbon Surface 4 test; update the taxonomy comment.
+10. **Doc + design-doc sync (`identity-impact-redesign.md`, this doc §10.6 + §10.7)** — append a "merge shipped" note to §10.7 with the final ship date and the tests-passing count.
+11. **Installer audit (`src/config/instruction-writer.ts`)** — verify no instruction-file sentinel block carries stale Surface 4 language.
+
+### E — Acceptance criteria
+
+- `unerr_turn_summary` returns a receipt line in the §B format on every coding turn where ≥1 attribution-worthy event fired this turn.
+- The receipt line is byte-identical to today's legacy form on turns where NOTHING fired (`nothing to help with this turn · …`).
+- `pnpm run test:run src/__tests__/phase2-presence.test.ts src/__tests__/logbook-compliance-route.test.ts src/__tests__/surface-coverage.test.ts src/__tests__/turn-summary-handler.test.ts` all green.
+- `grep -rn "Surface 4a\|Surface 4c\|Surface 4d\|surface4a_emitted\|surface4c_emitted" src/ docs/ .claude/skills/` returns ZERO hits (after the rename / deletes).
+- `LogbookPage.tsx` ribbon grid renders `sm:grid-cols-4` with no Surface 4 row.
+- Re-running the verification prompt from session ac0d8355 in a fresh session produces a single receipt line that names BOTH the captured rule AND any recalled rule from the same turn — the failure mode that exposed this merge plan.
+
+### F — What we explicitly are NOT doing
+
+- Not deleting `unerr_remember` or its `fact_stored_user_fed` event — the capture happens, only the inline rendering changes.
+- Not deleting the ambiguity confirmation prompt (former "Surface 4c") — it's a conversational gate, not provenance display, and inline placement is correct for it.
+- Not deleting the fact-steering preface (former "Surface 4d") — it's an in-context reminder before the agent's next action, not a post-hoc attribution.
+- Not changing the receipt invocation contract (`unerr_turn_summary({})`) — the tool signature is stable; only the returned `line` body changes.
+- Not building a new dashboard page — provenance audit lives in the existing logbook timeline drill-down (step 6).
+
+### G — Why this is reversible if we change our minds
+
+Every deletion in §C is a deletion of EMISSION, not of the underlying event-stream data (`fact_recalled`, `fact_stored_user_fed`, drift events all continue to be written). If we ever want to re-add an inline attribution layer, we re-add the renderers — the data is still there. The receipt path and the (hypothetical future) inline path can coexist; this merge is choosing a default, not closing a door.
+
+### H — Merge shipped (2026-05-25)
+
+The full §10.7 plan landed across tasks #132–#143. Status snapshot at merge time:
+
+- **Code paths** — `src/proxy/receipt-attribution.ts` (new, data extractor), `src/proxy/receipt-renderer.ts` (new, 1–4-line block formatter), `src/proxy/turn-summary-handler.ts` (now returns the block via `line`). `src/proxy/attribution-panel.ts` deleted entirely. `BehaviorEventType` lost `surface4a_emitted` / `surface4c_emitted` / `surface4d_emitted`. The compliance ribbon collapsed from 5 columns to 4 (`sm:grid-cols-4`). The timeline drill-down (`/event/:idx`) now returns an `attribution` field so the audit trail moved into the dashboard rather than chat noise.
+- **Skill prompts** — `src/skills/local-pack.ts` lines 145–158 + 162 + 424 rewritten in lockstep with `.claude/skills/unerr-using-unerr/SKILL.md` and `.claude/skills/unerr-memory/SKILL.md`. The §424 bundling-prevention red flag inverted (bundling IS the new contract).
+- **Naming** — `enforcement-loop.ts` header banner now reads "Fact-steering preface (formerly Surface 4d)". `user-prose-translator.ts:127` comment updated. `user-block-emitter.ts` header renamed from "Surface 2/3/4" to "User-block".
+- **Tests** — 72/72 green across `receipt-attribution.test.ts` (new, 10 cases), `receipt-renderer.test.ts` (new, 10 cases), `turn-summary-handler.test.ts`, `phase2-presence.test.ts` (attribution-panel block removed), `surface-coverage.test.ts` (S4a test deleted, S4d renamed "fact-steering preface"), `logbook-compliance-route.test.ts` (Surface 4 ratio test deleted). `pnpm run typecheck` clean.
+- **Acceptance grep** — `grep -rn "Surface 4a\|Surface 4c\|Surface 4d\|surface4a_emitted\|surface4c_emitted" src/ docs/ .claude/skills/` returns ZERO hits outside this doc's archaeological §C cleanup matrix and the §484 SUPERSEDED banner in `identity-impact-redesign.md` (both intentional, retained as historical record).
+- **Doc sync** — `docs/identity-impact-redesign.md` §484 carries a SUPERSEDED-2026-05-25 banner pointing here. Cross-repo sync into `unerr-web-landing/docs/open-cli/PERCEPTION_TO_PRESENCE.md` tracked as task #144.
+
 ---
 
 ## 11 — Sources
@@ -702,3 +897,103 @@ All 11 fixes shipped on 2026-05-24. Final verification: 178 tests across every F
 - Fix J: `src/commands/hook.ts:39` (stdin reader), `src/hooks/adapters/claude-code.ts:54` (raw payload pass-through), `src/hooks/prompt-hooks.ts:484–487` (capture site — `message` variable holds verbatim prompt), `src/tracking/behavior-events.ts:18` (`BehaviorEventType` union extension target: `user_prompt_received`), `src/server/routes/token-flow.ts` (830 LOC, extend payload with `prompt` field), `src/server/routes/reasoning-quality.ts` (682 LOC, same join), `src/server/routes/logbook.ts:278` (`StoryParagraph`, extend with prompt header), `src/ui/pages/TokenFlowPage.tsx` (1578 LOC), `src/ui/pages/ReasoningQualityPage.tsx` (1676 LOC), `src/ui/pages/LogbookPage.tsx` (2165 LOC), `src/ui/pages/token-trace/components/` (existing `KpiStatCard`, `MechanismPill`, `Sparkline` — reuse, do not add new components)
 - Fix K: `src/timeline/open-threads.ts:60` (`getOpenThreads` — verified fan_in=0 from session-resume path; reader exists, unused on resume today), `src/proxy/session-persistence.ts:73` (`generateSessionResumePayload` — assembler, verified fan_in=11 (3 prod + 8 test); extend payload interface with `open_blockers` + `last_intents`), `src/proxy/session-persistence.ts:258` (`formatSessionResumeBlock` — renderer, verified fan_in=9; add two `parts.push` for blocker / last-intent lines + drift-aware `(file no longer in repo)` suffix), `src/proxy/user-block-emitter.ts:178` (`buildResumeStrip` — call site, no change needed), `src/proxy/user-block-emitter.ts:170` (`RESUME_STRIP_EMITTED` — per-session emit-once guard, unchanged), `src/tracking/behavior-events.ts:18` (`BehaviorEventType` union — add `resume_blockers_surfaced`), `CLAUDE.md` (Surface 2 anchor-missing vocabulary — `(file no longer in repo)` reuse). **No new files. No new schema. No new dashboard page.**
 - AGENT_REGISTRY (§6.5 + §10.4): `src/config/agent-registry.ts:30` (`hookSupport: boolean` field), 6 of 16 agents have `hookSupport: true` — **Claude Code, Cursor, Windsurf, Cline, Gemini CLI, GitHub Copilot CLI** (corrected — earlier draft mistakenly listed Codex among hooked; Codex is `hookSupport: false`)
+
+---
+
+## 10.8 — Skill-activation reliability wave (PARKED — proposed 2026-05-25)
+
+### Status
+
+**Parked.** The §10.7 Surface 4 → Surface 3 merge code passes 72/72 tests and renders the expected receipt block when the agent calls the contract (verified live in a fresh session via the "how does shell compression work in here?" prompt — receipt fired with `↳ applied your rule "…"  (recall)` row and savings footer, exactly per §10.7 §B). What the merge does NOT fix is the **probability the agent enters the contract in the first place**. A `1cae41a1` regression session showed zero unerr tool calls despite six MANDATORY `ur|act` directives being injected — the agent ignored all of them and reasoned its way out of capture (verbatim: *"The rule is already documented in CLAUDE.md so I won't duplicate it in auto-memory."*). This section captures the five compounding root causes, the proposed fixes (prioritized), and the acceptance bench design so future-us can resume from a cold read.
+
+Re-visit triggers:
+- A second regression session shows the agent skipping the contract on a non-capture prompt (would mean exploration-prompt compliance is also degrading, not just capture-mixed).
+- A user report that the receipt is empty when they expected provenance (would mean the data path is dormant — same root cause).
+- Either of the above sustained across 3+ sessions.
+
+Until one of those fires, we ship the §10.7 merge as-is and tolerate the capture-mixed failure mode (it produces a degraded but not broken UX — the agent answers the question, just without persistence).
+
+### A — Empirical evidence (two sessions, opposite outcomes)
+
+**Session `1cae41a1` (failed) — capture-mixed prompt.** User prompt: *"remember: in src/proxy/bridge.ts, never import from src/intelligence/ … Now audit src/proxy/bridge.ts and confirm that rule still holds."* Hook injected six MANDATORY `ur|act` directives (STEP-0/1/2/N + Skill dispatch). Agent action: **zero unerr tool calls.** Went directly to built-in `Read`. Fabricated `unerr » audit-only turn; no changes made.` Explicit refusal text: *"The rule is already documented in CLAUDE.md so I won't duplicate it in auto-memory."*
+
+**Counter-evidence session (worked) — pure-exploration prompt.** User prompt: *"how does shell compression work in here?"* Same hook, same code, same merge. Agent made **10 unerr tool calls** (search_code / file_outline / file_read / get_references). Receipt rendered exactly per §10.7 §B with `↳ applied your rule "…"  (recall)` row and `· saved 3.5k tokens this turn · 7.8k saved this session` footer.
+
+**Diagnosis:** the contract works for prompts where the skill IS the answer path (exploration). It fails for prompts where the agent can reason its way around the contract (capture-mixed, audit, "small" tasks).
+
+### B — Five compounding root causes (each grounded in published 2026 research)
+
+| # | Root cause | Evidence |
+|---|---|---|
+| 1 | Our `ur|act` STEP directives are in the sub-optimal directive style — they say "MANDATORY: call X" but never block the default action ("Do NOT use built-in Read first"). | [Ivan Seleznov — 650-trial study](https://medium.com/@ivan.seleznov1/why-claude-code-skills-dont-activate-and-how-to-fix-it-86f679409af1): Variant A (passive) 81.4% bare / **37% with hooks** (hooks HURT); Variant C (`ALWAYS X. Do not Y directly`) 98.1% bare / 100% with hooks. Our pattern sits between A and B. |
+| 2 | `UserPromptSubmit.additionalContext` accumulates as separate `<system-reminder>` blocks across turns. By turn 20, ~120 lines of stacked MANDATORY directives compete for "current". | [GitHub anthropics/claude-code #40216](https://github.com/anthropics/claude-code/issues/40216), opened 2026-03-28, **closed "not planned"** — Anthropic will not fix this. |
+| 3 | Small additions to system context cause outsized instruction-following regressions; our hook emits ~30 lines per turn (≈ 3500 bytes). | [Anthropic April 23 2026 postmortem](https://www.anthropic.com/engineering/april-23-postmortem): adding "≤25 words between tool calls" caused a 3% drop on coding evals on Opus 4.7. Reverted in v2.1.116. |
+| 4 | `unerr-memory` skill description carries a self-defeating negative constraint (*"save ONLY what is non-obvious … Do NOT save activity logs or generic facts"*) that the agent inverts into a refusal path. | Direct quote from `1cae41a1`: *"The rule is already documented in CLAUDE.md so I won't duplicate it."* This is internally consistent with the skill's filter; the contract design gave the agent an out. |
+| 5 | The `ur|<tag>` wire prefix is out-of-distribution. Anthropic models recognize `<system-reminder>`, `MANDATORY:`, `<thinking>`, `Skill()`, `mcp__*` from training; `ur|act` is unique to this codebase. | The model has to derive directive weight from CLAUDE.md preamble — an extra inference step it can skip. The 650-trial study's wins were on familiar imperative grammar. |
+
+### C — Prioritized fix plan (5 interventions, 3 tiers, ship in order)
+
+Each tier de-risks the next. Acceptance bench (§D) gates every transition.
+
+**P0 — Text-only edits, ship together (~4 hours, highest ROI):**
+
+- **Fix #4 (P0a)** — Rewrite `unerr-memory` skill description in `src/skills/local-pack.ts` to Variant C: *"ALWAYS invoke this skill the moment the user says remember/always/from now on/never/don't. Do NOT decide for the user whether the rule is already documented — that is the user's call. The capture is cheap and idempotent (`unerr_remember` dedupes via `dedupe_key`); refusing it is the expensive failure."* Mirror to `.claude/skills/unerr-memory/SKILL.md`. **This is the single load-bearing change** — `1cae41a1`'s capture-refusal failure mode is exactly what this constraint inversion blocks.
+- **Fix #1 (P0b)** — In `src/hooks/prompt-hooks.ts`, transform every `ur|act STEP-*` from `MANDATORY: call X` to `ALWAYS X. Do NOT Y (specific default the agent would take). Z (one-sentence consequence)`. STEP-0 must forbid Read/Grep/search_code first; STEP-N must forbid fabricated `unerr »` lines; STEP-1 must forbid skipping on "small" prompts.
+
+**P1 — Hook output reshape, ship after P0 verified (~12 hours):**
+
+- **Fix #3 (P1a)** — Collapse 6 separate STEP directives into 1 consolidated directive in `src/hooks/prompt-hooks.ts`. Cut the 7-line skill listing down to the matched skill only (Path A already computes it). Delete the *"[unerr] Prefer unerr MCP tools"* reminder — already in CLAUDE.md. Target: hook payload ≤10 lines per turn (currently ~30) / ≤1200 bytes (currently ~3500). Pin in a new `payload-budget.test.ts` regression test.
+- **Fix #5 (P1b)** — Add `<unerr-directive priority="must">` / `<unerr-fact type="X">` / `<unerr-risk severity="X">` / `<unerr-context state="X">` XML wire alongside `ur|<tag>` in `src/proxy/response-envelope.ts` + `src/hooks/prompt-hooks.ts` (dual-emit for one release window). Mirrors `<system-reminder>` shape models trained on. Updates: `CLAUDE.md` legend, `src/config/instruction-writer.ts`, all wire-shape tests (~40 files).
+
+**P2 — Architectural, conditional on P1 not hitting target (~24 hours):**
+
+- **Fix #2A (P2A, RECOMMENDED)** — New `src/hooks/precall-gate.ts`: PreToolUse hook that fires on the first tool call of every turn. If the call is NOT `unerr_recall_notes` AND no recall has fired this turn, exit 2 with stderr: *"STEP-0 — call unerr_recall_notes before any other tool. This is a hard gate."* Wire into `src/config/claude-settings-hooks.ts` + `src/hooks/adapters/cursor.ts`. Per-turn state tracked in `~/.unerr/state/turn-recall.json`. PreToolUse exit-2 has 100% compliance per [Pasquale Pillitteri](https://pasqualepillitteri.it/en/news/657/claude-code-hooks-complete-guide) — circumvents bug #40216 entirely.
+- **Fix #2B (P2B, belt-and-suspenders)** — Server-side directive dedup in `src/hooks/prompt-hooks.ts`: before composing `additionalContext`, check `~/.unerr/state/last-directives.json` for the last 3 turns' directive hashes; skip verbatim repeats. Treats symptom of bug #40216 even when the gate fires.
+
+**Skip P2 entirely** if P1 bench shows ≥95% per-directive compliance AND ≥90% cumulative at turn 20. Diminishing returns don't justify the UX cost of PreToolUse exit-2 blocks (visible "bounce" on the first tool call).
+
+### D — Acceptance bench (gate every transition)
+
+Build `scripts/skill-activation-bench.ts` BEFORE shipping any fix. It spawns N=20 fresh Claude Code subprocesses, feeds each one of two prompt classes, and parses the resulting jsonl for tool-call presence per directive.
+
+- **Class A — pure exploration** (e.g. *"how does shell compression work in here?"* + 4 siblings). Baseline already ≥85% per counter-evidence session. Used to detect P0/P1 regression on prompts that currently work.
+- **Class B — capture-mixed** (e.g. the `1cae41a1` prompt + 4 siblings). Baseline ~0% per evidence. Used to validate P0a primarily.
+
+Without the two-class split the aggregate stats false-green on exploration prompts and miss the capture regression entirely. Class B is the load-bearing measurement.
+
+**Per-tier acceptance bars:**
+
+| Tier | Per-directive compliance | Cumulative at turn 10 |
+|---|---|---|
+| Baseline | A: ~85% / B: ~0% | ~3500 bytes × 10 = 35KB |
+| Post-P0 | A: ≥90% / B: ≥85% | unchanged (~35KB) |
+| Post-P1 | A: ≥95% / B: ≥90% | ≤12KB (target) |
+| Post-P2 | A: ≥95% / B: ≥95% | ≤12KB held |
+
+Commit each tier's bench JSON to `docs/baselines/skill-activation-<date>.json`. The bench itself ships as `pnpm bench:skills` and runs in CI as a regression-locker after the wave lands.
+
+### E — One inconsistency to fix before benching (so we're not measuring noise)
+
+The Surface 3 receipt currently treats project-wide (`anchor_type='p'`) generic notes with `reinforcement_count=0` as load-bearing recalls and prints them verbatim (`↳ applied your rule "mcp-router-smoke-test — unerr_remember reachable via dispat…"`). Surface 2's cold-start path correctly filters these out and emits *"nothing project-specific stored yet"*. The receipt path needs the same filter in `src/proxy/receipt-attribution.ts`. One predicate, ≤10 LOC. Apply this BEFORE the bench so we're not measuring against polluted recall data.
+
+### F — Code anchors (verified 2026-05-25)
+
+- Fix #1 (Variant C STEP directives): `src/hooks/prompt-hooks.ts` — `buildPathALine` (~L291), `buildMarkIntentLine` (~L139), `buildMoment1Line` (~L214), STEP-N composition site
+- Fix #2A (PreToolUse gate): new `src/hooks/precall-gate.ts`; wire-up in `src/config/claude-settings-hooks.ts` + `src/hooks/adapters/cursor.ts`
+- Fix #2B (directive dedup): `src/hooks/prompt-hooks.ts` `additionalContext` composer (~L580–606)
+- Fix #3 (slim payload): `src/hooks/prompt-hooks.ts:580–606` (composition), 7-line skill listing emitter
+- Fix #4 (memory skill description): `src/skills/local-pack.ts` `unerr-memory` entry; `.claude/skills/unerr-memory/SKILL.md` regenerates from it on install
+- Fix #5 (XML wire): `src/proxy/response-envelope.ts` (`SIGNAL_PREFIX_LEGEND` + emitter); `src/hooks/prompt-hooks.ts`; `CLAUDE.md` signal-prefix legend table; `src/config/instruction-writer.ts`
+- Receipt cold-start filter (§E): `src/proxy/receipt-attribution.ts` (apply same predicate `unerr_surface2_line` uses for `anchor_type='p' && reinforcement_count=0` generic notes)
+
+### G — Sources
+
+- [Ivan Seleznov — Why Claude Code Skills Don't Activate (650-trial empirical study)](https://medium.com/@ivan.seleznov1/why-claude-code-skills-dont-activate-and-how-to-fix-it-86f679409af1) — the directive-variant empirical baseline (37% / 91.7% / 98.1%).
+- [Scott Spence — Claude Code Skills Don't Auto-Activate](https://scottspence.com/posts/claude-code-skills-dont-auto-activate) — ~50% activation rate across 20 sessions; corroborates baseline.
+- [Marc Bara — Claude Skills Have Two Reliability Problems, Not One](https://medium.com/@marc.bara.iniesta/claude-skills-have-two-reliability-problems-not-one-299401842ca8) — activation ≠ instruction adherence; a skill can load yet skip steps. Names exactly the failure mode we observed.
+- [DEV.to — 2 Fixes for 95% Activation](https://dev.to/oluwawunmiadesewa/claude-code-skills-not-triggering-2-fixes-for-100-activation-3b57) — *"Use when…"* loses to base behavior; *"Do not attempt X directly"* wins.
+- [GitHub anthropics/claude-code #40216 — additionalContext accumulation](https://github.com/anthropics/claude-code/issues/40216) — closed "not planned" 2026-03; structural constraint we must design around.
+- [Anthropic April 23 2026 postmortem](https://www.anthropic.com/engineering/april-23-postmortem) — verbose system additions cause measurable regressions.
+- [VentureBeat — Anthropic harness-change postmortem](https://venturebeat.com/technology/mystery-solved-anthropic-reveals-changes-to-claudes-harnesses-and-operating-instructions-likely-caused-degradation)
+- [InfoQ — Six weeks of Claude Code quality complaints traced to three overlapping changes](https://www.infoq.com/news/2026/05/anthropic-claude-code-postmortem/)
+- [Pasquale Pillitteri — Claude Code Hooks Complete Guide](https://pasqualepillitteri.it/en/news/657/claude-code-hooks-complete-guide) — PreToolUse exit-2 has 100% compliance; basis for P2A design.

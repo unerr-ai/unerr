@@ -90,18 +90,13 @@ export type BehaviorEventType =
    *  call never fired — Surface 2 directive was missed. One row per
    *  detection (i.e. each fired buildSurface2Line that follows a miss). */
   | "surface2_missed"
-  // ── Fix I (Surface-Reliability) Surface 4 trace events ─────────────
-  /** Surface 4a — proxy emitted a user-block attribution panel
-   *  (fact-attribution rows). One row per buildUserBlockForResponse
-   *  fire that produced ≥1 attribution row. */
-  | "surface4a_emitted"
-  /** Surface 4c — pending-confirmation prompt rendered (ambiguity-gated
-   *  capture). One row per fire. */
-  | "surface4c_emitted"
-  /** Surface 4d — enforced-fact prefix rendered ahead of an agent
-   *  response (e.g. user-fed rule re-injected into context). One row
-   *  per fire. */
-  | "surface4d_emitted"
+  // §10.7 — Surface 4 trace events deleted. Surface 4a (inline attribution)
+  // was merged into the Surface 3 receipt rendered by `unerr_turn_summary`.
+  // Surface 4c (pending-confirmation prompt) and Surface 4d (fact-steering
+  // preface) remain as runtime behaviors but no longer emit trace events
+  // — the compliance ribbon row that consumed them was removed in the
+  // same change. Reintroduce a `fact_steering_emitted` event here if a
+  // future telemetry need emerges.
   // ── Fix J (Surface-Reliability) verbatim-prompt capture ────────────
   /** A user prompt arrived via the UserPromptSubmit hook. `detail.prompt`
    *  carries the verbatim string ONLY when `capture_prompts: true` in

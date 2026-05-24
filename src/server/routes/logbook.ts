@@ -30,6 +30,7 @@
 import { dirname } from "node:path";
 import { Hono } from "hono";
 import { readNudgeState } from "../../proxy/nudge-state.js";
+import { extractReceiptAttribution } from "../../proxy/receipt-attribution.js";
 import {
   type NamedEvent,
   type NamedEventFilter,
@@ -383,6 +384,7 @@ export interface ComplianceCounter {
   required: number;
   called: number;
   ratio: number;
+  ratio_label: string;
   consecutive_misses: number;
 }
 
@@ -391,14 +393,6 @@ export interface ComplianceRibbon {
   surface3: ComplianceCounter;
   mark_intent: ComplianceCounter;
   skill: ComplianceCounter;
-  /** Surface 4 (Fix I) — attribution / capture-confirm / enforced-fact
-   *  lines actually emitted into the user-visible wrapper. Derived from
-   *  `surface4a_emitted` + `surface4c_emitted` + `surface4d_emitted`
-   *  behavior_events rows. `required` is the count of `fact_recalled`
-   *  events (each recalled note is a candidate for plain-English
-   *  attribution), which keeps the ratio honest when no facts were ever
-   *  recalled. */
-  surface4: ComplianceCounter;
   /** Fix L — cross-tier runtime joins aggregated across the window:
    *  memory↔graph, graph↔drift, three-way. Surfaced as a fourth row in
    *  the ribbon ("Runtime joins · memory→graph N · graph→drift M ·
@@ -418,6 +412,10 @@ function ratio(called: number, required: number): number {
   return Math.round((called / required) * 1000) / 1000;
 }
 
+export function formatComplianceRatio(ratio: number): string {
+  return `${Math.round(ratio * 100)}%`;
+}
+
 export function buildComplianceRibbon(
   unerrDir: string,
   events: NamedEvent[]
@@ -432,27 +430,12 @@ export function buildComplianceRibbon(
   // agent ran a Skill in response to a directive". Falls back to 0 cleanly
   // when telemetry is empty.
   let skillCalls = 0;
-  let surface4Emitted = 0;
-  let surface4Required = 0;
   for (const ev of events) {
     if (ev.event_type === "intervention_warned") {
       const tool = (ev.metadata as { tool?: unknown }).tool;
       if (typeof tool === "string" && tool === "Skill") {
         skillCalls += 1;
       }
-      continue;
-    }
-    if (
-      ev.event_type === "surface4a_emitted" ||
-      ev.event_type === "surface4c_emitted" ||
-      ev.event_type === "surface4d_emitted"
-    ) {
-      const count = (ev.metadata as { count?: unknown }).count;
-      surface4Emitted += typeof count === "number" ? count : 1;
-      continue;
-    }
-    if (ev.event_type === "fact_recalled") {
-      surface4Required += 1;
     }
   }
 
@@ -461,6 +444,9 @@ export function buildComplianceRibbon(
       required: state.surface2_required_count,
       called: state.surface2_called_count,
       ratio: ratio(state.surface2_called_count, state.surface2_required_count),
+      ratio_label: formatComplianceRatio(
+        ratio(state.surface2_called_count, state.surface2_required_count)
+      ),
       consecutive_misses: state.consecutive_surface2_misses,
     },
     surface3: {
@@ -469,6 +455,12 @@ export function buildComplianceRibbon(
       ratio: ratio(
         state.turn_summary_emitted_count,
         state.turn_summary_required_count
+      ),
+      ratio_label: formatComplianceRatio(
+        ratio(
+          state.turn_summary_emitted_count,
+          state.turn_summary_required_count
+        )
       ),
       consecutive_misses: state.consecutive_receipt_misses,
     },
@@ -479,18 +471,21 @@ export function buildComplianceRibbon(
         state.mark_intent_compliant_count,
         state.mark_intent_required_count
       ),
+      ratio_label: formatComplianceRatio(
+        ratio(
+          state.mark_intent_compliant_count,
+          state.mark_intent_required_count
+        )
+      ),
       consecutive_misses: 0,
     },
     skill: {
       required: state.mark_intent_required_count,
       called: skillCalls,
       ratio: ratio(skillCalls, state.mark_intent_required_count),
-      consecutive_misses: 0,
-    },
-    surface4: {
-      required: surface4Required,
-      called: surface4Emitted,
-      ratio: ratio(surface4Emitted, surface4Required),
+      ratio_label: formatComplianceRatio(
+        ratio(skillCalls, state.mark_intent_required_count)
+      ),
       consecutive_misses: 0,
     },
     runtime_joins: computeWindowJoins(events),
@@ -757,9 +752,19 @@ export function createLogbookRoutes(deps: LogbookRouteDeps): Hono {
     if (!ev) return c.json({ error: "not_found" }, 404);
 
     // Fix J — attach the verbatim prompt to the drill view payload.
+    // §10.7 — also attach this turn's attribution payload (recalls,
+    // captures, drift) so the drill view surfaces the audit trail that
+    // used to live in the deleted Surface 4 inline rows. Same extractor
+    // the end-of-turn receipt uses; restricted to events from the same
+    // session as the drilled event.
+    const sessionEvents = eventsAsc.filter(
+      (e) => e.session_id === ev.session_id
+    );
+    const attribution = extractReceiptAttribution(sessionEvents, ev.turn);
     const enriched = {
       ...ev,
       prompt: getPromptForTurn(deps.unerrDir, ev.session_id, ev.turn),
+      attribution,
     };
 
     return c.json({

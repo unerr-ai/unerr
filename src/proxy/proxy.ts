@@ -341,6 +341,7 @@ async function handleRecordFactProxy(
         fact_id: result.fact_id,
         fact_type: args.fact_type,
         scope: args.scope,
+        content: args.content,
       },
     });
     shadowLedger.record(

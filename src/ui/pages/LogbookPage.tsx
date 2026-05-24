@@ -93,7 +93,6 @@ interface ComplianceResponse {
     surface3: ComplianceCounter;
     mark_intent: ComplianceCounter;
     skill: ComplianceCounter;
-    surface4: ComplianceCounter;
     runtime_joins: {
       memory_to_graph: number;
       graph_to_drift: number;
@@ -2162,13 +2161,12 @@ export function LogbookPage() {
       {compliance ? (
         <section
           aria-label="Directive compliance"
-          className="grid grid-cols-2 gap-3 sm:grid-cols-5"
+          className="grid grid-cols-2 gap-3 sm:grid-cols-4"
         >
           {(
             [
               ["Surface 2", compliance.surface2],
               ["Surface 3", compliance.surface3],
-              ["Surface 4", compliance.surface4],
               ["mark_intent", compliance.mark_intent],
               ["Skill invoke", compliance.skill],
             ] as const

@@ -1,5 +1,5 @@
 /**
- * Surface 4d — File-touch enforcement loop (Phase 2 Sprint 8).
+ * Fact-steering preface (formerly Surface 4d) — File-touch enforcement loop.
  *
  * When the agent touches a file (read, edit, write), surface every
  * persistent fact that applies to that file as a high-priority signal.

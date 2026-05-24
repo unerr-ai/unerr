@@ -1,13 +1,14 @@
 /**
  * Phase 4 Sprint 14 — Per-agent surface coverage matrix.
  *
- * Drives every pure renderer in the four-surface presence model through
+ * Drives every pure renderer in the three-surface presence model through
  * the AGENT_REGISTRY and proves that:
  *
  *   1. Every renderer produces an `unerr » ...` body line that buildUserBlock
  *      wraps verbatim — i.e., agents that pass `content[].text` through
- *      unmodified will see the surface unmodified. (S2 preface, S3 footer,
- *      S4a attribution, S4d enforcement.)
+ *      unmodified will see the surface unmodified. (Surface 2 preface,
+ *      Surface 3 receipt rendered by `unerr_turn_summary`, fact-steering
+ *      preface — formerly Surface 4d.)
  *
  *   2. Agents with an `instructionFilePath` get the L3 (instruction-file)
  *      reinforcement; agents without one (Zed, Kiro, Aider, Opencode,
@@ -18,16 +19,12 @@
  *      Windsurf, GitHub Copilot CLI) match the §14 matrix's
  *      "L1 reinforcement" column.
  *
- *   4. Surface 4b (the `unerr_remember` tool) is wire-level the same for
- *      every agent — its presence is asserted via the executeUnerrRemember
- *      tool function call returning the same shape across the registry.
+ *   4. The `unerr_remember` tool is wire-level the same for every agent —
+ *      its presence is asserted via the executeUnerrRemember tool function
+ *      call returning the same shape across the registry.
  *
- * This test exercises the *renderers*, not the live MCP stack — Sprints
- * 1–8 already prove the renderers wire into `buildUserBlock` correctly.
- * What Sprint 14 proves is that the renderer output is *agent-neutral*:
- * nothing in the four-surface contract depends on the IDE shipping the
- * response, and the AGENT_REGISTRY enumerates which level of
- * reinforcement each agent additionally carries.
+ * §10.7 — Surface 4a (inline attribution) was merged into the Surface 3
+ * receipt; its agent-neutrality coverage moves to receipt-renderer.test.ts.
  */
 
 import { describe, expect, it } from "vitest";
@@ -36,11 +33,6 @@ import {
   type AgentDefinition,
 } from "../config/agent-registry.js";
 import type { TemporalFact } from "../intelligence/temporal-facts.js";
-import {
-  type FactProvenance,
-  renderFactAttribution,
-  renderFactAttributionBlock,
-} from "../proxy/attribution-panel.js";
 import { renderContextPreface } from "../proxy/context-preface.js";
 import { renderEnforcedFactPrefix } from "../proxy/enforcement-loop.js";
 import {
@@ -105,21 +97,6 @@ function makeFact(overrides: Partial<TemporalFact> = {}): TemporalFact {
     last_reinforced_at: overrides.last_reinforced_at ?? Date.now(),
     last_contradicted_at: overrides.last_contradicted_at ?? 0,
     source: overrides.source ?? "user_fed",
-  };
-}
-
-function makeProvenance(
-  overrides: Partial<FactProvenance> = {}
-): FactProvenance {
-  return {
-    fact_id: "f-1",
-    content: "always use cozo-node ≥ 0.7.6",
-    source: "user_fed",
-    created_at: "2026-05-21T10:00:00Z",
-    source_quote: "from now on, always use cozo-node ≥ 0.7.6",
-    subject: "naming",
-    scope: "project",
-    ...overrides,
   };
 }
 
@@ -234,17 +211,11 @@ describe("Phase 4 Sprint 14 — surface coverage matrix", () => {
       expect(wrapped).toContain(`${USER_BLOCK_PREFIX}this turn:`);
     });
 
-    it("S4a attribution emits a user-verbatim quote for user_fed facts", () => {
-      const row = renderFactAttribution(makeProvenance());
-      // user_fed facts → head names "user", detail carries the verbatim quote.
-      expect(row.head).toContain("user");
-      expect(row.detail).toContain("from now on, always use cozo-node ≥ 0.7.6");
-      // Wrapped through the unerr » channel.
-      const block = renderFactAttributionBlock([makeProvenance()]);
-      expect(block.length).toBeGreaterThan(0);
-    });
+    // §10.7 — S4a inline attribution moved to Surface 3 receipt.
+    // Per-agent neutrality of the receipt renderer is covered by
+    // receipt-renderer.test.ts (pure function — agent-neutral by construction).
 
-    it("S4d enforcement renders a `ur|fct` body line for the agent", () => {
+    it("fact-steering preface renders a `ur|fct` body line for the agent", () => {
       const line = renderEnforcedFactPrefix(
         makeFact({
           fact_type: "negative",
