@@ -853,20 +853,55 @@ async function daemonChildBoot(cwd: string): Promise<void> {
 
   const originalPpid = process.ppid;
 
-  // Declared up-front so closures captured by orphan/SIGTERM handlers that
-  // fire during the `await bootProxy()` below don't hit a TDZ on statsTimer.
+  // Declared up-front so closures captured by orphan/SIGTERM/disconnect handlers
+  // that fire during the `await bootProxy()` below don't hit a TDZ. Assigned
+  // after that await, so it cannot be `const` despite the single assignment.
+  // biome-ignore lint/style/useConst: declared before its assignment for TDZ-safety
   let statsTimer: ReturnType<typeof setInterval> | undefined;
+  let shuttingDown = false;
+  let ipcReadySent = false;
+  let proxyResult: {
+    shutdown: () => Promise<void>;
+    stats: import("../proxy/session-stats.js").SessionStats;
+  } | null = null;
+  const stateDir = join(cwd, ".unerr", "state");
+  const sockPath = join(stateDir, "proxy.sock");
+  // Hard cap on graceful shutdown. proxyResult.shutdown() flushes a final graph
+  // snapshot; a wedged CozoDB write can make that await hang forever, which is
+  // how a child that already detected parent death still never reached
+  // process.exit() and lingered as a 1.5h orphan. Force-exit past this window.
+  const SHUTDOWN_GRACE_MS = 5_000;
 
-  // Orphan detection: if parent (unerrd) dies, self-exit
+  // Parent-death → self-exit. Two detectors, because either alone can miss:
+  //   1. `disconnect` on the IPC channel fires the instant unerrd dies — immediate
+  //      and cadence-independent. Primary signal; keeps the per-repo proxy from
+  //      outliving its manager even if the event loop later wedges.
+  //   2. A PPID poll backstops the case where the IPC channel never existed or the
+  //      disconnect was missed. Kept short (10s) so a stale orphan can't linger and
+  //      shadow a fresh unerrd by holding proxy.sock open — the failure that left a
+  //      1.5h-old orphan serving a wedged proxy while the dashboard read "offline".
   const orphanTimer = setInterval(() => {
     if (process.ppid !== originalPpid) {
-      process.stderr.write("[unerr:child] Parent died — orphan exit.\n");
+      process.stderr.write(
+        "[unerr:child] Parent died (ppid changed) — orphan exit.\n"
+      );
       clearInterval(orphanTimer);
       if (statsTimer) clearInterval(statsTimer);
       shutdownProxy("orphan");
     }
-  }, 60_000);
+  }, 10_000);
   orphanTimer.unref();
+
+  // IPC channel to unerrd closed → parent is gone. Fires immediately on parent
+  // death, independent of the poll above.
+  process.on("disconnect", () => {
+    process.stderr.write(
+      "[unerr:child] Parent IPC disconnected — orphan exit.\n"
+    );
+    clearInterval(orphanTimer);
+    if (statsTimer) clearInterval(statsTimer);
+    shutdownProxy("parent-disconnect");
+  });
 
   // SIGTERM from parent: graceful shutdown
   process.on("SIGTERM", () => {
@@ -877,22 +912,26 @@ async function daemonChildBoot(cwd: string): Promise<void> {
 
   // Start the proxy (bypass local wrapper to get shutdown handle + stats)
   const { startProxy: bootProxy } = await import("../proxy/proxy.js");
-  const proxyResult = await bootProxy({
+  proxyResult = await bootProxy({
     repoId: config.repoId as string | undefined,
     daemonChild: true,
+    onDaemonReady: () => {
+      if (ipcReadySent || !process.send) return;
+      ipcReadySent = true;
+      process.send({ type: "ready", sock: sockPath });
+    },
   });
 
-  // Notify parent: ready
-  const stateDir = join(cwd, ".unerr", "state");
-  const sockPath = join(stateDir, "proxy.sock");
-  if (process.send) {
+  // Fallback if the dashboard block failed before onDaemonReady fired.
+  if (!ipcReadySent && process.send) {
+    ipcReadySent = true;
     process.send({ type: "ready", sock: sockPath });
   }
 
   function collectStats(): { entities: number; edges: number; memory: number } {
     const mem = process.memoryUsage();
     return {
-      entities: proxyResult.stats.toolCallsLocal,
+      entities: proxyResult?.stats.toolCallsLocal ?? 0,
       edges: 0,
       memory: Math.round(mem.rss / 1024 / 1024),
     };
@@ -919,14 +958,30 @@ async function daemonChildBoot(cwd: string): Promise<void> {
   });
 
   async function shutdownProxy(reason: string): Promise<void> {
+    // Multiple detectors (disconnect, PPID poll, SIGTERM) can fire together;
+    // run the teardown exactly once.
+    if (shuttingDown) return;
+    shuttingDown = true;
     process.stderr.write(`[unerr:child] Shutting down: ${reason}\n`);
+    // Watchdog: force-exit if the graceful flush wedges, so the child always
+    // dies with its parent regardless of CozoDB state.
+    const forceExit = setTimeout(() => {
+      process.stderr.write(
+        "[unerr:child] Shutdown exceeded grace window — forcing exit.\n"
+      );
+      process.exit(0);
+    }, SHUTDOWN_GRACE_MS);
+    forceExit.unref();
     try {
-      await proxyResult.shutdown();
+      if (proxyResult) {
+        await proxyResult.shutdown();
+      }
     } catch (err) {
       process.stderr.write(
         `[unerr:child] Shutdown error: ${(err as Error).message}\n`
       );
     }
+    clearTimeout(forceExit);
     process.exit(0);
   }
 }
@@ -937,20 +992,24 @@ const MCP_MAX_RETRY_MS = 30_000;
 const MCP_RETRY_BACKOFF = 1.5;
 
 type DiscoveryResult =
-  | { kind: "standalone"; sockPath: string; pid: number | null }
   | { kind: "daemon"; sockPath: string; daemonSock: string }
   | { kind: "none" };
 
 /**
  * MCP mode: headless boot for IDE integration.
  *
- * Socket discovery order:
- *   1. Per-repo proxy sock (`<cwd>/.unerr/state/proxy.sock`) — direct bridge
- *   2. unerrd daemon sock (`~/.unerr/unerrd.sock`) — bridge if repo is registered
+ * Discovery (the original, unerrd-mediated flow):
+ *   1. Is unerrd (the process manager) running? Probe `~/.unerr/unerrd.sock`.
+ *      - Yes → ask unerrd to ensure the per-repo proxy (it adopts a running
+ *              one or starts a new one) and connect to the proxy sock it returns.
+ *      - No  → spawn unerrd DETACHED so it outlives this bridge, wait until it's
+ *              ready, then re-probe (falls into the "yes" branch).
  *
- * The bridge NEVER spawns unerrd or registers repos. It only connects to
- * what's already running. If nothing is available, it retries with backoff
- * until a process becomes available (IDEs keep the bridge process alive).
+ * The bridge always goes THROUGH unerrd — it never connects to a proxy sock
+ * directly. The old "standalone-first" shortcut let the bridge attach to an
+ * orphaned proxy while unerrd was dead, which left `pm status` lying and the
+ * dashboard offline. If nothing is available yet it retries with backoff until
+ * a process becomes available (IDEs keep the bridge process alive).
  *
  * On mid-session disconnects (`daemon_dead`, `socket_closed`), the bridge
  * re-enters the discovery loop so reconnection happens automatically when
@@ -1085,20 +1144,6 @@ async function mcpBoot(
       stdinPreBuffer.length = 0;
     }
 
-    if (discovery.kind === "standalone") {
-      process.stderr.write(
-        `[unerr:mcp] Bridging to running proxy (PID ${discovery.pid})\n`
-      );
-      const result = await startUdsBridge(discovery.sockPath, bufferForBridge, {
-        codingAgent: opts.codingAgent,
-      });
-      if (result.reason === "stdin_closed") return;
-      process.stderr.write(
-        `[unerr:mcp] Connection lost (${result.reason}), will retry...\n`
-      );
-      continue;
-    }
-
     if (discovery.kind === "daemon") {
       try {
         await connectRepo(discovery.daemonSock, cwd);
@@ -1141,8 +1186,10 @@ async function mcpBoot(
 }
 
 /**
- * Discovery loop with exponential backoff.
- * Polls for standalone sock or daemon availability. Returns when a
+ * Discovery loop with exponential backoff. unerrd-first: probe the process
+ * manager, and if it's down, spawn it detached and re-probe. The per-repo
+ * proxy decision (adopt vs. start) is delegated to unerrd via ensureRepo —
+ * the bridge never connects to a proxy sock directly. Returns when a
  * connectable target is found, or loops forever (IDE kills the process).
  */
 async function discoverWithRetry(
@@ -1158,26 +1205,15 @@ async function discoverWithRetry(
   let spawnAttempted = false;
 
   for (;;) {
-    // ── Try per-repo proxy sock (standalone `unerr` running) ──
-    const repoSock = join(cwd, ".unerr", "state", "proxy.sock");
-    if (existsSync(repoSock)) {
-      const { PidLock } = await import("../proxy/pid-lock.js");
-      const pidLock = new PidLock(join(cwd, ".unerr", "state"));
-      const probeResult = await pidLock.probe();
-      if (probeResult.alive) {
-        return {
-          kind: "standalone",
-          sockPath: repoSock,
-          pid: probeResult.pid ?? null,
-        };
-      }
-    }
-
-    // ── Try unerrd (process manager) ──
+    // ── Step 1: is unerrd (the process manager) running? ──
     const daemonSock = daemonSockPath();
     const daemonRunning = await probeDaemon(daemonSock);
 
     if (daemonRunning) {
+      // unerrd owns the per-repo proxy lifecycle. ensureRepo asks it to adopt
+      // an already-running proxy or start a fresh one, and returns that proxy's
+      // sock. Going through unerrd (never connecting to proxy.sock directly) is
+      // what keeps `pm status` honest and the dashboard online.
       try {
         const sockPath = await ensureRepo(daemonSock, cwd);
         return { kind: "daemon", sockPath, daemonSock };
@@ -1187,14 +1223,17 @@ async function discoverWithRetry(
         );
       }
     } else if (!spawnAttempted) {
-      // ── Auto-spawn the process manager on first MCP contact ──
+      // ── Step 2: unerrd is down — spawn it DETACHED on first MCP contact ──
+      // Detached so it outlives this bridge: closing the `unerr --mcp` chat
+      // session must not take unerrd (or the proxies it manages) down with it.
       spawnAttempted = true;
       const acquired = tryAcquireSpawnLock();
       if (acquired) {
         try {
           await spawnProcessManager();
+          const { daemonDashboardUrl } = await import("../daemon/protocol.js");
           process.stderr.write(
-            "unerr| started process manager. Dashboard: http://localhost:9847\n"
+            `unerr| started process manager. Dashboard: ${daemonDashboardUrl()}\n`
           );
           process.stderr.write(
             "unerr| to stop: unerr pm stop  (idle exit after 30 min)\n"
@@ -1220,7 +1259,7 @@ async function discoverWithRetry(
     // ── Nothing available yet — wait and retry ──
     if (attempt === 0) {
       process.stderr.write(
-        "[unerr:mcp] Waiting for unerr process to become available...\n"
+        "[unerr:mcp] Waiting for unerr process manager to become available...\n"
       );
     }
     attempt++;

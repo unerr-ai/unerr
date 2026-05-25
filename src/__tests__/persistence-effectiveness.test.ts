@@ -13,6 +13,7 @@ interface VerdictDetail {
   verdict?: string;
   signal_id?: string;
   entity_key?: string | null;
+  content?: string | null;
 }
 
 function verdicts(unerrDir: string): VerdictDetail[] {
@@ -154,6 +155,44 @@ describe("PersistenceEffectivenessTracker", () => {
     expect(
       verdicts(unerrDir).filter((v) => v.verdict !== "fired")
     ).toHaveLength(0);
+  });
+
+  it("threads note content into both the fired and the resolved verdict (L2 capture-site)", () => {
+    tracker.recordSignalFired({
+      kind: "fact_injected",
+      signal_id: "fact-text",
+      entity_key: "EntityA",
+      turn: 1,
+      content: "MCP config is project-level only",
+    });
+    const fired = verdicts(unerrDir).find((v) => v.verdict === "fired");
+    expect(fired?.content).toBe("MCP config is project-level only");
+
+    tracker.closeWindow(7);
+    const resolved = verdicts(unerrDir).find(
+      (v) => v.signal_id === "fact-text" && v.verdict !== "fired"
+    );
+    expect(resolved?.content).toBe("MCP config is project-level only");
+  });
+
+  it("caps stored note content at 200 chars and defaults to null when absent", () => {
+    tracker.recordSignalFired({
+      kind: "fact_injected",
+      signal_id: "fact-long",
+      entity_key: null,
+      turn: 1,
+      content: "x".repeat(500),
+    });
+    tracker.recordSignalFired({
+      kind: "fact_injected",
+      signal_id: "fact-none",
+      entity_key: null,
+      turn: 1,
+    });
+    const long = verdicts(unerrDir).find((v) => v.signal_id === "fact-long");
+    expect(long?.content).toHaveLength(200);
+    const none = verdicts(unerrDir).find((v) => v.signal_id === "fact-none");
+    expect(none?.content).toBeNull();
   });
 
   it("closeAll forces verdicts regardless of turn distance", () => {

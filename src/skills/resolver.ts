@@ -17,7 +17,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { getAgent } from "../config/agent-registry.js";
 import type { Skill } from "../schemas/index.js";
 import type { IdeType } from "../utils/detect.js";
 import { BUNDLED_SKILLS, LOCAL_SKILLS } from "./local-pack.js";
@@ -106,6 +107,28 @@ function getSkillDir(
         dirPerSkill: false,
       };
   }
+}
+
+/**
+ * Some agents place their unerr instruction file in the SAME directory as
+ * their skill files, with the same `unerr-` prefix and extension — Cursor's
+ * `.cursor/rules/unerr-instructions.mdc` lives beside `.cursor/rules/unerr-*.mdc`
+ * skills. That instruction file is NOT a skill: it must never be enumerated by
+ * `listInstalledSkills`, removed by `removeInstalledSkills`, or counted as a
+ * "legacy" skill by `ensureSkillsPresent`'s self-heal — doing so deletes the
+ * file every install / proxy boot. Returns the reserved basename (with
+ * extension) when the instruction file co-locates with the skill dir, else null.
+ */
+function getReservedInstructionBasename(
+  ide: IdeType,
+  cwd: string
+): string | null {
+  const agentDef = getAgent(ide);
+  if (!agentDef?.instructionFilePath) return null;
+  const instrPath = join(cwd, agentDef.instructionFilePath);
+  const { dir } = getSkillDir(ide, cwd);
+  if (dirname(instrPath) !== dir) return null;
+  return basename(instrPath);
 }
 
 interface WriteSkillFileResult {
@@ -554,6 +577,7 @@ export async function ensureSkillsPresent(opts: {
   cwd: string;
 }): Promise<number> {
   const { dir, ext, dirPerSkill } = getSkillDir(opts.ide, opts.cwd);
+  const reserved = getReservedInstructionBasename(opts.ide, opts.cwd);
   const expectedNames = new Set(
     LOCAL_SKILLS.map((s) => `unerr-${s.id.replace(/^unerr-/, "")}`)
   );
@@ -569,7 +593,9 @@ export async function ensureSkillsPresent(opts: {
         );
       } else {
         presentNames = entries
-          .filter((f) => f.startsWith("unerr-") && f.endsWith(ext))
+          .filter(
+            (f) => f.startsWith("unerr-") && f.endsWith(ext) && f !== reserved
+          )
           .map((f) => f.replace(ext, ""));
       }
       const hasLegacy = presentNames.some((n) => !expectedNames.has(n));
@@ -600,6 +626,7 @@ export function listInstalledSkills(
   cwd: string
 ): { name: string; path: string }[] {
   const { dir, ext, dirPerSkill } = getSkillDir(ide, cwd);
+  const reserved = getReservedInstructionBasename(ide, cwd);
 
   if (!existsSync(dir)) return [];
 
@@ -616,7 +643,9 @@ export function listInstalledSkills(
         }));
     }
     return readdirSync(dir)
-      .filter((f) => f.startsWith("unerr-") && f.endsWith(ext))
+      .filter(
+        (f) => f.startsWith("unerr-") && f.endsWith(ext) && f !== reserved
+      )
       .map((f) => ({
         name: f.replace("unerr-", "").replace(ext, ""),
         path: join(dir, f),

@@ -3,13 +3,13 @@
  *
  * Covers the in-memory, IO-free portions of the four-surface model:
  *   - `buildUserBlock` channel additions in `response-envelope.ts`
- *   - `turn-footer.ts` renderer
+ *   - `turn-footer.ts` formatting helpers
  *   - `ambient-marker.ts` counter
  *   - `context-preface.ts` renderer
  *
- * Live wrappers (`renderTurnFooterLive`, `renderContextPrefaceLive`)
- * are covered by `named-events.test.ts` + `session-economy.test.ts` —
- * they delegate to those modules.
+ * Live wrappers (`renderContextPrefaceLive`) are covered by
+ * `named-events.test.ts` + `session-economy.test.ts` — they delegate to
+ * those modules.
  */
 
 import { describe, expect, it } from "vitest";
@@ -30,11 +30,7 @@ import {
   USER_BLOCK_PREFIX,
   buildUserBlock,
 } from "../proxy/response-envelope.js";
-import {
-  formatTokenCount,
-  renderTurnFooter,
-  summarizeEvents,
-} from "../proxy/turn-footer.js";
+import { formatTokenCount } from "../proxy/turn-footer.js";
 import type { NamedEvent } from "../tracking/named-events.js";
 
 function makeEvent(overrides: Partial<NamedEvent> = {}): NamedEvent {
@@ -108,75 +104,6 @@ describe("turn-footer", () => {
     });
     it("formats millions with M suffix", () => {
       expect(formatTokenCount(1_234_567)).toBe("1.2M");
-    });
-  });
-
-  describe("summarizeEvents", () => {
-    it("returns empty string for empty input", () => {
-      expect(summarizeEvents([])).toBe("");
-    });
-
-    it("groups by type with count + naive plural", () => {
-      const out = summarizeEvents([
-        makeEvent({ event_type: "stale_edit_prevented" }),
-        makeEvent({ event_type: "stale_edit_prevented" }),
-        makeEvent({ event_type: "full_read_avoided" }),
-      ]);
-      expect(out).toBe("2 stale code edits, 1 compact file read");
-    });
-  });
-
-  describe("renderTurnFooter", () => {
-    it("renders honest-zero on empty turn", () => {
-      const out = renderTurnFooter({
-        events: [],
-        tokensSavedThisTurn: 0,
-        turnsOfHeadroomThisSession: 0,
-      });
-      expect(out).toBe(
-        "this turn: nothing to help with this turn · no token savings this turn · session length unchanged"
-      );
-    });
-
-    it("renders full footer with savings + headroom", () => {
-      const out = renderTurnFooter({
-        events: [makeEvent({ event_type: "stale_edit_prevented" })],
-        tokensSavedThisTurn: 1500,
-        turnsOfHeadroomThisSession: 2,
-      });
-      expect(out).toContain("helped 1 time");
-      expect(out).toContain("stale code edit");
-      expect(out).toContain("saved ~1.5k tokens");
-      expect(out).toContain("~2 extra turns of room added");
-    });
-
-    it("collapses to compressed form when full line exceeds 60 tokens", () => {
-      // Force a verbose summary by using many distinct event types,
-      // each contributing a comma-separated phrase. The full line's
-      // events summary balloons past the 60-token (240-char) budget.
-      const types = [
-        "stale_edit_prevented",
-        "fact_recalled",
-        "convention_applied",
-        "full_read_avoided",
-        "cascade_warning_consumed",
-        "cache_hit",
-        "caller_check_enforced",
-        "cross_session_resume",
-        "defuddle_selector_skipped",
-        "fact_stored_user_fed",
-        "fact_stored_auto",
-        "intervention_warned",
-      ] as const;
-      const many = types.flatMap((t) =>
-        Array.from({ length: 99 }, () => makeEvent({ event_type: t }))
-      );
-      const out = renderTurnFooter({
-        events: many,
-        tokensSavedThisTurn: 12345,
-        turnsOfHeadroomThisSession: 3,
-      });
-      expect(out).toBe(`helped ${many.length}× · ~3 extra turns of room`);
     });
   });
 });

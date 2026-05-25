@@ -279,6 +279,40 @@ export interface PreviousSessionSnapshot {
   /** ISO-8601 timestamp of the previous session's last activity. */
   endedAt: string;
   durationMinutes: number;
+  /** Previous session's ledger/proxy session id. Used to CONTINUE under the
+   *  same id on a warm restart (see resolveResumableSessionId) so a
+   *  mid-conversation restart does not fragment per-turn attribution. */
+  sessionId?: string;
+}
+
+/**
+ * Warm-restart window for session-id continuity. When a proxy boots and the
+ * previous session's last activity was within this window, the new proxy
+ * REUSES the prior session id — a mid-conversation restart (e.g. a dev
+ * rebuild+restart, or a crash) then keeps one logical session, so the prompt
+ * boundary and the turn's tool events stay under one id and per-turn savings
+ * attribute correctly. Tighter than the 30-min idle-sweep so a genuinely new
+ * conversation (started after the proxy idled out) gets a fresh id instead of
+ * merging into the prior session's receipt.
+ */
+export const SESSION_RESUME_ID_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Return the previous session's id when it is safe to CONTINUE under it on
+ * this warm restart — i.e. the prior session's last activity was within
+ * SESSION_RESUME_ID_WINDOW_MS. Returns null when there is no prior id or the
+ * gap is too large (treat as a new conversation). Centralises the
+ * merge-vs-fresh decision so both the boot path and tests share one rule.
+ */
+export function resolveResumableSessionId(
+  previous: PreviousSessionSnapshot | null,
+  now: number = Date.now()
+): string | null {
+  if (!previous?.sessionId) return null;
+  const endedMs = Date.parse(previous.endedAt);
+  if (Number.isNaN(endedMs)) return null;
+  if (now - endedMs > SESSION_RESUME_ID_WINDOW_MS) return null;
+  return previous.sessionId;
 }
 
 export interface SessionStats {
@@ -340,6 +374,7 @@ export function detectSessionResume(
     // Read previous session stats
     const raw = JSON.parse(fs.readFileSync(statsPath, "utf-8")) as {
       pid?: number;
+      session_id?: string;
       sessionStartedAt?: string;
       toolCallsLocal?: number;
       violationsCaught?: number;
@@ -366,6 +401,7 @@ export function detectSessionResume(
       sessionStartedAt: raw.sessionStartedAt ?? new Date().toISOString(),
       endedAt: raw.updatedAt ?? new Date(endTime).toISOString(),
       durationMinutes: durationMin > 0 ? durationMin : 0,
+      sessionId: raw.session_id,
     };
   } catch {
     return null;

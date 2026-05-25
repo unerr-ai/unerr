@@ -18,12 +18,21 @@ interface FactRow {
   created_at: number;
   last_reinforced_at: number;
   source: string;
+  // Richer provenance/state fields from /api/facts-v2 (M1 merge). Optional so
+  // any consumer that pre-dates the merge keeps compiling.
+  source_quote?: string | null;
+  applies_to?: string[];
+  last_contradicted_at?: number;
+  disabled?: boolean;
+  drift?: boolean;
 }
 
+// /api/facts-v2/list response — the richer Sidekick Memory API the merged
+// Project Memory page standardizes on (M1). Rows are a superset of the legacy
+// /api/facts shape, adding source_quote / applies_to / disabled / drift.
 interface FactsResponse {
-  facts: FactRow[];
+  data: FactRow[];
   total: number;
-  filters: { scope: string; type: string; min_confidence: number };
 }
 
 interface HealthResponse {
@@ -32,6 +41,29 @@ interface HealthResponse {
   decayed: number;
   by_type: Record<string, number>;
   avg_confidence: number;
+}
+
+// /api/facts-v2/injection-preview response (M4). Mirrors exactly what unerr
+// injects when an agent touches `file` — built from the same recallForFile +
+// getEntityKeysForFile path the live injector uses, so the preview never lies.
+interface InjectionPreviewResponse {
+  file: string | null;
+  // The verbatim strings the agent receives, e.g. "[convention] no fs writes".
+  injected: string[];
+  facts: {
+    fact_id: string;
+    fact_type: string;
+    scope: string;
+    subject: string;
+    content: string;
+    source: string;
+    effective_confidence: number;
+  }[];
+  entity_keys: string[];
+  // False in parse/standalone mode where the file→entity resolver is unwired;
+  // the preview then covers file-scope + project-negative facts only.
+  resolver_available: boolean;
+  message?: string;
 }
 
 // ── Human-friendly mapping ──────────────────────────────────────────
@@ -152,6 +184,14 @@ export function FactsPage() {
   const { url, queryKey } = useRepoApi();
   const [showAllFacts, setShowAllFacts] = useState(false);
   const [selectedFact, setSelectedFact] = useState<FactRow | null>(null);
+  // "All memories" manage-view filters (M3).
+  const [manageSearch, setManageSearch] = useState("");
+  const [manageSource, setManageSource] = useState<"all" | "user_fed" | "auto">(
+    "all"
+  );
+  const [manageStatus, setManageStatus] = useState<
+    "all" | "active" | "disabled" | "drifting"
+  >("all");
 
   const healthQ = useQuery({
     queryKey: queryKey(["facts", "health"]),
@@ -164,7 +204,7 @@ export function FactsPage() {
     queryFn: () =>
       fetchJson<FactsResponse>(
         url(
-          `/api/facts?${new URLSearchParams({ scope: "*", min_confidence: "0", limit: "100" })}`
+          `/api/facts-v2/list?${new URLSearchParams({ source: "all", min_confidence: "0" })}`
         )
       ),
     refetchInterval: 15_000,
@@ -172,7 +212,7 @@ export function FactsPage() {
 
   const reinforceMut = useMutation({
     mutationFn: (factId: string) =>
-      fetchJson(url(`/api/facts/${factId}/reinforce`), { method: "POST" }),
+      fetchJson(url(`/api/facts-v2/${factId}/reinforce`), { method: "POST" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKey(["facts"]) });
     },
@@ -180,17 +220,44 @@ export function FactsPage() {
 
   const dismissMut = useMutation({
     mutationFn: (factId: string) =>
-      fetchJson(url(`/api/facts/${factId}`), { method: "DELETE" }),
+      fetchJson(url(`/api/facts-v2/${factId}`), { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKey(["facts"]) });
+    },
+  });
+
+  // Folded in from Sidekick Memory (M2): inline content edit + disable.
+  // Re-enable reuses reinforceMut (restores confidence above the disabled
+  // threshold), matching the facts-v2 route semantics.
+  const editMut = useMutation({
+    mutationFn: ({ id, content }: { id: string; content: string }) =>
+      fetchJson(url(`/api/facts-v2/${id}`), {
+        method: "PATCH",
+        body: JSON.stringify({ content }),
+        headers: { "content-type": "application/json" },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKey(["facts"]) });
+    },
+  });
+
+  const disableMut = useMutation({
+    mutationFn: (factId: string) =>
+      fetchJson(url(`/api/facts-v2/${factId}/disable`), { method: "POST" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKey(["facts"]) });
     },
   });
 
   const health = healthQ.data;
-  const facts = factsQ.data?.facts ?? [];
+  const facts = factsQ.data?.data ?? [];
 
-  // Group facts by type
-  const grouped = facts.reduce<Record<string, FactRow[]>>((acc, f) => {
+  // Curated categories show active memories only; disabled ones live in the
+  // "All memories" manage view below (M3).
+  const activeFacts = facts.filter((f) => !f.disabled);
+
+  // Group active facts by type
+  const grouped = activeFacts.reduce<Record<string, FactRow[]>>((acc, f) => {
     const key = f.fact_type;
     let bucket = acc[key];
     if (!bucket) {
@@ -200,6 +267,24 @@ export function FactsPage() {
     bucket.push(f);
     return acc;
   }, {});
+
+  // "All memories" manage view — full inventory incl. disabled, filterable.
+  const manageQuery = manageSearch.trim().toLowerCase();
+  const manageFacts = facts.filter((f) => {
+    if (manageSource === "user_fed" && f.source !== "user_fed") return false;
+    if (manageSource === "auto" && f.source === "user_fed") return false;
+    if (manageStatus === "active" && f.disabled) return false;
+    if (manageStatus === "disabled" && !f.disabled) return false;
+    if (manageStatus === "drifting" && !f.drift) return false;
+    if (
+      manageQuery &&
+      !`${f.subject} ${f.content} ${f.source_quote ?? ""}`
+        .toLowerCase()
+        .includes(manageQuery)
+    )
+      return false;
+    return true;
+  });
 
   const semanticFacts = grouped.semantic ?? [];
   const proceduralFacts = grouped.procedural ?? [];
@@ -263,6 +348,14 @@ export function FactsPage() {
         </div>
       </section>
 
+      {/* ── Injection preview by file (wow feature, M4) ──────────── */}
+      <InjectionPreviewPanel
+        onSelectFactId={(id) => {
+          const f = facts.find((x) => x.fact_id === id);
+          if (f) setSelectedFact(f);
+        }}
+      />
+
       {/* ── Section 2: Explicit Rules (convention) ───────────────── */}
       <CategorySection
         meta={CATEGORY_META.convention!}
@@ -286,23 +379,6 @@ export function FactsPage() {
         facts={[...negativeFacts, ...episodicFacts]}
         renderCard={(f) => (
           <LessonCard
-            key={f.fact_id}
-            fact={f}
-            onSelect={() => setSelectedFact(f)}
-            onReinforce={() => reinforceMut.mutate(f.fact_id)}
-            onDismiss={() => dismissMut.mutate(f.fact_id)}
-            isPending={reinforceMut.isPending || dismissMut.isPending}
-          />
-        )}
-        isLoading={isLoading}
-      />
-
-      {/* ── Section 4: Coding Patterns (semantic) ────────────────── */}
-      <CategorySection
-        meta={CATEGORY_META.convention!}
-        facts={conventionFacts}
-        renderCard={(f) => (
-          <PatternCard
             key={f.fact_id}
             fact={f}
             onSelect={() => setSelectedFact(f)}
@@ -348,7 +424,7 @@ export function FactsPage() {
         isLoading={isLoading}
       />
 
-      {/* ── All Facts (collapsible raw view) ─────────────────────── */}
+      {/* ── All memories (manage view) ───────────────────────────── */}
       {facts.length > 0 && (
         <section>
           <button
@@ -364,51 +440,113 @@ export function FactsPage() {
             >
               ▸
             </span>
-            {showAllFacts ? "Hide" : "Show"} all {facts.length} raw facts
+            {showAllFacts ? "Hide" : "Manage"} all {facts.length} memories
           </button>
           {showAllFacts && (
-            <div className="mt-3 glass-panel rounded-xl p-4 overflow-x-auto custom-scrollbar">
-              <table className="w-full min-w-[700px] text-left text-xs">
-                <thead>
-                  <tr className="border-b border-border-subtle t-tertiary uppercase">
-                    <th className="py-2 pr-3 font-medium">Type</th>
-                    <th className="py-2 pr-3 font-medium">Subject</th>
-                    <th className="py-2 pr-3 font-medium">Content</th>
-                    <th className="py-2 pr-3 font-medium">Confidence</th>
-                    <th className="py-2 pr-3 font-medium">Age</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {facts.map((f) => (
-                    <tr
-                      key={f.fact_id}
-                      className="border-b border-border-subtle"
-                    >
-                      <td className="py-2 pr-3">
-                        <TypePill type={f.fact_type} />
-                      </td>
-                      <td
-                        className="py-2 pr-3 font-mono max-w-[160px] truncate"
-                        title={f.subject}
-                      >
-                        {f.subject}
-                      </td>
-                      <td
-                        className="py-2 pr-3 max-w-[300px] truncate t-secondary"
-                        title={f.content}
-                      >
-                        {f.content}
-                      </td>
-                      <td className="py-2 pr-3 font-mono tabular-nums">
-                        {(f.effective_confidence * 100).toFixed(0)}%
-                      </td>
-                      <td className="py-2 pr-3 t-tertiary tabular-nums">
-                        {formatAge(f.created_at)}
-                      </td>
+            <div className="mt-3 flex flex-col gap-3">
+              {/* Filter / segment bar */}
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="search"
+                  value={manageSearch}
+                  onChange={(e) => setManageSearch(e.target.value)}
+                  placeholder="Search memories…"
+                  className="flex-1 min-w-[160px] rounded-lg border border-border-subtle bg-surface-overlay px-3 py-1.5 text-xs text-foreground placeholder:t-tertiary"
+                />
+                <SegmentGroup
+                  value={manageSource}
+                  onChange={setManageSource}
+                  options={[
+                    ["all", "All sources"],
+                    ["user_fed", "User-fed"],
+                    ["auto", "Auto-detected"],
+                  ]}
+                />
+                <SegmentGroup
+                  value={manageStatus}
+                  onChange={setManageStatus}
+                  options={[
+                    ["all", "Any status"],
+                    ["active", "Active"],
+                    ["disabled", "Disabled"],
+                    ["drifting", "Drifting"],
+                  ]}
+                />
+              </div>
+
+              <div className="glass-panel rounded-xl p-4 overflow-x-auto custom-scrollbar">
+                <table className="w-full min-w-[760px] text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-border-subtle t-tertiary uppercase">
+                      <th className="py-2 pr-3 font-medium">Type</th>
+                      <th className="py-2 pr-3 font-medium">Subject</th>
+                      <th className="py-2 pr-3 font-medium">Content</th>
+                      <th className="py-2 pr-3 font-medium">Status</th>
+                      <th className="py-2 pr-3 font-medium">Confidence</th>
+                      <th className="py-2 pr-3 font-medium">Age</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {manageFacts.map((f) => (
+                      <tr
+                        key={f.fact_id}
+                        className="border-b border-border-subtle cursor-pointer hover:bg-surface-overlay/40 transition-colors"
+                        onClick={() => setSelectedFact(f)}
+                      >
+                        <td className="py-2 pr-3">
+                          <TypePill type={f.fact_type} />
+                        </td>
+                        <td
+                          className="py-2 pr-3 font-mono max-w-[160px] truncate"
+                          title={f.subject}
+                        >
+                          {f.subject}
+                        </td>
+                        <td
+                          className="py-2 pr-3 max-w-[280px] truncate t-secondary"
+                          title={f.content}
+                        >
+                          {f.content}
+                        </td>
+                        <td className="py-2 pr-3">
+                          <div className="flex gap-1">
+                            {f.drift && (
+                              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-medium text-amber-300">
+                                stale
+                              </span>
+                            )}
+                            {f.disabled ? (
+                              <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[9px] font-medium text-red-300">
+                                disabled
+                              </span>
+                            ) : (
+                              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-medium text-emerald-300">
+                                active
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2 pr-3 font-mono tabular-nums">
+                          {(f.effective_confidence * 100).toFixed(0)}%
+                        </td>
+                        <td className="py-2 pr-3 t-tertiary tabular-nums">
+                          {formatAge(f.created_at)}
+                        </td>
+                      </tr>
+                    ))}
+                    {manageFacts.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={6}
+                          className="py-6 text-center t-tertiary italic"
+                        >
+                          No memories match these filters.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </section>
@@ -428,7 +566,20 @@ export function FactsPage() {
             dismissMut.mutate(selectedFact.fact_id);
             setSelectedFact(null);
           }}
-          isPending={reinforceMut.isPending || dismissMut.isPending}
+          onEdit={(content) => {
+            editMut.mutate({ id: selectedFact.fact_id, content });
+            setSelectedFact(null);
+          }}
+          onDisable={() => {
+            disableMut.mutate(selectedFact.fact_id);
+            setSelectedFact(null);
+          }}
+          isPending={
+            reinforceMut.isPending ||
+            dismissMut.isPending ||
+            editMut.isPending ||
+            disableMut.isPending
+          }
         />
       )}
     </div>
@@ -436,6 +587,147 @@ export function FactsPage() {
 }
 
 // ── Sub-components ──────────────────────────────────────────────────
+
+// Injection preview by file (M4). Enter a file path → see the EXACT memory
+// unerr attaches when an agent touches that file. Read-only: the route reuses
+// the live injector's recallForFile + entity-key resolver, so nothing here
+// changes the proxy/MCP execution path.
+function InjectionPreviewPanel({
+  onSelectFactId,
+}: {
+  onSelectFactId: (factId: string) => void;
+}) {
+  const { url, queryKey } = useRepoApi();
+  const [fileInput, setFileInput] = useState("");
+  const [submittedFile, setSubmittedFile] = useState("");
+
+  const previewQ = useQuery({
+    queryKey: queryKey(["facts", "injection-preview", submittedFile]),
+    queryFn: () =>
+      fetchJson<InjectionPreviewResponse>(
+        url(
+          `/api/facts-v2/injection-preview?${new URLSearchParams({ file: submittedFile })}`
+        )
+      ),
+    enabled: submittedFile.length > 0,
+  });
+
+  const preview = previewQ.data;
+
+  return (
+    <section className="glass-panel rounded-xl p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">
+            Injection preview
+          </h2>
+          <p className="mt-1 text-sm t-secondary leading-relaxed">
+            Enter a file path to see exactly which memories unerr injects when
+            your agent reads or edits it — the same selection the live injector
+            makes, not an approximation.
+          </p>
+        </div>
+      </div>
+
+      <form
+        className="mt-4 flex flex-wrap items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSubmittedFile(fileInput.trim());
+        }}
+      >
+        <input
+          type="text"
+          value={fileInput}
+          onChange={(e) => setFileInput(e.target.value)}
+          placeholder="src/proxy/proxy.ts"
+          spellCheck={false}
+          className="flex-1 min-w-[220px] rounded-lg border border-border-subtle bg-surface-overlay px-3 py-1.5 font-mono text-xs text-foreground placeholder:t-tertiary"
+        />
+        <button
+          type="submit"
+          disabled={fileInput.trim().length === 0}
+          className="rounded-lg border border-border-subtle bg-surface-overlay px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-overlay/60 disabled:opacity-40"
+        >
+          Preview
+        </button>
+      </form>
+
+      {submittedFile.length > 0 && (
+        <div className="mt-4">
+          {previewQ.isLoading ? (
+            <p className="text-xs t-tertiary italic">Resolving memories…</p>
+          ) : previewQ.isError ? (
+            <p className="text-xs text-red-300">
+              Could not load injection preview for{" "}
+              <span className="font-mono">{submittedFile}</span>.
+            </p>
+          ) : preview ? (
+            preview.injected.length === 0 ? (
+              <div className="rounded-lg border border-border-subtle bg-surface-overlay/40 p-4">
+                <p className="text-xs t-secondary">
+                  No memory is injected for{" "}
+                  <span className="font-mono t-tertiary">{submittedFile}</span>{" "}
+                  yet. unerr injects file-scoped patterns, entity lessons, and
+                  project-wide warnings as it learns them.
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {/* The verbatim block the agent's context receives. */}
+                <div>
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest t-tertiary">
+                    What the agent receives
+                  </p>
+                  <pre className="overflow-x-auto custom-scrollbar rounded-lg border border-violet-500/30 bg-violet-500/5 p-3 font-mono text-[11px] leading-relaxed text-violet-100 whitespace-pre-wrap">
+                    {preview.injected.join("\n")}
+                  </pre>
+                </div>
+
+                {/* Clickable source rows → existing detail modal. */}
+                <div>
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest t-tertiary">
+                    Source memories ({preview.facts.length})
+                  </p>
+                  <div className="flex flex-col gap-1">
+                    {preview.facts.map((f) => (
+                      <button
+                        key={f.fact_id}
+                        type="button"
+                        onClick={() => onSelectFactId(f.fact_id)}
+                        className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-overlay/40 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-overlay/70"
+                      >
+                        <TypePill type={f.fact_type} />
+                        <span
+                          className="flex-1 min-w-0 truncate t-secondary"
+                          title={f.content}
+                        >
+                          {f.content}
+                        </span>
+                        <span className="font-mono tabular-nums t-tertiary">
+                          {(f.effective_confidence * 100).toFixed(0)}%
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Transparency footer: scope resolution + degraded mode. */}
+                <p className="text-[10px] t-tertiary">
+                  {preview.resolver_available
+                    ? `Matched ${preview.entity_keys.length} code ${
+                        preview.entity_keys.length === 1 ? "entity" : "entities"
+                      } in this file plus file- and project-scoped memory.`
+                    : "Entity resolver unavailable here — showing file- and project-scoped memory only."}
+                </p>
+              </div>
+            )
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function KnowledgeRing({ score, total }: { score: number; total: number }) {
   const radius = 36;
@@ -490,6 +782,36 @@ function MiniStat({
         {label}
       </p>
       <p className={`text-xl font-semibold tabular-nums ${color}`}>{value}</p>
+    </div>
+  );
+}
+
+/** Compact segmented toggle used by the "All memories" manage filter bar. */
+function SegmentGroup<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: [T, string][];
+}) {
+  return (
+    <div className="flex gap-0.5 rounded-lg bg-surface-overlay p-0.5">
+      {options.map(([val, label]) => (
+        <button
+          key={val}
+          type="button"
+          onClick={() => onChange(val)}
+          className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+            value === val
+              ? "bg-violet-500/25 text-violet-200"
+              : "t-tertiary hover:text-foreground"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -562,9 +884,10 @@ function PatternCard({
 
   return (
     <div
-      className="glass-card rounded-xl p-4 flex flex-col gap-3 cursor-pointer hover:ring-1 hover:ring-violet-500/30 transition-all"
+      className={`glass-card rounded-xl p-4 flex flex-col gap-3 cursor-pointer hover:ring-1 hover:ring-violet-500/30 transition-all ${fact.disabled ? "opacity-60" : ""}`}
       onClick={onSelect}
     >
+      <DriftDisabledBadges fact={fact} />
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-sm font-medium text-foreground leading-snug truncate">
           {fact.subject}
@@ -606,9 +929,10 @@ function HotFileCard({
 
   return (
     <div
-      className="glass-card rounded-xl p-4 flex flex-col gap-3 cursor-pointer hover:ring-1 hover:ring-cyan-500/30 transition-all"
+      className={`glass-card rounded-xl p-4 flex flex-col gap-3 cursor-pointer hover:ring-1 hover:ring-cyan-500/30 transition-all ${fact.disabled ? "opacity-60" : ""}`}
       onClick={onSelect}
     >
+      <DriftDisabledBadges fact={fact} />
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3
@@ -667,9 +991,10 @@ function LessonCard({
 
   return (
     <div
-      className="glass-card rounded-xl p-4 flex flex-col gap-3 border border-red-500/10 cursor-pointer hover:ring-1 hover:ring-red-500/30 transition-all"
+      className={`glass-card rounded-xl p-4 flex flex-col gap-3 border border-red-500/10 cursor-pointer hover:ring-1 hover:ring-red-500/30 transition-all ${fact.disabled ? "opacity-60" : ""}`}
       onClick={onSelect}
     >
+      <DriftDisabledBadges fact={fact} />
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-red-500/15 text-red-400 flex-shrink-0">
@@ -764,6 +1089,26 @@ function CardActions({
   );
 }
 
+/** Glance-level state pills folded in from Sidekick Memory — surfaced on
+ *  every card so drift / disabled is visible without opening the detail. */
+function DriftDisabledBadges({ fact }: { fact: FactRow }) {
+  if (!fact.drift && !fact.disabled) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {fact.drift && (
+        <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-medium text-amber-300">
+          may be stale
+        </span>
+      )}
+      {fact.disabled && (
+        <span className="rounded-full bg-red-500/20 px-1.5 py-0.5 text-[9px] font-medium text-red-300">
+          disabled
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── Detail Modal ────────────────────────────────────────────────────
 
 const SOURCE_LABELS: Record<string, { label: string; description: string }> = {
@@ -798,6 +1143,8 @@ function MemoryDetailModal({
   onClose,
   onReinforce,
   onDismiss,
+  onEdit,
+  onDisable,
   isPending,
 }: {
   fact: FactRow;
@@ -805,16 +1152,24 @@ function MemoryDetailModal({
   onClose: () => void;
   onReinforce: () => void;
   onDismiss: () => void;
+  onEdit: (content: string) => void;
+  onDisable: () => void;
   isPending: boolean;
 }) {
-  // Close on Escape
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(fact.content);
+
+  // Close on Escape — but only when not mid-edit, so Escape cancels the
+  // edit first rather than discarding an in-progress draft.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (editing) setEditing(false);
+      else onClose();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [onClose, editing]);
 
   const meta = CATEGORY_META[fact.fact_type];
   const categoryLabel = meta?.label ?? fact.fact_type;
@@ -851,9 +1206,21 @@ function MemoryDetailModal({
               {categoryIcon}
             </span>
             <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wide t-tertiary font-medium">
-                {categoryLabel}
-              </p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-[10px] uppercase tracking-wide t-tertiary font-medium">
+                  {categoryLabel}
+                </p>
+                {fact.drift && (
+                  <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-medium text-amber-300">
+                    may be stale
+                  </span>
+                )}
+                {fact.disabled && (
+                  <span className="rounded-full bg-red-500/20 px-1.5 py-0.5 text-[9px] font-medium text-red-300">
+                    disabled
+                  </span>
+                )}
+              </div>
               <h3
                 className="text-sm font-semibold text-foreground truncate"
                 title={fact.subject}
@@ -887,12 +1254,30 @@ function MemoryDetailModal({
             <ModalExplanation fact={fact} />
           </ModalSection>
 
-          {/* Humanized content */}
+          {/* Humanized content — inline-editable (folded in from Sidekick) */}
           <ModalSection title="Summary">
-            <p className="text-sm text-foreground leading-relaxed">
-              {humanizeContent(fact)}
-            </p>
+            {editing ? (
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={4}
+                className="w-full rounded-lg border border-border-subtle bg-surface-overlay p-2.5 font-mono text-xs text-foreground"
+              />
+            ) : (
+              <p className="text-sm text-foreground leading-relaxed">
+                {humanizeContent(fact)}
+              </p>
+            )}
           </ModalSection>
+
+          {/* In your words — verbatim quote that produced a user-fed memory */}
+          {fact.source_quote ? (
+            <ModalSection title="In your words">
+              <blockquote className="border-l-2 border-violet-400/40 pl-3 text-xs italic t-secondary leading-relaxed">
+                "{fact.source_quote}"
+              </blockquote>
+            </ModalSection>
+          ) : null}
 
           {/* Memory strength */}
           <ModalSection title="Memory strength">
@@ -941,6 +1326,18 @@ function MemoryDetailModal({
               this memory is automatically injected into the context — the agent
               sees it before writing code.
             </p>
+            {fact.applies_to && fact.applies_to.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {fact.applies_to.map((t) => (
+                  <code
+                    key={t}
+                    className="rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] font-mono t-secondary"
+                  >
+                    {t}
+                  </code>
+                ))}
+              </div>
+            )}
           </ModalSection>
 
           {/* Source */}
@@ -1007,49 +1404,91 @@ function MemoryDetailModal({
           </ModalSection>
         </div>
 
-        {/* Footer actions */}
+        {/* Footer actions — unified controls folded in from Sidekick Memory:
+            Edit · Reinforce/Re-enable · Disable · Forget. */}
         <div className="sticky bottom-0 flex items-center justify-between gap-3 px-6 py-4 border-t border-border-subtle bg-surface/95 backdrop-blur-sm rounded-b-2xl">
           <span className="text-[10px] t-tertiary">
             ID: {fact.fact_id.slice(0, 8)}
           </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors disabled:opacity-30"
-              onClick={onReinforce}
-              disabled={isPending}
-            >
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 16 16"
-                className="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+          {editing ? (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="rounded-lg px-3 py-1.5 text-xs font-medium text-violet-300 bg-violet-500/15 hover:bg-violet-500/25 transition-colors disabled:opacity-30"
+                onClick={() => onEdit(draft)}
+                disabled={isPending || draft.trim().length === 0}
               >
-                <path d="M8 12V4M5 7l3-3 3 3" />
-              </svg>
-              Still true
-            </button>
-            <button
-              type="button"
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors disabled:opacity-30"
-              onClick={onDismiss}
-              disabled={isPending}
-            >
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 16 16"
-                className="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+                Save
+              </button>
+              <button
+                type="button"
+                className="rounded-lg px-3 py-1.5 text-xs font-medium t-secondary bg-surface-overlay hover:opacity-80 transition-opacity"
+                onClick={() => {
+                  setEditing(false);
+                  setDraft(fact.content);
+                }}
               >
-                <path d="M4 4l8 8M12 4l-8 8" />
-              </svg>
-              Forget this
-            </button>
-          </div>
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg px-3 py-1.5 text-xs font-medium t-secondary bg-surface-overlay hover:opacity-80 transition-opacity disabled:opacity-30"
+                onClick={() => setEditing(true)}
+                disabled={isPending}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors disabled:opacity-30"
+                onClick={onReinforce}
+                disabled={isPending}
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 16 16"
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M8 12V4M5 7l3-3 3 3" />
+                </svg>
+                {fact.disabled ? "Re-enable" : "Still true"}
+              </button>
+              {!fact.disabled && (
+                <button
+                  type="button"
+                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 transition-colors disabled:opacity-30"
+                  onClick={onDisable}
+                  disabled={isPending}
+                >
+                  Disable
+                </button>
+              )}
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors disabled:opacity-30"
+                onClick={onDismiss}
+                disabled={isPending}
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 16 16"
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M4 4l8 8M12 4l-8 8" />
+                </svg>
+                Forget
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

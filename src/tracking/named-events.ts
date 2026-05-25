@@ -208,6 +208,13 @@ const PHRASING: Record<string, PhrasingRow> = {
     object: "quiet-mode notice",
     plural: "quiet-mode notices",
   },
+
+  // Fix K — resume strip carried over open blockers.
+  resume_blockers_surfaced: {
+    verb: "resumed",
+    object: "open blocker",
+    plural: "open blockers",
+  },
 };
 
 /** Phrasing for `tokenflow.<mechanism>` synthetic event types. Mirrors
@@ -447,6 +454,75 @@ export function readNamedEvents(
   });
 
   return out;
+}
+
+// ── Conversational-turn windowing ────────────────────────────────────
+//
+// The `turn` column on each row is the TurnSegmenter index, which advances
+// on a 20s idle gap between ledger entries — so one conversational turn
+// (prompt → response) fragments into many segmenter-turns and any
+// `e.turn === currentTurn` slice catches only the final sliver. The
+// `user_prompt_received` boundary event (written by the UserPromptSubmit
+// hook, keyed to the same proxy session_id) marks the real start of the
+// current turn. Slice by it instead.
+
+/**
+ * Epoch-ms of the latest `user_prompt_received` boundary in this event
+ * stream, or `null` when none was recorded (pre-hook sessions, or content
+ * capture disabled — the boundary row is still written, so null only
+ * happens when the hook never fired). The current conversational turn is
+ * every event at `ts >= this boundary`.
+ */
+export function latestPromptBoundaryTs(
+  events: readonly NamedEvent[]
+): number | null {
+  let maxTs: number | null = null;
+  for (const e of events) {
+    if (e.event_type !== "user_prompt_received") continue;
+    const t = Date.parse(e.ts);
+    if (Number.isNaN(t)) continue;
+    if (maxTs === null || t > maxTs) maxTs = t;
+  }
+  return maxTs;
+}
+
+/**
+ * Build the single predicate that decides whether an event — a NamedEvent OR
+ * a raw token_flow row, anything carrying an ISO `ts` and a segmenter `turn` —
+ * belongs to the CURRENT conversational turn.
+ *
+ * This is the ONE definition of the turn window. The end-of-turn receipt
+ * derives three things that MUST describe the identical window or the receipt
+ * contradicts itself: the headline token number (token_flow rows summed in
+ * `renderSessionEconomyLineLive`), the concrete bullets (`currentTurnSlice`),
+ * and the attribution rows (`extractReceiptAttribution`). All three call this
+ * factory so the boundary rule can never drift between them.
+ *
+ * Prefers the prompt boundary (accurate); falls back to the segmenter
+ * `turn === fallbackTurn` match when no boundary was recorded (pre-hook
+ * sessions, or the hook never fired) so old data still renders a non-empty
+ * slice.
+ */
+export function makeInCurrentTurn(
+  events: readonly NamedEvent[],
+  fallbackTurn: number
+): (ts: string, turn: number) => boolean {
+  const boundary = latestPromptBoundaryTs(events);
+  if (boundary === null) {
+    return (_ts, turn) => turn === fallbackTurn;
+  }
+  return (ts, _turn) => Date.parse(ts) >= boundary;
+}
+
+/**
+ * Slice `events` to the current conversational turn via {@link makeInCurrentTurn}.
+ */
+export function currentTurnSlice(
+  events: readonly NamedEvent[],
+  fallbackTurn: number
+): NamedEvent[] {
+  const inTurn = makeInCurrentTurn(events, fallbackTurn);
+  return events.filter((e) => inTurn(e.ts, e.turn));
 }
 
 // ── Counts ────────────────────────────────────────────────────────────

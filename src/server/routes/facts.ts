@@ -27,6 +27,12 @@ export interface FactsRouteDeps {
    *  Used to flag facts whose scope or applies_to references one of them. */
   getDirtyFiles?: () => Set<string>;
   emitEvent?: (type: string, data: unknown) => void;
+  /** Resolves a file path to its entity keys (file_index lookup) — the SAME
+   *  resolver the live fact injector uses (QueryRouter.getEntityKeysForFile).
+   *  Wired so the /injection-preview route reproduces injection selection
+   *  exactly instead of reimplementing it. Absent in standalone/parse mode;
+   *  the preview degrades to file-scope + project-negative facts only. */
+  getEntityKeysForFile?: (filePath: string) => Promise<string[]>;
 }
 
 const AUTO_SOURCES = [
@@ -129,6 +135,70 @@ export function createFactsRoutes(deps: FactsRouteDeps): Hono {
         latency_ms: Math.round((performance.now() - start) * 100) / 100,
       },
     });
+  });
+
+  // ── GET /injection-preview?file=<path> ───────────────────────────
+  // Read-only. Reproduces the EXACT memory unerr injects when an agent
+  // touches <file>, by calling the same TemporalFactStore.recallForFile
+  // the live injector uses (query-router.ts:2300) with entity keys from
+  // the same QueryRouter.getEntityKeysForFile resolver. The only divergence
+  // from runtime is intentional: session-dedup is skipped so the preview
+  // shows what a *fresh* session receives, not what's left after this
+  // session already consumed some facts. Touches nothing in the proxy path.
+  app.get("/injection-preview", async (c) => {
+    const start = performance.now();
+    if (!deps.factStore) {
+      return c.json({
+        file: null,
+        injected: [],
+        facts: [],
+        entity_keys: [],
+        resolver_available: false,
+        message: "fact_store_unavailable",
+      });
+    }
+    const file = c.req.query("file")?.trim();
+    if (!file) {
+      return c.json({ error: "file_query_required" }, 400);
+    }
+
+    try {
+      const resolverAvailable = typeof deps.getEntityKeysForFile === "function";
+      const entityKeys = resolverAvailable
+        ? await deps.getEntityKeysForFile!(file)
+        : [];
+      // recallForFile = file-scope (prefix) + entity-scope + project-negative,
+      // deduped, sorted by effective_confidence. Identical to the file_read
+      // injection branch.
+      const recalled = await deps.factStore.recallForFile(file, entityKeys);
+      // The injector emits the top 5 as `[fact_type] content`.
+      const top = recalled.slice(0, 5);
+      const injected = top.map((f) => `[${f.fact_type}] ${f.content}`);
+      const facts = top.map((f) => ({
+        fact_id: f.fact_id,
+        fact_type: f.fact_type,
+        scope: f.scope,
+        subject: f.subject,
+        content: f.content,
+        source: f.source,
+        effective_confidence: Math.round(f.effective_confidence * 1000) / 1000,
+      }));
+      return c.json({
+        file,
+        injected,
+        facts,
+        entity_keys: entityKeys,
+        resolver_available: resolverAvailable,
+        _meta: {
+          latency_ms: Math.round((performance.now() - start) * 100) / 100,
+        },
+      });
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "unknown" },
+        500
+      );
+    }
   });
 
   // ── GET /:id/provenance ──────────────────────────────────────────

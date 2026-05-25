@@ -8,9 +8,9 @@ export type RepoRouteId =
   | "graph"
   | "facts"
   | "logbook"
-  | "sidekick-memory"
   | "token-trace"
   | "reasoning"
+  | "prompt-trace"
   | "activity"
   | "router"
   | "router-sessions"
@@ -29,10 +29,10 @@ const ROUTE_TITLES: Record<RouteId, string> = {
   visual: "Codebase Map",
   graph: "Code Intelligence",
   facts: "Project Memory",
-  logbook: "Logbook",
-  "sidekick-memory": "Sidekick Memory",
+  logbook: "What unerr did",
   "token-trace": "Token Trace",
   reasoning: "Reasoning Trace",
+  "prompt-trace": "Prompt Trace",
   activity: "Activity",
   router: "MCP Router",
   "router-sessions": "Router Sessions",
@@ -77,7 +77,6 @@ function matchRepoRoute(seg: string | undefined): RepoRouteId {
   switch (seg) {
     case "overview":
     case "dashboard":
-      // Pre-step-3 bookmarks still land on the diagnostic dashboard.
       return "overview";
     case "visual":
       return "visual";
@@ -94,14 +93,18 @@ function matchRepoRoute(seg: string | undefined): RepoRouteId {
     case "economy":
     case "headroom":
       return "token-trace";
+    // Sidekick Memory was merged into Project Memory (route `facts`). Old
+    // bookmarks redirect there so no link breaks.
     case "sidekick-memory":
     case "sidekick":
     case "memory":
-      return "sidekick-memory";
+      return "facts";
     case "token-trace":
       return "token-trace";
     case "reasoning":
       return "reasoning";
+    case "prompt-trace":
+      return "prompt-trace";
     case "activity":
     case "session-timeline":
     case "timeline":
@@ -113,12 +116,10 @@ function matchRepoRoute(seg: string | undefined): RepoRouteId {
     case "settings":
       return "settings";
     default:
-      // Step 3 of the honest-headroom migration: the bare hash resolves
-      // to the Logbook (story-first archive) instead of the diagnostic
-      // Dashboard. Explicit /overview or /dashboard URLs still route to
-      // the old hero — see cases above. Daemon-mode landings continue
-      // to redirect to /all-repos via the App.tsx redirect.
-      return "logbook";
+      // The bare hash resolves to the Dashboard (the default landing).
+      // Explicit /logbook still routes to "What unerr did" — see case
+      // above. Daemon-mode landings redirect to /all-repos via App.tsx.
+      return "overview";
   }
 }
 
@@ -186,18 +187,18 @@ export function navigateRoute(
   // Standalone mode has no current repoLabel, so behavior there is
   // unchanged.
   const repoLabel = explicitRepoLabel ?? parseHash().repoLabel ?? undefined;
-  // After step 3 the bare hash resolves to "logbook", not "overview" —
-  // emit an explicit segment for both so existing call sites
-  // (`navigateRoute("overview", ...)`) keep landing on the diagnostic
-  // dashboard.
+  // The bare hash resolves to "overview" (the default landing), so emit
+  // a bare hash for it and an explicit segment for every other route —
+  // including `navigateRoute("logbook", ...)`, which lands on the
+  // "What unerr did" archive at `#/logbook`.
   if (repoLabel) {
     window.location.hash =
-      next === "logbook"
+      next === "overview"
         ? `#/repo/${repoLabel}${qs}`
         : `#/repo/${repoLabel}/${next}${qs}`;
     return;
   }
-  window.location.hash = next === "logbook" ? `#/${qs}` : `#/${next}${qs}`;
+  window.location.hash = next === "overview" ? `#/${qs}` : `#/${next}${qs}`;
 }
 
 /** Read a single query-string value from the current `window.location.hash`.

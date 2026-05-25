@@ -42,6 +42,10 @@ import {
   createLogbookRoutes,
 } from "./routes/logbook.js";
 import {
+  type PromptTraceRouteDeps,
+  createPromptTraceRoutes,
+} from "./routes/prompt-trace.js";
+import {
   type ReasoningQualityRouteDeps,
   createReasoningQualityRoutes,
 } from "./routes/reasoning-quality.js";
@@ -86,6 +90,8 @@ export interface DashboardServerOptions {
   logbook?: LogbookRouteDeps;
   /** Phase 3 Sprint 11 — Sidekick Memory facts CRUD */
   facts?: FactsRouteDeps;
+  /** §7 — per-prompt PromptTrace spine (joins savings + real token usage). */
+  promptTrace?: PromptTraceRouteDeps;
   /** Dependencies for reasoning quality API (reuses token flow deps) */
   reasoningQuality?: ReasoningQualityRouteDeps;
   /** Sprint P0-6: Dependencies for MCP router dashboard API */
@@ -179,6 +185,9 @@ export async function startDashboardServer(
   }
   if (opts.facts) {
     app.route("/api/facts-v2", createFactsRoutes(opts.facts));
+  }
+  if (opts.promptTrace) {
+    app.route("/api/prompt-trace", createPromptTraceRoutes(opts.promptTrace));
   }
   if (opts.reasoningQuality) {
     app.route(

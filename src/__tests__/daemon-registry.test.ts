@@ -51,6 +51,65 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("Legacy tilde-path normalization", () => {
+  function legacyEntry(tildePath: string, label: string): RepoEntry {
+    return {
+      path: tildePath,
+      addedAt: new Date().toISOString(),
+      lastStarted: null,
+      lastActivity: null,
+      idleTimeout: 1800,
+      label,
+      settings: {},
+    };
+  }
+
+  it("readRegistry expands legacy ~ paths to absolute", () => {
+    writeRegistry({
+      version: 1,
+      repos: [legacyEntry("~/projects/legacy", "legacy")],
+    });
+    const reg = readRegistry();
+    expect(reg.repos[0]!.path).toBe(join(testHome, "projects", "legacy"));
+  });
+
+  it("findRepo matches a literal ~ path against a legacy entry", () => {
+    writeRegistry({
+      version: 1,
+      repos: [legacyEntry("~/projects/legacy", "legacy")],
+    });
+    // Input arrives with an unexpanded tilde (e.g. quoted on the CLI) — match.
+    expect(findRepo("~/projects/legacy")?.label).toBe("legacy");
+    // And the equivalent absolute form matches the same entry.
+    expect(findRepo(join(testHome, "projects", "legacy"))?.label).toBe(
+      "legacy"
+    );
+  });
+
+  it("removeRepo matches a literal ~ path against a legacy entry", () => {
+    writeRegistry({
+      version: 1,
+      repos: [legacyEntry("~/projects/legacy", "legacy")],
+    });
+    expect(removeRepo("~/projects/legacy")).toBe(true);
+    expect(listRepos()).toHaveLength(0);
+  });
+
+  it("a mutation rewrites legacy tilde entries back as absolute", () => {
+    writeRegistry({
+      version: 1,
+      repos: [
+        legacyEntry("~/projects/a", "a"),
+        legacyEntry("~/projects/b", "b"),
+      ],
+    });
+    removeRepo("~/projects/a"); // triggers a write of the normalized list
+    const raw = readFileSync(join(testHome, ".unerr", "repos.json"), "utf-8");
+    expect(raw).not.toContain("~/projects/b");
+    expect(raw).toContain(join(testHome, "projects", "b"));
+  });
+});
+
 describe("Registry CRUD", () => {
   it("adds a new repo and writes repos.json", () => {
     const repoPath = makeRepo("my-app");

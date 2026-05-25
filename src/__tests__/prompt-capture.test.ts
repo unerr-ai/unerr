@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   readCapturePromptsFlag,
+  readProxySessionId,
   recordUserPromptReceived,
   redactPrompt,
 } from "../hooks/prompt-capture.js";
@@ -171,6 +172,43 @@ describe("getPromptsForSession (Fix J)", () => {
     const rows = getPromptsForSession(fix.unerrDir, "bulk-sess");
     expect(rows.length).toBe(3);
     expect(rows.map((r) => r.prompt)).toEqual(["one", "two", "three"]);
+  });
+});
+
+describe("readProxySessionId — hook↔proxy session join", () => {
+  let fix: ReturnType<typeof makeFixture>;
+  const savedEnv = process.env.UNERR_SESSION_ID;
+  beforeEach(() => {
+    fix = makeFixture();
+    delete process.env.UNERR_SESSION_ID;
+  });
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env.UNERR_SESSION_ID;
+    else process.env.UNERR_SESSION_ID = savedEnv;
+    fix.cleanup();
+  });
+
+  it("returns null when neither env nor state/session.id exists", () => {
+    expect(readProxySessionId(fix.unerrDir)).toBeNull();
+  });
+
+  it("reads the proxy-written .unerr/state/session.id", () => {
+    mkdirSync(join(fix.unerrDir, "state"), { recursive: true });
+    writeFileSync(join(fix.unerrDir, "state", "session.id"), "6a0258c88259\n");
+    expect(readProxySessionId(fix.unerrDir)).toBe("6a0258c88259");
+  });
+
+  it("prefers UNERR_SESSION_ID over the file", () => {
+    mkdirSync(join(fix.unerrDir, "state"), { recursive: true });
+    writeFileSync(join(fix.unerrDir, "state", "session.id"), "from-file");
+    process.env.UNERR_SESSION_ID = "from-env";
+    expect(readProxySessionId(fix.unerrDir)).toBe("from-env");
+  });
+
+  it("returns null on an empty session.id file (falls back to agent id)", () => {
+    mkdirSync(join(fix.unerrDir, "state"), { recursive: true });
+    writeFileSync(join(fix.unerrDir, "state", "session.id"), "   \n");
+    expect(readProxySessionId(fix.unerrDir)).toBeNull();
   });
 });
 

@@ -39,7 +39,6 @@ import {
   USER_BLOCK_PREFIX,
   buildUserBlock,
 } from "../proxy/response-envelope.js";
-import { renderTurnFooter } from "../proxy/turn-footer.js";
 import type { NamedEvent } from "../tracking/named-events.js";
 
 // ── Per-agent surface profile ────────────────────────────────────────
@@ -192,28 +191,11 @@ describe("Phase 4 Sprint 14 — surface coverage matrix", () => {
       expect(wrapped).not.toMatch(/^\*\*/m);
     });
 
-    it("S3 footer renders one line with the four-surface separator", () => {
-      const line = renderTurnFooter({
-        events: [
-          makeNamedEvent({ event_type: "loop_broken", file_path: null }),
-          makeNamedEvent({ event_type: "stale_edit_prevented" }),
-        ],
-        tokensSavedThisTurn: 4200,
-        turnsOfHeadroomThisSession: 5,
-      });
-      // Single line, the middle-dot separator (Phase 1 contract).
-      expect(line.split("\n")).toHaveLength(1);
-      expect(line).toContain(" · ");
-      // Body content; no markdown/ANSI.
-      expect(line).not.toMatch(/[*_`]/);
-      // buildUserBlock wraps it cleanly.
-      const wrapped = buildUserBlock([line]);
-      expect(wrapped).toContain(`${USER_BLOCK_PREFIX}this turn:`);
-    });
-
-    // §10.7 — S4a inline attribution moved to Surface 3 receipt.
-    // Per-agent neutrality of the receipt renderer is covered by
-    // receipt-renderer.test.ts (pure function — agent-neutral by construction).
+    // S3 close-out receipt (rendered by `unerr_turn_summary`) is a pure
+    // function — agent-neutral by construction. Its per-agent neutrality +
+    // single-line / no-markdown body-channel coverage live in
+    // receipt-renderer.test.ts. §10.7 — S4a inline attribution was merged
+    // into that same Surface 3 receipt.
 
     it("fact-steering preface renders a `ur|fct` body line for the agent", () => {
       const line = renderEnforcedFactPrefix(
@@ -247,20 +229,6 @@ describe("Phase 4 Sprint 14 — surface coverage matrix", () => {
     // text. The agent identity does NOT branch the output. We assert this
     // by computing the rendered output once and comparing across the
     // five-agent loop.
-
-    it("renderTurnFooter output is identical regardless of agent", () => {
-      const inputs = {
-        events: [makeNamedEvent({ event_type: "loop_broken" })],
-        tokensSavedThisTurn: 1234,
-        turnsOfHeadroomThisSession: 2,
-      };
-      const reference = renderTurnFooter(inputs);
-      for (const _agent of REPRESENTATIVE_AGENTS) {
-        // No agent argument exists — that's the proof. We assert the
-        // function signature stays renderer-only.
-        expect(renderTurnFooter(inputs)).toBe(reference);
-      }
-    });
 
     it("renderContextPreface output is identical regardless of agent", () => {
       const inputs = {

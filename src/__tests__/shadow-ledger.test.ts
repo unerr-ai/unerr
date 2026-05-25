@@ -77,6 +77,18 @@ describe("ShadowLedger", () => {
     expect(e1.session_id).toBe(ledger.getSessionId());
   });
 
+  it("resumes under an injected session id (warm-restart continuity)", () => {
+    const ledger = new ShadowLedger(unerrDir, { sessionId: "deadbeefcafe" });
+    expect(ledger.getSessionId()).toBe("deadbeefcafe");
+    const e1 = ledger.record("get_function", {}, {}, "main", "aaa");
+    expect(e1.session_id).toBe("deadbeefcafe");
+  });
+
+  it("mints a fresh 12-hex id when no session id is injected", () => {
+    const ledger = new ShadowLedger(unerrDir);
+    expect(/^[0-9a-f]{12}$/.test(ledger.getSessionId())).toBe(true);
+  });
+
   it("appends entries as JSONL (one JSON per line)", () => {
     const ledger = new ShadowLedger(unerrDir);
     ledger.record("get_function", { key: "a" }, { found: true }, "main", "aaa");

@@ -15,12 +15,20 @@ import { runIntentStitch } from "../../timeline/intent-detector.js";
 import { detectLoops } from "../../timeline/loop-miner.js";
 import { computeOpenThreads } from "../../timeline/open-threads.js";
 import type { CozoTimelineStore } from "../../timeline/timeline-store.js";
+import {
+  type PromptForTurn,
+  matchPromptsToTurns,
+} from "../../tracking/prompt-trace.js";
 import type { LedgerEntry } from "../../tracking/shadow-ledger.js";
 
 export interface TimelineRouteDeps {
   store: CozoTimelineStore;
   /** Recent ledger entries — feeds LoopMiner. */
   getRecentLedgerEntries?: (limit: number) => LedgerEntry[];
+  /** Fix J — captured prompts for a session, used to attach the verbatim
+   *  originating prompt to each turn in the landing view (§5). Optional so
+   *  the route degrades to prompt-free turns when unwired or capture is off. */
+  getPromptsForSession?: (sessionId: string) => PromptForTurn[];
 }
 
 function parseLimit(
@@ -80,8 +88,32 @@ export function createTimelineRoutes(deps: TimelineRouteDeps): Hono {
       deps.store.countTurns(filter),
     ]);
 
+    // Fix J / §5 — attach each turn's originating prompt by timestamp.
+    // Group the page by session (≤`limit` rows), fetch captured prompts once
+    // per session, and bridge prompt→turn by time (no integer-turn key in the
+    // turns table). Null `prompt` when capture is off or no row matched.
+    let data: Array<
+      (typeof turns)[number] & { prompt?: PromptForTurn | null }
+    > = turns;
+    const getPrompts = deps.getPromptsForSession;
+    if (getPrompts && turns.length > 0) {
+      const sessions = [...new Set(turns.map((t) => t.session_id))];
+      const promptMap = new Map<string, PromptForTurn>();
+      for (const sid of sessions) {
+        const matched = matchPromptsToTurns(
+          turns.filter((t) => t.session_id === sid),
+          getPrompts(sid)
+        );
+        for (const [turnId, p] of matched) promptMap.set(turnId, p);
+      }
+      data = turns.map((t) => ({
+        ...t,
+        prompt: promptMap.get(t.turn_id) ?? null,
+      }));
+    }
+
     return c.json({
-      data: turns,
+      data,
       total,
       returned: turns.length,
       offset,

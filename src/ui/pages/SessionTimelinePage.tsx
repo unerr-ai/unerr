@@ -42,16 +42,29 @@
 
 import { fetchJson } from "@/lib/api";
 import { useRepoApi } from "@/lib/repo-context";
+import { setHashQueryParams, useHashQueryParam } from "@/lib/router";
 import {
   type TimelineFilters,
   activeFilterChips,
   quickRange,
+  resolveAnchorTurn,
   useTimelineFilters,
 } from "@/lib/timeline-filters";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // ── Wire types ─────────────────────────────────────────────────────────────
+
+/** Fix J / §5 — the verbatim originating prompt joined onto a turn by the
+ *  /turns route. `prompt` is null when content capture is off (the row still
+ *  exists, so we show the enable hint); the whole object is null when no
+ *  captured row matched this turn at all. */
+interface TurnPrompt {
+  prompt: string | null;
+  length: number;
+  classified_as: string | null;
+  ts: string;
+}
 
 interface TurnRow {
   turn_id: string;
@@ -65,6 +78,7 @@ interface TurnRow {
   edit_count: number;
   title: string;
   outcome: string;
+  prompt?: TurnPrompt | null;
 }
 
 interface MarkerRow {
@@ -388,6 +402,24 @@ export function SessionTimelinePage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [drawerTurnId]);
+
+  // Deep-link anchor (logbook-page-redesign §4.2). Arriving from a Logbook
+  // turn chip carries `?anchor_ts=<utc-ms>`; open the activity moment whose
+  // [started_at, ended_at] span contains that instant — the integer-turn →
+  // hex-turn_id bridge done by timestamp containment, no schema change. The
+  // ref makes it one-shot per anchor value so closing the drawer or a
+  // background refetch doesn't reopen it.
+  const anchorTs = useHashQueryParam("anchor_ts");
+  const consumedAnchorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!anchorTs || turns.length === 0) return;
+    if (consumedAnchorRef.current === anchorTs) return;
+    consumedAnchorRef.current = anchorTs;
+    const match = resolveAnchorTurn(turns, Number(anchorTs));
+    if (match) setDrawerTurnId(match);
+    // Drop the param so a refetch / manual close doesn't re-anchor.
+    setHashQueryParams({ anchor_ts: null });
+  }, [anchorTs, turns]);
 
   const isCold = totalTurns <= 3;
   const isExplainerVisible = explainerOpen === null ? isCold : explainerOpen;
@@ -1206,6 +1238,38 @@ function EmptyActivityList({ isFetching }: { isFetching: boolean }) {
   );
 }
 
+/** The turn's originating ask, surfaced atop the activity card / drawer
+ *  (logbook-page-redesign §5). Three states: verbatim prompt, capture-off
+ *  hint, or nothing when no prompt was captured for this turn. */
+function TurnPromptLine({
+  prompt,
+  className,
+}: {
+  prompt?: TurnPrompt | null;
+  className?: string;
+}) {
+  if (!prompt) return null;
+  if (prompt.prompt) {
+    return (
+      <p
+        className={`break-words text-[13px] italic text-foreground/90 ${className ?? ""}`}
+        title={prompt.prompt}
+      >
+        <span className="t-tertiary not-italic">“</span>
+        {prompt.prompt}
+        <span className="t-tertiary not-italic">”</span>
+      </p>
+    );
+  }
+  // Row exists but content capture is off — show the enable hint.
+  return (
+    <p className={`text-[11px] t-tertiary ${className ?? ""}`}>
+      (prompt not captured — set <code>capture_prompts: true</code> in
+      .unerr/config.json)
+    </p>
+  );
+}
+
 function ActivityRow({
   turn,
   markers,
@@ -1279,33 +1343,36 @@ function ActivityRow({
           )}
         </>
       ) : (
-        <div className="px-4 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <BoundaryPrecisionPill opened_by={turn.opened_by} />
-            <span className="text-sm text-foreground font-medium truncate">
-              {title}
-            </span>
-            {decisionCount > 0 && (
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shrink-0">
-                💡 {decisionCount} decision{decisionCount === 1 ? "" : "s"}
+        <div className="px-4 py-3">
+          <TurnPromptLine prompt={turn.prompt} className="mb-2 line-clamp-2" />
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <BoundaryPrecisionPill opened_by={turn.opened_by} />
+              <span className="text-sm text-foreground font-medium truncate">
+                {title}
               </span>
-            )}
-            {openBlockers.length > 0 && (
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 shrink-0">
-                ⚠ {openBlockers.length} unresolved
+              {decisionCount > 0 && (
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shrink-0">
+                  💡 {decisionCount} decision{decisionCount === 1 ? "" : "s"}
+                </span>
+              )}
+              {openBlockers.length > 0 && (
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 shrink-0">
+                  ⚠ {openBlockers.length} unresolved
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-4 text-xs t-tertiary shrink-0">
+              <span>
+                {fmtDateShort(turn.started_at)} {fmtTime(turn.started_at)}
               </span>
-            )}
-          </div>
-          <div className="flex items-center gap-4 text-xs t-tertiary shrink-0">
-            <span>
-              {fmtDateShort(turn.started_at)} {fmtTime(turn.started_at)}
-            </span>
-            <span>{fmtDuration(turn.ended_at - turn.started_at)}</span>
-            <span>
-              {turn.tool_count} call{turn.tool_count === 1 ? "" : "s"} ·{" "}
-              {turn.file_count} file{turn.file_count === 1 ? "" : "s"} ·{" "}
-              {turn.edit_count} edit{turn.edit_count === 1 ? "" : "s"}
-            </span>
+              <span>{fmtDuration(turn.ended_at - turn.started_at)}</span>
+              <span>
+                {turn.tool_count} call{turn.tool_count === 1 ? "" : "s"} ·{" "}
+                {turn.file_count} file{turn.file_count === 1 ? "" : "s"} ·{" "}
+                {turn.edit_count} edit{turn.edit_count === 1 ? "" : "s"}
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -1510,6 +1577,14 @@ function ActivityDetailDrawer({
         </div>
 
         <div className="p-4 space-y-4">
+          {turn.prompt ? (
+            <div className="rounded-lg border border-border-subtle bg-surface-secondary/40 p-3">
+              <div className="t-tertiary text-[10px] uppercase tracking-wider font-medium mb-1.5">
+                Originating prompt
+              </div>
+              <TurnPromptLine prompt={turn.prompt} />
+            </div>
+          ) : null}
           <DrawerFacts turn={turn} />
           <DrawerNotes markers={markers} />
           {relatedNarratives.length > 0 && (

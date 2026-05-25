@@ -5,6 +5,43 @@ import type { SystemConfigEnvelope, SystemStatusEnvelope } from "@/lib/types";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
+// ── Directive-compliance diagnostics (mirrors /api/logbook/compliance) ─
+// Relocated here from the dashboard's "What unerr did" — these are
+// unerr's own protocol self-checks (Surface 2/3 emissions, mark_intent,
+// Skill invocations) and cross-tier runtime joins, not user outcomes.
+// Internal jargon is acceptable here because this is the diagnostics page.
+
+type ComplianceCounter = {
+  required: number;
+  called: number;
+  ratio: number;
+  consecutive_misses: number;
+};
+
+type ComplianceResponse = {
+  data: {
+    surface2: ComplianceCounter;
+    surface3: ComplianceCounter;
+    mark_intent: ComplianceCounter;
+    skill: ComplianceCounter;
+    runtime_joins: {
+      memory_to_graph: number;
+      graph_to_drift: number;
+      three_way: number;
+      total: number;
+    };
+  };
+};
+
+type ComplianceCounterKey = "surface2" | "surface3" | "mark_intent" | "skill";
+
+const COMPLIANCE_DIRECTIVES: { key: ComplianceCounterKey; label: string }[] = [
+  { key: "surface2", label: "Surface-2 lines" },
+  { key: "surface3", label: "Surface-3 lines" },
+  { key: "mark_intent", label: "mark_intent calls" },
+  { key: "skill", label: "Skill invocations" },
+];
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function formatUptime(seconds: number): string {
@@ -247,8 +284,17 @@ export function SettingsPage() {
     queryFn: () => fetchJson<SystemConfigEnvelope>(url("/api/system/config")),
   });
 
+  const complianceQ = useQuery({
+    queryKey: queryKey(["logbook", "compliance", "settings"]),
+    queryFn: () =>
+      fetchJson<ComplianceResponse>(url("/api/logbook/compliance")),
+    refetchInterval: 10_000,
+  });
+
   const st = statusQ.data?.data;
   const cfg = configQ.data?.data;
+  const compliance = complianceQ.data?.data;
+  const joins = compliance?.runtime_joins;
 
   const isLoading = statusQ.isLoading || configQ.isLoading;
 
@@ -658,6 +704,104 @@ export function SettingsPage() {
             </p>
           </div>
         </div>
+      </section>
+
+      {/* ── Directive Compliance (Diagnostics) ─────────────────────────
+       *  unerr grading its own protocol adherence. Relocated from the
+       *  dashboard's "What unerr did" because Surface-2/3 / mark_intent /
+       *  Skill ratios are internal self-checks — engineer-facing jargon,
+       *  not user outcomes. The ⚡ cross-tier runtime joins live on the
+       *  dashboard as the user-facing differentiator; the raw counters
+       *  stay here for diagnostics. */}
+      <section className="glass-panel rounded-xl p-5">
+        <h2 className="section-label text-cyan-500 flex items-center gap-2">
+          <svg
+            aria-hidden="true"
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          Directive Compliance
+        </h2>
+        <p className="mt-1 t-tertiary text-xs">
+          How often unerr honored its own protocol directives this install —
+          diagnostics, not your outcomes.
+        </p>
+        {complianceQ.isError ? (
+          <p className="mt-4 text-error text-sm">
+            Could not load compliance diagnostics.
+          </p>
+        ) : !compliance ? (
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[1, 2, 3, 4].map((i) => (
+              <SkeletonBlock key={i} className="h-20 w-full rounded-lg" />
+            ))}
+          </div>
+        ) : (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {COMPLIANCE_DIRECTIVES.map(({ key, label }) => {
+                const c = compliance[key];
+                return (
+                  <div
+                    key={key}
+                    className="rounded-lg border border-border-subtle/50 p-3"
+                  >
+                    <p className="t-tertiary text-[10px] uppercase tracking-wide">
+                      {label}
+                    </p>
+                    <p className="mt-1 text-xl font-mono font-bold text-foreground">
+                      {Math.round(c.ratio * 100)}%
+                    </p>
+                    <p className="mt-0.5 t-tertiary text-[11px]">
+                      {c.called} / {c.required}
+                      {c.consecutive_misses > 0 ? (
+                        <span className="ml-1.5 text-amber-400">
+                          · {c.consecutive_misses}× miss streak
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+            {joins && joins.total > 0 ? (
+              <div className="mt-4 rounded-lg border border-violet-500/30 bg-violet-500/5 px-4 py-3">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span aria-hidden="true" className="text-fuchsia-400">
+                    ⚡
+                  </span>
+                  <span className="font-medium text-foreground">
+                    Cross-tier runtime joins
+                  </span>
+                  <span className="t-tertiary">·</span>
+                  <span className="font-mono tabular-nums t-secondary">
+                    memory→graph {joins.memory_to_graph}
+                  </span>
+                  <span className="t-tertiary">·</span>
+                  <span className="font-mono tabular-nums t-secondary">
+                    graph→drift {joins.graph_to_drift}
+                  </span>
+                  <span className="t-tertiary">·</span>
+                  <span className="font-mono tabular-nums t-secondary">
+                    three-way {joins.three_way}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] t-tertiary">
+                  Joins point tools cannot produce — per-repo runtime context.
+                </p>
+              </div>
+            ) : null}
+          </>
+        )}
       </section>
     </div>
   );

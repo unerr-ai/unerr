@@ -129,10 +129,7 @@ function anchorPhrase(
 
 /** Polarity badge — used only when negative/mixed adds clarity. `+`
  *  polarity is the default reading and adds no value to surface. */
-function polaritySuffix(
-  kind: NoteKind,
-  polarity: NotePolarity
-): string {
+function polaritySuffix(kind: NoteKind, polarity: NotePolarity): string {
   if (polarity === "+") return "";
   if (polarity === "-") {
     // For warnings the polarity is implicit in "warning"; skip the suffix.

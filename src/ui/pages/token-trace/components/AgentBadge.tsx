@@ -71,7 +71,12 @@ const AGENT_STYLES: Record<
 };
 
 export function AgentBadge({ name }: { name: string | null }) {
-  if (!name) return <span className="t-tertiary text-[10px]">unknown</span>;
+  if (!name)
+    return (
+      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium t-tertiary ring-1 ring-inset ring-white/10">
+        unknown
+      </span>
+    );
   const normalized = name.toLowerCase().replace(/\s+/g, "-");
   const style = AGENT_STYLES[normalized] ?? {
     bg: "bg-zinc-500/20",
@@ -80,7 +85,7 @@ export function AgentBadge({ name }: { name: string | null }) {
   };
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 ${style.bg} ${style.text} text-[10px] font-medium`}
+      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 ${style.bg} ${style.text} text-[10px] font-medium ring-1 ring-inset ring-white/10`}
     >
       {style.label}
     </span>

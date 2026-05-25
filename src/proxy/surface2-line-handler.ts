@@ -50,9 +50,10 @@ export interface Surface2LineError {
 
 /** Walk this turn's NamedEvents for the latest `fact_recalled` and
  *  reconstruct the `LoadedNoteFields` shape the renderer expects. */
-function extractTopNoteFromEvents(
-  events: ReturnType<typeof readNamedEvents>
-): { topNote: LoadedNoteFields | null; topFile: string | null } {
+function extractTopNoteFromEvents(events: ReturnType<typeof readNamedEvents>): {
+  topNote: LoadedNoteFields | null;
+  topFile: string | null;
+} {
   const topFile = topFileFromEvents(events);
   let topNote: LoadedNoteFields | null = null;
 
@@ -139,9 +140,7 @@ export async function handleSurface2LineProxy(
     const allEvents = readNamedEvents(unerrDir, { session_id: sessionId });
     const turnEvents = allEvents.filter((e) => e.turn === currentTurn);
 
-    const hasRecall = turnEvents.some(
-      (e) => e.event_type === "fact_recalled"
-    );
+    const hasRecall = turnEvents.some((e) => e.event_type === "fact_recalled");
     if (!hasRecall) {
       const result: Surface2LineResult = {
         ok: true,

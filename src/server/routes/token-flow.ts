@@ -19,6 +19,7 @@ import {
   DEFAULT_UNOBSERVED_OVERHEAD_TOKENS,
   computeCompoundedHeadroom,
 } from "../../tracking/headroom.js";
+import { getPromptForTurn } from "../../tracking/prompt-trace.js";
 import {
   type SessionEconomySummary,
   averageInputTokensPerTurn,
@@ -26,7 +27,6 @@ import {
   totalTokensSavedInSession,
 } from "../../tracking/session-economy.js";
 import { readSessionHistory } from "../../tracking/session-history.js";
-import { getPromptForTurn } from "../../tracking/prompt-trace.js";
 import type { TokenFlowWriter } from "../../tracking/token-flow.js";
 import {
   type TokenFlowEvent,

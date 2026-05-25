@@ -14,16 +14,20 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { type IncomingMessage, request as httpRequest } from "node:http";
+import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { clearDashboardState, writeDashboardState } from "./dashboard-state.js";
 import type { ProcessManager } from "./process-manager.js";
+import {
+  DAEMON_DASHBOARD_PORT_SCAN_RANGE,
+  DAEMON_DASHBOARD_PORT as DAEMON_PORT,
+} from "./protocol.js";
 import { listRepos, readNeedsInput } from "./registry.js";
-
-const DAEMON_PORT = 9847;
 
 export interface DaemonApiHandle {
   port: number;
@@ -37,9 +41,14 @@ export interface DaemonApiHandle {
   }) => void;
 }
 
-export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
+export async function startDaemonApi(
+  pm: ProcessManager
+): Promise<DaemonApiHandle | null> {
   const app = new Hono();
   const startedAt = Date.now();
+  // Set to the actually-bound port after the sliding-port scan; the /api/pm
+  // route reads it lazily at request time, so it always reports reality.
+  let boundPort = DAEMON_PORT;
 
   app.use("*", cors({ origin: "*" }));
 
@@ -51,7 +60,7 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
       uptime: Math.round((Date.now() - startedAt) / 1000),
       startedAt: new Date(startedAt).toISOString(),
       version: "0.1.0",
-      port: DAEMON_PORT,
+      port: boundPort,
     });
   });
 
@@ -288,33 +297,63 @@ export function startDaemonApi(pm: ProcessManager): DaemonApiHandle | null {
     });
   }
 
-  // ── Start server ────────────────────────────────────────────
+  // ── Start server (sliding port discovery) ───────────────────
+  // @hono/node-server surfaces EADDRINUSE asynchronously via the underlying
+  // server's 'error' event, not as a synchronous throw — so a try/catch around
+  // serve() can't detect an occupied port. Instead pre-scan for a free port
+  // with a throwaway net server (same pattern as src/server/http.ts) and bind
+  // serve() to the port we just confirmed is free.
 
-  let server: ReturnType<typeof serve>;
-  try {
-    server = serve({
-      fetch: app.fetch,
-      port: DAEMON_PORT,
-      hostname: "127.0.0.1",
-    });
-  } catch {
+  const port = await findDaemonPort();
+  if (port === 0) {
     process.stderr.write(
-      `[unerrd] Port ${DAEMON_PORT} occupied, skipping dashboard.\n`
+      `[unerrd] No free port in ${DAEMON_PORT}-${DAEMON_PORT + DAEMON_DASHBOARD_PORT_SCAN_RANGE}, skipping dashboard.\n`
     );
     return null;
   }
+  boundPort = port;
+
+  const server = serve({
+    fetch: app.fetch,
+    port,
+    hostname: "127.0.0.1",
+  });
+
+  // Persist the bound port so `pm status`, `pm dashboard`, and the bridge
+  // start message can surface the real URL even when the port slid off 9847.
+  writeDashboardState(port);
 
   return {
-    port: DAEMON_PORT,
+    port,
     close: () => {
       try {
         (server as unknown as { close: () => void }).close();
       } catch {
         /* already closed */
       }
+      clearDashboardState();
     },
     pushWarmStartEvent,
   };
+}
+
+/**
+ * Scan from DAEMON_PORT upward for the first free loopback port. Returns 0 if
+ * every port in the range is occupied (dashboard is non-critical — the daemon
+ * still serves MCP over UDS without it).
+ */
+async function findDaemonPort(): Promise<number> {
+  const end = DAEMON_PORT + DAEMON_DASHBOARD_PORT_SCAN_RANGE;
+  for (let port = DAEMON_PORT; port <= end; port++) {
+    const free = await new Promise<boolean>((resolve) => {
+      const probe = createServer();
+      probe.once("error", () => resolve(false));
+      probe.once("listening", () => probe.close(() => resolve(true)));
+      probe.listen(port, "127.0.0.1");
+    });
+    if (free) return port;
+  }
+  return 0;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────

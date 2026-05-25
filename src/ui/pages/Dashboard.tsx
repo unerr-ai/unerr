@@ -3,7 +3,7 @@ import { fetchJson } from "@/lib/api";
 import { useRepoApi } from "@/lib/repo-context";
 import { navigateRoute } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 /* ------------------------------------------------------------------ */
 /*  Token Flow API types (mirrors /api/token-flow/global response)    */
@@ -45,53 +45,131 @@ type TokenFlowSessionsResponse = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  Directive-compliance diagnostics (mirrors /api/logbook/compliance) */
+/*  Relocated here from "What unerr did" — these are unerr's own       */
+/*  protocol self-checks, not user-facing outcomes.                    */
+/* ------------------------------------------------------------------ */
+
+type ComplianceCounter = {
+  required: number;
+  called: number;
+  ratio: number;
+  consecutive_misses: number;
+};
+
+type ComplianceResponse = {
+  data: {
+    surface2: ComplianceCounter;
+    surface3: ComplianceCounter;
+    mark_intent: ComplianceCounter;
+    skill: ComplianceCounter;
+    runtime_joins: {
+      memory_to_graph: number;
+      graph_to_drift: number;
+      three_way: number;
+      total: number;
+    };
+  };
+};
+
+/* ------------------------------------------------------------------ */
+/*  Additive aspect sections — reasoning, memory, activity, code      */
+/*  health. These pull from the same endpoints the dedicated pages    */
+/*  use (reasoning-quality, facts, timeline, intelligence) so the     */
+/*  Dashboard surfaces the non-token aspects unerr already tracks.    */
+/* ------------------------------------------------------------------ */
+
+// /api/reasoning-quality/global → { data: metrics | null }. Percentages are
+// 0–100 (rendered "{x}%"); prevention_score is a raw count; multipliers ×.
+type ReasoningGlobalResponse = {
+  data: {
+    noise_removed_pct: number;
+    first_call_resolution_rate: number;
+    prevention_score: number;
+    reasoning_quality_multiplier: number;
+    blast_radius_warnings: number;
+    convention_injections: number;
+    circuit_breaker_activations: number;
+    facts_surfaced: number;
+    facts_recalled: number;
+    facts_recorded: number;
+    memory_effectiveness_pct: number;
+    memory_signals_fired: number;
+    memory_verdicts_total: number;
+    resume_hits: number;
+  } | null;
+};
+
+// /api/facts/health → UNWRAPPED object (no { data } envelope).
+type FactsHealthResponse = {
+  total: number;
+  active: number;
+  decayed: number;
+  by_type: Record<string, number>;
+  avg_confidence: number; // 0–1
+};
+
+type IntentRow = {
+  intent_id: string;
+  title: string;
+  status: string; // "active" | "dormant"
+  confidence: number;
+  last_active_at: number;
+  source: string;
+};
+type IntentsResponse = { data: IntentRow[] };
+
+type ResumeResponse = {
+  data: {
+    open_threads: {
+      marker_id: string;
+      text: string;
+      file_path: string;
+      ts: number;
+    }[];
+  } | null;
+};
+
+type TurnsCountResponse = { data: unknown[]; total: number };
+
+type InsightsResponse = {
+  data: {
+    healthGrade: string; // "A"–"F"
+    healthScore: number; // 0–100
+    blastRadiusCoverage: number; // %
+    riskDistribution: { high: number; medium: number; low: number };
+    bottlenecks: unknown[];
+  } | null;
+};
+
+type GraphStatsResponse = {
+  data: {
+    entityCount: number;
+    fileCount: number;
+    communityCount: number;
+    driftCount: number;
+  } | null;
+};
+
+/* ------------------------------------------------------------------ */
 /*  Helpers                                                           */
 /* ------------------------------------------------------------------ */
 
 function fmtNum(n: number | undefined | null): string {
-  if (n == null) return "—";
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString();
-}
-
-/** Session-reach companion to the Turns Earned headline.
- *  Δreach = turns_to_limit_with − turns_to_limit_without — the per-session
- *  ceiling extension, independent of N. Honest for window-billed agents
- *  (Claude Code 5h, Copilot Pro). See `src/tracking/headroom.ts` for math.
- *
- *  Sourced from the `since_install` block — Δreach is a *rate* metric
- *  (depends on avg per-turn cost, not totals), so the lifetime average
- *  is the most stable estimate. Per-window values can swing — today's
- *  small sample with a high compression ratio can produce a larger
- *  Δreach than the lifetime average — which violates the "wider window
- *  = bigger number" intuition the user reads from Turns Earned. One
- *  stable card-level line is the honest presentation. */
-function renderReachLine(block: {
-  turns_to_limit_with: number;
-  turns_to_limit_without: number;
-}): ReactNode {
-  const gain = Math.max(
-    0,
-    block.turns_to_limit_with - block.turns_to_limit_without
-  );
-  if (gain === 0) return null;
-  return (
-    <div
-      className="px-6 pt-3 pb-1 text-sm leading-snug"
-      title={`Δreach is a per-session ceiling extension — independent of which window you select. Each session can reach turn ~${fmtNum(block.turns_to_limit_with)} before context exhaustion (vs ~${fmtNum(block.turns_to_limit_without)} without unerr).`}
-    >
-      <span className="text-violet-300 font-mono font-semibold tabular-nums">
-        ↑ +{fmtNum(gain)}
-      </span>{" "}
-      <span className="t-secondary">reach/session</span>{" "}
-      <span className="t-tertiary text-xs">
-        · each session reaches turn ~{fmtNum(block.turns_to_limit_with)} (vs ~
-        {fmtNum(block.turns_to_limit_without)} without unerr) · stable across
-        windows by design
-      </span>
-    </div>
-  );
+  if (n == null || !Number.isFinite(n)) return "—";
+  const sign = n < 0 ? "-" : "";
+  let abs = Math.abs(n);
+  // Under 1k: show the exact count (e.g. 932 → "932").
+  if (abs < 1_000) return `${sign}${Math.round(abs).toLocaleString()}`;
+  // Scale through K / M / B / T, rolling over when rounding hits 1,000 so
+  // 999,999 reads "1M" (never "1000.0K"). Works for 0 → trillions.
+  const units = ["K", "M", "B", "T"] as const;
+  let u = -1;
+  do {
+    abs /= 1_000;
+    u++;
+  } while (abs >= 999.95 && u < units.length - 1);
+  return `${sign}${abs.toFixed(1).replace(/\.0$/, "")}${units[u]}`;
 }
 
 function timeAgo(iso: string): string {
@@ -105,74 +183,15 @@ function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
-/**
- * Two user-facing buckets the dashboard surfaces side-by-side:
- *
- *  OPTIMIZATIONS — what unerr made smaller (savings from token-flow mechanisms).
- *  PREVENTIONS   — what unerr stopped from happening (behavioral interventions).
- *
- * Labels are deliberately plain-English (no internal class names, no
- * mechanism-jargon like "COMPRESS-class"). Each entry maps an internal
- * event key to the phrase a user would write in their own status update.
- */
-const OPTIMIZATION_LABELS: Record<string, string> = {
-  shell_compression: "Shell outputs compressed",
-  format_encoding: "Wire format compacted",
-  file_read: "File reads narrowed",
-  fetch_url: "Web pages stripped to content",
-  session_dedup: "Duplicate context skipped",
-  smart_truncation: "Large outputs trimmed",
-  graph_query: "Graph queries served",
-  persistent_memory: "Facts auto-recalled",
-};
-
 /** Pretty-print an unknown mechanism key (snake_case → Sentence case). */
 function prettyKey(key: string): string {
   return key.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
-/* Preventions: each row tells a small story — the active-voice verb of
- * what unerr did (label) followed by a counterfactual of what would have
- * happened without it (description). The user doesn't need to know the
- * internal mechanism name; they need to picture the bad outcome that
- * didn't occur. Per §7 of PERCEPTION_TO_PRESENCE.md, named-event counters
- * earn their place by carrying a description, not just a count. */
-const PREVENTION_LABELS: Record<string, string> = {
-  graph_query_served: "Skipped grep + file-dump combos",
-  full_read_avoided: "Avoided full-file reads",
-  loop_broken: "Broke retry loops",
-  cascade_guard: "Caught risky cascade edits",
-  drift_consumed: "Caught stale-file edits",
-  intervention_halted: "Halted risky tool calls",
-  intervention_warned: "Flagged risky patterns",
-  defuddle_selector_skipped: "Filtered out page chrome",
-};
-
-const PREVENTION_DESCRIPTIONS: Record<string, string> = {
-  graph_query_served:
-    "Without it: agent runs grep + reads several files to answer one structural question.",
-  full_read_avoided:
-    "Without it: agent loads an entire file when only the outline was needed.",
-  loop_broken:
-    "Without it: agent retries the same failing operation, burning turns on a dead end.",
-  cascade_guard:
-    "Without it: high fan-in edits propagate blindly, breaking downstream callers.",
-  drift_consumed:
-    "Without it: agent edits a stale view of a file, conflicting with newer changes.",
-  intervention_halted:
-    "Without it: a risky tool call runs unchecked and produces bad state.",
-  intervention_warned:
-    "Without it: a risky pattern proceeds with no signal to the agent.",
-  defuddle_selector_skipped:
-    "Without it: page nav, footer, and ads get ingested as if they were content.",
-};
-
-/* Per-row hue palette — mirrors TokenFlowPage's MechanismBar so the
- * dashboard's Optimizations / Preventions panels read identically to the
- * Token Trace breakdown. Per-row color diversity lives in the bar + label
- * (data-payload color, brand chart palette tokens). The value column
- * stays text-success across both panels — emerald = "the gain", one
- * column per row, brand status-color used semantically not decoratively. */
+/* Per-row hue palette — mirrors TokenFlowPage's MechanismBar so the "What
+ * unerr did" action cards read identically to the Token Trace breakdown.
+ * Per-row color diversity lives in the bar + label (data-payload color,
+ * brand chart palette tokens). */
 type RowPalette = { bar: string; text: string };
 
 const MECH_COLORS: Record<string, RowPalette> = {
@@ -197,177 +216,512 @@ const PREVENTION_COLORS: Record<string, RowPalette> = {
   defuddle_selector_skipped: { bar: "bg-teal-500", text: "text-teal-400" },
 };
 
-const FALLBACK_PALETTE: RowPalette = {
-  bar: "bg-zinc-500",
-  text: "text-zinc-400",
+/* Memory / store / resume event hues — completes the palette for the
+ * "What unerr did" band so high-volume non-prevention actions (recalled
+ * notes, saved facts) read with their own color rather than fallback gray. */
+const ACTION_COLORS: Record<string, RowPalette> = {
+  fact_recalled: { bar: "bg-fuchsia-500", text: "text-fuchsia-400" },
+  fact_stored_user_fed: { bar: "bg-emerald-500", text: "text-emerald-400" },
+  fact_stored_auto: { bar: "bg-teal-500", text: "text-teal-400" },
+  caller_check_enforced: { bar: "bg-sky-500", text: "text-sky-400" },
+  stale_edit_prevented: { bar: "bg-cyan-500", text: "text-cyan-400" },
+  cascade_warning_consumed: { bar: "bg-amber-500", text: "text-amber-400" },
+  convention_applied: { bar: "bg-blue-500", text: "text-blue-400" },
+  cross_session_resume: { bar: "bg-violet-500", text: "text-violet-400" },
+  resume_blockers_surfaced: { bar: "bg-rose-500", text: "text-rose-400" },
+  cache_hit: { bar: "bg-lime-500", text: "text-lime-400" },
 };
 
-function mc(key: string): RowPalette {
-  return MECH_COLORS[key] ?? FALLBACK_PALETTE;
-}
-
-function mcPrev(key: string): RowPalette {
-  return PREVENTION_COLORS[key] ?? FALLBACK_PALETTE;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Sub-components                                                    */
-/*                                                                    */
-/*  Patterns applied (Stripe / Linear / PostHog / Datadog):           */
-/*  - KpiStripCell: borderless KPI cell, divider-separated, for       */
-/*    headline-metric rows. No nested card chrome.                    */
-/*  - BreakdownRow:  PostHog-style row where an accent bar fills the  */
-/*    cell background behind the label/value (proportional to the     */
-/*    largest sibling). Dense; reads in a glance.                     */
-/* ------------------------------------------------------------------ */
-
-function KpiStripCell({
-  label,
-  value,
-  prefix,
-  sub,
-  accent,
-  onClick,
-}: {
-  label: string;
-  value: string;
-  /** Optional leading glyph (e.g. "+") rendered in text-success — keeps the
-   *  brand "accent on the gain only" rule while the number stays neutral. */
-  prefix?: string;
-  sub?: string;
-  accent?: string;
-  onClick?: () => void;
-}) {
-  const valueClass = accent ?? "text-foreground-emphasis";
-  const interactive = !!onClick;
-  const className = `flex flex-col gap-1 px-5 py-4 text-left border-l border-border-subtle first:border-l-0 ${
-    interactive
-      ? "transition-colors hover:bg-surface-overlay/50 focus-visible:bg-surface-overlay/50 focus-visible:outline-none"
-      : ""
-  }`;
-  const inner = (
-    <>
-      <span className="section-label">{label}</span>
-      <span
-        className={`font-mono text-3xl font-semibold leading-none tabular-nums ${valueClass}`}
-      >
-        {prefix ? <span className="text-success">{prefix}</span> : null}
-        {value}
-      </span>
-      {sub ? (
-        <span className="t-tertiary text-[11px] leading-snug">{sub}</span>
-      ) : null}
-    </>
-  );
-  if (interactive) {
-    return (
-      <button type="button" onClick={onClick} className={className}>
-        {inner}
-      </button>
-    );
-  }
-  return <div className={className}>{inner}</div>;
-}
-
-/** Horizontal row — Token-Trace MechanismBar pattern verbatim:
- *  label (left, fixed) · track-with-fill (center, flex-1) · values (right, fixed).
- *  Per-row hue comes from `palette` (data-payload color, brand chart tokens).
- *  Primary value is always text-success — emerald = "the gain", one column
- *  per row, brand status-color used semantically (not as panel decoration). */
-function BreakdownRow({
-  label,
-  value,
-  valueSecondary,
-  pct,
-  palette,
-}: {
-  label: string;
-  value: string;
-  valueSecondary?: string;
-  pct: number;
-  palette: RowPalette;
-}) {
+function mcAction(key: string): RowPalette {
   return (
-    <div className="flex items-center gap-3 py-1">
-      <span
-        className={`w-48 shrink-0 truncate text-xs font-medium ${palette.text}`}
+    PREVENTION_COLORS[key] ??
+    ACTION_COLORS[key] ??
+    MECH_COLORS[key] ?? {
+      bar: "bg-violet-500",
+      text: "text-violet-400",
+    }
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Sub-components (Stripe / Linear / PostHog / Datadog patterns)     */
+/* ------------------------------------------------------------------ */
+
+/** Accessible info tooltip. Hover OR keyboard-focus reveals plain-text
+ *  explanation; Esc dismisses; `role="tooltip"` + `aria-describedby` link
+ *  it to the trigger. Per the tooltip-UX research (USWDS, UX Design World):
+ *  tooltips appear on focus as well as hover, carry <150 chars, and are
+ *  never the ONLY source of essential info — these explain, they don't
+ *  gate any task. */
+function InfoTip({ text, label }: { text: string; label?: string }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <span className="relative inline-flex align-middle">
+      <button
+        type="button"
+        aria-label={label ?? "More information"}
+        aria-describedby={open ? id : undefined}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-border-subtle font-mono text-[9px] font-bold leading-none t-tertiary transition-colors hover:border-violet-400 hover:text-violet-300 focus-visible:text-violet-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setOpen(false);
+        }}
       >
-        {label}
-      </span>
-      <div className="el-overlay relative h-5 flex-1 overflow-hidden rounded">
-        <div
-          className={`h-full rounded ${palette.bar} opacity-80`}
-          style={{ width: `${Math.max(Math.min(pct, 100), 3)}%` }}
-        />
-      </div>
-      <span className="w-20 shrink-0 text-right font-mono text-sm font-semibold tabular-nums text-success">
-        {value}
-      </span>
-      {valueSecondary !== undefined ? (
-        <span className="w-24 shrink-0 text-right font-mono text-xs tabular-nums t-tertiary">
-          {valueSecondary}
+        i
+      </button>
+      {open ? (
+        <span
+          role="tooltip"
+          id={id}
+          className="absolute left-1/2 top-full z-30 mt-2 w-64 -translate-x-1/2 rounded-lg border border-border-subtle bg-background px-3 py-2 text-left text-[11px] font-normal normal-case leading-snug tracking-normal t-secondary shadow-xl"
+        >
+          {text}
         </span>
       ) : null}
-    </div>
+    </span>
   );
 }
 
-/** Prevention card — incident-receipt layout (no bar chart).
- *  Per-mechanism colored left stripe acts as a category tab; large
- *  per-mechanism colored count anchors the eye; label + counterfactual
- *  carry the story. Stacks vertically on mobile, two-up on md+ screens.
- *  Designed for relative-magnitude indifference: every prevention matters
- *  on its own, not in comparison to siblings. */
-function PreventionCard({
-  label,
-  description,
+/** Animate a number 0 → target once on first data arrival (easeOutCubic).
+ *  Respects `prefers-reduced-motion` and only runs once per mount — refetch
+ *  updates snap to the new value rather than re-animating. Count-up is the
+ *  research-backed "wow beat" that fights change-blindness (Smashing 2025). */
+function useCountUp(target: number, durationMs = 900): number {
+  const [val, setVal] = useState(target);
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current || target <= 0) {
+      setVal(target);
+      return;
+    }
+    const reduce =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      setVal(target);
+      return;
+    }
+    started.current = true;
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - t0) / durationMs);
+      const eased = 1 - (1 - p) ** 3;
+      setVal(target * eased);
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else setVal(target);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, durationMs]);
+  return val;
+}
+
+/** Count-up wrapper — formats the animated value each frame. `format`
+ *  receives a rounded integer so K/M abbreviations stay clean mid-animation. */
+function CountUp({
+  value,
+  format,
+  prefix,
+}: {
+  value: number;
+  format: (n: number) => string;
+  prefix?: string;
+}) {
+  const animated = useCountUp(value);
+  return (
+    <>
+      {prefix}
+      {format(Math.round(animated))}
+    </>
+  );
+}
+
+/** Plain-English phrasing for every "what unerr did" event type — mirrors
+ *  `src/tracking/named-events.ts` PHRASING so the dashboard reads identically
+ *  to the end-of-turn receipt. `label` is the plural noun shown next to the
+ *  count; `desc` is the counterfactual revealed on hover (what would have
+ *  happened without unerr). */
+const ACTION_PHRASING: Record<string, { label: string; desc: string }> = {
+  graph_query_served: {
+    label: "code lookups served",
+    desc: "Structural questions answered from the graph. Without it: the agent runs grep + reads several files to answer one question.",
+  },
+  full_read_avoided: {
+    label: "file reads kept compact",
+    desc: "Outlines served instead of whole files. Without it: the agent loads an entire file when only the outline was needed.",
+  },
+  fact_recalled: {
+    label: "remembered notes loaded",
+    desc: "Notes from earlier sessions surfaced at the right moment, so you didn't have to re-explain.",
+  },
+  loop_broken: {
+    label: "repeated mistakes broken",
+    desc: "Retry loops cut off. Without it: the agent retries the same failing operation, burning turns on a dead end.",
+  },
+  cascade_guard: {
+    label: "risky cascade edits caught",
+    desc: "High fan-in edits flagged. Without it: the change propagates blindly and breaks downstream callers.",
+  },
+  drift_consumed: {
+    label: "stale-code warnings applied",
+    desc: "Edits on a stale file caught. Without it: the agent edits an out-of-date view and conflicts with newer changes.",
+  },
+  intervention_halted: {
+    label: "risky tool calls blocked",
+    desc: "A dangerous tool call stopped before it ran. Without it: it executes unchecked and produces bad state.",
+  },
+  intervention_warned: {
+    label: "risky patterns flagged",
+    desc: "A risky pattern signalled to the agent. Without it: it proceeds with no warning.",
+  },
+  defuddle_selector_skipped: {
+    label: "web pages stripped to content",
+    desc: "Page nav, footer, and ads filtered out. Without it: chrome gets ingested as if it were content.",
+  },
+  fact_stored_user_fed: {
+    label: "notes saved from you",
+    desc: "Rules you stated, captured verbatim for future sessions.",
+  },
+  fact_stored_auto: {
+    label: "patterns noticed",
+    desc: "Conventions unerr detected from the code and remembered for next time.",
+  },
+  caller_check_enforced: {
+    label: "pre-edit caller checks",
+    desc: "Callers checked before an edit so nothing downstream broke.",
+  },
+  stale_edit_prevented: {
+    label: "stale edits caught",
+    desc: "An edit against an out-of-date file caught before it landed.",
+  },
+  cascade_warning_consumed: {
+    label: "cascade warnings applied",
+    desc: "A cascading-edit warning the agent read and acted on.",
+  },
+  convention_applied: {
+    label: "project conventions applied",
+    desc: "A project convention surfaced and followed during the change.",
+  },
+  cross_session_resume: {
+    label: "sessions resumed",
+    desc: "Prior-session context carried into a new session automatically.",
+  },
+  resume_blockers_surfaced: {
+    label: "open blockers resumed",
+    desc: "Unresolved work from a previous session surfaced on resume.",
+  },
+  cache_hit: {
+    label: "cached answers served",
+    desc: "An answer served from cache instead of being recomputed.",
+  },
+};
+
+function actionPhrasing(key: string): { label: string; desc: string } {
+  return (
+    ACTION_PHRASING[key] ?? {
+      label: prettyKey(key).toLowerCase(),
+      desc: "An action unerr handled so the agent didn't have to retry or undo it.",
+    }
+  );
+}
+
+/** Compact "what unerr did" card: big count + plain-English label, with the
+ *  counterfactual revealed on hover/focus (the user's preferred hover
+ *  mechanism — keeps the grid dense while the "why it matters" stays one
+ *  hover away). */
+function ActionCard({
   count,
+  label,
+  desc,
   palette,
 }: {
-  label: string;
-  description: string;
   count: string;
+  label: string;
+  desc: string;
   palette: RowPalette;
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="glass-card relative overflow-hidden rounded-lg p-4 pl-5">
+    <div
+      className="el-raised relative cursor-default overflow-visible rounded-lg p-3.5 pl-4"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+    >
       <div
         aria-hidden
-        className={`absolute inset-y-0 left-0 w-1 ${palette.bar} opacity-80`}
+        className={`absolute inset-y-0 left-0 w-1 rounded-l-lg ${palette.bar} opacity-80`}
       />
-      <div className="flex items-baseline gap-3">
+      <button
+        type="button"
+        aria-expanded={open}
+        className="block w-full text-left focus-visible:outline-none"
+      >
         <span
           className={`font-mono text-2xl font-bold leading-none tabular-nums ${palette.text}`}
         >
           {count}
         </span>
-        <span className="text-sm font-medium text-foreground-emphasis">
+        <span className="mt-1 block text-[11px] leading-snug text-foreground-emphasis">
           {label}
         </span>
-      </div>
-      <p className="mt-2 text-[11px] leading-snug t-tertiary">{description}</p>
+      </button>
+      {open ? (
+        <span
+          role="tooltip"
+          className="absolute inset-x-0 top-full z-30 mt-1 rounded-lg border border-border-subtle bg-background px-3 py-2 text-left text-[11px] leading-snug t-secondary shadow-xl"
+        >
+          {desc}
+        </span>
+      ) : null}
     </div>
   );
 }
 
-/** Column-header row above BreakdownRow rows. Widths align with the row's
- *  value columns (label w-48, track flex-1, primary w-20, secondary w-24). */
-function BreakdownHeader({
-  primary,
-  secondary,
+/** Section header for the additive aspect sections — title + one-line blurb
+ *  on the left, optional "details →" drill-down link on the right (progressive
+ *  disclosure: summary here, full breakdown on the dedicated page). */
+function SectionHead({
+  title,
+  blurb,
+  onMore,
+  moreLabel,
 }: {
-  primary: string;
-  secondary?: string;
+  title: string;
+  blurb: string;
+  onMore?: () => void;
+  moreLabel?: string;
 }) {
   return (
-    <div className="flex items-baseline gap-3 pb-1.5 text-[10px] font-medium uppercase tracking-wider t-tertiary">
-      <span className="w-48 shrink-0">&nbsp;</span>
-      <span className="flex-1" />
-      <span className="w-20 shrink-0 text-right">{primary}</span>
-      {secondary !== undefined ? (
-        <span className="w-24 shrink-0 text-right">{secondary}</span>
+    <header className="mb-4 flex items-baseline justify-between gap-3">
+      <div>
+        <h2 className="section-label text-violet-500">{title}</h2>
+        <p className="mt-0.5 t-tertiary text-[11px] leading-snug">{blurb}</p>
+      </div>
+      {onMore ? (
+        <button
+          type="button"
+          onClick={onMore}
+          className="shrink-0 text-xs text-violet-400 transition-colors hover:text-violet-300"
+        >
+          {moreLabel ?? "Details →"}
+        </button>
       ) : null}
+    </header>
+  );
+}
+
+/* ── Aspect panel anatomy ──────────────────────────────────────────
+ *  Shared layout for the four non-token aspect sections (Reasoning,
+ *  Memory, Activity, Code Health). Research-grounded:
+ *  - ONE focal metric rendered largest, left, with a micro-visual —
+ *    "summary first, detail later" reduces time-to-insight and matches
+ *    the F-pattern scan (nastengraph "Anatomy of the KPI Card";
+ *    FanRuan; Devfinity "Psychology of Dashboards").
+ *  - A radial progress ring is the focal visual for single percentages:
+ *    it reads goal-attainment "at a glance" where precise comparison
+ *    isn't the job (Domo / ChartEngine on radial gauges).
+ *  - Supporting stats sit in a divider-separated strip at smaller size —
+ *    consistent anatomy across all four so there's no per-card learning
+ *    curve (nastengraph: uniform alignment + associative color).
+ *  Every aspect section is built from these three primitives so they
+ *  share one visual language. */
+
+/** Focal radial ring for a single 0–100 percentage. The arc + the centre
+ *  number animate together via useCountUp (one rAF source, no CSS-transition
+ *  fight). `accent` colors both the arc (currentColor) and the number. */
+function RadialStat({
+  value,
+  label,
+  hint,
+  accent = "text-emerald-400",
+}: {
+  value: number | null | undefined;
+  label: string;
+  hint?: string;
+  accent?: string;
+}) {
+  const target = value == null ? 0 : Math.max(0, Math.min(100, value));
+  const animated = useCountUp(target);
+  const r = 32;
+  const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - animated / 100);
+  return (
+    <div className="flex items-center gap-4">
+      <div className="relative h-[76px] w-[76px] shrink-0">
+        <svg
+          viewBox="0 0 80 80"
+          className="h-[76px] w-[76px] -rotate-90"
+          aria-hidden="true"
+        >
+          <circle
+            cx="40"
+            cy="40"
+            r={r}
+            fill="none"
+            strokeWidth="7"
+            stroke="currentColor"
+            className="text-border-subtle"
+            opacity={0.45}
+          />
+          <circle
+            cx="40"
+            cy="40"
+            r={r}
+            fill="none"
+            strokeWidth="7"
+            strokeLinecap="round"
+            stroke="currentColor"
+            className={accent}
+            strokeDasharray={circ}
+            strokeDashoffset={offset}
+          />
+        </svg>
+        <span
+          className={`absolute inset-0 flex items-center justify-center font-mono text-lg font-bold tabular-nums ${accent}`}
+        >
+          {value == null ? "—" : `${Math.round(animated)}%`}
+        </span>
+      </div>
+      <div className="min-w-0">
+        <span className="block text-sm font-semibold text-foreground-emphasis">
+          {label}
+        </span>
+        {hint ? (
+          <span className="mt-0.5 block t-tertiary text-[11px] leading-snug">
+            {hint}
+          </span>
+        ) : null}
+      </div>
     </div>
+  );
+}
+
+/** Focal figure/badge for a lead metric that isn't a percentage — a grade
+ *  letter, an "N×" multiplier, or a headline count. Mirrors RadialStat's
+ *  footprint (same 76px well, same label/hint block) so the two lead types
+ *  align across sibling panels. */
+function LeadFigure({
+  value,
+  label,
+  hint,
+  accent = "text-violet-300",
+  chip = "bg-violet-500/10 ring-violet-500/25",
+}: {
+  value: ReactNode;
+  label: string;
+  hint?: string;
+  accent?: string;
+  chip?: string;
+}) {
+  return (
+    <div className="flex items-center gap-4">
+      <div
+        className={`flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-2xl ring-1 ${chip}`}
+      >
+        <span
+          className={`font-mono text-3xl font-bold leading-none tabular-nums ${accent}`}
+        >
+          {value}
+        </span>
+      </div>
+      <div className="min-w-0">
+        <span className="block text-sm font-semibold text-foreground-emphasis">
+          {label}
+        </span>
+        {hint ? (
+          <span className="mt-0.5 block t-tertiary text-[11px] leading-snug">
+            {hint}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** Compact support row — label + plain-English hint on the left, mono value
+ *  on the right. Divider-separated stack; smaller than the lead by design
+ *  (typographic hierarchy: largest = focal, medium = name, small = context). */
+function SupportRow({
+  label,
+  value,
+  hint,
+  accent = "text-foreground",
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+  accent?: string;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-2">
+      <div className="min-w-0">
+        <span className="block text-sm text-foreground">{label}</span>
+        {hint ? (
+          <span className="block t-tertiary text-[11px] leading-snug">
+            {hint}
+          </span>
+        ) : null}
+      </div>
+      <span
+        className={`shrink-0 font-mono text-lg font-semibold tabular-nums ${accent}`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/** One aspect section: SectionHead + (focal lead | support strip) + optional
+ *  footer (e.g. the in-flight task list). The shared shell every non-token
+ *  aspect renders through, guaranteeing identical UX across the four. */
+function AspectPanel({
+  title,
+  blurb,
+  onMore,
+  lead,
+  support,
+  footer,
+}: {
+  title: string;
+  blurb: string;
+  onMore?: () => void;
+  lead: ReactNode;
+  support: {
+    label: string;
+    value: ReactNode;
+    hint?: string;
+    accent?: string;
+  }[];
+  footer?: ReactNode;
+}) {
+  return (
+    <section className="glass-panel rounded-xl p-5">
+      <SectionHead title={title} blurb={blurb} onMore={onMore} />
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-7">
+        <div className="sm:w-[15.5rem] sm:shrink-0">{lead}</div>
+        <div className="flex-1 sm:border-l sm:border-border-subtle sm:pl-7">
+          <div className="divide-y divide-border-subtle/60">
+            {support.map((s) => (
+              <SupportRow
+                key={s.label}
+                label={s.label}
+                value={s.value}
+                hint={s.hint}
+                accent={s.accent}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+      {footer}
+    </section>
   );
 }
 
@@ -432,46 +786,133 @@ export function Dashboard() {
     refetchInterval: 10_000,
   });
 
+  const complianceQ = useQuery({
+    queryKey: queryKey(["logbook", "compliance", "dashboard"]),
+    queryFn: () =>
+      fetchJson<ComplianceResponse>(url("/api/logbook/compliance")),
+    refetchInterval: 30_000,
+  });
+
+  /* --- additive aspect data (reasoning, memory, activity, code health) --- */
+  const reasoningQ = useQuery({
+    queryKey: queryKey(["reasoning-quality", "global", "dashboard"]),
+    queryFn: () =>
+      fetchJson<ReasoningGlobalResponse>(url("/api/reasoning-quality/global")),
+    refetchInterval: 30_000,
+  });
+  const factsHealthQ = useQuery({
+    queryKey: queryKey(["facts", "health", "dashboard"]),
+    queryFn: () => fetchJson<FactsHealthResponse>(url("/api/facts/health")),
+    refetchInterval: 30_000,
+  });
+  const intentsQ = useQuery({
+    queryKey: queryKey(["timeline", "intents", "dashboard"]),
+    queryFn: () =>
+      fetchJson<IntentsResponse>(url("/api/timeline/intents?limit=10")),
+    refetchInterval: 30_000,
+  });
+  const resumeQ = useQuery({
+    queryKey: queryKey(["timeline", "resume", "dashboard"]),
+    queryFn: () => fetchJson<ResumeResponse>(url("/api/timeline/resume")),
+    refetchInterval: 30_000,
+  });
+  const turnsCountQ = useQuery({
+    queryKey: queryKey(["timeline", "turns", "count", "dashboard"]),
+    queryFn: () =>
+      fetchJson<TurnsCountResponse>(url("/api/timeline/turns?limit=1")),
+    refetchInterval: 30_000,
+  });
+  const insightsQ = useQuery({
+    queryKey: queryKey(["intelligence", "insights", "dashboard"]),
+    queryFn: () =>
+      fetchJson<InsightsResponse>(url("/api/intelligence/insights")),
+  });
+  const graphStatsQ = useQuery({
+    queryKey: queryKey(["intelligence", "graph-stats", "dashboard"]),
+    queryFn: () =>
+      fetchJson<GraphStatsResponse>(url("/api/intelligence/graph-stats")),
+  });
+
   const tf = tokenFlowQ.data?.data;
   const sessions = sessionsQ.data?.data ?? [];
   const headroom = headroomQ.data?.data;
   const headroomLoading = headroomQ.isLoading && headroom === undefined;
+
+  /* Cross-tier runtime joins — the positioning anchor (Fix L). The join no
+   * point tool can produce: a memory recall, a live graph lookup, and a
+   * drift check landing on the SAME entity in the same window. This is the
+   * receipt's "⚡ unerr runtime" impact, surfaced on the dashboard as the
+   * differentiator. The Surface-2/3/mark_intent/skill compliance counters
+   * are internal diagnostics and now live on the Settings page instead. */
+  const runtimeJoins = complianceQ.data?.data?.runtime_joins;
+  const joinParts: string[] = [];
+  if (runtimeJoins) {
+    const m = runtimeJoins.memory_to_graph;
+    const g = runtimeJoins.graph_to_drift;
+    const t = runtimeJoins.three_way;
+    if (m > 0)
+      joinParts.push(
+        `${m} memory ${m === 1 ? "fact" : "facts"} joined to ${m} live graph ${m === 1 ? "node" : "nodes"}`
+      );
+    if (g > 0)
+      joinParts.push(
+        `${g} drift ${g === 1 ? "conflict" : "conflicts"} resolved against the graph`
+      );
+    if (t > 0)
+      joinParts.push(
+        `${t} three-way ${t === 1 ? "correlation" : "correlations"} confirmed`
+      );
+  }
+
+  /* Additive aspects — derived values. `pct()` formats a 0–100 number as
+   * "{n}%" (or "—" when absent). Reasoning + memory share the
+   * reasoning-quality payload; memory also pulls fact-store health. */
+  const pct = (n: number | undefined | null): string =>
+    n == null ? "—" : `${Math.round(n)}%`;
+  const rq = reasoningQ.data?.data;
+  const fh = factsHealthQ.data;
+  const intents = intentsQ.data?.data ?? [];
+  const activeTasks = intents.filter((i) => i.status === "active");
+  const openThreads = resumeQ.data?.data?.open_threads ?? [];
+  const activityMoments = turnsCountQ.data?.total ?? 0;
+  const insights = insightsQ.data?.data;
+  const graphStats = graphStatsQ.data?.data;
+  const factsByType = fh?.by_type ?? {};
+  const lessonsCount =
+    (factsByType.negative ?? 0) + (factsByType.episodic ?? 0);
+  const gradeAccent = (grade: string | undefined): string => {
+    if (!grade) return "text-foreground";
+    const g = grade[0]?.toUpperCase();
+    if (g === "A" || g === "B") return "text-success";
+    if (g === "C" || g === "D") return "text-warning";
+    return "text-error";
+  };
+  /* Matching ring/chip tint for the grade badge so the lead well carries the
+   * same A=good→F=bad semantics as the letter color (associative color). */
+  const gradeChip = (grade: string | undefined): string => {
+    if (!grade) return "bg-violet-500/10 ring-violet-500/25";
+    const g = grade[0]?.toUpperCase();
+    if (g === "A" || g === "B") return "bg-emerald-500/10 ring-emerald-500/30";
+    if (g === "C" || g === "D") return "bg-amber-500/10 ring-amber-500/30";
+    return "bg-rose-500/10 ring-rose-500/30";
+  };
 
   const compoundMultiplier =
     tf && tf.total_tokens_saved > 0
       ? (tf.total_context_avoided / tf.total_tokens_saved).toFixed(1)
       : null;
 
-  /* Optimizations — attributed portions of the lifetime "turns earned"
-   * headline. Per §10.1 the formula `turns_earned = Σs / δ̄_eff` is linear
-   * in tokens_saved, so each mechanism's share of total turns earned =
-   * (mech.tokens_saved / total.tokens_saved) × total.turns_earned.
-   * One number per row, same unit as the headline. */
-  const totalSavedTokens = tf?.total_tokens_saved ?? 0;
-  const totalTurnsEarned = headroom?.since_install.headroom_turns ?? 0;
-  const optimizations = tf
-    ? Object.entries(tf.by_mechanism)
-        .filter(([, v]) => v.tokens_saved > 0)
-        .sort((a, b) => b[1].tokens_saved - a[1].tokens_saved)
-        .map(([key, v]) => {
-          const turns =
-            totalSavedTokens > 0
-              ? (v.tokens_saved / totalSavedTokens) * totalTurnsEarned
-              : 0;
-          return { key, turns, tokensSaved: v.tokens_saved };
-        })
-    : [];
-  const maxOptTurns =
-    optimizations.length > 0 ? optimizations[0].turns || 1 : 1;
-
-  /* Preventions — behavioral interventions, count-only (no counterfactual
-   * token estimate is honest here per §10 — the count IS the measure). */
-  const preventionsRaw = behaviorEventsQ.data?.data.counts.by_type ?? {};
-  const preventions = Object.entries(preventionsRaw)
+  /* "What unerr did" — every behavior event unerr handled, phrased in plain
+   * English (same dictionary as the end-of-turn receipt) and sorted by
+   * volume. The count IS the measure; the counterfactual ("without it: …")
+   * rides along on hover. Top entries lead so the highest-impact work reads
+   * first. */
+  const actionsRaw = behaviorEventsQ.data?.data.counts.by_type ?? {};
+  const actions = Object.entries(actionsRaw)
     .filter(([, n]) => n > 0)
     .sort(([, a], [, b]) => b - a);
-
-  const heroLoading = tokenFlowQ.isLoading && tf === undefined;
+  const actionsTotal = actions.reduce((s, [, n]) => s + n, 0);
+  const topActions = actions.slice(0, 8);
 
   // Step 2 of the honest-headroom migration: the headroom number divides
   // saved tokens by an unobserved-overhead-clamped per-turn cost (see
@@ -490,253 +931,548 @@ export function Dashboard() {
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6">
       {/* ============================================================
-       *  CARD 1 — Turns Earned (the flagship "+N turns" metric).
-       *  Three windows side-by-side. This is the unit RTK and other
-       *  compression-only tools cannot produce.
+       *  IMPACT HERO (Spotlight) — one dominant number (Turns Earned)
+       *  with tokens-saved + rescue-rate as supporting stats and
+       *  today/week/compounding as context chips. Count-up animated on
+       *  first load; explanations live behind hover InfoTips (no verbose
+       *  prose at the top of the dashboard). Replaces the stacked
+       *  Turns-Earned + Tokens-Saved cards. Per UXPin/Equals: lead with
+       *  the largest number top-left, supporting stats smaller.
        * ============================================================ */}
-      <section className="glass-panel overflow-hidden rounded-xl">
-        <header className="flex items-end justify-between gap-4 px-6 pt-5">
-          <div>
-            <h2 className="section-label text-violet-500">Turns Earned</h2>
-            <p className="mt-0.5 t-tertiary text-[11px] leading-snug">
-              Extra turns of session headroom unerr produced — the unit
-              compression-only tools can't measure.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => navigateRoute("token-trace")}
-            className="shrink-0 text-xs text-violet-400 transition-colors hover:text-violet-300"
-          >
-            Breakdown →
-          </button>
-        </header>
-
-        {headroomLoading ? (
-          <div className="px-6 py-5">
-            <CardGridSkeleton n={3} />
-          </div>
-        ) : headroom && headroomImplausible ? (
-          <div className="px-6 py-5">
-            <p className="t-secondary text-sm leading-snug">
-              Headroom is still calibrating — the ratio between saved tokens and
-              the slice of per-turn cost unerr can measure looks larger than
-              your actual usage. Run a few more sessions and the number will
-              stabilise.
-            </p>
-            <p className="mt-2 t-tertiary text-xs leading-snug">
-              In the meantime, the named-event counters on{" "}
-              <button
-                type="button"
-                onClick={() => navigateRoute("logbook")}
-                className="text-violet-300 underline decoration-dotted hover:text-violet-200"
-              >
-                Logbook
-              </button>{" "}
-              are the honest headline — each one is a countable event you can
-              check against your own session memory.
-            </p>
-          </div>
-        ) : headroom ? (
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-3">
-            <KpiStripCell
-              label="Today"
-              value={`+${fmtNum(headroom.today.headroom_turns)}`}
-              sub={`over ${headroom.today.turns_observed} turns observed`}
-              accent="text-success"
-              onClick={() => navigateRoute("token-trace", { window: "today" })}
-            />
-            <KpiStripCell
-              label="This Week"
-              value={`+${fmtNum(headroom.this_week.headroom_turns)}`}
-              sub={`over ${headroom.this_week.turns_observed} turns observed`}
-              accent="text-success"
-              onClick={() =>
-                navigateRoute("token-trace", { window: "this_week" })
-              }
-            />
-            <KpiStripCell
-              label="Since Install"
-              value={`+${fmtNum(headroom.since_install.headroom_turns)}`}
-              sub={`over ${headroom.since_install.turns_observed} turns observed`}
-              accent="text-success"
-              onClick={() =>
-                navigateRoute("token-trace", {
-                  window: "since_install",
-                })
-              }
-            />
-          </div>
-        ) : (
-          <p className="px-6 py-5 t-tertiary text-sm">
-            No turns earned yet — start a session and unerr will begin tracking.
-          </p>
-        )}
-        {headroom && !headroomImplausible
-          ? renderReachLine(headroom.since_install)
-          : null}
-        {headroom && !headroomImplausible ? (
-          <p className="px-6 pb-4 pt-1 t-tertiary text-[10px] leading-snug max-w-3xl">
-            <span className="text-emerald-300/80">Turns Earned</span> is
-            usage-cumulative (changes per window) — applies to credit-billed
-            agents (Cursor fast-requests, API spend) where each unit is an extra
-            prompt you didn't pay for.{" "}
-            <span className="text-violet-300/80">Reach/session</span> is a
-            per-session ceiling derived from your install-lifetime average —
-            stable across windows by design — and applies to window-billed
-            agents (Claude Code 5-hour windows, Copilot Pro caps) where each
-            unit is one more turn of context room before a session exhausts the
-            context limit. One of the two holds for your agent's billing model.
-          </p>
-        ) : null}
-      </section>
-
-      {/* ============================================================
-       *  PREVENTIONS — what unerr stopped from happening. Positioned
-       *  here (right after the gain headline) so the user reads the
-       *  "+turns earned" KPI and immediately sees the bad outcomes
-       *  that didn't happen — the qualitative receipts. Each row
-       *  pairs an active-voice verb (what unerr did) with a
-       *  counterfactual subtitle (what would have happened).
-       * ============================================================ */}
-      <section className="glass-panel rounded-xl p-5">
-        <header className="mb-4 flex items-baseline justify-between gap-3">
-          <div>
-            <h2 className="section-label text-violet-500">Preventions</h2>
-            <p className="mt-0.5 t-tertiary text-[11px] leading-snug">
-              Bad outcomes unerr stopped before they could happen
-            </p>
-          </div>
-          <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider t-tertiary">
-            Since install
-          </span>
-        </header>
-        {behaviorEventsQ.isLoading && preventions.length === 0 ? (
-          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
-            <SkeletonBlock className="h-24 w-full" />
-            <SkeletonBlock className="h-24 w-full" />
-            <SkeletonBlock className="h-24 w-full" />
-            <SkeletonBlock className="h-24 w-full" />
-          </div>
-        ) : preventions.length === 0 ? (
-          <p className="t-tertiary text-sm">No preventions recorded yet.</p>
-        ) : (
-          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
-            {preventions.map(([type, n]) => (
-              <PreventionCard
-                key={type}
-                label={PREVENTION_LABELS[type] ?? prettyKey(type)}
-                description={
-                  PREVENTION_DESCRIPTIONS[type] ??
-                  "An intervention that the agent did not need to retry or undo."
-                }
-                count={`${fmtNum(n)}×`}
-                palette={mcPrev(type)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* ============================================================
-       *  CARD 2 — Tokens Saved (the underlying byte-level math).
-       *  Reframed from "Token Reduction" → "Tokens Saved": the user
-       *  reads this as bytes unerr rescued from the agent's context,
-       *  not as a generic improvement metric. Protective framing
-       *  (saved / kept out / rescued) over optimization framing
-       *  (reduced / smaller / improved).
-       * ============================================================ */}
-      {tf ? (
-        <section className="glass-panel overflow-hidden rounded-xl">
-          <header className="flex items-end justify-between gap-4 px-6 pt-5">
-            <div>
-              <h2 className="section-label text-violet-500">Tokens Saved</h2>
-              <p className="mt-0.5 t-tertiary text-[11px] leading-snug">
-                Bytes unerr kept out of the agent's context before they could
-                weigh it down — counted on operations unerr handled (file reads,
-                web fetches, shell output, dedup). Not whole-turn savings.
-              </p>
-            </div>
-            <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider t-tertiary">
+      <section className="glass-panel overflow-hidden rounded-xl p-6">
+        <header className="mb-5 flex items-baseline justify-between gap-4">
+          <h2 className="section-label text-violet-500">Impact</h2>
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-[10px] uppercase tracking-wider t-tertiary">
               Since install
             </span>
-          </header>
-
-          <div className="mt-4 grid grid-cols-2 sm:grid-cols-4">
-            <KpiStripCell
-              label="Tokens saved"
-              value={fmtNum(tf.total_tokens_saved)}
-              sub="raw bytes kept out of agent context"
-              accent="text-success"
-            />
-            <KpiStripCell
-              label="Context avoided"
-              value={fmtNum(tf.total_context_avoided)}
-              sub="work the agent never had to do"
-              accent="text-cyan-400"
-            />
-            <KpiStripCell
-              label="Rescue rate"
-              value={`${tf.efficiency_pct.toFixed(1)}%`}
-              sub="share of would-be context kept out"
-              accent="text-violet-400"
-            />
-            <KpiStripCell
-              label="Compounding"
-              value={compoundMultiplier ? `${compoundMultiplier}×` : "—"}
-              sub="context avoided per token saved"
-              accent="text-fuchsia-400"
-            />
+            <button
+              type="button"
+              onClick={() => navigateRoute("token-trace")}
+              className="shrink-0 text-xs text-violet-400 transition-colors hover:text-violet-300"
+            >
+              Breakdown →
+            </button>
           </div>
-        </section>
-      ) : null}
+        </header>
+
+        {headroomLoading && !tf ? (
+          <CardGridSkeleton n={3} />
+        ) : (
+          <>
+            <div className="flex flex-col gap-7 sm:flex-row sm:items-end sm:gap-12">
+              {/* Dominant — turns earned */}
+              <div className="min-w-0">
+                {headroom && !headroomImplausible ? (
+                  <>
+                    <span className="block font-mono text-6xl font-bold leading-none tracking-tight text-success tabular-nums">
+                      <CountUp
+                        value={headroom.since_install.headroom_turns}
+                        format={(n) => `+${fmtNum(n)}`}
+                      />
+                    </span>
+                    <span className="mt-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider t-tertiary">
+                      turns earned
+                      <InfoTip
+                        label="What turns earned means"
+                        text="Extra turns of session headroom unerr earned you — the unit compression-only tools can't measure. Counts as prompts you didn't pay for (credit-billed agents) or extra context room before a window exhausts (window-billed agents)."
+                      />
+                    </span>
+                  </>
+                ) : headroomImplausible ? (
+                  <div className="max-w-sm">
+                    <span className="block font-mono text-4xl font-bold leading-none text-warning tabular-nums">
+                      calibrating
+                    </span>
+                    <p className="mt-2 t-tertiary text-[11px] leading-snug">
+                      Turns earned needs a few more sessions to stabilise — the
+                      exact counts below are honest in the meantime.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <span className="block font-mono text-6xl font-bold leading-none text-muted-foreground tabular-nums">
+                      —
+                    </span>
+                    <span className="mt-2 block text-[11px] font-medium uppercase tracking-wider t-tertiary">
+                      no turns earned yet
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {/* Supporting — tokens saved (rescue-rate % removed: its
+               *  span differs from graphify/RTK's identically-labelled
+               *  percentage and was confusing users). */}
+              {tf ? (
+                <div className="flex gap-9 sm:gap-12 sm:pb-1">
+                  <div>
+                    <span className="block font-mono text-3xl font-bold leading-none text-foreground-emphasis tabular-nums">
+                      <CountUp value={tf.total_tokens_saved} format={fmtNum} />
+                    </span>
+                    <span className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider t-tertiary">
+                      tokens saved
+                      <InfoTip
+                        label="What tokens saved means"
+                        text="Raw bytes unerr kept out of the agent's context — counted on operations it handled (file reads, web fetches, shell output, dedup). Not whole-turn savings."
+                      />
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block font-mono text-3xl font-bold leading-none text-cyan-400 tabular-nums">
+                      <CountUp
+                        value={tf.total_context_avoided}
+                        format={fmtNum}
+                      />
+                    </span>
+                    <span className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider t-tertiary">
+                      context avoided
+                      <InfoTip
+                        label="What context avoided means"
+                        text="Downstream work unerr kept the agent from ever doing — re-reads, re-searches and retries it never had to issue."
+                      />
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Where your savings come from — the category-design contrast.
+               *  We concede output compression (what every token tool does)
+               *  and OWN code-graph intelligence (only unerr keeps a
+               *  persistent map of the repo, so it knows what to read and
+               *  what to skip). Compression is the commodity ~20%;
+               *  understanding the code is the ~80% no text-compressor can
+               *  touch — surfaced as turns earned, not just tokens. Tiers are
+               *  EXHAUSTIVE (compression = everything that isn't graph or
+               *  graph-guided reads), so nothing is cherry-picked. Turns are
+               *  estimated from each tier's share of tokens saved. */}
+              {tf && headroom && !headroomImplausible ? (
+                <div className="min-w-0 sm:flex-1 sm:self-stretch sm:border-l sm:border-border-subtle sm:pl-10">
+                  <div className="flex h-full flex-col justify-center">
+                    <span className="mb-4 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider t-tertiary">
+                      Where your savings come from
+                      <InfoTip
+                        label="Where your savings come from"
+                        text="Token tools compress text. unerr also understands your code — a persistent graph of the repo means it knows what to read and what to skip. Compression is the commodity; code-intelligence is unerr-only. Turns are estimated from each tier's share of tokens saved."
+                      />
+                    </span>
+                    {(() => {
+                      const total = tf.total_tokens_saved || 1;
+                      const perTurn =
+                        headroom.since_install.headroom_turns / total;
+                      // Code-intelligence = graph queries + graph-guided
+                      // targeted reads. Compression = the exhaustive
+                      // remainder (shell, format, truncation, dedup, fetch).
+                      const intel =
+                        (tf.by_mechanism.graph_query?.tokens_saved ?? 0) +
+                        (tf.by_mechanism.file_read?.tokens_saved ?? 0);
+                      const compress = Math.max(
+                        0,
+                        tf.total_tokens_saved - intel
+                      );
+                      const intelPct = Math.round((intel / total) * 100);
+                      const tiers = [
+                        {
+                          key: "compress",
+                          title: "Text compression",
+                          sub: "what every token tool does",
+                          tokens: compress,
+                          primary: false,
+                          bar: "bg-zinc-500/70",
+                          tokenAccent: "t-secondary",
+                          barH: "h-1.5",
+                        },
+                        {
+                          key: "intel",
+                          title: "Understanding your code",
+                          sub: "graph + graph-guided reads — only unerr",
+                          tokens: intel,
+                          primary: true,
+                          bar: "bg-gradient-to-r from-violet-500 to-emerald-400",
+                          tokenAccent: "text-emerald-300",
+                          barH: "h-2.5",
+                        },
+                      ];
+                      return (
+                        <>
+                          <div className="space-y-4">
+                            {tiers.map((t) => (
+                              <div key={t.key}>
+                                <div className="flex items-baseline justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <span
+                                      className={`block text-sm font-semibold ${t.primary ? "text-foreground-emphasis" : "text-foreground"}`}
+                                    >
+                                      {t.title}
+                                    </span>
+                                    <span className="block text-[11px] leading-tight t-tertiary">
+                                      {t.sub}
+                                    </span>
+                                  </div>
+                                  <div className="shrink-0 text-right font-mono tabular-nums">
+                                    <span
+                                      className={`block text-sm font-semibold ${t.tokenAccent}`}
+                                    >
+                                      {fmtNum(t.tokens)} tok
+                                    </span>
+                                    <span className="block text-[11px] t-tertiary">
+                                      ~{fmtNum(t.tokens * perTurn)} turns
+                                    </span>
+                                  </div>
+                                </div>
+                                <div
+                                  className={`mt-1.5 overflow-hidden rounded-full bg-surface-overlay ${t.barH}`}
+                                >
+                                  <div
+                                    className={`h-full rounded-full ${t.bar}`}
+                                    style={{
+                                      width: `${(t.tokens / total) * 100}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="mt-4 border-t border-border-subtle pt-3 text-[11px] leading-snug t-secondary">
+                            <span className="font-semibold text-emerald-300">
+                              {intelPct}%
+                            </span>{" "}
+                            of every token unerr saves comes from{" "}
+                            <span className="text-foreground">
+                              understanding your code
+                            </span>{" "}
+                            — not compressing text.
+                          </p>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Context chips — today / this week / compounding / avoided */}
+            {(headroom && !headroomImplausible) || tf ? (
+              <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border-subtle pt-4 text-sm t-secondary">
+                {headroom && !headroomImplausible ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigateRoute("token-trace", { window: "today" })
+                      }
+                      className="inline-flex items-baseline gap-1.5 transition-colors hover:text-foreground"
+                    >
+                      <span className="font-mono text-base font-semibold tabular-nums text-success">
+                        ▲ +{fmtNum(headroom.today.headroom_turns)}
+                      </span>
+                      today
+                    </button>
+                    <span className="t-tertiary">·</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigateRoute("token-trace", { window: "this_week" })
+                      }
+                      className="inline-flex items-baseline gap-1.5 transition-colors hover:text-foreground"
+                    >
+                      <span className="font-mono text-base font-semibold tabular-nums text-success">
+                        ▲ +{fmtNum(headroom.this_week.headroom_turns)}
+                      </span>
+                      this week
+                    </button>
+                  </>
+                ) : null}
+                {tf && compoundMultiplier ? (
+                  <>
+                    <span className="t-tertiary">·</span>
+                    <span className="inline-flex items-baseline gap-1.5">
+                      <span className="font-mono text-base font-semibold tabular-nums text-fuchsia-400">
+                        {compoundMultiplier}×
+                      </span>
+                      context compounding
+                      <InfoTip
+                        label="What compounding means"
+                        text="Context avoided per token saved — how much downstream work each rescued token prevented."
+                      />
+                    </span>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+          </>
+        )}
+      </section>
 
       {/* ============================================================
-       *  RECEIPTS — Per-mechanism breakdown of WHERE the tokens were
-       *  saved. Companion to Card 2's aggregate "Tokens Saved" headline.
-       *  Each row uses Token Trace's horizontal MechanismBar pattern:
-       *  label · track · values. Section headings use brand violet for
-       *  consistency with Turns Earned / Tokens Saved / Recent Sessions
-       *  above.
+       *  WHAT UNERR DID — the receipt's "impact" mechanism on the
+       *  dashboard. Every action unerr handled, phrased in plain English
+       *  (same dictionary as the end-of-turn receipt) with the
+       *  counterfactual on hover. Led by the ⚡ cross-tier runtime join —
+       *  the positioning anchor (Fix L) no point tool can produce.
+       *  Positioned right under the Impact hero per the user's ask.
        * ============================================================ */}
       <section className="glass-panel rounded-xl p-5">
         <header className="mb-4 flex items-baseline justify-between gap-3">
           <div>
-            <h2 className="section-label text-violet-500">Savings Breakdown</h2>
+            <h2 className="section-label text-violet-500">What unerr did</h2>
             <p className="mt-0.5 t-tertiary text-[11px] leading-snug">
-              Where the rescued tokens came from
+              Real work unerr handled for you — hover any card for what it saved
+              you from.
             </p>
           </div>
           <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider t-tertiary">
-            Since install
+            {fmtNum(actionsTotal)} actions
           </span>
         </header>
-        {heroLoading ? (
-          <div className="space-y-2">
-            <SkeletonBlock className="h-7 w-full" />
-            <SkeletonBlock className="h-7 w-full" />
-            <SkeletonBlock className="h-7 w-full" />
-          </div>
-        ) : optimizations.length === 0 ? (
-          <p className="t-tertiary text-sm">No tokens saved yet.</p>
-        ) : (
-          <div>
-            <BreakdownHeader primary="Turns earned" secondary="Tokens saved" />
-            <div className="space-y-0.5">
-              {optimizations.map(({ key, turns, tokensSaved }) => (
-                <BreakdownRow
-                  key={key}
-                  label={OPTIMIZATION_LABELS[key] ?? prettyKey(key)}
-                  value={`+${fmtNum(Math.round(turns))}`}
-                  valueSecondary={fmtNum(tokensSaved)}
-                  pct={(turns / maxOptTurns) * 100}
-                  palette={mc(key)}
-                />
-              ))}
+
+        {/* ⚡ The join no other tool can see — the differentiator. */}
+        {joinParts.length > 0 ? (
+          <div className="mb-4 rounded-lg border border-violet-500/30 bg-violet-500/5 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <span aria-hidden="true" className="text-fuchsia-400">
+                ⚡
+              </span>
+              <span className="font-medium text-foreground-emphasis">
+                The join no other tool can see
+              </span>
+              <span className="t-tertiary">—</span>
+              <span className="t-secondary">{joinParts.join(" · ")}</span>
             </div>
+            <p className="mt-1 text-[11px] leading-snug t-tertiary">
+              unerr connected your session memory to live code structure and
+              drift on the same files — point tools (Mem0, Sourcegraph,
+              claude-mem) each see only their own slice.
+            </p>
+          </div>
+        ) : null}
+
+        {behaviorEventsQ.isLoading && topActions.length === 0 ? (
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+            <SkeletonBlock className="h-20 w-full" />
+            <SkeletonBlock className="h-20 w-full" />
+            <SkeletonBlock className="h-20 w-full" />
+            <SkeletonBlock className="h-20 w-full" />
+          </div>
+        ) : topActions.length === 0 ? (
+          <p className="t-tertiary text-sm">
+            Nothing recorded yet — unerr starts tracking as soon as your agent
+            calls a tool.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+            {topActions.map(([type, n]) => {
+              const p = actionPhrasing(type);
+              return (
+                <ActionCard
+                  key={type}
+                  count={fmtNum(n)}
+                  label={p.label}
+                  desc={p.desc}
+                  palette={mcAction(type)}
+                />
+              );
+            })}
           </div>
         )}
       </section>
+
+      {/* ============================================================
+       *  REASONING QUALITY — the non-token aspect: how much cleaner and
+       *  more first-try-correct unerr made the agent's reasoning. Summary
+       *  here; full per-session breakdown on the Reasoning Trace page.
+       * ============================================================ */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+        <AspectPanel
+          title="Reasoning Quality"
+          blurb="How much cleaner and more first-try-correct unerr made the agent's reasoning"
+          onMore={() => navigateRoute("reasoning")}
+          lead={
+            <RadialStat
+              value={rq?.first_call_resolution_rate}
+              label="Found first try"
+              hint="answered in one lookup — no grep loops"
+              accent="text-cyan-400"
+            />
+          }
+          support={[
+            {
+              label: "Cleaner context",
+              value: pct(rq?.noise_removed_pct),
+              hint: "noise removed before the agent read it",
+              accent: "text-emerald-400",
+            },
+            {
+              label: "Fewer breakages",
+              value: rq?.prevention_score ?? "—",
+              hint: rq
+                ? `${fmtNum(rq.blast_radius_warnings)} warns · ${fmtNum(rq.convention_injections)} hints`
+                : "blast-radius + convention guards",
+              accent: "text-amber-400",
+            },
+            {
+              label: "Quality multiplier",
+              value: rq
+                ? `${rq.reasoning_quality_multiplier.toFixed(1)}×`
+                : "—",
+              hint: "overall reasoning lift",
+              accent: "text-violet-300",
+            },
+          ]}
+        />
+
+        {/* ============================================================
+         *  MEMORY — recalls & rememberances. What unerr remembered and how
+         *  often those memories were surfaced and load-bearing. Summary
+         *  here; full fact store on the Project Memory page.
+         * ============================================================ */}
+        <AspectPanel
+          title="Memory · Recalls & Rememberances"
+          blurb="What unerr remembered, how often it resurfaced, and whether it was load-bearing"
+          onMore={() => navigateRoute("facts")}
+          lead={
+            <RadialStat
+              value={rq?.memory_effectiveness_pct}
+              label="Memory effectiveness"
+              hint={
+                rq
+                  ? `${fmtNum(rq.memory_signals_fired)} fired · ${fmtNum(rq.memory_verdicts_total)} verdicts`
+                  : "share of recalled memories that proved load-bearing"
+              }
+              accent="text-emerald-400"
+            />
+          }
+          support={[
+            {
+              label: "Memories stored",
+              value: fmtNum(fh?.total),
+              hint: fh
+                ? `${fmtNum(factsByType.semantic ?? 0)} patterns · ${fmtNum(factsByType.procedural ?? 0)} hot files · ${fmtNum(lessonsCount)} lessons`
+                : "patterns, hot files, lessons",
+              accent: "text-violet-300",
+            },
+            {
+              label: "Recalled",
+              value: fmtNum(rq?.facts_recalled),
+              hint: "stored facts re-surfaced to the agent",
+              accent: "text-cyan-400",
+            },
+            {
+              label: "Avg confidence",
+              value: pct((fh?.avg_confidence ?? 0) * 100),
+              hint: "mean confidence across live memories",
+              accent: "text-fuchsia-300",
+            },
+          ]}
+        />
+
+        {/* ============================================================
+         *  ACTIVITY & TASKS — what's in flight: open intents (tasks in
+         *  progress), unresolved blockers, total activity moments. Summary
+         *  here; full timeline + heatmap on the Activity page.
+         * ============================================================ */}
+        <AspectPanel
+          title="Activity & Tasks"
+          blurb="What's in flight across sessions — open tasks, unresolved blockers, activity volume"
+          onMore={() => navigateRoute("activity")}
+          lead={
+            <LeadFigure
+              value={fmtNum(activeTasks.length)}
+              label="Tasks in progress"
+              hint="open intents still being worked across sessions"
+              accent="text-cyan-400"
+              chip="bg-cyan-500/10 ring-cyan-500/25"
+            />
+          }
+          support={[
+            {
+              label: "Unresolved issues",
+              value: fmtNum(openThreads.length),
+              hint: "blockers without a resolution yet",
+              accent:
+                openThreads.length > 0 ? "text-amber-400" : "text-foreground",
+            },
+            {
+              label: "Activity moments",
+              value: fmtNum(activityMoments),
+              hint: "turns unerr has observed",
+              accent: "text-violet-300",
+            },
+          ]}
+          footer={
+            activeTasks.length > 0 ? (
+              <ul className="mt-4 space-y-1.5 border-t border-border-subtle pt-4">
+                {activeTasks.slice(0, 4).map((t) => (
+                  <li
+                    key={t.intent_id}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <span
+                      className="inline-block size-1.5 shrink-0 rounded-full bg-cyan-400"
+                      aria-hidden="true"
+                    />
+                    <span className="truncate text-foreground">{t.title}</span>
+                    <span className="ml-auto shrink-0 font-mono text-[10px] t-tertiary">
+                      {timeAgo(new Date(t.last_active_at).toISOString())}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null
+          }
+        />
+
+        {/* ============================================================
+         *  CODE HEALTH & RISK — the state of the codebase unerr is
+         *  reasoning over: health grade, test reach, risk hotspots,
+         *  bottlenecks. Summary here; full map on Code Intelligence.
+         * ============================================================ */}
+        <AspectPanel
+          title="Code Health & Risk"
+          blurb="The state of the codebase unerr reasons over — grade, test reach, risk"
+          onMore={() => navigateRoute("graph")}
+          lead={
+            <LeadFigure
+              value={insights?.healthGrade ?? "—"}
+              label="Health grade"
+              hint={
+                insights
+                  ? `architecture score ${insights.healthScore}/100`
+                  : "A–F architecture grade"
+              }
+              accent={gradeAccent(insights?.healthGrade)}
+              chip={gradeChip(insights?.healthGrade)}
+            />
+          }
+          support={[
+            {
+              label: "Tested reach",
+              value: pct(insights?.blastRadiusCoverage),
+              hint: "of blast radius covered by tests",
+              accent: "text-emerald-400",
+            },
+            {
+              label: "High-risk files",
+              value: fmtNum(insights?.riskDistribution?.high),
+              hint: graphStats
+                ? `${fmtNum(graphStats.entityCount)} entities · ${fmtNum(graphStats.communityCount)} modules`
+                : "entities flagged high-risk",
+              accent:
+                (insights?.riskDistribution?.high ?? 0) > 0
+                  ? "text-error"
+                  : "text-foreground",
+            },
+            {
+              label: "Chokepoints",
+              value: fmtNum(insights?.bottlenecks?.length),
+              hint: graphStats
+                ? `${fmtNum(graphStats.driftCount)} files drifted locally`
+                : "high fan-in bottlenecks",
+              accent: "text-amber-400",
+            },
+          ]}
+        />
+      </div>
 
       {/* ============================================================
        *  RECENT SESSIONS — proper table (Stripe / Datadog pattern).

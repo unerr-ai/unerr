@@ -11,6 +11,8 @@
  * `color` on the parent and pass `stroke="currentColor"` instead).
  */
 
+import { useId } from "react";
+
 export function Sparkline({
   points,
   height = 28,
@@ -20,6 +22,9 @@ export function Sparkline({
   height?: number;
   className?: string;
 }) {
+  // useId() embeds colons (":r0:") which are invalid inside an SVG url(#…)
+  // reference — strip them so the gradient resolves.
+  const gradientId = `spark-${useId().replace(/:/g, "")}`;
   if (!points || points.length < 2) {
     return <div style={{ height }} aria-hidden className={className} />;
   }
@@ -50,7 +55,13 @@ export function Sparkline({
       style={{ height }}
     >
       <title>Sparkline trend</title>
-      <polygon points={areaCoords} fill="currentColor" fillOpacity={0.12} />
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="currentColor" stopOpacity={0.22} />
+          <stop offset="100%" stopColor="currentColor" stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <polygon points={areaCoords} fill={`url(#${gradientId})`} />
       <polyline
         points={coords}
         fill="none"

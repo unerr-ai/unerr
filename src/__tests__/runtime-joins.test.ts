@@ -8,7 +8,6 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { renderTurnFooter } from "../proxy/turn-footer.js";
 import type { NamedEvent } from "../tracking/named-events.js";
 import {
   computeRuntimeJoins,
@@ -165,52 +164,5 @@ describe("renderRuntimeJoinSegment (Fix L)", () => {
     expect(out).toMatch(/1 three-way correlation confirmed/);
     // Each segment separated by pipe
     expect(out.split(" | ").length).toBe(3);
-  });
-});
-
-describe("renderTurnFooter Fix L integration", () => {
-  it("is byte-identical to legacy output when runtimeJoins is omitted", () => {
-    const out = renderTurnFooter({
-      events: [],
-      tokensSavedThisTurn: 0,
-      turnsOfHeadroomThisSession: 0,
-    });
-    expect(out).toBe(
-      "this turn: nothing to help with this turn · no token savings this turn · session length unchanged"
-    );
-  });
-
-  it("is byte-identical to legacy output when all join counts are zero", () => {
-    const out = renderTurnFooter({
-      events: [],
-      tokensSavedThisTurn: 0,
-      turnsOfHeadroomThisSession: 0,
-      runtimeJoins: {
-        memory_to_graph: 0,
-        graph_to_drift: 0,
-        three_way: 0,
-        entities: [],
-      },
-    });
-    expect(out).toBe(
-      "this turn: nothing to help with this turn · no token savings this turn · session length unchanged"
-    );
-  });
-
-  it("prepends the `⚡ unerr runtime:` segment when join counts are non-zero", () => {
-    const out = renderTurnFooter({
-      events: [],
-      tokensSavedThisTurn: 0,
-      turnsOfHeadroomThisSession: 0,
-      runtimeJoins: {
-        memory_to_graph: 1,
-        graph_to_drift: 0,
-        three_way: 0,
-        entities: ["foo.ts"],
-      },
-    });
-    expect(out).toMatch(
-      /^⚡ unerr runtime: 1 memory fact joined to 1 live graph node · this turn:/
-    );
   });
 });

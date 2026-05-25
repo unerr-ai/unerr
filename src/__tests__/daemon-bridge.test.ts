@@ -250,17 +250,25 @@ describe("mcpBoot auto-spawn", () => {
     expect(content).toContain("child.unref()");
   });
 
-  it("checks per-repo proxy sock before falling through to unerrd", () => {
+  it("is unerrd-first: probes the daemon before ensuring the per-repo proxy", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli.ts"),
       "utf-8"
     );
-    expect(content).toContain("proxy.sock");
-    expect(content).toContain("probeResult.alive");
-    expect(content).toContain("probeDaemon");
-    expect(content).toContain("ensureRepo");
-    expect(content).toContain("connectRepo");
-    expect(content).toContain("disconnectRepo");
+    // The bridge goes THROUGH unerrd — it must not connect to a proxy sock
+    // directly (the old standalone-first bypass orphaned proxies + lied in
+    // `pm status`). Inside discoverWithRetry, probeDaemon precedes ensureRepo.
+    const discoStart = content.indexOf("async function discoverWithRetry");
+    expect(discoStart).toBeGreaterThan(-1);
+    const disco = content.slice(discoStart, content.indexOf("\n}", discoStart));
+    const probeIdx = disco.indexOf("await probeDaemon(");
+    const ensureIdx = disco.indexOf("await ensureRepo(");
+    expect(probeIdx).toBeGreaterThan(-1);
+    expect(ensureIdx).toBeGreaterThan(-1);
+    expect(probeIdx).toBeLessThan(ensureIdx);
+    // No standalone-first proxy.sock probe remains in discovery.
+    expect(disco).not.toContain("probeResult.alive");
+    expect(disco).not.toContain('kind: "standalone"');
   });
 
   it("does NOT auto-register repos (registration goes through ensureRepo only)", () => {
@@ -368,7 +376,9 @@ describe("mcpBoot retry behavior", () => {
     );
 
     expect(content).toContain("discoverWithRetry");
-    expect(content).toContain("Waiting for unerr process to become available");
+    expect(content).toContain(
+      "Waiting for unerr process manager to become available"
+    );
     expect(content).not.toContain("No unerr process found for this project");
   });
 

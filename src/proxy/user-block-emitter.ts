@@ -64,9 +64,7 @@ export interface UserBlockContext {
    *  pulls top-3 open blockers and top-3 most-recent mark_intent rows
    *  from the prior session. When undefined, the resume block renders
    *  without those lines (graceful degradation). */
-  timelineStore?: Parameters<
-    typeof generateSessionResumePayload
-  >[2];
+  timelineStore?: Parameters<typeof generateSessionResumePayload>[2];
   /** Fix K — optional behavior-event writer. When set and the resume
    *  strip emits ≥1 carried-over blocker, a `resume_blockers_surfaced`
    *  event is recorded for the dashboard compliance ribbon. */
@@ -215,7 +213,17 @@ async function buildResumeStrip(ctx: UserBlockContext): Promise<string> {
             tool: null,
             entity_key: null,
             response_bytes: null,
-            detail: { count: blockerCount },
+            // L2 capture-site fix: carry the blocker texts so the Logbook can
+            // name them ("Resumed your open blocker: …") instead of rendering
+            // the default-phrasing "recorded thing" fall-through. Capped to the
+            // top 3 (matching the resume strip) + truncated for the detail bag.
+            detail: {
+              count: blockerCount,
+              blockers: (payload.open_blockers ?? []).slice(0, 3).map((b) => ({
+                text: b.text.slice(0, 200),
+                file_path: b.file_path,
+              })),
+            },
           });
         } catch {
           /* never break the response on telemetry failure */

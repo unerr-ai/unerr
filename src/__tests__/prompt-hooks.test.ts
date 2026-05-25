@@ -484,8 +484,7 @@ describe("Nudge payload size cap (Fix G)", () => {
   it("every ur|act line stays at or under 800 chars", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
-      user_message:
-        "implement a new dashboard route handler for the auth flow",
+      user_message: "implement a new dashboard route handler for the auth flow",
     });
     const ctx = readContext(runUserPromptSubmitHook(stdin));
     for (const line of ctx.split("\n")) {

@@ -18,12 +18,12 @@ import { FactsPage } from "@/pages/FactsPage";
 import { GraphExplorer } from "@/pages/GraphExplorer";
 import { GraphVisualPage } from "@/pages/GraphVisualPage";
 import { LogbookPage } from "@/pages/LogbookPage";
+import { PromptTracePage } from "@/pages/PromptTracePage";
 import { ReasoningQualityPage } from "@/pages/ReasoningQualityPage";
 import { RouterSessionPage } from "@/pages/RouterSession";
 import { RouterStatusPage } from "@/pages/RouterStatus";
 import { SessionTimelinePage } from "@/pages/SessionTimelinePage";
 import { SettingsPage } from "@/pages/SettingsPage";
-import { SidekickMemoryPage } from "@/pages/SidekickMemoryPage";
 import { TokenFlowPage } from "@/pages/TokenFlowPage";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -101,11 +101,9 @@ export function App() {
   );
 
   // In daemon mode, redirect to all-repos when landing on the bare hash
-  // without a repo selected. Step 3 of the honest-headroom migration: the
-  // bare hash now resolves to "logbook" (Logbook is the default), so the
-  // redirect targets "logbook" instead of "overview". An explicit
-  // /overview hit in daemon mode also redirects so users get the repo
-  // picker first.
+  // without a repo selected. The bare hash resolves to "overview"
+  // (Dashboard is the default landing); an explicit /logbook hit without a
+  // repo also redirects so users get the repo picker first.
   const effectiveRoute: RouteId =
     isDaemonMode &&
     (route === "logbook" || route === "overview") &&
@@ -138,14 +136,14 @@ export function App() {
     case "logbook":
       body = <LogbookPage />;
       break;
-    case "sidekick-memory":
-      body = <SidekickMemoryPage />;
-      break;
     case "token-trace":
       body = <TokenFlowPage />;
       break;
     case "reasoning":
       body = <ReasoningQualityPage />;
+      break;
+    case "prompt-trace":
+      body = <PromptTracePage />;
       break;
     case "activity":
       body = <SessionTimelinePage />;

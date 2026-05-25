@@ -14,8 +14,8 @@
  */
 
 import type { TemporalFact } from "../intelligence/temporal-facts.js";
-import type { SessionSummaryRecord } from "../tracking/session-summary-writer.js";
 import type { MarkerRow } from "../timeline/timeline-store.js";
+import type { SessionSummaryRecord } from "../tracking/session-summary-writer.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -151,9 +151,7 @@ export async function generateSessionResumePayload(
     let lastIntents: SessionResumePayload["last_intents"] = [];
     if (timelineStore) {
       try {
-        const { getOpenThreads } = await import(
-          "../timeline/open-threads.js"
-        );
+        const { getOpenThreads } = await import("../timeline/open-threads.js");
         const blockers = await getOpenThreads(
           timelineStore as Parameters<typeof getOpenThreads>[0],
           { limit: 50 }

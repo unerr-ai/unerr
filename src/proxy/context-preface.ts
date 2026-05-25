@@ -223,7 +223,10 @@ export function renderContextPreface(inputs: ContextPrefaceInputs): string[] {
   // (kind/anchor/polarity/reinforcement). When only the legacy
   // content+created_at pair is available, fall back to the prior format.
   // Either path: naming nothing > naming generics.
-  const hasNamedFile = typeof topFile === "string" && typeof topFile === "string" && topFile.length > 0;
+  const hasNamedFile =
+    typeof topFile === "string" &&
+    typeof topFile === "string" &&
+    topFile.length > 0;
   const hasRichNote = inputs.topNote != null;
   const hasLegacyNote =
     typeof topNoteContent === "string" && topNoteContent.length > 0;

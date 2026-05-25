@@ -27,10 +27,12 @@
  * suppressed.
  */
 
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { Hono } from "hono";
 import { readNudgeState } from "../../proxy/nudge-state.js";
 import { extractReceiptAttribution } from "../../proxy/receipt-attribution.js";
+import { openMetricsStore } from "../../tracking/metrics-store.js";
 import {
   type NamedEvent,
   type NamedEventFilter,
@@ -43,9 +45,42 @@ import {
   getPromptsForSession,
 } from "../../tracking/prompt-trace.js";
 import { computeRuntimeJoins } from "../../tracking/runtime-joins.js";
+import type { LedgerEntry } from "../../tracking/shadow-ledger.js";
+import { materializeTranscripts } from "../../tracking/transcript-materializer.js";
+
+// ── Shadow Ledger Reader ─────────────────────────────────────────────
+// Reads shadow.jsonl directly (no CozoDB needed). Each line is one
+// LedgerEntry — every MCP tool call and every session marker.
+
+function readLedgerForSession(
+  unerrDir: string,
+  sessionId: string
+): LedgerEntry[] {
+  const ledgerPath = join(unerrDir, "ledger", "shadow.jsonl");
+  if (!existsSync(ledgerPath)) return [];
+  try {
+    const raw = readFileSync(ledgerPath, "utf-8");
+    const out: LedgerEntry[] = [];
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const entry = JSON.parse(trimmed) as LedgerEntry;
+        if (entry.session_id === sessionId) out.push(entry);
+      } catch {
+        /* skip malformed */
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
 
 export interface LogbookRouteDeps {
   unerrDir: string;
+  /** Repo working dir — needed for query-time transcript materialization. */
+  repoCwd?: string;
   /** Resolve the current agent name (used to personalize the story). */
   getAgentName?: () => string | null;
 }
@@ -726,6 +761,313 @@ export function createLogbookRoutes(deps: LogbookRouteDeps): Hono {
     const data = getPromptsForSession(deps.unerrDir, session);
     return c.json({
       data,
+      _meta: {
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+      },
+    });
+  });
+
+  // ── /prompt-feed — prompt-grouped event summaries ───────────────────
+  //
+  // Groups events by {session_id, turn} and attaches the captured prompt
+  // plus a compact summary per group. Primary data source for the
+  // prompt-centric logbook redesign (docs/logbook-page-redesign.md).
+  app.get("/prompt-feed", (c) => {
+    const start = performance.now();
+    const period = (c.req.query("period") ?? "today") as Period;
+    const agent = c.req.query("agent");
+    const sessionId = c.req.query("session_id");
+    const fromTs = c.req.query("from_ts");
+    const toTs = c.req.query("to_ts");
+    const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
+    const offset = Math.max(Number(c.req.query("offset") ?? 0), 0);
+
+    const filter: NamedEventFilter = {
+      ...periodFilter(period, fromTs, toTs),
+      agent: agent ?? undefined,
+      session_id: sessionId ?? undefined,
+    };
+    const events = readNamedEvents(deps.unerrDir, filter);
+
+    // Group events by session+turn buckets
+    const buckets = new Map<
+      string,
+      { session_id: string; turn: number; events: NamedEvent[] }
+    >();
+    for (const ev of events) {
+      const key = `${ev.session_id}::${ev.turn}`;
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.events.push(ev);
+      } else {
+        buckets.set(key, {
+          session_id: ev.session_id,
+          turn: ev.turn,
+          events: [ev],
+        });
+      }
+    }
+
+    // Sort buckets by latest event timestamp (newest first)
+    const sorted = [...buckets.values()].sort((a, b) => {
+      const latestA = a.events.reduce(
+        (max, e) => (e.ts > max ? e.ts : max),
+        ""
+      );
+      const latestB = b.events.reduce(
+        (max, e) => (e.ts > max ? e.ts : max),
+        ""
+      );
+      return latestB < latestA ? -1 : latestB > latestA ? 1 : 0;
+    });
+
+    const total = sorted.length;
+    const page = sorted.slice(offset, offset + limit);
+
+    // Pre-compute ledger stats per session (read once, share across buckets)
+    const MARKER_SET = new Set([
+      "mark_intent",
+      "mark_decision",
+      "mark_blocker",
+      "mark_resolution",
+    ]);
+    const ledgerStatsCache = new Map<
+      string,
+      { tool_call_count: number; marker_count: number }
+    >();
+    function getLedgerStats(sessionId: string) {
+      let cached = ledgerStatsCache.get(sessionId);
+      if (!cached) {
+        const entries = readLedgerForSession(deps.unerrDir, sessionId);
+        cached = {
+          tool_call_count: entries.filter((e) => !MARKER_SET.has(e.tool)).length,
+          marker_count: entries.filter((e) => MARKER_SET.has(e.tool)).length,
+        };
+        ledgerStatsCache.set(sessionId, cached);
+      }
+      return cached;
+    }
+
+    const feed = page.map((bucket) => {
+      const prompt = getPromptForTurn(
+        deps.unerrDir,
+        bucket.session_id,
+        bucket.turn
+      );
+      const byType = countNamedEventsByType(bucket.events);
+      let tokensSaved = 0;
+      for (const ev of bucket.events) {
+        if (ev.event_type.startsWith("tokenflow.")) {
+          const v = (ev.metadata as { tokens_saved?: number }).tokens_saved;
+          if (typeof v === "number") tokensSaved += v;
+        }
+      }
+      const agents = new Set(bucket.events.map((e) => e.agent));
+      const earliest = bucket.events.reduce(
+        (min, e) => (e.ts < min ? e.ts : min),
+        bucket.events[0]!.ts
+      );
+      const latest = bucket.events.reduce(
+        (max, e) => (e.ts > max ? e.ts : max),
+        bucket.events[0]!.ts
+      );
+      const featured = sortByEmotionalWeight(bucket.events)[0] ?? null;
+      const ledgerStats = getLedgerStats(bucket.session_id);
+
+      return {
+        session_id: bucket.session_id,
+        turn: bucket.turn,
+        prompt: prompt
+          ? {
+              text: prompt.prompt,
+              length: prompt.length,
+              classified_as: prompt.classified_as,
+            }
+          : null,
+        summary: {
+          event_count: bucket.events.length,
+          by_type: byType,
+          tokens_saved: tokensSaved,
+          agents: [...agents],
+          featured_event_type: featured?.event_type ?? null,
+          featured_verb: featured?.verb ?? null,
+          tool_call_count: ledgerStats.tool_call_count,
+          marker_count: ledgerStats.marker_count,
+        },
+        ts_start: earliest,
+        ts_end: latest,
+      };
+    });
+
+    return c.json({
+      data: feed,
+      total,
+      limit,
+      offset,
+      _meta: {
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+      },
+    });
+  });
+
+  // ── /prompt-detail/:session/:turn — full detail for one prompt ─────
+  //
+  // Returns all events for a session+turn pair, the captured prompt,
+  // attribution, and any materialized agent transcript rows.
+  // Includes query-time transcript materialization: if no rows exist
+  // in agent_transcripts for this session, we try to read + persist
+  // them now (covers Cursor sessions where no hook fired).
+  app.get("/prompt-detail/:session/:turn", async (c) => {
+    const start = performance.now();
+    const session = c.req.param("session");
+    const turn = Number(c.req.param("turn"));
+    if (!session || !Number.isFinite(turn) || turn < 0) {
+      return c.json({ error: "invalid_params" }, 400);
+    }
+
+    const filter: NamedEventFilter = { session_id: session };
+    const allSessionEvents = readNamedEvents(deps.unerrDir, filter);
+    const turnEvents = allSessionEvents.filter((e) => e.turn === turn);
+    const prompt = getPromptForTurn(deps.unerrDir, session, turn);
+    const attribution = extractReceiptAttribution(allSessionEvents, turn);
+
+    // Token savings breakdown for this turn
+    let tokensSaved = 0;
+    const mechanisms: Record<string, number> = {};
+    for (const ev of turnEvents) {
+      if (ev.event_type.startsWith("tokenflow.")) {
+        const saved = (ev.metadata as { tokens_saved?: number }).tokens_saved;
+        if (typeof saved === "number") {
+          tokensSaved += saved;
+          const mech = ev.event_type.slice("tokenflow.".length);
+          mechanisms[mech] = (mechanisms[mech] ?? 0) + saved;
+        }
+      }
+    }
+
+    // Resolve agent name for this session from event data
+    const agentName =
+      deps.getAgentName?.() ??
+      turnEvents.find((e) => e.agent && e.agent !== "unknown")?.agent ??
+      allSessionEvents.find((e) => e.agent && e.agent !== "unknown")?.agent ??
+      "unknown";
+
+    // Agent transcript rows (materialized into metrics.db)
+    let transcript: Array<{
+      role: string;
+      text: string | null;
+      tools: string[] | null;
+      files: string[] | null;
+      model: string | null;
+      tokens_input: number;
+      tokens_output: number;
+      ts: string;
+    }> = [];
+    try {
+      const store = openMetricsStore(deps.unerrDir);
+
+      // Query-time materialization: if no transcript rows exist for this
+      // session yet, try to read from the agent's native logs and persist.
+      // This covers Cursor (no hook to trigger materialization) and
+      // late-arriving Claude JSONL (hook fired before transcript was written).
+      if (!store.hasAgentTranscripts(session) && deps.repoCwd) {
+        await materializeTranscripts({
+          unerrDir: deps.unerrDir,
+          repoCwd: deps.repoCwd,
+          sessionId: session,
+          agent: agentName,
+        });
+      }
+
+      // Read all transcript rows for this session (not filtered by turn,
+      // because agent turns and unerr turns use different numbering).
+      const rows = store.getAgentTranscriptsForSession(session);
+      transcript = rows.map((r) => ({
+        role: r.role,
+        text: r.text,
+        tools: r.tools ? (JSON.parse(r.tools) as string[]) : null,
+        files: r.files ? (JSON.parse(r.files) as string[]) : null,
+        model: r.model,
+        tokens_input: r.tokens_input,
+        tokens_output: r.tokens_output,
+        ts: r.ts,
+      }));
+    } catch {
+      // best-effort: transcript unavailable is not fatal
+    }
+
+    // Shadow ledger — every MCP tool call the agent made to unerr
+    const ledgerEntries = readLedgerForSession(deps.unerrDir, session);
+
+    const MARKER_TOOLS = new Set([
+      "mark_intent",
+      "mark_decision",
+      "mark_blocker",
+      "mark_resolution",
+    ]);
+
+    // Tool calls (non-marker entries): what the LLM queried from unerr
+    const toolCalls = ledgerEntries
+      .filter((e) => !MARKER_TOOLS.has(e.tool))
+      .map((e) => ({
+        id: e.id,
+        ts: e.ts,
+        tool: e.tool,
+        args_summary: e.args_summary,
+        result_summary: e.result_summary,
+        turn_id: e.turn_id ?? null,
+        correlation_id: e.correlation_id,
+      }));
+
+    // Session markers: intent, decision, blocker, resolution
+    const markers = ledgerEntries
+      .filter((e) => MARKER_TOOLS.has(e.tool))
+      .map((e) => ({
+        id: e.id,
+        ts: e.ts,
+        type: e.tool,
+        text:
+          typeof e.args_summary?.text === "string"
+            ? e.args_summary.text
+            : "",
+        turn_id: e.turn_id ?? null,
+        alternatives:
+          Array.isArray(e.args_summary?.alternatives)
+            ? (e.args_summary.alternatives as string[])
+            : null,
+        blocker_ref:
+          typeof e.args_summary?.blocker_ref === "string"
+            ? e.args_summary.blocker_ref
+            : null,
+        file_path:
+          typeof e.args_summary?.file_path === "string"
+            ? e.args_summary.file_path
+            : null,
+      }));
+
+    return c.json({
+      data: {
+        session_id: session,
+        turn,
+        prompt: prompt
+          ? {
+              text: prompt.prompt,
+              length: prompt.length,
+              classified_as: prompt.classified_as,
+              ts: prompt.ts,
+            }
+          : null,
+        events: turnEvents,
+        attribution,
+        token_optimization: {
+          total_saved: tokensSaved,
+          mechanisms,
+        },
+        transcript,
+        has_transcript: transcript.length > 0,
+        tool_calls: toolCalls,
+        markers,
+      },
       _meta: {
         latency_ms: Math.round((performance.now() - start) * 100) / 100,
       },

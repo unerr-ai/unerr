@@ -18,8 +18,15 @@ import { HeadroomStrip, type HeadroomWindow } from "@/components/HeadroomStrip";
 import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { fetchJson } from "@/lib/api";
 import { useRepoApi } from "@/lib/repo-context";
-import { setHashQueryParams, useHashQueryParam } from "@/lib/router";
+import {
+  navigateRoute,
+  setHashQueryParams,
+  useHashQueryParam,
+} from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
+import { AgentBadge } from "./token-trace/components/AgentBadge";
+import { Breadcrumb } from "./token-trace/components/Breadcrumb";
+import { Pagination } from "./token-trace/components/Pagination";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -175,165 +182,10 @@ function KpiCard({
   );
 }
 
-function Breadcrumb({
-  items,
-}: {
-  items: Array<{ label: string; onClick?: () => void }>;
-}) {
-  return (
-    <nav className="flex items-center gap-1.5 text-sm mb-5">
-      {items.map((item, i) => {
-        const isLast = i === items.length - 1;
-        return (
-          <span key={item.label} className="flex items-center gap-1.5">
-            {i > 0 && <span className="t-tertiary">›</span>}
-            {isLast ? (
-              <span className="text-foreground font-medium">{item.label}</span>
-            ) : (
-              <button
-                type="button"
-                className="text-violet-400 hover:text-violet-300 transition-colors cursor-pointer"
-                onClick={item.onClick}
-              >
-                {item.label}
-              </button>
-            )}
-          </span>
-        );
-      })}
-    </nav>
-  );
-}
-
-// Mirror of token-trace/components/AgentBadge.AGENT_STYLES — keeps the
-// hue mapping consistent across Token Trace and Reasoning Trace. The
-// install-time `--coding-agent=<id>` flag now guarantees every session
-// arrives here with a known id from agent-registry.ts.
-const AGENT_STYLES: Record<
-  string,
-  { bg: string; text: string; label: string }
-> = {
-  "claude-code": {
-    bg: "bg-amber-500/20",
-    text: "text-amber-400",
-    label: "Claude Code",
-  },
-  "claude-desktop": {
-    bg: "bg-amber-500/20",
-    text: "text-amber-400",
-    label: "Claude Desktop",
-  },
-  cursor: { bg: "bg-blue-500/20", text: "text-blue-400", label: "Cursor" },
-  cline: { bg: "bg-emerald-500/20", text: "text-emerald-400", label: "Cline" },
-  windsurf: { bg: "bg-cyan-500/20", text: "text-cyan-400", label: "Windsurf" },
-  copilot: { bg: "bg-zinc-500/20", text: "text-zinc-400", label: "Copilot" },
-  vscode: { bg: "bg-blue-500/20", text: "text-blue-400", label: "VS Code" },
-  zed: { bg: "bg-violet-500/20", text: "text-violet-400", label: "Zed" },
-  kiro: {
-    bg: "bg-fuchsia-500/20",
-    text: "text-fuchsia-400",
-    label: "Kiro",
-  },
-  "gemini-cli": {
-    bg: "bg-cyan-500/20",
-    text: "text-cyan-400",
-    label: "Gemini CLI",
-  },
-  codex: {
-    bg: "bg-emerald-500/20",
-    text: "text-emerald-400",
-    label: "Codex",
-  },
-  aider: { bg: "bg-rose-500/20", text: "text-rose-400", label: "Aider" },
-  opencode: {
-    bg: "bg-violet-500/20",
-    text: "text-violet-400",
-    label: "OpenCode",
-  },
-  trae: { bg: "bg-amber-500/20", text: "text-amber-400", label: "Trae" },
-  augment: {
-    bg: "bg-emerald-500/20",
-    text: "text-emerald-400",
-    label: "Augment",
-  },
-  "github-copilot-cli": {
-    bg: "bg-zinc-500/20",
-    text: "text-zinc-400",
-    label: "Copilot CLI",
-  },
-  continue: {
-    bg: "bg-violet-500/20",
-    text: "text-violet-400",
-    label: "Continue",
-  },
-  antigravity: {
-    bg: "bg-fuchsia-500/20",
-    text: "text-fuchsia-400",
-    label: "Antigravity",
-  },
-};
-
-function AgentBadge({ name }: { name: string | null }) {
-  if (!name) return <span className="t-tertiary text-[10px]">unknown</span>;
-  const normalized = name.toLowerCase().replace(/\s+/g, "-");
-  const style = AGENT_STYLES[normalized] ?? {
-    bg: "bg-zinc-500/20",
-    text: "text-zinc-400",
-    label: name,
-  };
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 ${style.bg} ${style.text} text-[10px] font-medium`}
-    >
-      {style.label}
-    </span>
-  );
-}
-
-function Pagination({
-  total,
-  limit,
-  offset,
-  onPageChange,
-}: {
-  total: number;
-  limit: number;
-  offset: number;
-  onPageChange: (newOffset: number) => void;
-}) {
-  const totalPages = Math.ceil(total / limit);
-  const currentPage = Math.floor(offset / limit) + 1;
-  if (totalPages <= 1) return null;
-
-  return (
-    <div className="flex items-center justify-between px-1 py-2">
-      <span className="t-tertiary text-xs">
-        {offset + 1}–{Math.min(offset + limit, total)} of {total}
-      </span>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          disabled={currentPage <= 1}
-          className="px-2.5 py-1 rounded text-xs font-medium bg-surface-secondary hover:bg-surface-tertiary disabled:opacity-30 disabled:cursor-not-allowed text-foreground transition-colors"
-          onClick={() => onPageChange(Math.max(0, offset - limit))}
-        >
-          ‹ Prev
-        </button>
-        <span className="t-secondary text-xs px-2 font-mono">
-          {currentPage}/{totalPages}
-        </span>
-        <button
-          type="button"
-          disabled={currentPage >= totalPages}
-          className="px-2.5 py-1 rounded text-xs font-medium bg-surface-secondary hover:bg-surface-tertiary disabled:opacity-30 disabled:cursor-not-allowed text-foreground transition-colors"
-          onClick={() => onPageChange(offset + limit)}
-        >
-          Next ›
-        </button>
-      </div>
-    </div>
-  );
-}
+// Breadcrumb, AgentBadge, and Pagination are shared with Token Trace and
+// imported from token-trace/components/ — see the imports at the top. The
+// local copies that used to live here were byte-identical duplicates
+// (logbook-page-redesign §8 dedupe).
 
 // ── Score Badge ──────────────────────────────────────────────────────
 
@@ -1605,17 +1457,22 @@ function SessionView({ sessionId }: { sessionId: string }) {
         </div>
       </div>
 
-      {/* ── Deep dive link ── */}
-      <div className="el-raised rounded-lg p-4 text-center">
-        <p className="t-tertiary text-xs">
-          Want to see individual events and token-level details?{" "}
-          <a
-            href={"#/token-trace"}
-            className="text-violet-400 hover:text-violet-300 transition-colors font-medium"
-          >
-            Open Token Trace →
-          </a>
-        </p>
+      {/* ── This session on the other surfaces (§8 cross-link) ── */}
+      <div className="el-raised rounded-lg p-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs">
+        <button
+          type="button"
+          className="text-violet-400 hover:text-violet-300 transition-colors font-medium"
+          onClick={() => navigateRoute("token-trace", { session: sessionId })}
+        >
+          See token-level detail in Token Trace →
+        </button>
+        <button
+          type="button"
+          className="text-violet-400 hover:text-violet-300 transition-colors font-medium"
+          onClick={() => navigateRoute("logbook", { session: sessionId })}
+        >
+          See this session in What unerr did →
+        </button>
       </div>
     </div>
   );

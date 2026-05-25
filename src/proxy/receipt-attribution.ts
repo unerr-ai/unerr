@@ -18,7 +18,10 @@
  * `fact_content`.
  */
 
-import type { NamedEvent } from "../tracking/named-events.js";
+import {
+  type NamedEvent,
+  makeInCurrentTurn,
+} from "../tracking/named-events.js";
 
 export interface AttributionRecall {
   /** Verbatim fact content that was surfaced. */
@@ -116,8 +119,13 @@ export function extractReceiptAttribution(
   const captures: AttributionCapture[] = [];
   const drift: AttributionDrift[] = [];
   const driftSeen = new Set<string>();
+  // Bind to the conversational turn via the prompt boundary (accurate),
+  // falling back to the segmenter `turn` match for pre-hook sessions —
+  // mirrors the slice in renderSessionEconomyLineLive so the attribution
+  // rows and the per-turn token number describe the same window.
+  const inCurrentTurn = makeInCurrentTurn(events, currentTurn);
   for (const e of events) {
-    if (e.turn !== currentTurn) continue;
+    if (!inCurrentTurn(e.ts, e.turn)) continue;
     if (RECALL_TYPES.has(e.event_type)) {
       const row = recallFromEvent(e);
       if (row) recalls.push(row);

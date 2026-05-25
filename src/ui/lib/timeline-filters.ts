@@ -228,6 +228,31 @@ function formatShort(ts: number): string {
   });
 }
 
+/**
+ * Resolve a deep-link `anchor_ts` (UTC ms epoch) to the activity moment it
+ * falls within — the integer-turn → hex-turn_id bridge done by timestamp
+ * containment (logbook-page-redesign §4.2, no schema change). Prefers an
+ * exact `[started_at, ended_at]` containment; falls back to the latest moment
+ * already begun by `ms` (the one live at that instant). Returns the matching
+ * `turn_id`, or `null` when the input is invalid or no candidate exists.
+ */
+export function resolveAnchorTurn(
+  turns: ReadonlyArray<{
+    turn_id: string;
+    started_at: number;
+    ended_at: number;
+  }>,
+  ms: number
+): string | null {
+  if (!Number.isFinite(ms) || turns.length === 0) return null;
+  const contained = turns.find((t) => t.started_at <= ms && ms <= t.ended_at);
+  if (contained) return contained.turn_id;
+  const begun = turns
+    .filter((t) => t.started_at <= ms)
+    .sort((a, b) => b.started_at - a.started_at);
+  return begun[0]?.turn_id ?? null;
+}
+
 /** Resolve a quick-preset string to a {from, to} pair (or "all" → clear). */
 export function quickRange(
   preset: "today" | "7d" | "30d" | "all",

@@ -278,6 +278,13 @@ const log = {
 
 export async function startDaemon(opts: {
   background?: boolean;
+  /**
+   * True when running as the detached auto-spawned supervisor (not an
+   * interactive `--foreground` debug session). A detached supervisor has no
+   * controlling terminal, so SIGHUP is ignored rather than allowed to silently
+   * terminate it — defense-in-depth if it ever shares a session with a spawner.
+   */
+  detached?: boolean;
 }): Promise<void> {
   // Install file logger as first action
   getOrCreateSid();
@@ -350,6 +357,20 @@ export async function startDaemon(opts: {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
+  // Detached supervisor: ignore SIGHUP. It owns no controlling terminal, so a
+  // terminal hangup (chat/IDE session closing) must never reach it — and if a
+  // stray SIGHUP ever does (e.g. a shared session before the double-fork
+  // reparents), ignoring it keeps the manager and its proxies alive instead of
+  // silently terminating with no graceful-shutdown log. `pm stop` (SIGTERM) and
+  // the "shutdown" command remain the only ways to stop it.
+  if (opts.detached) {
+    process.on("SIGHUP", () => {
+      log.info(
+        "Ignoring SIGHUP — detached supervisor has no controlling terminal"
+      );
+    });
+  }
+
   // Intercept "shutdown" command in UDS handler
   server.on("connection", (socket) => {
     socket.on("data", (chunk) => {
@@ -380,7 +401,7 @@ export async function startDaemon(opts: {
   // Start the dashboard HTTP API (non-critical — daemon works without it)
   try {
     const { startDaemonApi } = await import("../daemon/api.js");
-    apiHandle = startDaemonApi(pm);
+    apiHandle = await startDaemonApi(pm);
     if (apiHandle) {
       log.info(`Dashboard: http://localhost:${apiHandle.port}`);
     }

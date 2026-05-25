@@ -9,6 +9,28 @@
 
 // ── Shared primitives ────────────────────────────────────────────
 
+/**
+ * Fixed loopback port the process manager (unerrd) serves the dashboard +
+ * HTTP API on (127.0.0.1:9847). Single source of truth — import this instead
+ * of repeating the literal so the URL surfaced in `pm status`, `doctor`, and
+ * the daemon logs can never drift apart.
+ */
+export const DAEMON_DASHBOARD_PORT = 9847;
+
+/**
+ * How many ports above DAEMON_DASHBOARD_PORT unerrd will scan for a free one
+ * before giving up. 9847 occupied → try 9848 … 9947. The actually-bound port
+ * is persisted to dashboard.json so every URL surface reflects reality.
+ */
+export const DAEMON_DASHBOARD_PORT_SCAN_RANGE = 100;
+
+/** Canonical dashboard URL. Reachable only while unerrd is running. */
+export function daemonDashboardUrl(
+  port: number = DAEMON_DASHBOARD_PORT
+): string {
+  return `http://localhost:${port}`;
+}
+
 export type JavaBuildTool = "Maven" | "Gradle" | "Bazel" | "Sbt";
 
 export const JAVA_BUILD_TOOLS: readonly JavaBuildTool[] = [
@@ -216,3 +238,6 @@ export const DEFAULT_WARM_START_DELAY_MS = 30_000;
 
 /** Default warm-start idle-days cutoff. */
 export const DEFAULT_WARM_START_IDLE_DAYS = 14;
+
+/** Max wait for a daemon-managed child to send IPC `ready` (ms). */
+export const REPO_READY_TIMEOUT_MS = 120_000;

@@ -20,7 +20,10 @@ import {
   passthrough,
   runPromptSubmitHook,
 } from "./hook-runner.js";
-import { recordUserPromptReceived } from "./prompt-capture.js";
+import {
+  readProxySessionId,
+  recordUserPromptReceived,
+} from "./prompt-capture.js";
 
 // ── Path A: keyword fast path — verb clusters → named sub-skills ─────────────
 // Mirrors docs/identity-impact-redesign.md §3 Path A table. Each cluster
@@ -544,8 +547,13 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // Reasoning Quality / Logbook trace pages reaches the right turn.
   try {
     const cwd = process.cwd();
+    // Key the prompt-boundary event to the LIVE proxy session id (read from
+    // `.unerr/state/session.id`) so it joins Token Flow / behavior events in
+    // ONE per-session timeline. The agent's own `raw.session_id` is a
+    // different namespace and would never join — fall back to it only when no
+    // proxy is up (file absent).
     const sessionId =
-      process.env.UNERR_SESSION_ID ??
+      readProxySessionId(join(cwd, ".unerr")) ??
       (raw.session_id as string | undefined) ??
       "unknown";
     const cluster = classifyVerbCluster(message);

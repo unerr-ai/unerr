@@ -13,7 +13,7 @@
  */
 
 import { dirname } from "node:path";
-import { readNamedEvents } from "../tracking/named-events.js";
+import { currentTurnSlice, readNamedEvents } from "../tracking/named-events.js";
 import {
   type RuntimeJoinCounts,
   computeRuntimeJoins,
@@ -124,11 +124,16 @@ export async function handleTurnSummaryProxy(
       const events = readNamedEvents(unerrDir, { session_id: sessionId });
       runtimeJoins = computeRuntimeJoins(events, sessionId, currentTurn);
       attribution = extractReceiptAttribution(events, currentTurn);
+      // Slice to the conversational turn via the prompt boundary so the
+      // concrete bullets describe the same window as data.turn_tokens_saved.
+      const turnEvents = currentTurnSlice(events, currentTurn);
       blockLines = renderReceiptBlock({
         attribution,
         runtimeJoins,
         turnTokensSaved: data.turn_tokens_saved,
         sessionTokensSaved: data.total_tokens_saved,
+        sessionHeadroom: data.headroom_compounded,
+        turnEvents,
         fallbackLine: data.line,
       });
     } catch {

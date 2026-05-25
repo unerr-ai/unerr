@@ -114,13 +114,21 @@ export interface CumulativeResponse {
 
 // ── Constants ────────────────────────────────────────────────────────
 
-// COMPRESS-class mechanisms only. Graph queries and behavior interventions
-// are PREVENT-class — they have no counterfactual byte count, so they
-// appear in the Preventions pane (verb-noun counters) instead.
+// Per-mechanism colors. `graph_query` and `file_read` are the
+// code-intelligence tier (graph-served slices vs full reads); the rest are
+// output-compression. Behavior interventions (loop-broken, cascade-guard,
+// …) remain PREVENT-class counters in the Preventions pane — they have no
+// counterfactual byte count, so they're not in this savings map.
 export const MECH_COLORS: Record<
   string,
   { bg: string; text: string; bar: string; ring: string }
 > = {
+  graph_query: {
+    bg: "bg-violet-500/20",
+    text: "text-violet-300",
+    bar: "bg-violet-500",
+    ring: "ring-violet-500/40",
+  },
   shell_compression: {
     bg: "bg-cyan-500/20",
     text: "text-cyan-400",
@@ -160,13 +168,86 @@ export const MECH_COLORS: Record<
 };
 
 export const ALL_MECHANISMS = [
+  "graph_query",
+  "file_read",
   "shell_compression",
   "format_encoding",
   "session_dedup",
   "smart_truncation",
-  "file_read",
   "fetch_url",
 ];
+
+// ── Origin tiers — the spine of the Token Trace differentiation ──────
+//
+// Every saved token comes from one of two origins:
+//
+//   • code-intelligence — graph queries + graph-guided reads. unerr keeps
+//     a live map of the repo, so it serves the right slice instead of raw
+//     bytes. No text-only optimizer has a code graph, so this tier is
+//     structurally unique — not a feature competitors lack, a capability
+//     they cannot have without indexing the codebase.
+//   • output-compression — trimming the bytes of tool output (shell, web
+//     fetch, format encoding, dedup, truncation). Real savings, but
+//     table-stakes: any proxy can compress a payload. This is the
+//     category every token tool already competes in.
+//
+// The contrast is the message. We never name a competitor — we name the
+// category ("output compression") as the frame of reference, then show
+// the work that only repo-understanding can do (category-design framing,
+// Lochhead / Dunford).
+export const INTELLIGENCE_MECHANISMS = new Set(["graph_query", "file_read"]);
+
+export interface MechanismTier {
+  key: "intelligence" | "compression";
+  tokens: number;
+  events: number;
+  entries: Array<[string, MechanismSummary]>;
+}
+
+/**
+ * Partition a by-mechanism map into the two origin tiers. The split is
+ * exhaustive — compression is *everything* that isn't graph / graph-guided
+ * reads — so the two tiers always sum to the original total. Nothing is
+ * cherry-picked or dropped.
+ */
+export function splitMechanismsByTier(
+  byMechanism: Record<string, MechanismSummary>
+): { intelligence: MechanismTier; compression: MechanismTier; total: number } {
+  const intelligence: MechanismTier = {
+    key: "intelligence",
+    tokens: 0,
+    events: 0,
+    entries: [],
+  };
+  const compression: MechanismTier = {
+    key: "compression",
+    tokens: 0,
+    events: 0,
+    entries: [],
+  };
+  for (const [mech, data] of Object.entries(byMechanism)) {
+    const tier = INTELLIGENCE_MECHANISMS.has(mech) ? intelligence : compression;
+    tier.tokens += data.tokens_saved;
+    tier.events += data.event_count;
+    tier.entries.push([mech, data]);
+  }
+  const byTokens = (
+    a: [string, MechanismSummary],
+    b: [string, MechanismSummary]
+  ) => b[1].tokens_saved - a[1].tokens_saved;
+  intelligence.entries.sort(byTokens);
+  compression.entries.sort(byTokens);
+  return {
+    intelligence,
+    compression,
+    total: intelligence.tokens + compression.tokens,
+  };
+}
+
+/** Human label for a mechanism key (graph_query → "graph query"). */
+export function mechLabel(mech: string): string {
+  return mech.replace(/_/g, " ");
+}
 
 // Prevention event types (PREVENT-class). Each one is a discrete named
 // count surfaced in the Preventions pane. The legend lives next to

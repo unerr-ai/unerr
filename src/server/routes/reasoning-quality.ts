@@ -14,8 +14,8 @@ import {
   type BehaviorEvent,
   readBehaviorEvents,
 } from "../../tracking/behavior-events.js";
-import { readSessionHistory } from "../../tracking/session-history.js";
 import { getPromptForTurn } from "../../tracking/prompt-trace.js";
+import { readSessionHistory } from "../../tracking/session-history.js";
 import type { TokenFlowWriter } from "../../tracking/token-flow.js";
 import {
   type TokenFlowEvent,
@@ -53,7 +53,7 @@ const GRAPH_QUERY_BEHAVIOR_TYPE = "graph_query_served";
 /** Mechanism that carries persistent-memory effectiveness verdicts */
 const PERSISTENT_MEMORY_MECHANISM = "persistent_memory";
 
-interface QualityMetrics {
+export interface QualityMetrics {
   // ── Category 1: Context Quality ──────────────────────────────
   /** Signal-to-Noise Ratio: tokens_with / tokens_without (lower = cleaner signal) */
   signal_to_noise_ratio: number;
@@ -129,7 +129,7 @@ interface QualityMetrics {
   memory_effectiveness_pct: number;
 }
 
-function computeQualityMetrics(
+export function computeQualityMetrics(
   events: TokenFlowEvent[],
   behaviorRows: BehaviorEvent[] = []
 ): QualityMetrics {

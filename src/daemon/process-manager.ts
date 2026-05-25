@@ -16,7 +16,8 @@
  */
 
 import { type ChildProcess, fork } from "node:child_process";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type {
   ChildMessage,
   NeedsInputSignal,
@@ -24,7 +25,13 @@ import type {
   RepoStatus,
   RepoStatusEntry,
 } from "./protocol.js";
-import { readNeedsInput, readRegistry, writeRegistry } from "./registry.js";
+import { REPO_READY_TIMEOUT_MS } from "./protocol.js";
+import {
+  expandHome,
+  readNeedsInput,
+  readRegistry,
+  writeRegistry,
+} from "./registry.js";
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -45,6 +52,13 @@ export interface ManagedRepo {
   needsInput: NeedsInputSignal[];
   readyResolve: ((sock: string) => void) | null;
   readyReject: ((err: Error) => void) | null;
+  /**
+   * True when this entry was adopted from an already-running per-repo proxy
+   * (prior unerrd generation, standalone `unerr`, or one that outlived our
+   * restart) rather than forked by us. We hold no IPC handle (`child` is null),
+   * so liveness is probed by PID and shutdown is signalled by PID.
+   */
+  adopted?: boolean;
 }
 
 export type ProcessEventHandler = (
@@ -56,7 +70,21 @@ export type ProcessEventHandler = (
 // ── Process Manager ─────────────────────────────────────────────
 
 const IDLE_SWEEP_INTERVAL_MS = 60_000;
-const READY_TIMEOUT_MS = 30_000;
+
+/** Liveness probe — does a process with this PID currently exist? */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Canonicalize a repo path to the single absolute key used in the repos map. */
+function canonRepoKey(repoPath: string): string {
+  return resolve(expandHome(repoPath));
+}
 
 export class ProcessManager {
   private repos = new Map<string, ManagedRepo>();
@@ -92,20 +120,88 @@ export class ProcessManager {
    * If stopped, spawns it and waits for the "ready" IPC message.
    */
   async ensure(repoPath: string): Promise<string> {
-    const existing = this.repos.get(repoPath);
+    const key = canonRepoKey(repoPath);
+    const existing = this.repos.get(key);
     if (existing?.status === "running" && existing.sock) {
-      return existing.sock;
-    }
-    if (existing?.status === "starting") {
+      // A forked child's death fires our `exit` listener, so its "running"
+      // status is trustworthy. An adopted proxy has no IPC handle, so re-probe
+      // its PID — if it died we never heard about it; drop and re-evaluate.
+      if (
+        !existing.adopted ||
+        (existing.pid !== null && isProcessAlive(existing.pid))
+      ) {
+        return existing.sock;
+      }
+      this.repos.delete(key);
+    } else if (existing?.status === "starting") {
       return this.waitForReady(existing);
     }
 
-    return this.spawn(repoPath);
+    // Adopt an already-live per-repo proxy (started by a prior unerrd
+    // generation, a standalone `unerr`, or one that outlived our restart)
+    // instead of forking a throwaway child. The child would lose the PID-lock
+    // race in proxy.ts, exit(0) without sending "ready", and be marked
+    // "stopped" — the churn that left the real primary serving but untracked
+    // while `pm status` and the dashboard read "stopped".
+    const adopted = this.tryAdopt(key);
+    if (adopted) return adopted;
+
+    return this.spawn(key);
+  }
+
+  /**
+   * Adopt a per-repo proxy that is already alive on disk — PID lock present and
+   * the named process running, with its UDS socket in place. Registers a
+   * managed entry (with no child handle) and returns the socket, so unerrd
+   * tracks and forwards to the live proxy instead of forking a duplicate.
+   * Returns null when no live proxy is present (caller then spawns one).
+   */
+  private tryAdopt(repoPath: string): string | null {
+    const stateDir = join(repoPath, ".unerr", "state");
+    const sockPath = join(stateDir, "proxy.sock");
+    const pidFilePath = join(stateDir, "proxy.pid");
+    if (!existsSync(sockPath) || !existsSync(pidFilePath)) return null;
+
+    let pid: number | null = null;
+    try {
+      const parsed = JSON.parse(readFileSync(pidFilePath, "utf-8")) as {
+        pid?: number;
+      };
+      pid = typeof parsed.pid === "number" ? parsed.pid : null;
+    } catch {
+      return null;
+    }
+    if (pid === null || !isProcessAlive(pid)) return null;
+
+    const reg = readRegistry();
+    const entry = reg.repos.find((r) => r.path === repoPath);
+    const repo: ManagedRepo = {
+      path: repoPath,
+      label: entry?.label ?? repoPath.split("/").pop() ?? repoPath,
+      idleTimeout: entry?.idleTimeout ?? 1800,
+      status: "running",
+      child: null,
+      pid,
+      sock: sockPath,
+      connections: 0,
+      lastActivity: Date.now(),
+      startedAt: Date.now(),
+      memory: null,
+      entities: null,
+      edges: null,
+      needsInput: [],
+      readyResolve: null,
+      readyReject: null,
+      adopted: true,
+    };
+    this.repos.set(repoPath, repo);
+    this.onEvent?.("started", repo, "adopted existing proxy");
+    return sockPath;
   }
 
   /** Record that a bridge connected to this repo. */
   connect(repoPath: string): void {
-    const repo = this.repos.get(repoPath);
+    const repo = this.repos.get(canonRepoKey(repoPath));
     if (repo) {
       repo.connections++;
       repo.lastActivity = Date.now();
@@ -114,7 +210,7 @@ export class ProcessManager {
 
   /** Record that a bridge disconnected from this repo. */
   disconnect(repoPath: string): void {
-    const repo = this.repos.get(repoPath);
+    const repo = this.repos.get(canonRepoKey(repoPath));
     if (repo && repo.connections > 0) {
       repo.connections--;
     }
@@ -122,7 +218,7 @@ export class ProcessManager {
 
   /** Record activity (tool call) for this repo. */
   recordActivity(repoPath: string): void {
-    const repo = this.repos.get(repoPath);
+    const repo = this.repos.get(canonRepoKey(repoPath));
     if (repo) {
       repo.lastActivity = Date.now();
       this.onEvent?.("activity", repo);
@@ -131,8 +227,24 @@ export class ProcessManager {
 
   /** Gracefully stop a specific repo's process. */
   async stop(repoPath: string): Promise<void> {
-    const repo = this.repos.get(repoPath);
-    if (!repo?.child || repo.status === "stopped") return;
+    const repo = this.repos.get(canonRepoKey(repoPath));
+    if (!repo || repo.status === "stopped") return;
+    if (!repo.child) {
+      // Adopted external proxy — no IPC handle; terminate by PID if alive.
+      if (repo.adopted && repo.pid !== null && isProcessAlive(repo.pid)) {
+        try {
+          process.kill(repo.pid, "SIGTERM");
+        } catch {
+          /* already gone */
+        }
+      }
+      repo.status = "stopped";
+      repo.pid = null;
+      repo.sock = null;
+      repo.connections = 0;
+      this.onEvent?.("stopped", repo, "adopted proxy signaled");
+      return;
+    }
     await this.shutdownChild(repo);
   }
 
@@ -181,7 +293,7 @@ export class ProcessManager {
 
   /** Get a managed repo record (for internal use). */
   getManaged(repoPath: string): ManagedRepo | undefined {
-    return this.repos.get(repoPath);
+    return this.repos.get(canonRepoKey(repoPath));
   }
 
   // ── Internal: spawn ─────────────────────────────────────────
@@ -263,7 +375,7 @@ export class ProcessManager {
       const timer = setTimeout(() => {
         repo.readyReject?.(
           new Error(
-            `Repo process ${repo.path} failed to become ready in ${READY_TIMEOUT_MS}ms`
+            `Repo process ${repo.path} failed to become ready in ${REPO_READY_TIMEOUT_MS}ms`
           )
         );
         repo.readyResolve = null;
@@ -272,7 +384,7 @@ export class ProcessManager {
           repo.status = "error";
           repo.child?.kill("SIGTERM");
         }
-      }, READY_TIMEOUT_MS);
+      }, REPO_READY_TIMEOUT_MS);
       timer.unref();
     });
   }
@@ -378,6 +490,9 @@ export class ProcessManager {
 
     for (const repo of this.repos.values()) {
       if (repo.status !== "running") continue;
+      // Adopted external proxies have no IPC handle and run their own idle
+      // lifecycle (own PID lock) — unerrd doesn't sweep what it didn't fork.
+      if (repo.adopted) continue;
       if (repo.connections > 0) continue;
       if (repo.idleTimeout === 0) continue;
 

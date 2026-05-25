@@ -5,14 +5,11 @@
  * streaks correctly.
  */
 
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  _resetNudgeState,
-  updateNudgeState,
-} from "../proxy/nudge-state.js";
+import { _resetNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import {
   buildComplianceRibbon,
   createLogbookRoutes,

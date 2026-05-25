@@ -1337,6 +1337,15 @@ export class QueryRouter {
                   tokens_with: deliveredTokens,
                   tokens_saved: fileReadSaved,
                   detail: {
+                    // L2 capture-site fix: the Logbook can only name the file
+                    // ("Trimmed the read of `src/x.ts`") if file_path rides the
+                    // detail bag — it was missing here, so prod rows fell back
+                    // to the generic "Trimmed a file read". Same extraction the
+                    // fact injector uses (execute() args).
+                    file_path:
+                      (args.file_path as string) ??
+                      (args.path as string) ??
+                      null,
                     optimization:
                       fr._layer6_meta.optimization ?? "file_read full",
                     total_lines: fr._layer6_meta.total_lines,
@@ -2352,6 +2361,9 @@ export class QueryRouter {
                   signal_id: f.fact_id,
                   entity_key: entityKey,
                   turn,
+                  // L2: thread the fact text so persistent_memory events name
+                  // the actual note in the Logbook, not "a remembered signal".
+                  content: f.content,
                 });
               }
             }

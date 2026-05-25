@@ -39,14 +39,11 @@ describe("TOOL_CLUSTERS", () => {
     }
   });
 
-  it("navigation cluster has the most tools", () => {
-    const nav = TOOL_CLUSTERS.find((c) => c.id === "navigation");
-    expect(nav).toBeDefined();
-    for (const cluster of TOOL_CLUSTERS) {
-      if (cluster.id !== "navigation") {
-        expect(nav!.tools.length).toBeGreaterThanOrEqual(cluster.tools.length);
-      }
-    }
+  it("navigation cluster is ordered first (most commonly needed)", () => {
+    // Clusters are ordered most→least commonly needed (see TOOL_CLUSTERS doc
+    // comment), not by tool count. Navigation must lead; tool counts vary as
+    // clusters grow (e.g. session-narrative gained turn_summary/surface2_line).
+    expect(TOOL_CLUSTERS[0]?.id).toBe("navigation");
   });
 
   it("each cluster has trigger keywords", () => {

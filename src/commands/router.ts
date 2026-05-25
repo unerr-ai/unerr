@@ -288,7 +288,7 @@ async function enableRouter(
     }
   );
   write(`  ${G}✓${X} Wrote ${configOutPath}\n`);
-  write(`  ${G}✓${X} Router enabled. Restart your IDE to apply.\n`);
+  write(`  ${G}✓${X} Router enabled. Start a new chat session to apply.\n`);
 
   if (autoMaskedServers.length > 0) {
     write(
@@ -338,7 +338,7 @@ async function disableRouter(
   }
 
   removeRouterConfig(unerrDir(cwd));
-  write(`  ${G}✓${X} Router disabled. Restart your IDE to apply.\n\n`);
+  write(`  ${G}✓${X} Router disabled. Start a new chat session to apply.\n\n`);
 }
 
 // ── router status ────────────────────────────────────────────────

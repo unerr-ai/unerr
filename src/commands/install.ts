@@ -199,7 +199,7 @@ export function registerInstallCommand(program: Command): void {
 
         process.stderr.write("\n");
         process.stderr.write(
-          `  \x1b[38;2;161;161;170mRestart ${agentDef.name} to start using unerr.\x1b[0m\n`
+          `  \x1b[38;2;161;161;170mStart a new ${agentDef.name} chat session to begin using unerr.\x1b[0m\n`
         );
         process.stderr.write("\n");
       }
@@ -446,9 +446,9 @@ function showSetupInstructions(agentName: string): void {
     );
     w(`     unerr install ${agentDef.id}\n\n`);
 
-    // Step 4: Restart
+    // Step 4: New chat session
     w(
-      `  \x1b[38;2;161;161;170mRestart ${agentDef.name} to pick up changes.\x1b[0m\n`
+      `  \x1b[38;2;161;161;170mStart a new ${agentDef.name} chat session to pick up changes.\x1b[0m\n`
     );
   } else {
     // Unknown/other agent — generic guide
@@ -474,14 +474,17 @@ function showSetupInstructions(agentName: string): void {
 
     w("  \x1b[1mStep 3: Verify\x1b[0m\n");
     w("  \x1b[2m──────────────\x1b[0m\n");
-    w("  After restarting your agent, verify unerr tools are available.\n");
+    w("  In a new chat session, verify unerr tools are available.\n");
     w("  You should see tools like: get_callers, search_code, file_read,\n");
     w("  file_outline, get_imports, get_callees.\n\n");
 
-    w("  \x1b[1mStep 4: Restart your agent\x1b[0m\n");
-    w("  \x1b[2m──────────────────────────\x1b[0m\n");
+    w("  \x1b[1mStep 4: Start a new chat session\x1b[0m\n");
+    w("  \x1b[2m────────────────────────────────\x1b[0m\n");
     w(
       "  unerr starts automatically when your agent first connects to its MCP server.\n"
+    );
+    w(
+      "  Opening a new chat session reconnects to the MCP server — no full app restart needed.\n"
     );
     w("  No background service to install — no boot-time setup needed.\n");
   }

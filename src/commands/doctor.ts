@@ -22,6 +22,10 @@ import { homedir } from "node:os";
 import { dirname, join, normalize } from "node:path";
 import { createInterface } from "node:readline";
 import type { Command } from "commander";
+import {
+  DAEMON_DASHBOARD_PORT,
+  daemonDashboardUrl,
+} from "../daemon/protocol.js";
 
 // ── ANSI helpers ──────────────────────────────────────────────
 
@@ -716,9 +720,9 @@ function checkUnerrDirAccess(): CheckResult {
   };
 }
 
-// 5. Dashboard port 9847 free (or already held by a live daemon)
+// 5. Dashboard port free (or already held by a live daemon)
 function checkDashboardPort(): Promise<CheckResult> {
-  const port = 9847;
+  const port = DAEMON_DASHBOARD_PORT;
   return new Promise((resolve) => {
     const server = createServer();
     let settled = false;
@@ -748,9 +752,7 @@ function checkDashboardPort(): Promise<CheckResult> {
           name: `Dashboard port ${port}`,
           status: "warn",
           message: "in use",
-          detail:
-            "If unerrd is already running, this is expected — visit http://localhost:9847.\n" +
-            "Otherwise another process holds the port and the dashboard won't be reachable.",
+          detail: `If unerrd is already running, this is expected — visit ${daemonDashboardUrl()}.\nOtherwise unerrd scans the next ~100 ports for a free one at startup.`,
         });
       } else {
         finish({
@@ -766,7 +768,7 @@ function checkDashboardPort(): Promise<CheckResult> {
       finish({
         name: `Dashboard port ${port}`,
         status: "ok",
-        message: "available (dashboard will serve at http://localhost:9847)",
+        message: `available (dashboard will serve at ${daemonDashboardUrl()})`,
       });
     });
   });

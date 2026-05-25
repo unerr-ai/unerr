@@ -56,6 +56,70 @@ describe("ProcessManager", () => {
     expect(status).toEqual([]);
   });
 
+  it("ensure() adopts an already-live per-repo proxy instead of forking", async () => {
+    const { ProcessManager } = await import("../daemon/process-manager.js");
+    // A repo whose proxy is already running on disk: the PID lock points at a
+    // live process (our own PID — guaranteed alive) and the UDS socket exists.
+    // ensure() must adopt it (no fork), so the live primary is tracked and
+    // `pm status` reflects reality instead of churning "stopped".
+    const repoDir = join(testDir, "live-repo");
+    const stateDir = join(repoDir, ".unerr", "state");
+    mkdirSync(stateDir, { recursive: true });
+    const sockPath = join(stateDir, "proxy.sock");
+    writeFileSync(sockPath, ""); // existence is all tryAdopt checks
+    writeFileSync(
+      join(stateDir, "proxy.pid"),
+      JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })
+    );
+    // Registered, as a real adopted repo would be (so getStatus surfaces it).
+    const { addRepo } = await import("../daemon/registry.js");
+    addRepo(repoDir);
+
+    const pm = new ProcessManager();
+    const events: string[] = [];
+    pm.setEventHandler((event, _repo, detail) =>
+      events.push(`${event}:${detail ?? ""}`)
+    );
+
+    const sock = await pm.ensure(repoDir);
+    expect(sock).toBe(sockPath);
+
+    const managed = pm.getManaged(repoDir);
+    expect(managed?.status).toBe("running");
+    expect(managed?.adopted).toBe(true);
+    expect(managed?.pid).toBe(process.pid);
+    expect(managed?.child).toBeNull(); // adopted — no forked child handle
+    expect(events.some((e) => e.startsWith("started:adopted"))).toBe(true);
+
+    // Adopted entries are excluded from the idle sweep (own lifecycle).
+    expect(pm.getStatus()[0]?.status).toBe("running");
+  });
+
+  it("ensure() drops a dead adopted entry and re-evaluates", async () => {
+    const { ProcessManager } = await import("../daemon/process-manager.js");
+    const repoDir = join(testDir, "reprobe-repo");
+    const stateDir = join(repoDir, ".unerr", "state");
+    mkdirSync(stateDir, { recursive: true });
+    const sockPath = join(stateDir, "proxy.sock");
+    writeFileSync(sockPath, "");
+    writeFileSync(
+      join(stateDir, "proxy.pid"),
+      JSON.stringify({ pid: process.pid })
+    );
+
+    const pm = new ProcessManager();
+    await pm.ensure(repoDir); // adopt with our live PID
+
+    // Simulate the adopted proxy dying: point the tracked entry at a PID that
+    // is not alive. ensure() must re-probe, drop the stale entry, and (since
+    // the on-disk lock still names our live PID) re-adopt cleanly.
+    const managed = pm.getManaged(repoDir)!;
+    managed.pid = 2_147_483_646; // implausible PID — not alive
+    const sock2 = await pm.ensure(repoDir);
+    expect(sock2).toBe(sockPath);
+    expect(pm.getManaged(repoDir)?.pid).toBe(process.pid); // refreshed
+  });
+
   it("getManaged returns undefined for unknown repo", async () => {
     const { ProcessManager } = await import("../daemon/process-manager.js");
     const pm = new ProcessManager();
@@ -109,6 +173,7 @@ describe("Daemon protocol types", () => {
     expect(proto.DEFAULT_WARM_START_BUDGET).toBe(3);
     expect(proto.DEFAULT_WARM_START_DELAY_MS).toBe(30_000);
     expect(proto.DEFAULT_WARM_START_IDLE_DAYS).toBe(14);
+    expect(proto.REPO_READY_TIMEOUT_MS).toBe(120_000);
   });
 
   it("ChildMessage types are all present", async () => {
@@ -233,6 +298,8 @@ describe("CLI --daemon-child flag", () => {
 
     expect(content).toContain('{ type: "ready", sock: sockPath }');
     expect(content).toContain("process.send");
+    expect(content).toContain("onDaemonReady");
+    expect(content).toContain("let proxyResult");
   });
 });
 
@@ -432,7 +499,9 @@ describe("Process-manager CLI commands", () => {
     const content = readSync(res(process.cwd(), "src/commands/pm.ts"), "utf-8");
 
     expect(content).toContain('.command("start")');
-    expect(content).toContain('.command("stop")');
+    // stop now takes an optional [path] positional (stop one repo) and still
+    // stops the whole supervisor when called with no argument.
+    expect(content).toContain('.command("stop [path]")');
     expect(content).toContain("--detached");
     expect(content).toContain("startDaemon");
   });

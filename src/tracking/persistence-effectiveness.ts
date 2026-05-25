@@ -44,6 +44,11 @@ interface OpenSignal {
   reinforcements: number;
   corrections: number;
   edits: number;
+  /** L2 capture-site fix: the note/fact text so the Logbook can name the
+   *  actual signal ("Surfaced \"MCP config is project-level only\"") instead
+   *  of the generic "a remembered signal" (the §0 ×15 row). Optional —
+   *  callers without text in scope omit it and the render falls back. */
+  content?: string | null;
 }
 
 export interface PersistenceEffectivenessOptions {
@@ -80,6 +85,9 @@ export class PersistenceEffectivenessTracker {
     entity_key?: string | null;
     turn: number;
     session_id?: string;
+    /** Note/fact text — threaded into the emitted detail so the Logbook
+     *  names the actual signal. Optional; omit when not in scope. */
+    content?: string | null;
   }): void {
     const sessionId = p.session_id ?? this.tokenFlow.sessionId;
     const key = `${p.kind}:${p.signal_id}`;
@@ -99,6 +107,7 @@ export class PersistenceEffectivenessTracker {
       reinforcements: 0,
       corrections: 0,
       edits: 0,
+      content: p.content ?? null,
     });
 
     this.emit({
@@ -111,6 +120,7 @@ export class PersistenceEffectivenessTracker {
       reinforcements: 0,
       corrections: 0,
       edits: 0,
+      content: p.content ?? null,
     });
   }
 
@@ -183,6 +193,7 @@ export class PersistenceEffectivenessTracker {
       reinforcements: s.reinforcements,
       corrections: s.corrections,
       edits: s.edits,
+      content: s.content ?? null,
     });
   }
 
@@ -207,7 +218,14 @@ export class PersistenceEffectivenessTracker {
     reinforcements: number;
     corrections: number;
     edits: number;
+    content?: string | null;
   }): void {
+    // Cap the stored note text — facts can be long and the detail bag is
+    // persisted per event; 200 chars is enough for the Logbook headline.
+    const content =
+      typeof p.content === "string" && p.content.length > 0
+        ? p.content.slice(0, 200)
+        : null;
     this.tokenFlow.record({
       session_id: p.session_id,
       turn: p.turn,
@@ -221,6 +239,7 @@ export class PersistenceEffectivenessTracker {
         verdict: p.verdict,
         signal_id: p.signal_id,
         entity_key: p.entity_key,
+        content,
         reinforcements: p.reinforcements,
         corrections: p.corrections,
         edits: p.edits,

@@ -21,8 +21,10 @@ import {
   readdirSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { getPromptsForSession } from "../tracking/prompt-trace.js";
 import { aliasAndValidate } from "./arg-validator.js";
 import { PidLock } from "./pid-lock.js";
+import type { RouterTelemetryRecord } from "./router-telemetry.js";
 import {
   type SessionStats,
   createSessionStats,
@@ -42,6 +44,7 @@ import {
   recordSignaturePreservation,
   recordToolCall,
   recordViolation,
+  resolveResumableSessionId,
 } from "./session-stats.js";
 import { StartupRenderer } from "./startup-renderer.js";
 import { ToolUsageTracker, reorderToolsByCluster } from "./tool-clusters.js";
@@ -72,6 +75,8 @@ export interface ProxyOptions {
   httpPort?: number;
   /** Running as a daemon-managed child (suppresses startup renderer, PID lock is per-repo) */
   daemonChild?: boolean;
+  /** Fired once the per-repo dashboard HTTP server is up (daemon child only). */
+  onDaemonReady?: (info: { sock: string; port: number | null }) => void;
   /** Coding-agent id (from `--coding-agent=<id>` install-time flag). Most
    *  authoritative source for agent attribution; stamped on every event
    *  unless a per-client UDS handshake overrides it for that client. */
@@ -1343,56 +1348,117 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     return aliasAndValidate(def, toolArgs);
   };
 
+  // Single-flight guard: concurrent tools/list calls and the fire-and-forget
+  // background refresh must not stack duplicate, reindex-contending queries.
+  let injectedToolsRefreshInFlight: Promise<void> | null = null;
+
+  // Graph-touching build of the injected tool list. May stall for tens of
+  // seconds while the post-boot background reindex (needsBackgroundIndex) holds
+  // the CozoDB graph, so callers on the tools/list hot path MUST race it
+  // against a budget rather than await it directly (see getInjectedTools).
+  // Populates the cache on success; `localGraph` is re-read at call time so a
+  // graph swap mid-build is observed.
+  async function buildInjectedTools(): Promise<ToolDef[]> {
+    const graph = localGraph;
+    if (!graph) return toolDefinitions;
+    // biome-ignore format: typeof import() must stay on one line for TS parsing
+    const { injectRuleContext, getBlockRules } = require("../intelligence/tool-injector.js") as typeof import("../intelligence/tool-injector.js");
+    // biome-ignore format: typeof import() must stay on one line for TS parsing
+    const { DEEP_DIVE_TOOL_DEFINITIONS, NAVIGATION_TOOL_NAMES } = require("../intelligence/deep-dive-tools.js") as typeof import("../intelligence/deep-dive-tools.js");
+
+    const currentDeepDiveState = await graph.getDeepDiveProjectState();
+
+    // Build base tools + conditionally include deep dive tools
+    let baseTools: ToolDef[] = [...toolDefinitions];
+    if (currentDeepDiveState === "approved") {
+      // Post-approval: 4 navigation tools
+      const navTools = (
+        DEEP_DIVE_TOOL_DEFINITIONS as readonly ToolDef[]
+      ).filter((t) =>
+        (NAVIGATION_TOOL_NAMES as readonly string[]).includes(t.name)
+      );
+      baseTools = [...baseTools, ...navTools];
+    } else if (currentDeepDiveState === "building") {
+      // Implementation phase: all 8 tools
+      baseTools = [
+        ...baseTools,
+        ...(DEEP_DIVE_TOOL_DEFINITIONS as readonly ToolDef[]),
+      ];
+    }
+    // "none" and "pre_approval": no deep dive tools
+
+    const injected = (await injectRuleContext(baseTools, graph)) as ToolDef[];
+    cachedInjectedTools = injected;
+    cachedBlockRuleKeys = new Set(
+      (await getBlockRules(graph)).map((r: { key: string }) => r.key)
+    );
+    cachedDeepDiveState = currentDeepDiveState;
+    return injected;
+  }
+
+  // Refresh the enriched cache off the response path. Swallows errors and is
+  // single-flighted, so a busy (reindexing) graph just defers the refresh to a
+  // later call instead of ever blocking tools/list.
+  function refreshInjectedToolsInBackground(): void {
+    if (injectedToolsRefreshInFlight) return;
+    const graph = localGraph;
+    if (!graph) return;
+    injectedToolsRefreshInFlight = (async () => {
+      try {
+        // biome-ignore format: typeof import() must stay on one line for TS parsing
+        const { needsRefresh } = require("../intelligence/tool-injector.js") as typeof import("../intelligence/tool-injector.js");
+        const stateChanged =
+          (await graph.getDeepDiveProjectState()) !== cachedDeepDiveState;
+        if (stateChanged || (await needsRefresh(graph, cachedBlockRuleKeys))) {
+          await buildInjectedTools();
+        }
+      } catch {
+        /* non-critical — keep serving the last good cache */
+      } finally {
+        injectedToolsRefreshInFlight = null;
+      }
+    })();
+  }
+
+  /**
+   * Tool list for the `tools/list` response. MUST return promptly — it MUST
+   * NOT block on CozoDB. On every snapshot boot the proxy schedules a
+   * background full reindex (needsBackgroundIndex, runs "after MCP ready") that
+   * holds the graph for tens of seconds; the previous implementation awaited
+   * getDeepDiveProjectState()/needsRefresh() on every call (before the cache
+   * check), so during that window tools/list exceeded the MCP client's request
+   * timeout (-32001), the client registered zero tools, and restarting just
+   * re-entered the same window. Strategy:
+   *   - cache hit  → return instantly; refresh enrichment off the hot path.
+   *   - cache miss → race the build against a short budget; on stall serve the
+   *     base definitions now and let the build self-populate the cache for the
+   *     next call.
+   */
+  const COLD_TOOLS_BUILD_BUDGET_MS = 2500;
   async function getInjectedTools(): Promise<ToolDef[]> {
     if (!localGraph) return toolDefinitions;
-    try {
-      // biome-ignore format: typeof import() must stay on one line for TS parsing
-      const { injectRuleContext, needsRefresh, getBlockRules } = require("../intelligence/tool-injector.js") as typeof import("../intelligence/tool-injector.js");
-      // biome-ignore format: typeof import() must stay on one line for TS parsing
-      const { DEEP_DIVE_TOOL_DEFINITIONS, NAVIGATION_TOOL_NAMES } = require("../intelligence/deep-dive-tools.js") as typeof import("../intelligence/deep-dive-tools.js");
 
-      const currentDeepDiveState = await localGraph.getDeepDiveProjectState();
-      const deepDiveStateChanged = currentDeepDiveState !== cachedDeepDiveState;
-
-      if (
-        cachedInjectedTools &&
-        !(await needsRefresh(localGraph, cachedBlockRuleKeys)) &&
-        !deepDiveStateChanged
-      ) {
-        return cachedInjectedTools;
-      }
-
-      // Build base tools + conditionally include deep dive tools
-      let baseTools: ToolDef[] = [...toolDefinitions];
-
-      if (currentDeepDiveState === "approved") {
-        // Post-approval: 4 navigation tools
-        const navTools = (
-          DEEP_DIVE_TOOL_DEFINITIONS as readonly ToolDef[]
-        ).filter((t) =>
-          (NAVIGATION_TOOL_NAMES as readonly string[]).includes(t.name)
-        );
-        baseTools = [...baseTools, ...navTools];
-      } else if (currentDeepDiveState === "building") {
-        // Implementation phase: all 8 tools
-        baseTools = [
-          ...baseTools,
-          ...(DEEP_DIVE_TOOL_DEFINITIONS as readonly ToolDef[]),
-        ];
-      }
-      // "none" and "pre_approval": no deep dive tools
-
-      cachedInjectedTools = (await injectRuleContext(
-        baseTools,
-        localGraph
-      )) as ToolDef[];
-      cachedBlockRuleKeys = new Set(
-        (await getBlockRules(localGraph)).map((r: { key: string }) => r.key)
-      );
-      cachedDeepDiveState = currentDeepDiveState;
+    if (cachedInjectedTools) {
+      refreshInjectedToolsInBackground();
       return cachedInjectedTools;
-    } catch {
-      return toolDefinitions;
+    }
+
+    // Cold path (cache not yet populated, e.g. right after boot): the build
+    // self-populates the cache when it eventually resolves, so even if it loses
+    // the race the next call benefits. `.catch` keeps a slow-then-failing build
+    // from surfacing as an unhandled rejection after the race already settled.
+    const build = buildInjectedTools().catch(() => toolDefinitions);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const budget = new Promise<ToolDef[]>((resolve) => {
+      timer = setTimeout(
+        () => resolve(toolDefinitions),
+        COLD_TOOLS_BUILD_BUDGET_MS
+      );
+    });
+    try {
+      return await Promise.race([build, budget]);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -1430,11 +1496,23 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   const { ShadowLedger } = await import("../tracking/shadow-ledger.js");
   const { IntentCorrelator } = await import("../tracking/intent-correlator.js");
   const unerrDirForLedger = join(process.cwd(), ".unerr");
-  const shadowLedger = new ShadowLedger(unerrDirForLedger);
+  // Warm-restart continuity: when the previous proxy ended within the resume
+  // window (dev rebuild+restart, crash, idle bounce), CONTINUE under its
+  // session id instead of minting a fresh one. Without this, a restart
+  // mid-conversation re-keys the session, so the prompt boundary and the
+  // turn's tool events land under different ids and per-turn savings render
+  // as 0. See resolveResumableSessionId in session-stats.ts for the window.
+  const resumableSessionId = resolveResumableSessionId(stats.previousSession);
+  const shadowLedger = new ShadowLedger(
+    unerrDirForLedger,
+    resumableSessionId ? { sessionId: resumableSessionId } : {}
+  );
   const intentCorrelator = new IntentCorrelator(unerrDirForLedger);
 
   log.info(
-    `Shadow ledger active (session ${shadowLedger.getSessionId().slice(0, 8)})`
+    resumableSessionId
+      ? `Shadow ledger resumed (session ${shadowLedger.getSessionId().slice(0, 8)}, warm restart)`
+      : `Shadow ledger active (session ${shadowLedger.getSessionId().slice(0, 8)})`
   );
 
   // P0-3: Wire the tier-aware exposure gateway. Owns SessionState +
@@ -3451,16 +3529,25 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   }
 
   // Task 6.5: Pre-load tree-sitter WASM grammars (non-blocking)
-  try {
-    const { preloadGrammars } = await import(
-      "../intelligence/ast-extractor.js"
-    );
-    await preloadGrammars();
-    log.info("Tree-sitter WASM grammars pre-loaded");
-  } catch (err: unknown) {
-    log.warn(
-      `Tree-sitter grammar pre-load failed (regex fallback active): ${err instanceof Error ? err.message : String(err)}`
-    );
+  const preloadTreeSitterGrammars = async (): Promise<void> => {
+    try {
+      const { preloadGrammars } = await import(
+        "../intelligence/ast-extractor.js"
+      );
+      await preloadGrammars();
+      log.info("Tree-sitter WASM grammars pre-loaded");
+    } catch (err: unknown) {
+      log.warn(
+        `Tree-sitter grammar pre-load failed (regex fallback active): ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  };
+  // Daemon children must reach the dashboard server (and IPC ready) before
+  // unerrd's REPO_READY_TIMEOUT_MS — don't block that path on WASM preload.
+  if (opts.daemonChild) {
+    void preloadTreeSitterGrammars();
+  } else {
+    await preloadTreeSitterGrammars();
   }
 
   deferredInitComplete = true;
@@ -3522,16 +3609,22 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   const { computePercentiles } = await import("./session-stats.js"); // same dir
 
   const statsSnapshotPath = join(stateDir, "session_stats.json");
-  const statsSnapshotInterval = setInterval(() => {
+  // Persist the live session stats to disk. Shared by the periodic timer and
+  // the graceful-shutdown path so both write an identical shape. Gated on
+  // toolCallsLocal > 0: a proxy that made no MCP calls has nothing worth
+  // resuming, and writing a 0-call snapshot would CLOBBER a prior real
+  // session's snapshot (breaking warm-restart session-id continuity — see
+  // detectSessionResume / resolveResumableSessionId in session-stats.ts).
+  const writeStatsSnapshot = (): void => {
     try {
-      const total = stats.toolCallsLocal;
-      if (total === 0) return;
+      if (stats.toolCallsLocal === 0) return;
       const localP = computePercentiles(
         stats.latency.localSamples,
         stats.latency.localTotalSamples
       );
       const snapshot = {
         pid: process.pid,
+        session_id: shadowLedger.getSessionId(),
         sessionStartedAt: stats.sessionStartedAt,
         toolCallsLocal: stats.toolCallsLocal,
         violationsCaught: stats.violationsCaught,
@@ -3556,7 +3649,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     } catch {
       /* non-critical */
     }
-  }, 10_000); // every 10s
+  };
+  const statsSnapshotInterval = setInterval(writeStatsSnapshot, 10_000); // every 10s
 
   // ── Step 7d: Layer 7 Dashboard HTTP Server ──────────────────────
   // Non-blocking: runs after MCP is ready, failure doesn't affect proxy.
@@ -3587,6 +3681,18 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     } catch {
       sharedFactStore = null;
     }
+
+    // P0-6: Wire the MCP router dashboard API from the live gateway +
+    // on-disk telemetry. Without these deps /api/router/* never mounts
+    // (createRouterRoutes is only added when opts.router is present), so
+    // every router page 404s and renders empty despite the gateway
+    // recording every dispatch to .unerr/router/metrics.jsonl.
+    const { aggregateSession, groupBySession } = await import(
+      "./router-session-metrics.js"
+    );
+    const { readRouterConfig } = await import(
+      "../config/router-config-writer.js"
+    );
 
     dashboardHandle = await startDashboardServer({
       system: {
@@ -3648,6 +3754,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       },
       logbook: {
         unerrDir: unerrDirForApi,
+        repoCwd: process.cwd(),
         getAgentName: () => {
           const last = [...agentNameByClient.values()].pop();
           return last ?? server.getClientVersion?.()?.name ?? null;
@@ -3660,6 +3767,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             emitEvent: (_type: string, _data: unknown) => {
               // SSE event bus — wired to dashboard EventSource
             },
+            // Same resolver the live fact injector uses, so the
+            // /injection-preview route reproduces injection selection
+            // exactly rather than reimplementing it.
+            getEntityKeysForFile: (filePath: string) =>
+              router.getEntityKeysForFile(filePath),
           }
         : undefined,
       reasoningQuality: {
@@ -3670,11 +3782,23 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           return last ?? server.getClientVersion?.()?.name ?? undefined;
         },
       },
+      promptTrace: {
+        unerrDir: unerrDirForApi,
+        repoCwd: process.cwd(),
+        getAgentName: (_sessionId: string) => {
+          const last = [...agentNameByClient.values()].pop();
+          return last ?? server.getClientVersion?.()?.name ?? undefined;
+        },
+      },
       timeline: timelineHandle
         ? {
             store: timelineHandle.store,
             getRecentLedgerEntries: (limit: number) =>
               shadowLedger.getRecentEntries(limit),
+            // §5 — let /turns attach each turn's verbatim originating prompt
+            // (read-time redacted; null when capture_prompts is off).
+            getPromptsForSession: (sessionId: string) =>
+              getPromptsForSession(unerrDirForApi, sessionId),
           }
         : undefined,
       temporal: await (async () => {
@@ -3710,10 +3834,48 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           return undefined;
         }
       })(),
+      router: {
+        // The gateway is active and recording telemetry, so the router is
+        // operating even before external MCP servers are consolidated.
+        // `proxiedServers` stays empty until `unerr enable mcp-router`
+        // rewrites IDE configs to route them through this endpoint.
+        getRouterConfig: () => {
+          const real = readRouterConfig(unerrDirForApi);
+          if (real) return real;
+          return {
+            version: 1 as const,
+            enabled: true,
+            enabledAt: new Date(
+              stats.sessionStartedAt ?? Date.now()
+            ).toISOString(),
+            proxiedServers: [],
+            rewrittenConfigs: [],
+          };
+        },
+        getSessionSummary: () => routerGateway.getSessionSummary(),
+        readAllRecords: () => routerGateway.getTelemetryRecorder().readAll(),
+        aggregateRecords: (records) =>
+          [...groupBySession(records).values()]
+            .map((recs) => aggregateSession(recs))
+            .filter((s): s is NonNullable<typeof s> => s !== null)
+            .sort((a, b) => b.lastCallTs.localeCompare(a.lastCallTs)),
+        groupRecords: (records) =>
+          groupBySession(records) as ReadonlyMap<
+            string,
+            RouterTelemetryRecord[]
+          >,
+        aggregateSingle: (records) => aggregateSession(records),
+      },
     });
 
     if (dashboardHandle) {
       startupLog.dashboardReady(`http://127.0.0.1:${dashboardHandle.port}`);
+    }
+    if (opts.daemonChild && opts.onDaemonReady) {
+      opts.onDaemonReady({
+        sock: sockPath,
+        port: dashboardHandle?.port ?? null,
+      });
     }
   } catch (err: unknown) {
     log.warn(
@@ -4151,13 +4313,15 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       httpTransportHandle?.close();
       // Layer 7: Stop dashboard server
       dashboardHandle?.close();
-      // Remove stats snapshot file
-      try {
-        const { unlinkSync } = require("node:fs") as typeof import("node:fs");
-        unlinkSync(statsSnapshotPath);
-      } catch {
-        /* ignore */
-      }
+      // Persist a FINAL stats snapshot instead of deleting it. The next proxy
+      // boot reads this file (detectSessionResume) to CONTINUE under the same
+      // session id on a warm restart within SESSION_RESUME_ID_WINDOW_MS — if we
+      // unlinked here, every graceful restart would re-key the session and the
+      // prompt boundary + the turn's tool events would land under different
+      // ids (per-turn receipt renders 0). Liveness is owned by the PID lock, so
+      // a leftover file is harmless: `unerr status` gates live stats on
+      // proxyRunning and reads this same file for its "last session" summary.
+      writeStatsSnapshot();
       // Release persistent CozoDB native handles
       if (localGraph?.db.close) {
         localGraph.db.close();

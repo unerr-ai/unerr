@@ -23,6 +23,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { openMetricsStore } from "../tracking/metrics-store.js";
+import { materializeTranscripts } from "../tracking/transcript-materializer.js";
 
 /** Read the `capture_prompts` flag from `.unerr/config.json`. Defaults
  *  to `false` — content capture is OPT-IN per GenAI semconv. */
@@ -36,6 +37,34 @@ export function readCapturePromptsFlag(cwd: string): boolean {
     return raw.capture_prompts === true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Resolve the LIVE proxy session id so the prompt-boundary event keys to the
+ * same session as Token Flow / behavior events (which use the proxy's
+ * random-per-lifecycle `ShadowLedger` session id, NOT the agent's own session
+ * UUID). Mirrors the exec path in `shell-compressor.ts`: prefer
+ * `UNERR_SESSION_ID`, else read the proxy-written `.unerr/state/session.id`.
+ *
+ * The UserPromptSubmit hook runs as a short-lived process spawned by the
+ * agent (Claude Code), NOT a child of the proxy, so it does not inherit
+ * `UNERR_SESSION_ID` from the proxy's env — the file read is the join.
+ *
+ * Returns `null` when neither source is available so the caller can fall back
+ * to the agent's own session id (keeps prior behaviour when no proxy is up).
+ */
+export function readProxySessionId(unerrDir: string): string | null {
+  const fromEnv = process.env.UNERR_SESSION_ID;
+  if (fromEnv && fromEnv.length > 0) return fromEnv;
+  try {
+    const id = readFileSync(
+      join(unerrDir, "state", "session.id"),
+      "utf-8"
+    ).trim();
+    return id.length > 0 ? id : null;
+  } catch {
+    return null;
   }
 }
 
@@ -77,7 +106,7 @@ export function recordUserPromptReceived(input: PromptCaptureInput): number {
       // was suppressed at write-time.
       prompt: capture ? input.message : null,
     };
-    return store.insertBehaviorEvent({
+    const rowId = store.insertBehaviorEvent({
       ts: now.getTime(),
       ts_iso: now.toISOString(),
       session_id: input.sessionId,
@@ -90,6 +119,17 @@ export function recordUserPromptReceived(input: PromptCaptureInput): number {
       response_bytes: null,
       detail: JSON.stringify(detail),
     });
+
+    // Background transcript materialization — fire-and-forget so the hook
+    // never blocks prompt delivery. Failures are swallowed inside.
+    void materializeTranscripts({
+      unerrDir: input.unerrDir,
+      repoCwd: input.cwd,
+      sessionId: input.sessionId,
+      agent: input.agent ?? "unknown",
+    });
+
+    return rowId;
   } catch {
     return 0;
   }

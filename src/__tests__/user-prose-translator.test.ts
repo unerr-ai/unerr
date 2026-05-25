@@ -17,13 +17,13 @@
  *      design doc (docs/identity-impact-redesign.md §5).
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { SIGNAL_PREFIX_LEGEND } from "../proxy/response-envelope.js";
 import {
   KNOWN_SIGNAL_TAGS,
-  translateSignalToUserProse,
   type SignalSubtype,
   type SignalTag,
+  translateSignalToUserProse,
 } from "../proxy/user-prose-translator.js";
 
 // Subtypes the translator deliberately treats as internal (LLM-only).

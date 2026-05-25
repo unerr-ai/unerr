@@ -16,11 +16,11 @@
  *     only operational metadata (`length`, `classified_as`) is returned.
  */
 
+import { redactPrompt } from "../hooks/prompt-capture.js";
 import {
   type BehaviorEventType,
   readBehaviorEvents,
 } from "./behavior-events.js";
-import { redactPrompt } from "../hooks/prompt-capture.js";
 
 /** Per-turn prompt payload joined into Token Flow / Reasoning Quality /
  *  Logbook responses. Null `prompt` means content capture was opted out;
@@ -95,6 +95,47 @@ export function getPromptForTurn(
   } catch {
     return null;
   }
+}
+
+/**
+ * Best-effort assignment of captured prompts to timeline turns by timestamp,
+ * for the Activity landing view (logbook-page-redesign §5). The captured
+ * `user_prompt_received` row is keyed by an integer turn, but timeline turns
+ * are keyed by a hex `turn_id` with only `started_at`/`ended_at` — so we
+ * bridge by time, not by key.
+ *
+ * A prompt initiates a turn: the `UserPromptSubmit` hook fires just before
+ * the proxy opens the turn, so a prompt's `ts` sits at or just before its
+ * turn's `started_at`. We walk turns oldest-first and give each turn the
+ * earliest prompt that arrived after the previous turn ended and no later
+ * than this turn ended (the prompt that kicked it off). Returns a map of
+ * `turn_id → prompt`; turns with no matching capture are simply absent.
+ */
+export function matchPromptsToTurns(
+  turns: ReadonlyArray<{
+    turn_id: string;
+    started_at: number;
+    ended_at: number;
+  }>,
+  prompts: ReadonlyArray<PromptForTurn>
+): Map<string, PromptForTurn> {
+  const byStart = [...turns].sort((a, b) => a.started_at - b.started_at);
+  const byTs = prompts
+    .map((p) => ({ p, ms: Date.parse(p.ts) }))
+    .filter((x) => Number.isFinite(x.ms))
+    .sort((a, b) => a.ms - b.ms);
+  const out = new Map<string, PromptForTurn>();
+  let prevEnd = Number.NEGATIVE_INFINITY;
+  for (const t of byStart) {
+    for (const { p, ms } of byTs) {
+      if (ms > prevEnd && ms <= t.ended_at) {
+        out.set(t.turn_id, p);
+        break; // earliest in the window = the initiating prompt
+      }
+    }
+    prevEnd = t.ended_at;
+  }
+  return out;
 }
 
 /** Bulk lookup for a session — returns every captured prompt as an array

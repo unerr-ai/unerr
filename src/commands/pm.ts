@@ -3,7 +3,7 @@
  *
  * Subcommands:
  *   start            Start the unerrd supervisor
- *   stop             Stop the unerrd supervisor
+ *   stop [path]      Stop one repo's process (path/label), or the whole supervisor
  *   add <path>       Register a repo with unerrd
  *   remove <path>    Unregister a repo
  *   status           List all registered repos + state
@@ -13,8 +13,14 @@
  * Process management (start/stop) spawns or terminates the supervisor.
  */
 
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type { Command } from "commander";
+import { readDashboardState } from "../daemon/dashboard-state.js";
+import {
+  DAEMON_DASHBOARD_PORT,
+  daemonDashboardUrl,
+} from "../daemon/protocol.js";
 import {
   addRepo,
   findRepo,
@@ -31,6 +37,31 @@ import { runEnvironmentChecks } from "./doctor.js";
 
 const write = (msg: string) => process.stderr.write(msg);
 const PACKAGE_NAME = "unerr";
+
+/** Expand a leading `~` to the home dir (the registry stores tilde-form paths). */
+function expandHome(p: string): string {
+  if (p === "~") return homedir();
+  if (p.startsWith("~/") || p.startsWith("~\\")) {
+    return resolve(homedir(), p.slice(2));
+  }
+  return p;
+}
+
+/**
+ * Resolve a user-supplied repo argument to its registry entry. Accepts a label,
+ * the exact stored path (as printed by `pm status`), or any path form (`.`,
+ * relative, absolute, `~/…`). Registry keys are tilde-form, so plain
+ * `resolve()` can't match them — we compare home-expanded absolute paths.
+ */
+function resolveRegisteredRepo(arg: string) {
+  const repos = listRepos();
+  const target = resolve(expandHome(arg));
+  return (
+    repos.find((r) => r.label === arg) ??
+    repos.find((r) => r.path === arg) ??
+    repos.find((r) => resolve(expandHome(r.path)) === target)
+  );
+}
 
 export function registerPmCommand(program: Command): void {
   const pm = program
@@ -51,11 +82,40 @@ export function registerPmCommand(program: Command): void {
     )
     .action(async (opts: { foreground?: boolean; detached?: boolean }) => {
       if (opts.foreground || opts.detached) {
-        // Run in-process. --detached is set when auto-spawn by the bridge; identical
-        // behavior to --foreground except the parent (bridge) is already gone.
+        // Double-fork for detached auto-spawn: the bridge spawns us as one of
+        // its children, and IDEs commonly reap the bridge's whole child subtree
+        // on session-end. If unerrd ran in THIS process it would die with the
+        // bridge (and orphan the per-repo proxies to launchd). So re-spawn one
+        // more detached generation and exit immediately — the grandchild
+        // reparents to PID 1 (init) within milliseconds, before binding the
+        // socket, and is no longer in the bridge's subtree. --foreground skips
+        // this (it must stay attached to the terminal for debugging).
+        const reparented = process.env.UNERR_DAEMON_REPARENTED === "1";
+        if (opts.detached && !opts.foreground && !reparented) {
+          const { spawn } = await import("node:child_process");
+          const unerrBin = process.argv[1]!;
+          const grandchild = spawn(
+            process.execPath,
+            [unerrBin, "pm", "start", "--detached"],
+            {
+              detached: true,
+              stdio: "ignore",
+              windowsHide: true,
+              env: { ...process.env, UNERR_DAEMON_REPARENTED: "1" },
+            }
+          );
+          grandchild.unref();
+          process.exit(0);
+        }
+
+        // Run in-process — either the reparented grandchild (detached) or an
+        // explicit --foreground debug session.
         process.title = "unerrd";
         const { startDaemon } = await import("../entrypoints/daemon.js");
-        await startDaemon({ background: false });
+        await startDaemon({
+          background: false,
+          detached: opts.detached === true && !opts.foreground,
+        });
         return;
       }
 
@@ -115,9 +175,11 @@ export function registerPmCommand(program: Command): void {
 
   // ── pm stop ───────────────────────────────────────────
 
-  pm.command("stop")
-    .description("Stop the unerrd supervisor")
-    .action(async () => {
+  pm.command("stop [path]")
+    .description(
+      "Stop a registered repo's process (by path or label); with no argument, stop the whole unerrd supervisor"
+    )
+    .action(async (pathArg: string | undefined) => {
       const { createConnection } = await import("node:net");
       const { globalDir } = await import("../daemon/registry.js");
       const { join } = await import("node:path");
@@ -129,22 +191,63 @@ export function registerPmCommand(program: Command): void {
         return;
       }
 
+      // No argument \u2192 stop the whole supervisor (original behaviour).
+      // Argument \u2192 stop just that one repo's process, leaving it registered.
+      let request: { cmd: "stop"; repo: string } | { cmd: "shutdown" };
+      let successMsg: string;
+      if (pathArg) {
+        const entry = resolveRegisteredRepo(pathArg);
+        if (!entry) {
+          write(
+            `\x1b[38;2;248;113;113m\u2717\x1b[0m Not registered: ${pathArg}\n`
+          );
+          process.exitCode = 1;
+          return;
+        }
+        request = { cmd: "stop", repo: entry.path };
+        successMsg = `\x1b[38;2;52;211;153m\u2713\x1b[0m Stopped \x1b[1m${entry.label}\x1b[0m (still registered)\n`;
+      } else {
+        request = { cmd: "shutdown" };
+        successMsg = "\x1b[38;2;52;211;153m\u2713\x1b[0m unerrd stopped.\n";
+      }
+
       try {
-        await new Promise<void>((resolve, reject) => {
+        const response = await new Promise<string>((resolveResp, reject) => {
+          let buf = "";
           const conn = createConnection(sock, () => {
-            conn.write(`${JSON.stringify({ cmd: "shutdown" })}\n`);
+            conn.write(`${JSON.stringify(request)}\n`);
           });
-          conn.on("data", () => {
+          conn.on("data", (d) => {
+            buf += d.toString();
             conn.destroy();
-            resolve();
+            resolveResp(buf.trim());
           });
           conn.on("error", (err) => reject(err));
           setTimeout(() => {
             conn.destroy();
-            resolve();
+            resolveResp(buf.trim());
           }, 3000);
         });
-        write("\x1b[38;2;52;211;153m\u2713\x1b[0m unerrd stopped.\n");
+
+        // Per-repo stop returns a JSON envelope; surface an explicit failure.
+        if (request.cmd === "stop" && response) {
+          try {
+            const parsed = JSON.parse(response) as {
+              ok?: boolean;
+              error?: string;
+            };
+            if (parsed.ok === false) {
+              write(
+                `\x1b[38;2;248;113;113m\u2717\x1b[0m ${parsed.error ?? "stop failed"}\n`
+              );
+              process.exitCode = 1;
+              return;
+            }
+          } catch {
+            // Non-JSON / empty (e.g. 3s timeout) \u2014 treat as best-effort success.
+          }
+        }
+        write(successMsg);
       } catch {
         write(
           "\x1b[38;2;248;113;113m\u2717\x1b[0m Failed to connect to unerrd.\n"
@@ -281,18 +384,24 @@ export function registerPmCommand(program: Command): void {
           memory: number | null;
         }
       > | null = null;
+      let daemonRunning = false;
+      // Real bound port — slides off the default when 9847 is occupied.
+      let dashboardPort = DAEMON_DASHBOARD_PORT;
       try {
         const { daemonSockPath, probeDaemon } = await import(
           "../daemon/client.js"
         );
         const sock = daemonSockPath();
         if (await probeDaemon(sock)) {
+          daemonRunning = true;
+          const state = readDashboardState();
+          if (state) dashboardPort = state.port;
           const { request } = await import("node:http");
           const body = await new Promise<string>((resolveReq, rejectReq) => {
             const req = request(
               {
                 hostname: "127.0.0.1",
-                port: 9847,
+                port: dashboardPort,
                 path: "/api/repos",
                 method: "GET",
                 timeout: 2000,
@@ -338,8 +447,24 @@ export function registerPmCommand(program: Command): void {
       }
 
       write(
-        `\n  \x1b[1munerr pm\x1b[0m — ${repos.length} repo${repos.length === 1 ? "" : "s"} registered\n\n`
+        `\n  \x1b[1munerr pm\x1b[0m — ${repos.length} repo${repos.length === 1 ? "" : "s"} registered\n`
       );
+
+      // Surface where the dashboard lives so it's discoverable — only claim
+      // the URL is live when the HTTP API actually answered (liveStatus set).
+      if (liveStatus !== null) {
+        write(
+          `  \x1b[1mDashboard:\x1b[0m ${daemonDashboardUrl(dashboardPort)}\n\n`
+        );
+      } else if (daemonRunning) {
+        write(
+          `  \x1b[1mDashboard:\x1b[0m unavailable (no free port near ${DAEMON_DASHBOARD_PORT})\n\n`
+        );
+      } else {
+        write(
+          `  \x1b[1mDashboard:\x1b[0m offline — starts automatically when an AI coding chat session connects, then serves at ${daemonDashboardUrl()}\n\n`
+        );
+      }
 
       for (const repo of repos) {
         const needsInput = readNeedsInput(repo.path);
@@ -607,10 +732,15 @@ export function registerPmCommand(program: Command): void {
 
   pm.command("dashboard")
     .description("Open the unerr dashboard in browser")
-    .option("--port <port>", "Dashboard port (default: 9847)")
+    .option(
+      "--port <port>",
+      `Dashboard port (default: ${DAEMON_DASHBOARD_PORT})`
+    )
     .action(async (opts: { port?: string }) => {
-      const port = opts.port ?? "9847";
-      const url = `http://localhost:${port}`;
+      const port = opts.port
+        ? Number(opts.port)
+        : (readDashboardState()?.port ?? DAEMON_DASHBOARD_PORT);
+      const url = daemonDashboardUrl(port);
 
       const { platform } = await import("node:os");
       const { execSync: ex } = await import("node:child_process");

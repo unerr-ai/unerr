@@ -315,6 +315,25 @@ CREATE TABLE IF NOT EXISTS fetch_cache (
   favicon TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_fetch_cache_fetched ON fetch_cache(fetched_at);
+
+CREATE TABLE IF NOT EXISTS agent_transcripts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  native_session_id TEXT,
+  turn INTEGER NOT NULL,
+  agent TEXT NOT NULL,
+  role TEXT NOT NULL,
+  text TEXT,
+  tools TEXT,
+  files TEXT,
+  model TEXT,
+  tokens_input INTEGER NOT NULL DEFAULT 0,
+  tokens_output INTEGER NOT NULL DEFAULT 0,
+  ts TEXT NOT NULL,
+  UNIQUE(session_id, turn, role)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_transcripts_session ON agent_transcripts(session_id);
+CREATE INDEX IF NOT EXISTS idx_agent_transcripts_session_turn ON agent_transcripts(session_id, turn);
 `;
 
 const SCHEMA_VERSION = "1";
@@ -393,6 +412,10 @@ interface Statements {
   upsertFetchCache: ReturnType<DatabaseT["prepare"]>;
   getFetchCache: ReturnType<DatabaseT["prepare"]>;
   bumpFetchCacheHit: ReturnType<DatabaseT["prepare"]>;
+  upsertAgentTranscript: ReturnType<DatabaseT["prepare"]>;
+  agentTranscriptsBySession: ReturnType<DatabaseT["prepare"]>;
+  agentTranscriptsBySessionTurn: ReturnType<DatabaseT["prepare"]>;
+  agentTranscriptSessionExists: ReturnType<DatabaseT["prepare"]>;
 }
 
 export class MetricsStore {
@@ -554,6 +577,31 @@ export class MetricsStore {
       bumpFetchCacheHit: this.db.prepare(`
         UPDATE fetch_cache SET hit_count = hit_count + 1 WHERE url = @url
       `),
+      upsertAgentTranscript: this.db.prepare(`
+        INSERT INTO agent_transcripts
+          (session_id, native_session_id, turn, agent, role, text, tools, files,
+           model, tokens_input, tokens_output, ts)
+        VALUES (@session_id, @native_session_id, @turn, @agent, @role, @text,
+                @tools, @files, @model, @tokens_input, @tokens_output, @ts)
+        ON CONFLICT(session_id, turn, role) DO UPDATE SET
+          native_session_id = excluded.native_session_id,
+          text = excluded.text,
+          tools = excluded.tools,
+          files = excluded.files,
+          model = excluded.model,
+          tokens_input = excluded.tokens_input,
+          tokens_output = excluded.tokens_output,
+          ts = excluded.ts
+      `),
+      agentTranscriptsBySession: this.db.prepare(`
+        SELECT * FROM agent_transcripts WHERE session_id = @session_id ORDER BY turn ASC, role ASC
+      `),
+      agentTranscriptsBySessionTurn: this.db.prepare(`
+        SELECT * FROM agent_transcripts WHERE session_id = @session_id AND turn = @turn ORDER BY role ASC
+      `),
+      agentTranscriptSessionExists: this.db.prepare(`
+        SELECT 1 FROM agent_transcripts WHERE session_id = @session_id LIMIT 1
+      `),
     };
   }
 
@@ -570,6 +618,73 @@ export class MetricsStore {
 
   bumpFetchCacheHitFor(url: string): void {
     this.stmt.bumpFetchCacheHit.run({ url });
+  }
+
+  // ── Agent Transcripts ───────────────────────────────────────────────
+
+  upsertAgentTranscript(row: {
+    session_id: string;
+    native_session_id: string | null;
+    turn: number;
+    agent: string;
+    role: string;
+    text: string | null;
+    tools: string | null;
+    files: string | null;
+    model: string | null;
+    tokens_input: number;
+    tokens_output: number;
+    ts: string;
+  }): void {
+    this.stmt.upsertAgentTranscript.run(row);
+  }
+
+  getAgentTranscriptsForSession(
+    session_id: string
+  ): Array<{
+    id: number;
+    session_id: string;
+    native_session_id: string | null;
+    turn: number;
+    agent: string;
+    role: string;
+    text: string | null;
+    tools: string | null;
+    files: string | null;
+    model: string | null;
+    tokens_input: number;
+    tokens_output: number;
+    ts: string;
+  }> {
+    return this.stmt.agentTranscriptsBySession.all({ session_id }) as never;
+  }
+
+  getAgentTranscriptsForTurn(
+    session_id: string,
+    turn: number
+  ): Array<{
+    id: number;
+    session_id: string;
+    native_session_id: string | null;
+    turn: number;
+    agent: string;
+    role: string;
+    text: string | null;
+    tools: string | null;
+    files: string | null;
+    model: string | null;
+    tokens_input: number;
+    tokens_output: number;
+    ts: string;
+  }> {
+    return this.stmt.agentTranscriptsBySessionTurn.all({
+      session_id,
+      turn,
+    }) as never;
+  }
+
+  hasAgentTranscripts(session_id: string): boolean {
+    return !!this.stmt.agentTranscriptSessionExists.get({ session_id });
   }
 
   // ── Writes ──────────────────────────────────────────────────────────
@@ -718,8 +833,9 @@ export class MetricsStore {
       DELETE FROM behavior_events;
       DELETE FROM session_history;
       DELETE FROM session_summaries;
+      DELETE FROM agent_transcripts;
       DELETE FROM sqlite_sequence WHERE name IN
-        ('compression_events','file_read_events','token_flow_events','behavior_events','session_history');
+        ('compression_events','file_read_events','token_flow_events','behavior_events','session_history','agent_transcripts');
     `);
   }
 }

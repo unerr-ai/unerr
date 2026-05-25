@@ -16,8 +16,12 @@ import {
 } from "../tracking/behavior-events.js";
 import { closeMetricsStore } from "../tracking/metrics-store.js";
 import {
+  type NamedEvent,
   countNamedEventsByType,
+  currentTurnSlice,
   getPhrasing,
+  latestPromptBoundaryTs,
+  makeInCurrentTurn,
   readNamedEvents,
   totalNamedEvents,
 } from "../tracking/named-events.js";
@@ -252,5 +256,122 @@ describe("named-events", () => {
       expect(countNamedEventsByType([])).toEqual({});
       expect(totalNamedEvents([])).toBe(0);
     });
+  });
+});
+
+// ── Conversational-turn windowing (prompt-boundary slice) ────────────
+
+function mkNamed(
+  event_type: string,
+  ms: number,
+  turn: number,
+  extra: Partial<NamedEvent> = {}
+): NamedEvent {
+  return {
+    event_type,
+    verb: "",
+    object: "",
+    agent: "claude-code",
+    file_path: null,
+    entity_key: null,
+    session_id: "s1",
+    turn,
+    ts: new Date(ms).toISOString(),
+    metadata: {},
+    ...extra,
+  };
+}
+
+describe("latestPromptBoundaryTs", () => {
+  it("returns null when no user_prompt_received event exists", () => {
+    const events = [
+      mkNamed("graph_query_served", 1000, 3),
+      mkNamed("tokenflow.file_read", 2000, 4),
+    ];
+    expect(latestPromptBoundaryTs(events)).toBeNull();
+  });
+
+  it("returns the latest prompt boundary's epoch-ms", () => {
+    const events = [
+      mkNamed("user_prompt_received", 1000, 1),
+      mkNamed("graph_query_served", 1500, 2),
+      mkNamed("user_prompt_received", 5000, 5),
+      mkNamed("tokenflow.file_read", 5500, 6),
+    ];
+    expect(latestPromptBoundaryTs(events)).toBe(5000);
+  });
+});
+
+describe("currentTurnSlice", () => {
+  it("slices to events at or after the latest prompt boundary", () => {
+    const events = [
+      mkNamed("user_prompt_received", 1000, 1),
+      mkNamed("tokenflow.file_read", 1200, 1), // prev turn
+      mkNamed("user_prompt_received", 5000, 9), // current turn boundary
+      mkNamed("graph_query_served", 5100, 14), // segmenter fragmented turn
+      mkNamed("tokenflow.shell_compression", 5300, 18),
+    ];
+    const slice = currentTurnSlice(events, /*fallbackTurn*/ 18);
+    // The fragmented segmenter turns (9,14,18) all belong to ONE
+    // conversational turn — the boundary slice keeps all three.
+    expect(slice.map((e) => e.event_type)).toEqual([
+      "user_prompt_received",
+      "graph_query_served",
+      "tokenflow.shell_compression",
+    ]);
+  });
+
+  it("falls back to the segmenter turn match when no prompt boundary exists", () => {
+    const events = [
+      mkNamed("graph_query_served", 1000, 2),
+      mkNamed("tokenflow.file_read", 2000, 3),
+      mkNamed("tokenflow.shell_compression", 3000, 3),
+    ];
+    const slice = currentTurnSlice(events, /*fallbackTurn*/ 3);
+    expect(slice).toHaveLength(2);
+    expect(slice.every((e) => e.turn === 3)).toBe(true);
+  });
+});
+
+describe("makeInCurrentTurn — single shared turn predicate", () => {
+  // The receipt's headline token number, its concrete bullets, and its
+  // attribution rows MUST agree on the turn window. They all build their
+  // predicate here; these tests lock that one rule.
+
+  it("boundary mode: keeps events at/after the latest prompt, by ts (ignoring turn)", () => {
+    const events = [
+      mkNamed("user_prompt_received", 1000, 1),
+      mkNamed("user_prompt_received", 5000, 9),
+    ];
+    const inTurn = makeInCurrentTurn(events, /*fallbackTurn*/ 99);
+    // After the boundary — segmenter turn is irrelevant.
+    expect(inTurn(new Date(5000).toISOString(), 14)).toBe(true);
+    expect(inTurn(new Date(6000).toISOString(), 2)).toBe(true);
+    // Before the boundary — excluded even if turn matches fallback.
+    expect(inTurn(new Date(4999).toISOString(), 99)).toBe(false);
+  });
+
+  it("fallback mode: matches the segmenter turn when no boundary was recorded", () => {
+    const events = [mkNamed("graph_query_served", 1000, 3)];
+    const inTurn = makeInCurrentTurn(events, /*fallbackTurn*/ 3);
+    expect(inTurn(new Date(1000).toISOString(), 3)).toBe(true);
+    expect(inTurn(new Date(9999).toISOString(), 2)).toBe(false);
+  });
+
+  it("currentTurnSlice is exactly events filtered by this predicate (no drift)", () => {
+    // Veracity guarantee: the bullet slice (currentTurnSlice) and any other
+    // consumer that filters raw rows with makeInCurrentTurn select the same
+    // window — so the headline number can never describe a different turn
+    // than the bullets.
+    const events = [
+      mkNamed("user_prompt_received", 1000, 1),
+      mkNamed("tokenflow.file_read", 900, 1), // before boundary
+      mkNamed("user_prompt_received", 5000, 9), // boundary
+      mkNamed("tokenflow.shell_compression", 5500, 14),
+    ];
+    const inTurn = makeInCurrentTurn(events, 14);
+    const viaPredicate = events.filter((e) => inTurn(e.ts, e.turn));
+    const viaSlice = currentTurnSlice(events, 14);
+    expect(viaSlice).toEqual(viaPredicate);
   });
 });

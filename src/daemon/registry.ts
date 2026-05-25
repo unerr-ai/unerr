@@ -40,6 +40,22 @@ export function registryPath(): string {
 
 // ── Read / Write ────────────────────────────────────────────────
 
+/**
+ * Expand a leading `~` to the home directory. Older versions persisted repo
+ * paths in tilde form (`~/IdeaProjects/foo`); a literal `~` is never expanded
+ * by the OS, so consumers that use a registry path verbatim as a spawn `cwd`
+ * (warm-start) hit ENOENT, and path matchers comparing against `resolve()`
+ * output never match. Expanding on read makes every consumer see one canonical
+ * absolute path.
+ */
+export function expandHome(p: string): string {
+  if (p === "~") return homedir();
+  if (p.startsWith("~/") || p.startsWith("~\\")) {
+    return join(homedir(), p.slice(2));
+  }
+  return p;
+}
+
 /** Read the registry from disk. Returns empty registry if missing. */
 export function readRegistry(): RegistryFile {
   try {
@@ -47,6 +63,13 @@ export function readRegistry(): RegistryFile {
     const parsed = JSON.parse(raw) as RegistryFile;
     if (parsed.version !== 1 || !Array.isArray(parsed.repos)) {
       return { version: 1, repos: [] };
+    }
+    // Normalize legacy tilde-form paths to absolute. Every downstream consumer
+    // (spawn cwd, status display, path matching) then sees one canonical form,
+    // and the next writeRegistry() persists the absolute path back — so stored
+    // tilde entries self-heal on the next mutation.
+    for (const repo of parsed.repos) {
+      repo.path = resolve(expandHome(repo.path));
     }
     return parsed;
   } catch {
@@ -116,7 +139,7 @@ export function addRepo(
   settings: Partial<RepoSettings> = {},
   opts: { skipParentCheck?: boolean; skipChildCheck?: boolean } = {}
 ): AddResult | AddConflict {
-  const absPath = resolve(rawPath);
+  const absPath = resolve(expandHome(rawPath));
   const reg = readRegistry();
 
   // Already registered — idempotent
@@ -176,7 +199,7 @@ export function addRepo(
 
 /** Remove a repo from the registry by absolute path. */
 export function removeRepo(rawPath: string): boolean {
-  const absPath = resolve(rawPath);
+  const absPath = resolve(expandHome(rawPath));
   const reg = readRegistry();
   const before = reg.repos.length;
   reg.repos = reg.repos.filter((r) => r.path !== absPath);
@@ -188,7 +211,7 @@ export function removeRepo(rawPath: string): boolean {
 /** Find a repo entry by path or label. */
 export function findRepo(pathOrLabel: string): RepoEntry | undefined {
   const reg = readRegistry();
-  const abs = resolve(pathOrLabel);
+  const abs = resolve(expandHome(pathOrLabel));
   return (
     reg.repos.find((r) => r.path === abs) ??
     reg.repos.find((r) => r.label === pathOrLabel)
@@ -211,7 +234,7 @@ export function updateRepoSettings(
   rawPath: string,
   patch: Record<string, string | number | boolean>
 ): RepoEntry | null {
-  const absPath = resolve(rawPath);
+  const absPath = resolve(expandHome(rawPath));
   const reg = readRegistry();
   const entry = reg.repos.find((r) => r.path === absPath);
   if (!entry) return null;

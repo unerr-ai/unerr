@@ -67,6 +67,11 @@ const MAX_ARG_VALUE_LENGTH = 200;
 export interface ShadowLedgerOptions {
   /** Inject a custom TurnSegmenter (for tests or shared instances). */
   turnSegmenter?: TurnSegmenter;
+  /** Resume under an existing session id (warm-restart continuity). When
+   *  omitted, a fresh 12-hex id is minted. Passed by the proxy boot path when
+   *  the previous session ended within SESSION_RESUME_ID_WINDOW_MS so a
+   *  mid-conversation restart keeps one logical session id. */
+  sessionId?: string;
 }
 
 export class ShadowLedger {
@@ -81,7 +86,7 @@ export class ShadowLedger {
   constructor(unerrDir: string, options: ShadowLedgerOptions = {}) {
     this.ledgerDir = join(unerrDir, "ledger");
     this.filePath = join(this.ledgerDir, "shadow.jsonl");
-    this.sessionId = generateId();
+    this.sessionId = options.sessionId ?? generateId();
     this.turnSegmenter = options.turnSegmenter ?? new TurnSegmenter();
 
     // Ensure directory exists

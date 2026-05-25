@@ -3,9 +3,9 @@
  *
  * Pure projection that walks the per-turn `behavior_events` stream and
  * counts the joins point tools cannot produce — memory↔graph, graph↔drift,
- * and three-way (memory+graph+drift on the same entity). Consumed by both
- * `renderTurnFooter` (server-side, every tool response) and
- * `handleTurnSummaryProxy` (agent-pasted Surface 3 line at end of turn).
+ * and three-way (memory+graph+drift on the same entity). Consumed by
+ * `handleTurnSummaryProxy` → `joinBullet` (receipt-renderer.ts) for the
+ * agent-pasted Surface 3 close-out line at end of turn.
  *
  * The math is intentionally trivial — the value of this code is NOT the
  * algorithm, it's the *positioning artefact*: every emission of a non-zero

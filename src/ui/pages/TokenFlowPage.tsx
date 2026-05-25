@@ -12,18 +12,30 @@
  */
 
 import { DateRangeFilter } from "@/components/DateRangeFilter";
-import { HeadroomStrip, type HeadroomWindow } from "@/components/HeadroomStrip";
+import type { HeadroomWindow } from "@/components/HeadroomStrip";
 import { CardGridSkeleton, SkeletonBlock } from "@/components/ui/Skeleton";
 import { fetchJson } from "@/lib/api";
 import { useRepoApi } from "@/lib/repo-context";
-import { setHashQueryParams, useHashQueryParam } from "@/lib/router";
+import {
+  navigateRoute,
+  setHashQueryParams,
+  useHashQueryParam,
+} from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AgentBadge } from "./token-trace/components/AgentBadge";
 import { Breadcrumb } from "./token-trace/components/Breadcrumb";
 import { KpiStatCard } from "./token-trace/components/KpiStatCard";
 import { MechanismPill } from "./token-trace/components/MechanismPill";
 import { Pagination } from "./token-trace/components/Pagination";
+import { SavingsOriginSplit } from "./token-trace/components/SavingsOriginSplit";
 import { SavingsTrend } from "./token-trace/components/SavingsTrend";
 import {
   ALL_MECHANISMS,
@@ -45,7 +57,200 @@ import {
   timeAgo,
 } from "./token-trace/shared";
 
+// ── Shared psychology-driven components (ported from Dashboard.tsx) ───
+
+/** Count-up animation hook — dopamine peak on first data arrival (easeOutCubic).
+ *  Respects prefers-reduced-motion. Only fires once per mount. */
+function useCountUp(target: number, durationMs = 900): number {
+  const [val, setVal] = useState(target);
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current || target <= 0) {
+      setVal(target);
+      return;
+    }
+    const reduce =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      setVal(target);
+      return;
+    }
+    started.current = true;
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - t0) / durationMs);
+      const eased = 1 - (1 - p) ** 3;
+      setVal(target * eased);
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else setVal(target);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, durationMs]);
+  return val;
+}
+
+function CountUp({
+  value,
+  format,
+  prefix,
+}: {
+  value: number;
+  format: (n: number) => string;
+  prefix?: string;
+}) {
+  const animated = useCountUp(value);
+  return (
+    <>
+      {prefix}
+      {format(Math.round(animated))}
+    </>
+  );
+}
+
+/** Accessible InfoTip — hover OR keyboard-focus reveals contextual explanation.
+ *  Per NN/g: tooltips appear on focus as well as hover, carry <150 chars,
+ *  and are never the ONLY source of essential info. */
+function InfoTip({ text, label }: { text: string; label?: string }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <span className="relative inline-flex align-middle">
+      <button
+        type="button"
+        aria-label={label ?? "More information"}
+        aria-describedby={open ? id : undefined}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-border-subtle font-mono text-[9px] font-bold leading-none t-tertiary transition-colors hover:border-violet-400 hover:text-violet-300 focus-visible:text-violet-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setOpen(false);
+        }}
+      >
+        i
+      </button>
+      {open ? (
+        <span
+          role="tooltip"
+          id={id}
+          className="absolute left-1/2 top-full z-30 mt-2 w-64 -translate-x-1/2 rounded-lg border border-border-subtle bg-background px-3 py-2 text-left text-[11px] font-normal normal-case leading-snug tracking-normal t-secondary shadow-xl"
+        >
+          {text}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** First-visit contextual callout — progressive disclosure for domain
+ *  explanations. Shows expanded on first visit (localStorage), collapses
+ *  to a subtle "Learn more" link after dismiss. Per NN/g: essential-on-
+ *  first-encounter content uses contextual disclosure, not tooltips. */
+function FirstVisitCallout({
+  storageKey,
+  children,
+}: {
+  storageKey: string;
+  children: React.ReactNode;
+}) {
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(storageKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const dismiss = useCallback(() => {
+    setDismissed(true);
+    try {
+      localStorage.setItem(storageKey, "1");
+    } catch {
+      /* SSR / private browsing */
+    }
+  }, [storageKey]);
+
+  if (dismissed) return null;
+  return (
+    <div className="relative mt-4 rounded-lg border border-violet-500/20 bg-violet-500/4 px-4 py-3">
+      <button
+        type="button"
+        onClick={dismiss}
+        className="absolute right-3 top-3 text-[10px] font-medium text-violet-400 hover:text-violet-300 transition-colors"
+        aria-label="Dismiss explanation"
+      >
+        Got it
+      </button>
+      {children}
+    </div>
+  );
+}
+
+// ── Headroom types (inlined from HeadroomStrip to avoid the component) ──
+interface HeadroomBlock {
+  window: string;
+  headroom_turns: number;
+  turns_observed: number;
+  avg_turn_tokens_without: number;
+  avg_saved_per_turn: number;
+  turns_to_limit_with: number;
+  turns_to_limit_without: number;
+  sessions: number;
+  total_tokens_saved: number;
+}
+interface HeadroomResponse {
+  data: Record<HeadroomWindow, HeadroomBlock>;
+  _meta: { latency_ms: number; context_limit: number };
+}
+
+/** Detect agent billing model from agent name for Von Restorff highlighting. */
+function detectBillingModel(
+  agentName: string | undefined
+): "credit" | "window" | "unknown" {
+  if (!agentName) return "unknown";
+  const n = agentName.toLowerCase();
+  if (n.includes("cursor") || n.includes("copilot")) return "credit";
+  if (n.includes("claude") || n.includes("windsurf")) return "window";
+  return "unknown";
+}
+
 // ── Shared sub-components ───────────────────────────────────────────
+
+/** KPI card with CountUp animation — wraps KpiStatCard with animated number.
+ *  Numbers count-up on first mount (dopamine peak), then snap on refetch. */
+function AnimatedKpiCard({
+  label,
+  rawValue,
+  subtitle,
+  accent,
+  hint,
+  prefix,
+  sparklinePoints,
+}: {
+  label: string;
+  rawValue: number;
+  subtitle?: string;
+  accent: "emerald" | "cyan" | "violet" | "fuchsia" | "amber" | "rose";
+  hint?: string;
+  prefix?: string;
+  sparklinePoints?: number[];
+}) {
+  const animated = useCountUp(rawValue);
+  const display = `${prefix ?? ""}${fmt(Math.round(animated))}`;
+  return (
+    <KpiStatCard
+      label={label}
+      value={display}
+      subtitle={subtitle}
+      accent={accent}
+      hint={hint}
+      sparklinePoints={sparklinePoints}
+    />
+  );
+}
 
 function MechanismBars({
   mechanisms,
@@ -70,7 +275,7 @@ function MechanismBars({
             >
               {mech.replace(/_/g, " ")}
             </span>
-            <div className="flex-1 h-5 rounded bg-surface-secondary overflow-hidden">
+            <div className="flex-1 h-5 rounded bg-white/[0.06] overflow-hidden">
               <div
                 className={`h-full ${colors.bar} opacity-80 rounded`}
                 style={{ width: `${w}%` }}
@@ -198,7 +403,7 @@ function PreventionsPane({
               <span className="text-violet-300 text-xs font-medium w-52 shrink-0 truncate">
                 {BEHAVIOR_EVENT_LABELS[type] ?? type.replace(/_/g, " ")}
               </span>
-              <div className="flex-1 h-5 rounded bg-surface-secondary overflow-hidden">
+              <div className="flex-1 h-5 rounded bg-white/[0.06] overflow-hidden">
                 <div
                   className="h-full bg-violet-500 opacity-80 rounded"
                   style={{
@@ -309,7 +514,7 @@ function TurnPreventionsList({
               {events.map((e) => (
                 <tr
                   key={`${e.session_id}-${e.id}-${e.ts}`}
-                  className="border-b border-border-subtle/40 hover:bg-surface-secondary/40"
+                  className="border-b border-border-subtle/40 hover:bg-white/[0.03]"
                   title={BEHAVIOR_EVENT_DESCRIPTIONS[e.type] ?? e.type}
                 >
                   <td className="px-3 py-1.5 font-mono t-tertiary whitespace-nowrap">
@@ -419,7 +624,7 @@ function GlobalView({
         />
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle px-3 py-1.5 text-xs font-medium t-secondary hover:text-foreground hover:bg-surface-secondary transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle px-3 py-1.5 text-xs font-medium t-secondary transition-colors hover:border-border-strong hover:bg-white/[0.06] hover:text-foreground"
           title="Export all token flow data as CSV"
           onClick={() => {
             const dateParams =
@@ -486,25 +691,25 @@ function GlobalView({
         </button>
       </div>
 
-      {/* Global KPI row — Big Four (matches Reasoning Trace aesthetic) */}
+      {/* Global KPI row — Big Four with CountUp animation */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiStatCard
+        <AnimatedKpiCard
           label="Tokens Saved"
-          value={fmt(g.total_tokens_saved)}
+          rawValue={g.total_tokens_saved}
           subtitle="direct rescue"
           accent="emerald"
           hint="Tokens removed from agent responses before they could weigh down context"
         />
-        <KpiStatCard
+        <AnimatedKpiCard
           label="Context Avoided"
-          value={fmt(g.total_context_avoided)}
+          rawValue={g.total_context_avoided}
           subtitle={
             g.total_tokens_saved > 0
               ? `${(g.total_context_avoided / g.total_tokens_saved).toFixed(1)}× compounded`
               : "carried forward"
           }
           accent="cyan"
-          hint="Total token-turns of context pressure prevented — savings compound because each turn's rescue carries forward to all future turns"
+          hint="Cumulative token-turns of context pressure prevented — savings compound because each turn's rescue carries forward to all future turns"
         />
         <KpiStatCard
           label="Rescue Rate"
@@ -513,14 +718,24 @@ function GlobalView({
           accent="violet"
           hint="Share of original tokens that unerr rescued (saved ÷ original)"
         />
-        <KpiStatCard
+        <AnimatedKpiCard
           label="Sessions"
-          value={g.total_sessions}
+          rawValue={g.total_sessions}
           subtitle={`${g.total_turns} turn${g.total_turns === 1 ? "" : "s"}`}
           accent="fuchsia"
           hint="Distinct agent sessions tracked, plus total turns across them"
         />
       </div>
+
+      {/* Where your savings come from — the differentiation centerpiece.
+       *  Splits the same by_mechanism data into code-intelligence (the
+       *  unerr-only tier) vs output-compression (table-stakes), so the
+       *  80/20 reality leads the page. Replaces the old flat mechanism
+       *  list below — every mechanism still shows, now grouped + contrasted. */}
+      <SavingsOriginSplit
+        byMechanism={g.by_mechanism}
+        totalSaved={g.total_tokens_saved}
+      />
 
       {/* Carry-forward savings — narrative; numbers live in the KPI row */}
       {g.avg_context_reduction > 0 && (
@@ -543,26 +758,13 @@ function GlobalView({
       {/* Time-series trend — stacked area by mechanism */}
       <SavingsTrend fromTs={fromTs} toTs={toTs} bucket="day" />
 
-      {/* Global mechanism breakdown */}
-      <div className="el-raised rounded-lg p-5">
-        <h3 className="t-secondary text-sm font-medium mb-1">
-          Savings by Mechanism
-          {fromTs || toTs ? " (Filtered)" : " (All Time)"}
-        </h3>
-        <p className="t-tertiary text-xs mb-3 leading-snug">
-          COMPRESS-class: physically measured bytes removed before the response
-          reached the agent.
-        </p>
-        <MechanismBars
-          mechanisms={g.by_mechanism}
-          totalSaved={g.total_tokens_saved}
-        />
-      </div>
-
-      {/* Global behavioral events — PREVENT-class verb-noun counters */}
+      {/* Global behavioral events — PREVENT-class verb-noun counters.
+       *  These are the qualitative proof behind the code-intelligence tier
+       *  above: graph queries served, full reads avoided, loops broken —
+       *  wins a text-only optimizer has no way to produce. */}
       <PreventionsPane scope="global" fromTs={fromTs} toTs={toTs} />
 
-      {/* Session list — the primary navigation into drill-down */}
+      {/* Session list — card-style rows with hover counterfactual */}
       <div className="el-raised rounded-lg overflow-hidden">
         <div className="px-5 py-3 border-b border-border-subtle flex items-center justify-between">
           <h3 className="t-secondary text-sm font-medium">Sessions</h3>
@@ -575,137 +777,136 @@ function GlobalView({
           <p className="px-5 py-6 t-secondary text-sm">No sessions recorded.</p>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm min-w-[700px]">
-                <thead>
-                  <tr className="border-b border-border-subtle t-tertiary text-xs uppercase">
-                    <th
-                      className="px-5 py-2.5 font-medium"
-                      title="Unique session identifier"
-                    >
-                      Session
-                    </th>
-                    <th
-                      className="px-3 py-2.5 font-medium"
-                      title="AI agent that ran this session"
-                    >
-                      Agent
-                    </th>
-                    <th
-                      className="px-3 py-2.5 font-medium"
-                      title="When the last event was recorded"
-                    >
-                      Last Active
-                    </th>
-                    <th
-                      className="px-3 py-2.5 font-medium"
-                      title="Number of savings events in this session"
-                    >
-                      Events
-                    </th>
-                    <th
-                      className="px-3 py-2.5 font-medium"
-                      title="Types of rescue applied (e.g. graph query, shell compression)"
-                    >
-                      Mechanisms
-                    </th>
-                    <th
-                      className="px-3 py-2.5 font-medium text-right"
-                      title="Total tokens saved from agent responses (direct rescue)"
-                    >
-                      Tokens Saved
-                    </th>
-                    <th
-                      className="px-3 py-2.5 font-medium text-right"
-                      title="Average tokens of context pressure avoided per turn — savings compound because each turn's rescue carries to all future turns"
-                    >
-                      Avg Context Saved
-                    </th>
-                    <th className="px-3 py-2.5 pr-5 font-medium w-16" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {sessions.map((s, i) => (
-                    <tr
-                      key={s.session_id}
-                      className="border-b border-border-subtle hover:bg-surface-secondary transition-colors cursor-pointer group"
-                      onClick={() => onSelectSession(s.session_id)}
-                    >
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs text-foreground group-hover:text-violet-400 transition-colors">
-                            {s.session_id.slice(0, 12)}
-                          </span>
-                          {i === 0 && sessionOffset === 0 && (
-                            <span className="rounded-full bg-emerald-500/20 text-emerald-400 px-2 py-0.5 text-[10px] font-medium">
-                              latest
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3">
-                        <AgentBadge name={s.agent_name} />
-                      </td>
-                      <td className="px-3 py-3 t-secondary text-xs">
-                        {timeAgo(s.last_ts)}
-                      </td>
-                      <td className="px-3 py-3 font-mono text-xs tabular-nums">
-                        {s.event_count}
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {s.mechanisms.slice(0, 4).map((m) => (
-                            <MechanismPill key={m} mechanism={m} />
-                          ))}
-                          {s.mechanisms.length > 4 && (
-                            <span className="t-tertiary text-[10px]">
-                              +{s.mechanisms.length - 4}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <span className="text-success font-mono font-medium text-sm">
-                          {fmt(s.total_saved)}
+            <div className="divide-y divide-border-subtle">
+              {sessions.map((s, i) => {
+                const effPct =
+                  s.total_saved > 0 && s.avg_context_reduction > 0
+                    ? Math.round(
+                        (s.total_saved /
+                          (s.total_saved +
+                            s.total_turns *
+                              (s.avg_context_reduction || 1))) *
+                          100
+                      )
+                    : null;
+
+                return (
+                  <div
+                    key={s.session_id}
+                    className="group relative cursor-pointer px-5 py-4 transition-all hover:bg-white/3"
+                    onClick={() => onSelectSession(s.session_id)}
+                  >
+                    {/* Top row: ID + Agent + Time + Action */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="font-mono text-xs text-foreground group-hover:text-violet-400 transition-colors shrink-0">
+                          {s.session_id.slice(0, 12)}
                         </span>
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        {s.avg_context_reduction > 0 ? (
-                          <span
-                            className="text-cyan-400 font-mono font-medium text-sm"
-                            title={`Each turn ran with ~${fmt(s.avg_context_reduction)} fewer tokens in context on average (across ${s.total_turns} turns)`}
-                          >
-                            {fmt(s.avg_context_reduction)}
-                          </span>
-                        ) : (
-                          <span className="t-tertiary font-mono text-sm">
-                            —
+                        {i === 0 && sessionOffset === 0 && (
+                          <span className="rounded-full bg-emerald-500/20 text-emerald-400 px-2 py-0.5 text-[10px] font-medium shrink-0">
+                            latest
                           </span>
                         )}
-                      </td>
-                      <td className="pl-4 py-3 pr-5 text-right w-16">
-                        <span className="inline-flex items-center gap-1 text-xs text-violet-400 opacity-0 group-hover:opacity-100 transition-opacity font-medium whitespace-nowrap">
-                          View{" "}
-                          <svg
-                            aria-hidden="true"
-                            className="w-3.5 h-3.5"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M9 5l7 7-7 7"
-                            />
-                          </svg>
+                        <AgentBadge name={s.agent_name} />
+                        <span className="t-tertiary text-xs shrink-0">
+                          {timeAgo(s.last_ts)}
                         </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                      <span className="inline-flex items-center gap-1 text-xs text-violet-400 opacity-0 group-hover:opacity-100 transition-opacity font-medium whitespace-nowrap shrink-0">
+                        View{" "}
+                        <svg
+                          aria-hidden="true"
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M9 5l7 7-7 7"
+                          />
+                        </svg>
+                      </span>
+                    </div>
+
+                    {/* Bottom row: metrics + mechanisms */}
+                    <div className="flex items-center gap-4 mt-2.5 flex-wrap">
+                      <span className="inline-flex items-baseline gap-1.5">
+                        <span className="text-emerald-400 font-mono font-semibold text-sm tabular-nums">
+                          {fmt(s.total_saved)}
+                        </span>
+                        <span className="t-tertiary text-[10px]">saved</span>
+                      </span>
+                      {s.avg_context_reduction > 0 && (
+                        <span className="inline-flex items-baseline gap-1.5">
+                          <span className="text-cyan-400 font-mono font-semibold text-sm tabular-nums">
+                            {fmt(s.avg_context_reduction)}
+                          </span>
+                          <span className="t-tertiary text-[10px]">
+                            avg ctx/turn
+                          </span>
+                        </span>
+                      )}
+                      <span className="inline-flex items-baseline gap-1.5">
+                        <span className="t-secondary font-mono text-xs tabular-nums">
+                          {s.total_turns}
+                        </span>
+                        <span className="t-tertiary text-[10px]">
+                          turn{s.total_turns === 1 ? "" : "s"}
+                        </span>
+                      </span>
+                      <span className="inline-flex items-baseline gap-1.5">
+                        <span className="t-secondary font-mono text-xs tabular-nums">
+                          {s.event_count}
+                        </span>
+                        <span className="t-tertiary text-[10px]">
+                          event{s.event_count === 1 ? "" : "s"}
+                        </span>
+                      </span>
+                      <div className="flex flex-wrap gap-1 ml-auto">
+                        {s.mechanisms.slice(0, 4).map((m) => (
+                          <MechanismPill key={m} mechanism={m} />
+                        ))}
+                        {s.mechanisms.length > 4 && (
+                          <span className="t-tertiary text-[10px]">
+                            +{s.mechanisms.length - 4}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Hover counterfactual — "without unerr" ghost line.
+                     *  Peak-End rule: the strongest emotional anchor is seeing
+                     *  what you avoided. Appears only on hover to avoid clutter. */}
+                    <div className="h-0 overflow-hidden group-hover:h-auto group-hover:mt-2.5 transition-all">
+                      <div className="flex items-center gap-2 rounded-md bg-rose-500/6 border border-rose-500/10 px-3 py-1.5">
+                        <svg
+                          aria-hidden="true"
+                          className="w-3 h-3 text-rose-400 shrink-0"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+                          />
+                        </svg>
+                        <span className="text-rose-300/80 text-[10px]">
+                          Without unerr: {fmt(s.total_saved)} extra tokens in
+                          every subsequent turn's context
+                          {s.avg_context_reduction > 0 &&
+                            ` · ${fmt(s.avg_context_reduction)} avg context pressure per turn`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <div className="px-5 py-2 border-t border-border-subtle">
               <Pagination
@@ -809,18 +1010,18 @@ function SessionView({
 
   return (
     <div className="space-y-6">
-      {/* Session KPIs — Big Four */}
+      {/* Session KPIs — Big Four with CountUp */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiStatCard
+        <AnimatedKpiCard
           label="Tokens Saved"
-          value={fmt(s.total_tokens_saved)}
+          rawValue={s.total_tokens_saved}
           subtitle="direct rescue"
           accent="emerald"
           hint="Tokens unerr rescued from agent responses this session"
         />
-        <KpiStatCard
+        <AnimatedKpiCard
           label="Context Avoided"
-          value={fmt(cumulativeQ.data?.total_context_avoided ?? 0)}
+          rawValue={cumulativeQ.data?.total_context_avoided ?? 0}
           subtitle={
             s.total_tokens_saved > 0 &&
             (cumulativeQ.data?.total_context_avoided ?? 0) > 0
@@ -837,9 +1038,9 @@ function SessionView({
           accent="violet"
           hint="Share of original tokens rescued (saved ÷ original)"
         />
-        <KpiStatCard
+        <AnimatedKpiCard
           label="Turns"
-          value={s.total_turns}
+          rawValue={s.total_turns}
           subtitle={`${s.event_count} event${s.event_count === 1 ? "" : "s"}`}
           accent="fuchsia"
           hint="Conversation turns in this session"
@@ -868,7 +1069,14 @@ function SessionView({
           );
         })()}
 
-      {/* Two-column: Cumulative chart + Mechanism breakdown */}
+      {/* Where this session's savings come from — same contrast as the
+       *  global view, scoped to this session's by_mechanism. */}
+      <SavingsOriginSplit
+        byMechanism={s.by_mechanism}
+        totalSaved={s.total_tokens_saved}
+      />
+
+      {/* Two-column: Cumulative chart + Preventions */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Cumulative savings chart */}
         <div className="el-raised rounded-lg p-5">
@@ -962,22 +1170,8 @@ function SessionView({
           )}
         </div>
 
-        {/* Mechanism breakdown */}
-        <div className="el-raised rounded-lg p-5">
-          <h3 className="t-secondary text-sm font-medium mb-1">
-            Savings by Mechanism
-          </h3>
-          <p className="t-tertiary text-xs mb-3 leading-snug">
-            COMPRESS-class: measured bytes removed from this session's tool
-            responses.
-          </p>
-          <MechanismBars
-            mechanisms={s.by_mechanism}
-            totalSaved={s.total_tokens_saved}
-          />
-        </div>
-
-        {/* Behavioral events for this session */}
+        {/* Behavioral events for this session — proof of the
+         *  code-intelligence tier shown in the origin split above. */}
         <PreventionsPane scope="session" sessionId={sessionId} />
       </div>
 
@@ -1062,7 +1256,7 @@ function SessionView({
                   return (
                     <tr
                       key={turn}
-                      className="border-b border-border-subtle hover:bg-surface-secondary transition-colors cursor-pointer group"
+                      className="group cursor-pointer border-b border-border-subtle transition-colors hover:bg-white/[0.04]"
                       onClick={() => onSelectTurn(turn)}
                     >
                       {/* Turn number */}
@@ -1088,7 +1282,7 @@ function SessionView({
 
                       {/* Waterfall bar — stacked by mechanism */}
                       <td className="px-3 py-3">
-                        <div className="w-32 h-4 relative rounded-sm bg-surface-secondary overflow-hidden">
+                        <div className="w-32 h-4 relative rounded-sm bg-white/[0.06] overflow-hidden">
                           {(() => {
                             const mechSavings = new Map<string, number>();
                             for (const e of turnEvents) {
@@ -1292,11 +1486,11 @@ function TurnView({
         );
       })()}
 
-      {/* Turn KPIs — 3 cards (tokens / rescue rate / context avoided) */}
+      {/* Turn KPIs — 3 cards with CountUp */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <KpiStatCard
+        <AnimatedKpiCard
           label="Tokens Saved"
-          value={fmt(totalSaved)}
+          rawValue={totalSaved}
           subtitle={
             tools.length > 0
               ? tools.slice(0, 2).join(", ") +
@@ -1313,9 +1507,9 @@ function TurnView({
           accent="violet"
           hint="Share of original tokens rescued this turn (Without − Delivered)"
         />
-        <KpiStatCard
+        <AnimatedKpiCard
           label="Context Avoided"
-          value={fmt(thisTurnCumulative?.context_avoided ?? 0)}
+          rawValue={thisTurnCumulative?.context_avoided ?? 0}
           subtitle={
             remainingTurns > 0
               ? `carries to ${remainingTurns} more turn${remainingTurns === 1 ? "" : "s"}`
@@ -1419,7 +1613,7 @@ function TurnView({
                   return (
                     <tr
                       key={evt.id}
-                      className="border-b border-border-subtle hover:bg-surface-secondary transition-colors"
+                      className="border-b border-border-subtle transition-colors hover:bg-white/[0.04]"
                     >
                       <td className="t-tertiary px-5 py-3 font-mono text-xs whitespace-nowrap">
                         {fmtTime(evt.ts)}
@@ -1454,7 +1648,7 @@ function TurnView({
                 })}
               </tbody>
               <tfoot>
-                <tr className="border-t border-border-subtle font-medium bg-surface-secondary/30">
+                <tr className="border-t border-border-subtle font-medium bg-white/[0.04]">
                   <td className="px-5 py-3" colSpan={3}>
                     <span className="t-secondary text-xs uppercase tracking-wider">
                       Turn Total
@@ -1489,6 +1683,36 @@ function TurnView({
           />
         </div>
       </div>
+
+      {/* ── This turn on the other surfaces (§8 cross-link) ── */}
+      <div className="el-raised rounded-lg p-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs">
+        <button
+          type="button"
+          className="text-violet-400 hover:text-violet-300 transition-colors font-medium"
+          onClick={() =>
+            navigateRoute("prompt-trace", {
+              session: sessionId,
+              turn: String(turn),
+            })
+          }
+        >
+          Open the prompt trace for turn {turn} →
+        </button>
+        <button
+          type="button"
+          className="text-violet-400 hover:text-violet-300 transition-colors font-medium"
+          onClick={() => navigateRoute("logbook", { session: sessionId })}
+        >
+          See this session in What unerr did →
+        </button>
+        <button
+          type="button"
+          className="text-violet-400 hover:text-violet-300 transition-colors font-medium"
+          onClick={() => navigateRoute("reasoning", { session: sessionId })}
+        >
+          See reasoning detail →
+        </button>
+      </div>
     </div>
   );
 }
@@ -1503,10 +1727,6 @@ type ViewState =
   | { level: "turn"; sessionId: string; turn: number };
 
 export function TokenFlowPage() {
-  // URL-backed state — view (session+turn) and window are all driven from
-  // the hash query-string, so reloads and shared links land in the same
-  // drill-down level. `?session=` and `?turn=` together describe the view
-  // level: neither → global, session only → session, both → turn.
   const sessionId = useHashQueryParam("session") || null;
   const turnParam = useHashQueryParam("turn");
   const turn = turnParam ? Number(turnParam) : null;
@@ -1533,7 +1753,6 @@ export function TokenFlowPage() {
   const goTurn = (id: string, t: number) =>
     setHashQueryParams({ session: id, turn: String(t) });
 
-  // Build breadcrumb — only shown when drilled into session/turn (header already says "Token Trace")
   const crumbs: Array<{ label: string; onClick?: () => void }> = [];
 
   if (view.level === "session" || view.level === "turn") {
@@ -1553,7 +1772,9 @@ export function TokenFlowPage() {
 
   return (
     <div>
-      <HeadroomStrip
+      {/* Impact Hero — replaces the old HeadroomStrip with a Dashboard-level
+       *  dominant-number anchor + contextual agent-aware explanation */}
+      <ImpactHero
         windowSelected={headroomWindow}
         onWindowChange={setHeadroomWindow}
         sessionId={view.level === "global" ? undefined : view.sessionId}
@@ -1574,5 +1795,246 @@ export function TokenFlowPage() {
         <TurnView sessionId={view.sessionId} turn={view.turn} />
       )}
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// IMPACT HERO — dominant-number anchor with psychology-driven layout
+//
+//  ┌──────────────────────────────────────────────────────────────┐
+//  │  29.2M tokens saved (CountUp · emerald · anchoring bias)    │
+//  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐               │
+//  │  │ Turns  │ │ Reach  │ │ Rate   │ │ Avg    │  ← KPI cards  │
+//  │  │ Earned │ │ /Sess  │ │ %      │ │ Turn   │  with InfoTip  │
+//  │  └────────┘ └────────┘ └────────┘ └────────┘               │
+//  │  [Today] [This Week] [Since Install]         (window chips)  │
+//  │  ▸ first-visit callout (progressive disclosure, dismiss)     │
+//  └──────────────────────────────────────────────────────────────┘
+// ══════════════════════════════════════════════════════════════════════
+
+interface SessionHeadroomResponse {
+  data: {
+    session_id: string;
+    turn_count: number;
+    avg_input_tokens_per_turn: number;
+    total_tokens_saved: number;
+    extra_turns_bought: number;
+    headroom_compounded: number;
+    turns_to_limit_with: number;
+    turns_to_limit_without: number;
+    per_turn: Array<{
+      turn: number;
+      tokens_saved: number;
+      input_tokens: number;
+      ts: string;
+      headroom: number;
+    }>;
+  };
+}
+
+function ImpactHero({
+  windowSelected,
+  onWindowChange,
+  sessionId,
+}: {
+  windowSelected: HeadroomWindow;
+  onWindowChange: (next: HeadroomWindow) => void;
+  sessionId?: string;
+}) {
+  const { url, queryKey } = useRepoApi();
+
+  const globalQ = useQuery({
+    queryKey: queryKey(["token-flow", "headroom"]),
+    queryFn: () => fetchJson<HeadroomResponse>(url("/api/token-flow/headroom")),
+    refetchInterval: 30_000,
+  });
+
+  const sessionQ = useQuery({
+    queryKey: queryKey(["token-flow", "headroom-session", sessionId ?? ""]),
+    queryFn: () =>
+      sessionId
+        ? fetchJson<SessionHeadroomResponse>(
+            url(`/api/token-flow/headroom/session/${sessionId}`)
+          )
+        : Promise.resolve(null),
+    enabled: !!sessionId,
+  });
+
+  const blocks = globalQ.data?.data;
+  const sessionBlock = sessionQ.data?.data;
+  const block = blocks?.[windowSelected];
+
+  // Dominant number: total tokens saved (anchoring bias — largest number first)
+  const totalSavedRaw = sessionBlock
+    ? sessionBlock.total_tokens_saved
+    : block?.total_tokens_saved ?? 0;
+
+  // Turns earned (credit-billed agents)
+  const turnsEarnedRaw = sessionBlock
+    ? sessionBlock.headroom_compounded
+    : block?.headroom_turns ?? 0;
+  const turnsOver = sessionBlock
+    ? sessionBlock.turn_count
+    : block?.turns_observed ?? 0;
+
+  // Reach/session (window-billed agents)
+  const reachSource = sessionBlock ?? blocks?.since_install;
+  const reachWith = reachSource?.turns_to_limit_with ?? 0;
+  const reachWithout = reachSource?.turns_to_limit_without ?? 0;
+  const reachGain = Math.max(0, reachWith - reachWithout);
+
+  // Avg turn cost
+  const avgWithout = block?.avg_turn_tokens_without ?? 0;
+  const avgWith = Math.max(0, avgWithout - (block?.avg_saved_per_turn ?? 0));
+
+  // Agent-aware highlighting (Von Restorff effect — isolate the relevant metric)
+  const latestAgent = sessionBlock ? undefined : undefined;
+  const billing = detectBillingModel(latestAgent);
+  const turnsHighlight = billing === "credit" || billing === "unknown";
+  const reachHighlight = billing === "window" || billing === "unknown";
+
+  const windowLabel = (w: HeadroomWindow) =>
+    w === "today" ? "Today" : w === "this_week" ? "This Week" : "Since Install";
+
+  return (
+    <section className="mb-6">
+      {/* Dominant number — anchoring bias: largest, most impressive value first */}
+      <div className="el-raised rounded-xl overflow-hidden">
+        <div className="relative px-6 pt-6 pb-5">
+          {/* Gradient wash — emerald top tint */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 bg-linear-to-b from-emerald-500/6 to-transparent"
+          />
+          <div className="relative flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+            <div>
+              <p className="text-emerald-400 text-[10px] uppercase tracking-wider font-medium flex items-center gap-1.5">
+                Tokens Saved
+                <InfoTip text="Counts tokens unerr removed from the operations it touched — file reads, web fetches, shell output, dedup. Does not include system prompt, tool schemas, conversation history, reasoning, or native Read/Edit calls." />
+              </p>
+              <p className="text-5xl sm:text-6xl font-bold font-mono text-emerald-400 mt-2 tabular-nums tracking-tighter leading-none">
+                <CountUp value={totalSavedRaw} format={fmt} />
+              </p>
+              <p className="t-secondary text-xs mt-2">
+                on operations unerr handled
+                {!sessionId && (
+                  <span className="t-tertiary ml-1">
+                    · {windowLabel(windowSelected).toLowerCase()}
+                  </span>
+                )}
+              </p>
+            </div>
+
+            {/* Window chips — only on global view */}
+            {!sessionId && (
+              <div className="flex items-center gap-1">
+                {(["today", "this_week", "since_install"] as const).map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    onClick={() => onWindowChange(w)}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all ${
+                      windowSelected === w
+                        ? "bg-emerald-500/20 text-emerald-300 shadow-sm"
+                        : "bg-surface-secondary t-secondary hover:bg-surface-tertiary hover:text-foreground"
+                    }`}
+                  >
+                    {windowLabel(w)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 4-card KPI grid (Stripe dashboard pattern — supporting stats beneath anchor) */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-border-subtle divide-x divide-border-subtle">
+          {/* Turns Earned — credit-billed agents */}
+          <div
+            className={`px-5 py-4 transition-all ${turnsHighlight ? "bg-emerald-500/3" : ""}`}
+          >
+            <p className="text-emerald-400 text-[10px] uppercase tracking-wider font-medium flex items-center gap-1.5">
+              Turns Earned
+              <InfoTip text="Extra prompts you didn't pay for. Calculated as total tokens saved divided by average turn cost. Applies to credit-billed agents — Cursor fast-requests, API metered spend." />
+            </p>
+            <p className="text-2xl font-bold font-mono text-emerald-400 mt-1.5 tabular-nums">
+              +<CountUp value={turnsEarnedRaw} format={fmt} />
+            </p>
+            <p className="t-tertiary text-[11px] mt-1">
+              over {fmt(turnsOver)} turn{turnsOver === 1 ? "" : "s"}
+            </p>
+            {turnsHighlight && (
+              <div className="mt-2 h-0.5 w-8 rounded-full bg-emerald-400/40" />
+            )}
+          </div>
+
+          {/* Reach/Session — window-billed agents */}
+          <div
+            className={`px-5 py-4 transition-all ${reachHighlight ? "bg-violet-500/3" : ""}`}
+          >
+            <p className="text-violet-400 text-[10px] uppercase tracking-wider font-medium flex items-center gap-1.5">
+              Reach / Session
+              <InfoTip text="Per-session ceiling extension: how many more turns each session can reach before context exhaustion. Derived from lifetime average, stable across windows. Applies to window-billed agents — Claude Code 5-hour windows, Copilot Pro caps." />
+            </p>
+            <p className="text-2xl font-bold font-mono text-violet-400 mt-1.5 tabular-nums">
+              +<CountUp value={reachGain} format={fmt} />
+            </p>
+            <p className="t-tertiary text-[11px] mt-1">
+              up to turn {fmt(reachWith)}
+            </p>
+            {reachHighlight && (
+              <div className="mt-2 h-0.5 w-8 rounded-full bg-violet-400/40" />
+            )}
+          </div>
+
+          {/* Rescue Rate */}
+          <div className="px-5 py-4">
+            <p className="text-cyan-400 text-[10px] uppercase tracking-wider font-medium flex items-center gap-1.5">
+              Rescue Rate
+              <InfoTip text="Share of original tokens that unerr rescued — saved ÷ original. Higher means more compression per operation." />
+            </p>
+            <p className="text-2xl font-bold font-mono text-cyan-400 mt-1.5 tabular-nums">
+              {block
+                ? `${Math.round((block.avg_saved_per_turn / (block.avg_turn_tokens_without || 1)) * 100)}%`
+                : "—"}
+            </p>
+            <p className="t-tertiary text-[11px] mt-1">tokens kept out</p>
+          </div>
+
+          {/* Avg Turn Cost */}
+          <div className="px-5 py-4">
+            <p className="text-foreground/60 text-[10px] uppercase tracking-wider font-medium flex items-center gap-1.5">
+              Avg Turn
+              <InfoTip text="Average tokens per turn without unerr vs with unerr. The gap shows how much context pressure unerr removes on every turn." />
+            </p>
+            <p className="text-2xl font-bold font-mono text-foreground mt-1.5 tabular-nums">
+              {fmt(avgWithout)}
+            </p>
+            <p className="t-tertiary text-[11px] mt-1">
+              vs {fmt(avgWith)} with unerr
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* First-visit callout — progressive disclosure for billing model.
+       *  Shows on first visit, dismisses permanently to localStorage. */}
+      <FirstVisitCallout storageKey="unerr-token-trace-billing-explained">
+        <div className="pr-12">
+          <p className="text-violet-300 text-[11px] font-medium mb-1">
+            Two metrics, two billing models
+          </p>
+          <p className="t-secondary text-[11px] leading-relaxed">
+            <span className="text-emerald-300 font-medium">Turns earned</span>{" "}
+            is usage-cumulative — extra prompts you didn't pay for. Relevant for
+            credit-billed agents (Cursor fast-requests, API spend).{" "}
+            <span className="text-violet-300 font-medium">Reach/session</span>{" "}
+            is a per-session ceiling — extra turns before context exhaustion.
+            Relevant for window-billed agents (Claude Code 5h windows, Copilot
+            Pro caps). One of the two holds for your agent's billing model.
+          </p>
+        </div>
+      </FirstVisitCallout>
+    </section>
   );
 }

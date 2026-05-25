@@ -21,7 +21,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeInstructionFile } from "../config/instruction-writer.js";
 import {
+  ensureSkillsPresent,
   listInstalledSkills,
   removeInstalledSkills,
   resolveAndInstallSkills,
@@ -41,7 +43,10 @@ describe("skill install idempotency + user-skill safety", () => {
   let cwd: string;
 
   beforeEach(() => {
-    cwd = join(tmpdir(), `unerr-skill-idempotency-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    cwd = join(
+      tmpdir(),
+      `unerr-skill-idempotency-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
     mkdirSync(cwd, { recursive: true });
   });
 
@@ -151,6 +156,56 @@ describe("skill install idempotency + user-skill safety", () => {
       for (const skill of listed) {
         expect(skill.path).toContain("unerr-");
       }
+    });
+
+    // Regression: Cursor's instruction file (.cursor/rules/unerr-instructions.mdc)
+    // lives IN the skill dir AND carries the unerr- prefix, so it used to match
+    // the skill-enumeration filter, get classified as a "legacy" skill, and be
+    // wiped by ensureSkillsPresent / removeInstalledSkills on every proxy boot.
+    describe("unerr-instructions.mdc collision (regression)", () => {
+      const instrPath = (root: string) =>
+        join(root, ".cursor", "rules", "unerr-instructions.mdc");
+
+      it("ensureSkillsPresent self-heal does not delete the instruction file", async () => {
+        await resolveAndInstallSkills({ ide: "cursor", cwd });
+        const write = writeInstructionFile(cwd, "cursor");
+        expect(write.action).not.toBe("skipped");
+        expect(existsSync(instrPath(cwd))).toBe(true);
+        const before = readFileSync(instrPath(cwd), "utf-8");
+
+        // This is the exact proxy-boot path that previously wiped the file.
+        // With the fix the instruction file is not seen as a legacy skill,
+        // so the dir is "fully current" and no wipe-and-reinstall occurs.
+        const churn = await ensureSkillsPresent({ ide: "cursor", cwd });
+        expect(churn).toBe(0);
+
+        expect(existsSync(instrPath(cwd))).toBe(true);
+        expect(readFileSync(instrPath(cwd), "utf-8")).toBe(before);
+      });
+
+      it("listInstalledSkills never enumerates the instruction file as a skill", async () => {
+        await resolveAndInstallSkills({ ide: "cursor", cwd });
+        writeInstructionFile(cwd, "cursor");
+
+        const listed = listInstalledSkills("cursor", cwd);
+        expect(listed.length).toBeGreaterThan(0);
+        expect(listed.some((s) => s.name === "instructions")).toBe(false);
+        expect(
+          listed.some((s) => s.path.endsWith("unerr-instructions.mdc"))
+        ).toBe(false);
+      });
+
+      it("removeInstalledSkills leaves the instruction file intact", async () => {
+        await resolveAndInstallSkills({ ide: "cursor", cwd });
+        writeInstructionFile(cwd, "cursor");
+        const before = readFileSync(instrPath(cwd), "utf-8");
+
+        const removed = removeInstalledSkills("cursor", cwd);
+        expect(removed).toBeGreaterThan(0);
+
+        expect(existsSync(instrPath(cwd))).toBe(true);
+        expect(readFileSync(instrPath(cwd), "utf-8")).toBe(before);
+      });
     });
   });
 });

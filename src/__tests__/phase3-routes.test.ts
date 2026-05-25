@@ -604,4 +604,78 @@ describe("facts-v2 routes", () => {
     expect(out.success).toBe(true);
     expect(out.action).toBe("dismissed");
   });
+
+  // ── /injection-preview (M4) ─────────────────────────────────────────
+  // Contract: the preview reproduces the live injector's selection exactly
+  // (recallForFile + entity-key resolver), never a parallel reimplementation.
+
+  it("/injection-preview requires a file query", async () => {
+    const app = createFactsRoutes({ factStore });
+    const res = await app.request("/injection-preview");
+    expect(res.status).toBe(400);
+  });
+
+  it("/injection-preview mirrors recallForFile output verbatim", async () => {
+    await factStore.recordUserFedFact({
+      content: "no fs writes in proxy",
+      fact_type: "convention",
+      scope: "src/proxy/proxy.ts",
+      subject: "proxy",
+      source_quote: "never write to disk from the proxy",
+    });
+    const app = createFactsRoutes({ factStore });
+    const out = await hit<{
+      injected: string[];
+      facts: { fact_id: string }[];
+      resolver_available: boolean;
+    }>(app, "/injection-preview?file=src/proxy/proxy.ts");
+    // Ground truth: exactly what the live injector emits (file_read branch).
+    const recalled = await factStore.recallForFile("src/proxy/proxy.ts", []);
+    const expected = recalled
+      .slice(0, 5)
+      .map((f) => `[${f.fact_type}] ${f.content}`);
+    expect(out.injected).toEqual(expected);
+    expect(out.injected).toContain("[convention] no fs writes in proxy");
+    expect(out.resolver_available).toBe(false);
+  });
+
+  it("/injection-preview surfaces entity-scoped facts only when the resolver supplies keys", async () => {
+    // scope is NOT in src/app.ts's prefix hierarchy, so this fact reaches the
+    // file only via its entity key (subject) — isolating the resolver's role.
+    await factStore.recordUserFedFact({
+      content: "validate inputs in handleRequest",
+      fact_type: "convention",
+      scope: "unrelated/other.ts",
+      subject: "handleRequest",
+      source_quote: "always validate",
+    });
+
+    // No resolver → entity fact is invisible (scope doesn't match the file).
+    const appOff = createFactsRoutes({ factStore });
+    const off = await hit<{ injected: string[]; resolver_available: boolean }>(
+      appOff,
+      "/injection-preview?file=src/app.ts"
+    );
+    expect(off.resolver_available).toBe(false);
+    expect(off.injected).not.toContain(
+      "[convention] validate inputs in handleRequest"
+    );
+
+    // Resolver returns the entity key → the fact surfaces, exactly as the
+    // file_read injection branch would deliver it.
+    const appOn = createFactsRoutes({
+      factStore,
+      getEntityKeysForFile: async () => ["handleRequest"],
+    });
+    const on = await hit<{
+      injected: string[];
+      entity_keys: string[];
+      resolver_available: boolean;
+    }>(appOn, "/injection-preview?file=src/app.ts");
+    expect(on.resolver_available).toBe(true);
+    expect(on.entity_keys).toEqual(["handleRequest"]);
+    expect(on.injected).toContain(
+      "[convention] validate inputs in handleRequest"
+    );
+  });
 });

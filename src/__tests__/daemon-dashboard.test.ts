@@ -66,13 +66,30 @@ describe("Daemon API (api.ts)", () => {
     expect(content).toContain("c.html(spaHtml)");
   });
 
-  it("uses port 9847 for daemon dashboard", () => {
+  it("derives the dashboard port from the shared protocol constant", () => {
+    const protocol = readFileSync(
+      resolve(process.cwd(), "src/daemon/protocol.ts"),
+      "utf-8"
+    );
+    expect(protocol).toContain("DAEMON_DASHBOARD_PORT = 9847");
+
+    const api = readFileSync(
+      resolve(process.cwd(), "src/daemon/api.ts"),
+      "utf-8"
+    );
+    // No hardcoded literal — port comes from the shared constant.
+    expect(api).toContain("DAEMON_DASHBOARD_PORT as DAEMON_PORT");
+    expect(api).not.toContain("DAEMON_PORT = 9847");
+  });
+
+  it("scans for a free port (sliding discovery) instead of giving up", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/daemon/api.ts"),
       "utf-8"
     );
-
-    expect(content).toContain("DAEMON_PORT = 9847");
+    expect(content).toContain("findDaemonPort");
+    expect(content).toContain("DAEMON_DASHBOARD_PORT_SCAN_RANGE");
+    expect(content).toContain("writeDashboardState");
   });
 });
 

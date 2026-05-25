@@ -19,25 +19,25 @@ export function Pagination({
 
   return (
     <div className="flex items-center justify-between px-1 py-2">
-      <span className="t-tertiary text-xs">
+      <span className="t-tertiary text-xs tabular-nums">
         {offset + 1}–{Math.min(offset + limit, total)} of {total}
       </span>
       <div className="flex items-center gap-1">
         <button
           type="button"
           disabled={currentPage <= 1}
-          className="px-2.5 py-1 rounded text-xs font-medium bg-surface-secondary hover:bg-surface-tertiary disabled:opacity-30 disabled:cursor-not-allowed text-foreground transition-colors"
+          className="rounded-md border border-border-subtle bg-white/[0.03] px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-border-strong hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-border-subtle disabled:hover:bg-white/[0.03]"
           onClick={() => onPageChange(Math.max(0, offset - limit))}
         >
           ‹ Prev
         </button>
-        <span className="t-secondary text-xs px-2 font-mono">
+        <span className="t-secondary text-xs px-2 font-mono tabular-nums">
           {currentPage}/{totalPages}
         </span>
         <button
           type="button"
           disabled={currentPage >= totalPages}
-          className="px-2.5 py-1 rounded text-xs font-medium bg-surface-secondary hover:bg-surface-tertiary disabled:opacity-30 disabled:cursor-not-allowed text-foreground transition-colors"
+          className="rounded-md border border-border-subtle bg-white/[0.03] px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-border-strong hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-border-subtle disabled:hover:bg-white/[0.03]"
           onClick={() => onPageChange(offset + limit)}
         >
           Next ›

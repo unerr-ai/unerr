@@ -2,7 +2,7 @@
  * Tests for the close-out summary MCP tool (`unerr_turn_summary`).
  *
  * Covers:
- *   1. `renderSessionEconomyLine` honest-zero + populated cases.
+ *   1. `renderHybridTurnLine` honest-zero + populated cases.
  *   2. `renderSessionEconomyLineLive` reads token_flow_events + behavior_events.
  *   3. `handleTurnSummaryProxy` returns the expected envelope shape.
  *   4. Tool is registered in TIER_ENTRIES as tier 1 with the expected schema.
@@ -14,74 +14,14 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { TIER_ENTRIES } from "../proxy/tool-descriptions.js";
 import { TOOL_DEFINITIONS } from "../proxy/tool-definitions.js";
+import { TIER_ENTRIES } from "../proxy/tool-descriptions.js";
 import {
   renderHybridTurnLine,
-  renderSessionEconomyLine,
   renderSessionEconomyLineLive,
 } from "../proxy/turn-footer.js";
 import { handleTurnSummaryProxy } from "../proxy/turn-summary-handler.js";
 import type { NamedEvent } from "../tracking/named-events.js";
-
-describe("renderSessionEconomyLine", () => {
-  it("renders honest-zero when nothing happened", () => {
-    const line = renderSessionEconomyLine({
-      totalEvents: 0,
-      totalTokensSaved: 0,
-      headroomCompounded: 0,
-    });
-    expect(line).toBe("your session: nothing to act on yet");
-  });
-
-  it("renders populated session with exact integer + headroom", () => {
-    const line = renderSessionEconomyLine({
-      totalEvents: 7,
-      totalTokensSaved: 2400,
-      headroomCompounded: 3,
-    });
-    expect(line).toBe(
-      "your session: saved 2,400 tokens · kept ~3 extra turns of chat room"
-    );
-  });
-
-  it("uses singular 'turn' when headroom is 1", () => {
-    const line = renderSessionEconomyLine({
-      totalEvents: 1,
-      totalTokensSaved: 100,
-      headroomCompounded: 1,
-    });
-    expect(line).toContain("saved 100 tokens");
-    expect(line).toContain("kept ~1 extra turn of chat room");
-  });
-
-  it("names the topFile when present", () => {
-    const line = renderSessionEconomyLine({
-      totalEvents: 4,
-      totalTokensSaved: 1234,
-      headroomCompounded: 2,
-      topFile: "src/proxy/bridge.ts",
-    });
-    expect(line).toContain("saved 1,234 tokens");
-    expect(line).toContain("your context: src/proxy/bridge.ts");
-  });
-
-  it("names a verbatim recalled note with age", () => {
-    const now = 1_700_000_000_000;
-    const threeDaysAgo = now - 3 * 86_400_000;
-    const line = renderSessionEconomyLine({
-      totalEvents: 2,
-      totalTokensSaved: 500,
-      headroomCompounded: 0,
-      topNoteContent: "no intelligence imports in bridge.ts",
-      topNoteCreatedAt: threeDaysAgo,
-      nowMs: now,
-    });
-    expect(line).toContain(
-      'remembered: "no intelligence imports in bridge.ts" (you set 3d ago)'
-    );
-  });
-});
 
 describe("renderHybridTurnLine", () => {
   const sampleTurnEvent = (event_type: string, turn = 5): NamedEvent => ({
@@ -124,7 +64,7 @@ describe("renderHybridTurnLine", () => {
     expect(line).toContain("2 code lookups");
     expect(line).toContain("1 trimmed file read");
     expect(line).toContain("session: 100k saved");
-    expect(line).toContain("~3 turns of chat room kept");
+    expect(line).toContain("~3 turns of chat room earned");
   });
 
   it("turn-empty / session-nonempty falls back to 'no new savings'", () => {
@@ -137,7 +77,7 @@ describe("renderHybridTurnLine", () => {
     });
     expect(line).toContain("this turn: no new savings");
     expect(line).toContain("session: 100k saved");
-    expect(line).toContain("~2 turns of chat room kept");
+    expect(line).toContain("~2 turns of chat room earned");
   });
 
   it("turn had events but no token savings", () => {
@@ -160,7 +100,7 @@ describe("renderHybridTurnLine", () => {
       sessionHeadroom: 1,
       sessionTotalEvents: 1,
     });
-    expect(line).toContain("~1 turn of chat room kept");
+    expect(line).toContain("~1 turn of chat room earned");
   });
 
   it("omits the parenthetical when turn had token savings but no NamedEvents", () => {

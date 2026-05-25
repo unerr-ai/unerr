@@ -84,6 +84,96 @@ describe("Timeline routes", () => {
     expect(body.data.map((t) => t.turn_id)).toEqual(["t2", "t1"]);
   });
 
+  it("GET /turns attaches each turn's originating prompt by timestamp (§5)", async () => {
+    await store.upsertTurn({
+      turn_id: "t1",
+      session_id: "s1",
+      started_at: 1000,
+      ended_at: 2000,
+      opened_by: "first_call",
+      closed_reason: "session_end",
+      tool_count: 2,
+      file_count: 1,
+      edit_count: 0,
+      title: "early",
+      outcome: "unknown",
+    });
+    await store.upsertTurn({
+      turn_id: "t2",
+      session_id: "s1",
+      started_at: 3000,
+      ended_at: 4000,
+      opened_by: "idle_gap",
+      closed_reason: "idle_gap",
+      tool_count: 5,
+      file_count: 2,
+      edit_count: 1,
+      title: "late",
+      outcome: "unknown",
+    });
+    // The hook fires just before a turn opens, so prompt ts ≈ started_at:
+    // 900 is just before t1; 2500 is in the gap before t2.
+    const prompts = [
+      {
+        session_id: "s1",
+        turn: 0,
+        prompt: "fix the auth bug",
+        length: 16,
+        classified_as: "fix",
+        ts: new Date(900).toISOString(),
+      },
+      {
+        session_id: "s1",
+        turn: 0,
+        prompt: null, // content capture off — row exists, verbatim withheld
+        length: 13,
+        classified_as: "build",
+        ts: new Date(2500).toISOString(),
+      },
+    ];
+    const app = createTimelineRoutes({
+      store,
+      getPromptsForSession: (sid) => (sid === "s1" ? prompts : []),
+    });
+    const res = await app.request("/turns");
+    const body = (await jsonOf(res)) as {
+      data: Array<{
+        turn_id: string;
+        prompt: { prompt: string | null } | null;
+      }>;
+    };
+    const byId = Object.fromEntries(
+      body.data.map((t) => [t.turn_id, t.prompt])
+    );
+    expect(byId.t1?.prompt).toBe("fix the auth bug");
+    // capture-off row still attaches (so the UI shows the enable hint), but
+    // the verbatim text is null.
+    expect(byId.t2).not.toBeNull();
+    expect(byId.t2?.prompt).toBeNull();
+  });
+
+  it("GET /turns leaves prompt absent when no capture getter is wired", async () => {
+    await store.upsertTurn({
+      turn_id: "t1",
+      session_id: "s1",
+      started_at: 1000,
+      ended_at: 2000,
+      opened_by: "first_call",
+      closed_reason: "session_end",
+      tool_count: 1,
+      file_count: 0,
+      edit_count: 0,
+      title: "early",
+      outcome: "unknown",
+    });
+    const app = createTimelineRoutes({ store });
+    const res = await app.request("/turns");
+    const body = (await jsonOf(res)) as {
+      data: Array<{ turn_id: string; prompt?: unknown }>;
+    };
+    expect(body.data[0]?.prompt ?? null).toBeNull();
+  });
+
   it("GET /loops uses the ledger getter for live detection", async () => {
     const t = (offsetSec: number) =>
       new Date(

@@ -106,7 +106,7 @@ export function SavingsTrend({
     return (
       <div className="el-raised rounded-lg p-5">
         <h3 className="t-secondary text-sm font-medium mb-3">Savings Trend</h3>
-        <div className="h-48 animate-pulse bg-surface-secondary rounded" />
+        <div className="h-48 animate-pulse bg-white/[0.06] rounded" />
       </div>
     );
   }

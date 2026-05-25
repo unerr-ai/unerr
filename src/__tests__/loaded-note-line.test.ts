@@ -74,7 +74,10 @@ describe("renderLoadedNoteLine — kind translation", () => {
 
   it("renders dec → decision", () => {
     const line = renderLoadedNoteLine({
-      note: baseNote({ kind: "dec", content: "15s avoids RTT misclassification" }),
+      note: baseNote({
+        kind: "dec",
+        content: "15s avoids RTT misclassification",
+      }),
       nowMs: NOW,
     });
     expect(line).toContain("loaded a decision");
@@ -82,7 +85,10 @@ describe("renderLoadedNoteLine — kind translation", () => {
 
   it("renders blk → blocker", () => {
     const line = renderLoadedNoteLine({
-      note: baseNote({ kind: "blk", content: "scip-typescript missing on PATH" }),
+      note: baseNote({
+        kind: "blk",
+        content: "scip-typescript missing on PATH",
+      }),
       nowMs: NOW,
     });
     expect(line).toContain("loaded a blocker");
