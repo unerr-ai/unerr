@@ -1,0 +1,28 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.unerr-ai/unerr",
+  "title": "unerr",
+  "description": "Operational memory for AI agents: code graph, session memory & guardrails. No context rot.",
+  "repository": {
+    "url": "https://github.com/unerr-ai/unerr-cli",
+    "source": "github"
+  },
+  "version": "0.2.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@unerr-ai/unerr",
+      "version": "0.2.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "--mcp"
+        }
+      ]
+    }
+  ]
+}
