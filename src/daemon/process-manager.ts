@@ -17,6 +17,7 @@
 
 import { type ChildProcess, fork } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import type {
   ChildMessage,
@@ -81,6 +82,50 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+/** Default budget for the UDS connectability probe (ms). */
+const SOCK_PROBE_TIMEOUT_MS = 1_000;
+
+/**
+ * Probe whether a per-repo proxy's UDS socket is actually connectable.
+ *
+ * `existsSync(sockPath)` is NOT sufficient — a crashed proxy can leave a stale
+ * socket *file* on disk that yields ECONNREFUSED on connect. We must attempt a
+ * real connection. A connect succeeds at the kernel level the moment the proxy
+ * has `listen()`ed, even while its event loop is blocked mid-index, so this
+ * distinguishes "dead/stale socket" (the bug) from "alive but busy" (handled
+ * separately by the bridge's static catalog) without waiting on a response.
+ */
+function isSockConnectable(
+  sockPath: string,
+  timeoutMs = SOCK_PROBE_TIMEOUT_MS
+): Promise<boolean> {
+  if (!existsSync(sockPath)) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      try {
+        socket.destroy();
+      } catch {
+        // already torn down
+      }
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), timeoutMs);
+    timer.unref();
+    const socket = createConnection(sockPath);
+    socket.once("connect", () => {
+      clearTimeout(timer);
+      done(true);
+    });
+    socket.once("error", () => {
+      clearTimeout(timer);
+      done(false);
+    });
+  });
+}
+
 /** Canonicalize a repo path to the single absolute key used in the repos map. */
 function canonRepoKey(repoPath: string): string {
   return resolve(expandHome(repoPath));
@@ -123,16 +168,24 @@ export class ProcessManager {
     const key = canonRepoKey(repoPath);
     const existing = this.repos.get(key);
     if (existing?.status === "running" && existing.sock) {
-      // A forked child's death fires our `exit` listener, so its "running"
-      // status is trustworthy. An adopted proxy has no IPC handle, so re-probe
-      // its PID — if it died we never heard about it; drop and re-evaluate.
-      if (
+      // "running" is only trustworthy if the proxy is BOTH alive AND its UDS
+      // socket is actually connectable. Two independent checks:
+      //   1. PID liveness — a forked child's death fires our `exit` listener so
+      //      its status self-corrects, but an adopted proxy has no IPC handle,
+      //      so we must re-probe its PID.
+      //   2. Socket connectability — even a live proxy can have a stale/ENOENT
+      //      socket (crash without exit, socket file removed, mid-restart).
+      //      Returning that sock is exactly what made a bridge forward
+      //      `initialize` into a dead socket and register zero tools.
+      const pidAlive =
         !existing.adopted ||
-        (existing.pid !== null && isProcessAlive(existing.pid))
-      ) {
+        (existing.pid !== null && isProcessAlive(existing.pid));
+      if (pidAlive && (await isSockConnectable(existing.sock))) {
         return existing.sock;
       }
+      // Stale entry — drop it and fall through to adopt or spawn a fresh proxy.
       this.repos.delete(key);
+      this.onEvent?.("stopped", existing, "stale socket — re-evaluating");
     } else if (existing?.status === "starting") {
       return this.waitForReady(existing);
     }

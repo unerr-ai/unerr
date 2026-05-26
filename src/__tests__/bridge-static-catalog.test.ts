@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  BridgeCatalog,
   PROTOCOL_VERSION,
   SERVER_INFO,
   StaticCatalogInterceptor,
@@ -180,6 +181,151 @@ describe("StaticCatalogInterceptor", () => {
       encodeFrame({ jsonrpc: "2.0", id: "abc-123", method: "initialize" })
     );
     expect(parseReply(out.replies[0]!).id).toBe("abc-123");
+  });
+});
+
+describe("BridgeCatalog (post-connect timeout-fallback)", () => {
+  it("forwards initialize to the proxy AND arms a fallback", () => {
+    const catalog = new BridgeCatalog();
+    const out = catalog.ingestFromIde(
+      encodeFrame({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    );
+    // Forwarded so the proxy still sees the frame (attribution + enriched answer).
+    expect(out.forward).toHaveLength(1);
+    expect(out.arm).toHaveLength(1);
+    expect(out.arm[0]).toEqual({ id: 1, method: "initialize" });
+  });
+
+  it("arms tools/list and forwards tools/call without arming", () => {
+    const catalog = new BridgeCatalog();
+    const list = catalog.ingestFromIde(
+      encodeFrame({ jsonrpc: "2.0", id: 2, method: "tools/list" })
+    );
+    expect(list.arm).toEqual([{ id: 2, method: "tools/list" }]);
+
+    const call = catalog.ingestFromIde(
+      encodeFrame({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "search_code" },
+      })
+    );
+    expect(call.arm).toHaveLength(0);
+    expect(call.forward).toHaveLength(1);
+  });
+
+  it("does not arm a fallback for a notification (no id)", () => {
+    const catalog = new BridgeCatalog();
+    const out = catalog.ingestFromIde(
+      encodeFrame({ jsonrpc: "2.0", method: "notifications/initialized" })
+    );
+    expect(out.arm).toHaveLength(0);
+    expect(out.forward).toHaveLength(1);
+  });
+
+  it("settles the fallback when the proxy answers in time", () => {
+    const catalog = new BridgeCatalog();
+    catalog.ingestFromIde(
+      encodeFrame({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    );
+    const proxy = catalog.ingestFromProxy(
+      encodeFrame({ jsonrpc: "2.0", id: 1, result: { ok: true } })
+    );
+    expect(proxy.settledByProxy).toEqual(["1"]);
+    expect(proxy.toIde).toHaveLength(1); // proxy's response forwarded to the IDE
+
+    // The fallback timer (if it had fired) must now be a no-op.
+    expect(catalog.fireFallback({ id: 1, method: "initialize" })).toBeNull();
+  });
+
+  it("emits a local reply on fallback and suppresses the proxy's late dup", () => {
+    const catalog = new BridgeCatalog();
+    catalog.ingestFromIde(
+      encodeFrame({ jsonrpc: "2.0", id: 5, method: "tools/list" })
+    );
+
+    // Timer fires before the proxy answered.
+    const reply = catalog.fireFallback({ id: 5, method: "tools/list" });
+    expect(reply).not.toBeNull();
+    const parsed = parseReply(reply!);
+    expect(parsed.id).toBe(5);
+    expect((parsed.result as { tools: unknown[] }).tools.length).toBe(
+      TOOL_DEFINITIONS.length
+    );
+
+    // Proxy's late response for id 5 must be suppressed (duplicate id).
+    const late = catalog.ingestFromProxy(
+      encodeFrame({ jsonrpc: "2.0", id: 5, result: { tools: [] } })
+    );
+    expect(late.toIde).toHaveLength(0);
+    expect(late.settledByProxy).toHaveLength(0);
+  });
+
+  it("strips heartbeat pongs from the proxy stream", () => {
+    const catalog = new BridgeCatalog();
+    const out = catalog.ingestFromProxy(
+      Buffer.from(
+        `${JSON.stringify({ jsonrpc: "2.0", method: "unerr/pong" })}\n`,
+        "utf8"
+      )
+    );
+    expect(out.sawPong).toBe(true);
+    expect(out.toIde).toHaveLength(0);
+  });
+
+  it("passes through an ordinary proxy response that was never armed", () => {
+    const catalog = new BridgeCatalog();
+    const out = catalog.ingestFromProxy(
+      encodeFrame({ jsonrpc: "2.0", id: 99, result: { data: 1 } })
+    );
+    expect(out.toIde).toHaveLength(1);
+    expect(out.settledByProxy).toHaveLength(0);
+  });
+
+  it("buffers a partial proxy frame across chunks before matching its id", () => {
+    const catalog = new BridgeCatalog();
+    catalog.ingestFromIde(
+      encodeFrame({ jsonrpc: "2.0", id: 8, method: "initialize" })
+    );
+    const frame = JSON.stringify({ jsonrpc: "2.0", id: 8, result: {} });
+    const mid = Math.floor(frame.length / 2);
+
+    const first = catalog.ingestFromProxy(
+      Buffer.from(frame.slice(0, mid), "utf8")
+    );
+    expect(first.settledByProxy).toHaveLength(0);
+    expect(first.toIde).toHaveLength(0);
+
+    const second = catalog.ingestFromProxy(
+      Buffer.from(`${frame.slice(mid)}\n`, "utf8")
+    );
+    expect(second.settledByProxy).toEqual(["8"]);
+    expect(second.toIde).toHaveLength(1);
+  });
+
+  it("matches ids by value across number/string request and response", () => {
+    const catalog = new BridgeCatalog();
+    catalog.ingestFromIde(
+      encodeFrame({ jsonrpc: "2.0", id: "init-1", method: "initialize" })
+    );
+    const out = catalog.ingestFromProxy(
+      encodeFrame({ jsonrpc: "2.0", id: "init-1", result: {} })
+    );
+    expect(out.settledByProxy).toEqual(["init-1"]);
+  });
+
+  it("treats a server-initiated request (id + method) as passthrough, not a response", () => {
+    const catalog = new BridgeCatalog();
+    catalog.ingestFromIde(
+      encodeFrame({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    );
+    // A frame with both id and method is a request, not our response.
+    const out = catalog.ingestFromProxy(
+      encodeFrame({ jsonrpc: "2.0", id: 1, method: "sampling/createMessage" })
+    );
+    expect(out.settledByProxy).toHaveLength(0);
+    expect(out.toIde).toHaveLength(1); // forwarded untouched
   });
 });
 

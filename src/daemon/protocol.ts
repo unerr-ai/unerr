@@ -239,5 +239,35 @@ export const DEFAULT_WARM_START_DELAY_MS = 30_000;
 /** Default warm-start idle-days cutoff. */
 export const DEFAULT_WARM_START_IDLE_DAYS = 14;
 
-/** Max wait for a daemon-managed child to send IPC `ready` (ms). */
-export const REPO_READY_TIMEOUT_MS = 120_000;
+/**
+ * Max wait for a daemon-managed child (per-repo proxy) to send IPC `ready` (ms).
+ *
+ * This must comfortably exceed the worst-case cold-start index time, which is
+ * a function of repo size AND machine speed — neither of which we control. A
+ * large monorepo on a slow laptop can take minutes to index before the proxy
+ * binds its socket and reports ready. 6 minutes gives that headroom; the
+ * bridge's ensure request timeout (ENSURE_REPO_REQUEST_TIMEOUT_MS) is set
+ * slightly higher so the proxy-side timeout fires first with a clean error
+ * rather than the client tearing down mid-index.
+ */
+export const REPO_READY_TIMEOUT_MS = 360_000;
+
+/**
+ * Client-side timeout for the bridge's `ensure` request to unerrd (ms).
+ *
+ * `ensure` blocks on the daemon while it waits for the per-repo proxy to send
+ * `ready` (up to REPO_READY_TIMEOUT_MS), so this MUST be larger than
+ * REPO_READY_TIMEOUT_MS — otherwise the bridge gives up on a proxy that is
+ * still legitimately indexing. Other control-plane calls keep the short
+ * default in sendRequest(); only `ensure` opts into this longer budget.
+ */
+export const ENSURE_REPO_REQUEST_TIMEOUT_MS = 390_000;
+
+/**
+ * Per-attempt wait for unerrd (the process manager) to come up after an
+ * auto-spawn (ms). unerrd is lightweight and not repo-size sensitive, so this
+ * is a soft poll, not a hard deadline — the discovery loop re-probes and
+ * retries indefinitely regardless. Kept generous so very slow machines don't
+ * thrash the "Waiting for process manager..." path.
+ */
+export const DAEMON_READY_TIMEOUT_MS = 30_000;

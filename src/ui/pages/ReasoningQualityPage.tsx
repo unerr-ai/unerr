@@ -1,20 +1,23 @@
 /**
- * Reasoning Trace dashboard page.
+ * Reasoning Layer — "Is your AI agent actually thinking better?"
  *
- * 3-level hierarchical drill-down (same pattern as Token Trace):
+ * Grounded in the Active Cognition Reason Layer doc: unerr's value
+ * isn't just token savings — it's about making the agent reason better
+ * through four reinforcing pillars:
  *
- *   Level 0 — GLOBAL:  Quality KPIs across all sessions + session list
- *   Level 1 — SESSION: Per-session quality metrics + health trajectory chart
- *   Level 2 — TURN:    Per-turn quality detail (via Token Trace deep link)
+ *   1. Cleaner Focus     — noise stripped → agent sees only what matters
+ *   2. Found It First Try — graph intelligence → one-call code lookups
+ *   3. Mistakes Prevented — blast radius, conventions, drift → risky
+ *                           operations caught before they ship
+ *   4. Lessons Remembered — persistent memory → past learnings shape
+ *                           current decisions
  *
- * Maps 1:1 to the tagline: "fewer tokens, turns & breakages"
- *   - Fewer tokens  → Signal-to-Noise Ratio, Context Density, Attention Multiplier
- *   - Fewer turns   → First-Call Resolution, Turns Saved, Exploration Loops Prevented
- *   - Fewer breakages → Blast Radius Warnings, Circuit Breaker, Convention Injections
+ * Design: decision-first (Hick's Law), max 4 hero metrics, plain
+ * language (zero jargon), counterfactual framing, progressive
+ * disclosure.
  */
 
 import { DateRangeFilter } from "@/components/DateRangeFilter";
-import { HeadroomStrip, type HeadroomWindow } from "@/components/HeadroomStrip";
 import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { fetchJson } from "@/lib/api";
 import { useRepoApi } from "@/lib/repo-context";
@@ -50,7 +53,6 @@ interface QualityMetrics {
   total_sessions: number;
   total_turns: number;
   total_events: number;
-  // Persistent Memory pillar
   facts_surfaced: number;
   facts_recalled: number;
   facts_recorded: number;
@@ -152,40 +154,77 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-// ── Shared sub-components ───────────────────────────────────────────
+function qualityLabel(multiplier: number): {
+  text: string;
+  color: string;
+  bg: string;
+} {
+  if (multiplier >= 5)
+    return {
+      text: "Exceptional",
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/20",
+    };
+  if (multiplier >= 3)
+    return { text: "Strong", color: "text-emerald-400", bg: "bg-emerald-500/20" };
+  if (multiplier >= 2)
+    return { text: "Good", color: "text-cyan-400", bg: "bg-cyan-500/20" };
+  if (multiplier >= 1.5)
+    return {
+      text: "Improving",
+      color: "text-amber-400",
+      bg: "bg-amber-500/20",
+    };
+  return { text: "Building up", color: "text-zinc-400", bg: "bg-zinc-500/20" };
+}
 
-function KpiCard({
-  label,
+// ── Shared Pillar Card ───────────────────────────────────────────────
+
+function PillarCard({
+  icon,
+  color,
+  borderColor,
+  title,
   value,
-  accent,
-  hint,
+  unit,
   subtitle,
+  detail,
+  tooltip,
 }: {
-  label: string;
+  icon: string;
+  color: string;
+  borderColor: string;
+  title: string;
   value: string | number;
-  accent?: string;
-  hint?: string;
-  subtitle?: string;
+  unit?: string;
+  subtitle: string;
+  detail?: string;
+  tooltip?: string;
 }) {
   return (
-    <div className="el-raised rounded-lg p-4" title={hint}>
-      <p className="t-tertiary text-xs uppercase tracking-wider">{label}</p>
-      <p
-        className={`mt-1 text-2xl font-bold font-mono tabular-nums ${accent ?? "text-foreground"}`}
-      >
+    <div
+      className={`el-raised rounded-lg p-5 border-t-2 ${borderColor}`}
+      title={tooltip}
+    >
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-lg">{icon}</span>
+        <p
+          className={`${color} text-[10px] uppercase tracking-wider font-medium`}
+        >
+          {title}
+        </p>
+      </div>
+      <p className={`text-3xl font-bold font-mono ${color}`}>
         {value}
+        {unit && <span className="text-lg ml-0.5">{unit}</span>}
       </p>
-      {subtitle && (
-        <p className="t-tertiary text-[10px] mt-1 leading-snug">{subtitle}</p>
+      <p className="t-secondary text-xs mt-1.5">{subtitle}</p>
+      {detail && (
+        <p className="t-tertiary text-[10px] mt-1 leading-snug">{detail}</p>
       )}
     </div>
   );
 }
-
-// Breadcrumb, AgentBadge, and Pagination are shared with Token Trace and
-// imported from token-trace/components/ — see the imports at the top. The
-// local copies that used to live here were byte-identical duplicates
-// (logbook-page-redesign §8 dedupe).
 
 // ── Score Badge ──────────────────────────────────────────────────────
 
@@ -288,22 +327,23 @@ function GlobalView({
   if (!g || g.total_events === 0) {
     return (
       <div className="el-raised rounded-lg p-10 text-center">
-        <p className="t-secondary text-lg">No reasoning quality data yet</p>
-        <p className="t-tertiary mt-2 text-sm">
-          Quality metrics appear here as the agent uses unerr's graph-backed
-          tools instead of grep/glob cycles.
+        <p className="t-secondary text-lg">
+          No reasoning data yet
         </p>
-        <p className="t-tertiary mt-1 text-xs">
-          This page shows how unerr improves your agent's thinking — not just
-          saves tokens, but makes every remaining token count more.
+        <p className="t-tertiary mt-2 text-sm max-w-md mx-auto">
+          This page tracks how unerr improves your agent's thinking — not just
+          saving tokens, but making every remaining token count more. Data
+          appears as soon as the agent starts using unerr's tools.
         </p>
       </div>
     );
   }
 
+  const ql = qualityLabel(g.reasoning_quality_multiplier);
+
   return (
     <div className="space-y-6">
-      {/* Top bar */}
+      {/* Date filter */}
       <div className="flex items-center justify-end gap-3 flex-wrap -mt-2">
         <DateRangeFilter
           fromTs={fromTs}
@@ -312,146 +352,247 @@ function GlobalView({
         />
       </div>
 
-      {/* ── Hero KPIs: The Big Four ── */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-        <div
-          className="el-raised rounded-lg p-5 border-t-2 border-emerald-500/60"
-          title="Share of original tokens stripped before reaching the agent"
-        >
-          <p className="text-emerald-400 text-[10px] uppercase tracking-wider font-medium">
-            Cleaner Context
-          </p>
-          <p className="text-3xl font-bold font-mono text-emerald-400 mt-2">
-            {g.noise_removed_pct}%
-          </p>
-          <p className="t-secondary text-xs mt-1">Noise removed</p>
-        </div>
-
-        <div
-          className="el-raised rounded-lg p-5 border-t-2 border-cyan-500/60"
-          title="Lookups resolved in one graph call vs 3-5 grep/glob cycles"
-        >
-          <p className="text-cyan-400 text-[10px] uppercase tracking-wider font-medium">
-            Fewer Turns
-          </p>
-          <p className="text-3xl font-bold font-mono text-cyan-400 mt-2">
-            {g.first_call_resolution_rate}%
-          </p>
-          <p className="t-secondary text-xs mt-1">First-try resolution</p>
-        </div>
-
-        <div
-          className="el-raised rounded-lg p-5 border-t-2 border-amber-500/60"
-          title={`${g.blast_radius_warnings} warnings · ${g.convention_injections} hints${g.circuit_breaker_activations ? ` · ${g.circuit_breaker_activations} loop stops` : ""}`}
-        >
-          <p className="text-amber-400 text-[10px] uppercase tracking-wider font-medium">
-            Fewer Breakages
-          </p>
-          <p className="text-3xl font-bold font-mono text-amber-400 mt-2">
-            {g.prevention_score}
-          </p>
-          <p className="t-secondary text-xs mt-1">
-            {g.blast_radius_warnings} warns · {g.convention_injections} hints
-            {g.circuit_breaker_activations > 0
-              ? ` · ${g.circuit_breaker_activations} stops`
-              : ""}
-          </p>
-        </div>
-
-        <div
-          className="el-raised rounded-lg p-5 border-t-2 border-fuchsia-500/60"
-          title="Share of fact/convention/resume signals that were load-bearing"
-        >
-          <p className="text-fuchsia-400 text-[10px] uppercase tracking-wider font-medium">
-            Persistent Memory
-          </p>
-          <p className="text-3xl font-bold font-mono text-fuchsia-400 mt-2">
-            {g.memory_verdicts_total > 0
-              ? `${g.memory_effectiveness_pct}%`
-              : g.memory_signals_fired > 0
-                ? `${g.memory_signals_fired}↻`
-                : "—"}
-          </p>
-          <p className="t-secondary text-xs mt-1">
-            {g.memory_verdicts_total > 0
-              ? `${g.verdicts_acted_on + g.verdicts_reinforced + g.verdicts_caught}/${g.memory_verdicts_total} load-bearing`
-              : g.memory_signals_fired > 0
-                ? "Verdicts pending"
-                : "No memory signals yet"}
-          </p>
-        </div>
-      </div>
-
-      {/* ── Composite Score ── */}
-      <div className="el-raised rounded-lg p-5 border-l-4 border-violet-500/40">
+      {/* ── Hero: Reasoning Quality Score ── */}
+      <div className="el-raised rounded-lg p-6 border-l-4 border-violet-500/60">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h3 className="text-foreground text-sm font-medium">
-              Reasoning Trace Multiplier
-            </h3>
-            <p
-              className="t-tertiary text-xs mt-1"
-              title="Composite: compression × (1 + first-call resolution rate)"
-            >
-              Compression × precision.
+            <h2 className="text-foreground font-semibold text-base">
+              Is your agent reasoning better?
+            </h2>
+            <p className="t-tertiary text-xs mt-1 max-w-lg leading-relaxed">
+              unerr doesn't just save tokens — it makes every remaining token
+              count more. By feeding the right code, past learnings, and
+              project conventions at exactly the right moment, your agent
+              makes better decisions with less context.
             </p>
           </div>
           <div className="text-right shrink-0">
-            <p className="text-violet-400 font-mono font-bold text-3xl">
+            <p className="text-violet-400 font-mono font-bold text-4xl">
               {g.reasoning_quality_multiplier}x
+            </p>
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 ${ql.bg} ${ql.color} text-[10px] font-medium mt-1`}
+            >
+              {ql.text}
+            </span>
+            <p className="t-tertiary text-[10px] mt-1">
+              reasoning improvement
             </p>
           </div>
         </div>
       </div>
 
-      {/* ── Quality Over Time (Temporal Trend) ── */}
+      {/* ── Four Pillars ── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+        <PillarCard
+          icon="🔍"
+          color="text-emerald-400"
+          borderColor="border-emerald-500/60"
+          title="Cleaner Focus"
+          value={`${g.noise_removed_pct}%`}
+          subtitle="of irrelevant code removed before the agent saw it"
+          detail={`The agent focused on ${fmt(g.entities_resolved)} relevant code entities instead of reading entire files`}
+          tooltip={`Signal-to-noise ratio: ${g.signal_to_noise_ratio} · Context density: ${g.context_density} entities per 1K tokens · Attention boost: ${g.attention_multiplier}x`}
+        />
+
+        <PillarCard
+          icon="⚡"
+          color="text-cyan-400"
+          borderColor="border-cyan-500/60"
+          title="Found It First Try"
+          value={`${g.first_call_resolution_rate}%`}
+          subtitle="of code lookups resolved in a single call"
+          detail={`Saved ~${fmt(g.turns_saved)} wasted turns that would have been spent searching through files`}
+          tooltip={`${fmt(g.graph_calls)} graph-backed lookups out of ${fmt(g.total_tool_calls)} total tool calls · ${g.exploration_loops_prevented} search loops stopped`}
+        />
+
+        <PillarCard
+          icon="🛡️"
+          color="text-amber-400"
+          borderColor="border-amber-500/60"
+          title="Mistakes Prevented"
+          value={g.prevention_score}
+          subtitle="risky operations caught before they shipped"
+          detail={[
+            g.blast_radius_warnings > 0
+              ? `${g.blast_radius_warnings} high-impact edits flagged`
+              : null,
+            g.convention_injections > 0
+              ? `${g.convention_injections} style rules applied`
+              : null,
+            g.circuit_breaker_activations > 0
+              ? `${g.circuit_breaker_activations} agent loops stopped`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          tooltip="Includes blast-radius warnings (risky edits with many callers), convention injections (project rules applied automatically), and circuit breaker activations (agent retry loops stopped)"
+        />
+
+        <PillarCard
+          icon="🧠"
+          color="text-fuchsia-400"
+          borderColor="border-fuchsia-500/60"
+          title="Lessons Remembered"
+          value={
+            g.memory_verdicts_total > 0
+              ? `${g.memory_effectiveness_pct}%`
+              : g.memory_signals_fired > 0
+                ? `${g.memory_signals_fired}`
+                : "—"
+          }
+          unit={g.memory_verdicts_total > 0 ? "" : g.memory_signals_fired > 0 ? " notes" : ""}
+          subtitle={
+            g.memory_verdicts_total > 0
+              ? "of past learnings actually changed the agent's decisions"
+              : g.memory_signals_fired > 0
+                ? "past learnings surfaced — tracking impact"
+                : "No past learnings surfaced yet"
+          }
+          detail={
+            g.memory_verdicts_total > 0
+              ? `${g.verdicts_acted_on + g.verdicts_reinforced + g.verdicts_caught} out of ${g.memory_verdicts_total} surfaced notes were load-bearing`
+              : undefined
+          }
+          tooltip="Each time unerr surfaces a past note, convention, or session resume, it tracks whether the agent actually used it. Load-bearing = the note changed what the agent did."
+        />
+      </div>
+
+      {/* ── How It Works (the Active Cognition story) ── */}
+      <div className="el-raised rounded-lg p-5">
+        <h3 className="t-secondary text-sm font-medium mb-3">
+          How unerr improves reasoning
+        </h3>
+        <div className="grid gap-4 lg:grid-cols-3 text-xs">
+          <div className="space-y-2">
+            <p className="text-emerald-400 font-medium uppercase tracking-wider text-[10px]">
+              1. Feeds the right code
+            </p>
+            <p className="t-secondary leading-relaxed">
+              Instead of dumping entire files, unerr uses a live code graph to
+              serve only the relevant functions, types, and callers. The agent
+              sees {g.noise_removed_pct}% less noise — which research shows
+              directly improves LLM attention and accuracy.
+            </p>
+            <div className="flex gap-4 pt-1.5 border-t border-border-subtle/50">
+              <div>
+                <span className="t-tertiary text-[10px]">Entities served</span>
+                <p className="text-foreground font-mono text-sm">
+                  {fmt(g.entities_resolved)}
+                </p>
+              </div>
+              <div>
+                <span className="t-tertiary text-[10px]">
+                  Attention boost
+                </span>
+                <p className="text-foreground font-mono text-sm">
+                  {g.attention_multiplier}x
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-cyan-400 font-medium uppercase tracking-wider text-[10px]">
+              2. Frees up context space
+            </p>
+            <p className="t-secondary leading-relaxed">
+              By stripping noise and resolving lookups in one call, unerr frees
+              context window space. That freed space is used for the agent's
+              actual reasoning — longer chains of thought, more alternatives
+              considered, better decisions.
+            </p>
+            <div className="flex gap-4 pt-1.5 border-t border-border-subtle/50">
+              <div>
+                <span className="t-tertiary text-[10px]">Graph lookups</span>
+                <p className="text-foreground font-mono text-sm">
+                  {fmt(g.graph_calls)}
+                </p>
+              </div>
+              <div>
+                <span className="t-tertiary text-[10px]">
+                  Wasted turns prevented
+                </span>
+                <p className="text-foreground font-mono text-sm">
+                  ~{fmt(g.turns_saved)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-fuchsia-400 font-medium uppercase tracking-wider text-[10px]">
+              3. Surfaces past learnings
+            </p>
+            <p className="t-secondary leading-relaxed">
+              Rules you've taught, conventions detected, and decisions from past
+              sessions are surfaced at the exact moment the agent needs them —
+              so the agent doesn't re-derive what it already learned, and
+              doesn't repeat past mistakes.
+            </p>
+            <div className="flex gap-4 pt-1.5 border-t border-border-subtle/50">
+              <div>
+                <span className="t-tertiary text-[10px]">Notes surfaced</span>
+                <p className="text-foreground font-mono text-sm">
+                  {fmt(g.facts_surfaced)}
+                </p>
+              </div>
+              <div>
+                <span className="t-tertiary text-[10px]">Rules applied</span>
+                <p className="text-foreground font-mono text-sm">
+                  {fmt(g.conventions_surfaced)}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Quality Over Time ── */}
       {(() => {
         const trend = trendQ.data?.data ?? [];
         if (trend.length < 2) return null;
 
-        const maxMultiplier = Math.max(
-          ...trend.map((t) => t.reasoning_quality_multiplier),
-          1
-        );
         const maxNoise = Math.max(...trend.map((t) => t.noise_removed_pct), 1);
         const maxFcr = Math.max(
           ...trend.map((t) => t.first_call_resolution_rate),
           1
         );
+        const maxMultiplier = Math.max(
+          ...trend.map((t) => t.reasoning_quality_multiplier),
+          1
+        );
 
         return (
           <div className="el-raised rounded-lg p-5">
-            <h3
-              className="t-secondary text-sm font-medium mb-3"
-              title="One bar per session, ordered chronologically. Rising = improving."
-            >
-              Quality Over Time
+            <h3 className="t-secondary text-sm font-medium mb-1">
+              Reasoning improvement over time
             </h3>
+            <p className="t-tertiary text-xs mb-3">
+              Each bar is one session. Rising bars mean the agent is getting
+              better at focusing, finding code, and avoiding mistakes.
+            </p>
 
-            {/* Multi-metric stacked chart */}
             <div className="space-y-4">
-              {/* Noise Removed trend */}
+              {/* Cleaner Focus trend */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <span
-                    className="text-emerald-400 text-[10px] uppercase tracking-wider font-medium"
-                    title="Higher = cleaner context"
-                  >
-                    Noise Removed %
+                  <span className="text-emerald-400 text-[10px] uppercase tracking-wider font-medium">
+                    Cleaner focus
+                  </span>
+                  <span className="t-tertiary text-[10px]">
+                    Higher = less noise
                   </span>
                 </div>
                 <div className="flex gap-[2px]" style={{ height: "48px" }}>
-                  {trend.slice(-40).map((pt, i) => {
+                  {trend.slice(-40).map((pt) => {
                     const heightPct =
                       maxNoise > 0
                         ? Math.max(4, (pt.noise_removed_pct / maxNoise) * 100)
                         : 4;
                     const dateLabel = new Date(pt.first_ts).toLocaleDateString(
                       [],
-                      {
-                        month: "short",
-                        day: "numeric",
-                      }
+                      { month: "short", day: "numeric" }
                     );
                     return (
                       <div
@@ -468,10 +609,7 @@ function GlobalView({
                               {dateLabel}
                             </div>
                             <div className="text-emerald-400">
-                              Noise removed: {pt.noise_removed_pct}%
-                            </div>
-                            <div className="t-secondary">
-                              Session: {pt.session_id.slice(0, 8)}
+                              {pt.noise_removed_pct}% noise removed
                             </div>
                           </div>
                         </div>
@@ -481,11 +619,11 @@ function GlobalView({
                 </div>
               </div>
 
-              {/* First-Call Resolution trend */}
+              {/* Found First Try trend */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-cyan-400 text-[10px] uppercase tracking-wider font-medium">
-                    Found It First Try %
+                    Found it first try
                   </span>
                   <span className="t-tertiary text-[10px]">
                     Higher = fewer wasted turns
@@ -502,10 +640,7 @@ function GlobalView({
                         : 4;
                     const dateLabel = new Date(pt.first_ts).toLocaleDateString(
                       [],
-                      {
-                        month: "short",
-                        day: "numeric",
-                      }
+                      { month: "short", day: "numeric" }
                     );
                     return (
                       <div
@@ -522,10 +657,10 @@ function GlobalView({
                               {dateLabel}
                             </div>
                             <div className="text-cyan-400">
-                              First try: {pt.first_call_resolution_rate}%
+                              {pt.first_call_resolution_rate}% first try
                             </div>
                             <div className="t-secondary">
-                              Turns saved: ~{pt.turns_saved}
+                              ~{pt.turns_saved} wasted turns prevented
                             </div>
                           </div>
                         </div>
@@ -535,14 +670,11 @@ function GlobalView({
                 </div>
               </div>
 
-              {/* Quality Multiplier trend */}
+              {/* Reasoning Multiplier trend */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <span
-                    className="text-violet-400 text-[10px] uppercase tracking-wider font-medium"
-                    title="Higher = smarter agent"
-                  >
-                    Quality Multiplier
+                  <span className="text-violet-400 text-[10px] uppercase tracking-wider font-medium">
+                    Overall reasoning improvement
                   </span>
                 </div>
                 <div className="flex gap-[2px]" style={{ height: "48px" }}>
@@ -557,10 +689,7 @@ function GlobalView({
                         : 4;
                     const dateLabel = new Date(pt.first_ts).toLocaleDateString(
                       [],
-                      {
-                        month: "short",
-                        day: "numeric",
-                      }
+                      { month: "short", day: "numeric" }
                     );
                     return (
                       <div
@@ -577,10 +706,7 @@ function GlobalView({
                               {dateLabel}
                             </div>
                             <div className="text-violet-400">
-                              Quality: {pt.reasoning_quality_multiplier}x
-                            </div>
-                            <div className="t-secondary">
-                              Attention boost: {pt.attention_multiplier}x
+                              {pt.reasoning_quality_multiplier}x improvement
                             </div>
                           </div>
                         </div>
@@ -597,10 +723,7 @@ function GlobalView({
                 <span className="t-tertiary text-[10px] font-mono">
                   {new Date(
                     trend[Math.max(0, trend.length - 40)].first_ts
-                  ).toLocaleDateString([], {
-                    month: "short",
-                    day: "numeric",
-                  })}
+                  ).toLocaleDateString([], { month: "short", day: "numeric" })}
                 </span>
                 <span className="t-tertiary text-[10px]">
                   {Math.min(40, trend.length)} sessions shown
@@ -608,10 +731,7 @@ function GlobalView({
                 <span className="t-tertiary text-[10px] font-mono">
                   {new Date(
                     trend[trend.length - 1].first_ts
-                  ).toLocaleDateString([], {
-                    month: "short",
-                    day: "numeric",
-                  })}
+                  ).toLocaleDateString([], { month: "short", day: "numeric" })}
                 </span>
               </div>
             )}
@@ -620,18 +740,16 @@ function GlobalView({
             <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-border-subtle/50">
               <div className="flex items-center gap-1.5">
                 <div className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />
-                <span className="t-tertiary text-[10px]">Noise removed</span>
+                <span className="t-tertiary text-[10px]">Cleaner focus</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="h-2.5 w-2.5 rounded-sm bg-cyan-500" />
-                <span className="t-tertiary text-[10px]">
-                  First-call resolution
-                </span>
+                <span className="t-tertiary text-[10px]">Found first try</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="h-2.5 w-2.5 rounded-sm bg-violet-500" />
                 <span className="t-tertiary text-[10px]">
-                  Quality multiplier
+                  Overall improvement
                 </span>
               </div>
             </div>
@@ -639,425 +757,204 @@ function GlobalView({
         );
       })()}
 
-      {/* ── Category Breakdowns ── */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Context Quality details */}
+      {/* ── Persistent Memory — what your notes actually did ── */}
+      {g.memory_signals_fired > 0 && (
         <div className="el-raised rounded-lg p-5">
-          <h3 className="text-emerald-400 text-xs font-medium uppercase tracking-wider mb-4">
-            Context Quality Details
-          </h3>
-          <div className="space-y-3">
+          <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
             <div>
-              <div className="flex justify-between items-baseline">
-                <span
-                  className="t-secondary text-xs"
-                  title="Fraction of original content kept (lower = cleaner)"
-                >
-                  Signal-to-Noise
-                </span>
-                <span className="text-foreground font-mono text-sm font-medium">
-                  {g.signal_to_noise_ratio}
-                </span>
-              </div>
-              <div className="mt-1.5 h-2 bg-surface-secondary rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-emerald-500 rounded-full transition-all"
-                  style={{
-                    width: `${Math.max(3, (1 - g.signal_to_noise_ratio) * 100)}%`,
-                  }}
-                />
-              </div>
+              <h3 className="text-fuchsia-400 text-xs font-medium uppercase tracking-wider">
+                Your notes in action
+              </h3>
+              <p className="t-tertiary text-xs mt-1 max-w-lg">
+                Every time unerr surfaces a past rule, convention, or session
+                note, it tracks whether the agent actually used it. Here's how
+                your accumulated knowledge performed.
+              </p>
             </div>
-
-            <div className="flex justify-between items-baseline">
-              <span
-                className="t-secondary text-xs"
-                title="Entities resolved per 1K tokens delivered"
-              >
-                Context density
-              </span>
-              <span className="text-foreground font-mono text-sm font-medium">
-                {g.context_density}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-baseline">
-              <span
-                className="t-secondary text-xs"
-                title="Estimated attention boost from noise removal"
-              >
-                Attention boost
-              </span>
-              <span className="text-foreground font-mono text-sm font-medium">
-                {g.attention_multiplier}x
-              </span>
-            </div>
-
-            <div className="pt-2 border-t border-border-subtle/50 space-y-1">
-              <div className="flex justify-between items-baseline">
-                <span className="t-tertiary text-xs">Entities resolved</span>
-                <span className="t-secondary font-mono text-xs">
-                  {fmt(g.entities_resolved)}
-                </span>
+            {g.memory_verdicts_total > 0 && (
+              <div className="text-right shrink-0">
+                <p className="text-fuchsia-400 font-mono font-bold text-3xl">
+                  {g.memory_effectiveness_pct}%
+                </p>
+                <p className="t-tertiary text-[10px] uppercase tracking-wider mt-0.5">
+                  were load-bearing
+                </p>
               </div>
-              <div className="flex justify-between items-baseline">
-                <span
-                  className="t-tertiary text-xs"
-                  title="Tokens delivered via graph queries"
-                >
-                  Graph tokens
-                </span>
-                <span className="t-secondary font-mono text-xs">
-                  {fmt(g.graph_tokens_delivered)}
-                </span>
-              </div>
-            </div>
+            )}
           </div>
-        </div>
 
-        {/* Fewer Turns details */}
-        <div className="el-raised rounded-lg p-5">
-          <h3 className="text-cyan-400 text-xs font-medium uppercase tracking-wider mb-4">
-            Turn Efficiency Details
-          </h3>
-          <div className="space-y-3">
+          {/* Outcome breakdown bar */}
+          {g.memory_verdicts_total > 0 &&
+            (() => {
+              const total = g.memory_verdicts_total;
+              const seg = (n: number) => (n / total) * 100;
+              return (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="t-tertiary text-[10px]">
+                      {total} note{total === 1 ? "" : "s"} surfaced and tracked
+                    </span>
+                  </div>
+                  <div className="flex h-3 rounded-full overflow-hidden bg-surface-secondary">
+                    {g.verdicts_reinforced > 0 && (
+                      <div
+                        className="bg-emerald-500"
+                        style={{ width: `${seg(g.verdicts_reinforced)}%` }}
+                        title={`Confirmed existing rule: ${g.verdicts_reinforced}`}
+                      />
+                    )}
+                    {g.verdicts_acted_on > 0 && (
+                      <div
+                        className="bg-fuchsia-500"
+                        style={{ width: `${seg(g.verdicts_acted_on)}%` }}
+                        title={`Changed the agent's approach: ${g.verdicts_acted_on}`}
+                      />
+                    )}
+                    {g.verdicts_caught > 0 && (
+                      <div
+                        className="bg-cyan-500"
+                        style={{ width: `${seg(g.verdicts_caught)}%` }}
+                        title={`Prevented a mistake: ${g.verdicts_caught}`}
+                      />
+                    )}
+                    {g.verdicts_ignored > 0 && (
+                      <div
+                        className="bg-zinc-600"
+                        style={{ width: `${seg(g.verdicts_ignored)}%` }}
+                        title={`Not used this time: ${g.verdicts_ignored}`}
+                      />
+                    )}
+                    {g.verdicts_corrected > 0 && (
+                      <div
+                        className="bg-red-500"
+                        style={{ width: `${seg(g.verdicts_corrected)}%` }}
+                        title={`Note was outdated and corrected: ${g.verdicts_corrected}`}
+                      />
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-3 mt-2 text-[10px] t-tertiary">
+                    {g.verdicts_reinforced > 0 && (
+                      <span>
+                        <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500 mr-1" />
+                        Confirmed existing rule ({g.verdicts_reinforced})
+                      </span>
+                    )}
+                    {g.verdicts_acted_on > 0 && (
+                      <span>
+                        <span className="inline-block w-2 h-2 rounded-sm bg-fuchsia-500 mr-1" />
+                        Changed approach ({g.verdicts_acted_on})
+                      </span>
+                    )}
+                    {g.verdicts_caught > 0 && (
+                      <span>
+                        <span className="inline-block w-2 h-2 rounded-sm bg-cyan-500 mr-1" />
+                        Prevented mistake ({g.verdicts_caught})
+                      </span>
+                    )}
+                    {g.verdicts_ignored > 0 && (
+                      <span>
+                        <span className="inline-block w-2 h-2 rounded-sm bg-zinc-600 mr-1" />
+                        Not used ({g.verdicts_ignored})
+                      </span>
+                    )}
+                    {g.verdicts_corrected > 0 && (
+                      <span>
+                        <span className="inline-block w-2 h-2 rounded-sm bg-red-500 mr-1" />
+                        Outdated &amp; corrected ({g.verdicts_corrected})
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+          {/* Signal types */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-border-subtle/50">
             <div>
-              <div className="flex justify-between items-baseline">
-                <span
-                  className="t-secondary text-xs"
-                  title="Lookups resolved in 1 graph call vs 3-5 grep cycles"
-                >
-                  First-try resolution
-                </span>
-                <span className="text-foreground font-mono text-sm font-medium">
-                  {g.first_call_resolution_rate}%
-                </span>
-              </div>
-              <div className="mt-1.5 h-2 bg-surface-secondary rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-cyan-500 rounded-full transition-all"
-                  style={{
-                    width: `${Math.max(3, g.first_call_resolution_rate)}%`,
-                  }}
-                />
-              </div>
+              <p className="t-tertiary text-[10px]">Rules you taught</p>
+              <p className="text-foreground font-mono text-sm font-medium mt-0.5">
+                {fmt(g.facts_recorded)}
+              </p>
             </div>
-
-            <div className="flex justify-between items-baseline">
-              <span
-                className="t-secondary text-xs"
-                title="Estimated grep→read cycles avoided"
-              >
-                Turns saved
-              </span>
-              <span className="text-cyan-400 font-mono text-sm font-medium">
-                ~{fmt(g.turns_saved)}
-              </span>
+            <div>
+              <p className="t-tertiary text-[10px]">Notes recalled</p>
+              <p className="text-foreground font-mono text-sm font-medium mt-0.5">
+                {fmt(g.facts_recalled)}
+              </p>
             </div>
-
-            <div className="flex justify-between items-baseline">
-              <span
-                className="t-secondary text-xs"
-                title="Hook redirects that broke an exploration loop"
-              >
-                Loops stopped
-              </span>
-              <span className="text-foreground font-mono text-sm font-medium">
-                {g.exploration_loops_prevented}
-              </span>
+            <div>
+              <p className="t-tertiary text-[10px]">
+                Conventions applied
+              </p>
+              <p className="text-foreground font-mono text-sm font-medium mt-0.5">
+                {fmt(g.conventions_surfaced)}
+              </p>
             </div>
-
-            <div className="pt-2 border-t border-border-subtle/50 space-y-1">
-              <div className="flex justify-between items-baseline">
-                <span className="t-tertiary text-xs">Graph calls</span>
-                <span className="t-secondary font-mono text-xs">
-                  {fmt(g.graph_calls)}
-                </span>
-              </div>
-              <div className="flex justify-between items-baseline">
-                <span className="t-tertiary text-xs">Total tool calls</span>
-                <span className="t-secondary font-mono text-xs">
-                  {fmt(g.total_tool_calls)}
-                </span>
-              </div>
+            <div>
+              <p className="t-tertiary text-[10px]">Sessions resumed</p>
+              <p className="text-foreground font-mono text-sm font-medium mt-0.5">
+                {fmt(g.resume_hits)}
+              </p>
+            </div>
+            <div>
+              <p className="t-tertiary text-[10px]">
+                Anti-patterns warned
+              </p>
+              <p className="text-foreground font-mono text-sm font-medium mt-0.5">
+                {fmt(g.negative_warnings)}
+              </p>
+            </div>
+            <div>
+              <p className="t-tertiary text-[10px]">Total notes surfaced</p>
+              <p className="text-foreground font-mono text-sm font-medium mt-0.5">
+                {fmt(g.facts_surfaced)}
+              </p>
             </div>
           </div>
         </div>
-
-        {/* Fewer Breakages details */}
-        <div className="el-raised rounded-lg p-5">
-          <h3 className="text-amber-400 text-xs font-medium uppercase tracking-wider mb-4">
-            Breakage Prevention Details
-          </h3>
-          <div className="space-y-3">
-            <div className="flex justify-between items-baseline">
-              <span
-                className="t-secondary text-xs"
-                title="Callers / refs / drift shown before edit"
-              >
-                Blast-radius warns
-              </span>
-              <span className="text-foreground font-mono text-sm font-medium">
-                {g.blast_radius_warnings}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-baseline">
-              <span
-                className="t-secondary text-xs"
-                title="Project rules auto-injected into tool responses"
-              >
-                Convention hints
-              </span>
-              <span className="text-foreground font-mono text-sm font-medium">
-                {g.convention_injections}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-baseline">
-              <span
-                className="t-secondary text-xs"
-                title="Circuit-breaker fires — agent stuck in fix→break→fix"
-              >
-                Loops stopped
-              </span>
-              <span
-                className={`font-mono text-sm font-medium ${g.circuit_breaker_activations > 0 ? "text-red-400" : "text-foreground"}`}
-              >
-                {g.circuit_breaker_activations}
-              </span>
-            </div>
-
-            <div className="pt-2 border-t border-border-subtle/50">
-              <div className="flex justify-between items-baseline">
-                <span
-                  className="t-tertiary text-xs"
-                  title="warnings + hints + (loops × 10)"
-                >
-                  Safety score
-                </span>
-                <span className="text-amber-400 font-mono text-xs font-medium">
-                  {g.prevention_score} pts
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Persistent Memory Details ── */}
-      <div className="el-raised rounded-lg p-5">
-        <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
-          <div>
-            <h3 className="text-fuchsia-400 text-xs font-medium uppercase tracking-wider">
-              Persistent Memory
-            </h3>
-            <p
-              className="t-tertiary text-xs mt-1"
-              title="Each fact/convention/resume signal opens a 5-turn window and resolves into a verdict: reinforced · acted_on · caught · ignored · corrected. Load-bearing = reinforced + acted_on + caught."
-            >
-              Signals scored after a 5-turn observation window.
-            </p>
-          </div>
-          <div className="text-right shrink-0">
-            <p className="text-fuchsia-400 font-mono font-bold text-3xl">
-              {g.memory_effectiveness_pct}%
-            </p>
-            <p className="t-tertiary text-[10px] uppercase tracking-wider mt-0.5">
-              Load-bearing
-            </p>
-          </div>
-        </div>
-
-        {/* Verdict breakdown bar */}
-        {g.memory_verdicts_total > 0 &&
-          (() => {
-            const total = g.memory_verdicts_total;
-            const seg = (n: number) => (n / total) * 100;
-            return (
-              <div className="mb-4">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="t-tertiary text-[10px] uppercase tracking-wider">
-                    {total} verdict{total === 1 ? "" : "s"}
-                  </span>
-                </div>
-                <div className="flex h-3 rounded-full overflow-hidden bg-surface-secondary">
-                  {g.verdicts_reinforced > 0 && (
-                    <div
-                      className="bg-emerald-500"
-                      style={{ width: `${seg(g.verdicts_reinforced)}%` }}
-                      title={`Reinforced: ${g.verdicts_reinforced}`}
-                    />
-                  )}
-                  {g.verdicts_acted_on > 0 && (
-                    <div
-                      className="bg-fuchsia-500"
-                      style={{ width: `${seg(g.verdicts_acted_on)}%` }}
-                      title={`Acted on: ${g.verdicts_acted_on}`}
-                    />
-                  )}
-                  {g.verdicts_caught > 0 && (
-                    <div
-                      className="bg-cyan-500"
-                      style={{ width: `${seg(g.verdicts_caught)}%` }}
-                      title={`Caught: ${g.verdicts_caught}`}
-                    />
-                  )}
-                  {g.verdicts_ignored > 0 && (
-                    <div
-                      className="bg-zinc-600"
-                      style={{ width: `${seg(g.verdicts_ignored)}%` }}
-                      title={`Ignored: ${g.verdicts_ignored}`}
-                    />
-                  )}
-                  {g.verdicts_corrected > 0 && (
-                    <div
-                      className="bg-red-500"
-                      style={{ width: `${seg(g.verdicts_corrected)}%` }}
-                      title={`Corrected: ${g.verdicts_corrected}`}
-                    />
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-3 mt-2 text-[10px] t-tertiary">
-                  <span>
-                    <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500 mr-1" />
-                    reinforced {g.verdicts_reinforced}
-                  </span>
-                  <span>
-                    <span className="inline-block w-2 h-2 rounded-sm bg-fuchsia-500 mr-1" />
-                    acted_on {g.verdicts_acted_on}
-                  </span>
-                  <span>
-                    <span className="inline-block w-2 h-2 rounded-sm bg-cyan-500 mr-1" />
-                    caught {g.verdicts_caught}
-                  </span>
-                  <span>
-                    <span className="inline-block w-2 h-2 rounded-sm bg-zinc-600 mr-1" />
-                    ignored {g.verdicts_ignored}
-                  </span>
-                  <span>
-                    <span className="inline-block w-2 h-2 rounded-sm bg-red-500 mr-1" />
-                    corrected {g.verdicts_corrected}
-                  </span>
-                </div>
-              </div>
-            );
-          })()}
-
-        {/* Signal volume sub-row */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-border-subtle/50">
-          <div>
-            <p className="t-tertiary text-[10px] uppercase tracking-wider">
-              Facts surfaced
-            </p>
-            <p className="text-foreground font-mono text-sm font-medium mt-0.5">
-              {fmt(g.facts_surfaced)}
-            </p>
-          </div>
-          <div>
-            <p className="t-tertiary text-[10px] uppercase tracking-wider">
-              Facts recalled
-            </p>
-            <p className="text-foreground font-mono text-sm font-medium mt-0.5">
-              {fmt(g.facts_recalled)}
-            </p>
-          </div>
-          <div>
-            <p className="t-tertiary text-[10px] uppercase tracking-wider">
-              Facts recorded
-            </p>
-            <p className="text-foreground font-mono text-sm font-medium mt-0.5">
-              {fmt(g.facts_recorded)}
-            </p>
-          </div>
-          <div>
-            <p className="t-tertiary text-[10px] uppercase tracking-wider">
-              Conventions
-            </p>
-            <p className="text-foreground font-mono text-sm font-medium mt-0.5">
-              {fmt(g.conventions_surfaced)}
-            </p>
-          </div>
-          <div>
-            <p className="t-tertiary text-[10px] uppercase tracking-wider">
-              Resume hits
-            </p>
-            <p className="text-foreground font-mono text-sm font-medium mt-0.5">
-              {fmt(g.resume_hits)}
-            </p>
-          </div>
-          <div>
-            <p className="t-tertiary text-[10px] uppercase tracking-wider">
-              Anti-pattern warns
-            </p>
-            <p className="text-foreground font-mono text-sm font-medium mt-0.5">
-              {fmt(g.negative_warnings)}
-            </p>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* ── Session List ── */}
       <div className="el-raised rounded-lg overflow-hidden">
         <div className="px-5 py-3 border-b border-border-subtle flex items-center justify-between">
-          <h3
-            className="t-secondary text-sm font-medium"
-            title="Click a row to drill into a session"
-          >
-            Sessions
-          </h3>
+          <h3 className="t-secondary text-sm font-medium">Sessions</h3>
           <span className="t-tertiary text-xs">
             {sessionsTotal} session{sessionsTotal !== 1 ? "s" : ""}
           </span>
         </div>
 
         {sessions.length === 0 ? (
-          <p className="px-5 py-6 t-secondary text-sm">No sessions recorded.</p>
+          <p className="px-5 py-6 t-secondary text-sm">No sessions yet.</p>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm min-w-[800px]">
                 <thead>
                   <tr className="border-b border-border-subtle t-tertiary text-xs uppercase">
+                    <th className="px-5 py-2.5 font-medium">Session</th>
+                    <th className="px-3 py-2.5 font-medium">Agent</th>
+                    <th className="px-3 py-2.5 font-medium">Last Active</th>
                     <th
-                      className="px-5 py-2.5 font-medium"
-                      title="Unique session identifier"
+                      className="px-3 py-2.5 font-medium text-center"
+                      title="% of noise removed from context"
                     >
-                      Session
-                    </th>
-                    <th
-                      className="px-3 py-2.5 font-medium"
-                      title="AI agent that ran this session"
-                    >
-                      Agent
-                    </th>
-                    <th
-                      className="px-3 py-2.5 font-medium"
-                      title="When the last event was recorded"
-                    >
-                      Last Active
+                      Focus
                     </th>
                     <th
                       className="px-3 py-2.5 font-medium text-center"
-                      title="% noise removed"
-                    >
-                      Noise Removed
-                    </th>
-                    <th
-                      className="px-3 py-2.5 font-medium text-center"
-                      title="First-try lookup resolution"
+                      title="% of lookups resolved in one call"
                     >
                       First Try
                     </th>
                     <th
                       className="px-3 py-2.5 font-medium text-center"
-                      title="Warnings + hints + (loops × 10)"
+                      title="Risky operations caught"
                     >
                       Safety
                     </th>
                     <th
                       className="px-3 py-2.5 font-medium text-center"
-                      title="% of memory signals that were load-bearing"
+                      title="% of surfaced notes that changed the outcome"
                     >
                       Memory
                     </th>
@@ -1065,11 +962,11 @@ function GlobalView({
                       className="px-3 py-2.5 font-medium text-right"
                       title="Wasted turns avoided"
                     >
-                      Turns Saved
+                      Saved
                     </th>
                     <th
                       className="px-3 py-2.5 font-medium text-right"
-                      title="Compression × precision"
+                      title="Overall reasoning improvement"
                     >
                       Quality
                     </th>
@@ -1104,13 +1001,13 @@ function GlobalView({
                       <td className="px-3 py-3 text-center">
                         <ScoreBadge
                           value={s.noise_removed_pct}
-                          label="Noise removed %"
+                          label="Noise removed"
                         />
                       </td>
                       <td className="px-3 py-3 text-center">
                         <ScoreBadge
                           value={s.first_call_resolution_rate}
-                          label="First-call resolution rate"
+                          label="First-try resolution"
                         />
                       </td>
                       <td className="px-3 py-3 text-center">
@@ -1120,22 +1017,12 @@ function GlobalView({
                       </td>
                       <td className="px-3 py-3 text-center">
                         {s.memory_verdicts_total > 0 ? (
-                          <span
-                            className="text-fuchsia-400 font-mono text-xs font-medium"
-                            title={`${s.memory_verdicts_total} verdict${
-                              s.memory_verdicts_total === 1 ? "" : "s"
-                            } from ${s.memory_signals_fired} signals`}
-                          >
+                          <span className="text-fuchsia-400 font-mono text-xs font-medium">
                             {s.memory_effectiveness_pct}%
                           </span>
                         ) : s.memory_signals_fired > 0 ? (
-                          <span
-                            className="t-tertiary font-mono text-xs"
-                            title={`${s.memory_signals_fired} signal${
-                              s.memory_signals_fired === 1 ? "" : "s"
-                            } fired — verdicts pending`}
-                          >
-                            {s.memory_signals_fired}↻
+                          <span className="t-tertiary font-mono text-xs">
+                            {s.memory_signals_fired} notes
                           </span>
                         ) : (
                           <span className="t-tertiary font-mono text-xs">
@@ -1214,89 +1101,116 @@ function SessionView({ sessionId }: { sessionId: string }) {
     return (
       <div className="el-raised rounded-lg p-8 text-center">
         <p className="t-secondary">
-          No quality data for session {sessionId.slice(0, 12)}
+          No data for session {sessionId.slice(0, 12)}
         </p>
       </div>
     );
   }
 
   const trajectory = s.trajectory ?? [];
+  const ql = qualityLabel(s.reasoning_quality_multiplier);
 
   return (
     <div className="space-y-6">
-      {/* ── Session Hero KPIs ── */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-7">
-        <KpiCard
-          label="Noise Removed"
+      {/* ── Session Hero ── */}
+      <div className="el-raised rounded-lg p-5 border-l-4 border-violet-500/40">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h3 className="text-foreground text-sm font-medium">
+              Session reasoning quality
+            </h3>
+            <p className="t-tertiary text-xs mt-1">
+              How well the agent reasoned across {s.total_turns} turn
+              {s.total_turns === 1 ? "" : "s"} in this session.
+            </p>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-violet-400 font-mono font-bold text-3xl">
+              {s.reasoning_quality_multiplier}x
+            </p>
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 ${ql.bg} ${ql.color} text-[10px] font-medium mt-1`}
+            >
+              {ql.text}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Four Pillars ── */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <PillarCard
+          icon="🔍"
+          color="text-emerald-400"
+          borderColor="border-emerald-500/60"
+          title="Cleaner Focus"
           value={`${s.noise_removed_pct}%`}
-          accent="text-emerald-400"
-          hint="Percentage of unnecessary tokens stripped from context"
-          subtitle="Cleaner signal for the agent"
+          subtitle="noise removed"
+          detail={`${fmt(s.entities_resolved)} entities served · ${s.attention_multiplier}x attention boost`}
         />
-        <KpiCard
-          label="Found First Try"
+        <PillarCard
+          icon="⚡"
+          color="text-cyan-400"
+          borderColor="border-cyan-500/60"
+          title="Found First Try"
           value={`${s.first_call_resolution_rate}%`}
-          accent="text-cyan-400"
-          hint="Code lookups resolved in 1 graph call"
-          subtitle="vs 3-5 grep/glob cycles"
+          subtitle="one-call resolution"
+          detail={`~${fmt(s.turns_saved)} wasted turns prevented`}
         />
-        <KpiCard
-          label="Safety Score"
+        <PillarCard
+          icon="🛡️"
+          color="text-amber-400"
+          borderColor="border-amber-500/60"
+          title="Mistakes Prevented"
           value={s.prevention_score}
-          accent="text-amber-400"
-          hint="Warnings, convention hints, and doom spiral stops"
-          subtitle="Breakages prevented"
+          subtitle="risky operations caught"
+          detail={[
+            s.blast_radius_warnings > 0
+              ? `${s.blast_radius_warnings} high-impact edits flagged`
+              : null,
+            s.convention_injections > 0
+              ? `${s.convention_injections} style rules applied`
+              : null,
+            s.circuit_breaker_activations > 0
+              ? `${s.circuit_breaker_activations} loops stopped`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         />
-        <KpiCard
-          label="Memory"
+        <PillarCard
+          icon="🧠"
+          color="text-fuchsia-400"
+          borderColor="border-fuchsia-500/60"
+          title="Lessons Remembered"
           value={
             s.memory_verdicts_total > 0
               ? `${s.memory_effectiveness_pct}%`
               : s.memory_signals_fired > 0
-                ? `${s.memory_signals_fired}↻`
+                ? `${s.memory_signals_fired}`
                 : "—"
           }
-          accent="text-fuchsia-400"
-          hint="% of fact/convention/resume signals that were load-bearing"
+          unit={s.memory_verdicts_total > 0 ? "" : s.memory_signals_fired > 0 ? " notes" : ""}
           subtitle={
             s.memory_verdicts_total > 0
-              ? `${s.memory_verdicts_total} verdicts resolved`
-              : "Verdicts pending"
+              ? "load-bearing"
+              : s.memory_signals_fired > 0
+                ? "notes surfaced"
+                : "No notes surfaced"
           }
-        />
-        <KpiCard
-          label="Turns Saved"
-          value={`~${fmt(s.turns_saved)}`}
-          accent="text-cyan-400"
-          hint="Estimated wasted turns avoided"
-          subtitle="Each = a grep→read cycle skipped"
-        />
-        <KpiCard
-          label="Attention Boost"
-          value={`${s.attention_multiplier}x`}
-          accent="text-emerald-400"
-          hint="Estimated focus improvement from noise removal"
-          subtitle="Based on attention research"
-        />
-        <KpiCard
-          label="Quality Multiplier"
-          value={`${s.reasoning_quality_multiplier}x`}
-          accent="text-violet-400"
-          hint="Composite: compression × precision"
-          subtitle="How much smarter the agent is"
         />
       </div>
 
-      {/* ── Session Health Trajectory ── */}
+      {/* ── Session Health Over Time ── */}
       {trajectory.length > 0 && (
         <div className="el-raised rounded-lg p-5">
           <h3 className="t-secondary text-sm font-medium mb-1">
-            Session Health Over Time
+            How context quality changed through the session
           </h3>
           <p className="t-tertiary text-xs mb-3">
-            Shows how context quality evolved through the session. A flat or
-            rising "noise removed" line means the session stayed clean. Without
-            unerr, this typically degrades as context fills up.
+            Each bar is one turn. Without unerr, this line typically drops
+            as context fills up — a rising or flat line means the session
+            stayed clean.
           </p>
           <div className="flex gap-[3px]" style={{ height: "120px" }}>
             {trajectory.slice(-60).map((pt) => {
@@ -1310,22 +1224,21 @@ function SessionView({ sessionId }: { sessionId: string }) {
                     className="w-full bg-emerald-500 opacity-70 hover:opacity-100 rounded-t transition-all cursor-pointer"
                     style={{ height: `${heightPct}%` }}
                   />
-                  {/* Tooltip */}
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-20 pointer-events-none">
                     <div className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs whitespace-nowrap shadow-xl">
                       <div className="font-medium text-foreground">
                         Turn #{pt.turn}
                       </div>
                       <div className="text-emerald-400 mt-0.5">
-                        Noise removed: {pt.cumulative_noise_removed_pct}%
+                        {pt.cumulative_noise_removed_pct}% noise removed
                       </div>
-                      <div className="t-secondary">SNR: {pt.snr}</div>
                       <div className="text-cyan-400">
-                        Graph calls: {pt.graph_calls_this_turn}
+                        {pt.graph_calls_this_turn} graph lookup
+                        {pt.graph_calls_this_turn !== 1 ? "s" : ""}
                       </div>
                       {pt.context_density > 0 && (
                         <div className="t-secondary">
-                          Density: {pt.context_density}/1K tok
+                          {pt.context_density} entities per 1K tokens
                         </div>
                       )}
                     </div>
@@ -1336,142 +1249,213 @@ function SessionView({ sessionId }: { sessionId: string }) {
           </div>
           <div className="flex justify-between mt-1.5">
             <span className="t-tertiary text-[10px] font-mono">
-              T{trajectory.length > 60 ? trajectory.length - 59 : 1}
+              Turn {trajectory.length > 60 ? trajectory.length - 59 : 1}
             </span>
             <span className="t-tertiary text-[10px] font-mono">
-              T{trajectory.length}
+              Turn {trajectory.length}
             </span>
           </div>
           <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border-subtle/50">
             <div className="flex items-center gap-1.5">
               <div className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />
               <span className="t-tertiary text-[10px]">
-                Cumulative noise removed %
+                Cumulative noise removed
               </span>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Category Breakdowns ── */}
+      {/* ── Detailed Breakdowns ── */}
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Context Quality */}
+        {/* Cleaner Focus details */}
         <div className="el-raised rounded-lg p-5">
           <h3 className="text-emerald-400 text-xs font-medium uppercase tracking-wider mb-4">
-            Context Quality
+            Focus details
           </h3>
           <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="t-secondary text-xs">Signal-to-Noise Ratio</span>
-              <span className="text-foreground font-mono text-xs">
-                {s.signal_to_noise_ratio}
+            <div>
+              <div className="flex justify-between items-baseline">
+                <span className="t-secondary text-xs">
+                  Noise removed
+                </span>
+                <span className="text-foreground font-mono text-sm font-medium">
+                  {s.noise_removed_pct}%
+                </span>
+              </div>
+              <div className="mt-1.5 h-2 bg-surface-secondary rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all"
+                  style={{ width: `${Math.max(3, s.noise_removed_pct)}%` }}
+                />
+              </div>
+            </div>
+            <div className="flex justify-between items-baseline">
+              <span
+                className="t-secondary text-xs"
+                title="How many relevant code entities per 1K tokens delivered"
+              >
+                Information density
+              </span>
+              <span className="text-foreground font-mono text-sm font-medium">
+                {s.context_density}
               </span>
             </div>
-            <div className="flex justify-between">
-              <span className="t-secondary text-xs">Context Density</span>
-              <span className="text-foreground font-mono text-xs">
-                {s.context_density} entities/1K tok
+            <div className="flex justify-between items-baseline">
+              <span
+                className="t-secondary text-xs"
+                title="Estimated improvement in LLM attention from noise removal"
+              >
+                Attention improvement
               </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="t-secondary text-xs">Entities Resolved</span>
-              <span className="text-foreground font-mono text-xs">
-                {fmt(s.entities_resolved)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="t-secondary text-xs">Attention Boost</span>
-              <span className="text-foreground font-mono text-xs">
+              <span className="text-foreground font-mono text-sm font-medium">
                 {s.attention_multiplier}x
               </span>
             </div>
+            <div className="pt-2 border-t border-border-subtle/50 space-y-1">
+              <div className="flex justify-between items-baseline">
+                <span className="t-tertiary text-xs">Code entities served</span>
+                <span className="t-secondary font-mono text-xs">
+                  {fmt(s.entities_resolved)}
+                </span>
+              </div>
+              <div className="flex justify-between items-baseline">
+                <span className="t-tertiary text-xs">
+                  Tokens via graph
+                </span>
+                <span className="t-secondary font-mono text-xs">
+                  {fmt(s.graph_tokens_delivered)}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Turn Efficiency */}
+        {/* Found First Try details */}
         <div className="el-raised rounded-lg p-5">
           <h3 className="text-cyan-400 text-xs font-medium uppercase tracking-wider mb-4">
-            Turn Efficiency
+            Efficiency details
           </h3>
           <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="t-secondary text-xs">Found First Try</span>
-              <span className="text-foreground font-mono text-xs">
-                {s.first_call_resolution_rate}%
-              </span>
+            <div>
+              <div className="flex justify-between items-baseline">
+                <span className="t-secondary text-xs">
+                  One-call resolution
+                </span>
+                <span className="text-foreground font-mono text-sm font-medium">
+                  {s.first_call_resolution_rate}%
+                </span>
+              </div>
+              <div className="mt-1.5 h-2 bg-surface-secondary rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-cyan-500 rounded-full transition-all"
+                  style={{
+                    width: `${Math.max(3, s.first_call_resolution_rate)}%`,
+                  }}
+                />
+              </div>
             </div>
-            <div className="flex justify-between">
-              <span className="t-secondary text-xs">Graph Calls</span>
-              <span className="text-foreground font-mono text-xs">
-                {fmt(s.graph_calls)} / {fmt(s.total_tool_calls)}
+            <div className="flex justify-between items-baseline">
+              <span className="t-secondary text-xs">
+                Wasted turns prevented
               </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="t-secondary text-xs">Turns Saved</span>
-              <span className="text-cyan-400 font-mono text-xs">
+              <span className="text-cyan-400 font-mono text-sm font-medium">
                 ~{fmt(s.turns_saved)}
               </span>
             </div>
-            <div className="flex justify-between">
-              <span className="t-secondary text-xs">Loops Prevented</span>
-              <span className="text-foreground font-mono text-xs">
+            <div className="flex justify-between items-baseline">
+              <span className="t-secondary text-xs">
+                Search loops stopped
+              </span>
+              <span className="text-foreground font-mono text-sm font-medium">
                 {s.exploration_loops_prevented}
               </span>
+            </div>
+            <div className="pt-2 border-t border-border-subtle/50 space-y-1">
+              <div className="flex justify-between items-baseline">
+                <span className="t-tertiary text-xs">Graph lookups</span>
+                <span className="t-secondary font-mono text-xs">
+                  {fmt(s.graph_calls)}
+                </span>
+              </div>
+              <div className="flex justify-between items-baseline">
+                <span className="t-tertiary text-xs">Total tool calls</span>
+                <span className="t-secondary font-mono text-xs">
+                  {fmt(s.total_tool_calls)}
+                </span>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Breakage Prevention */}
+        {/* Mistakes Prevented details */}
         <div className="el-raised rounded-lg p-5">
           <h3 className="text-amber-400 text-xs font-medium uppercase tracking-wider mb-4">
-            Breakage Prevention
+            Safety details
           </h3>
           <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="t-secondary text-xs">Blast Radius Warnings</span>
-              <span className="text-foreground font-mono text-xs">
+            <div className="flex justify-between items-baseline">
+              <span
+                className="t-secondary text-xs"
+                title="High-impact edits where unerr showed all callers before the change"
+              >
+                High-impact edits flagged
+              </span>
+              <span className="text-foreground font-mono text-sm font-medium">
                 {s.blast_radius_warnings}
               </span>
             </div>
-            <div className="flex justify-between">
-              <span className="t-secondary text-xs">Convention Hints</span>
-              <span className="text-foreground font-mono text-xs">
+            <div className="flex justify-between items-baseline">
+              <span
+                className="t-secondary text-xs"
+                title="Project conventions automatically applied to prevent style violations"
+              >
+                Style rules applied
+              </span>
+              <span className="text-foreground font-mono text-sm font-medium">
                 {s.convention_injections}
               </span>
             </div>
-            <div className="flex justify-between">
-              <span className="t-secondary text-xs">Doom Spirals Stopped</span>
+            <div className="flex justify-between items-baseline">
               <span
-                className={`font-mono text-xs ${s.circuit_breaker_activations > 0 ? "text-red-400" : "text-foreground"}`}
+                className="t-secondary text-xs"
+                title="Agent was stuck in a retry loop — unerr broke it"
+              >
+                Agent loops stopped
+              </span>
+              <span
+                className={`font-mono text-sm font-medium ${s.circuit_breaker_activations > 0 ? "text-red-400" : "text-foreground"}`}
               >
                 {s.circuit_breaker_activations}
               </span>
             </div>
             <div className="flex justify-between pt-2 border-t border-border-subtle/50">
-              <span className="t-tertiary text-xs">Safety Score</span>
+              <span className="t-tertiary text-xs">
+                Total safety score
+              </span>
               <span className="text-amber-400 font-mono text-xs font-medium">
-                {s.prevention_score} pts
+                {s.prevention_score}
               </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ── This session on the other surfaces (§8 cross-link) ── */}
+      {/* ── Cross-links ── */}
       <div className="el-raised rounded-lg p-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs">
         <button
           type="button"
           className="text-violet-400 hover:text-violet-300 transition-colors font-medium"
           onClick={() => navigateRoute("token-trace", { session: sessionId })}
         >
-          See token-level detail in Token Trace →
+          See token savings in Token Trace →
         </button>
         <button
           type="button"
           className="text-violet-400 hover:text-violet-300 transition-colors font-medium"
           onClick={() => navigateRoute("logbook", { session: sessionId })}
         >
-          See this session in What unerr did →
+          See full activity log →
         </button>
       </div>
     </div>
@@ -1479,30 +1463,18 @@ function SessionView({ sessionId }: { sessionId: string }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// MAIN PAGE — Router with breadcrumb
+// MAIN PAGE
 // ══════════════════════════════════════════════════════════════════════
 
 type ViewState = { level: "global" } | { level: "session"; sessionId: string };
 
 export function ReasoningQualityPage() {
-  // URL-backed view state — `?session=` controls drill-down level, so a
-  // reload or shared link lands in the same session view. Same model as
-  // Token Trace for consistency.
   const sessionId = useHashQueryParam("session") || null;
-  const windowParam = useHashQueryParam("window");
-  const headroomWindow: HeadroomWindow =
-    windowParam === "today" ||
-    windowParam === "this_week" ||
-    windowParam === "since_install"
-      ? windowParam
-      : "since_install";
 
   const view: ViewState = sessionId
     ? { level: "session", sessionId }
     : { level: "global" };
 
-  const setHeadroomWindow = (w: HeadroomWindow) =>
-    setHashQueryParams({ window: w });
   const goGlobal = () => setHashQueryParams({ session: null });
   const goSession = (id: string) => setHashQueryParams({ session: id });
 
@@ -1517,12 +1489,6 @@ export function ReasoningQualityPage() {
 
   return (
     <div>
-      <HeadroomStrip
-        windowSelected={headroomWindow}
-        onWindowChange={setHeadroomWindow}
-        sessionId={view.level === "session" ? view.sessionId : undefined}
-      />
-
       {crumbs.length > 0 && <Breadcrumb items={crumbs} />}
 
       {view.level === "global" && <GlobalView onSelectSession={goSession} />}

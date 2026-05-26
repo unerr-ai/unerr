@@ -3332,11 +3332,16 @@ export class QueryRouter {
       const db = (
         this.localGraph as unknown as { db: import("./cozo-schema.js").CozoDb }
       ).db;
-      // Rank exact-name matches: kind-preferred (if specified) > class > function/method > everything else
-      // The CASE-WHEN expression maps each kind to a sort weight; lower is better.
+      // Rank exact-name matches with two-tier priority:
+      //   1. is_test=false (production) before is_test=true (test)
+      //   2. Within same test-tier: class > function > method > type > interface > variable
+      // This ensures `compressShellOutput` resolves to the production function,
+      // not a test `describe(...)` block that happens to share the name.
       const exact = await db.run(
-        `?[k, kind, rank] := *entities{key: k, kind, name: $n},
-          rank = if(kind == "class", 0, if(kind == "function", 1, if(kind == "method", 2, if(kind == "type", 3, if(kind == "interface", 4, if(kind == "variable", 5, 6))))))
+        `?[k, kind, rank] := *entities{key: k, kind, name: $n, is_test: it},
+          test_penalty = if(it, 100, 0),
+          kind_rank = if(kind == "class", 0, if(kind == "function", 1, if(kind == "method", 2, if(kind == "type", 3, if(kind == "interface", 4, if(kind == "variable", 5, 6)))))),
+          rank = test_penalty + kind_rank
          :order rank
          :limit 8`,
         { n: raw }
@@ -3353,15 +3358,33 @@ export class QueryRouter {
     } catch {
       // fall through to fuzzy search
     }
-    // Fuzzy fallback — use top result's key, or return raw if nothing matches
+    // Fuzzy fallback — use top result's key, or return raw if nothing matches.
+    // Prefer entities whose name is an exact match over substring/token hits,
+    // and prefer non-test entities over test entities.
     try {
-      const results = await this.localGraph.searchEntities(raw, 8);
+      const results = await this.localGraph.searchEntities(raw, 15);
       if (results.length === 0) return raw;
+
+      // Partition: exact-name non-test > exact-name test > other non-test > other test
+      const exactNonTest = results.filter(
+        (r) => r.name === raw && !r.file_path?.includes("__tests__")
+      );
+      const exactTest = results.filter(
+        (r) => r.name === raw && r.file_path?.includes("__tests__")
+      );
+      const otherNonTest = results.filter(
+        (r) => r.name !== raw && !r.file_path?.includes("__tests__")
+      );
+      const otherTest = results.filter(
+        (r) => r.name !== raw && r.file_path?.includes("__tests__")
+      );
+      const ranked = [...exactNonTest, ...exactTest, ...otherNonTest, ...otherTest];
+
       if (kind) {
-        const matchKind = results.find((r) => r.kind === kind);
+        const matchKind = ranked.find((r) => r.kind === kind);
         if (matchKind) return matchKind.key;
       }
-      return results[0]!.key;
+      return ranked[0]!.key;
     } catch {
       return raw;
     }

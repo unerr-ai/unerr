@@ -442,6 +442,17 @@ export function SessionTimelinePage() {
         <FirstRunExplainer onDismiss={() => setExplainerOpen(false)} />
       )}
 
+      <div className="el-raised rounded-lg p-6 border-l-4 border-violet-500/60">
+        <h2 className="text-foreground font-semibold text-base">
+          What has your agent been doing?
+        </h2>
+        <p className="t-tertiary text-xs mt-1 max-w-xl leading-relaxed">
+          A complete timeline of every task your AI agent worked on — what it
+          tried, what decisions it made, and where it got stuck. Think of it as
+          the commit history for your agent's reasoning.
+        </p>
+      </div>
+
       <KpiStrip
         activityCount={totalTurns}
         sessionCount={sessions.length}
@@ -506,14 +517,11 @@ function SubsystemDisabledBanner() {
   return (
     <div className="el-raised rounded-lg p-5 border-l-4 border-amber-500/60">
       <div className="text-amber-400 text-[10px] uppercase tracking-wider font-medium">
-        Activity subsystem isn't running
+        Activity tracking isn't active
       </div>
       <p className="t-tertiary text-xs mt-2 leading-relaxed">
-        We capture your agent's activity into{" "}
-        <code className="font-mono">.unerr/timeline.db</code> only when the
-        subsystem is on. Restart unerr (or unset{" "}
-        <code className="font-mono">UNERR_TIMELINE_V2=0</code>) and reload this
-        page.
+        unerr records your agent's activity while it's running.
+        Restart unerr and reload this page to see the timeline.
       </p>
     </div>
   );
@@ -531,28 +539,28 @@ function FirstRunExplainer({ onDismiss }: { onDismiss: () => void }) {
         ✕
       </button>
       <h3 className="text-violet-400 text-[10px] uppercase tracking-wider font-medium">
-        What is this page?
+        How to read this page
       </h3>
       <ul className="t-secondary text-xs space-y-1.5 leading-relaxed mt-2 max-w-2xl">
         <li>
-          <strong className="text-foreground">Every burst of work</strong> your
-          agent does — between idle pauses — shows up as one{" "}
-          <em>activity moment</em>.
+          <strong className="text-foreground">Each row is one task</strong> your
+          agent worked on — it could be a bug fix, a refactor, a feature, or an
+          exploration. Click any row to see the full details.
         </li>
         <li>
-          <strong className="text-foreground">Notes</strong> your agent drops
-          along the way (🎯 a goal, 💡 a decision, ⚠ when it gets stuck, ✅ a
-          fix) turn the raw activity into a readable story.
+          <strong className="text-foreground">Goals, decisions, and
+          problems</strong> are tracked automatically as your agent works,
+          turning raw actions into a readable story.
         </li>
         <li>
-          <strong className="text-foreground">Filters + the heatmap</strong> let
-          you scope to a day, a coding session, a specific AI agent, or a search
-          term. Every filter is shareable via the URL.
+          <strong className="text-foreground">Use the filters</strong> to narrow
+          down to a specific day, session, agent, or keyword. Share the URL to
+          show someone exactly what your agent did.
         </li>
       </ul>
       <p className="t-tertiary text-[10px] mt-3">
-        Hint: start each non-trivial task with <code>mark_intent</code> and
-        you'll see crisp activity titles instead of file names.
+        The more your agent uses unerr, the richer this timeline becomes —
+        you'll see task titles, decisions made, and problems encountered.
       </p>
     </div>
   );
@@ -574,26 +582,26 @@ function KpiStrip({
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <KpiCard
-        label="Activity moments"
-        sublabel="bursts of agent work"
+        label="Agent actions"
+        sublabel="distinct tasks the agent worked on"
         value={activityCount}
         accent="cyan"
       />
       <KpiCard
-        label="Coding sessions"
-        sublabel="each daemon run"
+        label="Sessions"
+        sublabel="separate conversations with your agent"
         value={sessionCount}
         accent="emerald"
       />
       <KpiCard
-        label="Tasks in progress"
-        sublabel="ongoing efforts"
+        label="Active tasks"
+        sublabel="goals the agent is currently tracking"
         value={taskCount}
         accent="violet"
       />
       <KpiCard
-        label="Unresolved issues"
-        sublabel={unresolvedCount > 0 ? "needs attention" : "all clear"}
+        label="Unresolved"
+        sublabel={unresolvedCount > 0 ? "problems flagged but not yet fixed" : "all clear — nothing stuck"}
         value={unresolvedCount}
         accent={unresolvedCount > 0 ? "rose" : "zinc"}
       />
@@ -766,11 +774,11 @@ function FilterBar({
           onChange={(v) => onChange({ session: v || undefined })}
           ariaLabel="Filter by coding session"
         >
-          <option value="">All coding sessions ({sessions.length})</option>
+          <option value="">All sessions ({sessions.length})</option>
           {sessions.map((s) => (
             <option key={s.session_id} value={s.session_id}>
-              {fmtDateTime(s.last_seen)} — {s.turn_count} activit
-              {s.turn_count === 1 ? "y" : "ies"}
+              {fmtDateTime(s.last_seen)} — {s.turn_count} action
+              {s.turn_count === 1 ? "" : "s"}
               {s.agent_name && s.agent_name !== "unknown"
                 ? ` · ${s.agent_name}`
                 : ""}
@@ -989,7 +997,7 @@ function ResumeStrip({ resume }: { resume: ResumeData }) {
           {intent}
         </div>
         <div className="t-tertiary text-xs mt-1">
-          last active {fmtElapsed(resume.elapsed_ms)} · session{" "}
+          Last active {fmtElapsed(resume.elapsed_ms)} · session{" "}
           <span className="font-mono">{resume.session_id.slice(0, 8)}</span>
         </div>
       </div>
@@ -1032,12 +1040,12 @@ function ActivityHeatmap({
       <div className="flex items-center justify-between mb-2">
         <div>
           <div className="text-[11px] uppercase tracking-wider t-secondary font-mono">
-            Your last {buckets.length} days at a glance
+            Last {buckets.length} days
           </div>
           <div className="text-[11px] t-tertiary mt-0.5">
-            {totalActivity.toLocaleString()} activity moment
-            {totalActivity === 1 ? "" : "s"} · brighter = busier · click any day
-            to focus
+            {totalActivity.toLocaleString()} action
+            {totalActivity === 1 ? "" : "s"} tracked — brighter means busier,
+            click any day to zoom in
           </div>
         </div>
         <div className="text-[11px] t-tertiary font-mono">peak {max}/day</div>
@@ -1080,7 +1088,7 @@ function HeatmapCell({
             ? "bg-violet-500/55"
             : "bg-violet-500/30";
   const ring = active ? "ring-2 ring-cyan-400" : "";
-  const tip = `${fmtDateShort(bucket.ts)} — ${bucket.turns} activity moment${bucket.turns === 1 ? "" : "s"}, ${bucket.edits} file edit${bucket.edits === 1 ? "" : "s"}, ${bucket.tools} tool call${bucket.tools === 1 ? "" : "s"}`;
+  const tip = `${fmtDateShort(bucket.ts)} — ${bucket.turns} action${bucket.turns === 1 ? "" : "s"}, ${bucket.edits} file edit${bucket.edits === 1 ? "" : "s"}, ${bucket.tools} step${bucket.tools === 1 ? "" : "s"}`;
   return (
     <button
       type="button"
@@ -1120,11 +1128,10 @@ function TaskRail({ intents }: { intents: IntentRailRow[] }) {
               {i.title || "(unnamed task)"}
             </div>
             <div className="t-tertiary text-[11px] mt-1">
+              Last active {fmtElapsed(Date.now() - i.last_active_at)}
               {i.source === "agent_marker"
-                ? "from your stated goals"
-                : "inferred from file patterns"}{" "}
-              · {(i.confidence * 100).toFixed(0)}% confidence · last active{" "}
-              {fmtElapsed(Date.now() - i.last_active_at)}
+                ? " · from agent's stated goal"
+                : " · detected from code changes"}
             </div>
           </div>
         ))}
@@ -1167,12 +1174,12 @@ function ActivityList({
     <div className="space-y-3">
       <div className="el-raised rounded-lg p-5 border-l-4 border-fuchsia-500/60">
         <div className="text-fuchsia-400 text-[10px] uppercase tracking-wider font-medium">
-          Insights — what we noticed
+          Patterns unerr noticed
         </div>
         <div className="t-tertiary text-xs leading-relaxed mt-2 max-w-2xl">
-          We'll surface stuck patterns, hot files, and learned conventions here
-          as your agent works. Drop a few <code>mark_intent</code> notes to
-          speed things up.
+          Over time, unerr spots patterns — files your agent keeps coming back
+          to, problems that recur, and conventions it has learned. The more
+          sessions you run, the smarter these insights become.
         </div>
       </div>
 
@@ -1180,7 +1187,7 @@ function ActivityList({
         <span>
           {totalTurns === 0
             ? "Nothing matches the current filters yet."
-            : `Showing ${turns.length} of ${totalTurns.toLocaleString()} activity moment${totalTurns === 1 ? "" : "s"}`}
+            : `Showing ${turns.length} of ${totalTurns.toLocaleString()} action${totalTurns === 1 ? "" : "s"}`}
         </span>
         <span className="font-mono">
           page {filters.page} / {totalPages}
@@ -1228,10 +1235,10 @@ function EmptyActivityList({ isFetching }: { isFetching: boolean }) {
         <span>Loading…</span>
       ) : (
         <>
-          Nothing matches the current filters yet. Try{" "}
+          No agent actions match these filters yet. Try{" "}
           <span className="text-foreground">widening the date range</span>,{" "}
           <span className="text-foreground">clearing the search</span>, or{" "}
-          <span className="text-foreground">picking "All time"</span>.
+          <span className="text-foreground">selecting "All time"</span>.
         </>
       )}
     </div>
@@ -1261,11 +1268,10 @@ function TurnPromptLine({
       </p>
     );
   }
-  // Row exists but content capture is off — show the enable hint.
   return (
     <p className={`text-[11px] t-tertiary ${className ?? ""}`}>
-      (prompt not captured — set <code>capture_prompts: true</code> in
-      .unerr/config.json)
+      (Prompt not captured — enable <code>capture_prompts</code> in your unerr
+      config to see what you asked)
     </p>
   );
 }
@@ -1299,7 +1305,7 @@ function ActivityRow({
       ? (intentMarker?.text ?? "")
       : turn.title && turn.title.length > 0
         ? turn.title
-        : `Activity — ${turn.tool_count} tool call${turn.tool_count === 1 ? "" : "s"}`;
+        : `Agent work — ${turn.tool_count} step${turn.tool_count === 1 ? "" : "s"}, ${turn.edit_count} edit${turn.edit_count === 1 ? "" : "s"}`;
 
   const baseClass = compact
     ? "flex items-center gap-3 px-3 py-2 hover:bg-surface-secondary transition-colors cursor-pointer"
@@ -1325,7 +1331,6 @@ function ActivityRow({
     >
       {compact ? (
         <>
-          <BoundaryPrecisionPill opened_by={turn.opened_by} small />
           <span className="text-sm text-foreground truncate flex-1">
             {title}
           </span>
@@ -1333,12 +1338,12 @@ function ActivityRow({
             {fmtDateShort(turn.started_at)} {fmtTime(turn.started_at)}
           </span>
           <span className="text-[11px] t-tertiary shrink-0">
-            {turn.tool_count} call{turn.tool_count === 1 ? "" : "s"} ·{" "}
+            {turn.tool_count} step{turn.tool_count === 1 ? "" : "s"} ·{" "}
             {turn.edit_count} edit{turn.edit_count === 1 ? "" : "s"}
           </span>
           {openBlockers.length > 0 && (
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 shrink-0">
-              {openBlockers.length} ⚠
+              {openBlockers.length} stuck
             </span>
           )}
         </>
@@ -1347,18 +1352,17 @@ function ActivityRow({
           <TurnPromptLine prompt={turn.prompt} className="mb-2 line-clamp-2" />
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              <BoundaryPrecisionPill opened_by={turn.opened_by} />
               <span className="text-sm text-foreground font-medium truncate">
                 {title}
               </span>
               {decisionCount > 0 && (
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shrink-0">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shrink-0">
                   💡 {decisionCount} decision{decisionCount === 1 ? "" : "s"}
                 </span>
               )}
               {openBlockers.length > 0 && (
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 shrink-0">
-                  ⚠ {openBlockers.length} unresolved
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 shrink-0">
+                  ⚠ {openBlockers.length} stuck
                 </span>
               )}
             </div>
@@ -1368,7 +1372,7 @@ function ActivityRow({
               </span>
               <span>{fmtDuration(turn.ended_at - turn.started_at)}</span>
               <span>
-                {turn.tool_count} call{turn.tool_count === 1 ? "" : "s"} ·{" "}
+                {turn.tool_count} step{turn.tool_count === 1 ? "" : "s"} ·{" "}
                 {turn.file_count} file{turn.file_count === 1 ? "" : "s"} ·{" "}
                 {turn.edit_count} edit{turn.edit_count === 1 ? "" : "s"}
               </span>
@@ -1377,45 +1381,6 @@ function ActivityRow({
         </div>
       )}
     </div>
-  );
-}
-
-function BoundaryPrecisionPill({
-  opened_by,
-  small,
-}: {
-  opened_by: string;
-  small?: boolean;
-}) {
-  const cls =
-    opened_by === "stop_hook" || opened_by === "first_call"
-      ? "text-emerald-400 border-emerald-500/40 bg-emerald-500/10"
-      : opened_by === "idle_gap"
-        ? "text-amber-400 border-amber-500/40 bg-amber-500/10"
-        : "t-secondary border-border-subtle bg-surface-secondary";
-  const label =
-    opened_by === "stop_hook"
-      ? "✓ exact"
-      : opened_by === "first_call"
-        ? "▶ start"
-        : opened_by === "idle_gap"
-          ? "≈ approx"
-          : opened_by;
-  const tip =
-    opened_by === "stop_hook"
-      ? "Boundary confirmed by your agent's stop signal."
-      : opened_by === "first_call"
-        ? "Beginning of a coding session — exact."
-        : opened_by === "idle_gap"
-          ? "Inferred from a >20s idle gap — approximate."
-          : opened_by;
-  return (
-    <span
-      title={tip}
-      className={`${small ? "text-[9px]" : "text-[10px]"} font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${cls} shrink-0`}
-    >
-      {label}
-    </span>
   );
 }
 
@@ -1560,10 +1525,10 @@ function ActivityDetailDrawer({
         <div className="sticky top-0 bg-background/90 backdrop-blur border-b border-border-subtle p-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="t-tertiary text-[10px] uppercase tracking-wider font-medium">
-              Activity detail
+              What happened
             </div>
             <div className="text-sm text-foreground font-medium mt-1 truncate">
-              {turn.title || `(activity ${turn.turn_id.slice(0, 8)})`}
+              {turn.title || "Agent work"}
             </div>
           </div>
           <button
@@ -1580,7 +1545,7 @@ function ActivityDetailDrawer({
           {turn.prompt ? (
             <div className="rounded-lg border border-border-subtle bg-surface-secondary/40 p-3">
               <div className="t-tertiary text-[10px] uppercase tracking-wider font-medium mb-1.5">
-                Originating prompt
+                What you asked
               </div>
               <TurnPromptLine prompt={turn.prompt} />
             </div>
@@ -1597,46 +1562,44 @@ function ActivityDetailDrawer({
 }
 
 function DrawerFacts({ turn }: { turn: TurnRow }) {
+  const [showIds, setShowIds] = useState(false);
   return (
-    <div className="grid grid-cols-2 gap-2 text-xs">
-      <Fact label="When it started" value={fmtDateTime(turn.started_at)} />
-      <Fact
-        label="How long it lasted"
-        value={fmtDuration(turn.ended_at - turn.started_at)}
-      />
-      <Fact label="Tool calls" value={String(turn.tool_count)} />
-      <Fact label="Files touched" value={String(turn.file_count)} />
-      <Fact label="File edits" value={String(turn.edit_count)} />
-      <Fact
-        label="Boundary precision"
-        value={
-          turn.opened_by === "stop_hook"
-            ? "Confirmed by agent"
-            : turn.opened_by === "first_call"
-              ? "Session start"
-              : turn.opened_by === "idle_gap"
-                ? "Inferred from idle gap"
-                : turn.opened_by
-        }
-      />
-      <Fact
-        label="Why this ended"
-        value={
-          turn.closed_reason === "session_end"
-            ? "Session shutdown"
-            : turn.closed_reason === "idle_gap"
-              ? "Long idle gap"
-              : turn.closed_reason === "stop_hook"
-                ? "Agent stopped"
-                : turn.closed_reason
-        }
-      />
-      <Fact
-        label="Outcome"
-        value={turn.outcome === "unknown" ? "—" : turn.outcome}
-      />
-      <Fact label="Activity ID" value={turn.turn_id.slice(0, 8)} mono />
-      <Fact label="Session" value={turn.session_id.slice(0, 8)} mono />
+    <div className="space-y-2">
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <Fact label="Started" value={fmtDateTime(turn.started_at)} />
+        <Fact
+          label="Duration"
+          value={fmtDuration(turn.ended_at - turn.started_at)}
+        />
+        <Fact
+          label="Outcome"
+          value={
+            turn.outcome === "unknown"
+              ? "—"
+              : turn.outcome === "success"
+                ? "Completed"
+                : turn.outcome
+          }
+        />
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <Fact label="Steps taken" value={String(turn.tool_count)} />
+        <Fact label="Files involved" value={String(turn.file_count)} />
+        <Fact label="Edits written" value={String(turn.edit_count)} />
+      </div>
+      <button
+        type="button"
+        onClick={() => setShowIds((v) => !v)}
+        className="text-[10px] t-tertiary hover:text-foreground transition-colors"
+      >
+        {showIds ? "▾ Hide technical IDs" : "▸ Show technical IDs"}
+      </button>
+      {showIds && (
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <Fact label="Action ID" value={turn.turn_id.slice(0, 8)} mono />
+          <Fact label="Session ID" value={turn.session_id.slice(0, 8)} mono />
+        </div>
+      )}
     </div>
   );
 }
@@ -1668,30 +1631,38 @@ function DrawerNotes({ markers }: { markers: MarkerRow[] }) {
   if (markers.length === 0) {
     return (
       <div className="t-tertiary text-xs leading-relaxed">
-        No notes recorded for this activity. Tip: drop a{" "}
-        <code className="t-secondary">mark_intent</code> at the start of your
-        next task and a <code className="t-secondary">mark_decision</code> when
-        you pick between options — they show up here as a readable trail.
+        No notes recorded for this action. As your agent uses unerr's
+        workflows, it automatically logs goals, decisions, stuck moments,
+        and solutions — building a readable trail of what happened and why.
       </div>
     );
   }
+  const blockerMap = new Map(
+    markers
+      .filter((m) => m.type === "mark_blocker")
+      .map((m) => [m.marker_id, m.text])
+  );
   return (
     <div className="space-y-2">
       <div className="t-secondary text-[10px] uppercase tracking-wider font-medium">
-        Notes from this activity ({markers.length})
+        What happened during this action ({markers.length} note
+        {markers.length === 1 ? "" : "s"})
       </div>
       {markers.map((m) => {
         const meta = noteMeta(m.type);
+        const resolvedText = m.blocker_ref
+          ? blockerMap.get(m.blocker_ref)
+          : undefined;
         return (
           <div
             key={m.marker_id}
             className="rounded border border-border-subtle bg-surface-secondary px-3 py-2"
           >
             <div className="flex items-center justify-between">
-              <span className={`text-[10px] font-mono uppercase ${meta.color}`}>
+              <span className={`text-[10px] uppercase ${meta.color}`}>
                 {meta.emoji} {meta.label}
               </span>
-              <span className="t-tertiary text-[10px] font-mono">
+              <span className="t-tertiary text-[10px]">
                 {fmtTime(m.ts)}
               </span>
             </div>
@@ -1702,9 +1673,8 @@ function DrawerNotes({ markers }: { markers: MarkerRow[] }) {
               </div>
             )}
             {m.blocker_ref && (
-              <div className="t-tertiary text-[11px] mt-1">
-                resolves →{" "}
-                <span className="font-mono">{m.blocker_ref.slice(0, 8)}</span>
+              <div className="text-emerald-400 text-[11px] mt-1">
+                ✅ Fixes: {resolvedText || `issue ${m.blocker_ref.slice(0, 8)}`}
               </div>
             )}
           </div>
@@ -1718,7 +1688,7 @@ function DrawerNarratives({ narratives }: { narratives: EpisodicFact[] }) {
   return (
     <div className="space-y-2">
       <div className="t-secondary text-[10px] uppercase tracking-wider font-medium">
-        Recent edits to these files
+        What unerr knows about these files
       </div>
       {narratives.map((n) => {
         const parsed = parseEpisodicNarrative(n.content);

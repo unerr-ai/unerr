@@ -60,6 +60,15 @@ async function createIfMissing(
 /**
  * Drop a relation if it exists but is missing required columns.
  * No released versions exist yet, so stale dev schemas are safe to drop.
+ *
+ * The probe MUST use a bound rule head (`?[k] := ...`). An empty head
+ * (`?[] := ...`) is rejected by cozo-node 0.7.6 with "Horn-clause rule
+ * cannot have empty rule head", which would make the probe throw on a
+ * perfectly healthy relation and fall through to `::remove` on every
+ * re-init — needlessly dropping the relation (and forcing a full reindex)
+ * each time initSchema runs on a populated DB. With a bound head the probe
+ * returns 0 rows when the columns exist and only throws ("does not have
+ * field") when a required column is genuinely missing.
  */
 async function dropIfStale(
   db: CozoDb,
@@ -69,12 +78,108 @@ async function dropIfStale(
 ): Promise<void> {
   if (!existing.has(name)) return;
   try {
-    const colList = ["key", ...requiredColumns].join(", ");
-    await db.run(`?[] := *${name}{${colList}}, key = '__schema_probe__'`);
+    const bindings = ["key: k", ...requiredColumns].join(", ");
+    await db.run(`?[k] := *${name}{${bindings}}, k = '__schema_probe__'`);
   } catch {
+    // Genuinely stale schema. Drop any attached secondary indexes first —
+    // CozoDB refuses `::remove` on a relation with indices attached — then
+    // drop the relation so createIfMissing rebuilds it fresh.
+    await dropAllIndexes(db, name);
     await db.run(`::remove ${name}`);
     existing.delete(name);
   }
+}
+
+/**
+ * Drop every secondary index attached to a relation. Required before
+ * `::remove`/`:replace` on an indexed relation (CozoDB refuses otherwise).
+ * Best-effort per index so one failure doesn't strand the rest.
+ */
+async function dropAllIndexes(db: CozoDb, relation: string): Promise<void> {
+  const names = await getExistingIndexes(db, relation);
+  for (const idx of names) {
+    try {
+      await db.run(`::index drop ${relation}:${idx}`);
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+/**
+ * Get the set of existing secondary-index names on a relation.
+ * `::indices <rel>` returns rows whose first column is the bare index name
+ * (e.g. "rev" for the index stored as relation `edges:rev`). Returns an
+ * empty set if the relation has no indices or doesn't exist yet.
+ */
+async function getExistingIndexes(
+  db: CozoDb,
+  relation: string
+): Promise<Set<string>> {
+  try {
+    const result = await db.run(`::indices ${relation}`);
+    return new Set(result.rows.map((row) => row[0] as string));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Create a secondary index only if it doesn't already exist. CozoDB's
+ * `::index create` throws "index <name> for relation <rel> already exists"
+ * on a duplicate, so we check `::indices <rel>` first. Normal indices are
+ * maintained automatically on `:put`/`:rm` to the base relation — no manual
+ * upkeep, and the index reflects deletes immediately (verified against
+ * cozo-node v0.7.6).
+ *
+ * The column order matters: the index is range-scannable on a leading prefix
+ * of its columns, so put the column you filter by first.
+ */
+async function createIndexIfMissing(
+  db: CozoDb,
+  existing: Set<string>,
+  relation: string,
+  indexName: string,
+  columns: string[]
+): Promise<void> {
+  if (existing.has(indexName)) return;
+  await db.run(
+    `::index create ${relation}:${indexName} { ${columns.join(", ")} }`
+  );
+}
+
+/**
+ * Create the secondary indexes that back the hot incremental-indexing
+ * queries (FIX D Phase 1). Each targets a lookup that would otherwise
+ * full-scan a relation because the filtered column isn't a leading key:
+ *
+ *   - edges:rev {to_key, type, from_key} — reverse/incoming-edge scans and
+ *     fan_in counts (edges is keyed (from_key, to_key, type), so to_key is
+ *     not a leading key → reverse lookups full-scan without this).
+ *   - entities:by_name {name} — name→key resolution (entities is keyed by
+ *     `key` only; name is a value column → name lookups full-scan).
+ *   - file_index:by_entity {entity_key} — reverse file lookup by entity
+ *     (file_index is keyed (file_path, entity_key); reverse-by-entity_key
+ *     full-scans without this).
+ *
+ * Additive and idempotent: no column or semantic change, safe to call on
+ * fresh and persistent databases. Must run after the base relations exist.
+ */
+async function ensureIndexes(db: CozoDb): Promise<void> {
+  const edgeIdx = await getExistingIndexes(db, "edges");
+  await createIndexIfMissing(db, edgeIdx, "edges", "rev", [
+    "to_key",
+    "type",
+    "from_key",
+  ]);
+
+  const entityIdx = await getExistingIndexes(db, "entities");
+  await createIndexIfMissing(db, entityIdx, "entities", "by_name", ["name"]);
+
+  const fileIdx = await getExistingIndexes(db, "file_index");
+  await createIndexIfMissing(db, fileIdx, "file_index", "by_entity", [
+    "entity_key",
+  ]);
 }
 
 /**
@@ -531,4 +636,26 @@ export async function initSchema(db: CozoDb): Promise<void> {
     }
   `
   );
+
+  // Per-file content hash for incremental early-cutoff (FIX D Phase 3).
+  // Written after a file is successfully indexed; an unchanged hash lets the
+  // incremental indexer skip extraction + diff for no-op/formatter/identical
+  // saves. Keyed by file_path (lookups are key-equality, no index needed).
+  await createIfMissing(
+    db,
+    existing,
+    "file_content_hashes",
+    `
+    :create file_content_hashes {
+      file_path: String
+      =>
+      content_hash: String default "",
+      indexed_at: Float default 0.0
+    }
+  `
+  );
+
+  // Secondary indexes backing hot incremental-indexing queries (FIX D Phase 1).
+  // Runs last so all base relations exist; additive and idempotent.
+  await ensureIndexes(db);
 }

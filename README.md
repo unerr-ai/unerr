@@ -70,32 +70,36 @@ The outcome you get is **agents that behave like senior engineers** — checking
 
 ## See it in action
 
-<p align="center">
-  <img src="https://unerr.dev/open-cli/video/unerr_short.gif" alt="unerr in action" width="720" />
-</p>
-
 Two places unerr shows up so you know it's working — inside the chat, and in a browser.
 
 **Inside the chat.** Every coding turn opens with one line naming what unerr loaded ("loaded a convention you wrote yesterday for `src/proxy/proxy.ts`…") and closes with one line totalling what it saved you ("this turn: 2 catches · ≈ 4.2k tokens saved · +5 turns of headroom this session"). Catches are *named, countable events*, not a ratio.
 
 **In a browser.** A live dashboard at `http://localhost:9847` reads from the same store the agent reads from over MCP — the graph it navigates, the facts it remembers, the tokens it didn't have to chew through, and the score showing which of those facts actually shaped the next answer.
 
-<table align="center">
-  <tr>
-    <td align="center" width="320">
-      <img src="https://unerr.dev/open-cli/screenshots/dashboard.png" alt="unerr dashboard — live overview" width="320" />
-      <br/><sub><strong>Dashboard</strong><br/>Live overview — active sessions, recent tool calls, tokens the agent skipped this turn.</sub>
-    </td>
-    <td align="center" width="320">
-      <img src="https://unerr.dev/open-cli/screenshots/token-trace-main.png" alt="unerr token trace" width="320" />
-      <br/><sub><strong>Token Trace</strong><br/>Context kept out of the window, broken down by mechanism — graph hits, skipped re-reads, compressed shell output, deduped fetches.</sub>
-    </td>
-    <td align="center" width="320">
-      <img src="https://unerr.dev/open-cli/screenshots/project-memory.png" alt="unerr project memory" width="320" />
-      <br/><sub><strong>Project Memory</strong><br/>Conventions, anti-patterns, decisions — verbatim, editable, replayable. With decay-adjusted confidence.</sub>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <img src="https://unerr.dev/open-cli/screenshots/dashboard.png" alt="unerr dashboard — live overview" width="300" />
+  <br/><sub><strong>Dashboard</strong> · live overview — active sessions, recent tool calls, tokens the agent skipped this turn.</sub>
+</p>
+
+<p align="center">
+  <img src="https://unerr.dev/open-cli/screenshots/activity.png" alt="unerr activity — session timeline" width="300" />
+  <br/><sub><strong>Activity</strong> · session timeline — every tool call, marker, and catch in order, replayable across sessions.</sub>
+</p>
+
+<p align="center">
+  <img src="https://unerr.dev/open-cli/screenshots/token-trace-main.png" alt="unerr token trace" width="300" />
+  <br/><sub><strong>Token Trace</strong> · context kept out of the window, broken down by mechanism — graph hits, skipped re-reads, compressed shell output, deduped fetches.</sub>
+</p>
+
+<p align="center">
+  <img src="https://unerr.dev/open-cli/screenshots/prompt-trace.png" alt="unerr prompt trace" width="300" />
+  <br/><sub><strong>Prompt Trace</strong> · every prompt and the context unerr fed it — what was recalled, and what shaped the response.</sub>
+</p>
+
+<p align="center">
+  <img src="https://unerr.dev/open-cli/screenshots/reasoning-quality.png" alt="unerr reasoning quality" width="300" />
+  <br/><sub><strong>Reasoning Quality</strong> · which remembered facts actually shaped the next answer — scored, so memory earns its place in context.</sub>
+</p>
 
 <p align="center"><sub>More views in the <a href="https://www.unerr.dev/">full dashboard tour</a>.</sub></p>
 

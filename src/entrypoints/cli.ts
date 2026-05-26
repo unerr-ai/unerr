@@ -990,6 +990,15 @@ async function daemonChildBoot(cwd: string): Promise<void> {
 const MCP_INITIAL_RETRY_MS = 2_000;
 const MCP_MAX_RETRY_MS = 30_000;
 const MCP_RETRY_BACKOFF = 1.5;
+/**
+ * A bridge connection that stayed up at least this long is treated as a real,
+ * healthy session: the next drop resets the reconnect backoff so a long-running
+ * session that loses its proxy reconnects promptly. Shorter-lived results are
+ * counted as consecutive failures and backed off exponentially — this is what
+ * stops the hot reconnect loop when discovery keeps handing back a sock that
+ * fails to connect (connect_error) faster than the IDE can blink.
+ */
+const MCP_BACKOFF_RESET_MS = 30_000;
 
 type DiscoveryResult =
   | { kind: "daemon"; sockPath: string; daemonSock: string }
@@ -1110,6 +1119,9 @@ async function mcpBoot(
 
   // Main loop: discover → bridge → on disconnect, rediscover
   // Exits only when stdin closes (IDE killed the process) or process.exit
+  // `reconnectFailures` drives exponential backoff between failed/short-lived
+  // bridge sessions (FIX C) so a sock that won't connect can't hot-loop.
+  let reconnectFailures = 0;
   for (;;) {
     const discovery = await discoverWithRetry(
       cwd,
@@ -1166,6 +1178,7 @@ async function mcpBoot(
       }, ACTIVITY_THROTTLE_MS);
       activityInterval.unref();
 
+      const connectedAt = Date.now();
       const result = await startUdsBridge(discovery.sockPath, bufferForBridge, {
         codingAgent: opts.codingAgent,
       });
@@ -1178,9 +1191,34 @@ async function mcpBoot(
       }
 
       if (result.reason === "stdin_closed") return;
-      process.stderr.write(
-        `[unerr:mcp] Connection lost (${result.reason}), will retry...\n`
-      );
+
+      // A session that lived long enough was healthy — reset the backoff so the
+      // reconnect is immediate. A short-lived result (e.g. connect_error from a
+      // sock that won't accept) escalates the backoff to avoid a hot loop.
+      const livedMs = Date.now() - connectedAt;
+      if (livedMs >= MCP_BACKOFF_RESET_MS) {
+        reconnectFailures = 0;
+      } else {
+        reconnectFailures++;
+      }
+
+      if (reconnectFailures === 0) {
+        process.stderr.write(
+          `[unerr:mcp] Connection lost (${result.reason}), reconnecting...\n`
+        );
+      } else {
+        const backoffMs = Math.min(
+          MCP_INITIAL_RETRY_MS * MCP_RETRY_BACKOFF ** (reconnectFailures - 1),
+          MCP_MAX_RETRY_MS
+        );
+        process.stderr.write(
+          `[unerr:mcp] Connection lost (${result.reason}), retrying in ${Math.round(backoffMs)}ms (attempt ${reconnectFailures})...\n`
+        );
+        await new Promise<void>((r) => {
+          const t = setTimeout(r, backoffMs);
+          if (typeof t.unref === "function") t.unref();
+        });
+      }
     }
   }
 }
@@ -1203,6 +1241,13 @@ async function discoverWithRetry(
   let retryMs = MCP_INITIAL_RETRY_MS;
   let attempt = 0;
   let spawnAttempted = false;
+
+  // Per-poll window for unerrd to come up after an auto-spawn. This is NOT a
+  // hard failure budget — the outer for(;;) loop re-probes indefinitely, so a
+  // very slow machine just takes a few more iterations. Sourced from the
+  // protocol constant so the value can't drift from the daemon's own sense of
+  // "ready".
+  const { DAEMON_READY_TIMEOUT_MS } = await import("../daemon/protocol.js");
 
   for (;;) {
     // ── Step 1: is unerrd (the process manager) running? ──
@@ -1238,7 +1283,7 @@ async function discoverWithRetry(
           process.stderr.write(
             "unerr| to stop: unerr pm stop  (idle exit after 30 min)\n"
           );
-          await waitForSupervisor(daemonSock, probeDaemon, 8000);
+          await waitForSupervisor(daemonSock, probeDaemon, DAEMON_READY_TIMEOUT_MS);
         } catch (err) {
           process.stderr.write(
             `[unerr:mcp] auto-spawn failed: ${(err as Error).message}\n`
@@ -1250,7 +1295,7 @@ async function discoverWithRetry(
         process.stderr.write(
           "[unerr:mcp] waiting for concurrent process-manager spawn...\n"
         );
-        await waitForSupervisor(daemonSock, probeDaemon, 8000);
+        await waitForSupervisor(daemonSock, probeDaemon, DAEMON_READY_TIMEOUT_MS);
       }
       // Loop back to re-probe immediately rather than backing off.
       continue;

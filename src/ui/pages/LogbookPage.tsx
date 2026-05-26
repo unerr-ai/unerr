@@ -1823,18 +1823,6 @@ export function LogbookPage() {
     return `${best.session_id}::${best.turn}`;
   }, [feed]);
 
-  const periodLabel = useMemo(() => {
-    if (date === todayLocal()) return "Today";
-    const d = new Date(`${date}T00:00:00`);
-    if (Number.isNaN(d.getTime())) return date;
-    return d.toLocaleDateString(undefined, {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  }, [date]);
-
   const updateFilters = (patch: Record<string, string | null>) => {
     setHashQueryParams(patch);
     setExpandedKey(null);
@@ -1867,23 +1855,6 @@ export function LogbookPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <header>
-        <h1 className="font-grotesk text-xl font-semibold text-foreground">
-          What unerr did
-        </h1>
-        <p className="mt-1 text-sm t-secondary">
-          <span className="font-mono tabular-nums text-foreground">
-            {periodLabel}
-          </span>
-          <span className="t-tertiary"> · </span>
-          <span className="font-mono tabular-nums text-foreground">
-            {fmtNum(total)}
-          </span>{" "}
-          {total === 1 ? "prompt" : "prompts"} handled
-        </p>
-      </header>
-
       {/* Impact Hero */}
       {story ? (
         <ImpactHero

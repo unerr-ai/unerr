@@ -173,7 +173,16 @@ describe("Daemon protocol types", () => {
     expect(proto.DEFAULT_WARM_START_BUDGET).toBe(3);
     expect(proto.DEFAULT_WARM_START_DELAY_MS).toBe(30_000);
     expect(proto.DEFAULT_WARM_START_IDLE_DAYS).toBe(14);
-    expect(proto.REPO_READY_TIMEOUT_MS).toBe(120_000);
+    // Raised to 6 min so a large repo / slow machine can finish a cold index
+    // before the daemon gives up waiting for the proxy's `ready`.
+    expect(proto.REPO_READY_TIMEOUT_MS).toBe(360_000);
+    // The bridge's `ensure` request timeout must exceed REPO_READY_TIMEOUT_MS
+    // so the proxy-side ready timeout fires first with a clean error.
+    expect(proto.ENSURE_REPO_REQUEST_TIMEOUT_MS).toBe(390_000);
+    expect(proto.ENSURE_REPO_REQUEST_TIMEOUT_MS).toBeGreaterThan(
+      proto.REPO_READY_TIMEOUT_MS
+    );
+    expect(proto.DAEMON_READY_TIMEOUT_MS).toBe(30_000);
   });
 
   it("ChildMessage types are all present", async () => {

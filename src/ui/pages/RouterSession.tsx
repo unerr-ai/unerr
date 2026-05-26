@@ -231,8 +231,7 @@ export function RouterSessionPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Router Sessions</h2>
+      <div className="flex items-center justify-end">
         <span className="t-secondary text-sm">
           {sessions.length} session{sessions.length !== 1 ? "s" : ""}
         </span>

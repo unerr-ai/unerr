@@ -390,7 +390,10 @@ describe("mcpBoot retry behavior", () => {
 
     expect(content).toContain('result.reason === "stdin_closed"');
     expect(content).toContain("Connection lost");
-    expect(content).toContain("will retry");
+    // Reconnect path: immediate when the session was healthy, exponential
+    // backoff ("retrying in <ms>") when it was short-lived (FIX C).
+    expect(content).toContain("reconnecting");
+    expect(content).toContain("retrying in");
   });
 
   it("bridge cleans up stdin listeners on disconnect for safe reconnect", () => {
@@ -437,7 +440,20 @@ describe("Error handling", () => {
     );
 
     expect(content).toContain("Connection lost");
-    expect(content).toContain("will retry");
+    expect(content).toContain("reconnecting");
     expect(content).toContain('result.reason === "stdin_closed"');
+  });
+
+  it("backs off exponentially on short-lived reconnects (FIX C)", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      "utf-8"
+    );
+
+    // A healthy session resets the counter; a short-lived one escalates and
+    // sleeps before re-discovering, so a sock that won't connect can't hot-loop.
+    expect(content).toContain("MCP_BACKOFF_RESET_MS");
+    expect(content).toContain("reconnectFailures");
+    expect(content).toContain("retrying in");
   });
 });

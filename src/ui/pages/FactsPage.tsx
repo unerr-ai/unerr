@@ -2,7 +2,7 @@ import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { fetchJson } from "@/lib/api";
 import { useRepoApi } from "@/lib/repo-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -79,41 +79,42 @@ const CATEGORY_META: Record<
   }
 > = {
   semantic: {
-    label: "Coding Patterns",
+    label: "Conventions your code follows",
     icon: "◆",
     color: "violet",
-    description: "Conventions your codebase consistently follows",
+    description: "Patterns unerr detected in your codebase — naming styles, import order, file structure",
     emptyMsg:
-      "No patterns detected yet. Run a full index to discover conventions.",
+      "No conventions detected yet. unerr discovers these as it indexes your project.",
   },
   procedural: {
-    label: "Hot Files",
+    label: "Files you work on most",
     icon: "⚡",
     color: "cyan",
-    description: "Files you keep coming back to across sessions",
+    description: "The files your agent keeps coming back to — unerr prioritizes these in context",
     emptyMsg:
-      "Not enough session data yet. Keep coding — patterns emerge after 3+ sessions.",
+      "Not enough data yet. After a few sessions, unerr will spot your most-touched files.",
   },
   negative: {
-    label: "Lessons Learned",
+    label: "Mistakes to avoid",
     icon: "✗",
     color: "red",
-    description: "Things that went wrong — remembered so you don't repeat them",
-    emptyMsg: "No anti-patterns detected. That's a good thing.",
+    description: "Things that went wrong before — unerr warns your agent so it doesn't repeat them",
+    emptyMsg: "No past mistakes recorded. That's a good thing.",
   },
   episodic: {
-    label: "Change History",
+    label: "Change outcomes",
     icon: "◎",
     color: "amber",
-    description: "Changes that survived or were reverted within 24 hours",
-    emptyMsg: "No change survival data yet.",
+    description: "Which changes stuck and which got reverted — so your agent knows what works",
+    emptyMsg: "No change history tracked yet.",
   },
   convention: {
-    label: "Explicit Rules",
+    label: "Rules you've taught unerr",
     icon: "▸",
     color: "emerald",
-    description: "Rules you've explicitly told unerr to remember",
-    emptyMsg: "No explicit rules recorded. Use record_fact to teach unerr.",
+    description: "Rules you explicitly told unerr to remember — these override everything else",
+    emptyMsg:
+      'No rules taught yet. Tell your agent "remember: always use camelCase" and unerr will enforce it.',
   },
 };
 
@@ -172,9 +173,9 @@ function confidenceBarColor(conf: number): string {
 }
 
 function confidenceLabel(conf: number): string {
-  if (conf >= 0.7) return "Strong";
-  if (conf >= 0.4) return "Moderate";
-  return "Fading";
+  if (conf >= 0.7) return "High certainty";
+  if (conf >= 0.4) return "Likely true";
+  return "Needs review";
 }
 
 // ── Component ───────────────────────────────────────────────────────
@@ -192,6 +193,7 @@ export function FactsPage() {
   const [manageStatus, setManageStatus] = useState<
     "all" | "active" | "disabled" | "drifting"
   >("all");
+  const [managePage, setManagePage] = useState(0);
 
   const healthQ = useQuery({
     queryKey: queryKey(["facts", "health"]),
@@ -270,21 +272,34 @@ export function FactsPage() {
 
   // "All memories" manage view — full inventory incl. disabled, filterable.
   const manageQuery = manageSearch.trim().toLowerCase();
-  const manageFacts = facts.filter((f) => {
-    if (manageSource === "user_fed" && f.source !== "user_fed") return false;
-    if (manageSource === "auto" && f.source === "user_fed") return false;
-    if (manageStatus === "active" && f.disabled) return false;
-    if (manageStatus === "disabled" && !f.disabled) return false;
-    if (manageStatus === "drifting" && !f.drift) return false;
-    if (
-      manageQuery &&
-      !`${f.subject} ${f.content} ${f.source_quote ?? ""}`
-        .toLowerCase()
-        .includes(manageQuery)
-    )
-      return false;
-    return true;
-  });
+  const allManageFacts = useMemo(
+    () =>
+      facts.filter((f) => {
+        if (manageSource === "user_fed" && f.source !== "user_fed") return false;
+        if (manageSource === "auto" && f.source === "user_fed") return false;
+        if (manageStatus === "active" && f.disabled) return false;
+        if (manageStatus === "disabled" && !f.disabled) return false;
+        if (manageStatus === "drifting" && !f.drift) return false;
+        if (
+          manageQuery &&
+          !`${f.subject} ${f.content} ${f.source_quote ?? ""}`
+            .toLowerCase()
+            .includes(manageQuery)
+        )
+          return false;
+        return true;
+      }),
+    [facts, manageSource, manageStatus, manageQuery]
+  );
+  const managePageCount = Math.max(
+    1,
+    Math.ceil(allManageFacts.length / TABLE_ROWS_PER_PAGE)
+  );
+  const safeManagePage = Math.min(managePage, managePageCount - 1);
+  const manageFacts = allManageFacts.slice(
+    safeManagePage * TABLE_ROWS_PER_PAGE,
+    (safeManagePage + 1) * TABLE_ROWS_PER_PAGE
+  );
 
   const semanticFacts = grouped.semantic ?? [];
   const proceduralFacts = grouped.procedural ?? [];
@@ -296,59 +311,65 @@ export function FactsPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      {/* ── Section 1: Knowledge Health Hero ──────────────────────── */}
-      <section className="glass-panel rounded-xl p-6">
-        <div className="flex items-start gap-6">
-          <KnowledgeRing
-            score={health?.avg_confidence ?? 0}
-            total={health?.total ?? 0}
-          />
+      {/* ── Section 1: What unerr knows ────────────────────────── */}
+      <section className="el-raised rounded-lg p-6 border-l-4 border-violet-500/60">
+        <div className="flex items-start justify-between gap-6 flex-wrap">
           <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-semibold text-foreground">
-              Project Memory
+            <h2 className="text-foreground font-semibold text-base">
+              What unerr has learned about your project
             </h2>
-            <p className="mt-1 text-sm t-secondary leading-relaxed">
-              unerr learns about your project as you code — detecting patterns,
-              tracking which files you revisit, and remembering what went wrong.
-              This knowledge gets injected into every tool response to help your
-              AI agent make better decisions.
+            <p className="t-tertiary text-xs mt-1 max-w-xl leading-relaxed">
+              unerr watches how you code — which files you keep editing, what
+              conventions your codebase follows, and what went wrong before.
+              Every piece of knowledge here is automatically given to your AI
+              agent so it makes fewer mistakes.
             </p>
-            {isLoading ? (
-              <div className="mt-4">
-                <CardGridSkeleton n={4} />
-              </div>
-            ) : health ? (
-              <div className="mt-4 grid gap-3 grid-cols-2 lg:grid-cols-4">
-                <MiniStat
-                  label="Total memories"
-                  value={health.total}
-                  color="text-foreground"
-                />
-                <MiniStat
-                  label="Patterns"
-                  value={health.by_type.semantic ?? 0}
-                  color="text-violet-400"
-                />
-                <MiniStat
-                  label="Hot files"
-                  value={health.by_type.procedural ?? 0}
-                  color="text-cyan-400"
-                />
-                <MiniStat
-                  label="Lessons"
-                  value={
-                    (health.by_type.negative ?? 0) +
-                    (health.by_type.episodic ?? 0)
-                  }
-                  color="text-red-400"
-                />
-              </div>
-            ) : null}
           </div>
+          {!isLoading && health && health.total > 0 && (
+            <div className="text-right shrink-0">
+              <p className="text-violet-400 font-mono font-bold text-4xl">
+                {health.total}
+              </p>
+              <p className="t-tertiary text-[10px] mt-1">
+                things remembered
+              </p>
+            </div>
+          )}
         </div>
+        {isLoading ? (
+          <div className="mt-4">
+            <CardGridSkeleton n={4} />
+          </div>
+        ) : health ? (
+          <div className="mt-4 grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <MiniStat
+              label="Rules you taught"
+              value={health.by_type.convention ?? 0}
+              color="text-emerald-400"
+            />
+            <MiniStat
+              label="Conventions found"
+              value={health.by_type.semantic ?? 0}
+              color="text-violet-400"
+            />
+            <MiniStat
+              label="Frequently edited files"
+              value={health.by_type.procedural ?? 0}
+              color="text-cyan-400"
+            />
+            <MiniStat
+              label="Mistakes to avoid"
+              value={
+                (health.by_type.negative ?? 0) +
+                (health.by_type.episodic ?? 0)
+              }
+              color="text-red-400"
+            />
+          </div>
+        ) : null}
       </section>
 
-      {/* ── Injection preview by file (wow feature, M4) ──────────── */}
+      {/* ── Try it — see what your agent sees ──────────────────── */}
       <InjectionPreviewPanel
         onSelectFactId={(id) => {
           const f = facts.find((x) => x.fact_id === id);
@@ -440,7 +461,7 @@ export function FactsPage() {
             >
               ▸
             </span>
-            {showAllFacts ? "Hide" : "Manage"} all {facts.length} memories
+            {showAllFacts ? "Hide" : "Show"} all {facts.length} memories
           </button>
           {showAllFacts && (
             <div className="mt-3 flex flex-col gap-3">
@@ -449,27 +470,36 @@ export function FactsPage() {
                 <input
                   type="search"
                   value={manageSearch}
-                  onChange={(e) => setManageSearch(e.target.value)}
+                  onChange={(e) => {
+                    setManageSearch(e.target.value);
+                    setManagePage(0);
+                  }}
                   placeholder="Search memories…"
                   className="flex-1 min-w-[160px] rounded-lg border border-border-subtle bg-surface-overlay px-3 py-1.5 text-xs text-foreground placeholder:t-tertiary"
                 />
                 <SegmentGroup
                   value={manageSource}
-                  onChange={setManageSource}
+                  onChange={(v) => {
+                    setManageSource(v);
+                    setManagePage(0);
+                  }}
                   options={[
-                    ["all", "All sources"],
-                    ["user_fed", "User-fed"],
-                    ["auto", "Auto-detected"],
+                    ["all", "All"],
+                    ["user_fed", "Your rules"],
+                    ["auto", "Auto-learned"],
                   ]}
                 />
                 <SegmentGroup
                   value={manageStatus}
-                  onChange={setManageStatus}
+                  onChange={(v) => {
+                    setManageStatus(v);
+                    setManagePage(0);
+                  }}
                   options={[
                     ["all", "Any status"],
                     ["active", "Active"],
-                    ["disabled", "Disabled"],
-                    ["drifting", "Drifting"],
+                    ["disabled", "Turned off"],
+                    ["drifting", "Possibly outdated"],
                   ]}
                 />
               </div>
@@ -478,12 +508,12 @@ export function FactsPage() {
                 <table className="w-full min-w-[760px] text-left text-xs">
                   <thead>
                     <tr className="border-b border-border-subtle t-tertiary uppercase">
-                      <th className="py-2 pr-3 font-medium">Type</th>
-                      <th className="py-2 pr-3 font-medium">Subject</th>
-                      <th className="py-2 pr-3 font-medium">Content</th>
+                      <th className="py-2 pr-3 font-medium">Kind</th>
+                      <th className="py-2 pr-3 font-medium">About</th>
+                      <th className="py-2 pr-3 font-medium">What unerr remembers</th>
                       <th className="py-2 pr-3 font-medium">Status</th>
-                      <th className="py-2 pr-3 font-medium">Confidence</th>
-                      <th className="py-2 pr-3 font-medium">Age</th>
+                      <th className="py-2 pr-3 font-medium">Certainty</th>
+                      <th className="py-2 pr-3 font-medium">Learned</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -512,12 +542,12 @@ export function FactsPage() {
                           <div className="flex gap-1">
                             {f.drift && (
                               <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-medium text-amber-300">
-                                stale
+                                outdated
                               </span>
                             )}
                             {f.disabled ? (
                               <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[9px] font-medium text-red-300">
-                                disabled
+                                off
                               </span>
                             ) : (
                               <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-medium text-emerald-300">
@@ -547,6 +577,45 @@ export function FactsPage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Table pagination */}
+              {allManageFacts.length > TABLE_ROWS_PER_PAGE && (
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-[10px] t-tertiary tabular-nums">
+                    {safeManagePage * TABLE_ROWS_PER_PAGE + 1}–
+                    {Math.min(
+                      (safeManagePage + 1) * TABLE_ROWS_PER_PAGE,
+                      allManageFacts.length
+                    )}{" "}
+                    of {allManageFacts.length}
+                  </span>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      disabled={safeManagePage === 0}
+                      onClick={() => setManagePage((p) => Math.max(0, p - 1))}
+                      className="rounded-md px-2 py-1 text-[11px] font-medium t-secondary bg-surface-overlay hover:text-foreground transition-colors disabled:opacity-30"
+                    >
+                      ← Prev
+                    </button>
+                    <span className="flex items-center px-2 text-[10px] t-tertiary tabular-nums">
+                      {safeManagePage + 1} / {managePageCount}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={safeManagePage >= managePageCount - 1}
+                      onClick={() =>
+                        setManagePage((p) =>
+                          Math.min(managePageCount - 1, p + 1)
+                        )
+                      }
+                      className="rounded-md px-2 py-1 text-[11px] font-medium t-secondary bg-surface-overlay hover:text-foreground transition-colors disabled:opacity-30"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -619,12 +688,12 @@ function InjectionPreviewPanel({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-foreground">
-            Injection preview
+            Try it — see what your agent sees
           </h2>
           <p className="mt-1 text-sm t-secondary leading-relaxed">
-            Enter a file path to see exactly which memories unerr injects when
-            your agent reads or edits it — the same selection the live injector
-            makes, not an approximation.
+            Type any file path to preview the exact knowledge unerr gives your
+            agent when it works on that file. This is the real thing, not a
+            simulation.
           </p>
         </div>
       </div>
@@ -666,10 +735,10 @@ function InjectionPreviewPanel({
             preview.injected.length === 0 ? (
               <div className="rounded-lg border border-border-subtle bg-surface-overlay/40 p-4">
                 <p className="text-xs t-secondary">
-                  No memory is injected for{" "}
+                  unerr doesn't have any knowledge about{" "}
                   <span className="font-mono t-tertiary">{submittedFile}</span>{" "}
-                  yet. unerr injects file-scoped patterns, entity lessons, and
-                  project-wide warnings as it learns them.
+                  yet. As you work on this file, unerr will learn its
+                  conventions, track changes, and remember past issues.
                 </p>
               </div>
             ) : (
@@ -677,7 +746,7 @@ function InjectionPreviewPanel({
                 {/* The verbatim block the agent's context receives. */}
                 <div>
                   <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest t-tertiary">
-                    What the agent receives
+                    What your agent sees when it opens this file
                   </p>
                   <pre className="overflow-x-auto custom-scrollbar rounded-lg border border-violet-500/30 bg-violet-500/5 p-3 font-mono text-[11px] leading-relaxed text-violet-100 whitespace-pre-wrap">
                     {preview.injected.join("\n")}
@@ -687,7 +756,7 @@ function InjectionPreviewPanel({
                 {/* Clickable source rows → existing detail modal. */}
                 <div>
                   <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest t-tertiary">
-                    Source memories ({preview.facts.length})
+                    Knowledge sources ({preview.facts.length})
                   </p>
                   <div className="flex flex-col gap-1">
                     {preview.facts.map((f) => (
@@ -704,9 +773,6 @@ function InjectionPreviewPanel({
                         >
                           {f.content}
                         </span>
-                        <span className="font-mono tabular-nums t-tertiary">
-                          {(f.effective_confidence * 100).toFixed(0)}%
-                        </span>
                       </button>
                     ))}
                   </div>
@@ -715,10 +781,10 @@ function InjectionPreviewPanel({
                 {/* Transparency footer: scope resolution + degraded mode. */}
                 <p className="text-[10px] t-tertiary">
                   {preview.resolver_available
-                    ? `Matched ${preview.entity_keys.length} code ${
-                        preview.entity_keys.length === 1 ? "entity" : "entities"
-                      } in this file plus file- and project-scoped memory.`
-                    : "Entity resolver unavailable here — showing file- and project-scoped memory only."}
+                    ? `Found ${preview.entity_keys.length} function${
+                        preview.entity_keys.length === 1 ? "" : "s"
+                      } in this file with relevant knowledge.`
+                    : "Showing file-level and project-wide knowledge only."}
                 </p>
               </div>
             )
@@ -726,48 +792,6 @@ function InjectionPreviewPanel({
         </div>
       )}
     </section>
-  );
-}
-
-function KnowledgeRing({ score, total }: { score: number; total: number }) {
-  const radius = 36;
-  const circumference = 2 * Math.PI * radius;
-  const filled = circumference * Math.min(1, score);
-  const pctLabel = total === 0 ? "—" : `${Math.round(score * 100)}%`;
-
-  return (
-    <div className="relative flex-shrink-0" style={{ width: 88, height: 88 }}>
-      <svg aria-hidden="true" viewBox="0 0 88 88" className="w-full h-full">
-        <circle
-          cx="44"
-          cy="44"
-          r={radius}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="5"
-          className="text-surface-overlay opacity-40"
-        />
-        <circle
-          cx="44"
-          cy="44"
-          r={radius}
-          fill="none"
-          strokeWidth="5"
-          strokeLinecap="round"
-          strokeDasharray={`${filled} ${circumference - filled}`}
-          strokeDashoffset={circumference * 0.25}
-          className="text-violet-400 transition-all duration-700"
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-lg font-bold text-foreground tabular-nums">
-          {pctLabel}
-        </span>
-        <span className="text-[9px] t-tertiary uppercase tracking-wider">
-          recall
-        </span>
-      </div>
-    </div>
   );
 }
 
@@ -816,6 +840,9 @@ function SegmentGroup<T extends string>({
   );
 }
 
+const CARDS_PER_PAGE = 6;
+const TABLE_ROWS_PER_PAGE = 15;
+
 function CategorySection({
   meta,
   facts,
@@ -827,6 +854,8 @@ function CategorySection({
   renderCard: (f: FactRow) => React.ReactNode;
   isLoading: boolean;
 }) {
+  const [visibleCount, setVisibleCount] = useState(CARDS_PER_PAGE);
+
   if (isLoading) {
     return (
       <section>
@@ -837,6 +866,11 @@ function CategorySection({
       </section>
     );
   }
+
+  const shown = facts.slice(0, visibleCount);
+  const remaining = facts.length - visibleCount;
+  const hasMore = remaining > 0;
+  const isExpanded = visibleCount >= facts.length;
 
   return (
     <section>
@@ -858,9 +892,36 @@ function CategorySection({
       {facts.length === 0 ? (
         <p className="mt-4 text-sm t-tertiary italic">{meta.emptyMsg}</p>
       ) : (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {facts.map(renderCard)}
-        </div>
+        <>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {shown.map(renderCard)}
+          </div>
+          {(hasMore || isExpanded) && facts.length > CARDS_PER_PAGE && (
+            <div className="mt-3 flex justify-center">
+              {hasMore ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setVisibleCount((c) =>
+                      Math.min(c + CARDS_PER_PAGE, facts.length)
+                    )
+                  }
+                  className="rounded-lg border border-border-subtle bg-surface-overlay px-4 py-1.5 text-xs font-medium t-secondary hover:text-foreground transition-colors"
+                >
+                  Show {Math.min(remaining, CARDS_PER_PAGE)} more of {remaining}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount(CARDS_PER_PAGE)}
+                  className="rounded-lg border border-border-subtle bg-surface-overlay px-4 py-1.5 text-xs font-medium t-tertiary hover:text-foreground transition-colors"
+                >
+                  Show less
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
     </section>
   );
@@ -901,9 +962,9 @@ function PatternCard({
       <p className="text-xs t-secondary leading-relaxed">{content}</p>
       <ConfidenceBar confidence={conf} />
       <div className="flex items-center justify-between text-[10px] t-tertiary">
-        <span>{formatAge(fact.created_at)}</span>
+        <span>Learned {formatAge(fact.created_at)}</span>
         {fact.reinforcement_count > 0 && (
-          <span>reinforced {fact.reinforcement_count}x</span>
+          <span>Confirmed {fact.reinforcement_count} time{fact.reinforcement_count === 1 ? "" : "s"}</span>
         )}
       </div>
     </div>
@@ -1054,7 +1115,7 @@ function CardActions({
         className="rounded-md p-1 text-xs text-emerald-400/60 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors disabled:opacity-30"
         onClick={onReinforce}
         disabled={isPending}
-        title="This is still true — strengthen this memory"
+        title="This is still true — confirm this"
       >
         <svg
           aria-hidden="true"
@@ -1072,7 +1133,7 @@ function CardActions({
         className="rounded-md p-1 text-xs text-red-400/60 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-30"
         onClick={onDismiss}
         disabled={isPending}
-        title="This is wrong — forget this memory"
+        title="This is wrong — remove it"
       >
         <svg
           aria-hidden="true"
@@ -1097,12 +1158,12 @@ function DriftDisabledBadges({ fact }: { fact: FactRow }) {
     <div className="flex flex-wrap gap-1.5">
       {fact.drift && (
         <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-medium text-amber-300">
-          may be stale
+          possibly outdated
         </span>
       )}
       {fact.disabled && (
         <span className="rounded-full bg-red-500/20 px-1.5 py-0.5 text-[9px] font-medium text-red-300">
-          disabled
+          turned off
         </span>
       )}
     </div>
@@ -1113,27 +1174,31 @@ function DriftDisabledBadges({ fact }: { fact: FactRow }) {
 
 const SOURCE_LABELS: Record<string, { label: string; description: string }> = {
   convention_detector: {
-    label: "Convention Detector",
+    label: "Learned from your code",
     description:
-      "Automatically detected by analyzing your codebase patterns after indexing",
+      "unerr analyzed your codebase and found this pattern used consistently",
   },
   session_analysis: {
-    label: "Session Analysis",
-    description: "Discovered by analyzing patterns across your coding sessions",
+    label: "Learned from your sessions",
+    description: "Discovered by watching which files and patterns you work with across sessions",
   },
   causal_bridge: {
-    label: "24h Survival Check",
+    label: "Learned from change outcomes",
     description:
-      "Tracked whether your changes survived or were reverted within 24 hours",
+      "unerr tracked whether this change survived or was reverted within 24 hours",
   },
   negative_knowledge: {
-    label: "Revert Detection",
+    label: "Learned from a mistake",
     description:
-      "Captured when a change was made and then undone — the approach was wrong",
+      "A change was made and then undone — unerr captured this so the same mistake isn't repeated",
   },
   agent_explicit: {
-    label: "Manually Recorded",
-    description: "You or your AI agent explicitly told unerr to remember this",
+    label: "You told unerr",
+    description: "You or your AI agent explicitly asked unerr to remember this",
+  },
+  user_fed: {
+    label: "You told unerr",
+    description: "You explicitly asked unerr to remember this rule",
   },
 };
 
@@ -1212,12 +1277,12 @@ function MemoryDetailModal({
                 </p>
                 {fact.drift && (
                   <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-medium text-amber-300">
-                    may be stale
+                    possibly outdated
                   </span>
                 )}
                 {fact.disabled && (
                   <span className="rounded-full bg-red-500/20 px-1.5 py-0.5 text-[9px] font-medium text-red-300">
-                    disabled
+                    turned off
                   </span>
                 )}
               </div>
@@ -1270,31 +1335,27 @@ function MemoryDetailModal({
             )}
           </ModalSection>
 
-          {/* In your words — verbatim quote that produced a user-fed memory */}
+          {/* What you said */}
           {fact.source_quote ? (
-            <ModalSection title="In your words">
+            <ModalSection title="What you said">
               <blockquote className="border-l-2 border-violet-400/40 pl-3 text-xs italic t-secondary leading-relaxed">
                 "{fact.source_quote}"
               </blockquote>
             </ModalSection>
           ) : null}
 
-          {/* Memory strength */}
-          <ModalSection title="Memory strength">
+          {/* How certain */}
+          <ModalSection title="How certain is this?">
             <div className="flex flex-col gap-2">
               <ConfidenceBar confidence={fact.effective_confidence} />
               <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs mt-1">
-                <span className="t-tertiary">Base confidence</span>
-                <span className="font-mono tabular-nums text-foreground text-right">
-                  {confPct}%
-                </span>
-                <span className="t-tertiary">Current (after decay)</span>
+                <span className="t-tertiary">Certainty</span>
                 <span className="font-mono tabular-nums text-foreground text-right">
                   {effectivePct}%
                 </span>
                 {decayDelta > 0 && (
                   <>
-                    <span className="t-tertiary">Decay</span>
+                    <span className="t-tertiary">Faded over time</span>
                     <span className="text-amber-400 tabular-nums text-right">
                       -{decayDelta}%
                     </span>
@@ -1302,12 +1363,9 @@ function MemoryDetailModal({
                 )}
                 {fact.reinforcement_count > 0 && (
                   <>
-                    <span className="t-tertiary">Reinforcements</span>
+                    <span className="t-tertiary">Times confirmed</span>
                     <span className="text-emerald-400 tabular-nums text-right">
-                      {fact.reinforcement_count}x{" "}
-                      <span className="text-[10px] t-tertiary">
-                        (slows decay)
-                      </span>
+                      {fact.reinforcement_count}
                     </span>
                   </>
                 )}
@@ -1318,13 +1376,13 @@ function MemoryDetailModal({
           {/* Type-specific details */}
           <ModalTypeDetails fact={fact} allFacts={allFacts} />
 
-          {/* Scope & injection */}
-          <ModalSection title="How it's used">
+          {/* Where this applies */}
+          <ModalSection title="Where this applies">
             <p className="text-xs t-secondary leading-relaxed">
-              When your AI agent reads or modifies files near{" "}
+              When your agent works on files near{" "}
               <span className="font-mono text-foreground">{fact.scope}</span>,
-              this memory is automatically injected into the context — the agent
-              sees it before writing code.
+              unerr automatically shares this knowledge — the agent sees it
+              before making changes.
             </p>
             {fact.applies_to && fact.applies_to.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1340,8 +1398,8 @@ function MemoryDetailModal({
             )}
           </ModalSection>
 
-          {/* Source */}
-          <ModalSection title="Source">
+          {/* How this was learned */}
+          <ModalSection title="How this was learned">
             {(() => {
               const info = SOURCE_LABELS[fact.source] ?? {
                 label: fact.source,
@@ -1378,7 +1436,7 @@ function MemoryDetailModal({
               </span>
               {fact.last_reinforced_at > fact.created_at && (
                 <>
-                  <span className="t-tertiary">Last reinforced</span>
+                  <span className="t-tertiary">Last confirmed</span>
                   <span className="t-secondary text-right">
                     {new Date(fact.last_reinforced_at).toLocaleDateString(
                       undefined,
@@ -1396,20 +1454,12 @@ function MemoryDetailModal({
             </div>
           </ModalSection>
 
-          {/* Raw content */}
-          <ModalSection title="Original data">
-            <p className="font-mono text-[11px] t-tertiary leading-relaxed bg-surface-overlay rounded-lg px-3 py-2">
-              {fact.content}
-            </p>
-          </ModalSection>
         </div>
 
         {/* Footer actions — unified controls folded in from Sidekick Memory:
             Edit · Reinforce/Re-enable · Disable · Forget. */}
         <div className="sticky bottom-0 flex items-center justify-between gap-3 px-6 py-4 border-t border-border-subtle bg-surface/95 backdrop-blur-sm rounded-b-2xl">
-          <span className="text-[10px] t-tertiary">
-            ID: {fact.fact_id.slice(0, 8)}
-          </span>
+          <span className="text-[10px] t-tertiary" />{/* spacer */}
           {editing ? (
             <div className="flex gap-2">
               <button
@@ -1457,7 +1507,7 @@ function MemoryDetailModal({
                 >
                   <path d="M8 12V4M5 7l3-3 3 3" />
                 </svg>
-                {fact.disabled ? "Re-enable" : "Still true"}
+                {fact.disabled ? "Turn back on" : "Still true"}
               </button>
               {!fact.disabled && (
                 <button
@@ -1466,7 +1516,7 @@ function MemoryDetailModal({
                   onClick={onDisable}
                   disabled={isPending}
                 >
-                  Disable
+                  Turn off
                 </button>
               )}
               <button
@@ -1724,21 +1774,21 @@ function ModalTypeDetails({
 
 // ── Type pill for raw table ─────────────────────────────────────────
 
-const TYPE_COLORS: Record<string, string> = {
-  procedural: "bg-cyan-500/15 text-cyan-400",
-  semantic: "bg-violet-500/15 text-violet-400",
-  negative: "bg-red-500/15 text-red-400",
-  convention: "bg-emerald-500/15 text-emerald-400",
-  episodic: "bg-amber-500/15 text-amber-400",
+const TYPE_STYLES: Record<string, { color: string; label: string }> = {
+  procedural: { color: "bg-cyan-500/15 text-cyan-400", label: "frequent file" },
+  semantic: { color: "bg-violet-500/15 text-violet-400", label: "convention" },
+  negative: { color: "bg-red-500/15 text-red-400", label: "lesson" },
+  convention: { color: "bg-emerald-500/15 text-emerald-400", label: "your rule" },
+  episodic: { color: "bg-amber-500/15 text-amber-400", label: "change outcome" },
 };
 
 function TypePill({ type }: { type: string }) {
-  const color = TYPE_COLORS[type] ?? "bg-surface-overlay text-muted-foreground";
+  const style = TYPE_STYLES[type] ?? { color: "bg-surface-overlay text-muted-foreground", label: type };
   return (
     <span
-      className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${color}`}
+      className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${style.color}`}
     >
-      {type}
+      {style.label}
     </span>
   );
 }

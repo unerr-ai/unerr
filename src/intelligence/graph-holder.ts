@@ -44,10 +44,30 @@ export interface GraphHolderConfig {
    */
   incrementalFileLimit?: number;
   /**
-   * After this many incremental cycles, force a full reindex to correct drift.
-   * Default: 10.
+   * Periodic full-reindex cadence — after this many incremental cycles, run a
+   * full reindex. Default: 200.
+   *
+   * This is NOT a correctness counter (referential integrity is enforced by the
+   * cheaper invariant check below). Its job is to refresh the derived layers
+   * the incremental path deliberately SKIPS — community detection (Louvain),
+   * convention detection, SCIP enrichment, co-change edges, and L1 edge
+   * materialization — which would otherwise go stale indefinitely. A full
+   * reindex is the expensive, latency-spiking path (re-scans the whole repo and
+   * atomically swaps the graph), so the cadence is kept high (200) to stay
+   * invisible during normal editing while still refreshing derived data.
    */
   fullReindexEveryNCycles?: number;
+  /**
+   * Correctness-check cadence — every this many incremental cycles, run the
+   * cheap referential-integrity check (verifyGraphInvariants). Default: 50.
+   *
+   * On divergence the holder full-reindexes EARLY (before the periodic cadence)
+   * to repair the graph; on a clean check it keeps taking the fast incremental
+   * path. The check is count-only Datalog (no full scan via the edges:rev
+   * index) so running it 4× as often as a full reindex is effectively free.
+   * Must be ≤ fullReindexEveryNCycles to be meaningful.
+   */
+  invariantCheckEveryNCycles?: number;
 }
 
 const DEFAULT_IDLE_THRESHOLD_MS = 5_000;
@@ -66,6 +86,7 @@ export class GraphHolder {
   private readonly idleThresholdMs: number;
   private readonly incrementalFileLimit: number;
   private readonly fullReindexEveryNCycles: number;
+  private readonly invariantCheckEveryNCycles: number;
   private rebuilding = false;
   private rebuildPending = false;
   private fileChangesSinceLastRebuild = 0;
@@ -77,7 +98,8 @@ export class GraphHolder {
     this.current = initialGraph;
     this.idleThresholdMs = config?.idleThresholdMs ?? DEFAULT_IDLE_THRESHOLD_MS;
     this.incrementalFileLimit = config?.incrementalFileLimit ?? 20;
-    this.fullReindexEveryNCycles = config?.fullReindexEveryNCycles ?? 10;
+    this.fullReindexEveryNCycles = config?.fullReindexEveryNCycles ?? 200;
+    this.invariantCheckEveryNCycles = config?.invariantCheckEveryNCycles ?? 50;
   }
 
   /** Get the current active graph instance. Always valid, never null. */
@@ -161,8 +183,15 @@ export class GraphHolder {
 
   /**
    * Decide whether to use incremental or full reindex, then execute.
-   * Incremental when: factory exists, file count ≤ limit, not a periodic full cycle.
-   * Full otherwise (or as fallback on incremental failure).
+   *
+   * Decision order:
+   *   1. Incremental is inapplicable (no factory / too many files) → full reindex.
+   *   2. Periodic cadence reached (≥ fullReindexEveryNCycles) → full reindex to
+   *      refresh derived layers (communities, SCIP, conventions, L1, co-change).
+   *   3. Correctness cadence reached (multiple of invariantCheckEveryNCycles) →
+   *      run the cheap referential-integrity check; full reindex EARLY only if
+   *      it diverges, otherwise stay incremental.
+   *   4. Otherwise → incremental.
    */
   private triggerRebuild(): void {
     if (!this.rebuildFactory) return;
@@ -178,24 +207,182 @@ export class GraphHolder {
     const changedFiles = [...this.changedFilePaths];
     const startMs = Date.now();
 
-    // Decision: incremental or full?
-    const useIncremental =
+    const canIncremental =
       this.incrementalFactory !== null &&
       changedFiles.length > 0 &&
-      changedFiles.length <= this.incrementalFileLimit &&
-      this.incrementalCycleCount < this.fullReindexEveryNCycles;
+      changedFiles.length <= this.incrementalFileLimit;
 
-    if (useIncremental) {
-      this.runIncremental(changedFiles, changesAtStart, startMs);
-    } else {
-      if (this.incrementalCycleCount >= this.fullReindexEveryNCycles) {
-        _log.info(
-          `Periodic full reindex (after ${this.incrementalCycleCount} incremental cycles)`
-        );
-        this.incrementalCycleCount = 0;
-      }
+    if (!canIncremental) {
       this.runFullRebuild(changesAtStart, startMs);
+      return;
     }
+
+    const n = this.incrementalCycleCount;
+
+    // (2) Periodic full refresh of derived layers + drift backstop.
+    if (n >= this.fullReindexEveryNCycles) {
+      _log.info(
+        `Periodic full reindex (derived-layer refresh after ${n} incremental cycles)`
+      );
+      this.incrementalCycleCount = 0;
+      this.runFullRebuild(changesAtStart, startMs);
+      return;
+    }
+
+    // (3) Correctness gate: at the check cadence, verify referential integrity
+    // and full-reindex early only on divergence.
+    if (n > 0 && n % this.invariantCheckEveryNCycles === 0) {
+      this.checkInvariantsAndDispatch(changedFiles, changesAtStart, startMs);
+      return;
+    }
+
+    // (4) Default fast path.
+    this.runIncremental(changedFiles, changesAtStart, startMs);
+  }
+
+  /**
+   * Run the referential-integrity check, then dispatch: incremental on a clean
+   * graph, full reindex on divergence. Errors/timeouts are treated as "clean"
+   * so a transient query failure never forces an expensive reindex — the
+   * periodic cadence (fullReindexEveryNCycles) remains the backstop.
+   */
+  private checkInvariantsAndDispatch(
+    changedFiles: string[],
+    changesAtStart: number,
+    startMs: number
+  ): void {
+    this.verifyGraphInvariants()
+      .then(async (result) => {
+        if (result.ok) {
+          this.runIncremental(changedFiles, changesAtStart, startMs);
+          return;
+        }
+        // Divergence found. Incremental indexing STRUCTURALLY leaves a few
+        // orphans between full reindexes: it re-keys an entity on a signature
+        // change (entityKey hashes the signature) and does not maintain the
+        // full-index-only edge types (tests, co_changes), so their endpoints
+        // dangle. Treating that as a full-reindex trigger means a 40-70s
+        // reindex fires on essentially every check — a reindex storm that
+        // starves the MCP handshake and drift queries. So repair cheaply
+        // in place first (set-based :rm of orphan edges + file_index rows),
+        // re-verify, and full-reindex ONLY if the sweep can't restore
+        // integrity (true structural divergence).
+        _log.info(
+          `Referential-integrity check found drift (${result.reason}) — sweeping orphans in place`
+        );
+        const removed = await this.sweepOrphans();
+        const recheck = await this.verifyGraphInvariants();
+        if (recheck.ok) {
+          _log.info(
+            `Orphan sweep healed the graph (${removed} rows removed) — staying incremental`
+          );
+          this.runIncremental(changedFiles, changesAtStart, startMs);
+        } else {
+          _log.warn(
+            `Orphan sweep did not resolve divergence (${recheck.reason}) after ${this.incrementalCycleCount} cycles — full reindex to repair`
+          );
+          this.incrementalCycleCount = 0;
+          this.runFullRebuild(changesAtStart, startMs);
+        }
+      })
+      .catch(() => {
+        // Check (or sweep) itself failed — don't punish with a full reindex;
+        // stay incremental and let the periodic cadence backstop any real drift.
+        this.runIncremental(changedFiles, changesAtStart, startMs);
+      });
+  }
+
+  /**
+   * Cheap, in-place repair of the referential-integrity violations that
+   * verifyGraphInvariants detects: delete orphan edges (either endpoint no
+   * longer in entities) and orphan file_index rows. Three set-based :rm
+   * writes, each independent of graph size — no full reindex. The orphan
+   * lookup reuses the same `not *entities{key: …}` anti-join the check uses,
+   * so a sweep clears exactly what the next check would flag. Returns the
+   * number of rows removed (best-effort; correctness comes from the caller's
+   * re-verify, not this count).
+   */
+  private async sweepOrphans(): Promise<number> {
+    let removed = 0;
+    // Count each orphan class (CozoDB :rm returns a status row, not a deleted-
+    // row count, so we count first), then delete it in one set-based :rm.
+    const sweeps: Array<{ count: string; rm: string }> = [
+      {
+        count: "?[count(to_key)] := *edges{to_key}, not *entities{key: to_key}",
+        rm: "?[from_key, to_key, type] := *edges{from_key, to_key, type}, not *entities{key: to_key} :rm edges { from_key, to_key, type }",
+      },
+      {
+        count:
+          "?[count(from_key)] := *edges{from_key}, not *entities{key: from_key}",
+        rm: "?[from_key, to_key, type] := *edges{from_key, to_key, type}, not *entities{key: from_key} :rm edges { from_key, to_key, type }",
+      },
+      {
+        count:
+          "?[count(entity_key)] := *file_index{entity_key}, not *entities{key: entity_key}",
+        rm: "?[file_path, entity_key] := *file_index{file_path, entity_key}, not *entities{key: entity_key} :rm file_index { file_path, entity_key }",
+      },
+    ];
+    for (const { count, rm } of sweeps) {
+      try {
+        const c = await this.current.query(count);
+        removed += Number((c.rows[0]?.[0] as number | undefined) ?? 0);
+        await this.current.write(rm);
+      } catch {
+        /* best-effort — a failed sweep just leaves the re-check to escalate */
+      }
+    }
+    return removed;
+  }
+
+  /**
+   * Cheap referential-integrity check over the active graph. Detects the drift
+   * classes incremental indexing can introduce on a bug or partial failure:
+   *   - file_index rows whose entity_key no longer exists in entities
+   *   - edges whose to_key / from_key endpoint no longer exists in entities
+   * Each is a count-only Datalog query; the to_key scan rides the edges:rev
+   * index. Returns { ok:false, reason } on the first divergence found.
+   */
+  private async verifyGraphInvariants(): Promise<{
+    ok: boolean;
+    reason?: string;
+  }> {
+    const CHECK_TIMEOUT_MS = 5_000;
+    const count = async (script: string): Promise<number> => {
+      const r = await this.current.query(script, undefined, CHECK_TIMEOUT_MS);
+      return Number((r.rows[0]?.[0] as number | undefined) ?? 0);
+    };
+
+    const orphanFileIndex = await count(
+      "?[count(entity_key)] := *file_index{entity_key}, not *entities{key: entity_key}"
+    );
+    if (orphanFileIndex > 0) {
+      return {
+        ok: false,
+        reason: `${orphanFileIndex} file_index rows reference missing entities`,
+      };
+    }
+
+    const orphanEdgeTo = await count(
+      "?[count(to_key)] := *edges:rev{to_key}, not *entities{key: to_key}"
+    );
+    if (orphanEdgeTo > 0) {
+      return {
+        ok: false,
+        reason: `${orphanEdgeTo} edges point to missing entities`,
+      };
+    }
+
+    const orphanEdgeFrom = await count(
+      "?[count(from_key)] := *edges{from_key}, not *entities{key: from_key}"
+    );
+    if (orphanEdgeFrom > 0) {
+      return {
+        ok: false,
+        reason: `${orphanEdgeFrom} edges originate from missing entities`,
+      };
+    }
+
+    return { ok: true };
   }
 
   private runIncremental(

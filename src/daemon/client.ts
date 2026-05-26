@@ -11,11 +11,12 @@
 
 import { type Socket, createConnection } from "node:net";
 import { join } from "node:path";
-import type {
-  DaemonResponse,
-  EnsureOkResponse,
-  OkResponse,
-  StatusOkResponse,
+import {
+  type DaemonResponse,
+  type EnsureOkResponse,
+  ENSURE_REPO_REQUEST_TIMEOUT_MS,
+  type OkResponse,
+  type StatusOkResponse,
 } from "./protocol.js";
 import { globalDir } from "./registry.js";
 
@@ -121,7 +122,16 @@ export async function ensureRepo(
   sockPath: string,
   repoPath: string
 ): Promise<string> {
-  const resp = await sendRequest(sockPath, { cmd: "ensure", repo: repoPath });
+  // `ensure` blocks on the daemon while a cold repo indexes (up to
+  // REPO_READY_TIMEOUT_MS). Use the longer ENSURE_REPO_REQUEST_TIMEOUT_MS so
+  // the bridge doesn't abandon a proxy that is still legitimately indexing a
+  // large repo on a slow machine — the daemon-side ready timeout fires first
+  // with a structured error if the proxy truly never comes up.
+  const resp = await sendRequest(
+    sockPath,
+    { cmd: "ensure", repo: repoPath },
+    ENSURE_REPO_REQUEST_TIMEOUT_MS
+  );
   if (!resp.ok) {
     throw new Error(`ensureRepo failed: ${(resp as { error: string }).error}`);
   }

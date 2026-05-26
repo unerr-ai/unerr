@@ -306,6 +306,12 @@ export async function indexLocalProject(
   const allEntities: CompactEntity[] = [];
   const allRawEdges: TaggedEdge[] = [];
   const fileEntityMap = new Map<string, ExtractedEntity[]>();
+  // Per-file content hashes (sha1 of the exact bytes read), collected here so
+  // Phase 6.4 can seed file_content_hashes and the incremental indexer's
+  // content-hash early cutoff fires after this reindex. Same algorithm + input
+  // (readFileSync utf-8 → sha1) as incremental-indexer's hashContent, so a hash
+  // written here matches what the next incremental cycle computes.
+  const fileContentHashes = new Map<string, string>();
   let filesProcessed = 0;
 
   for (const absPath of files) {
@@ -324,6 +330,10 @@ export async function indexLocalProject(
       filesProcessed++;
       continue;
     }
+    fileContentHashes.set(
+      relPath,
+      createHash("sha1").update(content).digest("hex")
+    );
 
     // Extract entities
     const entities = await extractEntitiesAsync(content, relPath);
@@ -487,6 +497,13 @@ export async function indexLocalProject(
   // incorrectly mark freshly-indexed entities as modified (issue #8).
   await graphStore.clearDriftOverlay();
 
+  // Phase 6.4: Seed per-file content hashes so the incremental indexer's
+  // content-hash early cutoff can fire after this reindex. Without this, the
+  // full reindex leaves file_content_hashes empty and every subsequent
+  // incremental cycle re-extracts even byte-identical files (the cutoff never
+  // hits because there is no stored hash to compare against).
+  await seedFileContentHashes(graphStore, fileContentHashes);
+
   // Phase 6.5: Materialize L1 edges (file→file, class→class weighted aggregates)
   await materializeL1Edges(graphStore);
 
@@ -552,6 +569,36 @@ export async function indexLocalProject(
         }
       : undefined,
   };
+}
+
+/**
+ * Seed file_content_hashes from a full index run's per-file hashes. Batched
+ * :put (chunked to keep each script bounded). Best-effort: a missing/failed
+ * row only costs one redundant incremental re-index of that file next cycle,
+ * never correctness.
+ */
+export async function seedFileContentHashes(
+  graphStore: CozoGraphStore,
+  hashes: Map<string, string>
+): Promise<void> {
+  if (hashes.size === 0) return;
+  const now = Date.now();
+  const rows = [...hashes.entries()].map(([fp, h]) => {
+    const efp = fp.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    return `["${efp}", "${h}", ${now}]`;
+  });
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    try {
+      await graphStore.write(
+        `?[file_path, content_hash, indexed_at] <- [${chunk.join(", ")}]
+         :put file_content_hashes { file_path, content_hash, indexed_at }`
+      );
+    } catch {
+      /* best-effort — a missing hash only costs one redundant re-index */
+    }
+  }
 }
 
 /**

@@ -36,7 +36,7 @@ export interface ValidationFailure {
 
 /** Map from canonical schema key → accepted aliases. */
 const ALIAS_MAP: Record<string, readonly string[]> = {
-  key: ["entity_name", "entity"],
+  key: ["entity_name", "entity", "name"],
   file_path: ["file", "path"],
 };
 

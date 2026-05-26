@@ -370,7 +370,6 @@ export function RouterStatusPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">MCP Router</h2>
           <p className="t-secondary text-sm">
             One endpoint in front of{" "}
             <span className="font-mono text-foreground-emphasis">

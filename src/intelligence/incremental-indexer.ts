@@ -22,6 +22,7 @@
  * Falls back to full reindex on any failure.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
@@ -124,6 +125,21 @@ export async function indexFilesIncremental(
       continue;
     }
 
+    // ── Content-hash early cutoff (FIX D Phase 3) ────────────────
+    // If the raw content is byte-identical to the last indexed pass AND
+    // the graph still holds entities for this file, the extract→diff→patch
+    // pipeline below cannot produce any change — skip it outright.
+    const fileHash = hashContent(content);
+    const storedHash = await getFileHash(db, relPath);
+    if (
+      storedHash !== null &&
+      storedHash === fileHash &&
+      (await fileHasEntities(db, relPath))
+    ) {
+      filesProcessed++;
+      continue;
+    }
+
     const newExtracted = await extractEntitiesAsync(content, relPath);
     const newRawEdges = await extractEdgesAsync(content, relPath, newExtracted);
     const fileIsTest = isTestFile(relPath);
@@ -174,8 +190,10 @@ export async function indexFilesIncremental(
       }
     }
 
-    // If nothing changed in this file, skip
+    // If nothing changed in this file, skip — but record the hash so the
+    // next cycle takes the early cutoff above instead of re-extracting.
     if (added.length === 0 && updated.length === 0 && deleted.length === 0) {
+      await setFileHash(db, relPath, fileHash);
       filesProcessed++;
       continue;
     }
@@ -303,6 +321,8 @@ export async function indexFilesIncremental(
       await updateFileIndexBatched(db, relPath, toUpsert);
     }
 
+    // Record the content hash so an unchanged next cycle short-circuits.
+    await setFileHash(db, relPath, fileHash);
     filesProcessed++;
   }
 
@@ -367,13 +387,28 @@ async function getFileEdgeKeysBatched(
 ): Promise<Set<string>> {
   const keys = new Set<string>();
 
+  // Scope removal to ONLY the edge types the incremental path re-inserts for
+  // the whole file from `extractEdgesAsync` (calls/imports/extends/implements).
+  // `contains` (file→entity) is re-inserted by updateFileIndexBatched for
+  // added+updated entities only — removing it here would orphan unchanged
+  // entities' contains edges. `tests`/`co_changes` are full-index-only and are
+  // never re-inserted incrementally. Removing either would silently lose them.
+  // The inline `keep` rule binds `type` from *edges, then filters to the set.
+  const KEEP_TYPES = `keep[t] <- [["calls"], ["imports"], ["extends"], ["implements"]]`;
+
   if (entities.length > 0) {
-    // Single query: get all outgoing edges for all file entities at once
+    // Single query: get all re-insertable outgoing edges for all file entities
+    // at once. `entity_key: from_key` binds the variable `from_key` directly
+    // from file_index, so the head reference is bound; `*edges{from_key, ...}`
+    // then unifies on it. (The earlier `entity_key: ek` + `from_key: ek` form
+    // left `from_key` unbound in the head — eval::unbound_symb_in_head — so this
+    // whole query threw and was swallowed, leaking every file's old out-edges.)
     try {
       const result = await db.run(
-        `?[from_key, to_key, type] :=
-          *file_index{file_path: $fp, entity_key: ek},
-          *edges{from_key: ek, to_key, type}`,
+        `${KEEP_TYPES}
+        ?[from_key, to_key, type] :=
+          *file_index{file_path: $fp, entity_key: from_key},
+          *edges{from_key, to_key, type}, keep[type]`,
         { fp: relPath }
       );
       for (const row of result.rows) {
@@ -384,10 +419,15 @@ async function getFileEdgeKeysBatched(
     }
   }
 
-  // Also get edges from file entity
+  // Also get re-insertable edges from the file:<path> module entity (file-level
+  // imports). Bind `from_key` as a variable and constrain it to $key, so the
+  // head symbol is bound (the `from_key: $key` form left it unbound and threw).
+  // `keep[type]` excludes the file→entity `contains` edges, which are preserved.
   try {
     const result = await db.run(
-      "?[from_key, to_key, type] := *edges{from_key: $key, to_key, type}",
+      `${KEEP_TYPES}
+      ?[from_key, to_key, type] :=
+        *edges{from_key, to_key, type}, from_key = $key, keep[type]`,
       { key: `file:${relPath}` }
     );
     for (const row of result.rows) {
@@ -438,103 +478,216 @@ async function deleteFileFromGraph(
     /* safe */
   }
 
+  // Clean edges incident to the file:<path> module entity (file→file
+  // `imports`, file→entity `contains`). The code-entity removal above does
+  // NOT cover edges that touch the file entity itself, so without this a
+  // deleted file leaves dangling file→file `imports` edges — which would
+  // later trip the Phase-4 referential-integrity check and force a needless
+  // full reindex. Collect the surviving neighbours first so their fan counts
+  // get recomputed by updateFanCountsBatched.
+  const fileKey = `file:${relPath}`;
+  try {
+    const out = await db.run(
+      "?[other] := *edges{from_key: $k, to_key: other}",
+      { k: fileKey }
+    );
+    const inc = await db.run(
+      "?[other] := *edges:rev{to_key: $k, from_key: other}",
+      { k: fileKey }
+    );
+    for (const r of out.rows) affectedKeys.add(r[0] as string);
+    for (const r of inc.rows) affectedKeys.add(r[0] as string);
+    edgesDeleted += out.rows.length + inc.rows.length;
+  } catch {
+    /* best-effort neighbour collection */
+  }
+  await removeEdgesTouchingKeys(db, [[fileKey]]);
+
   // Remove file entity itself
   try {
     await db.write("?[key] <- [[$key]] :rm entities { key }", {
-      key: `file:${relPath}`,
+      key: fileKey,
     });
   } catch {
     /* safe */
   }
 
+  // Drop the content-hash row so the file is never skipped after deletion.
+  await removeFileHash(db, relPath);
+
   return { entitiesDeleted, edgesDeleted, affectedKeys };
 }
 
+// ── Content-hash early cutoff (FIX D Phase 3) ────────────────────
+// Per-file sha1 of raw content. A matching hash means the extracted
+// entities/edges cannot have changed (extraction is a pure function of
+// content), so the whole extract→diff→patch pipeline is skipped. Stored
+// additively in file_content_hashes (file_path => content_hash,
+// indexed_at) and read by nothing else, so a stale/missing row only ever
+// costs one redundant re-index — never correctness.
+
+function hashContent(content: string): string {
+  return createHash("sha1").update(content).digest("hex");
+}
+
+async function getFileHash(
+  db: DbLike,
+  relPath: string
+): Promise<string | null> {
+  try {
+    const result = await db.run(
+      "?[content_hash] := *file_content_hashes{file_path: $fp, content_hash}",
+      { fp: relPath }
+    );
+    const row = result.rows[0];
+    return row ? (row[0] as string) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function setFileHash(
+  db: DbLike,
+  relPath: string,
+  hash: string
+): Promise<void> {
+  try {
+    await db.write(
+      `?[file_path, content_hash, indexed_at] <- [[$fp, $h, $now]]
+       :put file_content_hashes { file_path, content_hash, indexed_at }`,
+      { fp: relPath, h: hash, now: Date.now() }
+    );
+  } catch {
+    /* best-effort — a miss only costs one redundant re-index next cycle */
+  }
+}
+
+async function removeFileHash(db: DbLike, relPath: string): Promise<void> {
+  try {
+    await db.write(
+      "?[file_path] <- [[$fp]] :rm file_content_hashes { file_path }",
+      { fp: relPath }
+    );
+  } catch {
+    /* safe */
+  }
+}
+
 /**
- * Remove multiple entities and all their edges in batched queries.
- * Replaces per-entity sequential removeEntityAndEdges calls.
+ * True iff the graph still holds at least one code entity for this file.
+ * Guards the hash skip: a matching hash with no entities present (e.g. a
+ * full reindex that cleared the graph but left a stale hash row) must NOT
+ * be skipped, or the file would never be re-indexed.
+ */
+async function fileHasEntities(db: DbLike, relPath: string): Promise<boolean> {
+  try {
+    const result = await db.run(
+      "?[entity_key] := *file_index{file_path: $fp, entity_key}",
+      { fp: relPath }
+    );
+    return result.rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Set-based rule (shared by the count and the :rm) selecting every edge that
+ * touches any key in the `$keys` param — outgoing (from_key matches) or
+ * incoming (to_key matches). The incoming arm reads the `edges:rev` index so
+ * it range-scans by to_key instead of full-scanning. The two rule bodies union
+ * into a deduped `removed` set, so an edge between two removed keys is counted
+ * (and removed) exactly once. `$keys` is `[[key], [key], …]`.
+ */
+const REMOVED_EDGES_RULE = `targets[k] <- $keys
+       removed[from_key, to_key, type] := targets[k], *edges{from_key, to_key, type}, from_key = k
+       removed[from_key, to_key, type] := targets[k], *edges:rev{from_key, to_key, type}, to_key = k`;
+
+/**
+ * Remove every edge touching any of `keyRows` (in + out) in a single :rm.
+ * One write regardless of key count — coalesces the old per-key loop
+ * (2 writes per key) into one set-based transaction.
+ */
+async function removeEdgesTouchingKeys(
+  db: DbLike,
+  keyRows: string[][]
+): Promise<void> {
+  await db.write(
+    `${REMOVED_EDGES_RULE}
+       ?[from_key, to_key, type] := removed[from_key, to_key, type] :rm edges { from_key, to_key, type }`,
+    { keys: keyRows }
+  );
+}
+
+/**
+ * Remove multiple entities and all their edges in set-based queries.
+ * Collapses the old per-entity loop (2 edge writes + 1 file_index write per
+ * key) into a fixed handful of writes: count → edge :rm → entity :rm →
+ * file_index :rm, each independent of key count.
  */
 async function removeEntitiesAndEdgesBatched(
   db: DbLike,
   entityKeys: string[]
 ): Promise<number> {
+  if (entityKeys.length === 0) return 0;
+  const keyRows = entityKeys.map((k) => [k]);
   let edgesRemoved = 0;
 
-  for (const key of entityKeys) {
-    // Remove outgoing edges
-    try {
-      const result = await db.write(
-        "?[from_key, to_key, type] := *edges{from_key: $key, to_key, type} :rm edges { from_key, to_key, type }",
-        { key }
-      );
-      edgesRemoved += result.rows?.length ?? 0;
-    } catch {
-      /* safe */
-    }
-
-    // Remove incoming edges
-    try {
-      const result = await db.write(
-        "?[from_key, to_key, type] := *edges{from_key, to_key: $key, type} :rm edges { from_key, to_key, type }",
-        { key }
-      );
-      edgesRemoved += result.rows?.length ?? 0;
-    } catch {
-      /* safe */
-    }
+  // Count the distinct edges that will be removed (deduped union of out + in),
+  // for an accurate edgesRemoved metric. One read instead of per-key scans.
+  try {
+    const result = await db.run(
+      `${REMOVED_EDGES_RULE}
+       ?[count(from_key)] := removed[from_key, to_key, type]`,
+      { keys: keyRows }
+    );
+    edgesRemoved = Number(result.rows?.[0]?.[0] ?? 0);
+  } catch {
+    /* safe — metric only */
   }
 
-  // Batch remove entities
-  if (entityKeys.length > 0) {
-    const rows = entityKeys
-      .map((k) => `["${k.replace(/"/g, '\\"')}"]`)
-      .join(", ");
-    try {
-      await db.write(`?[key] <- [${rows}] :rm entities { key }`);
-    } catch {
-      /* safe */
-    }
+  // Remove all edges touching any removed key (out + in) in a single :rm.
+  try {
+    await removeEdgesTouchingKeys(db, keyRows);
+  } catch {
+    /* safe */
+  }
 
-    // Batch remove file_index entries
-    for (const key of entityKeys) {
-      try {
-        await db.write(
-          "?[file_path, entity_key] := *file_index{file_path, entity_key}, entity_key = $key :rm file_index { file_path, entity_key }",
-          { key }
-        );
-      } catch {
-        /* safe */
-      }
-    }
+  // Batch remove entities.
+  try {
+    await db.write("?[key] <- $keys :rm entities { key }", { keys: keyRows });
+  } catch {
+    /* safe */
+  }
+
+  // Batch remove file_index entries in one set-based :rm via the
+  // file_index:by_entity index, instead of one write per key.
+  try {
+    await db.write(
+      `targets[k] <- $keys
+       ?[file_path, entity_key] := targets[k], *file_index:by_entity{file_path, entity_key}, entity_key = k :rm file_index { file_path, entity_key }`,
+      { keys: keyRows }
+    );
+  } catch {
+    /* safe */
   }
 
   return edgesRemoved;
 }
 
 /**
- * Remove all edges (in + out) for multiple entity keys.
+ * Remove all edges (in + out) for multiple entity keys — one set-based :rm.
  */
 async function removeEdgesForKeysBatched(
   db: DbLike,
   entityKeys: string[]
 ): Promise<void> {
-  for (const key of entityKeys) {
-    try {
-      await db.write(
-        "?[from_key, to_key, type] := *edges{from_key: $key, to_key, type} :rm edges { from_key, to_key, type }",
-        { key }
-      );
-    } catch {
-      /* safe */
-    }
-    try {
-      await db.write(
-        "?[from_key, to_key, type] := *edges{from_key, to_key: $key, type} :rm edges { from_key, to_key, type }",
-        { key }
-      );
-    } catch {
-      /* safe */
-    }
+  if (entityKeys.length === 0) return;
+  const keyRows = entityKeys.map((k) => [k]);
+  try {
+    await removeEdgesTouchingKeys(db, keyRows);
+  } catch {
+    /* safe */
   }
 }
 
@@ -563,21 +716,15 @@ async function upsertEntitiesBatched(
     e.is_test ?? false,
   ]);
 
-  // Build inline data: ?[...] <- [[...], [...], ...]
-  const rowStrs = rows.map((r) => {
-    const vals = r.map((v) => {
-      if (typeof v === "string")
-        return `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-      if (typeof v === "boolean") return v ? "true" : "false";
-      return String(v);
-    });
-    return `[${vals.join(", ")}]`;
-  });
-
+  // Single :put driven by a $rows param — a constant query string (cozo can
+  // reuse the compiled plan) and no manual escaping of bodies/signatures into
+  // Datalog literals (the old inline-string form could mis-encode a body
+  // containing backslash-quote sequences).
   try {
     await db.write(
-      `?[key, kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test] <- [${rowStrs.join(", ")}]
-       :put entities { key => kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test }`
+      `?[key, kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test] <- $rows
+       :put entities { key => kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test }`,
+      { rows }
     );
   } catch {
     // Fallback: try one-by-one if batch fails (e.g., encoding issues)
@@ -617,14 +764,10 @@ async function removeEdgesBatched(
 ): Promise<void> {
   if (edges.length === 0) return;
 
-  const rowStrs = edges.map(
-    ([fk, tk, t]) =>
-      `["${fk.replace(/"/g, '\\"')}", "${tk.replace(/"/g, '\\"')}", "${t.replace(/"/g, '\\"')}"]`
-  );
-
   try {
     await db.write(
-      `?[from_key, to_key, type] <- [${rowStrs.join(", ")}] :rm edges { from_key, to_key, type }`
+      "?[from_key, to_key, type] <- $rows :rm edges { from_key, to_key, type }",
+      { rows: edges }
     );
   } catch {
     // Fallback one-by-one
@@ -650,17 +793,28 @@ async function insertEdgesBatched(
 ): Promise<number> {
   if (edges.length === 0) return 0;
 
-  const rowStrs = edges.map(([fk, tk, t]) => {
-    const eFk = fk.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const eTk = tk.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const eT = t.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    return `["${eFk}", "${eTk}", "${eT}", -1, "", "", false, "", 0, false, false, "", ""]`;
-  });
+  // Param-driven :put — fill the non-key edge columns with their defaults.
+  const rows = edges.map(([fk, tk, t]) => [
+    fk,
+    tk,
+    t,
+    -1,
+    "",
+    "",
+    false,
+    "",
+    0,
+    false,
+    false,
+    "",
+    "",
+  ]);
 
   try {
     await db.write(
-      `?[from_key, to_key, type, sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode] <- [${rowStrs.join(", ")}]
-       :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`
+      `?[from_key, to_key, type, sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode] <- $rows
+       :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`,
+      { rows }
     );
     return edges.length;
   } catch {
@@ -692,32 +846,39 @@ async function updateFileIndexBatched(
 ): Promise<void> {
   if (entities.length === 0) return;
 
-  // Batch file_index :put
-  const indexRows = entities.map((e) => {
-    const ek = e.key.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const fp = relPath.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    return `["${fp}", "${ek}"]`;
-  });
-
+  // Batch file_index :put (param-driven).
+  const indexRows = entities.map((e) => [relPath, e.key]);
   try {
     await db.write(
-      `?[file_path, entity_key] <- [${indexRows.join(", ")}] :put file_index { file_path, entity_key }`
+      "?[file_path, entity_key] <- $rows :put file_index { file_path, entity_key }",
+      { rows: indexRows }
     );
   } catch {
     /* safe */
   }
 
-  // Batch contains edges :put
-  const containsRows = entities.map((e) => {
-    const from = `file:${relPath}`.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const to = e.key.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    return `["${from}", "${to}", "contains", -1, "", "", false, "", 0, false, false, "", ""]`;
-  });
-
+  // Batch contains edges :put (param-driven), file:<path> → each entity.
+  const fileKey = `file:${relPath}`;
+  const containsRows = entities.map((e) => [
+    fileKey,
+    e.key,
+    "contains",
+    -1,
+    "",
+    "",
+    false,
+    "",
+    0,
+    false,
+    false,
+    "",
+    "",
+  ]);
   try {
     await db.write(
-      `?[from_key, to_key, type, sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode] <- [${containsRows.join(", ")}]
-       :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`
+      `?[from_key, to_key, type, sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode] <- $rows
+       :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`,
+      { rows: containsRows }
     );
   } catch {
     /* safe */
@@ -741,9 +902,12 @@ async function resolveEntityNamesGlobal(
     .join(", ");
 
   try {
+    // Resolve via the `entities:by_name` index: unifying name with the bound
+    // `n` drives a range scan on the indexed name column, instead of
+    // full-scanning entities once per lookup name.
     const result = await db.run(`
       lookup[n] <- [${nameRows}]
-      ?[n, key] := lookup[n], *entities{key, name}, name = n
+      ?[n, key] := lookup[n], *entities:by_name{name: n, key}
     `);
     for (const row of result.rows) {
       const [name, key] = row as [string, string];
@@ -808,11 +972,14 @@ async function updateFanCountsBatched(
     /* safe */
   }
 
-  // Single query: fan_in for all affected keys
+  // Single query: fan_in for all affected keys. Counts incoming edges via the
+  // `edges:rev` index (to_key-first) — unifying to_key with the bound `k`
+  // drives a range scan instead of full-scanning edges by the non-leading
+  // to_key column for every affected key.
   try {
     const inResult = await db.run(`
       targets[k] <- [${keyRows}]
-      ?[k, count(from_key)] := targets[k], *edges{from_key, to_key: k, type}, type != "contains"
+      ?[k, count(from_key)] := targets[k], *edges:rev{to_key: k, from_key, type}, type != "contains"
     `);
     for (const row of inResult.rows) {
       fanInMap.set(row[0] as string, row[1] as number);

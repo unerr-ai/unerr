@@ -16,6 +16,11 @@
  */
 
 import { type Socket, connect } from "node:net";
+import {
+  BridgeCatalog,
+  LOCAL_CATALOG_FALLBACK_MS,
+  type PendingLocalRequest,
+} from "./bridge-catalog.js";
 
 /** stderr-only logger. stdout is MCP territory. */
 const log = {
@@ -102,16 +107,37 @@ export function startUdsBridge(
     let pendingPing = false;
     let resolved = false;
 
+    // Frame-aware relay state for this connection: answers initialize /
+    // tools/list locally if the proxy is too slow (FIX A). Timer-free; the
+    // bridge owns the fallback timers (keyed by request id).
+    const catalog = new BridgeCatalog();
+    const fallbackTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
     // Track stdin listeners so we can remove them on cleanup
     let stdinDataHandler: ((chunk: Buffer) => void) | undefined;
     // biome-ignore lint/style/useConst: assigned after socket.on handlers below
     let stdinEndHandler: (() => void) | undefined;
+
+    /** Arm a single fallback timer per request id (idempotent). */
+    function armFallback(req: PendingLocalRequest) {
+      const key = String(req.id);
+      if (fallbackTimers.has(key)) return;
+      const timer = setTimeout(() => {
+        fallbackTimers.delete(key);
+        const reply = catalog.fireFallback(req);
+        if (reply) process.stdout.write(reply);
+      }, LOCAL_CATALOG_FALLBACK_MS);
+      timer.unref();
+      fallbackTimers.set(key, timer);
+    }
 
     function cleanup(reason: BridgeResult["reason"]) {
       if (resolved) return;
       resolved = true;
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (heartbeatTimeoutTimer) clearTimeout(heartbeatTimeoutTimer);
+      for (const timer of fallbackTimers.values()) clearTimeout(timer);
+      fallbackTimers.clear();
       if (!socket.destroyed) socket.destroy();
       if (stdinDataHandler)
         process.stdin.removeListener("data", stdinDataHandler);
@@ -144,42 +170,60 @@ export function startUdsBridge(
       }
 
       // Drain frames the caller captured before we could connect (e.g. the
-      // IDE's `initialize` arriving during auto-spawn). Order is preserved.
+      // IDE's `initialize` arriving during auto-spawn). Feed them THROUGH the
+      // catalog so a frame split across the pre-buffer / post-connect boundary
+      // is reassembled and any answerable request still arms a fallback. Order
+      // is preserved.
       if (preBufferedChunks && preBufferedChunks.length > 0) {
         log.info(`Draining ${preBufferedChunks.length} pre-buffered chunk(s)`);
         for (const chunk of preBufferedChunks) {
-          if (!socket.destroyed) socket.write(maybeRewrite(chunk));
+          const { forward, arm } = catalog.ingestFromIde(chunk);
+          for (const buf of forward) {
+            if (!socket.destroyed) socket.write(maybeRewrite(buf));
+          }
+          for (const req of arm) armFallback(req);
         }
         preBufferedChunks.length = 0;
       }
 
-      // stdin → UDS: forward MCP requests from IDE to proxy
+      // stdin → UDS: forward MCP requests from IDE to proxy. `initialize` /
+      // `tools/list` are forwarded AND armed with a local fallback so a busy
+      // proxy can't strand the IDE with zero tools (FIX A).
       stdinDataHandler = (chunk: Buffer) => {
-        if (!socket.destroyed) {
-          socket.write(maybeRewrite(chunk));
+        if (socket.destroyed) return;
+        const { forward, arm } = catalog.ingestFromIde(chunk);
+        for (const buf of forward) {
+          socket.write(maybeRewrite(buf));
         }
+        for (const req of arm) armFallback(req);
       };
       process.stdin.on("data", stdinDataHandler);
 
-      // UDS → stdout: forward MCP responses from proxy to IDE
+      // UDS → stdout: forward MCP responses from proxy to IDE. The catalog
+      // strips heartbeat pongs, cancels the fallback for any request the proxy
+      // answered in time, and suppresses the proxy's late duplicate of a
+      // request we already answered locally.
       socket.on("data", (data: Buffer) => {
-        const str = data.toString();
-        if (str.includes('"unerr/pong"')) {
+        const { toIde, sawPong, settledByProxy } =
+          catalog.ingestFromProxy(data);
+        if (sawPong) {
           missedHeartbeats = 0;
           pendingPing = false;
           if (heartbeatTimeoutTimer) {
             clearTimeout(heartbeatTimeoutTimer);
             heartbeatTimeoutTimer = undefined;
           }
-          const lines = str.split("\n");
-          const filtered = lines.filter((l) => !l.includes('"unerr/pong"'));
-          const remaining = filtered.join("\n");
-          if (remaining.trim().length > 0) {
-            process.stdout.write(remaining);
-          }
-          return;
         }
-        process.stdout.write(data);
+        for (const key of settledByProxy) {
+          const timer = fallbackTimers.get(key);
+          if (timer) {
+            clearTimeout(timer);
+            fallbackTimers.delete(key);
+          }
+        }
+        for (const buf of toIde) {
+          process.stdout.write(buf);
+        }
       });
 
       // Start heartbeat monitoring
