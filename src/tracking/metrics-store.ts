@@ -82,7 +82,6 @@ export interface SessionHistoryRow {
   tokens_saved: number;
   tokens_processed: number;
   efficiency: number;
-  dollars_saved: number;
   model_id: string;
   entity_count: number;
   agent_name: string | null;
@@ -244,7 +243,6 @@ CREATE TABLE IF NOT EXISTS session_history (
   tokens_saved INTEGER NOT NULL,
   tokens_processed INTEGER NOT NULL,
   efficiency REAL NOT NULL,
-  dollars_saved REAL NOT NULL,
   model_id TEXT NOT NULL,
   entity_count INTEGER NOT NULL,
   agent_name TEXT,
@@ -466,10 +464,10 @@ export class MetricsStore {
       upsertSessionHistory: this.db.prepare(`
         INSERT INTO session_history
           (session_id, started_at, ended_at, duration_ms, tool_calls, tokens_saved,
-           tokens_processed, efficiency, dollars_saved, model_id, entity_count,
+           tokens_processed, efficiency, model_id, entity_count,
            agent_name, token_flow_summary)
         VALUES (@session_id, @started_at, @ended_at, @duration_ms, @tool_calls,
-                @tokens_saved, @tokens_processed, @efficiency, @dollars_saved,
+                @tokens_saved, @tokens_processed, @efficiency,
                 @model_id, @entity_count, @agent_name, @token_flow_summary)
         ON CONFLICT(session_id) DO UPDATE SET
           ended_at = excluded.ended_at,
@@ -478,7 +476,6 @@ export class MetricsStore {
           tokens_saved = excluded.tokens_saved,
           tokens_processed = excluded.tokens_processed,
           efficiency = excluded.efficiency,
-          dollars_saved = excluded.dollars_saved,
           entity_count = excluded.entity_count,
           token_flow_summary = excluded.token_flow_summary
       `),
@@ -639,9 +636,7 @@ export class MetricsStore {
     this.stmt.upsertAgentTranscript.run(row);
   }
 
-  getAgentTranscriptsForSession(
-    session_id: string
-  ): Array<{
+  getAgentTranscriptsForSession(session_id: string): Array<{
     id: number;
     session_id: string;
     native_session_id: string | null;
@@ -765,6 +760,43 @@ export class MetricsStore {
     return this.stmt.behaviorEventsBySession.all({
       sessionId,
     }) as BehaviorEventRow[];
+  }
+
+  /**
+   * The most recent `user_prompt_received` boundary row for `sessionId` —
+   * its epoch-ms `ts` and the prompt content digest `hash` (from the row's
+   * `detail` JSON) — or `null` when none exists. Indexed scan over
+   * (session_id, type) ordered by ts desc — O(log n).
+   *
+   * Used by the prompt-capture hook to dedupe duplicate boundary writes:
+   * the UserPromptSubmit hook can fire 2-3× per real prompt (observed
+   * 11-20ms apart), each carrying the IDENTICAL message. Those extra rows
+   * pollute the turn-boundary stream that `latestPromptBoundaryTs` keys off,
+   * collapsing the per-turn slice to an empty sliver. The hook compares both
+   * `ts` (recency) and `hash` (exact re-fire) — the digest is always written
+   * even when prompt content capture is opt-out (it is not the content), so
+   * the dedupe never depends on `capture_prompts` and never collapses two
+   * genuinely distinct prompts that happen to share a length.
+   *
+   * `hash` is `null` for legacy rows written before the digest field existed.
+   */
+  latestUserPromptBoundary(
+    sessionId: string
+  ): { ts: number; hash: string | null } | null {
+    const row = this.db
+      .prepare(
+        "SELECT ts, detail FROM behavior_events WHERE session_id = ? AND type = 'user_prompt_received' ORDER BY ts DESC LIMIT 1"
+      )
+      .get(sessionId) as { ts: number; detail: string | null } | undefined;
+    if (!row) return null;
+    let hash: string | null = null;
+    try {
+      const parsed = JSON.parse(row.detail ?? "{}") as { prompt_hash?: unknown };
+      if (typeof parsed.prompt_hash === "string") hash = parsed.prompt_hash;
+    } catch {
+      /* malformed detail — leave hash null (never matches a real prompt) */
+    }
+    return { ts: row.ts, hash };
   }
 
   behaviorEventsSince(lastId: number, limit = 500): BehaviorEventRow[] {

@@ -15,7 +15,6 @@ export function StatusLine({ usage }: StatusLineProps) {
     <Box marginTop={0} marginBottom={1}>
       <Text color="gray" dimColor>
         tokens: {usage.inputTokens} in / {usage.outputTokens} out
-        {" · "}${usage.estimatedCost.toFixed(4)}
       </Text>
     </Box>
   );

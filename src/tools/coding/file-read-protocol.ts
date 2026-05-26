@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { extractEntities } from "../../intelligence/ast-extractor.js";
 import type { CozoGraphStore } from "../../intelligence/local-graph.js";
+import { estimateTokens } from "../../intelligence/token-estimator.js";
 import {
   type FileReadLogEntry,
   appendFileReadLog,
@@ -24,6 +25,8 @@ export type FileReadLayer6Meta = {
   total_lines?: number;
   /** Layer 10: Actual character count of the full file (for accurate token savings). */
   total_chars?: number;
+  /** Layer 10: Real BPE token count of the FULL file (delivered-vs-full savings base). */
+  total_file_tokens?: number;
   /** True when the file is outside the indexed project root. */
   out_of_project?: boolean;
   /** Hint explaining limited functionality for out-of-project files. */
@@ -262,11 +265,12 @@ export async function runFileReadForRouter(
         gated: true,
         total_lines: totalLines,
         total_chars: text.length,
+        total_file_tokens: estimateTokens(text),
         // outline.token_estimate is computed from the FULL FILE content
         // (file-outline.ts:228). For the gated path we want the size of what
         // we ACTUALLY delivered (the outline JSON), not the file we replaced
-        // it with. Use the serialized outline body length.
-        tokens_estimate: Math.ceil(JSON.stringify(outline).length / 4),
+        // it with. Count the serialized outline body.
+        tokens_estimate: estimateTokens(outline),
         optimization: `file_read gated \u2192 outline (${totalLines} lines)`,
       },
     };
@@ -409,8 +413,9 @@ export async function runFileReadForRouter(
           gated: true,
           total_lines: totalLines,
           total_chars: text.length,
+          total_file_tokens: estimateTokens(text),
           // outline.token_estimate is full-file size; we need delivered size.
-          tokens_estimate: Math.ceil(JSON.stringify(outline).length / 4),
+          tokens_estimate: estimateTokens(outline),
           optimization: `file_read gated \u2192 outline (${totalLines} lines, entity-fallback)`,
         },
       };
@@ -463,8 +468,7 @@ export async function runFileReadForRouter(
         limit: Math.min(chunkSize, entityEnd - s + 1),
       });
     }
-    const neededTokens =
-      Math.ceil(Math.ceil(numbered.length / CHARS_PER_TOKEN) / 100) * 100;
+    const neededTokens = Math.ceil(estimateTokens(numbered) / 100) * 100;
     const entityLabel = entityMatchInfo?.name ?? entityName ?? "(entity)";
     logFileRead(
       ctx.cwd,
@@ -493,7 +497,8 @@ export async function runFileReadForRouter(
         format: "json",
         total_lines: totalLines,
         total_chars: text.length,
-        tokens_estimate: Math.ceil(numbered.length / CHARS_PER_TOKEN),
+        total_file_tokens: estimateTokens(text),
+        tokens_estimate: estimateTokens(numbered),
         optimization: `file_read entity_overflow → chunk plan (${totalEntityLines} lines)`,
       },
     };
@@ -523,9 +528,10 @@ export async function runFileReadForRouter(
 
   const meta: FileReadLayer6Meta = {
     format: "json",
-    tokens_estimate: Math.ceil(sliced.join("\n").length / CHARS_PER_TOKEN),
+    tokens_estimate: estimateTokens(body),
     total_lines: totalLines,
     total_chars: text.length,
+    total_file_tokens: estimateTokens(text),
   };
   if (effOffset > 1 || sliced.length < totalLines || entityWindowApplied) {
     meta.optimization = `file_read window lines ${effOffset}-${effOffset + sliced.length - 1}`;

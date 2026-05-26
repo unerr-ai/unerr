@@ -22,7 +22,6 @@ import type {
 import type { ContextRotDetector } from "../proxy/context-rot-detector.js";
 import type { EfficiencyTracker } from "../proxy/efficiency-tracker.js";
 import { formatToolOutput } from "../proxy/format-encoder.js";
-import { calculateDollarSavings } from "../proxy/model-pricing.js";
 import {
   type EntityRiskInfo,
   compressOutput,
@@ -50,11 +49,8 @@ import type {
 import type { evaluateRules as EvaluateRulesFn } from "./rule-evaluator.js";
 import { SessionContext } from "./session-context.js";
 import type { createSessionHealthMonitor } from "./session-health-monitor.js";
-import {
-  estimateTokens,
-  smartTruncate,
-  truncateResultList,
-} from "./smart-truncate.js";
+import { smartTruncate, truncateResultList } from "./smart-truncate.js";
+import { estimateTokens } from "./token-estimator.js";
 
 export type ToolSource = "local";
 
@@ -443,8 +439,6 @@ export interface ToolResult {
     total_files?: number;
     /** L8.3: Embedding computation status (e.g. "computing") */
     embedding_status?: string;
-    /** S8.5: Value guard nudge — fires once when dollar threshold crossed. Anti-drift surfacing. */
-    value_guard?: string;
     /** Layer 6 — wire shape of `content` for the agent */
     format?: "json" | "columnar" | "outline";
     /** Layer 6 FE-C: column order for `_fmt:columnar` bodies */
@@ -660,13 +654,6 @@ export class QueryRouter {
     pattern: string;
     reason: string;
   }> = [];
-
-  /** S8.5: Value guard — fires once when session dollar threshold crossed. */
-  private valueGuard: { check: (dollars: number) => string | null } | null =
-    null;
-
-  /** S8.5: Accumulated session dollar savings (tracked for guard). */
-  private sessionDollarsSaved = 0;
 
   /** S9.1: Circuit breaker — halts repeated failed attempts on same entity. */
   private circuitBreaker: {
@@ -983,13 +970,6 @@ export class QueryRouter {
   }
 
   /**
-   * S8.5: Set the value guard instance for dollar threshold notifications.
-   */
-  setValueGuard(guard: { check: (dollars: number) => string | null }): void {
-    this.valueGuard = guard;
-  }
-
-  /**
    * Sprint 1.2: Wire temporal fact store for _context injection.
    */
   setFactStore(store: typeof this.factStore): void {
@@ -1106,13 +1086,6 @@ export class QueryRouter {
   /** P0-3: Read-only access to the gateway for the proxy's tools/list handler. */
   getRouterGateway(): RouterGateway | null {
     return this.routerGateway;
-  }
-
-  /**
-   * S8: Get accumulated session dollar savings for scorecard/guard.
-   */
-  getSessionDollarsSaved(): number {
-    return this.sessionDollarsSaved;
   }
 
   /**
@@ -1310,6 +1283,7 @@ export class QueryRouter {
             optimization?: string;
             total_lines?: number;
             total_chars?: number;
+            total_file_tokens?: number;
           };
         };
         if ("content" in fr) {
@@ -1323,9 +1297,14 @@ export class QueryRouter {
             // savings anyway and are filtered by the `> 0` threshold below.
             if (this.tokenFlow && fr._layer6_meta.total_lines) {
               const deliveredTokens = fr._layer6_meta.tokens_estimate ?? 0;
-              const fullFileTokens = fr._layer6_meta.total_chars
-                ? Math.ceil(fr._layer6_meta.total_chars / 4)
-                : Math.ceil((fr._layer6_meta.total_lines * 80) / 4);
+              // Prefer the real BPE count of the full file (set by
+              // file-read-protocol.ts via estimateTokens). Fall back to a
+              // char/line heuristic only when it's absent (older meta shapes).
+              const fullFileTokens =
+                fr._layer6_meta.total_file_tokens ??
+                (fr._layer6_meta.total_chars
+                  ? Math.ceil(fr._layer6_meta.total_chars / 4)
+                  : Math.ceil((fr._layer6_meta.total_lines * 80) / 4));
               const fileReadSaved = fullFileTokens - deliveredTokens;
               if (fileReadSaved > 0) {
                 this.tokenFlow.record({
@@ -1529,11 +1508,7 @@ export class QueryRouter {
 
         // Layer 10: Emit token_flow SSE event for dashboard real-time counter
         if (enrichStats.tokensSaved > 0) {
-          const resultStr =
-            typeof toolResult.content === "string"
-              ? toolResult.content
-              : JSON.stringify(toolResult.content);
-          const tokensDelivered = Math.ceil(resultStr.length / 4);
+          const tokensDelivered = estimateTokens(toolResult.content);
           const sessionTotal = this.tokenFlow?.getSessionTokensSaved() ?? 0;
           const sessionEff = this.tokenFlow?.getSessionEfficiency() ?? 0;
           this.eventBus.emit("token_flow", {
@@ -1741,14 +1716,26 @@ export class QueryRouter {
         const c = result.content as {
           raw_bytes?: number;
           extracted_bytes?: number;
+          raw_tokens?: number;
+          extracted_tokens?: number;
         };
-        const rawBytes = typeof c?.raw_bytes === "number" ? c.raw_bytes : 0;
-        const extractedBytes =
-          typeof c?.extracted_bytes === "number" ? c.extracted_bytes : 0;
-        // 4 chars/token: cl100k_base prose ratio (HTML + markdown are both
-        // prose-shaped). See intelligence/token-estimator.ts CHARS_PER_TOKEN.
-        const tokensWithout = Math.ceil(rawBytes / 4);
-        const tokensWith = Math.ceil(extractedBytes / 4);
+        // Prefer real BPE token counts (estimateTokens on the raw page +
+        // extracted markdown, set by fetch-url-protocol.ts). Fall back to the
+        // byte/4 prose ratio only when they're absent (older result shapes).
+        const tokensWithout =
+          typeof c?.raw_tokens === "number"
+            ? c.raw_tokens
+            : Math.ceil(
+                (typeof c?.raw_bytes === "number" ? c.raw_bytes : 0) / 4
+              );
+        const tokensWith =
+          typeof c?.extracted_tokens === "number"
+            ? c.extracted_tokens
+            : Math.ceil(
+                (typeof c?.extracted_bytes === "number"
+                  ? c.extracted_bytes
+                  : 0) / 4
+              );
         const saved = Math.max(0, tokensWithout - tokensWith);
         if (saved > 0) {
           enrichTokensSaved = saved;
@@ -1762,9 +1749,16 @@ export class QueryRouter {
             tokens_with: tokensWith,
             tokens_saved: saved,
             detail: {
-              raw_bytes: rawBytes,
-              extracted_bytes: extractedBytes,
-              source: "measured-bytes",
+              raw_bytes:
+                typeof c?.raw_bytes === "number" ? c.raw_bytes : undefined,
+              extracted_bytes:
+                typeof c?.extracted_bytes === "number"
+                  ? c.extracted_bytes
+                  : undefined,
+              source:
+                typeof c?.raw_tokens === "number"
+                  ? "real-tokens"
+                  : "measured-bytes",
             },
           });
           // Feed real-measurement values into legacy trackers. PREVENT-class
@@ -1772,8 +1766,6 @@ export class QueryRouter {
           // they record discrete counts via behaviorEvents, not synthetic
           // saved/used numbers.
           this.tokenCounter?.record(saved, tokensWithout);
-          this.sessionDollarsSaved += calculateDollarSavings(saved);
-          this.valueGuard?.check(this.sessionDollarsSaved);
           if (this.intentTracker && entityKey) {
             const activeIntentId = this.intentTracker.getActiveIntentId();
             if (activeIntentId) {
@@ -2475,7 +2467,7 @@ export class QueryRouter {
                   JSON.stringify((context as Record<string, unknown>)[k])
                 )
                 .join("");
-              const dedupedTokens = Math.ceil(dedupedContent.length / 4);
+              const dedupedTokens = estimateTokens(dedupedContent);
               this.tokenFlow.record({
                 session_id: this.tokenFlow.sessionId,
                 turn: this.sessionContext.getToolCallCount(),
@@ -3014,7 +3006,7 @@ export class QueryRouter {
                 (entity as unknown as Record<string, unknown>)._preview = {
                   shown_lines: PREVIEW_LINES,
                   total_lines: bodyLines.length,
-                  _hint: `Structural preview only — showing first ${PREVIEW_LINES} of ${bodyLines.length} lines. Pass include_body:true (or token_budget:${Math.ceil(fullBody.length / CHARS_PER_TOKEN) + 100}) to get the full body.`,
+                  _hint: `Structural preview only — showing first ${PREVIEW_LINES} of ${bodyLines.length} lines. Pass include_body:true (or token_budget:${estimateTokens(fullBody) + 100}) to get the full body.`,
                 };
               }
             } else if (fullBody.length > tokenBudget * CHARS_PER_TOKEN) {
@@ -3031,7 +3023,7 @@ export class QueryRouter {
                 shown_lines: truncatedLines.length,
                 total_lines: bodyLines.length,
                 omitted_lines: `${entity.start_line + truncatedLines.length}-${entity.start_line + bodyLines.length - 1}`,
-                _hint: `Body truncated: showing ${truncatedLines.length} of ${bodyLines.length} lines (~${tokenBudget} tokens). To see the full entity, pass token_budget: ${Math.ceil(fullBody.length / CHARS_PER_TOKEN) + 100}. Or use file_read with offset: ${entity.start_line + truncatedLines.length}, limit: ${bodyLines.length - truncatedLines.length} to read the remaining lines.`,
+                _hint: `Body truncated: showing ${truncatedLines.length} of ${bodyLines.length} lines (~${tokenBudget} tokens). To see the full entity, pass token_budget: ${estimateTokens(fullBody) + 100}. Or use file_read with offset: ${entity.start_line + truncatedLines.length}, limit: ${bodyLines.length - truncatedLines.length} to read the remaining lines.`,
               };
             } else {
               entity.body = fullBody;

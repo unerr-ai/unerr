@@ -3,35 +3,34 @@
  * "without unerr" framing for value perception.
  *
  * VS.8: Every savings display must use counterfactual language:
- *   "Without unerr, this session would have cost $X.XX more"
+ *   "Without unerr, ~15K additional tokens would have been consumed"
  *   "Without unerr, the agent would have explored 15 files to find this"
  */
-
-import { formatDollars } from "../proxy/model-pricing.js";
 
 /**
  * Frame a token savings as a counterfactual statement.
  */
-export function frameTokenSavings(
-  tokensSaved: number,
-  dollarsSaved: number
-): string {
+export function frameTokenSavings(tokensSaved: number): string {
   if (tokensSaved <= 0) return "";
   const tokensStr =
     tokensSaved >= 1000
       ? `${(tokensSaved / 1000).toFixed(1)}K`
       : String(tokensSaved);
-  return `Without unerr, ${tokensStr} additional tokens (${formatDollars(dollarsSaved)}) would have been consumed.`;
+  return `Without unerr, ${tokensStr} additional tokens would have been consumed.`;
 }
 
 /**
- * Frame a guard moment (prevented cost).
+ * Frame a guard moment (prevented token waste).
  */
 export function frameGuardMoment(
   description: string,
-  dollarsPrevented: number
+  tokensPrevented: number
 ): string {
-  return `[unerr] ⚠ Prevented: ${description}. Without unerr, est. cost: ${formatDollars(dollarsPrevented)}`;
+  const tokensStr =
+    tokensPrevented >= 1000
+      ? `${(tokensPrevented / 1000).toFixed(1)}K`
+      : String(tokensPrevented);
+  return `[unerr] ⚠ Prevented: ${description}. Without unerr, ~${tokensStr} tokens would have been consumed.`;
 }
 
 /**
@@ -49,7 +48,6 @@ export function frameExplorationSaving(
  */
 export function frameSessionSummary(
   tokensSaved: number,
-  dollarsSaved: number,
   guardsFirered: number
 ): string {
   const parts: string[] = [];
@@ -58,7 +56,7 @@ export function frameSessionSummary(
       tokensSaved >= 1000
         ? `${(tokensSaved / 1000).toFixed(1)}K`
         : String(tokensSaved);
-    parts.push(`${tokensStr} tokens saved (${formatDollars(dollarsSaved)})`);
+    parts.push(`${tokensStr} tokens saved`);
   }
   if (guardsFirered > 0) {
     parts.push(`${guardsFirered} issue(s) prevented`);
@@ -74,8 +72,7 @@ export function frameSessionSummary(
  */
 export function frameWeeklyTrend(
   thisWeekSaved: number,
-  lastWeekSaved: number,
-  dollarsSaved: number
+  lastWeekSaved: number
 ): string {
   const trend =
     thisWeekSaved > lastWeekSaved
@@ -87,5 +84,5 @@ export function frameWeeklyTrend(
     thisWeekSaved >= 1000
       ? `${(thisWeekSaved / 1000).toFixed(1)}K`
       : String(thisWeekSaved);
-  return `This week: ${tokensStr} tokens saved (${formatDollars(dollarsSaved)}) ${trend}`;
+  return `This week: ${tokensStr} tokens saved ${trend}`;
 }

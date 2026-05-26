@@ -6,13 +6,6 @@ import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  calculateDollarSavings,
-  formatDollars,
-  formatSavingsSummary,
-  getAllModelRates,
-  getModelRate,
-} from "../proxy/model-pricing.js";
 import { buildTaskCostSummaries } from "../proxy/task-token-display.js";
 import {
   type SessionHistoryEntry,
@@ -31,54 +24,6 @@ afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
 
-describe("Model Pricing (T.2-T.3)", () => {
-  it("returns Claude Sonnet rate by default", () => {
-    const rate = getModelRate();
-    expect(rate.inputPerMillion).toBe(3);
-    expect(rate.name).toBe("Claude Sonnet 4");
-  });
-
-  it("returns correct rates for known models", () => {
-    expect(getModelRate("gpt-4o").inputPerMillion).toBe(2.5);
-    expect(getModelRate("ollama").inputPerMillion).toBe(0);
-  });
-
-  it("falls back to default for unknown models", () => {
-    const rate = getModelRate("unknown-model");
-    expect(rate.inputPerMillion).toBe(3);
-  });
-
-  it("calculates dollar savings correctly", () => {
-    const savings = calculateDollarSavings(
-      1_000_000,
-      "claude-sonnet-4-20250514"
-    );
-    expect(savings).toBe(3.0);
-  });
-
-  it("calculates zero savings for Ollama", () => {
-    expect(calculateDollarSavings(1_000_000, "ollama")).toBe(0);
-  });
-
-  it("formats dollars correctly", () => {
-    expect(formatDollars(1.5)).toBe("$1.50");
-    expect(formatDollars(0.27)).toBe("$0.27");
-    expect(formatDollars(0.003)).toBe("$0.003");
-  });
-
-  it("formats complete savings summary", () => {
-    const summary = formatSavingsSummary(45200);
-    expect(summary).toContain("45.2K");
-    expect(summary).toContain("$");
-    expect(summary).toContain("Claude Sonnet");
-  });
-
-  it("lists all supported models", () => {
-    const rates = getAllModelRates();
-    expect(rates.length).toBeGreaterThanOrEqual(7);
-  });
-});
-
 describe("Session History (T.8)", () => {
   it("appends and reads session entries", () => {
     const entry: SessionHistoryEntry = {
@@ -90,7 +35,6 @@ describe("Session History (T.8)", () => {
       tokensSaved: 23400,
       tokensProcessed: 35000,
       efficiency: 67,
-      dollarsSaved: 0.07,
       modelId: "claude-sonnet-4-20250514",
       entityCount: 847,
     };
@@ -117,7 +61,6 @@ describe("Session History (T.8)", () => {
         tokensSaved: 20000,
         tokensProcessed: 30000,
         efficiency: 67,
-        dollarsSaved: 0.06,
         modelId: "claude-sonnet-4-20250514",
         entityCount: 500,
       },
@@ -130,7 +73,6 @@ describe("Session History (T.8)", () => {
         tokensSaved: 40000,
         tokensProcessed: 60000,
         efficiency: 67,
-        dollarsSaved: 0.12,
         modelId: "claude-sonnet-4-20250514",
         entityCount: 500,
       },

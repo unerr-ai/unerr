@@ -209,7 +209,12 @@ export function compressOutput(
     const sectionText = section.lines.join("\n");
     const sectionTokens = estimateTokenCount(sectionText);
 
-    if (currentTokens + sectionTokens <= tokenBudget * 0.85) {
+    // Error sections are the highest-value content — preserve them even when
+    // they exceed the budget. Dropping an error section would defeat the whole
+    // point of compression (keep what the agent must see). Everything else
+    // competes for the remaining budget by score order.
+    const fitsBudget = currentTokens + sectionTokens <= tokenBudget * 0.85;
+    if (fitsBudget || section.type === "error") {
       let annotated = sectionText;
       if (section.annotations.length > 0) {
         const prefix = section.annotations.join(" ");

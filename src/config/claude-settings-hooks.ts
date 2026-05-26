@@ -90,6 +90,13 @@ function buildMatcherHooks(): {
     // PreToolUse — blast radius + convention validation for writes
     { event: "PreToolUse", matcher: "Write", command: `${bin} hook pre-write` },
     { event: "PreToolUse", matcher: "Edit", command: `${bin} hook pre-edit` },
+    // PreToolUse — redirect built-in WebFetch to fetch_url (DOM-extracted,
+    // BM25-ranked, 5–10× fewer tokens; routes through the QueryRouter).
+    {
+      event: "PreToolUse",
+      matcher: "WebFetch",
+      command: `${bin} hook pre-webfetch`,
+    },
     // PostToolUse — enrich tool output with graph navigation suggestions
     { event: "PostToolUse", matcher: "Read", command: `${bin} hook post-read` },
     { event: "PostToolUse", matcher: "Grep", command: `${bin} hook post-grep` },

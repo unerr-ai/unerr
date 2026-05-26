@@ -701,6 +701,15 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     log.warn("Recovered from stale PID file (previous proxy crashed)");
   }
 
+  // Warm the real BPE tokenizer off the critical path so the first token count
+  // uses gpt-tokenizer (o200k_base) rather than the heuristic fallback. The
+  // ~2 MB rank load is synchronous, so defer it past first output (<5s goal).
+  setImmediate(() => {
+    void import("../intelligence/token-estimator.js").then((m) =>
+      m.warmTokenizer()
+    );
+  });
+
   startupLog.header();
   startupLog.step(
     `PID ${process.pid} ${startupLog.fmt.muted(`· health localhost:${lockResult.healthPort}`)}`
@@ -1124,12 +1133,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   } catch {
     // Non-critical — durability scoring is best-effort
   }
-
-  // ── Sprint S8: Value Surfacing ──────────────────────────────────────
-  // S8.1 + S8.5: Wire value guard (fires once per session when savings exceed threshold)
-  const { createValueGuard } = await import("../config/value-surfacing.js");
-  const valueGuard = createValueGuard();
-  router.setValueGuard(valueGuard);
 
   // S7.6: Negative knowledge — load anti-patterns for injection
   try {
@@ -3957,7 +3960,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             tokenFlowSummary?.total_tokens_saved ??
             stats.localMode?.tokensSavedByTruncation ??
             stats.estimatedTokensSaved,
-          dollarsSaved: router.getSessionDollarsSaved(),
           toolCalls: stats.toolCallsLocal,
           violationsCaught: stats.violationsCaught,
           chokepointWarnings: stats.events.chokepointWarningsIssued,
@@ -3988,7 +3990,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
               tokensSaved: tokenFlowSummary.total_tokens_saved,
               tokensProcessed: tokenFlowSummary.total_tokens_without,
               efficiency: tokenFlowSummary.efficiency_pct,
-              dollarsSaved: router.getSessionDollarsSaved(),
               modelId: "unknown",
               entityCount: 0,
               agentName:
@@ -4063,12 +4064,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         const tokensSaved =
           stats.localMode?.tokensSavedByTruncation ??
           stats.estimatedTokensSaved;
-        const dollarsSaved = router.getSessionDollarsSaved();
         const durationMs = Date.now() - stats.sessionStartedAt;
         const scorecardData = formatScorecard({
           toolCalls: stats.toolCallsLocal,
           tokensSaved,
-          dollarsSaved,
           efficiency: effSnap?.efficiency ?? 0,
           durationMs,
           blastRadiusComputed: stats.localMode?.blastRadiusComputations ?? 0,
@@ -4100,7 +4099,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
               cumulativeLocal,
               scorecard: {
                 efficiency: scorecardData.efficiency,
-                dollarsSaved: scorecardData.dollarsSaved,
                 tokensSaved: scorecardData.tokensSaved,
                 counterfactual: counterfactualStr,
               },

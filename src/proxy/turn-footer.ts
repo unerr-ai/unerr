@@ -136,6 +136,13 @@ export interface HybridTurnLineInputs {
   sessionHeadroom: number;
   /** Total session events — used to honor honest-zero rules. */
   sessionTotalEvents: number;
+  /** Descriptive phrase naming what unerr did across the SESSION
+   *  (e.g. "41 recalled notes, 26 trimmed shell outputs, 17 code lookups"),
+   *  pre-built by the caller with boundary noise excluded. Surfaced on
+   *  QUIET turns (no per-turn savings) so the receipt always names concrete
+   *  session value instead of collapsing to a bare "1 thing" line. Empty
+   *  string when the session has no nameable activity. */
+  sessionHighlightsPhrase: string;
 }
 
 /**
@@ -147,11 +154,24 @@ export interface HybridTurnLineInputs {
  * the session portion rounds via formatTokenCount so the compounding line
  * stays compact ("100k saved" vs "100,175 tokens saved").
  *
+ * Two framings, chosen by whether THIS TURN moved the needle:
+ *   - Productive turn (turnTokensSaved > 0): the per-turn delta leads, the
+ *     session compounding tail follows —
+ *     `this turn: +<turn_tokens> tokens (<turn_highlights>) · session: <session_tokens> saved, ~<H> turns of chat room earned`
+ *   - Quiet turn (turnTokensSaved === 0): a quiet turn has no per-turn delta
+ *     worth a "+0 tokens" headline, and the old per-turn highlight framing
+ *     ("this turn: 1 thing (no new token savings)") collapsed to a bare,
+ *     value-free line. Instead lead with what unerr did across the SESSION,
+ *     naming concrete activity —
+ *     `session: <sessionHighlightsPhrase> · <session_tokens> saved, ~<H> turns of chat room earned`
+ *
  * Honest-zero variants:
- *   - "this turn: nothing to act on yet" — both turn AND session empty
- *   - "this turn: no new savings · session: …" — turn empty, session non-empty
- *   - parenthetical highlights omitted when the turn had no NamedEvents
- *   - session tail omitted when both session tokens AND headroom are zero
+ *   - "this turn: nothing to act on yet" — turn AND session both fully empty
+ *   - "this turn: no new savings" — quiet turn with no nameable session
+ *     activity and no session savings/headroom to report
+ *   - parenthetical turn-highlights omitted when the productive turn had no
+ *     NamedEvents; session tail omitted when both session tokens AND headroom
+ *     are zero
  */
 export function renderHybridTurnLine(inputs: HybridTurnLineInputs): string {
   const {
@@ -160,6 +180,7 @@ export function renderHybridTurnLine(inputs: HybridTurnLineInputs): string {
     sessionTokensSaved,
     sessionHeadroom,
     sessionTotalEvents,
+    sessionHighlightsPhrase,
   } = inputs;
 
   if (
@@ -171,35 +192,41 @@ export function renderHybridTurnLine(inputs: HybridTurnLineInputs): string {
     return "this turn: nothing to act on yet";
   }
 
-  let turnPart: string;
-  if (turnTokensSaved > 0) {
-    const turnHighlights = topHighlightsPhrase(turnEvents, 2);
-    const exact = turnTokensSaved.toLocaleString("en-US");
-    turnPart = turnHighlights
-      ? `this turn: +${exact} tokens (${turnHighlights})`
-      : `this turn: +${exact} tokens`;
-  } else if (turnEvents.length > 0) {
-    const turnHighlights = topHighlightsPhrase(turnEvents, 2);
-    turnPart = `this turn: ${turnHighlights} (no new token savings)`;
-  } else {
-    turnPart = "this turn: no new savings";
-  }
-
-  const sessionFragments: string[] = [];
+  // Session compounding tail — "<N> saved, ~<H> turns of chat room earned".
+  // Shared by both framings; empty when the session has no savings/headroom.
+  const sessionTail: string[] = [];
   if (sessionTokensSaved > 0) {
-    sessionFragments.push(`${formatTokenCount(sessionTokensSaved)} saved`);
+    sessionTail.push(`${formatTokenCount(sessionTokensSaved)} saved`);
   }
   if (sessionHeadroom > 0) {
-    sessionFragments.push(
+    sessionTail.push(
       `~${sessionHeadroom} ${sessionHeadroom === 1 ? "turn" : "turns"} of chat room earned`
     );
   }
-  const sessionPart =
-    sessionFragments.length > 0
-      ? `session: ${sessionFragments.join(", ")}`
-      : "";
 
-  return sessionPart ? `${turnPart} · ${sessionPart}` : turnPart;
+  // Productive turn — the per-turn delta is the headline; session tail follows.
+  if (turnTokensSaved > 0) {
+    const turnHighlights = topHighlightsPhrase(turnEvents, 2);
+    const exact = turnTokensSaved.toLocaleString("en-US");
+    const turnPart = turnHighlights
+      ? `this turn: +${exact} tokens (${turnHighlights})`
+      : `this turn: +${exact} tokens`;
+    const sessionPart =
+      sessionTail.length > 0 ? `session: ${sessionTail.join(", ")}` : "";
+    return sessionPart ? `${turnPart} · ${sessionPart}` : turnPart;
+  }
+
+  // Quiet turn — lead with concrete SESSION activity so the receipt always
+  // names value instead of collapsing to a bare per-turn line. The activity
+  // phrase and the savings tail join under one `session:` prefix.
+  const sessionParts: string[] = [];
+  if (sessionHighlightsPhrase) sessionParts.push(sessionHighlightsPhrase);
+  if (sessionTail.length > 0) sessionParts.push(sessionTail.join(", "));
+  if (sessionParts.length > 0) {
+    return `session: ${sessionParts.join(" · ")}`;
+  }
+
+  return "this turn: no new savings";
 }
 
 /**
@@ -260,12 +287,22 @@ export function renderSessionEconomyLineLive(
       }
     }
 
+    // Session activity phrase for the quiet-turn framing. Exclude
+    // `user_prompt_received` — it's a turn-boundary marker, not unerr value,
+    // and naming "N prompts" reads as noise next to "recalled notes" /
+    // "code lookups". Top 3 keeps the line under the ~60-token budget.
+    const sessionHighlightsPhrase = topHighlightsPhrase(
+      allEvents.filter((e) => e.event_type !== "user_prompt_received"),
+      3
+    );
+
     const line = renderHybridTurnLine({
       turnTokensSaved,
       turnEvents,
       sessionTokensSaved: totalTokensSaved,
       sessionHeadroom: headroomCompounded,
       sessionTotalEvents: allEvents.length,
+      sessionHighlightsPhrase,
     });
 
     const mkHighlights = (counts: Record<string, number>) =>

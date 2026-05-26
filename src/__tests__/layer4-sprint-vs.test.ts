@@ -1,11 +1,11 @@
 /**
- * Layer 4 Sprint VS: Value Surfacing tests.
+ * Layer 4 Sprint VS: Value Surfacing tests (tokens/turns only, no dollars).
  */
 
 import { describe, expect, it } from "vitest";
 import {
   formatGuardMoment,
-  getDollarGate,
+  getTokenGate,
   shouldFireGuard,
 } from "../behaviors/guard-formatter.js";
 import {
@@ -13,7 +13,6 @@ import {
   resetValueSurfacingConfig,
   setValueSurfacingConfig,
 } from "../config/value-surfacing.js";
-import { calculateDollarSavings } from "../proxy/model-pricing.js";
 import { createIntelligenceCounter } from "../tracking/intelligence-counter.js";
 import {
   frameGuardMoment,
@@ -24,52 +23,52 @@ import {
 
 describe("Counterfactual Framing (VS.8)", () => {
   it("frames token savings with 'without unerr' language", () => {
-    const msg = frameTokenSavings(45000, 0.135);
+    const msg = frameTokenSavings(45000);
     expect(msg).toContain("Without unerr");
     expect(msg).toContain("45.0K");
-    expect(msg).toContain("$");
+    expect(msg).toContain("tokens");
   });
 
-  it("frames guard moment with prevented cost", () => {
-    const msg = frameGuardMoment("hallucination loop detected", 2.13);
+  it("frames guard moment with prevented tokens", () => {
+    const msg = frameGuardMoment("hallucination loop detected", 2130);
     expect(msg).toContain("[unerr]");
     expect(msg).toContain("Prevented");
-    expect(msg).toContain("$2.13");
+    expect(msg).toContain("2.1K");
   });
 
   it("frames session summary", () => {
-    const msg = frameSessionSummary(23000, 0.069, 2);
+    const msg = frameSessionSummary(23000, 2);
     expect(msg).toContain("Without unerr");
     expect(msg).toContain("23.0K");
     expect(msg).toContain("2 issue(s) prevented");
   });
 
   it("frames session with zero events positively", () => {
-    const msg = frameSessionSummary(0, 0, 0);
+    const msg = frameSessionSummary(0, 0);
     expect(msg).toContain("monitoring");
     expect(msg).not.toContain("Without unerr");
   });
 
   it("frames weekly trend", () => {
-    const msg = frameWeeklyTrend(45000, 30000, 0.135);
+    const msg = frameWeeklyTrend(45000, 30000);
     expect(msg).toContain("↑");
     expect(msg).toContain("This week");
   });
 });
 
 describe("Guard Formatter (VS.4)", () => {
-  it("fires guard when >$0.50 threshold", () => {
+  it("fires guard above the token gate", () => {
     const tokens = 200_000;
     expect(shouldFireGuard(tokens)).toBe(true);
   });
 
-  it("does not fire guard below $0.50 threshold", () => {
+  it("does not fire guard below the token gate", () => {
     const tokens = 100;
     expect(shouldFireGuard(tokens)).toBe(false);
   });
 
-  it("dollar gate is $0.50", () => {
-    expect(getDollarGate()).toBe(0.5);
+  it("token gate is 1,000 tokens", () => {
+    expect(getTokenGate()).toBe(1_000);
   });
 
   it("formatGuardMoment returns null below threshold", () => {
@@ -81,7 +80,7 @@ describe("Guard Formatter (VS.4)", () => {
     const result = formatGuardMoment("loop detected", 500_000);
     expect(result).not.toBeNull();
     expect(result?.passed).toBe(true);
-    expect(result?.dollarsPrevented).toBeGreaterThanOrEqual(0.5);
+    expect(result?.tokensPrevented).toBeGreaterThanOrEqual(1_000);
   });
 });
 
@@ -124,14 +123,14 @@ describe("Value Surfacing Config (VS.9)", () => {
   it("has sensible defaults", () => {
     resetValueSurfacingConfig();
     const config = getValueSurfacingConfig();
-    expect(config.guardThresholdDollars).toBe(0.5);
     expect(config.weeklyEnabled).toBe(true);
     expect(config.scorecardEnabled).toBe(true);
+    expect(config.counterfactualEnabled).toBe(true);
   });
 
   it("allows overrides", () => {
-    setValueSurfacingConfig({ guardThresholdDollars: 1.0 });
-    expect(getValueSurfacingConfig().guardThresholdDollars).toBe(1.0);
+    setValueSurfacingConfig({ weeklyEnabled: false });
+    expect(getValueSurfacingConfig().weeklyEnabled).toBe(false);
     resetValueSurfacingConfig();
   });
 });

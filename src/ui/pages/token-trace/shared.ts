@@ -249,37 +249,83 @@ export function mechLabel(mech: string): string {
   return mech.replace(/_/g, " ");
 }
 
-// Prevention event types (PREVENT-class). Each one is a discrete named
-// count surfaced in the Preventions pane. The legend lives next to
-// the pane so users can read what each counter means.
+/** Internal event types hidden from prevention displays. */
+export const HIDDEN_BEHAVIOR_EVENTS = new Set([
+  "user_prompt_received",
+  "surface2_emitted",
+  "surface2_missed",
+  "surface4a_emitted",
+  "presence_ambient_marker",
+  "fact_capture_abandoned",
+  "confirmation_expired",
+]);
+
+/** User-friendly labels for prevention events — what unerr caught. */
 export const BEHAVIOR_EVENT_LABELS: Record<string, string> = {
-  graph_query_served: "Graph query served",
-  full_read_avoided: "Full file read avoided",
-  loop_broken: "Retry loop broken",
-  cascade_guard: "Cascade guard fired",
-  drift_consumed: "Drift signal consumed",
-  intervention_halted: "Behavior intervention halted",
-  intervention_warned: "Behavior warning emitted",
-  defuddle_selector_skipped: "Defuddle selector skipped",
+  graph_query_served: "Unnecessary file reads prevented",
+  full_read_avoided: "Large file dumps prevented",
+  loop_broken: "Retry loops stopped",
+  cascade_guard: "Breaking changes caught",
+  drift_consumed: "Stale file edits prevented",
+  intervention_halted: "Dangerous operations blocked",
+  intervention_warned: "Risky patterns flagged",
+  defuddle_selector_skipped: "Web page noise filtered",
+  fact_recalled: "Re-explanations prevented",
+  fact_stored_user_fed: "Rules saved for next session",
+  fact_stored_auto: "Code patterns learned",
+  stale_edit_prevented: "Overwrites of new changes stopped",
+  cascade_warning_consumed: "Downstream breaks prevented",
+  convention_applied: "Style violations prevented",
+  caller_check_enforced: "Blind edits prevented",
+  cross_session_resume: "Cold-start sessions prevented",
+  resume_blockers_surfaced: "Forgotten blockers resurfaced",
+  cache_hit: "Redundant computations skipped",
+  auto_doc_generated: "Code auto-documented",
+  loop_circuit_breaker_fired: "Agent loops stopped",
 };
 
+/** Hover descriptions — what would have gone wrong without unerr. */
 export const BEHAVIOR_EVENT_DESCRIPTIONS: Record<string, string> = {
   graph_query_served:
-    "Agent's graph-tool call (search_code, get_references, …) was served from the local graph instead of grep + N file reads.",
+    "The agent found the answer in one graph query instead of reading 5-15 files. Each lookup saved multiple turns of trial-and-error searching.",
   full_read_avoided:
-    "file_outline / get_file delivered a structural summary instead of a full file read.",
+    "Only the relevant lines were sent instead of the entire file. Without unerr, the agent loads thousands of lines when it only needed a few.",
   loop_broken:
-    "Circuit breaker halted a retry loop the agent was about to enter on the same entity.",
+    "The agent was stuck retrying the same failing operation. unerr detected the pattern and broke the cycle before more turns were wasted.",
   cascade_guard:
-    "A high fan-in edit was gated by the cascade guard before propagating.",
+    "The agent was about to edit code that many other files depend on. unerr flagged the risk so the change didn't silently break downstream code.",
   drift_consumed:
-    "A drift signal (`ur|ctx`) was consumed — agent re-read the file before editing.",
+    "The file had changed since the agent last read it. unerr caught this so the agent didn't overwrite newer changes with an outdated version.",
   intervention_halted:
-    "A pre-tool-use behavior halted a tool call before it ran.",
+    "A risky tool call was stopped before it could run. Without unerr, the operation would have executed unchecked.",
   intervention_warned:
-    "A behavior emitted a warning but allowed the call to proceed.",
+    "unerr spotted a risky pattern and warned the agent before it committed. Without the warning, the agent would have proceeded blindly.",
   defuddle_selector_skipped:
-    "fetch_url's Defuddle extractor hit a non-fatal selector-parse error (nwsapi rejected a `:has()`/Tailwind arbitrary-value selector). First occurrence per signature is logged once; subsequent occurrences are counted only.",
+    "Navigation, footers, and ads were stripped from fetched web pages so only the actual content reached the agent.",
+  fact_recalled:
+    "Notes from your earlier sessions were surfaced at the right moment, so the agent didn't ask you to repeat yourself.",
+  fact_stored_user_fed:
+    "Rules you told the agent were saved permanently. Next session, the agent will know these without you repeating them.",
+  fact_stored_auto:
+    "unerr noticed a convention in your codebase and stored it. Future edits will follow this pattern automatically.",
+  stale_edit_prevented:
+    "The agent tried to edit a file that was modified after it was last read. unerr stopped the edit to prevent overwriting your recent work.",
+  cascade_warning_consumed:
+    "Code that depends on the edited file was identified and the agent was warned before making changes that would ripple through.",
+  convention_applied:
+    "Project conventions (naming, imports, structure) were applied automatically, so new code matched your existing style.",
+  caller_check_enforced:
+    "unerr checked who calls this code before allowing the edit. Without it, changes would land without knowing what else they break.",
+  cross_session_resume:
+    "Context from your last session was restored, so the agent picked up where it left off instead of starting from scratch.",
+  resume_blockers_surfaced:
+    "Unresolved problems from a previous session were brought forward so they didn't fall through the cracks.",
+  cache_hit:
+    "A previously computed answer was served from cache instead of being recomputed, saving time and tokens.",
+  auto_doc_generated:
+    "Documentation was generated automatically for code the agent wrote or modified.",
+  loop_circuit_breaker_fired:
+    "The agent was repeating the same failing operation. unerr detected the loop and stopped it.",
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────

@@ -44,6 +44,7 @@ describe("renderHybridTurnLine", () => {
       sessionTokensSaved: 0,
       sessionHeadroom: 0,
       sessionTotalEvents: 0,
+      sessionHighlightsPhrase: "",
     });
     expect(line).toBe("this turn: nothing to act on yet");
   });
@@ -59,6 +60,7 @@ describe("renderHybridTurnLine", () => {
       sessionTokensSaved: 100_175,
       sessionHeadroom: 3,
       sessionTotalEvents: 41,
+      sessionHighlightsPhrase: "41 code lookups",
     });
     expect(line).toContain("this turn: +33,210 tokens");
     expect(line).toContain("2 code lookups");
@@ -67,29 +69,45 @@ describe("renderHybridTurnLine", () => {
     expect(line).toContain("~3 turns of chat room earned");
   });
 
-  it("turn-empty / session-nonempty falls back to 'no new savings'", () => {
+  it("quiet turn leads with descriptive session activity", () => {
+    const line = renderHybridTurnLine({
+      turnTokensSaved: 0,
+      turnEvents: [],
+      sessionTokensSaved: 50_000,
+      sessionHeadroom: 37,
+      sessionTotalEvents: 84,
+      sessionHighlightsPhrase:
+        "41 recalled notes, 26 trimmed shell outputs, 17 code lookups",
+    });
+    expect(line).toBe(
+      "session: 41 recalled notes, 26 trimmed shell outputs, 17 code lookups · 50k saved, ~37 turns of chat room earned"
+    );
+    // Never the bare per-turn collapse.
+    expect(line).not.toContain("this turn:");
+  });
+
+  it("quiet turn with no nameable activity still shows the session tail", () => {
     const line = renderHybridTurnLine({
       turnTokensSaved: 0,
       turnEvents: [],
       sessionTokensSaved: 100_000,
       sessionHeadroom: 2,
       sessionTotalEvents: 20,
+      sessionHighlightsPhrase: "",
     });
-    expect(line).toContain("this turn: no new savings");
-    expect(line).toContain("session: 100k saved");
-    expect(line).toContain("~2 turns of chat room earned");
+    expect(line).toBe("session: 100k saved, ~2 turns of chat room earned");
   });
 
-  it("turn had events but no token savings", () => {
+  it("quiet turn with neither activity nor session savings → no new savings", () => {
     const line = renderHybridTurnLine({
       turnTokensSaved: 0,
       turnEvents: [sampleTurnEvent("graph_query_served")],
-      sessionTokensSaved: 5000,
+      sessionTokensSaved: 0,
       sessionHeadroom: 0,
       sessionTotalEvents: 3,
+      sessionHighlightsPhrase: "",
     });
-    expect(line).toContain("this turn: 1 code lookup (no new token savings)");
-    expect(line).toContain("session: 5.0k saved");
+    expect(line).toBe("this turn: no new savings");
   });
 
   it("singular 'turn' when session headroom is 1", () => {
@@ -99,6 +117,7 @@ describe("renderHybridTurnLine", () => {
       sessionTokensSaved: 200,
       sessionHeadroom: 1,
       sessionTotalEvents: 1,
+      sessionHighlightsPhrase: "1 code lookup",
     });
     expect(line).toContain("~1 turn of chat room earned");
   });
@@ -110,6 +129,7 @@ describe("renderHybridTurnLine", () => {
       sessionTokensSaved: 500,
       sessionHeadroom: 0,
       sessionTotalEvents: 1,
+      sessionHighlightsPhrase: "",
     });
     expect(line).toBe("this turn: +500 tokens · session: 500 saved");
   });

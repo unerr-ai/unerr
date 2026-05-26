@@ -5,14 +5,11 @@
  * Shows top 3 most expensive tasks with entity lists and efficiency.
  */
 
-import { calculateDollarSavings, formatDollars } from "./model-pricing.js";
-
 export interface TaskCostSummary {
   taskDescription: string;
   toolCalls: number;
   tokensConsumed: number;
   tokensSaved: number;
-  dollarCost: number;
   efficiency: number;
   entities: string[];
 }
@@ -37,8 +34,7 @@ export function buildTaskCostSummaries(
     tokensSaved: number;
     entitiesModified: string[];
     outcome: string;
-  }>,
-  modelId?: string
+  }>
 ): TaskDisplayResult {
   const tasks: TaskCostSummary[] = intentGroups
     .filter((g) => g.toolCalls > 0)
@@ -51,7 +47,6 @@ export function buildTaskCostSummaries(
         toolCalls: g.toolCalls,
         tokensConsumed: g.tokensConsumed,
         tokensSaved: g.tokensSaved,
-        dollarCost: calculateDollarSavings(g.tokensConsumed, modelId),
         efficiency,
         entities: g.entitiesModified,
       };
@@ -70,10 +65,16 @@ export function buildTaskCostSummaries(
     "Tasks this session:",
     ...top3.map(
       (t, i) =>
-        `  ${i + 1}. "${t.taskDescription.slice(0, 50)}" — ${t.toolCalls} calls, ${formatDollars(t.dollarCost)} (${t.efficiency}% optimized)`
+        `  ${i + 1}. "${t.taskDescription.slice(0, 50)}" — ${t.toolCalls} calls, ${formatTokens(t.tokensConsumed)} tokens (${t.efficiency}% optimized)`
     ),
-    `  Total: ${totalCalls} calls, ${formatDollars(calculateDollarSavings(totalSaved, modelId))} saved (${formatDollars(calculateDollarSavings(totalWithout, modelId))} without unerr)`,
+    `  Total: ${totalCalls} calls, ${formatTokens(totalSaved)} tokens saved (${formatTokens(totalWithout)} without unerr)`,
   ];
 
   return { tasks, totalCalls, totalSaved, totalWithout, formattedLines };
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
 }

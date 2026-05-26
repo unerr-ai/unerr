@@ -4,7 +4,7 @@
  * Verifies:
  *   - TokenCounter accumulates totals and emits at configurable interval
  *   - EfficiencyTracker accumulates session totals
- *   - Session summary displays: total tokens saved, dollar savings, efficiency %
+ *   - Session summary displays: total tokens saved, efficiency %
  *
  * NOTE: Tests no longer use estimateExplorationCost — counterfactual savings
  * estimates were removed. Tokens_saved now comes from real-measurement sources
@@ -17,7 +17,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { CozoGraphStore } from "../intelligence/local-graph.js";
 import { QueryRouter } from "../intelligence/query-router.js";
 import { createEfficiencyTracker } from "../proxy/efficiency-tracker.js";
-import { calculateDollarSavings } from "../proxy/model-pricing.js";
 import { createTokenCounter } from "../proxy/token-counter.js";
 
 function createMockGraph(
@@ -123,23 +122,6 @@ describe("Sprint S4: Token Accounting & Visibility Wiring", () => {
       }
 
       expect(messages.length).toBe(0);
-    });
-  });
-
-  describe("S4: Model pricing calculations", () => {
-    it("calculateDollarSavings returns positive value for saved tokens", () => {
-      const savings = calculateDollarSavings(10_000);
-      // Default model is Sonnet 4 at $3/M input tokens
-      // 10K tokens × $3/M = $0.03
-      expect(savings).toBeCloseTo(0.03, 4);
-    });
-
-    it("calculateDollarSavings respects model selection", () => {
-      const sonnet = calculateDollarSavings(10_000, "claude-sonnet-4-20250514");
-      const opus = calculateDollarSavings(10_000, "claude-opus-4-20250514");
-      // Opus is 5x more expensive than Sonnet
-      expect(opus).toBeGreaterThan(sonnet);
-      expect(opus).toBeCloseTo(0.15, 4);
     });
   });
 });

@@ -4,9 +4,9 @@
  * Verifies:
  *   - 3 stuck patterns detected (repetitive_failure, context_poisoning, over_planning)
  *   - Circuit breaker state transitions (closed → open → half_open → closed)
- *   - Dollar calculation correctness
+ *   - Token-savings calculation correctness
  *   - TDD exemption (test files excluded from entity-retry count)
- *   - $0.50 gate enforcement
+ *   - 1K token gate enforcement
  */
 
 import { describe, expect, it } from "vitest";
@@ -236,8 +236,8 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
     });
   });
 
-  describe("Dollar Calculation", () => {
-    it("includes dollar amount in guard moment output", async () => {
+  describe("Token Savings Calculation", () => {
+    it("includes tokens_saved in guard moment output", async () => {
       const breaker = new LoopCircuitBreaker({ maxAttemptsPerEntity: 4 });
 
       let lastOutput = null;
@@ -248,7 +248,6 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
       }
 
       expect(lastOutput).not.toBeNull();
-      expect(lastOutput?._meta?.dollars_saved).toBeDefined();
       expect(lastOutput?._meta?.tokens_saved).toBeGreaterThan(0);
     });
 
@@ -287,8 +286,8 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
     });
   });
 
-  describe("$0.50 Gate", () => {
-    it("only fires guard when estimated savings exceed $0.50", async () => {
+  describe("1K Token Gate", () => {
+    it("only fires guard when estimated savings exceed 1K tokens", async () => {
       const breaker = new LoopCircuitBreaker({ maxAttemptsPerEntity: 4 });
 
       let guardFired = false;

@@ -521,7 +521,6 @@ describe("SessionSummaryCard", () => {
     stats.toolCallsLocal = 20;
     const cumulative = {
       totalTokensSaved: 100000,
-      totalDollarsSaved: 5.6,
       totalSessions: 4,
       weekStart: "2026-04-06",
       violationsCaughtAllTime: 12,
@@ -533,7 +532,7 @@ describe("SessionSummaryCard", () => {
     const frame = lastFrame() ?? "";
     expect(frame).toContain("This week:");
     expect(frame).toContain("4 sessions");
-    expect(frame).toContain("$5.60");
+    expect(frame).toContain("100k tokens");
   });
 
   it("omits caught section when no events", () => {

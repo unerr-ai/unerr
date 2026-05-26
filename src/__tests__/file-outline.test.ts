@@ -135,17 +135,33 @@ describe("buildFileOutline", () => {
 
   it("provides token_estimate roughly proportional to file size", async () => {
     const dir = makeTmpDir("token-est");
-    const content = "x".repeat(400); // 400 chars → ~100 tokens at 4 chars/token
-    writeFileSync(join(dir, "small.ts"), content, "utf-8");
+    // Real-tokenizer counts (o200k_base) replace the old chars/4 heuristic, so
+    // assert proportionality on realistic code rather than a fixed ratio: a
+    // larger file must yield a larger estimate.
+    const linesOf = (n: number) =>
+      Array.from({ length: n }, (_, i) => `export const v${i} = ${i};`).join(
+        "\n"
+      );
+    writeFileSync(join(dir, "small.ts"), linesOf(10), "utf-8");
+    writeFileSync(join(dir, "large.ts"), linesOf(40), "utf-8");
 
-    const o = await buildFileOutline({
+    const oSmall = await buildFileOutline({
       cwd: dir,
       filePathArg: "small.ts",
       graph: null,
     });
+    const oLarge = await buildFileOutline({
+      cwd: dir,
+      filePathArg: "large.ts",
+      graph: null,
+    });
 
-    // 400 chars / 4 chars_per_token = 100 tokens
-    expect(o.token_estimate).toBe(100);
+    expect(oSmall.token_estimate).toBeGreaterThan(0);
+    expect(oLarge.token_estimate).toBeGreaterThan(oSmall.token_estimate);
+    // 4x the content → ~4x the tokens (allow tokenizer slack).
+    expect(oLarge.token_estimate).toBeGreaterThanOrEqual(
+      oSmall.token_estimate * 3
+    );
   });
 
   it("stable sort: entities with same start line sorted by name", async () => {

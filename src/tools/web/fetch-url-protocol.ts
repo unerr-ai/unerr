@@ -5,6 +5,7 @@
  */
 
 import { type FetchUrlConfig, loadSettings } from "../../config/settings.js";
+import { estimateTokens } from "../../intelligence/token-estimator.js";
 import { type ChallengeDetection, detectChallenge } from "./anti-bot.js";
 import { rankPassagesByPrompt } from "./bm25-rank.js";
 import { safeCompressionRatio } from "./compression-ratio.js";
@@ -68,6 +69,10 @@ export interface FetchUrlOk {
   word_count: number;
   raw_bytes: number;
   extracted_bytes: number;
+  /** Real BPE token count of the raw page (estimateTokens, heuristic >50k chars). */
+  raw_tokens: number;
+  /** Real BPE token count of the extracted markdown delivered. */
+  extracted_tokens: number;
   compression_ratio: number;
   cache_hit: boolean;
   diff?: {
@@ -500,6 +505,8 @@ export async function runFetchUrl(
     diff,
     raw_bytes: rawBytes,
     extracted_bytes: compressedBytes,
+    raw_tokens: estimateTokens(fetched.html),
+    extracted_tokens: estimateTokens(markdown),
     compression_ratio: safeCompressionRatio(rawBytes, compressedBytes),
     passages: sliced.map((p) => ({
       index: p.index,
@@ -718,6 +725,10 @@ function makeFreshHitResult(
     },
     raw_bytes: prior.raw_bytes,
     extracted_bytes: prior.compressed_bytes,
+    // Raw HTML isn't persisted in the cache, so the raw side falls back to the
+    // byte/4 heuristic; the delivered markdown is tokenized for real.
+    raw_tokens: Math.ceil(prior.raw_bytes / 4),
+    extracted_tokens: estimateTokens(prior.markdown),
     compression_ratio:
       prior.raw_bytes > 0
         ? Math.round((1 - prior.compressed_bytes / prior.raw_bytes) * 100) / 100

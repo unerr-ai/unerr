@@ -535,8 +535,8 @@ function recordShellTokenFlow(
   compressed: string,
   strategy: string
 ): void {
-  const rawTokens = Math.ceil(raw.length / 4);
-  const compressedTokens = Math.ceil(compressed.length / 4);
+  const rawTokens = estimateRoughTokens(raw);
+  const compressedTokens = estimateRoughTokens(compressed);
   const shellSaved = rawTokens - compressedTokens;
   if (shellSaved <= 0) return;
 

@@ -14,7 +14,6 @@ export interface WeeklyStats {
   weekStart: string;
   sessions: number;
   tokensSaved: number;
-  dollarsSaved: number;
   toolCalls: number;
   violationsCaught: number;
   chokepointWarnings: number;
@@ -30,7 +29,6 @@ export interface AllTimeStats {
   firstSessionDate: string;
   totalSessions: number;
   totalTokensSaved: number;
-  totalDollarsSaved: number;
   totalViolationsCaught: number;
 }
 
@@ -60,7 +58,6 @@ function createEmptyWeekly(weekStart: string): WeeklyStats {
     weekStart,
     sessions: 0,
     tokensSaved: 0,
-    dollarsSaved: 0,
     toolCalls: 0,
     violationsCaught: 0,
     chokepointWarnings: 0,
@@ -76,7 +73,6 @@ function createEmptyAllTime(): AllTimeStats {
     firstSessionDate: new Date().toISOString(),
     totalSessions: 0,
     totalTokensSaved: 0,
-    totalDollarsSaved: 0,
     totalViolationsCaught: 0,
   };
 }
@@ -116,7 +112,6 @@ export function loadStats(): UnifiedStats {
 
 export interface SessionAccumulatorInput {
   tokensSaved: number;
-  dollarsSaved: number;
   toolCalls: number;
   violationsCaught: number;
   chokepointWarnings: number;
@@ -140,7 +135,6 @@ export function accumulateSession(
   // Weekly
   stats.weekly.sessions += 1;
   stats.weekly.tokensSaved += input.tokensSaved;
-  stats.weekly.dollarsSaved += input.dollarsSaved;
   stats.weekly.toolCalls += input.toolCalls;
   stats.weekly.violationsCaught += input.violationsCaught;
   stats.weekly.chokepointWarnings += input.chokepointWarnings;
@@ -166,7 +160,6 @@ export function accumulateSession(
   // All-time
   stats.allTime.totalSessions += 1;
   stats.allTime.totalTokensSaved += input.tokensSaved;
-  stats.allTime.totalDollarsSaved += input.dollarsSaved;
   stats.allTime.totalViolationsCaught += input.violationsCaught;
 
   stats.lastUpdated = new Date().toISOString();
@@ -202,7 +195,6 @@ export function formatStatsReport(stats: UnifiedStats): string {
     `    Sessions:       ${w.sessions}`,
     `    Tool calls:     ${w.toolCalls}`,
     `    Tokens saved:   ~${formatTokenCount(w.tokensSaved)}`,
-    `    Dollar savings: $${w.dollarsSaved.toFixed(2)}`,
     `    Efficiency:     ${Math.round(w.avgEfficiency)}%`,
     `    Violations:     ${w.violationsCaught} caught`,
   ];
@@ -233,7 +225,6 @@ export function formatStatsReport(stats: UnifiedStats): string {
   lines.push("  All time:");
   lines.push(`    Sessions:       ${a.totalSessions}`);
   lines.push(`    Tokens saved:   ~${formatTokenCount(a.totalTokensSaved)}`);
-  lines.push(`    Dollar savings: $${a.totalDollarsSaved.toFixed(2)}`);
   lines.push(`    Violations:     ${a.totalViolationsCaught} caught`);
   lines.push(`    Since:          ${a.firstSessionDate.slice(0, 10)}`);
   lines.push("");

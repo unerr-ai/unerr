@@ -14,10 +14,6 @@
  * Uses counterfactual framing: "Without unerr, X would have..."
  */
 
-import {
-  calculateDollarSavings,
-  formatDollars,
-} from "../proxy/model-pricing.js";
 import type { ArchitectureBoundaryGuard } from "./architecture-guard.js";
 import type { AutoDocBehavior } from "./auto-doc.js";
 import type { CascadeConsistencyGuard } from "./cascade-guard.js";
@@ -240,9 +236,12 @@ export class ChangeNarrativeBehavior extends Behavior {
     const stats = this.loopBreaker.getSessionStats();
     if (stats.loopsPrevented > 0) {
       section.status = "warn";
-      const dollars = calculateDollarSavings(stats.totalTokensSaved);
+      const tokensStr =
+        stats.totalTokensSaved >= 1000
+          ? `${(stats.totalTokensSaved / 1000).toFixed(1)}K`
+          : String(stats.totalTokensSaved);
       section.items.push(
-        `${stats.loopsPrevented} loop(s) prevented, saving ~${formatDollars(dollars)}`
+        `${stats.loopsPrevented} loop(s) prevented, saving ~${tokensStr} tokens`
       );
     }
 
@@ -357,10 +356,11 @@ function buildCounterfactual(
   if (loopBreaker) {
     const stats = loopBreaker.getSessionStats();
     if (stats.loopsPrevented > 0) {
-      const dollars = calculateDollarSavings(stats.totalTokensSaved);
-      parts.push(
-        `~${formatDollars(dollars)} would have been wasted in retry loops`
-      );
+      const tokensStr =
+        stats.totalTokensSaved >= 1000
+          ? `${(stats.totalTokensSaved / 1000).toFixed(1)}K`
+          : String(stats.totalTokensSaved);
+      parts.push(`~${tokensStr} tokens would have been wasted in retry loops`);
     }
   }
 

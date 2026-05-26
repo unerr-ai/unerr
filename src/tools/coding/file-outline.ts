@@ -10,9 +10,9 @@ import {
   extractEntities,
 } from "../../intelligence/ast-extractor.js";
 import type { CozoGraphStore } from "../../intelligence/local-graph.js";
+import { estimateTokens } from "../../intelligence/token-estimator.js";
 import type { Tool, ToolContext } from "../types.js";
 
-const CHARS_PER_TOKEN = 4;
 const GRAPH_TIMEOUT_MS = 100;
 
 export interface FileOutlineEntityRow {
@@ -234,7 +234,7 @@ export async function buildFileOutline(params: {
     config_keys = extractYamlKeys(lines);
   }
 
-  const token_estimate = Math.ceil(content.length / CHARS_PER_TOKEN);
+  const token_estimate = estimateTokens(content);
 
   const out: FileOutlineOutput = {
     file_path: rel,

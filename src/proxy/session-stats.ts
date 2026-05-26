@@ -2,13 +2,11 @@
  * Session Value Counter — tracks proxy session metrics in memory.
  *
  * Printed on proxy shutdown to show the developer what unerr did for them.
- * "unerr saved you 47k tokens ($0.94)" — the artifact that drives word-of-mouth.
+ * "unerr saved you 47k tokens" — the artifact that drives word-of-mouth.
  */
 
 /** Average tokens per MCP tool call resolved locally. */
 const AVG_TOKENS_SAVED_PER_LOCAL_CALL = 3200;
-/** Approximate cost per 1k tokens (blended input/output for Claude Sonnet). */
-const COST_PER_1K_TOKENS = 0.006;
 
 // ── Latency Tracking ─────────────────────────────────────────────────
 
@@ -465,16 +463,12 @@ export function formatSessionStats(stats: SessionStats): string | null {
   const durationMs = Date.now() - stats.sessionStartedAt;
   const durationMin = Math.round(durationMs / 60_000);
   const tokensSavedK = (stats.estimatedTokensSaved / 1000).toFixed(1);
-  const costSaved = (
-    (stats.estimatedTokensSaved / 1000) *
-    COST_PER_1K_TOKENS
-  ).toFixed(2);
 
   const lines: string[] = [
     "",
     "── unerr session ──────────────────────────────",
     `  Tool calls:     ${total} (all local)`,
-    `  Tokens saved:   ~${tokensSavedK}k ($${costSaved})`,
+    `  Tokens saved:   ~${tokensSavedK}k`,
   ];
 
   // Latency percentiles
@@ -673,7 +667,6 @@ export function formatLocalModeSessionStats(
 
 export interface CumulativeStats {
   totalTokensSaved: number;
-  totalDollarsSaved: number;
   totalSessions: number;
   weekStart: string;
   violationsCaughtAllTime: number;
@@ -705,7 +698,6 @@ export function loadCumulativeStats(): CumulativeStats {
     if (raw.weekStart !== currentWeek) {
       return {
         totalTokensSaved: 0,
-        totalDollarsSaved: 0,
         totalSessions: 0,
         weekStart: currentWeek,
         violationsCaughtAllTime: 0,
@@ -716,7 +708,6 @@ export function loadCumulativeStats(): CumulativeStats {
   } catch {
     return {
       totalTokensSaved: 0,
-      totalDollarsSaved: 0,
       totalSessions: 0,
       weekStart: currentWeek,
       violationsCaughtAllTime: 0,
@@ -728,8 +719,6 @@ export function loadCumulativeStats(): CumulativeStats {
 export function persistCumulativeStats(stats: SessionStats): CumulativeStats {
   const cumulative = loadCumulativeStats();
   cumulative.totalTokensSaved += stats.estimatedTokensSaved;
-  cumulative.totalDollarsSaved +=
-    (stats.estimatedTokensSaved / 1000) * COST_PER_1K_TOKENS;
   cumulative.totalSessions += 1;
   cumulative.violationsCaughtAllTime += totalCaughtEvents(stats.events);
   cumulative.chokepointWarningsAllTime += stats.events.chokepointWarningsIssued;

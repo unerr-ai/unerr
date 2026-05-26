@@ -4,6 +4,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { estimateTokenCount } from "../intelligence/token-estimator.js";
 import type { OutputCategory } from "./shell-classifier.js";
 
 export interface ShellCompressionAggregate {
@@ -13,9 +14,9 @@ export interface ShellCompressionAggregate {
   updatedAt: string;
 }
 
-/** Shared token estimate (~chars/4) for shell I/O and quality ratios. */
+/** Shared real-BPE token estimate for shell I/O and quality ratios. */
 export function estimateRoughTokens(s: string): number {
-  return Math.max(1, Math.ceil(s.length / 4));
+  return Math.max(1, estimateTokenCount(s));
 }
 
 export function recordShellCompressionEvent(

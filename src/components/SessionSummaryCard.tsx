@@ -39,14 +39,10 @@ export interface SessionSummaryCardProps {
   /** S8.6: Session scorecard metrics for value surfacing. */
   scorecard?: {
     efficiency: string;
-    dollarsSaved: string;
     tokensSaved: string;
     counterfactual?: string;
   };
 }
-
-/** Average cost per 1k tokens (blended Claude Sonnet input/output). */
-const COST_PER_1K_TOKENS = 0.006;
 
 /** Renders the "Caught" section shared between Standard and Local Mode cards. */
 function CaughtSection({
@@ -157,8 +153,8 @@ function LocalModeCard({
       {scorecard && (
         <Box flexDirection="column" marginLeft={4}>
           <Text color={t.dim}>
-            Tokens saved: ~{scorecard.tokensSaved} ({scorecard.dollarsSaved}) —
-            efficiency: {scorecard.efficiency}
+            Tokens saved: ~{scorecard.tokensSaved} — efficiency:{" "}
+            {scorecard.efficiency}
           </Text>
           {scorecard.counterfactual && (
             <Text color={t.dim}>{scorecard.counterfactual}</Text>
@@ -307,10 +303,6 @@ export function SessionSummaryCard({
   const localPct =
     total > 0 ? Math.round((stats.toolCallsLocal / total) * 100) : 0;
   const tokensSavedK = (stats.estimatedTokensSaved / 1000).toFixed(1);
-  const costSaved = (
-    (stats.estimatedTokensSaved / 1000) *
-    COST_PER_1K_TOKENS
-  ).toFixed(2);
   const durationMs = Date.now() - stats.sessionStartedAt;
   const durationMin = Math.round(durationMs / 60_000);
 
@@ -369,9 +361,7 @@ export function SessionSummaryCard({
       <CaughtSection ev={ev} color={t.warning} />
 
       <Box marginLeft={4} marginTop={1}>
-        <Text>
-          Saved: ~{tokensSavedK}k tokens (${costSaved})
-        </Text>
+        <Text>Saved: ~{tokensSavedK}k tokens</Text>
       </Box>
 
       {/* Cumulative "This week" line */}
@@ -379,8 +369,7 @@ export function SessionSummaryCard({
         <Box marginLeft={4}>
           <Text color={t.dim}>
             This week: {cumulative.totalSessions} sessions · ~
-            {(cumulative.totalTokensSaved / 1000).toFixed(0)}k tokens · $
-            {cumulative.totalDollarsSaved.toFixed(2)}
+            {(cumulative.totalTokensSaved / 1000).toFixed(0)}k tokens
           </Text>
         </Box>
       )}

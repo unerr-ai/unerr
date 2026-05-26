@@ -147,6 +147,85 @@ describe("recordUserPromptReceived (Fix J)", () => {
   });
 });
 
+describe("recordUserPromptReceived — boundary dedupe", () => {
+  let fix: ReturnType<typeof makeFixture>;
+  beforeEach(() => {
+    fix = makeFixture();
+    writeFileSync(
+      join(fix.unerrDir, "config.json"),
+      JSON.stringify({ capture_prompts: true })
+    );
+  });
+  afterEach(() => fix.cleanup());
+
+  it("collapses an exact re-fire of the same prompt within the window", () => {
+    const fire = () =>
+      recordUserPromptReceived({
+        unerrDir: fix.unerrDir,
+        cwd: fix.cwd,
+        sessionId: "dup-sess",
+        message: "fix the broken indexer",
+        classifiedAs: "fix",
+        hookPayloadChars: 200,
+      });
+    // First fire persists; the 2nd and 3rd (the duplicate hook fires) are
+    // skipped — they land within the 2s window with an identical digest.
+    expect(fire()).toBeGreaterThan(0);
+    expect(fire()).toBe(0);
+    expect(fire()).toBe(0);
+
+    // Exactly one boundary row survives for this session.
+    expect(getPromptsForSession(fix.unerrDir, "dup-sess").length).toBe(1);
+  });
+
+  it("keeps two distinct prompts that share a length (digest differs)", () => {
+    // "yes" and "yep" are both 3 chars — a length-only dedupe would have
+    // wrongly collapsed the second. The content digest keeps them apart.
+    recordUserPromptReceived({
+      unerrDir: fix.unerrDir,
+      cwd: fix.cwd,
+      sessionId: "len-sess",
+      message: "yes",
+      classifiedAs: null,
+      hookPayloadChars: 50,
+    });
+    const second = recordUserPromptReceived({
+      unerrDir: fix.unerrDir,
+      cwd: fix.cwd,
+      sessionId: "len-sess",
+      message: "yep",
+      classifiedAs: null,
+      hookPayloadChars: 50,
+    });
+    expect(second).toBeGreaterThan(0);
+    expect(getPromptsForSession(fix.unerrDir, "len-sess").map((r) => r.prompt)).toEqual([
+      "yes",
+      "yep",
+    ]);
+  });
+
+  it("does not dedupe across separate sessions", () => {
+    const a = recordUserPromptReceived({
+      unerrDir: fix.unerrDir,
+      cwd: fix.cwd,
+      sessionId: "sess-A",
+      message: "same message",
+      classifiedAs: null,
+      hookPayloadChars: 50,
+    });
+    const b = recordUserPromptReceived({
+      unerrDir: fix.unerrDir,
+      cwd: fix.cwd,
+      sessionId: "sess-B",
+      message: "same message",
+      classifiedAs: null,
+      hookPayloadChars: 50,
+    });
+    expect(a).toBeGreaterThan(0);
+    expect(b).toBeGreaterThan(0);
+  });
+});
+
 describe("getPromptsForSession (Fix J)", () => {
   let fix: ReturnType<typeof makeFixture>;
   beforeEach(() => {

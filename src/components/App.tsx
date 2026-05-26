@@ -84,7 +84,7 @@ export function App({
       if (input.trim() === "/cost") {
         if (lastUsage) {
           setError(
-            `Session: ${lastUsage.inputTokens} in / ${lastUsage.outputTokens} out — $${lastUsage.estimatedCost.toFixed(4)}`
+            `Session: ${lastUsage.inputTokens} in / ${lastUsage.outputTokens} out`
           );
         } else {
           setError("No usage data yet");

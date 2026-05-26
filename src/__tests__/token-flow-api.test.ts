@@ -134,7 +134,6 @@ describe("token-flow-api", () => {
         tokensSaved: 5000,
         tokensProcessed: 15000,
         efficiency: 33,
-        dollarsSaved: 0.15,
         modelId: "unknown",
         entityCount: 0,
         tokenFlowSummary: {
@@ -165,7 +164,6 @@ describe("token-flow-api", () => {
           tokensSaved: 1000,
           tokensProcessed: 3000,
           efficiency: 33,
-          dollarsSaved: 0,
           modelId: "unknown",
           entityCount: 0,
           tokenFlowSummary: {

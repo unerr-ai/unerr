@@ -47,7 +47,6 @@ describe("token-flow-persistence", () => {
         tokensSaved: 51600,
         tokensProcessed: 80200,
         efficiency: 64,
-        dollarsSaved: 1.55,
         modelId: "unknown",
         entityCount: 0,
         tokenFlowSummary: {
@@ -85,7 +84,6 @@ describe("token-flow-persistence", () => {
         tokensSaved: 10000,
         tokensProcessed: 20000,
         efficiency: 50,
-        dollarsSaved: 0.3,
         modelId: "unknown",
         entityCount: 0,
       };
@@ -108,7 +106,6 @@ describe("token-flow-persistence", () => {
           tokensSaved: 1000 * (i + 1),
           tokensProcessed: 5000,
           efficiency: 20 * (i + 1),
-          dollarsSaved: 0.1 * (i + 1),
           modelId: "unknown",
           entityCount: 0,
           tokenFlowSummary: {
@@ -263,7 +260,6 @@ describe("token-flow-persistence", () => {
           weekStart: "2026-01-06",
           sessions: 5,
           tokensSaved: 100_000,
-          dollarsSaved: 3.0,
           toolCalls: 75,
           violationsCaught: 2,
           chokepointWarnings: 1,
@@ -282,7 +278,6 @@ describe("token-flow-persistence", () => {
           firstSessionDate: "2026-01-01T00:00:00Z",
           totalSessions: 20,
           totalTokensSaved: 500_000,
-          totalDollarsSaved: 15.0,
           totalViolationsCaught: 10,
         },
         lastUpdated: new Date().toISOString(),
@@ -307,7 +302,6 @@ describe("token-flow-persistence", () => {
           weekStart: "2026-01-06",
           sessions: 1,
           tokensSaved: 1000,
-          dollarsSaved: 0.03,
           toolCalls: 5,
           violationsCaught: 0,
           chokepointWarnings: 0,
@@ -320,7 +314,6 @@ describe("token-flow-persistence", () => {
           firstSessionDate: "2026-01-01T00:00:00Z",
           totalSessions: 1,
           totalTokensSaved: 1000,
-          totalDollarsSaved: 0.03,
           totalViolationsCaught: 0,
         },
         lastUpdated: new Date().toISOString(),
@@ -396,7 +389,6 @@ describe("token-flow-persistence", () => {
         tokensSaved: summary.total_tokens_saved,
         tokensProcessed: summary.total_tokens_without,
         efficiency: summary.efficiency_pct,
-        dollarsSaved: 0,
         modelId: "unknown",
         entityCount: 0,
         tokenFlowSummary: {

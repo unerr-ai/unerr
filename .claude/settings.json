@@ -54,6 +54,15 @@
             "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-edit"
           }
         ]
+      },
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-webfetch"
+          }
+        ]
       }
     ],
     "PostToolUse": [

@@ -144,9 +144,9 @@ describe("mergePreToolUseBashHook", () => {
     const preTool = settings.hooks?.PreToolUse;
     expect(Array.isArray(preTool)).toBe(true);
     // No duplicate unerr entries.
-    // 6 PreToolUse matcher entries: Bash, Read, Grep, Glob, Write, Edit — each
-    // with one `unerr hook pre-*` command. No duplicates (key check: each
-    // matcher appears exactly once).
+    // 7 PreToolUse matcher entries: Bash, Read, Grep, Glob, Write, Edit,
+    // WebFetch — each with one `unerr hook pre-*` command. No duplicates
+    // (key check: each matcher appears exactly once).
     const unerrEntries = (
       preTool as Array<{
         matcher?: string;
@@ -155,9 +155,17 @@ describe("mergePreToolUseBashHook", () => {
     ).filter((entry) =>
       entry.hooks?.some((h) => (h.command ?? "").includes("unerr"))
     );
-    expect(unerrEntries.length).toBe(6);
+    expect(unerrEntries.length).toBe(7);
     const matchers = unerrEntries.map((e) => e.matcher).sort();
-    expect(matchers).toEqual(["Bash", "Edit", "Glob", "Grep", "Read", "Write"]);
+    expect(matchers).toEqual([
+      "Bash",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Read",
+      "WebFetch",
+      "Write",
+    ]);
     rmSync(dir, { recursive: true, force: true });
   });
 });

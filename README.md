@@ -7,8 +7,9 @@
 </p>
 
 <p align="center">
-  One local runtime, sitting <em>behind</em> every MCP your coding agent already speaks —<br/>
-  shared memory, shared code graph, drift detection, guardrails the protocol itself doesn't carry.
+  <strong>unerr is operational memory for your codebase</strong> — one local runtime that sits <em>behind</em> every MCP<br/>
+  your coding agent already speaks, carrying a shared code graph, persistent memory,<br/>
+  drift detection, and the guardrails the protocol itself doesn't.
 </p>
 
 <p align="center">
@@ -28,6 +29,11 @@
   <code>npm install -g @unerr-ai/unerr</code>
   <br /><br />
   <sub>Zero configuration. Install, restart your IDE, and the next prompt is smarter.</sub>
+</p>
+
+<p align="center">
+  <sub>Measured, not estimated: removes <strong>86–90%</strong> of the tokens an agent spends navigating code —<br/>
+  and wins head-to-head against other code-intelligence tools on the same corpus. <a href="./benchmarks/README.md">See the benchmarks →</a></sub>
 </p>
 
 ---
@@ -165,6 +171,7 @@ Three numbers behind the runtime:
 - **~84%** of an AI coding agent's tokens are tool output, mostly file reads ([JetBrains, NeurIPS 2025](https://blog.jetbrains.com/research/2025/12/efficient-context-management/)) — unerr intercepts at the read layer, so attention isn't diluted.
 - **Tool-selection accuracy collapses 58% → 26% as MCP tools go from 9 to 51** ([LangChain ReAct benchmark](https://blog.langchain.com/react-agent-benchmarking/)) — unerr is one MCP runtime instead of five, freeing the agent's tool-selection budget. Anthropic itself acknowledged this in Jan 2026 by shipping [MCP Tool Search](https://www.anthropic.com/engineering/code-execution-with-mcp) to hide tool definitions until queried.
 - **0** LLM calls per query in the core — facts, conventions, drift signals, and graph lookups are all algorithmic. No API keys, no per-turn inference cost, no telemetry.
+- **86–90%** of an agent's code-navigation tokens removed in head-to-head benchmarks vs grep+read — real tokenizer, fidelity-gated, reproducible on any repo ([benchmarks](./benchmarks/README.md)).
 
 ---
 
@@ -274,6 +281,10 @@ Every response carries inline `ur|<tag>` signals for high-priority guidance — 
   }
 }
 ```
+
+### Benchmarks
+
+unerr removes **86–90% of the tokens** an agent would otherwise spend navigating and reading code — measured, not estimated, with head-to-head runs against other code-intelligence tools on the same questions, same tokenizer, and a fidelity gate that discards any "saving" that lost the answer. Methodology, reproduction commands, and per-repo results: [benchmarks/README.md](./benchmarks/README.md).
 
 ### Contributing
 

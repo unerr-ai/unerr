@@ -27,7 +27,6 @@ export interface SessionHistoryEntry {
   tokensSaved: number;
   tokensProcessed: number;
   efficiency: number;
-  dollarsSaved: number;
   modelId: string;
   entityCount: number;
   /** MCP client name from initialize handshake (e.g. "claude-code", "cursor") */
@@ -39,7 +38,6 @@ export interface SessionHistoryEntry {
 export interface AggregatedStats {
   sessions: number;
   tokensSaved: number;
-  dollarsSaved: number;
   avgEfficiency: number;
   totalToolCalls: number;
   periodLabel: string;
@@ -55,7 +53,6 @@ function rowToEntry(r: SessionHistoryRow): SessionHistoryEntry {
     tokensSaved: r.tokens_saved,
     tokensProcessed: r.tokens_processed,
     efficiency: r.efficiency,
-    dollarsSaved: r.dollars_saved,
     modelId: r.model_id,
     entityCount: r.entity_count,
   };
@@ -92,7 +89,6 @@ export function appendSessionHistory(
       tokens_saved: entry.tokensSaved,
       tokens_processed: entry.tokensProcessed,
       efficiency: entry.efficiency,
-      dollars_saved: entry.dollarsSaved,
       model_id: entry.modelId,
       entity_count: entry.entityCount,
       agent_name: entry.agentName ?? null,
@@ -127,7 +123,6 @@ export function aggregateStats(
     return {
       sessions: 0,
       tokensSaved: 0,
-      dollarsSaved: 0,
       avgEfficiency: 0,
       totalToolCalls: 0,
       periodLabel,
@@ -135,7 +130,6 @@ export function aggregateStats(
   }
 
   const tokensSaved = entries.reduce((s, e) => s + e.tokensSaved, 0);
-  const dollarsSaved = entries.reduce((s, e) => s + e.dollarsSaved, 0);
   const totalToolCalls = entries.reduce((s, e) => s + e.toolCalls, 0);
   const avgEfficiency =
     entries.reduce((s, e) => s + e.efficiency, 0) / entries.length;
@@ -143,7 +137,6 @@ export function aggregateStats(
   return {
     sessions: entries.length,
     tokensSaved,
-    dollarsSaved,
     avgEfficiency: Math.round(avgEfficiency),
     totalToolCalls,
     periodLabel,

@@ -23,21 +23,6 @@ import {
 
 // ── Cost Table (per million tokens) ───────────────────────────
 
-const COST_TABLE: Record<string, { input: number; output: number }> = {
-  "claude-sonnet-4-20250514": { input: 3, output: 15 },
-  "claude-opus-4-20250514": { input: 15, output: 75 },
-  "claude-haiku-4-20250506": { input: 0.8, output: 4 },
-};
-
-function estimateCost(
-  model: string,
-  inputTokens: number,
-  outputTokens: number
-): number {
-  const rates = COST_TABLE[model] ?? { input: 3, output: 15 };
-  return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
-}
-
 // ── Configuration ─────────────────────────────────────────────
 
 export interface QueryEngineOptions {
@@ -87,11 +72,10 @@ export interface QueryResult {
     args: Record<string, unknown>;
     result: ToolOutput;
   }>;
-  /** Token usage and cost */
+  /** Token usage */
   usage: {
     inputTokens: number;
     outputTokens: number;
-    estimatedCost: number;
   };
 }
 
@@ -297,11 +281,6 @@ export async function executeQuery(
     usage: {
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
-      estimatedCost: estimateCost(
-        provider.modelId,
-        totalInputTokens,
-        totalOutputTokens
-      ),
     },
   };
 

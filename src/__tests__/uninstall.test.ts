@@ -93,7 +93,7 @@ describe("uninstall", () => {
       expect(existsSync(settingsPath)).toBe(true);
 
       const before = JSON.parse(readFileSync(settingsPath, "utf-8"));
-      expect(before.hooks.PreToolUse).toHaveLength(6); // Bash, Read, Grep, Glob, Write, Edit
+      expect(before.hooks.PreToolUse).toHaveLength(7); // Bash, Read, Grep, Glob, Write, Edit, WebFetch
 
       // Now remove
       const removed = removePreToolUseBashHook(tmpDir);

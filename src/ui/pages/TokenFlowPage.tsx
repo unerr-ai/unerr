@@ -45,6 +45,7 @@ import {
   type CumulativeTurn,
   type EventsResponse,
   type GlobalResponse,
+  HIDDEN_BEHAVIOR_EVENTS,
   type MechanismSummary,
   type SessionListResponse,
   type SessionSummaryResponse,
@@ -297,15 +298,7 @@ function MechanismBars({
   );
 }
 
-// ── Preventions Pane ─────────────────────────────────────────────────
-//
-// Surfaces PREVENT-class counters (graph queries served, file reads
-// avoided, retry loops broken, …). These are *not* token-savings rows
-// — they're discrete named events. We deliberately do not invent a
-// "would have cost N tokens" number because the counterfactual is
-// unknowable. The user reads the counts; the count *is* the value.
-//
-// Pattern: Turborepo "FULL TURBO" / GitHub Security "alerts dismissed".
+// ── Mistakes Prevented Pane ──────────────────────────────────────────
 
 interface BehaviorCounts {
   by_type: Record<string, number>;
@@ -364,40 +357,44 @@ function PreventionsPane({
   const headerSuffix =
     scope === "global"
       ? fromTs || toTs
-        ? " (Filtered)"
-        : " (All Time)"
-      : " (This Session)";
+        ? ""
+        : " (all time)"
+      : " (this session)";
 
   const entries = useMemo(() => {
     if (!counts) return [] as Array<[string, number]>;
-    return Object.entries(counts.by_type).sort(([, a], [, b]) => b - a);
+    return Object.entries(counts.by_type)
+      .filter(([type, n]) => n > 0 && !HIDDEN_BEHAVIOR_EVENTS.has(type))
+      .sort(([, a], [, b]) => b - a);
   }, [counts]);
+
+  const visibleTotal = entries.reduce((s, [, n]) => s + n, 0);
 
   return (
     <div className="el-raised rounded-lg p-5">
       <div className="flex items-center justify-between mb-1">
         <h3 className="t-secondary text-sm font-medium">
-          Preventions{headerSuffix}
+          Mistakes prevented{headerSuffix}
         </h3>
-        <span className="t-tertiary text-xs">
-          {counts ? counts.total : 0} total
-        </span>
+        <span className="t-tertiary text-xs">{fmt(visibleTotal)} caught</span>
       </div>
       <p className="t-tertiary text-xs mb-3 leading-snug">
-        Discrete named counters for PREVENT-class wins — graph queries served,
-        file reads avoided, retry loops broken. No counterfactual byte count:
-        the count itself is the measure.
+        Problems unerr caught before they reached your code — hover any row to
+        see what would have gone wrong without it.
       </p>
       {q.isLoading ? (
         <SkeletonBlock height={120} />
       ) : entries.length === 0 ? (
-        <p className="t-secondary text-sm py-3">No behavioral events yet.</p>
+        <p className="t-secondary text-sm py-3">
+          No issues caught yet — unerr starts tracking as soon as your agent
+          calls a tool.
+        </p>
       ) : (
         <div className="space-y-1.5">
           {entries.map(([type, n]) => (
             <div
               key={type}
-              className="flex items-center gap-3 py-1"
+              className="flex items-center gap-3 py-1 group cursor-default"
               title={BEHAVIOR_EVENT_DESCRIPTIONS[type] ?? type}
             >
               <span className="text-violet-300 text-xs font-medium w-52 shrink-0 truncate">
@@ -425,11 +422,7 @@ function PreventionsPane({
   );
 }
 
-// ── Turn-scoped behavioral events list ────────────────────────────────
-//
-// Raw, time-ordered events for a single turn. The Session view shows
-// aggregates; the Turn view shows the actual events one-by-one so the
-// user can read what the agent was prevented from doing.
+// ── Turn-scoped events list ────────────────────────────────────────
 
 interface BehaviorEventRow {
   id: number;
@@ -478,25 +471,24 @@ function TurnPreventionsList({
     );
   }
 
-  const events = q.data?.data ?? [];
+  const allEvents = q.data?.data ?? [];
+  const events = allEvents.filter((e) => !HIDDEN_BEHAVIOR_EVENTS.has(e.type));
 
   return (
     <div className="el-raised rounded-lg p-5">
       <div className="flex items-center justify-between mb-1">
         <h3 className="t-secondary text-sm font-medium">
-          Preventions in this Turn
+          Mistakes prevented in this turn
         </h3>
-        <span className="t-tertiary text-xs">
-          {events.length} event{events.length !== 1 ? "s" : ""}
-        </span>
+        <span className="t-tertiary text-xs">{events.length} caught</span>
       </div>
       <p className="t-tertiary text-xs mb-3 leading-snug">
-        PREVENT-class events fired during turn #{turn}. Each row is a discrete
-        win — a graph query served, a full read avoided, a retry loop broken.
+        Each row is something unerr caught during turn #{turn} — hover for
+        details on what would have gone wrong.
       </p>
       {events.length === 0 ? (
         <p className="t-secondary text-sm py-3">
-          No behavioral events in this turn.
+          No issues caught in this turn.
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -504,10 +496,10 @@ function TurnPreventionsList({
             <thead>
               <tr className="border-b border-border-subtle t-tertiary uppercase">
                 <th className="px-3 py-2 font-medium">Time</th>
-                <th className="px-3 py-2 font-medium">Type</th>
+                <th className="px-3 py-2 font-medium">What was prevented</th>
                 <th className="px-3 py-2 font-medium">Tool</th>
-                <th className="px-3 py-2 font-medium">Entity</th>
-                <th className="px-3 py-2 font-medium text-right">Bytes</th>
+                <th className="px-3 py-2 font-medium">File / Entity</th>
+                <th className="px-3 py-2 font-medium text-right">Size</th>
               </tr>
             </thead>
             <tbody>
@@ -758,10 +750,9 @@ function GlobalView({
       {/* Time-series trend — stacked area by mechanism */}
       <SavingsTrend fromTs={fromTs} toTs={toTs} bucket="day" />
 
-      {/* Global behavioral events — PREVENT-class verb-noun counters.
-       *  These are the qualitative proof behind the code-intelligence tier
-       *  above: graph queries served, full reads avoided, loops broken —
-       *  wins a text-only optimizer has no way to produce. */}
+      {/* Mistakes prevented — qualitative proof of the code-intelligence
+       *  tier above: unnecessary file reads prevented, stale edits caught,
+       *  loops broken — things only a repo-aware tool can catch. */}
       <PreventionsPane scope="global" fromTs={fromTs} toTs={toTs} />
 
       {/* Session list — card-style rows with hover counterfactual */}
@@ -784,8 +775,7 @@ function GlobalView({
                     ? Math.round(
                         (s.total_saved /
                           (s.total_saved +
-                            s.total_turns *
-                              (s.avg_context_reduction || 1))) *
+                            s.total_turns * (s.avg_context_reduction || 1))) *
                           100
                       )
                     : null;
@@ -1076,7 +1066,7 @@ function SessionView({
         totalSaved={s.total_tokens_saved}
       />
 
-      {/* Two-column: Cumulative chart + Preventions */}
+      {/* Two-column: Cumulative chart + Mistakes prevented */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Cumulative savings chart */}
         <div className="el-raised rounded-lg p-5">
@@ -1170,8 +1160,7 @@ function SessionView({
           )}
         </div>
 
-        {/* Behavioral events for this session — proof of the
-         *  code-intelligence tier shown in the origin split above. */}
+        {/* Mistakes prevented for this session */}
         <PreventionsPane scope="session" sessionId={sessionId} />
       </div>
 
@@ -1530,7 +1519,7 @@ function TurnView({
         </div>
       )}
 
-      {/* Behavioral events fired during this turn */}
+      {/* Mistakes prevented during this turn */}
       <TurnPreventionsList sessionId={sessionId} turn={turn} />
 
       {/* Event table — Splunk-style expandable rows */}
@@ -1867,15 +1856,15 @@ function ImpactHero({
   // Dominant number: total tokens saved (anchoring bias — largest number first)
   const totalSavedRaw = sessionBlock
     ? sessionBlock.total_tokens_saved
-    : block?.total_tokens_saved ?? 0;
+    : (block?.total_tokens_saved ?? 0);
 
   // Turns earned (credit-billed agents)
   const turnsEarnedRaw = sessionBlock
     ? sessionBlock.headroom_compounded
-    : block?.headroom_turns ?? 0;
+    : (block?.headroom_turns ?? 0);
   const turnsOver = sessionBlock
     ? sessionBlock.turn_count
-    : block?.turns_observed ?? 0;
+    : (block?.turns_observed ?? 0);
 
   // Reach/session (window-billed agents)
   const reachSource = sessionBlock ?? blocks?.since_install;
@@ -1883,7 +1872,7 @@ function ImpactHero({
   const reachWithout = reachSource?.turns_to_limit_without ?? 0;
   const reachGain = Math.max(0, reachWith - reachWithout);
 
-  // Avg turn cost
+  // Avg turn tokens
   const avgWithout = block?.avg_turn_tokens_without ?? 0;
   const avgWith = Math.max(0, avgWithout - (block?.avg_saved_per_turn ?? 0));
 
@@ -1955,7 +1944,7 @@ function ImpactHero({
           >
             <p className="text-emerald-400 text-[10px] uppercase tracking-wider font-medium flex items-center gap-1.5">
               Turns Earned
-              <InfoTip text="Extra prompts you didn't pay for. Calculated as total tokens saved divided by average turn cost. Applies to credit-billed agents — Cursor fast-requests, API metered spend." />
+              <InfoTip text="Extra turns you got for free. Calculated as total tokens saved divided by average tokens per turn. Applies to credit-billed agents — Cursor fast-requests, API metered requests." />
             </p>
             <p className="text-2xl font-bold font-mono text-emerald-400 mt-1.5 tabular-nums">
               +<CountUp value={turnsEarnedRaw} format={fmt} />
@@ -2001,7 +1990,7 @@ function ImpactHero({
             <p className="t-tertiary text-[11px] mt-1">tokens kept out</p>
           </div>
 
-          {/* Avg Turn Cost */}
+          {/* Avg Turn Tokens */}
           <div className="px-5 py-4">
             <p className="text-foreground/60 text-[10px] uppercase tracking-wider font-medium flex items-center gap-1.5">
               Avg Turn
@@ -2026,8 +2015,9 @@ function ImpactHero({
           </p>
           <p className="t-secondary text-[11px] leading-relaxed">
             <span className="text-emerald-300 font-medium">Turns earned</span>{" "}
-            is usage-cumulative — extra prompts you didn't pay for. Relevant for
-            credit-billed agents (Cursor fast-requests, API spend).{" "}
+            is usage-cumulative — extra prompts within your request quota.
+            Relevant for credit-billed agents (Cursor fast-requests, API
+            requests).{" "}
             <span className="text-violet-300 font-medium">Reach/session</span>{" "}
             is a per-session ceiling — extra turns before context exhaustion.
             Relevant for window-billed agents (Claude Code 5h windows, Copilot

@@ -188,8 +188,8 @@ function prettyKey(key: string): string {
   return key.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
-/* Per-row hue palette — mirrors TokenFlowPage's MechanismBar so the "What
- * unerr did" action cards read identically to the Token Trace breakdown.
+/* Per-row hue palette — mirrors TokenFlowPage's MechanismBar so the
+ * prevention cards read identically to the Token Trace breakdown.
  * Per-row color diversity lives in the bar + label (data-payload color,
  * brand chart palette tokens). */
 type RowPalette = { bar: string; text: string };
@@ -217,8 +217,8 @@ const PREVENTION_COLORS: Record<string, RowPalette> = {
 };
 
 /* Memory / store / resume event hues — completes the palette for the
- * "What unerr did" band so high-volume non-prevention actions (recalled
- * notes, saved facts) read with their own color rather than fallback gray. */
+ * prevention band so memory-related actions (recalled notes, saved facts)
+ * read with their own color rather than fallback gray. */
 const ACTION_COLORS: Record<string, RowPalette> = {
   fact_recalled: { bar: "bg-fuchsia-500", text: "text-fuchsia-400" },
   fact_stored_user_fed: { bar: "bg-emerald-500", text: "text-emerald-400" },
@@ -341,99 +341,108 @@ function CountUp({
   );
 }
 
-/** Plain-English phrasing for every "what unerr did" event type — mirrors
- *  `src/tracking/named-events.ts` PHRASING so the dashboard reads identically
- *  to the end-of-turn receipt. `label` is the plural noun shown next to the
- *  count; `desc` is the counterfactual revealed on hover (what would have
- *  happened without unerr). */
+/** Internal event types hidden from the prevention grid — these are unerr's
+ *  own protocol signals, not user-visible outcomes. */
+const HIDDEN_DASHBOARD_EVENTS = new Set([
+  "user_prompt_received",
+  "surface2_emitted",
+  "surface2_missed",
+  "surface4a_emitted",
+  "presence_ambient_marker",
+  "fact_capture_abandoned",
+  "confirmation_expired",
+]);
+
+/** Prevention-focused phrasing for dashboard cards. `label` is the what
+ *  (shown next to the count); `desc` is the counterfactual on hover (what
+ *  would have gone wrong without unerr). */
 const ACTION_PHRASING: Record<string, { label: string; desc: string }> = {
   graph_query_served: {
-    label: "code lookups served",
-    desc: "Structural questions answered from the graph. Without it: the agent runs grep + reads several files to answer one question.",
+    label: "unnecessary file reads prevented",
+    desc: "The agent found the answer in one graph query instead of reading 5-15 files with grep. Each lookup saved multiple turns of trial-and-error.",
   },
   full_read_avoided: {
-    label: "file reads kept compact",
-    desc: "Outlines served instead of whole files. Without it: the agent loads an entire file when only the outline was needed.",
+    label: "large file dumps prevented",
+    desc: "Only the relevant lines were sent instead of the entire file. Without unerr: the agent loads thousands of lines when it only needed a few.",
   },
   fact_recalled: {
-    label: "remembered notes loaded",
-    desc: "Notes from earlier sessions surfaced at the right moment, so you didn't have to re-explain.",
+    label: "re-explanations prevented",
+    desc: "unerr remembered notes from your earlier sessions and surfaced them at the right moment, so the agent didn't ask you to repeat yourself.",
   },
   loop_broken: {
-    label: "repeated mistakes broken",
-    desc: "Retry loops cut off. Without it: the agent retries the same failing operation, burning turns on a dead end.",
+    label: "retry loops stopped",
+    desc: "The agent was stuck in a loop, retrying the same failing operation. unerr detected the pattern and broke the cycle before more turns were wasted.",
   },
   cascade_guard: {
-    label: "risky cascade edits caught",
-    desc: "High fan-in edits flagged. Without it: the change propagates blindly and breaks downstream callers.",
+    label: "breaking changes caught",
+    desc: "The agent was about to edit code that many other files depend on. unerr flagged the risk so the change didn't silently break downstream code.",
   },
   drift_consumed: {
-    label: "stale-code warnings applied",
-    desc: "Edits on a stale file caught. Without it: the agent edits an out-of-date view and conflicts with newer changes.",
+    label: "stale file edits prevented",
+    desc: "The file had changed since the agent last read it. unerr caught this so the agent didn't overwrite newer changes with an outdated version.",
   },
   intervention_halted: {
-    label: "risky tool calls blocked",
-    desc: "A dangerous tool call stopped before it ran. Without it: it executes unchecked and produces bad state.",
+    label: "dangerous operations blocked",
+    desc: "A risky tool call was stopped before it could run. Without unerr: the operation would have executed unchecked and potentially corrupted state.",
   },
   intervention_warned: {
-    label: "risky patterns flagged",
-    desc: "A risky pattern signalled to the agent. Without it: it proceeds with no warning.",
+    label: "risky patterns flagged early",
+    desc: "unerr spotted a risky pattern and warned the agent before it committed. Without the warning: the agent would have proceeded blindly.",
   },
   defuddle_selector_skipped: {
-    label: "web pages stripped to content",
-    desc: "Page nav, footer, and ads filtered out. Without it: chrome gets ingested as if it were content.",
+    label: "web page noise filtered out",
+    desc: "Navigation menus, footers, and ads were stripped from fetched web pages so only the actual content reached the agent.",
   },
   fact_stored_user_fed: {
-    label: "notes saved from you",
-    desc: "Rules you stated, captured verbatim for future sessions.",
+    label: "rules saved for future sessions",
+    desc: "Rules you told the agent were saved permanently. Next session, the agent will already know these without you having to repeat them.",
   },
   fact_stored_auto: {
-    label: "patterns noticed",
-    desc: "Conventions unerr detected from the code and remembered for next time.",
+    label: "code patterns learned",
+    desc: "unerr noticed a convention in your codebase and stored it. Future edits will follow this pattern automatically.",
   },
   caller_check_enforced: {
-    label: "pre-edit caller checks",
-    desc: "Callers checked before an edit so nothing downstream broke.",
+    label: "blind edits prevented",
+    desc: "unerr checked who calls this code before allowing the edit. Without it: changes would land without knowing what else they break.",
   },
   stale_edit_prevented: {
-    label: "stale edits caught",
-    desc: "An edit against an out-of-date file caught before it landed.",
+    label: "overwrites of new changes stopped",
+    desc: "The agent tried to edit a file that was modified after it was last read. unerr stopped the edit to prevent overwriting your recent work.",
   },
   cascade_warning_consumed: {
-    label: "cascade warnings applied",
-    desc: "A cascading-edit warning the agent read and acted on.",
+    label: "downstream breaks prevented",
+    desc: "Code that depends on the edited file was identified and the agent was warned before making changes that would ripple through.",
   },
   convention_applied: {
-    label: "project conventions applied",
-    desc: "A project convention surfaced and followed during the change.",
+    label: "style violations prevented",
+    desc: "Project conventions (naming, imports, structure) were applied automatically, so new code matched your existing style from the start.",
   },
   cross_session_resume: {
-    label: "sessions resumed",
-    desc: "Prior-session context carried into a new session automatically.",
+    label: "cold-start sessions prevented",
+    desc: "Context from your last session was restored, so the agent picked up where it left off instead of starting from scratch.",
   },
   resume_blockers_surfaced: {
-    label: "open blockers resumed",
-    desc: "Unresolved work from a previous session surfaced on resume.",
+    label: "forgotten blockers resurfaced",
+    desc: "Unresolved problems from a previous session were brought forward so they didn't fall through the cracks.",
   },
   cache_hit: {
-    label: "cached answers served",
-    desc: "An answer served from cache instead of being recomputed.",
+    label: "redundant computations skipped",
+    desc: "A previously computed answer was served from cache instead of being recomputed, saving time and tokens.",
   },
 };
 
 function actionPhrasing(key: string): { label: string; desc: string } {
   return (
     ACTION_PHRASING[key] ?? {
-      label: prettyKey(key).toLowerCase(),
-      desc: "An action unerr handled so the agent didn't have to retry or undo it.",
+      label: `${prettyKey(key).toLowerCase()} handled`,
+      desc: "An issue unerr caught and handled so the agent didn't have to retry or undo it.",
     }
   );
 }
 
-/** Compact "what unerr did" card: big count + plain-English label, with the
- *  counterfactual revealed on hover/focus (the user's preferred hover
- *  mechanism — keeps the grid dense while the "why it matters" stays one
- *  hover away). */
+/** Prevention card: big count + plain-English label, with the counterfactual
+ *  revealed on hover/focus (keeps the grid dense while "what would have gone
+ *  wrong" stays one hover away). */
 function ActionCard({
   count,
   label,
@@ -838,12 +847,9 @@ export function Dashboard() {
   const headroom = headroomQ.data?.data;
   const headroomLoading = headroomQ.isLoading && headroom === undefined;
 
-  /* Cross-tier runtime joins — the positioning anchor (Fix L). The join no
-   * point tool can produce: a memory recall, a live graph lookup, and a
-   * drift check landing on the SAME entity in the same window. This is the
-   * receipt's "⚡ unerr runtime" impact, surfaced on the dashboard as the
-   * differentiator. The Surface-2/3/mark_intent/skill compliance counters
-   * are internal diagnostics and now live on the Settings page instead. */
+  /* Cross-layer protection counts — memory + graph + drift landing on the
+   * same entity. Phrased in user terms: "your stored notes helped protect
+   * against N code changes" rather than internal jargon. */
   const runtimeJoins = complianceQ.data?.data?.runtime_joins;
   const joinParts: string[] = [];
   if (runtimeJoins) {
@@ -852,15 +858,15 @@ export function Dashboard() {
     const t = runtimeJoins.three_way;
     if (m > 0)
       joinParts.push(
-        `${m} memory ${m === 1 ? "fact" : "facts"} joined to ${m} live graph ${m === 1 ? "node" : "nodes"}`
+        `${m} stored ${m === 1 ? "note" : "notes"} used to protect ${m === 1 ? "a code change" : "code changes"}`
       );
     if (g > 0)
       joinParts.push(
-        `${g} drift ${g === 1 ? "conflict" : "conflicts"} resolved against the graph`
+        `${g} file ${g === 1 ? "change" : "changes"} caught by checking code structure`
       );
     if (t > 0)
       joinParts.push(
-        `${t} three-way ${t === 1 ? "correlation" : "correlations"} confirmed`
+        `${t} ${t === 1 ? "issue" : "issues"} caught by combining all three layers`
       );
   }
 
@@ -902,20 +908,18 @@ export function Dashboard() {
       ? (tf.total_context_avoided / tf.total_tokens_saved).toFixed(1)
       : null;
 
-  /* "What unerr did" — every behavior event unerr handled, phrased in plain
-   * English (same dictionary as the end-of-turn receipt) and sorted by
-   * volume. The count IS the measure; the counterfactual ("without it: …")
-   * rides along on hover. Top entries lead so the highest-impact work reads
-   * first. */
+  /* Mistakes prevented — user-facing behavior events, filtered to exclude
+   * internal protocol signals. Sorted by volume, top 8 shown as cards.
+   * The count IS the measure; the counterfactual rides along on hover. */
   const actionsRaw = behaviorEventsQ.data?.data.counts.by_type ?? {};
   const actions = Object.entries(actionsRaw)
-    .filter(([, n]) => n > 0)
+    .filter(([type, n]) => n > 0 && !HIDDEN_DASHBOARD_EVENTS.has(type))
     .sort(([, a], [, b]) => b - a);
   const actionsTotal = actions.reduce((s, [, n]) => s + n, 0);
   const topActions = actions.slice(0, 8);
 
   // Step 2 of the honest-headroom migration: the headroom number divides
-  // saved tokens by an unobserved-overhead-clamped per-turn cost (see
+  // saved tokens by an unobserved-overhead-clamped per-turn token count (see
   // `DEFAULT_UNOBSERVED_OVERHEAD_TOKENS`). It can still inflate when the
   // session is very young or extremely compression-heavy. If any window's
   // earned turns exceed 2× the turns actually observed, we treat the
@@ -975,7 +979,7 @@ export function Dashboard() {
                       turns earned
                       <InfoTip
                         label="What turns earned means"
-                        text="Extra turns of session headroom unerr earned you — the unit compression-only tools can't measure. Counts as prompts you didn't pay for (credit-billed agents) or extra context room before a window exhausts (window-billed agents)."
+                        text="Extra turns of session headroom unerr earned you — the unit compression-only tools can't measure. Counts as extra prompts within your request quota (credit-billed agents) or extra context room before a window exhausts (window-billed agents)."
                       />
                     </span>
                   </>
@@ -1205,28 +1209,37 @@ export function Dashboard() {
       </section>
 
       {/* ============================================================
-       *  WHAT UNERR DID — the receipt's "impact" mechanism on the
-       *  dashboard. Every action unerr handled, phrased in plain English
-       *  (same dictionary as the end-of-turn receipt) with the
-       *  counterfactual on hover. Led by the ⚡ cross-tier runtime join —
-       *  the positioning anchor (Fix L) no point tool can produce.
-       *  Positioned right under the Impact hero per the user's ask.
+       *  MISTAKES PREVENTED — prevention-focused cards showing what unerr
+       *  caught before it reached the user's code. Each card shows a count
+       *  + user-friendly label; hover reveals the counterfactual (what
+       *  would have gone wrong). Internal protocol events are filtered out.
        * ============================================================ */}
       <section className="glass-panel rounded-xl p-5">
         <header className="mb-4 flex items-baseline justify-between gap-3">
           <div>
-            <h2 className="section-label text-violet-500">What unerr did</h2>
+            <h2 className="section-label text-violet-500">
+              Mistakes prevented
+            </h2>
             <p className="mt-0.5 t-tertiary text-[11px] leading-snug">
-              Real work unerr handled for you — hover any card for what it saved
-              you from.
+              Problems unerr caught before they reached your code — hover any
+              card to see what would have gone wrong.
             </p>
           </div>
-          <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider t-tertiary">
-            {fmtNum(actionsTotal)} actions
-          </span>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="font-mono text-[10px] uppercase tracking-wider t-tertiary">
+              {fmtNum(actionsTotal)} caught
+            </span>
+            <button
+              type="button"
+              onClick={() => navigateRoute("logbook")}
+              className="text-xs text-violet-400 transition-colors hover:text-violet-300"
+            >
+              Full log →
+            </button>
+          </div>
         </header>
 
-        {/* ⚡ The join no other tool can see — the differentiator. */}
+        {/* Cross-layer protection — unerr combining memory + code graph + drift */}
         {joinParts.length > 0 ? (
           <div className="mb-4 rounded-lg border border-violet-500/30 bg-violet-500/5 px-4 py-3">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
@@ -1234,15 +1247,15 @@ export function Dashboard() {
                 ⚡
               </span>
               <span className="font-medium text-foreground-emphasis">
-                The join no other tool can see
+                Cross-layer protection
               </span>
               <span className="t-tertiary">—</span>
               <span className="t-secondary">{joinParts.join(" · ")}</span>
             </div>
             <p className="mt-1 text-[11px] leading-snug t-tertiary">
-              unerr connected your session memory to live code structure and
-              drift on the same files — point tools (Mem0, Sourcegraph,
-              claude-mem) each see only their own slice.
+              unerr combined what it remembers about your project, the live code
+              structure, and file-change detection to catch issues that no
+              single tool could spot alone.
             </p>
           </div>
         ) : null}

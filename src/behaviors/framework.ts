@@ -1,13 +1,13 @@
 /**
  * Behavior Framework — registration, dispatch, assertiveness levels,
- * learning loop, and $0.50 gate integration for Layer 4 behavioral automation.
+ * learning loop, and token-savings gate integration for Layer 4
+ * behavioral automation.
  *
  * Every behavior has a lifecycle hook (pre_tool_use, post_tool_use,
  * session_start, session_end) and an assertiveness level that determines
  * whether it silently enriches, suggests, or enforces.
  */
 
-import { calculateDollarSavings } from "../proxy/model-pricing.js";
 import {
   type GuardMoment,
   formatGuardMoment,
@@ -169,7 +169,7 @@ export abstract class Behavior {
 
 /**
  * Centralized dispatcher: registers behaviors, routes hook events,
- * merges outputs, and enforces the $0.50 gate.
+ * merges outputs, and enforces the token-savings gate.
  */
 export class BehaviorDispatcher {
   private behaviors: Behavior[] = [];
@@ -303,24 +303,18 @@ export class BehaviorDispatcher {
 }
 
 /**
- * Evaluate $0.50 gate for a behavior output.
+ * Evaluate the token-savings gate for a behavior output.
  * Used by behaviors to decide whether to surface a guard moment.
  */
 export function evaluateGate(
   tokensPrevented: number,
   description: string,
-  modelId?: string,
   entityKey?: string
 ): { passes: boolean; guardMoment: GuardMoment | null } {
-  if (!shouldFireGuard(tokensPrevented, modelId)) {
+  if (!shouldFireGuard(tokensPrevented)) {
     return { passes: false, guardMoment: null };
   }
-  const moment = formatGuardMoment(
-    description,
-    tokensPrevented,
-    modelId,
-    entityKey
-  );
+  const moment = formatGuardMoment(description, tokensPrevented, entityKey);
   return { passes: true, guardMoment: moment };
 }
 

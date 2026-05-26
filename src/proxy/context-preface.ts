@@ -38,6 +38,7 @@
  * §12 Sprint 4.
  */
 
+import { estimateTokenCount } from "../intelligence/token-estimator.js";
 import { consumePendingTopicShift } from "../intelligence/topic-shift.js";
 import {
   type NamedEvent,
@@ -111,9 +112,9 @@ export interface ContextPrefaceInputs {
 /** Token budget for the entire preface block (BPE estimate, char/4). */
 const PREFACE_MAX_TOKENS = 80;
 
-/** char/4 cheap token estimator — matches `token-estimator.ts` heuristic. */
+/** Real BPE token count via the central estimator (heuristic fallback >50k chars). */
 function approxTokens(s: string): number {
-  return Math.ceil(s.length / 4);
+  return estimateTokenCount(s);
 }
 
 /**

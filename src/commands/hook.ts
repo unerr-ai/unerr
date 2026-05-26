@@ -27,6 +27,7 @@ import {
 import { runUserPromptSubmitHook } from "../hooks/prompt-hooks.js";
 import { runSessionStartHookAsync } from "../hooks/session-hooks.js";
 import { runPreBashHook } from "../hooks/shell-hooks.js";
+import { runPreWebFetchHook } from "../hooks/web-hooks.js";
 
 /**
  * Safe hook action wrapper. Reads stdin, runs the handler, writes stdout.
@@ -96,6 +97,13 @@ export function registerHookCommand(program: Command): void {
     .command("pre-edit")
     .description("Blast radius + convention check before Edit")
     .action(safeHookAction(runPreEditHook));
+
+  hook
+    .command("pre-webfetch")
+    .description(
+      "Redirect WebFetch to fetch_url (DOM-extracted, BM25, fewer tokens)"
+    )
+    .action(safeHookAction(runPreWebFetchHook));
 
   // ── PostToolUse hooks ─────────────────────────────────────────
 

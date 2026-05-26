@@ -21,6 +21,7 @@
  * proxy.ts, AFTER buildSignalPrefix but BEFORE serialization.
  */
 
+import { estimateTokenCount } from "../intelligence/token-estimator.js";
 import { toWireTag } from "./response-envelope.js";
 
 export interface WireCapResult {
@@ -306,7 +307,7 @@ function enforceByteCap(
 
   // Compute the numeric token budget that would have fit this response. Round
   // up to the next 100 so the caller doesn't bounce off a fractional miss.
-  const neededTokensRaw = Math.ceil(serialized.length / BYTES_PER_TOKEN);
+  const neededTokensRaw = estimateTokenCount(serialized);
   const neededTokens = Math.ceil(neededTokensRaw / 100) * 100;
   const purposeArg =
     typeof args.purpose === "string" ? args.purpose.trim() : undefined;

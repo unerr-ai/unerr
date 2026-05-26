@@ -1,5 +1,5 @@
 /**
- * Loop Detection & Cost Circuit Breaker — BA-1.1
+ * Loop Detection & Token Circuit Breaker — BA-1.1
  *
  * Monitors every tool call in real-time via a per-entity ring buffer.
  * Detects 3 stuck-loop patterns:
@@ -13,13 +13,9 @@
  *   HALF_OPEN: one retry allowed after cooldown expires
  *
  * TDD exemption: test file modifications are excluded from entity-retry count.
- * $0.50 gate: guard moment only fires when estimated savings > $0.50.
+ * Token gate: guard moment only fires when estimated token savings pass the gate.
  */
 
-import {
-  calculateDollarSavings,
-  formatDollars,
-} from "../proxy/model-pricing.js";
 import {
   type AssertLevel,
   Behavior,
@@ -123,9 +119,6 @@ export class LoopCircuitBreaker extends Behavior {
           behavior: this.id,
           loops_prevented_session: this.loopsPrevented,
           tokens_saved: this.totalTokensSaved,
-          dollars_saved: formatDollars(
-            calculateDollarSavings(this.totalTokensSaved, ctx.modelId)
-          ),
         },
         _context: {
           halt: true,
@@ -203,7 +196,6 @@ export class LoopCircuitBreaker extends Behavior {
     const gate = evaluateGate(
       estimatedFutureWaste,
       `Loop detected: ${failCount} consecutive failures on ${entityKey} (${detection.pattern})`,
-      ctx.modelId,
       entityKey
     );
 
@@ -225,9 +217,6 @@ export class LoopCircuitBreaker extends Behavior {
         behavior: this.id,
         loops_prevented_session: this.loopsPrevented,
         tokens_saved: this.totalTokensSaved,
-        dollars_saved: formatDollars(
-          calculateDollarSavings(this.totalTokensSaved, ctx.modelId)
-        ),
       },
       _context: {
         halt: true,

@@ -123,7 +123,6 @@ describe("Cumulative stats persistence", () => {
   it("returns zeroed cumulative stats on first load", () => {
     const cumulative = loadCumulativeStats();
     expect(cumulative.totalTokensSaved).toBe(0);
-    expect(cumulative.totalDollarsSaved).toBe(0);
     expect(cumulative.totalSessions).toBe(0);
     expect(cumulative.violationsCaughtAllTime).toBe(0);
     expect(cumulative.chokepointWarningsAllTime).toBe(0);
@@ -161,7 +160,6 @@ describe("Cumulative stats persistence", () => {
       filePath,
       JSON.stringify({
         totalTokensSaved: 500000,
-        totalDollarsSaved: 30.0,
         totalSessions: 10,
         weekStart: "2025-01-06", // Old week
         violationsCaughtAllTime: 50,

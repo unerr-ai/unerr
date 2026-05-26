@@ -1,61 +1,51 @@
 /**
  * Guard Moment Formatter — formats behavioral guard outputs with
- * counterfactual framing and $0.50 gate enforcement.
+ * counterfactual framing and token-savings gate enforcement.
  *
- * VS.4: Guard moments only fire when >$0.50 would be saved.
- * Format: "[unerr] ⚠ Prevented: {description}. Est. cost: ${amount}"
+ * VS.4: Guard moments only fire when the token gate would be passed.
+ * Format: "[unerr] ⚠ Prevented: {description}. Without unerr, ~{N} tokens..."
  */
 
-import { calculateDollarSavings } from "../proxy/model-pricing.js";
 import { frameGuardMoment } from "../utils/counterfactual.js";
 
 export interface GuardMoment {
   id: string;
   description: string;
   tokensPrevented: number;
-  dollarsPrevented: number;
   entityKey?: string;
   timestamp: number;
   passed: boolean;
 }
 
-const DOLLAR_GATE = 0.5;
+const TOKEN_GATE = 1_000;
 
 /**
- * Evaluate whether a guard moment passes the $0.50 threshold.
+ * Evaluate whether a guard moment passes the token-savings threshold.
  */
-export function shouldFireGuard(
-  tokensPrevented: number,
-  modelId?: string
-): boolean {
-  const dollars = calculateDollarSavings(tokensPrevented, modelId);
-  return dollars >= DOLLAR_GATE;
+export function shouldFireGuard(tokensPrevented: number): boolean {
+  return tokensPrevented >= TOKEN_GATE;
 }
 
 /**
  * Format and emit a guard moment to stderr.
- * Only fires if the $0.50 gate is passed.
+ * Only fires if the token gate is passed.
  */
 export function formatGuardMoment(
   description: string,
   tokensPrevented: number,
-  modelId?: string,
   entityKey?: string
 ): GuardMoment | null {
-  const dollars = calculateDollarSavings(tokensPrevented, modelId);
-
-  if (dollars < DOLLAR_GATE) {
+  if (tokensPrevented < TOKEN_GATE) {
     return null;
   }
 
-  const formatted = frameGuardMoment(description, dollars);
+  const formatted = frameGuardMoment(description, tokensPrevented);
   process.stderr.write(`${formatted}\n`);
 
   return {
     id: `guard-${Date.now()}`,
     description,
     tokensPrevented,
-    dollarsPrevented: dollars,
     entityKey,
     timestamp: Date.now(),
     passed: true,
@@ -63,8 +53,8 @@ export function formatGuardMoment(
 }
 
 /**
- * Get the current dollar gate threshold.
+ * Get the current token gate threshold.
  */
-export function getDollarGate(): number {
-  return DOLLAR_GATE;
+export function getTokenGate(): number {
+  return TOKEN_GATE;
 }

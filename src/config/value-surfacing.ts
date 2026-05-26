@@ -1,25 +1,22 @@
 /**
- * Value Surfacing — guard formatter, scorecard, and counterfactual explanation.
+ * Value Surfacing — session scorecard and counterfactual explanation.
  *
- * S8.1: Guard fires when session dollar savings exceed threshold.
- * S8.3: Session scorecard formats final session metrics.
+ * S8.3: Session scorecard formats final session metrics (tokens + turns only).
  * S8.7: Counterfactual explanation: "Without unerr: ~XK tokens -> with unerr: YK tokens"
+ *
+ * Savings are expressed purely in tokens and tool-calls — no dollar figures.
  */
 
 export interface ValueSurfacingConfig {
-  guardThresholdDollars: number;
   weeklyEnabled: boolean;
   scorecardEnabled: boolean;
   counterfactualEnabled: boolean;
-  modelId: string;
 }
 
 const DEFAULT_CONFIG: ValueSurfacingConfig = {
-  guardThresholdDollars: 0.5,
   weeklyEnabled: true,
   scorecardEnabled: true,
   counterfactualEnabled: true,
-  modelId: "claude-sonnet-4-20250514",
 };
 
 let currentConfig: ValueSurfacingConfig = { ...DEFAULT_CONFIG };
@@ -38,54 +35,11 @@ export function resetValueSurfacingConfig(): void {
   currentConfig = { ...DEFAULT_CONFIG };
 }
 
-// ── S8.1: Guard Formatter ───────────────────────────────────────────
-
-export interface GuardState {
-  fired: boolean;
-  lastFiredAt: number;
-}
-
-/**
- * Creates a session-scoped guard that fires once when dollar savings threshold is crossed.
- */
-export function createValueGuard(thresholdDollars?: number) {
-  const threshold = thresholdDollars ?? currentConfig.guardThresholdDollars;
-  const state: GuardState = { fired: false, lastFiredAt: 0 };
-
-  /**
-   * Check if the guard should fire. Returns the formatted message or null.
-   */
-  function check(sessionDollarsSaved: number): string | null {
-    if (state.fired) return null;
-    if (sessionDollarsSaved < threshold) return null;
-
-    state.fired = true;
-    state.lastFiredAt = Date.now();
-    return formatGuardMessage(sessionDollarsSaved);
-  }
-
-  function hasFired(): boolean {
-    return state.fired;
-  }
-
-  function reset(): void {
-    state.fired = false;
-    state.lastFiredAt = 0;
-  }
-
-  return { check, hasFired, reset };
-}
-
-function formatGuardMessage(dollarsSaved: number): string {
-  return `unerr saved $${dollarsSaved.toFixed(2)} this session`;
-}
-
 // ── S8.3: Session Scorecard ─────────────────────────────────────────
 
 export interface ScorecardInput {
   toolCalls: number;
   tokensSaved: number;
-  dollarsSaved: number;
   efficiency: number;
   durationMs: number;
   blastRadiusComputed: number;
@@ -98,7 +52,6 @@ export interface ScorecardInput {
 export interface Scorecard {
   toolCalls: number;
   tokensSaved: string;
-  dollarsSaved: string;
   efficiency: string;
   duration: string;
   intelligenceApplied: string[];
@@ -141,7 +94,6 @@ export function formatScorecard(input: ScorecardInput): Scorecard {
   return {
     toolCalls: input.toolCalls,
     tokensSaved: formatTokens(input.tokensSaved),
-    dollarsSaved: `$${input.dollarsSaved.toFixed(2)}`,
     efficiency: `${Math.round(input.efficiency)}%`,
     duration: durationMin > 0 ? `${durationMin} min` : "<1 min",
     intelligenceApplied: intelligence,
@@ -164,37 +116,7 @@ export function formatCounterfactual(
     tokensWithout > 0
       ? Math.round(((tokensWithout - tokensWith) / tokensWithout) * 100)
       : 0;
-  return `Without unerr: ~${withoutStr} tokens \u2192 with unerr: ${withStr} tokens (${reduction}% reduction)`;
-}
-
-// ── S8.2: Per-response _meta fields ─────────────────────────────────
-
-export interface ValueMeta {
-  tokens_saved: number;
-  dollar_savings: number;
-  optimization?: string;
-  powered_by: string;
-}
-
-/**
- * Assemble value meta fields for a single response.
- */
-export function assembleValueMeta(
-  tokensSaved: number,
-  dollarSavings: number,
-  optimizationDescription?: string
-): ValueMeta {
-  const meta: ValueMeta = {
-    tokens_saved: tokensSaved,
-    dollar_savings: Math.round(dollarSavings * 1_000_000) / 1_000_000,
-    powered_by: "unerr \u2014 intelligent token optimization",
-  };
-
-  if (optimizationDescription) {
-    meta.optimization = optimizationDescription;
-  }
-
-  return meta;
+  return `Without unerr: ~${withoutStr} tokens → with unerr: ${withStr} tokens (${reduction}% reduction)`;
 }
 
 // ── Shared Utilities ────────────────────────────────────────────────

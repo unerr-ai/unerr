@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  estimateCost,
-  estimateSavings,
   estimateTokenCount,
   estimateTokens,
-  getModelCostRate,
+  isTokenizerReady,
+  warmTokenizer,
 } from "../intelligence/token-estimator.js";
 
 describe("estimateTokenCount", () => {
@@ -74,45 +73,37 @@ describe("estimateTokens", () => {
   });
 });
 
-describe("estimateCost", () => {
-  it("calculates cost for Claude Sonnet", () => {
-    const cost = estimateCost("claude-sonnet-4-20250514", 1_000_000, 500_000);
-    expect(cost).toBe(3 + 7.5);
+describe("real tokenizer (gpt-tokenizer / o200k_base)", () => {
+  it("is available in the test environment", () => {
+    // gpt-tokenizer is a hard dependency, so the real counter must load.
+    expect(isTokenizerReady()).toBe(true);
   });
 
-  it("uses default rates for unknown models", () => {
-    const cost = estimateCost("unknown-model", 1_000_000, 1_000_000);
-    expect(cost).toBe(3 + 15);
+  it("warmTokenizer is safe and idempotent", () => {
+    expect(() => {
+      warmTokenizer();
+      warmTokenizer();
+    }).not.toThrow();
   });
 
-  it("returns 0 for Ollama", () => {
-    const cost = estimateCost("ollama", 1_000_000, 1_000_000);
-    expect(cost).toBe(0);
-  });
-});
-
-describe("estimateSavings", () => {
-  it("calculates dollar savings from token reduction", () => {
-    const savings = estimateSavings("claude-sonnet-4-20250514", 10000, 3000);
-    expect(savings).toBeGreaterThan(0);
+  it("produces the exact BPE count for a known string", () => {
+    // o200k_base tokenizes "hello world" as ["hello", " world"] = 2 tokens.
+    expect(estimateTokenCount("hello world")).toBe(2);
   });
 
-  it("returns 0 when no savings", () => {
-    const savings = estimateSavings("claude-sonnet-4-20250514", 1000, 1000);
-    expect(savings).toBe(0);
+  it("counts a single short word as 1 token", () => {
+    expect(estimateTokenCount("hello")).toBe(1);
   });
 });
 
-describe("getModelCostRate", () => {
-  it("returns known model rates", () => {
-    const rate = getModelCostRate("gpt-4o");
-    expect(rate.inputPerMillion).toBe(2.5);
-    expect(rate.outputPerMillion).toBe(10);
-  });
-
-  it("returns default rates for unknown models", () => {
-    const rate = getModelCostRate("imaginary-model");
-    expect(rate.inputPerMillion).toBe(3);
-    expect(rate.outputPerMillion).toBe(15);
+describe("large-input heuristic fallback", () => {
+  it("falls back to the heuristic above 50k chars without throwing", () => {
+    const huge = "const x = 1;\n".repeat(5000); // ~65k chars > LARGE_INPUT_CHARS
+    expect(huge.length).toBeGreaterThan(50_000);
+    const tokens = estimateTokenCount(huge);
+    expect(tokens).toBeGreaterThan(0);
+    expect(Number.isFinite(tokens)).toBe(true);
+    // Heuristic stays within an order of magnitude of the char/4 ballpark.
+    expect(tokens).toBeLessThan(huge.length);
   });
 });

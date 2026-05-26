@@ -20,10 +20,20 @@
  * never block prompt delivery.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { openMetricsStore } from "../tracking/metrics-store.js";
 import { materializeTranscripts } from "../tracking/transcript-materializer.js";
+
+/**
+ * Dedupe window for `user_prompt_received` boundary writes. A real user
+ * prompt is always separated from the previous one by at least a full
+ * agent turn (seconds to minutes); duplicate UserPromptSubmit hook fires
+ * land within tens of milliseconds. 2s sits comfortably between the two,
+ * so it collapses duplicates without ever swallowing a genuine prompt.
+ */
+const BOUNDARY_DEDUPE_MS = 2_000;
 
 /** Read the `capture_prompts` flag from `.unerr/config.json`. Defaults
  *  to `false` — content capture is OPT-IN per GenAI semconv. */
@@ -97,10 +107,41 @@ export function recordUserPromptReceived(input: PromptCaptureInput): number {
     const capture = readCapturePromptsFlag(input.cwd);
     const store = openMetricsStore(input.unerrDir);
     const now = new Date();
+
+    // Non-reversible digest of the message — written ALWAYS (it is not the
+    // content; it survives the opt-out content suppression below) so the
+    // dedupe below can detect an exact re-fire without depending on
+    // `capture_prompts`.
+    const promptHash = createHash("sha256")
+      .update(input.message)
+      .digest("hex")
+      .slice(0, 16);
+
+    // Boundary dedupe — the UserPromptSubmit hook can fire 2-3× for one
+    // real prompt (observed: pairs/triples 11-20ms apart), each carrying the
+    // IDENTICAL message. Every fire writes a `user_prompt_received` row, and
+    // `latestPromptBoundaryTs` keys the whole turn window off the MAX of those
+    // rows — a late duplicate can collapse the per-turn slice to an empty
+    // sliver, which strips the end-of-turn receipt down to its terse fallback.
+    // Skip the write when the immediately-preceding boundary is an exact
+    // re-fire: same session, identical content digest, within the window.
+    // Matching on the digest (not just recency) means two genuinely distinct
+    // prompts are never collapsed even when they arrive close together.
+    const lastBoundary = store.latestUserPromptBoundary(input.sessionId);
+    if (
+      lastBoundary !== null &&
+      lastBoundary.hash === promptHash &&
+      now.getTime() - lastBoundary.ts < BOUNDARY_DEDUPE_MS
+    ) {
+      return 0;
+    }
     const detail: Record<string, unknown> = {
       length: input.message.length,
       classified_as: input.classifiedAs,
       hook_payload_chars: input.hookPayloadChars,
+      // Content digest for re-fire dedupe — always present, never reversible
+      // to the verbatim message, so it is recorded regardless of opt-in.
+      prompt_hash: promptHash,
       // Verbatim content only when opt-in. When opt-out, `prompt: null`
       // signals to readers that operational metadata exists but content
       // was suppressed at write-time.
