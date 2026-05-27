@@ -1,309 +1,339 @@
 /**
- * unerr check-commit — Pre-commit convention validation.
+ * unerr check-commit — the commit-gate reviewer (Surface B).
  *
- * Called by the pre-commit git hook to check staged changes
- * against project conventions. Non-blocking by default.
+ * Wired through the git `pre-commit` hook. Runs the full Tier-1 review engine
+ * over the staged diff (deterministic, no LLM) and blocks the commit when a
+ * finding lands at/above the blocking severity — the hard, agent-binding gate
+ * the in-flight review (Surface A) is the soft counterpart to.
  *
- * Sprint 4 (Task 4.2): Full convention checking implementation.
+ * Flow (pre-commit):
+ *   1. Gate on .unerr/config.json (repoId) + a non-empty staged set.
+ *   2. Load the CozoDB graph snapshot (skip silently if none).
+ *   3. reviewStagedChanges() → run the engine over the staged index.
+ *   4. Render findings; persist the verdict to .unerr/state/review-verdict.json
+ *      (the post-commit hook attaches it to the commit) + an audit log.
+ *   5. Exit 1 only in blocking mode with a finding at/above the blocking floor.
  *
- * Flow:
- *   1. Load CozoDB graph from local snapshot
- *   2. Get staged files from git
- *   3. Evaluate rules against each staged file
- *   4. Display violations with formatted output
- *   5. Exit 1 if blocking mode and violations found
+ * Flow (post-commit, `--record-verdict`):
+ *   Read the pending verdict and attach it as a git note on HEAD via
+ *   git-attribution.ts, so the verdict survives rebase / squash / cherry-pick.
  *
  * Exit codes:
- *   0 — All checks pass (or no checks available)
- *   1 — Violations found (only when blocking mode is enabled)
+ *   0 — clean, or non-blocking, or no checks available
+ *   1 — blocking mode and a finding at/above the blocking floor
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { extname, join } from "node:path";
-import { gunzipSync } from "node:zlib";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
-import { getStagedFiles } from "../utils/git.js";
+import { reviewStagedChanges } from "../review/git-review.js";
+import {
+  loadStandaloneGraph,
+  loadStandaloneNotes,
+} from "../review/standalone-load.js";
+import {
+  type ReviewFinding,
+  SEVERITY_RANK,
+  type Severity,
+} from "../review/types.js";
+import { getHeadSha, getStagedFiles } from "../utils/git.js";
 import { logInfo } from "../utils/log.js";
 import { detail, fail, info, section, success, warn } from "../utils/ui.js";
 
-/** File extensions we can evaluate rules against. */
-const SUPPORTED_EXTENSIONS = new Set([
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".py",
-  ".go",
-]);
+/** Findings at/above this severity block the commit (blocking mode only). */
+const DEFAULT_BLOCKING_SEVERITY: Severity = "high";
+/** Findings at/above this severity are shown; below it they count as suppressed. */
+const DISPLAY_FLOOR: Severity = "medium";
+/** A pending verdict older than this is stale (e.g. an aborted commit); the
+ *  post-commit hook ignores it rather than mis-attributing it to a later commit. */
+const VERDICT_FRESHNESS_MS = 5 * 60_000;
+
+/** Persisted between the pre-commit gate and the post-commit note writer. */
+interface PendingVerdict {
+  verdict: "pass" | "blocked" | "warn";
+  findings: number;
+  blocking: number;
+  top_severity: string | null;
+  checkers_run: string[];
+  staged_at: string;
+}
 
 export function registerCheckCommitCommand(program: Command) {
   program
     .command("check-commit")
-    .description(
-      "Check staged changes against project conventions (pre-commit hook)"
-    )
+    .description("Review staged changes with the full engine (pre-commit gate)")
     .option(
       "--blocking",
-      "Exit with code 1 on violations (default: non-blocking)"
+      "Exit with code 1 on blocking findings (default: non-blocking)"
     )
-    .option("--verbose", "Show detailed output including passing files")
-    .action(async (opts: { blocking?: boolean; verbose?: boolean }) => {
-      const cwd = process.cwd();
+    .option("--verbose", "Show all evidence lines, not just the lead")
+    .option(
+      "--record-verdict",
+      "Post-commit: attach the pending review verdict to HEAD as a git note"
+    )
+    .action(
+      async (opts: {
+        blocking?: boolean;
+        verbose?: boolean;
+        recordVerdict?: boolean;
+      }) => {
+        const cwd = process.cwd();
 
-      // ── Blocking mode detection ──────────────────────────────────
-      let blockingMode = opts.blocking ?? false;
-      const settingsPath = join(cwd, ".unerr", "settings.json");
-      if (!blockingMode && existsSync(settingsPath)) {
-        try {
-          const settings = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-            hooks?: { precommit?: { blocking?: boolean } };
-          };
-          blockingMode = settings.hooks?.precommit?.blocking ?? false;
-        } catch {
-          /* ignore malformed settings */
-        }
-      }
-
-      logInfo("check-commit invoked", { blocking: blockingMode });
-
-      // ── Config gating ────────────────────────────────────────────
-      const configPath = join(cwd, ".unerr", "config.json");
-      if (!existsSync(configPath)) {
-        logInfo("check-commit: no .unerr/config.json, skipping");
-        return;
-      }
-
-      let repoId: string;
-      try {
-        const config = JSON.parse(readFileSync(configPath, "utf-8")) as {
-          repoId?: string;
-        };
-        if (!config.repoId) {
-          logInfo("check-commit: no repoId in config, skipping");
+        // ── Post-commit path: attach the pending verdict to the new commit ──
+        if (opts.recordVerdict) {
+          await recordPendingVerdict(cwd);
           return;
         }
-        repoId = config.repoId;
-      } catch {
-        logInfo("check-commit: invalid config.json, skipping");
-        return;
-      }
 
-      // ── Get staged files ─────────────────────────────────────────
-      const stagedFiles = await getStagedFiles(cwd);
-      if (stagedFiles.length === 0) {
-        logInfo("check-commit: no staged files");
-        return;
-      }
-
-      // Filter to supported file types
-      const checkableFiles = stagedFiles.filter((f) =>
-        SUPPORTED_EXTENSIONS.has(extname(f))
-      );
-
-      if (checkableFiles.length === 0) {
-        if (opts.verbose) {
-          section("unerr pre-commit check");
-          detail(
-            `${stagedFiles.length} staged file${stagedFiles.length !== 1 ? "s" : ""} — none with supported extensions`
-          );
+        // ── Blocking mode detection ──────────────────────────────────
+        let blockingMode = opts.blocking ?? false;
+        const settingsPath = join(cwd, ".unerr", "settings.json");
+        if (!blockingMode && existsSync(settingsPath)) {
+          try {
+            const settings = JSON.parse(
+              readFileSync(settingsPath, "utf-8")
+            ) as {
+              hooks?: { precommit?: { blocking?: boolean } };
+            };
+            blockingMode = settings.hooks?.precommit?.blocking ?? false;
+          } catch {
+            /* ignore malformed settings */
+          }
         }
-        return;
-      }
 
-      // ── Load graph ───────────────────────────────────────────────
-      const snapshotsDir = join(cwd, ".unerr", "snapshots");
-      const manifestsDir = join(cwd, ".unerr", "manifests");
+        logInfo("check-commit invoked", { blocking: blockingMode });
 
-      const localGraph = await loadGraphForCheckCommit(
-        repoId,
-        snapshotsDir,
-        manifestsDir
-      );
-
-      if (!localGraph) {
-        if (opts.verbose) {
-          section("unerr pre-commit check");
-          detail("No local graph available — skipping convention checks");
+        // ── Config gating ────────────────────────────────────────────
+        const configPath = join(cwd, ".unerr", "config.json");
+        if (!existsSync(configPath)) {
+          logInfo("check-commit: no .unerr/config.json, skipping");
+          return;
         }
-        logInfo("check-commit: no graph available, skipping");
-        return;
-      }
 
-      // Check if any rules exist
-      if (!(await localGraph.hasRules())) {
-        if (opts.verbose) {
-          section("unerr pre-commit check");
-          detail("No rules defined — skipping convention checks");
-        }
-        logInfo("check-commit: no rules in graph, skipping");
-        return;
-      }
-
-      // ── Evaluate rules per file ──────────────────────────────────
-      const { evaluateRules } = await import(
-        "../intelligence/rule-evaluator.js"
-      );
-
-      interface FileViolation {
-        filePath: string;
-        violations: Array<{
-          ruleKey: string;
-          ruleName: string;
-          severity: string;
-          message: string;
-          line?: number;
-          matchedCode?: string;
-        }>;
-      }
-
-      const allFileViolations: FileViolation[] = [];
-      let totalRulesEvaluated = 0;
-      let filesChecked = 0;
-
-      for (const filePath of checkableFiles) {
-        const absPath = join(cwd, filePath);
-        if (!existsSync(absPath)) continue;
-
-        let content: string;
         try {
-          content = readFileSync(absPath, "utf-8");
+          const config = JSON.parse(readFileSync(configPath, "utf-8")) as {
+            repoId?: string;
+          };
+          if (!config.repoId) {
+            logInfo("check-commit: no repoId in config, skipping");
+            return;
+          }
         } catch {
-          continue; // Skip unreadable files
+          logInfo("check-commit: invalid config.json, skipping");
+          return;
         }
 
-        const rules = await localGraph.getRules(filePath);
-        if (rules.length === 0) continue;
+        // ── Staged-set early-out ─────────────────────────────────────
+        const stagedFiles = await getStagedFiles(cwd);
+        if (stagedFiles.length === 0) {
+          logInfo("check-commit: no staged files");
+          return;
+        }
 
-        filesChecked++;
-        totalRulesEvaluated += rules.length;
-
-        try {
-          const result = await evaluateRules(
-            rules,
-            filePath,
-            content,
-            localGraph
-          );
-          if (result.violations.length > 0) {
-            allFileViolations.push({
-              filePath,
-              violations: result.violations,
-            });
+        // ── Load graph ───────────────────────────────────────────────
+        const localGraph = await loadStandaloneGraph(cwd);
+        if (!localGraph) {
+          if (opts.verbose) {
+            section("unerr review — commit gate");
+            detail("No local graph available — skipping review");
           }
-        } catch (err) {
-          logInfo(`check-commit: rule evaluation failed for ${filePath}`, err);
+          logInfo("check-commit: no graph available, skipping");
+          return;
         }
-      }
 
-      const totalViolations = allFileViolations.reduce(
-        (sum, fv) => sum + fv.violations.length,
-        0
-      );
-
-      // ── Display results ──────────────────────────────────────────
-      section("unerr pre-commit check");
-
-      if (totalViolations === 0) {
-        success(
-          `${filesChecked} file${filesChecked !== 1 ? "s" : ""} checked, ${totalRulesEvaluated} rules evaluated — all clear`
+        // ── Run the engine over the staged diff ──────────────────────
+        const notes = await loadStandaloneNotes(cwd, "review-gate");
+        const { report, filesReviewed } = await reviewStagedChanges(
+          cwd,
+          localGraph,
+          { notes },
+          { minSeverity: DISPLAY_FLOOR }
         );
-        process.exitCode = 0;
-        return;
-      }
 
-      // Display violations grouped by file
-      for (const fv of allFileViolations) {
-        fail(`${fv.filePath}`);
-        for (const v of fv.violations) {
-          const location = v.line ? `:${v.line}` : "";
-          const severityColor =
-            v.severity === "error"
-              ? pc.red
-              : v.severity === "warning"
-                ? pc.yellow
-                : pc.dim;
-          info(
-            `${severityColor(`[${v.severity}]`)} ${v.message}${location ? pc.dim(` (line ${v.line})`) : ""}`
+        const blockingRank = SEVERITY_RANK[DEFAULT_BLOCKING_SEVERITY];
+        const blockingFindings = report.findings.filter(
+          (f) => SEVERITY_RANK[f.severity] >= blockingRank
+        );
+
+        // ── Display ──────────────────────────────────────────────────
+        section("unerr review — commit gate");
+
+        if (report.findings.length === 0) {
+          success(
+            `${filesReviewed} file${filesReviewed !== 1 ? "s" : ""} reviewed, ${report.checkersRun.length} checks — all clear`
           );
-          if (v.matchedCode && opts.verbose) {
-            detail(`  → ${v.matchedCode.slice(0, 80)}`);
+          persistVerdict(cwd, report, blockingFindings.length, "pass");
+          process.exitCode = 0;
+          return;
+        }
+
+        for (const f of report.findings) {
+          renderFinding(f, opts.verbose ?? false);
+        }
+
+        const summary = `${report.findings.length} finding${
+          report.findings.length !== 1 ? "s" : ""
+        }${
+          blockingFindings.length > 0
+            ? ` (${blockingFindings.length} at/above ${DEFAULT_BLOCKING_SEVERITY})`
+            : ""
+        }${report.suppressed > 0 ? ` · ${report.suppressed} below ${DISPLAY_FLOOR}` : ""}`;
+        warn(summary);
+
+        const willBlock = blockingMode && blockingFindings.length > 0;
+        // `blocked` records that a blocking-severity finding existed even when
+        // non-blocking mode let the commit through; `warn` = findings, none blocking.
+        persistVerdict(
+          cwd,
+          report,
+          blockingFindings.length,
+          blockingFindings.length > 0 ? "blocked" : "warn"
+        );
+
+        if (willBlock) {
+          fail(
+            "Commit blocked — fix the findings above or re-run `git commit --no-verify` to bypass"
+          );
+          process.exitCode = 1;
+        } else {
+          if (blockingFindings.length > 0) {
+            detail("Non-blocking mode — commit will proceed despite findings");
+            detail(
+              "Enable blocking: set hooks.precommit.blocking=true in .unerr/settings.json"
+            );
           }
+          process.exitCode = 0;
         }
       }
-
-      // Summary line
-      const errorCount = allFileViolations.reduce(
-        (sum, fv) =>
-          sum + fv.violations.filter((v) => v.severity === "error").length,
-        0
-      );
-      const warningCount = totalViolations - errorCount;
-
-      const errorSuffix =
-        errorCount > 0
-          ? ` (${errorCount} error${errorCount !== 1 ? "s" : ""})`
-          : "";
-      const warnSuffix =
-        warningCount > 0
-          ? ` (${warningCount} warning${warningCount !== 1 ? "s" : ""})`
-          : "";
-      warn(
-        `${totalViolations} violation${totalViolations !== 1 ? "s" : ""} found${errorSuffix}${warnSuffix}`
-      );
-
-      if (blockingMode) {
-        fail("Commit blocked — fix violations or use --no-verify to bypass");
-        process.exitCode = 1;
-      } else {
-        detail("Non-blocking mode — commit will proceed");
-        detail(
-          "Enable blocking: set hooks.precommit.blocking=true in .unerr/settings.json"
-        );
-        process.exitCode = 0;
-      }
-    });
+    );
 }
 
-// ── Graph Loading ────────────────────────────────────────────────────
+// ── Finding rendering ─────────────────────────────────────────────────────
+
+function severityColor(s: Severity): (text: string) => string {
+  switch (s) {
+    case "critical":
+    case "high":
+      return pc.red;
+    case "medium":
+      return pc.yellow;
+    default:
+      return pc.dim;
+  }
+}
+
+function renderFinding(f: ReviewFinding, verbose: boolean): void {
+  const badge = severityColor(f.severity)(`[${f.severity}]`);
+  const anchor = `${f.anchor.kind}:${f.anchor.value}`;
+  fail(`${badge} ${pc.dim(f.checkerId)} ${f.title}`);
+  const evidenceLines = verbose ? f.evidence : f.evidence.slice(0, 1);
+  for (const e of evidenceLines) {
+    info(`  ${pc.dim(anchor)} — ${e}`);
+  }
+  detail(`  → ${f.action}`);
+}
+
+// ── Verdict persistence ─────────────────────────────────────────────────────
+
+function verdictStatePath(cwd: string): string {
+  return join(cwd, ".unerr", "state", "review-verdict.json");
+}
 
 /**
- * Load CozoDB graph for standalone check-commit (proxy may not be running).
- * Returns null if no snapshot available.
+ * Write the pending verdict (for the post-commit hook) + append an audit-log
+ * row. Best-effort: a write failure never blocks the commit decision.
  */
-async function loadGraphForCheckCommit(
-  repoId: string,
-  snapshotsDir: string,
-  manifestsDir: string
-): Promise<import("../intelligence/local-graph.js").CozoGraphStore | null> {
-  // Check manifest exists
-  const manifestPath = join(manifestsDir, `${repoId}.json`);
-  if (!existsSync(manifestPath)) return null;
-
-  // Find snapshot file
-  let snapshotPath = join(snapshotsDir, `${repoId}.msgpack.gz`);
-  if (!existsSync(snapshotPath)) {
-    snapshotPath = join(snapshotsDir, `${repoId}.msgpack`);
+function persistVerdict(
+  cwd: string,
+  report: { findings: ReviewFinding[]; checkersRun: string[] },
+  blocking: number,
+  verdict: PendingVerdict["verdict"]
+): void {
+  const pending: PendingVerdict = {
+    verdict,
+    findings: report.findings.length,
+    blocking,
+    top_severity: report.findings[0]?.severity ?? null,
+    checkers_run: report.checkersRun,
+    staged_at: new Date().toISOString(),
+  };
+  try {
+    const stateDir = join(cwd, ".unerr", "state");
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(verdictStatePath(cwd), JSON.stringify(pending), "utf-8");
+  } catch {
+    /* best effort */
   }
-  if (!existsSync(snapshotPath)) return null;
+  try {
+    const logsDir = join(cwd, ".unerr", "logs");
+    mkdirSync(logsDir, { recursive: true });
+    appendFileSync(
+      join(logsDir, "review-verdicts.jsonl"),
+      `${JSON.stringify(pending)}\n`,
+      "utf-8"
+    );
+  } catch {
+    /* best effort */
+  }
+}
+
+/**
+ * Post-commit: read the pending verdict and attach it to HEAD as a git note.
+ * The SHA only exists post-commit, so this runs from the post-commit hook
+ * rather than the gate itself. Ignores a stale verdict (an aborted / bypassed
+ * commit) and clears the pending file once consumed.
+ */
+async function recordPendingVerdict(cwd: string): Promise<void> {
+  const statePath = verdictStatePath(cwd);
+  if (!existsSync(statePath)) return;
+
+  let pending: PendingVerdict;
+  try {
+    pending = JSON.parse(readFileSync(statePath, "utf-8")) as PendingVerdict;
+  } catch {
+    try {
+      rmSync(statePath, { force: true });
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+
+  const fresh =
+    Date.now() - Date.parse(pending.staged_at) <= VERDICT_FRESHNESS_MS;
+  if (fresh) {
+    const sha = await getHeadSha(cwd);
+    if (sha) {
+      try {
+        const { writeReviewVerdictNote } = await import(
+          "../tracking/git-attribution.js"
+        );
+        await writeReviewVerdictNote(cwd, sha, {
+          version: "1.0",
+          verdict: pending.verdict,
+          findings: pending.findings,
+          blocking: pending.blocking,
+          top_severity: pending.top_severity,
+          checkers_run: pending.checkers_run,
+          created_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        logInfo("check-commit: failed to write review verdict note", err);
+      }
+    }
+  }
 
   try {
-    // Dynamic imports to keep cold start fast when no check needed
-    const { default: CozoDbConstructor } = await import("cozo-node");
-    const { CozoGraphStore } = await import("../intelligence/local-graph.js");
-    const { unpack } = await import("msgpackr");
-
-    const db = new (CozoDbConstructor as any)();
-    const localGraph = await CozoGraphStore.create(db);
-
-    const raw = readFileSync(snapshotPath);
-    const buffer = snapshotPath.endsWith(".gz") ? gunzipSync(raw) : raw;
-    const envelope = unpack(buffer) as any;
-    await localGraph.loadSnapshot(envelope);
-
-    return localGraph;
-  } catch (err) {
-    logInfo("check-commit: failed to load graph", err);
-    return null;
+    rmSync(statePath, { force: true });
+  } catch {
+    /* ignore */
   }
 }

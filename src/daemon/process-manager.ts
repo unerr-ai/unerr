@@ -36,6 +36,17 @@ import {
 
 // ── Types ───────────────────────────────────────────────────────
 
+/**
+ * One caller blocked in {@link ProcessManager.waitForReady} for a repo whose
+ * proxy is still `starting`. The per-waiter timer rejects only this waiter on
+ * the ready-timeout; it is cleared when the child reports ready / exits.
+ */
+interface ReadyWaiter {
+  resolve: (sock: string) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export interface ManagedRepo {
   path: string;
   label: string;
@@ -51,8 +62,15 @@ export interface ManagedRepo {
   entities: number | null;
   edges: number | null;
   needsInput: NeedsInputSignal[];
-  readyResolve: ((sock: string) => void) | null;
-  readyReject: ((err: Error) => void) | null;
+  /**
+   * Every caller blocked in waitForReady for this repo. `ensure` requests are
+   * dispatched concurrently (the daemon UDS server fires handleRequest per
+   * frame without serializing), so two IDE sessions opening the same cold repo
+   * both wait here. ALL waiters must be notified on ready / exit / error — a
+   * single resolve/reject slot dropped every waiter but the last, hanging the
+   * rest until the 6.5-min request timeout (the "second session times out" bug).
+   */
+  readyWaiters: ReadyWaiter[];
   /**
    * True when this entry was adopted from an already-running per-repo proxy
    * (prior unerrd generation, standalone `unerr`, or one that outlived our
@@ -199,7 +217,21 @@ export class ProcessManager {
     const adopted = this.tryAdopt(key);
     if (adopted) return adopted;
 
-    return this.spawn(key);
+    try {
+      return await this.spawn(key);
+    } catch (err) {
+      // The forked child can lose the per-repo PID-lock race to a proxy that
+      // came up between tryAdopt and fork (a concurrent ensure on another
+      // unerrd, a standalone `unerr`, or an orphan that outlived a prior
+      // generation). That child exits during startup without ever serving —
+      // proxy.ts exits 0 on a held lock — but the winner is now live and
+      // adoptable. Re-probe once so a lost race returns the real proxy's sock
+      // instead of surfacing "Child exited during startup" and stranding the
+      // bridge in its ensureRepo retry loop.
+      const readopted = this.tryAdopt(key);
+      if (readopted) return readopted;
+      throw err;
+    }
   }
 
   /**
@@ -243,8 +275,7 @@ export class ProcessManager {
       entities: null,
       edges: null,
       needsInput: [],
-      readyResolve: null,
-      readyReject: null,
+      readyWaiters: [],
       adopted: true,
     };
     this.repos.set(repoPath, repo);
@@ -370,8 +401,7 @@ export class ProcessManager {
       entities: null,
       edges: null,
       needsInput: [],
-      readyResolve: null,
-      readyReject: null,
+      readyWaiters: [],
     };
     this.repos.set(repoPath, repo);
 
@@ -401,9 +431,7 @@ export class ProcessManager {
 
     child.on("error", (err) => {
       repo.status = "error";
-      repo.readyReject?.(err);
-      repo.readyResolve = null;
-      repo.readyReject = null;
+      this.rejectReadyWaiters(repo, err);
       this.onEvent?.("error", repo, err.message);
     });
 
@@ -422,24 +450,52 @@ export class ProcessManager {
     }
 
     return new Promise<string>((resolve, reject) => {
-      repo.readyResolve = resolve;
-      repo.readyReject = reject;
-
-      const timer = setTimeout(() => {
-        repo.readyReject?.(
+      // Append, never overwrite: concurrent ensure() callers for the same cold
+      // repo each register their own waiter so all are woken on ready/exit.
+      const waiter: ReadyWaiter = {
+        resolve,
+        reject,
+        timer: undefined as unknown as ReturnType<typeof setTimeout>,
+      };
+      waiter.timer = setTimeout(() => {
+        // Time out only THIS waiter; others may have a longer budget left.
+        const idx = repo.readyWaiters.indexOf(waiter);
+        if (idx !== -1) repo.readyWaiters.splice(idx, 1);
+        reject(
           new Error(
             `Repo process ${repo.path} failed to become ready in ${REPO_READY_TIMEOUT_MS}ms`
           )
         );
-        repo.readyResolve = null;
-        repo.readyReject = null;
-        if (repo.status === "starting") {
+        // Only tear the child down once the LAST waiter has given up — killing
+        // it while another session is still waiting would strand that session.
+        if (repo.readyWaiters.length === 0 && repo.status === "starting") {
           repo.status = "error";
           repo.child?.kill("SIGTERM");
         }
       }, REPO_READY_TIMEOUT_MS);
-      timer.unref();
+      waiter.timer.unref();
+      repo.readyWaiters.push(waiter);
     });
+  }
+
+  /** Resolve every waiter blocked on this repo becoming ready, then clear them. */
+  private resolveReadyWaiters(repo: ManagedRepo, sock: string): void {
+    const waiters = repo.readyWaiters;
+    repo.readyWaiters = [];
+    for (const w of waiters) {
+      clearTimeout(w.timer);
+      w.resolve(sock);
+    }
+  }
+
+  /** Reject every waiter blocked on this repo becoming ready, then clear them. */
+  private rejectReadyWaiters(repo: ManagedRepo, err: Error): void {
+    const waiters = repo.readyWaiters;
+    repo.readyWaiters = [];
+    for (const w of waiters) {
+      clearTimeout(w.timer);
+      w.reject(err);
+    }
   }
 
   // ── Internal: IPC handling ──────────────────────────────────
@@ -452,9 +508,7 @@ export class ProcessManager {
       case "ready":
         repo.sock = msg.sock;
         repo.status = "running";
-        repo.readyResolve?.(msg.sock);
-        repo.readyResolve = null;
-        repo.readyReject = null;
+        this.resolveReadyWaiters(repo, msg.sock);
         this.onEvent?.("started", repo);
         break;
 
@@ -491,13 +545,12 @@ export class ProcessManager {
     repo.connections = 0;
 
     if (prev === "starting") {
-      repo.readyReject?.(
+      this.rejectReadyWaiters(
+        repo,
         new Error(
           `Child exited during startup (code=${code}, signal=${signal})`
         )
       );
-      repo.readyResolve = null;
-      repo.readyReject = null;
     }
 
     this.onEvent?.("stopped", repo, `code=${code}, signal=${signal}`);

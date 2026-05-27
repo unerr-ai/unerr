@@ -43,7 +43,10 @@ Phase A7 — REFACTOR.
 Phase A8 — Coverage check.
   Run `get_test_coverage({entity:'<entity_key>'})` (if available) to confirm the new code is covered.
 
-Phase A9 — Close out.
+Phase A9 — Review before close.
+  Run the Review phase (`unerr-review`, phases R4–R7) on the entity the tests now cover: `get_references({key:'<entity>', direction:'callers'})` for blast radius, `get_conventions({file_path:'<file>'})` for convention/boundary breaches, `search_code({query:'<new-name>'})` for duplicate logic. The tests prove the entity does what the spec said; the review checks it does not break what the spec did not mention. Fix critical + high before close-out.
+
+Phase A10 — Close out.
   Call `unerr_turn_summary({})` once and include the returned `line` verbatim.
 
 ## Track B — Receiving Code Review
@@ -90,6 +93,7 @@ Track A — test passes on first run (skipping RED) → test is tautological or 
 Track A — writing more implementation than the test demands → speculative; deletes YAGNI.
 Track A — refactoring while the test is red → loses the safety net; revert, get green, then refactor.
 Track A — skipping A8 coverage check → ships untested branches.
+Track A — closing without the Phase A9 review → the tests pass but breaking-caller cascades and duplicate logic still ship; run `unerr-review` R4–R7 first.
 Track B — addressing 'most' comments → every comment needs ACCEPT/PUSHBACK/CLARIFY; partial coverage is a regression.
 Track B — hedge-pushback ('not sure', 'I think') → cite a convention or a tradeoff; otherwise it's an ACCEPT.
 Track B — applying a fix to a hot entity without `get_references` → review comments on exported entities cascade.

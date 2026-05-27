@@ -71,6 +71,15 @@ export interface SessionResumePayload {
     text: string;
     ts: number;
   }>;
+  /** P2.2 — entities whose signature changed last session but whose callers
+   *  were never updated, reconciled at the prior session's end by
+   *  IncompleteWorkDetector and persisted to incomplete-work.json. Surfaced
+   *  here so the next session opens knowing exactly which call sites still
+   *  need updating. Optional + best-effort (empty when the file is absent). */
+  broken_callers?: Array<{
+    entity: string;
+    callers: string[];
+  }>;
 }
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -181,6 +190,21 @@ export async function generateSessionResumePayload(
       }
     }
 
+    // P2.2 — broken callers reconciled at the prior session's end. Best-effort:
+    // a missing / unreadable incomplete-work.json yields no flags, never throws.
+    let brokenCallers: SessionResumePayload["broken_callers"] = [];
+    try {
+      const { IncompleteWorkDetector } = await import(
+        "../behaviors/incomplete-work.js"
+      );
+      brokenCallers = IncompleteWorkDetector.readPersistedItems(unerrDir)
+        .filter((i) => i.type === "broken_callers" && i.entity)
+        .slice(0, 3)
+        .map((i) => ({ entity: i.entity!, callers: i.remaining ?? [] }));
+    } catch {
+      // Non-critical — resume block still renders without broken-caller flags.
+    }
+
     return {
       session_resumed: true,
       previous_session: {
@@ -206,6 +230,7 @@ export async function generateSessionResumePayload(
       decayed_since_last_session: decayedFacts,
       open_blockers: openBlockers,
       last_intents: lastIntents,
+      broken_callers: brokenCallers,
     };
   } catch {
     return null;
@@ -353,6 +378,20 @@ export function formatSessionResumeBlock(
     for (const b of payload.open_blockers.slice(0, 3)) {
       const anchor = b.file_path ? ` [${b.file_path}]` : "";
       parts.push(`▸ unresolved blocker: ${b.text}${anchor}`);
+    }
+  }
+
+  // P2.2 — broken callers: a signature changed last session but these call
+  // sites were never updated. Names the exact file:entity to fix, so the next
+  // turn can open them directly instead of rediscovering the breakage.
+  if (payload.broken_callers && payload.broken_callers.length > 0) {
+    for (const bc of payload.broken_callers.slice(0, 3)) {
+      const sites = bc.callers.slice(0, 3).join(", ");
+      const more =
+        bc.callers.length > 3 ? ` (+${bc.callers.length - 3} more)` : "";
+      parts.push(
+        `▸ unfinished: changed ${bc.entity}, callers not updated: ${sites}${more}. call get_references({direction:'callers'}) on ${bc.entity}`
+      );
     }
   }
 

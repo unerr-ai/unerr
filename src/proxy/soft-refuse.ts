@@ -76,6 +76,10 @@ const TIER1_ALTERNATIVE: Readonly<
     tool: "file_read",
     example: 'file_read({file_path:"<path>",entity:"<name>"})',
   },
+  review_changes: {
+    tool: "get_references",
+    example: 'get_references({key:"<changed_symbol>",direction:"callers"})',
+  },
   mark_intent: { tool: "file_read", example: "" },
   mark_decision: {
     tool: "mark_intent",

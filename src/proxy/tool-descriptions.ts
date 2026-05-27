@@ -103,7 +103,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   unerr_turn_summary: {
     tier: 1,
     active:
-      "REQUIRED at end of every coding turn — call ONCE before drafting your closing summary, then include the returned `line` verbatim in your final message. Returns {line, total_events, total_tokens_saved, headroom_compounded}.",
+      "REQUIRED at end of every coding turn — call ONCE before drafting your closing summary, then include the returned `line` verbatim in your final message. Returns {ok, line} (economy counters stay server-side for the dashboard).",
     locked: "[tier 1 — always exposed]",
   },
   unerr_surface2_line: {
@@ -175,6 +175,15 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
       "[locked, unlock: large-file truncation] All entities in a file. Use file_outline first.",
     unlocked:
       "All entities in a file with line ranges and kinds. Use after file_read truncates on a large file.",
+  },
+  review_changes: {
+    tier: 2,
+    active:
+      "Run the full review engine over staged changes (or scope:'range', range:'A..B') and return findings grouped by file/entity, each with evidence and a pasteable action. Call after edits to catch breaks before commit.",
+    locked:
+      "[locked, unlock: after edits] On-demand review of staged changes. Edit a file first.",
+    unlocked:
+      "Review staged changes (or scope:'range', range:'A..B') with the full engine — findings grouped by file/entity with evidence and a fix action.",
   },
 
   // ── Tier 3 — intent unlock ─────────────────────────────────────────────

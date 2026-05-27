@@ -110,6 +110,9 @@ const LOCAL_TOOLS = new Set([
 
   // Sprint FU-1: web fetch
   "fetch_url",
+
+  // P3: on-demand review (Surface C)
+  "review_changes",
 ]);
 
 export interface EntityRiskMeta {
@@ -583,6 +586,13 @@ export class QueryRouter {
   /** Project root path for file operations (Task 7.4 revert). */
   private projectRoot: string | null = null;
 
+  /** P3 review_changes: resolves the anchored-notes surface for the memory-drift
+   *  checker. Injected by the proxy (closes over its NotesStore); null in
+   *  standalone/test contexts → memory-drift stays silent. */
+  private notesResolver:
+    | (() => Promise<import("../review/types.js").ReviewNotes | null>)
+    | null = null;
+
   /** L11.1: Background indexer reference — enables partial graph responses during indexing. */
   private backgroundIndexer: BackgroundIndexer | null = null;
 
@@ -824,6 +834,17 @@ export class QueryRouter {
    */
   setProjectRoot(root: string): void {
     this.projectRoot = root;
+  }
+
+  /**
+   * Inject the anchored-notes resolver for `review_changes` (P3). The proxy
+   * passes a closure over its live NotesStore so the memory-drift checker reads
+   * the same notes the rest of the session sees. Unset → memory-drift silent.
+   */
+  setNotesResolver(
+    fn: () => Promise<import("../review/types.js").ReviewNotes | null>
+  ): void {
+    this.notesResolver = fn;
   }
 
   /**
@@ -3053,7 +3074,9 @@ export class QueryRouter {
           references: results,
           direction,
           total: totalCount,
-          returned: results.length,
+          // `returned` dropped from the wire — it equals references.length,
+          // which the agent can count directly. `total` + `truncated` carry
+          // the only non-derivable facts (how many exist, were any cut).
           truncated: totalCount > limit,
           ...(totalCount > limit
             ? {
@@ -3130,19 +3153,16 @@ export class QueryRouter {
           else if (c.kind === "structure") structure.push(c);
           else other.push(c);
         }
+        // Each convention object already carries name + kind +
+        // adherence_rate + confidence + description — enough to act on. The
+        // old `guidance` (prose pre-chewed from those same fields) and
+        // `summary` (a count restatement) were synthetic duplications the
+        // agent didn't need; dropped from the wire.
         return {
           naming,
           import_direction,
           structure,
           ...(other.length > 0 ? { other } : {}),
-          guidance: raw
-            .filter((c) => c.confidence >= 0.7)
-            .map(
-              (c) =>
-                `${c.name}: ${Math.round(c.adherence_rate * 100)}% adherence — follow for new ${c.kind}s`
-            )
-            .slice(0, 5),
-          summary: `${raw.length} conventions. ${raw.filter((c) => c.adherence_rate >= 0.8).length} strongly adhered (>80%).`,
         };
       }
       case "get_cross_boundary_links": {
@@ -3233,14 +3253,13 @@ export class QueryRouter {
           key,
           includeTransitive
         );
+        // `summary` dropped — it restated test_count in prose ("N tests
+        // cover this entity"). test_count + tests[] are self-describing:
+        // test_count:0 already means no coverage.
         return {
           entity: key,
           test_count: coverage.length,
           tests: coverage,
-          summary:
-            coverage.length > 0
-              ? `${coverage.length} test${coverage.length !== 1 ? "s" : ""} cover this entity`
-              : "No test coverage found",
         };
       }
       // case "semantic_search" and "find_similar" disabled — embedding store never wired
@@ -3298,9 +3317,72 @@ export class QueryRouter {
           }
         );
       }
+      case "review_changes":
+        return this.runReviewChanges(args);
       default:
         throw new Error(`Unknown local tool: ${toolName}`);
     }
+  }
+
+  /**
+   * `review_changes` (Surface C, on-demand) — run the full Tier-1 review engine
+   * over the staged index or a `from..to` range against the warm in-process
+   * graph, and return the structured {@link ReviewReportView}. The same engine
+   * the commit gate and in-flight hook use, so a finding is byte-identical; the
+   * notes resolver (injected by the proxy) gives the memory-drift checker its
+   * evidence. Resolves a structured error object on a bad range/severity arg
+   * rather than throwing — the tool channel surfaces it inline.
+   */
+  private async runReviewChanges(
+    args: Record<string, unknown>
+  ): Promise<unknown> {
+    const { parseRangeScope, reviewScopedChanges } = await import(
+      "../review/git-review.js"
+    );
+    const { buildReviewReportView } = await import("../review/report.js");
+    const { SEVERITY_RANK } = await import("../review/types.js");
+
+    const cwd = this.projectRoot ?? process.cwd();
+    const scopeArg = (args.scope as string | undefined) ?? "staged";
+
+    let scope: import("../review/git-review.js").ReviewScope;
+    if (scopeArg === "range") {
+      const rangeSpec = args.range as string | undefined;
+      const parsed = rangeSpec ? parseRangeScope(rangeSpec) : null;
+      if (!parsed) {
+        return {
+          error:
+            "review_changes: scope:'range' requires range:'<from>..<to>' (e.g. 'main..HEAD')",
+        };
+      }
+      scope = parsed;
+    } else if (scopeArg === "staged") {
+      scope = { kind: "staged" };
+    } else {
+      return {
+        error: `review_changes: unknown scope '${scopeArg}' — use 'staged' or 'range'`,
+      };
+    }
+
+    const minSeverity = (args.min_severity as string | undefined) ?? "medium";
+    if (!(minSeverity in SEVERITY_RANK)) {
+      return {
+        error: `review_changes: invalid min_severity '${minSeverity}' — use info|low|medium|high|critical`,
+      };
+    }
+
+    const notes = this.notesResolver ? await this.notesResolver() : null;
+    const { report, filesReviewed } = await reviewScopedChanges(
+      cwd,
+      scope,
+      this.localGraph,
+      { notes },
+      { minSeverity: minSeverity as import("../review/types.js").Severity }
+    );
+
+    const scopeLabel =
+      scope.kind === "staged" ? "staged" : `${scope.from}..${scope.to}`;
+    return buildReviewReportView(report, scopeLabel, filesReviewed);
   }
 
   /**
@@ -3378,7 +3460,12 @@ export class QueryRouter {
       const otherTest = results.filter(
         (r) => r.name !== raw && r.file_path?.includes("__tests__")
       );
-      const ranked = [...exactNonTest, ...exactTest, ...otherNonTest, ...otherTest];
+      const ranked = [
+        ...exactNonTest,
+        ...exactTest,
+        ...otherNonTest,
+        ...otherTest,
+      ];
 
       if (kind) {
         const matchKind = ranked.find((r) => r.kind === kind);

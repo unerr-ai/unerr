@@ -167,9 +167,17 @@ async function handleUnerrRecallNotesProxy(
   }
   try {
     const { recallNotes } = await import("../tools/intelligence/notes-mcp.js");
+    // session_id drives topic-shift telemetry but the agent doesn't carry one —
+    // inject the live session when omitted so the signal fires without it.
+    const callerSession = (args as { session_id?: unknown }).session_id;
+    const recallArgs =
+      (typeof callerSession === "string" && callerSession.length > 0) ||
+      !behaviorEvents?.sessionId
+        ? args
+        : { ...args, session_id: behaviorEvents.sessionId };
     const result = await recallNotes(
       store,
-      args as Parameters<typeof recallNotes>[1]
+      recallArgs as Parameters<typeof recallNotes>[1]
     );
     // Emit a fact_recalled behavior event carrying rich DSL fields from the
     // top returned note. Surface 2 reads these via
@@ -233,7 +241,8 @@ async function handleUnerrRecallNotesProxy(
 
 async function handleUnerrRememberNotePath(
   args: Record<string, unknown>,
-  unerrDir: string
+  unerrDir: string,
+  sessionId: string
 ): Promise<{
   content: Array<{ type: string; text: string }>;
   isError?: boolean;
@@ -254,9 +263,17 @@ async function handleUnerrRememberNotePath(
   }
   try {
     const { remember } = await import("../tools/intelligence/notes-mcp.js");
+    // session_id is a server-side concern the agent doesn't carry in its
+    // context — inject the live ledger session when the caller omits it, so
+    // unerr_remember({type:'note', ...}) succeeds without an explicit id.
+    const callerSession = (args as { session_id?: unknown }).session_id;
+    const argsWithSession =
+      typeof callerSession === "string" && callerSession.length > 0
+        ? args
+        : { ...args, session_id: sessionId };
     const result = await remember(
       store,
-      args as Parameters<typeof remember>[1]
+      argsWithSession as Parameters<typeof remember>[1]
     );
     return {
       content: [{ type: "text", text: JSON.stringify(result) }],
@@ -806,6 +823,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   let parseIndex: import("./auto-bootstrap.js").ParseModeIndex | null = null;
   // L11: Background indexing flag — hoisted for access after MCP server.connect()
   let needsBackgroundIndex = false;
+  // Bug A: distinguishes a genuine cold index (fresh DB / snapshot migration /
+  // no snapshot) from a populated persistent graph that should reindex ONLY the
+  // files whose content changed since the last pass — or skip entirely. "full"
+  // runs the whole pipeline; "incremental-if-stale" defers a staleness check to
+  // after the MCP handshake and does the minimum work it finds.
+  let indexMode: "full" | "incremental-if-stale" = "full";
 
   if ((proxyMode as string) !== "parse") {
     const projectRoot = process.cwd();
@@ -864,10 +887,17 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           `${startupLog.fmt.cyan("Persistent graph")} ${startupLog.fmt.muted("— zero recomputation, all intelligence preserved")}`
         );
 
-        // Always reindex on startup to ensure graph data (end_line, etc.) is fresh
+        // Bug A: the persistent graph already holds every entity, edge,
+        // community, convention and rule. Don't pay an unconditional full
+        // reindex on every restart — that starves the event loop for tens of
+        // seconds and, across several warm-started repos, races the MCP
+        // client's request timeout. Defer a content-hash staleness check past
+        // the handshake and reindex only the files that actually changed (or
+        // skip when none did). See src/intelligence/staleness.ts.
         needsBackgroundIndex = true;
+        indexMode = "incremental-if-stale";
         startupLog.step(
-          `${startupLog.fmt.muted("Background reindex will refresh graph data after MCP ready")}`
+          `${startupLog.fmt.muted("Will reindex only changed files after MCP ready (skips when graph is current)")}`
         );
       } else {
         // ── Fresh DB or empty: needs initial indexing ─────────────────
@@ -1074,6 +1104,16 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   if (proxyFactStore) {
     router.setFactStore(proxyFactStore);
   }
+
+  // P3 review_changes: give the on-demand review's memory-drift checker the
+  // same anchored notes the rest of the session sees, by closing over the
+  // proxy's live NotesStore. Null resolution → memory-drift stays silent.
+  router.setNotesResolver(async () => {
+    const store = await getProxyNotesStore(join(process.cwd(), ".unerr"));
+    if (!store) return null;
+    const { reviewNotesFromStore } = await import("../review/git-review.js");
+    return reviewNotesFromStore(store, "review-changes");
+  });
 
   // Sprint 2: Health info wired in deferred init (Task 6.3)
 
@@ -1811,24 +1851,19 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
   const { BehaviorDispatcher } = await import("../behaviors/framework.js");
   const { LoopCircuitBreaker } = await import("../behaviors/loop-breaker.js");
-  const { SessionContinuityBehavior } = await import(
-    "../behaviors/session-continuity.js"
-  );
-  const { CascadeConsistencyGuard } = await import(
-    "../behaviors/cascade-guard.js"
-  );
+  // Three behaviors retired in the 2026-05 behavior-automation audit, all
+  // because their dispatcher-driven edit gates never fired (edits are Claude
+  // Code client tools — Edit/Write — that never traverse the MCP path the
+  // dispatcher sees) and their work is now done by process-agnostic engines
+  // invoked from the pre-/post-edit hooks:
+  //   - session-continuity → superseded by generateSessionResumePayload
+  //     (session-persistence.ts) which emits the visible [unerr:session-resume].
+  //   - cascade-guard → superseded by edit-impact.ts (computeEditImpact) over
+  //     the unerr/blast_radius UDS method, queried by the pre-edit hook.
+  //   - architecture-guard → superseded by boundary-check.ts
+  //     (computeBoundaryViolations), folded into the same UDS round-trip.
   const { IncompleteWorkDetector } = await import(
     "../behaviors/incomplete-work.js"
-  );
-  const { ConventionDriftPrevention } = await import(
-    "../behaviors/convention-drift.js"
-  );
-  const { AutoDocBehavior } = await import("../behaviors/auto-doc.js");
-  const { ArchitectureBoundaryGuard } = await import(
-    "../behaviors/architecture-guard.js"
-  );
-  const { ChangeNarrativeBehavior } = await import(
-    "../behaviors/change-narrative.js"
   );
 
   const behaviorDispatcher = new BehaviorDispatcher();
@@ -1836,43 +1871,17 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   const loopBreaker = new LoopCircuitBreaker();
   behaviorDispatcher.register(loopBreaker);
 
-  const sessionContinuity = new SessionContinuityBehavior();
-  sessionContinuity.attachLedger(shadowLedger);
-  behaviorDispatcher.register(sessionContinuity);
-
-  const cascadeGuard = new CascadeConsistencyGuard();
-  if (localGraph) cascadeGuard.attachGraph(localGraph);
-  behaviorDispatcher.register(cascadeGuard);
+  // P2.2: scope the edit-log to this proxy lifetime — the post-edit hook
+  // appends edits during the session; onSessionEnd reconciles them. Clearing at
+  // boot means a fresh session never inherits a prior session's edits.
+  const { clearEditLog } = await import("../tracking/session-edit-log.js");
+  clearEditLog(unerrDirForLedger);
 
   const incompleteWork = new IncompleteWorkDetector();
-  incompleteWork.attachLedger(shadowLedger);
-  incompleteWork.attachCascadeGuard(cascadeGuard);
   incompleteWork.setUnerrDir(unerrDirForLedger);
   if (localGraph) incompleteWork.attachGraph(localGraph);
+  incompleteWork.setBehaviorEvents(behaviorEventWriter);
   behaviorDispatcher.register(incompleteWork);
-
-  const conventionDrift = new ConventionDriftPrevention();
-  if (localGraph) conventionDrift.attachGraph(localGraph);
-  behaviorDispatcher.register(conventionDrift);
-
-  const autoDoc = new AutoDocBehavior();
-  if (localGraph) autoDoc.attachGraph(localGraph);
-  behaviorDispatcher.register(autoDoc);
-
-  const architectureGuard = new ArchitectureBoundaryGuard();
-  if (localGraph) architectureGuard.attachGraph(localGraph);
-  behaviorDispatcher.register(architectureGuard);
-
-  const changeNarrative = new ChangeNarrativeBehavior();
-  changeNarrative.attachBehaviors({
-    cascadeGuard,
-    conventionDrift,
-    incompleteWork,
-    architectureGuard,
-    loopBreaker,
-    autoDoc,
-  });
-  behaviorDispatcher.register(changeNarrative);
 
   log.info(
     `Behavior engine active (${behaviorDispatcher.getRegisteredBehaviors().length} behaviors registered)`
@@ -2065,7 +2074,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         // field (note/cochange/move_anchor/promote_to_claude_md), route to
         // the new NotesStore path; otherwise stay on the TemporalFactStore.
         if (name === "unerr_remember" && isActiveCognitionRemember(args)) {
-          return handleUnerrRememberNotePath(args, unerrDirForLedger);
+          return handleUnerrRememberNotePath(
+            args,
+            unerrDirForLedger,
+            shadowLedger.getSessionId()
+          );
         }
         const factResult =
           name === "record_fact"
@@ -2374,6 +2387,17 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       };
       const postOutput = await behaviorDispatcher.firePostToolUse(postCtx);
       let contextPayload = result._context ?? {};
+      // Fault-2 repair: the `preOutput.halt` branch above is the ONLY consumer
+      // of pre-tool behavior output — advisory (non-halt) pre-tool signals were
+      // otherwise computed and dropped. Fold their _context/_meta in here so
+      // pre-tool behaviors surface alongside post-tool output. Post-tool output
+      // is merged after, so it wins on any key conflict.
+      if (preOutput && !preOutput.halt) {
+        if (preOutput._context) {
+          contextPayload = { ...contextPayload, ...preOutput._context };
+        }
+        if (preOutput._meta) Object.assign(meta, preOutput._meta);
+      }
       if (postOutput?._context) {
         contextPayload = { ...contextPayload, ...postOutput._context };
       }
@@ -2476,6 +2500,17 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     return JSON.stringify(trailers);
   });
 
+  // Live graph reference for control-channel queries (e.g. unerr/blast_radius).
+  // Initialised to the boot graph and re-pointed on every swap-on-idle rebuild
+  // (see graphHolder.onSwap below) so hook-path queries always hit the warm,
+  // current graph instead of a stale post-rebuild instance. A plain mutable
+  // binding (not graphHolder.graph) because the UDS server starts (2995) before
+  // graphHolder is constructed (3065) — referencing graphHolder in this closure
+  // would risk a temporal-dead-zone throw on an early connection.
+  let liveGraph:
+    | import("../intelligence/local-graph.js").CozoGraphStore
+    | null = localGraph;
+
   transportMux.setHandler(async (clientId, message) => {
     // Bridge-side hello: independent of MCP `initialize`. The bridge sends
     // this notification immediately on connect with its install-time
@@ -2498,6 +2533,89 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         process.env.UNERR_AGENT = resolved;
       }
       return { jsonrpc: "2.0" as const };
+    }
+
+    // Control channel: edit blast-radius query (P0.4). The pre-edit hook
+    // (a short-lived `unerr hook pre-edit` subprocess) connects, sends ONE
+    // frame, reads ONE response, disconnects — no MCP initialize handshake.
+    // Runs the shared edit-impact engine against the warm in-process graph so
+    // the cascade signal is computed once, server-side, in <5ms. Mirrors the
+    // `unerr/ping` precedent: a non-MCP method intercepted before the tool
+    // dispatch. Always returns a well-formed result (empty warnings on any
+    // missing input / absent graph) so the hook never has to special-case it.
+    if (message.method === "unerr/blast_radius") {
+      // Snapshot into a const so the non-null narrowing survives the await
+      // below (a swap could re-point `liveGraph` mid-call; this call resolves
+      // against the instance that was current when the request arrived).
+      const graphRef = liveGraph;
+      const blastParams = message.params as
+        | import("./blast-radius-protocol.js").BlastRadiusRequestParams
+        | undefined;
+      const { handleBlastRadiusRequest, recordBlastRadiusTelemetry } =
+        await import("./blast-radius-protocol.js");
+      const result = await handleBlastRadiusRequest(graphRef, blastParams);
+
+      // Telemetry: surface the pre-edit guard firings so the dashboard's
+      // behavior-event panes render them (mirrors the unerr/review_edit block
+      // below). The caller-cascade signal (D2) and the architecture-boundary
+      // signal (D3) are distinct behaviors; each fires its own row only when
+      // it fires. Best-effort — never blocks the control-channel reply.
+      recordBlastRadiusTelemetry(
+        behaviorEventWriter,
+        result,
+        blastParams?.file_path ?? null
+      );
+
+      return { jsonrpc: "2.0" as const, id: message.id, result };
+    }
+
+    // Control channel: in-flight review query (P1 — Surface A). The post-edit
+    // hook connects, sends ONE frame, reads ONE response, disconnects. Runs the
+    // full review engine (all Tier-1 checkers) against the warm in-process graph
+    // server-side — the intelligence stays in the proxy, the hook just formats
+    // findings. Always returns a well-formed result (clean + empty on any
+    // missing input / absent graph) so the hook never special-cases a degraded
+    // proxy. Mirrors `unerr/blast_radius`, of which this is the whole-engine
+    // post-edit sibling.
+    if (message.method === "unerr/review_edit") {
+      // Snapshot so non-null narrowing survives the await (a swap could
+      // re-point `liveGraph` mid-call; resolve against the current instance).
+      const graphRef = liveGraph;
+      const reviewParams = message.params as
+        | import("./review-protocol.js").ReviewEditRequestParams
+        | undefined;
+      const { handleReviewEditRequest } = await import("./review-protocol.js");
+      const result = await handleReviewEditRequest(graphRef, reviewParams);
+
+      // Telemetry: one behavior event per emission (not per finding) so the
+      // close-out receipt can render a "flagged N review finding(s)" row.
+      // Best-effort — never block the control-channel reply.
+      if (result.findings.length > 0) {
+        try {
+          const filePath = reviewParams?.file_path ?? null;
+          behaviorEventWriter.record({
+            session_id: behaviorEventWriter.sessionId,
+            type: "review_finding_surfaced",
+            tool: null,
+            entity_key: filePath,
+            response_bytes: null,
+            detail: {
+              count: result.findings.length,
+              top_severity: result.findings[0]?.severity ?? null,
+              suppressed: result.suppressed,
+              checkers: [...new Set(result.findings.map((f) => f.checkerId))],
+              // P4: was a Tier-2 host-synthesis evidence block injected this edit?
+              // Lets the close-out telemetry measure whether the model acts on it.
+              synthesis_injected: result.evidenceBlock !== null,
+              ...(filePath ? { file_path: filePath } : {}),
+            },
+          });
+        } catch {
+          /* best effort — telemetry never blocks the reply */
+        }
+      }
+
+      return { jsonrpc: "2.0" as const, id: message.id, result };
     }
 
     // MCP protocol: handle initialize handshake for bridged clients
@@ -2714,7 +2832,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         if (name === "unerr_remember" && isActiveCognitionRemember(toolArgs)) {
           const noteRes = await handleUnerrRememberNotePath(
             toolArgs,
-            unerrDirForLedger
+            unerrDirForLedger,
+            shadowLedger.getSessionId()
           );
           return { jsonrpc: "2.0" as const, result: noteRes };
         }
@@ -3056,11 +3175,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       });
       // Behaviors
       graphHolder.onSwap((newGraph) => {
-        cascadeGuard.attachGraph(newGraph);
         incompleteWork.attachGraph(newGraph);
-        conventionDrift.attachGraph(newGraph);
-        autoDoc.attachGraph(newGraph);
-        architectureGuard.attachGraph(newGraph);
+      });
+      // Re-point the control-channel graph (unerr/blast_radius) at the fresh
+      // instance so hook-path cascade queries never hit the retired graph.
+      graphHolder.onSwap((newGraph) => {
+        liveGraph = newGraph;
       });
 
       // NOTE: DriftTracker → GraphHolder notification intentionally NOT wired.
@@ -3225,155 +3345,250 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // ── Step 7b-2: Background Indexing + ora Spinner (L11.1/L11.3) ──
 
   if (needsBackgroundIndex && localGraph) {
-    const { BackgroundIndexer } = await import(
-      "../intelligence/background-indexer.js"
-    );
-    const bgIndexer = new BackgroundIndexer();
+    const graph = localGraph; // non-null inside the closures below
 
-    // Wire into router for partial graph responses (L11.2)
-    router.setBackgroundIndexer(bgIndexer);
+    // Post-index initialization shared by every path (full reindex,
+    // incremental reindex, and the no-op staleness skip): refresh the graph
+    // card, compute the health grade, show the MCP connection card, start the
+    // DriftTracker (TL-31: only once the graph is settled), and run the
+    // fact-generation pipeline. Idempotent and safe to call exactly once.
+    const finalizeIndexing = async (card: {
+      entityCount: number;
+      edgeCount: number;
+      fileCount: number;
+      communityCount: number;
+      elapsedMs: number;
+    }): Promise<void> => {
+      startupLog.graphLoaded({
+        entities: card.entityCount,
+        edges: card.edgeCount,
+        files: card.fileCount,
+        communities: card.communityCount,
+        patterns: 0,
+        rules: 0,
+        ms: card.elapsedMs,
+      });
 
-    // ora spinner on stderr — never touches stdout (MCP JSON-RPC only)
-    const ora = (await import("ora")).default;
-    const spinner = ora({
-      text: "Indexing project...",
-      stream: process.stderr,
-    }).start();
-
-    const localRepoId = repoIds[0] as string;
-
-    bgIndexer.start(
-      process.cwd(),
-      localGraph,
-      localRepoId,
-      // onComplete
-      async (result) => {
-        // L4.1: Record indexing stats for Local Mode proof
-        if (stats.localMode) {
-          recordIndexingResult(stats.localMode, result);
+      // Compute health grade now that the graph is populated
+      try {
+        const { computeHealthGrade } = await import(
+          "../intelligence/health-grade.js"
+        );
+        healthResult = await computeHealthGrade(graph.db);
+        if (healthResult) {
+          router.setHealthInfo(healthResult.grade, {
+            entities: healthResult.totalEntities,
+            edges: healthResult.totalEdges,
+            rules: healthResult.totalRules,
+          });
+          // startupLog.healthCard(healthResult); // Disabled until health metrics verified against drift state
         }
-        spinner.succeed("Deep index complete");
-
-        startupLog.graphLoaded({
-          entities: result.entityCount,
-          edges: result.edgeCount,
-          files: result.fileCount,
-          communities: result.communityCount,
-          patterns: 0,
-          rules: 0,
-          ms: result.elapsedMs,
-        });
-
-        // Compute health grade now that the graph is populated
-        try {
-          const { computeHealthGrade } = await import(
-            "../intelligence/health-grade.js"
-          );
-          healthResult = await computeHealthGrade(localGraph.db);
-          if (healthResult) {
-            router.setHealthInfo(healthResult.grade, {
-              entities: healthResult.totalEntities,
-              edges: healthResult.totalEdges,
-              rules: healthResult.totalRules,
-            });
-            // startupLog.healthCard(healthResult); // Disabled until health metrics verified against drift state
-          }
-        } catch (err: unknown) {
-          log.warn(
-            `Health grade failed: ${err instanceof Error ? err.message : String(err)}`
-          );
-        }
-
-        // Show MCP connection card with config snippet for manual agent setup
-        try {
-          const { AGENT_REGISTRY } = await import(
-            "../config/agent-registry.js"
-          );
-          const fs = await import("node:fs");
-          const pathMod = await import("node:path");
-          const projectDir = process.cwd();
-          const configured = AGENT_REGISTRY.filter((a) =>
-            fs.existsSync(pathMod.join(projectDir, a.projectConfigPath))
-          ).map((a) => a.name);
-          startupLog.mcpConnectionCard(configured, projectDir);
-        } catch (err: unknown) {
-          log.warn(
-            `MCP connection card failed: ${err instanceof Error ? err.message : String(err)}`
-          );
-        }
-
-        // L11.4: Start DriftTracker ONLY after initial indexing completes (TL-31)
-        initDriftTracker().catch((err: unknown) => {
-          log.warn(
-            `Post-index DriftTracker init failed: ${err instanceof Error ? err.message : String(err)}`
-          );
-        });
-
-        // Layer 9: Generate temporal facts from detected conventions after reindex
-        try {
-          const factStoreForGen = await getProxyFactStore(unerrDirForLedger);
-          if (factStoreForGen) {
-            const { detectLocalConventions } = await import(
-              "../intelligence/local-convention-detector.js"
-            );
-            const { generateFromConventions } = await import(
-              "../intelligence/fact-generator.js"
-            );
-            const detection = await detectLocalConventions(localGraph.db);
-            if (detection.conventions.length > 0) {
-              const convResult = await generateFromConventions(
-                factStoreForGen,
-                detection.conventions
-              );
-              if (convResult.created > 0 || convResult.reinforced > 0) {
-                log.info(
-                  `Fact generator: ${convResult.created} convention facts created, ${convResult.reinforced} reinforced`
-                );
-              }
-            }
-            // Also run session analysis pipeline
-            const { runFactGenerationPipeline } = await import(
-              "../intelligence/fact-generator.js"
-            );
-            const pipelineResults = await runFactGenerationPipeline(
-              factStoreForGen,
-              unerrDirForLedger
-            );
-            for (const r of pipelineResults) {
-              if (r.created > 0 || r.reinforced > 0) {
-                log.info(
-                  `Fact generator [${r.source}]: ${r.created} created, ${r.reinforced} reinforced`
-                );
-              }
-            }
-          }
-        } catch {
-          // Non-critical — fact generation failure doesn't block operation
-        }
-      },
-      // onError
-      (err) => {
-        spinner.fail(`Indexing failed: ${err.message}`);
-        process.stderr.write(
-          "  MCP continues with partial graph. Run 'unerr' again to retry.\n"
+      } catch (err: unknown) {
+        log.warn(
+          `Health grade failed: ${err instanceof Error ? err.message : String(err)}`
         );
       }
-    );
 
-    // Update spinner with progress every 200ms
-    const progressInterval = setInterval(() => {
-      if (!bgIndexer.isIndexing()) {
-        clearInterval(progressInterval);
-        return;
+      // Show MCP connection card with config snippet for manual agent setup
+      try {
+        const { AGENT_REGISTRY } = await import("../config/agent-registry.js");
+        const fs = await import("node:fs");
+        const pathMod = await import("node:path");
+        const projectDir = process.cwd();
+        const configured = AGENT_REGISTRY.filter((a) =>
+          fs.existsSync(pathMod.join(projectDir, a.projectConfigPath))
+        ).map((a) => a.name);
+        startupLog.mcpConnectionCard(configured, projectDir);
+      } catch (err: unknown) {
+        log.warn(
+          `MCP connection card failed: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
-      const p = bgIndexer.getProgress();
-      const shortFile = p.currentFile
-        ? p.currentFile.length > 40
-          ? `...${p.currentFile.slice(-37)}`
-          : p.currentFile
-        : "";
-      spinner.text = `${p.phase}: ${p.processed}/${p.total} (${p.pct}%) ${shortFile}`;
-    }, 200);
+
+      // L11.4: Start DriftTracker ONLY after the graph is settled (TL-31)
+      initDriftTracker().catch((err: unknown) => {
+        log.warn(
+          `Post-index DriftTracker init failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      });
+
+      // Layer 9: Generate temporal facts from detected conventions
+      try {
+        const factStoreForGen = await getProxyFactStore(unerrDirForLedger);
+        if (factStoreForGen) {
+          const { detectLocalConventions } = await import(
+            "../intelligence/local-convention-detector.js"
+          );
+          const { generateFromConventions } = await import(
+            "../intelligence/fact-generator.js"
+          );
+          const detection = await detectLocalConventions(graph.db);
+          if (detection.conventions.length > 0) {
+            const convResult = await generateFromConventions(
+              factStoreForGen,
+              detection.conventions
+            );
+            if (convResult.created > 0 || convResult.reinforced > 0) {
+              log.info(
+                `Fact generator: ${convResult.created} convention facts created, ${convResult.reinforced} reinforced`
+              );
+            }
+          }
+          // Also run session analysis pipeline
+          const { runFactGenerationPipeline } = await import(
+            "../intelligence/fact-generator.js"
+          );
+          const pipelineResults = await runFactGenerationPipeline(
+            factStoreForGen,
+            unerrDirForLedger
+          );
+          for (const r of pipelineResults) {
+            if (r.created > 0 || r.reinforced > 0) {
+              log.info(
+                `Fact generator [${r.source}]: ${r.created} created, ${r.reinforced} reinforced`
+              );
+            }
+          }
+        }
+      } catch {
+        // Non-critical — fact generation failure doesn't block operation
+      }
+    };
+
+    // Full reindex: the BackgroundIndexer + ora spinner path (L11.1/L11.3).
+    // Fire-and-forget — returns once indexing is scheduled.
+    const runFullBackgroundIndex = async (): Promise<void> => {
+      const { BackgroundIndexer } = await import(
+        "../intelligence/background-indexer.js"
+      );
+      const bgIndexer = new BackgroundIndexer();
+
+      // Wire into router for partial graph responses (L11.2)
+      router.setBackgroundIndexer(bgIndexer);
+
+      // ora spinner on stderr — never touches stdout (MCP JSON-RPC only)
+      const ora = (await import("ora")).default;
+      const spinner = ora({
+        text: "Indexing project...",
+        stream: process.stderr,
+      }).start();
+
+      const localRepoId = repoIds[0] as string;
+
+      bgIndexer.start(
+        process.cwd(),
+        graph,
+        localRepoId,
+        // onComplete
+        async (result) => {
+          // L4.1: Record indexing stats for Local Mode proof
+          if (stats.localMode) {
+            recordIndexingResult(stats.localMode, result);
+          }
+          spinner.succeed("Deep index complete");
+          await finalizeIndexing({
+            entityCount: result.entityCount,
+            edgeCount: result.edgeCount,
+            fileCount: result.fileCount,
+            communityCount: result.communityCount,
+            elapsedMs: result.elapsedMs,
+          });
+        },
+        // onError
+        (err) => {
+          spinner.fail(`Indexing failed: ${err.message}`);
+          process.stderr.write(
+            "  MCP continues with partial graph. Run 'unerr' again to retry.\n"
+          );
+        }
+      );
+
+      // Update spinner with progress every 200ms
+      const progressInterval = setInterval(() => {
+        if (!bgIndexer.isIndexing()) {
+          clearInterval(progressInterval);
+          return;
+        }
+        const p = bgIndexer.getProgress();
+        const shortFile = p.currentFile
+          ? p.currentFile.length > 40
+            ? `...${p.currentFile.slice(-37)}`
+            : p.currentFile
+          : "";
+        spinner.text = `${p.phase}: ${p.processed}/${p.total} (${p.pct}%) ${shortFile}`;
+      }, 200);
+    };
+
+    if (indexMode === "incremental-if-stale") {
+      // Bug A: the persistent graph is already populated. Decide AFTER the MCP
+      // handshake whether anything actually changed, then do the minimum work —
+      // skipping the reindex entirely when the graph is current. Runs detached
+      // so it never blocks the boot sequence or the first tool calls.
+      void (async () => {
+        try {
+          const { computeIndexPlan } = await import(
+            "../intelligence/staleness.js"
+          );
+          const plan = await computeIndexPlan(process.cwd(), graph);
+          log.info(`Startup index plan: ${plan.mode} — ${plan.reason}`);
+
+          if (plan.mode === "skip") {
+            startupLog.step(
+              `${startupLog.fmt.muted(`Graph current — no reindex (${plan.totalFiles} files unchanged)`)}`
+            );
+            const s = await graph.getLocalProjectStats();
+            await finalizeIndexing({
+              entityCount: s.entityCount,
+              edgeCount: s.edgeCount,
+              fileCount: s.fileCount,
+              communityCount: s.communityCount,
+              elapsedMs: 0,
+            });
+            return;
+          }
+
+          if (plan.mode === "incremental") {
+            const { indexFilesIncremental } = await import(
+              "../intelligence/incremental-indexer.js"
+            );
+            const localRepoId = repoIds[0] as string;
+            const r = await indexFilesIncremental(
+              process.cwd(),
+              plan.changedFiles,
+              graph,
+              localRepoId
+            );
+            log.info(
+              `Incremental startup reindex: ${r.filesProcessed} files, +${r.entitiesAdded}/~${r.entitiesUpdated}/-${r.entitiesDeleted} entities in ${r.elapsedMs}ms`
+            );
+            const s = await graph.getLocalProjectStats();
+            await finalizeIndexing({
+              entityCount: s.entityCount,
+              edgeCount: s.edgeCount,
+              fileCount: s.fileCount,
+              communityCount: s.communityCount,
+              elapsedMs: r.elapsedMs,
+            });
+            return;
+          }
+
+          // plan.mode === "full" — change set too large for incremental.
+          await runFullBackgroundIndex();
+        } catch (err: unknown) {
+          log.warn(
+            `Staleness-gated reindex failed (${err instanceof Error ? err.message : String(err)}); falling back to full index`
+          );
+          await runFullBackgroundIndex().catch((e: unknown) => {
+            log.warn(
+              `Fallback full index failed: ${e instanceof Error ? e.message : String(e)}`
+            );
+          });
+        }
+      })();
+    } else {
+      // Cold index — fresh DB, snapshot migration, or no snapshot.
+      await runFullBackgroundIndex();
+    }
   } else {
     // No background indexing needed — start DriftTracker immediately
     await initDriftTracker();

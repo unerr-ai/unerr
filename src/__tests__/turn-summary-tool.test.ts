@@ -170,20 +170,21 @@ describe("handleTurnSummaryProxy", () => {
     rmSync(unerrDir, { recursive: true, force: true });
   });
 
-  it("returns MCP envelope with line + structured breakdown", async () => {
+  it("ships only {ok, line} on the wire — economy counters stay server-side", async () => {
     const result = await handleTurnSummaryProxy(unerrDir, "sess-X", 1);
     expect(result.content).toHaveLength(1);
     expect(result.content[0]?.type).toBe("text");
     const parsed = JSON.parse(result.content[0]!.text);
     expect(parsed.ok).toBe(true);
     expect(typeof parsed.line).toBe("string");
-    expect(typeof parsed.total_events).toBe("number");
-    expect(typeof parsed.total_tokens_saved).toBe("number");
-    expect(typeof parsed.headroom_compounded).toBe("number");
-    expect(typeof parsed.current_turn).toBe("number");
-    expect(typeof parsed.turn_events).toBe("number");
-    expect(typeof parsed.turn_tokens_saved).toBe("number");
-    expect(Array.isArray(parsed.turn_highlights)).toBe(true);
+    // The agent only ever pastes `line` (the close-out contract). The full
+    // economy breakdown — events, savings, headroom, highlights — is dashboard
+    // telemetry read off disk; it must NOT ride the agent-facing wire.
+    expect(Object.keys(parsed).sort()).toEqual(["line", "ok"]);
+    expect(parsed.total_events).toBeUndefined();
+    expect(parsed.total_tokens_saved).toBeUndefined();
+    expect(parsed.headroom_compounded).toBeUndefined();
+    expect(parsed.turn_highlights).toBeUndefined();
   });
 
   it("does not mark isError on empty session", async () => {

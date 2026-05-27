@@ -164,9 +164,12 @@ describe("legacyRemember — routes into NotesStore.upsertNote", () => {
       prompt_hash: "p-1",
     });
     expect(result.ok).toBe(true);
-    const data = result.data as { stored: boolean; note_id: string };
-    expect(data.stored).toBe(true);
+    // `stored` was dropped from the wire — `ok:true` already confirms the
+    // write succeeded, and `outcome` ("created"|"updated") conveys what
+    // happened. The store-bookkeeping `stored` flag stays off the agent wire.
+    const data = result.data as { note_id: string; outcome: string };
     expect(data.note_id).toMatch(/^n-/);
+    expect(data.outcome).toBe("created");
   });
 
   it("treats missing confidence as 1.0 (accept)", async () => {

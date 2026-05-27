@@ -161,6 +161,34 @@ export function runPreToolUseHook(
 }
 
 /**
+ * Async handler type — for handlers that must await IO (e.g. a UDS query to
+ * the proxy's warm graph). Mirrors {@link HookHandler} but returns a Promise.
+ */
+export type AsyncHookHandler = (
+  normalized: NormalizedPayload
+) => Promise<HookResult>;
+
+/**
+ * Async variant of {@link runPreToolUseHook}. Identical pipeline (parse →
+ * detect → normalize → handle → ambient augment → format) but awaits an
+ * async handler. Used by the pre-edit hook, which queries the proxy over UDS.
+ */
+export async function runPreToolUseHookAsync(
+  stdinJson: string,
+  handler: AsyncHookHandler
+): Promise<string> {
+  const payload = parseStdin(stdinJson);
+  if (!payload) return "{}";
+
+  const adapter = detectAdapter(payload);
+  const normalized = adapter.normalize(payload);
+  normalized.agentName = adapter.name;
+  const result = await handler(normalized);
+  const augmented = augmentForAmbientPreInjection(normalized, result);
+  return adapter.formatPreToolUse(augmented);
+}
+
+/**
  * Run a PostToolUse hook through the universal runner.
  */
 export function runPostToolUseHook(
@@ -174,6 +202,25 @@ export function runPostToolUseHook(
   const normalized = adapter.normalize(payload);
   normalized.agentName = adapter.name;
   const result = handler(normalized);
+  return adapter.formatPostToolUse(result);
+}
+
+/**
+ * Async variant of {@link runPostToolUseHook}. Identical pipeline but awaits an
+ * async handler. Used by the post-edit review hook, which queries the proxy's
+ * warm graph over UDS to run the review engine after an edit.
+ */
+export async function runPostToolUseHookAsync(
+  stdinJson: string,
+  handler: AsyncHookHandler
+): Promise<string> {
+  const payload = parseStdin(stdinJson);
+  if (!payload) return "{}";
+
+  const adapter = detectAdapter(payload);
+  const normalized = adapter.normalize(payload);
+  normalized.agentName = adapter.name;
+  const result = await handler(normalized);
   return adapter.formatPostToolUse(result);
 }
 

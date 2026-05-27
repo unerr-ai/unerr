@@ -8,17 +8,26 @@
  */
 
 import { join } from "node:path";
+import type { BoundaryViolation } from "../intelligence/boundary-check.js";
 import { lookupCoChangePartners } from "../intelligence/cochange-index.js";
+import type { CascadeWarning } from "../intelligence/edit-impact.js";
+import { formatReviewFindings } from "../review/format.js";
+import { recordEdit } from "../tracking/session-edit-log.js";
+import { queryBlastRadius } from "./blast-radius-client.js";
 import { shouldEmitOnce } from "./hook-dedup.js";
 import {
+  type AsyncHookHandler,
   type HookHandler,
   deny,
   enrich,
   nudge,
   passthrough,
   runPostToolUseHook,
+  runPostToolUseHookAsync,
   runPreToolUseHook,
+  runPreToolUseHookAsync,
 } from "./hook-runner.js";
+import { queryReviewEdit } from "./review-client.js";
 
 /** Dedup TTL for deny decisions. Per Anthropic #43189/#47565, denying
  *  the same call twice in a row causes 10x retry loops — after the
@@ -152,17 +161,21 @@ const preWriteHandler: HookHandler = (normalized) => {
   );
 };
 
+/** Read-prerequisite preamble — Claude Code only (other agents don't require
+ *  built-in Read before Edit). Returns "" for non-Claude-Code agents. */
+function readPrereqClause(isClaudeCode: boolean, filePath: string): string {
+  return isClaudeCode
+    ? `CRITICAL: Edit REQUIRES built-in Read to have been called on "${filePath}" first. file_read (MCP) does NOT satisfy this — the Edit tool will fail with "File has not been read yet". If you haven't called built-in Read (with offset/limit on the target lines) on this file, do so now before attempting Edit.\n\n`
+    : "";
+}
+
 const preEditHandler: HookHandler = (normalized) => {
   const input = normalized.toolInput;
   const filePath = extractFilePath(input);
   if (!filePath || !isCodeFile(filePath)) return passthrough();
 
   const isClaudeCode = normalized.agentName === "claude-code";
-
-  // Read prerequisite warning — Claude Code only (other agents don't require built-in Read before Edit)
-  const readPrereq = isClaudeCode
-    ? `CRITICAL: Edit REQUIRES built-in Read to have been called on "${filePath}" first. file_read (MCP) does NOT satisfy this — the Edit tool will fail with "File has not been read yet". If you haven't called built-in Read (with offset/limit on the target lines) on this file, do so now before attempting Edit.\n\n`
-    : "";
+  const readPrereq = readPrereqClause(isClaudeCode, filePath);
 
   const oldStr = input.old_string as string | undefined;
   const hasSignatureChange =
@@ -180,6 +193,105 @@ const preEditHandler: HookHandler = (normalized) => {
   return nudge(
     `${readPrereq}Before editing "${filePath}":\n- \`get_references\` on any entity you're changing — ensure callers won't break`
   );
+};
+
+/**
+ * Render computed cascade warnings into a pre-edit nudge. Each warning already
+ * carries an actionable, site-naming `suggestion` from the engine; this frames
+ * them with the change type and the get_references next step. Reframed away
+ * from "break silently" — the real risk is callers left un-updated, stated
+ * plainly with concrete counts.
+ */
+function formatCascadeNudge(
+  warnings: CascadeWarning[],
+  filePath: string,
+  readPrereq: string
+): string {
+  const lines: string[] = [];
+  const head = readPrereq.trimEnd();
+  if (head) lines.push(head);
+  lines.push(
+    `Editing "${filePath}" changes ${warnings.length} signature(s) with callers that must be updated in the same change:`
+  );
+  for (const w of warnings) {
+    const direct = w.blast_radius.direct_callers.length;
+    const tests = w.blast_radius.test_files.length;
+    // Distinct files the callers live in — the honest analogue of the
+    // "across N services" framing, computed from the caller sites we have.
+    const files = new Set(
+      [...w.blast_radius.direct_callers, ...w.blast_radius.test_files].map(
+        (c) => c.file
+      )
+    );
+    lines.push(
+      `- ${w.changed_entity} (${w.change_type}): ${w.blast_radius.total_at_risk} caller(s) at risk across ${files.size} file(s) — ${direct} source, ${tests} test. ${w.suggestion} call get_references({key:'${w.changed_entity_key}', direction:'callers'}) and update every caller before finishing.`
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Render computed architecture-boundary crossings into advisory pre-edit lines
+ * (P2.1). Each crossing names the actual import and the two communities it
+ * spans, plus the engine's actionable suggestion. This WARNS — it never blocks
+ * — and is additive to the repo's CI boundary guards (e.g. bridge-isolation):
+ * it surfaces a crossing at edit time, before the commit.
+ */
+function formatBoundaryNudge(violations: BoundaryViolation[]): string {
+  const lines: string[] = [];
+  lines.push(
+    `Editing "${violations[0]!.source_file}" adds ${violations.length} import(s) that cross an architecture boundary:`
+  );
+  for (const v of violations) {
+    lines.push(
+      `- ${v.import} — "${v.source_layer}" → "${v.target_layer}". ${v.suggestion}`
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Async pre-edit handler: query the proxy's warm graph for the full blast
+ * radius of this edit — callers at risk from a signature change AND new imports
+ * that cross an architecture boundary — and inject concrete, site-naming nudges.
+ * Degrades to the static {@link preEditHandler} nudge when the proxy is
+ * unreachable (null) or reports nothing actionable, so behaviour is never worse
+ * than today and the edit is never blocked or stalled.
+ */
+const preEditHandlerAsync: AsyncHookHandler = async (normalized) => {
+  const input = normalized.toolInput;
+  const filePath = extractFilePath(input);
+  if (!filePath || !isCodeFile(filePath)) return passthrough();
+
+  const result = await queryBlastRadius({
+    file_path: filePath,
+    old_content: (input.old_string as string | undefined) ?? null,
+    new_content: (input.new_string as string | undefined) ?? null,
+  });
+
+  const warnings = result?.warnings ?? [];
+  const boundary = result?.boundary_violations ?? [];
+
+  // null = proxy unreachable/slow; empty on both = nothing actionable from the
+  // graph. Either way, fall back to the static nudge (no regression).
+  if (!result || (warnings.length === 0 && boundary.length === 0)) {
+    return preEditHandler(normalized);
+  }
+
+  const isClaudeCode = normalized.agentName === "claude-code";
+  const readPrereq = readPrereqClause(isClaudeCode, filePath);
+  const sections: string[] = [];
+  if (warnings.length > 0) {
+    // The cascade section already carries the read-prereq header.
+    sections.push(formatCascadeNudge(warnings, filePath, readPrereq));
+  }
+  if (boundary.length > 0) {
+    const body = formatBoundaryNudge(boundary);
+    // Prepend the read-prereq only when cascade didn't already emit it.
+    const head = warnings.length === 0 ? readPrereq.trimEnd() : "";
+    sections.push(head ? `${head}\n${body}` : body);
+  }
+  return nudge(sections.join("\n\n"));
 };
 
 // ── PostToolUse Handlers (agent-agnostic) ────────────────────────────
@@ -245,12 +357,82 @@ const postWriteHandler: HookHandler = (normalized) => {
 };
 
 const postEditHandler: HookHandler = (normalized) => {
-  const filePath = extractFilePath(normalized.toolInput);
+  const input = normalized.toolInput;
+  const filePath = extractFilePath(input);
   if (!filePath || !isCodeFile(filePath)) return passthrough();
+
+  // P2.2: record every edit (before the co-change dedup, which would skip a
+  // repeat) so the session-end scan can reconcile callers. Best-effort — a
+  // failed append never affects the hook result.
+  recordEdit(join(process.cwd(), ".unerr"), {
+    ts: new Date().toISOString(),
+    file_path: filePath,
+    old_content: (input.old_string as string | undefined) ?? null,
+    new_content: (input.new_string as string | undefined) ?? null,
+  });
+
   if (!shouldEmitOnce(`Edit:${filePath}`)) return passthrough();
 
   const base = `ur|fct Edited ${filePath} — get_references to check callers of changed entities`;
   return enrich(appendCoChangeClause(base, filePath));
+};
+
+/**
+ * Async post-edit handler (P1 — Surface A, in-flight review). Records the edit
+ * (same as the sync path, so session-end reconcile is unaffected), then asks the
+ * proxy's warm graph to run the full review engine over the edit and injects any
+ * findings as `ur|<tag>` lines ahead of the co-change fact. Degrades to the
+ * co-change nudge alone when the proxy is unreachable or the edit reviews clean,
+ * so behaviour is never worse than the sync {@link postEditHandler}. Never
+ * blocks — review findings are advisory context the agent acts on before close.
+ */
+const postEditHandlerAsync: AsyncHookHandler = async (normalized) => {
+  const input = normalized.toolInput;
+  const filePath = extractFilePath(input);
+  if (!filePath || !isCodeFile(filePath)) return passthrough();
+
+  const oldContent = (input.old_string as string | undefined) ?? null;
+  const newContent = (input.new_string as string | undefined) ?? null;
+
+  // Record every edit (best-effort) so the session-end scan can reconcile
+  // callers — identical to the sync path, before any dedup that would skip it.
+  recordEdit(join(process.cwd(), ".unerr"), {
+    ts: new Date().toISOString(),
+    file_path: filePath,
+    old_content: oldContent,
+    new_content: newContent,
+  });
+
+  // Query the review engine over UDS. null = proxy unreachable → review block
+  // is empty and we fall through to the co-change nudge (no regression).
+  const review = await queryReviewEdit({
+    file_path: filePath,
+    old_content: oldContent,
+    new_content: newContent,
+  });
+  const reviewBlock =
+    review && !review.clean
+      ? formatReviewFindings(review.findings, review.suppressed)
+      : "";
+  // Tier-2 host-synthesis evidence block (P4): the host model elaborates on
+  // unerr's evidence (fix-or-flag) before close. Empty unless a Tier-2 finding
+  // fired — rendered after the Tier-1 verdicts, never as a verdict itself.
+  const evidenceBlock = review?.evidenceBlock ?? "";
+
+  // Co-change fact: deduped per file like the sync path (one per file per window).
+  const base = shouldEmitOnce(`Edit:${filePath}`)
+    ? appendCoChangeClause(
+        `ur|fct Edited ${filePath} — get_references to check callers of changed entities`,
+        filePath
+      )
+    : "";
+
+  // Tier-1 verdicts lead; the Tier-2 evidence block follows; the co-change fact last.
+  const sections = [reviewBlock, evidenceBlock, base].filter(
+    (s) => s.length > 0
+  );
+  if (sections.length === 0) return passthrough();
+  return enrich(sections.join("\n"));
 };
 
 // ── Public API ───────────────────────────────────────────────────────
@@ -277,6 +459,16 @@ export function runPreEditHook(stdinJson: string): string {
   return runPreToolUseHook(stdinJson, preEditHandler);
 }
 
+/**
+ * Async pre-edit hook: graph-backed cascade warning over UDS, with static-nudge
+ * degradation. This is what the `unerr hook pre-edit` CLI command runs; the sync
+ * {@link runPreEditHook} is retained as the degradation target and for callers
+ * that can't await.
+ */
+export function runPreEditHookAsync(stdinJson: string): Promise<string> {
+  return runPreToolUseHookAsync(stdinJson, preEditHandlerAsync);
+}
+
 export function runPostReadHook(stdinJson: string): string {
   return runPostToolUseHook(stdinJson, postReadHandler);
 }
@@ -295,4 +487,14 @@ export function runPostWriteHook(stdinJson: string): string {
 
 export function runPostEditHook(stdinJson: string): string {
   return runPostToolUseHook(stdinJson, postEditHandler);
+}
+
+/**
+ * Async post-edit hook: graph-backed review over UDS, with co-change-nudge
+ * degradation. This is what the `unerr hook post-edit` CLI command runs; the
+ * sync {@link runPostEditHook} is retained as the degradation target and for
+ * callers that can't await.
+ */
+export function runPostEditHookAsync(stdinJson: string): Promise<string> {
+  return runPostToolUseHookAsync(stdinJson, postEditHandlerAsync);
 }

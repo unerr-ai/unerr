@@ -76,6 +76,10 @@ export function registerInstallCommand(program: Command): void {
       "--show-instructions [agent]",
       "Print setup instructions for any AI coding agent"
     )
+    .option(
+      "--review-gate",
+      "Also install the git pre-commit/post-commit review gate (opt-in)"
+    )
     .action(
       async (
         agent?: string,
@@ -84,6 +88,7 @@ export function registerInstallCommand(program: Command): void {
           forceTools?: boolean;
           showSkills?: boolean;
           showInstructions?: boolean | string;
+          reviewGate?: boolean;
         }
       ) => {
         const cwd = process.cwd();
@@ -160,6 +165,22 @@ export function registerInstallCommand(program: Command): void {
           process.stderr.write(
             "  \x1b[38;2;52;211;153m✓\x1b[0m PreToolUse hook installed (graph-first navigation)\n"
           );
+        }
+
+        // Review gate (opt-in git pre-commit/post-commit hooks)
+        if (opts?.reviewGate) {
+          const { installReviewGateHooks } = await import(
+            "../tracking/review-gate-hooks.js"
+          );
+          if (installReviewGateHooks(cwd)) {
+            process.stderr.write(
+              "  \x1b[38;2;52;211;153m✓\x1b[0m Review gate installed (git pre-commit/post-commit)\n"
+            );
+          } else {
+            process.stderr.write(
+              "  \x1b[38;2;251;191;36m⚠\x1b[0m Review gate skipped — not a git repository (.git/hooks missing)\n"
+            );
+          }
         }
 
         // Gitignore

@@ -317,6 +317,48 @@ describe("Bridge connect/disconnect lifecycle", () => {
     expect(connectIdx).toBeLessThan(bridgeIdx);
     expect(bridgeIdx).toBeLessThan(disconnectIdx);
   });
+
+  it("hands off stdin gaplessly on a warm reconnect (no -32001 tools/list drop)", () => {
+    // Regression: the IDE fires `tools/list` the instant `initialize` is
+    // answered. With a warm daemon+proxy the bridge is still connecting when
+    // that frame arrives. If the interceptor were detached before
+    // `await connectRepo`, or the bridge only attached its relay handler inside
+    // the async `connect` callback, the frame would be dropped between handlers
+    // → "MCP error -32001: Request timed out". Two invariants keep it gapless.
+    const cli = readFileSync(
+      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      "utf-8"
+    );
+    const daemonBlock = cli.slice(cli.indexOf('discovery.kind === "daemon"'));
+
+    // (1) cli.ts: the interceptor stays attached THROUGH connectRepo — detached
+    // only after `await connectRepo`, immediately before startUdsBridge.
+    const connectRepoIdx = daemonBlock.indexOf("await connectRepo(");
+    const detachIdx = daemonBlock.indexOf(
+      'removeListener("data", preBufferHandler)'
+    );
+    const bridgeIdx = daemonBlock.indexOf("await startUdsBridge(");
+    expect(detachIdx).toBeGreaterThan(-1);
+    expect(connectRepoIdx).toBeLessThan(detachIdx);
+    expect(detachIdx).toBeLessThan(bridgeIdx);
+
+    // (2) bridge.ts: the relay handler is attached in the Promise executor
+    // (before the async `connect` event) and queues frames until connected, so
+    // frames arriving during connect are captured, not dropped.
+    const bridge = readFileSync(
+      resolve(process.cwd(), "src/proxy/bridge.ts"),
+      "utf-8"
+    );
+    expect(bridge).toContain("preConnectQueue.push");
+    expect(bridge).toContain("if (!connected)");
+    const handlerAttachIdx = bridge.indexOf(
+      'process.stdin.on("data", stdinDataHandler)'
+    );
+    const connectCbIdx = bridge.indexOf('socket.on("connect"');
+    expect(handlerAttachIdx).toBeGreaterThan(-1);
+    expect(connectCbIdx).toBeGreaterThan(-1);
+    expect(handlerAttachIdx).toBeLessThan(connectCbIdx);
+  });
 });
 
 // ── Protocol integration tests ─────────────────────────────────────

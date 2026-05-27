@@ -37,6 +37,7 @@ import { registerInstallCommand } from "../commands/install.js";
 import { registerLearnCommand } from "../commands/learn.js";
 import { registerManifestCommand } from "../commands/manifest.js";
 import { registerPmCommand } from "../commands/pm.js";
+import { registerReviewCommand } from "../commands/review.js";
 import { registerRewindCommand } from "../commands/rewind.js";
 import { registerRouterCommands } from "../commands/router.js";
 import { registerSkillsCommand } from "../commands/skills.js";
@@ -1123,6 +1124,21 @@ async function mcpBoot(
   // bridge sessions (FIX C) so a sock that won't connect can't hot-loop.
   let reconnectFailures = 0;
   for (;;) {
+    // Re-arm the static-catalog interceptor for EVERY discovery pass, not just
+    // the first. On a reconnect (proxy crash/restart → socket_closed) we
+    // re-enter discovery with no stdin handler attached — the bridge removed
+    // its own on cleanup and the pre-loop interceptor was detached at the first
+    // handoff. Without a handler the IDE's initialize / tools/list go
+    // unanswered while ensureRepo flaps, and Claude Code reports "-32001
+    // Request timed out". Re-attaching answers those two methods locally AND
+    // keeps stdin reffed so the bridge process stays alive between probes.
+    // Idempotent: skipped on the first pass where the handler is already on.
+    if (process.stdin.listenerCount("data") === 0) {
+      process.stdin.on("data", preBufferHandler);
+      process.stdin.on("end", earlyEndHandler);
+      process.stdin.resume();
+    }
+
     const discovery = await discoverWithRetry(
       cwd,
       daemonSockPath,
@@ -1140,20 +1156,6 @@ async function mcpBoot(
         "[unerr:mcp] stdin closed during auto-spawn — exiting\n"
       );
       return;
-    }
-
-    // Hand off stdin: detach the pre-buffer handler exactly once on the
-    // first bridge attempt. Subsequent reconnects re-attach inside
-    // startUdsBridge directly. Drain any unfinished line out of the
-    // interceptor so a frame that arrived mid-chunk isn't dropped.
-    let bufferForBridge: Buffer[] | undefined;
-    if (process.stdin.listenerCount("data") > 0 && stdinPreBuffer.length >= 0) {
-      process.stdin.removeListener("data", preBufferHandler);
-      process.stdin.removeListener("end", earlyEndHandler);
-      const partial = interceptor.drainPartial();
-      if (partial) stdinPreBuffer.push(partial);
-      bufferForBridge = stdinPreBuffer.slice();
-      stdinPreBuffer.length = 0;
     }
 
     if (discovery.kind === "daemon") {
@@ -1177,6 +1179,24 @@ async function mcpBoot(
         }
       }, ACTIVITY_THROTTLE_MS);
       activityInterval.unref();
+
+      // Hand off stdin to the bridge. Detach the interceptor SYNCHRONOUSLY here
+      // — after `await connectRepo` above (during which it stayed attached so a
+      // `tools/list` the IDE fires the instant `initialize` was answered
+      // locally is caught, not dropped) and immediately before startUdsBridge,
+      // whose Promise executor attaches its own stdin capture synchronously. No
+      // await spans the handoff, so no frame is dropped in the gap that
+      // surfaced as "/mcp ... -32001" on a warm reconnect. Drain any unfinished
+      // line out of the interceptor so a frame split mid-chunk isn't lost.
+      let bufferForBridge: Buffer[] | undefined;
+      if (process.stdin.listenerCount("data") > 0) {
+        process.stdin.removeListener("data", preBufferHandler);
+        process.stdin.removeListener("end", earlyEndHandler);
+        const partial = interceptor.drainPartial();
+        if (partial) stdinPreBuffer.push(partial);
+        bufferForBridge = stdinPreBuffer.slice();
+        stdinPreBuffer.length = 0;
+      }
 
       const connectedAt = Date.now();
       const result = await startUdsBridge(discovery.sockPath, bufferForBridge, {
@@ -1283,7 +1303,11 @@ async function discoverWithRetry(
           process.stderr.write(
             "unerr| to stop: unerr pm stop  (idle exit after 30 min)\n"
           );
-          await waitForSupervisor(daemonSock, probeDaemon, DAEMON_READY_TIMEOUT_MS);
+          await waitForSupervisor(
+            daemonSock,
+            probeDaemon,
+            DAEMON_READY_TIMEOUT_MS
+          );
         } catch (err) {
           process.stderr.write(
             `[unerr:mcp] auto-spawn failed: ${(err as Error).message}\n`
@@ -1295,7 +1319,11 @@ async function discoverWithRetry(
         process.stderr.write(
           "[unerr:mcp] waiting for concurrent process-manager spawn...\n"
         );
-        await waitForSupervisor(daemonSock, probeDaemon, DAEMON_READY_TIMEOUT_MS);
+        await waitForSupervisor(
+          daemonSock,
+          probeDaemon,
+          DAEMON_READY_TIMEOUT_MS
+        );
       }
       // Loop back to re-probe immediately rather than backing off.
       continue;
@@ -1431,6 +1459,7 @@ registerDoctorCommand(program);
 registerGainCommand(program);
 registerDiscoverCommand(program);
 registerPmCommand(program);
+registerReviewCommand(program);
 registerRouterCommands(program);
 
 // ── Hidden Commands (callable but not shown in --help) ──────
@@ -1466,6 +1495,7 @@ const visibleCommands = new Set([
   "debug",
   "init",
   "pm",
+  "review",
   "router",
 ]);
 for (const cmd of program.commands) {

@@ -292,9 +292,13 @@ describe("QueryRouter", () => {
       const text = result.content as string;
       expect(typeof text).toBe("string");
       expect(text.startsWith("_fmt:multi")).toBe(true);
-      expect(text).toContain("@meta");
-      expect(text).toMatch(/@(naming|import_direction|structure|guidance)\[/);
-      expect(text).toContain("summary=");
+      expect(text).toMatch(/@(naming|import_direction|structure)\[/);
+      // get_conventions now ships only the per-kind arrays. The synthetic
+      // `guidance` prose and `summary` count were dropped from the wire (the
+      // agent can read adherence_rate off each convention), so no scalar
+      // fields remain → the encoder emits no `@meta` line and no `summary=`.
+      expect(text).not.toContain("@meta");
+      expect(text).not.toContain("summary=");
     });
   });
 
@@ -579,8 +583,11 @@ describe("QueryRouter", () => {
       router.setMode("setup");
 
       const result = await router.execute("get_function", { key: "fn1" });
-      // All tools should be degraded in setup mode (18 after disabling get_rules, check_rules, get_business_context, semantic_search, find_similar, unerr_revert_entity, 8 blueprint tools; +1 fetch_url)
-      expect(result._meta.tools_degraded?.length).toBe(18);
+      // All tools should be degraded in setup mode (19 = 18 base after disabling
+      // get_rules, check_rules, get_business_context, semantic_search,
+      // find_similar, unerr_revert_entity, 8 blueprint tools; +1 fetch_url;
+      // +1 review_changes — Surface C local tool added to LOCAL_TOOLS)
+      expect(result._meta.tools_degraded?.length).toBe(19);
     });
   });
 

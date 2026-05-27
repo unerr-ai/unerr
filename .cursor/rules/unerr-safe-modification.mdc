@@ -41,8 +41,12 @@ Phase 7 — Verify.
   Re-call `get_references({key:'<entity_key>'})`; confirm caller signatures still match.
   Run the targeted test for the changed file.
 
+Phase 8 — Review before close.
+  Run the Review phase (`unerr-review`, phases R4–R7) on every entity changed this turn: `get_references({key:'<entity>', direction:'callers'})` for the breaking-caller cascade, `get_conventions({file_path:'<file>'})` for boundary/convention breaches, `get_test_coverage({entity:'<entity>'})` for untested changed exports, `search_code({query:'<new-name>'})` for duplicate/hallucinated APIs. Judge over diff + that evidence; tag findings critical/high/medium/low. Fix critical + high before close-out. An evidenced-clean change set is a valid pass — say so.
+
 ## Red Flags
 
+Closing the edit without the Phase 8 review → breaking-caller cascades and contract drift ship silently; run `unerr-review` R4–R7 on the changed entities first.
 Editing without calling `unerr_recall_notes` first → abort, run Phase 1.
 Calling `Edit` after `file_read` without a built-in `Read` → Edit will reject; call built-in Read on the target lines, then retry.
 Skipping `get_references` because the function looks small → small entities can have 20 callers; always check.

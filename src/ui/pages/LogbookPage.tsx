@@ -285,6 +285,8 @@ const EVENT_TYPE_ICONS: Record<string, string> = {
   // Safety
   stale_edit_prevented: "✦",
   cascade_guard: "✦",
+  boundary_violation_flagged: "▦",
+  incomplete_work_flagged: "◌",
   cascade_warning_consumed: "✓",
   intervention_halted: "✕",
   intervention_warned: "!",
@@ -327,6 +329,8 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   // ─── Prevented mistakes ────────────────────────────────────────────
   stale_edit_prevented: "Prevented a broken edit",
   cascade_guard: "Protected code that depends on this",
+  boundary_violation_flagged: "Kept an architecture boundary intact",
+  incomplete_work_flagged: "Flagged an unfinished refactor",
   cascade_warning_consumed: "Agent checked dependent code first",
   intervention_halted: "Blocked a bad tool call",
   intervention_warned: "Flagged a risky operation",
@@ -435,6 +439,30 @@ function describeEvent(
     case "cascade_guard":
       if (file) return `Other code depends on ${file} — warned the agent before editing to prevent breakage`;
       return "Warned the agent that other code depends on what it was about to change";
+    case "boundary_violation_flagged": {
+      const violations =
+        typeof meta.violations === "number" ? meta.violations : null;
+      const layers = Array.isArray(meta.target_layers)
+        ? (meta.target_layers as unknown[]).filter(
+            (l): l is string => typeof l === "string"
+          )
+        : [];
+      if (file && layers.length > 0)
+        return `${file} was about to import across an architecture boundary into ${layers.join(", ")} — flagged before the layering eroded`;
+      if (violations)
+        return `Flagged ${violations} import(s) that crossed an architecture boundary meant to stay isolated`;
+      return "Flagged an import that crossed an architecture boundary meant to stay isolated";
+    }
+    case "incomplete_work_flagged": {
+      const itemCount = typeof meta.items === "number" ? meta.items : null;
+      const high =
+        typeof meta.high_severity === "number" ? meta.high_severity : 0;
+      if (high > 0)
+        return `Flagged ${high} signature change(s) whose callers were never updated this session — they'd break at runtime or compile time`;
+      if (itemCount)
+        return `Flagged ${itemCount} unfinished refactor(s) at session end so they don't surface as breaks later`;
+      return "Flagged an unfinished refactor at session end so it doesn't surface as a break later";
+    }
     case "cascade_warning_consumed":
       return "The agent read the dependency warning and adjusted its approach before editing";
     case "intervention_halted":
@@ -516,6 +544,7 @@ const FEATURED_TONE: Record<string, Tone> = {
   // Catches — things that would have gone wrong without unerr
   stale_edit_prevented: "catch",
   cascade_guard: "catch",
+  boundary_violation_flagged: "catch",
   intervention_halted: "catch",
   loop_broken: "catch",
   // Guards — proactive warnings that steered the agent
@@ -525,6 +554,7 @@ const FEATURED_TONE: Record<string, Tone> = {
   drift_consumed: "guard",
   defuddle_selector_skipped: "guard",
   surface2_missed: "guard",
+  incomplete_work_flagged: "guard",
   // Memory — cross-session intelligence
   fact_recalled: "remember",
   fact_stored_user_fed: "remember",

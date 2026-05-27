@@ -45,9 +45,9 @@ describe("tool-tiers: UNLOCK_CONDITIONS alignment with TIER_ENTRIES", () => {
     }
   });
 
-  it("expected tier sizes — 11 / 7 / 6 (Tier 1 added unerr_surface2_line — Fix B)", () => {
+  it("expected tier sizes — 11 / 8 / 6 (Tier 2 added review_changes — Surface C)", () => {
     expect(toolsByTier(1)).toHaveLength(11);
-    expect(toolsByTier(2)).toHaveLength(7);
+    expect(toolsByTier(2)).toHaveLength(8);
     expect(toolsByTier(3)).toHaveLength(6);
   });
 });

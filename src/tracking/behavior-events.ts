@@ -104,7 +104,29 @@ export type BehaviorEventType =
    *  classified_as` are populated. Anchored on `{session_id, turn}` —
    *  joined into Token Flow / Reasoning Quality / Logbook trace pages
    *  as the per-turn execution anchor. */
-  | "user_prompt_received";
+  | "user_prompt_received"
+  // ── Reviewer (Surface A — in-flight post-edit review) ──────────────
+  /** The in-flight review engine surfaced ≥1 finding on a post-edit
+   *  `unerr/review_edit` query. One row per emission (not per finding) —
+   *  `detail.count` carries the surfaced population, `detail.top_severity`
+   *  the lead finding's severity, `detail.checkers` the firing checker ids. */
+  | "review_finding_surfaced"
+  // ── Pre-edit boundary guard + session-end incomplete-work ──────────
+  // Siblings to cascade_guard: the unerr/blast_radius hook computes a
+  // caller-cascade signal AND an architecture-boundary signal; both are
+  // distinct behaviors (D2 vs D3) and each fires its own row.
+  /** The pre-edit architecture-boundary guard flagged ≥1 cross-layer
+   *  implementation import on a `unerr/blast_radius` query. One row per
+   *  emission — `detail.violations` carries the count, `detail.target_layers`
+   *  the forbidden layers reached into. */
+  | "boundary_violation_flagged"
+  /** Session-end reconciliation flagged broken callers — a signature
+   *  changed this session whose callers were never updated. One row per
+   *  session-end emission — `detail.items` carries the flagged count,
+   *  `detail.entities` the changed-entity names. Persisted alongside
+   *  `.unerr/state/incomplete-work.json`, which the next session's resume
+   *  strip reads. */
+  | "incomplete_work_flagged";
 
 export interface BehaviorEvent {
   /** Monotonic counter per-process. */

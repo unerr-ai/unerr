@@ -89,13 +89,13 @@ describe("tool-budget: enforceBudget", () => {
 describe("tool-descriptions: tier registry", () => {
   const ALL = listToolNames();
 
-  it("contains exactly 24 tools (Fix B added unerr_surface2_line)", () => {
-    expect(ALL.length).toBe(24);
+  it("contains exactly 25 tools (P3 added review_changes)", () => {
+    expect(ALL.length).toBe(25);
   });
 
-  it("partitions tools into exactly 11 / 7 / 6 across tiers 1 / 2 / 3", () => {
+  it("partitions tools into exactly 11 / 8 / 6 across tiers 1 / 2 / 3", () => {
     expect(toolsByTier(1)).toHaveLength(11);
-    expect(toolsByTier(2)).toHaveLength(7);
+    expect(toolsByTier(2)).toHaveLength(8);
     expect(toolsByTier(3)).toHaveLength(6);
   });
 

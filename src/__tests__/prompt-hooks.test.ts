@@ -53,6 +53,9 @@ describe("classifyVerbCluster (T3.1)", () => {
     ["tests are failing for cursor adapter", "bug"],
     ["audit the new permission model", "review"],
     ["review this PR before merge", "review"],
+    ["review my changes before commit", "review"],
+    ["address the review comments on this PR", "review-comments"],
+    ["respond to PR feedback", "review-comments"],
     ["who calls handleMarkerCall", "navigation"],
     ["remember we never use grep", "memory"],
     ["implement a new dashboard route", "build"],
@@ -71,8 +74,10 @@ describe("classifyVerbCluster (T3.1)", () => {
 
   it("every cluster routes to a consolidated unerr-* skill", () => {
     // Post-27→7: many-to-one is the new invariant (bug+build → build-and-debug;
-    // fix+refactor → safe-modification; test+review → test-and-review). What
-    // matters is that every cluster names a real consolidated skill.
+    // fix+refactor → safe-modification; test → test-and-review). Review verbs
+    // split (2026-05): producing a review → unerr-review; addressing review
+    // comments → unerr-test-and-review. What matters is that every cluster
+    // names a real consolidated skill.
     const consolidated = new Set([
       "unerr-using-unerr",
       "unerr-safe-modification",
@@ -81,6 +86,7 @@ describe("classifyVerbCluster (T3.1)", () => {
       "unerr-markers",
       "unerr-build-and-debug",
       "unerr-test-and-review",
+      "unerr-review",
     ]);
     for (const c of VERB_CLUSTERS) {
       expect(consolidated.has(c.skill)).toBe(true);
@@ -95,7 +101,7 @@ describe("buildSkillCatalog (T3.2)", () => {
     expect(catalog).toMatch(/^available skills/);
   });
 
-  it("lists all 7 consolidated unerr-* skills", () => {
+  it("lists all 8 consolidated unerr-* skills", () => {
     const names = [
       "unerr-using-unerr",
       "unerr-safe-modification",
@@ -104,13 +110,14 @@ describe("buildSkillCatalog (T3.2)", () => {
       "unerr-markers",
       "unerr-build-and-debug",
       "unerr-test-and-review",
+      "unerr-review",
     ];
     for (const n of names) expect(catalog).toContain(n);
   });
 
   it("includes a one-line description per skill", () => {
-    // 7 skills + 1 header = 8 lines
-    expect(catalog.split("\n")).toHaveLength(8);
+    // 8 skills + 1 header = 9 lines
+    expect(catalog.split("\n")).toHaveLength(9);
   });
 });
 

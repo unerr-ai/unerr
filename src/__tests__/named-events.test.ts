@@ -72,6 +72,14 @@ describe("named-events", () => {
         plural: "things",
       });
     });
+
+    it("renders the reviewer's in-flight-finding row (turn-summary contract)", () => {
+      expect(getPhrasing("review_finding_surfaced")).toEqual({
+        verb: "flagged",
+        object: "review finding",
+        plural: "review findings",
+      });
+    });
   });
 
   describe("readNamedEvents", () => {

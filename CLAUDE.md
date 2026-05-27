@@ -410,7 +410,7 @@ unerr install cursor           # Writes .cursor/mcp.json + .cursor/rules/
 
 **Verify:**
 - `.mcp.json` contains `{ "command": "<resolved-unerr-path>", "args": ["--mcp"] }` (absolute path)
-- `.claude/skills/unerr-*` files exist (12 skills)
+- `.claude/skills/unerr-*` files exist (8 skills)
 - `.cursor/rules/unerr-*.mdc` files exist
 - stderr shows: entity/edge counts, SCIP enrichment, conventions detected
 - Tool latency `<5ms` (check `_meta.latency_ms` in MCP responses)

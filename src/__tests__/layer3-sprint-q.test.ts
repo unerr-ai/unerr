@@ -168,9 +168,24 @@ describe("Skills Pack (Q.11-Q.12, post-27→7 consolidation)", () => {
     );
   });
 
-  it("LOCAL_SKILLS has the 7 consolidated skills", () => {
-    // Hard cut: the 22 absorbed legacy skills are gone.
-    expect(LOCAL_SKILLS).toHaveLength(7);
+  it("review producer lives inside unerr-review", () => {
+    // Skill 8 — agent-as-reviewer. PRODUCES a review (distinct from
+    // test-and-review Track B, which ADDRESSES review comments left by others).
+    const skill = getSkill("review");
+    expect(skill).not.toBeNull();
+    expect(skill?.category).toBe("workflow");
+    expect(skill?.trigger.type).toBe("agent-requested");
+    // Iron Law: every finding cites graph evidence, not the diff alone.
+    expect(skill?.instructions).toContain("get_references");
+    expect(skill?.instructions).toContain("get_test_coverage");
+    // Disambiguation marker vs test-and-review Track B.
+    expect(skill?.whenToUse).toContain("NOT for addressing review comments");
+  });
+
+  it("LOCAL_SKILLS has the 8 consolidated skills", () => {
+    // Hard cut: the 22 absorbed legacy skills are gone. Skill 8 (review) —
+    // agent-as-reviewer producer — added 2026-05.
+    expect(LOCAL_SKILLS).toHaveLength(8);
     const ids = LOCAL_SKILLS.map((s) => s.id);
     expect(ids).toEqual([
       "using-unerr",
@@ -180,6 +195,7 @@ describe("Skills Pack (Q.11-Q.12, post-27→7 consolidation)", () => {
       "markers",
       "build-and-debug",
       "test-and-review",
+      "review",
     ]);
   });
 });

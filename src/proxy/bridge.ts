@@ -118,6 +118,29 @@ export function startUdsBridge(
     // biome-ignore lint/style/useConst: assigned after socket.on handlers below
     let stdinEndHandler: (() => void) | undefined;
 
+    // Gapless stdin relay (warm-reconnect `tools/list` drop fix). mcpBoot
+    // detaches its static-catalog interceptor synchronously right before
+    // invoking us, but `connect` fires on a later tick. Attach the relay
+    // handler NOW so a `tools/list` the IDE fires the instant `initialize` is
+    // answered locally (warm daemon+proxy) is captured, not dropped — the drop
+    // surfaced as "-32001". Frames queue until `connect` drains and opens them.
+    let connected = false;
+    const preConnectQueue: Buffer[] = [];
+    const codingAgent = options?.codingAgent;
+    const maybeRewrite = (chunk: Buffer): Buffer =>
+      codingAgent ? rewriteInitializeFrame(chunk, codingAgent) : chunk;
+    stdinDataHandler = (chunk: Buffer) => {
+      if (!connected) {
+        preConnectQueue.push(chunk);
+        return;
+      }
+      if (socket.destroyed) return;
+      const { forward, arm } = catalog.ingestFromIde(chunk);
+      for (const buf of forward) socket.write(maybeRewrite(buf));
+      for (const req of arm) armFallback(req);
+    };
+    process.stdin.on("data", stdinDataHandler);
+
     /** Arm a single fallback timer per request id (idempotent). */
     function armFallback(req: PendingLocalRequest) {
       const key = String(req.id);
@@ -148,10 +171,6 @@ export function startUdsBridge(
     socket.on("connect", () => {
       log.info(`Connected to proxy at ${sockPath}`);
 
-      const codingAgent = options?.codingAgent;
-      const maybeRewrite = (chunk: Buffer): Buffer =>
-        codingAgent ? rewriteInitializeFrame(chunk, codingAgent) : chunk;
-
       // Announce the coding-agent id to the proxy independently of the IDE's
       // MCP `initialize` handshake. IDEs only send `initialize` once per MCP
       // transport; on bridge reconnects (proxy restart, daemon respawn) the
@@ -169,35 +188,23 @@ export function startUdsBridge(
         socket.write(hello);
       }
 
-      // Drain frames the caller captured before we could connect (e.g. the
-      // IDE's `initialize` arriving during auto-spawn). Feed them THROUGH the
-      // catalog so a frame split across the pre-buffer / post-connect boundary
-      // is reassembled and any answerable request still arms a fallback. Order
-      // is preserved.
-      if (preBufferedChunks && preBufferedChunks.length > 0) {
-        log.info(`Draining ${preBufferedChunks.length} pre-buffered chunk(s)`);
-        for (const chunk of preBufferedChunks) {
+      // Drain frames captured before connect (caller's pre-buffer first, then
+      // frames that arrived while connecting) THROUGH the catalog so a split
+      // frame is reassembled and answerable requests still arm a fallback. Then
+      // open the gate so live frames relay directly (FIX A + warm-reconnect).
+      const pending = [...(preBufferedChunks ?? []), ...preConnectQueue];
+      preConnectQueue.length = 0;
+      if (pending.length > 0) {
+        log.info(`Draining ${pending.length} pre-buffered chunk(s)`);
+        for (const chunk of pending) {
           const { forward, arm } = catalog.ingestFromIde(chunk);
           for (const buf of forward) {
             if (!socket.destroyed) socket.write(maybeRewrite(buf));
           }
           for (const req of arm) armFallback(req);
         }
-        preBufferedChunks.length = 0;
       }
-
-      // stdin → UDS: forward MCP requests from IDE to proxy. `initialize` /
-      // `tools/list` are forwarded AND armed with a local fallback so a busy
-      // proxy can't strand the IDE with zero tools (FIX A).
-      stdinDataHandler = (chunk: Buffer) => {
-        if (socket.destroyed) return;
-        const { forward, arm } = catalog.ingestFromIde(chunk);
-        for (const buf of forward) {
-          socket.write(maybeRewrite(buf));
-        }
-        for (const req of arm) armFallback(req);
-      };
-      process.stdin.on("data", stdinDataHandler);
+      connected = true;
 
       // UDS → stdout: forward MCP responses from proxy to IDE. The catalog
       // strips heartbeat pongs, cancels the fallback for any request the proxy

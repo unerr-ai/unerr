@@ -217,6 +217,15 @@ export class LoopCircuitBreaker extends Behavior {
         behavior: this.id,
         loops_prevented_session: this.loopsPrevented,
         tokens_saved: this.totalTokensSaved,
+        // P1.2: render the trip at the MOMENT it trips. buildSignalPrefix
+        // only renders `meta.circuit_breaker` (→ `hlt` line); the post-tool
+        // _meta merge (proxy fault-2 fix) carries it to the response. Without
+        // this key the trip was silent until the next call to the same entity.
+        circuit_breaker: {
+          entity: entityKey,
+          attempts: failCount,
+          message: `loop broken on ${entityKey}: ${failCount} consecutive failed attempts (${detection.pattern}) — stop retrying, call mark_blocker and switch approach`,
+        },
       },
       _context: {
         halt: true,

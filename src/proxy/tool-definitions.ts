@@ -431,6 +431,36 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
     },
   },
 
+  review_changes: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        scope: {
+          type: "string",
+          enum: ["staged", "range"],
+          description:
+            "What to review: 'staged' (the git index, default) or 'range' (requires `range`).",
+        },
+        range: {
+          type: "string",
+          description:
+            "For scope:'range' — a git ref range '<from>..<to>' (e.g. 'main..HEAD').",
+        },
+        min_severity: {
+          type: "string",
+          enum: ["info", "low", "medium", "high", "critical"],
+          description:
+            "Floor severity to surface (default 'medium'). Below it, findings are counted as suppressed, not shown.",
+        },
+      },
+    },
+    annotations: {
+      title: "Review Changes",
+      readOnlyHint: true,
+      openWorldHint: false,
+    },
+  },
+
   // ── Tier 3 ─────────────────────────────────────────────────────────────
   mark_intent: {
     inputSchema: {
@@ -638,12 +668,12 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         session_id: {
           type: "string",
           description:
-            "For active-cognition writes — session id from the resume strip or current run.",
+            "Optional — leave unset. The server fills the live session id automatically; only pass one to attribute a write to a specific past session.",
         },
         prompt_hash: {
           type: "string",
           description:
-            "For active-cognition writes — hash of the originating prompt, used for provenance.",
+            "Optional internal provenance — leave unset; the agent need not compute a prompt hash.",
         },
         // ── Legacy free-form (TemporalFactStore) payload ──
         content: {
@@ -728,7 +758,8 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         },
         session_id: {
           type: "string",
-          description: "Session id for telemetry.",
+          description:
+            "Optional — leave unset. The server supplies the live session id for telemetry automatically.",
         },
       },
     },

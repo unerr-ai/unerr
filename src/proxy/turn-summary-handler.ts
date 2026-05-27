@@ -140,22 +140,18 @@ export async function handleTurnSummaryProxy(
       /* best effort — receipt falls through to legacy single-liner */
     }
 
-    const result: TurnSummaryResult = {
-      ok: true,
-      line: blockLines.join("\n"),
-      total_events: data.total_events,
-      total_tokens_saved: data.total_tokens_saved,
-      headroom_compounded: data.headroom_compounded,
-      current_turn: data.current_turn,
-      turn_events: data.turn_events,
-      turn_tokens_saved: data.turn_tokens_saved,
-      highlights: data.highlights,
-      turn_highlights: data.turn_highlights,
-      runtime_joins: runtimeJoins,
-      attribution,
-    };
+    // Wire payload: the agent only ever pastes `line` (the close-out
+    // contract). The full economy breakdown — events, savings, headroom,
+    // highlights, runtime joins, attribution — is telemetry the dashboard
+    // reads off disk (token_flow_events / behavior_events) via its own HTTP
+    // routes; it must NOT ride the agent-facing wire. Same discipline as the
+    // 2026-05-10 "Vanity Strip" on `_meta`. `line` already bakes in the
+    // runtime-join prefix + receipt block, so nothing actionable is lost.
+    // `TurnSummaryResult` (above) stays the internal/telemetry shape;
+    // `runtimeJoins` + `attribution` are still consumed by renderReceiptBlock.
+    const wire = { ok: true as const, line: blockLines.join("\n") };
     return {
-      content: [{ type: "text", text: JSON.stringify(result) }],
+      content: [{ type: "text", text: JSON.stringify(wire) }],
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

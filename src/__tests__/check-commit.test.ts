@@ -23,21 +23,22 @@ describe("Check-Commit Hook", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("pre-commit hook script is valid shell with shebang and non-blocking exit", () => {
+  it("pre-commit gate hook propagates check-commit's exit code", () => {
+    // Surface B: the gate must be able to BLOCK (exit 1 in blocking mode), so
+    // the hook propagates check-commit's exit code rather than forcing exit 0.
+    // Real install/uninstall behaviour is covered in review-gate-hooks.test.ts.
     const hookScript = `#!/bin/sh
-# unerr pre-commit convention check
-if command -v unerr &> /dev/null; then
-  unerr check-commit 2>/dev/null
+# unerr-review-gate (pre-commit)
+# Review staged changes; a non-zero exit (blocking mode) stops the commit.
+if command -v unerr >/dev/null 2>&1; then
+  unerr check-commit || exit $?
 fi
-# Non-blocking — always allow commit
-exit 0
 `;
     expect(hookScript.startsWith("#!/bin/sh")).toBe(true);
-    expect(hookScript.trimEnd().endsWith("exit 0")).toBe(true);
     expect(hookScript).toContain("unerr check-commit");
-    // Stderr redirect ensures no noise in git output
-    expect(hookScript).toContain("2>/dev/null");
-    // command -v check ensures graceful degradation when unerr not installed
+    // Exit-code propagation — the blocking decision lives in check-commit.
+    expect(hookScript).toContain("|| exit $?");
+    // command -v check ensures graceful degradation when unerr not installed.
     expect(hookScript).toContain("command -v unerr");
   });
 

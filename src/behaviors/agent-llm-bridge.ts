@@ -19,7 +19,8 @@ export type PromptTemplate =
   | "loop_diagnosis"
   | "convention_fix"
   | "cascade_fix"
-  | "architecture_alternative";
+  | "architecture_alternative"
+  | "review_synthesis";
 
 export interface SubPrompt {
   template: PromptTemplate;
@@ -88,6 +89,15 @@ const TEMPLATE_DEFINITIONS: Record<
       "The following import crosses a module boundary. Suggest an alternative pattern.",
     maxTokens: 400,
     priority: "normal",
+  },
+  review_synthesis: {
+    // Tier-2 review evidence (docs/reviewer-architecture.md §3, §5.1, §9.3). The
+    // model judges fix-or-flag ONLY from unerr's concrete graph evidence below —
+    // it must not invent issues the evidence does not support (no free-association).
+    prefix:
+      "Each item below is unerr's concrete graph evidence about a change you just made. For each, decide fix-or-flag using ONLY the evidence shown — do not infer problems the evidence does not support. State the conclusion and the exact edit, or say why it is a non-issue, before finishing this turn.",
+    maxTokens: 500,
+    priority: "high",
   },
 };
 

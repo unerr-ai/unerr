@@ -148,6 +148,13 @@ export const UNLOCK_CONDITIONS: Readonly<Record<string, Condition>> = {
 
   get_file: C.readTruncated(),
 
+  // On-demand review is worth surfacing once there is something to review:
+  // a risk signal already fired (the agent is on a risky path), or it has done
+  // non-trivial work (edit / write / ≥5 reads). Built-in Edit/Write don't route
+  // through the router, so `nonTrivial`'s read component is the reliable path
+  // in a pure MCP session; `ur|rsk` covers the in-flight-review case.
+  review_changes: C.or(C.urTag("rsk"), C.nonTrivial()),
+
   // ── Tier 3 ─────────────────────────────────────────────────────────────
   mark_intent: C.and(C.turns(3), C.nonTrivial()),
 

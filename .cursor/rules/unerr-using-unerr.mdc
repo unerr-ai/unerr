@@ -37,13 +37,14 @@ Match the user's prompt against these verb clusters. First match wins.
   - fix / modify / change / update / tweak / optimize / replace   → `Skill('unerr-safe-modification')`
   - refactor / rename / move / restructure / extract / migrate    → `Skill('unerr-safe-modification')`
   - test / write tests / TDD / spec                               → `Skill('unerr-test-and-review')`
-  - review / audit / critique / address review / PR feedback      → `Skill('unerr-test-and-review')`
+  - review my changes / audit / critique / before commit / self-review → `Skill('unerr-review')`
+  - address review comments / PR feedback / pull-request feedback  → `Skill('unerr-test-and-review')`
   - find / search / where / who calls / callers / callees / deps  → `Skill('unerr-exploration')`
   - remember / always / from now on / never / don't               → `Skill('unerr-memory')`
 
 ## Default workflow (omni fallback)
 
-Run this exact 6-phase sequence when no dispatch row matches.
+Run this exact 7-phase sequence when no dispatch row matches.
 
 Phase 1 — Recall.
   Call `unerr_recall_notes({prompt:'<verbatim user prompt>'})`. Empty result is fine; the call is the contract.
@@ -60,7 +61,10 @@ Phase 4 — Edit.
 Phase 5 — Verify.
   Run the targeted test file (not the full suite). Capture `mark_resolution` for any blocker that fired during the turn.
 
-Phase 6 — Close out (REQUIRED on every coding turn).
+Phase 6 — Review before close (only when this turn edited code).
+  Run the Review phase (`unerr-review`, phases R4–R7) on every entity changed this turn: `get_references({key:'<entity>', direction:'callers'})` for breaking callers, `get_conventions({file_path:'<file>'})` for boundary/convention breaches, `get_test_coverage({entity:'<entity>'})` for untested changed exports. Fix critical + high before close-out. Skip this phase only on turns that changed no code.
+
+Phase 7 — Close out (REQUIRED on every coding turn).
   Call `unerr_turn_summary({})` ONCE before drafting your closing summary. Include the returned `line` field VERBATIM in your final message — that's how the user sees the cumulative savings / headroom number for the conversation.
 
 ## Surface lines you emit to the user every turn

@@ -77,6 +77,12 @@ Two places unerr shows up so you know it's working — inside the chat, and in a
 **In a browser.** A live dashboard at `http://localhost:9847` reads from the same store the agent reads from over MCP — the graph it navigates, the facts it remembers, the tokens it didn't have to chew through, and the score showing which of those facts actually shaped the next answer.
 
 <p align="center">
+  <img src="https://unerr.dev/open-cli/screenshots/end-of-turn-receipt.png" alt="unerr end-of-turn receipt — tokens saved and headroom kept open this turn" width="380" />
+  <img src="https://unerr.dev/open-cli/screenshots/end-of-turn-receipt-2.png" alt="unerr end-of-turn receipt — named, countable catches totalled at the close of a turn" width="380" />
+  <br/><sub><strong>End-of-turn receipt</strong> · every coding turn closes with one line totalling what unerr saved you — named, countable catches, not a ratio.</sub>
+</p>
+
+<p align="center">
   <img src="https://unerr.dev/open-cli/screenshots/dashboard.png" alt="unerr dashboard — live overview" width="300" />
   <br/><sub><strong>Dashboard</strong> · live overview — active sessions, recent tool calls, tokens the agent skipped this turn.</sub>
 </p>

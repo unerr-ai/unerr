@@ -210,6 +210,8 @@ const PREVENTION_COLORS: Record<string, RowPalette> = {
   full_read_avoided: { bar: "bg-indigo-500", text: "text-indigo-400" },
   loop_broken: { bar: "bg-rose-500", text: "text-rose-400" },
   cascade_guard: { bar: "bg-amber-500", text: "text-amber-400" },
+  boundary_violation_flagged: { bar: "bg-orange-500", text: "text-orange-400" },
+  incomplete_work_flagged: { bar: "bg-rose-500", text: "text-rose-400" },
   drift_consumed: { bar: "bg-cyan-500", text: "text-cyan-400" },
   intervention_halted: { bar: "bg-rose-500", text: "text-rose-400" },
   intervention_warned: { bar: "bg-amber-500", text: "text-amber-400" },
@@ -376,6 +378,14 @@ const ACTION_PHRASING: Record<string, { label: string; desc: string }> = {
   cascade_guard: {
     label: "breaking changes caught",
     desc: "The agent was about to edit code that many other files depend on. unerr flagged the risk so the change didn't silently break downstream code.",
+  },
+  boundary_violation_flagged: {
+    label: "architecture breaches caught",
+    desc: "The agent was about to import across an architecture boundary that must stay isolated. unerr flagged the crossing so the layering didn't silently erode.",
+  },
+  incomplete_work_flagged: {
+    label: "unfinished refactors flagged",
+    desc: "A signature changed this session but some of its callers were never updated. unerr flagged them at session end so they don't surface as runtime or compile breaks later.",
   },
   drift_consumed: {
     label: "stale file edits prevented",

@@ -26,7 +26,7 @@ On every coding-task prompt the FIRST tool call is `unerr_recall_notes({prompt:'
     1. Non-obvious — not derivable from the code itself.
     2. Likely useful next session — would change a future approach.
     3. Anchorable — fits a file, entity, glob, or (rarely) project-wide.
-  Call: `unerr_remember({type:'note', note:'<DSL wire>', session_id:<sid>})`.
+  Call: `unerr_remember({type:'note', note:'<DSL wire>'})` — the server fills session_id automatically; you do NOT supply one.
 
 ## DSL vocabulary
 

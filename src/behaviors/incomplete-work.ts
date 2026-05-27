@@ -1,13 +1,19 @@
 /**
  * Incomplete Work Detection — BA-2.1
  *
- * Session-end scan that verifies:
- *   1. Broken callers — entity signature changed but callers not all updated
- *   2. Orphaned imports — import targets deleted during session
- *   3. Untested exports — new exported symbols with no test reference
+ * Session-end scan that flags broken callers — an entity whose signature
+ * changed this session while one or more of its callers were never updated.
+ * Reconciles the session edit-log (populated by the post-edit hook) against the
+ * warm graph via the shared blast-radius engine.
  *
- * Persists incomplete items to disk so Session Continuity (BA-1.2) can
- * inject them as resume context in the next session.
+ * Persists flagged items to disk; the next session's resume block
+ * (session-persistence.ts → formatSessionResumeBlock) surfaces them.
+ *
+ * (The original BA-2.1 also scanned the MCP shadow ledger for orphaned imports
+ * and untested exports. Both were retired in the 2026-05 behavior-automation
+ * audit: they keyed on edit/delete tool names that never enter the MCP ledger —
+ * the agent's edits are Claude Code client tools, not MCP calls — so neither
+ * could ever fire in production.)
  *
  * Trigger: session_end (proxy shutdown)
  * Assertiveness: suggestion (surface as checklist, don't block)
@@ -16,12 +22,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type {
-  CozoGraphStore,
-  LocalEntity,
-} from "../intelligence/local-graph.js";
-import type { LedgerEntry, ShadowLedger } from "../tracking/shadow-ledger.js";
-import type { CascadeConsistencyGuard } from "./cascade-guard.js";
+import {
+  type IncompleteCaller,
+  reconcileIncompleteCallers,
+} from "../intelligence/edit-impact.js";
+import type { CozoGraphStore } from "../intelligence/local-graph.js";
+import type { BehaviorEventWriter } from "../tracking/behavior-events.js";
+import { readEditLog } from "../tracking/session-edit-log.js";
 import {
   type AssertLevel,
   Behavior,
@@ -65,9 +72,8 @@ export class IncompleteWorkDetector extends Behavior {
   readonly defaultLevel: AssertLevel = "suggestion";
 
   private graph: CozoGraphStore | null = null;
-  private ledger: ShadowLedger | null = null;
-  private cascadeGuard: CascadeConsistencyGuard | null = null;
   private unerrDir: string | null = null;
+  private behaviorEvents: BehaviorEventWriter | null = null;
 
   constructor(config?: Partial<IncompleteWorkConfig>) {
     super(config, "suggestion");
@@ -77,29 +83,22 @@ export class IncompleteWorkDetector extends Behavior {
     this.graph = graph;
   }
 
-  attachLedger(ledger: ShadowLedger): void {
-    this.ledger = ledger;
-  }
-
-  attachCascadeGuard(cascadeGuard: CascadeConsistencyGuard): void {
-    this.cascadeGuard = cascadeGuard;
-  }
-
   setUnerrDir(dir: string): void {
     this.unerrDir = dir;
+  }
+
+  /** Inject the behavior-event writer so a `broken_callers` finding at
+   *  session end lands in `behavior_events` (dashboard telemetry), not only
+   *  `incomplete-work.json`. Optional — the detector works without it. */
+  setBehaviorEvents(writer: BehaviorEventWriter): void {
+    this.behaviorEvents = writer;
   }
 
   async onSessionEnd(_ctx: ToolCallContext): Promise<BehaviorOutput | null> {
     const items: IncompleteItem[] = [];
 
-    const brokenCallers = this.detectBrokenCallers();
+    const brokenCallers = await this.detectBrokenCallers();
     items.push(...brokenCallers);
-
-    const orphanedImports = await this.detectOrphanedImports();
-    items.push(...orphanedImports);
-
-    const untestedExports = await this.detectUntestedExports();
-    items.push(...untestedExports);
 
     if (items.length === 0) return null;
 
@@ -112,6 +111,29 @@ export class IncompleteWorkDetector extends Behavior {
         : `${items.length} potential issue(s) detected. Review before your next session.`;
 
     const persisted = this.persistItems(items);
+
+    // Telemetry: surface the session-end finding so the dashboard's
+    // behavior-event panes render it. Best-effort — never block shutdown.
+    if (this.behaviorEvents) {
+      try {
+        this.behaviorEvents.record({
+          session_id: this.behaviorEvents.sessionId,
+          type: "incomplete_work_flagged",
+          tool: null,
+          entity_key: null,
+          response_bytes: null,
+          detail: {
+            items: items.length,
+            high_severity: highCount,
+            entities: items
+              .map((i) => i.entity)
+              .filter((e): e is string => Boolean(e)),
+          },
+        });
+      } catch {
+        /* best-effort — telemetry never blocks session end */
+      }
+    }
 
     return {
       behaviorId: this.id,
@@ -131,130 +153,45 @@ export class IncompleteWorkDetector extends Behavior {
   }
 
   /**
-   * Check cascade guard for signature changes where not all callers were updated.
+   * Reconcile this session's recorded edits against the graph (P2.2): for every
+   * signature change made this session, flag callers whose file was never itself
+   * edited. Reads the session edit-log the post-edit hook populates (the MCP
+   * ledger can't — edits don't traverse MCP) and resolves callers through the
+   * shared blast-radius engine.
    */
-  private detectBrokenCallers(): IncompleteItem[] {
-    if (!this.cascadeGuard) return [];
+  private async detectBrokenCallers(): Promise<IncompleteItem[]> {
+    if (!this.graph || !this.unerrDir) return [];
 
-    const incompleteChanges = this.cascadeGuard.getIncompleteChanges();
+    const events = readEditLog(this.unerrDir);
+    if (events.length === 0) return [];
+
+    const incomplete = await reconcileIncompleteCallers(events, this.graph);
+    if (incomplete.length === 0) return [];
+
+    // One item per changed entity, listing the callers left un-updated.
+    const byEntity = new Map<string, IncompleteCaller[]>();
+    for (const c of incomplete) {
+      const arr = byEntity.get(c.changed_entity) ?? [];
+      arr.push(c);
+      byEntity.set(c.changed_entity, arr);
+    }
+
     const items: IncompleteItem[] = [];
-
-    for (const change of incompleteChanges) {
-      const remaining = change.callersAtRisk
-        .filter((c) => !change.callersUpdated.has(c.entity))
-        .map((c) => `${c.file}:${c.entity}`);
-
-      if (remaining.length === 0) continue;
-
+    for (const [entity, callers] of byEntity) {
+      const remaining = callers.map(
+        (c) => `${c.caller_file}:${c.caller_entity}`
+      );
       items.push({
         severity: "high",
         type: "broken_callers",
-        entity: change.entityKey,
-        detail: `Signature changed (${change.changeType}) but ${remaining.length}/${change.callersAtRisk.length} callers not updated`,
+        entity,
+        detail: `Signature changed (${callers[0]!.change_type}) but ${remaining.length} caller(s) not updated this session`,
         remaining,
         impact: "Callers will fail at runtime or compile time",
       });
     }
 
     return items;
-  }
-
-  /**
-   * Check shadow ledger for files that were deleted but are still imported.
-   * Uses the graph to find import edges pointing to deleted files.
-   */
-  private async detectOrphanedImports(): Promise<IncompleteItem[]> {
-    if (!this.ledger || !this.graph) return [];
-
-    const sessionEntries = this.ledger.getRecentEntries(100);
-    const deletedFiles = new Set<string>();
-
-    for (const entry of sessionEntries) {
-      if (entry.tool === "delete_file" || entry.tool === "remove_file") {
-        const path = extractPathFromArgs(entry.args_summary);
-        if (path) deletedFiles.add(path);
-      }
-    }
-
-    if (deletedFiles.size === 0) return [];
-
-    const items: IncompleteItem[] = [];
-    for (const deletedFile of deletedFiles) {
-      const importers = await this.findImportersOf(deletedFile);
-      if (importers.length > 0) {
-        items.push({
-          severity: "medium",
-          type: "orphaned_import",
-          file: deletedFile,
-          detail: `File deleted this session but still imported by ${importers.length} file(s)`,
-          remaining: importers.slice(0, 5),
-          impact: "Runtime import error",
-        });
-      }
-    }
-
-    return items;
-  }
-
-  /**
-   * Find new exports added this session that have no test coverage.
-   */
-  private async detectUntestedExports(): Promise<IncompleteItem[]> {
-    if (!this.ledger || !this.graph) return [];
-
-    const sessionEntries = this.ledger.getRecentEntries(100);
-    const modifiedFiles = new Set<string>();
-
-    for (const entry of sessionEntries) {
-      if (isEditTool(entry.tool)) {
-        const path = extractPathFromArgs(entry.args_summary);
-        if (path && !isTestFile(path)) modifiedFiles.add(path);
-      }
-    }
-
-    const items: IncompleteItem[] = [];
-    for (const file of modifiedFiles) {
-      const entities = await this.graph.getEntitiesByFile(file);
-      for (const entity of entities) {
-        if (entity.kind !== "function" && entity.kind !== "class") continue;
-        if (entity.fan_in === 0) {
-          const hasTestRef = await this.hasTestReference(entity);
-          if (!hasTestRef) {
-            items.push({
-              severity: "low",
-              type: "untested_path",
-              entity: entity.name,
-              file: entity.file_path,
-              detail: `Exported ${entity.kind} "${entity.name}" has no test references`,
-              impact: "Regression risk — no test coverage",
-            });
-          }
-        }
-      }
-    }
-
-    return items;
-  }
-
-  private async findImportersOf(filePath: string): Promise<string[]> {
-    if (!this.graph) return [];
-    const entities = await this.graph.getEntitiesByFile(filePath);
-    const importerFiles = new Set<string>();
-    for (const entity of entities) {
-      const callers = await this.graph.getCallersOf(entity.key);
-      for (const caller of callers) {
-        if (caller.file_path !== filePath) {
-          importerFiles.add(caller.file_path);
-        }
-      }
-    }
-    return [...importerFiles];
-  }
-
-  private async hasTestReference(entity: LocalEntity): Promise<boolean> {
-    if (!this.graph) return false;
-    const callers = await this.graph.getCallersOf(entity.key);
-    return callers.some((c) => isTestFile(c.file_path));
   }
 
   private persistItems(items: IncompleteItem[]): boolean {
@@ -304,40 +241,4 @@ function severityRank(severity: IncompleteItemSeverity): number {
     case "low":
       return 2;
   }
-}
-
-const TEST_FILE_PATTERNS = [
-  /\.test\.[jt]sx?$/,
-  /\.spec\.[jt]sx?$/,
-  /__tests__\//,
-  /test\//,
-  /tests\//,
-];
-
-const EDIT_TOOLS = new Set([
-  "file_write",
-  "write_file",
-  "edit_file",
-  "str_replace_editor",
-  "insert_code",
-  "replace_code",
-  "sync_local_diff",
-]);
-
-function isTestFile(filePath: string): boolean {
-  return TEST_FILE_PATTERNS.some((p) => p.test(filePath));
-}
-
-function isEditTool(toolName: string): boolean {
-  return EDIT_TOOLS.has(toolName);
-}
-
-function extractPathFromArgs(args: Record<string, unknown>): string | null {
-  if (typeof args.path === "string") return args.path;
-  if (typeof args.file_path === "string") return args.file_path;
-  if (typeof args.file === "string") return args.file;
-  if (typeof args.key === "string" && args.key.includes("/")) {
-    return args.key.includes("::") ? args.key.split("::")[0]! : args.key;
-  }
-  return null;
 }

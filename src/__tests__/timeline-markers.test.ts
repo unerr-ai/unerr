@@ -69,10 +69,13 @@ describe("handleMarkerCall — happy paths", () => {
       { ledger, store, branch: "main", headSha: "deadbeef" }
     );
     const body = JSON.parse(res.content[0]!.text);
+    // Wire is intentionally minimal for non-blocker markers: {ok} only.
+    // marker_id / turn_id / type are resume-strip telemetry the dashboard
+    // reads from timeline.db + shadow.jsonl, not the agent wire.
     expect(body.ok).toBe(true);
-    expect(body.type).toBe("mark_intent");
-    expect(body.marker_id).toMatch(/^[a-f0-9]{12}$/);
-    expect(body.turn_id).toMatch(/^[a-f0-9]{12}$/);
+    expect(body.marker_id).toBeUndefined();
+    expect(body.turn_id).toBeUndefined();
+    expect(body.type).toBeUndefined();
 
     // Ledger row
     const ledgerLines = readFileSync(
@@ -85,15 +88,16 @@ describe("handleMarkerCall — happy paths", () => {
     expect(ledgerLines).toHaveLength(1);
     expect(ledgerLines[0].tool).toBe("mark_intent");
     expect(ledgerLines[0].args_summary.text).toBe("refactor auth");
-    expect(ledgerLines[0].turn_id).toBe(body.turn_id);
+    expect(ledgerLines[0].turn_id).toMatch(/^[a-f0-9]{12}$/);
 
-    // Timeline.db row
+    // Timeline.db row — cross-checked against the ledger row (the dashboard's
+    // join key), since the wire no longer echoes the id back for mark_intent.
     const markers = await store.listMarkers();
     expect(markers).toHaveLength(1);
-    expect(markers[0]!.marker_id).toBe(body.marker_id);
+    expect(markers[0]!.marker_id).toBe(ledgerLines[0].id);
     expect(markers[0]!.type).toBe("mark_intent");
     expect(markers[0]!.text).toBe("refactor auth");
-    expect(markers[0]!.turn_id).toBe(body.turn_id);
+    expect(markers[0]!.turn_id).toBe(ledgerLines[0].turn_id);
   });
 
   it("mark_decision persists alternatives (capped)", async () => {

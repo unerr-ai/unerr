@@ -32,6 +32,7 @@ import { removeClaudeHook } from "../config/hook-installer.js";
 import { removeInstructionSection } from "../config/instruction-writer.js";
 import { removeMcpConfig } from "../config/mcp-config-writer.js";
 import { removeInstalledSkills } from "../skills/resolver.js";
+import { uninstallReviewGateHooks } from "../tracking/review-gate-hooks.js";
 import type { IdeType } from "../utils/detect.js";
 
 interface UninstallResult {
@@ -248,6 +249,10 @@ function runUninstallAll(cwd: string): void {
     if (r.disallowedToolsRemoved)
       results.push("Restored disallowed built-in tools");
   }
+
+  // Review-gate git hooks are agent-independent (opt-in, shared) — remove them
+  // on a full uninstall regardless of which agents were configured.
+  uninstallReviewGateHooks(cwd);
 
   if (results.length === 0) {
     process.stderr.write("[unerr] Nothing to uninstall — no configs found.\n");

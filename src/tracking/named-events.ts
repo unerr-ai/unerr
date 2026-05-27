@@ -215,6 +215,13 @@ const PHRASING: Record<string, PhrasingRow> = {
     object: "open blocker",
     plural: "open blockers",
   },
+
+  // Reviewer — in-flight post-edit review findings.
+  review_finding_surfaced: {
+    verb: "flagged",
+    object: "review finding",
+    plural: "review findings",
+  },
 };
 
 /** Phrasing for `tokenflow.<mechanism>` synthetic event types. Mirrors

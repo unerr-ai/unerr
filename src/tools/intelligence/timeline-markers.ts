@@ -57,8 +57,9 @@ export interface MarkerCallResult {
 }
 
 /**
- * Dispatch a marker tool call. Returns an MCP-shaped response either with a
- * success body (`{ok, marker_id, turn_id}`) or an `{error}` body — callers
+ * Dispatch a marker tool call. Returns an MCP-shaped response: a success
+ * body (`{ok}`, plus `marker_id` for mark_blocker so the agent can pass it
+ * as `blocker_ref` to mark_resolution) or an `{error}` body — callers
  * forward this directly back to the agent.
  */
 export async function handleMarkerCall(
@@ -163,18 +164,17 @@ export async function handleMarkerCall(
     }
   }
 
+  // Wire payload: the agent acts on `marker_id` ONLY for mark_blocker — it
+  // passes that id back as `blocker_ref` to mark_resolution. For the other
+  // three markers the id/turn_id/type are resume-strip telemetry the
+  // dashboard reads from timeline.db + shadow.jsonl, so they stay off the
+  // agent wire.
+  const wire: { ok: true; marker_id?: string } =
+    toolName === "mark_blocker"
+      ? { ok: true, marker_id: entry.id }
+      : { ok: true };
   return {
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify({
-          ok: true,
-          marker_id: entry.id,
-          turn_id: entry.turn_id ?? null,
-          type: toolName,
-        }),
-      },
-    ],
+    content: [{ type: "text", text: JSON.stringify(wire) }],
   };
 }
 

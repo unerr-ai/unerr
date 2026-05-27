@@ -266,6 +266,8 @@ export const BEHAVIOR_EVENT_LABELS: Record<string, string> = {
   full_read_avoided: "Large file dumps prevented",
   loop_broken: "Retry loops stopped",
   cascade_guard: "Breaking changes caught",
+  boundary_violation_flagged: "Architecture breaches caught",
+  incomplete_work_flagged: "Unfinished refactors flagged",
   drift_consumed: "Stale file edits prevented",
   intervention_halted: "Dangerous operations blocked",
   intervention_warned: "Risky patterns flagged",
@@ -294,6 +296,10 @@ export const BEHAVIOR_EVENT_DESCRIPTIONS: Record<string, string> = {
     "The agent was stuck retrying the same failing operation. unerr detected the pattern and broke the cycle before more turns were wasted.",
   cascade_guard:
     "The agent was about to edit code that many other files depend on. unerr flagged the risk so the change didn't silently break downstream code.",
+  boundary_violation_flagged:
+    "The agent was about to import across an architecture boundary that must stay isolated. unerr flagged the crossing so the layering didn't silently erode.",
+  incomplete_work_flagged:
+    "A signature changed this session but some of its callers were never updated. unerr flagged them at session end so they don't surface as runtime or compile breaks later.",
   drift_consumed:
     "The file had changed since the agent last read it. unerr caught this so the agent didn't overwrite newer changes with an outdated version.",
   intervention_halted:

@@ -144,6 +144,138 @@ export async function getStagedFiles(cwd: string): Promise<string[]> {
   }
 }
 
+/** A staged path plus its index status. `kind` is normalised to the
+ *  review ChangeKind vocabulary (added | modified | deleted); renames and
+ *  copies are reported as `modified` on their destination path. */
+export interface StagedFileStatus {
+  path: string;
+  kind: "added" | "modified" | "deleted";
+}
+
+/**
+ * Staged files with their index status (for the commit-gate reviewer).
+ * Parses `git diff --cached --name-status` so each path carries whether it
+ * was added, modified, or deleted — the reviewer needs this to pick the right
+ * change kind (added files have no HEAD content; deleted files have no staged
+ * content). Renames (`R…`) / copies (`C…`) report the destination path as
+ * `modified`. Returns `[]` on any git error.
+ */
+export async function getStagedFileStatuses(
+  cwd: string
+): Promise<StagedFileStatus[]> {
+  try {
+    const git = getGit(cwd);
+    const out = await git.diff([
+      "--cached",
+      "--name-status",
+      "--diff-filter=ACMRD",
+    ]);
+    const rows: StagedFileStatus[] = [];
+    for (const raw of out.split("\n")) {
+      const line = raw.trim();
+      if (!line) continue;
+      const parts = line.split("\t");
+      const code = parts[0]?.[0] ?? "";
+      // Rename/copy lines carry `old\tnew`; the destination is the last field.
+      const path = parts[parts.length - 1]?.trim();
+      if (!path) continue;
+      const kind =
+        code === "A" ? "added" : code === "D" ? "deleted" : "modified";
+      rows.push({ path, kind });
+    }
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Content of a path's STAGED (index) blob — what `git commit` would record.
+ * Returns null when the path is not in the index (e.g. a deletion) or on error.
+ */
+export async function getStagedContent(
+  cwd: string,
+  filePath: string
+): Promise<string | null> {
+  try {
+    return await getGit(cwd).show([`:${filePath}`]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Content of a path's committed (HEAD) blob — the pre-edit baseline.
+ * Returns null when the path does not exist at HEAD (e.g. a new file) or on error.
+ */
+export async function getHeadContent(
+  cwd: string,
+  filePath: string
+): Promise<string | null> {
+  try {
+    return await getGit(cwd).show([`HEAD:${filePath}`]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Files changed between two refs (`<from>..<to>`), with their status — for the
+ * on-demand range reviewer (`unerr review --range A..B`). Same `--name-status`
+ * parse + `ChangeKind` normalisation as {@link getStagedFileStatuses}; renames
+ * (`R…`) / copies (`C…`) report the destination path as `modified`. Returns
+ * `[]` on any git error (e.g. an unknown ref) so the caller degrades to silent.
+ */
+export async function getRangeFileStatuses(
+  cwd: string,
+  from: string,
+  to: string
+): Promise<StagedFileStatus[]> {
+  try {
+    const git = getGit(cwd);
+    const out = await git.diff([
+      "--name-status",
+      "--diff-filter=ACMRD",
+      `${from}..${to}`,
+    ]);
+    const rows: StagedFileStatus[] = [];
+    for (const raw of out.split("\n")) {
+      const line = raw.trim();
+      if (!line) continue;
+      const parts = line.split("\t");
+      const code = parts[0]?.[0] ?? "";
+      // Rename/copy lines carry `old\tnew`; the destination is the last field.
+      const path = parts[parts.length - 1]?.trim();
+      if (!path) continue;
+      const kind =
+        code === "A" ? "added" : code === "D" ? "deleted" : "modified";
+      rows.push({ path, kind });
+    }
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Content of a path's blob at an arbitrary ref (`git show <ref>:<path>`) — the
+ * range reviewer's per-side content fetch (`from` = pre, `to` = post). Returns
+ * null when the path does not exist at that ref (e.g. a file added in the range
+ * has no blob at `from`) or on any error. {@link getHeadContent} is the
+ * `ref:"HEAD"` special case kept for the commit gate's hot path.
+ */
+export async function getContentAtRef(
+  cwd: string,
+  ref: string,
+  filePath: string
+): Promise<string | null> {
+  try {
+    return await getGit(cwd).show([`${ref}:${filePath}`]);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Get recent commit log entries.
  */

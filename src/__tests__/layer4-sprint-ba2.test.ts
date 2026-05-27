@@ -2,21 +2,37 @@
  * Sprint BA-2: Quality Compound tests.
  *
  * Tests for:
- *   BA-2.1 — Incomplete Work Detection
- *   BA-2.2 — Convention Drift Prevention
- *   BA-2.3 — Auto-Documentation Generation
+ *   BA-2.1 — Incomplete Work Detection (identity + empty/persistence contract)
+ *
+ * The live broken-callers detection path is covered end-to-end by
+ * incomplete-work-reconcile.test.ts, behavior-firing-e2e.test.ts, and
+ * session-persistence.test.ts. This file keeps the dependency-free identity and
+ * empty-state contract checks.
+ *
+ * (BA-2.2 Convention Drift, BA-2.3 Auto-Documentation, and BA-2.1's original
+ * shadow-ledger detectors — orphaned imports + untested exports — were retired
+ * in the 2026-05 behavior-automation audit: none fired in production. Their
+ * tests were removed with them.)
  */
 
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { AutoDocBehavior } from "../behaviors/auto-doc.js";
-import { ConventionDriftPrevention } from "../behaviors/convention-drift.js";
 import type { ToolCallContext } from "../behaviors/framework.js";
 import { IncompleteWorkDetector } from "../behaviors/incomplete-work.js";
-import { ShadowLedger } from "../tracking/shadow-ledger.js";
+import type { EditImpactGraph } from "../intelligence/edit-impact.js";
+import type {
+  CozoGraphStore,
+  LocalEntity,
+} from "../intelligence/local-graph.js";
+import {
+  BehaviorEventWriter,
+  readBehaviorEvents,
+} from "../tracking/behavior-events.js";
+import { closeMetricsStore } from "../tracking/metrics-store.js";
+import { recordEdit } from "../tracking/session-edit-log.js";
 
 function makeTmpDir(): string {
   const dir = join(
@@ -29,11 +45,55 @@ function makeTmpDir(): string {
 
 function makeCtx(overrides: Partial<ToolCallContext> = {}): ToolCallContext {
   return {
-    toolName: "edit_file",
+    toolName: "__session_end__",
     args: {},
     sessionId: "test-session",
     ...overrides,
   };
+}
+
+// ── Fixtures for the broken-callers telemetry path ──────────────────
+// `pay` lives in src/pay.ts; checkout + refund call it. A signature edit
+// to pay.ts with neither caller touched produces one broken-callers item.
+
+function entity(partial: Partial<LocalEntity> & { name: string }): LocalEntity {
+  return {
+    key: partial.key ?? `e:${partial.name}`,
+    kind: partial.kind ?? "function",
+    name: partial.name,
+    file_path: partial.file_path ?? `src/${partial.name}.ts`,
+    start_line: partial.start_line ?? 1,
+    end_line: partial.end_line ?? 10,
+    signature: partial.signature ?? `function ${partial.name}()`,
+    body: partial.body ?? "",
+    fan_in: partial.fan_in ?? 0,
+    fan_out: partial.fan_out ?? 0,
+    risk_level: partial.risk_level ?? "normal",
+    community: partial.community ?? -1,
+  };
+}
+
+class FakeImpactGraph implements EditImpactGraph {
+  constructor(
+    private readonly byFile: Map<string, LocalEntity[]>,
+    private readonly callers: Map<string, LocalEntity[]>
+  ) {}
+  async getEntitiesByFile(filePath: string): Promise<LocalEntity[]> {
+    return this.byFile.get(filePath) ?? [];
+  }
+  async getCallersOf(entityKey: string): Promise<LocalEntity[]> {
+    return this.callers.get(entityKey) ?? [];
+  }
+}
+
+function payGraph(): FakeImpactGraph {
+  const pay = entity({ name: "pay", file_path: "src/pay.ts" });
+  const checkout = entity({ name: "checkout", file_path: "src/checkout.ts" });
+  const refund = entity({ name: "refund", file_path: "src/refund.ts" });
+  return new FakeImpactGraph(
+    new Map([["src/pay.ts", [pay]]]),
+    new Map([["e:pay", [checkout, refund]]])
+  );
 }
 
 // ── BA-2.1: Incomplete Work Detection ───────────────────────────
@@ -45,6 +105,12 @@ describe("Incomplete Work Detection (BA-2.1)", () => {
     tmpDir = makeTmpDir();
   });
 
+  afterEach(() => {
+    // Release any metrics.db handle the telemetry tests opened. No-op when
+    // the test never created a store.
+    closeMetricsStore(join(tmpDir, ".unerr"));
+  });
+
   describe("Behavior Identity", () => {
     it("has correct id and hooks", () => {
       const detector = new IncompleteWorkDetector();
@@ -54,61 +120,17 @@ describe("Incomplete Work Detection (BA-2.1)", () => {
     });
   });
 
-  describe("Orphaned Import Detection", () => {
-    it("detects imports from deleted files", async () => {
-      const ledger = new ShadowLedger(tmpDir);
-
-      ledger.record(
-        "delete_file",
-        { path: "src/utils/removed-module.ts" },
-        { success: true },
-        "main",
-        "abc123"
-      );
-
+  describe("Empty Session", () => {
+    it("returns null when there is no edit-log to reconcile", async () => {
       const detector = new IncompleteWorkDetector();
-      detector.attachLedger(ledger);
       detector.setUnerrDir(tmpDir);
 
       const output = await detector.onSessionEnd(makeCtx());
-
-      if (output) {
-        const items = output._context?.incomplete_items as Array<{
-          type: string;
-          severity: string;
-        }>;
-        if (items) {
-          const orphans = items.filter((i) => i.type === "orphaned_import");
-          for (const orphan of orphans) {
-            expect(orphan.severity).toBe("medium");
-          }
-        }
-      }
+      expect(output).toBeNull();
     });
   });
 
   describe("Persistence", () => {
-    it("persists incomplete items to disk for next session", async () => {
-      const ledger = new ShadowLedger(tmpDir);
-
-      ledger.record(
-        "delete_file",
-        { path: "src/deleted.ts" },
-        { success: true },
-        "main",
-        "abc123"
-      );
-
-      const detector = new IncompleteWorkDetector();
-      detector.attachLedger(ledger);
-      detector.setUnerrDir(tmpDir);
-
-      await detector.onSessionEnd(makeCtx());
-
-      const persisted = IncompleteWorkDetector.readPersistedItems(tmpDir);
-      expect(Array.isArray(persisted)).toBe(true);
-    });
-
     it("readPersistedItems returns empty array when no file exists", () => {
       const items = IncompleteWorkDetector.readPersistedItems(
         join(tmpDir, "nonexistent")
@@ -117,348 +139,51 @@ describe("Incomplete Work Detection (BA-2.1)", () => {
     });
   });
 
-  describe("Empty Session", () => {
-    it("returns null when no issues found", async () => {
-      const ledger = new ShadowLedger(tmpDir);
-      ledger.record(
-        "get_entity",
-        { key: "src/safe.ts::func" },
-        { found: true },
-        "main",
-        "abc123"
+  describe("Telemetry (incomplete_work_flagged)", () => {
+    it("records a behavior_event when broken callers are flagged at session end", async () => {
+      const unerrDir = join(tmpDir, ".unerr");
+      mkdirSync(unerrDir, { recursive: true });
+
+      // Seed the session edit-log with a signature change to pay.ts; leave
+      // both callers (checkout, refund) untouched this session.
+      recordEdit(unerrDir, {
+        ts: new Date().toISOString(),
+        file_path: "src/pay.ts",
+        old_content: "export function pay(a) {",
+        new_content: "export function pay(a, b) {",
+      });
+
+      const sid = "telemetry-session";
+      const detector = new IncompleteWorkDetector();
+      detector.setUnerrDir(unerrDir);
+      detector.attachGraph(payGraph() as unknown as CozoGraphStore);
+      detector.setBehaviorEvents(new BehaviorEventWriter(unerrDir, sid));
+
+      const output = await detector.onSessionEnd(makeCtx({ sessionId: sid }));
+      expect(output).not.toBeNull();
+
+      const flagged = readBehaviorEvents(unerrDir, { session_id: sid }).filter(
+        (r) => r.type === "incomplete_work_flagged"
       );
+      expect(flagged).toHaveLength(1);
+      expect(flagged[0]!.detail?.items).toBe(1);
+      expect(flagged[0]!.detail?.high_severity).toBe(1);
+      expect(flagged[0]!.detail?.entities).toEqual(["pay"]);
+    });
 
+    it("records no event when there is no edit-log to reconcile", async () => {
+      const unerrDir = join(tmpDir, ".unerr");
+      mkdirSync(unerrDir, { recursive: true });
+
+      const sid = "empty-session";
       const detector = new IncompleteWorkDetector();
-      detector.attachLedger(ledger);
-      detector.setUnerrDir(tmpDir);
+      detector.setUnerrDir(unerrDir);
+      detector.attachGraph(payGraph() as unknown as CozoGraphStore);
+      detector.setBehaviorEvents(new BehaviorEventWriter(unerrDir, sid));
 
-      const output = await detector.onSessionEnd(makeCtx());
+      const output = await detector.onSessionEnd(makeCtx({ sessionId: sid }));
       expect(output).toBeNull();
-    });
-  });
-
-  describe("Severity Ordering", () => {
-    it("sorts items by severity: high first, low last", async () => {
-      const detector = new IncompleteWorkDetector();
-
-      const output = await detector.onSessionEnd(makeCtx());
-      if (output) {
-        const items = output._context?.incomplete_items as Array<{
-          severity: string;
-        }>;
-        if (items && items.length > 1) {
-          const severityOrder = items.map((i) => i.severity);
-          const highIdx = severityOrder.indexOf("high");
-          const lowIdx = severityOrder.indexOf("low");
-          if (highIdx >= 0 && lowIdx >= 0) {
-            expect(highIdx).toBeLessThan(lowIdx);
-          }
-        }
-      }
-    });
-  });
-});
-
-// ── BA-2.2: Convention Drift Prevention ─────────────────────────
-
-describe("Convention Drift Prevention (BA-2.2)", () => {
-  describe("Behavior Identity", () => {
-    it("has correct id and hooks", () => {
-      const behavior = new ConventionDriftPrevention();
-      expect(behavior.id).toBe("convention_drift");
-      expect(behavior.hooks).toContain("post_tool_use");
-      expect(behavior.defaultLevel).toBe("suggestion");
-    });
-  });
-
-  describe("Naming Convention Detection", () => {
-    it("detects snake_case in a camelCase codebase", async () => {
-      const behavior = new ConventionDriftPrevention();
-
-      const ctx = makeCtx({
-        toolName: "edit_file",
-        filePath: "src/payment.ts",
-        args: {
-          path: "src/payment.ts",
-          new_str:
-            "export function process_payment(amount: number) { return amount; }",
-        },
-      });
-
-      const output = await behavior.onPostToolUse(ctx);
-      // Without a graph attached, it can't detect conventions — this is expected
-      // The behavior degrades gracefully
-      expect(output).toBeNull();
-    });
-
-    it("returns null for non-edit tools", async () => {
-      const behavior = new ConventionDriftPrevention();
-
-      const ctx = makeCtx({
-        toolName: "get_entity",
-        filePath: "src/payment.ts",
-        args: { key: "src/payment.ts::processPayment" },
-      });
-
-      const output = await behavior.onPostToolUse(ctx);
-      expect(output).toBeNull();
-    });
-
-    it("returns null for non-code files", async () => {
-      const behavior = new ConventionDriftPrevention();
-
-      const ctx = makeCtx({
-        toolName: "edit_file",
-        filePath: "docs/README.md",
-        args: {
-          path: "docs/README.md",
-          new_str: "# Updated readme",
-        },
-      });
-
-      const output = await behavior.onPostToolUse(ctx);
-      expect(output).toBeNull();
-    });
-
-    it("returns null when no new content is provided", async () => {
-      const behavior = new ConventionDriftPrevention();
-
-      const ctx = makeCtx({
-        toolName: "edit_file",
-        filePath: "src/payment.ts",
-        args: { path: "src/payment.ts" },
-      });
-
-      const output = await behavior.onPostToolUse(ctx);
-      expect(output).toBeNull();
-    });
-  });
-
-  describe("Auto-Fix Threshold", () => {
-    it("auto-fix threshold is 0.9 by default", () => {
-      const behavior = new ConventionDriftPrevention();
-      expect(behavior.getSessionStats().autoFixes).toBe(0);
-    });
-
-    it("accepts custom confidence threshold", () => {
-      const behavior = new ConventionDriftPrevention({
-        confidenceThreshold: 0.95,
-      });
-      expect(behavior.enabled).toBe(true);
-    });
-  });
-
-  describe("Session Stats", () => {
-    it("starts with zero violations", () => {
-      const behavior = new ConventionDriftPrevention();
-      const stats = behavior.getSessionStats();
-      expect(stats.violationsDetected).toBe(0);
-      expect(stats.autoFixes).toBe(0);
-    });
-  });
-
-  describe("Learning Loop", () => {
-    it("tracks feedback correctly", () => {
-      const behavior = new ConventionDriftPrevention();
-      behavior.recordFeedback("accepted");
-      behavior.recordFeedback("accepted");
-      behavior.recordFeedback("dismissed");
-
-      const stats = behavior.getLearningStats();
-      expect(stats.accepted).toBe(2);
-      expect(stats.dismissed).toBe(1);
-      expect(stats.confidence).toBeCloseTo(2 / 3, 2);
-    });
-  });
-});
-
-// ── BA-2.3: Auto-Documentation Generation ───────────────────────
-
-describe("Auto-Documentation Generation (BA-2.3)", () => {
-  describe("Behavior Identity", () => {
-    it("has correct id and hooks", () => {
-      const behavior = new AutoDocBehavior();
-      expect(behavior.id).toBe("auto_doc");
-      expect(behavior.hooks).toContain("post_tool_use");
-      expect(behavior.defaultLevel).toBe("invisible");
-    });
-  });
-
-  describe("JSDoc Generation", () => {
-    it("detects exported function without docs", async () => {
-      const behavior = new AutoDocBehavior();
-
-      const ctx = makeCtx({
-        toolName: "edit_file",
-        filePath: "src/payment.ts",
-        args: {
-          path: "src/payment.ts",
-          new_str: `export function processPayment(amount: number, currency: string): Promise<Receipt> {
-  return gateway.charge(amount, currency);
-}`,
-        },
-      });
-
-      const output = await behavior.onPostToolUse(ctx);
-      expect(output).not.toBeNull();
-      expect(output?._meta?.behavior).toBe("auto_doc");
-      expect(output?._meta?.docs_updated).toBeGreaterThanOrEqual(1);
-
-      const actions = output?._context?.doc_actions as Array<{
-        type: string;
-        entity: string;
-      }>;
-      expect(actions).toBeDefined();
-      expect(actions.some((a) => a.entity === "processPayment")).toBe(true);
-    });
-
-    it("does not flag functions with existing JSDoc", async () => {
-      const behavior = new AutoDocBehavior();
-
-      const ctx = makeCtx({
-        toolName: "edit_file",
-        filePath: "src/payment.ts",
-        args: {
-          path: "src/payment.ts",
-          new_str: `/**
- * Process a payment transaction.
- * @param amount The payment amount
- */
-export function processPayment(amount: number) {
-  return amount;
-}`,
-        },
-      });
-
-      const output = await behavior.onPostToolUse(ctx);
-      // Should be null since JSDoc already exists and no graph to compare signatures
-      expect(output).toBeNull();
-    });
-
-    it("returns null for non-edit tools", async () => {
-      const behavior = new AutoDocBehavior();
-
-      const ctx = makeCtx({
-        toolName: "get_entity",
-        filePath: "src/payment.ts",
-      });
-
-      const output = await behavior.onPostToolUse(ctx);
-      expect(output).toBeNull();
-    });
-
-    it("returns null for non-code files", async () => {
-      const behavior = new AutoDocBehavior();
-
-      const ctx = makeCtx({
-        toolName: "edit_file",
-        filePath: "README.md",
-        args: { path: "README.md", content: "# README" },
-      });
-
-      const output = await behavior.onPostToolUse(ctx);
-      expect(output).toBeNull();
-    });
-  });
-
-  describe("Agent-as-LLM Prompt", () => {
-    it("includes agent prompt when useAgentAsLlm is enabled", async () => {
-      const behavior = new AutoDocBehavior({ useAgentAsLlm: true });
-
-      const ctx = makeCtx({
-        toolName: "edit_file",
-        filePath: "src/api.ts",
-        args: {
-          path: "src/api.ts",
-          new_str: `export function fetchUsers(limit: number, offset: number): Promise<User[]> {
-  return db.query('SELECT * FROM users LIMIT ? OFFSET ?', [limit, offset]);
-}`,
-        },
-      });
-
-      const output = await behavior.onPostToolUse(ctx);
-      expect(output).not.toBeNull();
-
-      const agentPrompt = output?._context?.agent_prompt;
-      expect(agentPrompt).toBeDefined();
-      expect(typeof agentPrompt).toBe("string");
-      expect((agentPrompt as string).length).toBeGreaterThan(0);
-    });
-
-    it("does NOT include agent prompt when useAgentAsLlm is disabled", async () => {
-      const behavior = new AutoDocBehavior({ useAgentAsLlm: false });
-
-      const ctx = makeCtx({
-        toolName: "edit_file",
-        filePath: "src/api.ts",
-        args: {
-          path: "src/api.ts",
-          new_str: `export function fetchUsers(limit: number, offset: number): Promise<User[]> {
-  return db.query('SELECT * FROM users LIMIT ? OFFSET ?', [limit, offset]);
-}`,
-        },
-      });
-
-      const output = await behavior.onPostToolUse(ctx);
-      expect(output).not.toBeNull();
-
-      const agentPrompt = output?._context?.agent_prompt;
-      expect(agentPrompt).toBeUndefined();
-    });
-  });
-
-  describe("Session Stats", () => {
-    it("tracks docs generated across calls", async () => {
-      const behavior = new AutoDocBehavior();
-
-      const ctx = makeCtx({
-        toolName: "edit_file",
-        filePath: "src/utils.ts",
-        args: {
-          path: "src/utils.ts",
-          new_str: `export function formatDate(date: Date, locale: string): string {
-  return date.toLocaleDateString(locale);
-}`,
-        },
-      });
-
-      await behavior.onPostToolUse(ctx);
-
-      const stats = behavior.getSessionStats();
-      expect(stats.docsGenerated).toBeGreaterThanOrEqual(1);
-    });
-  });
-
-  describe("Multiple Functions", () => {
-    it("detects multiple undocumented functions", async () => {
-      const behavior = new AutoDocBehavior();
-
-      const ctx = makeCtx({
-        toolName: "write_file",
-        filePath: "src/math.ts",
-        args: {
-          path: "src/math.ts",
-          content: `export function add(a: number, b: number): number {
-  return a + b;
-}
-
-export function multiply(x: number, y: number): number {
-  return x * y;
-}`,
-        },
-      });
-
-      const output = await behavior.onPostToolUse(ctx);
-      expect(output).not.toBeNull();
-
-      const actions = output?._context?.doc_actions as Array<{
-        entity: string;
-      }>;
-      expect(actions.length).toBeGreaterThanOrEqual(2);
-
-      const names = actions.map((a) => a.entity);
-      expect(names).toContain("add");
-      expect(names).toContain("multiply");
+      expect(readBehaviorEvents(unerrDir, { session_id: sid })).toEqual([]);
     });
   });
 });

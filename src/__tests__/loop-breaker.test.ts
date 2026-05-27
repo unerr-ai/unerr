@@ -9,9 +9,11 @@
  *   - 1K token gate enforcement
  */
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { ToolCallContext } from "../behaviors/framework.js";
 import { LoopCircuitBreaker } from "../behaviors/loop-breaker.js";
+import { buildSignalPrefix } from "../proxy/response-envelope.js";
+import { resetSignalDedupSingleton } from "../proxy/signal-dedup.js";
 
 function makeCtx(overrides: Partial<ToolCallContext> = {}): ToolCallContext {
   return {
@@ -350,6 +352,56 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
         );
         expect(output).toBeNull();
       }
+    });
+  });
+
+  // P1.2 — the trip must render a `hlt` line at the MOMENT it trips, via
+  // meta.circuit_breaker (the only key buildSignalPrefix renders for this).
+  // The audit found the trip was silent because the output used keys the
+  // renderer ignores.
+  describe("trip visibility (P1.2)", () => {
+    beforeEach(() => resetSignalDedupSingleton());
+
+    async function tripBreaker() {
+      const breaker = new LoopCircuitBreaker({ maxAttemptsPerEntity: 4 });
+      let output = null;
+      for (let i = 0; i < 4; i++) {
+        output = await breaker.onPostToolUse(
+          makeCtx({
+            result: { error: true, content: "TypeError on line 48" },
+            args: { path: "src/payment.ts", content: "retry logic v1" },
+          })
+        );
+      }
+      return output;
+    }
+
+    it("populates meta.circuit_breaker on the trip output", async () => {
+      const output = await tripBreaker();
+      expect(output?.halt).toBe(true);
+      const cb = (
+        output?._meta as { circuit_breaker?: Record<string, unknown> }
+      )?.circuit_breaker;
+      expect(cb).toBeDefined();
+      expect(cb?.entity).toBe("src/payment.ts::processPayment");
+      expect(cb?.attempts).toBe(4);
+      expect(String(cb?.message)).toContain("loop broken");
+    });
+
+    it("renders a hlt line through buildSignalPrefix at trip time", async () => {
+      const output = await tripBreaker();
+      // The post-tool _meta merge (proxy fault-2 fix) feeds this same _meta
+      // into buildSignalPrefix on the trip response.
+      const prefix = buildSignalPrefix(
+        output?._meta ?? {},
+        {},
+        "src/payment.ts::processPayment"
+      );
+      // Halt-and-switch renders under the consolidated `act` wire tag (the
+      // renderer's internal "hlt" priority bucket maps to ur|act).
+      expect(prefix).toContain("ur|act");
+      expect(prefix).toContain("loop broken");
+      expect(prefix).toContain("mark_blocker");
     });
   });
 });

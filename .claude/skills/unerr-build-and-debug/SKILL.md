@@ -48,7 +48,10 @@ Phase A6 — Build.
 Phase A7 — Verify.
   Run the targeted test for the new surface (not the full suite). `mark_resolution` for any blocker.
 
-Phase A8 — Close out.
+Phase A8 — Review before close.
+  Run the Review phase (`unerr-review`, phases R4–R7) on every entity built this turn: `get_references({key:'<entity>', direction:'callers'})` for the breaking-caller cascade, `get_conventions({file_path:'<file>'})` for boundary/convention breaches, `get_test_coverage({entity:'<entity>'})` for untested exports, `search_code({query:'<new-name>'})` for duplicate/hallucinated APIs. New code most often fails on duplicate-logic (a module already does this) and boundary breaches — check those first. Fix critical + high before close-out.
+
+Phase A9 — Close out.
   Call `unerr_turn_summary({})` once and include the returned `line` verbatim.
 
 ## Track B — Bug Forensics
@@ -82,7 +85,10 @@ Phase B6 — Fix.
 Phase B7 — Verify.
   Run the targeted test that reproduced the failure. Add a regression test if none existed. `mark_resolution` referencing any blocker the bug raised.
 
-Phase B8 — Close out.
+Phase B8 — Review before close.
+  Run the Review phase (`unerr-review`, phases R4–R7) on the fixed entity + its callers: `get_references({key:'<entity>', direction:'callers'})` to confirm the fix did not narrow a contract callers depend on, `get_conventions({file_path:'<file>'})` for the error-handling pattern, `get_test_coverage({entity:'<entity>'})` to confirm the regression test covers the root cause. A bug fix that silently narrows a contract is itself a regression — check callers first. Fix critical + high before close-out.
+
+Phase B9 — Close out.
   Call `unerr_turn_summary({})` once and include the returned `line` verbatim.
 
 ## Red Flags
@@ -95,4 +101,5 @@ Track B — patching the caller instead of the root cause → bandaid; the next 
 Track B — skipping B4 dependency walk → you fix the wrong layer.
 Track B — adding try/catch to swallow the error → hides the failure; doesn't fix it.
 Both — running the full test suite as 'verify' → wastes minutes; targeted tests are the contract.
-Both — closing without Phase 8 → the user never sees the close-out receipt.
+Both — closing without the review phase (A8 / B8) → breaking-caller cascades, duplicate logic, and contract drift ship silently; run `unerr-review` R4–R7 on the changed entities before close-out.
+Both — closing without the close-out phase (A9 / B9) → the user never sees the close-out receipt.

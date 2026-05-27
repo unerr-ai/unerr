@@ -56,7 +56,9 @@ Call the tools you need. The gateway will hand you the rest.
 | Read a file before editing | `file_read` with `entity` param or offset/limit for targeted access | Reading entire file |
 | File structure overview | `file_outline` | Reading the whole file |
 | Specific function or class | `get_entity` | Reading entire file |
-| Fetch a web page by URL | `fetch_url` | Built-in WebFetch |
+| Fetch a web page or docs by URL | `fetch_url` | Built-in WebFetch |
+
+For any URL you already have, call `fetch_url({url:"<url>"})` — never built-in WebFetch. fetch_url returns DOM-extracted, BM25-ranked markdown passages (paginated, content-hash cached) at 5–10× fewer tokens, and routes through unerr's graph-backed proxy. Pass `prompt` to rank passages by relevance. On Claude Code this is enforced: WebFetch is denied and redirected to fetch_url. (WebSearch is a different job — use it to discover URLs, then `fetch_url` the result.)
 
 
 ### Signal prefix legend — `ur|<tag>`

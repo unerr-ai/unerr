@@ -62,6 +62,30 @@ function err<T>(message: string): ToolResult<T> {
   return { ok: false, error: message };
 }
 
+/** Project a stored note to the agent-facing wire shape. The cite-in-plan
+ *  contract (CLAUDE.md Moment 3) needs only id + kind + anchor + polarity +
+ *  content. Store bookkeeping (dedupe_key, reinforcement/contradiction
+ *  counts, conflict_group_id, supersedes_note_id, inactive, anchor_missing,
+ *  timestamps) stays in CozoDB for the dashboard — it never rides the wire. */
+function projectNoteForWire(n: StoredNote): {
+  note_id: string;
+  kind: string;
+  anchor: string;
+  polarity: string;
+  content: string;
+} {
+  return {
+    note_id: n.note_id,
+    kind: n.kind,
+    // Recompose the single self-describing DSL anchor (e.g. "f:src/x.ts",
+    // "p:") instead of shipping split anchor_type / anchor_value the agent
+    // would have to reassemble.
+    anchor: `${n.anchor_type}:${n.anchor_value}`,
+    polarity: n.polarity,
+    content: n.content,
+  };
+}
+
 /** Dispatch unerr_recall_notes by input shape. */
 export async function recallNotes(
   store: NotesStore,
@@ -93,7 +117,10 @@ export async function recallNotes(
       }
       return {
         ok: true,
-        data: result,
+        data: {
+          notes: result.notes.map(projectNoteForWire),
+          ...(result.topic_shift ? { topic_shift: true } : {}),
+        },
         hint:
           result.notes.length === 0
             ? "0 notes recalled — proceed with the task; call unerr_remember at task close if you learn something non-obvious + anchorable"
@@ -112,7 +139,7 @@ export async function recallNotes(
     const requestedAnchors = input.anchors.length;
     return {
       ok: true,
-      data: result,
+      data: { notes: result.notes.map(projectNoteForWire) },
       hint:
         result.notes.length === 0
           ? `0 notes for ${requestedAnchors} anchor(s) — proceed; write a note at task close if non-obvious + anchorable`
@@ -147,9 +174,31 @@ export async function remember(
           prompt_hash: input.prompt_hash ?? "",
           supersedes_note_id: input.supersedes_note_id,
         });
+        // Wire payload: keep only what the agent acts on — note_id +
+        // outcome, plus the conditionally-actionable bits (conflict_group_id
+        // to surface both sides; reinforcement candidates projected to
+        // {note_id, content} so the agent reinforces instead of rewriting).
+        // The duplicate `hint` (was both in `data` and top-level) collapses to
+        // one; store bookkeeping stays in CozoDB for the dashboard.
+        const data: Record<string, unknown> = {
+          note_id: result.note_id,
+          outcome: result.outcome,
+        };
+        if (result.conflict_group_id) {
+          data.conflict_group_id = result.conflict_group_id;
+        }
+        if (
+          result.reinforcement_candidates &&
+          result.reinforcement_candidates.length > 0
+        ) {
+          data.reinforce = result.reinforcement_candidates.map((n) => ({
+            note_id: n.note_id,
+            content: n.content,
+          }));
+        }
         return {
           ok: result.stored || result.outcome === "rate_limited",
-          data: result,
+          data,
           hint: result.hint,
         };
       }

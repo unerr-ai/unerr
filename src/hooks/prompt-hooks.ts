@@ -64,10 +64,24 @@ export const VERB_CLUSTERS: VerbCluster[] = [
     skill: "unerr-safe-modification",
     pattern: /\b(fix|modify|change|update|tweak|replace|revert|optimize)\b/i,
   },
+  // Review verbs split (2026-05): PRODUCING a review of your own changes →
+  // unerr-review; ADDRESSING review comments someone left you → unerr-test-
+  // and-review Track B. `review-comments` is checked FIRST because it is the
+  // more specific case (it requires a comment / feedback / "address …" signal);
+  // bare review/audit/critique falls through to the producer. "review this PR"
+  // is producing a review, so it stays on the producer — only "PR feedback",
+  // "review comments", or "address the review" route to the addresser.
+  {
+    id: "review-comments",
+    skill: "unerr-test-and-review",
+    pattern:
+      /\b(review[- ]comments?|code[- ]review[- ]comments?|pr[- ]feedback|pull[- ]request[- ]feedback|(?:reviewer|review)[- ]feedback|address(?:ing)?[- ](?:the[- ]|these[- ]|my[- ])?(?:review|comments?|feedback))\b/i,
+  },
   {
     id: "review",
-    skill: "unerr-test-and-review",
-    pattern: /\b(review|audit|critique|pr|pull[- ]request)\b/i,
+    skill: "unerr-review",
+    pattern:
+      /\b(review|audit|critique|self[- ]review|pre[- ]commit|before[- ]commit)\b/i,
   },
   {
     id: "test",
@@ -349,9 +363,9 @@ function buildPathALine(match: VerbClusterMatch): string {
  *  injector. Each line is one-skill-per-row, two-space indent, with the
  *  description starting at a fixed column for legibility. */
 export function buildSkillCatalog(): string {
-  // Post-consolidation (27→7) — the catalog mirrors the 7 unerr-prefixed
-  // skills shipped in .claude/skills/. Order matches the dispatch table in
-  // unerr-using-unerr SKILL.md.
+  // Post-consolidation (27→7, +review = 8) — the catalog mirrors the 8
+  // unerr-prefixed skills shipped in .claude/skills/. Order matches the
+  // dispatch table in unerr-using-unerr SKILL.md.
   const entries: Array<[string, string]> = [
     [
       "unerr-using-unerr",
@@ -380,6 +394,10 @@ export function buildSkillCatalog(): string {
     [
       "unerr-test-and-review",
       "use for TDD (Track A) or addressing review comments / PR feedback (Track B)",
+    ],
+    [
+      "unerr-review",
+      "use to produce a review of your own changes before commit — breaking callers, contract drift, duplicate logic (NOT for addressing review comments left by others)",
     ],
   ];
   const header = "available skills — invoke if even 1% relevant:";

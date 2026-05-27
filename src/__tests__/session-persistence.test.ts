@@ -294,5 +294,51 @@ describe("session-persistence", () => {
       expect(payload!.open_blockers).toEqual([]);
       expect(payload!.last_intents).toEqual([]);
     });
+
+    // ── P2.2 — broken callers round-trip from incomplete-work.json ──────
+
+    it("surfaces broken_callers persisted by the prior session's reconcile", async () => {
+      writeLastSession(testDir, makeSessionRecord());
+      // Shape written by IncompleteWorkDetector.persistItems.
+      writeFileSync(
+        join(testDir, "state", "incomplete-work.json"),
+        JSON.stringify({
+          timestamp: new Date().toISOString(),
+          items: [
+            {
+              severity: "high",
+              type: "broken_callers",
+              entity: "pay",
+              detail: "Signature changed but 2 caller(s) not updated",
+              remaining: ["src/checkout.ts:checkout", "src/refund.ts:refund"],
+              impact: "Callers will fail at runtime or compile time",
+            },
+            {
+              severity: "medium",
+              type: "orphaned_import",
+              detail: "unrelated",
+              impact: "noise",
+            },
+          ],
+        }),
+        "utf-8"
+      );
+
+      const payload = await generateSessionResumePayload(testDir);
+      expect(payload!.broken_callers).toBeDefined();
+      // Only the broken_callers item is lifted — orphaned_import is ignored.
+      expect(payload!.broken_callers!.length).toBe(1);
+      expect(payload!.broken_callers![0]!.entity).toBe("pay");
+      expect(payload!.broken_callers![0]!.callers).toEqual([
+        "src/checkout.ts:checkout",
+        "src/refund.ts:refund",
+      ]);
+    });
+
+    it("returns empty broken_callers when no incomplete-work.json exists", async () => {
+      writeLastSession(testDir, makeSessionRecord());
+      const payload = await generateSessionResumePayload(testDir);
+      expect(payload!.broken_callers).toEqual([]);
+    });
   });
 });

@@ -212,4 +212,44 @@ describe("formatSessionResumeBlock", () => {
     expect(block).not.toContain("last intent");
     expect(block).not.toContain("unresolved blocker");
   });
+
+  // ── P2.2 — broken callers surfaced from incomplete-work.json ─────────
+
+  it("renders broken callers with the get_references action when present", () => {
+    const payload = makePayload({
+      broken_callers: [
+        {
+          entity: "pay",
+          callers: ["src/checkout.ts:checkout", "src/refund.ts:refund"],
+        },
+      ],
+    });
+    const block = formatSessionResumeBlock(payload);
+    expect(block).toContain("unfinished: changed pay");
+    expect(block).toContain("src/checkout.ts:checkout");
+    expect(block).toContain("src/refund.ts:refund");
+    // Names the concrete next call, pasteable verbatim.
+    expect(block).toContain("get_references({direction:'callers'}) on pay");
+  });
+
+  it("omits the broken-callers line when none are present", () => {
+    const block = formatSessionResumeBlock(makePayload());
+    expect(block).not.toContain("unfinished: changed");
+  });
+
+  it("caps broken-callers entities at 3 and per-entity caller list at 3", () => {
+    const payload = makePayload({
+      // Strip facts so the long broken-caller lines are not truncated away.
+      recalled_facts: [],
+      broken_callers: Array.from({ length: 5 }, (_, i) => ({
+        entity: `fn${i}`,
+        callers: Array.from({ length: 5 }, (_, j) => `src/c${j}.ts:caller${j}`),
+      })),
+    });
+    const block = formatSessionResumeBlock(payload);
+    const entityMatches = block.match(/unfinished: changed/g) ?? [];
+    expect(entityMatches.length).toBeLessThanOrEqual(3);
+    // Per-entity overflow is summarised, not dumped.
+    expect(block).toContain("more)");
+  });
 });

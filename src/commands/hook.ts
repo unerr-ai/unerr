@@ -13,12 +13,12 @@
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import {
-  runPostEditHook,
+  runPostEditHookAsync,
   runPostGlobHook,
   runPostGrepHook,
   runPostReadHook,
   runPostWriteHook,
-  runPreEditHook,
+  runPreEditHookAsync,
   runPreGlobHook,
   runPreGrepHook,
   runPreReadHook,
@@ -96,7 +96,7 @@ export function registerHookCommand(program: Command): void {
   hook
     .command("pre-edit")
     .description("Blast radius + convention check before Edit")
-    .action(safeHookAction(runPreEditHook));
+    .action(safeAsyncHookAction(runPreEditHookAsync));
 
   hook
     .command("pre-webfetch")
@@ -129,8 +129,8 @@ export function registerHookCommand(program: Command): void {
 
   hook
     .command("post-edit")
-    .description("Post-edit convention check + caller verification reminder")
-    .action(safeHookAction(runPostEditHook));
+    .description("Post-edit graph-backed review + caller verification reminder")
+    .action(safeAsyncHookAction(runPostEditHookAsync));
 
   // ── UserPromptSubmit hook ───────────────────────────────────────
 
