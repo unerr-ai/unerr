@@ -155,37 +155,12 @@ export function registerStatusCommand(program: Command): void {
       }
 
       // ── Graph Stats ────────────────────────────────────────────
+      // Derived from the snapshot envelope loaded in the Rule Health block
+      // below. The only file the local indexer writes is
+      // .unerr/snapshots/graph.msgpack.gz; the old manifests/<repoId>.json was
+      // a server-pull artifact that is never written in local-first mode.
 
       let graphInfo = "No local graph";
-      const manifestsDir = join(localDataDir, "manifests");
-      if (repoId && existsSync(join(manifestsDir, `${repoId}.json`))) {
-        try {
-          const manifest = JSON.parse(
-            readFileSync(join(manifestsDir, `${repoId}.json`), "utf-8")
-          ) as {
-            entityCount?: number;
-            edgeCount?: number;
-            pulledAt?: string;
-          };
-
-          const entityCount = manifest.entityCount ?? 0;
-          const edgeCount = manifest.edgeCount ?? 0;
-          const pulledAt = manifest.pulledAt;
-
-          let ageStr = "";
-          if (pulledAt) {
-            const ageMs = Date.now() - new Date(pulledAt).getTime();
-            const ageHours = Math.floor(ageMs / 3_600_000);
-            if (ageHours < 1) ageStr = "indexed <1h ago";
-            else if (ageHours < 24) ageStr = `indexed ${ageHours}h ago`;
-            else ageStr = `indexed ${Math.floor(ageHours / 24)}d ago`;
-          }
-
-          graphInfo = `${entityCount.toLocaleString()} entities, ${edgeCount.toLocaleString()} edges${ageStr ? ` (${ageStr})` : ""}`;
-        } catch {
-          /* ignore */
-        }
-      }
 
       // ── Drift Stats ────────────────────────────────────────────
 
@@ -240,10 +215,22 @@ export function registerStatusCommand(program: Command): void {
           if (existsSync(snapshotPath)) {
             const { gunzipSync } = await import("node:zlib");
             const { unpack } = await import("msgpackr");
-            const { default: CozoDbConstructor } = await import("cozo-node");
+            const cozoModule = await import("cozo-node");
             const { CozoGraphStore } = await import(
               "../intelligence/local-graph.js"
             );
+
+            // cozo-node's CozoDb constructor sits under `.default.CozoDb` once
+            // esbuild wraps the CJS module, but is the named `.CozoDb` export
+            // under raw ESM / vitest. The bare `.default` destructure handed
+            // back the `{ CozoDb }` namespace object, so `new` threw and the
+            // catch swallowed it (ruleHealth silently undefined). Same idiom
+            // as standalone-load.ts / persistent-db.ts.
+            const CozoDbConstructor = (
+              cozoModule as { default?: { CozoDb: unknown }; CozoDb?: unknown }
+            ).default
+              ? (cozoModule as { default: { CozoDb: unknown } }).default.CozoDb
+              : (cozoModule as { CozoDb: unknown }).CozoDb;
             const raw = readFileSync(snapshotPath);
             let buffer: Buffer;
             try {
@@ -256,6 +243,19 @@ export function registerStatusCommand(program: Command): void {
             const envelope = unpack(buffer) as any;
             await graph.loadSnapshot(envelope);
             ruleHealth = await graph.getRuleHealthSummary();
+
+            const entityCount = envelope?.entities?.length ?? 0;
+            const edgeCount = envelope?.edges?.length ?? 0;
+            let ageStr = "";
+            if (typeof envelope?.generatedAt === "string") {
+              const ageMs =
+                Date.now() - new Date(envelope.generatedAt).getTime();
+              const ageHours = Math.floor(ageMs / 3_600_000);
+              if (ageHours < 1) ageStr = "indexed <1h ago";
+              else if (ageHours < 24) ageStr = `indexed ${ageHours}h ago`;
+              else ageStr = `indexed ${Math.floor(ageHours / 24)}d ago`;
+            }
+            graphInfo = `${entityCount.toLocaleString()} entities, ${edgeCount.toLocaleString()} edges${ageStr ? ` (${ageStr})` : ""}`;
           }
         } catch {
           /* ignore */

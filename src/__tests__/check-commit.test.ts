@@ -10,6 +10,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { persistLocalSnapshot } from "../intelligence/local-snapshot.js";
+import { loadStandaloneGraph } from "../review/standalone-load.js";
 
 describe("Check-Commit Hook", () => {
   let tempDir: string;
@@ -305,25 +307,57 @@ fi
     });
   });
 
-  describe("graph loading graceful degradation", () => {
-    it("returns null when manifest does not exist", () => {
-      const manifestPath = join(tempDir, "manifests", "test-repo.json");
-      expect(existsSync(manifestPath)).toBe(false);
+  describe("standalone graph loading (loadStandaloneGraph)", () => {
+    // Regression guard: the loader must read the SINGLE fixed snapshot the
+    // indexer writes (.unerr/snapshots/graph.msgpack.gz, repoId inside the
+    // envelope) — NOT a repoId-named file or a separate manifest. The old
+    // scheme returned null on every real repo, silently disabling all
+    // graph-backed checkers for both CLI surfaces.
+    it("returns null when no .unerr/config.json exists", async () => {
+      expect(await loadStandaloneGraph(tempDir)).toBeNull();
     });
 
-    it("returns null when snapshot file does not exist", () => {
-      const manifestsDir = join(tempDir, "manifests");
-      mkdirSync(manifestsDir, { recursive: true });
+    it("returns null when config.json has no repoId", async () => {
+      const unerrDir = join(tempDir, ".unerr");
+      mkdirSync(unerrDir, { recursive: true });
+      writeFileSync(join(unerrDir, "config.json"), JSON.stringify({}));
+      expect(await loadStandaloneGraph(tempDir)).toBeNull();
+    });
+
+    it("returns null when config+repoId exist but no snapshot is on disk", async () => {
+      const unerrDir = join(tempDir, ".unerr");
+      mkdirSync(unerrDir, { recursive: true });
       writeFileSync(
-        join(manifestsDir, "test-repo.json"),
-        JSON.stringify({ entityCount: 100, edgeCount: 200 })
+        join(unerrDir, "config.json"),
+        JSON.stringify({ repoId: "test-repo" })
+      );
+      expect(await loadStandaloneGraph(tempDir)).toBeNull();
+    });
+
+    it("loads the canonical graph.msgpack.gz snapshot the indexer writes", async () => {
+      const unerrDir = join(tempDir, ".unerr");
+      mkdirSync(unerrDir, { recursive: true });
+      writeFileSync(
+        join(unerrDir, "config.json"),
+        JSON.stringify({ repoId: "test-repo" })
       );
 
-      const snapshotsDir = join(tempDir, "snapshots");
-      const gzPath = join(snapshotsDir, "test-repo.msgpack.gz");
-      const rawPath = join(snapshotsDir, "test-repo.msgpack");
-      expect(existsSync(gzPath)).toBe(false);
-      expect(existsSync(rawPath)).toBe(false);
+      // Persist at the SAME fixed path the proxy/indexer use.
+      await persistLocalSnapshot(
+        tempDir,
+        "test-repo",
+        [{ key: "e1", kind: "function", name: "doThing", file_path: "src/a.ts" }],
+        []
+      );
+      // It must land at the fixed name, NOT repoId-named.
+      expect(
+        existsSync(join(unerrDir, "snapshots", "graph.msgpack.gz"))
+      ).toBe(true);
+
+      const graph = await loadStandaloneGraph(tempDir);
+      expect(graph).not.toBeNull();
+      const entity = await graph?.getEntity("e1");
+      expect(entity?.name).toBe("doThing");
     });
   });
 

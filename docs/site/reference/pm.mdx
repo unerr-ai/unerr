@@ -1,0 +1,156 @@
+---
+title: pm
+description: "Manage the unerr process manager"
+---
+
+Manage the unerr process manager
+
+```bash
+unerr pm [command]
+```
+
+### `pm start`
+
+Start the unerr process manager
+
+```bash
+unerr pm start [options]
+```
+
+**Options**
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--foreground` | Run in foreground (blocks terminal — useful for debugging) | — |
+| `--detached` | Run in-process as a detached supervisor (used by auto-spawn) | — |
+
+### `pm stop`
+
+Stop a registered repo's process (by path or label); with no argument, stop the whole unerrd supervisor
+
+```bash
+unerr pm stop [path]
+```
+
+**Arguments**
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `path` | no | — |
+
+### `pm add`
+
+Register a repo with unerrd
+
+```bash
+unerr pm add [options] [path]
+```
+
+**Arguments**
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `path` | no | — |
+
+**Options**
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--skip-parent-check` | Allow registration even if parent dir is registered | — |
+| `--skip-child-check` | Allow registration even if subdirectories are registered | — |
+| `--idle-timeout \<value\>` | Idle timeout in seconds before auto-stop (0 = never) | — |
+| `--java-build-tool \<value\>` | Java build tool override (Maven\|Gradle\|Bazel\|Sbt) | — |
+| `--autostart \<value\>` | Warm-start policy on daemon boot (eager\|auto\|never) | — |
+
+### `pm remove`
+
+Unregister a repo from unerrd
+
+```bash
+unerr pm remove [path]
+```
+
+**Arguments**
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `path` | no | — |
+
+### `pm status`
+
+List all registered repos and their state
+
+```bash
+unerr pm status
+```
+
+### `pm config`
+
+View or modify per-repo settings
+
+```bash
+unerr pm config [options] [path]
+```
+
+**Arguments**
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `path` | no | — |
+
+**Options**
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--show` | Show current settings without modifying | — |
+| `--idle-timeout \<value\>` | Idle timeout in seconds before auto-stop (0 = never) | — |
+| `--java-build-tool \<value\>` | Java build tool override (Maven\|Gradle\|Bazel\|Sbt) | — |
+| `--autostart \<value\>` | Warm-start policy on daemon boot (eager\|auto\|never) | — |
+
+### `pm logs`
+
+Tail daemon and repo log files
+
+```bash
+unerr pm logs [options]
+```
+
+**Options**
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--repo \<label\>` | Filter to a specific repo by label | — |
+| `--bridge` | Include bridge session logs | — |
+| `--follow` | Follow log output (tail -f) | — |
+| `-n \<lines\>` | Number of lines to show | `50` |
+| `--boot` | Show only entries from this boot cycle | — |
+
+### `pm dashboard`
+
+Open the unerr dashboard in browser
+
+```bash
+unerr pm dashboard [options]
+```
+
+**Options**
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--port \<port\>` | Dashboard port (default: 9847) | — |
+
+### `pm set`
+
+Set global daemon configuration
+
+```bash
+unerr pm set [options]
+```
+
+**Options**
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--warm-start-budget \<n\>` | Max repos to warm-start on boot (0=disabled) | — |
+| `--warm-start-idle-days \<n\>` | Skip repos inactive for N+ days | — |
+| `--warm-start-delay-ms \<n\>` | Delay after boot before warm-start | — |

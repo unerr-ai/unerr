@@ -1,0 +1,19 @@
+---
+title: learn
+description: "Detect correction patterns from shadow ledger — learn what mistakes agents keep making"
+---
+
+Detect correction patterns from shadow ledger — learn what mistakes agents keep making
+
+```bash
+unerr learn [options]
+```
+
+**Options**
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--days \<n\>` | Scan last N days of ledger | `7` |
+| `--write` | Persist detected patterns to CozoDB for agent guidance | — |
+| `--json` | Output as JSON | — |
+| `--min-conf \<f\>` | Minimum confidence threshold (0.0-1.0) | `0.6` |

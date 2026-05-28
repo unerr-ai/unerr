@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://www.unerr.dev/"><img src="https://unerr.dev/icon-wordmark.svg" alt="unerr — operational memory for your codebase" width="320" /></a>
+  <a href="https://www.unerr.dev/"><img src="https://unerr.dev/icon-wordmark.svg" alt="unerr — operational intelligence for your codebase" width="320" /></a>
 </p>
 
 <p align="center">
@@ -7,9 +7,9 @@
 </p>
 
 <p align="center">
-  <strong>unerr is operational memory for your codebase</strong> — one local runtime that sits <em>behind</em> every MCP<br/>
-  your coding agent already speaks, carrying a shared code graph, persistent memory,<br/>
-  drift detection, and the guardrails the protocol itself doesn't.
+  <strong>unerr is operational intelligence for your codebase</strong> — one local runtime, <em>behind</em> every MCP your agent speaks,<br/>
+  that catches the refactor about to break 7 call sites, remembers what the team already decided, and keeps context lean.<br/>
+  Joins no single-purpose memory or graph tool can make — because everything lives in one process.
 </p>
 
 <p align="center">
@@ -33,8 +33,20 @@
 
 <p align="center">
   <sub>Measured, not estimated: removes <strong>86–90%</strong> of the tokens an agent spends navigating code —<br/>
-  and wins head-to-head against other code-intelligence tools on the same corpus. <a href="./benchmarks/README.md">See the benchmarks →</a></sub>
+  same corpus, same tokenizer, with a fidelity gate that discards any "saving" that lost the answer. <a href="./benchmarks/README.md">See the benchmarks →</a></sub>
 </p>
+
+---
+
+## The old way is over
+
+Coding agents now write the code. The bottleneck moved — from *writing* code to an agent **landing on the right code** without burning turns, re-reading files it's already seen, or breaking things it couldn't see.
+
+| The old way | With unerr |
+|---|---|
+| The agent refactors a function blind to its 24 callers — 7 sites break silently. | **Cascade guard** reads the call graph *before* the edit; every caller is on screen first. |
+| Conventions and decisions live in `MEMORY.md` / `.cursorrules` you hand-maintain and re-paste each session. | **Anchored memory + drift detection** — facts pin to the code and get a drift signal when it moves, instead of going silently stale. |
+| Five single-purpose MCP servers — memory, graph, compressor — that can't reach across each other. | **One runtime** — so cascade guard, convention drift, and loop breaker fire on joins no point tool can make. |
 
 ---
 
@@ -44,7 +56,7 @@ You've felt all four of these in the last 48 hours:
 
 - Claude is brilliant for 20 minutes, then hallucinates a duplicate component and forgets the styling rules you set five turns ago.
 - More time spent writing `MEMORY.md`, updating `.cursorrules`, and pasting session summaries than writing code.
-- The agent reads a 2,000-line file to find a 5-line function, then still doesn't know that function has 24 callers across three services.
+- The agent reads a 2,000-line file to find a 5-line function, then still doesn't know that function has 24 callers in six other files.
 - You don't trust the agent to refactor anything important. It treats your codebase like a flat string of text — locally correct, globally wrong.
 
 These aren't four problems. They're one: today's agents are incredibly smart but structurally blind and severely amnesiac. They grep when a senior engineer would check the call graph. They forget on Tuesday what they learned on Monday.
@@ -60,9 +72,9 @@ These aren't four problems. They're one: today's agents are incredibly smart but
 | **The agent stays sharp at turn 50.** | `file_read({entity})` returns 200 lines instead of 3,000. Shell output is compressed 93% on average. The context window stays uncluttered, so the model isn't fighting "lost in the middle." |
 | **Tool sprawl dies.** | One graph, one set of tools, project-aware routing. Five MCP servers no longer compete for the agent's attention. |
 
-**What it looks like in your chat:**
+**What it looks like in your chat** — before the Edit tool runs, unerr injects this into the agent's context:
 
-> ⚡ unerr · cascade guard: `PaymentGateway` has 8 callers across 3 services. Call `get_references({direction:'callers'})` before the edit — refactor it locally and 7 sites break silently.
+> ⚡ unerr · cascade guard: editing `src/payments/gateway.ts` changes a signature with callers that must be updated in the same change — `processPayment`: **24 callers at risk across 6 files** (19 source, 5 test). Call `get_references({key:'processPayment', direction:'callers'})` and update every caller before finishing.
 
 The outcome you get is **agents that behave like senior engineers** — checking dependencies before editing, remembering project history, refusing to thrash on a function they've already failed on three times.
 
@@ -72,7 +84,7 @@ The outcome you get is **agents that behave like senior engineers** — checking
 
 Two places unerr shows up so you know it's working — inside the chat, and in a browser.
 
-**Inside the chat.** Every coding turn opens with one line naming what unerr loaded ("loaded a convention you wrote yesterday for `src/proxy/proxy.ts`…") and closes with one line totalling what it saved you ("this turn: 2 catches · ≈ 4.2k tokens saved · +5 turns of headroom this session"). Catches are *named, countable events*, not a ratio.
+**Inside the chat.** Every coding turn opens with one line naming what unerr loaded ("loaded a convention you wrote yesterday for `src/payments/gateway.ts`…") and closes with one line totalling what it saved you ("this turn: 2 catches · ≈ 4.2k tokens saved · +5 turns of headroom this session"). Catches are *named, countable events*, not a ratio.
 
 **In a browser.** A live dashboard at `http://localhost:9847` reads from the same store the agent reads from over MCP — the graph it navigates, the facts it remembers, the tokens it didn't have to chew through, and the score showing which of those facts actually shaped the next answer.
 
@@ -88,23 +100,8 @@ Two places unerr shows up so you know it's working — inside the chat, and in a
 </p>
 
 <p align="center">
-  <img src="https://unerr.dev/open-cli/screenshots/activity.png" alt="unerr activity — session timeline" width="300" />
-  <br/><sub><strong>Activity</strong> · session timeline — every tool call, marker, and catch in order, replayable across sessions.</sub>
-</p>
-
-<p align="center">
   <img src="https://unerr.dev/open-cli/screenshots/token-trace-main.png" alt="unerr token trace" width="300" />
   <br/><sub><strong>Token Trace</strong> · context kept out of the window, broken down by mechanism — graph hits, skipped re-reads, compressed shell output, deduped fetches.</sub>
-</p>
-
-<p align="center">
-  <img src="https://unerr.dev/open-cli/screenshots/prompt-trace.png" alt="unerr prompt trace" width="300" />
-  <br/><sub><strong>Prompt Trace</strong> · every prompt and the context unerr fed it — what was recalled, and what shaped the response.</sub>
-</p>
-
-<p align="center">
-  <img src="https://unerr.dev/open-cli/screenshots/reasoning-quality.png" alt="unerr reasoning quality" width="300" />
-  <br/><sub><strong>Reasoning Quality</strong> · which remembered facts actually shaped the next answer — scored, so memory earns its place in context.</sub>
 </p>
 
 <p align="center"><sub>More views in the <a href="https://www.unerr.dev/">full dashboard tour</a>.</sub></p>
@@ -147,7 +144,7 @@ Install multiple agents in the same repo — each writes its own config. Idempot
 
 Close and reopen your IDE (or start a new chat session). Your agent picks up unerr through MCP — graph-backed tools, persistent memory, shell compression all available immediately.
 
-> **Dashboard:** <http://localhost:9847> — open any time to watch unerr's operational memory at work in real time.
+> **Dashboard:** <http://localhost:9847> — open any time to watch unerr's operational intelligence at work in real time.
 
 > Need manual setup or any other MCP client? `unerr install --show-instructions <agent>` prints copy-pasteable steps.
 
@@ -169,12 +166,12 @@ The adjacent space already has strong point tools. unerr's job is not to out-fea
 
 | Layer | Where point tools live | What unerr adds |
 |---|---|---|
-| Memory across sessions | claude-mem, Mem0, Zep, Letta | Memory tied to the *current* state of the code — facts get drift signals when the file they're about moves. |
-| Code-graph navigation | Graphify, CodeGraphContext, Serena | The graph is read *before every file read* — surgical context instead of 3,000-line dumps. |
-| Output compression | RTK, Repomix | Compression is fed through the same MCP runtime as the graph and memory, not a separate tool the agent has to remember to invoke. |
+| Memory across sessions | dedicated memory tools | Memory tied to the *current* state of the code — facts get drift signals when the file they're about moves. |
+| Code-graph navigation | dedicated code-graph tools | The graph is read *before every file read* — surgical context instead of 3,000-line dumps. |
+| Output compression | dedicated compression tools | Compression is fed through the same MCP runtime as the graph and memory, not a separate tool the agent has to remember to invoke. |
 | Convention enforcement | `.cursorrules`, CLAUDE.md hand-maintained | Conventions auto-detected from ≥70% adherence in the code. No file to maintain. |
 
-We deliberately don't ship a feature-by-feature checkmark matrix against the depth leaders on each lane — that's the trap. Mem0 will out-memory us on memory depth; Graphify will out-graph us on graph aesthetics; RTK will out-compress us on shell compression simplicity. The runtime is the join across all four lanes — not the depth on any one.
+We deliberately don't ship a feature-by-feature checkmark matrix against the depth leaders on each lane — that's the trap. A dedicated memory tool will out-memory us on memory depth; a dedicated code-graph tool will out-graph us on graph aesthetics; a dedicated compressor will out-compress us on shell compression simplicity. The runtime is the join across all four lanes — not the depth on any one.
 
 Three numbers behind the runtime:
 
@@ -230,22 +227,9 @@ AI Agent (Claude Code / Cursor / Windsurf / any MCP client)
 
 One local DB per repo. Zero network calls. No API keys. No cloud. Your code never leaves the machine.
 
-```
-src/
-  entrypoints/   CLI entry + boot state machine
-  proxy/         Per-repo MCP server, stdio↔UDS bridge, session stats, shell compression
-  daemon/        Process manager (unerrd) — registry, supervisor, spawn lock, HTTP API
-  intelligence/  CozoDB graph, AST extraction, conventions, rules, search, semantic
-  tracking/      Prompt ledger, drift detection, git attribution
-  behaviors/     Cascade guard, loop breaker, auto-doc, change narrative…
-  commands/      CLI commands (install, status, stats, pm, debug, …)
-  tools/         MCP tool implementations (intelligence + coding)
-  hooks/         Claude Code hook system integration
-  skills/        12 bundled skill definitions
-  server/ + ui/  HTTP API + React (Vite) dashboard
-```
+Full module map and source-tree breakdown: **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)**.
 
-**Design principles** — zero network calls; stdout is sacred (MCP JSON-RPC only, everything else to stderr); <5 ms query responses; first useful output <5 s (shallow index first, deep enrichment in background); graceful degradation (the agent still works if unerr is down, you just lose the operational memory).
+**Design principles** — zero network calls; stdout is sacred (MCP JSON-RPC only, everything else to stderr); <5 ms query responses; first useful output <5 s (shallow index first, deep enrichment in background); graceful degradation (the agent still works if unerr is down, you just lose the operational intelligence layer).
 
 **Tech stack** TypeScript (ESM) · CozoDB (Rust/NAPI) · web-tree-sitter (WASM) · MCP SDK · Ink (React CLI) · React + Vite (dashboard) · tsup · Vitest
 
@@ -266,7 +250,7 @@ unerr pm dashboard      # Open http://localhost:9847
 
 `unerrd` is a lightweight Node process that supervises every registered repo. Your IDE invocation auto-spawns it; it exits cleanly after 30 minutes of no MCP activity. `unerr pm --help` lists the rest.
 
-### MCP tools (20)
+### MCP tools (22)
 
 Grouped by what the agent gets, not by file:
 
@@ -276,6 +260,7 @@ Grouped by what the agent gets, not by file:
 - **Persistent memory (3)** — `unerr_remember` (user-stated facts with verbatim quote + confidence), `record_fact` (agent-detected conventions / decisions / anti-patterns), `recall_facts` (hierarchical scope + decay-adjusted confidence).
 - **Session markers (4)** — `mark_intent`, `mark_decision`, `mark_blocker`, `mark_resolution`. Inline as the agent works; powers turn titles and the cross-session resume strip.
 - **Web fetch (1)** — `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache). Replaces built-in WebFetch.
+- **Code review (1)** — `review_changes` (graph-evidenced review of a diff — flags breaking callers, contract drift, duplicate logic).
 
 Every response carries inline `ur|<tag>` signals for high-priority guidance — drift, blast-radius warnings, circuit-breaker halts — so the agent acts on what it just learned without burning a turn.
 
@@ -294,7 +279,7 @@ Every response carries inline `ur|<tag>` signals for high-priority guidance — 
 
 ### Benchmarks
 
-unerr removes **86–90% of the tokens** an agent would otherwise spend navigating and reading code — measured, not estimated, with head-to-head runs against other code-intelligence tools on the same questions, same tokenizer, and a fidelity gate that discards any "saving" that lost the answer. Methodology, reproduction commands, and per-repo results: [benchmarks/README.md](./benchmarks/README.md).
+unerr removes **86–90% of the tokens** an agent would otherwise spend navigating and reading code — measured, not estimated, across the same questions and the same tokenizer, with a fidelity gate that discards any "saving" that lost the answer. Methodology, reproduction commands, and per-repo results: [benchmarks/README.md](./benchmarks/README.md).
 
 ### Contributing
 

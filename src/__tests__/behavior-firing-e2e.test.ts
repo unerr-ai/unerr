@@ -161,6 +161,7 @@ describe("behavior firing — pre-edit cascade end-to-end (P0.6)", () => {
     // Valid JSON (never a crash — exit 0 contract).
     expect(() => JSON.parse(out)).not.toThrow();
     // The computed cascade signal reached the agent-facing output.
+    expect(out).toContain("⚡ unerr · cascade guard:");
     expect(out).toContain("caller(s) at risk");
     expect(out).toContain("2 caller(s) at risk"); // checkout + refund
     expect(out).toContain("parameter_added");

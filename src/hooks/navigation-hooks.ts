@@ -211,7 +211,7 @@ function formatCascadeNudge(
   const head = readPrereq.trimEnd();
   if (head) lines.push(head);
   lines.push(
-    `Editing "${filePath}" changes ${warnings.length} signature(s) with callers that must be updated in the same change:`
+    `⚡ unerr · cascade guard: editing "${filePath}" changes ${warnings.length} signature(s) with callers that must be updated in the same change:`
   );
   for (const w of warnings) {
     const direct = w.blast_radius.direct_callers.length;

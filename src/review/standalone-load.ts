@@ -16,16 +16,24 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { gunzipSync } from "node:zlib";
 import type { CozoGraphStore } from "../intelligence/local-graph.js";
+import { loadLocalSnapshot } from "../intelligence/local-snapshot.js";
 import { reviewNotesFromStore } from "./git-review.js";
 import type { ReviewNotes } from "./types.js";
 
 /**
  * Load the CozoDB graph for a standalone review (proxy may not be running).
- * Reads `repoId` from `.unerr/config.json`, then loads the snapshot. Returns
- * `null` (review degrades to file-level checkers only) when config, manifest,
- * or snapshot is absent / unreadable.
+ * Confirms the repo is unerr-indexed via `.unerr/config.json`'s `repoId`, then
+ * loads the canonical on-disk snapshot. Returns `null` (review degrades to
+ * file-level checkers only) when config, repoId, or snapshot is absent /
+ * unreadable.
+ *
+ * The snapshot is the single fixed file the indexer/proxy write —
+ * `.unerr/snapshots/graph.msgpack.gz` (see {@link snapshotPath}). It is NOT
+ * repoId-named and there is no separate manifest; `repoId` lives inside the
+ * envelope. We load it into a FRESH in-memory CozoDB rather than opening
+ * `.unerr/graph.db`, which the running proxy holds under a single-writer
+ * rocksdb lock.
  */
 export async function loadStandaloneGraph(
   cwd: string
@@ -33,43 +41,35 @@ export async function loadStandaloneGraph(
   const configPath = join(cwd, ".unerr", "config.json");
   if (!existsSync(configPath)) return null;
 
-  let repoId: string;
   try {
     const config = JSON.parse(readFileSync(configPath, "utf-8")) as {
       repoId?: string;
     };
     if (!config.repoId) return null;
-    repoId = config.repoId;
   } catch {
     return null;
   }
 
-  const snapshotsDir = join(cwd, ".unerr", "snapshots");
-  const manifestsDir = join(cwd, ".unerr", "manifests");
-  const manifestPath = join(manifestsDir, `${repoId}.json`);
-  if (!existsSync(manifestPath)) return null;
-
-  let snapshotPath = join(snapshotsDir, `${repoId}.msgpack.gz`);
-  if (!existsSync(snapshotPath)) {
-    snapshotPath = join(snapshotsDir, `${repoId}.msgpack`);
-  }
-  if (!existsSync(snapshotPath)) return null;
-
   try {
-    const { default: CozoDbConstructor } = await import("cozo-node");
+    const cozoModule = await import("cozo-node");
     const { CozoGraphStore } = await import("../intelligence/local-graph.js");
-    const { unpack } = await import("msgpackr");
 
-    // cozo-node ctor + msgpack envelope are untyped (mirrors check-commit's loader).
+    // cozo-node's CozoDb constructor lives under `.default.CozoDb` once esbuild
+    // wraps the CJS module, but under raw ESM / vitest it's the named `.CozoDb`
+    // export. Resolve both shapes — the bare `.default` destructure used to hand
+    // back the `{ CozoDb }` namespace object, so `new` threw and got swallowed
+    // (graph silently null). Same idiom as persistent-db.ts.
+    const CozoDbConstructor = (
+      cozoModule as { default?: { CozoDb: unknown }; CozoDb?: unknown }
+    ).default
+      ? (cozoModule as { default: { CozoDb: unknown } }).default.CozoDb
+      : (cozoModule as { CozoDb: unknown }).CozoDb;
+
     const db = new (CozoDbConstructor as any)();
     const graph = await CozoGraphStore.create(db);
 
-    const raw = readFileSync(snapshotPath);
-    const buffer = snapshotPath.endsWith(".gz") ? gunzipSync(raw) : raw;
-    const envelope = unpack(buffer) as any;
-    await graph.loadSnapshot(envelope);
-
-    return graph;
+    const loaded = await loadLocalSnapshot(cwd, graph);
+    return loaded ? graph : null;
   } catch {
     return null;
   }

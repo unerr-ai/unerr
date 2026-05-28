@@ -1,0 +1,38 @@
+---
+title: unerr
+description: "Local-first code intelligence for AI coding agents — graph navigation, persistent memory, blast-radius detection, and convention enforcement, all on your machine."
+---
+
+unerr lands your AI agent on the right code in fewer turns, tokens, and
+breakages. It runs entirely on your machine as an MCP server, building a
+graph of your codebase and remembering what the codebase has been through —
+who changed each file last, why it drifted, what failed here before, and the
+rules you've fed it across sessions.
+
+## Start here
+
+- **[Architecture](./architecture)** — how unerr is built: the per-repo
+  process, the `unerrd` process manager, the stdio↔UDS bridge, and the
+  dashboard.
+- **[CLI Reference](./reference)** — every `unerr` command, generated
+  directly from the binary.
+
+## What lives under the hood
+
+These subsystems do most of the work and are documented as they mature:
+
+- **MCP tools** — the graph-backed tools the agent calls (`search_code`,
+  `get_references`, `file_read`, …) instead of grep/glob.
+- **MCP router** — intent classification that routes a request to the right
+  family of tools.
+- **Behavior automation** — cascade guard, boundary checks, loop breaker,
+  and incomplete-work detection that fire on edits.
+- **Reviews** — a graph-aware code reviewer, distinct from a linter.
+- **File & graph intelligence** — the CozoDB graph, AST extraction, and
+  drift tracking.
+- **Shell-output compression** — rolling long command output into compact,
+  LLM-actionable summaries.
+- **Memory** — anchored notes and persistent facts that survive across
+  sessions.
+- **Cascade graph** — the call/reference edges that power blast-radius
+  signals.

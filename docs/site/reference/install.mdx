@@ -1,0 +1,26 @@
+---
+title: install
+description: "Install unerr for a specific AI coding agent"
+---
+
+Install unerr for a specific AI coding agent
+
+```bash
+unerr install [options] [agent]
+```
+
+**Arguments**
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `agent` | no | — |
+
+**Options**
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--force` | Overwrite existing configuration | — |
+| `--no-force-tools` | Keep built-in Read/Grep/Glob enabled (Claude Code only, default: denied) | — |
+| `--show-skills` | Print skill content for manual installation | — |
+| `--show-instructions [agent]` | Print setup instructions for any AI coding agent | — |
+| `--review-gate` | Also install the git pre-commit/post-commit review gate (opt-in) | — |

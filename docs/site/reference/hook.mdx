@@ -1,0 +1,122 @@
+---
+title: hook
+description: "IDE hook handlers (stdin/stdout JSON)"
+---
+
+IDE hook handlers (stdin/stdout JSON)
+
+```bash
+unerr hook [command]
+```
+
+### `hook pre-bash`
+
+Rewrite Bash tool input to pipe through unerr exec
+
+```bash
+unerr hook pre-bash
+```
+
+### `hook pre-read`
+
+Nudge agent to use file_outline/file_read instead of Read
+
+```bash
+unerr hook pre-read
+```
+
+### `hook pre-grep`
+
+Nudge agent to use search_code/get_callers instead of Grep
+
+```bash
+unerr hook pre-grep
+```
+
+### `hook pre-glob`
+
+Nudge agent to use search_code instead of Glob
+
+```bash
+unerr hook pre-glob
+```
+
+### `hook pre-write`
+
+Blast radius + convention check before Write
+
+```bash
+unerr hook pre-write
+```
+
+### `hook pre-edit`
+
+Blast radius + convention check before Edit
+
+```bash
+unerr hook pre-edit
+```
+
+### `hook pre-webfetch`
+
+Redirect WebFetch to fetch_url (DOM-extracted, BM25, fewer tokens)
+
+```bash
+unerr hook pre-webfetch
+```
+
+### `hook post-read`
+
+Enrich Read output with graph navigation suggestions
+
+```bash
+unerr hook post-read
+```
+
+### `hook post-grep`
+
+Enrich Grep output with graph navigation suggestions
+
+```bash
+unerr hook post-grep
+```
+
+### `hook post-glob`
+
+Enrich Glob output with graph navigation suggestions
+
+```bash
+unerr hook post-glob
+```
+
+### `hook post-write`
+
+Post-write convention check + caller verification reminder
+
+```bash
+unerr hook post-write
+```
+
+### `hook post-edit`
+
+Post-edit graph-backed review + caller verification reminder
+
+```bash
+unerr hook post-edit
+```
+
+### `hook prompt-submit`
+
+Inject unerr tool reminder on each user prompt
+
+```bash
+unerr hook prompt-submit
+```
+
+### `hook session-start`
+
+Inject resume strip into agent context at session boot
+
+```bash
+unerr hook session-start
+```

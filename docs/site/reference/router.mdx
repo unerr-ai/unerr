@@ -1,0 +1,62 @@
+---
+title: router
+description: "MCP Gateway router management"
+---
+
+MCP Gateway router management
+
+```bash
+unerr router [command]
+```
+
+### `router status`
+
+Show router activation state and proxied servers
+
+```bash
+unerr router status
+```
+
+### `router unmask`
+
+Force expose a family (or 'all') for the current session
+
+```bash
+unerr router unmask <family>
+```
+
+**Arguments**
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `family` | yes | — |
+
+### `router mask`
+
+Force hide a family for the current session (debugging)
+
+```bash
+unerr router mask <family>
+```
+
+**Arguments**
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `family` | yes | — |
+
+### `router clear-overrides`
+
+Clear all mask/unmask overrides and restore intent-based masking
+
+```bash
+unerr router clear-overrides
+```
+
+### `router overrides`
+
+Show active mask/unmask overrides
+
+```bash
+unerr router overrides
+```
