@@ -14,6 +14,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Command } from "commander";
+import { UNERR_VERSION } from "../version.js";
 import { registerBranchesCommand } from "../commands/branches.js";
 import { registerCheckCommitCommand } from "../commands/check-commit.js";
 import { registerCompressOutputCommand } from "../commands/compress-output.js";
@@ -1393,7 +1394,7 @@ const program = new Command();
 program
   .name("unerr")
   .description("Code intelligence for AI agents")
-  .version("0.1.3")
+  .version(UNERR_VERSION)
   .option("--ide <type>", "IDE type: cursor, vscode, claude-code, windsurf")
   .option("--mcp", "Start in MCP server mode (stdio, no interactive prompts)")
   .option(

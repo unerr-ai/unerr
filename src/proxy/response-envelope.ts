@@ -41,9 +41,10 @@ export interface ContextInjectorArgs {
 }
 
 import { estimateTokens } from "../intelligence/token-estimator.js";
+import { UNERR_VERSION } from "../version.js";
 export { estimateTokens };
 
-const VERSION = "0.1.3";
+const VERSION = `@proxy${UNERR_VERSION}`;
 
 /**
  * Update notification state — set by the daemon's version checker.

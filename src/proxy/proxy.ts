@@ -21,6 +21,7 @@ import {
   readdirSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { UNERR_VERSION } from "../version.js";
 import { getPromptsForSession } from "../tracking/prompt-trace.js";
 import { aliasAndValidate } from "./arg-validator.js";
 import { PidLock } from "./pid-lock.js";
@@ -1337,7 +1338,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   );
 
   const server = new Server(
-    { name: "unerr-local", version: "0.1.3" },
+    { name: "unerr-local", version: UNERR_VERSION },
     { capabilities: { tools: {} } }
   );
 
@@ -2649,7 +2650,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         result: {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "unerr-local", version: "0.1.3" },
+          serverInfo: { name: "unerr-local", version: UNERR_VERSION },
         },
       };
     }

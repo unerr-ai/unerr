@@ -19,6 +19,7 @@ import { extname, join } from "node:path";
 import { type ServerType, serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { createModuleLogger } from "../utils/logger.js";
+import { UNERR_VERSION } from "../version.js";
 
 const log = createModuleLogger("http");
 
@@ -69,7 +70,7 @@ export function createHttpTransport(
   app.get("/health", (c) =>
     c.json({
       status: "ok",
-      version: "0.1.3",
+      version: UNERR_VERSION,
       uptime_ms: Date.now() - startedAt,
     })
   );

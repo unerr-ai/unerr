@@ -5,6 +5,7 @@ import {
   estimateTokens,
   wrapResponse,
 } from "../proxy/response-envelope.js";
+import { UNERR_VERSION } from "../version.js";
 
 describe("estimateTokens", () => {
   it("estimates tokens for a short string", () => {
@@ -34,7 +35,7 @@ describe("wrapResponse", () => {
     const result = await wrapResponse({ data: "test" }, 5.2);
 
     expect(result.content).toEqual({ data: "test" });
-    expect(result._meta["dev.unerr/version"]).toBe("0.1.3");
+    expect(result._meta["dev.unerr/version"]).toBe(`@proxy${UNERR_VERSION}`);
     expect(result._meta["dev.unerr/latency_ms"]).toBe(5.2);
     expect(result._meta["dev.unerr/tokens_saved"]).toBeGreaterThanOrEqual(0);
   });
@@ -93,7 +94,7 @@ describe("createEnvelopePipeline", () => {
     const result = await pipeline.wrapResponse("content", 1);
 
     expect(result.content).toBe("content");
-    expect(result._meta["dev.unerr/version"]).toBe("0.1.3");
+    expect(result._meta["dev.unerr/version"]).toBe(`@proxy${UNERR_VERSION}`);
   });
 
   it("merges multiple injectors", async () => {
