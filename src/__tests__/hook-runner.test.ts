@@ -66,12 +66,15 @@ describe("claudeCodeAdapter", () => {
     expect(claudeCodeAdapter.formatPostToolUse(passthrough())).toBe("{}");
   });
 
-  it("formats nudge with systemMessage", () => {
+  it("formats nudge with systemMessage + additionalContext", () => {
     const result = JSON.parse(
       claudeCodeAdapter.formatPreToolUse(nudge("Use search_code"))
     );
     expect(result.hookSpecificOutput.permissionDecision).toBe("allow");
     expect(result.hookSpecificOutput.systemMessage).toBe("Use search_code");
+    // additionalContext is the only PreToolUse field Claude Code injects into
+    // the model's context — without it the agent never sees the nudge.
+    expect(result.hookSpecificOutput.additionalContext).toBe("Use search_code");
   });
 
   it("formats rewrite with updatedInput", () => {

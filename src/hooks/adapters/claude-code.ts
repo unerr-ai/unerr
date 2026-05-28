@@ -69,11 +69,15 @@ export const claudeCodeAdapter: HookAdapter = {
     }
 
     if (result.action === "nudge" && result.message) {
+      // systemMessage surfaces to the user only; additionalContext is the one
+      // PreToolUse field Claude Code injects into the model's context. Emit both
+      // so the agent acts on the nudge (e.g. the cascade guard), not just the user.
       return JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
           permissionDecision: "allow",
           systemMessage: result.message,
+          additionalContext: result.message,
         },
       });
     }

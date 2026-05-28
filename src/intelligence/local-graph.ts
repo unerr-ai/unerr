@@ -339,10 +339,27 @@ export interface DeepDiveTaskRow {
   checkpoint: Record<string, unknown>;
 }
 
-/** Default timeout for read queries (ms). Prevents reads from hanging behind long writes. */
-const QUERY_TIMEOUT_MS = 2000;
-/** Timeout for write operations (ms). Prevents indefinite hangs on CozoDB lock contention. */
-const WRITE_TIMEOUT_MS = 10_000;
+/**
+ * Default timeout for read queries (ms). A read should only fail on a TRUE
+ * stall, not on transient contention. The old 2s value was too tight: heavy
+ * reads (file_read/file_outline/search_code) that query-router.ts intends to
+ * allow up to 5s "under indexer contention" were killed at 2s, and internal
+ * (non-tool) reads had no headroom for a RocksDB compaction window. Raised 6×
+ * to leave slack for unrelated stalls; tool-facing reads remain additionally
+ * bounded by the smaller tool-level budget in query-router.ts.
+ */
+const QUERY_TIMEOUT_MS = 12_000;
+/**
+ * Timeout for write operations (ms). Its only legitimate job is to catch a TRUE
+ * deadlock — `Promise.race` cannot cancel the native `db.run`, so a write that
+ * "times out" keeps running and holds the single-writer lock (a zombie that
+ * then starves reads). It must therefore exceed the worst-case legitimate
+ * stall. Periodic orphan cleanup ("Removing N orphaned entities") triggers a
+ * RocksDB compaction stall lasting tens of seconds; the old 10s value falsely
+ * failed drift writes queued behind it. Raised 6× to ride out that stall while
+ * still bounding a genuinely wedged operation.
+ */
+const WRITE_TIMEOUT_MS = 60_000;
 
 export class CozoGraphStore {
   readonly db: CozoDb;
