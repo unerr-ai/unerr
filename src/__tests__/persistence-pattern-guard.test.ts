@@ -166,11 +166,18 @@ describe("persistence-pattern regression guard", () => {
     expect(cli).toContain('stdio: "ignore"');
   });
 
-  it("npm tarball excludes test artifacts and dashboard bundle", () => {
+  it("npm tarball ships the inlined dashboard but excludes test artifacts, loose JS chunks, and screenshot bloat", () => {
     const pkg = JSON.parse(
       readFileSync(join(repoRoot, "package.json"), "utf-8")
     ) as { files: string[] };
     expect(pkg.files).toContain("!dist/__tests__/**");
-    expect(pkg.files).toContain("!dist/ui/**");
+    // Dashboard ships as a single self-contained HTML (vite-plugin-singlefile):
+    // all JS + CSS inlined, so no standalone minified .js chunks reach the tarball.
+    expect(pkg.files).toContain("dist/ui/index.html");
+    expect(pkg.files).not.toContain("!dist/ui/**");
+    // Loose minified JS chunks + screenshot/marketing assets must never ship —
+    // they bloat the tarball and trip AV/EDR base64 / packaged-binary heuristics.
+    expect(pkg.files).toContain("!dist/ui/assets/**");
+    expect(pkg.files).toContain("!dist/ui/screenshots/**");
   });
 });
