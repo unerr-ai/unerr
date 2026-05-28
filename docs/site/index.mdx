@@ -1,19 +1,29 @@
 ---
 title: unerr
-description: "Local-first code intelligence for AI coding agents — graph navigation, persistent memory, blast-radius detection, and convention enforcement, all on your machine."
+description: "Operational intelligence for your codebase — one local runtime behind every MCP your agent speaks, that catches the refactor about to break 7 call sites, remembers what the team already decided, and keeps context lean."
 ---
 
-unerr lands your AI agent on the right code in fewer turns, tokens, and
-breakages. It runs entirely on your machine as an MCP server, building a
-graph of your codebase and remembering what the codebase has been through —
-who changed each file last, why it drifted, what failed here before, and the
-rules you've fed it across sessions.
+**Stop babysitting your AI.**
+
+unerr is operational intelligence for your codebase — one local runtime,
+_behind_ every MCP your agent speaks, that catches the refactor about to break
+7 call sites, remembers what the team already decided, and keeps context lean.
+Joins no single-purpose memory or graph tool can make, because everything lives
+in one process.
+
+It runs entirely on your machine as an MCP server: it builds a graph of your
+codebase and remembers what the codebase has been through — who changed each
+file last, why it drifted, what failed here before, and the rules you've fed it
+across sessions. Measured, not estimated: it removes **86–90%** of the tokens an
+agent spends navigating code, with a fidelity gate that discards any "saving"
+that lost the answer.
+
+The outcome is **agents that behave like senior engineers** — checking
+dependencies before editing, remembering project history, and refusing to thrash
+on a function they've already failed on.
 
 ## Start here
 
-- **[Architecture](./architecture)** — how unerr is built: the per-repo
-  process, the `unerrd` process manager, the stdio↔UDS bridge, and the
-  dashboard.
 - **[CLI Reference](./reference)** — every `unerr` command, generated
   directly from the binary.
 

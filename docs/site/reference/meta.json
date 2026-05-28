@@ -1,7 +1,6 @@
 {
   "title": "CLI Reference",
   "pages": [
-    "index",
     "---Setup---",
     "init",
     "install",
