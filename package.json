@@ -1,6 +1,6 @@
 {
   "name": "@unerr-ai/unerr",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "mcpName": "io.github.unerr-ai/unerr",
   "description": "Local-first code intelligence CLI for unerr",
   "repository": {
