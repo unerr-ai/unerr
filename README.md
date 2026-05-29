@@ -3,13 +3,13 @@
 </p>
 
 <p align="center">
-  <strong>Stop babysitting your AI.</strong>
+  <strong>Your AI agent has read your codebase. It was never briefed on it.</strong>
 </p>
 
 <p align="center">
-  <strong>unerr is operational intelligence for your codebase</strong> — one local runtime, <em>behind</em> every MCP your agent speaks,<br/>
-  that catches the refactor about to break 7 call sites, remembers what the team already decided, and keeps context lean.<br/>
-  Joins no single-purpose memory or graph tool can make — because everything lives in one process.
+  <strong>unerr is operational intelligence for your codebase</strong> — the lived history your team carries in its head:<br/>
+  what's been tried, what broke, what the team decided. One local runtime, <em>behind</em> every MCP your agent already speaks,<br/>
+  that hands the agent that judgment the moment it starts working — instead of letting it relearn your repo, every session.
 </p>
 
 <p align="center">
@@ -28,11 +28,11 @@
 <p align="center">
   <code>npm install -g @unerr-ai/unerr</code>
   <br /><br />
-  <sub>Zero configuration. Install, restart your IDE, and the next prompt is smarter.</sub>
+  <sub>Zero configuration. Install, restart your IDE, and the next prompt already knows your repo.</sub>
 </p>
 
 <p align="center">
-  <sub>Measured, not estimated: removes <strong>86–90%</strong> of the tokens an agent spends navigating code —<br/>
+  <sub>Measured, not estimated: the agent lands on the right code while spending <strong>86–90% fewer tokens</strong> getting there —<br/>
   same corpus, same tokenizer, with a fidelity gate that discards any "saving" that lost the answer. <a href="./benchmarks/README.md">See the benchmarks →</a></sub>
 </p>
 
@@ -40,7 +40,11 @@
 
 ## The old way is over
 
-Coding agents now write the code. The bottleneck moved — from *writing* code to an agent **landing on the right code** without burning turns, re-reading files it's already seen, or breaking things it couldn't see.
+Coding agents now write the code. They've read every line of your repo — and not one of them has been briefed on it. They don't know what the team tried here and abandoned, why this function drifted, what broke the last time someone touched it, or which decision is load-bearing. A new engineer gets that briefing on day one. The agent starts cold, every single session.
+
+So it guesses. It greps where a senior engineer would check the call graph. It re-derives on Tuesday what it worked out on Monday. And the knowledge that *would* brief it — who changed each file and why, what failed before, the conventions the team accreted — is scattered across one tool for memory, another for the graph, a third for context, none of which can reach across the others.
+
+**unerr is the layer that ends the guessing.** One per-repo runtime, behind every MCP your agent already speaks, that carries your codebase's lived history and hands the agent that judgment the moment it starts — so it lands on the right code without burning turns, and sees what a change will break before it breaks it.
 
 | The old way | With unerr |
 |---|---|
@@ -59,7 +63,7 @@ You've felt all four of these in the last 48 hours:
 - The agent reads a 2,000-line file to find a 5-line function, then still doesn't know that function has 24 callers in six other files.
 - You don't trust the agent to refactor anything important. It treats your codebase like a flat string of text — locally correct, globally wrong.
 
-These aren't four problems. They're one: today's agents are incredibly smart but structurally blind and severely amnesiac. They grep when a senior engineer would check the call graph. They forget on Tuesday what they learned on Monday.
+These aren't four problems. They're one: **your agent acts on your codebase without ever having been briefed on it.** It greps where a senior engineer would check the call graph, and it relearns on Tuesday what it worked out on Monday.
 
 ---
 
