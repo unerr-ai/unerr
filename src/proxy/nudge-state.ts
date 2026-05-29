@@ -10,8 +10,16 @@
  * never throw; nudge emission must never crash the host command.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, join } from "node:path";
 
 export interface NudgeSessionState {
   tier0_emitted: boolean;
@@ -192,6 +200,47 @@ export function writeNudgeState(cwd: string, state: NudgeSessionState): void {
   } catch {
     /* best effort */
   }
+}
+
+const NUDGE_FLAG_RE = /^nudge-.+\.flags$/;
+
+/**
+ * Delete every `nudge-<session>.flags` file in `.unerr/state/` except the
+ * CURRENT session's, at boot.
+ *
+ * Flag files are pure per-session scratch state. `readNudgeState` only ever
+ * reads the live session's own path (keyed by `UNERR_SESSION_ID`, or
+ * `pid-<pid>` when unset), so a dead session's file is read by nothing — not
+ * the nudge system, and not the dashboard compliance ribbon
+ * (`buildComplianceRibbon` also reads only the live session via
+ * `readNudgeState`). They carry no cross-session value, so the sweep deletes
+ * them outright rather than retaining a TTL/cap window. One file is minted per
+ * session and nothing else removes them (we found 890 accreted), so this boot
+ * sweep is the sole reclaimer. The current session's file is always spared.
+ * Best-effort; never throws. Returns the number of files removed.
+ */
+export function sweepNudgeFlags(cwd: string): number {
+  const dir = join(cwd, ".unerr", "state");
+  if (!existsSync(dir)) return 0;
+  const active = basename(statePath(cwd));
+  let removed = 0;
+  try {
+    for (const name of readdirSync(dir)) {
+      if (!NUDGE_FLAG_RE.test(name)) continue;
+      if (name === active) continue; // never touch the live session's file
+      const full = join(dir, name);
+      try {
+        if (!statSync(full).isFile()) continue;
+        unlinkSync(full);
+        removed++;
+      } catch {
+        /* best effort — skip this entry */
+      }
+    }
+  } catch {
+    /* dir disappeared mid-sweep */
+  }
+  return removed;
 }
 
 /** Convenience helper: read, mutate, write atomically. */

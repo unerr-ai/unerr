@@ -19,6 +19,7 @@ import {
   readFileSync,
   readdirSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -227,6 +228,16 @@ export async function enrichWithScip(
     log.info(
       `SCIP ${language}: ${mergeResult.edgesUpgraded} edges upgraded to compiler-verified (${Math.round(runResult.durationMs)}ms)`
     );
+
+    // Step 7: Drop the protobuf output now that its occurrences are merged into
+    // the graph. The `.scip` file is a single-use intermediate (re-emitted on
+    // every reindex, never read back), so a TypeScript index left a ~28 MB file
+    // in `.unerr/scip/` forever. Best-effort delete; a survivor is harmless.
+    try {
+      unlinkSync(runResult.outputPath);
+    } catch {
+      /* best effort — file may already be gone or locked */
+    }
   }
 
   if (!anySucceeded) {

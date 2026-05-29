@@ -46,6 +46,7 @@ import {
 } from "../review/types.js";
 import { getHeadSha, getStagedFiles } from "../utils/git.js";
 import { logInfo } from "../utils/log.js";
+import { rotateIfNeeded } from "../utils/startup-log.js";
 import { detail, fail, info, section, success, warn } from "../utils/ui.js";
 
 /** Findings at/above this severity block the commit (blocking mode only). */
@@ -275,11 +276,11 @@ function persistVerdict(
   try {
     const logsDir = join(cwd, ".unerr", "logs");
     mkdirSync(logsDir, { recursive: true });
-    appendFileSync(
-      join(logsDir, "review-verdicts.jsonl"),
-      `${JSON.stringify(pending)}\n`,
-      "utf-8"
-    );
+    const verdictsLog = join(logsDir, "review-verdicts.jsonl");
+    appendFileSync(verdictsLog, `${JSON.stringify(pending)}\n`, "utf-8");
+    // This append-only audit trail has no other rotation path. Cap it so it
+    // can't grow unbounded — keep the most recent 1000 verdicts.
+    rotateIfNeeded(verdictsLog, 2000, 1000);
   } catch {
     /* best effort */
   }

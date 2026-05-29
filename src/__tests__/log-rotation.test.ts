@@ -173,11 +173,42 @@ describe("log-rotation", () => {
       expect(existsSync(live)).toBe(true);
     });
 
+    it("reclaims orphaned `.rotating-*` temp slots older than an hour", () => {
+      // The 8.8 GB orphan: a crashed/OOM'd roll left its temp behind and
+      // nothing ever swept it. A real roll finishes in seconds, so an
+      // hour-old temp is unambiguously orphaned.
+      const orphan = join(tmpDir, "bridge.log.rotating-94108-1779734773663");
+      writeFileSync(orphan, "leaked bytes");
+      setMtimeDaysAgo(orphan, 1);
+      expect(sweepRotatedLogs(tmpDir, 7)).toBe(1);
+      expect(existsSync(orphan)).toBe(false);
+    });
+
+    it("leaves a fresh in-flight `.rotating-*` temp alone", () => {
+      // A temp from a roll happening right now must survive the sweep.
+      const inflight = join(tmpDir, "bridge.log.rotating-12345-1779734773663");
+      writeFileSync(inflight, "in flight");
+      // mtime = now (fresh)
+      expect(sweepRotatedLogs(tmpDir, 7)).toBe(0);
+      expect(existsSync(inflight)).toBe(true);
+    });
+
     it("uses 7-day default retention", () => {
       const old = join(tmpDir, "proxy.log.2020-01-01.gz");
       writeFileSync(old, "old");
       setMtimeDaysAgo(old, DEFAULT_RETENTION_DAYS + 1);
       expect(sweepRotatedLogs(tmpDir)).toBe(1);
+    });
+  });
+
+  describe("rotateLogIfNeeded — temp hygiene", () => {
+    it("leaves no `.rotating-*` temp behind after a successful roll", () => {
+      const p = join(tmpDir, "proxy.log");
+      writeFileSync(p, "yesterday\n");
+      setMtimeDaysAgo(p, 1);
+      expect(rotateLogIfNeeded(p)).toBe(true);
+      const temps = readdirSync(tmpDir).filter((n) => /\.rotating-/.test(n));
+      expect(temps).toEqual([]);
     });
   });
 

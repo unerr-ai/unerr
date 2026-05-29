@@ -71,6 +71,9 @@ export class RouterGateway {
     this.session = new SessionState();
     this.store = new ToolExposureStore(unerrDir, sessionId);
     this.telemetry = new RouterTelemetryRecorder(unerrDir, sessionId);
+    // Reclaim accumulated exposure-events.jsonl from past sessions. Once per
+    // process, fire-and-forget — pruning must never block gateway construction.
+    void this.store.prune().catch(() => {});
   }
 
   /** Read-only access to the exposed-tools set for `tools/list`. */

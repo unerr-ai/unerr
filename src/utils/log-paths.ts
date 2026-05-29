@@ -11,7 +11,13 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 
 // ── Session ID ────────────────────────────────────────────────────────
@@ -134,6 +140,105 @@ export function cleanupLegacyLogs(dir: string): number {
     }
   } catch {
     /* dir disappeared mid-sweep — fine */
+  }
+  return removed;
+}
+
+// ── Legacy state / data-dir cleanup ───────────────────────────────────
+
+/**
+ * Pre-redesign artefacts that live OUTSIDE `.unerr/logs/` and so aren't
+ * reached by `cleanupLegacyLogs`:
+ *
+ *   - `<unerrDir>/state/*.pre-sqlite.bak` — one-shot backups written when a
+ *     JSON/JSONL state file was migrated to SQLite. Never read again.
+ *   - `<unerrDir>/sessions/` — per-session `*.jsonl` summaries, superseded by
+ *     the `session_summaries` table in `metrics.db`. Frozen at the migration
+ *     and no longer written or read; the whole directory is removed.
+ *
+ * Best-effort idempotent boot-time sweep; never throws. Returns the number of
+ * filesystem entries removed (files + the sessions dir, if present).
+ */
+export function cleanupLegacyStateArtefacts(unerrDir: string): number {
+  let removed = 0;
+
+  const stateDir = join(unerrDir, "state");
+  if (existsSync(stateDir)) {
+    try {
+      for (const name of readdirSync(stateDir)) {
+        if (!name.endsWith(".pre-sqlite.bak")) continue;
+        const full = join(stateDir, name);
+        try {
+          if (statSync(full).isFile()) {
+            unlinkSync(full);
+            removed++;
+          }
+        } catch {
+          /* best effort */
+        }
+      }
+    } catch {
+      /* dir vanished mid-sweep — fine */
+    }
+  }
+
+  const sessionsDir = join(unerrDir, "sessions");
+  if (existsSync(sessionsDir)) {
+    try {
+      rmSync(sessionsDir, { recursive: true, force: true });
+      removed++;
+    } catch {
+      /* best effort */
+    }
+  }
+
+  return removed;
+}
+
+// ── Stale SCIP intermediate cleanup ───────────────────────────────────
+
+/** SCIP intermediates older than this are abandoned — reclaim them. */
+export const SCIP_INTERMEDIATE_MAX_AGE_MS = 3_600_000; // 1h
+
+/**
+ * Reclaim orphaned SCIP protobuf intermediates in `<unerrDir>/scip/`.
+ *
+ * The SCIP orchestrator emits a single-use `*.scip` file (often ~28 MB for a
+ * TypeScript index), decodes it, merges its occurrences into `graph.db`, then
+ * unlinks it (orchestrator.ts step 7). That covers the happy path. But the
+ * file is reclaimed by NOTHING when the merge never completes — a pre-cleanup
+ * build, or a crash/SIGKILL between emit and unlink — and a resume boot
+ * (snapshot load, no reindex) never re-runs enrichment to overwrite it. This
+ * boot sweep is the backstop: it deletes `*.scip` files older than `maxAgeMs`
+ * (default 1h, so a freshly-emitted index being actively merged is never
+ * touched). The merged edge data already lives in `graph.db`, so deleting a
+ * stale intermediate is always safe. Best-effort; never throws. Returns the
+ * number of files removed.
+ */
+export function sweepStaleScipIntermediates(
+  unerrDir: string,
+  maxAgeMs: number = SCIP_INTERMEDIATE_MAX_AGE_MS
+): number {
+  const dir = join(unerrDir, "scip");
+  if (!existsSync(dir)) return 0;
+  let removed = 0;
+  try {
+    const cutoff = Date.now() - maxAgeMs;
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith(".scip")) continue;
+      const full = join(dir, name);
+      try {
+        const st = statSync(full);
+        if (!st.isFile()) continue;
+        if (st.mtimeMs >= cutoff) continue; // freshly emitted — may be in-flight
+        unlinkSync(full);
+        removed++;
+      } catch {
+        /* best effort — skip this entry */
+      }
+    }
+  } catch {
+    /* dir vanished mid-sweep — fine */
   }
   return removed;
 }

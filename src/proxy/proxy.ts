@@ -1651,6 +1651,20 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     /* best-effort on boot */
   }
 
+  // Reclaim per-session nudge flag files in .unerr/state/. One file is minted
+  // per session and nothing else deletes them, so they accreted unbounded (we
+  // found 890). A dead session's file is read by nothing, so the sweep deletes
+  // every non-active flag file; the live session's file is spared.
+  try {
+    const { sweepNudgeFlags } = await import("./nudge-state.js");
+    const swept = sweepNudgeFlags(process.cwd());
+    if (swept > 0) {
+      log.info(`Nudge-flag sweep: reclaimed ${swept} stale session flag file(s)`);
+    }
+  } catch {
+    /* best-effort on boot */
+  }
+
   // Sprint 4: Initialize narrative capture (daemon mode)
   let narrativeCapture:
     | import("../intelligence/session-narrative.js").SessionNarrativeCapture
@@ -4022,29 +4036,19 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         : undefined,
       temporal: await (async () => {
         try {
-          const { readdirSync, readFileSync } = await import("node:fs");
+          const { readRecentSessionSummaries } = await import(
+            "../tracking/session-summary-writer.js"
+          );
           if (!sharedFactStore) return undefined;
           const factStore = sharedFactStore;
           return {
             factStore,
-            loadRecentSessions: (limit: number) => {
-              try {
-                const sessDir = join(unerrDirForApi, "sessions");
-                const files = readdirSync(sessDir)
-                  .filter((f: string) => f.endsWith(".jsonl"))
-                  .sort()
-                  .slice(-limit);
-                return files.map((f: string) => {
-                  const content = readFileSync(join(sessDir, f), "utf-8")
-                    .trim()
-                    .split("\n")
-                    .pop()!;
-                  return JSON.parse(content);
-                });
-              } catch {
-                return [];
-              }
-            },
+            // Read recent sessions from `.unerr/metrics.db` (session_summaries)
+            // via the canonical reader. The old per-session
+            // `.unerr/sessions/*.jsonl` files were frozen at the SQLite
+            // migration, so reading them here showed stale session history.
+            loadRecentSessions: (limit: number) =>
+              readRecentSessionSummaries(unerrDirForApi, limit),
             emitEvent: (_type: string, _data: unknown) => {
               // SSE event bus — wired to dashboard EventSource
             },

@@ -44,7 +44,13 @@ function stripAnsi(s: string): string {
   return s.replace(CSI, "").replace(OSC, "");
 }
 
-function rotateIfNeeded(
+/**
+ * Cap a line-oriented file: when it exceeds `maxLines`, rewrite it keeping
+ * only the last `keepLines`. Used by the events.jsonl logger and by other
+ * append-only sidecars (e.g. review-verdicts.jsonl) that have no other
+ * rotation path. Best-effort; never throws.
+ */
+export function rotateIfNeeded(
   filePath: string,
   maxLines: number,
   keepLines: number

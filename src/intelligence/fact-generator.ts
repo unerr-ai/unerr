@@ -2,7 +2,7 @@
  * Fact Generation Pipeline — automatically generates temporal facts from 4 algorithmic sources.
  *
  * Layer 9 PI-5: Runs in daemon mode when:
- *   1. A session summary arrives in .unerr/sessions/
+ *   1. A session summary is written to .unerr/metrics.db (session_summaries)
  *   2. A full reindex completes (convention detection)
  *   3. A revert/rewind is detected (negative knowledge)
  *   4. A 24h survival window closes (causal bridge)
@@ -16,9 +16,10 @@
  *     NO  → Check contradictions → Create with base_confidence
  */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import type { SessionSummaryRecord } from "../tracking/session-summary-writer.js";
+import {
+  readRecentSessionSummaries,
+  type SessionSummaryRecord,
+} from "../tracking/session-summary-writer.js";
 import type { DetectedConvention } from "./local-convention-detector.js";
 import type { CorrectionEntry } from "./negative-knowledge.js";
 import type { CreateFactInput, TemporalFactStore } from "./temporal-facts.js";
@@ -294,36 +295,17 @@ export async function generateFromSessionAnalysis(
 
 // ── Internal Helpers ─────────────────────────────────────────────────
 
+/**
+ * Load the `limit` most-recent session summaries from `.unerr/metrics.db`.
+ * Delegates to the canonical reader in `session-summary-writer.ts` (replaced
+ * the stale per-session `.unerr/sessions/*.jsonl` readers, frozen at the
+ * SQLite migration so the daemon never saw new sessions).
+ */
 function loadRecentSessions(
   unerrDir: string,
   limit: number
 ): SessionSummaryRecord[] {
-  const sessionsDir = join(unerrDir, "sessions");
-  if (!existsSync(sessionsDir)) return [];
-
-  try {
-    const files = readdirSync(sessionsDir)
-      .filter((f) => f.endsWith(".jsonl"))
-      .sort()
-      .slice(-limit);
-
-    const summaries: SessionSummaryRecord[] = [];
-    for (const file of files) {
-      try {
-        const content = readFileSync(join(sessionsDir, file), "utf-8");
-        const lines = content.trim().split("\n").filter(Boolean);
-        const lastLine = lines[lines.length - 1];
-        if (lastLine) {
-          summaries.push(JSON.parse(lastLine) as SessionSummaryRecord);
-        }
-      } catch {
-        // Skip unreadable session files
-      }
-    }
-    return summaries;
-  } catch {
-    return [];
-  }
+  return readRecentSessionSummaries(unerrDir, limit);
 }
 
 /**

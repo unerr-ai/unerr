@@ -82,6 +82,13 @@ The outcome you get is **agents that behave like senior engineers** — checking
 
 ## See it in action
 
+**Watch it run** — a real Claude Code session in this repo. The agent attempts a signature change to `extractFilePath`; *before* the edit lands, unerr surfaces **12 callers at risk across 4 files**, so the agent updates every one of them in the same turn instead of breaking them silently.
+
+<p align="center">
+  <a href="https://youtu.be/pL1izMwYZpI"><img src="https://unerr.dev/open-cli/video/unerr-cascade.gif" alt="unerr cascade guard firing inside a live Claude Code session — 12 callers surfaced before a signature edit" width="760" /></a>
+  <br/><sub><strong>Cascade guard, live</strong> · unerr catches the 12 callers of <code>extractFilePath</code> before the edit ripples. ▶ <a href="https://youtu.be/pL1izMwYZpI">Watch the full demo on YouTube</a>.</sub>
+</p>
+
 Two places unerr shows up so you know it's working — inside the chat, and in a browser.
 
 **Inside the chat.** Every coding turn opens with one line naming what unerr loaded ("loaded a convention you wrote yesterday for `src/payments/gateway.ts`…") and closes with one line totalling what it saved you ("this turn: 2 catches · ≈ 4.2k tokens saved · +5 turns of headroom this session"). Catches are *named, countable events*, not a ratio.

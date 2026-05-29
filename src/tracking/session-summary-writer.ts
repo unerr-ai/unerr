@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type SessionSummary, extractChains } from "./ledger-chains.js";
-import { openMetricsStore } from "./metrics-store.js";
+import { openMetricsStore, type SessionSummaryRow } from "./metrics-store.js";
 import type { LedgerEntry } from "./shadow-ledger.js";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -164,6 +164,74 @@ export function readLastSession(unerrDir: string): SessionSummaryRecord | null {
     return JSON.parse(content) as SessionSummaryRecord;
   } catch {
     return null;
+  }
+}
+
+/** Parse a JSON-array column, tolerating corrupt/non-array values. */
+function parseJsonArrayColumn(raw: string): string[] {
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? (v as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Map a metrics.db `session_summaries` row to the in-memory record shape.
+ * The row stores `files_modified`/`entities_touched`/`feature_areas`/
+ * `facts_surfaced` as JSON-array strings and `tools_used` as a JSON object;
+ * this re-parses them so consumers get real arrays/objects.
+ */
+export function rowToSessionSummaryRecord(
+  r: SessionSummaryRow
+): SessionSummaryRecord {
+  let toolsUsed: Record<string, number> = {};
+  try {
+    const v = JSON.parse(r.tools_used);
+    if (v && typeof v === "object") toolsUsed = v as Record<string, number>;
+  } catch {
+    /* leave empty */
+  }
+  return {
+    session_id: r.session_id,
+    written_at: r.written_at,
+    started_at: r.started_at,
+    ended_at: r.ended_at,
+    duration_ms: r.duration_ms,
+    tool_calls: r.tool_calls,
+    chains: r.chains,
+    files_modified: parseJsonArrayColumn(r.files_modified),
+    entities_touched: parseJsonArrayColumn(r.entities_touched),
+    tools_used: toolsUsed,
+    feature_areas: parseJsonArrayColumn(r.feature_areas),
+    facts_recorded: r.facts_recorded,
+    facts_surfaced: parseJsonArrayColumn(r.facts_surfaced),
+    revert_count: r.revert_count,
+    rot_score: r.rot_score,
+    token_estimate: r.token_estimate,
+    branch: r.branch,
+  };
+}
+
+/**
+ * Load the `limit` most-recent session summaries from `.unerr/metrics.db`
+ * (`session_summaries`, ordered newest-first). Single source of truth for
+ * reading recent sessions — replaced the stale per-session
+ * `.unerr/sessions/*.jsonl` readers (frozen at the SQLite migration, so they
+ * never saw new sessions). Best-effort: an unopenable store yields no rows.
+ */
+export function readRecentSessionSummaries(
+  unerrDir: string,
+  limit: number
+): SessionSummaryRecord[] {
+  try {
+    return openMetricsStore(unerrDir)
+      .allSessionSummaries()
+      .slice(0, limit)
+      .map(rowToSessionSummaryRecord);
+  } catch {
+    return [];
   }
 }
 

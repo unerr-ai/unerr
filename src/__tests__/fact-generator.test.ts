@@ -1,8 +1,12 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CozoDb } from "../intelligence/cozo-schema.js";
+import {
+  closeMetricsStore,
+  openMetricsStore,
+} from "../tracking/metrics-store.js";
 import {
   type CausalBridgeEvent,
   generateFromCausalBridge,
@@ -51,6 +55,34 @@ function makeSessionRecord(
   };
 }
 
+/**
+ * Persist a session summary into `<unerrDir>/metrics.db` (session_summaries) —
+ * the source `generateFromSessionAnalysis` now reads (replaced the old
+ * per-session `sessions/*.jsonl` files). Serializes the array/object columns
+ * exactly as the production writer does.
+ */
+function seedSession(unerrDir: string, record: SessionSummaryRecord): void {
+  openMetricsStore(unerrDir).upsertSessionSummary({
+    session_id: record.session_id,
+    written_at: record.written_at,
+    started_at: record.started_at,
+    ended_at: record.ended_at,
+    duration_ms: record.duration_ms,
+    tool_calls: record.tool_calls,
+    chains: record.chains,
+    files_modified: JSON.stringify(record.files_modified),
+    entities_touched: JSON.stringify(record.entities_touched),
+    tools_used: JSON.stringify(record.tools_used),
+    feature_areas: JSON.stringify(record.feature_areas),
+    facts_recorded: record.facts_recorded,
+    facts_surfaced: JSON.stringify(record.facts_surfaced),
+    revert_count: record.revert_count,
+    rot_score: record.rot_score,
+    token_estimate: record.token_estimate,
+    branch: record.branch,
+  });
+}
+
 describe("fact-generator", () => {
   let db: CozoDb;
   let store: TemporalFactStore;
@@ -60,11 +92,17 @@ describe("fact-generator", () => {
     db = await createTestDb();
     await initFactsSchema(db);
     store = TemporalFactStore.fromDb(db);
-    testDir = join(tmpdir(), `unerr-factgen-${Date.now()}`);
+    testDir = join(
+      tmpdir(),
+      `unerr-factgen-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
     mkdirSync(testDir, { recursive: true });
   });
 
   afterEach(() => {
+    // Drop the cached metrics-store connection before removing its file so the
+    // singleton doesn't hand a later test a handle to a deleted DB.
+    closeMetricsStore(testDir);
     try {
       rmSync(testDir, { recursive: true, force: true });
     } catch {
@@ -191,18 +229,13 @@ describe("fact-generator", () => {
 
   describe("generateFromSessionAnalysis", () => {
     it("detects hot files from multiple sessions", async () => {
-      const sessionsDir = join(testDir, "sessions");
-      mkdirSync(sessionsDir, { recursive: true });
-
       for (let i = 0; i < 5; i++) {
-        const record = makeSessionRecord({
-          session_id: `s${i}`,
-          files_modified: ["src/proxy.ts", "src/auth.ts", `src/other${i}.ts`],
-        });
-        writeFileSync(
-          join(sessionsDir, `s${i}.jsonl`),
-          `${JSON.stringify(record)}\n`,
-          "utf-8"
+        seedSession(
+          testDir,
+          makeSessionRecord({
+            session_id: `s${i}`,
+            files_modified: ["src/proxy.ts", "src/auth.ts", `src/other${i}.ts`],
+          })
         );
       }
 
@@ -212,19 +245,14 @@ describe("fact-generator", () => {
     });
 
     it("detects high-revert files", async () => {
-      const sessionsDir = join(testDir, "sessions");
-      mkdirSync(sessionsDir, { recursive: true });
-
       for (let i = 0; i < 5; i++) {
-        const record = makeSessionRecord({
-          session_id: `s${i}`,
-          files_modified: ["src/fragile.ts"],
-          revert_count: i < 3 ? 1 : 0, // 3 out of 5 sessions have reverts
-        });
-        writeFileSync(
-          join(sessionsDir, `s${i}.jsonl`),
-          `${JSON.stringify(record)}\n`,
-          "utf-8"
+        seedSession(
+          testDir,
+          makeSessionRecord({
+            session_id: `s${i}`,
+            files_modified: ["src/fragile.ts"],
+            revert_count: i < 3 ? 1 : 0, // 3 out of 5 sessions have reverts
+          })
         );
       }
 
@@ -236,15 +264,7 @@ describe("fact-generator", () => {
     });
 
     it("returns empty when fewer than 3 sessions", async () => {
-      const sessionsDir = join(testDir, "sessions");
-      mkdirSync(sessionsDir, { recursive: true });
-
-      const record = makeSessionRecord();
-      writeFileSync(
-        join(sessionsDir, "s1.jsonl"),
-        `${JSON.stringify(record)}\n`,
-        "utf-8"
-      );
+      seedSession(testDir, makeSessionRecord());
 
       const result = await generateFromSessionAnalysis(store, testDir);
       expect(result.created).toBe(0);

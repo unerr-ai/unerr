@@ -7,13 +7,17 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { archiveShadowLedger } from "../tracking/ledger-archiver.js";
+import {
+  archiveShadowLedger,
+  purgeOldArchives,
+} from "../tracking/ledger-archiver.js";
 import { redactArgs, redactString } from "../tracking/redactor.js";
 import { ShadowLedger } from "../tracking/shadow-ledger.js";
 
@@ -164,5 +168,34 @@ describe("archiveShadowLedger", () => {
     const result = archiveShadowLedger(unerrDir, { nowMs: now });
     expect(result.archived).toBe(0);
     expect(result.archivePath).toBeNull();
+  });
+
+  it("purges gzipped archives older than the retention window each pass", () => {
+    const archiveDir = join(unerrDir, "ledger", "archive");
+    mkdirSync(archiveDir, { recursive: true });
+    const stale = join(archiveDir, "2020-01-01.jsonl.gz");
+    const recent = join(archiveDir, "2026-05-10.jsonl.gz");
+    writeFileSync(stale, "x");
+    writeFileSync(recent, "y");
+    const t = (Date.now() - 200 * 86_400_000) / 1000;
+    utimesSync(stale, t, t); // ~200 days old
+    // recent keeps its fresh mtime
+
+    // shadow.jsonl is absent → archiveShadowLedger still purges on its way out.
+    const result = archiveShadowLedger(unerrDir);
+    expect(result.purged).toBe(1);
+    expect(existsSync(stale)).toBe(false);
+    expect(existsSync(recent)).toBe(true);
+  });
+
+  it("purgeOldArchives ignores non-archive files and missing dirs", () => {
+    expect(purgeOldArchives(join(unerrDir, "ledger", "nope"))).toBe(0);
+    const archiveDir = join(unerrDir, "ledger", "archive");
+    mkdirSync(archiveDir, { recursive: true });
+    const notAnArchive = join(archiveDir, "README.txt");
+    writeFileSync(notAnArchive, "keep me");
+    utimesSync(notAnArchive, 1, 1); // ancient
+    expect(purgeOldArchives(archiveDir, 90)).toBe(0);
+    expect(existsSync(notAnArchive)).toBe(true);
   });
 });

@@ -15,15 +15,23 @@
  *     under O_APPEND. Partial writes are impossible for sub-block records
  *     on POSIX and Win32 (a single line is < 256 bytes here).
  *
- * Retention: the file is never rotated by this module. The proxy's
- * existing archive routine (`archiveShadowLedger`) handles router
- * artefacts in the same sweep on next start.
+ * Retention: `prune()` drops records older than the retention window and
+ * caps the total, rewriting the file atomically. It is fired once per
+ * process from `RouterGateway`'s constructor. (Previously this module
+ * claimed `archiveShadowLedger` swept it "in the same sweep" — that routine
+ * only touches `<unerrDir>/ledger/`, never `router/`, so the file actually
+ * grew unbounded.)
  */
 
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
 
 import type { UnlockEvent } from "./unlock-evaluator.js";
+
+/** Records older than this are dropped by `prune()`. */
+export const EXPOSURE_RETENTION_DAYS = 7;
+/** Hard backstop on retained records, regardless of age. Newest kept. */
+export const EXPOSURE_MAX_RECORDS = 10_000;
 
 /** On-disk representation. Stable across versions — additive only. */
 export interface ExposureEventRecord {
@@ -108,5 +116,45 @@ export class ToolExposureStore {
       out.push(JSON.parse(line) as ExposureEventRecord);
     }
     return out;
+  }
+
+  /**
+   * Drop records older than `retentionDays`, then cap the survivors at
+   * `maxRecords` (newest kept), rewriting the file atomically via a temp +
+   * rename. A missing file is a no-op (idle sessions never materialise the
+   * file). Best-effort: any IO error is swallowed so pruning never blocks
+   * the proxy. Returns the number of records removed.
+   */
+  async prune(
+    retentionDays: number = EXPOSURE_RETENTION_DAYS,
+    maxRecords: number = EXPOSURE_MAX_RECORDS
+  ): Promise<number> {
+    let records: readonly ExposureEventRecord[];
+    try {
+      records = await this.readAll();
+    } catch {
+      return 0; // unreadable/corrupt — leave it for a human, don't crash
+    }
+    if (records.length === 0) return 0;
+
+    const cutoff = Date.now() - retentionDays * 86_400_000;
+    let kept = records.filter((r) => r.ts >= cutoff);
+    if (kept.length > maxRecords) {
+      kept = [...kept].sort((a, b) => a.ts - b.ts).slice(kept.length - maxRecords);
+    }
+
+    const removed = records.length - kept.length;
+    if (removed === 0) return 0;
+
+    try {
+      const tmp = `${this.filePath}.tmp-${process.pid}`;
+      await fs.writeFile(tmp, kept.map((r) => `${JSON.stringify(r)}\n`).join(""), {
+        encoding: "utf8",
+      });
+      await fs.rename(tmp, this.filePath);
+    } catch {
+      return 0; // rewrite failed — original file is intact
+    }
+    return removed;
   }
 }

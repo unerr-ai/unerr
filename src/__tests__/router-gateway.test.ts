@@ -272,6 +272,59 @@ describe("RouterGateway: announce + persistence", () => {
   });
 });
 
+describe("ToolExposureStore: prune retention", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "unerr-exposure-prune-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const ev = (tool: string, ts: number) => ({
+    toolName: tool,
+    reasonText: "r",
+    firedAtTurn: 1,
+    timestampMs: ts,
+  });
+
+  it("drops records older than the retention window", async () => {
+    const store = new ToolExposureStore(dir, "s");
+    const now = Date.now();
+    await store.append([
+      ev("old", now - 10 * 86_400_000),
+      ev("fresh", now - 1 * 86_400_000),
+    ]);
+    expect(await store.prune(7)).toBe(1);
+    const rows = await store.readAll();
+    expect(rows.map((r) => r.tool)).toEqual(["fresh"]);
+  });
+
+  it("caps survivors at maxRecords, keeping the newest", async () => {
+    const store = new ToolExposureStore(dir, "s");
+    const now = Date.now();
+    await store.append([ev("a", now - 3), ev("b", now - 2), ev("c", now - 1)]);
+    expect(await store.prune(30, 2)).toBe(1);
+    const rows = await store.readAll();
+    expect(rows.map((r) => r.tool)).toEqual(["b", "c"]);
+  });
+
+  it("is a no-op on a missing file (idle session)", async () => {
+    const store = new ToolExposureStore(dir, "s");
+    expect(await store.prune()).toBe(0);
+  });
+
+  it("returns 0 and rewrites nothing when all records are fresh", async () => {
+    const store = new ToolExposureStore(dir, "s");
+    const now = Date.now();
+    await store.append([ev("a", now), ev("b", now)]);
+    expect(await store.prune(7)).toBe(0);
+    expect((await store.readAll()).length).toBe(2);
+  });
+});
+
 describe("RouterGateway: cross-client parsability", () => {
   let dir: string;
   let gateway: RouterGateway;

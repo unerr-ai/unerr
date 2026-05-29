@@ -3,6 +3,7 @@ import {
   mkdirSync,
   readdirSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -158,6 +159,114 @@ describe("log-paths", () => {
 
       const remaining = readdirSync(dir);
       expect(remaining.sort()).toEqual([...canonical].sort());
+    });
+  });
+
+  describe("cleanupLegacyStateArtefacts", () => {
+    it("removes state/*.pre-sqlite.bak and the legacy sessions/ dir", async () => {
+      const unerrDir = join(tmpDir, ".unerr");
+      const stateDir = join(unerrDir, "state");
+      const sessionsDir = join(unerrDir, "sessions");
+      mkdirSync(stateDir, { recursive: true });
+      mkdirSync(sessionsDir, { recursive: true });
+      writeFileSync(join(stateDir, "session-history.json.pre-sqlite.bak"), "x");
+      writeFileSync(join(stateDir, "metrics.json.pre-sqlite.bak"), "y");
+      writeFileSync(join(stateDir, "proxy.pid"), "123"); // canonical — keep
+      writeFileSync(join(sessionsDir, "abc.jsonl"), "{}");
+
+      const { cleanupLegacyStateArtefacts } = await import(
+        "../utils/log-paths.js"
+      );
+      const removed = cleanupLegacyStateArtefacts(unerrDir);
+
+      // 2 bak files + 1 sessions dir
+      expect(removed).toBe(3);
+      expect(existsSync(join(stateDir, "session-history.json.pre-sqlite.bak"))).toBe(
+        false
+      );
+      expect(existsSync(join(stateDir, "metrics.json.pre-sqlite.bak"))).toBe(
+        false
+      );
+      expect(existsSync(join(stateDir, "proxy.pid"))).toBe(true);
+      expect(existsSync(sessionsDir)).toBe(false);
+    });
+
+    it("is a no-op when nothing legacy is present", async () => {
+      const unerrDir = join(tmpDir, ".unerr");
+      mkdirSync(join(unerrDir, "state"), { recursive: true });
+      writeFileSync(join(unerrDir, "state", "proxy.pid"), "1");
+
+      const { cleanupLegacyStateArtefacts } = await import(
+        "../utils/log-paths.js"
+      );
+      expect(cleanupLegacyStateArtefacts(unerrDir)).toBe(0);
+      expect(existsSync(join(unerrDir, "state", "proxy.pid"))).toBe(true);
+    });
+
+    it("tolerates a missing .unerr dir", async () => {
+      const { cleanupLegacyStateArtefacts } = await import(
+        "../utils/log-paths.js"
+      );
+      expect(
+        cleanupLegacyStateArtefacts(join(tmpDir, "nope", ".unerr"))
+      ).toBe(0);
+    });
+  });
+
+  describe("sweepStaleScipIntermediates", () => {
+    const HOUR_MS = 3_600_000;
+
+    function scipFile(unerrDir: string, name: string, ageMs: number): string {
+      const dir = join(unerrDir, "scip");
+      mkdirSync(dir, { recursive: true });
+      const p = join(dir, name);
+      writeFileSync(p, "x");
+      if (ageMs > 0) {
+        const t = (Date.now() - ageMs) / 1000;
+        utimesSync(p, t, t);
+      }
+      return p;
+    }
+
+    it("deletes *.scip intermediates older than the age gate", async () => {
+      const unerrDir = join(tmpDir, ".unerr");
+      const stale = scipFile(unerrDir, "index.scip", 3 * HOUR_MS);
+      const { sweepStaleScipIntermediates } = await import(
+        "../utils/log-paths.js"
+      );
+      expect(sweepStaleScipIntermediates(unerrDir)).toBe(1);
+      expect(existsSync(stale)).toBe(false);
+    });
+
+    it("spares a freshly-emitted .scip that may still be merging", async () => {
+      const unerrDir = join(tmpDir, ".unerr");
+      const fresh = scipFile(unerrDir, "index.scip", 0); // just written
+      const { sweepStaleScipIntermediates } = await import(
+        "../utils/log-paths.js"
+      );
+      expect(sweepStaleScipIntermediates(unerrDir)).toBe(0);
+      expect(existsSync(fresh)).toBe(true);
+    });
+
+    it("ignores non-.scip files in the scip dir", async () => {
+      const unerrDir = join(tmpDir, ".unerr");
+      const dir = join(unerrDir, "scip");
+      mkdirSync(dir, { recursive: true });
+      const keep = join(dir, "manifest.json");
+      writeFileSync(keep, "{}");
+      utimesSync(keep, 1, 1); // ancient
+      const { sweepStaleScipIntermediates } = await import(
+        "../utils/log-paths.js"
+      );
+      expect(sweepStaleScipIntermediates(unerrDir)).toBe(0);
+      expect(existsSync(keep)).toBe(true);
+    });
+
+    it("tolerates a missing scip dir", async () => {
+      const { sweepStaleScipIntermediates } = await import(
+        "../utils/log-paths.js"
+      );
+      expect(sweepStaleScipIntermediates(join(tmpDir, ".unerr"))).toBe(0);
     });
   });
 

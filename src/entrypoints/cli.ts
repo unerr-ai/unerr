@@ -49,10 +49,13 @@ import { registerUninstallCommand } from "../commands/uninstall.js";
 import { installFileLogger } from "../utils/file-logger.js";
 import {
   cleanupLegacyLogs,
+  cleanupLegacyStateArtefacts,
   getOrCreateSid,
   repoLog,
   repoLogsDir,
+  sweepStaleScipIntermediates,
 } from "../utils/log-paths.js";
+import { classifyRepoCwd } from "../utils/repo-cwd-guard.js";
 import { sweepRotatedLogs } from "../utils/log-rotation.js";
 import { initFileLog } from "../utils/startup-log.js";
 
@@ -107,6 +110,24 @@ async function autoVerifyIdeConfigs(): Promise<void> {
 async function isInsideGitRepo(): Promise<boolean> {
   const { isGitRepo } = await import("../utils/git.js");
   return isGitRepo(process.cwd());
+}
+
+/**
+ * Refuse to boot a per-repo proxy/bridge whose cwd is $HOME or the filesystem
+ * root, exiting with a clear message instead of corrupting global `~/.unerr/`
+ * state. No-op for any real project directory.
+ */
+function assertSafeRepoCwd(cwd: string): void {
+  const verdict = classifyRepoCwd(cwd);
+  if (verdict === "ok") return;
+  const where =
+    verdict === "home" ? "your home directory" : "the filesystem root";
+  process.stderr.write(
+    `\n  unerr runs per project — it can't run in ${where} (${cwd}).\n` +
+      "  A .unerr/ here would collide with unerr's global state in ~/.unerr.\n" +
+      "  cd into a project directory and run unerr again.\n\n"
+  );
+  process.exit(1);
 }
 
 // ── Project Root Detection (Scored Multi-Signal Analysis) ─────
@@ -742,6 +763,8 @@ async function resumeBoot(config: Record<string, unknown>): Promise<void> {
   verifyUnerrOnPath();
   getOrCreateSid();
   cleanupLegacyLogs(repoLogsDir(process.cwd()));
+  cleanupLegacyStateArtefacts(join(process.cwd(), ".unerr"));
+  sweepStaleScipIntermediates(join(process.cwd(), ".unerr"));
   sweepRotatedLogs(repoLogsDir(process.cwd()));
   initFileLog(process.cwd());
 
@@ -779,6 +802,8 @@ async function firstRunBoot(): Promise<void> {
   verifyUnerrOnPath();
   getOrCreateSid();
   cleanupLegacyLogs(repoLogsDir(process.cwd()));
+  cleanupLegacyStateArtefacts(join(process.cwd(), ".unerr"));
+  sweepStaleScipIntermediates(join(process.cwd(), ".unerr"));
   sweepRotatedLogs(repoLogsDir(process.cwd()));
   initFileLog(process.cwd());
 
@@ -838,6 +863,8 @@ async function firstRunBoot(): Promise<void> {
 async function daemonChildBoot(cwd: string): Promise<void> {
   getOrCreateSid();
   cleanupLegacyLogs(repoLogsDir(cwd));
+  cleanupLegacyStateArtefacts(join(cwd, ".unerr"));
+  sweepStaleScipIntermediates(join(cwd, ".unerr"));
   sweepRotatedLogs(repoLogsDir(cwd));
   installFileLogger({
     filePath: repoLog.proxy(cwd),
@@ -1414,6 +1441,10 @@ program
       daemonChild?: boolean;
     }) => {
       const cwd = process.cwd();
+
+      // Refuse $HOME / filesystem root before any boot path creates a `.unerr/`
+      // there — that collides with the global `~/.unerr/` managed by unerrd.
+      assertSafeRepoCwd(cwd);
 
       // --daemon-child: managed child mode (spawned by unerrd)
       if (opts.daemonChild) {

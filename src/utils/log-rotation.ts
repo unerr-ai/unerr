@@ -47,6 +47,23 @@ export interface LogRotationOptions {
 
 const ROTATED_GZ_RE = /\.(?:log|jsonl)\.\d{4}-\d{2}-\d{2}(?:\.\d+)?\.gz$/;
 const LEGACY_NUMBERED_RE = /\.(?:log|jsonl)\.\d+$/;
+/** The per-pid temp slot a roll renames the live file into before gzipping. */
+const ROTATING_TEMP_RE = /\.rotating-\d+-\d+$/;
+
+/**
+ * Upper bound on the bytes we will read into memory to gzip a rolled file.
+ * `gzipSync` buffers the whole input, so a runaway log day (we have seen an
+ * 8.8 GB single-file roll) would OOM here — and the failed roll used to leak
+ * its `.rotating-*` temp permanently. Rolls larger than this are dropped
+ * instead of compressed: pathological debug logs are not worth an OOM.
+ */
+const MAX_GZIP_BYTES = 256 * 1024 * 1024;
+
+/**
+ * A real roll (rename → gzip → unlink) completes in seconds. A `.rotating-*`
+ * temp older than this was orphaned by a crash/OOM and is safe to reclaim.
+ */
+const ROTATING_TEMP_MAX_AGE_MS = 3_600_000;
 
 /** True if `name` is a rotated log artefact (new gz form or legacy `.N`). */
 export function isRotatedLog(name: string): boolean {
@@ -109,11 +126,25 @@ export function rotateLogIfNeeded(
   }
 
   try {
-    const buf = readFileSync(temp);
-    writeFileSync(target, gzipSync(buf));
-    unlinkSync(temp);
+    const tempSize = statSync(temp).size;
+    if (tempSize > MAX_GZIP_BYTES) {
+      // Pathological oversized roll. Compressing it would buffer the whole
+      // file in memory and OOM — exactly how an 8.8 GB `.rotating-*` orphan
+      // was leaked. Drop it rather than risk the crash.
+      unlinkSync(temp);
+    } else {
+      writeFileSync(target, gzipSync(readFileSync(temp)));
+      unlinkSync(temp);
+    }
   } catch {
-    /* best effort — temp left behind is fine; sweep won't touch it */
+    // Compression failed (OOM, disk full, …). NEVER leak the temp slot —
+    // reclaim it now so it can't accumulate as an orphan. If even the
+    // unlink fails, the stale-temp sweep below is the backstop.
+    try {
+      unlinkSync(temp);
+    } catch {
+      /* temp already gone or unremovable */
+    }
   }
 
   try {
@@ -126,8 +157,9 @@ export function rotateLogIfNeeded(
 
 /**
  * Delete rotated log files (gz form + legacy numbered form) in `dir`
- * whose mtime is older than `retentionDays`. Best-effort; never throws.
- * Returns the number of files removed.
+ * whose mtime is older than `retentionDays`, plus orphaned `.rotating-*`
+ * temp slots older than an hour (left behind by a crashed/OOM'd roll).
+ * Best-effort; never throws. Returns the number of files removed.
  */
 export function sweepRotatedLogs(
   dir: string,
@@ -135,15 +167,19 @@ export function sweepRotatedLogs(
 ): number {
   if (!existsSync(dir)) return 0;
   const cutoff = Date.now() - retentionDays * 86_400_000;
+  const tempCutoff = Date.now() - ROTATING_TEMP_MAX_AGE_MS;
   let removed = 0;
   try {
     for (const name of readdirSync(dir)) {
-      if (!isRotatedLog(name)) continue;
+      const isRotated = isRotatedLog(name);
+      const isStaleTemp = ROTATING_TEMP_RE.test(name);
+      if (!isRotated && !isStaleTemp) continue;
       const full = join(dir, name);
       try {
         const st = statSync(full);
         if (!st.isFile()) continue;
-        if (st.mtimeMs < cutoff) {
+        const limit = isStaleTemp ? tempCutoff : cutoff;
+        if (st.mtimeMs < limit) {
           unlinkSync(full);
           removed++;
         }
@@ -158,4 +194,11 @@ export function sweepRotatedLogs(
 }
 
 /** Exposed for tests. */
-export const _internal = { ROTATED_GZ_RE, LEGACY_NUMBERED_RE, localDateString };
+export const _internal = {
+  ROTATED_GZ_RE,
+  LEGACY_NUMBERED_RE,
+  ROTATING_TEMP_RE,
+  MAX_GZIP_BYTES,
+  ROTATING_TEMP_MAX_AGE_MS,
+  localDateString,
+};
