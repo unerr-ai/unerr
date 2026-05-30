@@ -122,7 +122,6 @@ describe("unerr_remember (executeUnerrRemember)", () => {
     if (res.stored) {
       expect(res.ambiguity_flag).toBe(true);
       expect(res.confidence).toBeCloseTo(0.6);
-      expect(res.echo_summary).toContain("please confirm");
     }
   });
 
@@ -148,7 +147,6 @@ describe("unerr_remember (executeUnerrRemember)", () => {
     expect(res.stored).toBe(true);
     if (res.stored) {
       expect(res.ambiguity_flag).toBe(false);
-      expect(res.echo_summary).not.toContain("needs confirmation");
     }
     // A clean store emits exactly one fact_stored_user_fed behavior event.
     expect(events.record).toHaveBeenCalledTimes(1);

@@ -30,7 +30,7 @@ export const REMEMBER_CONFIDENCE_FLOOR = 0.5;
 export const REMEMBER_AMBIGUITY_THRESHOLD = 0.7;
 
 export interface UnerrRememberArgs {
-  /** Normalised statement the agent extracted from the user (≤ 280 chars). */
+  /** Normalised statement the agent extracted from the user (≤ 1400 chars; keep terse). */
   content: string;
   /** Verbatim user quote that drove this capture (used for provenance). */
   source_quote: string;
@@ -53,7 +53,6 @@ export type UnerrRememberResult =
       deduplicated: boolean;
       ambiguity_flag: boolean;
       confidence: number;
-      echo_summary: string;
     }
   | {
       stored: false;
@@ -88,9 +87,9 @@ export async function executeUnerrRemember(
   if (!content || content.trim().length === 0) {
     throw new Error("content is required and cannot be empty");
   }
-  if (content.length > 280) {
+  if (content.length > 1400) {
     throw new Error(
-      `content exceeds 280 character limit (got ${content.length}). Shorten the fact.`
+      `content is ${content.length} chars, exceeds 1400-char cap. Shorten to ≤1400 (1-3 sentences).`
     );
   }
   if (!source_quote || source_quote.trim().length === 0) {
@@ -151,18 +150,9 @@ export async function executeUnerrRemember(
 
   const ambiguity_flag = confidence < REMEMBER_AMBIGUITY_THRESHOLD;
   const trimmedContent = content.trim();
-  const previewContent = `${trimmedContent.slice(0, 60)}${trimmedContent.length > 60 ? "..." : ""}`;
-  const scopeText =
-    scope.trim() === "project" ? "the whole project" : `\`${scope.trim()}\``;
-  // Plain-English echo so any agent that relays this string to the user
-  // reads naturally — no `[brackets]`, no `conf 0.85`, no `→`.
-  const verb = deduplicated
-    ? "reinforced an existing note"
-    : "added a new note";
-  const tail = ambiguity_flag
-    ? ` — I'm only ${Math.round(confidence * 100)}% sure I got that right, please confirm or correct`
-    : "";
-  const echo_summary = `unerr ${verb} for ${scopeText}: "${previewContent}"${tail}`;
+  // No echo of the stored content on the wire — the agent already has `content`
+  // in its own call args, so echoing it back is pure token waste. `ambiguity_flag`
+  // is the only action signal the agent needs (true → confirm the capture).
 
   if (ambiguity_flag && pendingConfirmations) {
     pendingConfirmations.register({
@@ -203,6 +193,5 @@ export async function executeUnerrRemember(
     deduplicated,
     ambiguity_flag,
     confidence,
-    echo_summary,
   };
 }

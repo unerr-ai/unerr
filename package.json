@@ -1,8 +1,8 @@
 {
   "name": "@unerr-ai/unerr",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "mcpName": "io.github.unerr-ai/unerr",
-  "description": "Local-first code intelligence CLI for unerr",
+  "description": "Your AI agent has read your codebase but still can't safely change it. unerr is a local guardrail that hands the agent the call graph and your rules at the moment it edits.",
   "repository": {
     "type": "git",
     "url": "https://github.com/unerr-ai/unerr-cli.git"

@@ -468,7 +468,8 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
       properties: {
         text: {
           type: "string",
-          description: "One short sentence describing the task (≤80 chars).",
+          description:
+            "Task in 1 terse sentence. Hard cap 1400 chars; be concise.",
         },
       },
       required: ["text"],
@@ -487,7 +488,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         text: {
           type: "string",
           description:
-            "One short sentence describing the decision (≤140 chars).",
+            "Decision in 1-2 sentences. Hard cap 1400 chars; be concise.",
         },
         alternatives: {
           type: "array",
@@ -511,7 +512,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         text: {
           type: "string",
           description:
-            "One short sentence describing the blocker (≤140 chars).",
+            "Blocker in 1-2 sentences. Hard cap 1400 chars; be concise.",
         },
         file_path: {
           type: "string",
@@ -538,7 +539,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         text: {
           type: "string",
           description:
-            "One short sentence describing the resolution (≤140 chars).",
+            "What fixed the blocker, in 1-3 sentences. Hard cap 1400 chars.",
         },
       },
       required: ["blocker_ref", "text"],
@@ -679,7 +680,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         content: {
           type: "string",
           description:
-            "Normalised statement of the user's fact (max 280 chars). Keep terse.",
+            "Normalised statement of the user's fact, 1-3 sentences. Hard cap 1400 chars; keep terse.",
         },
         source_quote: {
           type: "string",

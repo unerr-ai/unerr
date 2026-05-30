@@ -56,8 +56,8 @@ describe("TemporalFactStore", () => {
       expect(id2).toBe(id1);
     });
 
-    it("truncates content at 280 characters", async () => {
-      const longContent = "x".repeat(500);
+    it("stores multi-sentence content within the type cap (≤1400)", async () => {
+      const longContent = "x".repeat(1200);
       const { fact_id: factId } = await store.createFact({
         fact_type: "procedural",
         scope: "project",

@@ -201,15 +201,27 @@ describe("handleMarkerCall — validation", () => {
     expect(body.error).toMatch(/required/);
   });
 
-  it("rejects over-cap text per tool", async () => {
-    const long = "x".repeat(200);
+  it("accepts multi-sentence text up to the 1400-char cap", async () => {
+    const long = "x".repeat(1400);
     const res = await handleMarkerCall(
       "mark_intent",
       { text: long },
       { ledger, store, branch: "main", headSha: "x" }
     );
     const body = JSON.parse(res.content[0]!.text);
-    expect(body.error).toMatch(/80/);
+    expect(body.ok).toBe(true);
+    expect(body.error).toBeUndefined();
+  });
+
+  it("rejects text over the 1400-char cap", async () => {
+    const tooLong = "x".repeat(1401);
+    const res = await handleMarkerCall(
+      "mark_resolution",
+      { text: tooLong, blocker_ref: "abc" },
+      { ledger, store, branch: "main", headSha: "x" }
+    );
+    const body = JSON.parse(res.content[0]!.text);
+    expect(body.error).toMatch(/1400/);
   });
 
   it("mark_resolution requires blocker_ref", async () => {

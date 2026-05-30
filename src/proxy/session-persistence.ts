@@ -368,7 +368,9 @@ export function formatSessionResumeBlock(
   // stopped you → relevant rules). Single-line, ≤80 chars per marker spec.
   if (payload.last_intents && payload.last_intents.length > 0) {
     const intent = payload.last_intents[0];
-    if (intent) parts.push(`▸ last intent: ${intent.text}`);
+    // Markers now store up to 1400 chars; the strip stays single-line, so
+    // truncate to a title-length preview here.
+    if (intent) parts.push(`▸ last intent: ${truncateForStrip(intent.text)}`);
   }
 
   // Fix K — open blockers carried over. The "5-minute first win" — user
@@ -377,7 +379,7 @@ export function formatSessionResumeBlock(
   if (payload.open_blockers && payload.open_blockers.length > 0) {
     for (const b of payload.open_blockers.slice(0, 3)) {
       const anchor = b.file_path ? ` [${b.file_path}]` : "";
-      parts.push(`▸ unresolved blocker: ${b.text}${anchor}`);
+      parts.push(`▸ unresolved blocker: ${truncateForStrip(b.text)}${anchor}`);
     }
   }
 
@@ -426,6 +428,16 @@ export function formatSessionResumeBlock(
   const result = parts.join("\n");
   // Truncate to 500 chars max
   return result.length > 500 ? `${result.slice(0, 497)}...` : result;
+}
+
+/**
+ * Markers store up to 1400 chars (MARKER_TEXT_CAP) but the resume strip is a
+ * single-line title rail — clip long marker text to a preview so one verbose
+ * resolution can't dominate the strip.
+ */
+function truncateForStrip(text: string, max = 100): string {
+  const t = text.trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
 function formatElapsed(ms: number): string {

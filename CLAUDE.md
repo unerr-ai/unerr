@@ -207,7 +207,7 @@ audit, excluded from queries).
 
 ## What This Is
 
-unerr CLI — lands your AI agent at the right code in fewer turns, tokens, & breakages. Local-first code intelligence proxy serving graph-backed MCP tools to AI coding agents (Cursor, Claude Code, VS Code). Three process types:
+unerr CLI — a local guardrail that lets an AI agent **safely change a large, existing codebase it can't hold in context**. Your agent has read the code; it still breaks callers it never saw and rebuilds patterns the team already standardized. unerr hands it the live call graph and the rules anchored to each entity at the moment it edits — and re-anchors those rules when the code moves, so they never go silently stale. Local-first proxy serving graph-backed MCP tools to AI coding agents (Cursor, Claude Code, VS Code). Positioning lead = **safe-change guardrail**, not "memory" (memory is the mechanism, demoted; the segment is large/existing codebases — greenfield is conceded). Three process types:
 
 There is **one binary** — `unerr` (`./dist/cli.js`, the only `"bin"` entry in `package.json`). The three "process types" below are the same binary entered through different argv shapes; the process title is renamed so they're distinguishable in `ps`.
 

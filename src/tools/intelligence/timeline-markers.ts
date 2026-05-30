@@ -12,11 +12,11 @@
  * markers — if Layer 9 wants to prefer marker `text` over its scraped 30 s
  * window later, that's a separate change owned by Layer 9.
  *
- * Text caps:
- *   mark_intent      ≤  80 chars
- *   mark_decision    ≤ 140 chars
- *   mark_blocker     ≤ 140 chars
- *   mark_resolution  ≤ 140 chars
+ * Text cap: all four markers accept ≤ 1400 chars (~2-3 sentences). The cap is
+ * a generous storage ceiling, not a style guide — agents should still write
+ * terse one-liners; the resume strip and dashboard truncate for display. The
+ * old 80/140 caps rejected legitimate multi-sentence resolutions, which forced
+ * agents into failed-call retry loops (raised 2026-05).
  */
 
 import { updateNudgeState } from "../../proxy/nudge-state.js";
@@ -38,11 +38,18 @@ export function isMarkerTool(name: string): name is MarkerToolName {
   return MARKER_TOOL_SET.has(name);
 }
 
+/**
+ * Generous storage ceiling shared by all four markers (~2-3 sentences). Inputs
+ * up to this are accepted; render layers (resume strip, dashboard) truncate.
+ * Exported so tests and the tool-description registry stay in lockstep.
+ */
+export const MARKER_TEXT_CAP = 1400;
+
 const TEXT_CAP: Record<MarkerToolName, number> = {
-  mark_intent: 80,
-  mark_decision: 140,
-  mark_blocker: 140,
-  mark_resolution: 140,
+  mark_intent: MARKER_TEXT_CAP,
+  mark_decision: MARKER_TEXT_CAP,
+  mark_blocker: MARKER_TEXT_CAP,
+  mark_resolution: MARKER_TEXT_CAP,
 };
 
 export interface HandleMarkerDeps {
@@ -73,7 +80,9 @@ export async function handleMarkerCall(
     return errorResult(`${toolName}: text is required`);
   }
   if (text.length > cap) {
-    return errorResult(`${toolName}: text exceeds ${cap}-char limit`);
+    return errorResult(
+      `${toolName}: text is ${text.length} chars, exceeds ${cap}-char cap — shorten to ≤${cap}.`
+    );
   }
 
   const argsToPersist: Record<string, unknown> = { text };

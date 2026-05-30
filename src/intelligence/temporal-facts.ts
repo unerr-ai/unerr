@@ -129,15 +129,21 @@ const DEFAULT_CONFIDENCE: Record<FactSource, number> = {
   user_fed: 0.95,
 };
 
-const MAX_CONTENT_LENGTH = 500;
+// Storage-side truncation backstop. Kept at/above the tool-layer input cap
+// (1400 chars in unerr-remember / record-fact) so the store is never the
+// silent bottleneck — the tool layer is the single source of truth for the
+// limit the agent sees. Raised from 400-800 (2026-05) when the input cap moved
+// 280 → 1400; a smaller store limit would have silently dropped the tail of
+// every multi-sentence fact.
+const MAX_CONTENT_LENGTH = 1400;
 
 /** Type-specific content limits — episodic needs space for what/why/how narratives. */
 const TYPE_CONTENT_LIMITS: Record<string, number> = {
-  convention: 600,
-  semantic: 500,
-  episodic: 800,
-  procedural: 400,
-  negative: 400,
+  convention: 1400,
+  semantic: 1400,
+  episodic: 1600,
+  procedural: 1400,
+  negative: 1400,
 };
 
 // ── TemporalFactStore ────────────────────────────────────────────────

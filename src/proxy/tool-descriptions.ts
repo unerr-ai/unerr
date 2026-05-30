@@ -190,29 +190,29 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   mark_intent: {
     tier: 3,
     active:
-      "REQUIRED first on coding tasks (implement/fix/refactor/build). ≤80 chars summary. Skip only for read-only questions. Powers resume strip.",
+      "REQUIRED first on coding tasks (implement/fix/refactor/build). 1 terse sentence. Skip only for read-only questions. Powers resume strip.",
     locked:
-      "[locked, unlock: first non-trivial action] REQUIRED first on coding tasks. ≤80 chars summary.",
+      "[locked, unlock: first non-trivial action] REQUIRED first on coding tasks. 1 terse sentence.",
     unlocked:
-      "REQUIRED first on coding tasks. ≤80 chars summary. One per task; powers turn titles + cross-session resume.",
+      "REQUIRED first on coding tasks. 1 terse sentence. One per task; powers turn titles + cross-session resume.",
   },
   mark_decision: {
     tier: 3,
     active:
-      "Record a deliberate choice between alternatives (≤140 chars). Optional list of considered alternatives.",
+      "Record a deliberate choice between alternatives (1-2 sentences, ≤1400 chars). Optional list of considered alternatives.",
     locked:
       "[locked, unlock: after mark_intent] Record a deliberate choice between alternatives.",
     unlocked:
-      "Record a deliberate choice (≤140 chars). Optional alternatives list (≤5, each ≤80 chars). Surfaces in timeline.",
+      "Record a deliberate choice (1-2 sentences, ≤1400 chars). Optional alternatives list (≤5, each ≤80 chars). Surfaces in timeline.",
   },
   mark_blocker: {
     tier: 3,
     active:
-      "Record an unresolved obstacle (≤140 chars). Returned marker_id is required by mark_resolution when fixed.",
+      "Record an unresolved obstacle (1-2 sentences, ≤1400 chars). Returned marker_id is required by mark_resolution when fixed.",
     locked:
       "[locked, unlock: after mark_intent] Record an unresolved obstacle.",
     unlocked:
-      "Record an obstacle (≤140 chars). Returned marker_id must be passed to mark_resolution when fixed. Surfaces in resume.",
+      "Record an obstacle (1-2 sentences, ≤1400 chars). Returned marker_id must be passed to mark_resolution when fixed. Surfaces in resume.",
   },
   mark_resolution: {
     tier: 3,
@@ -220,7 +220,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
       "Resolve a prior blocker. blocker_ref is the marker_id from mark_blocker; text describes the fix.",
     locked: "[locked, unlock: after mark_blocker] Resolve a prior blocker.",
     unlocked:
-      "Resolve a prior blocker. blocker_ref is the marker_id from mark_blocker. Text (≤140 chars) describes the fix.",
+      "Resolve a prior blocker. blocker_ref is the marker_id from mark_blocker. Text (1-3 sentences, ≤1400 chars) describes the fix.",
   },
   recall_facts: {
     tier: 3,

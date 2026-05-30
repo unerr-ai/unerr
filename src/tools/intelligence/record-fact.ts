@@ -23,7 +23,6 @@ export interface RecordFactArgs {
 
 export interface RecordFactResult {
   fact_id: string;
-  message: string;
   deduplicated: boolean;
 }
 
@@ -41,9 +40,9 @@ export async function executeRecordFact(
   if (!content || content.trim().length === 0) {
     throw new Error("content is required and cannot be empty");
   }
-  if (content.length > 280) {
+  if (content.length > 1400) {
     throw new Error(
-      `content exceeds 280 character limit (got ${content.length}). Shorten the fact.`
+      `content is ${content.length} chars, exceeds 1400-char cap. Shorten to ≤1400 (1-3 sentences).`
     );
   }
   if (
@@ -71,12 +70,10 @@ export async function executeRecordFact(
 
   const { fact_id, deduplicated } = await factStore.createFact(input);
 
-  const verb = deduplicated ? "Reinforced" : "Recorded";
-  const message = `${verb}: "${content.trim().slice(0, 60)}${content.trim().length > 60 ? "..." : ""}" [${fact_type}] → ${scope}`;
-
+  // No echo of the stored content on the wire — the agent already holds
+  // `content` in its call args; echoing it back is pure token waste.
   return {
     fact_id,
-    message,
     deduplicated,
   };
 }
