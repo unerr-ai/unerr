@@ -24,6 +24,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
 import { formatUnknownError } from "../utils/format-error.js";
 import {
+  EXTRACTOR_VERSION,
   type ExtractedEdge,
   type ExtractedEntity,
   detectLanguage,
@@ -504,6 +505,14 @@ export async function indexLocalProject(
   // hits because there is no stored hash to compare against).
   await seedFileContentHashes(graphStore, fileContentHashes);
 
+  // Stamp the extractor-logic version this full pass was built with. The
+  // startup staleness planner forces a full reindex when this differs, so a
+  // graph built by an older extractor refreshes its entities even though no
+  // source file changed. Only the full index writes this (it re-extracts every
+  // file); the incremental path must NOT bump it, or unchanged files would be
+  // falsely marked as current under the new extractor.
+  await seedExtractorVersion(graphStore);
+
   // Phase 6.5: Materialize L1 edges (file→file, class→class weighted aggregates)
   await materializeL1Edges(graphStore);
 
@@ -598,6 +607,25 @@ export async function seedFileContentHashes(
     } catch {
       /* best-effort — a missing hash only costs one redundant re-index */
     }
+  }
+}
+
+/**
+ * Record the extractor-logic version a full index pass was built with, so the
+ * startup staleness planner can force a full reindex when the extraction logic
+ * changes (see `staleness.ts` and `EXTRACTOR_VERSION`). Best-effort: a missing
+ * stamp only costs one extra full reindex next boot, never correctness.
+ */
+export async function seedExtractorVersion(
+  graphStore: CozoGraphStore
+): Promise<void> {
+  try {
+    await graphStore.write(
+      `?[key, value] <- [["extractor_version", "${EXTRACTOR_VERSION}"]]
+       :put index_meta { key, value }`
+    );
+  } catch {
+    /* best-effort — a missing stamp only forces one extra full reindex */
   }
 }
 

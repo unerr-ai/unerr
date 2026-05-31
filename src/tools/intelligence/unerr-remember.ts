@@ -69,6 +69,20 @@ function clampConfidence(c: number): number {
 }
 
 /**
+ * Derive a compact subject/topic from the fact content when the caller didn't
+ * pass one explicitly. Takes the first clause (up to the first sentence break)
+ * and caps it at 60 chars — enough to anchor retrieval without forcing the
+ * agent through a "subject is required" round-trip. Never throws; worst case it
+ * returns the trimmed content prefix.
+ */
+function deriveSubjectFromContent(content: string): string {
+  const trimmed = content.trim();
+  const firstClause = (trimmed.split(/[.!?\n]/, 1)[0] ?? "").trim();
+  const basis = firstClause.length > 0 ? firstClause : trimmed;
+  return basis.length > 60 ? `${basis.slice(0, 57).trimEnd()}…` : basis;
+}
+
+/**
  * Execute the unerr_remember tool. Returns either a stored receipt with
  * `ambiguity_flag` (Sprint 6 input) or an abandoned-capture record that
  * emits a `fact_capture_abandoned` behaviour event.
@@ -81,9 +95,17 @@ export async function executeUnerrRemember(
   behaviorEvents?: BehaviorEventWriter,
   pendingConfirmations?: PendingConfirmationRegistry
 ): Promise<UnerrRememberResult> {
-  const { content, source_quote, scope, subject, fact_type, applies_to } = args;
+  const content = typeof args.content === "string" ? args.content : "";
   const confidence = clampConfidence(args.confidence);
+  const applies_to = args.applies_to;
 
+  // `content` is the ONLY hard requirement — it is the fact itself, and there is
+  // nothing to store without it. Every other field is DEFAULTED rather than
+  // rejected: each validation error we throw forces the calling agent through
+  // another reasoning round-trip (read error → infer the missing arg → re-call),
+  // which costs more tokens than just inferring a sensible value here. So we
+  // store on the first call and only reject a genuinely empty/oversized fact or
+  // an EXPLICIT invalid fact_type.
   if (!content || content.trim().length === 0) {
     throw new Error("content is required and cannot be empty");
   }
@@ -92,24 +114,45 @@ export async function executeUnerrRemember(
       `content is ${content.length} chars, exceeds 1400-char cap. Shorten to ≤1400 (1-3 sentences).`
     );
   }
-  if (!source_quote || source_quote.trim().length === 0) {
-    throw new Error(
-      "source_quote is required — pass the verbatim user statement that triggered this capture"
-    );
-  }
+
+  // fact_type → default "semantic" (the broadest durable-knowledge bucket).
+  // Only an EXPLICIT invalid value is rejected; omission is not an error.
+  const VALID_FACT_TYPES: FactType[] = [
+    "procedural",
+    "semantic",
+    "negative",
+    "convention",
+  ];
+  const explicitFactType =
+    typeof args.fact_type === "string" ? args.fact_type.trim() : "";
   if (
-    !["procedural", "semantic", "negative", "convention"].includes(fact_type)
+    explicitFactType &&
+    !VALID_FACT_TYPES.includes(explicitFactType as FactType)
   ) {
     throw new Error(
-      `fact_type must be one of: procedural, semantic, negative, convention (got "${fact_type}")`
+      `fact_type must be one of: procedural, semantic, negative, convention (got "${args.fact_type}")`
     );
   }
-  if (!scope || scope.trim().length === 0) {
-    throw new Error("scope is required (file path, entity key, or 'project')");
-  }
-  if (!subject || subject.trim().length === 0) {
-    throw new Error("subject is required (entity key, file, or topic name)");
-  }
+  const fact_type: FactType = (explicitFactType || "semantic") as FactType;
+
+  // scope → default "project" (the safest, broadest anchor).
+  const scope =
+    typeof args.scope === "string" && args.scope.trim().length > 0
+      ? args.scope.trim()
+      : "project";
+
+  // subject → derive a compact topic from the content's first clause.
+  const subject =
+    typeof args.subject === "string" && args.subject.trim().length > 0
+      ? args.subject.trim()
+      : deriveSubjectFromContent(content);
+
+  // source_quote → default to the content itself when no verbatim user quote
+  // was passed (provenance degrades gracefully; never a hard error).
+  const source_quote =
+    typeof args.source_quote === "string" && args.source_quote.trim().length > 0
+      ? args.source_quote.trim()
+      : content.trim();
 
   if (confidence < REMEMBER_CONFIDENCE_FLOOR) {
     behaviorEvents?.record({

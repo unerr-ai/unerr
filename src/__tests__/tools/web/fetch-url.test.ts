@@ -214,7 +214,7 @@ describe("fetch_url pipeline", () => {
     const out = capped.body as { passages: unknown[]; truncated: boolean };
     expect(out.passages.length).toBe(5);
     expect(out.truncated).toBe(true);
-    expect(capped.pageHint).toMatch(/ur\|pg fetch_url \+95/);
+    expect(capped.pageHint).toMatch(/ur\|act fetch_url \+95/);
   });
 
   it("rejects calls with missing url with a paste-ready hint", async () => {

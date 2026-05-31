@@ -26,6 +26,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { relative } from "node:path";
+import { EXTRACTOR_VERSION } from "./ast-extractor.js";
 import type { CozoGraphStore } from "./local-graph.js";
 
 // ── Tunables ─────────────────────────────────────────────────────
@@ -97,6 +98,24 @@ async function yieldToLoop(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+/**
+ * Read the extractor-logic version stamped by the last full index pass.
+ * Returns null when absent (graph predates version stamping) or unreadable.
+ */
+async function readStoredExtractorVersion(
+  graphStore: CozoGraphStore
+): Promise<string | null> {
+  try {
+    const result = await graphStore.db.run(
+      '?[value] := *index_meta{key: "extractor_version", value}'
+    );
+    const row = result.rows[0];
+    return row ? (row[0] as string) : null;
+  } catch {
+    return null; // relation absent / unreadable → treated as mismatch by caller
+  }
+}
+
 // ── Entry ────────────────────────────────────────────────────────
 
 /**
@@ -111,6 +130,26 @@ export async function computeIndexPlan(
   const { discoverSourceFiles } = await import("./local-indexer.js");
   const absFiles = discoverSourceFiles(projectRoot);
   const stored = await readStoredHashes(graphStore);
+
+  // Extractor-version gate. When the entity-extraction logic changes, source
+  // files are byte-identical (hashes match) but their stored entities are stale
+  // — a content-hash diff would `skip` and the graph would never refresh. If
+  // the stored extractor version differs from the current one (or is absent on
+  // an older graph), force a full reindex so every file is re-extracted.
+  if (stored.size > 0) {
+    const storedVersion = await readStoredExtractorVersion(graphStore);
+    if (storedVersion !== EXTRACTOR_VERSION) {
+      return {
+        mode: "full",
+        changedFiles: [],
+        changed: [],
+        deleted: [],
+        totalFiles: absFiles.length,
+        storedHashCount: stored.size,
+        reason: `extractor version changed (${storedVersion ?? "none"} → ${EXTRACTOR_VERSION}) — full reindex to refresh entities`,
+      };
+    }
+  }
 
   // No baseline hashes (graph predates content-hash seeding, e.g. a schema
   // change before the first hashed index) — a full pass establishes the

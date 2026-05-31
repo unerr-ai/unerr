@@ -18,6 +18,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { EXTRACTOR_VERSION } from "../intelligence/ast-extractor.js";
 import type { CozoDb } from "../intelligence/cozo-schema.js";
 import { initSchema } from "../intelligence/cozo-schema.js";
 import { CozoGraphStore } from "../intelligence/local-graph.js";
@@ -68,11 +69,23 @@ describe("computeIndexPlan (Bug A)", () => {
     );
   }
 
+  /** Stamp the current extractor version, as a real full index pass does. */
+  async function seedVersion(version = EXTRACTOR_VERSION): Promise<void> {
+    await db.run(
+      `?[key, value] <- [["extractor_version", $v]]
+       :put index_meta { key, value }`,
+      { v: version }
+    );
+  }
+
   beforeEach(async () => {
     db = await createTestDb();
     await initSchema(db);
     store = await CozoGraphStore.create(db);
     root = mkdtempSync(join(tmpdir(), "ur-stale-"));
+    // A populated graph was built by a full index that stamped the extractor
+    // version; mirror that so the version gate doesn't force `full` everywhere.
+    await seedVersion();
   });
 
   afterEach(() => {
@@ -150,6 +163,31 @@ describe("computeIndexPlan (Bug A)", () => {
     expect(plan.mode).toBe("incremental");
     expect(plan.deleted).toContain("gone.ts");
     expect(plan.changedFiles).toContain("gone.ts");
+  });
+
+  it("forces full when the stored extractor version differs from current", async () => {
+    // Files are byte-identical to their stored hashes (would otherwise `skip`),
+    // but the graph was built by an older extractor → entities are stale.
+    const c1 = "export const a = 1;";
+    writeFile("a.ts", c1);
+    await seedHash("a.ts", sha1(c1), Date.now() + 60_000);
+    await seedVersion("0"); // older than current EXTRACTOR_VERSION
+
+    const plan = await computeIndexPlan(root, store);
+    expect(plan.mode).toBe("full");
+    expect(plan.reason).toContain("extractor version changed");
+  });
+
+  it("forces full when the extractor version stamp is absent (older graph)", async () => {
+    const c1 = "export const a = 1;";
+    writeFile("a.ts", c1);
+    await seedHash("a.ts", sha1(c1), Date.now() + 60_000);
+    // Remove the version stamp seeded in beforeEach to simulate an older graph.
+    await db.run("?[key] := *index_meta{key} :rm index_meta { key }");
+
+    const plan = await computeIndexPlan(root, store);
+    expect(plan.mode).toBe("full");
+    expect(plan.reason).toContain("none →");
   });
 
   it("falls back to full when the change set exceeds the incremental cap", async () => {

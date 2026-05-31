@@ -208,7 +208,7 @@ describe("unerr_remember (executeUnerrRemember)", () => {
     expect(registry.isPending("f-amb")).toBe(false);
   });
 
-  it("rejects empty content / missing source_quote / bad fact_type / empty scope", async () => {
+  it("hard-errors ONLY on empty content or an explicit invalid fact_type", async () => {
     const store = makeStubStore();
     const events = makeStubEvents();
     const baseArgs = {
@@ -219,6 +219,7 @@ describe("unerr_remember (executeUnerrRemember)", () => {
       fact_type: "procedural" as const,
       confidence: 0.9,
     };
+    // Empty content is the only universally-fatal case — there's nothing to store.
     await expect(
       executeUnerrRemember(
         { ...baseArgs, content: "" },
@@ -230,17 +231,7 @@ describe("unerr_remember (executeUnerrRemember)", () => {
         events as any
       )
     ).rejects.toThrow(/content/);
-    await expect(
-      executeUnerrRemember(
-        { ...baseArgs, source_quote: "" },
-        // biome-ignore lint/suspicious/noExplicitAny: stub
-        store as any,
-        "s1",
-        0,
-        // biome-ignore lint/suspicious/noExplicitAny: stub
-        events as any
-      )
-    ).rejects.toThrow(/source_quote/);
+    // An EXPLICITLY-supplied invalid fact_type is still rejected (typo guard).
     await expect(
       executeUnerrRemember(
         // biome-ignore lint/suspicious/noExplicitAny: deliberate bad input
@@ -253,17 +244,37 @@ describe("unerr_remember (executeUnerrRemember)", () => {
         events as any
       )
     ).rejects.toThrow(/fact_type/);
-    await expect(
-      executeUnerrRemember(
-        { ...baseArgs, scope: "" },
-        // biome-ignore lint/suspicious/noExplicitAny: stub
-        store as any,
-        "s1",
-        0,
-        // biome-ignore lint/suspicious/noExplicitAny: stub
-        events as any
-      )
-    ).rejects.toThrow(/scope/);
+  });
+
+  it("defaults missing source_quote / scope / subject / fact_type instead of erroring (friction reduction)", async () => {
+    const store = makeStubStore();
+    const events = makeStubEvents();
+    // A bare {content, confidence} call — every other field omitted — must
+    // store on the first attempt with sensible defaults, not bounce back an
+    // error that forces another reasoning round-trip from the calling agent.
+    const res = await executeUnerrRemember(
+      // biome-ignore lint/suspicious/noExplicitAny: deliberately-sparse input
+      {
+        content: "Always co-locate tests with the source file they cover.",
+        confidence: 0.9,
+      } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: stub
+      store as any,
+      "s1",
+      0,
+      // biome-ignore lint/suspicious/noExplicitAny: stub
+      events as any
+    );
+    expect(res.stored).toBe(true);
+    // The store received defaulted values: scope→"project", fact_type→"semantic",
+    // source_quote→content, subject→derived from content.
+    expect(store.recordUserFedFact).toHaveBeenCalledTimes(1);
+    const passed = store.recordUserFedFact.mock.calls[0]?.[0];
+    expect(passed).toBeDefined();
+    expect(passed?.scope).toBe("project");
+    expect(passed?.fact_type).toBe("semantic");
+    expect(passed?.source_quote.length).toBeGreaterThan(0);
+    expect(passed?.subject.length).toBeGreaterThan(0);
   });
 });
 

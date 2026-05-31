@@ -28,7 +28,14 @@
 export interface CozoDb {
   run(
     query: string,
-    params?: Record<string, unknown>
+    params?: Record<string, unknown>,
+    /**
+     * When true, cozo runs the script in a read-only transaction
+     * (`ScriptMutability::Immutable` → `transact(write=false)`), so reads take
+     * a SQLite read snapshot instead of a write-intent lock. Required for warm
+     * reads to proceed concurrently with an in-flight write under WAL mode.
+     */
+    immutable?: boolean
   ): Promise<{ rows: unknown[][] }>;
   close?(): void;
   exportRelations?(relations: string[]): Promise<unknown>;
@@ -651,6 +658,22 @@ export async function initSchema(db: CozoDb): Promise<void> {
       =>
       content_hash: String default "",
       indexed_at: Float default 0.0
+    }
+  `
+  );
+
+  // Index-wide key/value metadata (e.g. the extractor-logic version used to
+  // build the graph). Lets the startup staleness planner force a full reindex
+  // when the extraction logic changes even though no source file did.
+  await createIfMissing(
+    db,
+    existing,
+    "index_meta",
+    `
+    :create index_meta {
+      key: String
+      =>
+      value: String default ""
     }
   `
   );

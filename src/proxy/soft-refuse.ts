@@ -112,6 +112,75 @@ export interface SoftRefuseInputs {
   readonly toolName: string;
   /** Unlock policy AST — used to compose the human-readable trigger. */
   readonly condition: Condition;
+  /**
+   * The refused call's own arguments. When present, the alternative
+   * example's `<path>` / `<name>` / `<symbol>` / `<changed_symbol>`
+   * placeholders are interpolated with the concrete values the agent
+   * already supplied, so the refusal carries a verbatim-pastable next
+   * action (CLAUDE.md nudge rule: numbers/nouns over placeholders).
+   * Omitted → placeholders are left intact (still a valid template).
+   */
+  readonly args?: Record<string, unknown>;
+}
+
+/**
+ * Pull the concrete `path` / `symbol` / `key` the agent already named in
+ * the refused call, so the alternative example can be made pastable. A
+ * value is only used as a `symbol` when it is NOT path-shaped — a
+ * `get_file({key:"src/x.ts"})` refusal fills `<path>` from the key but
+ * must leave `<name>` a placeholder (the agent never named a symbol).
+ */
+function refusalContext(args: Record<string, unknown> | undefined): {
+  path?: string;
+  symbol?: string;
+  changedSymbol?: string;
+} {
+  if (!args) return {};
+  const str = (v: unknown): string | undefined =>
+    typeof v === "string" && v.length > 0 ? v : undefined;
+  const looksPath = (s: string | undefined): boolean =>
+    !!s && (s.includes("/") || /\.[a-z0-9]+$/i.test(s));
+
+  const key = str(args.key);
+  const path =
+    str(args.file_path) ??
+    str(args.path) ??
+    str(args.filePath) ??
+    str(args.from_path) ??
+    str(args.to_path) ??
+    (looksPath(key) ? key : undefined);
+  const symbolNamed =
+    str(args.entity) ?? str(args.name) ?? str(args.symbol) ?? str(args.query);
+  // Only fall back to `key` for a symbol when the key is not a file path.
+  const symbol = symbolNamed ?? (looksPath(key) ? undefined : key);
+  const changedSymbol = symbolNamed ?? key ?? symbol;
+
+  return {
+    ...(path ? { path } : {}),
+    ...(symbol ? { symbol } : {}),
+    ...(changedSymbol ? { changedSymbol } : {}),
+  };
+}
+
+/**
+ * Substitute concrete values from the refused call into an alternative
+ * example template. Placeholders with no available value are left intact
+ * — better a partial template than a wrong interpolation.
+ */
+function fillExample(
+  template: string,
+  args: Record<string, unknown> | undefined
+): string {
+  const ctx = refusalContext(args);
+  let out = template;
+  if (ctx.path) out = out.split("<path>").join(ctx.path);
+  if (ctx.symbol) {
+    out = out.split("<symbol>").join(ctx.symbol).split("<name>").join(ctx.symbol);
+  }
+  if (ctx.changedSymbol) {
+    out = out.split("<changed_symbol>").join(ctx.changedSymbol);
+  }
+  return out;
 }
 
 /**
@@ -136,7 +205,7 @@ export interface SoftRefuseResult {
  * locked tier-2/3 tool. Pure, synchronous, allocation-bounded.
  */
 export function buildSoftRefuse(inputs: SoftRefuseInputs): SoftRefuseResult {
-  const { toolName, condition } = inputs;
+  const { toolName, condition, args } = inputs;
   const alt = TIER1_ALTERNATIVE[toolName];
   if (!alt) {
     throw new Error(
@@ -146,16 +215,15 @@ export function buildSoftRefuse(inputs: SoftRefuseInputs): SoftRefuseResult {
   }
 
   const unlockWhen = describeCondition(condition);
-  const action = alt.example
-    ? `call ${alt.example} first.`
-    : `call ${alt.tool} first.`;
+  const example = fillExample(alt.example, args);
+  const action = example ? `call ${example} first.` : `call ${alt.tool} first.`;
 
   const text =
     `ur|fct ${toolName} locked — ${action}\n` +
     `\n` +
     `_error: tool_locked\n` +
     `_unlock_when: ${unlockWhen}\n` +
-    `_alternative: ${alt.example || alt.tool}`;
+    `_alternative: ${example || alt.tool}`;
 
   return {
     content: [{ type: "text", text }],
@@ -173,7 +241,10 @@ export function buildSoftRefuse(inputs: SoftRefuseInputs): SoftRefuseResult {
  * refusal without manually fetching the AST. Throws `UnknownToolError`
  * if the name is unknown to the tier registry.
  */
-export function softRefuseFor(toolName: string): SoftRefuseResult {
+export function softRefuseFor(
+  toolName: string,
+  args?: Record<string, unknown>
+): SoftRefuseResult {
   const condition = UNLOCK_CONDITIONS[toolName];
   if (!condition) {
     throw new Error(
@@ -181,7 +252,7 @@ export function softRefuseFor(toolName: string): SoftRefuseResult {
         `Tier-1 tools should never be gated; tier-2/3 must have an entry in UNLOCK_CONDITIONS.`
     );
   }
-  return buildSoftRefuse({ toolName, condition });
+  return buildSoftRefuse({ toolName, condition, args });
 }
 
 /** Test-only inspection hook. */

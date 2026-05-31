@@ -100,3 +100,58 @@ describe("soft-refuse: nudge-text quality", () => {
     }
   });
 });
+
+describe("soft-refuse: example interpolation (nudge rule: nouns over placeholders)", () => {
+  it("fills <path> from the refused call's file_path", () => {
+    const refusal = softRefuseFor("get_imports", {
+      file_path: "src/proxy/proxy.ts",
+    });
+    const text = refusal.content[0]?.text ?? "";
+    expect(text).toContain(
+      '_alternative: file_outline({file_path:"src/proxy/proxy.ts"})'
+    );
+    expect(text).not.toContain("<path>");
+  });
+
+  it("fills <symbol> from the refused call's entity/query", () => {
+    const refusal = softRefuseFor("get_critical_nodes", {
+      query: "compressShellOutput",
+    });
+    const text = refusal.content[0]?.text ?? "";
+    expect(text).toContain(
+      '_alternative: search_code({query:"compressShellOutput"})'
+    );
+    expect(text).not.toContain("<symbol>");
+  });
+
+  it("get_file: fills <path> from a path-shaped key but leaves <name> a placeholder", () => {
+    // The agent named a file, not a symbol — interpolating the path into the
+    // entity slot would be wrong, so <name> must survive.
+    const refusal = softRefuseFor("get_file", { key: "src/proxy/proxy.ts" });
+    const text = refusal.content[0]?.text ?? "";
+    expect(text).toContain(
+      '_alternative: file_read({file_path:"src/proxy/proxy.ts",entity:"<name>"})'
+    );
+  });
+
+  it("leaves placeholders intact when no args are supplied (template form)", () => {
+    const refusal = softRefuseFor("get_imports");
+    const text = refusal.content[0]?.text ?? "";
+    expect(text).toContain('_alternative: file_outline({file_path:"<path>"})');
+  });
+});
+
+describe("soft-refuse: get_cross_boundary_links unlock text (legacy hnt → fct)", () => {
+  it("renders the consolidated ur|fct tag, never legacy ur|hnt", () => {
+    const refusal = softRefuseFor("get_cross_boundary_links", {
+      from_path: "src/proxy",
+    });
+    const text = refusal.content[0]?.text ?? "";
+    expect(text).toContain("_unlock_when: ur|fct emitted");
+    expect(text).not.toContain("ur|hnt");
+    // path is interpolated into the alternative example
+    expect(text).toContain(
+      '_alternative: file_outline({file_path:"src/proxy"})'
+    );
+  });
+});

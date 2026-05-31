@@ -821,6 +821,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   let localGraph:
     | import("../intelligence/local-graph.js").CozoGraphStore
     | null = null;
+  // Absolute path to graph.db, hoisted to function scope so the reindex
+  // factories and the shutdown path can checkpoint+truncate its WAL (the
+  // `dbPath` destructured below is block-scoped to the open-db try).
+  let graphDbPath: string | null = null;
   let parseIndex: import("./auto-bootstrap.js").ParseModeIndex | null = null;
   // L11: Background indexing flag — hoisted for access after MCP server.connect()
   let needsBackgroundIndex = false;
@@ -839,6 +843,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         "../intelligence/persistent-db.js"
       );
       const { db, isNew, dbPath } = await openPersistentDb(projectRoot);
+      graphDbPath = dbPath;
 
       const { CozoGraphStore } = await import("../intelligence/local-graph.js");
       const graphStart = Date.now();
@@ -1916,12 +1921,32 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // Bridged IDE clients via `unerr --mcp` hit the UDS handler, not this one.
   // Forgetting to mirror dispatch causes "Unknown tool" errors for bridged clients.
   // ══════════════════════════════════════════════════════════════════
-  server.setRequestHandler(
-    CallToolRequestSchema,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (async (request: any) => {
-      const { name, arguments: args = {} } = request.params;
-
+  // ══════════════════════════════════════════════════════════════════
+  // Unified tools/call dispatch — SINGLE source of truth.
+  //
+  // BOTH the stdio handler (directly-connected client) and the UDS handler
+  // (bridged IDE via `unerr --mcp`) route every tools/call through this one
+  // function. Previously each transport re-implemented the ~300-line dispatch
+  // chain, and the two had silently DIVERGED: the UDS path skipped pre/post
+  // behavioral hooks, narrative capture, pattern analysis, auto-snapshot, and
+  // session_resumed injection. Bridged clients are the PRIMARY real-world path,
+  // so that divergence meant the guardrail behaviors never ran for most users.
+  // Collapsing to one closure fixes both the "forgot to mirror dispatch →
+  // Unknown tool" footgun and the behavioral divergence. Graph tools still flow
+  // through QueryRouter.execute; non-graph tools (markers, recall_notes,
+  // turn_summary, surface2, facts, deep-dive) are intercepted here as before.
+  // `ctx.clientId` is set only for UDS clients → threads into ledger attribution.
+  // ══════════════════════════════════════════════════════════════════
+  async function dispatchToolCall(
+    name: string,
+    args: Record<string, unknown>,
+    ctx: { clientId?: string }
+  ): Promise<{
+    content: { type: string; text: string }[];
+    isError?: boolean;
+    _meta?: unknown;
+    _context?: unknown;
+  }> {
       // Advance the canonical turn counter at the tools/call boundary so
       // every writer.record() inside this dispatch stamps the correct turn
       // before ShadowLedger.record() (which happens AFTER tool execution).
@@ -2177,7 +2202,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           shadowLedger.record(
             name,
             args,
-            { tool: name, source: "local" },
+            {
+              tool: name,
+              source: "local",
+              ...(ctx.clientId ? { client: ctx.clientId } : {}),
+            },
             branch,
             headSha
           );
@@ -2296,6 +2325,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       };
       if (Array.isArray(result.content)) {
         resultSummary.count = result.content.length;
+      }
+      if (ctx.clientId) {
+        resultSummary.client = ctx.clientId;
       }
       shadowLedger.record(name, args, resultSummary, branch, headSha);
 
@@ -2487,6 +2519,18 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         content: [{ type: "text", text: finalText }],
         ...(isGateLocked ? { isError: true } : {}),
       };
+  }
+
+  server.setRequestHandler(
+    CallToolRequestSchema,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (async (request: any) => {
+      const { name, arguments: args = {} } = request.params;
+      return await dispatchToolCall(
+        name,
+        (args ?? {}) as Record<string, unknown>,
+        {}
+      );
     }) as any
   );
 
@@ -2718,373 +2762,18 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
       const { name, arguments: toolArgs = {} } = params;
 
-      // Advance canonical turn counter at the tools/call boundary so every
-      // writer.record() inside this dispatch stamps the correct turn (UDS
-      // path mirrors stdio handler).
-      shadowLedger.getTurnSegmenter().noteTurnOpen(shadowLedger.getSessionId());
-      process.env.UNERR_TURN = String(sessionTurnProvider());
-
-      // ── Boundary validation (mirrors stdio handler) ──
-      // Bridged IDE clients via `unerr --mcp` hit THIS handler, not the
-      // stdio one. Forgetting to mirror lets the silent-failure pattern
-      // resurface for every IDE user. See arg-validator + the stdio dup.
-      const udsValidationFailure = runBoundaryValidation(name, toolArgs);
-      if (udsValidationFailure) {
-        process.stderr.write(
-          `[unerr] tools/call validation failed for ${name} (uds): ${JSON.stringify(udsValidationFailure)}\n`
-        );
-        return {
-          jsonrpc: "2.0" as const,
-          result: {
-            content: [
-              { type: "text", text: JSON.stringify(udsValidationFailure) },
-            ],
-            isError: true,
-          },
-        };
-      }
-
-      // Track tool usage for semantic cluster reordering (mirrors stdio handler)
-      toolUsageTracker.record(name);
-
-      // ── ST-2: Session-narrative marker tools (UDS path) ──
-      {
-        const { isMarkerTool, handleMarkerCall } = await import(
-          "../tools/intelligence/timeline-markers.js"
-        );
-        if (isMarkerTool(name)) {
-          if (!timelineHandle) {
-            process.stderr.write(
-              `[unerr] ${name} called but timeline subsystem is disabled (uds)\n`
-            );
-            return {
-              jsonrpc: "2.0" as const,
-              result: {
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify({
-                      error:
-                        "marker tools require timeline subsystem (UNERR_TIMELINE_V2!=0)",
-                    }),
-                  },
-                ],
-                isError: true,
-              },
-            };
-          }
-          let branchVal = "main";
-          let headShaVal = "";
-          try {
-            const { getCurrentBranch, getHeadSha } = await import(
-              "../utils/git.js"
-            );
-            branchVal = (await getCurrentBranch(process.cwd())) ?? branchVal;
-            headShaVal = (await getHeadSha(process.cwd())) ?? "";
-          } catch {
-            /* defaults */
-          }
-          const markerRes = await handleMarkerCall(
-            name,
-            toolArgs as Record<string, unknown>,
-            {
-              ledger: shadowLedger,
-              store: timelineHandle.store,
-              branch: branchVal,
-              headSha: headShaVal,
-            }
-          );
-          return { jsonrpc: "2.0" as const, result: markerRes };
-        }
-      }
-
-      // ── Active-cognition Layer B: unerr_recall_notes (UDS) ──
-      if (name === "unerr_recall_notes") {
-        const recallRes = await handleUnerrRecallNotesProxy(
-          toolArgs,
-          unerrDirForLedger,
-          behaviorEventWriter,
-          sessionTurnProvider()
-        );
-        return { jsonrpc: "2.0" as const, result: recallRes };
-      }
-
-      // ── Close-out summary: unerr_turn_summary (UDS) ──
-      if (name === "unerr_turn_summary") {
-        const { handleTurnSummaryProxy } = await import(
-          "./turn-summary-handler.js"
-        );
-        const summaryRes = await handleTurnSummaryProxy(
-          unerrDirForLedger,
-          shadowLedger.getSessionId(),
-          sessionTurnProvider()
-        );
-        return { jsonrpc: "2.0" as const, result: summaryRes };
-      }
-
-      // ── Surface 2 renderer: unerr_surface2_line (UDS, Fix B) ──
-      if (name === "unerr_surface2_line") {
-        const { handleSurface2LineProxy } = await import(
-          "./surface2-line-handler.js"
-        );
-        const s2Res = await handleSurface2LineProxy(
-          unerrDirForLedger,
-          shadowLedger.getSessionId(),
-          sessionTurnProvider(),
-          dirname(unerrDirForLedger),
-          behaviorEventWriter
-        );
-        return { jsonrpc: "2.0" as const, result: s2Res };
-      }
-
-      // ── Layer 9: record_fact + recall_facts + unerr_remember (independent of graph) ──
-      if (
-        name === "record_fact" ||
-        name === "recall_facts" ||
-        name === "unerr_remember"
-      ) {
-        // Active-cognition dispatch (UDS mirror of stdio path).
-        if (name === "unerr_remember" && isActiveCognitionRemember(toolArgs)) {
-          const noteRes = await handleUnerrRememberNotePath(
-            toolArgs,
-            unerrDirForLedger,
-            shadowLedger.getSessionId()
-          );
-          return { jsonrpc: "2.0" as const, result: noteRes };
-        }
-        const factResult =
-          name === "record_fact"
-            ? await handleRecordFactProxy(
-                toolArgs,
-                unerrDirForLedger,
-                shadowLedger,
-                {
-                  tracker: effectivenessTracker,
-                  turn: router.sessionContext.getToolCallCount(),
-                },
-                behaviorEventWriter
-              )
-            : name === "unerr_remember"
-              ? await handleUnerrRememberProxy(
-                  toolArgs,
-                  unerrDirForLedger,
-                  shadowLedger,
-                  behaviorEventWriter,
-                  {
-                    tracker: effectivenessTracker,
-                    turn: router.sessionContext.getToolCallCount(),
-                  }
-                )
-              : await handleRecallFactsProxy(
-                  toolArgs,
-                  unerrDirForLedger,
-                  {
-                    tracker: effectivenessTracker,
-                    turn: router.sessionContext.getToolCallCount(),
-                  },
-                  behaviorEventWriter
-                );
-        // Apply universal pagination cap so recall_facts surfaces page hints
-        // when more facts are available beyond what the handler returned.
-        const { applyWireCap: applyWireCapFact } = await import(
-          "./wire-cap.js"
-        );
-        const rawText = factResult.content?.[0]?.text;
-        let parsed: unknown = null;
-        if (rawText) {
-          try {
-            parsed = JSON.parse(rawText);
-          } catch {
-            /* non-JSON, skip cap */
-          }
-        }
-        if (parsed) {
-          const { body: cappedBody, pageHint } = applyWireCapFact(
-            name,
-            parsed,
-            toolArgs
-          );
-          const pageBlock = pageHint ? `${pageHint}\n\n` : "";
-          // Forward isError so error responses from the fact handler reach
-          // the agent as failed tool calls (UDS path mirrors stdio).
-          return {
-            jsonrpc: "2.0" as const,
-            result: {
-              content: [
-                {
-                  type: "text",
-                  text: pageBlock + stringifyMcpToolJson(cappedBody),
-                },
-              ],
-              ...(factResult.isError ? { isError: true } : {}),
-            },
-          };
-        }
-        return { jsonrpc: "2.0" as const, result: factResult };
-      }
-
-      // Shadow ledger tools disabled — not exposed in tool definitions
-      // (unerr_mark_working, unerr_revert_to_working_state, unerr_get_timeline handlers removed)
-
-      // ── Sprint 11: Deep Dive MCP tools (handled outside QueryRouter) ──
-      if (localGraph) {
-        const { handleDeepDiveTool } = await import(
-          "../intelligence/deep-dive-tools.js"
-        );
-        const deepDiveResult = await handleDeepDiveTool(
-          name,
-          toolArgs,
-          localGraph
-        );
-        if (deepDiveResult) {
-          recordToolCall(stats);
-          recordLatency(stats.latency, 0);
-          pidLock.recordToolCall();
-          if (stats.localMode) recordGraphQuery(stats.localMode, name);
-          const branch = branchContext?.currentBranch ?? "unknown";
-          const headSha = branchContext?.headSha ?? "";
-          shadowLedger.record(
-            name,
-            toolArgs,
-            { tool: name, source: "local", client: clientId },
-            branch,
-            headSha
-          );
-          return { jsonrpc: "2.0" as const, result: deepDiveResult };
-        }
-      }
-
-      // ── All remaining tools: QueryRouter.execute (graph-backed) ──
-      // Tools in QueryRouter.LOCAL_TOOLS: get_entity, get_file, get_references,
-      // get_imports, search_code, get_rules, get_business_context, get_conventions,
-      // file_read, file_outline, and deep dive blueprint tools.
-      // Wrap in try/catch so any throw lands as isError:true (UDS mirror of stdio).
-      let result: Awaited<ReturnType<typeof router.execute>>;
-      try {
-        result = await router.execute(name, toolArgs);
-      } catch (err: unknown) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(
-          `[unerr] router.execute(${name}) threw (uds): ${errMsg}\n`
-        );
-        return {
-          jsonrpc: "2.0" as const,
-          result: {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({ error: errMsg, tool: name }),
-              },
-            ],
-            isError: true,
-          },
-        };
-      }
-
-      // Track stats from UDS clients the same way as stdio clients
-      recordToolCall(stats);
-      recordLatency(stats.latency, result._meta.latency_ms);
-      pidLock.recordToolCall();
-      if (stats.localMode && result._meta.source === "local") {
-        recordGraphQuery(stats.localMode, name);
-      }
-      if (stats.localMode && result._meta.entity_risk) {
-        recordBlastRadius(stats.localMode);
-      }
-      if (stats.localMode && result._meta.source === "local") {
-        recordLatencyAdvantage(
-          stats.localMode,
-          Math.max(0, 200 - result._meta.latency_ms)
-        );
-      }
-
-      // Record in Shadow Ledger with client-specific session context
-      const branch = branchContext?.currentBranch ?? "unknown";
-      const headSha = branchContext?.headSha ?? "";
-      shadowLedger.record(
+      // Single dispatch path — every UDS (bridged-IDE) tools/call runs the
+      // IDENTICAL pipeline as the directly-connected stdio client via the one
+      // dispatchToolCall closure defined with the stdio handler above. clientId
+      // threads bridged-session attribution into the ledger. This replaces the
+      // ~370-line duplicated dispatch chain that had silently diverged from
+      // stdio (it skipped pre/post behavioral hooks, narrative/pattern/snapshot).
+      const result = await dispatchToolCall(
         name,
-        toolArgs,
-        {
-          source: result._meta.source,
-          found: result.content != null,
-          client: clientId,
-        },
-        branch,
-        headSha
+        toolArgs as Record<string, unknown>,
+        { clientId }
       );
-
-      // Tier-3: _meta/_context stripped. Wire-cap ran in QueryRouter and
-      // stashed any pageHint on meta._unerr_page_hint — consume it here.
-      const { buildSignalPrefix: buildSignalPrefix2 } = await import(
-        "./response-envelope.js"
-      );
-      const entityKey2 =
-        ((toolArgs as Record<string, unknown>).entity_key as
-          | string
-          | undefined) ??
-        ((toolArgs as Record<string, unknown>).entity as string | undefined) ??
-        ((toolArgs as Record<string, unknown>).key as string | undefined) ??
-        ((toolArgs as Record<string, unknown>).name as string | undefined) ??
-        ((toolArgs as Record<string, unknown>).file_path as
-          | string
-          | undefined) ??
-        null;
-      const signalFooter2 = buildSignalPrefix2(
-        result._meta as Record<string, unknown>,
-        result._context as Record<string, unknown> | undefined,
-        entityKey2
-      );
-      const pageHint2 = (result._meta as Record<string, unknown>)
-        ._unerr_page_hint as string | undefined;
-      const bodyText2 =
-        typeof result.content === "string"
-          ? result.content
-          : stringifyMcpToolJson(result.content);
-      const pageBlock2 = pageHint2 ? `\n${pageHint2}` : "";
-      const footerBlock2 = signalFooter2 ? `\n${signalFooter2.trimEnd()}` : "";
-      const bodyEnd2 = bodyText2.endsWith("\n") ? "" : "\n";
-
-      // Surfaces 2/3/4 (user-prose channel) — mirror of stdio path.
-      const { buildUserBlockForResponse: buildUserBlockForResponse2 } =
-        await import("./user-block-emitter.js");
-      const userBlock2 = await buildUserBlockForResponse2({
-        unerrDir: join(process.cwd(), ".unerr"),
-        sessionId: shadowLedger.getSessionId(),
-        toolCallCount: router.sessionContext.getToolCallCount(),
-        filePath:
-          ((toolArgs as Record<string, unknown>).file_path as
-            | string
-            | undefined) ?? entityKey2,
-        factStore: proxyFactStore ?? undefined,
-        pendingConfirmations: proxyPendingConfirmations ?? undefined,
-        isResumedSession: stats.isResumedSession,
-        timelineStore: timelineHandle?.store,
-        behaviorEvents: behaviorEventWriter,
-      });
-
-      // P0-3 mirror of stdio: surface a locked-tool refusal as isError so
-      // the bridge → IDE → model path treats the body as a model-visible
-      // error rather than a silent framework retry.
-      const isGateLocked2 =
-        (result._meta as Record<string, unknown>).gate_status === "locked";
-      return {
-        jsonrpc: "2.0" as const,
-        result: {
-          content: [
-            {
-              type: "text",
-              text:
-                userBlock2.head +
-                bodyText2 +
-                bodyEnd2 +
-                pageBlock2 +
-                userBlock2.tail +
-                footerBlock2,
-            },
-          ],
-          ...(isGateLocked2 ? { isError: true } : {}),
-        },
-      };
+      return { jsonrpc: "2.0" as const, result };
     }
 
     return {
@@ -3160,6 +2849,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const { indexLocalProject } = await import(
         "../intelligence/local-indexer.js"
       );
+      const { checkpointWal } = await import(
+        "../intelligence/persistent-db.js"
+      );
       const repoId = repoIds[0] as string;
       const cwd = process.cwd();
 
@@ -3170,6 +2862,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // Orphan cleanup at end of indexLocalProject removes stale entities.
       graphHolder.setRebuildFactory(async () => {
         const result = await indexLocalProject(cwd, localGraph, repoId);
+        // Fold + truncate graph.db-wal after the full-reindex write burst
+        // (a full reindex re-upserts the whole graph via :put, appending the
+        // entire dataset to the WAL). Fire-and-forget so the graph swap is not
+        // delayed; checkpointWal is best-effort and swallows its own errors.
+        if (graphDbPath) void checkpointWal(graphDbPath);
         return { graph: localGraph, result };
       });
 
@@ -3178,7 +2875,16 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         "../intelligence/incremental-indexer.js"
       );
       graphHolder.setIncrementalFactory(async (changedFiles) => {
-        return indexFilesIncremental(cwd, changedFiles, localGraph, repoId);
+        const result = await indexFilesIncremental(
+          cwd,
+          changedFiles,
+          localGraph,
+          repoId
+        );
+        // Same idle-path WAL fold as the full rebuild — keeps graph.db-wal
+        // from creeping up across a long editing session of small writes.
+        if (graphDbPath) void checkpointWal(graphDbPath);
+        return result;
       });
 
       // Swap callbacks — propagate new graph to all consumers
@@ -4543,6 +4249,16 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // Release persistent CozoDB native handles
       if (localGraph?.db.close) {
         localGraph.db.close();
+      }
+      // Fold + truncate graph.db-wal now that cozo's pooled connections are
+      // released (no reader can pin the WAL), so a WAL grown by reindex write
+      // bursts is not left on disk across the restart. Best-effort and awaited
+      // so it completes before process.exit; checkpointWal swallows its errors.
+      if (graphDbPath) {
+        const { checkpointWal } = await import(
+          "../intelligence/persistent-db.js"
+        );
+        await checkpointWal(graphDbPath);
       }
       // Release SQLite metrics handle(s).
       try {

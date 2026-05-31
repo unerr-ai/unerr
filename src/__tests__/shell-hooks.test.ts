@@ -85,7 +85,11 @@ describe("runExecMain", () => {
     ]);
     expect(code).toBe(0);
     spy.mockRestore();
-  });
+    // 15s: runExecMain spawns `$SHELL -lc` (a login shell). Profile sourcing
+    // (nvm/fnm/zshrc) under the parallel forks pool can exceed vitest's 5s
+    // default; an overrun here also leaks this echo's "ok" into the next test's
+    // stdout spy, so it must finish cleanly within its own scope.
+  }, 15000);
 
   it("falls back to raw output on shell parse error", async () => {
     const stdoutSpy = vi
@@ -109,7 +113,8 @@ describe("runExecMain", () => {
     expect(output).not.toMatch(/^_shell_fmt:/);
     stdoutSpy.mockRestore();
     stderrSpy.mockRestore();
-  });
+    // 15s: same login-shell spawn cost as the echo test above.
+  }, 15000);
 });
 
 describe("mergePreToolUseBashHook", () => {

@@ -283,7 +283,10 @@ describe.skipIf(!hasData)("token-flow API routes", () => {
           expect(d.total_tokens_saved).toBe(s.total_saved);
         }
       }
-    });
+      // 30s: fans out one /session round-trip per session against the in-test
+      // HTTP app; the serial loop is the slowest test in the suite and grazed
+      // a 15s budget under the parallel forks pool, so it gets generous headroom.
+    }, 30000);
   });
 });
 

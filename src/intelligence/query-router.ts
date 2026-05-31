@@ -49,6 +49,7 @@ import type {
 import type { evaluateRules as EvaluateRulesFn } from "./rule-evaluator.js";
 import { SessionContext } from "./session-context.js";
 import type { createSessionHealthMonitor } from "./session-health-monitor.js";
+import { tokenize } from "./search-index.js";
 import { smartTruncate, truncateResultList } from "./smart-truncate.js";
 import { estimateTokens } from "./token-estimator.js";
 
@@ -1238,7 +1239,7 @@ export class QueryRouter {
     // with a soft-refuse — proxy.ts stamps `isError: true` on the wire
     // frame when it reads `_meta.gate_status === "locked"`.
     if (this.routerGateway) {
-      const refusal = this.routerGateway.gate(toolName);
+      const refusal = this.routerGateway.gate(toolName, args);
       if (refusal) {
         const totalMs = Math.round(performance.now() - t0);
         const gated: ToolResult = {
@@ -1480,6 +1481,28 @@ export class QueryRouter {
         _meta: meta,
       };
       const enrichStats = await this.enrichResult(toolName, args, toolResult);
+
+      // A truncated file read surfaces as a TOP-LEVEL body marker, never as
+      // `_meta.truncated`: wire-cap emits `{status:"too_large", ...}` and the
+      // entity-gate in file-read-protocol emits `{entity_overflow:true, ...}`.
+      // The smart-truncate ENTITY paths set `meta.truncated`, but these two
+      // file-read paths never did — and enrichResult's budget accounting just
+      // recomputed `truncated` from the SMALL capped body (≈43 tokens < 2000),
+      // resetting it to false. Stamp the canonical flag here, AFTER enrichResult
+      // and BEFORE recordAndUnlock reads it, so call-signals.ts can unlock
+      // get_file (whose sole unlock condition is FileReadTruncated). The gated
+      // outline path needs no stamp — it carries `_meta.gated`, which
+      // call-signals reads directly.
+      if (
+        cappedContent &&
+        typeof cappedContent === "object" &&
+        !Array.isArray(cappedContent)
+      ) {
+        const cc = cappedContent as Record<string, unknown>;
+        if (cc.status === "too_large" || cc.entity_overflow === true) {
+          toolResult._meta.truncated = true;
+        }
+      }
 
       // P0-3 post-execute: fold signals, evaluate unlocks, prepend
       // `ur|act <tool> unlocked — …` lines to the body when new tools
@@ -2989,7 +3012,34 @@ export class QueryRouter {
               : undefined;
         const kindHint = (args.kind as string | undefined) ?? aliasKind;
         const key = await this.resolveKeyArg(rawArg, kindHint);
-        const entity = await this.resolveEntityWithOverlay(key);
+        const resolved = await this.resolveEntityWithOverlay(key);
+        if (resolved === "deleted") {
+          // Known entity, deleted locally → content:null (deletion implied),
+          // NOT a did-you-mean list (that's for names that never existed).
+          return null;
+        }
+        const entity = resolved;
+        if (!entity) {
+          // Resolution failed — return an honest not-found WITH suggestions so
+          // the agent picks a real name instead of reasoning over a wrong hit.
+          // Suggestions are the closest token-matched names (deduped).
+          const suggestions = Array.from(
+            new Set(
+              (await this.localGraph.searchEntities(rawArg, 5)).map(
+                (r) => r.name
+              )
+            )
+          );
+          return {
+            matched: false,
+            query: rawArg,
+            suggestions,
+            _hint:
+              suggestions.length > 0
+                ? `No entity named "${rawArg}". Closest names: ${suggestions.join(", ")}. Re-call get_entity with one of these, or search_code({query:"${rawArg}"}).`
+                : `No entity named "${rawArg}". Run search_code({query:"${rawArg}"}) to locate it.`,
+          };
+        }
         // Resolve actual body from source file — CozoDB stores body_hash, not body text
         if (entity?.file_path && entity.start_line > 0) {
           try {
@@ -3419,8 +3469,19 @@ export class QueryRouter {
       //   2. Within same test-tier: class > function > method > type > interface > variable
       // This ensures `compressShellOutput` resolves to the production function,
       // not a test `describe(...)` block that happens to share the name.
+      //
+      // Resolve name→key via the `entities:by_name` index relation EXPLICITLY,
+      // then read the base relation BY KEY. Do NOT bind `name` as a constant on
+      // the base relation (`*entities{name: $n, kind, ...}`): CozoDB's planner
+      // then picks an index→base join that silently returns [] for any column
+      // not covered by the index (kind, is_test, file_path, …). That defect is
+      // deterministic — recreating the index reproduces it — and made
+      // get_entity("QueryRouter") fall through to fuzzy and resolve to a method.
+      // The index relation supplies (name, key); the base lookup is keyed on the
+      // primary key, which is unaffected. ~0.4ms vs ~46ms for a full base scan.
       const exact = await db.run(
-        `?[k, kind, rank] := *entities{key: k, kind, name: $n, is_test: it},
+        `?[k, kind, rank] := *entities:by_name{name: $n, key: k},
+          *entities{key: k, kind, is_test: it},
           test_penalty = if(it, 100, 0),
           kind_rank = if(kind == "class", 0, if(kind == "function", 1, if(kind == "method", 2, if(kind == "type", 3, if(kind == "interface", 4, if(kind == "variable", 5, 6)))))),
           rank = test_penalty + kind_rank
@@ -3440,38 +3501,56 @@ export class QueryRouter {
     } catch {
       // fall through to fuzzy search
     }
-    // Fuzzy fallback — use top result's key, or return raw if nothing matches.
-    // Prefer entities whose name is an exact match over substring/token hits,
-    // and prefer non-test entities over test entities.
+    // Fuzzy fallback. We accept a fuzzy hit ONLY when it is confident: either an
+    // exact name match, or a candidate whose tokenized name contains EVERY token
+    // of the query (e.g. "compressShell" → "compressShellOutput"). A weak partial
+    // overlap (e.g. "QueryRouter" → "setHashQueryParams", which shares only the
+    // "query" token) must NOT resolve — we return `raw` to signal not-found, and
+    // the caller emits a helpful "did you mean" list. Returning a wrong entity
+    // costs the agent far more tokens (it reasons over the wrong code) than an
+    // honest miss does.
     try {
       const results = await this.localGraph.searchEntities(raw, 15);
       if (results.length === 0) return raw;
 
-      // Partition: exact-name non-test > exact-name test > other non-test > other test
-      const exactNonTest = results.filter(
-        (r) => r.name === raw && !r.file_path?.includes("__tests__")
+      const isTest = (r: { file_path?: string }): boolean =>
+        r.file_path?.includes("__tests__") ?? false;
+
+      // Exact name match always wins (production before test).
+      const exactNonTest = results.filter((r) => r.name === raw && !isTest(r));
+      const exactTest = results.filter((r) => r.name === raw && isTest(r));
+      if (exactNonTest.length > 0 || exactTest.length > 0) {
+        const exact = [...exactNonTest, ...exactTest];
+        if (kind) {
+          const matchKind = exact.find((r) => r.kind === kind);
+          if (matchKind) return matchKind.key;
+        }
+        return exact[0]!.key;
+      }
+
+      // No exact name — accept only candidates whose name covers ALL query
+      // tokens. This keeps useful prefix/superset matches while rejecting the
+      // weak single-token overlaps that produced the wrong-entity bug.
+      const queryTokens = tokenize(raw);
+      const coversAllQueryTokens = (name: string): boolean => {
+        if (queryTokens.length === 0) return false;
+        const nameTokens = new Set(tokenize(name));
+        return queryTokens.every((t) => nameTokens.has(t));
+      };
+      const qualifiedNonTest = results.filter(
+        (r) => !isTest(r) && coversAllQueryTokens(r.name)
       );
-      const exactTest = results.filter(
-        (r) => r.name === raw && r.file_path?.includes("__tests__")
+      const qualifiedTest = results.filter(
+        (r) => isTest(r) && coversAllQueryTokens(r.name)
       );
-      const otherNonTest = results.filter(
-        (r) => r.name !== raw && !r.file_path?.includes("__tests__")
-      );
-      const otherTest = results.filter(
-        (r) => r.name !== raw && r.file_path?.includes("__tests__")
-      );
-      const ranked = [
-        ...exactNonTest,
-        ...exactTest,
-        ...otherNonTest,
-        ...otherTest,
-      ];
+      const qualified = [...qualifiedNonTest, ...qualifiedTest];
+      if (qualified.length === 0) return raw; // honest not-found
 
       if (kind) {
-        const matchKind = ranked.find((r) => r.kind === kind);
+        const matchKind = qualified.find((r) => r.kind === kind);
         if (matchKind) return matchKind.key;
       }
-      return ranked[0]!.key;
+      return qualified[0]!.key;
     } catch {
       return raw;
     }
@@ -3483,7 +3562,9 @@ export class QueryRouter {
    */
   private async resolveEntityWithOverlay(
     key: string
-  ): Promise<LocalEntity | (LocalEntity & { _drift: DriftEntity }) | null> {
+  ): Promise<
+    LocalEntity | (LocalEntity & { _drift: DriftEntity }) | "deleted" | null
+  > {
     // Check drift overlay first
     const _driftEntities = await this.localGraph.getDriftEntitiesForFile("");
     // Need to check by key across all files - query drift_overlay directly
@@ -3560,8 +3641,11 @@ export class QueryRouter {
 
     if (driftEntity) {
       if (driftEntity.drift_status === "deleted") {
-        // Entity was deleted locally — return null
-        return null;
+        // Entity WAS known but was deleted locally. Distinct from "never
+        // existed" (null): the caller asked for a real key whose entity is gone,
+        // so the handler returns content:null with the deletion implied — NOT a
+        // did-you-mean suggestion list (which is for genuinely-absent names).
+        return "deleted";
       }
 
       if (driftEntity.drift_status === "added") {

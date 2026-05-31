@@ -29,7 +29,6 @@ import { registerConfigVerifyCommand } from "../src/commands/config-verify.js";
 import { registerDashboardCommand } from "../src/commands/dashboard.js";
 import { registerDebugCommand } from "../src/commands/debug.js";
 import { registerDoctorCommand } from "../src/commands/doctor.js";
-import { registerEnrichCommand } from "../src/commands/enrich.js";
 import { registerExecCommand } from "../src/commands/exec.js";
 import {
   registerDiscoverCommand,
@@ -69,7 +68,6 @@ const REGISTRARS: Array<(program: Command) => unknown> = [
   registerCheckCommitCommand,
   registerCompressOutputCommand,
   registerConfigVerifyCommand,
-  registerEnrichCommand,
   registerExecCommand,
   registerHookCommand,
   registerIndexCommand,

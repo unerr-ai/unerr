@@ -126,10 +126,14 @@ export const UNLOCK_CONDITIONS: Readonly<Record<string, Condition>> = {
   get_critical_nodes: C.or(C.urTag("rsk"), C.fanIn(10)),
 
   get_cross_boundary_links: C.or(
-    C.urTag("hnt"),
-    // "Cross-module file accessed" is approximated by ≥ 2 files in the
-    // same session whose first directory differs. We model that with
-    // the simpler heuristic: ≥ 5 distinct directories touched.
+    // The 2026-05 wire-tag consolidation (14→4) folded legacy `hnt` into
+    // `fct`, so the wire never emits `ur|hnt` anymore. The old `urTag("hnt")`
+    // branch was therefore dead AND rendered a stale `ur|hnt` into the
+    // soft-refuse `_unlock_when` / unlock-event reason text. The co-change /
+    // family-routing hint that should trip this gate now rides `fct`.
+    C.urTag("fct"),
+    // "Cross-module file accessed" is approximated by ≥ 2 files accessed in
+    // the same directory in one session.
     C.sameDir(2)
   ),
 

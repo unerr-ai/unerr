@@ -7,6 +7,7 @@ import {
   detectLanguage,
   entityKey,
   extractEntities,
+  extractEntitiesAsync,
 } from "../intelligence/ast-extractor.js";
 
 // ── Language Detection ──────────────────────────────────────────
@@ -239,5 +240,85 @@ describe("entityKey", () => {
     const a = entityKey("repo1", "src/a.ts", "function", "foo", "(x: number)");
     const b = entityKey("repo1", "src/a.ts", "function", "foo", "(x: string)");
     expect(a).not.toBe(b);
+  });
+});
+
+// ── Multi-line signatures & control-flow filtering (regex extractor) ──
+
+describe("extractEntities — signature shapes", () => {
+  it("does not emit control-flow statements as methods", () => {
+    const code = [
+      "export class C {",
+      "  run(x: number): void {",
+      "    if (x > 0) {",
+      "      for (let i = 0; i < x; i++) {",
+      "        switch (i) {",
+      "          case 1:",
+      "            break;",
+      "        }",
+      "      }",
+      "    }",
+      "  }",
+      "}",
+    ].join("\n");
+    const methods = extractEntities(code, "src/c.ts").filter(
+      (e) => e.kind === "method"
+    );
+    expect(methods.map((m) => m.name)).toEqual(["C.run"]);
+    // No `C.if`, `C.for`, `C.switch` false positives.
+    expect(methods.some((m) => /\.(if|for|switch|while)$/.test(m.name))).toBe(
+      false
+    );
+  });
+
+  it("captures methods with multi-line params, object-type params, and wrapping return types", () => {
+    const code = [
+      "export class C {",
+      "  multiParam(",
+      "    a: string,",
+      "    b: unknown",
+      "  ): Promise<void> {}",
+      "  objParam(stats: { entities: number; edges: number }): void {}",
+      "  wrappedReturn(): Promise<",
+      "    A | B | null",
+      "  > {}",
+      "}",
+    ].join("\n");
+    const names = extractEntities(code, "src/c.ts")
+      .filter((e) => e.kind === "method")
+      .map((m) => m.name);
+    expect(names).toContain("C.multiParam");
+    expect(names).toContain("C.objParam");
+    expect(names).toContain("C.wrappedReturn");
+  });
+});
+
+// ── tree-sitter parse-quality gate ──────────────────────────────
+
+describe("extractEntitiesAsync — parse-quality gate", () => {
+  it("recovers the class when the grammar can't parse a property's import-type annotation", async () => {
+    // The pinned tree-sitter TS grammar collapses the whole-file parse to a
+    // root ERROR on an inline `import('./m').Type` property annotation. The
+    // quality gate must fall back to regex so the class is still extracted.
+    const code = [
+      "export class QueryRouterLike {",
+      "  private notesResolver:",
+      "    | (() => Promise<import('./types.js').ReviewNotes | null>)",
+      "    | null = null;",
+      "  private async maybeCompressContent(",
+      "    toolName: string,",
+      "    result: unknown",
+      "  ): Promise<unknown> {",
+      "    return result;",
+      "  }",
+      "}",
+    ].join("\n");
+    const entities = await extractEntitiesAsync(code, "src/router-like.ts");
+    const classes = entities.filter((e) => e.kind === "class");
+    expect(classes.map((c) => c.name)).toContain("QueryRouterLike");
+    const methods = entities.filter((e) => e.kind === "method");
+    expect(methods.some((m) => m.name.endsWith("maybeCompressContent"))).toBe(
+      true
+    );
   });
 });

@@ -471,7 +471,19 @@ export async function runFetchUrl(
   }
 
   const offset = Math.max(0, args.offset ?? 0);
-  const sliced = offset > 0 ? ranked.slice(offset) : ranked;
+  const afterOffset = offset > 0 ? ranked.slice(offset) : ranked;
+  // Apply `limit` post-slice, unconditionally. BM25 ranking already truncates
+  // to topK, but when ranking is skipped (no prompt, or the page is too small
+  // to rank) `ranked` is the FULL passage list — so without this slice a
+  // `limit:N` call returns the whole page, which then trips the byte cap and
+  // forces the agent through a paginate-and-retry round-trip. Slicing here means
+  // limit:N returns N passages on the first call. `total` stays the full count
+  // so the agent can still page through the remainder via `offset`.
+  const limit =
+    typeof args.limit === "number" && args.limit > 0
+      ? Math.floor(args.limit)
+      : BM25_DEFAULT_TOPK;
+  const sliced = afterOffset.slice(0, limit);
 
   const rawBytes = meaningfulHtmlBytes(fetched.html);
   const compressedBytes = byteLength(markdown);

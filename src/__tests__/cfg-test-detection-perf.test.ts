@@ -94,8 +94,11 @@ describe("Rust #[cfg(test)] detection performance", () => {
     const elapsed = performance.now() - start;
     const perFile = elapsed / iterations;
 
-    // Each file extraction should be <0.5ms (regex is fast)
-    expect(perFile).toBeLessThan(0.5);
+    // Regex extraction is sub-millisecond, but absolute wall-clock varies with
+    // CPU contention under the parallel forks pool (observed ~0.5ms idle, ~1.1ms
+    // under full-suite load). 3ms keeps ~3x headroom over the worst observed
+    // value while still catching an order-of-magnitude regression.
+    expect(perFile).toBeLessThan(3);
     console.error(
       `  Per-file extraction: ${perFile.toFixed(3)}ms (${iterations} iterations, ${elapsed.toFixed(2)}ms total)`
     );

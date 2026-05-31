@@ -41,6 +41,13 @@ const DENY_ONCE_TTL_MS = 5 * 60 * 1000;
  *  model already holds its own prompt text). */
 const MAX_INLINE_PROMPT_CHARS = 200;
 
+/** Default passage `limit` baked into the suggested fetch_url call. A bare
+ *  fetch_url on a large page returns every passage, overflows the byte cap,
+ *  and bounces the agent through a paginate-and-retry round-trip. Seeding a
+ *  concrete limit means the FIRST redirect call succeeds. 10 passages is the
+ *  same default fetch_url applies internally and comfortably fits the cap. */
+const DEFAULT_SUGGESTED_LIMIT = 10;
+
 /** Extract the target URL from normalized WebFetch input. WebFetch uses
  *  `url`; we also accept `uri` for adapter robustness. */
 function extractUrl(input: Record<string, unknown>): string | undefined {
@@ -53,14 +60,15 @@ function extractUrl(input: Record<string, unknown>): string | undefined {
  *  extraction prompt through to fetch_url's BM25 ranking when present and
  *  short enough to inline. */
 function buildFetchUrlSuggestion(url: string, prompt?: string): string {
+  const limit = `limit:${DEFAULT_SUGGESTED_LIMIT}`;
   if (typeof prompt === "string" && prompt.length > 0) {
     if (prompt.length <= MAX_INLINE_PROMPT_CHARS) {
-      return `fetch_url({url:"${url}", prompt:"${prompt}"})`;
+      return `fetch_url({url:"${url}", prompt:"${prompt}", ${limit}})`;
     }
     // Long prompt: keep the call concrete but don't inline the whole thing.
-    return `fetch_url({url:"${url}", prompt:"<your extraction intent>"})`;
+    return `fetch_url({url:"${url}", prompt:"<your extraction intent>", ${limit}})`;
   }
-  return `fetch_url({url:"${url}"})`;
+  return `fetch_url({url:"${url}", ${limit}})`;
 }
 
 /**

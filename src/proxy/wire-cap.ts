@@ -236,53 +236,103 @@ export function applyWireCap(
   ) {
     const obj = rawBody as Record<string, unknown>;
     const arr = obj[cap.arrayKey];
-    if (Array.isArray(arr) && arr.length > limit) {
-      // We're slicing here. Preserve the handler's `total` if it already
-      // knew the true count (e.g. get_references: handler returns 25 items
-      // but reports total:30 because it truncated upstream). Otherwise
-      // fall back to arr.length.
-      const handlerTotal =
-        typeof obj.total === "number" && obj.total > arr.length
-          ? obj.total
-          : arr.length;
-      const sliced = arr.slice(0, limit);
-      const newBody: Record<string, unknown> = {
+    if (!Array.isArray(arr)) {
+      return enforceByteCap(toolName, rawBody, args, null, byteCap);
+    }
+    const arrayKey = cap.arrayKey;
+
+    // True item count = what's in `arr` plus whatever the handler already
+    // truncated upstream (it tells us via `total` or `more_available`).
+    const handlerTotal =
+      typeof obj.total === "number" && obj.total > arr.length
+        ? obj.total
+        : arr.length;
+    const beyondArray = Math.max(
+      handlerTotal - arr.length,
+      typeof obj.more_available === "number" ? obj.more_available : 0
+    );
+    const trueTotal = arr.length + beyondArray;
+
+    // Build a wrapper body carrying the first `n` array items plus pagination
+    // bookkeeping. Doubles as the cost function for the byte-fitting search.
+    const buildBody = (n: number): Record<string, unknown> => {
+      const slice = arr.slice(0, n);
+      return {
         ...obj,
-        [cap.arrayKey]: sliced,
-        total: handlerTotal,
-        returned: sliced.length,
-        more_available: handlerTotal - sliced.length,
-        truncated: handlerTotal > sliced.length,
+        [arrayKey]: slice,
+        total: trueTotal,
+        returned: slice.length,
+        more_available: trueTotal - slice.length,
+        truncated: trueTotal > slice.length,
       };
-      const hint = buildPageHint(
-        toolName,
-        handlerTotal - sliced.length,
-        cap.cursorArg,
-        args,
-        sliced.length,
-        cap.filterHint
-      );
-      return enforceByteCap(toolName, newBody, args, hint, byteCap);
+    };
+
+    // Two caps compose: the COUNT cap (`limit`) and the BYTE cap. Shrink to the
+    // largest prefix satisfying BOTH. Without the byte-fit step, an
+    // array-wrapper response (e.g. fetch_url passages) that fit the count cap
+    // but blew the byte cap was dropped wholesale by enforceByteCap into a
+    // too_large summary — forcing the agent to reason out a retry. Returning as
+    // many items as fit, plus a page hint, lets it consume what arrived and
+    // page the rest via the cursor arg.
+    const countCap = Math.min(arr.length, limit);
+    const byteFit = fittingPrefixCount(
+      (n) => JSON.stringify(buildBody(n)).length,
+      countCap,
+      byteCap
+    );
+    // Always deliver at least one item when any exist — a single oversized item
+    // can't be split here, and enforceByteCap surfaces the token_budget escape
+    // hatch for that case.
+    const delivered = arr.length === 0 ? 0 : Math.max(1, byteFit);
+
+    // Nothing truncated by count, bytes, or upstream → pristine pass-through.
+    if (delivered >= arr.length && beyondArray === 0) {
+      return enforceByteCap(toolName, rawBody, args, null, byteCap);
     }
-    // The handler may have pre-sliced (e.g., recall_facts caps inside its
-    // handler). Surface a page hint if `more_available` was already set.
-    const moreAvailable = obj.more_available;
-    if (typeof moreAvailable === "number" && moreAvailable > 0) {
-      const deliveredCount = Array.isArray(arr) ? arr.length : 0;
-      const hint = buildPageHint(
-        toolName,
-        moreAvailable,
-        cap.cursorArg,
-        args,
-        deliveredCount,
-        cap.filterHint
-      );
-      return enforceByteCap(toolName, rawBody, args, hint, byteCap);
-    }
-    return enforceByteCap(toolName, rawBody, args, null, byteCap);
+
+    const moreAvailable = trueTotal - delivered;
+    const hint =
+      moreAvailable > 0
+        ? buildPageHint(
+            toolName,
+            moreAvailable,
+            cap.cursorArg,
+            args,
+            delivered,
+            cap.filterHint
+          )
+        : null;
+    return enforceByteCap(toolName, buildBody(delivered), args, hint, byteCap);
   }
 
   return enforceByteCap(toolName, rawBody, args, null, byteCap);
+}
+
+/**
+ * Binary-search the largest prefix length n in [0, maxCount] whose serialized
+ * body fits within byteCap. `cost(n)` returns the serialized byte length of the
+ * body built from the first n items and must be monotonically non-decreasing in
+ * n. Returns 0 when even a single item overflows — callers may still choose to
+ * deliver 1 and let enforceByteCap's token_budget hint handle it.
+ */
+function fittingPrefixCount(
+  cost: (n: number) => number,
+  maxCount: number,
+  byteCap: number
+): number {
+  if (maxCount <= 0) return 0;
+  if (cost(maxCount) <= byteCap) return maxCount;
+  let lo = 0;
+  let hi = maxCount;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (cost(mid) <= byteCap) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return lo;
 }
 
 /**

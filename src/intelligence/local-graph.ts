@@ -381,7 +381,12 @@ export class CozoGraphStore {
     timeoutMs = QUERY_TIMEOUT_MS
   ): Promise<{ rows: unknown[][] }> {
     return Promise.race([
-      this.db.run(script, params),
+      // immutable=true → cozo runs a read-only transaction (read snapshot), so
+      // this read is NOT serialized behind an in-flight write on the SQLite
+      // writer lock. Combined with WAL journal mode (see persistent-db.ts),
+      // warm reads proceed concurrently with a long drift/orphan write instead
+      // of starving past the 2s warm-tool budget.
+      this.db.run(script, params, true),
       new Promise<never>((_, reject) =>
         setTimeout(
           () => reject(new Error(`CozoDB query timeout after ${timeoutMs}ms`)),

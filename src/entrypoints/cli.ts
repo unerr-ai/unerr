@@ -25,7 +25,6 @@ import {
   registerDoctorCommand,
   verifyUnerrOnPath,
 } from "../commands/doctor.js";
-import { registerEnrichCommand } from "../commands/enrich.js";
 import { registerExecCommand } from "../commands/exec.js";
 import {
   registerDiscoverCommand,
@@ -1501,7 +1500,6 @@ const hiddenCommands = [
   registerCheckCommitCommand,
   registerCompressOutputCommand,
   registerConfigVerifyCommand,
-  registerEnrichCommand,
   registerExecCommand,
   registerHookCommand,
   registerIndexCommand,

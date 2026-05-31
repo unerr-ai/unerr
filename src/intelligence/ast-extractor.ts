@@ -17,6 +17,22 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/**
+ * Extraction-logic version. Stored alongside the per-file content hashes when a
+ * full index runs; the startup staleness planner forces a full reindex whenever
+ * the stored version differs (see `staleness.ts`).
+ *
+ * BUMP THIS whenever the entity-extraction logic changes in a way that alters
+ * the entities produced from unchanged source — otherwise a graph indexed by an
+ * older extractor keeps its stale entities forever, because the file content
+ * (and thus its hash) never changed.
+ *
+ * v2 (2026-05-31): tree-sitter parse-quality gate (fall back to regex on a
+ * degraded/error parse — old grammar can't parse `import("./m").T` type
+ * annotations), multi-line signature join, control-flow false-positive filter.
+ */
+export const EXTRACTOR_VERSION = "2";
+
 export interface ExtractedEntity {
   /** Entity name */
   name: string;
@@ -88,6 +104,56 @@ export function detectLanguage(filePath: string): Language | null {
 }
 
 /**
+ * Control-flow keywords that the regex method pattern (`name(args) {`) would
+ * otherwise capture as bogus methods (`if`/`switch`/`for`/…). Used to filter
+ * them out in {@link extractEntities}.
+ */
+const CONTROL_FLOW_KEYWORDS = new Set([
+  "if",
+  "else",
+  "switch",
+  "for",
+  "while",
+  "do",
+  "catch",
+  "return",
+  "with",
+]);
+
+/**
+ * Collapse a (possibly multi-line) declaration starting at `lines[startIdx]`
+ * onto one logical line so the single-line entity patterns can match
+ * signatures whose params or return type wrap across lines.
+ *
+ * Appends continuation lines until one carries a `{` (body open) or `;`
+ * (statement end) at parenthesis-depth 0. Braces and semicolons nested inside
+ * the parameter list (object-type params like `{ a: number; b: string }`) sit
+ * at depth ≥ 1 and are skipped, so the join stops only at the real body `{` or
+ * field `;`. Bounded by `maxJoin` lines to avoid runaway joins on malformed
+ * input. Stray joins on non-declaration lines are harmless: the anchored
+ * patterns simply fail to match the longer probe.
+ */
+function buildLogicalLine(
+  lines: string[],
+  startIdx: number,
+  maxJoin = 16
+): string {
+  let depth = 0;
+  let result = "";
+  for (let j = startIdx; j < lines.length && j - startIdx <= maxJoin; j++) {
+    const raw = lines[j] ?? "";
+    result += j === startIdx ? raw : ` ${raw.trim()}`;
+    for (let k = 0; k < raw.length; k++) {
+      const ch = raw.charCodeAt(k);
+      if (ch === 40) depth++; // (
+      else if (ch === 41) depth--; // )
+      else if ((ch === 123 || ch === 59) && depth <= 0) return result; // { ;
+    }
+  }
+  return result;
+}
+
+/**
  * Extract entities from source code using regex patterns.
  * Returns empty array for unsupported languages (never throws).
  */
@@ -106,11 +172,28 @@ export function extractEntities(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
+
+    // Methods and functions may carry multi-line signatures — params split
+    // across lines (`fn(\n  a: string,\n  b: unknown\n)`), object-type params
+    // (`stats: { entities: number; edges: number }`), and/or a return type that
+    // wraps (`): Promise<\n  A | B | null\n> {`). The single-line patterns below
+    // require the closing `)` and opening `{` on the matched text, so collapse
+    // the declaration onto one logical line. line_start stays the opening line.
+    const matchLine = buildLogicalLine(lines, i);
+
     for (const pattern of patterns) {
-      const match = pattern.regex.exec(line);
+      const match = pattern.regex.exec(matchLine);
       if (match) {
         const rawName = match[pattern.nameGroup] ?? "";
         if (!rawName || rawName.length === 0) continue;
+
+        // The method pattern (`name(args) {`) also matches control-flow
+        // statements (`if (…) {`, `switch (…) {`, `for (…) {`, …) since the
+        // keyword is a bare `\w+`. Skip those — they are not entities and
+        // otherwise pollute the graph as bogus methods (e.g. `QueryRouter.if`).
+        if (pattern.kind === "method" && CONTROL_FLOW_KEYWORDS.has(rawName)) {
+          continue;
+        }
 
         // Track current class context for method naming
         if (pattern.kind === "class") {
@@ -184,10 +267,15 @@ function getPatterns(language: Language): PatternDef[] {
           kind: "interface",
           nameGroup: 1,
         },
-        // method(params) { — inside class (with optional access modifiers)
+        // method(params) { — inside class (with optional access modifiers).
+        // Param group tolerates one level of nested parens (callback/function
+        // types like `(cb: () => void)`); return-type group tolerates spaces
+        // (`: Promise<Foo | null>`) up to the body `{`. Combined with the
+        // multi-line-signature join in extractEntities, this captures methods
+        // whose signatures span lines or carry complex param/return types.
         {
           regex:
-            /^\s+(?:(?:private|protected|public|override|abstract|readonly)\s+)*(?:async\s+)?(?:static\s+)?(?:get\s+|set\s+)?(\w+)\s*(\([^)]*\))\s*(?::\s*\S+\s*)?[{]/,
+            /^\s+(?:(?:private|protected|public|override|abstract|readonly)\s+)*(?:async\s+)?(?:static\s+)?(?:get\s+|set\s+)?(\w+)\s*(\((?:[^()]|\([^()]*\))*\))\s*(?::\s*[^{;]+)?[{]/,
           kind: "method",
           nameGroup: 1,
           sigGroup: 2,
@@ -567,6 +655,8 @@ interface TSNode {
   childForFieldName(name: string): TSNode | null;
   parent: TSNode | null;
   previousSibling: TSNode | null;
+  /** True when the parse produced ERROR/MISSING nodes anywhere in the subtree. */
+  hasError: boolean;
 }
 
 interface TSParser {
@@ -718,7 +808,28 @@ export async function extractEntitiesAsync(
   try {
     const tree = parser.parse(content);
     const lines = content.split("\n");
-    return extractFromAST(tree.rootNode, lines, language);
+    const tsEntities = extractFromAST(tree.rootNode, lines, language);
+
+    // Parse-quality gate. The bundled tree-sitter grammars are version-pinned
+    // (tree-sitter-wasms 0.1.13 — older than current TS syntax) and choke on
+    // some constructs: e.g. an inline `import("./mod").Type` type annotation on
+    // a class property collapses the whole-file parse to a root ERROR node
+    // (seen on query-router.ts:593). tree-sitter does NOT throw on this — it
+    // returns a degraded tree with no class scopes and control-flow false
+    // positives (`if`/`switch` mis-read as methods), so the catch-based
+    // fallback below never fires and the broken extraction is shipped.
+    //
+    // When the parse reports errors, run the regex extractor too and prefer it
+    // only if it recovers strictly more entities. A clean parse (hasError =
+    // false) keeps tree-sitter; a file with a minor recoverable error still
+    // keeps tree-sitter unless regex genuinely extracts more (i.e. tree-sitter
+    // under-extracted), so the cleaner AST output is preserved in the common
+    // case while collapsed parses self-heal to regex.
+    if (tree.rootNode.hasError) {
+      const regexEntities = extractEntities(content, filePath);
+      if (regexEntities.length > tsEntities.length) return regexEntities;
+    }
+    return tsEntities;
   } catch {
     // Parse failure — fall back to regex
     return extractEntities(content, filePath);

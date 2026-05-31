@@ -18,6 +18,12 @@ import {
   selectCandidates,
 } from "../daemon/warm-start.js";
 
+// Relative timestamps — fixtures must stay inside the idle window
+// (selectCandidates computes idleCutoff = now - warmStartIdleDays*day). Hard-coded
+// absolute dates silently age out of the window as wall-clock time advances.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const daysAgo = (n: number): Date => new Date(Date.now() - n * DAY_MS);
+
 function makeRepo(
   name: string,
   opts: {
@@ -82,11 +88,11 @@ const defaultConfig: WarmStartConfig = {
 describe("selectCandidates", () => {
   it("selects MRU repos up to budget", () => {
     const repos = [
-      trackedRepo("repo1", { lastActivity: new Date("2026-05-14T10:00:00Z") }),
-      trackedRepo("repo2", { lastActivity: new Date("2026-05-13T10:00:00Z") }),
-      trackedRepo("repo3", { lastActivity: new Date("2026-05-12T10:00:00Z") }),
-      trackedRepo("repo4", { lastActivity: new Date("2026-05-11T10:00:00Z") }),
-      trackedRepo("repo5", { lastActivity: new Date("2026-05-10T10:00:00Z") }),
+      trackedRepo("repo1", { lastActivity: daysAgo(1) }),
+      trackedRepo("repo2", { lastActivity: daysAgo(2) }),
+      trackedRepo("repo3", { lastActivity: daysAgo(3) }),
+      trackedRepo("repo4", { lastActivity: daysAgo(4) }),
+      trackedRepo("repo5", { lastActivity: daysAgo(5) }),
     ];
 
     const { candidates, skipped } = selectCandidates(repos, {
@@ -103,9 +109,9 @@ describe("selectCandidates", () => {
 
   it("excludes repos with autostart=never", () => {
     const repos = [
-      trackedRepo("active", { lastActivity: new Date("2026-05-14T10:00:00Z") }),
+      trackedRepo("active", { lastActivity: daysAgo(2) }),
       trackedRepo("never", {
-        lastActivity: new Date("2026-05-14T10:00:00Z"),
+        lastActivity: daysAgo(2),
         autostart: "never",
       }),
     ];
@@ -120,8 +126,8 @@ describe("selectCandidates", () => {
 
   it("excludes repos inactive beyond idle days cutoff", () => {
     const repos = [
-      trackedRepo("recent", { lastActivity: new Date("2026-05-14T10:00:00Z") }),
-      trackedRepo("old", { lastActivity: new Date("2026-01-01T10:00:00Z") }),
+      trackedRepo("recent", { lastActivity: daysAgo(2) }),
+      trackedRepo("old", { lastActivity: daysAgo(60) }),
     ];
 
     const { candidates, skipped } = selectCandidates(repos, {
@@ -138,11 +144,11 @@ describe("selectCandidates", () => {
   it("eager repos are prioritized over auto repos", () => {
     const repos = [
       trackedRepo("auto-recent", {
-        lastActivity: new Date("2026-05-14T10:00:00Z"),
+        lastActivity: daysAgo(2),
         autostart: "auto",
       }),
       trackedRepo("eager-old", {
-        lastActivity: new Date("2026-05-10T10:00:00Z"),
+        lastActivity: daysAgo(30),
         autostart: "eager",
       }),
     ];
@@ -155,9 +161,9 @@ describe("selectCandidates", () => {
 
   it("skips repos whose directory does not exist", () => {
     const repos = [
-      trackedRepo("good", { lastActivity: new Date("2026-05-14T10:00:00Z") }),
+      trackedRepo("good", { lastActivity: daysAgo(2) }),
       trackedRepo("gone", {
-        lastActivity: new Date("2026-05-14T10:00:00Z"),
+        lastActivity: daysAgo(2),
         exists: false,
       }),
     ];

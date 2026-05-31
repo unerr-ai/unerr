@@ -111,11 +111,14 @@ export class RouterGateway {
    * policy table is treated as fail-open — it cannot be gated and is
    * always allowed through.
    */
-  gate(toolName: string): SoftRefuseResult | null {
+  gate(
+    toolName: string,
+    args?: Record<string, unknown>
+  ): SoftRefuseResult | null {
     if (this.session.isExposed(toolName)) return null;
     const condition = UNLOCK_CONDITIONS[toolName];
     if (!condition) return null;
-    return buildSoftRefuse({ toolName, condition });
+    return buildSoftRefuse({ toolName, condition, args });
   }
 
   /**
