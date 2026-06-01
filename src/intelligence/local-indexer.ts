@@ -33,6 +33,7 @@ import {
   extractEntitiesAsync,
 } from "./ast-extractor.js";
 import { detectCascadedCommunities } from "./community-detection.js";
+import type { CozoDb } from "./cozo-schema.js";
 import { computeCoChangeEdges } from "./indexer/git-cochange.js";
 import { enrichWithScip } from "./indexer/scip/orchestrator.js";
 import { isTestFile } from "./indexer/test-detector.js";
@@ -1334,56 +1335,160 @@ function computeRiskLevel(fanIn: number, fanOut: number): string {
 // ── Phase 6: CozoDB Population ───────────────────────────────────
 
 /** Insert all entities and edges into CozoDB. */
+/**
+ * Rows-per-`:put` chunk for full-index bulk writes. Each `db.run` is one SQLite
+ * commit; batching many rows per commit collapses the ~135K per-row commits of a
+ * full index into a few hundred. That is the WAL-bloat fix: under the proxy's
+ * long-lived reader snapshot SQLite's PASSIVE autocheckpoint can never reset the
+ * WAL during a reindex, so every commit's frames accumulate unreclaimed — 135K
+ * tiny commits churned the WAL to ~1.8GB against a ~37MB graph (see
+ * persistent-db.ts checkpointWal). 512 keeps each `<- $rows` script well within
+ * cozo's parser limits while cutting commit count ~500×.
+ */
+const PUT_CHUNK = 512;
+
+/**
+ * Bulk-`:put` (or `:update`) `rows` into a relation, one `db.run` per
+ * `PUT_CHUNK`-sized chunk instead of one per row. On a chunk failure, falls back
+ * to per-row writes for that chunk so a single malformed row can never drop the
+ * other ~511 — preserving the resilience of the original per-row loops.
+ *
+ * `head` is the positional column list for the `?[...]` output (matched to each
+ * row tuple by position); `relationSpec` is the full `relation { keys => deps }`
+ * clause; `op` is `:put` (default) or `:update`.
+ */
+async function bulkPut(
+  db: CozoDb,
+  head: string,
+  relationSpec: string,
+  rows: unknown[][],
+  label: string,
+  op: ":put" | ":update" = ":put"
+): Promise<void> {
+  const script = `?[${head}] <- $rows ${op} ${relationSpec}`;
+  for (let i = 0; i < rows.length; i += PUT_CHUNK) {
+    const chunk = rows.slice(i, i + PUT_CHUNK);
+    try {
+      await db.run(script, { rows: chunk });
+    } catch {
+      // Per-row fallback: isolate the offending row, keep the rest.
+      for (const row of chunk) {
+        try {
+          await db.run(script, { rows: [row] });
+        } catch (err: unknown) {
+          process.stderr.write(
+            `[unerr] ⚠ ${label} insert failed: ${formatUnknownError(err)}\n`
+          );
+        }
+      }
+    }
+  }
+}
+
 async function populateCozoDB(
   graphStore: CozoGraphStore,
   entities: CompactEntity[],
   edges: CompactEdge[]
 ): Promise<void> {
-  // R.1: Create file-level entities (file:<path> with kind="module")
+  const db = graphStore.db;
+
+  // R.1: Collect file-level entities (file:<path>, kind="module") + code entities
+  // into one chunked bulk :put. Per-row :put here was the dominant WAL-bloat
+  // source — see bulkPut / PUT_CHUNK above.
+  const ENTITY_HEAD =
+    "key, kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test";
+  const ENTITY_SPEC =
+    "entities { key => kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test }";
+  const entityRows: unknown[][] = [];
+  const fileIndexRows: unknown[][] = [];
+
   const filePaths = new Set<string>();
   for (const e of entities) {
     if (e.file_path) filePaths.add(e.file_path);
   }
   for (const fp of filePaths) {
-    try {
-      await graphStore.db.run(
-        `?[key, kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test] <- [[$key, "module", $name, $fp, 0, 0, "", "", 0, 0, "normal", $is_test]]
-         :put entities { key => kind, name, file_path, start_line, end_line, signature, body, fan_in, fan_out, risk_level, is_test }`,
-        { key: `file:${fp}`, name: basename(fp), fp, is_test: isTestFile(fp) }
-      );
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : JSON.stringify(err);
-      process.stderr.write(
-        `[unerr] ⚠ File entity insert failed for ${fp}: ${msg}\n`
-      );
-    }
+    entityRows.push([
+      `file:${fp}`,
+      "module",
+      basename(fp),
+      fp,
+      0,
+      0,
+      "",
+      "",
+      0,
+      0,
+      "normal",
+      isTestFile(fp),
+    ]);
   }
-
-  // Batch insert code entities
   for (const entity of entities) {
-    await insertEntity(graphStore, entity);
+    entityRows.push([
+      entity.key,
+      entity.kind,
+      entity.name,
+      entity.file_path,
+      entity.start_line ?? 0,
+      entity.end_line ?? 0,
+      entity.signature ?? "",
+      entity.body ?? "",
+      entity.fan_in ?? 0,
+      entity.fan_out ?? 0,
+      entity.risk_level ?? "normal",
+      entity.is_test ?? false,
+    ]);
+    if (entity.file_path) fileIndexRows.push([entity.file_path, entity.key]);
   }
+  // Insert in key-sorted order. cozo stores each relation as a key-sorted B-tree;
+  // feeding rows in key order makes inserts append to the rightmost leaf instead
+  // of splitting pages scattered across the tree, which sharply cuts the number
+  // of dirty pages each commit writes to the WAL (the WAL captures every dirty
+  // page, and under the proxy's held reader none are reclaimed mid-index).
+  entityRows.sort((a, b) =>
+    (a[0] as string) < (b[0] as string) ? -1 : (a[0] as string) > (b[0] as string) ? 1 : 0
+  );
+  fileIndexRows.sort((a, b) => {
+    const fa = a[0] as string;
+    const fb = b[0] as string;
+    if (fa !== fb) return fa < fb ? -1 : 1;
+    return (a[1] as string) < (b[1] as string) ? -1 : 1;
+  });
+  await bulkPut(db, ENTITY_HEAD, ENTITY_SPEC, entityRows, "entity");
+  await bulkPut(
+    db,
+    "file_path, entity_key",
+    "file_index { file_path, entity_key }",
+    fileIndexRows,
+    "file_index"
+  );
 
-  // R.2: Create contains edges (file → entity)
+  // R.2/R.3b/code edges: contains (file→entity), class→method containment, and
+  // resolved code edges all share the 13-column `edges` shape — collect into one
+  // chunked bulk :put. Columns after (from_key, to_key, type) take the same
+  // defaults the per-row inserts used.
+  const EDGE_HEAD =
+    "from_key, to_key, type, sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode";
+  const EDGE_SPEC =
+    "edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }";
+  // sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth,
+  // is_try_guarded, is_error_handler, mutation_target, mutation_mode
+  const EDGE_DEFAULTS = [-1, "", "", false, "", 0, false, false, "", ""];
+  const edgeRows: unknown[][] = [];
+
+  // R.2: contains edges (file → entity)
   for (const entity of entities) {
     if (!entity.file_path) continue;
-    try {
-      await graphStore.db.run(
-        `?[from_key, to_key, type, sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode] <- [[$from, $to, "contains", -1, "", "", false, "", 0, false, false, "", ""]]
-         :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`,
-        { from: `file:${entity.file_path}`, to: entity.key }
-      );
-    } catch (err: unknown) {
-      process.stderr.write(
-        `[unerr] ⚠ Contains edge insert failed: ${err instanceof Error ? err.message : String(err)}\n`
-      );
-    }
+    edgeRows.push([
+      `file:${entity.file_path}`,
+      entity.key,
+      "contains",
+      ...EDGE_DEFAULTS,
+    ]);
   }
 
-  // R.3b: Create class→method containment edges for entities with parent_class
+  // R.3b: class→method containment edges for entities with parent_class
   for (const entity of entities) {
     if (!entity.parent_class || !entity.file_path) continue;
-    // Find the class entity key in the same file
     const classEntity = entities.find(
       (e) =>
         e.kind === "class" &&
@@ -1391,23 +1496,25 @@ async function populateCozoDB(
         e.file_path === entity.file_path
     );
     if (!classEntity) continue;
-    try {
-      await graphStore.db.run(
-        `?[from_key, to_key, type, sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode] <- [[$from, $to, "contains", -1, "", "", false, "", 0, false, false, "", ""]]
-         :put edges { from_key, to_key, type => sequence_order, condition, branch_kind, is_loop, loop_kind, nesting_depth, is_try_guarded, is_error_handler, mutation_target, mutation_mode }`,
-        { from: classEntity.key, to: entity.key }
-      );
-    } catch (err: unknown) {
-      process.stderr.write(
-        `[unerr] ⚠ Class→method edge insert failed: ${err instanceof Error ? err.message : String(err)}\n`
-      );
-    }
+    edgeRows.push([classEntity.key, entity.key, "contains", ...EDGE_DEFAULTS]);
   }
 
-  // Batch insert code edges
+  // Code edges
   for (const edge of edges) {
-    await insertEdge(graphStore, edge);
+    edgeRows.push([edge.from_key, edge.to_key, edge.type, ...EDGE_DEFAULTS]);
   }
+
+  // Key-sorted insert (from_key, to_key, type) — same WAL-churn rationale as
+  // entities above.
+  edgeRows.sort((a, b) => {
+    for (let i = 0; i < 3; i++) {
+      const x = a[i] as string;
+      const y = b[i] as string;
+      if (x !== y) return x < y ? -1 : 1;
+    }
+    return 0;
+  });
+  await bulkPut(db, EDGE_HEAD, EDGE_SPEC, edgeRows, "edge");
 }
 
 async function insertEntity(
@@ -1487,19 +1594,21 @@ async function materializeL1Edges(graphStore: CozoGraphStore): Promise<void> {
         from_file != to_file
     `);
     if (fileEdgeResult.rows?.length) {
-      for (const row of fileEdgeResult.rows) {
-        await db.run(
-          `?[from_file, to_file, edge_type, weight, updated_at] <- [[$ff, $tf, $et, $w, $ts]]
-           :put file_edges { from_file, to_file, edge_type => weight, updated_at }`,
-          {
-            ff: row[0] as string,
-            tf: row[1] as string,
-            et: row[2] as string,
-            w: row[3] as number,
-            ts: Date.now(),
-          }
-        );
-      }
+      const ts = Date.now();
+      const rows = fileEdgeResult.rows.map((row) => [
+        row[0] as string,
+        row[1] as string,
+        row[2] as string,
+        row[3] as number,
+        ts,
+      ]);
+      await bulkPut(
+        db,
+        "from_file, to_file, edge_type, weight, updated_at",
+        "file_edges { from_file, to_file, edge_type => weight, updated_at }",
+        rows,
+        "L1 file edge"
+      );
       log.info(`L1 file edges: ${fileEdgeResult.rows.length} materialized`);
     }
   } catch (err) {
@@ -1522,19 +1631,21 @@ async function materializeL1Edges(graphStore: CozoGraphStore): Promise<void> {
         from_class != to_class
     `);
     if (classEdgeResult.rows?.length) {
-      for (const row of classEdgeResult.rows) {
-        await db.run(
-          `?[from_class, to_class, edge_type, weight, updated_at] <- [[$fc, $tc, $et, $w, $ts]]
-           :put class_edges { from_class, to_class, edge_type => weight, updated_at }`,
-          {
-            fc: row[0] as string,
-            tc: row[1] as string,
-            et: row[2] as string,
-            w: row[3] as number,
-            ts: Date.now(),
-          }
-        );
-      }
+      const ts = Date.now();
+      const rows = classEdgeResult.rows.map((row) => [
+        row[0] as string,
+        row[1] as string,
+        row[2] as string,
+        row[3] as number,
+        ts,
+      ]);
+      await bulkPut(
+        db,
+        "from_class, to_class, edge_type, weight, updated_at",
+        "class_edges { from_class, to_class, edge_type => weight, updated_at }",
+        rows,
+        "L1 class edge"
+      );
       log.info(`L1 class edges: ${classEdgeResult.rows.length} materialized`);
     }
   } catch (err) {
@@ -1608,54 +1719,52 @@ export async function runCommunityDetection(
   // Run cascaded community detection
   const result = detectCascadedCommunities(fileEdges, entities, entityEdges);
 
-  // Write entity community assignments (hierarchical IDs)
+  // Write entity community assignments (hierarchical IDs) — chunked bulk :update
+  // (one commit per chunk, not per entity; see bulkPut / PUT_CHUNK).
+  const assignmentRows: unknown[][] = [];
   for (const [key, communityId] of result.entityAssignments) {
-    try {
-      await db.run(
-        "?[key, community] <- [[$key, $cid]] :update entities { key => community }",
-        { key, cid: communityId }
-      );
-    } catch (err: unknown) {
-      process.stderr.write(
-        `[unerr] ⚠ Community assignment update failed: ${err instanceof Error ? err.message : String(err)}\n`
-      );
-    }
+    assignmentRows.push([key, communityId]);
   }
+  await bulkPut(
+    db,
+    "key, community",
+    "entities { key => community }",
+    assignmentRows,
+    "community assignment",
+    ":update"
+  );
 
   // Write macro-community metadata (repurposed `communities` relation for file-level)
-  for (const c of result.macroCommunities) {
-    try {
-      await db.run(
-        "?[id, label, size, cohesion] <- [[$id, $label, $size, $cohesion]] :put communities { id => label, size, cohesion }",
-        { id: c.id, label: c.label, size: c.size, cohesion: c.cohesion }
-      );
-    } catch (err: unknown) {
-      process.stderr.write(
-        `[unerr] ⚠ Community metadata write failed: ${err instanceof Error ? err.message : String(err)}\n`
-      );
-    }
-  }
+  const communityRows: unknown[][] = result.macroCommunities.map((c) => [
+    c.id,
+    c.label,
+    c.size,
+    c.cohesion,
+  ]);
+  await bulkPut(
+    db,
+    "id, label, size, cohesion",
+    "communities { id => label, size, cohesion }",
+    communityRows,
+    "community metadata"
+  );
 
   // Write file community assignments
-  for (const fc of result.fileCommunities) {
-    try {
-      await db.run(
-        `?[file_path, community, label, cohesion, updated_at] <- [[$fp, $cid, $label, $cohesion, $ts]]
-         :put file_communities { file_path => community, label, cohesion, updated_at }`,
-        {
-          fp: fc.file_path,
-          cid: fc.community,
-          label: fc.label,
-          cohesion: fc.cohesion,
-          ts: Date.now(),
-        }
-      );
-    } catch (err: unknown) {
-      process.stderr.write(
-        `[unerr] ⚠ File community write failed: ${err instanceof Error ? err.message : String(err)}\n`
-      );
-    }
-  }
+  const ts = Date.now();
+  const fileCommunityRows: unknown[][] = result.fileCommunities.map((fc) => [
+    fc.file_path,
+    fc.community,
+    fc.label,
+    fc.cohesion,
+    ts,
+  ]);
+  await bulkPut(
+    db,
+    "file_path, community, label, cohesion, updated_at",
+    "file_communities { file_path => community, label, cohesion, updated_at }",
+    fileCommunityRows,
+    "file community"
+  );
 
   log.info(
     `Community detection: ${result.macroCommunities.length} macro-communities, ${result.entityAssignments.size} entity assignments`

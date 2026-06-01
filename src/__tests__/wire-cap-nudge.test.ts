@@ -11,8 +11,13 @@
 import { describe, expect, it } from "vitest";
 import { applyWireCap } from "../proxy/wire-cap.js";
 
+// Realistic code-like text, NOT "x".repeat — the wire cap counts real BPE
+// tokens, and a run of one repeated char collapses to far fewer tokens than its
+// length, so it would not overflow the token cap the way real content does.
 function bigString(bytes: number): string {
-  return "x".repeat(bytes);
+  const line =
+    "const result = computeValue(alpha, beta, gamma, delta); // note\n";
+  return line.repeat(Math.ceil(bytes / line.length)).slice(0, bytes);
 }
 
 describe("wire-cap too_large nudge — concrete & context-aware", () => {
@@ -133,5 +138,70 @@ describe("wire-cap fetch_url too_large hint", () => {
     });
     expect(pageHint).toMatch(/BM25-ranked/);
     expect(pageHint).not.toMatch(/prompt:<keywords>/);
+  });
+});
+
+describe("wire-cap suggested_token_budget clears the cap on retry (no undershoot loop)", () => {
+  // Regression for the file_read entity-overflow loop. The wire cap now counts
+  // real BPE tokens (estimateTokenCount) — the SAME metric as `token_budget` —
+  // so the suggested budget (this response's token count, rounded up to 100)
+  // clears the cap on retry by construction. Previously the cap was byte-based
+  // (token_budget × 4) while the suggestion was BPE-token-based; for code at
+  // ~4.1 bytes/token the suggestion's byte cap stayed below the payload, so
+  // retrying the suggested value failed identically and re-suggested it (loop).
+  //
+  // Code-like text (not "x".repeat — BPE collapses repeated chars) so the token
+  // count scales with size.
+  function codeLike(bytes: number): string {
+    const line =
+      "const result = computeValue(alpha, beta, gamma, delta); // note\n";
+    return line.repeat(Math.ceil(bytes / line.length)).slice(0, bytes);
+  }
+
+  it("retrying file_read with the suggested_token_budget no longer returns too_large", () => {
+    const payload = codeLike(14_000); // ≈ compressShellOutput body size
+    const first = applyWireCap("file_read", payload, {
+      entity: "compressShellOutput",
+    });
+    const firstObj = first.body as Record<string, unknown>;
+    expect(firstObj.status).toBe("too_large");
+    expect(firstObj.reason).toBe("entity_too_large");
+
+    const suggested = firstObj.suggested_token_budget as number;
+    const tokens = firstObj.tokens as number;
+
+    // Core invariant: the suggested budget covers the payload's real token count.
+    expect(suggested).toBeGreaterThanOrEqual(tokens);
+
+    // And it actually clears on retry — the loop is broken.
+    const retry = applyWireCap("file_read", payload, {
+      entity: "compressShellOutput",
+      token_budget: suggested,
+    });
+    const retryObj = retry.body as Record<string, unknown>;
+    expect(retryObj.status).not.toBe("too_large");
+  });
+
+  it("never re-suggests the same value that was just requested and failed", () => {
+    const payload = codeLike(9_000); // ≈ maybeCompressContent body size
+    const first = applyWireCap("file_read", payload, { entity: "x" });
+    const suggested = (first.body as Record<string, unknown>)
+      .suggested_token_budget as number;
+
+    // Retry at the suggested value: if it still overflows, the next suggestion
+    // MUST be strictly larger (no identical re-suggestion loop). If it clears,
+    // there is no second suggestion at all — both outcomes break the loop.
+    const retry = applyWireCap("file_read", payload, {
+      entity: "x",
+      token_budget: suggested,
+    });
+    const retryObj = retry.body as Record<string, unknown>;
+    if (retryObj.status === "too_large") {
+      expect(retryObj.suggested_token_budget as number).toBeGreaterThan(
+        suggested
+      );
+    } else {
+      expect(retryObj.status).not.toBe("too_large");
+    }
   });
 });

@@ -116,41 +116,40 @@ const PER_TOOL_CAPS: Record<string, ToolCap> = {
 };
 
 /** Final safety net: even if a tool ignored its own cap, never let one
- * response exceed this many bytes on the wire. ~2K tokens. */
-const HARD_BYTE_CAP = 8192;
+ * response exceed this many BPE tokens on the wire. `token_budget` and this cap
+ * are both counted in real tokens (estimateTokenCount) — the same metric — so a
+ * suggested budget always clears the cap on retry. */
+const HARD_TOKEN_CAP = 2048;
 
-/** Approximate bytes-per-token used to convert an agent's `token_budget`
- * arg into a byte cap. Conservative; modern BPE tokenizers average ~3.5–4
- * chars per token for English/code. */
-const BYTES_PER_TOKEN = 4;
+/** Upper bound on the token cap reachable via `token_budget`, even if the agent
+ * passes a very large value. Keeps a runaway client from blowing the model
+ * context (~64K tokens; frontier models routinely run with 1–3M context
+ * windows). */
+const MAX_TOKEN_CAP = 65_536;
 
-/** Upper bound on the byte cap reachable via `token_budget`, even if the
- * agent passes a very large value. Keeps a runaway client from blowing the
- * model context. ~64K tokens (frontier models routinely run with 1–3M
- * context windows; the prior 16K bound was set when 200K was the ceiling). */
-const MAX_BYTE_CAP = 262_144;
-
-/** Higher bound when the caller signals `purpose:'explore'` — exploration
- * reads (browsing a long page, scanning a large entity) tolerate larger
- * payloads than reference reads. ~128K tokens. */
-const MAX_BYTE_CAP_EXPLORE = 524_288;
+/** Higher bound when the caller signals `purpose:'explore'` — exploration reads
+ * (browsing a long page, scanning a large entity) tolerate larger payloads than
+ * reference reads (~128K tokens). */
+const MAX_TOKEN_CAP_EXPLORE = 131_072;
 
 /**
- * Resolve the effective byte cap for this call. Defaults to HARD_BYTE_CAP;
- * agents can lift it (up to MAX_BYTE_CAP, or MAX_BYTE_CAP_EXPLORE when
+ * Resolve the effective token cap for this call. Defaults to HARD_TOKEN_CAP;
+ * agents can lift it (up to MAX_TOKEN_CAP, or MAX_TOKEN_CAP_EXPLORE when
  * `purpose:'explore'` is set) by passing `token_budget:N` — the documented
  * escape hatch for full-payload reads (e.g. function bodies for refactors,
- * long-form research pages). Anything <= the default keeps the default;
- * we never shrink below HARD_BYTE_CAP based on a small budget.
+ * long-form research pages). `token_budget` is counted in real BPE tokens, the
+ * SAME metric enforceTokenCap measures, so the suggested budget clears the cap
+ * on retry. Anything <= the default keeps the default; we never shrink below
+ * HARD_TOKEN_CAP based on a small budget.
  */
-function resolveByteCap(args: Record<string, unknown>): number {
+function resolveTokenCap(args: Record<string, unknown>): number {
   const tb = args.token_budget;
-  if (typeof tb !== "number" || tb <= 0) return HARD_BYTE_CAP;
+  if (typeof tb !== "number" || tb <= 0) return HARD_TOKEN_CAP;
   const purpose =
     typeof args.purpose === "string" ? args.purpose.trim() : undefined;
-  const upper = purpose === "explore" ? MAX_BYTE_CAP_EXPLORE : MAX_BYTE_CAP;
-  const scaled = Math.floor(tb) * BYTES_PER_TOKEN;
-  if (scaled <= HARD_BYTE_CAP) return HARD_BYTE_CAP;
+  const upper = purpose === "explore" ? MAX_TOKEN_CAP_EXPLORE : MAX_TOKEN_CAP;
+  const scaled = Math.floor(tb);
+  if (scaled <= HARD_TOKEN_CAP) return HARD_TOKEN_CAP;
   return Math.min(scaled, upper);
 }
 
@@ -201,11 +200,11 @@ export function applyWireCap(
   rawBody: unknown,
   args: Record<string, unknown>
 ): WireCapResult {
-  const byteCap = resolveByteCap(args);
+  const tokenCap = resolveTokenCap(args);
   const cap = PER_TOOL_CAPS[toolName];
   if (!cap) {
     // Tool not in the cap table — apply only the hard byte safety net.
-    return enforceByteCap(toolName, rawBody, args, null, byteCap);
+    return enforceTokenCap(toolName, rawBody, args, null, tokenCap);
   }
 
   const limit = resolveLimit(cap, args[cap.cursorArg]);
@@ -213,7 +212,7 @@ export function applyWireCap(
   // Top-level array (e.g. search_code returns a uniform array directly).
   if (!cap.arrayKey && Array.isArray(rawBody)) {
     if (rawBody.length <= limit)
-      return enforceByteCap(toolName, rawBody, args, null, byteCap);
+      return enforceTokenCap(toolName, rawBody, args, null, tokenCap);
     const total = rawBody.length;
     const sliced = rawBody.slice(0, limit);
     const hint = buildPageHint(
@@ -224,7 +223,7 @@ export function applyWireCap(
       sliced.length,
       cap.filterHint
     );
-    return enforceByteCap(toolName, sliced, args, hint, byteCap);
+    return enforceTokenCap(toolName, sliced, args, hint, tokenCap);
   }
 
   // Wrapper object pattern: {<arrayKey>: [...], ...rest}
@@ -237,7 +236,7 @@ export function applyWireCap(
     const obj = rawBody as Record<string, unknown>;
     const arr = obj[cap.arrayKey];
     if (!Array.isArray(arr)) {
-      return enforceByteCap(toolName, rawBody, args, null, byteCap);
+      return enforceTokenCap(toolName, rawBody, args, null, tokenCap);
     }
     const arrayKey = cap.arrayKey;
 
@@ -270,24 +269,24 @@ export function applyWireCap(
     // Two caps compose: the COUNT cap (`limit`) and the BYTE cap. Shrink to the
     // largest prefix satisfying BOTH. Without the byte-fit step, an
     // array-wrapper response (e.g. fetch_url passages) that fit the count cap
-    // but blew the byte cap was dropped wholesale by enforceByteCap into a
+    // but blew the byte cap was dropped wholesale by enforceTokenCap into a
     // too_large summary — forcing the agent to reason out a retry. Returning as
     // many items as fit, plus a page hint, lets it consume what arrived and
     // page the rest via the cursor arg.
     const countCap = Math.min(arr.length, limit);
-    const byteFit = fittingPrefixCount(
-      (n) => JSON.stringify(buildBody(n)).length,
+    const fitCount = fittingPrefixCount(
+      (n) => estimateTokenCount(JSON.stringify(buildBody(n))),
       countCap,
-      byteCap
+      tokenCap
     );
     // Always deliver at least one item when any exist — a single oversized item
-    // can't be split here, and enforceByteCap surfaces the token_budget escape
+    // can't be split here, and enforceTokenCap surfaces the token_budget escape
     // hatch for that case.
-    const delivered = arr.length === 0 ? 0 : Math.max(1, byteFit);
+    const delivered = arr.length === 0 ? 0 : Math.max(1, fitCount);
 
     // Nothing truncated by count, bytes, or upstream → pristine pass-through.
     if (delivered >= arr.length && beyondArray === 0) {
-      return enforceByteCap(toolName, rawBody, args, null, byteCap);
+      return enforceTokenCap(toolName, rawBody, args, null, tokenCap);
     }
 
     const moreAvailable = trueTotal - delivered;
@@ -302,31 +301,31 @@ export function applyWireCap(
             cap.filterHint
           )
         : null;
-    return enforceByteCap(toolName, buildBody(delivered), args, hint, byteCap);
+    return enforceTokenCap(toolName, buildBody(delivered), args, hint, tokenCap);
   }
 
-  return enforceByteCap(toolName, rawBody, args, null, byteCap);
+  return enforceTokenCap(toolName, rawBody, args, null, tokenCap);
 }
 
 /**
  * Binary-search the largest prefix length n in [0, maxCount] whose serialized
- * body fits within byteCap. `cost(n)` returns the serialized byte length of the
- * body built from the first n items and must be monotonically non-decreasing in
- * n. Returns 0 when even a single item overflows — callers may still choose to
- * deliver 1 and let enforceByteCap's token_budget hint handle it.
+ * body fits within tokenCap. `cost(n)` returns the serialized BPE token count of
+ * the body built from the first n items and must be monotonically
+ * non-decreasing in n. Returns 0 when even a single item overflows — callers may
+ * still choose to deliver 1 and let enforceTokenCap's token_budget hint handle it.
  */
 function fittingPrefixCount(
   cost: (n: number) => number,
   maxCount: number,
-  byteCap: number
+  tokenCap: number
 ): number {
   if (maxCount <= 0) return 0;
-  if (cost(maxCount) <= byteCap) return maxCount;
+  if (cost(maxCount) <= tokenCap) return maxCount;
   let lo = 0;
   let hi = maxCount;
   while (lo < hi) {
     const mid = Math.ceil((lo + hi) / 2);
-    if (cost(mid) <= byteCap) {
+    if (cost(mid) <= tokenCap) {
       lo = mid;
     } else {
       hi = mid - 1;
@@ -336,39 +335,48 @@ function fittingPrefixCount(
 }
 
 /**
- * Last line of defence: if the rendered body still blows past HARD_BYTE_CAP,
+ * Last line of defence: if the rendered body still blows past HARD_TOKEN_CAP,
  * drop a `too_large` summary instead of streaming a context-overflowing payload.
  * The body and the page-hint string both name the *concrete* lever the caller
  * should pull next: a numeric token_budget that would have fit, the
  * entity/limit they already passed, and (when the call is already maximally
  * narrow) the recommendation to read in offset/limit chunks.
  */
-function enforceByteCap(
+function enforceTokenCap(
   toolName: string,
   body: unknown,
   args: Record<string, unknown>,
   existingHint: string | null = null,
-  byteCap: number = HARD_BYTE_CAP
+  tokenCap: number = HARD_TOKEN_CAP
 ): WireCapResult {
   const serialized = typeof body === "string" ? body : JSON.stringify(body);
-  if (serialized.length <= byteCap) {
+  // Fast path: a string of L UTF-16 units holds at most L BPE tokens (every
+  // token is ≥1 char), so length <= tokenCap guarantees a fit without paying for
+  // tokenization — the common small-response case.
+  if (serialized.length <= tokenCap) {
+    return { body, pageHint: existingHint };
+  }
+  const tokens = estimateTokenCount(serialized);
+  if (tokens <= tokenCap) {
     return { body, pageHint: existingHint };
   }
 
-  // Compute the numeric token budget that would have fit this response. Round
-  // up to the next 100 so the caller doesn't bounce off a fractional miss.
-  const neededTokensRaw = estimateTokenCount(serialized);
-  const neededTokens = Math.ceil(neededTokensRaw / 100) * 100;
+  // The cap and `token_budget` are both real BPE tokens (estimateTokenCount), so
+  // the suggested budget — this response's token count rounded up to the next
+  // 100 — clears the cap on retry by construction. (The prior byte-based cap
+  // counted token_budget × 4 bytes while the suggestion was BPE-token-based; for
+  // code at ~4.1 bytes/token the suggestion's byte cap stayed below the payload,
+  // so retrying it failed identically and re-suggested the same value — a loop.)
+  const neededTokens = Math.ceil(tokens / 100) * 100;
   const purposeArg =
     typeof args.purpose === "string" ? args.purpose.trim() : undefined;
   const upperCap =
-    purposeArg === "explore" ? MAX_BYTE_CAP_EXPLORE : MAX_BYTE_CAP;
-  const cappedBudget = Math.min(neededTokens, upperCap / BYTES_PER_TOKEN);
+    purposeArg === "explore" ? MAX_TOKEN_CAP_EXPLORE : MAX_TOKEN_CAP;
+  const cappedBudget = Math.min(neededTokens, upperCap);
   const requestedBudget =
     typeof args.token_budget === "number" && args.token_budget > 0
       ? Math.floor(args.token_budget)
       : null;
-  const currentBudgetTokens = Math.floor(byteCap / BYTES_PER_TOKEN);
 
   // Was the caller already narrowed by entity/key/name? If so the only
   // remaining lever is token_budget (or splitting via offset/limit).
@@ -393,13 +401,11 @@ function enforceByteCap(
     reason = "entity_too_large";
     hintTail = `pass token_budget:${cappedBudget} or read in offset/limit chunks`;
   } else if (hasLimit || hasOffset) {
-    // Already paginated; suggest a smaller window AND the budget bump.
+    // Already paginated; suggest a smaller window AND the budget bump. Shrink
+    // the limit in proportion to how far the token count overran the cap.
     reason = "page_too_large";
     const suggestedLimit = hasLimit
-      ? Math.max(
-          1,
-          Math.floor((args.limit as number) * (byteCap / serialized.length))
-        )
+      ? Math.max(1, Math.floor((args.limit as number) * (tokenCap / tokens)))
       : null;
     const limitHint = suggestedLimit
       ? `limit:${suggestedLimit}`
@@ -411,17 +417,14 @@ function enforceByteCap(
     // Surface paste-ready values so the agent doesn't need to interpret the
     // hint before retrying.
     reason = "page_too_large";
-    const limitGuess = Math.max(
-      5,
-      Math.floor((30 * byteCap) / serialized.length)
-    );
+    const limitGuess = Math.max(5, Math.floor((30 * tokenCap) / tokens));
     hintTail = promptArg
       ? `limit:${limitGuess} (prompt already set — BM25-ranked) or token_budget:${cappedBudget}`
       : `pass prompt:<keywords> to BM25-rank passages, or limit:${limitGuess}, or token_budget:${cappedBudget}`;
-  } else if (byteCap > HARD_BYTE_CAP) {
+  } else if (tokenCap > HARD_TOKEN_CAP) {
     // Budget was already lifted but still overflowed — caller must narrow.
     reason = "narrow_required";
-    hintTail = `narrow with entity:<name> or limit:<n> (token_budget=${currentBudgetTokens} already lifted)`;
+    hintTail = `narrow with entity:<name> or limit:<n> (token_budget=${tokenCap} already lifted)`;
   } else {
     reason = "too_large";
     hintTail = `narrow with entity:<name>/limit:<n> or token_budget:${cappedBudget}`;
@@ -431,7 +434,8 @@ function enforceByteCap(
     status: "too_large",
     reason,
     bytes: serialized.length,
-    cap_bytes: byteCap,
+    tokens,
+    cap_tokens: tokenCap,
     needed_tokens: neededTokens,
     suggested_token_budget: cappedBudget,
     tool: toolName,
@@ -442,6 +446,6 @@ function enforceByteCap(
   if (entityArg) {
     oversize.entity = entityArg;
   }
-  const overHint = `ur|${toWireTag("pg")} ${toolName} ${serialized.length}B>${byteCap}B (≈${neededTokens}tok) — ${hintTail}`;
+  const overHint = `ur|${toWireTag("pg")} ${toolName} ${tokens}tok>${tokenCap}tok — ${hintTail}`;
   return { body: oversize, pageHint: overHint };
 }

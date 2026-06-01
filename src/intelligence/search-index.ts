@@ -11,6 +11,43 @@
 import type { CozoDb } from "./cozo-schema.js";
 
 /**
+ * Rows-per-`:put` chunk for bulk search-index writes. Each `db.run` is one SQLite
+ * commit; the old per-(token,entity) loop issued ~63K commits on a full index,
+ * which — under the proxy's long-lived reader snapshot starving SQLite's PASSIVE
+ * autocheckpoint — churned the WAL to GB scale (see persistent-db.ts
+ * checkpointWal). Batching collapses that to a few hundred commits.
+ */
+const PUT_CHUNK = 512;
+
+/**
+ * Bulk-`:put` `rows` into a relation, one `db.run` per chunk instead of one per
+ * row. On a chunk failure, falls back to per-row writes so a single bad row can
+ * never drop the rest of the chunk.
+ */
+async function bulkPut(
+  db: CozoDb,
+  head: string,
+  relationSpec: string,
+  rows: unknown[][]
+): Promise<void> {
+  const script = `?[${head}] <- $rows :put ${relationSpec}`;
+  for (let i = 0; i < rows.length; i += PUT_CHUNK) {
+    const chunk = rows.slice(i, i + PUT_CHUNK);
+    try {
+      await db.run(script, { rows: chunk });
+    } catch {
+      for (const row of chunk) {
+        try {
+          await db.run(script, { rows: [row] });
+        } catch {
+          // Duplicate / malformed single row — ignore (matches prior behavior).
+        }
+      }
+    }
+  }
+}
+
+/**
  * Tokenize an entity name into searchable tokens.
  * Handles camelCase, PascalCase, snake_case, and kebab-case.
  */
@@ -51,38 +88,49 @@ export async function buildSearchIndex(db: CozoDb): Promise<void> {
   // Track document frequency: how many entities contain each token
   const tokenDocCount = new Map<string, number>();
 
+  // Collect (token, entity_key) rows for one chunked bulk :put instead of one
+  // commit per pair — see bulkPut / PUT_CHUNK above for the WAL-bloat rationale.
+  const tokenRows: unknown[][] = [];
   for (const row of result.rows) {
     const [key, name] = row as [string, string];
     const tokens = tokenize(name);
     for (const token of tokens) {
       tokenDocCount.set(token, (tokenDocCount.get(token) ?? 0) + 1);
-      try {
-        await db.run(
-          "?[token, entity_key] <- [[$token, $key]] :put search_tokens { token, entity_key }",
-          { token, key }
-        );
-      } catch {
-        // Duplicate — ignore
-      }
+      tokenRows.push([token, key]);
     }
   }
+  // Key-sorted insert (token, entity_key). cozo stores the relation key-sorted;
+  // feeding rows in key order keeps inserts on the rightmost B-tree leaf instead
+  // of scattering page splits across the tree, sharply cutting the dirty pages
+  // each commit writes to the (unreclaimed-under-held-reader) WAL.
+  tokenRows.sort((a, b) => {
+    const ta = a[0] as string;
+    const tb = b[0] as string;
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    return (a[1] as string) < (b[1] as string) ? -1 : 1;
+  });
+  await bulkPut(
+    db,
+    "token, entity_key",
+    "search_tokens { token, entity_key }",
+    tokenRows
+  );
 
-  // Store document frequencies + pre-computed IDF weights
-  let idfErrors = 0;
+  // Store document frequencies + pre-computed IDF weights (chunked bulk :put).
+  const idfRows: unknown[][] = [];
   for (const [token, docCount] of tokenDocCount) {
     const idf =
       totalEntities > 0 ? Math.log(totalEntities / Math.max(docCount, 1)) : 0;
-    try {
-      await db.run(
-        "?[token, doc_count, idf] <- [[$token, $dc, $idf]] :put token_doc_frequency { token => doc_count, idf }",
-        { token, dc: docCount, idf }
-      );
-    } catch {
-      idfErrors++;
-    }
+    idfRows.push([token, docCount, idf]);
   }
+  await bulkPut(
+    db,
+    "token, doc_count, idf",
+    "token_doc_frequency { token => doc_count, idf }",
+    idfRows
+  );
   process.stderr.write(
-    `[unerr:search-index] Done: ${tokenDocCount.size} tokens indexed, ${idfErrors} IDF errors\n`
+    `[unerr:search-index] Done: ${tokenDocCount.size} tokens indexed\n`
   );
 }
 
@@ -129,21 +177,21 @@ export async function updateSearchIndexIncremental(
   }
   if (!result?.rows) return;
 
-  // Insert new tokens
+  // Insert new tokens (chunked bulk :put).
+  const tokenRows: unknown[][] = [];
   for (const row of result.rows) {
     const [key, name] = row as [string, string];
     const tokens = tokenize(name);
     for (const token of tokens) {
-      try {
-        await db.run(
-          "?[token, entity_key] <- [[$token, $key]] :put search_tokens { token, entity_key }",
-          { token, key }
-        );
-      } catch {
-        /* safe */
-      }
+      tokenRows.push([token, key]);
     }
   }
+  await bulkPut(
+    db,
+    "token, entity_key",
+    "search_tokens { token, entity_key }",
+    tokenRows
+  );
 
   // Recompute IDF for all tokens (lightweight — just counts + math)
   try {
@@ -154,18 +202,18 @@ export async function updateSearchIndexIncremental(
       "?[token, count(entity_key)] := *search_tokens{token, entity_key}"
     );
     if (tokenResult.rows) {
+      const idfRows: unknown[][] = [];
       for (const row of tokenResult.rows) {
         const [token, docCount] = row as [string, number];
         const idf = Math.log(totalEntities / Math.max(docCount, 1));
-        try {
-          await db.run(
-            "?[token, doc_count, idf] <- [[$token, $dc, $idf]] :put token_doc_frequency { token => doc_count, idf }",
-            { token, dc: docCount, idf }
-          );
-        } catch {
-          /* safe */
-        }
+        idfRows.push([token, docCount, idf]);
       }
+      await bulkPut(
+        db,
+        "token, doc_count, idf",
+        "token_doc_frequency { token => doc_count, idf }",
+        idfRows
+      );
     }
   } catch {
     /* IDF update failed — search still works, just with stale weights */

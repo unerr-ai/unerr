@@ -177,7 +177,31 @@ export async function checkpointWal(dbPath: string): Promise<void> {
     const sqlite = new Database(dbPath);
     try {
       sqlite.pragma("busy_timeout = 2000");
-      sqlite.pragma("wal_checkpoint(TRUNCATE)");
+      // `wal_checkpoint(TRUNCATE)` returns `[{ busy, log, checkpointed }]`.
+      // `busy === 1` means a reader held a snapshot, so reclaimable frames were
+      // folded into the main db (the PASSIVE part) but the WAL file could NOT be
+      // truncated — it stays at its high-water mark. Ignoring this return (the
+      // prior behavior) silently left the WAL bloated whenever any MCP read was
+      // in flight. The proxy's readers are short-lived, so retry with a short
+      // backoff to catch a reader-free window; bounded so a checkpoint can never
+      // block a reindex/shutdown for long.
+      const MAX_ATTEMPTS = 6;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        const res = sqlite.pragma("wal_checkpoint(TRUNCATE)") as Array<{
+          busy?: number;
+        }>;
+        const busy = res?.[0]?.busy ?? 0;
+        if (busy === 0) return; // WAL fully reset to zero
+        if (attempt < MAX_ATTEMPTS) {
+          // 50, 100, 200, 400, 800 ms — ~1.55s total worst case.
+          await new Promise<void>((resolve) =>
+            setTimeout(resolve, 50 * 2 ** (attempt - 1))
+          );
+        }
+      }
+      process.stderr.write(
+        `[unerr] WARN: WAL checkpoint on ${dbPath} could not truncate after ${MAX_ATTEMPTS} attempts (reader pinned); frames folded into the main db, WAL file left for the next checkpoint\n`
+      );
     } finally {
       sqlite.close();
     }

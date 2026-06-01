@@ -382,6 +382,22 @@ export class DriftTracker {
       baseByKey.set(entity.key, entity);
     }
 
+    // Reconcile stale "deleted" overlays before re-scanning. A "deleted" row is
+    // written (below) when a base key is absent from local — e.g. a transient
+    // empty/partial read, a tree-sitter parse miss, or a since-reverted edit. If
+    // that entity is present in the file on this pass, neither loop below clears
+    // the orphan row: the added/modified loop skips it (base present + hash match
+    // → no upsert fires) and the deleted loop only marks base keys ABSENT from
+    // local. The stale row then masks a LIVE entity as deleted in get_entity and
+    // drift meta until the next full reindex. Drop any "deleted" overlay whose
+    // key is back in localByKey — the entity exists locally, so it is not gone.
+    const priorDrift = await this.localGraph.getDriftEntitiesForFile(relPath);
+    for (const overlay of priorDrift) {
+      if (overlay.drift_status === "deleted" && localByKey.has(overlay.key)) {
+        await this.localGraph.removeDriftEntity(overlay.key);
+      }
+    }
+
     const now = new Date().toISOString();
     const origin = determineOrigin(this._lastSyncTimestamp);
 

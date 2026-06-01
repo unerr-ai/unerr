@@ -440,8 +440,58 @@ describe("QueryRouter", () => {
       });
 
       const result = await router.execute("get_function", { key: "fn1" });
-      // Deleted entity returns null content
+      // Deleted entity returns null content (src/index.ts does not exist, so the
+      // read-time verification cannot find the entity → deletion is honored).
       expect(result.content).toBeNull();
+    });
+
+    it("stale 'deleted' overlay over a live entity — self-heals and serves it", async () => {
+      // The entity is still defined in its real file, so the "deleted" overlay
+      // is stale (left by a transient miss). resolveEntityWithOverlay
+      // re-extracts the file, confirms the entity is live, drops the stale row,
+      // and serves the live entity instead of masking it as deleted.
+      const driftEntities: DriftEntity[] = [
+        {
+          key: "heal-key",
+          name: "exec",
+          kind: "function",
+          signature: "",
+          body: "",
+          file_path: "src/utils/exec.ts",
+          line_start: 30,
+          line_end: 30,
+          content_hash: "",
+          drift_status: "deleted",
+          intent_id: "",
+          modified_at: "2026-05-31T12:00:00Z",
+          origin: "human",
+          previous_body: "",
+          previous_signature: "",
+        },
+      ];
+      const localGraph = createMockLocalGraph({ driftEntities });
+      // Base graph still has the entity (it is live), pointing at the real file.
+      (localGraph.getEntity as ReturnType<typeof vi.fn>).mockReturnValue({
+        key: "heal-key",
+        kind: "function",
+        name: "exec",
+        file_path: "src/utils/exec.ts",
+        start_line: 30,
+        end_line: 58,
+        signature: "",
+        body: "",
+        fan_in: 0,
+        fan_out: 0,
+        risk_level: "normal",
+      });
+
+      const router = new QueryRouter(localGraph);
+      const result = await router.execute("get_function", { key: "heal-key" });
+
+      // Served the live entity (not null) and reconciled the stale overlay.
+      expect(result.content).not.toBeNull();
+      expect((result.content as { name: string }).name).toBe("exec");
+      expect(localGraph.removeDriftEntity).toHaveBeenCalledWith("heal-key");
     });
 
     it("local failure returns error with local source", async () => {

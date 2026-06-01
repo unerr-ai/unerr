@@ -496,6 +496,90 @@ describe("CozoGraphStore — Rules & Patterns (Phase 10b)", () => {
       vi.restoreAllMocks();
     });
 
+    it("prunes a stale 'deleted' overlay when the entity is live in base", async () => {
+      // Regression: a "deleted" overlay left behind by a transient miss (empty
+      // read / parse fail) must not mask a live entity. Once the delta confirms
+      // the entity present in base, the stale deletion is reconciled away.
+      vi.spyOn(store, "getAllDriftEntities").mockResolvedValue([
+        {
+          key: "fn-del",
+          name: "classifyShellOutput",
+          kind: "function",
+          signature: "classifyShellOutput(): void",
+          body: "",
+          file_path: "src/proxy/shell-classifier.ts",
+          line_start: 1387,
+          line_end: 1387,
+          content_hash: "",
+          drift_status: "deleted" as const,
+          intent_id: "",
+          modified_at: new Date().toISOString(),
+          origin: "human" as const,
+          previous_body: "function classifyShellOutput() {}",
+          previous_signature: "classifyShellOutput(): void",
+        },
+      ]);
+      vi.spyOn(store, "getEntity").mockResolvedValue({
+        key: "fn-del",
+        kind: "function",
+        name: "classifyShellOutput",
+        file_path: "src/proxy/shell-classifier.ts",
+        start_line: 1387,
+        end_line: 0,
+        signature: "classifyShellOutput(): void",
+        body: "function classifyShellOutput() {}",
+        fan_in: 0,
+        fan_out: 0,
+        risk_level: "normal",
+        community: -1,
+      });
+      const removeSpy = vi
+        .spyOn(store, "removeDriftEntity")
+        .mockResolvedValue(undefined);
+
+      const result = await store.applyDelta(emptyDelta);
+
+      expect(result.overlayExpired).toBe(1);
+      expect(removeSpy).toHaveBeenCalledWith("fn-del");
+
+      vi.restoreAllMocks();
+    });
+
+    it("keeps a 'deleted' overlay when the entity is absent from base", async () => {
+      // A genuine pending deletion (entity gone from the working tree) has no
+      // base row — the overlay is authoritative and must survive the prune.
+      vi.spyOn(store, "getAllDriftEntities").mockResolvedValue([
+        {
+          key: "fn-gone",
+          name: "removedFn",
+          kind: "function",
+          signature: "removedFn(): void",
+          body: "",
+          file_path: "src/gone.ts",
+          line_start: 1,
+          line_end: 1,
+          content_hash: "",
+          drift_status: "deleted" as const,
+          intent_id: "",
+          modified_at: new Date().toISOString(),
+          origin: "human" as const,
+          previous_body: "function removedFn() {}",
+          previous_signature: "removedFn(): void",
+        },
+      ]);
+      vi.spyOn(store, "getEntity").mockResolvedValue(null);
+      const removeSpy = vi
+        .spyOn(store, "removeDriftEntity")
+        .mockResolvedValue(undefined);
+
+      const result = await store.applyDelta(emptyDelta);
+
+      expect(result.overlayExpired).toBe(0);
+      expect(removeSpy).not.toHaveBeenCalled();
+
+      vi.restoreAllMocks();
+    });
+
     it("prunes selectively — only matching entries expire", async () => {
       vi.spyOn(store, "getAllDriftEntities").mockResolvedValue([
         {

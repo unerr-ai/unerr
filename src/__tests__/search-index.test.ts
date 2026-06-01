@@ -31,26 +31,39 @@ function createMockDb(): CozoDb {
       // Handle :create (schema init)
       if (query.includes(":create")) return { rows: [] };
 
-      // Handle :put search_tokens
+      // Handle :put search_tokens — bulk `<- $rows` form (params.rows) with a
+      // single-row fallback for any legacy `<- [[$token,$key]]` callers.
       if (query.includes(":put search_tokens")) {
-        const token = params?.token as string;
-        const key = params?.key as string;
-        const exists = searchTokens.some(([t, k]) => t === token && k === key);
-        if (!exists) searchTokens.push([token, key]);
+        const rows = (params?.rows as Array<[string, string]>) ?? [
+          [params?.token as string, params?.key as string],
+        ];
+        for (const [token, key] of rows) {
+          const exists = searchTokens.some(
+            ([t, k]) => t === token && k === key
+          );
+          if (!exists) searchTokens.push([token, key]);
+        }
         return { rows: [] };
       }
 
-      // Handle :put token_doc_frequency
+      // Handle :put token_doc_frequency — bulk `<- $rows` form (params.rows) with
+      // a single-row fallback.
       if (query.includes(":put token_doc_frequency")) {
-        const token = params?.token as string;
-        const dc = params?.dc as number;
-        const idf = params?.idf as number;
-        // Upsert
-        const idx = tokenDocFreq.findIndex(([t]) => t === token);
-        if (idx >= 0) {
-          tokenDocFreq[idx] = [token, dc, idf];
-        } else {
-          tokenDocFreq.push([token, dc, idf]);
+        const rows = (params?.rows as Array<[string, number, number]>) ?? [
+          [
+            params?.token as string,
+            params?.dc as number,
+            params?.idf as number,
+          ],
+        ];
+        for (const [token, dc, idf] of rows) {
+          // Upsert
+          const idx = tokenDocFreq.findIndex(([t]) => t === token);
+          if (idx >= 0) {
+            tokenDocFreq[idx] = [token, dc, idf];
+          } else {
+            tokenDocFreq.push([token, dc, idf]);
+          }
         }
         return { rows: [] };
       }

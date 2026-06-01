@@ -2753,7 +2753,21 @@ export class CozoGraphStore {
     let expired = 0;
     const overlayEntities = await this.getAllDriftEntities();
     for (const overlay of overlayEntities) {
-      // Only prune modified entries (added/deleted have different semantics)
+      // A "deleted" overlay is stale once the just-applied delta shows the
+      // entity present in the base graph again (re-added, or the deletion was
+      // reverted). The entities relation is authoritative post-delta, so the
+      // deletion no longer holds — prune it, otherwise get_entity and drift
+      // meta keep masking a live entity as deleted indefinitely (this loop
+      // historically skipped "deleted", so such rows never expired).
+      if (overlay.drift_status === "deleted") {
+        const base = await this.getEntity(overlay.key);
+        if (base) {
+          await this.removeDriftEntity(overlay.key);
+          expired++;
+        }
+        continue;
+      }
+      // Only prune modified entries (added has different semantics)
       if (overlay.drift_status !== "modified") continue;
       const base = await this.getEntity(overlay.key);
       if (

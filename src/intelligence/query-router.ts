@@ -3066,6 +3066,19 @@ export class QueryRouter {
               toolName === "get_function" ||
               toolName === "get_class";
             const fullBody = bodyLines.join("\n");
+            // Budget the wire cap (enforceByteCap) will require to deliver the
+            // full body uncapped. The cap serializes the ENTIRE response (body +
+            // JSON envelope + newline/quote escaping) and rounds the token
+            // estimate up to the next 100. Mirror that here over the projected
+            // full-body entity so the suggested token_budget actually clears the
+            // cap on retry. Estimating only the raw body (the prior
+            // `estimateTokens(fullBody)+100`) undershot — JSON escaping plus the
+            // entity envelope inflate the on-wire bytes, so the agent bounced off
+            // a second gate (e.g. suggested 2876 when the cap needed 3400).
+            const suggestedBudget =
+              Math.ceil(
+                estimateTokens({ ...entity, body: fullBody }) / 100
+              ) * 100;
 
             if (!includeBody) {
               // Structural preview: first ~15 lines as a signature/intro snippet
@@ -3077,7 +3090,7 @@ export class QueryRouter {
                 (entity as unknown as Record<string, unknown>)._preview = {
                   shown_lines: PREVIEW_LINES,
                   total_lines: bodyLines.length,
-                  _hint: `Structural preview only — showing first ${PREVIEW_LINES} of ${bodyLines.length} lines. Pass include_body:true (or token_budget:${estimateTokens(fullBody) + 100}) to get the full body.`,
+                  _hint: `Structural preview only — showing first ${PREVIEW_LINES} of ${bodyLines.length} lines. Pass include_body:true (or token_budget:${suggestedBudget}) to get the full body.`,
                 };
               }
             } else if (fullBody.length > tokenBudget * CHARS_PER_TOKEN) {
@@ -3094,7 +3107,7 @@ export class QueryRouter {
                 shown_lines: truncatedLines.length,
                 total_lines: bodyLines.length,
                 omitted_lines: `${entity.start_line + truncatedLines.length}-${entity.start_line + bodyLines.length - 1}`,
-                _hint: `Body truncated: showing ${truncatedLines.length} of ${bodyLines.length} lines (~${tokenBudget} tokens). To see the full entity, pass token_budget: ${estimateTokens(fullBody) + 100}. Or use file_read with offset: ${entity.start_line + truncatedLines.length}, limit: ${bodyLines.length - truncatedLines.length} to read the remaining lines.`,
+                _hint: `Body truncated: showing ${truncatedLines.length} of ${bodyLines.length} lines (~${tokenBudget} tokens). To see the full entity, pass token_budget: ${suggestedBudget}. Or use file_read with offset: ${entity.start_line + truncatedLines.length}, limit: ${bodyLines.length - truncatedLines.length} to read the remaining lines.`,
               };
             } else {
               entity.body = fullBody;
@@ -3641,10 +3654,46 @@ export class QueryRouter {
 
     if (driftEntity) {
       if (driftEntity.drift_status === "deleted") {
-        // Entity WAS known but was deleted locally. Distinct from "never
-        // existed" (null): the caller asked for a real key whose entity is gone,
-        // so the handler returns content:null with the deletion implied — NOT a
-        // did-you-mean suggestion list (which is for genuinely-absent names).
+        // A "deleted" overlay normally means the entity was removed from the
+        // working tree → return content:null (deletion implied), NOT a
+        // did-you-mean list (that is for names that never existed).
+        //
+        // But a STALE "deleted" row can outlive the entity it shadowed: a
+        // transient empty/partial read or a parse miss marks the entity deleted
+        // while it is in fact still present in the file. That row persists in
+        // graph.db across a plain resume (which does not re-scan unchanged
+        // files) and masks a LIVE entity. The base graph alone cannot tell the
+        // two apart — the last-index baseEntity is present in BOTH the stale and
+        // the genuine-pending-deletion case — so the working-tree file is the
+        // only authority. When a base entity exists, re-extract its file with
+        // the canonical extractor: if the entity is still defined there, the
+        // overlay is stale → self-heal it and serve the live entity; otherwise
+        // honor the deletion. (No file / extraction failure → honor deletion,
+        // which is also the unit-test path: no real file on disk.)
+        if (baseEntity?.file_path) {
+          try {
+            const { readFileSync } = await import("node:fs");
+            const { resolve } = await import("node:path");
+            const { extractEntitiesAsync } = await import("./ast-extractor.js");
+            const cwd = this.projectRoot ?? process.cwd();
+            const content = readFileSync(
+              resolve(cwd, baseEntity.file_path),
+              "utf-8"
+            );
+            const stillDefined = (
+              await extractEntitiesAsync(content, baseEntity.file_path)
+            ).some(
+              (e) => e.name === baseEntity.name && e.kind === baseEntity.kind
+            );
+            if (stillDefined) {
+              await this.localGraph.removeDriftEntity(driftEntity.key);
+              return baseEntity;
+            }
+          } catch {
+            // Unreadable file / extraction failure → fall through and honor the
+            // recorded deletion.
+          }
+        }
         return "deleted";
       }
 

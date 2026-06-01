@@ -266,6 +266,73 @@ describe("DriftTracker", () => {
     expect(deletedEntity.name).toBe("deletedFn");
   });
 
+  it("reconciles a stale 'deleted' overlay when the entity reappears", async () => {
+    // Regression: a "deleted" overlay left by a transient miss (empty/partial
+    // read, parse fail) must not keep masking a live entity. On the next scan
+    // that finds the entity present in the file, the stale row is dropped — the
+    // added/modified loop alone won't (base present + hash match → no upsert).
+    const baseEntities: LocalEntity[] = [];
+    const graph = createMockGraph(baseEntities);
+    const fileHashManager = new FileHashManager(unerrDir);
+    const tracker = new DriftTracker(
+      { projectRoot, repoId: "repo1", unerrDir },
+      graph,
+      fileHashManager
+    );
+
+    const content = "export function liveFn() {\n  return 1\n}\n";
+    writeFileSync(join(projectRoot, "src/live.ts"), content);
+
+    // First pass extracts liveFn under its real key (recorded as "added").
+    await tracker.processFile("src/live.ts", "abc123");
+    const liveKey = [...graph.driftOverlay.keys()][0];
+    expect(liveKey).toBeDefined();
+    const added = graph.driftOverlay.get(liveKey!)!;
+
+    // Construct the stale state: entity is live in base, yet a "deleted"
+    // overlay shadows the same key.
+    baseEntities.push({
+      key: liveKey!,
+      kind: "function",
+      name: added.name,
+      file_path: "src/live.ts",
+      start_line: added.line_start,
+      end_line: added.line_end,
+      signature: added.signature,
+      body: added.body,
+      fan_in: 0,
+      fan_out: 0,
+      risk_level: "normal",
+      community: -1,
+    });
+    graph.driftOverlay.set(liveKey!, {
+      ...added,
+      drift_status: "deleted",
+      body: "",
+    });
+
+    // Record reconciliation removals.
+    const removed: string[] = [];
+    const origRemove = graph.removeDriftEntity;
+    (graph as unknown as { removeDriftEntity: (k: string) => void }).removeDriftEntity =
+      (k: string) => {
+        removed.push(k);
+        return origRemove(k);
+      };
+
+    // Re-scan with a fresh tracker (empty mtime cache → no unchanged-file skip).
+    const tracker2 = new DriftTracker(
+      { projectRoot, repoId: "repo1", unerrDir },
+      graph,
+      new FileHashManager(unerrDir)
+    );
+    await tracker2.processFile("src/live.ts", "abc123");
+
+    // The stale "deleted" overlay was reconciled away — entity no longer masked.
+    expect(removed).toContain(liveKey);
+    expect(graph.driftOverlay.get(liveKey!)?.drift_status).not.toBe("deleted");
+  });
+
   it("skips unsupported languages", async () => {
     const graph = createMockGraph();
     const fileHashManager = new FileHashManager(unerrDir);

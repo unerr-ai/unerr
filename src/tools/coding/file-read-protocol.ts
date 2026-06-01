@@ -442,20 +442,22 @@ export async function runFileReadForRouter(
     .map((line, i) => `${effOffset + i}\t${line}`)
     .join("\n");
 
-  // Entity-overflow fallback: when an entity *was* resolved but its body
-  // alone exceeds the wire byte cap, returning a generic 'too_large' is the
-  // wrong move — the caller already narrowed via entity:. Hand back a
-  // concrete chunk plan + the token_budget that would fit, so the next call
-  // lands. Mirror wire-cap.ts HARD_BYTE_CAP (8192). Only triggers when the
-  // caller did NOT explicitly lift token_budget — if they did, trust them
-  // and let wire-cap report the precise needed budget.
-  const WIRE_HARD_BYTE_CAP = 8192;
+  // Entity-overflow fallback: when an entity *was* resolved but its body alone
+  // exceeds the wire token cap, returning a generic 'too_large' is the wrong
+  // move — the caller already narrowed via entity:. Hand back a concrete chunk
+  // plan + the token_budget that would fit, so the next call lands. Counted in
+  // real BPE tokens to mirror wire-cap.ts (HARD_TOKEN_CAP 2048) — the same metric
+  // the wire cap enforces, so the suggested budget clears it. Only triggers when
+  // the caller did NOT explicitly lift token_budget — if they did, trust them and
+  // let wire-cap report the precise needed budget.
+  const WIRE_HARD_TOKEN_CAP = 2048;
   const explicitTokenBudget =
     typeof args.token_budget === "number" && args.token_budget >= 100;
+  const entityTokens = estimateTokens(numbered);
   if (
     entityWindowApplied &&
     !explicitTokenBudget &&
-    numbered.length > WIRE_HARD_BYTE_CAP
+    entityTokens > WIRE_HARD_TOKEN_CAP
   ) {
     const entityStart = effOffset;
     const entityEnd = effOffset + sliced.length - 1;
@@ -468,7 +470,10 @@ export async function runFileReadForRouter(
         limit: Math.min(chunkSize, entityEnd - s + 1),
       });
     }
-    const neededTokens = Math.ceil(estimateTokens(numbered) / 100) * 100;
+    // BPE-token budget that clears the wire cap on retry: the wire enforces real
+    // tokens (estimateTokenCount), so round this entity's token count up to the
+    // next 100. The wire cap is the final backstop if the envelope nudges it over.
+    const neededTokens = Math.ceil(entityTokens / 100) * 100;
     const entityLabel = entityMatchInfo?.name ?? entityName ?? "(entity)";
     logFileRead(
       ctx.cwd,
@@ -488,7 +493,8 @@ export async function runFileReadForRouter(
         end_line: entityEnd,
         total_entity_lines: totalEntityLines,
         bytes: numbered.length,
-        cap_bytes: WIRE_HARD_BYTE_CAP,
+        tokens: entityTokens,
+        cap_tokens: WIRE_HARD_TOKEN_CAP,
         suggested_token_budget: neededTokens,
         suggested_chunks: chunks,
         _hint: `entity_too_large — "${entityLabel}" spans lines ${entityStart}-${entityEnd} (~${neededTokens} tokens). Pick a suggested_chunks entry and call file_read again with offset+limit, or retry with token_budget:${neededTokens}.`,
