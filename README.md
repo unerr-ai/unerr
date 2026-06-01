@@ -329,7 +329,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, day-to-day commands, code co
 
 ## License
 
-[Elastic License 2.0 (ELv2)](./LICENSE) — free to use, modify, and distribute. Cannot be offered as a hosted service.
+[Apache License 2.0](./LICENSE) — free to use, modify, and distribute, including commercially. Includes an explicit patent grant.
 
 ---
 

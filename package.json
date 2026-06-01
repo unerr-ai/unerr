@@ -1,6 +1,6 @@
 {
   "name": "@unerr-ai/unerr",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "mcpName": "io.github.unerr-ai/unerr",
   "description": "Your AI agent has read your codebase but still can't safely change it. unerr is a local guardrail that hands the agent the call graph and your rules at the moment it edits.",
   "repository": {
@@ -22,7 +22,6 @@
     "test:run": "vitest run < /dev/null",
     "dev:ui": "vite",
     "build:ui": "vite build && node scripts/check-ui-bundle.mjs",
-    "preview:ui": "vite preview",
     "typecheck:ui": "tsc --project src/ui/tsconfig.json",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
@@ -108,7 +107,7 @@
     "!dist/ui/screenshots/**",
     "!dist/ui/prototype-sandbox/**"
   ],
-  "license": "Elastic-2.0",
+  "license": "Apache-2.0",
   "pnpm": {
     "onlyBuiltDependencies": [
       "@biomejs/biome",
@@ -118,6 +117,9 @@
       "msgpackr-extract"
     ],
     "overrides": {
+      "fast-uri@<3.1.2": ">=3.1.2",
+      "ip-address@<10.1.1": ">=10.1.1",
+      "qs@<6.15.2": ">=6.15.2",
       "tar@<7.5.11": "^7.5.11",
       "ws@<8.20.1": "^8.20.1"
     }
