@@ -3,16 +3,17 @@
 </h1>
 
 <p align="center">
-  <strong>Your AI agent has read your codebase. It still can't safely change it.</strong>
+  <strong>To make a coding agent work well on real code, you end up bolting a bunch of separate things onto it —<br/>
+  one to find the right code, one to stop it forgetting, one to trim the clutter, your rules, a few checks to catch<br/>
+  mistakes. You set them all up, you keep them running, and it still ignores half of them — because each one is<br/>
+  only advice it can skip, and they all pull at its attention at once.</strong>
 </p>
 
 <p align="center">
-  Every tool built to help hands your agent <em>advice it can ignore</em> — a memory it has to remember to check,<br/>
-  a graph it has to choose to query, a reviewer that only speaks up after the break is already written.<br/>
-  <strong>unerr is the guardrail it can't skip.</strong> The moment your agent edits a function, unerr puts the live call graph<br/>
-  and the rule you pinned to that exact function <em>into the edit itself</em> — automatically, not on request — and re-anchors<br/>
-  that rule when the code moves, so it never goes quietly stale. The 24 callers and the standard it's about to break are<br/>
-  on screen <em>before</em> the function changes. Every time. Whether or not the agent thought to ask.
+  unerr puts all of that into one piece, built into the way the agent already works — so it's not one more thing the<br/>
+  agent can choose to ignore. As the agent goes, it finds the right code, keeps your rules in front of it, trims the<br/>
+  clutter, and catches a break before it lands — all together, with nothing for you to set up. The agent wastes less<br/>
+  time, money, and attention redoing work, and you waste less of yours setting tools up and cleaning up after it.
 </p>
 
 <p align="center">
@@ -25,13 +26,18 @@
   <img src="https://img.shields.io/badge/runtime-Node.js_≥20-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js" />
   <img src="https://img.shields.io/badge/protocol-MCP-7C3AED?style=flat-square" alt="MCP" />
   <img src="https://img.shields.io/badge/local--first-no_cloud-22D3EE?style=flat-square" alt="Local-first" />
-  <img src="https://img.shields.io/badge/license-ELv2-A1A1AA?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/license-Apache--2.0-A1A1AA?style=flat-square" alt="License" />
 </p>
 
 <p align="center">
   <code>npm install -g @unerr-ai/unerr</code>
   <br /><br />
-  <sub>Zero configuration. Install, restart your IDE, and the next prompt already knows your repo.</sub>
+  <sub>Install, restart your IDE, and the next prompt already knows your repo. No config, no account, nothing leaves your machine.</sub>
+</p>
+
+<p align="center">
+  <a href="https://youtu.be/pL1izMwYZpI"><img src="https://unerr.dev/open-cli/video/unerr-cascade.gif" alt="unerr firing inside a live Claude Code session — 12 dependent call sites surfaced before a signature edit" width="760" /></a>
+  <br/><sub><strong>Live, inside the agent</strong> · the agent tries to change <code>extractFilePath</code>; before the edit lands, unerr surfaces the <strong>12 places that depend on it across 4 files</strong> — so it fixes every one in the same turn instead of breaking them silently. ▶ <a href="https://youtu.be/pL1izMwYZpI">Watch the full demo</a>.</sub>
 </p>
 
 ---
@@ -39,103 +45,86 @@
 <details>
 <summary><strong>Contents</strong></summary>
 
-- [The gap nobody else closes](#the-gap-nobody-else-closes)
-- [The pains this fixes](#the-pains-this-fixes)
-- [What changes when you install it](#what-changes-when-you-install-it)
+- [Why I built this](#why-i-built-this)
+- [What's actually going wrong](#whats-actually-going-wrong)
+- [What changes when you use it](#what-changes-when-you-use-it)
 - [See it in action](#see-it-in-action)
 - [Quick Start](#quick-start)
 - [Who it's for](#who-its-for)
-- [Why a guardrail has to be one runtime, not five tools](#why-a-guardrail-has-to-be-one-runtime-not-five-tools)
-- [How the runtime works](#how-the-runtime-works)
-- [Fewer tokens, as a side effect](#fewer-tokens-as-a-side-effect)
+- [Why it's one thing and not five plugins](#why-its-one-thing-and-not-five-plugins)
+- [What it does under the hood](#what-it-does-under-the-hood)
+- [About the fewer tokens](#about-the-fewer-tokens)
 - [License](#license)
 
 </details>
 
 ---
 
-## The gap nobody else closes
+## Why I built this
 
-On a small or greenfield project the agent holds the whole repo in its head and reading the live code is enough — you don't need us. The wall is the *large, existing, multi-contributor* codebase, and it's the same wall every time: the agent can't fit the whole thing in context, so it acts on the slice it can see and never reads the rest. It changes a signature and breaks 7 of 24 callers it never read. It writes a fourth copy of a pattern your team standardized months ago — even with the rule spelled out in `.cursorrules`. Neither shows up as an error. They show up as a senior engineer's afternoon.
+I built unerr because I got tired of cleaning up after my own coding agent.
 
-The knowledge that would have stopped it — who calls this function, which pattern is load-bearing — already exists. The whole market is built on getting that knowledge to the agent. And it falls into two shapes, both of which leak:
+I was running coding agents on real work — not toy projects — and to stop them from messing things up I kept bolting on extra stuff. A memory file here, some rules there, something to keep the agent from forgetting what it was doing, a few guardrails. And two things drove me crazy.
 
-| What it does | The shape | Why it leaks |
-|---|---|---|
-| **Tells the agent things.** Memory stores, code-graph servers, context packers, rule files. | A tool the agent calls *when it remembers to.* | Optional context is optional. Agents skip the retrieval tool **~58% of the time even when explicitly told to use it** ([CodeCompass, 2026](https://arxiv.org/abs/2602.20048)). Advice it can ignore, it ignores. |
-| **Checks the agent afterward.** Reviewers, linters, CI gates. | A pass over the diff *after the code is written.* | The break already happened. Now it's a comment on a pull request and a second round of work — not a change that never broke anything. |
+One: setting all that up is its own job, and every one of those things is really just a *suggestion* to the agent. A rule it can acknowledge and then ignore once it gets busy. A memory it has to remember to check. A reviewer that only speaks up after the break is already written. They don't work together — they compete for the agent's attention, and half of them get dropped exactly when you need them.
 
-There's a third shape, and almost no one ships it: **guidance wired into the moment of the edit, that the agent can't route around, and that re-anchors itself when the code moves so it never goes quietly stale.** Not a tool it chooses to consult. Not a review after the fact. A guardrail that fires *as it edits* — and stays true to the code because it's recomputed from the code, not from a doc that rots.
+Two: while all that's going on, the agent is burning time and money redoing work and breaking things it shouldn't have touched — and I'm sitting there babysitting it, because the one time I look away is the time it quietly breaks something that matters.
 
-That's unerr. The agent doesn't have to ask. Before the edit lands, it already sees the callers it would break and the standard it's about to violate.
+unerr is the thing I wanted to exist: one piece that does all of that itself, right while the agent is working — so you don't have to assemble a toolchain, or write a flawless prompt every time, or sit through the back-and-forth just to trust what it ships. The agent wastes less of its own time and a lot less of your money, and you spend far less effort watching over it.
 
-| The old way | With unerr |
-|---|---|
-| The agent changes a function without reading its 24 callers — 7 sites break silently. | **Cascade guard** puts the call graph in front of the edit *before it runs* — every caller on screen, no asking required. |
-| You wrote the rule in `.cursorrules`. The agent acknowledged it, then ignored it once context filled up. | **Anchored rules** surface the standard the instant the agent touches that scope — and re-anchor when the code moves instead of going stale. |
-| A rule or spec stays confident long after the code moved out from under it. Nothing recomputes it. | Every fact is pinned to a live entity in the graph. When the code moves, the fact **fails loud** instead of staying silently wrong. |
+It's free, open source, and runs entirely on your machine.
 
 ---
 
-## The pains this fixes
+## What's actually going wrong
 
-You know this feeling, and it gets *worse* as the repo grows, not better:
+On any codebase big enough to matter, the agent can't hold the whole thing in its head. So it works from the slice it can see and never looks at the rest. It changes a function and breaks the other places that call it — places it never read. It writes a fourth copy of a pattern your team already settled on, even with the rule sitting right there in your `.cursorrules`. Neither of those shows up as an error. They show up later, as your afternoon.
 
-- **You're babysitting it.** You can't fire-and-forget, because the one time you look away is the time it quietly breaks something load-bearing. You've become its scheduler and its safety net at once.
-- **You don't trust it to touch anything important.** It treats your codebase as a flat wall of text — locally correct, globally wrong — so the load-bearing changes still land on you.
-- **The rule you wrote gets acknowledged, then dropped.** A few turns later the context fills up and your `.cursorrules` line may as well not exist.
-- **Approval fatigue.** You approve so many reasonable edits that the dangerous one slides through — the hundredth confirmation looks exactly like the first.
+The usual fixes both leak:
 
-These aren't four problems. They're one: **the agent acts on a codebase it can't hold in its head, and nothing it can't bypass is watching the change.** You babysit because there's no guardrail it can't skip. unerr is that guardrail — so you can look away.
+- **Things that *tell* the agent stuff** — memory stores, rule files, context tools — only help when the agent remembers to use them. Optional advice is optional, and a busy agent skips it.
+- **Things that *check* the agent afterward** — reviewers, linters, CI — only speak up after the code is already written. By then it's a pull-request comment and a second round of work, not a break that never happened.
+
+And every one of these is a separate thing you have to install, configure, and keep current. The more you add, the more they pull against each other for the agent's limited attention, and the more of your time goes into maintaining the setup instead of shipping.
+
+unerr closes that gap by doing the work at the moment it matters — when the agent reads and when it edits — instead of waiting to be asked or waiting to complain after the fact. The agent doesn't have to remember anything. The thing that would have stopped the break is already in front of it, before the change lands.
 
 ---
 
-## What changes when you install it
+## What changes when you use it
 
-| You feel | What unerr does |
+| What you feel | What's happening |
 |---|---|
-| **You stop babysitting.** The agent runs for an hour and you're not bracing for a silent break. | Every edit is preceded — automatically — by a graph lookup. All 24 callers are visible *before* it touches the function. The guardrail fires whether or not the agent thought to ask. |
-| **Your rules finally get honored.** The standard you set is applied at the edit, not acknowledged and forgotten. | unerr pins each rule and decision to the file or entity it governs and surfaces it the instant the agent touches that scope — then re-anchors it when the code moves. Keep your `.cursorrules` and specs; unerr makes sure they're actually applied. |
-| **It stops thrashing.** No more watching it retry the same broken fix three times. | A **loop breaker** watches the timeline and stops the agent re-trying a change that already failed twice — before it burns your turn and your patience. |
-| **The agent stays sharp at turn 50.** | `file_read({entity})` returns 200 lines instead of 3,000; shell output is trimmed automatically. The window stays uncluttered, so the model isn't fighting "lost in the middle." |
+| **You stop babysitting.** The agent runs for an hour and you're not bracing for a silent break. | Before it changes a function, unerr shows it every other place that depends on that function — on its own, without the agent asking. |
+| **Your rules finally stick.** The standard you set gets applied at the edit, not acknowledged and forgotten three turns later. | unerr ties each rule to the part of the code it's about and brings it up the moment the agent touches that part — and keeps it pinned there even after the code moves. |
+| **It stops going in circles.** No more watching it try the same broken fix three times. | unerr notices when the agent is re-trying something that already failed and stops it before it burns another turn. |
+| **It stays sharp deep into a long session.** | unerr hands the agent the small, relevant slice of a file or a command's output instead of dumping thousands of lines into the window, so the model isn't drowning in noise by turn 50. |
 
-**What it looks like in your chat** — before the Edit tool runs, unerr injects this into the agent's context, on its own:
+Here's what it actually looks like in your chat. Before the edit runs, unerr drops a line like this into the agent's context, on its own:
 
-> ⚡ unerr · cascade guard: editing `src/payments/gateway.ts` changes a signature with callers that must be updated in the same change — `processPayment`: **24 callers at risk across 6 files** (19 source, 5 test). Call `get_references({key:'processPayment', direction:'callers'})` and update every caller before finishing.
+> ⚡ unerr · editing `src/payments/gateway.ts` changes a function that **24 other places depend on, across 6 files**. Update every one of them in this same change before finishing.
 
-The outcome: **agents that behave like senior engineers** — checking dependencies before editing, honoring the standard, and refusing to thrash on a function they've already failed on three times.
+The result is an agent that behaves a lot more like a careful senior engineer: it checks what a change affects before making it, honors the standards you set, and doesn't keep retrying something that already failed.
 
 ---
 
 ## See it in action
 
-**Watch it run** — a real Claude Code session in this repo. The agent attempts a signature change to `extractFilePath`; *before* the edit lands, unerr surfaces **12 callers at risk across 4 files**, so the agent updates every one of them in the same turn instead of breaking them silently.
+The demo above is one moment, caught live. Day to day, there are two places you watch it working — in the chat, and in a browser.
+
+**In the chat.** Every coding turn opens with one line naming what unerr brought in ("brought in a convention you wrote yesterday for `src/payments/gateway.ts`…") and closes with one line totalling what it caught and saved you. The catches are named, countable events — not a vague percentage.
+
+**In a browser.** A live dashboard at `http://localhost:9847` reads from the same place the agent reads from — what it remembers, what it caught, and which of those things actually shaped the next answer.
 
 <p align="center">
-  <a href="https://youtu.be/pL1izMwYZpI"><img src="https://unerr.dev/open-cli/video/unerr-cascade.gif" alt="unerr cascade guard firing inside a live Claude Code session — 12 callers surfaced before a signature edit" width="760" /></a>
-  <br/><sub><strong>Cascade guard, live</strong> · unerr catches the 12 callers of <code>extractFilePath</code> before the edit ripples. ▶ <a href="https://youtu.be/pL1izMwYZpI">Watch the full demo on YouTube</a>.</sub>
-</p>
-
-Two places unerr shows up so you know it's working — inside the chat, and in a browser.
-
-**Inside the chat.** Every coding turn opens with one line naming what unerr loaded ("loaded a convention you wrote yesterday for `src/payments/gateway.ts`…") and closes with one line totalling what it caught and saved ("this turn: 2 catches · ≈ 4.2k tokens saved · +5 turns of headroom this session"). Catches are *named, countable events*, not a ratio.
-
-**In a browser.** A live dashboard at `http://localhost:9847` reads from the same store the agent reads from over MCP — the graph it navigates, the facts it remembers, the breaks it caught, and the score showing which of those facts actually shaped the next answer.
-
-<p align="center">
-  <img src="https://unerr.dev/open-cli/screenshots/end-of-turn-receipt.png" alt="unerr end-of-turn receipt — tokens saved and headroom kept open this turn" width="380" />
-  <img src="https://unerr.dev/open-cli/screenshots/end-of-turn-receipt-2.png" alt="unerr end-of-turn receipt — named, countable catches totalled at the close of a turn" width="380" />
-  <br/><sub><strong>End-of-turn receipt</strong> · every coding turn closes with one line totalling what unerr caught and saved you — named, countable catches, not a ratio.</sub>
+  <img src="https://unerr.dev/open-cli/screenshots/end-of-turn-receipt.png" alt="unerr end-of-turn receipt — what it caught and saved this turn" width="380" />
+  <img src="https://unerr.dev/open-cli/screenshots/end-of-turn-receipt-2.png" alt="unerr end-of-turn receipt — named, countable catches at the close of a turn" width="380" />
+  <br/><sub><strong>End-of-turn receipt</strong> · every turn closes with one line totalling what unerr caught and saved you — named, countable, not a ratio.</sub>
 </p>
 
 <p align="center">
   <img src="https://unerr.dev/open-cli/screenshots/dashboard.png" alt="unerr dashboard — live overview" width="300" />
-  <br/><sub><strong>Dashboard</strong> · live overview — active sessions, recent tool calls, breaks caught, tokens the agent skipped this turn.</sub>
-</p>
-
-<p align="center">
-  <img src="https://unerr.dev/open-cli/screenshots/token-trace-main.png" alt="unerr token trace" width="300" />
-  <br/><sub><strong>Token Trace</strong> · context kept out of the window, broken down by mechanism — graph hits, skipped re-reads, compressed shell output, deduped fetches.</sub>
+  <br/><sub><strong>Dashboard</strong> · live overview — active sessions, recent activity, breaks caught.</sub>
 </p>
 
 <p align="center"><sub>More views in the <a href="https://www.unerr.dev/">full dashboard tour</a>.</sub></p>
@@ -152,16 +141,16 @@ Three steps. Step 1 is once per machine; steps 2–3 are per repo.
 npm install -g @unerr-ai/unerr
 ```
 
-Puts the `unerr` binary on your PATH. If your shell can't find it (common with nvm, fnm, volta, pnpm), run `unerr doctor` once — it patches your shell config and won't need to run again.
+Puts the `unerr` binary on your PATH. If your shell can't find it afterward (this happens with nvm, fnm, volta, and pnpm), run `unerr doctor` once — it patches your shell config and won't need to run again.
 
-### 2. Install for your agent (per repo)
+### 2. Set it up for your agent (per repo)
 
 ```bash
 cd ~/your-project
 unerr install cursor
 ```
 
-Writes the MCP config, skills, hooks, and instructions for that agent in the current repo. Swap `cursor` for any of the supported agents:
+That writes the MCP config, skills, hooks, and instructions for that agent in the current repo. Swap `cursor` for any of the supported agents:
 
 ```bash
 unerr install claude-code
@@ -172,73 +161,60 @@ unerr install gemini-cli
 unerr install github-copilot-cli
 ```
 
-Install multiple agents in the same repo — each writes its own config. Idempotent: re-running updates if content changed, skips if identical. Remove with `unerr uninstall`.
+You can install more than one agent in the same repo — each writes its own config. Re-running updates the setup if anything changed and skips it if nothing did. Remove it with `unerr uninstall`.
 
 ### 3. Restart your IDE
 
-Close and reopen your IDE (or start a new chat session). Your agent picks up unerr through MCP — graph-backed tools, persistent memory, the edit-time guardrail all available immediately.
+Close and reopen your IDE, or start a new chat session. Your agent picks up unerr through MCP and everything is available from the next prompt.
 
-> **Dashboard:** <http://localhost:9847> — open any time to watch unerr at work in real time.
+> **Dashboard:** <http://localhost:9847> — open it any time to watch unerr work.
 
-> Need manual setup or any other MCP client? `unerr install --show-instructions <agent>` prints copy-pasteable steps.
+> Using a different MCP client, or setting it up by hand? `unerr install --show-instructions <agent>` prints copy-pasteable steps.
 
 ---
 
 ## Who it's for
 
-- **Engineers on large, existing codebases.** The dependency graph, the load-bearing patterns, and the prior incidents a senior engineer carries in their head — handed to the agent before every edit, so it stops breaking callers it never read.
-- **Teams with conventions worth enforcing.** The standard you agreed on once, applied every time the agent touches that scope — no `.cursorrules` file to hand-maintain, re-paste, or merge-conflict over, and no hoping the agent remembers to look.
-- **Solo builders shipping into a codebase that's already grown.** The continuous thread across tools — switch from Claude Code in the terminal to Cursor in the IDE and the graph, rules, and history come with you, instead of relearning the repo every session.
+- **Engineers working in large, existing codebases.** The things a senior engineer keeps in their head — what depends on what, which patterns are load-bearing, what broke here before — handed to the agent before every edit, so it stops breaking code it never read.
+- **Teams with conventions worth keeping.** The standard you agreed on once, applied every time the agent touches that part of the code — no rules file to hand-maintain, re-paste, or fight merge conflicts over, and no hoping the agent remembers to look.
+- **Solo builders and vibe coders shipping into a codebase that's already grown.** One continuous thread across your tools — move from Claude Code in the terminal to Cursor in the IDE and what unerr knows about your repo comes with you, instead of relearning it every session.
 
 ---
 
-## Why a guardrail has to be one runtime, not five tools
+## Why it's one thing and not five plugins
 
-A guardrail the agent *can't skip* can't be a tool the agent chooses to call. That's the whole reason unerr is one local runtime sitting *behind* the MCP every agent already speaks — not a fifth server in the agent's tool list.
+This is the part that took me a while to get right, so it's worth saying plainly.
 
-Every coding agent on your machine — Claude Code, Cursor, Windsurf, Antigravity — speaks MCP. MCP carries tool calls; it does not carry context, and it does not fire anything on its own. So a memory server, a graph server, and a compressor sit there *waiting to be invoked* — and an agent under context pressure skips them. unerr instead intercepts at the moment that matters — the read, the edit — and injects the one scoped thing that's relevant, automatically. The agent can't forget to call something that isn't waiting to be called.
+Every coding agent on your machine speaks the same protocol, MCP. MCP carries requests the agent *chooses* to make — it doesn't hand the agent context on its own, and it doesn't fire anything by itself. So a memory plugin, a code-search plugin, and a context trimmer all just sit there waiting to be called. And an agent that's busy or low on room skips the thing it has to remember to call. That's the whole leak.
 
-That only works if the pieces live in **one** process. The guardrails worth having each fire on a *join* no single tool can make:
+unerr doesn't sit and wait. It steps in at the moments that matter — when the agent reads a file, when it's about to make a change — and puts the one relevant thing in front of it automatically. You can't forget to call something that isn't waiting to be called.
 
-- **Cascade guard** needs the call graph *and* the edit-intent ledger on the same process, at the same instant.
-- **Drift** needs memory that's anchored to a live graph — so the fact knows the moment its code moved.
-- **Convention drift** needs the auto-detected pattern store *and* the new-code stream in the same memory space.
-- **Loop breaker** needs the full timeline of what the agent already tried.
+The catch is that this only works if the pieces live together, because the useful ones each need information no single plugin has on its own:
 
-These aren't features you can buy individually and bolt together. They're emergent properties of one runtime — and they're exactly what turns "context the agent might read" into "a guardrail it can't skip."
+- Catching a breaking change needs to know both *what the agent is about to edit* and *what depends on it* — at the same instant.
+- Knowing a saved rule has gone stale needs that rule tied to the actual code, so it notices the moment the code moves.
+- Spotting a convention slipping needs both the patterns your codebase already uses and the new code being written, side by side.
+- Stopping a retry-loop needs the full history of what the agent already tried this session.
+
+You can't buy those as five separate tools and bolt them together — they only exist when everything lives in one place. That's why unerr is one local thing, not a fifth plugin in your agent's list. And one thing instead of five means the agent isn't spending its attention deciding which plugin to call — a real cost once that list gets long. Researchers have measured a routine set of these add-ons eating [more than 20% of an agent's context window before it does any actual work](https://eclipsesource.com/blogs/2026/01/22/mcp-context-overload/).
+
+(This isn't an MCP gateway that bundles your existing servers behind one address — those still hand the agent every tool up front. unerr replaces what those add-ons *do*, so there's nothing left to bundle.)
 
 ---
 
-## How the runtime works
+## What it does under the hood
 
-One local process per repo. Four mechanisms, joined deterministically — the **mechanisms** are how; the **guardrail** is what you get.
+One local process per repo. You don't have to think about any of this to use it — but if you want to know what's actually running, here it is.
 
-| Mechanism (the how) | What's inside | What it powers (the what) |
+| The piece | What's in it | What it gives the agent |
 |---|---|---|
-| **Live code graph** | CozoDB · tree-sitter ASTs · SCIP-verified call graphs · 18+ languages · <5ms queries | The agent opens 50 targeted lines and a caller list — not 3,000 lines and a guess. Read *before every file read*, so cascade guard knows what an edit breaks. |
-| **Anchored memory** | Typed facts · conventions auto-detected at ≥70% adherence · decay-adjusted confidence | Every fact is pinned to a file or entity in the graph. When the code moves, the fact gets a **drift signal** — never silent staleness. |
-| **Context delivery** | Shell output compression (645+ command classifiers) · web fetches (5–10× via Defuddle + BM25) · entity-targeted file reads | The relevant slice arrives automatically at the read — the agent never has to remember which tool to invoke for which content. |
-| **Behaviour modules** | cascade guard · convention drift · loop breaker · session continuity · auto-doc · change narrative · architecture guard | Each guardrail fires on a join of the three above, *at the moment of the edit* — not as a tool the agent chose, not as a review after the fact. |
-
-**The unifying point.** Drift detection requires memory anchored to a live graph. Cascade guard requires the graph and the edit-intent ledger on one process. Convention drift requires the pattern store and the new-code stream in the same memory space. Spread these across five disconnected MCP servers and none of them can fire — they can only sit and wait to be called, which is the failure mode this whole thing exists to fix. That's the difference between a stack of tools and a guardrail.
-
----
-
-## Fewer tokens, as a side effect
-
-unerr was built to stop bad changes, not to save tokens. But a guardrail that only ever hands over *the one scoped fact that matters* — the rule for the entity in front of the agent, 50 lines instead of 3,000 — spends far fewer tokens almost by accident. So you get this for free:
-
-- **86–90%** of an agent's code-navigation tokens removed in head-to-head benchmarks vs grep+read — real tokenizer, fidelity-gated (any "saving" that lost the answer is discarded), reproducible on any repo. [See the benchmarks →](./benchmarks/README.md)
-- **~84%** of an AI coding agent's tokens are tool output, mostly file reads ([JetBrains, NeurIPS 2025](https://blog.jetbrains.com/research/2025/12/efficient-context-management/)) — unerr intercepts at the read layer, so the window isn't diluted.
-- **Tool-selection accuracy collapses 58% → 26% as MCP tools go from 9 to 51** ([LangChain ReAct benchmark](https://blog.langchain.com/react-agent-benchmarking/)) — unerr is one runtime instead of five servers, so it doesn't eat the agent's tool-selection budget. Anthropic itself acknowledged this in Jan 2026 by shipping [MCP Tool Search](https://www.anthropic.com/engineering/code-execution-with-mcp).
-- **0** LLM calls per query in the core — facts, conventions, drift signals, and graph lookups are all algorithmic. No API keys, no per-turn inference cost, no telemetry.
-
-The point was never the token number. It's that the agent lands on the right code, sees the right guardrail, and you stop paying — in tokens *and* in afternoons — for the changes it would otherwise have to undo.
-
----
+| **A live map of your code** | CozoDB · tree-sitter · SCIP-verified call data · 18+ languages · sub-5ms lookups | Before any file read, the agent gets the 50 lines that matter and the list of what depends on them — not 3,000 lines and a guess. |
+| **Memory tied to the code** | typed facts · conventions auto-detected once a pattern holds ≥70% of the time · confidence that decays over time | Every saved fact is pinned to a real file or function. When that code moves, the fact flags itself instead of quietly going wrong. |
+| **The right slice, delivered automatically** | shell-output trimming (645+ command types) · web pages fetched at 5–10× less bulk · function-targeted file reads | The relevant piece shows up at the moment the agent reads — it never has to remember which tool to reach for. |
+| **The behaviors that catch problems** | breaking-change guard · convention-slip guard · retry-loop breaker · session continuity · auto-doc · change narrative · architecture guard | Each one fires on a combination of the three above, *at the moment of the edit* — not as a tool the agent picked, not as a review after the fact. |
 
 <details>
-<summary><strong>Under the hood — architecture, CLI commands, MCP tools, dev setup</strong></summary>
+<summary><strong>Architecture, CLI commands, MCP tools, manual config, dev setup</strong></summary>
 
 ### Architecture
 
@@ -265,19 +241,17 @@ AI Agent (Claude Code / Cursor / Windsurf / any MCP client)
 
 One local DB per repo. Zero network calls. No API keys. No cloud. Your code never leaves the machine.
 
-Full module map and source-tree breakdown: **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)**.
+**Design principles** — zero network calls; stdout is sacred (MCP JSON-RPC only, everything else to stderr); sub-5ms query responses; first useful output in under 5s (shallow index first, deep enrichment in the background); graceful degradation (the agent still works if unerr is down — you just lose the extra layer).
 
-**Design principles** — zero network calls; stdout is sacred (MCP JSON-RPC only, everything else to stderr); <5 ms query responses; first useful output <5 s (shallow index first, deep enrichment in background); graceful degradation (the agent still works if unerr is down, you just lose the guardrail layer).
-
-**Tech stack** TypeScript (ESM) · CozoDB (Rust/NAPI) · web-tree-sitter (WASM) · MCP SDK · Ink (React CLI) · React + Vite (dashboard) · tsup · Vitest
+**Tech stack** — TypeScript (ESM) · CozoDB (Rust/NAPI) · web-tree-sitter (WASM) · MCP SDK · Ink (React CLI) · React + Vite (dashboard) · tsup · Vitest
 
 ### CLI commands
 
 ```bash
 unerr install <agent>   # MCP config + skills + hooks + instructions for one agent
-unerr uninstall         # Remove unerr integration from this repo
+unerr uninstall         # Remove unerr from this repo
 unerr doctor            # Check PATH + environment, auto-fix if unerr isn't on all shells
-unerr status            # Proxy health, entity count, graph age
+unerr status            # Process health, entity count, graph age
 unerr stats             # Session statistics (tokens, tool calls, compression)
 unerr --mcp             # Stdio bridge — what your IDE invokes via .mcp.json
 
@@ -286,7 +260,7 @@ unerr pm logs           # Tail ~/.unerr/logs/unerrd.log
 unerr pm dashboard      # Open http://localhost:9847
 ```
 
-`unerrd` is a lightweight Node process that supervises every registered repo. Your IDE invocation auto-spawns it; it exits cleanly after 30 minutes of no MCP activity. `unerr pm --help` lists the rest.
+`unerrd` is a lightweight Node process that supervises every registered repo. Your IDE invocation auto-spawns it; it exits cleanly after 30 minutes of no activity. `unerr pm --help` lists the rest.
 
 ### MCP tools (22)
 
@@ -300,7 +274,7 @@ Grouped by what the agent gets, not by file:
 - **Web fetch (1)** — `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache). Replaces built-in WebFetch.
 - **Code review (1)** — `review_changes` (graph-evidenced review of a diff — flags breaking callers, contract drift, duplicate logic).
 
-Every response carries inline `ur|<tag>` signals for high-priority guidance — drift, blast-radius warnings, circuit-breaker halts — so the agent acts on what it just learned without burning a turn.
+Every response carries inline `ur|<tag>` signals for high-priority guidance — drift, breaking-change warnings, loop-breaker halts — so the agent acts on what it just learned without burning a turn.
 
 ### Manual MCP config (any MCP-compatible client)
 
@@ -321,9 +295,21 @@ unerr removes **86–90% of the tokens** an agent would otherwise spend navigati
 
 ### Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, day-to-day commands, code conventions, and pre-PR checklist.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, day-to-day commands, code conventions, and the pre-PR checklist.
 
 </details>
+
+---
+
+## About the fewer tokens
+
+I didn't build unerr to save tokens — I built it to stop bad changes. But a tool that only ever hands the agent the one relevant thing — the rule for the function in front of it, 50 lines instead of 3,000 — ends up spending far fewer tokens almost by accident. So you get that too:
+
+- **86–90%** of an agent's code-navigation tokens removed in head-to-head benchmarks against grep-and-read — real tokenizer, fidelity-gated, reproducible on any repo. [See the benchmarks →](./benchmarks/README.md)
+- Roughly **84%** of an agent's tokens are tool output, mostly file reads ([JetBrains, NeurIPS 2025](https://blog.jetbrains.com/research/2025/12/efficient-context-management/)). unerr steps in at the read, so the window doesn't fill up with noise.
+- **0** AI calls per query in the core — the lookups, facts, and warnings are all computed directly. No API keys, no per-turn inference cost, no telemetry.
+
+But the token number was never the point. The point is that the agent lands on the right code, sees the thing that would have stopped the break, and you stop paying — in money *and* in afternoons — for work it would otherwise have had to undo.
 
 ---
 

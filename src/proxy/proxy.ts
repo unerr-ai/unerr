@@ -3362,10 +3362,16 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     startup.addStep(
       "MCP ready",
       "done",
-      `PARSE mode (${parseStats?.entityCount ?? 0} entities)`
+      `PARSE mode — graph engine unavailable (${parseStats?.entityCount ?? 0} entities)`
     );
+    // Degraded mode is first-class, not an error: tools still work off a
+    // regex-extracted index, just without the full call graph / drift / rules.
+    // Name the cause (cozo-node missing) and the remedy so a Windows user who
+    // hit a blocked prebuilt download knows this is expected and recoverable.
     log.info(
-      `MCP server running on stdio — PARSE mode (${parseStats?.entityCount ?? 0} entities from ${parseStats?.fileCount ?? 0} files)`
+      `MCP server running on stdio — PARSE mode (reduced accuracy): ${proxyModeReason} ` +
+        `Serving ${parseStats?.entityCount ?? 0} entities from ${parseStats?.fileCount ?? 0} files via regex extraction ` +
+        "(no call graph, drift, or rules). Run `unerr doctor` for how to restore the full graph engine."
     );
   } else {
     const localToolCount = 14;

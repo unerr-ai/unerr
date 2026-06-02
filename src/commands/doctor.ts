@@ -774,33 +774,105 @@ function checkDashboardPort(): Promise<CheckResult> {
   });
 }
 
-// 6. Native module (cozo-node) actually loads under the current Node
+/**
+ * A native module declared in `optionalDependencies` can fail two ways:
+ *   - MISSING: the package never installed (prebuilt download failed AND no
+ *     build toolchain to compile from source) → `ERR_MODULE_NOT_FOUND` /
+ *     "Cannot find module". This is the common Windows case (proxy/firewall
+ *     blocking the GitHub release download, or no Python + MSVC for a fallback
+ *     `node-gyp`/`cargo` build).
+ *   - BROKEN: the package installed but its binary can't load (ABI mismatch,
+ *     corrupt/quarantined `.node`).
+ */
+function isModuleMissing(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code;
+  if (code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND")
+    return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /cannot find (module|package)|module not found/i.test(msg);
+}
+
+/** Shared Windows/proxy remediation appended to native-module failures. */
+const NATIVE_FIX_HINT =
+  "If the prebuilt binary download was blocked, set a proxy and reinstall:\n" +
+  "  npm config set proxy http://<host>:<port> ; npm config set https-proxy http://<host>:<port>\n" +
+  "  npm i -g @unerr-ai/unerr\n" +
+  "Otherwise install a build toolchain so the source fallback can compile:\n" +
+  "  Windows: `npm i -g windows-build-tools` or Visual Studio Build Tools + Python 3 (https://github.com/nodejs/node-gyp#on-windows)";
+
+// 6. Graph engine (cozo-node) — its absence drops unerr to PARSE mode, not a crash.
 async function checkNativeModule(): Promise<CheckResult> {
   try {
     const cozo = (await import("cozo-node")) as { CozoDb?: unknown };
     if (cozo?.CozoDb) {
       return {
-        name: "Native module",
+        name: "Graph engine (cozo-node)",
         status: "ok",
         message: "cozo-node loaded",
       };
     }
     return {
-      name: "Native module",
+      name: "Graph engine (cozo-node)",
       status: "warn",
-      message: "cozo-node loaded but CozoDb export missing",
+      message:
+        "cozo-node loaded but CozoDb export missing — unerr will run in PARSE mode (regex graph, reduced accuracy)",
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (isModuleMissing(err)) {
+      // Optional dependency never installed — runtime falls back to PARSE mode.
+      return {
+        name: "Graph engine (cozo-node)",
+        status: "warn",
+        message:
+          "cozo-node not installed — unerr runs in PARSE mode (regex graph, reduced accuracy)",
+        detail:
+          "cozo-node is an optional native module; its prebuilt binary could not be downloaded or built at install time.\n" +
+          NATIVE_FIX_HINT,
+      };
+    }
+    // Installed but the binary can't load (ABI mismatch / corrupt). Still
+    // non-blocking — the proxy degrades to PARSE mode rather than crashing.
     return {
-      name: "Native module",
-      status: "fail",
-      message: "cozo-node failed to load",
+      name: "Graph engine (cozo-node)",
+      status: "warn",
+      message:
+        "cozo-node failed to load — unerr runs in PARSE mode (regex graph, reduced accuracy)",
       detail:
         `${msg}\n` +
         "The native binary is likely built for a different Node ABI or platform.\n" +
         "Reinstall under the node you intend to use: `npm i -g @unerr-ai/unerr`.",
-      blocking: true,
+    };
+  }
+}
+
+// 7. Telemetry driver (better-sqlite3) — its absence disables dashboard metrics only.
+async function checkMetricsDriver(): Promise<CheckResult> {
+  try {
+    const mod = (await import("better-sqlite3")) as { default?: unknown };
+    if (mod?.default) {
+      return {
+        name: "Telemetry driver (better-sqlite3)",
+        status: "ok",
+        message: "better-sqlite3 loaded",
+      };
+    }
+    return {
+      name: "Telemetry driver (better-sqlite3)",
+      status: "warn",
+      message:
+        "better-sqlite3 loaded but Database export missing — dashboard metrics disabled",
+    };
+  } catch (err) {
+    const missing = isModuleMissing(err);
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      name: "Telemetry driver (better-sqlite3)",
+      status: "warn",
+      message: missing
+        ? "better-sqlite3 not installed — dashboard metrics disabled (core graph tools unaffected)"
+        : "better-sqlite3 failed to load — dashboard metrics disabled (core graph tools unaffected)",
+      detail: (missing ? "" : `${msg}\n`) + NATIVE_FIX_HINT,
     };
   }
 }
@@ -842,6 +914,10 @@ export async function runEnvironmentChecks(opts: {
   const native = await checkNativeModule();
   printCheckResult(native);
   results.push(native);
+
+  const metricsDriver = await checkMetricsDriver();
+  printCheckResult(metricsDriver);
+  results.push(metricsDriver);
 
   const blocking = results.some(
     (r) => r.status === "fail" && r.blocking === true

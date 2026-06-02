@@ -21,8 +21,42 @@
  */
 
 import { mkdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
-import Database, { type Database as DatabaseT } from "better-sqlite3";
+import type { Database as DatabaseT } from "better-sqlite3";
+
+// `better-sqlite3` is a NATIVE module declared in `optionalDependencies`. On a
+// machine where its prebuilt binary couldn't be downloaded AND no C++ toolchain
+// (Python + MSVC on Windows) is present to compile it from source, the package
+// is simply absent from node_modules — `npm i` succeeds anyway because it's
+// optional. A STATIC `import Database from "better-sqlite3"` would then throw
+// `ERR_MODULE_NOT_FOUND` at module-load time and crash the whole proxy on the
+// boot path (metrics-store is imported by proxy.ts + 9 other modules). Metrics
+// are pure dashboard telemetry, so the correct degradation is a no-op store —
+// not a crash. We resolve the driver lazily through createRequire and cache the
+// result (or its absence). `require("better-sqlite3")` returns the Database
+// constructor directly (the package does `module.exports = Database`).
+type DatabaseCtor = new (path: string) => DatabaseT;
+
+const requireFromHere = createRequire(import.meta.url);
+let cachedDriver: DatabaseCtor | null | undefined;
+
+/** Resolve the better-sqlite3 Database constructor, or null if unavailable.
+ *  Result is cached so a missing driver is probed (and warned about) once. */
+function loadDatabaseCtor(): DatabaseCtor | null {
+  if (cachedDriver !== undefined) return cachedDriver;
+  try {
+    cachedDriver = requireFromHere("better-sqlite3") as DatabaseCtor;
+  } catch (err) {
+    cachedDriver = null;
+    process.stderr.write(
+      `[unerr] WARN: better-sqlite3 native driver unavailable (${err instanceof Error ? err.message : String(err)}); ` +
+        "metrics/telemetry disabled (dashboard counters stay empty). " +
+        "Install the prebuilt binary or a build toolchain to enable them — core graph tools are unaffected.\n"
+    );
+  }
+  return cachedDriver;
+}
 
 // ── Row types — wire format used by writers/readers ───────────────────
 
@@ -417,10 +451,20 @@ interface Statements {
 }
 
 export class MetricsStore {
-  private readonly db: DatabaseT;
-  private readonly stmt: Statements;
+  // Null when the better-sqlite3 native driver is unavailable — the store then
+  // degrades to a no-op (writes drop, reads return empty). See loadDatabaseCtor.
+  private readonly db: DatabaseT | null;
+  private readonly stmt: Statements | null;
 
   constructor(dbPath: string) {
+    const Database = loadDatabaseCtor();
+    if (!Database) {
+      // Driver absent — degrade to a no-op store. Every method short-circuits
+      // on the null `stmt`/`db` guard below.
+      this.db = null;
+      this.stmt = null;
+      return;
+    }
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("synchronous = NORMAL");
@@ -603,10 +647,12 @@ export class MetricsStore {
   }
 
   upsertFetchCacheRow(row: FetchCacheRow): void {
+    if (!this.stmt) return;
     this.stmt.upsertFetchCache.run(row);
   }
 
   getFetchCacheRow(url: string): FetchCacheRow | null {
+    if (!this.stmt) return null;
     return (
       (this.stmt.getFetchCache.get({ url }) as FetchCacheRow | undefined) ??
       null
@@ -614,6 +660,7 @@ export class MetricsStore {
   }
 
   bumpFetchCacheHitFor(url: string): void {
+    if (!this.stmt) return;
     this.stmt.bumpFetchCacheHit.run({ url });
   }
 
@@ -633,6 +680,7 @@ export class MetricsStore {
     tokens_output: number;
     ts: string;
   }): void {
+    if (!this.stmt) return;
     this.stmt.upsertAgentTranscript.run(row);
   }
 
@@ -651,6 +699,7 @@ export class MetricsStore {
     tokens_output: number;
     ts: string;
   }> {
+    if (!this.stmt) return [];
     return this.stmt.agentTranscriptsBySession.all({ session_id }) as never;
   }
 
@@ -672,6 +721,7 @@ export class MetricsStore {
     tokens_output: number;
     ts: string;
   }> {
+    if (!this.stmt) return [];
     return this.stmt.agentTranscriptsBySessionTurn.all({
       session_id,
       turn,
@@ -679,49 +729,59 @@ export class MetricsStore {
   }
 
   hasAgentTranscripts(session_id: string): boolean {
+    if (!this.stmt) return false;
     return !!this.stmt.agentTranscriptSessionExists.get({ session_id });
   }
 
   // ── Writes ──────────────────────────────────────────────────────────
 
   insertCompression(row: CompressionEventInsert): number {
+    if (!this.stmt) return 0;
     return Number(this.stmt.insertCompression.run(row).lastInsertRowid);
   }
 
   insertFileRead(row: FileReadEventInsert): number {
+    if (!this.stmt) return 0;
     return Number(this.stmt.insertFileRead.run(row).lastInsertRowid);
   }
 
   insertTokenFlow(row: TokenFlowEventInsert): number {
+    if (!this.stmt) return 0;
     const withAgent = { ...row, agent: row.agent ?? "unknown" };
     return Number(this.stmt.insertTokenFlow.run(withAgent).lastInsertRowid);
   }
 
   insertBehaviorEvent(row: BehaviorEventInsert): number {
+    if (!this.stmt) return 0;
     const withAgent = { ...row, agent: row.agent ?? "unknown" };
     return Number(this.stmt.insertBehaviorEvent.run(withAgent).lastInsertRowid);
   }
 
   upsertSessionHistory(row: SessionHistoryInsert): void {
+    if (!this.stmt) return;
     this.stmt.upsertSessionHistory.run(row);
   }
 
   upsertSessionSummary(row: SessionSummaryInsert): void {
+    if (!this.stmt) return;
     this.stmt.upsertSessionSummary.run(row);
   }
 
   // ── Reads ───────────────────────────────────────────────────────────
 
   recentCompression(limit: number): CompressionEventRow[] {
+    if (!this.stmt) return [];
     return this.stmt.recentCompression.all({ limit }) as CompressionEventRow[];
   }
 
   recentFileReads(limit: number): FileReadEventRow[] {
+    if (!this.stmt) return [];
     return this.stmt.recentFileReads.all({ limit }) as FileReadEventRow[];
   }
 
   /** Poll API used by the log-tailer. */
   compressionSince(lastId: number, limit = 500): CompressionEventRow[] {
+    if (!this.stmt) return [];
     return this.stmt.compressionSince.all({
       lastId,
       limit,
@@ -729,6 +789,7 @@ export class MetricsStore {
   }
 
   fileReadsSince(lastId: number, limit = 500): FileReadEventRow[] {
+    if (!this.stmt) return [];
     return this.stmt.fileReadsSince.all({
       lastId,
       limit,
@@ -736,6 +797,7 @@ export class MetricsStore {
   }
 
   tokenFlowSince(lastId: number, limit = 500): TokenFlowEventRow[] {
+    if (!this.stmt) return [];
     return this.stmt.tokenFlowSince.all({
       lastId,
       limit,
@@ -743,20 +805,24 @@ export class MetricsStore {
   }
 
   allTokenFlow(): TokenFlowEventRow[] {
+    if (!this.stmt) return [];
     return this.stmt.tokenFlowAll.all({}) as TokenFlowEventRow[];
   }
 
   tokenFlowBySession(sessionId: string): TokenFlowEventRow[] {
+    if (!this.stmt) return [];
     return this.stmt.tokenFlowBySession.all({
       sessionId,
     }) as TokenFlowEventRow[];
   }
 
   allBehaviorEvents(): BehaviorEventRow[] {
+    if (!this.stmt) return [];
     return this.stmt.behaviorEventsAll.all({}) as BehaviorEventRow[];
   }
 
   behaviorEventsBySession(sessionId: string): BehaviorEventRow[] {
+    if (!this.stmt) return [];
     return this.stmt.behaviorEventsBySession.all({
       sessionId,
     }) as BehaviorEventRow[];
@@ -783,6 +849,7 @@ export class MetricsStore {
   latestUserPromptBoundary(
     sessionId: string
   ): { ts: number; hash: string | null } | null {
+    if (!this.db) return null;
     const row = this.db
       .prepare(
         "SELECT ts, detail FROM behavior_events WHERE session_id = ? AND type = 'user_prompt_received' ORDER BY ts DESC LIMIT 1"
@@ -791,7 +858,9 @@ export class MetricsStore {
     if (!row) return null;
     let hash: string | null = null;
     try {
-      const parsed = JSON.parse(row.detail ?? "{}") as { prompt_hash?: unknown };
+      const parsed = JSON.parse(row.detail ?? "{}") as {
+        prompt_hash?: unknown;
+      };
       if (typeof parsed.prompt_hash === "string") hash = parsed.prompt_hash;
     } catch {
       /* malformed detail — leave hash null (never matches a real prompt) */
@@ -800,6 +869,7 @@ export class MetricsStore {
   }
 
   behaviorEventsSince(lastId: number, limit = 500): BehaviorEventRow[] {
+    if (!this.stmt) return [];
     return this.stmt.behaviorEventsSince.all({
       lastId,
       limit,
@@ -807,15 +877,18 @@ export class MetricsStore {
   }
 
   allSessionHistory(): SessionHistoryRow[] {
+    if (!this.stmt) return [];
     return this.stmt.allSessionHistory.all({}) as SessionHistoryRow[];
   }
 
   sessionSummary(sessionId: string): SessionSummaryRow | null {
+    if (!this.stmt) return null;
     return (this.stmt.sessionSummaryById.get({ sessionId }) ??
       null) as SessionSummaryRow | null;
   }
 
   allSessionSummaries(): SessionSummaryRow[] {
+    if (!this.stmt) return [];
     return this.stmt.allSessionSummaries.all({}) as SessionSummaryRow[];
   }
 
@@ -830,6 +903,8 @@ export class MetricsStore {
     tokenFlow: number;
     behaviorEvent: number;
   } {
+    if (!this.db)
+      return { compression: 0, fileRead: 0, tokenFlow: 0, behaviorEvent: 0 };
     const c = this.db
       .prepare("SELECT COALESCE(MAX(id), 0) AS id FROM compression_events")
       .get() as { id: number };
@@ -853,11 +928,13 @@ export class MetricsStore {
   // ── Lifecycle ───────────────────────────────────────────────────────
 
   close(): void {
+    if (!this.db) return;
     this.db.close();
   }
 
   /** Test-only — wipe every metric table. */
   reset(): void {
+    if (!this.db) return;
     this.db.exec(`
       DELETE FROM compression_events;
       DELETE FROM file_read_events;
