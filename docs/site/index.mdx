@@ -1,26 +1,28 @@
 ---
 title: unerr
-description: "Operational intelligence for your codebase — one local runtime behind every MCP your agent speaks, that catches the refactor about to break 7 call sites, remembers what the team already decided, and keeps context lean."
+description: "To make a coding agent work well on real code you bolt a bunch of separate things onto it — to find the code, keep your rules, trim the clutter, catch mistakes. unerr is all of it in one piece, built into how the agent already works, so there's nothing to set up and nothing for it to skip."
 ---
 
-**Stop babysitting your AI.**
+**One piece, not a toolchain you assemble.**
 
-unerr is operational intelligence for your codebase — one local runtime,
-_behind_ every MCP your agent speaks, that catches the refactor about to break
-7 call sites, remembers what the team already decided, and keeps context lean.
-Joins no single-purpose memory or graph tool can make, because everything lives
-in one process.
+To make a coding agent work well on real, existing code, you end up bolting a
+bunch of separate things onto it — one to find the right code, one to stop it
+forgetting, one to trim the clutter, your rules, a few checks to catch mistakes.
+You set them all up, you keep them running, and it still ignores half of them —
+because each one is only advice it can skip, and they all pull at its attention
+at once.
 
-It runs entirely on your machine as an MCP server: it builds a graph of your
-codebase and remembers what the codebase has been through — who changed each
-file last, why it drifted, what failed here before, and the rules you've fed it
-across sessions. Measured, not estimated: it removes **86–90%** of the tokens an
-agent spends navigating code, with a fidelity gate that discards any "saving"
-that lost the answer.
+unerr puts all of that into one piece, built into the way the agent already
+works — so it's not one more thing the agent can choose to ignore. As the agent
+goes, it finds the right code, keeps your rules in front of it, trims the
+clutter, and catches a break before it lands — all together, with nothing for
+you to set up. The agent wastes less time, money, and attention redoing work,
+and you waste less of yours setting tools up and cleaning up after it.
 
-The outcome is **agents that behave like senior engineers** — checking
-dependencies before editing, remembering project history, and refusing to thrash
-on a function they've already failed on.
+It runs entirely on your machine, no account, no cloud. The result is an agent
+that behaves more like a careful senior engineer — it checks what a change
+affects before making it, honors the standards you set, and doesn't keep
+retrying something that already failed.
 
 ## Start here
 
