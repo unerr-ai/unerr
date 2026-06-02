@@ -25,17 +25,17 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { Database as DatabaseT } from "better-sqlite3";
 
-// `better-sqlite3` is a NATIVE module declared in `optionalDependencies`. On a
-// machine where its prebuilt binary couldn't be downloaded AND no C++ toolchain
-// (Python + MSVC on Windows) is present to compile it from source, the package
-// is simply absent from node_modules — `npm i` succeeds anyway because it's
-// optional. A STATIC `import Database from "better-sqlite3"` would then throw
-// `ERR_MODULE_NOT_FOUND` at module-load time and crash the whole proxy on the
-// boot path (metrics-store is imported by proxy.ts + 9 other modules). Metrics
+// `better-sqlite3` is a REQUIRED native module — but a native binary can still
+// fail to load at runtime (ABI mismatch after a Node upgrade, a corrupt/
+// quarantined `.node`, or an incomplete install). metrics-store is on the proxy
+// boot path (imported by proxy.ts + 9 other modules), so a STATIC
+// `import Database from "better-sqlite3"` would turn any such load failure into
+// an `ERR_MODULE_NOT_FOUND`/binding crash of the whole proxy at startup. Metrics
 // are pure dashboard telemetry, so the correct degradation is a no-op store —
-// not a crash. We resolve the driver lazily through createRequire and cache the
-// result (or its absence). `require("better-sqlite3")` returns the Database
-// constructor directly (the package does `module.exports = Database`).
+// not a crash that takes the graph tools down with it. We resolve the driver
+// lazily through createRequire and cache the result (or its absence).
+// `require("better-sqlite3")` returns the Database constructor directly (the
+// package does `module.exports = Database`).
 type DatabaseCtor = new (path: string) => DatabaseT;
 
 const requireFromHere = createRequire(import.meta.url);

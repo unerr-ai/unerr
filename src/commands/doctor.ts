@@ -775,9 +775,9 @@ function checkDashboardPort(): Promise<CheckResult> {
 }
 
 /**
- * A native module declared in `optionalDependencies` can fail two ways:
- *   - MISSING: the package never installed (prebuilt download failed AND no
- *     build toolchain to compile from source) → `ERR_MODULE_NOT_FOUND` /
+ * A required native module can still fail to load two ways:
+ *   - MISSING: the package never finished installing (prebuilt download failed
+ *     AND no build toolchain to compile from source) → `ERR_MODULE_NOT_FOUND` /
  *     "Cannot find module". This is the common Windows case (proxy/firewall
  *     blocking the GitHub release download, or no Python + MSVC for a fallback
  *     `node-gyp`/`cargo` build).
@@ -820,14 +820,14 @@ async function checkNativeModule(): Promise<CheckResult> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (isModuleMissing(err)) {
-      // Optional dependency never installed — runtime falls back to PARSE mode.
+      // Install didn't complete — runtime falls back to PARSE mode rather than crash.
       return {
         name: "Graph engine (cozo-node)",
         status: "warn",
         message:
           "cozo-node not installed — unerr runs in PARSE mode (regex graph, reduced accuracy)",
         detail:
-          "cozo-node is an optional native module; its prebuilt binary could not be downloaded or built at install time.\n" +
+          "cozo-node is a required native module, but its prebuilt binary could not be downloaded or built at install time.\n" +
           NATIVE_FIX_HINT,
       };
     }

@@ -16,7 +16,7 @@
   },
   "scripts": {
     "build": "pnpm run build:ui && pnpm run build:cli",
-    "build:cli": "tsup src/entrypoints/cli.ts --format esm --target node20 --dts --no-splitting",
+    "build:cli": "tsup src/entrypoints/cli.ts --format esm --target node20 --dts --no-splitting --external cozo-node --external better-sqlite3",
     "dev": "tsx watch src/entrypoints/cli.ts",
     "test": "vitest",
     "test:run": "vitest run < /dev/null",
@@ -39,8 +39,10 @@
     "@sourcegraph/scip-python": "^0.6.6",
     "@sourcegraph/scip-typescript": "^0.4.0",
     "@tanstack/react-query": "^5.90.12",
+    "better-sqlite3": "^12.10.0",
     "commander": "^12.1.0",
     "consola": "^3.4.2",
+    "cozo-node": "^0.7.6",
     "gpt-tokenizer": "^3.4.0",
     "graphology": "^0.25.4",
     "graphology-communities-louvain": "^2.0.1",
@@ -69,10 +71,6 @@
     "jsdom": "^25.0.1",
     "turndown": "^7.2.0",
     "wink-bm25-text-search": "^3.1.0"
-  },
-  "optionalDependencies": {
-    "better-sqlite3": "^12.10.0",
-    "cozo-node": "^0.7.6"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",
