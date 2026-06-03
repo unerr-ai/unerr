@@ -13,7 +13,12 @@ import { lookupCoChangePartners } from "../intelligence/cochange-index.js";
 import type { CascadeWarning } from "../intelligence/edit-impact.js";
 import { formatReviewFindings } from "../review/format.js";
 import { recordEdit } from "../tracking/session-edit-log.js";
+import { initFileLog, startupLog } from "../utils/startup-log.js";
 import { queryBlastRadius } from "./blast-radius-client.js";
+import {
+  queryConventions,
+  renderConventionsBlock,
+} from "./conventions-client.js";
 import { shouldEmitOnce } from "./hook-dedup.js";
 import {
   type AsyncHookHandler,
@@ -67,6 +72,40 @@ function isCodeFile(filePath: string): boolean {
   );
 }
 
+// R4 (Sprint 2 — token-overhead): the big instructional banners teach the
+// toolset, but only the FIRST time matter. Re-emitting the full multi-line text
+// on every hook firing was ~1.4k tok/turn of pure re-read-amplified ceremony
+// (every round-trip re-bills the accumulated prefix). `onceVerbose` emits the
+// full banner once per working session, then collapses to a terse, still-
+// actionable one-liner that names the file + tool. The long TTL spans a session;
+// the per-file 30s `shouldEmitOnce` default is a separate, orthogonal gate.
+const VERBOSE_BANNER_TTL_MS = 2 * 60 * 60 * 1000; // ~one working session
+
+/** Init the per-repo file log once per hook process, best-effort. */
+let _leverLogInit = false;
+function recordCeremonySuppressed(banner: string): void {
+  // Never write telemetry into the dev repo's events.jsonl during the suite.
+  if (process.env.VITEST) return;
+  try {
+    if (!_leverLogInit) {
+      initFileLog(process.cwd());
+      _leverLogInit = true;
+    }
+    // Powers the additive dashboard levers card (T5.3). File-only — the hook's
+    // stdout is the agent's JSON contract; never write telemetry there.
+    startupLog.fileOnly("telemetry", "ceremony_suppressed", { banner });
+  } catch {
+    // Telemetry is never load-bearing — a logging failure must not break a hook.
+  }
+}
+
+function onceVerbose(key: string, full: string, terse: string): string {
+  if (shouldEmitOnce(`verbose:${key}`, VERBOSE_BANNER_TTL_MS)) return full;
+  // Banner already emitted in full this session → served terse = suppressed.
+  recordCeremonySuppressed(key);
+  return terse;
+}
+
 // ── PreToolUse Handlers (agent-agnostic) ─────────────────────────────
 
 // Read is the ONE tool we never `deny()` — Claude Code's Edit workflow
@@ -91,13 +130,21 @@ const preReadHandler: HookHandler = (normalized) => {
   if (isClaudeCode) {
     // Full-file Read in Claude Code — nudge to use offset/limit for the Edit workflow
     return nudge(
-      `READ ROUTING: Built-in Read is ONLY for the Edit workflow (Read → Edit). Use offset/limit to read only the lines you plan to edit — do NOT read the entire file.\nFor all other reading, use unerr tools instead:\n- Reading to understand: \`file_read({ file_path: "${filePath}" })\`\n- File structure: \`file_outline("${filePath}")\`\n- Specific function: \`get_entity\` or \`file_read\` with \`entity\` param`
+      onceVerbose(
+        "read-routing-cc",
+        `READ ROUTING: Built-in Read is ONLY for the Edit workflow (Read → Edit). Use offset/limit to read only the lines you plan to edit — do NOT read the entire file.\nFor all other reading, use unerr tools instead:\n- Reading to understand: \`file_read({ file_path: "${filePath}" })\`\n- File structure: \`file_outline("${filePath}")\`\n- Specific function: \`get_entity\` or \`file_read\` with \`entity\` param`,
+        `Read full-file "${filePath}" — use offset/limit (Edit workflow) or file_read({file_path:"${filePath}"}) to understand.`
+      )
     );
   }
 
   // Non-Claude Code agents: always nudge toward file_read
   return nudge(
-    `Use unerr tools instead of built-in Read:\n- \`file_read({ file_path: "${filePath}" })\` — auto-injects conventions, facts, drift status\n- \`file_outline("${filePath}")\` — file structure overview\n- \`get_entity\` or \`file_read\` with \`entity\` param — specific function/class`
+    onceVerbose(
+      "read-routing-other",
+      `Use unerr tools instead of built-in Read:\n- \`file_read({ file_path: "${filePath}" })\` — auto-injects conventions, facts, drift status\n- \`file_outline("${filePath}")\` — file structure overview\n- \`get_entity\` or \`file_read\` with \`entity\` param — specific function/class`,
+      `Read "${filePath}" — prefer file_read({file_path:"${filePath}"}) (graph-backed, +conventions/facts).`
+    )
   );
 };
 
@@ -125,7 +172,7 @@ const preGrepHandler: HookHandler = (normalized) => {
 
   if (looksLikeImportSearch) {
     return nudge(
-      "STOP: Use `get_imports` instead of Grep for import/dependency tracing. It returns structured import maps in <5ms — more reliable than grepping for import statements."
+      "STOP: Use `file_outline` instead of Grep for import/dependency tracing. It returns a file's structured entities + imports + exports in <5ms — more reliable than grepping for import statements."
     );
   }
 
@@ -157,16 +204,23 @@ const preWriteHandler: HookHandler = (normalized) => {
   if (!filePath || !isCodeFile(filePath)) return passthrough();
 
   return nudge(
-    `Before writing "${filePath}", check for unintended side effects:\n- \`get_references\` on any functions you're modifying — ensure callers still work after your changes\n- \`file_connections("${filePath}")\` — see all files that depend on this one\n- \`get_test_coverage\` on modified entities — know which tests to run`
+    onceVerbose(
+      "write-check",
+      `Before writing "${filePath}", check for unintended side effects:\n- \`get_references({key:"<symbol>", direction:"callers"})\` on any functions you're modifying — ensure callers still work after your changes\n- \`get_test_coverage\` on modified entities — know which tests to run`,
+      `Writing "${filePath}" — run get_references({direction:"callers"}) on changed entities + get_test_coverage before finishing.`
+    )
   );
 };
 
 /** Read-prerequisite preamble — Claude Code only (other agents don't require
  *  built-in Read before Edit). Returns "" for non-Claude-Code agents. */
 function readPrereqClause(isClaudeCode: boolean, filePath: string): string {
-  return isClaudeCode
-    ? `CRITICAL: Edit REQUIRES built-in Read to have been called on "${filePath}" first. file_read (MCP) does NOT satisfy this — the Edit tool will fail with "File has not been read yet". If you haven't called built-in Read (with offset/limit on the target lines) on this file, do so now before attempting Edit.\n\n`
-    : "";
+  if (!isClaudeCode) return "";
+  return `${onceVerbose(
+    "edit-read-prereq",
+    `CRITICAL: Edit REQUIRES built-in Read to have been called on "${filePath}" first. file_read (MCP) does NOT satisfy this — the Edit tool will fail with "File has not been read yet". If you haven't called built-in Read (with offset/limit on the target lines) on this file, do so now before attempting Edit.`,
+    `Edit needs built-in Read on "${filePath}" first (offset/limit) — file_read (MCP) does not satisfy it.`
+  )}\n\n`;
 }
 
 const preEditHandler: HookHandler = (normalized) => {
@@ -313,6 +367,52 @@ const postReadHandler: HookHandler = (normalized) => {
   );
 };
 
+/** Conventions injection (T7.4) dedup window — long enough that one block per
+ *  working session is the norm, short enough that a genuinely new session the
+ *  next day re-injects. Keyed session-wide (not per-file), unlike the per-file
+ *  read nudge. */
+const CONVENTIONS_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Async post-read handler (Sprint 7, T7.4). Superset of {@link postReadHandler}:
+ * on the first code-file read of a session it ALSO fetches the project's
+ * detected conventions over UDS and injects a compact block — replacing the
+ * standalone `get_conventions` round-trip (the tool is hidden for agents that
+ * accept tool-time context; the injection is their zero-round-trip path). The
+ * static read-preference nudge keeps its own per-file dedup. Best-effort: a
+ * down/slow proxy yields no conventions block and the nudge still fires.
+ */
+const postReadHandlerAsync: AsyncHookHandler = async (normalized) => {
+  const filePath = extractFilePath(normalized.toolInput);
+  if (!filePath || !isCodeFile(filePath)) return passthrough();
+
+  // Conventions block — once per session, regardless of which file triggered it.
+  let conventionsBlock: string | null = null;
+  if (shouldEmitOnce("conventions:session", CONVENTIONS_SESSION_TTL_MS)) {
+    try {
+      const convs = await queryConventions();
+      if (convs) conventionsBlock = renderConventionsBlock(convs);
+    } catch {
+      conventionsBlock = null;
+    }
+  }
+
+  // Static read-preference nudge — same per-file dedup as the sync path.
+  let nudgeLine: string | null = null;
+  if (shouldEmitOnce(`Read:${filePath}`)) {
+    nudgeLine =
+      normalized.agentName === "claude-code"
+        ? "ur|fct Edit needs built-in Read first; for understanding use `file_read` (auto-injects facts/drift)."
+        : "ur|fct Prefer `file_read` over built-in Read — it auto-injects conventions, facts, drift.";
+  }
+
+  const parts = [conventionsBlock, nudgeLine].filter(
+    (p): p is string => typeof p === "string" && p.length > 0
+  );
+  if (parts.length === 0) return passthrough();
+  return enrich(parts.join("\n\n"));
+};
+
 const postGrepHandler: HookHandler = (normalized) => {
   const input = normalized.toolInput;
   const pattern = (input.pattern ?? input.regex ?? input.query) as
@@ -341,9 +441,8 @@ const postGrepHandler: HookHandler = (normalized) => {
 const postGlobHandler: HookHandler = () => {
   return enrich(
     "You just found files via Glob. For efficient exploration of matched files:\n" +
-      "- `file_outline` on each file — see all entities without reading full contents (<5ms)\n" +
-      "- `search_code` — search for specific entities across all matched files in one call\n" +
-      `- \`get_file\` — get a structured summary of any file's entities, imports, and exports`
+      "- `file_outline` on each file — see all entities, imports, and exports without reading full contents (<5ms)\n" +
+      "- `search_code` — search for specific entities across all matched files in one call"
   );
 };
 
@@ -471,6 +570,16 @@ export function runPreEditHookAsync(stdinJson: string): Promise<string> {
 
 export function runPostReadHook(stdinJson: string): string {
   return runPostToolUseHook(stdinJson, postReadHandler);
+}
+
+/**
+ * Async post-read hook: the static read nudge PLUS a once-per-session
+ * conventions injection over UDS (T7.4). This is what the `unerr hook
+ * post-read` CLI command runs; the sync {@link runPostReadHook} is retained as
+ * the degradation target for callers that can't await.
+ */
+export function runPostReadHookAsync(stdinJson: string): Promise<string> {
+  return runPostToolUseHookAsync(stdinJson, postReadHandlerAsync);
 }
 
 export function runPostGrepHook(stdinJson: string): string {

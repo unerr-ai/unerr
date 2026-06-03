@@ -45,10 +45,10 @@ describe("tool-tiers: UNLOCK_CONDITIONS alignment with TIER_ENTRIES", () => {
     }
   });
 
-  it("expected tier sizes — 11 / 8 / 6 (Tier 2 added review_changes — Surface C)", () => {
-    expect(toolsByTier(1)).toHaveLength(11);
+  it("expected tier sizes — 12 / 8 / 7 (Sprint 8 added the unerr_track op-union to Tier 3)", () => {
+    expect(toolsByTier(1)).toHaveLength(12);
     expect(toolsByTier(2)).toHaveLength(8);
-    expect(toolsByTier(3)).toHaveLength(6);
+    expect(toolsByTier(3)).toHaveLength(7);
   });
 });
 

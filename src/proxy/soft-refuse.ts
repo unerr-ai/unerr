@@ -101,6 +101,9 @@ const TIER1_ALTERNATIVE: Readonly<
     tool: "mark_decision",
     example: 'mark_decision({decision:"<choice>"})',
   },
+  // Op-union (Sprint 8) — mirrors mark_intent: op:'intent' is the first-action
+  // call it carries, so the tier-1 fallback is the same (read before tracking).
+  unerr_track: { tool: "file_read", example: "" },
 };
 
 /**

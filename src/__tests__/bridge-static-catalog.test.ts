@@ -17,7 +17,7 @@ import {
   buildInitializeResult,
   buildToolsListResult,
 } from "../proxy/bridge-catalog.js";
-import { TOOL_DEFINITIONS } from "../proxy/tool-definitions.js";
+import { ADVERTISED_TOOL_DEFINITIONS } from "../proxy/tool-definitions.js";
 
 function encodeFrame(obj: Record<string, unknown>): Buffer {
   return Buffer.from(`${JSON.stringify(obj)}\n`, "utf8");
@@ -63,7 +63,7 @@ describe("StaticCatalogInterceptor", () => {
     expect(result.capabilities.tools).toBeDefined();
   });
 
-  it("answers tools/list locally with the full static catalog", () => {
+  it("answers tools/list locally with the advertised static catalog", () => {
     const interceptor = new StaticCatalogInterceptor();
     const chunk = encodeFrame({ jsonrpc: "2.0", id: 2, method: "tools/list" });
 
@@ -75,11 +75,14 @@ describe("StaticCatalogInterceptor", () => {
     const reply = parseReply(out.replies[0]!);
     expect(reply.id).toBe(2);
     const result = reply.result as { tools: { name: string }[] };
-    expect(result.tools.length).toBe(TOOL_DEFINITIONS.length);
+    // Offline fallback shows the ADVERTISED slice (what the model sees), not
+    // the full validation catalog — hidden/demoted tools are excluded.
+    expect(result.tools.length).toBe(ADVERTISED_TOOL_DEFINITIONS.length);
     const names = new Set(result.tools.map((t) => t.name));
     expect(names.has("search_code")).toBe(true);
     expect(names.has("fetch_url")).toBe(true);
     expect(names.has("file_read")).toBe(true);
+    expect(names.has("get_file")).toBe(false); // demoted → not advertised
   });
 
   it("forwards tools/call frames without replying", () => {
@@ -251,7 +254,7 @@ describe("BridgeCatalog (post-connect timeout-fallback)", () => {
     const parsed = parseReply(reply!);
     expect(parsed.id).toBe(5);
     expect((parsed.result as { tools: unknown[] }).tools.length).toBe(
-      TOOL_DEFINITIONS.length
+      ADVERTISED_TOOL_DEFINITIONS.length
     );
 
     // Proxy's late response for id 5 must be suppressed (duplicate id).
@@ -341,10 +344,10 @@ describe("buildInitializeResult / buildToolsListResult", () => {
     expect(obj.result.serverInfo.name).toBe("unerr-local");
   });
 
-  it("buildToolsListResult includes every tool in TOOL_DEFINITIONS", () => {
+  it("buildToolsListResult includes every advertised tool", () => {
     const obj = buildToolsListResult(1) as {
       result: { tools: { name: string }[] };
     };
-    expect(obj.result.tools.length).toBe(TOOL_DEFINITIONS.length);
+    expect(obj.result.tools.length).toBe(ADVERTISED_TOOL_DEFINITIONS.length);
   });
 });

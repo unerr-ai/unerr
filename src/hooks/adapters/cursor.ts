@@ -134,4 +134,11 @@ export const cursorAdapter: HookAdapter = {
     // first MCP response).
     return "{}";
   },
+
+  formatStop(_result: HookResult): string {
+    // Cursor has no turn-end Stop hook that can surface a user-facing line.
+    // The close-out economy line falls back to the MCP unerr_turn_summary
+    // paste path for Cursor sessions.
+    return "{}";
+  },
 };

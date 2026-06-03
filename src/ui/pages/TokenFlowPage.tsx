@@ -422,6 +422,139 @@ function PreventionsPane({
   );
 }
 
+// ── Token-overhead levers (additive — T5.3) ────────────────────────
+
+interface OverheadLeversResponse {
+  data: {
+    recon: {
+      count: number;
+      avg_sections: number;
+      avg_tokens: number;
+      pct_digest: number;
+      pct_large_sweep: number;
+      by_task_size: Record<string, number>;
+    };
+    ceremony: {
+      suppressed_count: number;
+      by_banner: Record<string, number>;
+    };
+  };
+}
+
+/**
+ * Additive card surfacing the server-side token-overhead levers: `unerr recon`
+ * adoption + task-size mix (R1/R5) and verbose-banner suppression (R4). This is
+ * NOT a cache_read/cache_write before/after — that bill lives in the agent
+ * transcript and is proven offline by scripts/measure-token-baseline.mjs. The
+ * card proves the levers fire; the byte-savings panes above are untouched.
+ */
+function OverheadLeversPane() {
+  const { url, queryKey } = useRepoApi();
+  const q = useQuery({
+    queryKey: queryKey(["overhead-levers"]),
+    queryFn: () =>
+      fetchJson<OverheadLeversResponse>(
+        url("/api/token-flow/overhead-levers")
+      ).then((r) => r.data),
+    refetchInterval: 5_000,
+  });
+
+  const d = q.data;
+  const taskSizes = useMemo(() => {
+    if (!d) return [] as Array<[string, number]>;
+    return Object.entries(d.recon.by_task_size).sort(([, a], [, b]) => b - a);
+  }, [d]);
+  const taskTotal = taskSizes.reduce((s, [, n]) => s + n, 0);
+
+  return (
+    <div className="el-raised rounded-lg p-5">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="t-secondary text-sm font-medium">
+          Token-overhead levers
+        </h3>
+        <span className="t-tertiary text-xs">
+          {d ? fmt(d.recon.count) : "—"} recon calls
+        </span>
+      </div>
+      <p className="t-tertiary text-xs mb-3 leading-snug">
+        Server-side proof the round-trip-reduction levers fire: one{" "}
+        <code>unerr recon</code> call replaces the ~5-call discovery fan-out,
+        the footprint self-selects by task size, and verbose hook banners drop
+        to terse after their first emission. The absolute cache_read/cache_write
+        bill is measured offline (
+        <code>scripts/measure-token-baseline.mjs</code>
+        ).
+      </p>
+      {q.isLoading ? (
+        <SkeletonBlock height={120} />
+      ) : !d || (d.recon.count === 0 && d.ceremony.suppressed_count === 0) ? (
+        <p className="t-secondary text-sm py-3">
+          No levers fired yet — run <code>unerr recon "&lt;task&gt;"</code> or
+          edit a file twice to move the counters.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-lg bg-white/[0.04] px-3 py-2.5">
+              <div className="t-tertiary text-xs">recon calls</div>
+              <div className="text-violet-200 font-mono text-lg">
+                {fmt(d.recon.count)}
+              </div>
+              <div className="t-tertiary text-xs">
+                avg {d.recon.avg_sections} sections · ~{fmt(d.recon.avg_tokens)}{" "}
+                tok
+              </div>
+            </div>
+            <div className="rounded-lg bg-white/[0.04] px-3 py-2.5">
+              <div className="t-tertiary text-xs">large sweeps</div>
+              <div className="text-violet-200 font-mono text-lg">
+                {d.recon.pct_large_sweep}%
+              </div>
+              <div className="t-tertiary text-xs">
+                {d.recon.pct_digest}% emitted digest
+              </div>
+            </div>
+            <div className="rounded-lg bg-white/[0.04] px-3 py-2.5">
+              <div className="t-tertiary text-xs">banners suppressed</div>
+              <div className="text-violet-200 font-mono text-lg">
+                {fmt(d.ceremony.suppressed_count)}
+              </div>
+              <div className="t-tertiary text-xs">once per session</div>
+            </div>
+          </div>
+          {taskSizes.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="t-tertiary text-xs mb-1">Task-size mix</div>
+              {taskSizes.map(([size, n]) => (
+                <div key={size} className="flex items-center gap-3 py-0.5">
+                  <span className="text-violet-300 text-xs font-medium w-32 shrink-0 truncate">
+                    {size.replace(/_/g, " ")}
+                  </span>
+                  <div className="flex-1 h-5 rounded bg-white/[0.06] overflow-hidden">
+                    <div
+                      className="h-full bg-violet-500 opacity-80 rounded"
+                      style={{
+                        width: `${Math.max(
+                          3,
+                          (n / (taskSizes[0]?.[1] || 1)) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="text-violet-200 font-mono text-xs w-20 text-right shrink-0">
+                    {fmt(n)} (
+                    {taskTotal > 0 ? Math.round((n / taskTotal) * 100) : 0}%)
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Turn-scoped events list ────────────────────────────────────────
 
 interface BehaviorEventRow {
@@ -754,6 +887,12 @@ function GlobalView({
        *  tier above: unnecessary file reads prevented, stale edits caught,
        *  loops broken — things only a repo-aware tool can catch. */}
       <PreventionsPane scope="global" fromTs={fromTs} toTs={toTs} />
+
+      {/* Token-overhead levers (additive — T5.3): server-side proof that the
+       *  round-trip-reduction levers fire (recon adoption, task-size mix,
+       *  verbose-banner suppression). NOT a cache_read/write before/after —
+       *  that bill is measured offline by measure-token-baseline.mjs. */}
+      <OverheadLeversPane />
 
       {/* Session list — card-style rows with hover counterfactual */}
       <div className="el-raised rounded-lg overflow-hidden">

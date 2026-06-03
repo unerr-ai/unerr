@@ -24,7 +24,7 @@ import {
 } from "../router/unerr-families.js";
 
 describe("UNERR_FAMILIES — every TIER_ENTRIES tool has a family", () => {
-  it("registers all 22 tools currently in TIER_ENTRIES", () => {
+  it("registers all 27 tools currently in TIER_ENTRIES", () => {
     const tooled = Object.keys(TIER_ENTRIES).sort();
     const registered = [...UNERR_TOOL_TO_FAMILY.keys()].sort();
     expect(registered).toEqual(tooled);

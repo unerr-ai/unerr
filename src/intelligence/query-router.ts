@@ -47,9 +47,9 @@ import type {
   LocalEntity,
 } from "./local-graph.js";
 import type { evaluateRules as EvaluateRulesFn } from "./rule-evaluator.js";
+import { tokenize } from "./search-index.js";
 import { SessionContext } from "./session-context.js";
 import type { createSessionHealthMonitor } from "./session-health-monitor.js";
-import { tokenize } from "./search-index.js";
 import { smartTruncate, truncateResultList } from "./smart-truncate.js";
 import { estimateTokens } from "./token-estimator.js";
 
@@ -2977,6 +2977,79 @@ export class QueryRouter {
     return riskMap;
   }
 
+  /**
+   * Raw local tool execution for the warm recon composer (`unerr_context`).
+   *
+   * `composeRecon` needs the structured shapes the graph tools produce — entity
+   * arrays from search_code, `{references,…}` from get_references, `{naming,…}`
+   * from get_conventions — NOT the columnar/json wire strings `execute()` emits
+   * (Layer-6 formatting + budget pipeline). This exposes the otherwise-private
+   * local dispatch so the in-process recon runner gets those shapes directly.
+   * Pass any LOCAL_TOOLS name; the composer only ever calls search_code,
+   * get_references, and get_conventions through it.
+   */
+  async executeRaw(
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<unknown> {
+    return this.executeLocal(toolName, args);
+  }
+
+  /**
+   * Core caller/callee list for an entity — the body-stripped, capped rows
+   * shared by `get_references` and `get_entity({want:['callers'|'callees']})`.
+   * Returns the capped list plus the pre-cap total so the caller can report
+   * truncation. Body is stripped: navigation needs signature + location only.
+   */
+  private async computeReferenceList(
+    key: string,
+    direction: "callers" | "callees",
+    limit: number
+  ): Promise<{ results: Array<Record<string, unknown>>; total: number }> {
+    const raw =
+      direction === "callees"
+        ? await this.localGraph.getCalleesOf(key)
+        : await this.localGraph.getCallersOf(key);
+    const total = raw.length;
+    const results = raw.slice(0, limit).map(({ body: _body, ...rest }) => rest);
+    return { results, total };
+  }
+
+  /**
+   * Resolved imports for a file, each paired with the symbols imported from it
+   * — shared by `get_imports` and `get_entity({want:['imports']})`. The graph
+   * stores file→file edges only; symbol names are read from source on demand
+   * and degrade gracefully to path-only rows on failure.
+   */
+  private async computeFileImports(
+    filePath: string
+  ): Promise<Array<{ imported_file: string; symbols: string[] }>> {
+    const rows = await this.localGraph.getImports(filePath);
+    const { loadImportSymbols } = await import("./import-symbols.js");
+    const symbolMap = await loadImportSymbols(
+      this.projectRoot ?? process.cwd(),
+      filePath
+    );
+    const lookup = new Map<string, string[]>();
+    const stripExt = (p: string): string =>
+      p
+        .split("/")
+        .pop()
+        ?.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "") ?? "";
+    for (const [spec, syms] of symbolMap.entries()) {
+      const base = stripExt(spec);
+      if (!base) continue;
+      const existing = lookup.get(base);
+      if (existing) existing.push(...syms);
+      else lookup.set(base, syms.slice());
+    }
+    return rows.map((r) => {
+      const base = stripExt(r.imported_file);
+      const symbols = lookup.get(base) ?? [];
+      return { imported_file: r.imported_file, symbols };
+    });
+  }
+
   private async executeLocal(
     toolName: string,
     args: Record<string, unknown>
@@ -3076,9 +3149,8 @@ export class QueryRouter {
             // entity envelope inflate the on-wire bytes, so the agent bounced off
             // a second gate (e.g. suggested 2876 when the cap needed 3400).
             const suggestedBudget =
-              Math.ceil(
-                estimateTokens({ ...entity, body: fullBody }) / 100
-              ) * 100;
+              Math.ceil(estimateTokens({ ...entity, body: fullBody }) / 100) *
+              100;
 
             if (!includeBody) {
               // Structural preview: first ~15 lines as a signature/intro snippet
@@ -3116,6 +3188,42 @@ export class QueryRouter {
             // File may not exist on disk — keep whatever body the DB had
           }
         }
+        // T9.2: get_entity absorbs get_references + get_imports via `want`.
+        // When the caller asks for extras, attach them so ONE call covers
+        // signature + callers/callees/imports (the merge target for the retired
+        // get_references / get_imports). Each extra reuses the exact shared path
+        // the standalone tools use, so the output is identical field-for-field.
+        const want = Array.isArray(args.want)
+          ? (args.want as unknown[]).filter(
+              (w): w is string => typeof w === "string"
+            )
+          : [];
+        if (want.length > 0) {
+          const wantLimit =
+            typeof args.limit === "number" && args.limit > 0 ? args.limit : 25;
+          const e = entity as unknown as Record<string, unknown>;
+          if (want.includes("callers")) {
+            const { results, total } = await this.computeReferenceList(
+              key,
+              "callers",
+              wantLimit
+            );
+            e.callers = results;
+            e.callers_total = total;
+          }
+          if (want.includes("callees")) {
+            const { results, total } = await this.computeReferenceList(
+              key,
+              "callees",
+              wantLimit
+            );
+            e.callees = results;
+            e.callees_total = total;
+          }
+          if (want.includes("imports") && entity.file_path) {
+            e.imports = await this.computeFileImports(entity.file_path);
+          }
+        }
         return entity;
       }
       case "get_references": {
@@ -3124,15 +3232,13 @@ export class QueryRouter {
         const direction = (args.direction as string) ?? "callers";
         const limit =
           typeof args.limit === "number" && args.limit > 0 ? args.limit : 25;
-        const raw =
-          direction === "callees"
-            ? await this.localGraph.getCalleesOf(key)
-            : await this.localGraph.getCallersOf(key);
-        const totalCount = raw.length;
-        const capped = raw.slice(0, limit);
-        // Strip body from references to reduce token flood — callers/callees
-        // only need signature, location, and metadata for navigation
-        const results = capped.map(({ body: _body, ...rest }) => rest);
+        // Body-stripped caller/callee list via the shared path also used by
+        // get_entity({want:[...]}) — keeps the two merge surfaces identical.
+        const { results, total: totalCount } = await this.computeReferenceList(
+          key,
+          direction === "callees" ? "callees" : "callers",
+          limit
+        );
         return {
           references: results,
           direction,
@@ -3162,33 +3268,9 @@ export class QueryRouter {
       }
       case "get_imports": {
         const filePath = args.file_path as string;
-        const rows = await this.localGraph.getImports(filePath);
-        // Graph stores file→file edges only — symbol names live in the source.
-        // Read the file on demand and pair each resolved path with the symbols
-        // imported from it. Failures degrade gracefully to path-only rows.
-        const { loadImportSymbols } = await import("./import-symbols.js");
-        const symbolMap = await loadImportSymbols(
-          this.projectRoot ?? process.cwd(),
-          filePath
-        );
-        const lookup = new Map<string, string[]>();
-        const stripExt = (p: string): string =>
-          p
-            .split("/")
-            .pop()
-            ?.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "") ?? "";
-        for (const [spec, syms] of symbolMap.entries()) {
-          const base = stripExt(spec);
-          if (!base) continue;
-          const existing = lookup.get(base);
-          if (existing) existing.push(...syms);
-          else lookup.set(base, syms.slice());
-        }
-        return rows.map((r) => {
-          const base = stripExt(r.imported_file);
-          const symbols = lookup.get(base) ?? [];
-          return { imported_file: r.imported_file, symbols };
-        });
+        // Resolved imports + per-path symbols via the shared path also used by
+        // get_entity({want:['imports']}).
+        return await this.computeFileImports(filePath);
       }
       case "search_code": {
         const query = args.query as string;
@@ -3252,8 +3334,8 @@ export class QueryRouter {
               links: [],
               _hint:
                 "No edges found between these directory prefixes. " +
-                "call file_connections({file_path:'<file>'}) for import-level neighbors, " +
-                "or get_references({entity:'<name>', direction:'callees'}) for call-level dependencies.",
+                "call file_outline({file_path:'<file>'}) for a file's imports, " +
+                "or get_references({key:'<name>', direction:'callees'}) for call-level dependencies.",
             };
           }
           return result;
@@ -3281,8 +3363,8 @@ export class QueryRouter {
             links: [],
             _hint:
               "No cross-community edges found for this path filter. " +
-              "call file_connections({file_path:'<file>'}) for import-level neighbors, " +
-              "or get_references({entity:'<name>', direction:'callees'}) for call-level dependencies.",
+              "call file_outline({file_path:'<file>'}) for a file's imports, " +
+              "or get_references({key:'<name>', direction:'callees'}) for call-level dependencies.",
           };
         }
         return result;

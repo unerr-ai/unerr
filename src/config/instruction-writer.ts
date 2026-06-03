@@ -80,8 +80,8 @@ unerr's outputs reach you through five channels:
     (risk, drift, halt, hint, fact, history, unlock)
   - anchored notes via \`unerr_recall_notes\` — rules and decisions
     tied to specific files or entities, written in prior sessions
-  - persistent facts via \`recall_facts\` — what the user said about
-    this pattern before
+  - persistent facts surfaced as \`ur|fct\` lines (and on demand via
+    \`unerr_track({op:'recall'})\`) — what the user said about this pattern before
   - workflow skills via \`Skill()\` — the team's agreed sequence
     for debug, refactor, brainstorm, TDD work
   - tool unlocks via \`ur|act <tool> unlocked — …\` — additional tools
@@ -91,12 +91,26 @@ IMPORTANT: Before any non-trivial code action (implement, fix, refactor,
 build, debug), call \`unerr_recall_notes\` with the verbatim user prompt.
 Source files alone are half the brief.
 
+### Recon first — one call replaces the discovery fan-out
+
+On any non-trivial coding turn, call \`unerr_context({prompt:"<what you are about to do>"})\` as your FIRST move. One call returns the anchored notes + matching entities + the focus entity's callers (blast radius) + conventions — ranked and trimmed to a 2000-token budget. It runs the whole discovery sequence in-process, so it replaces the 4–5-call fan-out (\`unerr_recall_notes\` → \`search_code\` → \`get_references\` → \`get_conventions\`). That fan-out is the dominant token cost: each separate tool call re-bills the entire accumulated prefix, so five sequential calls re-pay the prefix five times. \`unerr_context\` pays it once.
+
+- Trivial / read-only lookup (locate one symbol, read one function): skip \`unerr_context\` and skip the marker + \`unerr_turn_summary\` ceremony — call \`search_code\` or \`file_read\` directly. The footprint self-selects by task size; do not add ceremony a lookup does not earn.
+- Single-entity edit: call \`unerr_context({prompt:"<task>"})\` once, act on the bundle, then edit.
+- Large sweep (rename / migrate / "every place that…"): run \`unerr recon "<task>"\` from Bash inside a Task subagent — it auto-emits a flat digest that stays the same size as files-scanned grows. Return ONLY the digest to the main thread, so main-thread context stays flat instead of amplifying across 20 hops.
+
+Args: \`budget:3000\` widens the slice, \`digest:true\` forces the flat summary. When the MCP transport is unavailable (or from a Task subagent), the same bundle is one Bash call away: \`unerr recon "<task>" [--budget N] [--digest] [--json]\` — no MCP discovery hop.
+
 ### Tool exposure — earned, not advertised
 
-You start each session with 10 unerr tools: \`search_code\`, \`file_read\`,
-\`file_outline\`, \`get_entity\`, \`get_imports\`, \`recall_facts\`,
-\`mark_intent\`, \`mark_decision\`, \`unerr_remember\`, \`unerr_turn_summary\`.
-The other 12 unlock automatically as your call pattern justifies them.
+You start each session with these always-on unerr tools: \`unerr_context\`
+(the one-shot recon composite — reach for it first), \`search_code\`,
+\`file_read\`, \`file_outline\`, \`get_entity\`, \`get_references\`,
+\`unerr_remember\`, \`unerr_turn_summary\`. The rest unlock automatically as
+your call pattern justifies them. (File imports: \`file_outline\` returns an
+\`imports\` field; \`get_entity({want:['imports']})\` returns them for one
+entity's file. Session markers ride a \`unerr-save:\` closing-message sentinel,
+not a tool call — see Session markers below.)
 
 When a tool unlocks you see: \`ur|act <tool> unlocked — <reason>; call <tool>(...) to use it\`.
 Use the unlocked tool now, while the signal is fresh.
@@ -144,7 +158,7 @@ When unerr's contribution shaped your answer, describe it in plain English. Neve
 - \`search_code\` → "unerr found <name> in <file>"
 - \`get_entity\` / \`file_read\` → "unerr pulled up <name>" or "I read <file> via unerr"
 - \`get_references\` → "<N> places call <name> — checked them via unerr"
-- \`recall_facts\` → "unerr reminded me you'd asked to <verbatim rule>"
+- \`unerr_track({op:'recall'})\` → "unerr reminded me you'd asked to <verbatim rule>"
 - \`get_conventions\` → "unerr says this file follows <convention>"
 - \`unerr_remember\` / new fact → "added that to unerr for next time"
 - Ambiguous capture (response says \`please confirm\`) → ask the user verbatim: "should I remember: '<quote>'? (yes/no)"
@@ -157,18 +171,20 @@ When the user says "remember this", "from now on", "always X", or states a proje
 - 0.5 ≤ confidence < 0.7 → stored ambiguous; expect a follow-up.
 - confidence ≥ 0.7 → stored cleanly.
 
-Use \`record_fact\` ONLY when you (the agent) detected a convention or anti-pattern from observed code, not when the user explicitly fed the fact.
+When YOU (the agent) detect a convention or anti-pattern from observed code (not user-fed), record it with \`unerr_track({op:'fact', target:'<entity-or-file>', text:'<convention>'})\` — keep \`unerr_remember\` for what the user explicitly said.
 
-### Session markers (required on non-trivial tasks)
+### Session markers (zero round-trip — emit in your closing message)
 
-| Task | Tool |
-|---|---|
-| Mark the start of a non-trivial task (≤80 chars) — FIRST tool call on coding work | \`mark_intent\` |
-| Record a deliberate choice between approaches | \`mark_decision\` |
-| Flag an unresolved obstacle | \`mark_blocker\` |
-| Resolve a previously marked blocker | \`mark_resolution\` (pass \`blocker_ref\`) |
+Markers power the cross-session resume strip. They return nothing you need this turn, so they do NOT earn a tool call — emit them as \`unerr-save:\` lines anywhere in your closing message and the Stop hook scrapes + persists them (only output tokens, no round-trip):
 
-Emit markers inline as you work — NOT as an end-of-turn summary. They power the cross-session resume strip.
+\`\`\`
+unerr-save: intent <what this turn is doing, ≤80 chars>
+unerr-save: decision <a deliberate choice between approaches>
+unerr-save: blocker <an unresolved obstacle>
+unerr-save: resolution <how a prior blocker was fixed>
+\`\`\`
+
+High-fidelity escape — when you need the return value (e.g. a blocker's \`marker_id\` to link its resolution) or you are on a hook-less agent: call \`unerr_track({op:'intent'|'decision'|'blocker'|'resolution', text:'<one-line>'})\`. \`op:'blocker'\` returns \`marker_id\`; pass it as \`ref\` on \`op:'resolution'\`.
 
 ### Fallback to built-in tools — only when
 

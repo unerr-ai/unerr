@@ -13,12 +13,17 @@
  * empty for tool-call events.
  */
 
+import { join } from "node:path";
 import { Hono } from "hono";
 import {
   CONTEXT_LIMIT_TOKENS,
   DEFAULT_UNOBSERVED_OVERHEAD_TOKENS,
   computeCompoundedHeadroom,
 } from "../../tracking/headroom.js";
+import {
+  readOverheadLeverEvents,
+  summarizeOverheadLevers,
+} from "../../tracking/overhead-levers.js";
 import { getPromptForTurn } from "../../tracking/prompt-trace.js";
 import {
   type SessionEconomySummary,
@@ -835,6 +840,26 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
       bucket,
       _meta: {
         latency_ms: Math.round((performance.now() - start) * 100) / 100,
+      },
+    });
+  });
+
+  // ── /overhead-levers — additive token-overhead lever telemetry (T5.3) ──
+  // Server-side proof that the round-trip-reduction levers fire: recon
+  // adoption + task-size mix (R1/R5) and verbose-banner suppression (R4).
+  // NOT a cache_read/cache_write before/after — that bill lives in the agent
+  // transcript and is measured offline by scripts/measure-token-baseline.mjs.
+  app.get("/overhead-levers", (c) => {
+    const start = performance.now();
+    const eventsPath = join(deps.unerrDir, "logs", "events.jsonl");
+    const summary = summarizeOverheadLevers(
+      readOverheadLeverEvents(eventsPath)
+    );
+    return c.json({
+      data: summary,
+      _meta: {
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+        source: "server-side levers; absolute token bill is offline-only",
       },
     });
   });

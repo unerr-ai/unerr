@@ -23,6 +23,7 @@ Never start coding a new feature without first stating the shape (where it lives
 
 Phase A1 — Recall.
   Call `unerr_recall_notes({prompt:'<verbatim user prompt>'})`. Prior decisions, abandoned approaches, and constraints ride along.
+  Faster: run `unerr recon "<verbatim user prompt>"` from Bash to fold A1 (recall) + A2 (overlap search) + A3 (conventions) into one budget-trimmed bundle (one round-trip, not three). Then proceed to Phase A4.
 
 Phase A2 — Survey for overlap.
   Call `search_code` for any existing entity that overlaps the proposed feature. If you find one, ask the user whether to extend or replace it. Do not silently shadow an existing module.
@@ -40,13 +41,13 @@ Phase A4 — Shape statement.
   Wait for user confirmation or correction.
 
 Phase A5 — Mark intent.
-  After confirmation, `mark_intent({text:'<one-sentence summary, ≤80 chars>'})`.
+  After confirmation, note intent for the resume strip: emit `unerr-save: intent <one-sentence summary, ≤80 chars>` in your closing message.
 
 Phase A6 — Build.
   Implement the shape from A4. Before each `Edit`, call built-in `Read` (offset/limit).
 
 Phase A7 — Verify.
-  Run the targeted test for the new surface (not the full suite). `mark_resolution` for any blocker.
+  Run the targeted test for the new surface (not the full suite). Emit `unerr-save: resolution <fix>` in your closing message for any blocker that fired.
 
 Phase A8 — Review before close.
   Run the Review phase (`unerr-review`, phases R4–R7) on every entity built this turn: `get_references({key:'<entity>', direction:'callers'})` for the breaking-caller cascade, `get_conventions({file_path:'<file>'})` for boundary/convention breaches, `get_test_coverage({entity:'<entity>'})` for untested exports, `search_code({query:'<new-name>'})` for duplicate/hallucinated APIs. New code most often fails on duplicate-logic (a module already does this) and boundary breaches — check those first. Fix critical + high before close-out.
@@ -71,7 +72,7 @@ Phase B2 — Reproduce.
   Pin the exact failing input/command/test. If the user pasted a stack trace, locate the top frame via `search_code`. If a test fails, run the SINGLE test file (not the full suite) to confirm deterministic failure.
 
 Phase B3 — Mark intent.
-  Call `mark_intent({text:'<one-sentence summary, ≤80 chars>'})`.
+  Note intent for the resume strip: emit `unerr-save: intent <one-sentence summary, ≤80 chars>` in your closing message.
 
 Phase B4 — Isolate.
   Call `get_references({key:'<failing_entity>', direction:'callers'})` and `get_references({key:'<failing_entity>', direction:'callees'})`. Walk the dependency tree until the failing edge is identified. Read each suspect via `file_read({purpose:'explore'})`.
@@ -83,7 +84,7 @@ Phase B6 — Fix.
   Edit the root-cause site only. Before `Edit`, call built-in `Read` (offset/limit) on the target lines.
 
 Phase B7 — Verify.
-  Run the targeted test that reproduced the failure. Add a regression test if none existed. `mark_resolution` referencing any blocker the bug raised.
+  Run the targeted test that reproduced the failure. Add a regression test if none existed. Emit `unerr-save: resolution <fix>` in your closing message for any blocker the bug raised.
 
 Phase B8 — Review before close.
   Run the Review phase (`unerr-review`, phases R4–R7) on the fixed entity + its callers: `get_references({key:'<entity>', direction:'callers'})` to confirm the fix did not narrow a contract callers depend on, `get_conventions({file_path:'<file>'})` for the error-handling pattern, `get_test_coverage({entity:'<entity>'})` to confirm the regression test covers the root cause. A bug fix that silently narrows a contract is itself a regression — check callers first. Fix critical + high before close-out.

@@ -133,4 +133,10 @@ export const clineAdapter: HookAdapter = {
     // to first-tool-call injection via Surface 1.
     return "{}";
   },
+
+  formatStop(_result: HookResult): string {
+    // Cline has no turn-end Stop hook that surfaces a user-facing line —
+    // the close-out economy line falls back to MCP unerr_turn_summary.
+    return "{}";
+  },
 };

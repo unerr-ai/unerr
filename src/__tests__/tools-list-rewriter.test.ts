@@ -11,16 +11,22 @@
 
 import { describe, expect, it } from "vitest";
 
-import { getDescription, toolsByTier } from "../proxy/tool-descriptions.js";
+import {
+  advertisedToolNames,
+  getDescription,
+  isHidden,
+  toolsByTier,
+} from "../proxy/tool-descriptions.js";
 import { renderToolsListForExposure } from "../proxy/tools-list.js";
 
 describe("renderToolsListForExposure", () => {
-  it("emits one definition per known tool", () => {
+  it("emits one definition per advertised tool (hidden/demoted excluded)", () => {
     const exposed = new Set(toolsByTier(1));
     const tools = renderToolsListForExposure(exposed);
-    const expectedCount =
-      toolsByTier(1).length + toolsByTier(2).length + toolsByTier(3).length;
-    expect(tools).toHaveLength(expectedCount);
+    // The rewriter advertises only non-hidden tools; demoted tools (e.g.
+    // get_file → file_outline) stay in the catalog for validation but are
+    // dropped from tools/list.
+    expect(tools).toHaveLength(advertisedToolNames().length);
   });
 
   it("renders tier-1 tools with their active descriptions", () => {
@@ -36,6 +42,7 @@ describe("renderToolsListForExposure", () => {
     const exposed = new Set(toolsByTier(1));
     const tools = renderToolsListForExposure(exposed);
     for (const name of [...toolsByTier(2), ...toolsByTier(3)]) {
+      if (isHidden(name)) continue; // demoted tools aren't advertised at all
       const def = tools.find((t) => t.name === name);
       expect(def?.description).toBe(getDescription(name, "locked"));
     }

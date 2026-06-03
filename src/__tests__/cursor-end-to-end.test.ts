@@ -120,21 +120,24 @@ describe("Cursor end-to-end PreToolUse", () => {
     expect(parsed.agent_message).toContain("12%");
   });
 
-  it("injects mark_intent reminder once per session", () => {
+  it("injects the intent reminder (unerr-save sentinel) once per session", () => {
     const handler: HookHandler = () => passthrough();
     const out1 = runPreToolUseHook(
       cursorPayload("Read", { file_path: "a.ts" }),
       handler
     );
     const parsed1 = JSON.parse(out1);
-    expect(parsed1.agent_message).toContain("mark_intent");
+    // Demoted (Sprint 11): the reminder points at the closing-message sentinel,
+    // not a mark_intent MCP call.
+    expect(parsed1.agent_message).toContain("unerr-save: intent");
+    expect(parsed1.agent_message).not.toContain("mark_intent(");
 
     const out2 = runPreToolUseHook(
       cursorPayload("Read", { file_path: "b.ts" }),
       handler
     );
     const parsed2 = JSON.parse(out2);
-    // Second call should NOT re-emit mark_intent (one-shot semantics).
+    // Second call should NOT re-emit the one-shot reminder.
     expect(parsed2.agent_message).toBeUndefined();
   });
 

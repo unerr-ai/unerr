@@ -9,6 +9,10 @@ description: "MANDATORY before editing any existing function, class, file, or ex
 Never call `Edit` on existing code without first running, in order: `unerr_recall_notes` (anchored notes) → `get_references` (caller fan-in) → `get_conventions` (local style) → drift check (re-read if `ur|ctx`) → built-in `Read` on the target lines. Skipping any step ships a confident hallucination.
 </EXTREMELY-IMPORTANT>
 
+## Fast path — recon first
+
+Run `unerr recon "<verbatim user prompt>"` from Bash as the FIRST move. One call returns anchored notes + matching entities + the focus entity's callers (blast radius) + conventions in one budget-trimmed bundle — it collapses Phase 1 (recall) + Phase 3 (blast radius) + Phase 4 (conventions) into one round-trip instead of three (each separate tool call re-bills the whole prefix). Act on the bundle, then jump to Phase 2 (read the target) and Phase 5 (drift) before editing. Use the per-tool Phases below when recon is unavailable, or to widen any section the bundle trimmed.
+
 ## Phases
 
 Phase 1 — Recall.

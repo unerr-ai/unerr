@@ -21,8 +21,9 @@ import {
   readdirSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { UNERR_VERSION } from "../version.js";
 import { getPromptsForSession } from "../tracking/prompt-trace.js";
+import { createReconDetector } from "../tracking/turn-telemetry.js";
+import { UNERR_VERSION } from "../version.js";
 import { aliasAndValidate } from "./arg-validator.js";
 import { PidLock } from "./pid-lock.js";
 import type { RouterTelemetryRecord } from "./router-telemetry.js";
@@ -50,6 +51,16 @@ import {
 import { StartupRenderer } from "./startup-renderer.js";
 import { ToolUsageTracker, reorderToolsByCluster } from "./tool-clusters.js";
 import { TOOL_DEFINITIONS, type ToolDefinition } from "./tool-definitions.js";
+import {
+  type HookCapProfile,
+  hiddenToolNames,
+  hiddenToolNamesForCaps,
+} from "./tool-descriptions.js";
+import {
+  getHookCapabilities,
+  resolveAgentId as resolveAgentIdStatic,
+} from "../config/agent-registry.js";
+import { translateUnerrTrack } from "./unerr-track.js";
 
 import { installFileLogger } from "../utils/file-logger.js";
 import { formatUnknownError } from "../utils/format-error.js";
@@ -1353,6 +1364,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // S7: Tool usage tracker for semantic cluster reordering
   const toolUsageTracker = new ToolUsageTracker();
 
+  // Sprint 0: recon-pattern detector — flags when a turn's tool sequence
+  // matches the recall→search→outline→read→entity chain that `unerr recon`
+  // is meant to collapse. Emits at most once per episode to events.jsonl.
+  const reconDetector = createReconDetector();
+
   // Sprint 9.7: Dynamic tool injection — inject block rules into tool descriptions
   // Sprint 11: Dynamic deep dive tool loading based on project state
   type ToolDef = {
@@ -1511,12 +1527,70 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     }
   }
 
+  // Advertisement/validation split (Sprint 8b keystone): the advertised
+  // `tools/list` slice drops demoted (hidden) tools, while `toolDefinitions`
+  // (used by runBoundaryValidation) and the families registry keep the full
+  // catalog. A retired tool stays dispatchable by name (hook UDS path,
+  // op-union) but never reaches the model's view. Computed once — the hidden
+  // set is module-load-stable.
+  const HIDDEN_TOOL_NAMES = new Set(hiddenToolNames());
+  // Agent-aware advertisement (Sprint 7 keystone): hook-replaced ceremony
+  // tools (recall, turn-summary, …) are dropped from tools/list ONLY for the
+  // requesting agent's hook profile. When the agent is unidentified we use the
+  // no-hooks profile, which retires nothing conditional — every MCP fallback
+  // stays advertised, so an unknown client never loses a tool it needs.
+  const NO_HOOK_CAPS: HookCapProfile = {
+    promptContextInject: false,
+    toolContextInject: false,
+    sessionStart: false,
+    stop: false,
+  };
+  function resolveRequestCaps(): HookCapProfile {
+    try {
+      // stdio standalone: the connected client's MCP clientInfo.name. Bridged
+      // (UDS) sessions populate agentNameByClient via the initialize handshake;
+      // fall back to the most-recently-resolved agent (mirrors the timeline /
+      // resume getAgentName fallbacks below).
+      const name =
+        server.getClientVersion?.()?.name ??
+        [...agentNameByClient.values()].pop();
+      if (!name) return NO_HOOK_CAPS;
+      const id = resolveAgentIdStatic({
+        codingAgent: null,
+        clientInfoName: name,
+        detectFromEnv: () => null,
+      });
+      // resolveAgentId returns a canonical id string; getHookCapabilities maps
+      // an unknown id to DEFAULT_NO_HOOKS, so the cast is safe.
+      const caps = getHookCapabilities(
+        id as Parameters<typeof getHookCapabilities>[0]
+      );
+      return {
+        promptContextInject: caps.promptContextInject,
+        toolContextInject: caps.toolContextInject,
+        sessionStart: caps.sessionStart,
+        stop: caps.stop,
+      };
+    } catch {
+      return NO_HOOK_CAPS;
+    }
+  }
+  async function getAdvertisedTools(): Promise<ToolDef[]> {
+    const tools = await getInjectedTools();
+    const hidden = new Set(hiddenToolNamesForCaps(resolveRequestCaps()));
+    // HIDDEN_TOOL_NAMES (the unconditional set) is always a subset of `hidden`,
+    // so the capability-aware set alone is the correct filter. Reference it so
+    // the always-hidden invariant stays load-bearing for readers.
+    void HIDDEN_TOOL_NAMES;
+    return hidden.size === 0 ? tools : tools.filter((t) => !hidden.has(t.name));
+  }
+
   // P0-3 + S7: Apply tier-aware exposure rendering (locked tools get the
   // ≤30-token placeholder description, active tools get the full text),
   // then reorder by semantic cluster priority based on recent usage.
   const { renderToolsListForExposure } = await import("./tools-list.js");
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const baseTools = await getInjectedTools();
+    const baseTools = await getAdvertisedTools();
     const gateway = router.getRouterGateway();
     if (!gateway) {
       return {
@@ -1664,7 +1738,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     const { sweepNudgeFlags } = await import("./nudge-state.js");
     const swept = sweepNudgeFlags(process.cwd());
     if (swept > 0) {
-      log.info(`Nudge-flag sweep: reclaimed ${swept} stale session flag file(s)`);
+      log.info(
+        `Nudge-flag sweep: reclaimed ${swept} stale session flag file(s)`
+      );
     }
   } catch {
     /* best-effort on boot */
@@ -1947,578 +2023,634 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     _meta?: unknown;
     _context?: unknown;
   }> {
-      // Advance the canonical turn counter at the tools/call boundary so
-      // every writer.record() inside this dispatch stamps the correct turn
-      // before ShadowLedger.record() (which happens AFTER tool execution).
-      shadowLedger.getTurnSegmenter().noteTurnOpen(shadowLedger.getSessionId());
-      // Mirror live turn into env so out-of-band exec processes (shell
-      // compressor, hook-runner) attach their rows to the active turn.
-      process.env.UNERR_TURN = String(sessionTurnProvider());
+    // Advance the canonical turn counter at the tools/call boundary so
+    // every writer.record() inside this dispatch stamps the correct turn
+    // before ShadowLedger.record() (which happens AFTER tool execution).
+    shadowLedger.getTurnSegmenter().noteTurnOpen(shadowLedger.getSessionId());
+    // Mirror live turn into env so out-of-band exec processes (shell
+    // compressor, hook-runner) attach their rows to the active turn.
+    process.env.UNERR_TURN = String(sessionTurnProvider());
 
-      // ── Boundary validation: alias normalization + required-field check ──
-      // Centralized in arg-validator so every tool with a schema-level
-      // `required: [...]` is enforced uniformly. Catches the silent-failure
-      // pattern where missing/aliased params reached handlers, ran queries
-      // with undefined filters, and returned empty results that agents
-      // mistook for "graph has no data" — driving drift to grep fallback.
-      const validationFailure = runBoundaryValidation(name, args);
-      if (validationFailure) {
-        // Boundary failures (missing required args, type mismatches) are real
-        // errors — flag with isError:true so MCP clients surface them in the
-        // agent conversation instead of treating the message as a normal
-        // tool result body.
-        process.stderr.write(
-          `[unerr] tools/call validation failed for ${name}: ${JSON.stringify(validationFailure)}\n`
-        );
+    // ── Sprint 8: unerr_track op-union → legacy (name, args) ──
+    // Translate FIRST so the legacy tool's boundary validation + dispatch run
+    // unchanged (single execution path, no behavioural fork). The legacy
+    // marker/fact names stay dispatchable by name for UDS hooks + hook-less
+    // agents (DEMOTE not delete).
+    if (name === "unerr_track") {
+      const translated = translateUnerrTrack(args);
+      if ("error" in translated) {
+        process.stderr.write(`[unerr] unerr_track: ${translated.error}\n`);
         return {
-          content: [{ type: "text", text: JSON.stringify(validationFailure) }],
+          content: [
+            { type: "text", text: JSON.stringify({ error: translated.error }) },
+          ],
           isError: true,
         };
       }
+      name = translated.name;
+      args = translated.args;
+    }
 
-      // S7: Track tool usage for semantic cluster reordering
-      toolUsageTracker.record(name);
-
-      // ── Layer 4: Pre-tool-use behavioral hooks ──
-      const behaviorCtx = {
-        toolName: name,
-        args,
-        sessionId: shadowLedger.getSessionId(),
-        entityKey: (args.key as string) ?? (args.entity as string) ?? undefined,
-        filePath:
-          (args.path as string) ??
-          (args.file_path as string) ??
-          (args.file as string) ??
-          undefined,
+    // ── Boundary validation: alias normalization + required-field check ──
+    // Centralized in arg-validator so every tool with a schema-level
+    // `required: [...]` is enforced uniformly. Catches the silent-failure
+    // pattern where missing/aliased params reached handlers, ran queries
+    // with undefined filters, and returned empty results that agents
+    // mistook for "graph has no data" — driving drift to grep fallback.
+    const validationFailure = runBoundaryValidation(name, args);
+    if (validationFailure) {
+      // Boundary failures (missing required args, type mismatches) are real
+      // errors — flag with isError:true so MCP clients surface them in the
+      // agent conversation instead of treating the message as a normal
+      // tool result body.
+      process.stderr.write(
+        `[unerr] tools/call validation failed for ${name}: ${JSON.stringify(validationFailure)}\n`
+      );
+      return {
+        content: [{ type: "text", text: JSON.stringify(validationFailure) }],
+        isError: true,
       };
-      const preOutput = await behaviorDispatcher.firePreToolUse(behaviorCtx);
-      if (preOutput?.halt) {
-        // PREVENT-class: a behavior halted the tool call before it ran. We
-        // cannot honestly measure "what the halted call would have cost" —
-        // the old `avoidedTokens = 3200` constant was a fabrication. Record
-        // a discrete intervention event instead so the dashboard surfaces
-        // *what was prevented*, not a guessed token number.
-        behaviorEventWriter.record({
-          session_id: behaviorEventWriter.sessionId,
-          turn: stats.toolCallsLocal + 1,
-          type: "intervention_halted",
-          tool: name,
-          entity_key: behaviorCtx.entityKey ?? behaviorCtx.filePath ?? null,
-          response_bytes: preOutput._context
-            ? JSON.stringify(preOutput._context).length
-            : null,
-          detail: { behavior_id: preOutput.behaviorId },
-        });
+    }
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: stringifyMcpToolJson(preOutput._context),
-            },
-          ],
-          _meta: { format: "json", ...(preOutput._meta ?? {}) },
-          ...(preOutput._context ? { _context: preOutput._context } : {}),
-        };
-      }
+    // S7: Track tool usage for semantic cluster reordering
+    toolUsageTracker.record(name);
 
-      // Shadow ledger tools disabled — not exposed in tool definitions
-      // (unerr_mark_working, unerr_revert_to_working_state, unerr_get_timeline handlers removed)
+    // Sprint 0: emit one recon-pattern event per episode (file-only — no
+    // stderr, so it never enters the agent's tool-result context).
+    const reconEvent = reconDetector.note(name);
+    if (reconEvent) {
+      startupLog.fileOnly("telemetry", "recon_pattern_hit", {
+        ...reconEvent,
+        session_id: shadowLedger.getSessionId(),
+      });
+    }
 
-      // ── ST-2: Session-narrative marker tools ──
-      {
-        const { isMarkerTool, handleMarkerCall } = await import(
-          "../tools/intelligence/timeline-markers.js"
-        );
-        if (isMarkerTool(name)) {
-          if (!timelineHandle) {
-            process.stderr.write(
-              `[unerr] ${name} called but timeline subsystem is disabled\n`
-            );
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    error:
-                      "marker tools require timeline subsystem (UNERR_TIMELINE_V2!=0)",
-                  }),
-                },
-              ],
-              isError: true,
-            };
-          }
-          let branchVal = "main";
-          let headShaVal = "";
-          try {
-            const { getCurrentBranch, getHeadSha } = await import(
-              "../utils/git.js"
-            );
-            branchVal = (await getCurrentBranch(process.cwd())) ?? branchVal;
-            headShaVal = (await getHeadSha(process.cwd())) ?? "";
-          } catch {
-            /* defaults */
-          }
-          return handleMarkerCall(name, args as Record<string, unknown>, {
-            ledger: shadowLedger,
-            store: timelineHandle.store,
-            branch: branchVal,
-            headSha: headShaVal,
-          });
+    // ── Layer 4: Pre-tool-use behavioral hooks ──
+    const behaviorCtx = {
+      toolName: name,
+      args,
+      sessionId: shadowLedger.getSessionId(),
+      entityKey: (args.key as string) ?? (args.entity as string) ?? undefined,
+      filePath:
+        (args.path as string) ??
+        (args.file_path as string) ??
+        (args.file as string) ??
+        undefined,
+    };
+    const preOutput = await behaviorDispatcher.firePreToolUse(behaviorCtx);
+    if (preOutput?.halt) {
+      // PREVENT-class: a behavior halted the tool call before it ran. We
+      // cannot honestly measure "what the halted call would have cost" —
+      // the old `avoidedTokens = 3200` constant was a fabrication. Record
+      // a discrete intervention event instead so the dashboard surfaces
+      // *what was prevented*, not a guessed token number.
+      behaviorEventWriter.record({
+        session_id: behaviorEventWriter.sessionId,
+        turn: stats.toolCallsLocal + 1,
+        type: "intervention_halted",
+        tool: name,
+        entity_key: behaviorCtx.entityKey ?? behaviorCtx.filePath ?? null,
+        response_bytes: preOutput._context
+          ? JSON.stringify(preOutput._context).length
+          : null,
+        detail: { behavior_id: preOutput.behaviorId },
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: stringifyMcpToolJson(preOutput._context),
+          },
+        ],
+        _meta: { format: "json", ...(preOutput._meta ?? {}) },
+        ...(preOutput._context ? { _context: preOutput._context } : {}),
+      };
+    }
+
+    // Shadow ledger tools disabled — not exposed in tool definitions
+    // (unerr_mark_working, unerr_revert_to_working_state, unerr_get_timeline handlers removed)
+
+    // ── ST-2: Session-narrative marker tools ──
+    {
+      const { isMarkerTool, handleMarkerCall } = await import(
+        "../tools/intelligence/timeline-markers.js"
+      );
+      if (isMarkerTool(name)) {
+        if (!timelineHandle) {
+          process.stderr.write(
+            `[unerr] ${name} called but timeline subsystem is disabled\n`
+          );
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  error:
+                    "marker tools require timeline subsystem (UNERR_TIMELINE_V2!=0)",
+                }),
+              },
+            ],
+            isError: true,
+          };
         }
+        let branchVal = "main";
+        let headShaVal = "";
+        try {
+          const { getCurrentBranch, getHeadSha } = await import(
+            "../utils/git.js"
+          );
+          branchVal = (await getCurrentBranch(process.cwd())) ?? branchVal;
+          headShaVal = (await getHeadSha(process.cwd())) ?? "";
+        } catch {
+          /* defaults */
+        }
+        return handleMarkerCall(name, args as Record<string, unknown>, {
+          ledger: shadowLedger,
+          store: timelineHandle.store,
+          branch: branchVal,
+          headSha: headShaVal,
+        });
       }
+    }
 
-      // ── Active-cognition Layer B: unerr_recall_notes ──
-      if (name === "unerr_recall_notes") {
-        return handleUnerrRecallNotesProxy(
+    // ── Active-cognition Layer B: unerr_recall_notes ──
+    if (name === "unerr_recall_notes") {
+      return handleUnerrRecallNotesProxy(
+        args,
+        unerrDirForLedger,
+        behaviorEventWriter,
+        sessionTurnProvider()
+      );
+    }
+
+    // ── Warm recon composite: unerr_context (Sprint 1b) ──
+    // Mirrors `unerr recon` in-process: one call collapses the discovery
+    // fan-out (notes + search + references + conventions). Notes come warm via
+    // the proxy notes store; graph shapes come raw via router.executeRaw.
+    if (name === "unerr_context") {
+      const { handleUnerrContextProxy } = await import(
+        "./unerr-context-handler.js"
+      );
+      return handleUnerrContextProxy(args as Record<string, unknown>, {
+        runRaw: (tool, toolArgs) => router.executeRaw(tool, toolArgs),
+        recallNotes: async (prompt) => {
+          const res = await handleUnerrRecallNotesProxy(
+            { prompt },
+            unerrDirForLedger,
+            behaviorEventWriter,
+            sessionTurnProvider()
+          );
+          const txt = res.content?.[0]?.text;
+          if (!txt) return undefined;
+          try {
+            // Unwrap the recall handler's {ok,data,hint} envelope to the bare
+            // {notes:[…]} payload composeRecon's notesEmpty/render expect.
+            const parsed = JSON.parse(txt) as Record<string, unknown>;
+            return parsed.data ?? parsed;
+          } catch {
+            return undefined;
+          }
+        },
+        repoCwd: dirname(unerrDirForLedger),
+      });
+    }
+
+    // ── Close-out summary: unerr_turn_summary ──
+    if (name === "unerr_turn_summary") {
+      const { handleTurnSummaryProxy } = await import(
+        "./turn-summary-handler.js"
+      );
+      return handleTurnSummaryProxy(
+        unerrDirForLedger,
+        shadowLedger.getSessionId(),
+        sessionTurnProvider()
+      );
+    }
+
+    // ── Surface 2 renderer: unerr_surface2_line (Fix B) ──
+    if (name === "unerr_surface2_line") {
+      const { handleSurface2LineProxy } = await import(
+        "./surface2-line-handler.js"
+      );
+      return handleSurface2LineProxy(
+        unerrDirForLedger,
+        shadowLedger.getSessionId(),
+        sessionTurnProvider(),
+        dirname(unerrDirForLedger),
+        behaviorEventWriter
+      );
+    }
+
+    // ── Layer 9: record_fact + recall_facts + unerr_remember ──
+    if (
+      name === "record_fact" ||
+      name === "recall_facts" ||
+      name === "unerr_remember"
+    ) {
+      // Active-cognition dispatch: when `unerr_remember` carries a `type`
+      // field (note/cochange/move_anchor/promote_to_claude_md), route to
+      // the new NotesStore path; otherwise stay on the TemporalFactStore.
+      if (name === "unerr_remember" && isActiveCognitionRemember(args)) {
+        return handleUnerrRememberNotePath(
           args,
           unerrDirForLedger,
-          behaviorEventWriter,
-          sessionTurnProvider()
+          shadowLedger.getSessionId()
         );
       }
-
-      // ── Close-out summary: unerr_turn_summary ──
-      if (name === "unerr_turn_summary") {
-        const { handleTurnSummaryProxy } = await import(
-          "./turn-summary-handler.js"
-        );
-        return handleTurnSummaryProxy(
-          unerrDirForLedger,
-          shadowLedger.getSessionId(),
-          sessionTurnProvider()
-        );
-      }
-
-      // ── Surface 2 renderer: unerr_surface2_line (Fix B) ──
-      if (name === "unerr_surface2_line") {
-        const { handleSurface2LineProxy } = await import(
-          "./surface2-line-handler.js"
-        );
-        return handleSurface2LineProxy(
-          unerrDirForLedger,
-          shadowLedger.getSessionId(),
-          sessionTurnProvider(),
-          dirname(unerrDirForLedger),
-          behaviorEventWriter
-        );
-      }
-
-      // ── Layer 9: record_fact + recall_facts + unerr_remember ──
-      if (
-        name === "record_fact" ||
-        name === "recall_facts" ||
-        name === "unerr_remember"
-      ) {
-        // Active-cognition dispatch: when `unerr_remember` carries a `type`
-        // field (note/cochange/move_anchor/promote_to_claude_md), route to
-        // the new NotesStore path; otherwise stay on the TemporalFactStore.
-        if (name === "unerr_remember" && isActiveCognitionRemember(args)) {
-          return handleUnerrRememberNotePath(
-            args,
-            unerrDirForLedger,
-            shadowLedger.getSessionId()
-          );
-        }
-        const factResult =
-          name === "record_fact"
-            ? await handleRecordFactProxy(
+      const factResult =
+        name === "record_fact"
+          ? await handleRecordFactProxy(
+              args,
+              unerrDirForLedger,
+              shadowLedger,
+              {
+                tracker: effectivenessTracker,
+                turn: router.sessionContext.getToolCallCount(),
+              },
+              behaviorEventWriter
+            )
+          : name === "unerr_remember"
+            ? await handleUnerrRememberProxy(
                 args,
                 unerrDirForLedger,
                 shadowLedger,
+                behaviorEventWriter,
+                {
+                  tracker: effectivenessTracker,
+                  turn: router.sessionContext.getToolCallCount(),
+                }
+              )
+            : await handleRecallFactsProxy(
+                args,
+                unerrDirForLedger,
                 {
                   tracker: effectivenessTracker,
                   turn: router.sessionContext.getToolCallCount(),
                 },
                 behaviorEventWriter
-              )
-            : name === "unerr_remember"
-              ? await handleUnerrRememberProxy(
-                  args,
-                  unerrDirForLedger,
-                  shadowLedger,
-                  behaviorEventWriter,
-                  {
-                    tracker: effectivenessTracker,
-                    turn: router.sessionContext.getToolCallCount(),
-                  }
-                )
-              : await handleRecallFactsProxy(
-                  args,
-                  unerrDirForLedger,
-                  {
-                    tracker: effectivenessTracker,
-                    turn: router.sessionContext.getToolCallCount(),
-                  },
-                  behaviorEventWriter
-                );
-        const { applyWireCap: applyWireCapFact } = await import(
-          "./wire-cap.js"
-        );
-        const rawText = factResult.content?.[0]?.text;
-        let parsed: unknown = null;
-        if (rawText) {
-          try {
-            parsed = JSON.parse(rawText);
-          } catch {
-            /* non-JSON, skip cap */
-          }
-        }
-        if (parsed) {
-          const { body: cappedBody, pageHint } = applyWireCapFact(
-            name,
-            parsed,
-            args
-          );
-          const pageBlock = pageHint ? `${pageHint}\n\n` : "";
-          // Forward isError so error responses from the fact handler reach
-          // the agent as failed tool calls, not as opaque JSON bodies.
-          return {
-            content: [
-              {
-                type: "text",
-                text: pageBlock + stringifyMcpToolJson(cappedBody),
-              },
-            ],
-            ...(factResult.isError ? { isError: true } : {}),
-          };
-        }
-        return factResult;
-      }
-
-      // Sprint 11: Deep Dive MCP tools — handle locally
-      if (localGraph) {
-        const { handleDeepDiveTool } = await import(
-          "../intelligence/deep-dive-tools.js"
-        );
-        const deepDiveResult = await handleDeepDiveTool(name, args, localGraph);
-        if (deepDiveResult) {
-          recordToolCall(stats);
-          recordLatency(stats.latency, 0);
-          pidLock.recordToolCall();
-          if (stats.localMode) recordGraphQuery(stats.localMode, name);
-          const branch = branchContext?.currentBranch ?? "unknown";
-          const headSha = branchContext?.headSha ?? "";
-          shadowLedger.record(
-            name,
-            args,
-            {
-              tool: name,
-              source: "local",
-              ...(ctx.clientId ? { client: ctx.clientId } : {}),
-            },
-            branch,
-            headSha
-          );
-          return deepDiveResult;
+              );
+      const { applyWireCap: applyWireCapFact } = await import("./wire-cap.js");
+      const rawText = factResult.content?.[0]?.text;
+      let parsed: unknown = null;
+      if (rawText) {
+        try {
+          parsed = JSON.parse(rawText);
+        } catch {
+          /* non-JSON, skip cap */
         }
       }
-
-      // MCP tools: Layer 6 wire formats (columnar / json) are applied inside QueryRouter.execute.
-      // Wrap in try/catch so any throw lands as isError:true on the wire
-      // instead of the SDK's generic JSON-RPC error, which some clients
-      // surface less prominently than a tool-level error.
-      let result: Awaited<ReturnType<typeof router.execute>>;
-      try {
-        result = await router.execute(name, args);
-      } catch (err: unknown) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(
-          `[unerr] router.execute(${name}) threw: ${errMsg}\n`
+      if (parsed) {
+        const { body: cappedBody, pageHint } = applyWireCapFact(
+          name,
+          parsed,
+          args
         );
+        const pageBlock = pageHint ? `${pageHint}\n\n` : "";
+        // Forward isError so error responses from the fact handler reach
+        // the agent as failed tool calls, not as opaque JSON bodies.
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify({ error: errMsg, tool: name }),
+              text: pageBlock + stringifyMcpToolJson(cappedBody),
             },
           ],
-          isError: true,
+          ...(factResult.isError ? { isError: true } : {}),
         };
       }
+      return factResult;
+    }
 
-      // Track session stats + latency
-      recordToolCall(stats);
-      recordLatency(stats.latency, result._meta.latency_ms);
-      pidLock.recordToolCall();
-      // Local Mode: track per-tool graph query counts
-      if (stats.localMode && result._meta.source === "local") {
-        recordGraphQuery(stats.localMode, name);
-      }
-      // Local Mode: track blast radius computations
-      if (stats.localMode && result._meta.entity_risk) {
-        recordBlastRadius(stats.localMode);
-      }
-      // Local Mode: track community context injections
-      if (stats.localMode && result._meta.community) {
-        recordCommunityContext(stats.localMode);
-      }
-      // Local Mode: accumulate latency advantage vs remote baseline (200ms baseline)
-      if (stats.localMode && result._meta.source === "local") {
-        recordLatencyAdvantage(
-          stats.localMode,
-          Math.max(0, 200 - result._meta.latency_ms)
+    // Sprint 11: Deep Dive MCP tools — handle locally
+    if (localGraph) {
+      const { handleDeepDiveTool } = await import(
+        "../intelligence/deep-dive-tools.js"
+      );
+      const deepDiveResult = await handleDeepDiveTool(name, args, localGraph);
+      if (deepDiveResult) {
+        recordToolCall(stats);
+        recordLatency(stats.latency, 0);
+        pidLock.recordToolCall();
+        if (stats.localMode) recordGraphQuery(stats.localMode, name);
+        const branch = branchContext?.currentBranch ?? "unknown";
+        const headSha = branchContext?.headSha ?? "";
+        shadowLedger.record(
+          name,
+          args,
+          {
+            tool: name,
+            source: "local",
+            ...(ctx.clientId ? { client: ctx.clientId } : {}),
+          },
+          branch,
+          headSha
         );
+        return deepDiveResult;
       }
-      if (result._meta.entity_risk?.risk_level === "high") {
-        recordRiskWarning(stats);
-        // Track chokepoint warning when blast radius is high
-        if ((result._meta.entity_risk?.fan_in ?? 0) > 10) {
-          recordChokepointWarning(stats);
-        }
-      }
-      // Track dead code references (fan_in=0 entities)
-      if (result._meta.entity_risk?.fan_in === 0) {
-        recordDeadCodeReference(stats);
-      }
+    }
 
-      // Track convention violations from check_rules results
-      if (name === "check_rules" && result.content != null) {
-        const checkResult = result.content as {
-          violations?: Array<{ ruleKey: string; autoFixed?: boolean }>;
-        };
-        const viols = checkResult.violations;
-        if (viols && viols.length > 0) {
-          void import("../server/event-bus.js").then(({ eventBus }) => {
-            eventBus.emit("violation", {
-              source: "check_rules",
-              count: viols.length,
-              rules: viols.slice(0, 24).map((v) => v.ruleKey),
-            });
+    // MCP tools: Layer 6 wire formats (columnar / json) are applied inside QueryRouter.execute.
+    // Wrap in try/catch so any throw lands as isError:true on the wire
+    // instead of the SDK's generic JSON-RPC error, which some clients
+    // surface less prominently than a tool-level error.
+    let result: Awaited<ReturnType<typeof router.execute>>;
+    try {
+      result = await router.execute(name, args);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[unerr] router.execute(${name}) threw: ${errMsg}\n`
+      );
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ error: errMsg, tool: name }),
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    // Track session stats + latency
+    recordToolCall(stats);
+    recordLatency(stats.latency, result._meta.latency_ms);
+    pidLock.recordToolCall();
+    // Local Mode: track per-tool graph query counts
+    if (stats.localMode && result._meta.source === "local") {
+      recordGraphQuery(stats.localMode, name);
+    }
+    // Local Mode: track blast radius computations
+    if (stats.localMode && result._meta.entity_risk) {
+      recordBlastRadius(stats.localMode);
+    }
+    // Local Mode: track community context injections
+    if (stats.localMode && result._meta.community) {
+      recordCommunityContext(stats.localMode);
+    }
+    // Local Mode: accumulate latency advantage vs remote baseline (200ms baseline)
+    if (stats.localMode && result._meta.source === "local") {
+      recordLatencyAdvantage(
+        stats.localMode,
+        Math.max(0, 200 - result._meta.latency_ms)
+      );
+    }
+    if (result._meta.entity_risk?.risk_level === "high") {
+      recordRiskWarning(stats);
+      // Track chokepoint warning when blast radius is high
+      if ((result._meta.entity_risk?.fan_in ?? 0) > 10) {
+        recordChokepointWarning(stats);
+      }
+    }
+    // Track dead code references (fan_in=0 entities)
+    if (result._meta.entity_risk?.fan_in === 0) {
+      recordDeadCodeReference(stats);
+    }
+
+    // Track convention violations from check_rules results
+    if (name === "check_rules" && result.content != null) {
+      const checkResult = result.content as {
+        violations?: Array<{ ruleKey: string; autoFixed?: boolean }>;
+      };
+      const viols = checkResult.violations;
+      if (viols && viols.length > 0) {
+        void import("../server/event-bus.js").then(({ eventBus }) => {
+          eventBus.emit("violation", {
+            source: "check_rules",
+            count: viols.length,
+            rules: viols.slice(0, 24).map((v) => v.ruleKey),
           });
-          for (let i = 0; i < viols.length; i++) {
-            recordViolation(stats);
-          }
+        });
+        for (let i = 0; i < viols.length; i++) {
+          recordViolation(stats);
         }
       }
+    }
 
-      // Track circular dependency detection from import analysis
-      if (name === "get_imports" && result.content != null) {
-        const imports = result.content as Array<{ imported_file: string }>;
-        if (Array.isArray(imports)) {
-          // Detect circular: file A imports B and B imports A
-          const importedFiles = new Set(imports.map((e) => e.imported_file));
-          const filePath = args?.file_path as string | undefined;
-          if (filePath) {
-            // Check if any imported file also imports this file
-            for (const target of importedFiles) {
-              if (target === filePath) {
-                recordCircularDep(stats);
-                break;
-              }
+    // Track circular dependency detection from import analysis
+    if (name === "get_imports" && result.content != null) {
+      const imports = result.content as Array<{ imported_file: string }>;
+      if (Array.isArray(imports)) {
+        // Detect circular: file A imports B and B imports A
+        const importedFiles = new Set(imports.map((e) => e.imported_file));
+        const filePath = args?.file_path as string | undefined;
+        if (filePath) {
+          // Check if any imported file also imports this file
+          for (const target of importedFiles) {
+            if (target === filePath) {
+              recordCircularDep(stats);
+              break;
             }
           }
         }
       }
+    }
 
-      // Track signature preservation when drift shows modified entities
-      if (result._meta.drift?.entityStatus === "modified") {
-        recordSignaturePreservation(stats);
-      }
+    // Track signature preservation when drift shows modified entities
+    if (result._meta.drift?.entityStatus === "modified") {
+      recordSignaturePreservation(stats);
+    }
 
-      // Record in Shadow Ledger
-      const branch = branchContext?.currentBranch ?? "unknown";
-      const headSha = branchContext?.headSha ?? "";
-      const resultSummary: Record<string, unknown> = {
-        source: result._meta.source,
-        found: result.content != null,
-      };
-      if (Array.isArray(result.content)) {
-        resultSummary.count = result.content.length;
-      }
-      if (ctx.clientId) {
-        resultSummary.client = ctx.clientId;
-      }
-      shadowLedger.record(name, args, resultSummary, branch, headSha);
+    // Record in Shadow Ledger
+    const branch = branchContext?.currentBranch ?? "unknown";
+    const headSha = branchContext?.headSha ?? "";
+    const resultSummary: Record<string, unknown> = {
+      source: result._meta.source,
+      found: result.content != null,
+    };
+    if (Array.isArray(result.content)) {
+      resultSummary.count = result.content.length;
+    }
+    if (ctx.clientId) {
+      resultSummary.client = ctx.clientId;
+    }
+    shadowLedger.record(name, args, resultSummary, branch, headSha);
 
-      // Sprint 4: Capture edit narratives as episodic facts
-      const NARRATIVE_EDIT_TOOLS = new Set([
-        "file_write",
-        "write_file",
-        "edit_file",
-        "str_replace_editor",
-        "Write",
-        "Edit",
-      ]);
-      if (narrativeCapture && NARRATIVE_EDIT_TOOLS.has(name)) {
-        const recentEntries = shadowLedger.getRecentEntries(10);
-        const lastEntry = recentEntries[recentEntries.length - 1];
-        if (lastEntry) {
-          setImmediate(() =>
-            narrativeCapture?.captureEditNarrative(lastEntry).catch(() => {})
-          );
-        }
-      }
-
-      // Sprint 5: Periodic pattern analysis (every 20 tool calls)
-      patternAnalysisCallCount++;
-      if (
-        patternAnalysisCallCount % 20 === 0 &&
-        proxyFactStore &&
-        shadowLedger
-      ) {
-        setImmediate(async () => {
-          try {
-            const { analyzeSessionPatterns } = await import(
-              "../intelligence/session-pattern-analyzer.js"
-            );
-            const entries = shadowLedger?.getRecentEntries(20);
-            await analyzeSessionPatterns({
-              ledgerEntries: entries,
-              factStore: proxyFactStore!,
-              sessionId: shadowLedger?.getSessionId(),
-            });
-          } catch {
-            /* non-critical */
-          }
-        });
-      }
-
-      // S7.1: Auto-snapshot trigger evaluation (post-tool-call)
-      try {
-        const { shouldAutoSnapshot } = await import(
-          "../tracking/auto-snapshot-triggers.js"
+    // Sprint 4: Capture edit narratives as episodic facts
+    const NARRATIVE_EDIT_TOOLS = new Set([
+      "file_write",
+      "write_file",
+      "edit_file",
+      "str_replace_editor",
+      "Write",
+      "Edit",
+    ]);
+    if (narrativeCapture && NARRATIVE_EDIT_TOOLS.has(name)) {
+      const recentEntries = shadowLedger.getRecentEntries(10);
+      const lastEntry = recentEntries[recentEntries.length - 1];
+      if (lastEntry) {
+        setImmediate(() =>
+          narrativeCapture?.captureEditNarrative(lastEntry).catch(() => {})
         );
-        const fanInThreshold = result._meta.entity_risk?.fan_in ?? 0;
-        if (
-          shouldAutoSnapshot(
-            name,
-            args,
-            resultSummary,
-            fanInThreshold > 8 ? fanInThreshold : undefined
-          )
-        ) {
-          const snapshotBranch = branchContext?.currentBranch ?? "unknown";
-          const snapshotSha = branchContext?.headSha ?? "";
-          workingSnapshotStore.create({
-            commitSha: snapshotSha,
-            reason: `auto: ${name}`,
-            branch: snapshotBranch,
-            timelineBranch: workingSnapshotStore.getTimelineBranch(),
-            sessionId: shadowLedger.getSessionId(),
+      }
+    }
+
+    // Sprint 5: Periodic pattern analysis (every 20 tool calls)
+    patternAnalysisCallCount++;
+    if (patternAnalysisCallCount % 20 === 0 && proxyFactStore && shadowLedger) {
+      setImmediate(async () => {
+        try {
+          const { analyzeSessionPatterns } = await import(
+            "../intelligence/session-pattern-analyzer.js"
+          );
+          const entries = shadowLedger?.getRecentEntries(20);
+          await analyzeSessionPatterns({
+            ledgerEntries: entries,
+            factStore: proxyFactStore!,
+            sessionId: shadowLedger?.getSessionId(),
           });
+        } catch {
+          /* non-critical */
         }
-      } catch {
-        // Auto-snapshot is non-critical
-      }
-
-      // Task 6.3: Flag partial initialization on early responses
-      const meta: Record<string, unknown> = { ...result._meta };
-      if (!deferredInitComplete) {
-        meta.initialization = "partial";
-      }
-
-      // Inject session_resumed on first MCP response after resume
-      if (stats.isResumedSession && !resumeMetaEmitted) {
-        meta.session_resumed = true;
-        if (stats.previousSession) {
-          const prev = stats.previousSession;
-          meta.previous_session = {
-            tool_calls: prev.toolCallsLocal,
-            duration_minutes: prev.durationMinutes,
-          };
-        }
-        effectivenessTracker.recordSignalFired({
-          kind: "resume_injected",
-          signal_id: shadowLedger.getSessionId(),
-          entity_key: null,
-          turn: router.sessionContext.getToolCallCount(),
-        });
-        resumeMetaEmitted = true;
-      }
-
-      // ── Layer 4: Post-tool-use behavioral hooks ──
-      const postCtx = {
-        ...behaviorCtx,
-        result: result as unknown as Record<string, unknown>,
-      };
-      const postOutput = await behaviorDispatcher.firePostToolUse(postCtx);
-      let contextPayload = result._context ?? {};
-      // Fault-2 repair: the `preOutput.halt` branch above is the ONLY consumer
-      // of pre-tool behavior output — advisory (non-halt) pre-tool signals were
-      // otherwise computed and dropped. Fold their _context/_meta in here so
-      // pre-tool behaviors surface alongside post-tool output. Post-tool output
-      // is merged after, so it wins on any key conflict.
-      if (preOutput && !preOutput.halt) {
-        if (preOutput._context) {
-          contextPayload = { ...contextPayload, ...preOutput._context };
-        }
-        if (preOutput._meta) Object.assign(meta, preOutput._meta);
-      }
-      if (postOutput?._context) {
-        contextPayload = { ...contextPayload, ...postOutput._context };
-      }
-      if (postOutput?._meta) {
-        Object.assign(meta, postOutput._meta);
-      }
-
-      // Tier-3: clients filter `_meta`/`_context`. Migrate anti-drift signals
-      // into body text. Wire-cap already ran inside QueryRouter (pre-format)
-      // and stashed page hint on meta._unerr_page_hint — consume it here.
-      const { buildSignalPrefix } = await import("./response-envelope.js");
-      const entityKey =
-        ((args as Record<string, unknown>).entity_key as string | undefined) ??
-        ((args as Record<string, unknown>).entity as string | undefined) ??
-        ((args as Record<string, unknown>).key as string | undefined) ??
-        ((args as Record<string, unknown>).name as string | undefined) ??
-        ((args as Record<string, unknown>).file_path as string | undefined) ??
-        null;
-      const signalFooter = buildSignalPrefix(
-        meta,
-        contextPayload as unknown as Record<string, unknown>,
-        entityKey
-      );
-      const pageHint = (meta as Record<string, unknown>)._unerr_page_hint as
-        | string
-        | undefined;
-      const bodyText =
-        typeof result.content === "string"
-          ? result.content
-          : stringifyMcpToolJson(result.content);
-      const pageBlock = pageHint ? `\n${pageHint}` : "";
-      const footerBlock = signalFooter ? `\n${signalFooter.trimEnd()}` : "";
-      const bodyEnd = bodyText.endsWith("\n") ? "" : "\n";
-
-      // Surfaces 2/3/4 (user-prose channel): preface above body, footer
-      // below the page hint and above the signal footer. Failures here
-      // never break the response.
-      const { buildUserBlockForResponse } = await import(
-        "./user-block-emitter.js"
-      );
-      const userBlock = await buildUserBlockForResponse({
-        unerrDir: join(process.cwd(), ".unerr"),
-        sessionId: shadowLedger.getSessionId(),
-        toolCallCount: router.sessionContext.getToolCallCount(),
-        filePath:
-          ((args as Record<string, unknown>).file_path as string | undefined) ??
-          entityKey,
-        factStore: proxyFactStore ?? undefined,
-        pendingConfirmations: proxyPendingConfirmations ?? undefined,
-        isResumedSession: stats.isResumedSession,
-        timelineStore: timelineHandle?.store,
-        behaviorEvents: behaviorEventWriter,
       });
+    }
 
-      // Final assembly: preface → data → page-hint → user footer → signal footer.
-      const finalText =
-        userBlock.head +
-        bodyText +
-        bodyEnd +
-        pageBlock +
-        userBlock.tail +
-        footerBlock;
+    // S7.1: Auto-snapshot trigger evaluation (post-tool-call)
+    try {
+      const { shouldAutoSnapshot } = await import(
+        "../tracking/auto-snapshot-triggers.js"
+      );
+      const fanInThreshold = result._meta.entity_risk?.fan_in ?? 0;
+      if (
+        shouldAutoSnapshot(
+          name,
+          args,
+          resultSummary,
+          fanInThreshold > 8 ? fanInThreshold : undefined
+        )
+      ) {
+        const snapshotBranch = branchContext?.currentBranch ?? "unknown";
+        const snapshotSha = branchContext?.headSha ?? "";
+        workingSnapshotStore.create({
+          commitSha: snapshotSha,
+          reason: `auto: ${name}`,
+          branch: snapshotBranch,
+          timelineBranch: workingSnapshotStore.getTimelineBranch(),
+          sessionId: shadowLedger.getSessionId(),
+        });
+      }
+    } catch {
+      // Auto-snapshot is non-critical
+    }
 
-      // P0-3: A soft-refused (locked) tool call surfaces as a tool error
-      // so every known MCP client (Cursor, Cline, Codex, Claude Code)
-      // routes the body text into the model's view, not the framework's
-      // silent retry path.
-      const isGateLocked =
-        (result._meta as Record<string, unknown>).gate_status === "locked";
+    // Task 6.3: Flag partial initialization on early responses
+    const meta: Record<string, unknown> = { ...result._meta };
+    if (!deferredInitComplete) {
+      meta.initialization = "partial";
+    }
 
-      return {
-        content: [{ type: "text", text: finalText }],
-        ...(isGateLocked ? { isError: true } : {}),
-      };
+    // Inject session_resumed on first MCP response after resume
+    if (stats.isResumedSession && !resumeMetaEmitted) {
+      meta.session_resumed = true;
+      if (stats.previousSession) {
+        const prev = stats.previousSession;
+        meta.previous_session = {
+          tool_calls: prev.toolCallsLocal,
+          duration_minutes: prev.durationMinutes,
+        };
+      }
+      effectivenessTracker.recordSignalFired({
+        kind: "resume_injected",
+        signal_id: shadowLedger.getSessionId(),
+        entity_key: null,
+        turn: router.sessionContext.getToolCallCount(),
+      });
+      resumeMetaEmitted = true;
+    }
+
+    // ── Layer 4: Post-tool-use behavioral hooks ──
+    const postCtx = {
+      ...behaviorCtx,
+      result: result as unknown as Record<string, unknown>,
+    };
+    const postOutput = await behaviorDispatcher.firePostToolUse(postCtx);
+    let contextPayload = result._context ?? {};
+    // Fault-2 repair: the `preOutput.halt` branch above is the ONLY consumer
+    // of pre-tool behavior output — advisory (non-halt) pre-tool signals were
+    // otherwise computed and dropped. Fold their _context/_meta in here so
+    // pre-tool behaviors surface alongside post-tool output. Post-tool output
+    // is merged after, so it wins on any key conflict.
+    if (preOutput && !preOutput.halt) {
+      if (preOutput._context) {
+        contextPayload = { ...contextPayload, ...preOutput._context };
+      }
+      if (preOutput._meta) Object.assign(meta, preOutput._meta);
+    }
+    if (postOutput?._context) {
+      contextPayload = { ...contextPayload, ...postOutput._context };
+    }
+    if (postOutput?._meta) {
+      Object.assign(meta, postOutput._meta);
+    }
+
+    // Tier-3: clients filter `_meta`/`_context`. Migrate anti-drift signals
+    // into body text. Wire-cap already ran inside QueryRouter (pre-format)
+    // and stashed page hint on meta._unerr_page_hint — consume it here.
+    const { buildSignalPrefix } = await import("./response-envelope.js");
+    const entityKey =
+      ((args as Record<string, unknown>).entity_key as string | undefined) ??
+      ((args as Record<string, unknown>).entity as string | undefined) ??
+      ((args as Record<string, unknown>).key as string | undefined) ??
+      ((args as Record<string, unknown>).name as string | undefined) ??
+      ((args as Record<string, unknown>).file_path as string | undefined) ??
+      null;
+    const signalFooter = buildSignalPrefix(
+      meta,
+      contextPayload as unknown as Record<string, unknown>,
+      entityKey
+    );
+    const pageHint = (meta as Record<string, unknown>)._unerr_page_hint as
+      | string
+      | undefined;
+    const bodyText =
+      typeof result.content === "string"
+        ? result.content
+        : stringifyMcpToolJson(result.content);
+    const pageBlock = pageHint ? `\n${pageHint}` : "";
+    const footerBlock = signalFooter ? `\n${signalFooter.trimEnd()}` : "";
+    const bodyEnd = bodyText.endsWith("\n") ? "" : "\n";
+
+    // Surfaces 2/3/4 (user-prose channel): preface above body, footer
+    // below the page hint and above the signal footer. Failures here
+    // never break the response.
+    const { buildUserBlockForResponse } = await import(
+      "./user-block-emitter.js"
+    );
+    const userBlock = await buildUserBlockForResponse({
+      unerrDir: join(process.cwd(), ".unerr"),
+      sessionId: shadowLedger.getSessionId(),
+      toolCallCount: router.sessionContext.getToolCallCount(),
+      filePath:
+        ((args as Record<string, unknown>).file_path as string | undefined) ??
+        entityKey,
+      factStore: proxyFactStore ?? undefined,
+      pendingConfirmations: proxyPendingConfirmations ?? undefined,
+      isResumedSession: stats.isResumedSession,
+      timelineStore: timelineHandle?.store,
+      behaviorEvents: behaviorEventWriter,
+    });
+
+    // Final assembly: preface → data → page-hint → user footer → signal footer.
+    const finalText =
+      userBlock.head +
+      bodyText +
+      bodyEnd +
+      pageBlock +
+      userBlock.tail +
+      footerBlock;
+
+    // P0-3: A soft-refused (locked) tool call surfaces as a tool error
+    // so every known MCP client (Cursor, Cline, Codex, Claude Code)
+    // routes the body text into the model's view, not the framework's
+    // silent retry path.
+    const isGateLocked =
+      (result._meta as Record<string, unknown>).gate_status === "locked";
+
+    return {
+      content: [{ type: "text", text: finalText }],
+      ...(isGateLocked ? { isError: true } : {}),
+    };
   }
 
   server.setRequestHandler(
@@ -2722,7 +2854,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     if (message.method === "tools/list") {
       return {
         jsonrpc: "2.0" as const,
-        result: { tools: await getInjectedTools() },
+        result: { tools: await getAdvertisedTools() },
       };
     }
 

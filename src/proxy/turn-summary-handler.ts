@@ -75,6 +75,61 @@ export interface TurnSummaryError {
 }
 
 /**
+ * Compute the close-out economy line for a session/turn — the multi-line
+ * receipt block the agent pastes verbatim (MCP path) OR the Stop hook surfaces
+ * as a user-facing systemMessage (hook path). Pure read of the on-disk event
+ * stream; safe to call from a hook subprocess. Best-effort throughout: any
+ * sub-failure degrades to the legacy single-line economy form, never throws.
+ *
+ * Shared by {@link handleTurnSummaryProxy} (MCP tool) and the Stop hook
+ * (src/hooks/stop-hooks.ts) so both surfaces emit byte-identical text.
+ */
+export function computeTurnSummaryLine(
+  unerrDir: string,
+  sessionId: string,
+  currentTurn: number
+): string {
+  const data = renderSessionEconomyLineLive(unerrDir, sessionId, currentTurn);
+
+  // Fix L — compute cross-tier joins from the same event stream and splice the
+  // `⚡ unerr runtime: …` segment ahead of the session economy line. Elided
+  // when all counts are zero so the legacy paste contract is preserved
+  // byte-for-byte on join-free turns.
+  let runtimeJoins: RuntimeJoinCounts = {
+    memory_to_graph: 0,
+    graph_to_drift: 0,
+    three_way: 0,
+    entities: [],
+  };
+  let attribution: ReceiptAttribution = {
+    recalls: [],
+    captures: [],
+    drift: [],
+  };
+  let blockLines: string[] = data.line ? [data.line] : [];
+  try {
+    const events = readNamedEvents(unerrDir, { session_id: sessionId });
+    runtimeJoins = computeRuntimeJoins(events, sessionId, currentTurn);
+    attribution = extractReceiptAttribution(events, currentTurn);
+    // Slice to the conversational turn via the prompt boundary so the concrete
+    // bullets describe the same window as data.turn_tokens_saved.
+    const turnEvents = currentTurnSlice(events, currentTurn);
+    blockLines = renderReceiptBlock({
+      attribution,
+      runtimeJoins,
+      turnTokensSaved: data.turn_tokens_saved,
+      sessionTokensSaved: data.total_tokens_saved,
+      sessionHeadroom: data.headroom_compounded,
+      turnEvents,
+      fallbackLine: data.line,
+    });
+  } catch {
+    /* best effort — receipt falls through to legacy single-liner */
+  }
+  return blockLines.join("\n");
+}
+
+/**
  * Run the close-out summary. Returns the MCP tool-response envelope —
  * a JSON-stringified `TurnSummaryResult | TurnSummaryError` in the
  * `content[0].text` slot.
@@ -101,44 +156,7 @@ export async function handleTurnSummaryProxy(
     } catch {
       /* best effort — receipt itself still proceeds */
     }
-    const data = renderSessionEconomyLineLive(unerrDir, sessionId, currentTurn);
-
-    // Fix L — compute cross-tier joins from the same event stream and
-    // splice the `⚡ unerr runtime: …` segment ahead of the existing
-    // session economy line. Elided when all counts are zero so the
-    // legacy paste contract is preserved byte-for-byte on join-free
-    // turns.
-    let runtimeJoins: RuntimeJoinCounts = {
-      memory_to_graph: 0,
-      graph_to_drift: 0,
-      three_way: 0,
-      entities: [],
-    };
-    let attribution: ReceiptAttribution = {
-      recalls: [],
-      captures: [],
-      drift: [],
-    };
-    let blockLines: string[] = data.line ? [data.line] : [];
-    try {
-      const events = readNamedEvents(unerrDir, { session_id: sessionId });
-      runtimeJoins = computeRuntimeJoins(events, sessionId, currentTurn);
-      attribution = extractReceiptAttribution(events, currentTurn);
-      // Slice to the conversational turn via the prompt boundary so the
-      // concrete bullets describe the same window as data.turn_tokens_saved.
-      const turnEvents = currentTurnSlice(events, currentTurn);
-      blockLines = renderReceiptBlock({
-        attribution,
-        runtimeJoins,
-        turnTokensSaved: data.turn_tokens_saved,
-        sessionTokensSaved: data.total_tokens_saved,
-        sessionHeadroom: data.headroom_compounded,
-        turnEvents,
-        fallbackLine: data.line,
-      });
-    } catch {
-      /* best effort — receipt falls through to legacy single-liner */
-    }
+    const line = computeTurnSummaryLine(unerrDir, sessionId, currentTurn);
 
     // Wire payload: the agent only ever pastes `line` (the close-out
     // contract). The full economy breakdown — events, savings, headroom,
@@ -149,7 +167,7 @@ export async function handleTurnSummaryProxy(
     // runtime-join prefix + receipt block, so nothing actionable is lost.
     // `TurnSummaryResult` (above) stays the internal/telemetry shape;
     // `runtimeJoins` + `attribution` are still consumed by renderReceiptBlock.
-    const wire = { ok: true as const, line: blockLines.join("\n") };
+    const wire = { ok: true as const, line };
     return {
       content: [{ type: "text", text: JSON.stringify(wire) }],
     };

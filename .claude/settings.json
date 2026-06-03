@@ -132,6 +132,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook stop"
+          }
+        ]
+      }
     ]
   },
   "permissions": {

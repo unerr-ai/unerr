@@ -50,16 +50,18 @@ Phase 1 — Recall.
   Call `unerr_recall_notes({prompt:'<verbatim user prompt>'})`. Empty result is fine; the call is the contract.
 
 Phase 2 — Blast radius.
-  Call `search_code({query:'<target_symbol>'})` to locate the entity. Call `get_references({entity:'<symbol>', direction:'callers'})` for every export you will touch. Stop and reassess if fan-in > 10.
+  Preferred one-shot: run `unerr recon "<verbatim user prompt>"` from Bash. One call returns anchored notes + matching entities + the focus entity's callers (blast radius) + conventions, ranked and budget-trimmed — it replaces the `search_code` → `get_references` → `get_conventions` fan-out (each separate call re-bills the whole prefix). Act on the bundle. Stop and reassess if it reports fan-in > 10 or flags a large sweep.
+  Fallback (recon unavailable, or you need a wider slice than the bundle): call `search_code({query:'<target_symbol>'})` to locate the entity, then `get_references({entity:'<symbol>', direction:'callers'})` for every export you will touch.
+  Trivial / read-only lookup: skip `unerr recon` and skip the markers + `unerr_turn_summary` ceremony below — call `search_code` or `file_read` directly. Large sweep (rename / migrate / "every place that…"): run `unerr recon` inside a Task subagent and return only its digest to the main thread.
 
-Phase 3 — Plan + mark intent.
-  Call `mark_intent({text:'<one-sentence summary, ≤80 chars>'})`. Write the plan inline; cite returned notes by `kind|anchor`.
+Phase 3 — Plan + note intent.
+  Emit `unerr-save: intent <one-sentence summary, ≤80 chars>` in your closing message (no tool call — the Stop hook persists it). Write the plan inline; cite returned notes by `kind|anchor`.
 
 Phase 4 — Edit.
   Call `file_read({file_path:'<target>', purpose:'explore'})` to understand. Then built-in `Read` (offset/limit) on the exact target lines IMMEDIATELY before `Edit`. The Edit tool rejects without a prior built-in Read.
 
 Phase 5 — Verify.
-  Run the targeted test file (not the full suite). Capture `mark_resolution` for any blocker that fired during the turn.
+  Run the targeted test file (not the full suite). Emit `unerr-save: resolution <fix>` in your closing message for any blocker that fired during the turn.
 
 Phase 6 — Review before close (only when this turn edited code).
   Run the Review phase (`unerr-review`, phases R4–R7) on every entity changed this turn: `get_references({key:'<entity>', direction:'callers'})` for breaking callers, `get_conventions({file_path:'<file>'})` for boundary/convention breaches, `get_test_coverage({entity:'<entity>'})` for untested changed exports. Fix critical + high before close-out. Skip this phase only on turns that changed no code.

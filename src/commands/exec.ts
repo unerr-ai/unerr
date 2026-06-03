@@ -29,15 +29,18 @@ const EXEC_NUDGES = [
   // #6 TRIM — read protocol set
   "[unerr] Read code: file_read (Read built-in: only pre-Edit) · Search: search_code (not grep) · Structure: file_outline",
   // #7 TRIM — entity / convention / fact set
-  "[unerr] Entity details: get_entity · Before writing: get_conventions · For prior decisions: recall_facts",
+  "[unerr] Entity details: get_entity · Before writing: get_conventions · For prior facts: unerr_track({op:'recall'})",
   // #8 KEEP — pre-edit nudge already tight, why+what clear
   "[unerr] Before editing: get_references to check callers. get_critical_nodes for chokepoint awareness.",
   // #9 TRIM — structural analysis set, with when-tags per tool for discoverability
-  "[unerr] Structure: get_critical_nodes (chokepoints) · get_cross_boundary_links (surprise coupling) · file_connections · get_test_coverage · get_project_stats",
+  // (Sprint 10: get_cross_boundary_links + file_connections demoted off the
+  // advertised surface — file_outline carries a file's imports, get_references
+  // its call-level neighbors, so they're dropped from this roster.)
+  "[unerr] Structure: get_critical_nodes (chokepoints) · get_test_coverage (tests for an entity) · get_project_stats (graph overview)",
   // #10 TRIM — narrative markers with when-tags
-  "[unerr] Markers: mark_intent (task start) · mark_decision (choice) · mark_blocker (stuck) · mark_resolution (fixed) — power timeline + resume",
+  "[unerr] Markers (zero round-trip): emit `unerr-save: intent|decision|blocker|resolution <one-line>` in your closing message — the Stop hook persists them to power timeline + resume",
   // #11 — user-fed memory: prompt agent to persist explicit user statements
-  '[unerr] User said "remember" / "always" / "from now on"? Call unerr_remember with source_quote + confidence (NOT record_fact — that\'s for agent-detected facts).',
+  '[unerr] User said "remember" / "always" / "from now on"? Call unerr_remember with source_quote + confidence (NOT unerr_track({op:\'fact\'}) — that\'s for agent-detected facts).',
 ];
 
 /**

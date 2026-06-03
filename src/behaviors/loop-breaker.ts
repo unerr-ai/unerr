@@ -224,7 +224,7 @@ export class LoopCircuitBreaker extends Behavior {
         circuit_breaker: {
           entity: entityKey,
           attempts: failCount,
-          message: `loop broken on ${entityKey}: ${failCount} consecutive failed attempts (${detection.pattern}) — stop retrying, call mark_blocker and switch approach`,
+          message: `loop broken on ${entityKey}: ${failCount} consecutive failed attempts (${detection.pattern}) — stop retrying, emit \`unerr-save: blocker <obstacle>\` and switch approach`,
         },
       },
       _context: {

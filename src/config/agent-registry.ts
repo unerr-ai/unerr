@@ -13,6 +13,36 @@ export type McpConfigFormat =
   | "copilot-json" // GitHub Copilot CLI { mcpServers: { ... } } with type: "local"
   | "continue-config"; // Continue.dev { mcpServers: [...] } in config.json
 
+/**
+ * Granular hook-event capabilities — what an agent's native hook system can
+ * actually do. Phase-2 mechanism selection (src/proxy/tool-mechanism-map.ts)
+ * reads this to decide, per agent, whether a capability rides a hook (zero
+ * extra round-trip) or stays on its MCP fallback.
+ *
+ * The coarse `hookSupport: boolean` answers "does it have hooks at all"; this
+ * answers "which hooks, and have we built the adapter". An agent with
+ * `hookSupport: true` but `promptContextInject: false` (e.g. Cursor, whose
+ * `beforeSubmitPrompt` can only edit the user message, not inject agent
+ * context) must keep the prompt-time recall/marker tools on MCP.
+ */
+export interface HookCapabilities {
+  /** Can inject agent-readable context at prompt-submit time (zero round-trip). */
+  promptContextInject: boolean;
+  /** Can inject agent-readable context after a tool runs (PostToolUse-style). */
+  toolContextInject: boolean;
+  /** Fires a once-per-session start event (session-banner injection). */
+  sessionStart: boolean;
+  /** Fires a turn-end / stop event (user-facing close-out line). */
+  stop: boolean;
+  /**
+   * unerr's adapter status for this agent's hooks:
+   *  - "built"   — an installer + runtime adapter ships today
+   *  - "planned" — the agent has the capability but unerr's adapter is TODO
+   *  - "none"    — no usable hook system; everything lives on MCP
+   */
+  adapter: "built" | "planned" | "none";
+}
+
 export interface AgentDefinition {
   id: IdeType;
   name: string;
@@ -28,6 +58,11 @@ export interface AgentDefinition {
   envVars: string[];
   /** Whether this agent supports CLI hooks (PreToolUse/PostToolUse) */
   hookSupport: boolean;
+  /**
+   * Granular hook capabilities. Present only when hookSupport is true.
+   * Absent ⇒ treat every capability as MCP-only (see DEFAULT_NO_HOOKS).
+   */
+  hooks?: HookCapabilities;
   /** Short description for the config show command */
   description: string;
   /** Relative path from project root for agent instruction file (CLAUDE.md, AGENTS.md, etc.) */
@@ -54,6 +89,15 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     dirMarkers: [".cursor"],
     envVars: ["CURSOR_TRACE_ID"],
     hookSupport: true,
+    // beforeSubmitPrompt edits user_message only (no agent-context inject);
+    // afterFileEdit / tool hooks can attach additional_context. No stop/session.
+    hooks: {
+      promptContextInject: false,
+      toolContextInject: true,
+      sessionStart: false,
+      stop: false,
+      adapter: "built",
+    },
     description: "AI-native code editor (VS Code fork)",
     instructionFilePath: ".cursor/rules/unerr-instructions.mdc",
     instructionFormat: "mdc",
@@ -66,6 +110,16 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     dirMarkers: [".claude"],
     envVars: ["CLAUDE_CODE"],
     hookSupport: true,
+    // SessionStart / UserPromptSubmit / Pre+PostToolUse all inject agent context
+    // via hookSpecificOutput.additionalContext; Stop surfaces a user-facing line.
+    // Adapter "built" today covers Pre+PostToolUse; Sprint 7 extends the rest.
+    hooks: {
+      promptContextInject: true,
+      toolContextInject: true,
+      sessionStart: true,
+      stop: true,
+      adapter: "built",
+    },
     description: "Anthropic's CLI coding agent",
     instructionFilePath: "CLAUDE.md",
     instructionFormat: "markdown",
@@ -91,6 +145,15 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     dirMarkers: [".windsurf"],
     envVars: ["WINDSURF_EDITOR"],
     hookSupport: true,
+    // Cascade hooks fire on user_prompt (pre) and mcp_tool_use (post) and the
+    // cascade response (stop-like); no once-per-session start. Adapter TODO.
+    hooks: {
+      promptContextInject: true,
+      toolContextInject: true,
+      sessionStart: false,
+      stop: true,
+      adapter: "planned",
+    },
     description: "Codeium's AI IDE (Cascade)",
     instructionFilePath: ".windsurf/rules/unerr-instructions.md",
     instructionFormat: "windsurf-rule",
@@ -115,6 +178,15 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     dirMarkers: [".cline"],
     envVars: [],
     hookSupport: true,
+    // Cline hooks attach context around tool execution; no documented prompt-
+    // submit / session-start / stop injection. Conservative until verified.
+    hooks: {
+      promptContextInject: false,
+      toolContextInject: true,
+      sessionStart: false,
+      stop: false,
+      adapter: "built",
+    },
     description: "Autonomous AI coding agent (VS Code extension)",
     instructionFilePath: ".clinerules",
     instructionFormat: "markdown",
@@ -139,6 +211,15 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     dirMarkers: [".gemini"],
     envVars: ["GEMINI_API_KEY", "GEMINI_CLI"],
     hookSupport: true,
+    // 11 hook events incl. SessionStart, BeforeModel (prompt), AfterTool, and
+    // SessionEnd (stop) — all can carry context. Adapter TODO.
+    hooks: {
+      promptContextInject: true,
+      toolContextInject: true,
+      sessionStart: true,
+      stop: true,
+      adapter: "planned",
+    },
     description: "Google's CLI coding agent",
     instructionFilePath: "GEMINI.md",
     instructionFormat: "markdown",
@@ -211,6 +292,15 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     dirMarkers: [".github", ".copilot"],
     envVars: ["GITHUB_COPILOT_TOKEN"],
     hookSupport: true,
+    // 6 hook types centred on tool execution; no documented prompt/session/stop
+    // context inject. Conservative until verified. Adapter TODO.
+    hooks: {
+      promptContextInject: false,
+      toolContextInject: true,
+      sessionStart: false,
+      stop: false,
+      adapter: "planned",
+    },
     description: "GitHub's CLI AI assistant",
     instructionFilePath: ".github/copilot-instructions.md",
     instructionFormat: "markdown",
@@ -240,6 +330,27 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     instructionFormat: "antigravity-rule",
   },
 ];
+
+/**
+ * The capability profile for an agent with no usable hooks: everything lives
+ * on MCP. Returned by getHookCapabilities when an agent declares no `hooks`.
+ */
+export const DEFAULT_NO_HOOKS: HookCapabilities = {
+  promptContextInject: false,
+  toolContextInject: false,
+  sessionStart: false,
+  stop: false,
+  adapter: "none",
+};
+
+/**
+ * Resolve an agent's granular hook capabilities, falling back to
+ * DEFAULT_NO_HOOKS when it declares none. Always returns a concrete profile so
+ * callers never branch on undefined.
+ */
+export function getHookCapabilities(id: IdeType): HookCapabilities {
+  return getAgent(id)?.hooks ?? DEFAULT_NO_HOOKS;
+}
 
 /**
  * Get an agent definition by its ID.

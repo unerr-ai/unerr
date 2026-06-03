@@ -142,7 +142,7 @@ async function analyzeEntityAccess(
         fact_type: "procedural",
         scope: data.file,
         subject: entityKey,
-        content: `${entityKey} — key entity (accessed ${data.count}× in session ${sessionId}) — pin via record_fact if it's a stable invariant`,
+        content: `${entityKey} — key entity (accessed ${data.count}× in session ${sessionId}) — pin via unerr_track({op:'fact'}) if it's a stable invariant`,
         source: "session_analysis",
         confidence,
       });

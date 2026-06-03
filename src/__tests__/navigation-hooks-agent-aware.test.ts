@@ -6,6 +6,14 @@ import {
   runPreReadHook,
 } from "../hooks/navigation-hooks.js";
 
+// R4 (Sprint 2): the big instructional banners now emit in full ONCE per
+// session (file-backed gate), terse thereafter. Reset the gate before every
+// test so each case independently exercises the first-emission (full) text;
+// the once-then-terse behavior has its own dedicated test below.
+beforeEach(() => {
+  resetHookDedup();
+});
+
 /**
  * Tests for agent-aware navigation hook behavior.
  *
@@ -133,6 +141,28 @@ describe("preEditHook — Claude Code", () => {
     expect(msg).toContain("CRITICAL: Edit REQUIRES built-in Read");
     expect(msg).toContain("function/class signature");
     expect(msg).toContain("get_references");
+  });
+
+  // R4 (Sprint 2): the verbose read-prerequisite banner emits in full once,
+  // then collapses to a terse, still-actionable one-liner — this is the
+  // ceremony-cut that stops re-billing ~1.4k tok/turn on every hop.
+  it("collapses the read-prerequisite banner to terse after first emission", () => {
+    const payload = claudeCodePayload({
+      file_path: "src/foo.ts",
+      old_string: "const x = 1",
+      new_string: "const x = 2",
+    });
+    const first = JSON.parse(runPreEditHook(payload));
+    const firstMsg = first.hookSpecificOutput?.systemMessage ?? "";
+    expect(firstMsg).toContain("CRITICAL: Edit REQUIRES built-in Read");
+
+    const second = JSON.parse(runPreEditHook(payload));
+    const secondMsg = second.hookSpecificOutput?.systemMessage ?? "";
+    // Terse form: no full CRITICAL block, but still names the file + the rule.
+    expect(secondMsg).not.toContain("CRITICAL: Edit REQUIRES built-in Read");
+    expect(secondMsg).toContain("built-in Read");
+    expect(secondMsg).toContain("src/foo.ts");
+    expect(secondMsg.length).toBeLessThan(firstMsg.length);
   });
 });
 

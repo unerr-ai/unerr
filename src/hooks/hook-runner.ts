@@ -15,6 +15,8 @@
  * Fallback: Claude Code (most common MCP hook consumer).
  */
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   consumeAnyPendingTopicShift,
   setPendingTopicShift,
@@ -31,7 +33,8 @@ export type HookEvent =
   | "PreToolUse"
   | "PostToolUse"
   | "UserPromptSubmit"
-  | "SessionStart";
+  | "SessionStart"
+  | "Stop";
 
 /** SessionStart matcher — Claude Code emits one of these per session boot. */
 export type SessionStartMatcher = "startup" | "resume" | "clear" | "compact";
@@ -95,6 +98,15 @@ export interface HookAdapter {
    *  Adapters without a session-start equivalent should return "{}" — the
    *  resume strip falls back to first-tool-call injection in that case. */
   formatSessionStart(result: HookResult): string;
+
+  /** Format a Stop (turn-end) hook result into agent-specific stdout JSON.
+   *  Stop fires when the agent finishes responding. Claude Code's Stop event
+   *  CANNOT inject model-readable context (no additionalContext) — it can only
+   *  surface a user-facing `systemMessage` or force continuation via
+   *  `decision:"block"`. So this carries the close-out economy line (the
+   *  former unerr_turn_summary paste) straight to the user, zero round-trip.
+   *  Adapters without a stop equivalent return "{}". */
+  formatStop(result: HookResult): string;
 }
 
 // ── Adapter Registry ─────────────────────────────────────────────────
@@ -242,6 +254,26 @@ export function runPromptSubmitHook(
 }
 
 /**
+ * Async variant of {@link runPromptSubmitHook}. Identical pipeline (parse →
+ * detect → normalize → handle → format) but awaits an async handler. Used by
+ * the recall-injecting prompt-submit path, which queries the proxy's warm notes
+ * store over UDS before deciding what to inject.
+ */
+export async function runPromptSubmitHookAsync(
+  stdinJson: string,
+  handler: AsyncHookHandler
+): Promise<string> {
+  const payload = parseStdin(stdinJson);
+  if (!payload) return "{}";
+
+  const adapter = detectAdapter(payload);
+  const normalized = adapter.normalize(payload);
+  normalized.agentName = adapter.name;
+  const result = await handler(normalized);
+  return adapter.formatPromptSubmit(result);
+}
+
+/**
  * Run a SessionStart hook through the universal runner. Currently only
  * Claude Code implements a meaningful SessionStart format; Cursor/Cline
  * adapters return "{}" and the resume strip falls back to first-tool-call
@@ -262,6 +294,27 @@ export function runSessionStartHook(
   return adapter.formatSessionStart(result);
 }
 
+/**
+ * Run a Stop (turn-end) hook through the universal runner. Claude Code fires
+ * Stop when the agent finishes a turn; the result is surfaced to the user
+ * (systemMessage), not injected into model context. Adapters without a Stop
+ * equivalent format to "{}".
+ */
+export async function runStopHookAsync(
+  stdinJson: string,
+  handler: AsyncHookHandler
+): Promise<string> {
+  const payload = parseStdin(stdinJson);
+  if (!payload) return "{}";
+
+  const adapter = detectAdapter(payload);
+  const normalized = adapter.normalize(payload);
+  normalized.agentName = adapter.name;
+  normalized.event = "Stop";
+  const result = await handler(normalized);
+  return adapter.formatStop(result);
+}
+
 // ── Convenience Constructors ─────────────────────────────────────────
 
 /** Create a passthrough result. */
@@ -279,9 +332,36 @@ export function rewrite(updatedInput: Record<string, unknown>): HookResult {
   return { action: "rewrite", updatedInput };
 }
 
-/** Create an enrich (additionalContext) result. */
+/**
+ * T7.6 — hard cap on injected additionalContext. Claude Code truncates or
+ * rejects oversized additionalContext, and an over-long block buries the
+ * load-bearing lines. We cap at 10,000 chars and SPILL the full payload to a
+ * file (overflow-to-file) so nothing is silently dropped — the agent gets the
+ * head plus a pointer to the complete block. Phrased as state, not an order
+ * (prompt-injection defense — §7.6).
+ */
+export const MAX_ENRICH_CHARS = 10_000;
+
+/** Cap an over-length enrich message: keep a head that fits under the cap
+ *  (room reserved for the pointer line) and write the full text to a stable
+ *  overflow file. Best-effort — a failed write degrades to an inline note. */
+export function capEnrichMessage(message: string): string {
+  if (message.length <= MAX_ENRICH_CHARS) return message;
+  const head = message.slice(0, MAX_ENRICH_CHARS - 200);
+  try {
+    const dir = join(process.cwd(), ".unerr", "logs");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, "hook-context-overflow.txt");
+    writeFileSync(file, message, "utf-8");
+    return `${head}\n\nunerr trimmed this context to ${MAX_ENRICH_CHARS} chars; the full block is in ${file}`;
+  } catch {
+    return `${head}\n\nunerr trimmed this context to ${MAX_ENRICH_CHARS} chars`;
+  }
+}
+
+/** Create an enrich (additionalContext) result, capped per {@link MAX_ENRICH_CHARS}. */
 export function enrich(message: string): HookResult {
-  return { action: "enrich", message };
+  return { action: "enrich", message: capEnrichMessage(message) };
 }
 
 /** Create a deny result — blocks the tool call. The `reason` is shown
@@ -307,9 +387,11 @@ export function deny(reason: string): HookResult {
 function buildAmbientPreInjection(): string {
   const lines: string[] = [];
 
-  // mark_intent one-shot reminder. Fires AT MOST once per session (the
+  // Intent one-shot reminder. Fires AT MOST once per session (the
   // `mark_intent_emitted` flag gates re-emission) so we don't argue
-  // with the agent across every tool call.
+  // with the agent across every tool call. Demoted (Sprint 11): the marker
+  // rides a closing-message `unerr-save:` sentinel scraped by the Stop hook,
+  // not an MCP round-trip.
   try {
     const cwd = process.cwd();
     const state = readNudgeState(cwd);
@@ -318,7 +400,7 @@ function buildAmbientPreInjection(): string {
         s.mark_intent_emitted = true;
       });
       lines.push(
-        "ur|act before continuing, call `mark_intent({text:'<one-sentence summary>'})` if this turn is a coding task (implement/fix/refactor/build). Skip for pure read-only questions."
+        "ur|act if this turn is a coding task (implement/fix/refactor/build), emit `unerr-save: intent <one-sentence summary>` in your closing message so the resume strip records it (no tool call). Skip for pure read-only questions."
       );
     }
   } catch {

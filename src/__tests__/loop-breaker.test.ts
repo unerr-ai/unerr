@@ -401,7 +401,9 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
       // renderer's internal "hlt" priority bucket maps to ur|act).
       expect(prefix).toContain("ur|act");
       expect(prefix).toContain("loop broken");
-      expect(prefix).toContain("mark_blocker");
+      // Sprint 11 6-write demotion: the halt nudge points at the zero-round-trip
+      // sentinel, not the hidden mark_blocker MCP tool.
+      expect(prefix).toContain("unerr-save: blocker");
     });
   });
 });

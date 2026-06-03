@@ -62,6 +62,7 @@ export const UNERR_FAMILIES: Readonly<
       "get_test_coverage",
       "get_project_stats",
       "review_changes",
+      "unerr_context",
     ],
   },
   file: {
@@ -87,6 +88,7 @@ export const UNERR_FAMILIES: Readonly<
       "mark_decision",
       "mark_blocker",
       "mark_resolution",
+      "unerr_track",
       "unerr_turn_summary",
       "unerr_surface2_line",
     ],

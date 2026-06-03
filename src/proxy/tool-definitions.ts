@@ -14,7 +14,11 @@
  * truth — there is no parallel emission path.
  */
 
-import { getDescription, listToolNames } from "./tool-descriptions.js";
+import {
+  advertisedToolNames,
+  getDescription,
+  listToolNames,
+} from "./tool-descriptions.js";
 
 /**
  * Shared input-schema property for the `token_budget` knob. Every read-side
@@ -66,6 +70,35 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
     },
     annotations: {
       title: "Search Code Entities",
+      readOnlyHint: true,
+      openWorldHint: false,
+    },
+  },
+
+  unerr_context: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        prompt: {
+          type: "string",
+          description:
+            "What you are about to do, verbatim (e.g. 'add a retry to fetchUser'). Drives note recall, entity search, and the focus-entity blast radius.",
+        },
+        budget: {
+          type: "integer",
+          description:
+            "Whole-bundle token budget (default 2000). Sections are kept by priority — notes, callers, entities, conventions — and trimmed to fit.",
+        },
+        digest: {
+          type: "boolean",
+          description:
+            "Force the flat large-sweep digest render (entities grouped by file, callers collapsed to a count). Auto-enabled when the task classifies as a large sweep.",
+        },
+      },
+      required: ["prompt"],
+    },
+    annotations: {
+      title: "Recon Repo Context",
       readOnlyHint: true,
       openWorldHint: false,
     },
@@ -186,6 +219,21 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           description:
             "Include the full function/class body. Default false — returns signature + first ~15 lines.",
           default: false,
+        },
+        want: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["callers", "callees", "imports"],
+          },
+          description:
+            "Extras to attach in one call: 'callers'/'callees' (folds in get_references) and 'imports' (folds in get_imports). Each is capped by `limit`; callers/callees also return a *_total count.",
+        },
+        limit: {
+          type: "number",
+          description:
+            "Cap for want:['callers','callees'] rows (default 25). Ignored when want is unset.",
+          default: 25,
         },
         token_budget: TOKEN_BUDGET_PROP,
       },
@@ -623,6 +671,64 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
     },
   },
 
+  unerr_track: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        op: {
+          type: "string",
+          enum: [
+            "intent",
+            "decision",
+            "blocker",
+            "resolution",
+            "fact",
+            "recall",
+          ],
+          description:
+            "What to track. intent=task start (REQUIRED first on coding tasks); decision=deliberate choice; blocker=obstacle (returns marker_id); resolution=fix for a blocker; fact=record a project fact; recall=read stored facts for a scope.",
+        },
+        text: {
+          type: "string",
+          description:
+            "Body for intent/decision/blocker, the fix for resolution, or the fact content for fact. ≤1400 chars.",
+        },
+        blocker_ref: {
+          type: "string",
+          description:
+            "resolution only — the marker_id returned by the prior op:'blocker'.",
+        },
+        scope: {
+          type: "string",
+          description:
+            "fact/recall — file path, entity key, or 'project'.",
+        },
+        target: {
+          type: "string",
+          description:
+            "fact — the subject/entity the fact is about. blocker — optional file path where it surfaced.",
+        },
+        fact_type: {
+          type: "string",
+          enum: ["procedural", "semantic", "negative", "convention", "all"],
+          description:
+            "fact = procedural/semantic/negative/convention. recall = filter (or 'all').",
+        },
+        alternatives: {
+          type: "array",
+          items: { type: "string" },
+          description: "decision only — up to 5 alternatives considered, each ≤80 chars.",
+        },
+      },
+      required: ["op"],
+    },
+    annotations: {
+      title: "Track session markers + facts",
+      readOnlyHint: false,
+      openWorldHint: false,
+    },
+  },
+
   unerr_remember: {
     inputSchema: {
       type: "object",
@@ -823,6 +929,19 @@ function buildDefinition(name: string, schema: ToolSchema): ToolDefinition {
 export const TOOL_DEFINITIONS: readonly ToolDefinition[] = listToolNames().map(
   (name) => buildDefinition(name, SCHEMAS[name] as ToolSchema)
 );
+
+/**
+ * The advertisement slice of {@link TOOL_DEFINITIONS} — every definition the
+ * model SEES in `tools/list`, with demoted (hidden) tools dropped. This is the
+ * validation/advertisement split: `TOOL_DEFINITIONS` stays complete so
+ * `runBoundaryValidation` and the families registry keep every tool, while the
+ * surface advertised to the model shrinks to the non-hidden set. The bridge's
+ * offline catalog and any direct tools/list emission use THIS array.
+ */
+export const ADVERTISED_TOOL_DEFINITIONS: readonly ToolDefinition[] = (() => {
+  const advertised = new Set(advertisedToolNames());
+  return TOOL_DEFINITIONS.filter((d) => advertised.has(d.name));
+})();
 
 /**
  * Render a single tool definition in the requested description state. Used

@@ -26,7 +26,7 @@ Graph-checkable (assert from evidence — near-zero false positives):
 
 Judgment (reason over diff + the evidence above — never from the diff alone):
   - logic error — off-by-one, inverted condition, missing null guard vs sibling callers
-  - intent mismatch — diff does NOT do what `mark_intent` / the user asked
+  - intent mismatch — diff does NOT do what the recorded intent / the user asked
   - hallucinated API — calls an entity that `search_code` cannot find
   - error-handling gap — diverges from the file's convention
   - security logic — a removed guard that callers assume
@@ -45,7 +45,7 @@ Phase R2 — Scope the change set.
   List the changed entities by name + file.
 
 Phase R3 — Mark intent.
-  Call `mark_intent({text:'review <N> changed entities'})`.
+  Note intent: emit `unerr-save: intent review <N> changed entities` in your closing message.
 
 Phase R4 — Gather evidence (per changed entity — deterministic, do NOT guess).
   - `get_references({key:'<entity>', direction:'callers'})` — breaking callers / blast radius

@@ -26,7 +26,7 @@ Phase A2 — Conventions.
   Call `get_conventions({file_path:'<test_file_path>'})`. Match the project's test framework, assertion style, fixture pattern.
 
 Phase A3 — Mark intent.
-  Call `mark_intent({text:'TDD <feature/bug>: red → green → refactor'})`.
+  Note intent: emit `unerr-save: intent TDD <feature/bug>: red → green → refactor` in your closing message.
 
 Phase A4 — RED.
   Write the smallest failing test that captures the acceptance criterion. Run the single test file — confirm it fails for the EXPECTED reason (not a typo, not a missing import).
@@ -69,7 +69,7 @@ Phase B3 — Classify each.
   For each comment: ACCEPT, PUSHBACK, or CLARIFY. State the classification inline before drafting any response.
 
 Phase B4 — Mark intent.
-  Call `mark_intent({text:'addressing N review comments on <PR>'})`.
+  Note intent: emit `unerr-save: intent addressing N review comments on <PR>` in your closing message.
 
 Phase B5 — Apply ACCEPTs.
   For each ACCEPT: locate the entity via `search_code`, run blast-radius check (`get_references` if exported), apply the change. Built-in `Read` (offset/limit) before each `Edit`.
@@ -81,7 +81,7 @@ Phase B7 — Ask CLARIFYs.
   For each CLARIFY: surface the specific missing context to the user. Do not assume.
 
 Phase B8 — Verify.
-  Run the targeted test for every changed file. `mark_resolution` for the review.
+  Run the targeted test for every changed file. Emit `unerr-save: resolution <fix>` in your closing message for the review.
 
 Phase B9 — Close out.
   Call `unerr_turn_summary({})` once and include the returned `line` verbatim.

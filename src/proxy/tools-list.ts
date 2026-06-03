@@ -22,7 +22,7 @@ import {
   type ToolDefinition,
   renderToolDefinition,
 } from "./tool-definitions.js";
-import { listToolNames } from "./tool-descriptions.js";
+import { advertisedToolNames } from "./tool-descriptions.js";
 
 /**
  * Build the per-session `tools/list` payload.
@@ -37,11 +37,16 @@ import { listToolNames } from "./tool-descriptions.js";
  *
  * The result is sorted by name — same ordering invariant as
  * `TOOL_DEFINITIONS` — so `tools/list` is deterministic across calls.
+ *
+ * Demoted (hidden) tools are excluded entirely: this view iterates
+ * `advertisedToolNames()`, not the full `listToolNames()`, so a retired tool
+ * never reaches the model even in its locked placeholder form. It remains in
+ * the catalog for validation, dispatch, and family membership.
  */
 export function renderToolsListForExposure(
   exposed: ReadonlySet<string>
 ): readonly ToolDefinition[] {
-  return listToolNames().map((name) =>
+  return advertisedToolNames().map((name) =>
     renderToolDefinition(name, exposed.has(name) ? "active" : "locked")
   );
 }

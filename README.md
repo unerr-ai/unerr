@@ -123,11 +123,16 @@ The demo above is one moment, caught live. Day to day, there are two places you 
 </p>
 
 <p align="center">
-  <img src="https://unerr.dev/open-cli/screenshots/dashboard.png" alt="unerr dashboard — live overview" width="300" />
-  <br/><sub><strong>Dashboard</strong> · live overview — active sessions, recent activity, breaks caught.</sub>
+  <img src="https://unerr.dev/open-cli/screenshots/token-trace-main.png" alt="unerr token trace — where the agent's tokens went, per turn and per task" width="400" />
+  <img src="https://unerr.dev/open-cli/screenshots/reasoning-quality.png" alt="unerr reasoning quality — answer quality held steady while the token count dropped" width="400" />
+  <br/><sub><strong>Token trace & reasoning quality</strong> · where the agent's tokens actually went — and that the answer quality held while the count came down. Cost-per-useful-action, not cost-per-token.</sub>
 </p>
 
-<p align="center"><sub>More views in the <a href="https://www.unerr.dev/">full dashboard tour</a>.</sub></p>
+<p align="center">
+  <img src="https://unerr.dev/open-cli/screenshots/project-memory.png" alt="unerr project memory — anchored notes and facts unerr kept for this repo across sessions" width="400" />
+  <img src="https://unerr.dev/open-cli/screenshots/activity.png" alt="unerr activity feed — what unerr caught and surfaced live as the agent worked" width="400" />
+  <br/><sub><strong>Memory & activity</strong> · what unerr remembered for this repo across sessions, and a live feed of what it caught and surfaced as the agent worked.</sub>
+</p>
 
 ---
 
@@ -262,17 +267,14 @@ unerr pm dashboard      # Open http://localhost:9847
 
 `unerrd` is a lightweight Node process that supervises every registered repo. Your IDE invocation auto-spawns it; it exits cleanly after 30 minutes of no activity. `unerr pm --help` lists the rest.
 
-### MCP tools (22)
+### MCP tools (16 advertised)
 
 Grouped by what the agent gets, not by file:
 
-- **Graph intelligence (8)** — `get_entity`, `get_file`, `get_references`, `get_imports`, `search_code`, `get_conventions`, `get_critical_nodes`, `get_cross_boundary_links`.
-- **Structural analysis (3)** — `get_project_stats`, `file_connections`, `get_test_coverage`.
-- **File protocol (2)** — `file_read` (context-aware, auto-injects conventions and facts), `file_outline` (structure without body).
-- **Persistent memory (3)** — `unerr_remember` (user-stated facts with verbatim quote + confidence), `record_fact` (agent-detected conventions / decisions / anti-patterns), `recall_facts` (hierarchical scope + decay-adjusted confidence).
-- **Session markers (4)** — `mark_intent`, `mark_decision`, `mark_blocker`, `mark_resolution`. Inline as the agent works; powers turn titles and the cross-session resume strip.
-- **Web fetch (1)** — `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache). Replaces built-in WebFetch.
-- **Code review (1)** — `review_changes` (graph-evidenced review of a diff — flags breaking callers, contract drift, duplicate logic).
+- **Reads (11)** — `search_code`, `file_outline` (structure without body), `file_read` (context-aware, auto-injects conventions, facts, and drift), `get_entity` (signature plus callers / callees / imports in one call), `get_references` (callers or callees — catches indirect refs grep misses), `get_conventions`, `get_critical_nodes`, `get_test_coverage`, `get_project_stats`, `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache — replaces built-in WebFetch), and `unerr_context` (one call that folds anchored notes + search + references + conventions for what you're about to edit).
+- **Memory & session (5)** — `unerr_remember` (user-stated facts and anchored notes with verbatim quote + confidence), `unerr_recall_notes` (anchored notes for the current prompt), `unerr_track` (one op-union call for intent / decision / blocker / resolution / fact / recall — powers turn titles and the cross-session resume strip), plus the per-turn `unerr_surface2_line` and `unerr_turn_summary` economy lines.
+
+On Claude Code the always-on ceremony runs for free: a UserPromptSubmit hook injects recalled notes, a PostToolUse hook injects detected conventions on the first file read, and a Stop hook prints the turn close-out — all at zero extra round-trip, so the agent never spends a call on them. Eleven more tools stay dispatchable as a fallback for agents without hooks (and as an explicit high-fidelity escape): the six session writes (`mark_intent`, `mark_decision`, `mark_blocker`, `mark_resolution`, `record_fact`, `recall_facts`) fold into `unerr_track`; `get_file`, `get_imports`, `file_connections`, and `get_cross_boundary_links` collapse into `file_outline`, `get_entity`, and `get_references`; and `review_changes` runs from the `unerr review` CLI.
 
 Every response carries inline `ur|<tag>` signals for high-priority guidance — drift, breaking-change warnings, loop-breaker halts — so the agent acts on what it just learned without burning a turn.
 

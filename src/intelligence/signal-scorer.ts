@@ -185,7 +185,7 @@ export class SignalScorer {
           type: "warning",
           content: raw.durability_warning,
           action:
-            "mark_blocker before retrying; propose an alternative approach (high revert rate signals the prior approach won't stick)",
+            "emit `unerr-save: blocker <obstacle>` in your closing message before retrying; propose an alternative approach (high revert rate signals the prior approach won't stick)",
           actionability: 0.85,
           relevance: 0.8,
           confidence: 0.75,
@@ -320,7 +320,7 @@ export class SignalScorer {
             content: fact,
             // Concrete next-action per fact subtype. No hedge verbs.
             action: isEpisodic
-              ? "read narrative above before editing; mark_decision if diverging from the prior intent"
+              ? "read narrative above before editing; emit `unerr-save: decision <choice>` in your closing message if diverging from the prior intent"
               : isConvention
                 ? "apply the convention above to new code in this scope"
                 : undefined,
@@ -338,7 +338,8 @@ export class SignalScorer {
         createSignal({
           type: "context",
           content: raw.community,
-          action: "call file_connections to enumerate cluster members",
+          action:
+            "call get_references({key:'<entity>', direction:'callers'}) to walk cluster members",
           actionability: 0.4,
           relevance: 0.5,
           confidence: 0.85,

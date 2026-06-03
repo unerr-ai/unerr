@@ -171,6 +171,12 @@ export const UNLOCK_CONDITIONS: Readonly<Record<string, Condition>> = {
   recall_facts: C.priorFact(),
 
   record_fact: C.intent("decision"),
+
+  // Op-union (Sprint 8) — multiplexes the marker + fact writes. It unlocks on
+  // the same condition as mark_intent because op:'intent' is the first-on-
+  // coding-task call it carries; gating it later than mark_intent would make
+  // the union strictly weaker than the tools it consolidates.
+  unerr_track: C.and(C.turns(3), C.nonTrivial()),
 };
 
 /**

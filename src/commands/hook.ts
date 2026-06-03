@@ -16,7 +16,7 @@ import {
   runPostEditHookAsync,
   runPostGlobHook,
   runPostGrepHook,
-  runPostReadHook,
+  runPostReadHookAsync,
   runPostWriteHook,
   runPreEditHookAsync,
   runPreGlobHook,
@@ -24,8 +24,9 @@ import {
   runPreReadHook,
   runPreWriteHook,
 } from "../hooks/navigation-hooks.js";
-import { runUserPromptSubmitHook } from "../hooks/prompt-hooks.js";
+import { runUserPromptSubmitHookAsync } from "../hooks/prompt-hooks.js";
 import { runSessionStartHookAsync } from "../hooks/session-hooks.js";
+import { runStopHookHandlerAsync } from "../hooks/stop-hooks.js";
 import { runPreBashHook } from "../hooks/shell-hooks.js";
 import { runPreWebFetchHook } from "../hooks/web-hooks.js";
 
@@ -109,8 +110,10 @@ export function registerHookCommand(program: Command): void {
 
   hook
     .command("post-read")
-    .description("Enrich Read output with graph navigation suggestions")
-    .action(safeHookAction(runPostReadHook));
+    .description(
+      "Enrich Read output with graph navigation + once-per-session conventions"
+    )
+    .action(safeAsyncHookAction(runPostReadHookAsync));
 
   hook
     .command("post-grep")
@@ -136,8 +139,10 @@ export function registerHookCommand(program: Command): void {
 
   hook
     .command("prompt-submit")
-    .description("Inject unerr tool reminder on each user prompt")
-    .action(safeHookAction(runUserPromptSubmitHook));
+    .description(
+      "Inject warm recall (notes) + unerr tool reminder on each user prompt"
+    )
+    .action(safeAsyncHookAction(runUserPromptSubmitHookAsync));
 
   // ── SessionStart hook (Claude Code only — Cursor/Cline fall back to Surface 1) ──
 
@@ -145,4 +150,13 @@ export function registerHookCommand(program: Command): void {
     .command("session-start")
     .description("Inject resume strip into agent context at session boot")
     .action(safeAsyncHookAction(runSessionStartHookAsync));
+
+  // ── Stop hook (turn end) ────────────────────────────────────────
+  // Surfaces the close-out economy line server-side (replaces the agent
+  // having to call unerr_turn_summary and paste it).
+
+  hook
+    .command("stop")
+    .description("Surface the close-out economy line at turn end (no round-trip)")
+    .action(safeAsyncHookAction(runStopHookHandlerAsync));
 }

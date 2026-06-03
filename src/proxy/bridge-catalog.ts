@@ -16,7 +16,7 @@
  * `tracking/` references).
  */
 
-import { TOOL_DEFINITIONS } from "./tool-definitions.js";
+import { ADVERTISED_TOOL_DEFINITIONS } from "./tool-definitions.js";
 
 export const PROTOCOL_VERSION = "2024-11-05";
 export const SERVER_INFO = {
@@ -115,7 +115,7 @@ function tryIntercept(line: string): string | null {
     return JSON.stringify({
       jsonrpc: "2.0",
       id: msg.id ?? null,
-      result: { tools: TOOL_DEFINITIONS },
+      result: { tools: ADVERTISED_TOOL_DEFINITIONS },
     });
   }
 
@@ -149,7 +149,7 @@ export function buildToolsListResult(
   return {
     jsonrpc: "2.0",
     id,
-    result: { tools: TOOL_DEFINITIONS },
+    result: { tools: ADVERTISED_TOOL_DEFINITIONS },
   };
 }
 
@@ -169,7 +169,7 @@ export function buildToolsListResult(
  */
 export const LOCAL_CATALOG_FALLBACK_MS = 3_000;
 
-/** Methods the bridge can answer locally from TOOL_DEFINITIONS. */
+/** Methods the bridge can answer locally from ADVERTISED_TOOL_DEFINITIONS. */
 const LOCAL_ANSWERABLE_METHODS = new Set(["initialize", "tools/list"]);
 
 export interface PendingLocalRequest {

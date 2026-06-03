@@ -545,37 +545,49 @@ describe("RFC 2119 imperative phrasing (Fix C)", () => {
     return parsed.hookSpecificOutput?.additionalContext ?? "";
   }
 
-  it("mark_intent nudge uses MANDATORY + STEP-1 + Do NOT phrasing", () => {
+  it("intent nudge points at the unerr-save sentinel (zero round-trip), not a mark_intent call", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "implement the new dashboard route handler",
     });
     const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("STEP-1 (MANDATORY)");
-    expect(ctx).toContain("mark_intent");
-    expect(ctx).toContain("Do NOT");
+    // De-jargoned (Sprint 11c): leads with the imperative verb "record", no
+    // mechanical "STEP-1:" prefix (CLAUDE.md nudge-rule #1).
+    expect(ctx).toContain("record this turn's intent");
+    expect(ctx).not.toContain("STEP-1");
+    expect(ctx).toContain("unerr-save: intent");
+    expect(ctx).toContain("closing message");
+    // The demoted MCP tool must NOT be named as a call target.
+    expect(ctx).not.toContain("mark_intent(");
   });
 
-  it("Moment 1 recall nudge uses STEP-0 + MANDATORY phrasing", () => {
+  it("Moment 1 recall nudge is injection-aware (Sprint 7 T7.7): names auto-recall, no STEP-0 imperative", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "refactor the proxy handler to use the new bridge",
     });
     const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("STEP-0 (MANDATORY");
-    expect(ctx).toContain("unerr_recall_notes");
-    expect(ctx).toContain("Do NOT defer");
+    // Sprint 7 (T7.3/T7.7): recall fires server-side via this hook, and the MCP
+    // tool is hidden for prompt-context-injecting agents — so the nudge states
+    // recall already ran + directs a READ, and never names unerr_recall_notes
+    // (a call target the agent can no longer see) nor a STEP-0 imperative.
+    expect(ctx).toContain("anchored-note recall already ran");
+    expect(ctx).not.toContain("unerr_recall_notes");
+    expect(ctx).not.toContain("STEP-0");
+    expect(ctx).not.toContain("Do NOT defer");
   });
 
-  it("turn_summary nudge uses STEP-N + MANDATORY + Do NOT paraphrase", () => {
+  it("turn_summary nudge is gone — the Stop hook delivers the close-out (T7.7)", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "fix the broken test in session-persistence",
     });
     const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("STEP-N (MANDATORY");
-    expect(ctx).toContain("unerr_turn_summary");
-    expect(ctx).toContain("Do NOT paraphrase");
+    // The close-out economy line now fires automatically via the Stop hook, so
+    // the prompt-submit hook no longer tells the agent to call (now-hidden)
+    // unerr_turn_summary. No STEP-N close-out imperative survives here.
+    expect(ctx).not.toContain("unerr_turn_summary");
+    expect(ctx).not.toContain("STEP-N");
   });
 });
 

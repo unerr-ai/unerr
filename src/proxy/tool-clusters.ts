@@ -245,6 +245,14 @@ export class ToolUsageTracker {
   }
 
   /**
+   * Recent tool names in call order (oldest→newest). Used by Sprint-0 turn
+   * telemetry (histogram + recon-pattern detection). Returns a copy.
+   */
+  getRecentTools(): string[] {
+    return this.history.map((e) => e.tool);
+  }
+
+  /**
    * Get the most recently used cluster ID, or null if no history.
    */
   getMostRecentCluster(): string | null {

@@ -26,6 +26,7 @@ import {
   verifyUnerrOnPath,
 } from "../commands/doctor.js";
 import { registerExecCommand } from "../commands/exec.js";
+import { registerReconCommand } from "../commands/recon.js";
 import {
   registerDiscoverCommand,
   registerGainCommand,
@@ -1488,6 +1489,7 @@ registerDashboardCommand(program);
 registerDebugCommand(program);
 registerDoctorCommand(program);
 registerGainCommand(program);
+registerReconCommand(program);
 registerDiscoverCommand(program);
 registerPmCommand(program);
 registerReviewCommand(program);
@@ -1527,6 +1529,9 @@ const visibleCommands = new Set([
   "pm",
   "review",
   "router",
+  // recon must be discoverable in `--help` — R7's zero-discovery premise is that
+  // the agent finds and runs `unerr recon` via Bash with no MCP/ToolSearch hop.
+  "recon",
 ]);
 for (const cmd of program.commands) {
   if (!visibleCommands.has(cmd.name())) {

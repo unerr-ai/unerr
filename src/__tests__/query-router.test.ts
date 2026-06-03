@@ -1302,4 +1302,77 @@ describe("QueryRouter", () => {
   });
 
   // L8.3: Deferred Embedding Status Tests — disabled (semantic_search/find_similar removed from LOCAL_TOOLS)
+
+  // ── Sprint 9 T9.2: get_entity({want:[...]}) read-merge ──────────
+  // get_entity absorbs get_references + get_imports via the `want` param.
+  // The field-identity contract (merged rows == standalone rows) is held
+  // structurally: both surfaces call the SAME computeReferenceList /
+  // computeFileImports helpers. The on-wire `content` is columnar-encoded
+  // by formatToolOutput, so these tests assert the underlying graph reads
+  // the merge triggers (spy-based, matching the routing tests above) rather
+  // than the post-format envelope shape.
+  describe("get_entity want-merge (T9.2)", () => {
+    function graphWithRefs() {
+      const g = createMockLocalGraph();
+      (g.getCallersOf as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { key: "caller1", name: "callerOne", file_path: "a.ts", body: "SECRET" },
+        { key: "caller2", name: "callerTwo", file_path: "b.ts", body: "SECRET" },
+      ]);
+      (g.getCalleesOf as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { key: "callee1", name: "calleeOne", file_path: "c.ts", body: "SECRET" },
+      ]);
+      (g.getImports as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { imported_file: "./foo.ts" },
+      ]);
+      return g;
+    }
+
+    it("want:['callers','callees','imports'] triggers all three graph reads", async () => {
+      const g = graphWithRefs();
+      const router = new QueryRouter(g);
+      await router.execute("get_entity", {
+        key: "fn1",
+        want: ["callers", "callees", "imports"],
+      });
+      expect(g.getCallersOf).toHaveBeenCalledWith("fn1");
+      expect(g.getCalleesOf).toHaveBeenCalledWith("fn1");
+      // computeFileImports reads imports for the entity's own file.
+      expect(g.getImports).toHaveBeenCalledWith("src/index.ts");
+    });
+
+    it("want is selective — ['callers'] reads callers only, not callees", async () => {
+      const g = graphWithRefs();
+      const router = new QueryRouter(g);
+      await router.execute("get_entity", { key: "fn1", want: ["callers"] });
+      expect(g.getCallersOf).toHaveBeenCalledWith("fn1");
+      expect(g.getCalleesOf).not.toHaveBeenCalled();
+      expect(g.getImports).not.toHaveBeenCalled();
+    });
+
+    it("absent want does no reference/import reads (plain get_entity)", async () => {
+      const g = graphWithRefs();
+      const router = new QueryRouter(g);
+      await router.execute("get_entity", { key: "fn1" });
+      expect(g.getCallersOf).not.toHaveBeenCalled();
+      expect(g.getCalleesOf).not.toHaveBeenCalled();
+      expect(g.getImports).not.toHaveBeenCalled();
+    });
+
+    it("merged callers read uses the same graph call as standalone get_references", async () => {
+      // Both paths resolve key 'fn1' and call getCallersOf('fn1') via the
+      // shared computeReferenceList helper — the byte-identity guarantee.
+      const merged = graphWithRefs();
+      await new QueryRouter(merged).execute("get_entity", {
+        key: "fn1",
+        want: ["callers"],
+      });
+      const standalone = graphWithRefs();
+      await new QueryRouter(standalone).execute("get_references", {
+        key: "fn1",
+        direction: "callers",
+      });
+      expect(merged.getCallersOf).toHaveBeenCalledWith("fn1");
+      expect(standalone.getCallersOf).toHaveBeenCalledWith("fn1");
+    });
+  });
 });

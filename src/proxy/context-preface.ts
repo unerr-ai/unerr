@@ -214,8 +214,10 @@ export function renderContextPreface(inputs: ContextPrefaceInputs): string[] {
     // Topic-shift line rides FIRST because it tells the agent the recent
     // context is stale before they read the "loaded for this turn" hint.
     const pct = Math.round(topicShift.overlap * 100);
+    // User-facing (unerr » …) prose — state what unerr did, do not name a tool
+    // for the user to call (T11.2). Recall reruns automatically each prompt.
     lines.push(
-      `topic shift — prior context may be stale (overlap ${pct}%); call unerr_recall_notes for fresh anchors`
+      `topic shift — prior context may be stale (overlap ${pct}%); unerr reloaded the anchors for this turn`
     );
   }
 

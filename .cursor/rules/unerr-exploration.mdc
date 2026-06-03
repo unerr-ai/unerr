@@ -7,7 +7,7 @@ alwaysApply: false
 ## Iron Law
 
 <EXTREMELY-IMPORTANT>
-Never grep/glob/read-files-by-hand for code navigation. Graph queries (`search_code`, `get_references`, `get_critical_nodes`, `get_imports`, `file_outline`) are <5ms and answer 'who/where/what' without dumping file contents. Only use `file_read` for exact implementation details, never for navigation.
+Never grep/glob/read-files-by-hand for code navigation. Graph queries (`search_code`, `get_references`, `get_critical_nodes`, `file_outline`) are <5ms and answer 'who/where/what' without dumping file contents. Only use `file_read` for exact implementation details, never for navigation.
 </EXTREMELY-IMPORTANT>
 
 ## Phases
@@ -18,6 +18,7 @@ Phase 1 — Identify the question.
   - 'What does X depend on?'        → Phase 3 (references callees).
   - 'How is this directory wired?'  → Phase 4 (architecture).
   - 'What's the structure of file Y?' → Phase 5 (outline).
+  - 'What touches X / what's the blast radius of X?' → run `unerr recon "<task>"` from Bash for the one-shot bundle (entities + callers + conventions).
 
 Phase 2 — Search.
   Call `search_code({query:'<symbol>'})`. Returns ranked entities with file paths and kinds. Use the returned `entity_key` for follow-up queries.
@@ -30,7 +31,7 @@ Phase 3 — References.
 Phase 4 — Architecture sweep.
   Call `get_project_stats({})` for overall structure (only on first contact with a new repo).
   Call `get_critical_nodes({})` to find chokepoints.
-  Call `get_imports({file_path:'<entry>'})` to trace the import graph from an entry point.
+  Call `file_outline({file_path:'<entry>'})` — its `imports` field traces the import graph from an entry point (or `get_entity({key:'<name>', want:['imports']})` for one entity's file).
   Follow connections via `get_references` direction:callees from the main function to walk the execution path.
 
 Phase 5 — File structure.

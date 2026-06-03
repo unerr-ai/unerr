@@ -15,7 +15,8 @@ type HookEvent =
   | "PreToolUse"
   | "PostToolUse"
   | "UserPromptSubmit"
-  | "SessionStart";
+  | "SessionStart"
+  | "Stop";
 
 /**
  * Resolve the absolute path to the `unerr` binary.
@@ -120,7 +121,12 @@ function buildMatcherHooks(): {
 /** Build global hook templates using the resolved binary path. */
 function buildGlobalHooks(): { event: HookEvent; command: string }[] {
   const bin = getUnerrBinary();
-  return [{ event: "UserPromptSubmit", command: `${bin} hook prompt-submit` }];
+  return [
+    { event: "UserPromptSubmit", command: `${bin} hook prompt-submit` },
+    // Stop — surface the close-out economy line at turn end (replaces the
+    // agent calling unerr_turn_summary and pasting the result).
+    { event: "Stop", command: `${bin} hook stop` },
+  ];
 }
 
 export interface MergePreToolResult {
@@ -182,6 +188,7 @@ export function mergePreToolUseBashHook(cwd: string): MergePreToolResult {
       "PostToolUse",
       "UserPromptSubmit",
       "SessionStart",
+      "Stop",
     ] as HookEvent[]) {
       if (Array.isArray(hooks[eventType])) {
         hooks[eventType] = (hooks[eventType] as unknown[]).filter(
@@ -376,6 +383,7 @@ export function removePreToolUseBashHook(cwd: string): boolean {
       "PostToolUse",
       "UserPromptSubmit",
       "SessionStart",
+      "Stop",
     ];
 
     for (const eventType of eventTypes) {

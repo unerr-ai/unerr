@@ -89,14 +89,14 @@ describe("tool-budget: enforceBudget", () => {
 describe("tool-descriptions: tier registry", () => {
   const ALL = listToolNames();
 
-  it("contains exactly 25 tools (P3 added review_changes)", () => {
-    expect(ALL.length).toBe(25);
+  it("contains exactly 27 tools (Sprint 8 added the unerr_track op-union, additively; the 6 legacy writes are retired from the catalog in Sprint 8b)", () => {
+    expect(ALL.length).toBe(27);
   });
 
-  it("partitions tools into exactly 11 / 8 / 6 across tiers 1 / 2 / 3", () => {
-    expect(toolsByTier(1)).toHaveLength(11);
+  it("partitions tools into exactly 12 / 8 / 7 across tiers 1 / 2 / 3", () => {
+    expect(toolsByTier(1)).toHaveLength(12);
     expect(toolsByTier(2)).toHaveLength(8);
-    expect(toolsByTier(3)).toHaveLength(6);
+    expect(toolsByTier(3)).toHaveLength(7);
   });
 
   it("places the 7 starter tools in tier 1", () => {

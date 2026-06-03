@@ -59,7 +59,7 @@ When you see one, persist it BEFORE replying:
   - 0.5 ≤ confidence < 0.7 → stored ambiguous; expect a follow-up.
   - confidence ≥ 0.7 → stored cleanly.
 
-Use `unerr_remember` (NOT `record_fact`) whenever the source is the user. Use `record_fact` only when you auto-detected a convention from observed code.
+Use `unerr_remember` whenever the source is the user (it carries a type discriminator for notes + facts). When YOU auto-detected a convention from observed code, record it with `unerr_track({op:'fact', target:'<entity-or-file>', text:'<convention>'})`.
 
 ## Session resume
 
@@ -79,4 +79,4 @@ Emitting standalone `attribution:` rows inline → the end-of-turn `unerr_turn_s
 Saving a note that is obvious from the code → fails the quality bar; don't save.
 Using `p:` anchor for a fact that fits a file or entity → pollutes prompt-receipt query; use the narrower anchor.
 Skipping `unerr_remember` after the user said 'remember' → loses the fact; capture before replying.
-Using `record_fact` for a user-fed rule → wrong tool; `unerr_remember` is for user-sourced facts.
+Routing a user-fed rule through `unerr_track({op:'fact'})` → wrong tool; `unerr_remember` is for user-sourced facts, `unerr_track({op:'fact'})` is for conventions YOU detected from code.

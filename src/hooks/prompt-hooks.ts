@@ -15,11 +15,15 @@ import { join } from "node:path";
 import { consumeAnyPendingTopicShift } from "../intelligence/topic-shift.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import {
+  type AsyncHookHandler,
   type HookHandler,
   enrich,
   passthrough,
   runPromptSubmitHook,
+  runPromptSubmitHookAsync,
 } from "./hook-runner.js";
+import { queryRecallNotes, renderRecallBlock } from "./recall-client.js";
+import { captureUserRule, detectUserRule } from "./remember-client.js";
 import {
   readProxySessionId,
   recordUserPromptReceived,
@@ -125,8 +129,10 @@ function buildTopicShiftLine(): string | null {
   const shift = consumeAnyPendingTopicShift();
   if (!shift || !shift.flag) return null;
   const pct = Math.round(shift.overlap * 100);
-  // hnt → fct on the wire (14→4 consolidation 2026-05-24).
-  return `ur|fct topic-shift detected (overlap ${pct}%) — call unerr_recall_notes({prompt:"<this prompt>"}) before drafting to load fresh anchors`;
+  // hnt → fct on the wire (14→4 consolidation 2026-05-24). Sprint 7 (T7.3):
+  // recall reran for this prompt via the hook — point at the injected notes,
+  // not the (now-hidden) unerr_recall_notes call.
+  return `ur|fct topic-shift detected (overlap ${pct}%) — anchored-note recall reran for this prompt; read the fresh \`ur|fct\` notes injected above before drafting`;
 }
 
 /** Narrow imperative-verb set — matches when the prompt clearly asks
@@ -209,66 +215,38 @@ function buildMarkIntentLine(prompt: string): string | null {
   } catch {
     return null;
   }
-  return "ur|act STEP-1 (MANDATORY): call `mark_intent({text:'<one-sentence summary, ≤80 chars>'})` as the FIRST tool call this turn. Required on every coding task (implement/fix/refactor/build/debug). Do NOT skip unless the prompt is a pure read-only question — re-asking is not allowed.";
+  return "ur|act record this turn's intent with zero round-trip — emit `unerr-save: intent <one-sentence summary, ≤80 chars>` anywhere in your closing message (the Stop hook persists it; no tool call). Required on every coding task (implement/fix/refactor/build/debug); skip only for a pure read-only question.";
 }
 
-/** Threshold for the Tier-2 escalation builder. Once
- *  `consecutive_receipt_misses` hits this number, the next coding-task
- *  prompt fires the louder escalation nudge instead of the standard
- *  one-liner. */
-const RECEIPT_MISS_THRESHOLD = 3;
-
-/** Close-out reminder. Fires every coding-task turn (not one-shot per
- *  session) — the agent needs the prompt every turn so it does not forget
- *  the close-out call. Also bumps the per-session required counter and
- *  drives the Tier-2 accumulator: if last turn's reminder fired but the
- *  `unerr_turn_summary` tool didn't run, `consecutive_receipt_misses` goes
- *  up; on compliance it resets. */
-function buildTurnSummaryLine(prompt: string): string | null {
-  if (!classifyAsTask(prompt)) return null;
-  try {
-    const cwd = process.cwd();
-    const state = readNudgeState(cwd);
-    const priorMiss =
-      state.turn_summary_required_count > state.turn_summary_emitted_count;
-    updateNudgeState(cwd, (s) => {
-      s.turn_summary_required_count += 1;
-      s.consecutive_receipt_misses = priorMiss
-        ? s.consecutive_receipt_misses + 1
-        : 0;
-    });
-  } catch {
-    /* best effort — emission still proceeds */
-  }
-  return "ur|act STEP-N (MANDATORY, LAST step before your closing summary): call `unerr_turn_summary({})` exactly once and paste the returned `line` field VERBATIM into your final message. Do NOT paraphrase, do NOT translate, do NOT skip — the user reads the receipt directly.";
-}
-
-/** Tier-2 receipt-miss escalation. Fires only when the accumulator has
- *  tipped past `RECEIPT_MISS_THRESHOLD` — i.e. the agent has skipped the
- *  close-out N coding turns in a row. Names the prior miss count so the
- *  reminder is concrete, not generic. Resets the accumulator on emit so
- *  it does not spam every subsequent prompt. */
-function buildReceiptEscalationLine(prompt: string): string | null {
-  if (!classifyAsTask(prompt)) return null;
-  try {
-    const cwd = process.cwd();
-    const state = readNudgeState(cwd);
-    if (state.consecutive_receipt_misses < RECEIPT_MISS_THRESHOLD) return null;
-    const missCount = state.consecutive_receipt_misses;
-    updateNudgeState(cwd, (s) => {
-      s.consecutive_receipt_misses = 0;
-    });
-    return `ur|act CRITICAL — last ${missCount} coding turns drafted closing messages without calling \`unerr_turn_summary\`. The receipt is the user's only visible record of what unerr did. Call \`unerr_turn_summary({})\` BEFORE your closing message THIS turn — every coding turn, no exceptions.`;
-  } catch {
-    return null;
-  }
-}
+// Sprint 7 (T7.7): buildTurnSummaryLine + buildReceiptEscalationLine removed.
+// The close-out economy line is now produced server-side by the Stop hook
+// (stop-hooks.ts → computeTurnSummaryLine) at zero round-trip, so the agent is
+// never asked to call unerr_turn_summary. The miss-accumulator they drove
+// (consecutive_receipt_misses) is obsolete for hook-capable agents; the field
+// survives in nudge-state for the MCP-fallback path (turn-summary-handler.ts
+// still resets it when a hook-less agent calls the tool) and the dashboard.
 
 /** Lever C — Moment 1 (prompt-receipt recall) reminder. Fires on every
  *  coding-task prompt — the four-moment contract REQUIRES recall on every
  *  prompt receipt, not once per session. Token-cheap: a single line that
  *  names the tool + arg shape. The agent fills in `<verbatim>` from the
  *  prompt that just arrived. */
+/** The STEP-0 recall nudge text. Exported as a constant so the async
+ *  recall-injecting handler can STRIP it from the assembled output on turns
+ *  where the warm proxy already injected the notes — emitting both the notes
+ *  AND "call unerr_recall_notes BEFORE any other tool" forces the exact
+ *  round-trip the injection eliminated (the T7.7 double-charge). The nudge
+ *  survives verbatim only when injection did not happen (proxy down / empty /
+ *  non-code), so removal never opens a runtime gap. */
+// Sprint 7 (T7.3/T7.7): on agents that accept prompt-time context (the only
+// agents whose AGENT sees this hook's output — Cursor's beforeSubmitPrompt can
+// only reach the user) anchored-note recall already ran server-side and is
+// injected above. The nudge no longer instructs calling unerr_recall_notes —
+// that tool is hidden for these agents (advertisement is agent-aware) and the
+// call would be redundant. Phrased as state + a read action, not a tool call.
+const MOMENT1_RECALL_NUDGE =
+  "ur|act read any `ur|fct`/anchored notes injected above before drafting — anchored-note recall already ran for this prompt; no notes shown means none matched.";
+
 function buildMoment1Line(prompt: string): string | null {
   if (!classifyAsTask(prompt)) return null;
   try {
@@ -278,7 +256,7 @@ function buildMoment1Line(prompt: string): string | null {
   } catch {
     /* best effort — emission still proceeds */
   }
-  return "ur|act STEP-0 (MANDATORY, every coding turn): call `unerr_recall_notes({prompt:'<verbatim user prompt>'})` BEFORE any other tool call. Moment 1 of the four-moment contract. Empty result is fine; the call IS the contract. Do NOT defer, do NOT batch with later calls.";
+  return MOMENT1_RECALL_NUDGE;
 }
 
 /** Fix B — Surface 2 preface directive (hybrid hook+MCP form). The
@@ -304,7 +282,7 @@ function buildSurface2Line(prompt: string): string | null {
   } catch {
     /* best effort — emission still proceeds */
   }
-  return "ur|act STEP-2 (MANDATORY, after `unerr_recall_notes`): call `unerr_surface2_line({})` ONCE and paste the returned `line` field VERBATIM, prefixed with `unerr » `, into your first user-facing response. If `line` is empty, emit nothing for Surface 2. Do NOT invent prose, do NOT paraphrase the renderer output.";
+  return "ur|act call `unerr_surface2_line({})` ONCE at turn start and paste the returned `line` field VERBATIM, prefixed with `unerr » `, into your first user-facing response. If `line` is empty, emit nothing. Do NOT invent prose, do NOT paraphrase the renderer output.";
 }
 
 /** Lever C — Moment 3 (cite recalled notes in the plan). Fires once per
@@ -325,7 +303,7 @@ function buildMoment3PlanCiteLine(prompt: string): string | null {
   } catch {
     return null;
   }
-  return "ur|act WHEN drafting a plan or implementation strategy this session: cite every load-bearing note from `unerr_recall_notes` inline by kind + anchor (e.g. `per the wrn on src/proxy/bridge.ts`). No citation = the note was not load-bearing. This is Moment 3 of the four-moment contract.";
+  return "ur|act WHEN drafting a plan or implementation strategy this session: cite every load-bearing anchored note recalled for this prompt inline by kind + anchor (e.g. `per the wrn on src/proxy/bridge.ts`). No citation = the note was not load-bearing.";
 }
 
 /** Lever C — implementation-phase unerr mention. Fires once per session
@@ -533,7 +511,7 @@ export function buildCrossSessionStitchLine(cwd: string): string | null {
     if (stitch.openBlockers.length > 0) {
       const list = stitch.openBlockers.slice(0, 3).join("; ");
       lines.push(
-        `ur|act open blockers from prior session: ${list}. Call mark_resolution({blocker_ref:'<id>',text:'<fix>'}) when each is fixed.`
+        `ur|act open blockers from prior session: ${list}. Call unerr_track({op:'resolution', blocker_ref:'<id>', text:'<fix>'}) when each is fixed.`
       );
     }
     return lines.join("\n");
@@ -648,23 +626,22 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // most once per session (see buildMarkIntentLine).
   const markIntentLine = buildMarkIntentLine(message);
 
-  // Close-out reminder rides every coding-task turn — the agent needs
-  // the prompt every turn so it does not forget the unerr_turn_summary
-  // call. NOT one-shot.
-  const turnSummaryLine = buildTurnSummaryLine(message);
-
-  // Tier-2 receipt-miss escalation — fires only when accumulator >= 3.
-  // MUST run AFTER buildTurnSummaryLine so the counter is up-to-date.
-  const receiptEscalationLine = buildReceiptEscalationLine(message);
+  // Sprint 7 (T7.7): the close-out economy line fires automatically via the
+  // Stop hook (stop-hooks.ts) on every agent whose AGENT receives this hook
+  // output (claude-code — promptContextInject implies a Stop channel for every
+  // built+planned profile). unerr_turn_summary is therefore hidden for them
+  // (agent-aware advertisement), so the old STEP-N "call unerr_turn_summary"
+  // nudge + its miss-escalation are removed here — emitting them would name a
+  // tool the agent can no longer see and double the close-out the Stop hook
+  // already delivers. Hook-less agents keep the MCP tool advertised and learn
+  // it from their alwaysApply instruction file, not this hook.
 
   // ── Hard gates (NUDGE_V2 plan §3.4) ─────────────────────────────────
   // Gate 1: per-turn cap of 5 ur|act lines. Order = priority high→low.
   // Lines beyond the cap are dropped to prevent context flooding.
   // Path A and fallback are mutually exclusive — only one is non-null.
   const actCandidates: Array<string | null> = [
-    receiptEscalationLine, // Tier-2 CRITICAL when present
     moment1Line, //          Moment 1 (every coding turn)
-    turnSummaryLine, //      Moment 4 (every coding turn)
     pathALine, //            Path A skill match — if present
     fallbackLine, //         Master orchestrator fallback — if no Path A
     markIntentLine, //       mark_intent one-shot
@@ -702,12 +679,12 @@ const promptSubmitHandler: HookHandler = (normalized) => {
       "`search_code` (NOT grep/glob) · `get_references` (NOT grep for fn names) · " +
       "`file_read` (NOT built-in Read for understanding; built-in Read is only for pre-Edit) · " +
       "`file_outline` · `get_entity`. " +
-      "Mark progress: `mark_intent` (task start) · `mark_decision` · `mark_blocker` · " +
-      "`mark_resolution` — these power the cross-session timeline."
+      "Mark progress with zero round-trip — emit `unerr-save: intent|decision|blocker|resolution <one-line>` " +
+      "in your closing message; the Stop hook persists them to the cross-session timeline."
     : "[unerr] Prefer unerr MCP tools (graph-backed, <5ms): " +
       "`search_code` · `get_references` · `file_read` · `file_outline` · `get_entity`. " +
-      "Drop `mark_intent` / `mark_decision` / `mark_blocker` / `mark_resolution` as you work — " +
-      "they keep the timeline coherent across sessions.";
+      "Mark progress by emitting `unerr-save: <intent|decision|blocker|resolution> <one-line>` in your " +
+      "closing message — the Stop hook keeps the timeline coherent across sessions.";
 
   return enrich(
     `${stitchPrefix}${actBlock}${shiftPrefix}${toolRoster}\n\n${catalogBlock}`
@@ -720,4 +697,81 @@ const promptSubmitHandler: HookHandler = (normalized) => {
  */
 export function runUserPromptSubmitHook(stdinJson: string): string {
   return runPromptSubmitHook(stdinJson, promptSubmitHandler);
+}
+
+/**
+ * Recall-injecting prompt-submit handler (Phase-2 Sprint 7).
+ *
+ * Runs the same synchronous assembly as {@link promptSubmitHandler}, then — on
+ * coding-task prompts — fetches the matching anchored notes from the warm proxy
+ * over UDS and PREPENDS them as real context. This replaces the model
+ * round-trip the `ur|act STEP-0 … call unerr_recall_notes` nudge used to force:
+ * the notes arrive injected, zero round-trip.
+ *
+ * Strictly additive + degrade-safe: if the proxy is unreachable, the prompt is
+ * non-code, or recall is empty, the result is byte-identical to the sync path
+ * (the static nudge still leads). The UDS query never throws (recall-client
+ * contract) and is time-boxed, so it can't stall the turn.
+ */
+const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
+  const base = promptSubmitHandler(normalized);
+
+  const raw = normalized.raw;
+  const message = (raw.user_message ?? raw.prompt ?? "") as string;
+
+  // T7.8 — user-rule capture (fire-and-forget). Runs on EVERY turn, even
+  // passthrough ones (a one-line "from now on, always X" must be captured even
+  // though it warrants no nudge). We MUST await: the hook is a short-lived
+  // subprocess that exits after writing stdout, so an un-awaited write may never
+  // flush. It is time-boxed (≤400ms) and degrades to false, so it can't stall.
+  const rule = detectUserRule(message);
+  const capturePromise: Promise<boolean> = rule
+    ? captureUserRule(rule)
+    : Promise.resolve(false);
+
+  // Only enrich an enrich — passthrough turns (short / one-shot-spent prompts)
+  // stay passthrough. Recall injection rides only code-context enrich turns.
+  if (base.action !== "enrich" || !base.message) {
+    await capturePromise; // let the capture flush before the subprocess exits
+    return base;
+  }
+  if (!message || !isCodeContext(message)) {
+    await capturePromise;
+    return base;
+  }
+
+  try {
+    const [notes] = await Promise.all([
+      queryRecallNotes(message),
+      capturePromise,
+    ]);
+    if (notes && notes.length > 0) {
+      const block = renderRecallBlock(notes);
+      if (block) {
+        // T7.7 — the injected block IS Moment 1. Drop the STEP-0 recall nudge
+        // from the assembled output so the agent isn't told to re-fetch what it
+        // already has (the double-charge). Stripped ONLY here, where the
+        // replacement is present in the same response — the fallback path below
+        // keeps the nudge verbatim, so no runtime gap.
+        const deduped = base.message
+          .replace(`${MOMENT1_RECALL_NUDGE}\n`, "")
+          .replace(MOMENT1_RECALL_NUDGE, "");
+        return enrich(`${block}\n${deduped}`);
+      }
+    }
+  } catch {
+    // recall-client never throws, but stay defensive — fall back to the nudge.
+  }
+  return base;
+};
+
+/**
+ * Async UserPromptSubmit entry — the default the `unerr hook prompt-submit`
+ * command dispatches to. Injects warm recall when the proxy is up, falls back
+ * to the static nudge otherwise.
+ */
+export async function runUserPromptSubmitHookAsync(
+  stdinJson: string
+): Promise<string> {
+  return runPromptSubmitHookAsync(stdinJson, asyncPromptSubmitHandler);
 }

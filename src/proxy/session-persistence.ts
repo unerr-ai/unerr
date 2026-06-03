@@ -413,7 +413,7 @@ export function formatSessionResumeBlock(
       .slice(0, 2)
       .map((f) => `"${f.content.slice(0, 40)}"`);
     parts.push(
-      `⚠ ${n} fact(s) expired since last session: ${subjects.join(", ")}. Use record_fact to re-record if still relevant.`
+      `⚠ ${n} fact(s) expired since last session: ${subjects.join(", ")}. Call unerr_track({op:'fact'}) to re-record if still relevant.`
     );
   }
 

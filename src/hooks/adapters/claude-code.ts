@@ -142,4 +142,21 @@ export const claudeCodeAdapter: HookAdapter = {
 
     return "{}";
   },
+
+  formatStop(result: HookResult): string {
+    if (result.action === "passthrough") return "{}";
+
+    // Stop has no additionalContext channel — the close-out line is for the
+    // user, so it rides top-level `systemMessage`. Never emit decision:"block"
+    // here: that would force the agent to keep going, which the economy line
+    // must never do.
+    if (
+      (result.action === "enrich" || result.action === "nudge") &&
+      result.message
+    ) {
+      return JSON.stringify({ systemMessage: result.message });
+    }
+
+    return "{}";
+  },
 };

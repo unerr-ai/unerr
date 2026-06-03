@@ -1,35 +1,36 @@
 ---
-unerr_skill_version: "1.0.0"
-description: "MANDATORY on every coding turn — emit cheap inline markers (intent, decision, blocker, resolution) as work happens. STEP-1: `mark_intent` is the FIRST tool call after recall. Markers MUST emit at the moment they occur, not bundled into an end-of-turn summary. Do NOT yield mid-tasklist with a status paragraph; the marker IS the status update."
+unerr_skill_version: "2.0.0"
+description: "On every coding turn, record intent/decision/blocker/resolution with ZERO round-trip — emit `unerr-save:` lines in your closing message and the Stop hook persists them. No tool call, only output tokens. Do NOT yield mid-tasklist with a status paragraph; finish the work, then emit the markers at close."
 alwaysApply: true
 ---
 
 ## Iron Law
 
 <EXTREMELY-IMPORTANT>
-On every coding task (implement/fix/add/refactor/build/debug), the FIRST tool call after `unerr_recall_notes` is `mark_intent({text:'<≤80 char summary>'})`. Markers emit AT the moment they happen, never bundled into an end-of-turn summary. Never yield control mid-tasklist with a user-facing status paragraph — that ends the turn.
+Markers return nothing you need THIS turn, so they do NOT earn an MCP round-trip. On every coding task (implement/fix/add/refactor/build/debug), emit an `unerr-save: intent <…>` line in your closing message — the Stop hook scrapes + persists it. Never yield control mid-tasklist with a user-facing status paragraph — that ends the turn.
 </EXTREMELY-IMPORTANT>
 
-## Phases
+## The sentinel grammar
 
-Phase 1 — Open.
-  Call `mark_intent({text:'<task summary, ≤80 chars>'})` immediately after `unerr_recall_notes`. One call per task, not per step.
+Emit one per line, anywhere in your closing message. The Stop hook scrapes well-formed lines and drops the rest (only cheap output tokens, no round-trip):
 
-Phase 2 — Branch.
-  When choosing between approaches, call `mark_decision({text:'<choice, ≤140 chars>', alternatives:['<alt1>','<alt2>']})`. Up to 5 alternatives, each ≤80 chars.
+```
+unerr-save: intent <what this turn is doing, ≤80 chars>
+unerr-save: decision <a deliberate choice between approaches>
+unerr-save: blocker <an unresolved obstacle that carries past this turn>
+unerr-save: resolution <how a prior blocker was fixed>
+```
 
-Phase 3 — Block.
-  When stuck on an obstacle you cannot resolve in this turn, call `mark_blocker({text:'<problem, ≤140 chars>', file_path:'<path>'})`. Save the returned `marker_id`.
+## High-fidelity escape
 
-Phase 4 — Resolve.
-  When you fix a prior blocker, call `mark_resolution({blocker_ref:'<exact marker_id from mark_blocker>', text:'<fix description>'})`. Pass the verbatim marker_id, never a paraphrase.
+When you need the return value — a blocker's `marker_id` to link its resolution — or you are on a hook-less agent, call the MCP tool instead: `unerr_track({op:'blocker', text:'<problem>'})` returns `marker_id`; pass it as `ref` on `unerr_track({op:'resolution', text:'<fix>', ref:'<marker_id>'})`. The same op-union carries `op:'intent'` and `op:'decision'`.
 
 ## Turn discipline
 
 While working a multi-step TaskList:
   - Do NOT emit user-facing status paragraphs between sub-tasks.
   - Pattern: edit → tool call → edit → tool call. No prose in between.
-  - Save the summary for AFTER the last task completes.
+  - Save the summary — and the `unerr-save:` markers — for AFTER the last task completes.
   - A turn ends the moment the model emits text without an accompanying tool call. Multi-paragraph 'X done, moving to Y' updates trigger that ending.
 
 When it IS OK to narrate:
@@ -41,13 +42,12 @@ If unsure, do one more tool call instead of writing a paragraph.
 
 ## Why this matters
 
-Markers are persisted to the shadow ledger and timeline.db. They power turn titles, cross-session intent stitching, the resume strip, and loop/blocker miners. Unresolved blockers carry into the next session — emitting them prevents you from rediscovering the same dead end tomorrow. The timeline still works without these markers, but agents that mark intent + decisions make it dramatically more useful.
+Markers are persisted to the shadow ledger and timeline.db. They power turn titles, cross-session intent stitching, the resume strip, and loop/blocker miners. Unresolved blockers carry into the next session — emitting them prevents you from rediscovering the same dead end tomorrow. The timeline still works without these markers, but agents that record intent + decisions make it dramatically more useful — and the `unerr-save:` sentinel makes it free.
 
 ## Red Flags
 
-Calling `mark_intent` after the third tool call → mark_intent runs FIRST on coding turns; reorder.
-Bundling markers into one end-of-turn message → emit each marker at the moment it happens; bundled markers lose timeline ordering.
-Calling `mark_intent` twice in one task → intent is once-per-task; switch to `mark_decision` for mid-task pivots.
-Passing a paraphrased blocker_ref to `mark_resolution` → resolution requires the exact marker_id returned by `mark_blocker`; without it the resume-strip cannot stitch.
-Skipping `mark_blocker` because you plan to fix it later this turn → if it carries past this turn, mark it now.
+Calling a `mark_*` MCP tool for a routine marker → those are demoted; the sentinel is free, the `mark_*` round-trip is not. Emit `unerr-save:` instead.
+Bundling a vague 'did some work' marker → name the actual intent/decision; a useless marker still costs a resume-strip slot.
+Linking a resolution to a paraphrased blocker → use the high-fidelity `unerr_track({op:'blocker'})` escape to get the real `marker_id` when the linkage matters.
+Skipping a blocker because you plan to fix it later this turn → if it carries past this turn, emit `unerr-save: blocker <…>` now.
 Writing 'X done, now moving to Y' between TaskList items → ends the turn; the user has to re-prompt. Make another tool call instead.
