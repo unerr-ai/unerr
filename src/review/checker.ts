@@ -1,5 +1,5 @@
 /**
- * The `ReviewChecker` contract (docs/reviewer-architecture.md §4.1).
+ * The `ReviewChecker` contract (.internal/reviewer-architecture.md §4.1).
  *
  * Sibling to the `Behavior` contract (`src/behaviors/framework.ts`): a checker
  * is a pluggable, individually toggleable unit that the `ReviewEngine`

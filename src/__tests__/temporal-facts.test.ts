@@ -56,6 +56,38 @@ describe("TemporalFactStore", () => {
       expect(id2).toBe(id1);
     });
 
+    it("deduplicates on identical content when fact_type/subject drifted (regression 6d)", async () => {
+      // A re-store of a known fact routinely arrives with the default
+      // fact_type ("semantic") and a re-derived subject. Identical content in
+      // the same scope is the same fact — must reinforce, not fork a new row.
+      const { fact_id: id1, deduplicated: first } = await store.createFact({
+        fact_type: "convention",
+        scope: "project",
+        subject: "cozodb-async",
+        content: "All CozoDB methods are async — always await db.run()",
+        source: "user_fed",
+      });
+      expect(first).toBe(false);
+
+      const { fact_id: id2, deduplicated: second } = await store.createFact({
+        fact_type: "semantic", // drifted default
+        scope: "project",
+        subject: "All CozoDB methods are async — always await db", // re-derived
+        content: "All CozoDB methods are async — always await db.run()",
+        source: "user_fed",
+      });
+      expect(second).toBe(true);
+      expect(id2).toBe(id1);
+
+      // The matched row was reinforced, not duplicated
+      const facts = await store.recallByScope("project");
+      const matching = facts.filter((f) =>
+        f.content.startsWith("All CozoDB methods are async")
+      );
+      expect(matching.length).toBe(1);
+      expect(matching[0]!.reinforcement_count).toBe(2);
+    });
+
     it("stores multi-sentence content within the type cap (≤1400)", async () => {
       const longContent = "x".repeat(1200);
       const { fact_id: factId } = await store.createFact({
@@ -66,6 +98,80 @@ describe("TemporalFactStore", () => {
         source: "agent_explicit",
       });
       expect(factId).toBeDefined();
+    });
+  });
+
+  describe("read-time content dedup (legacy duplicate rows)", () => {
+    const DUP_CONTENT =
+      "All CozoDB methods are async; never access .rows on an un-awaited result";
+
+    /** Insert a raw facts row directly, bypassing createFact's write-time
+     *  content-duplicate check — simulates rows written before
+     *  findContentDuplicate existed (the session-resume preface rendered
+     *  these as the same ▸ line twice). */
+    async function insertLegacyRow(
+      factType: string,
+      subject: string,
+      baseConfidence: number
+    ): Promise<void> {
+      await db.run(
+        `
+        ?[fact_id, fact_type, scope, subject, content, base_confidence,
+          reinforcement_count, created_at, last_reinforced_at,
+          last_contradicted_at, source, evidence] <- [[
+          $fact_id, $fact_type, "project", $subject, $content,
+          $base_confidence, 1, $now, $now, 0.0, "user_fed", "[]"
+        ]]
+        :put facts {
+          fact_id, fact_type, scope, subject, content, base_confidence,
+          reinforcement_count, created_at, last_reinforced_at,
+          last_contradicted_at, source, evidence
+        }
+        `,
+        {
+          fact_id: crypto.randomUUID(),
+          fact_type: factType,
+          subject,
+          content: DUP_CONTENT,
+          base_confidence: baseConfidence,
+          now: Date.now(),
+        }
+      );
+    }
+
+    it("recall collapses identical content in the same scope, keeping the strongest row", async () => {
+      await insertLegacyRow("convention", "cozodb-async", 0.95);
+      // A different fact ranks between the duplicates — dedup must not
+      // rely on adjacency.
+      await store.createFact({
+        fact_type: "convention",
+        scope: "project",
+        subject: "cozodb-await",
+        content: "All CozoDB access goes through await",
+        source: "user_fed",
+        base_confidence: 0.9,
+      });
+      await insertLegacyRow("semantic", "cozodb-async-redux", 0.85);
+
+      const facts = await store.recallByScope("project");
+      const matching = facts.filter((f) => f.content === DUP_CONTENT);
+      expect(matching.length).toBe(1);
+      // Rows arrive ordered -effective_conf — the stronger row survives.
+      expect(matching[0]!.base_confidence).toBe(0.95);
+      // The distinct fact is untouched.
+      expect(
+        facts.filter(
+          (f) => f.content === "All CozoDB access goes through await"
+        ).length
+      ).toBe(1);
+    });
+
+    it("health and prune still see raw rows (duplicates stay countable + deletable)", async () => {
+      await insertLegacyRow("convention", "cozodb-async", 0.95);
+      await insertLegacyRow("semantic", "cozodb-async-redux", 0.85);
+
+      const health = await store.getFactHealth();
+      expect(health.total).toBe(2);
     });
   });
 

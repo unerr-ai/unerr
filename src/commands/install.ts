@@ -496,8 +496,8 @@ function showSetupInstructions(agentName: string): void {
     w("  \x1b[1mStep 3: Verify\x1b[0m\n");
     w("  \x1b[2m──────────────\x1b[0m\n");
     w("  In a new chat session, verify unerr tools are available.\n");
-    w("  You should see tools like: get_callers, search_code, file_read,\n");
-    w("  file_outline, get_imports, get_callees.\n\n");
+    w("  You should see tools like: unerr_context, search_code, file_read,\n");
+    w("  file_outline, get_entity, get_references.\n\n");
 
     w("  \x1b[1mStep 4: Start a new chat session\x1b[0m\n");
     w("  \x1b[2m────────────────────────────────\x1b[0m\n");
@@ -797,7 +797,6 @@ function installClineHooks(cwd: string): boolean {
 
   try {
     if (!existsSync(hooksDir)) {
-      const { mkdirSync } = require("node:fs");
       mkdirSync(hooksDir, { recursive: true });
     }
 

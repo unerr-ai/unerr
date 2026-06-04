@@ -23,7 +23,6 @@ import {
   UNLOCK_CONDITIONS,
   describeCondition,
 } from "../proxy/tool-tiers.js";
-import { evaluateUnlocks } from "../proxy/unlock-evaluator.js";
 
 describe("tool-tiers: UNLOCK_CONDITIONS alignment with TIER_ENTRIES", () => {
   it("has a policy for every tier 2/3 tool", () => {
@@ -45,10 +44,10 @@ describe("tool-tiers: UNLOCK_CONDITIONS alignment with TIER_ENTRIES", () => {
     }
   });
 
-  it("expected tier sizes — 12 / 8 / 7 (Sprint 8 added the unerr_track op-union to Tier 3)", () => {
-    expect(toolsByTier(1)).toHaveLength(12);
-    expect(toolsByTier(2)).toHaveLength(8);
-    expect(toolsByTier(3)).toHaveLength(7);
+  it("expected tier sizes — 7 / 0 / 1 (unerr_track is the sole Tier 3 tool; unerr_remember left the catalog 2026-06)", () => {
+    expect(toolsByTier(1)).toHaveLength(7);
+    expect(toolsByTier(2)).toHaveLength(0);
+    expect(toolsByTier(3)).toHaveLength(1);
   });
 });
 
@@ -100,26 +99,26 @@ describe("SessionState: tier 1 always exposed", () => {
 describe("SessionState: monotonic exposure", () => {
   it("expose() adds new tools and returns the delta", () => {
     const s = new SessionState();
-    const added = s.expose(["get_critical_nodes", "get_imports"]);
-    expect(added).toEqual(["get_critical_nodes", "get_imports"]);
-    expect(s.isExposed("get_critical_nodes")).toBe(true);
+    const added = s.expose(["unerr_track", "tool_b"]);
+    expect(added).toEqual(["unerr_track", "tool_b"]);
+    expect(s.isExposed("unerr_track")).toBe(true);
   });
 
   it("expose() filters tools that are already exposed", () => {
     const s = new SessionState();
-    s.expose(["get_imports"]);
-    const added = s.expose(["get_imports", "get_conventions"]);
-    expect(added).toEqual(["get_conventions"]);
+    s.expose(["tool_b"]);
+    const added = s.expose(["tool_b", "tool_c"]);
+    expect(added).toEqual(["tool_c"]);
   });
 
   it("a tool, once exposed, stays exposed across many calls", () => {
     const s = new SessionState();
-    s.expose(["get_critical_nodes"]);
+    s.expose(["unerr_track"]);
     for (let i = 0; i < 50; i++) {
       s.recordCall({ toolName: "search_code" });
       s.advanceTurn();
     }
-    expect(s.isExposed("get_critical_nodes")).toBe(true);
+    expect(s.isExposed("unerr_track")).toBe(true);
   });
 });
 
@@ -256,18 +255,17 @@ describe("SessionState: nonTrivialActionObserved gate", () => {
   });
 });
 
-describe("A23 regression: get_file unlocks after file_read truncation", () => {
-  // L-section testing flagged that calling `file_read` on a large file
-  // produced a truncated response but the follow-up `get_file` call did
-  // NOT unlock. This pins the full chain:
+describe("file_read truncation signal extraction", () => {
+  // The catalog no longer contains a tool that unlocks on file_read
+  // truncation (get_file was removed in the token-overhead deletion), but the
+  // signal itself is still extracted and recorded — it remains a real
+  // SessionState accumulator. This pins that extraction chain:
   //   extractSignals(file_read, meta.truncated=true)
-  //     → SessionState.recordCall (sets fileReadTruncatedSeen)
-  //     → evaluateUnlocks() lists `get_file` as newly unlocked.
+  //     → signals.fileReadTruncated=true
+  //     → SessionState.recordCall sets fileReadTruncatedSeen.
 
-  it("end-to-end: meta.truncated=true on file_read makes get_file unlock", () => {
+  it("meta.truncated=true on file_read sets the truncation signal", () => {
     const s = new SessionState();
-    expect(s.isExposed("get_file")).toBe(false);
-
     const signals = extractSignals("file_read", {
       args: { file_path: "src/proxy/proxy.ts" },
       content: { text: "<truncated body>" },
@@ -275,13 +273,10 @@ describe("A23 regression: get_file unlocks after file_read truncation", () => {
     });
     expect(signals.fileReadTruncated).toBe(true);
     s.recordCall(signals);
-
-    const unlocks = evaluateUnlocks(s);
-    const unlockedNames = unlocks.map((u) => u.toolName);
-    expect(unlockedNames).toContain("get_file");
+    expect(s.fileReadTruncatedSeen()).toBe(true);
   });
 
-  it("does NOT unlock get_file when file_read returns within budget", () => {
+  it("within-budget file_read leaves the truncation signal unset", () => {
     const s = new SessionState();
     const signals = extractSignals("file_read", {
       args: { file_path: "src/proxy/small.ts" },
@@ -290,7 +285,6 @@ describe("A23 regression: get_file unlocks after file_read truncation", () => {
     });
     expect(signals.fileReadTruncated).toBeUndefined();
     s.recordCall(signals);
-    const unlocks = evaluateUnlocks(s);
-    expect(unlocks.map((u) => u.toolName)).not.toContain("get_file");
+    expect(s.fileReadTruncatedSeen()).toBe(false);
   });
 });

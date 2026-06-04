@@ -4,7 +4,8 @@
  */
 
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, relative } from "node:path";
+import { resolveWithHome } from "../../utils/expand-home.js";
 import type { Tool, ToolContext, ToolOutput } from "../types.js";
 
 const MAX_RESULTS = 500;
@@ -87,7 +88,7 @@ export const globTool: Tool = {
     ctx: ToolContext
   ): Promise<ToolOutput> {
     const pattern = args.pattern as string;
-    const searchPath = resolve(ctx.cwd, (args.path as string) ?? ".");
+    const searchPath = resolveWithHome(ctx.cwd, (args.path as string) ?? ".");
 
     if (!existsSync(searchPath)) {
       return {

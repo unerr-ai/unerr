@@ -1,5 +1,5 @@
 /**
- * `breaking_callers` checker (docs/reviewer-architecture.md §3 Tier 1, §11 P0.3).
+ * `breaking_callers` checker (.internal/reviewer-architecture.md §3 Tier 1, §11 P0.3).
  *
  * Asserts a graph FACT, not an opinion: a changed (or deleted) export whose
  * depth-1 callers now mismatch. Wraps the signature-change primitive already in

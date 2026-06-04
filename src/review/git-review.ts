@@ -1,5 +1,5 @@
 /**
- * Git-backed review orchestration (docs/reviewer-architecture.md §5.2 Surface B,
+ * Git-backed review orchestration (.internal/reviewer-architecture.md §5.2 Surface B,
  * §5.3 Surface C).
  *
  * The review ENGINE is process-agnostic and depends only on the narrow

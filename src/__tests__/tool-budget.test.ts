@@ -89,14 +89,14 @@ describe("tool-budget: enforceBudget", () => {
 describe("tool-descriptions: tier registry", () => {
   const ALL = listToolNames();
 
-  it("contains exactly 27 tools (Sprint 8 added the unerr_track op-union, additively; the 6 legacy writes are retired from the catalog in Sprint 8b)", () => {
-    expect(ALL.length).toBe(27);
+  it("contains exactly 8 tools (the advertised catalog after the token-overhead deletion; unerr_remember left for the hook write paths, 2026-06)", () => {
+    expect(ALL.length).toBe(8);
   });
 
-  it("partitions tools into exactly 12 / 8 / 7 across tiers 1 / 2 / 3", () => {
-    expect(toolsByTier(1)).toHaveLength(12);
-    expect(toolsByTier(2)).toHaveLength(8);
-    expect(toolsByTier(3)).toHaveLength(7);
+  it("partitions tools into exactly 7 / 0 / 1 across tiers 1 / 2 / 3", () => {
+    expect(toolsByTier(1)).toHaveLength(7);
+    expect(toolsByTier(2)).toHaveLength(0);
+    expect(toolsByTier(3)).toHaveLength(1);
   });
 
   it("places the 7 starter tools in tier 1", () => {
@@ -108,7 +108,7 @@ describe("tool-descriptions: tier registry", () => {
       "get_entity",
       "get_references",
       "fetch_url",
-      "unerr_remember",
+      "unerr_context",
     ]) {
       expect(tier1.has(name)).toBe(true);
     }
@@ -236,15 +236,11 @@ describe("tool-definitions: outbound MCP composition", () => {
     expect(def1.description).toBe(getDescription("search_code", "active"));
     expect(() => renderToolDefinition("search_code", "locked")).toThrow();
 
-    // Tier 2 — all three states valid.
-    const locked = renderToolDefinition("get_critical_nodes", "locked");
-    expect(locked.description).toBe(
-      getDescription("get_critical_nodes", "locked")
-    );
-    const unlocked = renderToolDefinition("get_critical_nodes", "unlocked");
-    expect(unlocked.description).toBe(
-      getDescription("get_critical_nodes", "unlocked")
-    );
+    // Tier 3 — all three states valid (unerr_track is the sole tier 3 tool).
+    const locked = renderToolDefinition("unerr_track", "locked");
+    expect(locked.description).toBe(getDescription("unerr_track", "locked"));
+    const unlocked = renderToolDefinition("unerr_track", "unlocked");
+    expect(unlocked.description).toBe(getDescription("unerr_track", "unlocked"));
   });
 
   it("renderToolDefinition throws for unknown tool", () => {
@@ -263,7 +259,7 @@ describe("tool-definitions: aggregate savings vs hypothetical verbose baseline",
       (sum, d) => sum + countTokens(d.description),
       0
     );
-    // Tier 1 cap × 19 tools = 1520. Real total should be much lower.
+    // Tier 1 cap × catalog size is the inflated baseline. Real total is lower.
     expect(total).toBeLessThan(BUDGETS.tier1Active * TOOL_DEFINITIONS.length);
   });
 });

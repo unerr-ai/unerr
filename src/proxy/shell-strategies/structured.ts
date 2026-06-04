@@ -215,15 +215,15 @@ export function compressStructured(raw: string, command?: string): string {
       const minified = JSON.stringify(parsed);
 
       if (minified.length <= SMALL_JSON) {
-        return `_shell_fmt:structured_json\n${minified}`;
+        return minified;
       }
       if (minified.length <= MEDIUM_JSON) {
         const limited = depthLimit(parsed, 3);
-        return `_shell_fmt:structured_json\n${JSON.stringify(limited, null, 2)}`;
+        return JSON.stringify(limited, null, 2);
       }
       // Large: aggressive depth limit + minify
       const limited = depthLimit(parsed, 2);
-      return `_shell_fmt:structured_json\n${JSON.stringify(limited)}`;
+      return JSON.stringify(limited);
     } catch {
       /* fall through */
     }
@@ -254,5 +254,5 @@ export function compressStructured(raw: string, command?: string): string {
     compact.length > 12_000
       ? `${compact.slice(0, 8000)}\n…shell_struct_omitted…\n${compact.slice(-3000)}`
       : compact;
-  return `_shell_fmt:structured_text\n${clipped}`;
+  return clipped;
 }

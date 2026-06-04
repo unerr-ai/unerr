@@ -14,9 +14,13 @@ describe("CONTRACT_TEACHING_BLOCK (D10)", () => {
     expect(CONTRACT_TEACHING_BLOCK).toMatch(/Moment 4.*Save at task end/);
   });
 
-  it("references the two consolidated MCP tools by name", () => {
-    expect(CONTRACT_TEACHING_BLOCK).toContain("unerr_recall_notes");
-    expect(CONTRACT_TEACHING_BLOCK).toContain("unerr_remember");
+  it("references recall by tool name and save by sentinel (no unerr_remember)", () => {
+    // Recall is the unerr_context composite (notes auto-inject via the
+    // UserPromptSubmit hook); save is the `unerr-save:` Stop-hook sentinel —
+    // unerr_remember left the catalog (2026-06) and must not be taught.
+    expect(CONTRACT_TEACHING_BLOCK).toContain("unerr_context");
+    expect(CONTRACT_TEACHING_BLOCK).toContain("unerr-save: note");
+    expect(CONTRACT_TEACHING_BLOCK).not.toContain("unerr_remember");
   });
 
   it("documents the DSL vocabulary (kinds + anchor types + polarities)", () => {
@@ -33,8 +37,12 @@ describe("CONTRACT_TEACHING_BLOCK (D10)", () => {
   });
 
   it("explains conflict + supersession behavior", () => {
-    expect(CONTRACT_TEACHING_BLOCK).toContain("conflict_group_id");
-    expect(CONTRACT_TEACHING_BLOCK).toContain("supersedes_note_id");
+    // Sentinel saves return nothing this turn — conflicts and supersession
+    // surface on next-turn recall, so the teaching describes that, not the
+    // old tool-return fields (conflict_group_id / supersedes_note_id).
+    expect(CONTRACT_TEACHING_BLOCK).toMatch(/conflict/i);
+    expect(CONTRACT_TEACHING_BLOCK).toMatch(/supersession|superseded/i);
+    expect(CONTRACT_TEACHING_BLOCK).toContain("next-turn recall");
   });
 
   it("stays under the ~500-token budget (rough char-based proxy)", () => {
@@ -58,9 +66,11 @@ describe("NOTES_SKILLS (D10, post-27→7 consolidation)", () => {
       expect(skill.body.startsWith("---\n")).toBe(true);
       expect(skill.body).toMatch(/title:.+\n/);
       expect(skill.body).toMatch(/description:.+\n/);
-      // Memory skill references both contract tools.
-      expect(skill.body).toMatch(/unerr_recall_notes/);
-      expect(skill.body).toMatch(/unerr_remember/);
+      // Memory skill references the recall tool (unerr_context) and the save
+      // sentinel (`unerr-save:`) — unerr_remember left the catalog (2026-06).
+      expect(skill.body).toMatch(/unerr_context/);
+      expect(skill.body).toMatch(/unerr-save: note/);
+      expect(skill.body).not.toMatch(/unerr_remember/);
     }
   });
 });
@@ -74,9 +84,14 @@ describe("TOOL_DESCRIPTION_NUDGES (D10)", () => {
     expect(tools).toContain("get_entity");
   });
 
-  it("each nudge mentions one of the two consolidated tools by name", () => {
+  it("each nudge routes to a surviving contract mechanism", () => {
+    // Recall = unerr_context, save = the `unerr-save:` Stop-hook sentinel,
+    // or file_read's own inline rule-note/convention/drift auto-injection.
     for (const n of TOOL_DESCRIPTION_NUDGES) {
-      expect(n.nudge).toMatch(/unerr_(recall_notes|remember)/);
+      expect(n.nudge).toMatch(
+        /unerr_context|unerr-save: note|file_read auto-injects/
+      );
+      expect(n.nudge).not.toMatch(/unerr_remember/);
     }
   });
 

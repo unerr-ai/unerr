@@ -1,5 +1,5 @@
 /**
- * P4 — Tier-2 host synthesis (docs/reviewer-architecture.md §3, §5.1, §9.3).
+ * P4 — Tier-2 host synthesis (.internal/reviewer-architecture.md §3, §5.1, §9.3).
  *
  * Tier-2 findings are NOT verdicts — they are evidence blocks the host model
  * elaborates on (fix-or-flag), routed through the agent-as-LLM seam. These tests

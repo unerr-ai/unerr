@@ -1,5 +1,5 @@
 /**
- * Checker registry (docs/reviewer-architecture.md §4.1, §11).
+ * Checker registry (.internal/reviewer-architecture.md §4.1, §11).
  *
  * `defaultCheckers()` is the canonical Tier-1 set the engine registers. Phases
  * append here: P0.3 breaking_callers + blast_radius; P0.4 wraps existing logic

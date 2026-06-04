@@ -1,5 +1,5 @@
 /**
- * unerr review — the on-demand reviewer (Surface C, docs/reviewer-architecture.md §5.3).
+ * unerr review — the on-demand reviewer (Surface C, .internal/reviewer-architecture.md §5.3).
  *
  * Runs the full Tier-1 review engine over a chosen slice of git history and
  * prints a structured, anchored report (findings grouped by file/entity, each

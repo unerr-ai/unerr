@@ -1,5 +1,5 @@
 /**
- * Structured, anchored review report (docs/reviewer-architecture.md §5.3).
+ * Structured, anchored review report (.internal/reviewer-architecture.md §5.3).
  *
  * Surface C (the `review_changes` MCP tool + `unerr review` CLI) needs a
  * *report*, not a stream of `ur|<tag>` lines: findings grouped by anchor

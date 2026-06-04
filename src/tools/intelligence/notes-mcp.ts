@@ -123,7 +123,7 @@ export async function recallNotes(
         },
         hint:
           result.notes.length === 0
-            ? "0 notes recalled — proceed with the task; call unerr_remember at task close if you learn something non-obvious + anchorable"
+            ? "0 notes recalled — proceed with the task; at task close emit unerr-save: note kind|anchor|polarity|content in your closing message if you learn something non-obvious + anchorable"
             : `${result.notes.length} note(s) recalled — cite by note_id in your plan`,
       };
     }

@@ -1,5 +1,5 @@
 /**
- * `blast_radius` checker (docs/reviewer-architecture.md §3 Tier 1, §11 P0.3).
+ * `blast_radius` checker (.internal/reviewer-architecture.md §3 Tier 1, §11 P0.3).
  *
  * Fires when an edit touches a high-fan-in chokepoint — even without a signature
  * change — so the agent proposes a non-breaking shape before editing. Distinct

@@ -1,6 +1,6 @@
 /**
  * `ReviewEngine` — the single source of truth for review findings
- * (docs/reviewer-architecture.md §4). Mirrors `BehaviorDispatcher`
+ * (.internal/reviewer-architecture.md §4). Mirrors `BehaviorDispatcher`
  * (`src/behaviors/framework.ts`): register pluggable units, dispatch them
  * uniformly, collect their output.
  *

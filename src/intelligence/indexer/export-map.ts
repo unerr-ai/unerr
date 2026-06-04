@@ -12,6 +12,7 @@
  *   - Barrel files: export * from "./module"
  */
 
+import { dirname, join, normalize } from "node:path";
 import type { ImportInfo, IndexedEntity } from "./plugin-interface.js";
 
 export interface ExportEntry {
@@ -52,7 +53,6 @@ function resolveImportPath(
   if (!importSource.startsWith(".")) return null;
 
   // biome-ignore format: typeof import() must stay single-line for TS
-  const { dirname, join, normalize } = require("node:path") as typeof import("node:path");
   const importerDir = dirname(importerFilePath);
   let resolved = normalize(join(importerDir, importSource));
 

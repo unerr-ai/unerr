@@ -11,9 +11,13 @@
  * This module is the pure translation layer: `unerr_track({op, …})` → the legacy
  * `(name, args)` pair. The proxy dispatch reassigns its `name`/`args` to the
  * translation result and falls through to the SAME marker/fact branches — so
- * there is ONE execution path (no behavioural fork) and the legacy boundary
- * validation enforces each op's required fields. The legacy tool names stay
- * dispatchable by name (DEMOTE not delete) for UDS hooks + hook-less agents.
+ * there is ONE execution path (no behavioural fork). The legacy tool names stay
+ * dispatchable by name for UDS hooks + hook-less agents, but they are no longer
+ * MCP catalog members — so `runBoundaryValidation` (which looks a name up in
+ * TOOL_DEFINITIONS) no-ops for them. This module therefore OWNS each op's
+ * required-field validation: `validateOp` mirrors the required[] the legacy
+ * schemas used to declare, and translation returns `{error}` before dispatch
+ * when a field is missing. (op-union-selection-eval.test.ts asserts coverage.)
  */
 
 /** The six ops the union multiplexes. */
@@ -59,6 +63,33 @@ function str(v: unknown): string | undefined {
 }
 
 /**
+ * The flat-surface fields each op requires, in the union's own vocabulary
+ * (text/blocker_ref/scope/target/fact_type). Mirrors the required[] the legacy
+ * marker/fact schemas declared, re-homed here because those names left the MCP
+ * catalog (so runBoundaryValidation no longer validates them).
+ */
+const OP_REQUIRED: Readonly<Record<TrackOp, readonly string[]>> = {
+  intent: ["text"],
+  decision: ["text"],
+  blocker: ["text"],
+  resolution: ["blocker_ref", "text"],
+  fact: ["text", "fact_type", "scope", "target"],
+  recall: ["scope"],
+};
+
+/**
+ * Validate that every field `op` requires is a present, non-empty string.
+ * Returns the error message (naming the missing fields in the union's
+ * vocabulary) or null. Empty/whitespace counts as missing — the same
+ * silent-empty-filter failure mode the legacy boundary validator guarded.
+ */
+function validateOp(op: TrackOp, raw: Record<string, unknown>): string | null {
+  const missing = OP_REQUIRED[op].filter((f) => str(raw[f]) === undefined);
+  if (missing.length === 0) return null;
+  return `unerr_track op:'${op}' missing required field(s): ${missing.join(", ")}. Pass them on the unerr_track call.`;
+}
+
+/**
  * Translate `unerr_track` arguments into the legacy `(name, args)` pair. Returns
  * `{error}` only for a missing/invalid `op` — every other field is forwarded and
  * the legacy boundary validation reports any per-op required-field gap with the
@@ -73,6 +104,8 @@ export function translateUnerrTrack(
       error: `unerr_track: op is required and must be one of intent, decision, blocker, resolution, fact, recall (got ${JSON.stringify(raw.op)})`,
     };
   }
+  const opValidation = validateOp(op as TrackOp, raw);
+  if (opValidation) return { error: opValidation };
   const name = OP_TO_TOOL[op as TrackOp];
 
   // Per-op arg shaping. Only forward the fields each legacy tool reads; the
@@ -119,6 +152,12 @@ export function translateUnerrTrack(
         args: {
           scope: raw.scope,
           ...(str(raw.fact_type) ? { fact_type: raw.fact_type } : {}),
+          // Pagination lever — the recall wire-cap hint names it
+          // (`ur|pg unerr_track op:'recall' +N — limit:X`), so the agent
+          // pastes it back here and it must reach the legacy handler.
+          ...(typeof raw.limit === "number" && raw.limit > 0
+            ? { limit: raw.limit }
+            : {}),
         },
       };
   }

@@ -267,7 +267,7 @@ async function analyzeHotFiles(
         subject: "hot-file",
         // Imperative tail so the agent has a concrete follow-up — bare
         // "hot file (N accesses)" is descriptive only and gets discarded.
-        content: `${filePath} — hot file (${count} accesses) — call get_test_coverage to verify it has coverage`,
+        content: `${filePath} — hot file (${count} accesses) — call get_references({key:'<entity-in-file>', direction:'callers'}) and confirm test files appear in the caller list`,
         source: "session_analysis",
         confidence,
       });

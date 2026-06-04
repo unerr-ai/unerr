@@ -1,5 +1,5 @@
 /**
- * Render `ReviewFinding`s into agent-facing `ur|<tag>` lines (docs/reviewer-architecture.md §4 L3).
+ * Render `ReviewFinding`s into agent-facing `ur|<tag>` lines (.internal/reviewer-architecture.md §4 L3).
  *
  * Shared by every surface that injects findings into agent context (the in-flight
  * post-edit hook today; the on-demand command later) so a finding reads identically

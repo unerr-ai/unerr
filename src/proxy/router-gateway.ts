@@ -34,6 +34,7 @@ import {
 } from "./router-telemetry.js";
 import { SessionState } from "./session-state.js";
 import { type SoftRefuseResult, buildSoftRefuse } from "./soft-refuse.js";
+import { listToolNames } from "./tool-descriptions.js";
 import { ToolExposureStore } from "./tool-exposure-store.js";
 import { UNLOCK_CONDITIONS } from "./tool-tiers.js";
 import { type UnlockEvent, evaluateUnlocks } from "./unlock-evaluator.js";
@@ -58,9 +59,21 @@ export interface GatewayToolResult {
 
 export interface RecordAndUnlockOutcome {
   readonly unlocks: readonly UnlockEvent[];
-  /** Inline `ur|act` lines to prepend to body text. Empty when no unlocks. */
+  /**
+   * Inline `ur|act` lines to prepend to body text. Empty when no unlocks —
+   * and empty for every catalog tool (see the announce filter in
+   * `recordAndUnlock`): a tool the agent already sees in `tools/list`
+   * needs no surfacing ceremony.
+   */
   readonly announceText: string;
 }
+
+/**
+ * Every name in the tool catalog (advertised + hidden). Unlock announcements
+ * are suppressed for these — the ceremony exists only for a tool that
+ * surfaces into the agent's view mid-session, which no catalog tool does.
+ */
+const CATALOG_TOOLS: ReadonlySet<string> = new Set(listToolNames());
 
 export class RouterGateway {
   private readonly session: SessionState;
@@ -203,10 +216,19 @@ export class RouterGateway {
       onPersistError?.(err);
     }
 
+    // The `ur|act <tool> unlocked` ceremony predates the 9-tool catalog: it
+    // announced tools surfacing into `tools/list` mid-session. Today every
+    // catalog tool is either advertised from turn 0 (the agent already reads
+    // its description — "call X to use it" is redundant noise) or hidden
+    // (announcing a tool the agent cannot call is worse). Unlock STATE still
+    // matters — `expose()` drives `gate()` and the locked/active description
+    // swap — so only the body announcement is suppressed for catalog tools.
+    const announceable = unlocks.filter((u) => !CATALOG_TOOLS.has(u.toolName));
+
     return {
       unlocks,
       announceText: formatUnlockAnnounce(
-        unlocks.map((u) => ({
+        announceable.map((u) => ({
           toolName: u.toolName,
           reasonText: u.reasonText,
         }))

@@ -34,7 +34,7 @@
  * Cross-client rendering: plain text only — no ANSI codes, no markdown
  * blockquotes, no emoji.
  *
- * See: docs/open-cli/PERCEPTION_TO_PRESENCE.md §9.2 (preface),
+ * See: .internal/PERCEPTION_TO_PRESENCE.md §9.2 (preface),
  * §12 Sprint 4.
  */
 

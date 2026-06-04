@@ -418,31 +418,102 @@ export class NotesStore {
   }
 
   /**
-   * §6.1 `unerr_recall_notes({prompt})`. The smoke/Sprint-B implementation
-   * composes anchor candidates from `candidate_anchors` if provided, else
-   * returns project-wide (`p:`) notes only. Real anchor inference from
-   * prompt text composes search_code candidates — that wiring lands at the
-   * proxy layer, which will pass `candidate_anchors` in.
+   * §6.1 `unerr_recall_notes({prompt})`. Anchor candidates are composed from
+   * three sources, in priority order:
+   *   1. `candidate_anchors` the caller pre-computed (e.g. from search_code),
+   *   2. lexical inference from the prompt text — file-path tokens become
+   *      `f:` anchors, identifier tokens (camelCase / PascalCase / snake)
+   *      become `e:` anchors (`anchorCandidatesFromPrompt`),
+   *   3. `p:` (project-wide) always rides along, last so budget trimming
+   *      keeps the specific anchors first.
+   * `g:` (glob) notes match by pattern against the prompt's file paths, not
+   * by exact anchor equality, so they get their own pass.
+   *
+   * History: this used to default to `["p:"]` when no `candidate_anchors`
+   * were passed — and no caller ever passed any, so a note anchored to a
+   * file NAMED IN THE PROMPT never rode along in the prompt-receipt hook or
+   * the unerr_context bundle. The Moment-1/Moment-2 contract silently
+   * degraded to project-wide notes only.
    */
   async recallByPrompt(input: RecallByPromptInput): Promise<RecallResult> {
-    const anchors =
-      input.candidate_anchors && input.candidate_anchors.length > 0
-        ? [...input.candidate_anchors]
-        : ["p:"];
+    const inferred = anchorCandidatesFromPrompt(input.prompt);
+    const anchorSet = new Set<string>();
+    for (const a of input.candidate_anchors ?? []) anchorSet.add(a);
+    for (const a of inferred.anchors) anchorSet.add(a);
+    anchorSet.add("p:");
+    const anchors = [...anchorSet];
     const base = await this.recallByAnchors({
       anchors,
       session_id: input.session_id,
     });
-    if (!input.recent_anchors_by_turn) return base;
+    const globMatches =
+      inferred.file_paths.length > 0
+        ? await this.recallGlobMatches(inferred.file_paths)
+        : [];
+    const seen = new Set<string>();
+    const notes = [...base.notes, ...globMatches].filter((n) => {
+      if (seen.has(n.note_id)) return false;
+      seen.add(n.note_id);
+      return true;
+    });
+    const result: RecallResult = { notes, anchors_queried: anchors };
+    if (!input.recent_anchors_by_turn) return result;
     const shift = detectTopicShift({
       current_anchors: anchors,
       recent_anchors_by_turn: input.recent_anchors_by_turn,
     });
     return {
-      ...base,
+      ...result,
       topic_shift: shift.topic_shift,
       topic_shift_overlap: shift.overlap,
     };
+  }
+
+  /**
+   * Recall active `g:`-anchored notes whose glob matches any of the given
+   * file paths. Glob anchors can't go through recallByAnchors' exact
+   * anchor_value equality — `g:*.test.ts` must fire for a prompt naming
+   * `src/foo.test.ts`. Glob rows are few (they're hand-written rules), so
+   * one full scan of anchor_type="g" + in-memory matching is cheap.
+   */
+  private async recallGlobMatches(filePaths: string[]): Promise<StoredNote[]> {
+    const rows = await this.db.run(
+      `?[note_id, kind, anchor_type, anchor_value, polarity, content,
+         dedupe_key, reinforcement_count, contradiction_count,
+         conflict_group_id, supersedes_note_id, inactive, anchor_missing,
+         created_at, last_seen_at]
+       := *notes{
+            note_id, kind, anchor_type, anchor_value,
+            polarity, content, dedupe_key, reinforcement_count,
+            contradiction_count, conflict_group_id, supersedes_note_id,
+            inactive, anchor_missing, created_at, last_seen_at
+          },
+          anchor_type = "g",
+          inactive = false`
+    );
+    const out: StoredNote[] = [];
+    for (const r of rows.rows) {
+      const note = rowToStoredNote(r);
+      let regex: RegExp;
+      try {
+        regex = globToRegex(note.anchor_value);
+      } catch {
+        continue; // malformed glob — skip, never break recall
+      }
+      const bareGlob = !note.anchor_value.includes("/");
+      const hit = filePaths.some((p) => {
+        if (regex.test(p)) return true;
+        // A slash-free glob like `*.test.ts` means "any file with this
+        // shape" — match the basename too.
+        if (bareGlob) {
+          const base = p.slice(p.lastIndexOf("/") + 1);
+          return regex.test(base);
+        }
+        return false;
+      });
+      if (hit) out.push(note);
+    }
+    return out;
   }
 
   /** Surface conflict groups for §6.1 conflict-detection responses. */
@@ -577,6 +648,80 @@ function parseAnchor(wire: string): {
   }
   const t = wire[0] as NoteAnchorType;
   return { anchor_type: t, anchor_value: wire.slice(2) };
+}
+
+const MAX_PATH_CANDIDATES = 8;
+const MAX_IDENT_CANDIDATES = 12;
+
+/** Tokens that look like file paths: either contain a slash + extension, or
+ *  are a bare filename with a known source extension. */
+const PROMPT_PATH_RE =
+  /(?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,8}|[A-Za-z0-9_-]+\.(?:tsx?|jsx?|mjs|cjs|py|rs|go|java|rb|css|md|json)\b/g;
+
+/** Tokens that look like code identifiers: camelCase, multi-hump PascalCase,
+ *  or snake_case/SCREAMING_SNAKE. Plain prose words never match (they need an
+ *  internal capital or underscore), so false positives are rare and harmless —
+ *  each candidate is one indexed exact-match query that returns nothing. */
+const PROMPT_IDENT_RE =
+  /\b(?:[a-z$][a-z0-9$]*(?:[A-Z][A-Za-z0-9$]*)+|[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)\b/g;
+
+/**
+ * Lexical anchor inference from a verbatim prompt — no graph access needed.
+ * File-path-shaped tokens become `f:` candidates (and feed the `g:` glob
+ * pass); identifier-shaped tokens become `e:` candidates. Capped so a long
+ * prompt can't fan out into hundreds of queries. Exported for tests and for
+ * callers that want the candidates without a store instance.
+ */
+export function anchorCandidatesFromPrompt(prompt: string): {
+  anchors: string[];
+  file_paths: string[];
+} {
+  const filePaths: string[] = [];
+  const seenPaths = new Set<string>();
+  for (const m of prompt.matchAll(PROMPT_PATH_RE)) {
+    if (filePaths.length >= MAX_PATH_CANDIDATES) break;
+    const p = m[0].replace(/^\.\//, "");
+    if (!seenPaths.has(p)) {
+      seenPaths.add(p);
+      filePaths.push(p);
+    }
+  }
+  const idents = new Set<string>();
+  for (const m of prompt.matchAll(PROMPT_IDENT_RE)) {
+    if (idents.size >= MAX_IDENT_CANDIDATES) break;
+    idents.add(m[0]);
+  }
+  const anchors: string[] = [];
+  for (const p of filePaths) anchors.push(`f:${p}`);
+  for (const ident of idents) anchors.push(`e:${ident}`);
+  return { anchors, file_paths: filePaths };
+}
+
+/**
+ * Minimal glob→RegExp for note `g:` anchors: `**` spans directories, `*`
+ * matches within a segment, `?` matches one char. Anything fancier (braces,
+ * extglobs) is treated literally — note globs are hand-written one-liners
+ * like `*.test.ts`, not build configs.
+ */
+function globToRegex(glob: string): RegExp {
+  let re = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i] as string;
+    if (c === "*") {
+      if (glob[i + 1] === "*") {
+        re += ".*";
+        i++;
+        if (glob[i + 1] === "/") i++;
+      } else {
+        re += "[^/]*";
+      }
+    } else if (c === "?") {
+      re += "[^/]";
+    } else {
+      re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    }
+  }
+  return new RegExp(`^${re}$`);
 }
 
 function randomId(): string {

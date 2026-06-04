@@ -1,5 +1,5 @@
 /**
- * Tier-2 host synthesis (docs/reviewer-architecture.md §3, §5.1, §9.3, P4).
+ * Tier-2 host synthesis (.internal/reviewer-architecture.md §3, §5.1, §9.3, P4).
  *
  * Tier-1 findings are graph facts rendered as `ur|<tag>` verdicts (format.ts).
  * Tier-2 findings (`needsModel: true`) are NOT verdicts — they are *evidence

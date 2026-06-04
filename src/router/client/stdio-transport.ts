@@ -57,6 +57,22 @@ export class StdioTransport implements McpTransport {
       windowsHide: true,
     });
 
+    if (this.child.pid === undefined) {
+      // spawn failed synchronously (ENOENT command, EACCES, …) — there is no
+      // process behind the handle. Claiming "connected" here lets restart()
+      // report success and reset health state for a server that cannot run.
+      // Swallow the async "error" event the dead handle will still emit,
+      // then surface the failure to the caller.
+      this.child.on("error", () => {});
+      this.child = null;
+      this.setState("error");
+      const err = new Error(
+        `[${this.config.serverId}] failed to spawn "${this.config.command}"`
+      );
+      this.config.events.onError?.(err);
+      throw err;
+    }
+
     this.child.stdout!.setEncoding("utf-8");
     this.child.stdout!.on("data", (chunk: string) => this.onData(chunk));
 
@@ -121,7 +137,18 @@ export class StdioTransport implements McpTransport {
     );
 
     if (this.child) {
-      this.child.stdin!.end();
+      // A child that never spawned (ENOENT command, spawn failure) has no
+      // pid. ChildProcess.kill() on that handle signals pid 0 — the WHOLE
+      // process group — so the caller SIGTERMs itself (observed as vitest
+      // exit 144). Such a child also never emits "exit", so the wait below
+      // would stall 3s and then SIGKILL the group. Skip signalling entirely.
+      if (this.child.pid === undefined) {
+        this.child = null;
+        this.setState("disconnected");
+        return;
+      }
+
+      this.child.stdin?.end();
       this.child.kill("SIGTERM");
 
       await new Promise<void>((resolve) => {

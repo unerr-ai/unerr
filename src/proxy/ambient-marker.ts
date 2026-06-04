@@ -17,7 +17,7 @@
  * by any existing code; only the new Surface 2/3 renderers (Sprints 3,
  * 4) call into it via `shouldUseAmbientMarker` + `noteTurnContent`.
  *
- * See: docs/open-cli/PERCEPTION_TO_PRESENCE.md §8 (cross-cutting
+ * See: .internal/PERCEPTION_TO_PRESENCE.md §8 (cross-cutting
  * principles, "honest-zero with ambient marker"), §12 Sprint 3c.
  */
 

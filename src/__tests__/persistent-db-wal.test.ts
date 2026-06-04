@@ -17,6 +17,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   checkpointWal,
+  checkpointWalDetached,
   openPersistentDb,
 } from "../intelligence/persistent-db.js";
 
@@ -81,5 +82,50 @@ describe("persistent-db WAL journal mode", () => {
     seed.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
     seed.close();
     await expect(checkpointWal(dbPath)).resolves.toBeUndefined();
+  });
+
+  // Regression: the LIVE-session checkpoint must run in a separate PROCESS.
+  // An in-process better-sqlite3 checkpoint on a db cozo also holds is the
+  // sqlite.org/howtocorrupt.html §2.3 hazard — its close() cancels cozo's
+  // POSIX advisory locks (two separately-linked SQLite copies don't share an
+  // in-process lock table), letting WAL truncation run under live readers.
+  // Observed as SIGBUS in sqlite3WalFindFrame / SIGABRT (rayon panic) killing
+  // the proxy mid-session. checkpointWalDetached spawns a child instead —
+  // SQLite's standard multi-process WAL scenario.
+  it("checkpointWalDetached truncates the -wal from a child process", async () => {
+    const dbPath = join(projectRoot, "wal-detached.db");
+    const writer = new Database(dbPath);
+    try {
+      writer.pragma("journal_mode = WAL");
+      writer.pragma("wal_autocheckpoint = 0");
+      writer.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, blob TEXT)");
+      const insert = writer.prepare("INSERT INTO t (blob) VALUES (?)");
+      const payload = "x".repeat(4096);
+      for (let i = 0; i < 500; i++) insert.run(payload);
+
+      const walPath = `${dbPath}-wal`;
+      expect(statSync(walPath).size).toBeGreaterThan(0);
+
+      checkpointWalDetached(dbPath);
+
+      // Fire-and-forget child — poll for the truncate (child startup is the
+      // dominant cost; well under the deadline in practice).
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline && statSync(walPath).size > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(statSync(walPath).size).toBe(0);
+      expect(
+        (writer.prepare("SELECT count(*) AS n FROM t").get() as { n: number }).n
+      ).toBe(500);
+    } finally {
+      writer.close();
+    }
+  });
+
+  it("checkpointWalDetached never throws on a missing db file", () => {
+    expect(() =>
+      checkpointWalDetached(join(projectRoot, "does-not-exist.db"))
+    ).not.toThrow();
   });
 });

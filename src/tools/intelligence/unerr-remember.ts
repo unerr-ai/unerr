@@ -1,11 +1,15 @@
 /**
- * unerr_remember MCP Tool — User-fed fact persistence (Phase 2 Sprint 5a).
+ * unerr_remember write engine — user-fed fact persistence (Phase 2 Sprint 5a).
  *
- * Distinct from `record_fact` (agent-detected conventions): this tool captures
- * facts the *user* explicitly asserts via phrases like "remember this",
- * "from now on", "always", or direct assertion of a project rule. The host
- * agent recognises the user-intent and calls `unerr_remember` so the fact is
- * persisted with `source: "user_fed"`.
+ * NOT a catalog tool since 2026-06: the model is never taught to call it.
+ * Its callers are the two hook clients, which dispatch it BY NAME over UDS
+ * `tools/call` — `remember-client.ts` (UserPromptSubmit auto-capture of
+ * "remember this" / "from now on" / "always" directives) and
+ * `sentinel-persist.ts` (Stop-hook `unerr-save:` scrape, note path).
+ *
+ * Distinct from `record_fact` (agent-detected conventions): this engine
+ * captures facts the *user* explicitly asserts, persisted with
+ * `source: "user_fed"`.
  *
  * Confidence floor: captures below 0.5 confidence are rejected (the agent
  * should re-ask the user or skip). Captures between 0.5 and <0.7 are stored

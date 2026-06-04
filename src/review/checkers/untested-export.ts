@@ -1,5 +1,5 @@
 /**
- * `untested_export` checker (docs/reviewer-architecture.md §3 Tier 1 #9, §11 P0.4).
+ * `untested_export` checker (.internal/reviewer-architecture.md §3 Tier 1 #9, §11 P0.4).
  *
  * A changed/added entity that production code depends on (≥1 non-test caller) but
  * no test exercises (0 test-file callers). Stays narrow to keep the false-positive
@@ -51,7 +51,7 @@ export class UntestedExportChecker implements ReviewChecker {
           ...callerEvidence(nonTestCallers, entity.name, 3),
           "0 test-file callers",
         ],
-        action: `add a test that calls ${entity.name}; call get_test_coverage({key:'${entity.key}'}) to confirm the new edge is recorded`,
+        action: `add a test that calls ${entity.name}; call get_references({key:'${entity.key}', direction:'callers'}) to confirm the new test-file caller is recorded`,
         needsModel: false,
       });
     }

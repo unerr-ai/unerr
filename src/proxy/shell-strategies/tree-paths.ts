@@ -139,7 +139,7 @@ export function compressTreePaths(
   }
 
   const sortedDirs = [...buckets.keys()].sort();
-  const out: string[] = ["_shell_fmt:tree_paths"];
+  const out: string[] = [];
   out.push(
     `(${paths.length} paths across ${sortedDirs.length} dirs; rolled up)`
   );

@@ -162,6 +162,16 @@ function resolveLimit(cap: ToolCap, argsLimit: unknown): number {
   return Math.min(Math.floor(argsLimit), cap.maxLimit);
 }
 
+/**
+ * Internal tool names that left the MCP catalog → the agent-callable surface
+ * that reaches them. A pagination hint naming a tool the agent cannot call is
+ * noise it can't act on (hint rule: pasteable verbatim). `recall_facts` is
+ * reached via `unerr_track({op:'recall'})`, which forwards `limit`.
+ */
+const HINT_SURFACE: Readonly<Record<string, string>> = {
+  recall_facts: "unerr_track op:'recall'",
+};
+
 function buildPageHint(
   toolName: string,
   remaining: number,
@@ -188,7 +198,8 @@ function buildPageHint(
       typeof args.offset === "number" && args.offset >= 0 ? args.offset : 0;
     nextCursor = curOffset + delivered;
   }
-  return `ur|${toWireTag("pg")} ${toolName} +${remaining} — ${cursorArg}:${nextCursor}${filter}`;
+  const surface = HINT_SURFACE[toolName] ?? toolName;
+  return `ur|${toWireTag("pg")} ${surface} +${remaining} — ${cursorArg}:${nextCursor}${filter}`;
 }
 
 /**
@@ -301,7 +312,13 @@ export function applyWireCap(
             cap.filterHint
           )
         : null;
-    return enforceTokenCap(toolName, buildBody(delivered), args, hint, tokenCap);
+    return enforceTokenCap(
+      toolName,
+      buildBody(delivered),
+      args,
+      hint,
+      tokenCap
+    );
   }
 
   return enforceTokenCap(toolName, rawBody, args, null, tokenCap);

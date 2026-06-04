@@ -158,8 +158,31 @@ export async function extractMainContent(
     return rawBodyFromHtmlSync(html);
   }
 
-  const { JSDOM } = await import("jsdom");
-  const dom = new JSDOM(html, { url: baseUrl });
+  const { JSDOM, VirtualConsole } = await import("jsdom");
+  // Quiet construction-time jsdom noise. Without a VirtualConsole, jsdom
+  // forwards every jsdomError to console.error — style-heavy pages (e.g.
+  // Mintlify docs) emit "Could not parse CSS stylesheet" PLUS the full
+  // offending <style> body per occurrence, dumping hundreds of CSS lines
+  // into proxy.log during `new JSDOM()`, before tryDefuddle's console
+  // filter is installed. Route each distinct signature through the same
+  // dedup + sink as defuddle noise: one summary line, the rest counted.
+  const virtualConsole = new VirtualConsole();
+  virtualConsole.on("jsdomError", (err: Error) => {
+    const signature = err?.message?.split("\n")[0] || String(err);
+    const firstOccurrence = !seenDefuddleSignatures.has(signature);
+    if (firstOccurrence) {
+      seenDefuddleSignatures.add(signature);
+      process.stderr.write(
+        `[unerr] jsdom: ${signature} — suppressed (further occurrences counted only)\n`
+      );
+    }
+    try {
+      defuddleNoiseSink?.(signature, firstOccurrence);
+    } catch {
+      /* sink must never break extraction */
+    }
+  });
+  const dom = new JSDOM(html, { url: baseUrl, virtualConsole });
 
   applyUniversalStrip(dom, hostRule?.skipUniversalStrip === true);
   if (hostRule) applyHostShape(dom, hostRule);

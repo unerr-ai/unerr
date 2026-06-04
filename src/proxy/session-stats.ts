@@ -5,6 +5,13 @@
  * "unerr saved you 47k tokens" — the artifact that drives word-of-mouth.
  */
 
+// Static ESM imports, NOT require(): the tsup bundle is pure ESM, where
+// require() hits esbuild's "Dynamic require is not supported" stub — every
+// call threw at runtime, silently no-op'ing session resume + cumulative stats.
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { getBlockedCount } from "./network-firewall.js";
+
 /** Average tokens per MCP tool call resolved locally. */
 const AVG_TOKENS_SAVED_PER_LOCAL_CALL = 3200;
 
@@ -217,13 +224,7 @@ export function recordLatencyAdvantage(
 
 /** Snapshot firewall blocked count from NetworkFirewall at shutdown. */
 export function snapshotFirewallCount(localStats: LocalModeStats): void {
-  try {
-    // biome-ignore format: esbuild can't parse multi-line typeof import()
-    const { getBlockedCount } = require("./network-firewall.js") as typeof import("./network-firewall.js");
-    localStats.firewallBlockedCount = getBlockedCount();
-  } catch {
-    // NetworkFirewall not loaded — leave at 0
-  }
+  localStats.firewallBlockedCount = getBlockedCount();
 }
 
 // ── Session Events ──────────────────────────────────────────────────
@@ -356,9 +357,6 @@ export function detectSessionResume(
   ledgerDir: string
 ): PreviousSessionSnapshot | null {
   try {
-    const fs = require("node:fs") as typeof import("node:fs");
-    const path = require("node:path") as typeof import("node:path");
-
     const statsPath = path.join(stateDir, "session_stats.json");
     const ledgerPath = path.join(ledgerDir, "shadow.jsonl");
 
@@ -690,7 +688,7 @@ function getCumulativePath(): string {
 export function loadCumulativeStats(): CumulativeStats {
   const currentWeek = getWeekStart();
   try {
-    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const { readFileSync } = fs;
     const raw = JSON.parse(
       readFileSync(getCumulativePath(), "utf-8")
     ) as CumulativeStats;
@@ -724,8 +722,6 @@ export function persistCumulativeStats(stats: SessionStats): CumulativeStats {
   cumulative.chokepointWarningsAllTime += stats.events.chokepointWarningsIssued;
 
   try {
-    const fs = require("node:fs") as typeof import("node:fs");
-    const path = require("node:path") as typeof import("node:path");
     const filePath = getCumulativePath();
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify(cumulative, null, 2));
@@ -772,7 +768,7 @@ function createEmptyCumulativeLocal(weekStart: string): CumulativeLocalStats {
 export function loadCumulativeLocalStats(): CumulativeLocalStats {
   const currentWeek = getWeekStart();
   try {
-    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const { readFileSync } = fs;
     const raw = JSON.parse(
       readFileSync(getCumulativeLocalPath(), "utf-8")
     ) as CumulativeLocalStats;
@@ -815,8 +811,6 @@ export function persistCumulativeLocalStats(
   }
 
   try {
-    const fs = require("node:fs") as typeof import("node:fs");
-    const path = require("node:path") as typeof import("node:path");
     const filePath = getCumulativeLocalPath();
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify(cumulative, null, 2));

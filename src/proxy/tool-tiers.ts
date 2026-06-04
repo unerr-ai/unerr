@@ -122,60 +122,10 @@ export const C = {
  * tier 2/3 entries in `TIER_ENTRIES` — module-load assertion below enforces.
  */
 export const UNLOCK_CONDITIONS: Readonly<Record<string, Condition>> = {
-  // ── Tier 2 ─────────────────────────────────────────────────────────────
-  get_critical_nodes: C.or(C.urTag("rsk"), C.fanIn(10)),
-
-  get_cross_boundary_links: C.or(
-    // The 2026-05 wire-tag consolidation (14→4) folded legacy `hnt` into
-    // `fct`, so the wire never emits `ur|hnt` anymore. The old `urTag("hnt")`
-    // branch was therefore dead AND rendered a stale `ur|hnt` into the
-    // soft-refuse `_unlock_when` / unlock-event reason text. The co-change /
-    // family-routing hint that should trip this gate now rides `fct`.
-    C.urTag("fct"),
-    // "Cross-module file accessed" is approximated by ≥ 2 files accessed in
-    // the same directory in one session.
-    C.sameDir(2)
-  ),
-
-  file_connections: C.sameDir(2),
-
-  get_test_coverage: C.testFile(),
-
-  get_imports: C.imports(5),
-
-  // Conventions help the agent write to project style. The intended flow
-  // is "ask conventions → write code", so the gate fires on the first
-  // file read. `editOrWrite` would invert the value — and is unreachable
-  // in a pure MCP session anyway because built-in Edit/Write don't route
-  // through QueryRouter.
-  get_conventions: C.firstRead(),
-
-  get_file: C.readTruncated(),
-
-  // On-demand review is worth surfacing once there is something to review:
-  // a risk signal already fired (the agent is on a risky path), or it has done
-  // non-trivial work (edit / write / ≥5 reads). Built-in Edit/Write don't route
-  // through the router, so `nonTrivial`'s read component is the reliable path
-  // in a pure MCP session; `ur|rsk` covers the in-flight-review case.
-  review_changes: C.or(C.urTag("rsk"), C.nonTrivial()),
-
   // ── Tier 3 ─────────────────────────────────────────────────────────────
-  mark_intent: C.and(C.turns(3), C.nonTrivial()),
-
-  mark_decision: C.intent("intent"),
-
-  mark_blocker: C.intent("intent"),
-
-  mark_resolution: C.intent("blocker"),
-
-  recall_facts: C.priorFact(),
-
-  record_fact: C.intent("decision"),
-
-  // Op-union (Sprint 8) — multiplexes the marker + fact writes. It unlocks on
-  // the same condition as mark_intent because op:'intent' is the first-on-
-  // coding-task call it carries; gating it later than mark_intent would make
-  // the union strictly weaker than the tools it consolidates.
+  // Op-union (Sprint 8) — multiplexes the marker + fact writes. It unlocks
+  // once the session has done non-trivial work over a few turns, because
+  // op:'intent' is the first-on-coding-task call it carries.
   unerr_track: C.and(C.turns(3), C.nonTrivial()),
 };
 

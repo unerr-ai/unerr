@@ -10,7 +10,7 @@
  * Design authority: Phase 5.5 §1.6.1 (Code Durability Score), §1.6.2 (Developer Correction Tracking)
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LedgerEntry } from "./shadow-ledger.js";
 
@@ -220,7 +220,6 @@ export class QualitySignalTracker {
     try {
       const dir = join(this.signalsPath, "..");
       if (!existsSync(dir)) {
-        const { mkdirSync } = require("node:fs") as typeof import("node:fs");
         mkdirSync(dir, { recursive: true });
       }
       writeFileSync(

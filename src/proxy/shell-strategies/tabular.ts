@@ -168,7 +168,8 @@ function compressTabularInner(text: string, command?: string): string {
         return keepIndices.map((i) => cells[i] ?? "");
       });
 
-      const header = `_shell_fmt:tabular\n${keepNames.join("|")}`;
+      // Column-names line is load-bearing — it decodes the pipe-separated rows.
+      const header = keepNames.join("|");
       const body = parsedRows.map((r) => r.map(esc).join("|")).join("\n");
       return `${header}\n${body}`;
     }
@@ -200,7 +201,7 @@ function compressTabularInner(text: string, command?: string): string {
         return keepIndices.map((i) => cells[i] ?? "");
       });
 
-      const header = `_shell_fmt:tabular\n${keepNames.join("|")}`;
+      const header = keepNames.join("|");
       const body = parsedRows.map((r) => r.map(esc).join("|")).join("\n");
       return `${header}\n${body}`;
     }
@@ -219,7 +220,7 @@ function compressTabularInner(text: string, command?: string): string {
     while (paddedHeaders.length < width)
       paddedHeaders.push(`c${paddedHeaders.length}`);
 
-    const header = `_shell_fmt:tabular\n${paddedHeaders.join("|")}`;
+    const header = paddedHeaders.join("|");
     const body = parsedRows
       .map((r) => {
         const copy = [...r];
@@ -245,7 +246,7 @@ function compressTabularInner(text: string, command?: string): string {
     return copy;
   });
 
-  const header = `_shell_fmt:tabular\n${Array.from({ length: width }, (_, i) => `c${i}`).join("|")}`;
+  const header = Array.from({ length: width }, (_, i) => `c${i}`).join("|");
   const body = padded.map((r) => r.map(esc).join("|")).join("\n");
   return `${header}\n${body}`;
 }
@@ -255,10 +256,10 @@ export function compressTabular(text: string, command?: string): string {
   // Safety valve: if compression was too aggressive (kept <35% of content),
   // fall back to gentle approach that just strips blank lines
   if (result.length < text.length * 0.35 && text.length > 200) {
-    return `_shell_fmt:tabular\n${text
+    return text
       .split("\n")
       .filter((l) => l.trim())
-      .join("\n")}`;
+      .join("\n");
   }
   return result;
 }

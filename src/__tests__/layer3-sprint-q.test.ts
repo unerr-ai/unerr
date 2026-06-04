@@ -176,8 +176,10 @@ describe("Skills Pack (Q.11-Q.12, post-27→7 consolidation)", () => {
     expect(skill?.category).toBe("workflow");
     expect(skill?.trigger.type).toBe("agent-requested");
     // Iron Law: every finding cites graph evidence, not the diff alone.
+    // (Post-9-tool reduction: caller cascade via get_references, conventions
+    // via file_read's inline injection — get_test_coverage was removed.)
     expect(skill?.instructions).toContain("get_references");
-    expect(skill?.instructions).toContain("get_test_coverage");
+    expect(skill?.instructions).toContain("file_read");
     // Disambiguation marker vs test-and-review Track B.
     expect(skill?.whenToUse).toContain("NOT for addressing review comments");
   });

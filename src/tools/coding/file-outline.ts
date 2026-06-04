@@ -4,13 +4,14 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { relative } from "node:path";
 import {
   detectLanguage,
   extractEntities,
 } from "../../intelligence/ast-extractor.js";
 import type { CozoGraphStore } from "../../intelligence/local-graph.js";
 import { estimateTokens } from "../../intelligence/token-estimator.js";
+import { resolveWithHome } from "../../utils/expand-home.js";
 import type { Tool, ToolContext } from "../types.js";
 
 const GRAPH_TIMEOUT_MS = 100;
@@ -115,7 +116,7 @@ export async function buildFileOutline(params: {
   filePathArg: string;
   graph: CozoGraphStore | null;
 }): Promise<FileOutlineOutput> {
-  const abs = resolve(params.cwd, params.filePathArg);
+  const abs = resolveWithHome(params.cwd, params.filePathArg);
   const rel =
     relative(params.cwd, abs).replace(/\\/g, "/") || params.filePathArg;
 

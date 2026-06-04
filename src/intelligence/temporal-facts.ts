@@ -214,11 +214,14 @@ export class TemporalFactStore {
     const content = input.content.slice(0, limit);
     const now = Date.now();
 
-    const existing = await this.findDuplicate(
-      input.fact_type,
-      input.scope,
-      input.subject
-    );
+    // Key match first (fact_type, scope, subject); when the key misses but a
+    // row with IDENTICAL content already exists in the same scope, that row is
+    // still the same fact — re-stores routinely arrive with a drifted
+    // fact_type default or a re-derived subject, and reporting
+    // deduplicated:false for them misreports a reinforcement as a new fact.
+    const existing =
+      (await this.findDuplicate(input.fact_type, input.scope, input.subject)) ??
+      (await this.findContentDuplicate(input.scope, content));
 
     if (existing) {
       await this.reinforceFact(existing, {
@@ -517,7 +520,9 @@ export class TemporalFactStore {
               base_confidence, reinforcement_count, created_at,
               last_reinforced_at, last_contradicted_at, source, evidence}`,
       {},
-      minConfidence ?? 0
+      minConfidence ?? 0,
+      // Dashboard listing shows raw rows so duplicates can be dismissed.
+      { keepDuplicateContent: true }
     );
   }
 
@@ -547,7 +552,9 @@ export class TemporalFactStore {
               base_confidence, reinforcement_count, created_at,
               last_reinforced_at, last_contradicted_at, source, evidence}`,
       {},
-      0
+      0,
+      // Health counts report real DB state — duplicates included.
+      { keepDuplicateContent: true }
     );
 
     const byType: Record<FactType, number> = {
@@ -589,7 +596,9 @@ export class TemporalFactStore {
               base_confidence, reinforcement_count, created_at,
               last_reinforced_at, last_contradicted_at, source, evidence}`,
       {},
-      0
+      0,
+      // Prune must see every row — a duplicate hidden here is undeletable.
+      { keepDuplicateContent: true }
     );
 
     const toPrune = allFacts.filter(
@@ -666,6 +675,33 @@ export class TemporalFactStore {
     return result.rows.length > 0 ? (result.rows[0]?.[0] as string) : null;
   }
 
+  /**
+   * Second-pass duplicate check: identical content in the same scope is the
+   * same fact even when fact_type or subject drifted between stores (default
+   * fact_type on a re-call, subject re-derived from the content's first
+   * clause). Without this, a re-store of a known fact created a parallel row
+   * and reported deduplicated:false.
+   */
+  private async findContentDuplicate(
+    scope: string,
+    content: string
+  ): Promise<string | null> {
+    const result = await this.db.run(
+      `
+      ?[fact_id] :=
+        *facts{fact_id, scope, content},
+        scope == $filter_scope,
+        content == $filter_content
+      :limit 1
+      `,
+      {
+        filter_scope: scope,
+        filter_content: content,
+      }
+    );
+    return result.rows.length > 0 ? (result.rows[0]?.[0] as string) : null;
+  }
+
   private async getRawFact(
     factId: string
   ): Promise<Record<string, unknown> | null> {
@@ -701,12 +737,19 @@ export class TemporalFactStore {
 
   /**
    * Execute a recall query with inline decay computation.
-   * The decay math runs entirely within CozoDB Datalog — no post-processing.
+   * The decay math runs entirely within CozoDB Datalog; the only
+   * post-processing is the content-duplicate collapse below.
+   *
+   * `keepDuplicateContent` opts OUT of the collapse for maintenance callers
+   * (health stats, prune, dashboard listings) that must see every raw row —
+   * a duplicate hidden from `pruneDecayed` would never be deleted, and a
+   * duplicate hidden from the dashboard could never be dismissed.
    */
   private async runDecayQuery(
     sourceClause: string,
     params: Record<string, unknown>,
-    minConfidence?: number
+    minConfidence?: number,
+    opts?: { keepDuplicateContent?: boolean }
   ): Promise<TemporalFact[]> {
     const threshold = minConfidence ?? this.config.recall_threshold;
     const nowMs = Date.now();
@@ -741,7 +784,7 @@ export class TemporalFactStore {
       min_confidence: threshold,
     });
 
-    return result.rows.map((row) => ({
+    const facts: TemporalFact[] = result.rows.map((row) => ({
       fact_id: row[0] as string,
       fact_type: row[1] as FactType,
       scope: row[2] as string,
@@ -755,6 +798,25 @@ export class TemporalFactStore {
       last_contradicted_at: row[9] as number,
       source: row[10] as FactSource,
     }));
+    if (opts?.keepDuplicateContent) return facts;
+
+    // Collapse rows with IDENTICAL content in the same scope. Rows written
+    // before the write-time content-duplicate check (findContentDuplicate)
+    // exist as parallel rows under drifted fact_type/subject keys, and every
+    // recall surface (session-resume brief, ur|fct injection, recall tool)
+    // rendered the same line twice. Rows arrive ordered -effective_conf, so
+    // the strongest row survives. Duplicates need not be adjacent — a
+    // different fact can rank between them — hence the Set, not a pairwise
+    // neighbor check.
+    const seen = new Set<string>();
+    const deduped: TemporalFact[] = [];
+    for (const f of facts) {
+      const key = `${f.scope}\u0000${f.content.trim()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(f);
+    }
+    return deduped;
   }
 
   /**
@@ -939,7 +1001,9 @@ export class TemporalFactStore {
               last_reinforced_at, last_contradicted_at, source, evidence},
         source == $filter_source`,
       { filter_source: source },
-      minConfidence
+      minConfidence,
+      // Dashboard listing shows raw rows so duplicates can be dismissed.
+      { keepDuplicateContent: true }
     );
 
     const enriched: Array<

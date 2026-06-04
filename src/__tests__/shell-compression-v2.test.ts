@@ -71,7 +71,7 @@ describe("R7 — tree-paths grouping", () => {
     for (let i = 0; i < 40; i++) lines.push(`src/components/file_${i}.tsx`);
     for (let i = 0; i < 40; i++) lines.push(`src/lib/util_${i}.ts`);
     const out = compressTreePaths(lines.join("\n"));
-    expect(out).toContain("_shell_fmt:tree_paths");
+    expect(out).toContain("paths across");
     expect(out).toContain("src/components/");
     expect(out).toContain(".tsx");
     expect(out).toContain("src/lib/");
@@ -107,7 +107,7 @@ describe("R1 — success short-circuit (log_text, error_diagnostic)", () => {
       .concat(Array.from({ length: 100 }, (_, i) => `line ${i}`))
       .join("\n");
     const out = compressLogText(text, "cargo build");
-    expect(out).not.toMatch(/^_shell_fmt:log_text\nbuild ok/);
+    expect(out).not.toMatch(/^build ok/);
   });
 
   it("collapses lint output when no issues found", () => {
@@ -174,7 +174,8 @@ describe("R3 — user filter DSL", () => {
       `[filters.green]\nmatch_command = "^anything"\nmatch_output = [{ pattern = "all green", message = "ok" }]\n`
     );
     const r = applyUserFilter("anything", "all green here", tmpRoot);
-    expect(r?.text).toBe("_shell_fmt:user_filter\nok");
+    expect(r?.text).toBe("ok");
+    expect(r?.name).toBe("green");
   });
 
   it("applies replace substitutions", () => {
@@ -227,7 +228,7 @@ describe("R4 — cloud parsers", () => {
       ],
     });
     const out = tryCompressCloud(payload, "aws ec2 describe-instances");
-    expect(out).toContain("_shell_fmt:cloud[aws-ec2]");
+    expect(out).toContain("2 instances");
     expect(out).toContain("i-0abc");
     expect(out).toContain("running");
     expect(out!.length).toBeLessThan(payload.length);
@@ -241,7 +242,7 @@ describe("R4 — cloud parsers", () => {
       })),
     });
     const out = tryCompressCloud(payload, "aws iam list-users");
-    expect(out).toContain("_shell_fmt:cloud[aws-iam]");
+    expect(out).toContain("5 users");
     expect(out).toContain("user0");
     expect(out).toContain("arn:…:");
   });
@@ -255,7 +256,7 @@ describe("R4 — cloud parsers", () => {
       })),
     });
     const out = tryCompressCloud(payload, "kubectl get pods -o json");
-    expect(out).toContain("_shell_fmt:cloud[kubectl-get]");
+    expect(out).toContain("4 resources");
     expect(out).toContain("pod-0");
   });
 
@@ -269,7 +270,7 @@ describe("R4 — cloud parsers", () => {
       },
     ]);
     const out = tryCompressCloud(payload, "docker inspect web");
-    expect(out).toContain("_shell_fmt:cloud[docker-inspect]");
+    expect(out).toContain("1 container");
     expect(out).toContain("running");
     expect(out).toContain("node:20");
   });
@@ -336,7 +337,6 @@ Untracked files:
 no changes added to commit (use "git add" and/or "git commit -a")`;
     const out = compressGitStatus(raw);
     expect(out).not.toBeNull();
-    expect(out).toContain("_shell_fmt:git_status");
     expect(out).toContain("branch=main");
     expect(out).toContain("modified: 5");
     expect(out).toContain("untracked: 2");

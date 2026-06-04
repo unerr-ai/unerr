@@ -1,5 +1,5 @@
 /**
- * Severity gating + dedup for review findings (docs/reviewer-architecture.md §9).
+ * Severity gating + dedup for review findings (.internal/reviewer-architecture.md §9).
  *
  * False-positive discipline is make-or-break: developers turn off reviewers
  * that cry wolf. Two of §9's defenses live here:

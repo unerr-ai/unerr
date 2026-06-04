@@ -50,12 +50,12 @@ export function compressProgress(text: string, command?: string): string {
     .find((l) => SUMMARY_PATTERNS.some((p) => p.test(l.trim())));
 
   if (summary) {
-    return `_shell_fmt:progress\n${summary.trim()}`;
+    return summary.trim();
   }
 
   if (lines.length <= KEEP_LAST) {
     return text;
   }
   const tail = lines.slice(-KEEP_LAST).join("\n");
-  return `_shell_fmt:progress\n… ${lines.length - KEEP_LAST} progress line(s) omitted …\n${tail}`;
+  return `… ${lines.length - KEEP_LAST} progress line(s) omitted …\n${tail}`;
 }

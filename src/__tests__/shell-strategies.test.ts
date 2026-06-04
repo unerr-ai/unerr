@@ -17,7 +17,7 @@ describe("compressTabular", () => {
     const raw =
       "USER       PID             CMD\nroot         1             init\nroot        42             bash";
     const out = compressTabular(raw);
-    expect(out).toContain("_shell_fmt:tabular");
+    expect(out).toContain("USER|PID|CMD");
     expect(out).toContain("root|1|init");
   });
 
@@ -58,8 +58,7 @@ describe("compressTabular", () => {
       ),
     ].join("\n");
     const out = compressTabular(lines);
-    // Should still contain _shell_fmt:tabular
-    expect(out).toContain("_shell_fmt:tabular");
+    expect(out).toContain("HEADER1");
     // If safety valve triggered, all original content should be present
     // (gentle fallback just strips blank lines)
     expect(out.length).toBeGreaterThan(lines.length * 0.3);
@@ -72,7 +71,7 @@ describe("compressTabular", () => {
       "www-data   100  0.5  1.2 500000 25000 ?        S    09:00   1:30 /usr/sbin/apache2 -k start",
     ].join("\n");
     const out = compressTabular(raw, "ps aux");
-    expect(out).toContain("_shell_fmt:tabular");
+    expect(out).toContain("PID");
     // COMMAND column should be preserved with spaces
     expect(out).toContain("/sbin/init splash");
     expect(out).toContain("/usr/sbin/apache2 -k start");
@@ -294,13 +293,13 @@ describe("compressStructured (FE-F T2)", () => {
   it("minifies JSON objects", () => {
     const raw = '{\n  "a": 1,\n  "b": [2, 3]\n}';
     const out = compressStructured(raw);
-    expect(out).toContain("_shell_fmt:structured_json");
-    expect(out).toContain('"a":1');
+    expect(out).toBe('{"a":1,"b":[2,3]}');
   });
 
-  it("tags unstructured blobs", () => {
+  it("compacts unstructured blobs", () => {
     const out = compressStructured("hello world\n\n\nextra");
-    expect(out).toContain("_shell_fmt:structured_text");
+    expect(out).toContain("hello world");
+    expect(out).toContain("extra");
   });
 
   it("depth-limits large JSON", () => {
@@ -314,7 +313,7 @@ describe("compressStructured (FE-F T2)", () => {
     const raw = JSON.stringify(obj, null, 2);
     expect(raw.length).toBeGreaterThan(8000);
     const out = compressStructured(raw);
-    expect(out).toContain("_shell_fmt:structured_json");
+    expect(out.length).toBeLessThan(raw.length);
     expect(out).toContain("more items");
   });
 
@@ -357,12 +356,12 @@ describe("compressDiff (FE-F T4)", () => {
 });
 
 describe("compressTreePaths (FE-F T5)", () => {
-  it("emits tree_paths header with rollup summary on large inputs", () => {
+  it("emits rollup summary on large inputs", () => {
     // R7 rewrite: <40 lines passes through unchanged; ≥40 lines hits the rollup path
     const lines: string[] = [];
     for (let i = 0; i < 50; i++) lines.push(`src/foo/file_${i}.ts`);
     const out = compressTreePaths(lines.join("\n"));
-    expect(out).toContain("_shell_fmt:tree_paths");
+    expect(out).toContain("paths across");
     expect(out).toContain("rolled up");
     expect(out).toContain("src/foo/");
   });
@@ -385,9 +384,9 @@ describe("compressKeyValue (FE-F T6)", () => {
   it("drops noisy keys and shortens PATH", () => {
     const raw = "PATH=/a:/b:/c:/d:/e\nHOME=/Users/x\nOLDPWD=/tmp\nFOO=bar";
     const out = compressKeyValue(raw);
-    expect(out).toContain("_shell_fmt:key_value");
     expect(out).not.toContain("OLDPWD");
     expect(out).toContain("HOME=");
+    expect(out).toContain("FOO=bar");
   });
 
   it("drops terminal and locale noise keys", () => {
@@ -424,17 +423,16 @@ describe("compressKeyValue (FE-F T6)", () => {
     expect(out).not.toContain("_shell_fmt:");
   });
 
-  it("still emits header when at least one key=value row exists", () => {
+  it("keeps key=value rows when at least one exists", () => {
     const raw = "FOO=bar\nplain line";
     const out = compressKeyValue(raw);
-    expect(out).toContain("_shell_fmt:key_value");
     expect(out).toContain("FOO=bar");
+    expect(out).toContain("plain line");
   });
 
-  it("still emits header for colon-format with parseable rows", () => {
+  it("compresses colon-format with parseable rows", () => {
     const raw = "Name: my-pod\nNamespace: default\nStatus: Running";
     const out = compressKeyValue(raw);
-    expect(out).toContain("_shell_fmt:key_value");
     expect(out).toContain("Name: my-pod");
   });
 });
@@ -447,7 +445,6 @@ describe("compressErrorDiagnostic (FE-F T7)", () => {
     at x (f.ts:1)
     at y (g.ts:2)`;
     const out = compressErrorDiagnostic(raw);
-    expect(out).toContain("_shell_fmt:error_diagnostic");
     expect(out).toContain("Error: boom");
     expect(out).toContain("at x (f.ts:1)");
     expect(out).toContain("at y (g.ts:2)");
@@ -504,7 +501,7 @@ describe("compressShellOutput integration", () => {
     const r = await compressShellOutput("docker ps", txt, {
       persistStats: false,
     });
-    expect(r.text).toContain("_shell_fmt");
+    expect(r.text).toContain("abc123");
     expect(r.classification.category).toBe("tabular");
   });
 
@@ -603,10 +600,10 @@ describe("compressOmni", () => {
     expect(out.length).toBeLessThan(60_000);
   });
 
-  it("shows line savings in header for large compression", () => {
+  it("shows line-savings marker for large compression", () => {
     const lines = Array.from({ length: 200 }, () => "Downloading...");
     const out = compressOmni(lines.join("\n"));
-    expect(out).toMatch(/_shell_fmt:omni \(\d+→\d+ lines\)/);
+    expect(out).toMatch(/\(\d+→\d+ lines\)/);
   });
 
   // ── Hardening: edge cases that must never crash ──
@@ -631,20 +628,21 @@ describe("compressOmni", () => {
   it("handles only whitespace lines", () => {
     const lines = Array.from({ length: 50 }, () => "   \t  ");
     const out = compressOmni(lines.join("\n"));
-    expect(out).toContain("_shell_fmt:omni");
+    expect(out).toBeDefined();
   });
 
   it("handles Windows CRLF line endings", () => {
     const lines = Array.from({ length: 50 }, (_, i) => `line ${i}`);
     const out = compressOmni(lines.join("\r\n"));
-    expect(out).toContain("_shell_fmt:omni");
+    expect(out).toContain("line 0");
     expect(out).not.toContain("\r");
   });
 
   it("handles mixed CRLF and LF endings", () => {
     const lines = ["line1\r\n", "line2\n", "line3\r\n", "line4\n"];
     const out = compressOmni(lines.join("").repeat(15));
-    expect(out).toContain("_shell_fmt:omni");
+    expect(out).toContain("line1");
+    expect(out).not.toContain("\r");
   });
 
   it("handles binary-like content with null bytes gracefully", () => {
@@ -653,7 +651,7 @@ describe("compressOmni", () => {
       (_, i) => `data\x00\x01\x02 row ${i}`
     );
     const out = compressOmni(lines.join("\n"));
-    expect(out).toContain("_shell_fmt:omni");
+    expect(out).toContain("data");
   });
 
   it("handles very long single line (minified JS)", () => {
@@ -668,7 +666,7 @@ describe("compressOmni", () => {
   it("handles lines with only ANSI escape codes", () => {
     const lines = Array.from({ length: 50 }, () => "\x1b[31m\x1b[0m");
     const out = compressOmni(lines.join("\n"));
-    expect(out).toContain("_shell_fmt:omni");
+    expect(out).toBeDefined();
   });
 
   it("handles mixed diagnostic and normal lines at boundaries", () => {
@@ -686,7 +684,6 @@ describe("compressOmni", () => {
   it("handles all-diagnostic lines", () => {
     const lines = Array.from({ length: 60 }, (_, i) => `ERROR: failure ${i}`);
     const out = compressOmni(lines.join("\n"));
-    expect(out).toContain("_shell_fmt:omni");
     expect(out).toContain("ERROR: failure");
   });
 
@@ -697,7 +694,7 @@ describe("compressOmni", () => {
         `2024-01-15T10:00:${String(i).padStart(2, "0")}Z [192.168.1.${i}] Processing batch abc${String(i).padStart(4, "0")}def`
     );
     const out = compressOmni(lines.join("\n"));
-    expect(out).toContain("_shell_fmt:omni");
+    expect(out).toMatch(/\(\d+→\d+ lines\)/);
     // Pattern dedup should collapse these
     expect(out.split("\n").length).toBeLessThan(40);
   });
@@ -705,7 +702,6 @@ describe("compressOmni", () => {
   it("handles Unicode content (CJK, emoji)", () => {
     const lines = Array.from({ length: 50 }, (_, i) => `处理文件 ${i}: 成功 ✓`);
     const out = compressOmni(lines.join("\n"));
-    expect(out).toContain("_shell_fmt:omni");
     expect(out).toContain("处理文件");
   });
 
@@ -715,7 +711,7 @@ describe("compressOmni", () => {
       (_, i) => `col1_${i}\tcol2_${i}\tcol3_${i}`
     );
     const out = compressOmni(lines.join("\n"));
-    expect(out).toContain("_shell_fmt:omni");
+    expect(out).toContain("col1_0");
   });
 
   it("handles cargo build output with repeating compile lines", () => {
@@ -728,7 +724,7 @@ describe("compressOmni", () => {
       "    Finished release [optimized] target(s) in 45.2s",
     ];
     const out = compressOmni(lines.join("\n"));
-    expect(out).toContain("_shell_fmt:omni");
+    expect(out).toMatch(/\(\d+→\d+ lines\)/);
     expect(out.split("\n").length).toBeLessThan(50);
   });
 
@@ -744,7 +740,7 @@ describe("compressOmni", () => {
       "✓ built in 3.21s",
     ];
     const out = compressOmni(lines.join("\n"));
-    expect(out).toContain("_shell_fmt:omni");
+    expect(out).toContain("vite v5.0.0");
     // Pattern dedup should compress the repeating transform lines
     expect(out.split("\n").length).toBeLessThan(lines.length);
   });

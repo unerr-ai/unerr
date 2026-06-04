@@ -11,7 +11,13 @@
  * Design authority: Phase 5.5 §1.4.1 (Git Trailer Injection)
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { ShadowLedger } from "./shadow-ledger.js";
 
@@ -134,7 +140,6 @@ export function uninstallPrepareCommitMsgHook(projectRoot: string): boolean {
 
     // If only shebang remains, remove the file
     if (nonUnerrLines.length <= 1 && nonUnerrLines[0]?.startsWith("#!/")) {
-      const { unlinkSync } = require("node:fs") as typeof import("node:fs");
       unlinkSync(hookPath);
     } else {
       // Remove our section

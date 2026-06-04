@@ -87,3 +87,37 @@ describe("ur|rsk scope for reference-shaped results", () => {
     expect(second).toContain("fan_in=30");
   });
 });
+
+describe("in-block wire-line dedup", () => {
+  beforeEach(() => {
+    resetSignalDedupSingleton();
+  });
+
+  it("emits an identical fact body only once per injection block (different scope keys)", () => {
+    // Regression 6c: the same CozoDB fact rode in twice on one get_entity
+    // response — once entity-scoped, once global. Session dedup keys on
+    // (tag, scopeKey) so both passed; the block must drop the repeat.
+    const factBody = "All CozoDB methods are async — always await db.run()";
+    const context = {
+      signals: [
+        { type: "semantic", content: factBody, entity: "classifyShellOutput" },
+        { type: "semantic", content: factBody }, // global scope — same body
+      ],
+    };
+    const prefix = buildSignalPrefix(undefined, context, "classifyShellOutput");
+    const occurrences = prefix.split(factBody).length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it("still emits distinct fact bodies for different entities", () => {
+    const context = {
+      signals: [
+        { type: "semantic", content: "fact about A", entity: "entA" },
+        { type: "semantic", content: "fact about B", entity: "entB" },
+      ],
+    };
+    const prefix = buildSignalPrefix(undefined, context, null);
+    expect(prefix).toContain("fact about A");
+    expect(prefix).toContain("fact about B");
+  });
+});

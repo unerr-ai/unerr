@@ -6,6 +6,7 @@
  * files and repairs their cross-file edges.
  */
 
+import { dirname, join, normalize } from "node:path";
 import { createModuleLogger } from "../../utils/logger.js";
 import { buildExportMap } from "./export-map.js";
 import type {
@@ -37,8 +38,6 @@ export function findDependentFiles(
     for (const imp of imports) {
       if (!imp.source.startsWith(".")) continue;
 
-      const { dirname, join, normalize } =
-        require("node:path") as typeof import("node:path");
       const importerDir = dirname(filePath);
       let resolved = normalize(join(importerDir, imp.source)).replace(
         /\\/g,

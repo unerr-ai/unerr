@@ -7,19 +7,28 @@
  * `family-detector.ts`. This file is the parallel registry for unerr's
  * own tool clusters.
  *
- * Six unerr families:
+ * Four unerr families (one per advertised-catalog cluster):
  *
- *   graph    — code-graph navigation (search, refs, structure, conventions)
- *   file     — file-protocol reads (outline, read, get_file)
- *   notes    — active-cognition Layer B (recall_notes, remember as overloaded write)
- *   fact     — legacy fact store (recall_facts, record_fact)
- *   markers  — session-narrative markers (intent, decision, blocker, resolution)
+ *   graph    — code-graph navigation (search, entity, refs, recon composite)
+ *   file     — file-protocol reads (outline, read)
+ *   markers  — session markers + facts op-union (unerr_track)
  *   web      — external fetch (fetch_url)
  *
- * All six are always-on (unerr is the *server*; its own tools cannot be masked
+ * (The former `notes` family retired with `unerr_remember`'s catalog removal,
+ * 2026-06 — Layer B writes now ride hooks: user rules at UserPromptSubmit,
+ * agent notes via the `unerr-save:` Stop-hook sentinel; recall is folded into
+ * `unerr_context`.)
+ *
+ * All four are always-on (unerr is the *server*; its own tools cannot be masked
  * by intent scoring the way an external-service family can). The registry
  * exists so the router has the full picture for telemetry, dashboard
  * rendering, and any future per-family policy (rate-limits, attribution).
+ *
+ * Only the 8 ADVERTISED tools appear here. The names the proxy dispatches by
+ * name only (unerr_remember, mark_*, record_fact, recall_facts,
+ * get_conventions, the demoted graph reads, …) are not catalog members, so
+ * they are deliberately absent — the bidirectional invariant below would
+ * reject them.
  *
  * Invariant: every tool name in TIER_ENTRIES must appear in exactly one
  * family below. The contract-teaching / unerr-families test
@@ -27,15 +36,8 @@
  */
 
 import { TIER_ENTRIES } from "../proxy/tool-descriptions.js";
-import { NOTES_FAMILY_NAME } from "./notes-family.js";
 
-export type UnerrFamilyName =
-  | "graph"
-  | "file"
-  | "notes"
-  | "fact"
-  | "markers"
-  | "web";
+export type UnerrFamilyName = "graph" | "file" | "markers" | "web";
 
 export interface UnerrFamilyEntry {
   readonly name: UnerrFamilyName;
@@ -50,48 +52,17 @@ export const UNERR_FAMILIES: Readonly<
   graph: {
     name: "graph",
     label: "Code graph navigation",
-    tools: [
-      "search_code",
-      "get_entity",
-      "get_references",
-      "get_imports",
-      "get_conventions",
-      "get_critical_nodes",
-      "get_cross_boundary_links",
-      "file_connections",
-      "get_test_coverage",
-      "get_project_stats",
-      "review_changes",
-      "unerr_context",
-    ],
+    tools: ["search_code", "get_entity", "get_references", "unerr_context"],
   },
   file: {
     name: "file",
     label: "File protocol",
-    tools: ["file_outline", "file_read", "get_file"],
-  },
-  notes: {
-    name: NOTES_FAMILY_NAME,
-    label: "Active-cognition notes",
-    tools: ["unerr_recall_notes", "unerr_remember"],
-  },
-  fact: {
-    name: "fact",
-    label: "Legacy facts",
-    tools: ["recall_facts", "record_fact"],
+    tools: ["file_outline", "file_read"],
   },
   markers: {
     name: "markers",
-    label: "Session markers",
-    tools: [
-      "mark_intent",
-      "mark_decision",
-      "mark_blocker",
-      "mark_resolution",
-      "unerr_track",
-      "unerr_turn_summary",
-      "unerr_surface2_line",
-    ],
+    label: "Session markers + facts",
+    tools: ["unerr_track"],
   },
   web: {
     name: "web",

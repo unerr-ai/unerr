@@ -13,6 +13,19 @@
  * shape used by the recall handlers in notes-store.
  */
 
+// Static ESM imports, NOT require(): the tsup bundle is pure ESM, where
+// require() hits esbuild's "Dynamic require is not supported" stub — the
+// cross-process topic-shift mirror silently no-op'd in production. Builtins
+// are already resident; "lazy require keeps cold-start cheap" bought nothing.
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+
 export const TOPIC_SHIFT_DEFAULT_WINDOW = 10;
 export const TOPIC_SHIFT_DEFAULT_THRESHOLD = 0.2;
 
@@ -115,10 +128,6 @@ const PENDING_TOPIC_SHIFT = new Map<string, PendingTopicShift>();
  *  Written by `setPendingTopicShift`, read+drained by the prompt-submit
  *  hook subprocess (which has no in-memory map). */
 function pendingTopicShiftPath(): string {
-  // Lazy require to avoid forcing node:path/node:fs on hot paths that
-  // never call it.
-  // biome-ignore lint/style/useNodejsImportProtocol: lazy require keeps cold-start cheap
-  const { join } = require("node:path");
   return join(process.cwd(), ".unerr", "state", "topic-shift-pending.json");
 }
 
@@ -132,10 +141,6 @@ export function setPendingTopicShift(
 ): void {
   PENDING_TOPIC_SHIFT.set(sessionId, shift);
   try {
-    // biome-ignore lint/style/useNodejsImportProtocol: lazy require
-    const { mkdirSync, writeFileSync } = require("node:fs");
-    // biome-ignore lint/style/useNodejsImportProtocol: lazy require
-    const { dirname } = require("node:path");
     const path = pendingTopicShiftPath();
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(
@@ -158,8 +163,6 @@ export function consumePendingTopicShift(
   if (v) {
     PENDING_TOPIC_SHIFT.delete(sessionId);
     try {
-      // biome-ignore lint/style/useNodejsImportProtocol: lazy require
-      const { unlinkSync } = require("node:fs");
       unlinkSync(pendingTopicShiftPath());
     } catch {
       /* file may already be gone */
@@ -168,8 +171,6 @@ export function consumePendingTopicShift(
   }
   // In-process miss — try the flat file for hook-subprocess drains.
   try {
-    // biome-ignore lint/style/useNodejsImportProtocol: lazy require
-    const { existsSync, readFileSync, unlinkSync } = require("node:fs");
     const path = pendingTopicShiftPath();
     if (!existsSync(path)) return null;
     const raw = readFileSync(path, "utf-8");
@@ -191,8 +192,6 @@ export function consumePendingTopicShift(
  *  of its own — the most recent shift wins. */
 export function consumeAnyPendingTopicShift(): PendingTopicShift | null {
   try {
-    // biome-ignore lint/style/useNodejsImportProtocol: lazy require
-    const { existsSync, readFileSync, unlinkSync } = require("node:fs");
     const path = pendingTopicShiftPath();
     if (!existsSync(path)) return null;
     const raw = readFileSync(path, "utf-8");

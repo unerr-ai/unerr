@@ -499,6 +499,71 @@ describe("fetch_url pipeline", () => {
     }
   });
 
+  it("returns dns_not_found fast on NXDOMAIN instead of retrying to the deadline", async () => {
+    // RFC 2606 reserves .invalid — guaranteed NXDOMAIN from any compliant
+    // resolver. Pre-fix this retried in a tight loop (ENOTFOUND classified
+    // retryable + zero-sleep loop → 108k attempts across the full 2-minute
+    // deadline). Post-fix it must fail on the FIRST attempt with a typed
+    // dns_not_found result.
+    const cwd = mkdtempSync(join(tmpdir(), "fetch-url-nxdomain-"));
+    const origTotal = FETCH_PROTOCOL_LIMITS.totalDeadlineMs;
+    FETCH_PROTOCOL_LIMITS.totalDeadlineMs = 10_000;
+    const startedAt = Date.now();
+    try {
+      const result = await runFetchUrl(
+        { url: "https://does-not-exist.invalid/page" },
+        { cwd }
+      );
+      expect(result.result_status).toBe("http_error");
+      if (result.result_status !== "http_error") return;
+      expect(result.reason).toBe("dns_not_found");
+      expect(result.status).toBe(0);
+      expect(result.suggestion).toContain("does not resolve");
+      // Fail-fast contract: one resolver round-trip, nowhere near the deadline.
+      expect(Date.now() - startedAt).toBeLessThan(5_000);
+    } finally {
+      FETCH_PROTOCOL_LIMITS.totalDeadlineMs = origTotal;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("paces fast-failing retries instead of tight-looping to the deadline", async () => {
+    // A connection-refused port fails in ~1ms. Pre-fix the retry loop had no
+    // sleep for fast failures, so the deadline window held thousands of
+    // attempts. Post-fix each retry sleeps 250ms·2^n (clamped to its unused
+    // attempt slot), so a 1s deadline holds only a handful.
+    const probe = createServer();
+    await new Promise<void>((resolve) =>
+      probe.listen(0, "127.0.0.1", () => resolve())
+    );
+    const addr = probe.address();
+    if (!addr || typeof addr === "string") throw new Error("no server addr");
+    const refusedPort = addr.port;
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+
+    const cwd = mkdtempSync(join(tmpdir(), "fetch-url-pacing-"));
+    const origBase = FETCH_PROTOCOL_LIMITS.baseTimeoutMs;
+    const origTotal = FETCH_PROTOCOL_LIMITS.totalDeadlineMs;
+    FETCH_PROTOCOL_LIMITS.baseTimeoutMs = 400;
+    FETCH_PROTOCOL_LIMITS.totalDeadlineMs = 1_000;
+    try {
+      const result = await runFetchUrl(
+        { url: `http://127.0.0.1:${refusedPort}/refused` },
+        { cwd }
+      );
+      expect(result.result_status).toBe("http_error");
+      if (result.result_status !== "http_error") return;
+      expect(result.reason).toBe("deadline_exceeded");
+      // 250+500+1000ms of backoff fills a 1s deadline within ~4 attempts;
+      // anything above 10 means the pacing sleep regressed.
+      expect(result.attempts).toBeLessThanOrEqual(10);
+    } finally {
+      FETCH_PROTOCOL_LIMITS.baseTimeoutMs = origBase;
+      FETCH_PROTOCOL_LIMITS.totalDeadlineMs = origTotal;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("falls back to raw-body sync extraction when jsdom exceeds extractionTimeoutMs", async () => {
     // Force the extraction stage to time out by setting the cap to 0ms — any
     // jsdom parse will lose the race, triggering the regex tag-strip fallback.

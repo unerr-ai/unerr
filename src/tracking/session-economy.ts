@@ -22,7 +22,7 @@
  * are zero. The renderer's job is to translate 0 into the user-facing
  * "session headroom unchanged" line; this module returns numbers.
  *
- * See: docs/open-cli/PERCEPTION_TO_PRESENCE.md §9.3 (footer math),
+ * See: .internal/PERCEPTION_TO_PRESENCE.md §9.3 (footer math),
  * §12 Sprint 2.
  */
 

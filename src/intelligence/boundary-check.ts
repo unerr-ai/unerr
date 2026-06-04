@@ -14,7 +14,7 @@
  * invariants the team enforces nor reads sensibly to a developer. Declared path
  * rules map 1:1 to those invariants (the DM-0 bridge-isolation rule today), the
  * same model dependency-cruiser, Nx `enforce-module-boundaries`, and ArchUnit
- * use. See docs/behavior-automation.md §2.
+ * use. See .internal/behavior-automation.md §2.
  *
  * The pre-edit hook calls this over the per-repo UDS (folded into the
  * blast-radius query) and renders an ADVISORY nudge — never a block. It is

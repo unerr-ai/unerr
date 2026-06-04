@@ -196,7 +196,7 @@ export function wireifyMeta(
  * (action verb is in the message text), so the priority bucket is sufficient
  * for the agent to decide whether to act now or read on.
  *
- *   act   action  do something NOW — halt/switch, invoke skill, use unlocked tool,
+ *   act   action  do something NOW — halt/switch, invoke skill,
  *                 paginate, pick up from resume strip
  *   ctx   context state changed — drift, context already delivered, session health
  *   rsk   risk    risk on this path — blast radius, anti-pattern, prior failures
@@ -207,7 +207,7 @@ export function wireifyMeta(
  * are dropped.
  */
 export const SIGNAL_PREFIX_LEGEND = `ur|<tag> is an unerr signal in MCP response bodies. Four wire tags (consolidated 14→4 in 2026-05; body is self-describing — tag is priority bucket only):
-  act  action — do something NOW. Covers halt/switch, Skill invocation, unlocked tool, pagination cursor, resume-strip pickup. Body names the exact call.
+  act  action — do something NOW. Covers halt/switch, Skill invocation, pagination cursor, resume-strip pickup. Body names the exact call.
   ctx  context — state changed. Covers drift (re-read), context already delivered (don't re-query), session health degraded (consider new session). Body names what changed.
   rsk  risk — caution on this code path. Covers blast radius (callers first), anti-pattern (don't reintroduce), prior failure history (read modes before retry). Body names the risk.
   fct  fact — information for context. Covers surfaced project facts (subtype in [brackets]), co-change hints, convention/procedural/semantic/episodic passthroughs. Body carries the fact.
@@ -315,14 +315,23 @@ export function buildSignalPrefix(
 ): string {
   const dedup = getSignalDedup();
   const lines: string[] = [];
+  // In-block dedup on the final wire line. The session dedup keys on
+  // (tag, scopeKey), so the SAME body attached under two scope keys (e.g.
+  // a fact surfaced once entity-scoped and once global) passed shouldEmit
+  // twice and landed twice in ONE injection block. Identical wire lines in
+  // a single block are always noise — drop repeats regardless of scope.
+  const emittedWireLines = new Set<string>();
 
   function tryPush(tag: string, scopeKey: string | null, body: string): void {
     if (lines.length >= MAX_SIGNAL_LINES) return;
+    const wireLine = `ur|${toWireTag(tag)} ${body}`;
+    if (emittedWireLines.has(wireLine)) return;
     // Dedup scope keeps the *semantic* tag so e.g. a hlt and a skl line on
     // the same entity don't suppress each other after they collapse onto
     // the same wire bucket. The wire output uses the aliased tag.
     if (!dedup.shouldEmit(tag, scopeKey, body)) return;
-    lines.push(`ur|${toWireTag(tag)} ${body}`);
+    emittedWireLines.add(wireLine);
+    lines.push(wireLine);
   }
 
   if (meta?.circuit_breaker) {

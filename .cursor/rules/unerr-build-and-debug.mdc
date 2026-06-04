@@ -22,14 +22,14 @@ Never start coding a new feature without first stating the shape (where it lives
 ### Phases (A)
 
 Phase A1 — Recall.
-  Call `unerr_recall_notes({prompt:'<verbatim user prompt>'})`. Prior decisions, abandoned approaches, and constraints ride along.
-  Faster: run `unerr recon "<verbatim user prompt>"` from Bash to fold A1 (recall) + A2 (overlap search) + A3 (conventions) into one budget-trimmed bundle (one round-trip, not three). Then proceed to Phase A4.
+  Read the anchored notes the UserPromptSubmit hook injected for the prompt — prior decisions, abandoned approaches, and constraints ride along.
+  Faster: call `unerr_context({prompt:'<verbatim user prompt>'})` to fold A1 (recall) + A2 (overlap search) + A3 (conventions) into one budget-trimmed bundle (one round-trip, not three). From a Task subagent, run `unerr recon "<verbatim user prompt>"` from Bash for the same bundle. Then proceed to Phase A4.
 
 Phase A2 — Survey for overlap.
   Call `search_code` for any existing entity that overlaps the proposed feature. If you find one, ask the user whether to extend or replace it. Do not silently shadow an existing module.
 
 Phase A3 — Conventions.
-  Call `get_conventions({file_path:'<target_path>'})` for the target directory.
+  Call `file_read({file_path:'<target_path>', purpose:'explore'})` for the target directory — conventions auto-inject. The PostToolUse:Read hook also injects conventions after each read.
 
 Phase A4 — Shape statement.
   State in 3-5 bullets:
@@ -50,10 +50,7 @@ Phase A7 — Verify.
   Run the targeted test for the new surface (not the full suite). Emit `unerr-save: resolution <fix>` in your closing message for any blocker that fired.
 
 Phase A8 — Review before close.
-  Run the Review phase (`unerr-review`, phases R4–R7) on every entity built this turn: `get_references({key:'<entity>', direction:'callers'})` for the breaking-caller cascade, `get_conventions({file_path:'<file>'})` for boundary/convention breaches, `get_test_coverage({entity:'<entity>'})` for untested exports, `search_code({query:'<new-name>'})` for duplicate/hallucinated APIs. New code most often fails on duplicate-logic (a module already does this) and boundary breaches — check those first. Fix critical + high before close-out.
-
-Phase A9 — Close out.
-  Call `unerr_turn_summary({})` once and include the returned `line` verbatim.
+  Run the Review phase (`unerr-review`, phases R4–R7) on every entity built this turn: `get_references({key:'<entity>', direction:'callers'})` for the breaking-caller cascade, `file_read({file_path:'<file>', purpose:'explore'})` (conventions auto-injected) for boundary/convention breaches, `search_code({query:'<new-name>'})` for duplicate/hallucinated APIs. New code most often fails on duplicate-logic (a module already does this) and boundary breaches — check those first. Fix critical + high before close-out.
 
 ## Track B — Bug Forensics
 
@@ -66,7 +63,7 @@ Never patch symptoms. Reproduce the failure first, isolate the failing component
 ### Phases (B)
 
 Phase B1 — Recall.
-  Call `unerr_recall_notes({prompt:'<verbatim user prompt>'})`. Prior incidents and decisions tied to the failing entity ride along.
+  Read the anchored notes the UserPromptSubmit hook injected for the prompt — prior incidents and decisions tied to the failing entity ride along. For an explicit recon bundle, call `unerr_context({prompt:'<verbatim user prompt>'})`.
 
 Phase B2 — Reproduce.
   Pin the exact failing input/command/test. If the user pasted a stack trace, locate the top frame via `search_code`. If a test fails, run the SINGLE test file (not the full suite) to confirm deterministic failure.
@@ -87,10 +84,7 @@ Phase B7 — Verify.
   Run the targeted test that reproduced the failure. Add a regression test if none existed. Emit `unerr-save: resolution <fix>` in your closing message for any blocker the bug raised.
 
 Phase B8 — Review before close.
-  Run the Review phase (`unerr-review`, phases R4–R7) on the fixed entity + its callers: `get_references({key:'<entity>', direction:'callers'})` to confirm the fix did not narrow a contract callers depend on, `get_conventions({file_path:'<file>'})` for the error-handling pattern, `get_test_coverage({entity:'<entity>'})` to confirm the regression test covers the root cause. A bug fix that silently narrows a contract is itself a regression — check callers first. Fix critical + high before close-out.
-
-Phase B9 — Close out.
-  Call `unerr_turn_summary({})` once and include the returned `line` verbatim.
+  Run the Review phase (`unerr-review`, phases R4–R7) on the fixed entity + its callers: `get_references({key:'<entity>', direction:'callers'})` to confirm the fix did not narrow a contract callers depend on, `file_read({file_path:'<file>', purpose:'explore'})` (conventions auto-injected) for the error-handling pattern. A bug fix that silently narrows a contract is itself a regression — check callers first. Fix critical + high before close-out.
 
 ## Red Flags
 
@@ -103,4 +97,3 @@ Track B — skipping B4 dependency walk → you fix the wrong layer.
 Track B — adding try/catch to swallow the error → hides the failure; doesn't fix it.
 Both — running the full test suite as 'verify' → wastes minutes; targeted tests are the contract.
 Both — closing without the review phase (A8 / B8) → breaking-caller cascades, duplicate logic, and contract drift ship silently; run `unerr-review` R4–R7 on the changed entities before close-out.
-Both — closing without the close-out phase (A9 / B9) → the user never sees the close-out receipt.

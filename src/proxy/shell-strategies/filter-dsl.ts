@@ -359,7 +359,7 @@ export function applyUserFilter(
     for (const sc of filter.shortCircuit) {
       if (sc.pattern.test(stdout)) {
         return {
-          text: `_shell_fmt:user_filter\n${sc.message}`,
+          text: sc.message,
           name: filter.raw.name,
         };
       }
@@ -407,8 +407,9 @@ export function applyUserFilter(
   if (!text && filter.raw.on_empty) {
     text = filter.raw.on_empty;
   }
+  // Filter provenance rides the structured `name` field — no text header.
   return {
-    text: `_shell_fmt:user_filter[${filter.raw.name}]\n${text}`,
+    text,
     name: filter.raw.name,
   };
 }

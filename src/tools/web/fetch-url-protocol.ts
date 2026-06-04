@@ -127,7 +127,7 @@ export interface FetchUrlHttpError {
   url: string;
   final_url: string;
   status: number;
-  reason: "http_status" | "deadline_exceeded";
+  reason: "http_status" | "deadline_exceeded" | "dns_not_found";
   suggestion: string;
   /**
    * Present only on `deadline_exceeded`. Counts the number of fetch
@@ -206,6 +206,26 @@ class ExtractionTimeoutError extends Error {
   }
 }
 
+/**
+ * Thrown by `fetchHtml` when DNS lookup returns NXDOMAIN (ENOTFOUND). The
+ * domain does not resolve — a permanent failure that no retry can change —
+ * so we fail within the first attempt instead of burning the 2-minute
+ * deadline. Caller (`runFetchUrl`) turns it into a typed `dns_not_found`
+ * http_error. (EAI_AGAIN — a transient resolver failure — stays retryable.)
+ */
+class DnsNotFoundError extends Error {
+  constructor(
+    public url: string,
+    cause: unknown
+  ) {
+    super(
+      `fetch_url DNS lookup found no record for ${url} (ENOTFOUND) — the domain does not resolve`,
+      { cause }
+    );
+    this.name = "DnsNotFoundError";
+  }
+}
+
 function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -228,12 +248,39 @@ function withTimeout<T>(
   });
 }
 
+/**
+ * Walk an error's `cause` chain for the first Node errno code. undici's
+ * fetch() throws `TypeError: fetch failed` with the real network error
+ * (getaddrinfo ENOTFOUND, ECONNRESET, …) buried in `cause` — the top-level
+ * message alone never names the errno, so any classifier that only sniffs
+ * `e.message` misroutes every network failure into its generic bucket.
+ */
+function fetchErrorCode(e: unknown): string | null {
+  let current: unknown = e;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
+    const code = (current as NodeJS.ErrnoException).code;
+    if (typeof code === "string") return code;
+    const msg = current.message ?? "";
+    // Some wrappers stringify the errno into the message instead of
+    // setting `code` — recognize the two codes we branch on.
+    if (msg.includes("ENOTFOUND")) return "ENOTFOUND";
+    if (msg.includes("EAI_AGAIN")) return "EAI_AGAIN";
+    current = (current as { cause?: unknown }).cause;
+  }
+  return null;
+}
+
 function isRetryableFetchError(e: unknown): boolean {
   if (!(e instanceof Error)) return false;
   if (e.name === "AbortError" || e.name === "TimeoutError") return true;
+  // ENOTFOUND is NXDOMAIN — a permanent answer, not a transient fault.
+  // Retrying re-asks the resolver the same question (observed as a 108k-
+  // attempt tight loop against a non-existent domain). fetchHtml fails
+  // fast on it before this classifier runs; the guard here is the
+  // backstop for any other caller.
+  if (fetchErrorCode(e) === "ENOTFOUND") return false;
   const msg = e.message ?? "";
   return (
-    msg.includes("ENOTFOUND") ||
     msg.includes("ECONNRESET") ||
     msg.includes("ETIMEDOUT") ||
     msg.includes("EAI_AGAIN") ||
@@ -296,6 +343,9 @@ export async function runFetchUrl(
   } catch (e) {
     if (e instanceof FetchDeadlineExceededError) {
       return makeDeadlineExceededResult(args.url, url, e);
+    }
+    if (e instanceof DnsNotFoundError) {
+      return makeDnsNotFoundResult(args.url, url);
     }
     throw e;
   }
@@ -616,6 +666,20 @@ function makeDeadlineExceededResult(
   };
 }
 
+function makeDnsNotFoundResult(
+  requestedUrl: string,
+  attemptedUrl: string
+): FetchUrlHttpError {
+  return {
+    result_status: "http_error",
+    url: requestedUrl,
+    final_url: attemptedUrl,
+    status: 0,
+    reason: "dns_not_found",
+    suggestion: `DNS found no record for the host in ${attemptedUrl} (NXDOMAIN) — the domain does not resolve and retrying cannot change that; correct the hostname or skip this URL`,
+  };
+}
+
 function extractTitleFromHtml(html: string): string {
   const match = html.match(/<title[^>]*>([^<]*)<\/title>/i);
   return match?.[1]?.trim() ?? "";
@@ -802,9 +866,16 @@ interface FetchHtmlOptions {
  * structured "host unreachable" signal instead of a generic tool failure.
  *
  * Retryable failures: AbortError (per-attempt timeout fired), TimeoutError,
- * common transient network errors (ENOTFOUND, ECONNRESET, ETIMEDOUT, etc.).
- * Non-retryable: content-type mismatch (real failure, won't change on retry),
- * caller-driven abort, anything else.
+ * common transient network errors (ECONNRESET, ETIMEDOUT, EAI_AGAIN, etc.).
+ * Non-retryable: ENOTFOUND (NXDOMAIN is a permanent answer — throws
+ * `DnsNotFoundError` on the first attempt), content-type mismatch (real
+ * failure, won't change on retry), caller-driven abort, anything else.
+ *
+ * Pacing: an attempt that burned its full per-attempt timeout needs no extra
+ * sleep — the next attempt's doubled timeout is the backoff. But an attempt
+ * that failed FAST (connection refused/reset in milliseconds) must not loop
+ * tightly until the deadline; it sleeps an exponential backoff (250ms·2^n,
+ * clamped to its unused attempt slot) before retrying.
  *
  * 4xx/5xx responses are NOT thrown — they come back as `FetchedHtml.status`
  * and bubble out of `runFetchUrl` as a typed `http_status` error. Retrying
@@ -830,16 +901,30 @@ async function fetchHtml(
       FETCH_PROTOCOL_LIMITS.baseTimeoutMs * 2 ** attempt,
       remaining
     );
+    const attemptStartedAt = Date.now();
     try {
       return await fetchHtmlOnce(url, opts, perAttemptMs);
     } catch (e) {
       lastError = e;
       if (opts.abortSignal?.aborted) throw e;
+      // NXDOMAIN is permanent — fail in milliseconds with a typed error
+      // instead of re-asking the resolver until the 2-minute deadline
+      // (observed: 108k attempts/120s against a non-existent domain).
+      if (fetchErrorCode(e) === "ENOTFOUND") {
+        throw new DnsNotFoundError(url, e);
+      }
       if (!isRetryableFetchError(e)) throw e;
+      // A timeout-bound failure consumed its whole attempt slot — the next
+      // attempt's doubled timeout IS the backoff, no sleep needed. A FAST
+      // failure (connection refused/reset in ms) would otherwise tight-loop;
+      // sleep an exponential backoff clamped to the slot it didn't use.
+      const attemptElapsed = Date.now() - attemptStartedAt;
+      const unusedSlotMs = perAttemptMs - attemptElapsed;
+      if (unusedSlotMs > 0) {
+        const backoffMs = Math.min(250 * 2 ** attempt, unusedSlotMs);
+        await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
+      }
       attempt++;
-      // No artificial sleep — the next attempt's larger timeout IS the
-      // backoff. A failed 15s attempt followed by a 30s attempt is already
-      // 45s of breathing room for a flaky upstream.
     }
   }
 }

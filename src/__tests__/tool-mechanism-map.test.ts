@@ -5,7 +5,7 @@
  *
  *  1. Every shipped tool (TIER_ENTRIES) has exactly one mechanism verdict, and
  *     the buckets partition the whole surface (no tool unaccounted, no orphan).
- *  2. The surviving MCP catalog is exactly the six interactive reads, and the
+ *  2. The surviving MCP catalog is exactly the seven interactive reads, and the
  *     hook-less fallback catalog adds back only the hook tools that keep an MCP
  *     fallback (writes + recalls) — never a merged name, never a CLI demotion.
  *  3. Router passthrough: every tool that stays addressable over MCP (final OR
@@ -33,7 +33,7 @@ describe("tool-mechanism-map — partition over TIER_ENTRIES", () => {
     expect(verdicted).toEqual(shipped);
   });
 
-  it("the four mechanism buckets partition the 27-tool surface", () => {
+  it("the four mechanism buckets partition the 9-tool surface", () => {
     const mcp = toolsByMechanism("mcp");
     const hook = toolsByMechanism("hook");
     const cli = toolsByMechanism("cli");
@@ -48,13 +48,14 @@ describe("tool-mechanism-map — partition over TIER_ENTRIES", () => {
 });
 
 describe("tool-mechanism-map — surviving MCP catalog", () => {
-  it("final catalog is exactly the six interactive reads", () => {
+  it("final catalog is exactly the seven interactive reads", () => {
     expect(finalMcpCatalog()).toEqual(
       [
         "fetch_url",
         "file_outline",
         "file_read",
         "get_entity",
+        "get_references",
         "search_code",
         "unerr_context",
       ].sort()

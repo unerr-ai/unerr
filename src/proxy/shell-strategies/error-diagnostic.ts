@@ -112,7 +112,7 @@ function compressTscErrors(lines: string[]): string {
 
   if (groups.size === 0) return "";
 
-  const parts: string[] = ["_shell_fmt:error_diagnostic"];
+  const parts: string[] = [];
   if (summaryLine) parts.push(summaryLine);
 
   const sorted = [...groups.values()].sort((a, b) => b.count - a.count);
@@ -170,7 +170,7 @@ function compressEslintErrors(lines: string[]): string {
 
   if (ruleGroups.size === 0) return "";
 
-  const parts: string[] = ["_shell_fmt:error_diagnostic"];
+  const parts: string[] = [];
   if (summaryLine) parts.push(summaryLine);
 
   const sorted = [...ruleGroups.entries()].sort(
@@ -205,7 +205,7 @@ function filterStackFrames(frames: string[]): string[] {
 }
 
 function compressNodeStack(lines: string[]): string {
-  const parts: string[] = ["_shell_fmt:error_diagnostic"];
+  const parts: string[] = [];
   const seenFingerprints = new Map<string, number>();
 
   let currentStack: string[] = [];
@@ -295,7 +295,7 @@ function compressGccClangErrors(lines: string[]): string {
 
   if (groups.size === 0) return "";
 
-  const parts: string[] = ["_shell_fmt:error_diagnostic"];
+  const parts: string[] = [];
   parts.push(`${summaryErrors} error(s), ${summaryWarnings} warning(s)`);
 
   const sorted = [...groups.values()].sort((a, b) => b.count - a.count);
@@ -355,7 +355,7 @@ function compressRustcErrors(lines: string[]): string {
 
   if (groups.size === 0) return "";
 
-  const parts: string[] = ["_shell_fmt:error_diagnostic"];
+  const parts: string[] = [];
   if (summaryLine) parts.push(summaryLine);
 
   const sorted = [...groups.values()].sort((a, b) => b.count - a.count);
@@ -428,7 +428,7 @@ function compressGoErrors(lines: string[]): string {
 
   if (groups.size === 0) return "";
 
-  const parts: string[] = ["_shell_fmt:error_diagnostic"];
+  const parts: string[] = [];
   const sorted = [...groups.values()].sort((a, b) => b.count - a.count);
   for (const group of sorted) {
     parts.push("");
@@ -503,7 +503,7 @@ function compressPythonErrors(lines: string[]): string {
   }
 
   if (diagGroups.size > 0) {
-    const parts: string[] = ["_shell_fmt:error_diagnostic"];
+    const parts: string[] = [];
     parts.push(`${diagCount} diagnostic(s), ${diagGroups.size} unique`);
 
     const sorted = [...diagGroups.values()].sort((a, b) => b.count - a.count);
@@ -523,7 +523,7 @@ function compressPythonErrors(lines: string[]): string {
   }
 
   // Fall back to traceback compression (similar to node_stack)
-  const parts: string[] = ["_shell_fmt:error_diagnostic"];
+  const parts: string[] = [];
   const tracebacks: { error: string; frames: string[] }[] = [];
   let currentFrames: string[] = [];
   let currentError = "";
@@ -620,7 +620,7 @@ function compressJavacErrors(lines: string[]): string {
 
   if (groups.size === 0) return "";
 
-  const parts: string[] = ["_shell_fmt:error_diagnostic"];
+  const parts: string[] = [];
   if (summaryLine) parts.push(summaryLine);
 
   const sorted = [...groups.values()].sort((a, b) => b.count - a.count);
@@ -704,7 +704,7 @@ function compressShellcheck(lines: string[]): string {
 
   if (groups.size === 0) return "";
 
-  const parts: string[] = ["_shell_fmt:error_diagnostic"];
+  const parts: string[] = [];
   const total = [...groups.values()].reduce((s, g) => s + g.count, 0);
   parts.push(`(${total} issues, ${groups.size} unique codes)`);
 
@@ -772,7 +772,7 @@ function compressLineDiagnostics(lines: string[]): string {
 
   if (groups.size === 0) return "";
 
-  const parts: string[] = ["_shell_fmt:error_diagnostic"];
+  const parts: string[] = [];
   const total = [...groups.values()].reduce((s, g) => s + g.count, 0);
   parts.push(`(${total} diagnostics, ${groups.size} unique messages)`);
 
@@ -838,7 +838,7 @@ function compressFallback(lines: string[]): string {
     joined.length > 10_000
       ? `${joined.slice(0, 6000)}\n…error_mid_omitted…\n${joined.slice(-3000)}`
       : joined;
-  return `_shell_fmt:error_diagnostic\n${clipped}`;
+  return clipped;
 }
 
 /**
@@ -861,7 +861,7 @@ function tryDiagShortCircuit(raw: string, command?: string): string | null {
     const m = raw.match(pat);
     if (m) {
       const label = command?.split(/\s+/)[0] ?? "lint";
-      return `_shell_fmt:error_diagnostic\n${label} ok — ${m[0]}`;
+      return `${label} ok — ${m[0]}`;
     }
   }
   return null;

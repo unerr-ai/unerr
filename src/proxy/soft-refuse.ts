@@ -27,82 +27,21 @@ import {
 } from "./tool-tiers.js";
 
 /**
- * Static recommendation table: per tier-2/3 tool, the tier-1 tool the
- * agent should call instead — paired with an example argument shape so
- * the refusal carries a directly-pastable next action.
+ * Static recommendation table: per gated tool, the tier-1 tool the agent
+ * should call instead — paired with an example argument shape so the refusal
+ * carries a directly-pastable next action.
  *
- * Reasoning per entry:
- *   - get_critical_nodes → search_code   (find target entity first)
- *   - get_cross_boundary_links → file_outline (see boundary from outline)
- *   - file_connections → file_outline    (start with the file's outline)
- *   - get_test_coverage → search_code    (locate target before coverage)
- *   - get_imports → file_outline         (imports already in outline)
- *   - get_conventions → file_read        (read a file to anchor style)
- *   - get_file → file_read               (use file_read with entity arg)
- *   - mark_intent / mark_decision / mark_blocker / mark_resolution →
- *       no tier-1 alternative; these are pure narrative markers that
- *       require ≥3 turns of real work first.
- *   - recall_facts → file_read           (file_read auto-injects facts)
- *   - record_fact → mark_decision        (decide first, then record)
+ * After the token-overhead catalog reduction, the only advertised gated tool
+ * is `unerr_track` (every other previously-gated read/write left the catalog).
+ * Its op:'intent' call is the first-action it carries, so the tier-1 fallback
+ * is a file_read — read the code before tracking intent.
+ *
+ * Invariant (asserted at module load below): keys here MUST equal the keys of
+ * UNLOCK_CONDITIONS in tool-tiers.ts.
  */
 const TIER1_ALTERNATIVE: Readonly<
   Record<string, { tool: string; example: string }>
 > = {
-  get_critical_nodes: {
-    tool: "search_code",
-    example: 'search_code({query:"<symbol>"})',
-  },
-  get_cross_boundary_links: {
-    tool: "file_outline",
-    example: 'file_outline({file_path:"<path>"})',
-  },
-  file_connections: {
-    tool: "file_outline",
-    example: 'file_outline({file_path:"<path>"})',
-  },
-  get_test_coverage: {
-    tool: "search_code",
-    example: 'search_code({query:"<symbol>"})',
-  },
-  get_imports: {
-    tool: "file_outline",
-    example: 'file_outline({file_path:"<path>"})',
-  },
-  get_conventions: {
-    tool: "file_read",
-    example: 'file_read({file_path:"<path>"})',
-  },
-  get_file: {
-    tool: "file_read",
-    example: 'file_read({file_path:"<path>",entity:"<name>"})',
-  },
-  review_changes: {
-    tool: "get_references",
-    example: 'get_references({key:"<changed_symbol>",direction:"callers"})',
-  },
-  mark_intent: { tool: "file_read", example: "" },
-  mark_decision: {
-    tool: "mark_intent",
-    example: 'mark_intent({intent:"<one sentence>"})',
-  },
-  mark_blocker: {
-    tool: "mark_intent",
-    example: 'mark_intent({intent:"<one sentence>"})',
-  },
-  mark_resolution: {
-    tool: "mark_blocker",
-    example: 'mark_blocker({blocker:"<obstacle>"})',
-  },
-  recall_facts: {
-    tool: "file_read",
-    example: 'file_read({file_path:"<path>"})',
-  },
-  record_fact: {
-    tool: "mark_decision",
-    example: 'mark_decision({decision:"<choice>"})',
-  },
-  // Op-union (Sprint 8) — mirrors mark_intent: op:'intent' is the first-action
-  // call it carries, so the tier-1 fallback is the same (read before tracking).
   unerr_track: { tool: "file_read", example: "" },
 };
 

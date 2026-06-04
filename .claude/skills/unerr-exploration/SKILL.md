@@ -7,7 +7,7 @@ user-invocable: false
 ## Iron Law
 
 <EXTREMELY-IMPORTANT>
-Never grep/glob/read-files-by-hand for code navigation. Graph queries (`search_code`, `get_references`, `get_critical_nodes`, `file_outline`) are <5ms and answer 'who/where/what' without dumping file contents. Only use `file_read` for exact implementation details, never for navigation.
+Never grep/glob/read-files-by-hand for code navigation. Graph queries (`search_code`, `get_references`, `file_outline`) are <5ms and answer 'who/where/what' without dumping file contents. Only use `file_read` for exact implementation details, never for navigation.
 </EXTREMELY-IMPORTANT>
 
 ## Phases
@@ -18,7 +18,7 @@ Phase 1 — Identify the question.
   - 'What does X depend on?'        → Phase 3 (references callees).
   - 'How is this directory wired?'  → Phase 4 (architecture).
   - 'What's the structure of file Y?' → Phase 5 (outline).
-  - 'What touches X / what's the blast radius of X?' → run `unerr recon "<task>"` from Bash for the one-shot bundle (entities + callers + conventions).
+  - 'What touches X / what's the blast radius of X?' → call `unerr_context({prompt:'<task>'})` for the one-shot bundle (entities + callers + conventions); from a Task subagent run `unerr recon "<task>"` from Bash.
 
 Phase 2 — Search.
   Call `search_code({query:'<symbol>'})`. Returns ranked entities with file paths and kinds. Use the returned `entity_key` for follow-up queries.
@@ -29,9 +29,8 @@ Phase 3 — References.
   Use the count to size the change before reading any file body.
 
 Phase 4 — Architecture sweep.
-  Call `get_project_stats({})` for overall structure (only on first contact with a new repo).
-  Call `get_critical_nodes({})` to find chokepoints.
   Call `file_outline({file_path:'<entry>'})` — its `imports` field traces the import graph from an entry point (or `get_entity({key:'<name>', want:['imports']})` for one entity's file).
+  Call `get_references({key:'<entity_key>', direction:'callers'})` on candidate entry points — a high fan_in (or a `ur|rsk fan_in=<N>` line) marks a chokepoint.
   Follow connections via `get_references` direction:callees from the main function to walk the execution path.
 
 Phase 5 — File structure.
@@ -49,5 +48,5 @@ Using built-in Grep/Glob for code navigation → use `search_code` instead; it's
 Reading a whole file to find one function → call `file_read({entity:'<name>'})`.
 Asking 'who calls X' by grepping for the name → call `get_references`; grep misses indirect refs.
 Calling `file_read` on >5 files in a row → switch to `get_references` / `search_code`; the question is graph-shaped.
-Skipping `get_critical_nodes` when planning a hot-path change → chokepoints have ranked impact; check before editing.
+Skipping the `get_references` fan_in check when planning a hot-path change → chokepoints carry caller impact; check before editing.
 Passing `token_budget:2000` for navigation → defeats the budget; navigation is structural, default 400 is enough.

@@ -1,26 +1,26 @@
 /**
  * A23 regression — the DISPATCH layer must flag a file read that withholds the
- * full file, so the follow-up `get_file` unlocks.
+ * full file via `_meta.gated` / `_meta.truncated`.
  *
- * Root cause (2026-05-31): `get_file`'s sole unlock condition is
- * FileReadTruncated, which `call-signals.ts` derived from `_meta.truncated`
- * ONLY. But a large `file_read` withholds content in shapes that never set
- * that flag:
+ * History (2026-05-31): this signal originally unlocked the `get_file` tool.
+ * After the token-overhead catalog reduction, `get_file` left the catalog
+ * entirely (its job folded into `file_read`), so NO tool unlocks on a
+ * truncated/gated read any more — `unerr_track` is the sole gated tool and it
+ * keys off turns + non-trivial activity, not truncation.
+ *
+ * What remains load-bearing — and is what this file now pins — is the dispatch
+ * behaviour itself: a large `file_read` withholds content in shapes that must
+ * surface on `_meta`, and a small read must surface neither flag:
  *   - gated outline (the common case): full file replaced by an outline.
  *     `_meta.gated:true`, but the small outline fits the budget so the
  *     budget-enforcer reports `truncated:false`.
- *   - wire-cap (`src/proxy/wire-cap.ts`): top-level `{status:"too_large"}` body.
- *   - entity gate (`file-read-protocol.ts`): top-level `{entity_overflow:true}`.
- * None of the three set `_meta.truncated`, so `get_file` never unlocked.
+ *   - wire-cap (`src/proxy/wire-cap.ts`): top-level `{status:"too_large"}` body
+ *     → the dispatch stamps `_meta.truncated`.
+ *   - entity gate (`file-read-protocol.ts`): top-level `{entity_overflow:true}`
+ *     → the dispatch stamps `_meta.truncated`.
  *
- * The fix has two parts, both exercised here through the REAL router dispatch:
- *   1. the dispatch stamps `_meta.truncated` for the top-level body markers
- *      (`status:"too_large"` / `entity_overflow`);
- *   2. `call-signals.ts` also treats `_meta.gated` as "content withheld".
- *
- * The prior unit test in `tool-tiers.test.ts` STUBBED `meta.truncated=true`, so
- * it passed while the dispatch was broken — a test-reality gap. This drives
- * `QueryRouter.execute` against real files on disk instead.
+ * These drive `QueryRouter.execute` against real files on disk (no stubbing),
+ * so the dispatch's meta-stamping stays honest.
  */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,9 +30,6 @@ import { initSchema } from "../intelligence/cozo-schema.js";
 import type { CozoDb } from "../intelligence/cozo-schema.js";
 import { CozoGraphStore } from "../intelligence/local-graph.js";
 import { QueryRouter } from "../intelligence/query-router.js";
-import { extractSignals } from "../proxy/call-signals.js";
-import { SessionState } from "../proxy/session-state.js";
-import { evaluateUnlocks } from "../proxy/unlock-evaluator.js";
 
 async function createMemDb(): Promise<CozoDb> {
   const cozoModule = await import("cozo-node");
@@ -53,32 +50,13 @@ function metaOf(result: unknown): Record<string, unknown> {
     >) ?? {}
   );
 }
-function contentOf(result: unknown): unknown {
-  return (result as { content?: unknown })?.content;
-}
-
-/** Push a real dispatch result through the unlock pipeline (no stubbing). */
-function unlocksAfter(
-  toolName: string,
-  args: Record<string, unknown>,
-  result: unknown
-): string[] {
-  const s = new SessionState();
-  const signals = extractSignals(toolName, {
-    args,
-    content: contentOf(result),
-    meta: metaOf(result) as never,
-  });
-  s.recordCall(signals);
-  return evaluateUnlocks(s).map((u) => u.toolName);
-}
 
 const BIG_FILE = Array.from(
   { length: 1200 },
   (_, i) => `export const symbol_${i} = ${i}; // padding line ${i}`
 ).join("\n");
 
-describe("A23 dispatch regression: a large file_read unlocks get_file", () => {
+describe("A23 dispatch regression: a large file_read stamps content-withheld meta", () => {
   let db: CozoDb;
   let store: CozoGraphStore;
   let router: QueryRouter;
@@ -99,19 +77,15 @@ describe("A23 dispatch regression: a large file_read unlocks get_file", () => {
     await db.close?.();
   });
 
-  it("gated outline path: large whole-file read sets _meta.gated and unlocks get_file", async () => {
+  it("gated outline path: large whole-file read sets _meta.gated", async () => {
     const args = { file_path: "big.ts" };
     const result = await router.execute("file_read", args);
 
     // The whole-file read of a large file is gated to an outline.
     expect(metaOf(result).gated).toBe(true);
-
-    const s = new SessionState();
-    expect(s.isExposed("get_file")).toBe(false);
-    expect(unlocksAfter("file_read", args, result)).toContain("get_file");
   });
 
-  it("wire-cap path: an oversized offset/limit read sets _meta.truncated and unlocks get_file", async () => {
+  it("wire-cap path: an oversized offset/limit read sets _meta.truncated", async () => {
     // Explicit offset/limit bypasses outline gating and returns raw numbered
     // content (~60 KB) which overflows the 8192-byte wire cap → the dispatch
     // stamps _meta.truncated off the top-level `status:"too_large"` body.
@@ -119,10 +93,9 @@ describe("A23 dispatch regression: a large file_read unlocks get_file", () => {
     const result = await router.execute("file_read", args);
 
     expect(metaOf(result).truncated).toBe(true);
-    expect(unlocksAfter("file_read", args, result)).toContain("get_file");
   });
 
-  it("small file_read within the cap neither gates nor truncates → get_file stays locked", async () => {
+  it("small file_read within the cap neither gates nor truncates", async () => {
     writeFileSync(join(root, "small.ts"), "export const a = 1;\n", "utf-8");
     const args = { file_path: "small.ts" };
     const result = await router.execute("file_read", args);
@@ -130,6 +103,5 @@ describe("A23 dispatch regression: a large file_read unlocks get_file", () => {
     const meta = metaOf(result);
     expect(meta.gated).not.toBe(true);
     expect(meta.truncated).not.toBe(true);
-    expect(unlocksAfter("file_read", args, result)).not.toContain("get_file");
   });
 });

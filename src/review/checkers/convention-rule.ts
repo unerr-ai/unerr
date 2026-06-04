@@ -1,5 +1,5 @@
 /**
- * `convention_rule` checker (docs/reviewer-architecture.md §3 Tier 1 #7, §11 P0.4).
+ * `convention_rule` checker (.internal/reviewer-architecture.md §3 Tier 1 #7, §11 P0.4).
  *
  * Wraps `intelligence/rule-evaluator.ts:evaluateRules` (already wired into
  * `check-commit`) — a change that violates a *project rule the team wrote*, not a

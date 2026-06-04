@@ -706,7 +706,7 @@ function parsePlaywright(lines: string[]): ParsedTestOutput {
 }
 
 function emitCompressed(parsed: ParsedTestOutput): string {
-  const parts: string[] = ["_shell_fmt:test_results"];
+  const parts: string[] = [];
 
   const counts: string[] = [];
   if (parsed.passed > 0) counts.push(`${parsed.passed} passed`);
@@ -774,9 +774,8 @@ function compressFallback(lines: string[]): string {
   const summary =
     lines.find((l) => /\b(tests?\s+\d+|passed|failed|suites?)/i.test(l)) ?? "";
   const body = kept.join("\n").trim();
-  return summary
-    ? `_shell_fmt:test_results\n_summary:${summary}\n${body}`
-    : `_shell_fmt:test_results\n${body}`;
+  // Summary content is load-bearing; the `_summary:` label was not.
+  return summary ? `${summary}\n${body}` : body;
 }
 
 export function compressTestResults(
@@ -837,7 +836,7 @@ export function compressTestResults(
   // exitCode 0 with no failures — we can be more aggressive
   if (exitCode === 0 && parsed.failures.length === 0 && parsed.passed > 0) {
     const durStr = parsed.duration ? ` (${parsed.duration})` : "";
-    return `_shell_fmt:test_results\n${parsed.framework}: ${parsed.passed} passed${parsed.skipped > 0 ? `, ${parsed.skipped} skipped` : ""}${durStr}`;
+    return `${parsed.framework}: ${parsed.passed} passed${parsed.skipped > 0 ? `, ${parsed.skipped} skipped` : ""}${durStr}`;
   }
 
   return emitCompressed(parsed);

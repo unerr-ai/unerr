@@ -14,7 +14,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Command } from "commander";
-import { UNERR_VERSION } from "../version.js";
 import { registerBranchesCommand } from "../commands/branches.js";
 import { registerCheckCommitCommand } from "../commands/check-commit.js";
 import { registerCompressOutputCommand } from "../commands/compress-output.js";
@@ -26,11 +25,11 @@ import {
   verifyUnerrOnPath,
 } from "../commands/doctor.js";
 import { registerExecCommand } from "../commands/exec.js";
-import { registerReconCommand } from "../commands/recon.js";
 import {
   registerDiscoverCommand,
   registerGainCommand,
 } from "../commands/gain.js";
+import { registerGraphCommand } from "../commands/graph.js";
 import { registerHookCommand } from "../commands/hook.js";
 import { registerIndexCommand } from "../commands/index.js";
 import { registerInitCommand } from "../commands/init.js";
@@ -38,6 +37,7 @@ import { registerInstallCommand } from "../commands/install.js";
 import { registerLearnCommand } from "../commands/learn.js";
 import { registerManifestCommand } from "../commands/manifest.js";
 import { registerPmCommand } from "../commands/pm.js";
+import { registerReconCommand } from "../commands/recon.js";
 import { registerReviewCommand } from "../commands/review.js";
 import { registerRewindCommand } from "../commands/rewind.js";
 import { registerRouterCommands } from "../commands/router.js";
@@ -55,9 +55,10 @@ import {
   repoLogsDir,
   sweepStaleScipIntermediates,
 } from "../utils/log-paths.js";
-import { classifyRepoCwd } from "../utils/repo-cwd-guard.js";
 import { sweepRotatedLogs } from "../utils/log-rotation.js";
+import { classifyRepoCwd } from "../utils/repo-cwd-guard.js";
 import { initFileLog } from "../utils/startup-log.js";
+import { UNERR_VERSION } from "../version.js";
 
 // ── Helpers ─────────────────────────────────────────────────
 
@@ -1490,6 +1491,7 @@ registerDebugCommand(program);
 registerDoctorCommand(program);
 registerGainCommand(program);
 registerReconCommand(program);
+registerGraphCommand(program);
 registerDiscoverCommand(program);
 registerPmCommand(program);
 registerReviewCommand(program);

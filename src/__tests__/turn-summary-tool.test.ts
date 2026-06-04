@@ -193,18 +193,16 @@ describe("handleTurnSummaryProxy", () => {
   });
 });
 
-describe("unerr_turn_summary tool registration", () => {
-  it("is registered as tier 1 in TIER_ENTRIES", () => {
-    const entry = TIER_ENTRIES.unerr_turn_summary;
-    expect(entry).toBeDefined();
-    expect(entry?.tier).toBe(1);
-    expect(entry?.active).toContain("end of every coding turn");
+describe("unerr_turn_summary is no longer a catalog member", () => {
+  // The token-overhead deletion removed unerr_turn_summary from the advertised
+  // catalog. It still dispatches by name (handleTurnSummaryProxy above), but it
+  // is absent from TIER_ENTRIES and TOOL_DEFINITIONS so no agent sees it.
+  it("is absent from TIER_ENTRIES", () => {
+    expect(TIER_ENTRIES.unerr_turn_summary).toBeUndefined();
   });
 
-  it("has a tool definition with empty input schema", () => {
+  it("is absent from TOOL_DEFINITIONS", () => {
     const def = TOOL_DEFINITIONS.find((t) => t.name === "unerr_turn_summary");
-    expect(def).toBeDefined();
-    expect(def?.inputSchema.type).toBe("object");
-    expect(def?.annotations?.readOnlyHint).toBe(true);
+    expect(def).toBeUndefined();
   });
 });

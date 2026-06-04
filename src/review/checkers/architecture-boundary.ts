@@ -1,5 +1,5 @@
 /**
- * `architecture_boundary` checker (docs/reviewer-architecture.md §3 Tier 1 #6, §11 P0.4).
+ * `architecture_boundary` checker (.internal/reviewer-architecture.md §3 Tier 1 #6, §11 P0.4).
  *
  * Wraps `intelligence/boundary-check.ts:computeBoundaryViolations` — a
  * cross-layer implementation import that compiles fine but couples layers the

@@ -21,6 +21,16 @@ import {
   readdirSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+// Static ESM imports, NOT require(): the tsup bundle is pure ESM, where
+// require() hits esbuild's "Dynamic require is not supported" stub — these
+// two are needed in SYNC contexts (runBoundaryValidation, the /commit-context
+// HTTP handler) where `await import()` is unavailable. Both are light
+// (definitions + node:fs only), so static import costs nothing at boot.
+import {
+  DEEP_DIVE_TOOL_DEFINITIONS,
+  NAVIGATION_TOOL_NAMES,
+} from "../intelligence/deep-dive-tools.js";
+import { getCommitTrailers } from "../tracking/git-trailers.js";
 import { getPromptsForSession } from "../tracking/prompt-trace.js";
 import { createReconDetector } from "../tracking/turn-telemetry.js";
 import { UNERR_VERSION } from "../version.js";
@@ -51,15 +61,7 @@ import {
 import { StartupRenderer } from "./startup-renderer.js";
 import { ToolUsageTracker, reorderToolsByCluster } from "./tool-clusters.js";
 import { TOOL_DEFINITIONS, type ToolDefinition } from "./tool-definitions.js";
-import {
-  type HookCapProfile,
-  hiddenToolNames,
-  hiddenToolNamesForCaps,
-} from "./tool-descriptions.js";
-import {
-  getHookCapabilities,
-  resolveAgentId as resolveAgentIdStatic,
-} from "../config/agent-registry.js";
+import { hiddenToolNames } from "./tool-descriptions.js";
 import { translateUnerrTrack } from "./unerr-track.js";
 
 import { installFileLogger } from "../utils/file-logger.js";
@@ -1399,15 +1401,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       (t) => t.name === toolName
     );
     if (!def) {
-      try {
-        // biome-ignore format: typeof import() must stay on one line for TS parsing
-        const { DEEP_DIVE_TOOL_DEFINITIONS } = require("../intelligence/deep-dive-tools.js") as typeof import("../intelligence/deep-dive-tools.js");
-        def = (DEEP_DIVE_TOOL_DEFINITIONS as readonly ToolDef[]).find(
-          (t) => t.name === toolName
-        );
-      } catch {
-        /* deep-dive not available — base validation is enough */
-      }
+      def = (DEEP_DIVE_TOOL_DEFINITIONS as readonly ToolDef[]).find(
+        (t) => t.name === toolName
+      );
     }
     if (!def) return null;
     return aliasAndValidate(def, toolArgs);
@@ -1426,10 +1422,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   async function buildInjectedTools(): Promise<ToolDef[]> {
     const graph = localGraph;
     if (!graph) return toolDefinitions;
-    // biome-ignore format: typeof import() must stay on one line for TS parsing
-    const { injectRuleContext, getBlockRules } = require("../intelligence/tool-injector.js") as typeof import("../intelligence/tool-injector.js");
-    // biome-ignore format: typeof import() must stay on one line for TS parsing
-    const { DEEP_DIVE_TOOL_DEFINITIONS, NAVIGATION_TOOL_NAMES } = require("../intelligence/deep-dive-tools.js") as typeof import("../intelligence/deep-dive-tools.js");
+    // await import, NOT require(): pure-ESM tsup bundle (require() throws).
+    const { injectRuleContext, getBlockRules } = await import(
+      "../intelligence/tool-injector.js"
+    );
 
     const currentDeepDiveState = await graph.getDeepDiveProjectState();
 
@@ -1470,8 +1466,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     if (!graph) return;
     injectedToolsRefreshInFlight = (async () => {
       try {
-        // biome-ignore format: typeof import() must stay on one line for TS parsing
-        const { needsRefresh } = require("../intelligence/tool-injector.js") as typeof import("../intelligence/tool-injector.js");
+        const { needsRefresh } = await import(
+          "../intelligence/tool-injector.js"
+        );
         const stateChanged =
           (await graph.getDeepDiveProjectState()) !== cachedDeepDiveState;
         if (stateChanged || (await needsRefresh(graph, cachedBlockRuleKeys))) {
@@ -1533,56 +1530,17 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // catalog. A retired tool stays dispatchable by name (hook UDS path,
   // op-union) but never reaches the model's view. Computed once — the hidden
   // set is module-load-stable.
+  // Advertisement filter: drop any `hidden` catalog member from `tools/list`
+  // while keeping it dispatchable by name (hook UDS path, op-union). After the
+  // token-overhead deletion the catalog is exactly the 9 advertised tools, so
+  // `hiddenToolNames()` is empty and this is a no-op — but it stays load-bearing
+  // so a future `hidden:true` entry is honoured without re-plumbing tools/list.
   const HIDDEN_TOOL_NAMES = new Set(hiddenToolNames());
-  // Agent-aware advertisement (Sprint 7 keystone): hook-replaced ceremony
-  // tools (recall, turn-summary, …) are dropped from tools/list ONLY for the
-  // requesting agent's hook profile. When the agent is unidentified we use the
-  // no-hooks profile, which retires nothing conditional — every MCP fallback
-  // stays advertised, so an unknown client never loses a tool it needs.
-  const NO_HOOK_CAPS: HookCapProfile = {
-    promptContextInject: false,
-    toolContextInject: false,
-    sessionStart: false,
-    stop: false,
-  };
-  function resolveRequestCaps(): HookCapProfile {
-    try {
-      // stdio standalone: the connected client's MCP clientInfo.name. Bridged
-      // (UDS) sessions populate agentNameByClient via the initialize handshake;
-      // fall back to the most-recently-resolved agent (mirrors the timeline /
-      // resume getAgentName fallbacks below).
-      const name =
-        server.getClientVersion?.()?.name ??
-        [...agentNameByClient.values()].pop();
-      if (!name) return NO_HOOK_CAPS;
-      const id = resolveAgentIdStatic({
-        codingAgent: null,
-        clientInfoName: name,
-        detectFromEnv: () => null,
-      });
-      // resolveAgentId returns a canonical id string; getHookCapabilities maps
-      // an unknown id to DEFAULT_NO_HOOKS, so the cast is safe.
-      const caps = getHookCapabilities(
-        id as Parameters<typeof getHookCapabilities>[0]
-      );
-      return {
-        promptContextInject: caps.promptContextInject,
-        toolContextInject: caps.toolContextInject,
-        sessionStart: caps.sessionStart,
-        stop: caps.stop,
-      };
-    } catch {
-      return NO_HOOK_CAPS;
-    }
-  }
   async function getAdvertisedTools(): Promise<ToolDef[]> {
     const tools = await getInjectedTools();
-    const hidden = new Set(hiddenToolNamesForCaps(resolveRequestCaps()));
-    // HIDDEN_TOOL_NAMES (the unconditional set) is always a subset of `hidden`,
-    // so the capability-aware set alone is the correct filter. Reference it so
-    // the always-hidden invariant stays load-bearing for readers.
-    void HIDDEN_TOOL_NAMES;
-    return hidden.size === 0 ? tools : tools.filter((t) => !hidden.has(t.name));
+    return HIDDEN_TOOL_NAMES.size === 0
+      ? tools
+      : tools.filter((t) => !HIDDEN_TOOL_NAMES.has(t.name));
   }
 
   // P0-3 + S7: Apply tier-aware exposure rendering (locked tools get the
@@ -2683,8 +2641,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
   // Sprint 10.5: Add custom HTTP handler for /commit-context (git trailer injection)
   transportMux.setCustomHttpHandler("/commit-context", (_url) => {
-    // biome-ignore format: keep import() type on one line for TS compat
-    const { getCommitTrailers } = require("../tracking/git-trailers.js") as typeof import("../tracking/git-trailers.js");
     const branch = branchContext?.currentBranch ?? "unknown";
     const timelineBranch = workingSnapshotStore.getTimelineBranch();
     const trailers = getCommitTrailers(shadowLedger, timelineBranch, branch);
@@ -2981,7 +2937,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const { indexLocalProject } = await import(
         "../intelligence/local-indexer.js"
       );
-      const { checkpointWal } = await import(
+      const { checkpointWalDetached } = await import(
         "../intelligence/persistent-db.js"
       );
       const repoId = repoIds[0] as string;
@@ -2996,9 +2952,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         const result = await indexLocalProject(cwd, localGraph, repoId);
         // Fold + truncate graph.db-wal after the full-reindex write burst
         // (a full reindex re-upserts the whole graph via :put, appending the
-        // entire dataset to the WAL). Fire-and-forget so the graph swap is not
-        // delayed; checkpointWal is best-effort and swallows its own errors.
-        if (graphDbPath) void checkpointWal(graphDbPath);
+        // entire dataset to the WAL). MUST be the detached (child-process)
+        // variant while cozo is live — an in-process checkpoint cancels
+        // cozo's POSIX locks on close (howtocorrupt.html §2.3) and crashed
+        // the proxy with SIGBUS/SIGABRT. Fire-and-forget so the graph swap
+        // is not delayed.
+        if (graphDbPath) checkpointWalDetached(graphDbPath);
         return { graph: localGraph, result };
       });
 
@@ -3015,7 +2974,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         );
         // Same idle-path WAL fold as the full rebuild — keeps graph.db-wal
         // from creeping up across a long editing session of small writes.
-        if (graphDbPath) void checkpointWal(graphDbPath);
+        // Detached for the same reason as above: cozo holds graph.db live.
+        if (graphDbPath) checkpointWalDetached(graphDbPath);
         return result;
       });
 
@@ -3684,6 +3644,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // ── Step 7d: Periodic stats snapshot (for `unerr status`) ─────
   const { writeFileSync: writeStatsFile } = await import("node:fs");
   const { computePercentiles } = await import("./session-stats.js"); // same dir
+  const { writeLiveSessionSnapshot, clearLiveSessionSnapshot } = await import(
+    "../tracking/weekly-accumulator.js"
+  );
+  // Flipped by shutdown once the session is folded into stats.json — the
+  // final writeStatsSnapshot() call there must not re-create the live
+  // sidecar, or `unerr stats` would count this session twice.
+  let liveStatsFinalized = false;
 
   const statsSnapshotPath = join(stateDir, "session_stats.json");
   // Persist the live session stats to disk. Shared by the periodic timer and
@@ -3723,6 +3690,22 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         JSON.stringify(snapshot, null, 2),
         "utf-8"
       );
+      // Mid-session global sidecar so `unerr stats` reflects in-flight
+      // sessions (regression 6f: stats printed "No sessions recorded yet"
+      // during a live session). Replaced wholesale every tick; cleared when
+      // shutdown folds the session into stats.json.
+      if (!liveStatsFinalized) {
+        writeLiveSessionSnapshot({
+          sessionId: shadowLedger.getSessionId(),
+          tokensSaved:
+            stats.localMode?.tokensSavedByTruncation ??
+            stats.estimatedTokensSaved,
+          toolCalls: stats.toolCallsLocal,
+          violationsCaught: stats.violationsCaught,
+          efficiency: router.getEfficiencySnapshot()?.efficiency ?? 0,
+          updatedAt: new Date().toISOString(),
+        });
+      }
     } catch {
       /* non-critical */
     }
@@ -3980,6 +3963,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       }
 
       // Persist session stats via unified weekly accumulator (S8.4)
+      // Finalize live-stats first: from here the session is folded into
+      // stats.json, so the mid-session sidecar must go away (and the final
+      // writeStatsSnapshot() below must not re-create it) or `unerr stats`
+      // would count this session twice.
+      liveStatsFinalized = true;
+      clearLiveSessionSnapshot(shadowLedger.getSessionId());
       const total = stats.toolCallsLocal;
       if (total > 0) {
         // Layer 10: Compute token flow summary for persistence + receipt
@@ -3989,10 +3978,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         let mechanismBreakdown: Record<string, number> | undefined;
         if (tokenFlowWriter) {
           try {
-            const { aggregateSession: aggSession } =
-              require("../tracking/token-flow.js") as typeof import(
-                "../tracking/token-flow.js"
-              );
+            const { aggregateSession: aggSession } = await import(
+              "../tracking/token-flow.js"
+            );
             tokenFlowSummary = aggSession(
               tokenFlowWriter.getSessionEvents(),
               tokenFlowWriter.sessionId
@@ -4010,10 +3998,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           }
         }
 
-        // biome-ignore format: typeof import() must stay single-line for TS
-        const { accumulateSession } = require("../tracking/weekly-accumulator.js") as typeof import("../tracking/weekly-accumulator.js");
-        const { computePercentiles } =
-          require("./session-stats.js") as typeof import("./session-stats.js");
+        // await import, NOT require(): pure-ESM tsup bundle — require() threw
+        // here at runtime, so stats.json was NEVER written at shutdown.
+        const { accumulateSession } = await import(
+          "../tracking/weekly-accumulator.js"
+        );
+        const { computePercentiles } = await import("./session-stats.js");
         const localPercentiles = computePercentiles(
           stats.latency.localSamples,
           stats.latency.localTotalSamples
@@ -4038,10 +4028,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         // Layer 10: Persist session history with token flow summary
         if (tokenFlowSummary && tokenFlowSummary.total_tokens_saved > 0) {
           try {
-            const { appendSessionHistory } =
-              require("../tracking/session-history.js") as typeof import(
-                "../tracking/session-history.js"
-              );
+            const { appendSessionHistory } = await import(
+              "../tracking/session-history.js"
+            );
             const topMech = Object.entries(tokenFlowSummary.by_mechanism).sort(
               ([, a], [, b]) => b.tokens_saved - a.tokens_saved
             )[0];
@@ -4062,11 +4051,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                 // Last-resort env probe so the session row never falls
                 // back to "Unknown Agent" when the IDE skipped sending
                 // clientInfo (some bridges + older clients do this).
-                (
-                  require("../utils/detect.js") as typeof import(
-                    "../utils/detect.js"
-                  )
-                ).detectAgentNameFromEnv() ??
+                (await import("../utils/detect.js")).detectAgentNameFromEnv() ??
                 undefined,
               tokenFlowSummary: {
                 by_mechanism: Object.fromEntries(
@@ -4094,10 +4079,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         // Layer 10: Print session receipt
         if (tokenFlowSummary && tokenFlowSummary.total_tokens_saved > 0) {
           try {
-            const { printSessionReceipt } =
-              require("../tracking/session-receipt.js") as typeof import(
-                "../tracking/session-receipt.js"
-              );
+            const { printSessionReceipt } = await import(
+              "../tracking/session-receipt.js"
+            );
             printSessionReceipt({
               summary: tokenFlowSummary,
               durationMs: Date.now() - stats.sessionStartedAt,
@@ -4123,8 +4107,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         };
 
         // S8.6: Build scorecard for session summary display
-        // biome-ignore format: typeof import() must stay single-line for TS
-        const { formatScorecard, formatCounterfactual } = require("../config/value-surfacing.js") as typeof import("../config/value-surfacing.js");
+        const { formatScorecard, formatCounterfactual } = await import(
+          "../config/value-surfacing.js"
+        );
         const tokensSaved =
           stats.localMode?.tokensSavedByTruncation ??
           stats.estimatedTokensSaved;
@@ -4150,11 +4135,19 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             : undefined;
 
         try {
-          const React = require("react") as any;
-          const { SessionSummaryCard } =
-            require("../components/SessionSummaryCard.js") as any;
-          const { ThemeProvider } = require("../components/Theme.js") as any;
-          const { renderToStderr } = require("../components/render.js") as any;
+          // react is CJS — its module.exports lands on `.default` under ESM
+          // dynamic import (esbuild __toESM interop), hence the ?? fallback.
+          const reactMod = (await import("react")) as any;
+          const React = reactMod.default ?? reactMod;
+          const { SessionSummaryCard } = (await import(
+            "../components/SessionSummaryCard.js"
+          )) as any;
+          const { ThemeProvider } = (await import(
+            "../components/Theme.js"
+          )) as any;
+          const { renderToStderr } = (await import(
+            "../components/render.js"
+          )) as any;
           const el = React.createElement(
             ThemeProvider,
             null,
@@ -4222,10 +4215,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // Sprint 5: Run session pattern analyzer at shutdown
       if (proxyFactStore && ledgerStats.totalEntries > 0) {
         try {
-          const { analyzeSessionPatterns } =
-            require("../intelligence/session-pattern-analyzer.js") as typeof import(
-              "../intelligence/session-pattern-analyzer.js"
-            );
+          const { analyzeSessionPatterns } = await import(
+            "../intelligence/session-pattern-analyzer.js"
+          );
           const entries = shadowLedger.getRecentEntries(100);
           analyzeSessionPatterns({
             ledgerEntries: entries,
@@ -4251,8 +4243,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // Leapfrog Sprint B: Run correction detector on this session's ledger entries
       if (localGraph && ledgerStats.totalEntries > 0) {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const correctionModule = require("../tracking/correction-detector.js");
+          const correctionModule = await import(
+            "../tracking/correction-detector.js"
+          );
           const detectCorrections = correctionModule.detectCorrections as (
             ledgerPath: string,
             opts?: { since_days?: number }
@@ -4400,10 +4393,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       }
       // Release SQLite metrics handle(s).
       try {
-        const { closeAllMetricsStores } =
-          require("../tracking/metrics-store.js") as typeof import(
-            "../tracking/metrics-store.js"
-          );
+        const { closeAllMetricsStores } = await import(
+          "../tracking/metrics-store.js"
+        );
         closeAllMetricsStores();
       } catch {
         /* metrics store may not have been opened this session */

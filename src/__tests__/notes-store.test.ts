@@ -5,12 +5,6 @@ import {
   NOTES_SESSION_SAVE_CAP,
   NotesStore,
 } from "../intelligence/notes-store.js";
-import {
-  NOTES_FAMILY_NAME,
-  NOTES_FAMILY_TOOLS,
-  withNotesAlwaysOn,
-  withNotesKnown,
-} from "../router/notes-family.js";
 import { recallNotes, remember } from "../tools/intelligence/notes-mcp.js";
 
 async function createTestDb(): Promise<CozoDb> {
@@ -207,6 +201,82 @@ describe("NotesStore.recallByPrompt (B3a)", () => {
     });
     expect(result.notes.length).toBe(1);
   });
+
+  // Regression (Moment-1/Moment-2 contract): recallByPrompt used to default
+  // to ["p:"] when no candidate_anchors were passed — and no caller ever
+  // passed any, so a note anchored to a file NAMED IN THE PROMPT never rode
+  // along in the prompt-receipt hook or the unerr_context bundle.
+  it("recalls an f:-anchored note when the prompt names the file", async () => {
+    await store.upsertNote({
+      note: "rul|f:src/proxy/bridge.ts|-|no intelligence imports",
+      session_id: SESSION,
+      prompt_hash: "p1",
+    });
+    const result = await store.recallByPrompt({
+      prompt: "refactor the heartbeat handling in src/proxy/bridge.ts",
+    });
+    expect(result.notes.map((n) => n.anchor_value)).toContain(
+      "src/proxy/bridge.ts"
+    );
+  });
+
+  it("recalls an e:-anchored note when the prompt contains the identifier", async () => {
+    await store.upsertNote({
+      note: "dec|e:TURN_OPEN_GAP_MS|+|15s avoids RTT misclassification",
+      session_id: SESSION,
+      prompt_hash: "p1",
+    });
+    const result = await store.recallByPrompt({
+      prompt: "should I change TURN_OPEN_GAP_MS to 20 seconds?",
+    });
+    expect(result.notes.map((n) => n.anchor_value)).toContain(
+      "TURN_OPEN_GAP_MS"
+    );
+  });
+
+  it("recalls a g:-anchored note when the prompt names a matching file", async () => {
+    await store.upsertNote({
+      note: "wrn|g:*.test.ts|-|don't mock cozo db",
+      session_id: SESSION,
+      prompt_hash: "p1",
+    });
+    const result = await store.recallByPrompt({
+      prompt: "add a case to src/__tests__/notes-store.test.ts",
+    });
+    expect(result.notes.map((n) => n.anchor_value)).toContain("*.test.ts");
+  });
+
+  it("project-wide notes ride along with anchored ones", async () => {
+    await store.upsertNote({
+      note: "cnv|p:|+|all CozoDB calls use await",
+      session_id: SESSION,
+      prompt_hash: "p1",
+    });
+    await store.upsertNote({
+      note: "rul|f:src/proxy/bridge.ts|-|no intelligence imports",
+      session_id: SESSION,
+      prompt_hash: "p2",
+    });
+    const result = await store.recallByPrompt({
+      prompt: "edit src/proxy/bridge.ts",
+    });
+    const types = result.notes.map((n) => n.anchor_type).sort();
+    expect(types).toEqual(["f", "p"]);
+  });
+
+  it("does not duplicate a note matched by both exact anchor and glob", async () => {
+    await store.upsertNote({
+      note: "wrn|g:src/proxy/*.ts|-|stdout is MCP JSON-RPC only",
+      session_id: SESSION,
+      prompt_hash: "p1",
+    });
+    const result = await store.recallByPrompt({
+      prompt: "edit src/proxy/bridge.ts and src/proxy/proxy.ts",
+    });
+    const ids = result.notes.map((n) => n.note_id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(result.notes.map((n) => n.anchor_value)).toContain("src/proxy/*.ts");
+  });
 });
 
 describe("NotesStore.upsertCoChange (B3a)", () => {
@@ -381,23 +451,7 @@ describe("notes-mcp dispatch (B3a)", () => {
   });
 });
 
-describe("notes family registration (B3a)", () => {
-  it("declares NOTES_FAMILY_NAME = 'notes' and two tools", () => {
-    expect(NOTES_FAMILY_NAME).toBe("notes");
-    expect(NOTES_FAMILY_TOOLS).toEqual([
-      "unerr_recall_notes",
-      "unerr_remember",
-    ]);
-  });
-
-  it("withNotesAlwaysOn extends the always-on set", () => {
-    const out = withNotesAlwaysOn(new Set(["fs", "git"]));
-    expect(out.has("notes")).toBe(true);
-    expect(out.has("fs")).toBe(true);
-  });
-
-  it("withNotesKnown extends the known-families set", () => {
-    const out = withNotesKnown(new Set(["fs"]));
-    expect(out.has("notes")).toBe(true);
-  });
-});
+// The standalone notes-family registration (B3a) retired with unerr_remember's
+// catalog removal (2026-06) — the write path is hook-driven now (UserPromptSubmit
+// capture + `unerr-save:` Stop-hook sentinel), dispatched by name over UDS.
+// Family retirement is locked by src/__tests__/unerr-families.test.ts.

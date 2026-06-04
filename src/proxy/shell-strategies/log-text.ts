@@ -106,7 +106,7 @@ export function compressLogText(text: string, command?: string): string {
     const probe = isCleanSuccess(text);
     if (probe.ok) {
       const label = isBuild ? "build ok" : "ok";
-      return `_shell_fmt:log_text\n${label} — ${probe.line ?? "succeeded"} (${total} lines suppressed)`;
+      return `${label} — ${probe.line ?? "succeeded"} (${total} lines suppressed)`;
     }
   }
 
@@ -138,7 +138,7 @@ export function compressLogText(text: string, command?: string): string {
     }
   }
 
-  const parts: string[] = ["_shell_fmt:log_text"];
+  const parts: string[] = [];
   parts.push(`(${total} lines, ${patterns.size} unique patterns)`);
 
   // Errors first — dedup identical error/warning lines with [×N]

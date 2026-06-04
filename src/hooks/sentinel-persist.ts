@@ -21,17 +21,27 @@ import type { SentinelSave } from "./sentinel-scrape.js";
  *  round-trip with headroom while staying under any IDE hook timeout. */
 export const DEFAULT_PERSIST_TIMEOUT_MS = 400;
 
+/** Per-save ceiling for the detached `unerr hook stop-persist` worker. The
+ *  worker runs outside any IDE hook deadline (spawned detached + unref'd by
+ *  the Stop hook), so it can afford a relaxed budget that survives a cold
+ *  proxy or momentary load instead of dropping the save. */
+export const STOP_PERSIST_WORKER_TIMEOUT_MS = 2000;
+
 export interface PersistOptions {
   sockPath?: string;
   timeoutMs?: number;
 }
 
 /** Map a parsed sentinel to its proxy `tools/call` (name + arguments). */
-function toToolCall(
-  save: SentinelSave
-): { name: string; arguments: Record<string, unknown> } {
+function toToolCall(save: SentinelSave): {
+  name: string;
+  arguments: Record<string, unknown>;
+} {
   if (save.kind === "note") {
-    return { name: "unerr_remember", arguments: { type: "note", note: save.wire } };
+    return {
+      name: "unerr_remember",
+      arguments: { type: "note", note: save.wire },
+    };
   }
   const toolByOp: Record<string, string> = {
     intent: "mark_intent",

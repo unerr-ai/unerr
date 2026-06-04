@@ -155,11 +155,7 @@ export function compressKeyValue(raw: string, command?: string): string {
   // Nothing to compress: input has no key=value or key:value rows. The
   // classifier sometimes maps a `git`/`kubectl` subcommand to key_value
   // (correct hint) even when the actual output is a single bare word
-  // (e.g. `git branch --show-current` → "main\n"). Emitting the
-  // `_shell_fmt:key_value\n` header on a sub-header-length payload is
-  // strictly net-negative — passthrough verbatim instead. Matches the
-  // "header is fixed overhead with nothing to decode" convention from
-  // log_text / omni / progress / yaml / tabular.
+  // (e.g. `git branch --show-current` → "main\n") — passthrough verbatim.
   if (colonCount === 0 && equalsCount === 0) return raw;
 
   if (colonCount > equalsCount) {
@@ -168,7 +164,7 @@ export function compressKeyValue(raw: string, command?: string): string {
       body.length > 8000
         ? `${body.slice(0, 5000)}\n…kv_omitted…\n${body.slice(-2000)}`
         : body;
-    return `_shell_fmt:key_value\n${clipped}`;
+    return clipped;
   }
 
   // Original KEY=VALUE format handling
@@ -199,5 +195,5 @@ export function compressKeyValue(raw: string, command?: string): string {
     body.length > 8000
       ? `${body.slice(0, 5000)}\n…kv_omitted…\n${body.slice(-2000)}`
       : body;
-  return `_shell_fmt:key_value\n${clipped}`;
+  return clipped;
 }

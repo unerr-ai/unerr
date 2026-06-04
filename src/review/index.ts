@@ -1,5 +1,5 @@
 /**
- * Public surface of the unerr review engine (docs/reviewer-architecture.md §4).
+ * Public surface of the unerr review engine (.internal/reviewer-architecture.md §4).
  * One engine, three surfaces — import from here, not from internal modules.
  */
 

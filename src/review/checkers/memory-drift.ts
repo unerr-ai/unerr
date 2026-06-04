@@ -1,5 +1,5 @@
 /**
- * `memory_drift` checker (docs/reviewer-architecture.md §3 Tier 1 #8, §11 P0.4).
+ * `memory_drift` checker (.internal/reviewer-architecture.md §3 Tier 1 #8, §11 P0.4).
  *
  * Code↔memory drift: an entity changed under an active `dec` (decision) or `rul`
  * (rule) note, without that decision being reconsidered. unerr's anchored-notes
@@ -60,7 +60,7 @@ export class MemoryDriftChecker implements ReviewChecker {
           evidence: [
             `${note.kind}|${note.anchor}|${note.polarity}|${note.content}`,
           ],
-          action: `re-read the ${note.kind} note on ${note.anchor}; confirm the change to ${change.name} still honors it, else supersede it via unerr_remember({type:'note', supersedes_note_id:'<id>'})`,
+          action: `re-read the ${note.kind} note on ${note.anchor}; confirm the change to ${change.name} still honors it, else emit unerr-save: note ${note.kind}|${note.anchor}|~|<updated decision> in your closing message to supersede it`,
           needsModel: false,
         });
       }

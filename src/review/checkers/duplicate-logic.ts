@@ -1,5 +1,5 @@
 /**
- * `duplicate_logic` checker (docs/reviewer-architecture.md §3 Tier 1 #5, §11 P0.5).
+ * `duplicate_logic` checker (.internal/reviewer-architecture.md §3 Tier 1 #5, §11 P0.5).
  *
  * A newly added entity that duplicates an existing utility — a DRY breach across
  * files that lint never sees (it only ever looks at one file). The narrow

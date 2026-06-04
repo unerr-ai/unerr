@@ -1,5 +1,5 @@
 /**
- * `incomplete_refactor` checker (docs/reviewer-architecture.md §3 Tier 1 #3, §11 P0.4).
+ * `incomplete_refactor` checker (.internal/reviewer-architecture.md §3 Tier 1 #3, §11 P0.4).
  *
  * Wraps `intelligence/edit-impact.ts:reconcileIncompleteCallers` — a signature
  * change applied in some call sites but not all. Distinct from `breaking_callers`

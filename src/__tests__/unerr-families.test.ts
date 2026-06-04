@@ -2,19 +2,14 @@
  * Registry guard for src/router/unerr-families.ts.
  *
  * Locks the contract that every unerr MCP tool is wrapped under the MCP
- * router's family-membership system. Without this guard, the active-cognition
- * `notes` family would be the only fully-wired unerr family — graph / file /
- * fact / markers / web tools would have no declared family, and any future
+ * router's family-membership system. Without this guard, graph / file /
+ * markers / web tools would have no declared family, and any future
  * router instantiation would mask them by default.
  */
 
 import { describe, expect, it } from "vitest";
 import { TIER_ENTRIES } from "../proxy/tool-descriptions.js";
 import { FamilyMaskEngine } from "../router/family-mask.js";
-import {
-  NOTES_FAMILY_NAME,
-  NOTES_FAMILY_TOOLS,
-} from "../router/notes-family.js";
 import {
   UNERR_FAMILIES,
   UNERR_FAMILY_NAMES,
@@ -24,19 +19,17 @@ import {
 } from "../router/unerr-families.js";
 
 describe("UNERR_FAMILIES — every TIER_ENTRIES tool has a family", () => {
-  it("registers all 27 tools currently in TIER_ENTRIES", () => {
+  it("registers all 8 tools currently in TIER_ENTRIES", () => {
     const tooled = Object.keys(TIER_ENTRIES).sort();
     const registered = [...UNERR_TOOL_TO_FAMILY.keys()].sort();
     expect(registered).toEqual(tooled);
   });
 
-  it("six families: graph, file, notes, fact, markers, web", () => {
+  it("four families: graph, file, markers, web", () => {
     expect([...UNERR_FAMILY_NAMES].sort()).toEqual([
-      "fact",
       "file",
       "graph",
       "markers",
-      "notes",
       "web",
     ]);
   });
@@ -58,11 +51,14 @@ describe("UNERR_FAMILIES — every TIER_ENTRIES tool has a family", () => {
   });
 });
 
-describe("UNERR_FAMILIES — notes family consistency", () => {
-  it("notes family in UNERR_FAMILIES matches the standalone notes-family declaration", () => {
-    const notes = UNERR_FAMILIES.notes;
-    expect(notes.name).toBe(NOTES_FAMILY_NAME);
-    expect([...notes.tools].sort()).toEqual([...NOTES_FAMILY_TOOLS].sort());
+describe("UNERR_FAMILIES — retired notes family stays retired", () => {
+  it("unerr_remember left the catalog with the notes family (2026-06)", () => {
+    // Layer B writes ride hooks now: user rules at UserPromptSubmit
+    // (remember-client.ts), agent notes via the `unerr-save:` Stop-hook
+    // sentinel (sentinel-persist.ts). unerr_remember dispatches by name only.
+    expect(TIER_ENTRIES.unerr_remember).toBeUndefined();
+    expect(UNERR_TOOL_TO_FAMILY.get("unerr_remember")).toBeUndefined();
+    expect(UNERR_FAMILY_NAMES.has("notes" as never)).toBe(false);
   });
 });
 
@@ -86,7 +82,7 @@ describe("UNERR_FAMILIES — always-on integration", () => {
     expect(merged.has("pg")).toBe(true);
     expect(merged.has("gh")).toBe(true);
     expect(merged.has("graph")).toBe(true);
-    expect(merged.has("notes")).toBe(true);
+    expect(merged.has("markers")).toBe(true);
   });
 });
 
@@ -95,19 +91,17 @@ describe("UNERR_TOOL_TO_FAMILY — reverse lookup", () => {
     expect(UNERR_TOOL_TO_FAMILY.get("search_code")).toBe("graph");
   });
 
-  it("resolves unerr_recall_notes to notes", () => {
-    expect(UNERR_TOOL_TO_FAMILY.get("unerr_recall_notes")).toBe("notes");
+  it("resolves unerr_track to markers", () => {
+    expect(UNERR_TOOL_TO_FAMILY.get("unerr_track")).toBe("markers");
   });
 
-  it("resolves unerr_remember to notes (active-cognition takes precedence over legacy fact)", () => {
-    // unerr_remember is overloaded: type:'note'|'cochange'|'move_anchor'|
-    // 'promote_to_claude_md' → notes path; absent type → legacy fact alias.
-    // Family membership reflects the *primary* contract (active-cognition).
-    expect(UNERR_TOOL_TO_FAMILY.get("unerr_remember")).toBe("notes");
-  });
-
-  it("resolves mark_intent to markers", () => {
-    expect(UNERR_TOOL_TO_FAMILY.get("mark_intent")).toBe("markers");
+  it("returns undefined for removed (non-catalog) tools", () => {
+    // unerr_recall_notes, mark_intent, and unerr_remember were dropped from
+    // the advertised catalog; they dispatch by-name only and belong to no
+    // router family.
+    expect(UNERR_TOOL_TO_FAMILY.get("unerr_recall_notes")).toBeUndefined();
+    expect(UNERR_TOOL_TO_FAMILY.get("mark_intent")).toBeUndefined();
+    expect(UNERR_TOOL_TO_FAMILY.get("unerr_remember")).toBeUndefined();
   });
 
   it("resolves fetch_url to web", () => {

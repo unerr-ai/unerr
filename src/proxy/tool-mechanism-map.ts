@@ -62,13 +62,24 @@ export interface MechanismEntry {
 }
 
 /**
- * The verdict for every tool currently in TIER_ENTRIES (27, incl. the
- * unerr_track op-union added in Sprint 8).
+ * The verdict for every tool in TIER_ENTRIES — now exactly the 8 advertised
+ * survivors (the Phase-2 migration is complete; the removed names are no
+ * longer catalog members, so the drift guard would reject a verdict for them).
  *
- * Survivors (mechanism "mcp", 6) are the interactive reads the model drives:
- *   unerr_context, search_code, file_read, file_outline, get_entity, fetch_url.
- * unerr_track is mechanism "hook" (the consolidated write surface) — it rides
- * its constituents' hooks and stays an MCP fallback for hook-less agents.
+ * Survivors (mechanism "mcp", 7) are the interactive reads the model drives:
+ *   unerr_context, search_code, file_read, file_outline, get_entity,
+ *   get_references, fetch_url.
+ * The one advertised write (unerr_track) is mechanism "hook" — it rides
+ * lifecycle hooks for hook-capable agents and stays advertised as the MCP
+ * escape for hook-less ones.
+ *
+ * The capabilities that USED to be catalog tools (mark_*, record_fact,
+ * recall_facts, get_conventions, get_imports, get_file, get_project_stats,
+ * review_changes, get_critical_nodes, get_cross_boundary_links,
+ * file_connections, get_test_coverage, unerr_surface2_line, unerr_turn_summary)
+ * are gone from the catalog. They remain reachable only by-name — via a hook's
+ * UDS `tools/call`, the unerr_track op-union, the unerr_context composite, or an
+ * `unerr exec`/`unerr review`/`unerr stats` CLI — so they need no verdict here.
  */
 export const TOOL_MECHANISM: Readonly<Record<string, MechanismEntry>> = {
   // ── Survivors — interactive reads (need a payload this turn) ────────────
@@ -87,146 +98,34 @@ export const TOOL_MECHANISM: Readonly<Record<string, MechanismEntry>> = {
   },
   file_outline: {
     mechanism: "mcp",
-    rationale: "Model needs structure back; absorbs get_file.",
+    rationale: "Model needs file structure back to plan a targeted read.",
   },
   get_entity: {
     mechanism: "mcp",
     rationale:
-      "Model needs entity + refs back; absorbs get_references and get_imports via a want[] flag.",
+      "Model needs entity + refs + imports back; folds in callers/callees/imports via a want[] flag.",
+  },
+  get_references: {
+    mechanism: "mcp",
+    rationale:
+      "Flagship blast-radius read; model needs callers/callees back to decide the edit this turn.",
   },
   fetch_url: {
     mechanism: "mcp",
     rationale: "Model needs the page back; also the enforced WebFetch replacement.",
   },
 
-  // ── Merged into a survivor (the name disappears) ────────────────────────
-  get_references: {
-    mechanism: "merged",
-    mergedInto: "get_entity",
-    rationale: "get_entity({want:['callers','callees']}); also in unerr_context.",
-  },
-  get_imports: {
-    mechanism: "merged",
-    mergedInto: "get_entity",
-    rationale: "get_entity({want:['imports']}); niche on its own.",
-  },
-  get_file: {
-    mechanism: "merged",
-    mergedInto: "file_outline",
-    rationale: "Duplicate of file_outline (entities in a file).",
-  },
-  record_fact: {
-    mechanism: "merged",
-    mergedInto: "unerr_remember",
-    rationale: "unerr_remember already has a type discriminator; one fact-write path.",
-  },
-
   // ── Writes → hooks (fire-and-forget; needed next turn, not this one) ─────
-  unerr_remember: {
-    mechanism: "hook",
-    hookEvents: ["UserPromptSubmit", "Stop"],
-    mcpFallback: true,
-    rationale:
-      "Write: user rules captured at UserPromptSubmit (verbatim), agent notes scraped from the closing message at Stop. Return drives nothing this turn.",
-  },
-  mark_intent: {
-    mechanism: "hook",
-    hookEvents: ["UserPromptSubmit"],
-    mcpFallback: true,
-    rationale: "Write: intent inferred from the prompt at submit time.",
-  },
-  mark_decision: {
-    mechanism: "hook",
-    hookEvents: ["Stop"],
-    mcpFallback: true,
-    rationale: "Write: scraped from the closing-message sentinel at Stop.",
-  },
-  mark_blocker: {
-    mechanism: "hook",
-    hookEvents: ["Stop"],
-    mcpFallback: true,
-    rationale:
-      "Write: scraped at Stop. marker_id return drops under fire-and-forget (server-assigned, surfaced on next recall).",
-  },
-  mark_resolution: {
-    mechanism: "hook",
-    hookEvents: ["Stop"],
-    mcpFallback: true,
-    rationale: "Write: scraped at Stop; references the blocker by most-recent/text.",
-  },
+  // unerr_remember left the catalog (2026-06) and carries no verdict: user
+  // rules are captured at UserPromptSubmit (remember-client.ts), agent notes
+  // ride the `unerr-save:` Stop-hook sentinel (sentinel-persist.ts). Both
+  // clients dispatch it by name over UDS, like the other by-name-only tools.
   unerr_track: {
     mechanism: "hook",
     hookEvents: ["UserPromptSubmit", "Stop", "PostToolUse"],
     mcpFallback: true,
     rationale:
-      "Op-union over the marker+fact writes; each op rides its constituent's hook (intent→UserPromptSubmit; decision/blocker/resolution/fact→Stop; recall→PostToolUse). Kept as the single consolidated MCP write surface for hook-less agents.",
-  },
-
-  // ── Anchored-context reads → hooks (model needn't ask for them) ─────────
-  unerr_recall_notes: {
-    mechanism: "hook",
-    hookEvents: ["UserPromptSubmit"],
-    mcpFallback: true,
-    rationale:
-      "Moment-1 prompt notes auto-injected at submit. Moment-2 anchor recall stays inside unerr_context.",
-  },
-  get_conventions: {
-    mechanism: "hook",
-    hookEvents: ["PostToolUse"],
-    mcpFallback: true,
-    rationale: "File conventions auto-injected after a Read; also inside unerr_context.",
-  },
-  recall_facts: {
-    mechanism: "hook",
-    hookEvents: ["PostToolUse"],
-    mcpFallback: true,
-    rationale: "File facts auto-injected after a Read; MCP fallback via unerr_track op:recall.",
-  },
-
-  // ── Telemetry lines → hooks (user-facing; cleanest retirements) ─────────
-  unerr_surface2_line: {
-    mechanism: "hook",
-    hookEvents: ["UserPromptSubmit"],
-    mcpFallback: true,
-    rationale: "Turn-start brief rides the prompt turn via additionalContext.",
-  },
-  unerr_turn_summary: {
-    mechanism: "hook",
-    hookEvents: ["Stop"],
-    mcpFallback: true,
-    rationale: "End-of-turn savings is user-facing only → Stop systemMessage.",
-  },
-
-  // ── Bulk / occasional → CLI (off the always-loaded catalog) ─────────────
-  get_project_stats: {
-    mechanism: "cli",
-    cliCommand: "unerr stats",
-    rationale: "Occasional orientation; already a CLI command.",
-  },
-  review_changes: {
-    mechanism: "cli",
-    cliCommand: "unerr review",
-    rationale: "Large output; must not amplify the main thread (run in a subagent).",
-  },
-  get_critical_nodes: {
-    mechanism: "cli",
-    cliCommand: "unerr graph critical-nodes",
-    rationale: "Rare architecture scan.",
-  },
-  get_cross_boundary_links: {
-    mechanism: "cli",
-    cliCommand: "unerr graph cross-boundary",
-    rationale: "Rare architecture scan.",
-  },
-  file_connections: {
-    mechanism: "cli",
-    cliCommand: "unerr graph connections",
-    rationale: "Occasional dependency-neighborhood query.",
-  },
-  get_test_coverage: {
-    mechanism: "cli",
-    cliCommand: "unerr graph test-coverage",
-    rationale: "Low-frequency pre-edit check.",
+      "Op-union over the marker+fact writes; each op rides its constituent's hook (intent→UserPromptSubmit; decision/blocker/resolution/fact→Stop; recall→PostToolUse). The single consolidated MCP write surface for hook-less agents.",
   },
 };
 
@@ -296,8 +195,8 @@ export function fallbackMcpCatalog(): readonly string[] {
 
   // Merged targets must themselves survive — you can't fold into a tool that's
   // also being removed. A survivor is an mcp read OR a hook tool that keeps an
-  // MCP fallback (e.g. record_fact → unerr_remember, which lives on a hook but
-  // stays addressable over MCP).
+  // MCP fallback (e.g. a marker write folding into unerr_track, which lives on
+  // a hook but stays addressable over MCP).
   for (const [name, entry] of Object.entries(TOOL_MECHANISM)) {
     if (entry.mechanism === "merged") {
       const target = entry.mergedInto;

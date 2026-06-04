@@ -1,5 +1,5 @@
 /**
- * Review-gate git hooks (docs/reviewer-architecture.md §5.2 Surface B).
+ * Review-gate git hooks (.internal/reviewer-architecture.md §5.2 Surface B).
  *
  * Installs two shell hooks, IDE-independent so they fire for any agent or human:
  *   - `pre-commit`  → `unerr check-commit` — runs the engine on the staged diff

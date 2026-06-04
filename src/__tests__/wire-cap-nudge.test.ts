@@ -87,6 +87,19 @@ describe("wire-cap pagination hint — concrete next cursor", () => {
     expect(pageHint).toMatch(/:\d+/);
     expect(pageHint).not.toMatch(/:N(\s|\/|$)/);
   });
+
+  it("names the agent-callable surface, not the retired internal tool", () => {
+    // recall_facts left the MCP catalog — agents reach it via
+    // unerr_track({op:'recall'}). A hint naming recall_facts is unactionable.
+    const body = {
+      facts: Array.from({ length: 20 }, (_, i) => ({
+        content: `fact number ${i} about the codebase`,
+      })),
+    };
+    const { pageHint } = applyWireCap("recall_facts", body, {});
+    expect(pageHint).toContain("unerr_track op:'recall'");
+    expect(pageHint).not.toMatch(/\brecall_facts\b/);
+  });
 });
 
 describe("wire-cap fetch_url too_large hint", () => {

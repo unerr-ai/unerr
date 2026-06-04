@@ -4,7 +4,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolveWithHome } from "../../utils/expand-home.js";
 import type { Tool, ToolContext, ToolOutput } from "../types.js";
 
 export const fileEditTool: Tool = {
@@ -42,7 +42,7 @@ export const fileEditTool: Tool = {
     args: Record<string, unknown>,
     ctx: ToolContext
   ): Promise<ToolOutput> {
-    const filePath = resolve(ctx.cwd, args.file_path as string);
+    const filePath = resolveWithHome(ctx.cwd, args.file_path as string);
     const oldString = args.old_string as string;
     const newString = args.new_string as string;
     const replaceAll = (args.replace_all as boolean) ?? false;

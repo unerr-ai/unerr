@@ -1,5 +1,5 @@
 /**
- * Standalone review context loading (docs/reviewer-architecture.md §5.2, §5.3).
+ * Standalone review context loading (.internal/reviewer-architecture.md §5.2, §5.3).
  *
  * The commit gate (`check-commit`) and the on-demand command (`unerr review`)
  * both run in short-lived CLI processes with no warm proxy attached, so they

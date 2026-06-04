@@ -197,5 +197,5 @@ export function compressYaml(raw: string, command?: string): string {
     body.length > 12_000
       ? `${body.slice(0, 8000)}\n# ...yaml_omitted...\n${body.slice(-3000)}`
       : body;
-  return `_shell_fmt:yaml\n${clipped}`;
+  return clipped;
 }

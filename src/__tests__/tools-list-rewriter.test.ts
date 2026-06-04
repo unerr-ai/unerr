@@ -49,12 +49,11 @@ describe("renderToolsListForExposure", () => {
   });
 
   it("flips to active when a tier-2/3 tool joins the exposed set", () => {
-    const exposed = new Set([...toolsByTier(1), "get_critical_nodes"]);
+    // unerr_track is the sole tier-3 tool after the catalog reduction.
+    const exposed = new Set([...toolsByTier(1), "unerr_track"]);
     const tools = renderToolsListForExposure(exposed);
-    const def = tools.find((t) => t.name === "get_critical_nodes");
-    expect(def?.description).toBe(
-      getDescription("get_critical_nodes", "active")
-    );
+    const def = tools.find((t) => t.name === "unerr_track");
+    expect(def?.description).toBe(getDescription("unerr_track", "active"));
   });
 
   it("output order is deterministic across calls", () => {

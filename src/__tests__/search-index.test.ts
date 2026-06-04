@@ -503,4 +503,120 @@ describe("search-index", () => {
       expect(keys).toContain("fn2");
     });
   });
+
+  // ── K4 re-rank: flat single-token scores must differentiate ────
+  describe("searchLocal K4 re-rank", () => {
+    it("single-token query: production entity outranks test scaffolding, scores differ", async () => {
+      const db = createMockDb();
+      await seedEntities(db, [
+        {
+          key: "test1",
+          kind: "function",
+          name: "it:compression handles large output",
+          file_path: "src/__tests__/shell-compression.test.ts",
+        },
+        {
+          key: "prod1",
+          kind: "function",
+          name: "applyCompression",
+          file_path: "src/proxy/shell-compression.ts",
+        },
+        {
+          key: "test2",
+          kind: "function",
+          name: "it:compression skips small output",
+          file_path: "src/__tests__/shell-compression.test.ts",
+        },
+        // Non-matching filler so "compression" has IDF > 0
+        {
+          key: "filler",
+          kind: "function",
+          name: "unrelatedThing",
+          file_path: "src/other.ts",
+        },
+      ]);
+      await buildSearchIndex(db);
+
+      const results = await searchLocal(db, "compression");
+      // Raw IDF gives all three the identical weight (flat 5.1879 regression);
+      // the re-rank must put the production entity first with a higher score.
+      expect(results[0]?.key).toBe("prod1");
+      const prodScore = results[0]!.score;
+      const testHit = results.find((r) => r.key !== "prod1");
+      if (testHit) {
+        expect(prodScore).toBeGreaterThan(testHit.score);
+      }
+    });
+
+    it("exact-name match outranks partial-name matches", async () => {
+      const db = createMockDb();
+      await seedEntities(db, [
+        {
+          key: "fn1",
+          kind: "function",
+          name: "compressOutput",
+          file_path: "a.ts",
+        },
+        {
+          key: "fn2",
+          kind: "function",
+          name: "compressShellOutputForWire",
+          file_path: "b.ts",
+        },
+        // Non-matching filler so "compress"/"output" have IDF > 0
+        {
+          key: "filler",
+          kind: "function",
+          name: "unrelatedHelper",
+          file_path: "c.ts",
+        },
+      ]);
+      await buildSearchIndex(db);
+
+      const results = await searchLocal(db, "compressOutput");
+      expect(results[0]?.key).toBe("fn1");
+      expect(results[0]!.score).toBeGreaterThan(results[1]?.score ?? 0);
+    });
+
+    it("relevance floor drops matches far below the top score", async () => {
+      const db = createMockDb();
+      await seedEntities(db, [
+        // Strong: matches all three query tokens
+        {
+          key: "strong",
+          kind: "function",
+          name: "compressShellOutput",
+          file_path: "a.ts",
+        },
+        // Junk: shares only the common token "output" with the query, and its
+        // name is mostly unrelated tokens
+        {
+          key: "junk",
+          kind: "function",
+          name: "renderDashboardOutputPanelWidgetForSettingsPage",
+          file_path: "b.ts",
+        },
+        // Filler so "output" is a common (low-IDF) token
+        {
+          key: "filler1",
+          kind: "function",
+          name: "writeOutput",
+          file_path: "c.ts",
+        },
+        {
+          key: "filler2",
+          kind: "function",
+          name: "logOutput",
+          file_path: "d.ts",
+        },
+      ]);
+      await buildSearchIndex(db);
+
+      const results = await searchLocal(db, "compressShellOutput");
+      expect(results[0]?.key).toBe("strong");
+      // junk scores a tiny fraction of top (one common token, low coverage) —
+      // the 0.2 floor must drop it
+      expect(results.map((r) => r.key)).not.toContain("junk");
+    });
+  });
 });

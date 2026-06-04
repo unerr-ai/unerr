@@ -1,5 +1,5 @@
 /**
- * `dead_code` checker (docs/reviewer-architecture.md §3 Tier 1 #10, §11 P0.5).
+ * `dead_code` checker (.internal/reviewer-architecture.md §3 Tier 1 #10, §11 P0.5).
  *
  * A newly added entity with zero inbound edges that is not exported (so nothing
  * outside the repo can reach it either) — cross-file dead code lint may not flag.

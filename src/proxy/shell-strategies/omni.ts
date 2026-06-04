@@ -194,9 +194,10 @@ export function compressOmni(raw: string): string {
   const joined = truncated.join("\n");
   const capped = capChars(joined);
   const savedLines = originalCount - truncated.length;
-  const header =
-    savedLines > 5
-      ? `_shell_fmt:omni (${originalCount}→${truncated.length} lines)`
-      : "_shell_fmt:omni";
-  return `${header}\n${capped}`;
+  // Line-count marker is load-bearing (signals compression happened); the
+  // strategy name was not — provenance rides the structured classification.
+  if (savedLines > 5) {
+    return `(${originalCount}→${truncated.length} lines)\n${capped}`;
+  }
+  return capped;
 }

@@ -1,5 +1,5 @@
 /**
- * `secret_scan` checker (docs/reviewer-architecture.md §3 Tier 1 #11, §11 P0.5).
+ * `secret_scan` checker (.internal/reviewer-architecture.md §3 Tier 1 #11, §11 P0.5).
  *
  * Table-stakes for the commit gate: a token, key, or credential in a changed
  * file. Self-contained — pure regex over `ChangeFile.newContent`, no graph. Each

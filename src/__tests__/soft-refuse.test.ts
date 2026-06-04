@@ -22,36 +22,42 @@ import { C, UNLOCK_CONDITIONS } from "../proxy/tool-tiers.js";
 
 describe("buildSoftRefuse: shape", () => {
   it("returns one MCP text block with ur|fct prefix and structured fields", () => {
+    // unerr_track is the sole gated tool: C.and(C.turns(3), C.nonTrivial()).
     const refusal = buildSoftRefuse({
-      toolName: "get_critical_nodes",
-      condition: C.fanIn(10),
+      toolName: "unerr_track",
+      condition: C.and(C.turns(3), C.nonTrivial()),
     });
     expect(refusal.content).toHaveLength(1);
     expect(refusal.content[0]?.type).toBe("text");
     const text = refusal.content[0]?.text ?? "";
-    expect(text.startsWith("ur|fct get_critical_nodes locked — ")).toBe(true);
+    expect(text.startsWith("ur|fct unerr_track locked — ")).toBe(true);
     expect(text).toContain("_error: tool_locked");
-    expect(text).toContain("_unlock_when: entity fan_in ≥ 10 observed");
-    expect(text).toContain("_alternative: search_code(");
+    expect(text).toContain(
+      "_unlock_when: session turns ≥ 3 AND non-trivial action observed (edit / write / ≥5 reads)"
+    );
+    // unerr_track's example template is "" → the action and _alternative
+    // fall back to the bare tier-1 tool name (file_read).
+    expect(text).toContain("_alternative: file_read");
   });
 
   it("attaches stable diagnostic fields to _gate", () => {
     const refusal = buildSoftRefuse({
-      toolName: "get_imports",
-      condition: C.imports(5),
+      toolName: "unerr_track",
+      condition: C.and(C.turns(3), C.nonTrivial()),
     });
     expect(refusal._gate).toEqual({
       status: "locked",
-      tool: "get_imports",
-      unlock_when: "file with ≥ 5 imports read",
-      alternative_tool: "file_outline",
+      tool: "unerr_track",
+      unlock_when:
+        "session turns ≥ 3 AND non-trivial action observed (edit / write / ≥5 reads)",
+      alternative_tool: "file_read",
     });
   });
 
   it("softRefuseFor pulls the policy from UNLOCK_CONDITIONS", () => {
-    const refusal = softRefuseFor("get_critical_nodes");
-    expect(refusal._gate.tool).toBe("get_critical_nodes");
-    expect(refusal._gate.alternative_tool).toBe("search_code");
+    const refusal = softRefuseFor("unerr_track");
+    expect(refusal._gate.tool).toBe("unerr_track");
+    expect(refusal._gate.alternative_tool).toBe("file_read");
   });
 
   it("softRefuseFor throws for tools without a policy", () => {
@@ -101,57 +107,25 @@ describe("soft-refuse: nudge-text quality", () => {
   });
 });
 
-describe("soft-refuse: example interpolation (nudge rule: nouns over placeholders)", () => {
-  it("fills <path> from the refused call's file_path", () => {
-    const refusal = softRefuseFor("get_imports", {
-      file_path: "src/proxy/proxy.ts",
-    });
-    const text = refusal.content[0]?.text ?? "";
-    expect(text).toContain(
-      '_alternative: file_outline({file_path:"src/proxy/proxy.ts"})'
-    );
-    expect(text).not.toContain("<path>");
-  });
+// NOTE: the example-interpolation describe block was removed during the
+// token-overhead catalog reduction. Interpolation (fillExample/refusalContext)
+// still exists in soft-refuse.ts, but the only registered alternative template
+// (unerr_track → file_read) is the EMPTY string "", so there are no
+// <path>/<symbol>/<name> placeholders left to interpolate. The tests that
+// asserted interpolation behaviour were tied to removed tools
+// (get_imports/get_critical_nodes/get_file) and can no longer be satisfied —
+// they are obsolete, not retargetable.
 
-  it("fills <symbol> from the refused call's entity/query", () => {
-    const refusal = softRefuseFor("get_critical_nodes", {
-      query: "compressShellOutput",
-    });
-    const text = refusal.content[0]?.text ?? "";
-    expect(text).toContain(
-      '_alternative: search_code({query:"compressShellOutput"})'
-    );
-    expect(text).not.toContain("<symbol>");
-  });
-
-  it("get_file: fills <path> from a path-shaped key but leaves <name> a placeholder", () => {
-    // The agent named a file, not a symbol — interpolating the path into the
-    // entity slot would be wrong, so <name> must survive.
-    const refusal = softRefuseFor("get_file", { key: "src/proxy/proxy.ts" });
-    const text = refusal.content[0]?.text ?? "";
-    expect(text).toContain(
-      '_alternative: file_read({file_path:"src/proxy/proxy.ts",entity:"<name>"})'
-    );
-  });
-
-  it("leaves placeholders intact when no args are supplied (template form)", () => {
-    const refusal = softRefuseFor("get_imports");
-    const text = refusal.content[0]?.text ?? "";
-    expect(text).toContain('_alternative: file_outline({file_path:"<path>"})');
-  });
-});
-
-describe("soft-refuse: get_cross_boundary_links unlock text (legacy hnt → fct)", () => {
+describe("soft-refuse: unlock text uses the consolidated ur tag (legacy hnt → fct)", () => {
   it("renders the consolidated ur|fct tag, never legacy ur|hnt", () => {
-    const refusal = softRefuseFor("get_cross_boundary_links", {
+    const refusal = softRefuseFor("unerr_track", {
       from_path: "src/proxy",
     });
     const text = refusal.content[0]?.text ?? "";
-    expect(text).toContain("_unlock_when: ur|fct emitted");
+    expect(text.startsWith("ur|fct ")).toBe(true);
     expect(text).not.toContain("ur|hnt");
-    // path is interpolated into the alternative example
-    expect(text).toContain(
-      '_alternative: file_outline({file_path:"src/proxy"})'
-    );
+    // unerr_track's example template is "" → the alternative is the bare
+    // tier-1 tool name, with no placeholder interpolation.
+    expect(text).toContain("_alternative: file_read");
   });
 });

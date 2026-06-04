@@ -10,6 +10,19 @@
  *   - Feeds into `unerr stats` command and session guard
  */
 
+// Static ESM imports, NOT require(): the tsup bundle is pure ESM, where
+// require() hits esbuild's "Dynamic require of 'node:fs' is not supported"
+// stub — every call threw at runtime and the surrounding try/catch silently
+// turned ALL stats persistence into a no-op (stats.json was never written).
+import {
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname } from "node:path";
+
 export interface WeeklyStats {
   weekStart: string;
   sessions: number;
@@ -80,7 +93,6 @@ function createEmptyAllTime(): AllTimeStats {
 export function loadStats(): UnifiedStats {
   const currentWeek = getWeekStart();
   try {
-    const { readFileSync } = require("node:fs") as typeof import("node:fs");
     const raw = JSON.parse(
       readFileSync(getStatsPath(), "utf-8")
     ) as UnifiedStats;
@@ -108,6 +120,112 @@ export function loadStats(): UnifiedStats {
       lastUpdated: new Date().toISOString(),
     };
   }
+}
+
+// ── Live session sidecars (mid-session `unerr stats`) ──────────────
+//
+// Regression 6f: `accumulateSession` only runs at proxy shutdown, so a
+// long-lived session contributed nothing and `unerr stats` printed
+// "No sessions recorded yet" while dozens of tool calls were live. The
+// proxy now snapshots its in-flight numbers to ~/.unerr/stats-live/
+// <sessionId>.json every stats tick (full replace — idempotent), deletes
+// the sidecar when shutdown folds the session into stats.json, and the
+// stats command merges fresh sidecars at read time (display only).
+
+export interface LiveSessionSnapshot {
+  sessionId: string;
+  tokensSaved: number;
+  toolCalls: number;
+  violationsCaught: number;
+  efficiency: number;
+  updatedAt: string;
+}
+
+/** Sidecars older than this are crash leftovers — ignored and swept. */
+const LIVE_SNAPSHOT_MAX_AGE_MS = 10 * 60_000;
+
+function getLiveStatsDir(): string {
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? process.cwd();
+  return `${home}/.unerr/stats-live`;
+}
+
+export function writeLiveSessionSnapshot(snap: LiveSessionSnapshot): void {
+  try {
+    const dir = getLiveStatsDir();
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(`${dir}/${snap.sessionId}.json`, JSON.stringify(snap));
+  } catch {
+    // Non-critical — mid-session stats are best-effort
+  }
+}
+
+export function clearLiveSessionSnapshot(sessionId: string): void {
+  try {
+    unlinkSync(`${getLiveStatsDir()}/${sessionId}.json`);
+  } catch {
+    // Already gone / never written
+  }
+}
+
+export function loadLiveSessions(
+  maxAgeMs = LIVE_SNAPSHOT_MAX_AGE_MS
+): LiveSessionSnapshot[] {
+  try {
+    const dir = getLiveStatsDir();
+    const now = Date.now();
+    const out: LiveSessionSnapshot[] = [];
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith(".json")) continue;
+      const filePath = `${dir}/${f}`;
+      try {
+        const snap = JSON.parse(
+          readFileSync(filePath, "utf-8")
+        ) as LiveSessionSnapshot;
+        const age = now - Date.parse(snap.updatedAt ?? "");
+        if (!Number.isFinite(age) || age > maxAgeMs) {
+          // Crash leftover — sweep so the dir doesn't grow unbounded
+          try {
+            unlinkSync(filePath);
+          } catch {
+            /* best-effort sweep */
+          }
+          continue;
+        }
+        if (snap.toolCalls > 0) out.push(snap);
+      } catch {
+        /* malformed sidecar — skip */
+      }
+    }
+    return out;
+  } catch {
+    return []; // dir missing — no live sessions
+  }
+}
+
+/**
+ * Fold live (in-flight) session snapshots into a COPY of the persisted
+ * stats for display. Never persisted — the proxy accumulates the real
+ * numbers into stats.json at session end.
+ */
+export function mergeLiveSessions(
+  stats: UnifiedStats,
+  live: LiveSessionSnapshot[]
+): UnifiedStats {
+  if (live.length === 0) return stats;
+  const merged = JSON.parse(JSON.stringify(stats)) as UnifiedStats;
+  for (const s of live) {
+    merged.weekly.sessions += 1;
+    merged.weekly.tokensSaved += s.tokensSaved;
+    merged.weekly.toolCalls += s.toolCalls;
+    merged.weekly.violationsCaught += s.violationsCaught;
+    const n = merged.weekly.sessions;
+    merged.weekly.avgEfficiency =
+      merged.weekly.avgEfficiency * ((n - 1) / n) + s.efficiency * (1 / n);
+    merged.allTime.totalSessions += 1;
+    merged.allTime.totalTokensSaved += s.tokensSaved;
+    merged.allTime.totalViolationsCaught += s.violationsCaught;
+  }
+  return merged;
 }
 
 export interface SessionAccumulatorInput {
@@ -170,11 +288,9 @@ export function accumulateSession(
 
 function persistStats(stats: UnifiedStats): void {
   try {
-    const fs = require("node:fs") as typeof import("node:fs");
-    const path = require("node:path") as typeof import("node:path");
     const filePath = getStatsPath();
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(stats, null, 2));
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, JSON.stringify(stats, null, 2));
   } catch {
     // Non-critical — don't break session shutdown
   }

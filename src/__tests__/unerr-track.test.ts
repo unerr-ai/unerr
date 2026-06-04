@@ -12,9 +12,9 @@ import { translateUnerrTrack } from "../proxy/unerr-track.js";
 
 describe("translateUnerrTrack — op routing", () => {
   it("intent → mark_intent({text})", () => {
-    expect(translateUnerrTrack({ op: "intent", text: "ship sprint 8" })).toEqual(
-      { name: "mark_intent", args: { text: "ship sprint 8" } }
-    );
+    expect(
+      translateUnerrTrack({ op: "intent", text: "ship sprint 8" })
+    ).toEqual({ name: "mark_intent", args: { text: "ship sprint 8" } });
   });
 
   it("decision → mark_decision, forwards alternatives", () => {
@@ -39,7 +39,11 @@ describe("translateUnerrTrack — op routing", () => {
 
   it("blocker → mark_blocker, target doubles as file_path", () => {
     expect(
-      translateUnerrTrack({ op: "blocker", text: "proxy busy", target: "src/proxy/proxy.ts" })
+      translateUnerrTrack({
+        op: "blocker",
+        text: "proxy busy",
+        target: "src/proxy/proxy.ts",
+      })
     ).toEqual({
       name: "mark_blocker",
       args: { text: "proxy busy", file_path: "src/proxy/proxy.ts" },
@@ -55,7 +59,11 @@ describe("translateUnerrTrack — op routing", () => {
 
   it("resolution → mark_resolution({blocker_ref, text})", () => {
     expect(
-      translateUnerrTrack({ op: "resolution", blocker_ref: "m_42", text: "pinned forks" })
+      translateUnerrTrack({
+        op: "resolution",
+        blocker_ref: "m_42",
+        text: "pinned forks",
+      })
     ).toEqual({
       name: "mark_resolution",
       args: { blocker_ref: "m_42", text: "pinned forks" },
@@ -83,7 +91,9 @@ describe("translateUnerrTrack — op routing", () => {
   });
 
   it("recall → recall_facts({scope, fact_type?})", () => {
-    expect(translateUnerrTrack({ op: "recall", scope: "project", fact_type: "all" })).toEqual({
+    expect(
+      translateUnerrTrack({ op: "recall", scope: "project", fact_type: "all" })
+    ).toEqual({
       name: "recall_facts",
       args: { scope: "project", fact_type: "all" },
     });
@@ -91,6 +101,22 @@ describe("translateUnerrTrack — op routing", () => {
       name: "recall_facts",
       args: { scope: "project" },
     });
+  });
+
+  it("recall forwards limit (the wire-cap pagination hint names it)", () => {
+    expect(
+      translateUnerrTrack({ op: "recall", scope: "project", limit: 10 })
+    ).toEqual({
+      name: "recall_facts",
+      args: { scope: "project", limit: 10 },
+    });
+    // non-numeric / non-positive limit is dropped, not forwarded
+    expect(
+      translateUnerrTrack({ op: "recall", scope: "project", limit: "10" })
+    ).toEqual({ name: "recall_facts", args: { scope: "project" } });
+    expect(
+      translateUnerrTrack({ op: "recall", scope: "project", limit: 0 })
+    ).toEqual({ name: "recall_facts", args: { scope: "project" } });
   });
 });
 

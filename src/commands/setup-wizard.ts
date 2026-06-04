@@ -10,7 +10,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
 import { getRemoteUrl } from "../utils/git.js";
@@ -51,7 +51,7 @@ export async function runSetup(cwd?: string): Promise<WizardResult> {
   if (existsSync(settingsPath)) {
     try {
       existingSettings = JSON.parse(
-        require("node:fs").readFileSync(settingsPath, "utf-8")
+        readFileSync(settingsPath, "utf-8")
       ) as Record<string, unknown>;
     } catch {
       // Ignore parse errors

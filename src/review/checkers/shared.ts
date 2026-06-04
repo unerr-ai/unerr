@@ -1,5 +1,5 @@
 /**
- * Shared helpers for graph-backed checkers (docs/reviewer-architecture.md §4.1).
+ * Shared helpers for graph-backed checkers (.internal/reviewer-architecture.md §4.1).
  */
 
 import type { LocalEntity } from "../../intelligence/local-graph.js";

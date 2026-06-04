@@ -4,7 +4,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { relative } from "node:path";
 import { extractEntities } from "../../intelligence/ast-extractor.js";
 import type { CozoGraphStore } from "../../intelligence/local-graph.js";
 import { estimateTokens } from "../../intelligence/token-estimator.js";
@@ -12,6 +12,7 @@ import {
   type FileReadLogEntry,
   appendFileReadLog,
 } from "../../proxy/shell-compression-log.js";
+import { resolveWithHome } from "../../utils/expand-home.js";
 import type { ToolContext, ToolOutput } from "../types.js";
 import { buildFileOutline } from "./file-outline.js";
 
@@ -61,6 +62,7 @@ export interface FileReadRouterResult {
 
 export type EntityMatchType =
   | "exact"
+  | "method_suffix"
   | "case_insensitive"
   | "prefix"
   | "camelCase_segment"
@@ -91,7 +93,7 @@ export interface EntitySearchInfo {
 
 /**
  * Rank entities against a query string.
- * Scoring: exact(100) > case_insensitive(90) > prefix(80) > camelCase_segment(70) > substring(40-60)
+ * Scoring: exact(100) > method_suffix(95/85) > case_insensitive(90) > prefix(80) > camelCase_segment(70) > substring(40-60)
  */
 export function rankEntityMatches(
   entities: EntityMatchable[],
@@ -108,8 +110,20 @@ export function rankEntityMatches(
       results.push({ entity, score: 100, matchType: "exact" });
       continue;
     }
+    // Method-suffix match ("maybeCompressContent" matches "Envelope.maybeCompressContent").
+    // Both the graph and the AST extractor store methods as Class.method, so a
+    // bare method-name query must resolve identically on every path — without
+    // this, the same args matched via one path and missed via the other.
+    if (name.endsWith(`.${query}`)) {
+      results.push({ entity, score: 95, matchType: "method_suffix" });
+      continue;
+    }
     if (nameLower === queryLower) {
       results.push({ entity, score: 90, matchType: "case_insensitive" });
+      continue;
+    }
+    if (nameLower.endsWith(`.${queryLower}`)) {
+      results.push({ entity, score: 85, matchType: "method_suffix" });
       continue;
     }
     if (nameLower.startsWith(queryLower)) {
@@ -200,7 +214,7 @@ export async function runFileReadForRouter(
     (tokenBudget * CHARS_PER_TOKEN) / AVG_CHARS_PER_LINE
   );
 
-  const abs = resolve(ctx.cwd, filePathArg);
+  const abs = resolveWithHome(ctx.cwd, filePathArg);
   const rel = relative(ctx.cwd, abs).replace(/\\/g, "/") || filePathArg;
   // Out-of-project files have no graph data — skip graph queries to prevent hangs
   const isOutOfProject = rel.startsWith("..");
@@ -381,42 +395,54 @@ export async function runFileReadForRouter(
       };
     }
 
-    // Entity requested but not found on a large file → return outline with feedback
+    // Entity requested but not found on a large file → compact suggestions-only
+    // error. Dumping the full gated outline here cost ~3k tokens per miss; the
+    // agent only needs the closest names to retry with.
     if (!entityWindowApplied && totalLines > LINE_GATE) {
       const outline = await buildFileOutline({
         cwd: ctx.cwd,
         filePathArg,
         graph: isOutOfProject ? null : ctx.graph,
       });
+      const search = entityMatchInfo ?? {
+        matched: false,
+        query: entityName,
+        suggestions: [],
+      };
+      // Rank-derived suggestions first; when ranking found nothing, fall back
+      // to the outline's first entity names so the retry is still concrete.
+      const suggestions = search.suggestions?.length
+        ? search.suggestions
+        : outline.entities.slice(0, 8).map((e) => e.name);
+      const compact = {
+        file_path: rel,
+        total_lines: totalLines,
+        gated: true,
+        entity_search: { ...search, suggestions },
+        entities_total: outline.entities.length,
+        _gate_reason: suggestions.length
+          ? `Entity "${entityName}" not found in ${rel}. Call file_read({file_path:'${rel}', entity:'${suggestions[0]}'}) (or another suggestions entry), pass offset+limit, or call file_outline({file_path:'${rel}'}) for the full structure. NOTE: If you plan to Edit this file, you MUST call built-in Read (not file_read) first.`
+          : `Entity "${entityName}" not found in ${rel}. Call file_outline({file_path:'${rel}'}) to list the ${outline.entities.length} entities, then retry file_read with an exact name or offset+limit. NOTE: If you plan to Edit this file, you MUST call built-in Read (not file_read) first.`,
+      };
       logFileRead(
         ctx.cwd,
         rel,
         "gated",
         totalLines,
-        outline.entities.length,
+        0,
         entityName,
-        outline.token_estimate
+        estimateTokens(compact)
       );
       return {
-        content: {
-          ...outline,
-          gated: true,
-          entity_search: entityMatchInfo ?? {
-            matched: false,
-            query: entityName,
-            suggestions: [],
-          },
-          _gate_reason: `Entity "${entityName}" not found with high confidence. Use one of the suggestions or specify offset/limit. NOTE: If you plan to Edit this file, you MUST call built-in Read (not file_read) first.`,
-        },
+        content: compact,
         _layer6_meta: {
-          format: "outline",
+          format: "json",
           gated: true,
           total_lines: totalLines,
           total_chars: text.length,
           total_file_tokens: estimateTokens(text),
-          // outline.token_estimate is full-file size; we need delivered size.
-          tokens_estimate: estimateTokens(outline),
-          optimization: `file_read gated \u2192 outline (${totalLines} lines, entity-fallback)`,
+          tokens_estimate: estimateTokens(compact),
+          optimization: `file_read entity miss \u2192 suggestions only (${totalLines} lines withheld)`,
         },
       };
     }

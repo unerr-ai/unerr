@@ -13,9 +13,13 @@ import type { Command } from "commander";
 import { formatDriftNudge, isDriftCommand } from "../proxy/drift-detector.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { compressShellOutput } from "../proxy/shell-compressor.js";
-import { exec } from "../utils/exec.js";
+import {
+  readFreshTestArtifact,
+  renderTestArtifactVerdict,
+} from "../proxy/test-artifact.js";
 import { getOrCreateSid } from "../utils/log-paths.js";
 import { initFileLog, startupLog } from "../utils/startup-log.js";
+import { discardLiveTee, runStreamingShell } from "./exec-runner.js";
 
 // ── Exec nudge — rotating tool adoption reminder appended to stdout ──
 
@@ -29,18 +33,21 @@ const EXEC_NUDGES = [
   // #6 TRIM — read protocol set
   "[unerr] Read code: file_read (Read built-in: only pre-Edit) · Search: search_code (not grep) · Structure: file_outline",
   // #7 TRIM — entity / convention / fact set
-  "[unerr] Entity details: get_entity · Before writing: get_conventions · For prior facts: unerr_track({op:'recall'})",
-  // #8 KEEP — pre-edit nudge already tight, why+what clear
-  "[unerr] Before editing: get_references to check callers. get_critical_nodes for chokepoint awareness.",
-  // #9 TRIM — structural analysis set, with when-tags per tool for discoverability
-  // (Sprint 10: get_cross_boundary_links + file_connections demoted off the
-  // advertised surface — file_outline carries a file's imports, get_references
-  // its call-level neighbors, so they're dropped from this roster.)
-  "[unerr] Structure: get_critical_nodes (chokepoints) · get_test_coverage (tests for an entity) · get_project_stats (graph overview)",
+  // (get_conventions left the advertised catalog — file_read with
+  // purpose:'explore' auto-injects the same conventions.)
+  "[unerr] Entity details: get_entity · Before writing: file_read({purpose:'explore'}) auto-injects conventions · For prior facts: unerr_track({op:'recall'})",
+  // #8 — pre-edit nudge (get_critical_nodes left the advertised catalog;
+  // the same chokepoint signal is the fan_in column on get_references rows)
+  "[unerr] Before editing: get_references({direction:'callers'}) to check callers — a long caller list marks a chokepoint.",
+  // #9 TRIM — structural analysis set, advertised tools only
+  // (get_critical_nodes / get_test_coverage / get_project_stats left the
+  // advertised catalog; test files in a get_references caller list are the
+  // tests for an entity, unerr_context is the one-call task-scoped bundle.)
+  "[unerr] Structure: file_outline (file map) · get_entity (one symbol) · unerr_context({prompt:'<task>'}) (task-scoped recon bundle)",
   // #10 TRIM — narrative markers with when-tags
   "[unerr] Markers (zero round-trip): emit `unerr-save: intent|decision|blocker|resolution <one-line>` in your closing message — the Stop hook persists them to power timeline + resume",
-  // #11 — user-fed memory: prompt agent to persist explicit user statements
-  '[unerr] User said "remember" / "always" / "from now on"? Call unerr_remember with source_quote + confidence (NOT unerr_track({op:\'fact\'}) — that\'s for agent-detected facts).',
+  // #11 — user-fed memory: hook captures user rules; agent notes ride the sentinel
+  '[unerr] User said "remember" / "always" / "from now on"? The prompt hook captured it — no tool call. Agent-detected note: emit `unerr-save: note kind|anchor|polarity|content` in your closing message.',
 ];
 
 /**
@@ -172,6 +179,49 @@ function isGrepNoMatch(cmd: string, exitCode: number, stdout: string): boolean {
   return /(?:^|[\s|;&(])(?:grep|rg|egrep|fgrep)\b/.test(cmd);
 }
 
+/** Last N raw lines surfaced when a failed command's body would otherwise be empty. */
+const FALLBACK_TAIL_LINES = 30;
+/** Byte cap on the surfaced tail so a single megaline can't flood the agent. */
+const FALLBACK_TAIL_MAX_BYTES = 4000;
+
+/**
+ * Phase 2.5 — a failed command must never reach the agent with an empty body.
+ * Renders the tail of THIS execution's raw capture (or a plain "produced no
+ * output" attribution when the capture itself is empty) plus the live-tee
+ * path for full recovery.
+ */
+export function renderEmptyOutputFallback(
+  combinedRaw: string,
+  liveTeePath: string | null,
+  exitCode: number,
+  signal: string | null
+): string {
+  const reason = signal
+    ? `killed by ${signal} (exit ${exitCode})`
+    : `exited ${exitCode}`;
+  const raw = combinedRaw.trim();
+
+  if (raw.length === 0) {
+    return `[unerr:exec] command ${reason} and produced no output (stdout+stderr empty)`;
+  }
+
+  const rawLines = raw.split("\n");
+  const tailCount = Math.min(FALLBACK_TAIL_LINES, rawLines.length);
+  let tail = rawLines.slice(-tailCount).join("\n");
+  if (tail.length > FALLBACK_TAIL_MAX_BYTES) {
+    tail = tail.slice(-FALLBACK_TAIL_MAX_BYTES);
+  }
+
+  const lines = [
+    `[unerr:exec] command ${reason} — compressed body was empty; last ${tailCount} raw lines:`,
+    tail,
+  ];
+  if (liveTeePath) {
+    lines.push(`[unerr:exec] full raw output: ${liveTeePath}`);
+  }
+  return lines.join("\n");
+}
+
 export async function runExecMain(argv: string[]): Promise<number> {
   const cmd = parseExecCommandLine(argv);
   if (!cmd) {
@@ -182,14 +232,20 @@ export async function runExecMain(argv: string[]): Promise<number> {
   getOrCreateSid();
   initFileLog(process.cwd());
 
+  const startedAtMs = Date.now();
   // Use the user's actual shell (not hardcoded bash) so nvm/fnm/volta load correctly
   const shell = process.env.SHELL || "/bin/sh";
-  const result = await exec(shell, ["-lc", cmd], { throwOnError: false });
-  const exitCode = typeof result.exitCode === "number" ? result.exitCode : 0;
+  // Streaming runner: captures output incrementally, tees it to disk as it
+  // arrives, and survives SIGTERM/SIGINT/SIGHUP — a signal-killed run keeps
+  // everything captured up to the kill instead of dying with an empty buffer.
+  const run = await runStreamingShell(shell, cmd, process.cwd());
+  const exitCode = run.exitCode;
+  const stdoutTrimmed = run.stdout.trim();
+  const stderrTrimmed = run.stderr.trim();
   const combined =
-    (result.stdout ?? "") +
-    (result.stderr && result.stdout ? "\n" : "") +
-    (result.stderr ?? "");
+    stdoutTrimmed +
+    (stderrTrimmed && stdoutTrimmed ? "\n" : "") +
+    stderrTrimmed;
 
   // If the shell couldn't parse the command, emit raw output without compression.
   // This ensures compression never disrupts the underlying command execution.
@@ -207,6 +263,8 @@ export async function runExecMain(argv: string[]): Promise<number> {
     process.stdout.write(combined);
     if (combined.length > 0 && !combined.endsWith("\n"))
       process.stdout.write("\n");
+    // Full raw body was printed above — the live tee adds nothing here.
+    discardLiveTee(run.liveTeePath);
     return exitCode;
   }
 
@@ -227,14 +285,18 @@ export async function runExecMain(argv: string[]): Promise<number> {
         process.stdout.write("\n");
     }
     appendExecNudge(cmd, combined.length);
+    // Don't tee a read of a tee file.
+    discardLiveTee(run.liveTeePath);
     return exitCode;
   }
 
+  let printedBody = "";
   try {
     const out = await compressShellOutput(cmd, combined, {
       cwd: process.cwd(),
       exitCode: exitCode || undefined,
     });
+    printedBody = out.text;
     process.stdout.write(out.text);
     if (!out.text.endsWith("\n")) process.stdout.write("\n");
   } catch (err) {
@@ -247,9 +309,48 @@ export async function runExecMain(argv: string[]): Promise<number> {
     process.stderr.write(
       `[unerr:exec] compression failed, showing raw output: ${msg}\n`
     );
+    printedBody = combined;
     process.stdout.write(combined);
     if (combined.length > 0 && !combined.endsWith("\n"))
       process.stdout.write("\n");
+  }
+
+  const bodyEmpty = printedBody.trim().length === 0;
+  const grepNoMatch = isGrepNoMatch(cmd, exitCode, stdoutTrimmed);
+
+  // Phase 2 — recovered test verdict: a fresh .unerr/test-results.json proves
+  // the suite finished even when a signal ate the terminal output. Render the
+  // counts + failures so the agent gets the data first turn instead of re-running.
+  let artifactShown = false;
+  if (run.signal !== null || (bodyEmpty && exitCode !== 0)) {
+    const artifact = readFreshTestArtifact(process.cwd(), startedAtMs);
+    if (artifact) {
+      process.stdout.write(
+        `\n${renderTestArtifactVerdict(artifact, run.signal)}\n`
+      );
+      artifactShown = true;
+    }
+  }
+
+  // Phase 2.5 — non-zero exit with an empty body: surface the tail of this
+  // execution's raw capture so a failed command never returns nothing.
+  // grep-style "no match" (exit 1, empty stdout) is a result, not a failure.
+  if (bodyEmpty && exitCode !== 0 && !grepNoMatch && !artifactShown) {
+    process.stdout.write(
+      `${renderEmptyOutputFallback(combined, run.liveTeePath, exitCode, run.signal)}\n`
+    );
+  }
+
+  // Signal attribution: name the signal, the duration, and the recovery path
+  // so the agent knows the 143/130 came from outside the command's own logic.
+  if (run.signal !== null) {
+    const secs = (run.durationMs / 1000).toFixed(1);
+    const teeRef = run.liveTeePath
+      ? `; full raw output: ${run.liveTeePath}`
+      : "";
+    process.stdout.write(
+      `\n[unerr:exec] command received ${run.signal} after ${secs}s — exit ${exitCode}${teeRef}\n`
+    );
   }
 
   // Append tool adoption nudge (N4 gates: suppressed in CI, UNERR_QUIET, zero/tiny output)
@@ -258,11 +359,17 @@ export async function runExecMain(argv: string[]): Promise<number> {
   // Attribution for non-zero exits so users don't blame unerr for command failures.
   // Suppress for grep-style commands exiting 1 with empty stdout — that's a legitimate
   // "no match" signal, not an error.
-  if (exitCode !== 0 && !isGrepNoMatch(cmd, exitCode, result.stdout ?? "")) {
+  if (exitCode !== 0 && !grepNoMatch) {
     startupLog.fileOnly(
       "warn",
       `command exited with code ${exitCode}: ${cmd.slice(0, 120)}`
     );
+  }
+
+  // Clean exit: compressShellOutput already teed anything significant, so the
+  // live capture is redundant. Failure/signal paths keep it — recovery source.
+  if (exitCode === 0 && run.signal === null) {
+    discardLiveTee(run.liveTeePath);
   }
 
   return exitCode;

@@ -23,24 +23,28 @@
 export const CONTRACT_TEACHING_BLOCK = `### Active-cognition: four-moment contract (REQUIRED)
 
 unerr's Layer B notes are anchored prose attached to graph nodes. The contract
-is **agent-pull**, not unerr-push: you call unerr at four moments, every task.
+runs at four moments, every task. Moments 1–2 arrive as injected context plus
+one composite call; Moments 3–4 are yours to act on.
 
-**Moment 1 — Prompt receipt.** When a user prompt arrives, before drafting:
-\`unerr_recall_notes({prompt: <verbatim prompt>})\`. Empty result is fine; the
-call itself is the contract.
+**Moment 1 — Prompt receipt.** When a user prompt arrives, the UserPromptSubmit
+hook injects the relevant anchored notes into your context automatically. Read
+the injected notes before drafting — no recall call is required.
 
 **Moment 2 — Anchor query.** Once you've identified the files/entities you'll
-touch, query for anchored notes: \`unerr_recall_notes({anchors: ["f:src/x.ts",
-"e:fooBar"]})\`. Reads return active (non-superseded) notes; topic-shift and
-co-change groups ride along.
+touch, call \`unerr_context({prompt:"<what you are about to do>"})\` — the
+composite that bundles the anchored notes for those anchors + matching entities
++ the focus entity's callers + conventions in one call. The bundle returns
+active (non-superseded) notes; topic-shift and co-change groups ride along.
 
 **Moment 3 — Cite in plan.** When you draft a plan, cite returned notes by
 kind + anchor inline. Example: *"Per the wrn on src/proxy/proxy.ts, both
 stdio and UDS sites must mirror."* No citation = the note wasn't load-bearing.
 
 **Moment 4 — Save at task end.** When the task closes and you learned
-something non-obvious + likely useful next session + anchorable, write it:
-\`unerr_remember({type:"note", note:"<DSL wire>", session_id:<sid>})\`.
+something non-obvious + likely useful next session + anchorable, emit it as a
+sentinel line anywhere in your closing message — zero round-trip, the Stop
+hook scrapes and persists it:
+\`unerr-save: note <DSL wire>\`
 
 ### DSL vocabulary
 
@@ -63,19 +67,15 @@ Examples:
 A save is justified only if all three hold: (a) non-obvious from the code,
 (b) likely useful next session, (c) anchorable. If any miss — don't save.
 
-Session save cap: 15. Over the cap, \`unerr_remember\` returns
-\`outcome:"rate_limited"\` with reinforcement candidates; reinforce instead
-of writing a new row.
+Session save cap: 15. Over the cap new rows are dropped server-side and
+existing notes are reinforced instead — emit fewer, stronger saves.
 
 ### Conflict + supersession
 
-When you write a note that opposes an existing one (same kind+anchor,
-opposite polarity), \`unerr_remember\` returns \`outcome:"conflict"\` with a
-\`conflict_group_id\` — surface both sides in your plan.
-
-When you intentionally replace an older note, pass
-\`supersedes_note_id:"<old>"\` — the old row flips to inactive (kept for
-audit, excluded from queries).
+When a saved note opposes an existing one (same kind+anchor, opposite
+polarity), both sides are kept and surface together on next-turn recall —
+cite both in your plan when they appear. Superseded notes flip to inactive
+server-side (kept for audit, excluded from queries).
 `;
 
 export interface SkillSpec {
@@ -109,13 +109,14 @@ See \`.claude/skills/unerr-memory/SKILL.md\` after install.
 
 The four moments:
 
-1. **Prompt receipt** — first tool call is \`unerr_recall_notes({prompt: "<verbatim>"})\`.
-2. **Anchor query** — once files/entities are known, \`unerr_recall_notes({anchors: ["f:...","e:..."]})\`.
+1. **Prompt receipt** — the UserPromptSubmit hook injects relevant anchored notes into context automatically. Read the injected notes; no recall call.
+2. **Anchor query** — once files/entities are known, call \`unerr_context({prompt: "<what you are about to do>"})\` for the anchored notes + entities + callers + conventions bundle.
 3. **Cite in plan** — cite returned notes by \`kind + anchor\`.
-4. **Save at task end** — \`unerr_remember({type: "note", note: "<DSL>", session_id})\` only if non-obvious + useful next session + anchorable.
+4. **Save at task end** — emit \`unerr-save: note <DSL wire>\` in your closing message (Stop hook persists; zero round-trip) only if non-obvious + useful next session + anchorable.
 
 User-fed capture: when the user says "remember", "always", "from now on", or
-"never", call \`unerr_remember({source_quote, content, fact_type, scope, subject, confidence})\` BEFORE replying.
+"never", the UserPromptSubmit hook captures the directive automatically —
+no tool call. Ambiguous captures surface for confirmation on the next turn.
 `,
   },
 ];
@@ -130,21 +131,21 @@ export const TOOL_DESCRIPTION_NUDGES: readonly ToolDescriptionNudge[] = [
   {
     tool: "search_code",
     nudge:
-      "Then call unerr_recall_notes({anchors:['e:<top_hit_key>']}) for notes on the top result.",
+      "Then call unerr_context({prompt:'<task>'}) for anchored notes + callers + conventions on the top result.",
   },
   {
     tool: "file_read",
     nudge:
-      "Before editing, call unerr_recall_notes({anchors:['f:<file_path>']}) for rule-notes.",
+      "file_read auto-injects rule-notes, conventions, and drift for the file inline — read them before editing.",
   },
   {
     tool: "get_references",
     nudge:
-      "If fan_in≥10, call unerr_remember({type:'note', note:'wrn|e:<entity_key>|-|<chokepoint reason>'}).",
+      "If fan_in≥10, emit unerr-save: note wrn|e:<entity_key>|-|<chokepoint reason> in your closing message.",
   },
   {
     tool: "get_entity",
     nudge:
-      "If contract surprises you, call unerr_remember({type:'note', note:'fct|e:<entity_key>|~|<one-line>'}).",
+      "If contract surprises you, emit unerr-save: note fct|e:<entity_key>|~|<one-line> in your closing message.",
   },
 ];

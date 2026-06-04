@@ -249,6 +249,50 @@ export function pickTopEntity(
   return { key, name: (top.name as string | undefined) ?? null };
 }
 
+/** Path looks like test scaffolding — deprioritized as a focus entity. */
+const TEST_PATH_RE = /(?:^|\/)__tests__\/|\.test\.|\.spec\./;
+
+/**
+ * Rank search hits as focus-entity candidates for the blast-radius section.
+ * `pickTopEntity` (kept for single-hit callers) takes row 0 blindly — under
+ * flat relevance scores that row is usually a test block with ZERO callers,
+ * so the callers section silently vanished from every bundle. Ranking:
+ *   +2 the entity's file is named verbatim in the prompt (the agent told us
+ *      exactly where it's working — that file's entities ARE the focus)
+ *   -1 the entity lives in test scaffolding (tests call things; almost
+ *      nothing calls tests, so they make degenerate blast-radius roots)
+ * Ties keep search order. Sort is stable, so equal-scored rows stay ranked
+ * by relevance.
+ */
+export function rankFocusEntities(
+  searchResult: unknown,
+  prompt: string
+): Array<{ key: string; name: string | null }> {
+  const arr = asEntityArray(searchResult);
+  const scored: Array<{
+    key: string;
+    name: string | null;
+    score: number;
+  }> = [];
+  for (const row of arr) {
+    const o = row as Record<string, unknown>;
+    const key =
+      (o.key as string | undefined) ?? (o.entity_key as string | undefined);
+    if (!key) continue;
+    const filePath = (o.file_path as string | undefined) ?? "";
+    let score = 0;
+    if (filePath && prompt.includes(filePath)) score += 2;
+    if (TEST_PATH_RE.test(filePath)) score -= 1;
+    scored.push({
+      key,
+      name: (o.name as string | undefined) ?? null,
+      score,
+    });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map(({ key, name }) => ({ key, name }));
+}
+
 function asEntityArray(v: unknown): unknown[] {
   if (Array.isArray(v)) return v;
   if (v && typeof v === "object") {
@@ -403,16 +447,30 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
     searchP,
   ]);
 
-  // Phase 2 — lock onto the top entity and pull its blast radius (depth-1).
-  const focus = pickTopEntity(search);
+  // Phase 2 — lock onto a focus entity and pull its blast radius (depth-1).
+  // Candidates are ranked (prompt-named file first, test scaffolding last)
+  // and probed in order until one actually HAS callers — taking row 0
+  // blindly meant a flat-scored test hit with zero callers silently dropped
+  // the blast-radius section from every bundle.
+  const MAX_FOCUS_PROBES = 3;
+  const focusCandidates = rankFocusEntities(search, prompt);
+  let focus: { key: string; name: string | null } | null = null;
   let references: unknown | undefined;
-  if (focus) {
-    references = await safeRun(
+  for (const candidate of focusCandidates.slice(0, MAX_FOCUS_PROBES)) {
+    const refs = await safeRun(
       "get_references",
-      { key: focus.key, direction: "callers", limit: maxReferences },
-      `Callers of ${focus.name ?? focus.key}`
+      { key: candidate.key, direction: "callers", limit: maxReferences },
+      `Callers of ${candidate.name ?? candidate.key}`
     );
+    if (refs !== undefined && !referencesEmpty(refs)) {
+      focus = candidate;
+      references = refs;
+      break;
+    }
   }
+  // No candidate had callers — keep the top-ranked one as the nominal focus
+  // (section titles and task-size classification still want a name).
+  if (!focus) focus = focusCandidates[0] ?? null;
 
   // Assemble candidate sections in priority order. Anchored notes (the user's
   // own rules) rank first; the focus entity's callers (blast radius — unerr's

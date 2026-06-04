@@ -8,8 +8,8 @@ alwaysApply: false
 
 <EXTREMELY-IMPORTANT>
 Every finding MUST cite graph evidence — a caller list (`get_references`), a convention
-(`get_conventions`), a coverage gap (`get_test_coverage`), or a recalled rule
-(`unerr_recall_notes`). A finding from reading the diff alone is a guess; drop it.
+(read via `file_read`, which auto-injects conventions), or a recalled rule (the auto-injected
+anchored notes or `unerr_context`). A finding from reading the diff alone is a guess; drop it.
 Evidence is what separates this review from a blind diff-into-an-LLM review.
 </EXTREMELY-IMPORTANT>
 
@@ -20,9 +20,8 @@ Graph-checkable (assert from evidence — near-zero false positives):
   - blast radius — editing a high-fan_in chokepoint; rank by caller count
   - incomplete refactor — renamed in some call sites, not all
   - duplicate logic — new entity duplicates an existing one (`search_code` the name)
-  - boundary breach — cross-layer import that still compiles (`get_conventions`)
-  - convention violation — breaks a project rule (`get_conventions` / recalled `rul`/`wrn`)
-  - missing test — changed export with no test edge (`get_test_coverage`)
+  - boundary breach — cross-layer import that still compiles (conventions auto-injected by `file_read`)
+  - convention violation — breaks a project rule (conventions auto-injected by `file_read` / recalled `rul`/`wrn`)
 
 Judgment (reason over diff + the evidence above — never from the diff alone):
   - logic error — off-by-one, inverted condition, missing null guard vs sibling callers
@@ -38,7 +37,7 @@ domain / business correctness. Name what was not checked rather than guessing.
 ## Phases
 
 Phase R1 — Recall.
-  Call `unerr_recall_notes({prompt:'<verbatim user prompt>'})`. Rules / decisions on touched files ride along.
+  Read the anchored notes the UserPromptSubmit hook injected for the prompt — rules / decisions on touched files ride along. For an explicit recon bundle, call `unerr_context({prompt:'<verbatim user prompt>'})`.
 
 Phase R2 — Scope the change set.
   Determine what to review: staged diff (`git diff --cached`), this turn's edits, or a branch range.
@@ -49,11 +48,9 @@ Phase R3 — Mark intent.
 
 Phase R4 — Gather evidence (per changed entity — deterministic, do NOT guess).
   - `get_references({key:'<entity>', direction:'callers'})` — breaking callers / blast radius
-  - `get_conventions({file_path:'<file>'})` — convention & boundary rules
-  - `get_test_coverage({entity:'<entity>'})` — untested changed exports
-  - `unerr_recall_notes({anchors:['f:<file>','e:<entity>']})` — rules / decisions on the entity
+  - `file_read({file_path:'<file>', purpose:'explore'})` — convention & boundary rules + drift auto-inject
+  - `unerr_context({prompt:'<task touching f:<file> e:<entity>>'})` — rules / decisions on the entity (the UserPromptSubmit hook also injects them)
   - `search_code({query:'<new-fn-name>'})` — duplicate-logic / hallucinated-API check
-  - drift status — `file_read` auto-injects it
 
 Phase R5 — Judge.
   For each changed entity, reason over (diff + gathered evidence) across the taxonomy above.
@@ -67,9 +64,6 @@ Phase R7 — Report.
   Group findings by file / entity. Per finding: what + the evidence line + the action.
   Lead with critical / high. State explicitly what was NOT checked (out-of-scope limits).
   If the change set is clean, say so — an empty review is a valid review.
-
-Phase R8 — Close out.
-  Call `unerr_turn_summary({})` once and include the returned `line` verbatim.
 
 ## Red Flags
 

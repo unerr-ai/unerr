@@ -221,9 +221,32 @@ export async function updateSearchIndexIncremental(
 }
 
 /**
+ * Test-scaffolding paths and entity-name shapes. Demoted in ranking: a
+ * generic query ("compression") should surface the production entity, not
+ * the 30 `it:` blocks that exercise it.
+ */
+const TEST_FILE_RE = /(^|\/)__tests__\/|\.(test|spec)\.[a-z]+$/;
+const TEST_ENTITY_RE = /^(it|test|describe):/;
+
+/**
+ * Results scoring below this fraction of the top score are dropped (K4 floor).
+ * 0.2 keeps legitimate partial matches (an entity matching one of two query
+ * tokens lands ~0.24 of top) while dropping accidental common-token hits.
+ */
+const RELEVANCE_FLOOR_RATIO = 0.2;
+
+/**
  * Search local entities by query string.
  * Tokenizes query, finds matching entities via token intersection,
  * ranks by IDF-weighted score (rare tokens contribute more to score).
+ *
+ * K4 re-rank: raw token-presence IDF sums are FLAT for single-token queries
+ * (every match gets the identical IDF weight), so a JS pass differentiates:
+ *   - name coverage — entities whose name is mostly made of the query tokens
+ *     outrank entities where the matched token is one of many
+ *   - exact-name match gets a final boost
+ *   - test scaffolding (test/spec files, `it:`/`describe:` entities) is demoted
+ *   - relevance floor — matches scoring < 25% of the top score are dropped
  */
 export async function searchLocal(
   db: CozoDb,
@@ -241,6 +264,10 @@ export async function searchLocal(
   const queryTokens = tokenize(query);
   if (queryTokens.length === 0) return [];
 
+  // Over-fetch so the JS re-rank can promote production entities that the
+  // flat Datalog score left below the cut line.
+  const fetchLimit = Math.min(Math.max(limit * 3, limit), 60);
+
   // Find entities that match ANY token, sum IDF weights per entity
   const tokenRows = queryTokens.map((t) => `["${t}"]`).join(", ");
   let result: { rows?: unknown[][] };
@@ -251,21 +278,41 @@ export async function searchLocal(
       ?[ek, score, name, kind, fp] := matched[ek, score],
         *entities{key: ek, kind, name, file_path: fp}
       :order -score
-      :limit ${limit}
+      :limit ${fetchLimit}
     `);
   } catch {
     return [];
   }
   if (!result?.rows) return [];
 
-  return result.rows.map((row) => {
-    const [key, score, name, kind, file_path] = row as [
+  const querySet = new Set(queryTokens);
+  const queryLower = query.trim().toLowerCase();
+
+  const ranked = result.rows.map((row) => {
+    const [key, baseScore, name, kind, file_path] = row as [
       string,
       number,
       string,
       string,
       string,
     ];
-    return { key, name, kind, file_path, score };
+    const nameTokens = tokenize(name);
+    const overlap = nameTokens.filter((t) => querySet.has(t)).length;
+    const nameCoverage =
+      nameTokens.length > 0 ? overlap / nameTokens.length : 0;
+
+    let score = baseScore * (1 + nameCoverage);
+    if (name.toLowerCase() === queryLower) score *= 1.5;
+    if (TEST_FILE_RE.test(file_path) || TEST_ENTITY_RE.test(name)) {
+      score *= 0.5;
+    }
+    return { key, name, kind, file_path, score: Math.round(score * 1e4) / 1e4 };
   });
+
+  ranked.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+
+  const top = ranked[0]?.score ?? 0;
+  return ranked
+    .filter((r) => r.score >= top * RELEVANCE_FLOOR_RATIO)
+    .slice(0, limit);
 }

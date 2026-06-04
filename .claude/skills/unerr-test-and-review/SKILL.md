@@ -20,10 +20,10 @@ Write the failing test BEFORE the implementation. Confirm RED (test fails as exp
 ### Phases (A)
 
 Phase A1 — Recall.
-  Call `unerr_recall_notes({prompt:'<verbatim user prompt>'})`. Prior testing conventions and decisions ride along.
+  Read the anchored notes the UserPromptSubmit hook injected for the prompt — prior testing conventions and decisions ride along. For an explicit recon bundle, call `unerr_context({prompt:'<verbatim user prompt>'})`.
 
 Phase A2 — Conventions.
-  Call `get_conventions({file_path:'<test_file_path>'})`. Match the project's test framework, assertion style, fixture pattern.
+  Call `file_read({file_path:'<test_file_path>', purpose:'explore'})` — conventions auto-inject. Match the project's test framework, assertion style, fixture pattern.
 
 Phase A3 — Mark intent.
   Note intent: emit `unerr-save: intent TDD <feature/bug>: red → green → refactor` in your closing message.
@@ -40,14 +40,8 @@ Phase A6 — Re-run.
 Phase A7 — REFACTOR.
   Improve the implementation only if the test still passes after each refactor step. If a refactor breaks the test, revert and try smaller.
 
-Phase A8 — Coverage check.
-  Run `get_test_coverage({entity:'<entity_key>'})` (if available) to confirm the new code is covered.
-
-Phase A9 — Review before close.
-  Run the Review phase (`unerr-review`, phases R4–R7) on the entity the tests now cover: `get_references({key:'<entity>', direction:'callers'})` for blast radius, `get_conventions({file_path:'<file>'})` for convention/boundary breaches, `search_code({query:'<new-name>'})` for duplicate logic. The tests prove the entity does what the spec said; the review checks it does not break what the spec did not mention. Fix critical + high before close-out.
-
-Phase A10 — Close out.
-  Call `unerr_turn_summary({})` once and include the returned `line` verbatim.
+Phase A8 — Review before close.
+  Run the Review phase (`unerr-review`, phases R4–R7) on the entity the tests now cover: `get_references({key:'<entity>', direction:'callers'})` for blast radius, `file_read({file_path:'<file>', purpose:'explore'})` (conventions auto-injected) for convention/boundary breaches, `search_code({query:'<new-name>'})` for duplicate logic. The tests prove the entity does what the spec said; the review checks it does not break what the spec did not mention. Fix critical + high before close-out.
 
 ## Track B — Receiving Code Review
 
@@ -60,7 +54,7 @@ Every review comment receives one of three responses: ACCEPT (apply the change),
 ### Phases (B)
 
 Phase B1 — Recall.
-  Call `unerr_recall_notes({prompt:'<verbatim user prompt>'})`. Prior conventions and decisions tied to the reviewed files ride along.
+  Read the anchored notes the UserPromptSubmit hook injected for the prompt — prior conventions and decisions tied to the reviewed files ride along. For an explicit recon bundle, call `unerr_context({prompt:'<verbatim user prompt>'})`.
 
 Phase B2 — Parse comments.
   Enumerate every comment in the input. Number them. Do not skip 'nit:' comments — classify and respond.
@@ -75,7 +69,7 @@ Phase B5 — Apply ACCEPTs.
   For each ACCEPT: locate the entity via `search_code`, run blast-radius check (`get_references` if exported), apply the change. Built-in `Read` (offset/limit) before each `Edit`.
 
 Phase B6 — Draft PUSHBACKs.
-  For each PUSHBACK: cite a project convention (`get_conventions`), a prior decision (`unerr_recall_notes`), or a concrete tradeoff. Hedging ('I think', 'maybe') is not pushback.
+  For each PUSHBACK: cite a project convention (read via `file_read`, which auto-injects conventions), a prior decision (the auto-injected anchored notes or `unerr_context`), or a concrete tradeoff. Hedging ('I think', 'maybe') is not pushback.
 
 Phase B7 — Ask CLARIFYs.
   For each CLARIFY: surface the specific missing context to the user. Do not assume.
@@ -83,17 +77,13 @@ Phase B7 — Ask CLARIFYs.
 Phase B8 — Verify.
   Run the targeted test for every changed file. Emit `unerr-save: resolution <fix>` in your closing message for the review.
 
-Phase B9 — Close out.
-  Call `unerr_turn_summary({})` once and include the returned `line` verbatim.
-
 ## Red Flags
 
 Track A — writing production code in A1 → skips RED; test may be tautological.
 Track A — test passes on first run (skipping RED) → test is tautological or import is wrong.
 Track A — writing more implementation than the test demands → speculative; deletes YAGNI.
 Track A — refactoring while the test is red → loses the safety net; revert, get green, then refactor.
-Track A — skipping A8 coverage check → ships untested branches.
-Track A — closing without the Phase A9 review → the tests pass but breaking-caller cascades and duplicate logic still ship; run `unerr-review` R4–R7 first.
+Track A — closing without the Phase A8 review → the tests pass but breaking-caller cascades and duplicate logic still ship; run `unerr-review` R4–R7 first.
 Track B — addressing 'most' comments → every comment needs ACCEPT/PUSHBACK/CLARIFY; partial coverage is a regression.
 Track B — hedge-pushback ('not sure', 'I think') → cite a convention or a tradeoff; otherwise it's an ACCEPT.
 Track B — applying a fix to a hot entity without `get_references` → review comments on exported entities cascade.

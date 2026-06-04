@@ -267,14 +267,14 @@ unerr pm dashboard      # Open http://localhost:9847
 
 `unerrd` is a lightweight Node process that supervises every registered repo. Your IDE invocation auto-spawns it; it exits cleanly after 30 minutes of no activity. `unerr pm --help` lists the rest.
 
-### MCP tools (16 advertised)
+### MCP tools (8 advertised)
 
 Grouped by what the agent gets, not by file:
 
-- **Reads (11)** — `search_code`, `file_outline` (structure without body), `file_read` (context-aware, auto-injects conventions, facts, and drift), `get_entity` (signature plus callers / callees / imports in one call), `get_references` (callers or callees — catches indirect refs grep misses), `get_conventions`, `get_critical_nodes`, `get_test_coverage`, `get_project_stats`, `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache — replaces built-in WebFetch), and `unerr_context` (one call that folds anchored notes + search + references + conventions for what you're about to edit).
-- **Memory & session (5)** — `unerr_remember` (user-stated facts and anchored notes with verbatim quote + confidence), `unerr_recall_notes` (anchored notes for the current prompt), `unerr_track` (one op-union call for intent / decision / blocker / resolution / fact / recall — powers turn titles and the cross-session resume strip), plus the per-turn `unerr_surface2_line` and `unerr_turn_summary` economy lines.
+- **Reads (7)** — `search_code`, `file_outline` (structure without body), `file_read` (context-aware, auto-injects conventions, facts, and drift), `get_entity` (signature plus callers / callees / imports in one call), `get_references` (callers or callees — catches indirect refs grep misses), `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache — replaces built-in WebFetch), and `unerr_context` (one call that folds anchored notes + search + references + conventions for what you're about to edit).
+- **Memory & session (1)** — `unerr_track` (one op-union call for intent / decision / blocker / resolution / fact / recall — powers turn titles and the cross-session resume strip).
 
-On Claude Code the always-on ceremony runs for free: a UserPromptSubmit hook injects recalled notes, a PostToolUse hook injects detected conventions on the first file read, and a Stop hook prints the turn close-out — all at zero extra round-trip, so the agent never spends a call on them. Eleven more tools stay dispatchable as a fallback for agents without hooks (and as an explicit high-fidelity escape): the six session writes (`mark_intent`, `mark_decision`, `mark_blocker`, `mark_resolution`, `record_fact`, `recall_facts`) fold into `unerr_track`; `get_file`, `get_imports`, `file_connections`, and `get_cross_boundary_links` collapse into `file_outline`, `get_entity`, and `get_references`; and `review_changes` runs from the `unerr review` CLI.
+Persistence costs zero tool calls: a UserPromptSubmit hook captures user-stated rules ("remember this", "always X") automatically, and agent notes + session markers ride a `unerr-save:` sentinel in the closing message that a Stop hook scrapes and persists. On Claude Code the rest of the always-on ceremony also runs for free: the prompt hook injects recalled notes, a PostToolUse hook injects detected conventions on the first file read, and the Stop hook prints the turn close-out — all at zero extra round-trip, so the agent never spends a call on them.
 
 Every response carries inline `ur|<tag>` signals for high-priority guidance — drift, breaking-change warnings, loop-breaker halts — so the agent acts on what it just learned without burning a turn.
 

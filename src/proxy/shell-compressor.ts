@@ -207,7 +207,8 @@ export async function compressShellOutput(
       if (graphForBoost) {
         const fileRisk = await buildShellFileRiskMap(graphForBoost, stripped);
         if (fileRisk.size > 0) {
-          const header = `_shell_boost:file_risk\n${[...fileRisk.values()]
+          // Risk lines are self-describing — no label line needed.
+          const header = `${[...fileRisk.values()]
             .slice(0, 10)
             .map(
               (h) =>
@@ -363,9 +364,10 @@ export async function compressShellOutput(
     graph && wantsFileBoost
       ? await buildShellFileRiskMap(graph, stripped)
       : undefined;
+  // Risk lines are self-describing — no label line needed.
   const fileRiskHeader =
     fileRiskMap && fileRiskMap.size > 0
-      ? `_shell_boost:file_risk\n${[...fileRiskMap.values()]
+      ? `${[...fileRiskMap.values()]
           .slice(0, 10)
           .map(
             (h) =>

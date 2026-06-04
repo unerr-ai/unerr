@@ -91,7 +91,7 @@ const TEMPLATE_DEFINITIONS: Record<
     priority: "normal",
   },
   review_synthesis: {
-    // Tier-2 review evidence (docs/reviewer-architecture.md §3, §5.1, §9.3). The
+    // Tier-2 review evidence (.internal/reviewer-architecture.md §3, §5.1, §9.3). The
     // model judges fix-or-flag ONLY from unerr's concrete graph evidence below —
     // it must not invent issues the evidence does not support (no free-association).
     prefix:

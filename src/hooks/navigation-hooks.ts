@@ -206,8 +206,8 @@ const preWriteHandler: HookHandler = (normalized) => {
   return nudge(
     onceVerbose(
       "write-check",
-      `Before writing "${filePath}", check for unintended side effects:\n- \`get_references({key:"<symbol>", direction:"callers"})\` on any functions you're modifying — ensure callers still work after your changes\n- \`get_test_coverage\` on modified entities — know which tests to run`,
-      `Writing "${filePath}" — run get_references({direction:"callers"}) on changed entities + get_test_coverage before finishing.`
+      `Before writing "${filePath}", check for unintended side effects:\n- \`get_references({key:"<symbol>", direction:"callers"})\` on any functions you're modifying — ensure callers still work after your changes; test files in the caller list are the tests to run`,
+      `Writing "${filePath}" — run get_references({direction:"callers"}) on changed entities before finishing; test files in the caller list are the tests to run.`
     )
   );
 };
@@ -240,7 +240,7 @@ const preEditHandler: HookHandler = (normalized) => {
 
   if (hasSignatureChange) {
     return nudge(
-      `${readPrereq}You're editing a function/class signature in "${filePath}". This may break callers.\n- \`get_references\` on the entity you're modifying — all callers must be updated to match\n- \`get_test_coverage\` on the entity — verify which tests cover it`
+      `${readPrereq}You're editing a function/class signature in "${filePath}". This may break callers.\n- \`get_references({direction:"callers"})\` on the entity you're modifying — all callers must be updated to match, and test files in the caller list are the tests to run`
     );
   }
 

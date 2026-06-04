@@ -19,7 +19,7 @@
  * (cached for the call's lifetime in a session_id → agent_name map).
  * When a session has no history row yet, `agent` is "unknown".
  *
- * See: docs/open-cli/PERCEPTION_TO_PRESENCE.md §9.1 (story paragraph
+ * See: .internal/PERCEPTION_TO_PRESENCE.md §9.1 (story paragraph
  * inputs), §12 Sprint 1 (this module's contract).
  */
 

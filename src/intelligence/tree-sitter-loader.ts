@@ -7,6 +7,8 @@
  * Performance: first load ~20ms, subsequent parses <1ms per file.
  */
 
+import { createRequire } from "node:module";
+import { join } from "node:path";
 import type Parser from "web-tree-sitter";
 
 let TreeSitter: typeof Parser | null = null;
@@ -37,9 +39,13 @@ export async function initTreeSitter(): Promise<typeof Parser> {
  */
 function resolveGrammarPath(wasmName: string): string {
   try {
-    return require.resolve(`tree-sitter-wasms/out/${wasmName}`);
+    // createRequire, NOT bare require.resolve: the tsup bundle is pure ESM,
+    // where `require` is undefined — both the resolve and the old
+    // require("node:path") fallback threw, so grammars never resolved and
+    // indexing silently fell back to the regex extractor.
+    const esmRequire = createRequire(import.meta.url);
+    return esmRequire.resolve(`tree-sitter-wasms/out/${wasmName}`);
   } catch {
-    const { join } = require("node:path") as typeof import("node:path");
     return join(
       process.cwd(),
       "node_modules",

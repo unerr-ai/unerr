@@ -147,7 +147,7 @@ export function compressGitStatus(raw: string): string | null {
   // let the generic strategy take it.
   if (totalFiles === 0 && !branch) return null;
 
-  const out: string[] = ["_shell_fmt:git_status"];
+  const out: string[] = [];
   const branchLine = branch
     ? tracking
       ? `branch=${branch}; ${tracking}`

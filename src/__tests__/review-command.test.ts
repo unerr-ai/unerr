@@ -1,5 +1,5 @@
 /**
- * P3 — `unerr review` command (Surface C, docs/reviewer-architecture.md §5.3).
+ * P3 — `unerr review` command (Surface C, .internal/reviewer-architecture.md §5.3).
  *
  * `runReview` is the testable core behind the Commander action. These tests
  * pin the validation gates (exit 2 on bad args / not-a-repo), the JSON contract

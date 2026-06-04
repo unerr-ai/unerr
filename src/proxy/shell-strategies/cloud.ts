@@ -62,8 +62,8 @@ function parseAwsEc2(raw: string): string | null {
       );
     }
   }
-  if (count === 0) return "_shell_fmt:cloud[aws-ec2]\n0 instances";
-  return `_shell_fmt:cloud[aws-ec2]\n${fmtCount(count, "instance")}\nid                   state      type         ip              az  name\n${rows.join("\n")}`;
+  if (count === 0) return "0 instances";
+  return `${fmtCount(count, "instance")}\nid                   state      type         ip              az  name\n${rows.join("\n")}`;
 }
 
 // ─── aws s3 ls (bucket listing) ────────────────────────────────────────────
@@ -96,7 +96,7 @@ function parseAwsS3Ls(raw: string): string | null {
       : bytes > 1024 * 1024
         ? `${(bytes / 1024 / 1024).toFixed(2)} MB`
         : `${(bytes / 1024).toFixed(1)} KB`;
-  return `_shell_fmt:cloud[aws-s3]\n${fmtCount(files, "object")}${bytes > 0 ? `, ${sizeStr}` : ""}\nsamples: ${samples.join(", ")}`;
+  return `${fmtCount(files, "object")}${bytes > 0 ? `, ${sizeStr}` : ""}\nsamples: ${samples.join(", ")}`;
 }
 
 // ─── aws iam list-users / list-roles ───────────────────────────────────────
@@ -117,7 +117,7 @@ function parseAwsIam(raw: string): string | null {
         return `${name}  ${typeof arn === "string" ? compactArn(arn) : ""}`;
       });
       const more = arr.length > 25 ? `\n… ${arr.length - 25} more` : "";
-      return `_shell_fmt:cloud[aws-iam]\n${fmtCount(arr.length, key.slice(0, -1).toLowerCase())}\n${rows.join("\n")}${more}`;
+      return `${fmtCount(arr.length, key.slice(0, -1).toLowerCase())}\n${rows.join("\n")}${more}`;
     }
   }
   return null;
@@ -134,10 +134,10 @@ function parseAwsLambda(raw: string): string | null {
       .slice(0, 20)
       .map((f) => `${f.FunctionName}  ${f.Runtime}  ${f.LastModified ?? ""}`);
     const more = fns.length > 20 ? `\n… ${fns.length - 20} more` : "";
-    return `_shell_fmt:cloud[aws-lambda]\n${fmtCount(fns.length, "function")}\n${rows.join("\n")}${more}`;
+    return `${fmtCount(fns.length, "function")}\n${rows.join("\n")}${more}`;
   }
   if (data.StatusCode !== undefined) {
-    return `_shell_fmt:cloud[aws-lambda-invoke]\nstatus=${data.StatusCode}${data.FunctionError ? ` error=${data.FunctionError}` : " ok"}`;
+    return `status=${data.StatusCode}${data.FunctionError ? ` error=${data.FunctionError}` : " ok"}`;
   }
   return null;
 }
@@ -152,7 +152,7 @@ function parseAwsCfn(raw: string): string | null {
     (s) =>
       `${s.StackName}  ${s.StackStatus}  ${s.LastUpdatedTime ?? s.CreationTime ?? ""}`
   );
-  return `_shell_fmt:cloud[aws-cfn]\n${fmtCount(stacks.length, "stack")}\n${rows.join("\n")}`;
+  return `${fmtCount(stacks.length, "stack")}\n${rows.join("\n")}`;
 }
 
 // ─── kubectl get / describe / logs ─────────────────────────────────────────
@@ -169,7 +169,7 @@ function parseKubectlGet(raw: string, command: string): string | null {
       return `${meta.namespace ?? "—"}/${meta.name}  ${(status.phase ?? status.conditions) ? "ok" : "?"}`;
     });
     const more = items.length > 30 ? `\n… ${items.length - 30} more` : "";
-    return `_shell_fmt:cloud[kubectl-get]\n${fmtCount(items.length, "resource")} (${kind})\n${rows.join("\n")}${more}`;
+    return `${fmtCount(items.length, "resource")} (${kind})\n${rows.join("\n")}${more}`;
   }
   // Table form (default kubectl output)
   const lines = raw.split("\n").filter((l) => l.trim());
@@ -178,7 +178,7 @@ function parseKubectlGet(raw: string, command: string): string | null {
     const dataLines = lines.slice(1);
     if (dataLines.length > 40) {
       void command;
-      return `_shell_fmt:cloud[kubectl-get]\n${fmtCount(dataLines.length, "row")}\n${header}\n${dataLines.slice(0, 30).join("\n")}\n… ${dataLines.length - 30} more`;
+      return `${fmtCount(dataLines.length, "row")}\n${header}\n${dataLines.slice(0, 30).join("\n")}\n… ${dataLines.length - 30} more`;
     }
   }
   return null;
@@ -195,7 +195,7 @@ function parseKubectlDescribe(raw: string): string | null {
     .replace(/^\s+uid:.+$/gm, "")
     .replace(/^\s+creationTimestamp:.+$/gm, "")
     .replace(/\n{3,}/g, "\n\n");
-  return `_shell_fmt:cloud[kubectl-describe]\n${stripped.trim()}`;
+  return stripped.trim();
 }
 
 // ─── docker inspect / ps ───────────────────────────────────────────────────
@@ -212,7 +212,7 @@ function parseDockerInspect(raw: string): string | null {
     const cfg = (c.Config as JsonObj | undefined) ?? {};
     return `${id}  ${state.Status ?? "?"}  ${cfg.Image ?? "?"}  ${c.Name ?? ""}`;
   });
-  return `_shell_fmt:cloud[docker-inspect]\n${fmtCount(rows.length, "container")}\n${rows.join("\n")}`;
+  return `${fmtCount(rows.length, "container")}\n${rows.join("\n")}`;
 }
 
 // ─── dispatch ───────────────────────────────────────────────────────────────

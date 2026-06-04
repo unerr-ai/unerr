@@ -28,13 +28,7 @@ export const TOOL_CLUSTERS: ToolCluster[] = [
   {
     id: "navigation",
     name: "Code Navigation",
-    tools: [
-      "search_code",
-      "get_entity",
-      "get_references",
-      "get_file",
-      "get_imports",
-    ],
+    tools: ["search_code", "get_entity", "get_references"],
     triggerKeywords: [
       "find",
       "search",
@@ -63,48 +57,12 @@ export const TOOL_CLUSTERS: ToolCluster[] = [
     ],
   },
   {
-    id: "quality",
-    name: "Quality & Conventions",
-    tools: ["get_conventions"],
-    triggerKeywords: [
-      "rules",
-      "conventions",
-      "lint",
-      "style",
-      "validate",
-      "check",
-      "standard",
-      "pattern",
-    ],
-  },
-  {
-    id: "structural",
-    name: "Structural Analysis",
-    tools: [
-      "get_critical_nodes",
-      "get_cross_boundary_links",
-      "file_connections",
-      "get_project_stats",
-    ],
-    triggerKeywords: [
-      "chokepoint",
-      "critical",
-      "coupling",
-      "boundary",
-      "connections",
-      "test coverage",
-      "stats",
-      "overview",
-      "risk",
-      "fan_in",
-      "blast radius",
-      "dependencies",
-    ],
-  },
-  {
     id: "persistence",
     name: "Persistent Intelligence",
-    tools: ["unerr_remember", "record_fact"],
+    // unerr_remember is hidden (2026-06): user rules are hook-captured, agent
+    // notes ride the `unerr-save:` sentinel. unerr_track({op:'fact'|'recall'})
+    // is the advertised persistence surface this cluster boosts.
+    tools: ["unerr_track"],
     triggerKeywords: [
       "remember",
       "store",
@@ -118,31 +76,6 @@ export const TOOL_CLUSTERS: ToolCluster[] = [
       "anti-pattern",
       "record",
       "recall",
-    ],
-  },
-  {
-    id: "session-narrative",
-    name: "Session Narrative",
-    tools: [
-      "mark_intent",
-      "mark_decision",
-      "mark_blocker",
-      "mark_resolution",
-      "unerr_turn_summary",
-      "unerr_surface2_line",
-    ],
-    triggerKeywords: [
-      "intent",
-      "decision",
-      "blocker",
-      "stuck",
-      "resolved",
-      "fixed",
-      "starting",
-      "planning",
-      "summary",
-      "wrap up",
-      "close out",
     ],
   },
   {
@@ -162,12 +95,6 @@ export const TOOL_CLUSTERS: ToolCluster[] = [
       "blog",
       "article",
     ],
-  },
-  {
-    id: "recovery",
-    name: "Recovery",
-    tools: ["recall_facts", "get_test_coverage"],
-    triggerKeywords: ["debug", "broken", "revert", "undo"],
   },
 ];
 

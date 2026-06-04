@@ -5,6 +5,7 @@ import {
   defaultCountTokens,
   extractQueryTerms,
   pickTopEntity,
+  rankFocusEntities,
   reconEntityCount,
   reconFileSpread,
   renderReconDigest,
@@ -73,6 +74,51 @@ describe("pickTopEntity", () => {
     expect(pickTopEntity([])).toBeNull();
     expect(pickTopEntity([{ name: "no-key" }])).toBeNull();
     expect(pickTopEntity(null)).toBeNull();
+  });
+});
+
+describe("rankFocusEntities", () => {
+  it("ranks an entity whose file is named in the prompt first", () => {
+    const ranked = rankFocusEntities(
+      [
+        { key: "k1", name: "helperA", file_path: "src/other.ts" },
+        { key: "k2", name: "handleX", file_path: "src/proxy/proxy.ts" },
+      ],
+      "fix the dispatch path in src/proxy/proxy.ts"
+    );
+    expect(ranked[0]?.key).toBe("k2");
+  });
+
+  it("sinks test-scaffolding entities below production ones", () => {
+    const ranked = rankFocusEntities(
+      [
+        {
+          key: "t1",
+          name: "testBlock",
+          file_path: "src/__tests__/foo.test.ts",
+        },
+        { key: "p1", name: "realFn", file_path: "src/foo.ts" },
+      ],
+      "update realFn"
+    );
+    expect(ranked[0]?.key).toBe("p1");
+    expect(ranked[1]?.key).toBe("t1");
+  });
+
+  it("keeps search order on ties (stable sort)", () => {
+    const ranked = rankFocusEntities(
+      [
+        { key: "a", name: "one", file_path: "src/a.ts" },
+        { key: "b", name: "two", file_path: "src/b.ts" },
+      ],
+      "no file named here"
+    );
+    expect(ranked.map((r) => r.key)).toEqual(["a", "b"]);
+  });
+
+  it("skips keyless rows and returns [] for non-arrays", () => {
+    expect(rankFocusEntities([{ name: "no-key" }], "p")).toEqual([]);
+    expect(rankFocusEntities(null, "p")).toEqual([]);
   });
 });
 
@@ -309,6 +355,66 @@ describe("composeRecon", () => {
     expect(refSection).toBeDefined();
     expect(refSection?.shrunk).toBe(true);
     expect(bundle.totalTokens).toBeLessThanOrEqual(300);
+  });
+
+  it("probes past a zero-caller top hit to a candidate with callers", async () => {
+    // Regression: pickTopEntity took search row 0 blindly — under flat
+    // relevance scores that row was a test block with zero callers, so the
+    // callers (blast-radius) section silently vanished from every bundle.
+    const hits = [
+      { key: "dead", name: "noCallers", file_path: "src/a.ts" },
+      { key: "live", name: "hasCallers", file_path: "src/b.ts" },
+    ];
+    const runner: ReconRunner = vi.fn(async (tool: string, args) => {
+      if (tool === "unerr_recall_notes") return { notes: [] };
+      if (tool === "get_conventions")
+        return { naming: [], import_direction: [], structure: [] };
+      if (tool === "search_code") return hits;
+      if (tool === "get_references") {
+        const key = (args as { key?: string }).key;
+        return key === "live"
+          ? REFERENCES
+          : {
+              references: [],
+              direction: "callers",
+              total: 0,
+              truncated: false,
+            };
+      }
+      return undefined;
+    });
+    const bundle = await composeRecon({
+      prompt: "edit noCallers and hasCallers",
+      runner,
+      budget: 5000,
+    });
+    expect(bundle.focusKey).toBe("live");
+    expect(bundle.focusName).toBe("hasCallers");
+    const refSection = bundle.sections.find((s) => s.tool === "get_references");
+    expect(refSection).toBeDefined();
+    expect(refSection?.title).toBe("Callers of hasCallers");
+  });
+
+  it("keeps the top-ranked candidate as nominal focus when nothing has callers", async () => {
+    const emptyRefs = {
+      references: [],
+      direction: "callers",
+      total: 0,
+      truncated: false,
+    };
+    const runner = makeRunner({
+      unerr_recall_notes: { notes: [] },
+      get_conventions: { naming: [], import_direction: [], structure: [] },
+      search_code: SEARCH_HIT,
+      get_references: emptyRefs,
+    });
+    const bundle = await composeRecon({
+      prompt: "edit fooBar",
+      runner,
+      budget: 5000,
+    });
+    expect(bundle.focusKey).toBe("ent1");
+    expect(bundle.sections.map((s) => s.tool)).not.toContain("get_references");
   });
 
   it("skips search entirely when the prompt has no salient terms", async () => {

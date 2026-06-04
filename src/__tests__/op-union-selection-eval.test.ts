@@ -20,10 +20,19 @@
 import { describe, expect, it } from "vitest";
 
 import { TOOL_DEFINITIONS } from "../proxy/tool-definitions.js";
-import { hiddenToolNames } from "../proxy/tool-descriptions.js";
+import {
+  advertisedToolNames,
+  listToolNames,
+} from "../proxy/tool-descriptions.js";
 import { TRACK_OPS, translateUnerrTrack } from "../proxy/unerr-track.js";
 
-/** The six legacy write tools the union folds in (all unconditionally hidden). */
+/**
+ * The six legacy write tools the union folds in. After the token-overhead
+ * deletion these were physically REMOVED from the catalog (TIER_ENTRIES) —
+ * they are no longer present-but-hidden, they are simply absent. They stay
+ * reachable ONLY via the unerr_track op-union translation (and the hook UDS
+ * path), never advertised in tools/list.
+ */
 const LEGACY_WRITE_TOOLS = [
   "mark_intent",
   "mark_decision",
@@ -34,11 +43,16 @@ const LEGACY_WRITE_TOOLS = [
 ] as const;
 
 function routedTool(op: string): string | null {
+  // Supply a superset of every op's required fields so a valid op never
+  // returns {error} for a missing field — the fact op needs fact_type+target
+  // on top of text+scope, recall needs scope, resolution needs blocker_ref.
   const out = translateUnerrTrack({
     op,
     text: "x",
     blocker_ref: "m_1",
     scope: "project",
+    target: "src/x.ts",
+    fact_type: "convention",
   });
   return "name" in out ? out.name : null;
 }
@@ -76,9 +90,15 @@ describe("op-union selection — coverage (bijection onto legacy writes)", () =>
   });
 
   it("each legacy write target is itself demoted (advertised only via unerr_track)", () => {
-    const hidden = new Set(hiddenToolNames());
+    // The six legacy writes are NOT catalog members — they were physically
+    // removed from TIER_ENTRIES, so they appear in neither the advertised set
+    // nor the full catalog. They remain valid translation targets (above), so
+    // the only reach is the op-union (and the hook UDS path).
+    const advertised = new Set(advertisedToolNames());
+    const full = new Set(listToolNames());
     for (const tool of LEGACY_WRITE_TOOLS) {
-      expect(hidden.has(tool)).toBe(true);
+      expect(advertised.has(tool)).toBe(false);
+      expect(full.has(tool)).toBe(false);
     }
   });
 });

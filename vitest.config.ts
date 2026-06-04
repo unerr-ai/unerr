@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config"
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
@@ -8,5 +8,12 @@ export default defineConfig({
     // default `threads` pool (worker_threads). Forks also sidesteps the
     // Darwin SIGURG → exit 144 worker death we saw on the full suite.
     pool: "forks",
+    // Jest-compatible JSON artifact alongside normal terminal output.
+    // `unerr exec` reads .unerr/test-results.json back to render a first-turn
+    // verdict when a teardown-time SIGTERM (exit 143) eats the terminal
+    // output — the artifact is written when the run finishes, so its presence
+    // proves the suite completed. See src/proxy/test-artifact.ts.
+    reporters: ["default", "json"],
+    outputFile: { json: ".unerr/test-results.json" },
   },
-})
+});

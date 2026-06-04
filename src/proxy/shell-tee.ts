@@ -20,7 +20,7 @@ export interface TeeResult {
 const MAX_TEE_FILES = 50;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
 
-function commandSlug(cmd: string): string {
+export function commandSlug(cmd: string): string {
   return cmd
     .trim()
     .split(/\s+/)

@@ -9,12 +9,27 @@
  * low-level git plumbing where simple-git's API doesn't reach.
  */
 
+import { constants as osConstants } from "node:os";
 import { x } from "tinyexec";
 
 export interface ExecResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  /** Signal that killed the process (e.g. "SIGTERM"); null/absent on normal exit. */
+  signal?: string | null;
+}
+
+/**
+ * Shell convention for signal deaths: 128 + signal number (SIGTERM → 143,
+ * SIGINT → 130). Uses os.constants.signals so the number is correct for the
+ * running platform. Unknown names map to SIGTERM's 143 — the common case.
+ */
+export function signalExitCode(signal: string): number {
+  const num = (osConstants.signals as Record<string, number | undefined>)[
+    signal
+  ];
+  return 128 + (typeof num === "number" ? num : 15);
 }
 
 export interface ExecOptions {
@@ -32,18 +47,27 @@ export async function exec(
   args: string[] = [],
   options: ExecOptions = {}
 ): Promise<ExecResult> {
-  const result = await x(command, args, {
+  // Hold the Result handle before awaiting: `await x(...)` resolves to the
+  // plain Output {stdout, stderr, exitCode} — signalCode is only reachable
+  // through the handle's underlying ChildProcess.
+  const proc = x(command, args, {
     nodeOptions: {
       cwd: options.cwd,
       timeout: options.timeout,
     },
     throwOnError: false,
   });
+  const result = await proc;
 
+  // tinyexec leaves exitCode undefined when the child died by signal — map
+  // that to the shell convention (128+signum) instead of masking it as 0,
+  // so callers checking `exitCode === 0` don't treat a SIGTERM'd run as success.
+  const signal = proc.process?.signalCode ?? null;
   const execResult: ExecResult = {
     stdout: result.stdout.trim(),
     stderr: result.stderr.trim(),
-    exitCode: result.exitCode ?? 0,
+    exitCode: result.exitCode ?? (signal ? signalExitCode(signal) : 0),
+    signal,
   };
 
   if (options.throwOnError && execResult.exitCode !== 0) {

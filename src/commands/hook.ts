@@ -26,8 +26,11 @@ import {
 } from "../hooks/navigation-hooks.js";
 import { runUserPromptSubmitHookAsync } from "../hooks/prompt-hooks.js";
 import { runSessionStartHookAsync } from "../hooks/session-hooks.js";
-import { runStopHookHandlerAsync } from "../hooks/stop-hooks.js";
 import { runPreBashHook } from "../hooks/shell-hooks.js";
+import {
+  runStopHookHandlerAsync,
+  runStopPersistWorkerAsync,
+} from "../hooks/stop-hooks.js";
 import { runPreWebFetchHook } from "../hooks/web-hooks.js";
 
 /**
@@ -157,6 +160,26 @@ export function registerHookCommand(program: Command): void {
 
   hook
     .command("stop")
-    .description("Surface the close-out economy line at turn end (no round-trip)")
+    .description(
+      "Surface the close-out economy line at turn end (no round-trip)"
+    )
     .action(safeAsyncHookAction(runStopHookHandlerAsync));
+
+  // ── Stop-persist worker (spawned detached by the Stop hook) ─────
+  // Hidden: not a user-facing command. Detached children get no stdin, so the
+  // transcript path rides argv; the worker re-reads + re-scrapes it itself.
+
+  hook
+    .command("stop-persist", { hidden: true })
+    .description(
+      "Background worker: persist unerr-save sentinels from a transcript"
+    )
+    .requiredOption("--transcript <path>", "Claude Code transcript JSONL path")
+    .action(async (opts: { transcript: string }) => {
+      try {
+        await runStopPersistWorkerAsync(opts.transcript);
+      } catch (e) {
+        process.stderr.write(`[unerr] stop-persist worker error: ${e}\n`);
+      }
+    });
 }

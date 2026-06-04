@@ -7,16 +7,16 @@ alwaysApply: true
 ## Iron Law
 
 <EXTREMELY-IMPORTANT>
-On every coding-task prompt the FIRST tool call is `unerr_recall_notes({prompt:'<verbatim user prompt>'})` (Moment 1). When the user says 'remember', 'always', 'from now on', or 'never', capture it via `unerr_remember` BEFORE replying. At task close, save anchored notes only if they pass all three quality gates (non-obvious + useful next session + anchorable).
+On every coding-task prompt the UserPromptSubmit hook auto-injects anchored notes for the verbatim prompt (Moment 1) — read them before drafting; call `unerr_context({prompt:'<verbatim prompt>'})` for explicit recon. When the user says 'remember', 'always', 'from now on', or 'never', the hook captures it automatically — no tool call; confirm with `added that to unerr for next time`. At task close, save anchored notes only if they pass all three quality gates (non-obvious + useful next session + anchorable).
 </EXTREMELY-IMPORTANT>
 
 ## The four moments
 
 **Moment 1 — Prompt receipt.**
-  First tool call on any coding prompt: `unerr_recall_notes({prompt:'<verbatim prompt>'})`. Empty result is fine; the call is the contract.
+  The UserPromptSubmit hook injects anchored notes for the verbatim prompt automatically every turn — read them before drafting. Empty injection is fine; the contract is honored by the hook. For an explicit recon bundle, call `unerr_context({prompt:'<verbatim prompt>'})`.
 
 **Moment 2 — Anchor query.**
-  Once you've identified the files/entities the task will touch: `unerr_recall_notes({anchors:['f:src/x.ts','e:fooBar']})`. Reads return active notes only; topic-shift and co-change groups ride along.
+  Once you've identified the files/entities the task will touch, call `unerr_context({prompt:'<task touching f:src/x.ts e:fooBar>'})` — it returns active anchored notes plus the entity's callers and conventions; topic-shift and co-change groups ride along. `file_read` on the target also re-injects its anchored notes.
 
 **Moment 3 — Cite in plan.**
   When drafting the plan, cite returned notes by `kind + anchor` inline. Example: `Per the wrn on src/proxy/proxy.ts, both stdio and UDS sites must mirror.` No citation = the note was not load-bearing.
@@ -26,7 +26,7 @@ On every coding-task prompt the FIRST tool call is `unerr_recall_notes({prompt:'
     1. Non-obvious — not derivable from the code itself.
     2. Likely useful next session — would change a future approach.
     3. Anchorable — fits a file, entity, glob, or (rarely) project-wide.
-  Call: `unerr_remember({type:'note', note:'<DSL wire>'})` — the server fills session_id automatically; you do NOT supply one.
+  Emit it as a sentinel line anywhere in your closing message — zero round-trip, the Stop hook scrapes and persists it: `unerr-save: note <DSL wire>`.
 
 ## DSL vocabulary
 
@@ -42,7 +42,7 @@ Examples:
   - `wrn|g:*.test.ts|-|don't mock cozo db`
   - `dec|e:TURN_OPEN_GAP_MS|+|15s avoids RTT misclassification`
 
-Session save cap: 15. Over the cap, `unerr_remember` returns `outcome:'rate_limited'` with reinforcement candidates — reinforce instead of writing a new row.
+Session save cap: 15. Over the cap new rows are dropped server-side and existing notes are reinforced instead — don't pad your closing message with extra sentinels.
 
 ## User-fed memory (capture rule)
 
@@ -52,15 +52,9 @@ Watch every user turn for fact-bearing statements. Triggering phrases:
   - 'the rule is', 'the convention is', 'we use X for Y'
   - direct assertion of project facts ('X is the canonical Y', 'never edit Z directly')
 
-When you see one, persist it BEFORE replying:
+When you see one, the UserPromptSubmit hook has ALREADY captured it — no tool call. Confirm in your reply with `added that to unerr for next time`. An ambiguous capture surfaces for confirmation on your next turn; ask the user verbatim: `should I remember: '<quote>'? (yes/no)`.
 
-  `unerr_remember({source_quote:'<verbatim user sentence>', content:'<normalised, ≤280 chars>', fact_type:'<procedural|semantic|negative|convention>', scope:'<file_path|entity_key|project>', subject:'<entity/topic>', confidence:<0..1>})`
-
-  - confidence < 0.5  → capture abandoned automatically; ask the user a clarifying question.
-  - 0.5 ≤ confidence < 0.7 → stored ambiguous; expect a follow-up.
-  - confidence ≥ 0.7 → stored cleanly.
-
-Use `unerr_remember` whenever the source is the user (it carries a type discriminator for notes + facts). When YOU auto-detected a convention from observed code, record it with `unerr_track({op:'fact', target:'<entity-or-file>', text:'<convention>'})`.
+When YOU auto-detected a convention from observed code (not user-fed), record it with `unerr_track({op:'fact', target:'<entity-or-file>', text:'<convention>'})`, or emit `unerr-save: note <kind|anchor|polarity|content>` in your closing message for an anchored note.
 
 ## Session resume
 
@@ -74,10 +68,10 @@ Build on prior work; don't re-explore what was already understood.
 
 ## Red Flags
 
-Drafting code before `unerr_recall_notes` on Moment 1 → restart the turn at recall.
+Drafting code before reading the Moment 1 auto-injected notes → read them; call `unerr_context` for an explicit recon bundle if needed.
 Treating a recalled note as a soft preference → notes are user-fed rules; they override auto-detected conventions.
-Emitting standalone `attribution:` rows inline → the end-of-turn `unerr_turn_summary` receipt now consolidates all attribution into its block; do not echo it inline.
+Emitting standalone `attribution:` rows inline → the Stop hook's close-out receipt consolidates all attribution into its block; do not echo it inline.
 Saving a note that is obvious from the code → fails the quality bar; don't save.
 Using `p:` anchor for a fact that fits a file or entity → pollutes prompt-receipt query; use the narrower anchor.
-Skipping `unerr_remember` after the user said 'remember' → loses the fact; capture before replying.
-Routing a user-fed rule through `unerr_track({op:'fact'})` → wrong tool; `unerr_remember` is for user-sourced facts, `unerr_track({op:'fact'})` is for conventions YOU detected from code.
+Calling a tool to persist a user-fed rule → the UserPromptSubmit hook already captured it; just confirm in your reply.
+Routing a user-fed rule through `unerr_track({op:'fact'})` → wrong channel; the hook captures user-sourced rules, `unerr_track({op:'fact'})` is for conventions YOU detected from code.

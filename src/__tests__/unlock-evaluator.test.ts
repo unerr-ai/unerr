@@ -182,54 +182,59 @@ describe("evaluateUnlocks: only newly-firing tools", () => {
   });
 
   it("emits one event per newly-satisfied policy", () => {
+    // After the token-overhead catalog reduction, unerr_track is the SOLE
+    // gated tool. Its policy is C.and(C.turns(3), C.nonTrivial()) — once
+    // both children hold, exactly one unlock event fires.
     const s = new SessionState();
-    s.recordCall({
-      toolName: "file_read",
-      filePath: "src/x/a.ts",
-    });
+    s.advanceTurn();
+    s.advanceTurn();
+    s.advanceTurn();
+    s.recordCall({ toolName: "file_read", editOrWrite: true });
     const events = evaluateUnlocks(s);
     const tools = events.map((e) => e.toolName).sort();
-    // get_conventions is the only C.firstRead() policy in the current
-    // UNLOCK_CONDITIONS table — fires on the first file read.
-    expect(tools).toContain("get_conventions");
+    expect(tools).toEqual(["unerr_track"]);
   });
 
   it("does not re-emit tools that are already exposed", () => {
     const s = new SessionState();
-    s.expose(["get_conventions"]);
-    s.recordCall({ toolName: "file_read", filePath: "src/x/a.ts" });
+    s.expose(["unerr_track"]);
+    s.advanceTurn();
+    s.advanceTurn();
+    s.advanceTurn();
+    s.recordCall({ toolName: "file_read", editOrWrite: true });
     const events = evaluateUnlocks(s);
-    expect(
-      events.find((e) => e.toolName === "get_conventions")
-    ).toBeUndefined();
+    expect(events.find((e) => e.toolName === "unerr_track")).toBeUndefined();
   });
 
   it("attaches a non-empty reason and the current turn", () => {
     const s = new SessionState();
     s.advanceTurn();
-    s.recordCall({ toolName: "file_read", filePath: "src/x/a.ts" });
+    s.advanceTurn();
+    s.advanceTurn();
+    s.recordCall({ toolName: "file_read", editOrWrite: true });
     const events = evaluateUnlocks(s);
-    // get_conventions is the C.firstRead() policy — fires after one
-    // file access. Any firing event has the standard shape.
-    const event = events.find((e) => e.toolName === "get_conventions");
+    // unerr_track is the sole gated policy — fires once turns≥3 AND a
+    // non-trivial action is observed. Any firing event has the standard shape.
+    const event = events.find((e) => e.toolName === "unerr_track");
     expect(event).toBeDefined();
     expect(event?.reasonText.length).toBeGreaterThan(0);
-    expect(event?.firedAtTurn).toBe(1);
+    expect(event?.firedAtTurn).toBe(3);
     expect(event?.timestampMs).toBeGreaterThan(0);
   });
 
   it("compound unlocks fire only when every child condition holds", () => {
-    // mark_intent: C.and(C.turns(3), C.nonTrivial())
+    // unerr_track: C.and(C.turns(3), C.nonTrivial())
     const s = new SessionState();
     s.advanceTurn();
     s.advanceTurn();
     s.recordCall({ toolName: "file_read", editOrWrite: true });
+    // nonTrivial holds, but turns is only 2 — the compound must not fire.
     const before = evaluateUnlocks(s).map((e) => e.toolName);
-    expect(before).not.toContain("mark_intent");
+    expect(before).not.toContain("unerr_track");
 
     s.advanceTurn();
     const after = evaluateUnlocks(s).map((e) => e.toolName);
-    expect(after).toContain("mark_intent");
+    expect(after).toContain("unerr_track");
   });
 });
 

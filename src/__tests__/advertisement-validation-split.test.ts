@@ -25,17 +25,13 @@ import {
   TOOL_DEFINITIONS,
 } from "../proxy/tool-definitions.js";
 import {
-  type HookCapProfile,
   UnknownToolError,
   advertisedToolNames,
-  advertisedToolNamesForCaps,
   hiddenToolNames,
-  hiddenToolNamesForCaps,
   isHidden,
   listToolNames,
   selectAdvertised,
   selectHidden,
-  selectHiddenForCaps,
 } from "../proxy/tool-descriptions.js";
 import { UNERR_TOOL_TO_FAMILY } from "../router/unerr-families.js";
 
@@ -71,106 +67,42 @@ describe("pure selectors: selectAdvertised / selectHidden", () => {
   });
 });
 
-describe("pure selector: selectHiddenForCaps (agent-aware)", () => {
-  // alpha: never hidden. bravo: unconditionally hidden. charlie: hidden only
-  // when promptContextInject. delta: hidden only when stop.
-  const SYNTH = {
-    alpha: {},
-    bravo: { hidden: true },
-    charlie: { hiddenForHookCap: "promptContextInject" },
-    delta: { hiddenForHookCap: "stop" },
-  } as const;
+describe("real catalog: advertisement is identical for every agent (caps machinery removed)", () => {
+  // The per-agent "caps" advertisement machinery (HookCapProfile-aware hidden
+  // sets) was DELETED. Advertisement is now identical for all agents: all 8
+  // tools advertised, none hidden. The 8 advertised tools are the entire
+  // catalog — advertised === full set, hidden === []. (unerr_remember left
+  // the catalog 2026-06: its write paths ride hooks — UserPromptSubmit
+  // capture + the `unerr-save:` Stop-hook sentinel — and the hook clients
+  // dispatch it by name over UDS.)
+  const ADVERTISED_EIGHT = [
+    "fetch_url",
+    "file_outline",
+    "file_read",
+    "get_entity",
+    "get_references",
+    "search_code",
+    "unerr_context",
+    "unerr_track",
+  ];
 
-  const NONE: HookCapProfile = {
-    promptContextInject: false,
-    toolContextInject: false,
-    sessionStart: false,
-    stop: false,
-  };
-
-  it("hook-less profile hides only the unconditional set", () => {
-    expect(selectHiddenForCaps(SYNTH, NONE)).toEqual(["bravo"]);
+  it("advertisedToolNames returns exactly the eight advertised tools", () => {
+    expect([...advertisedToolNames()].sort()).toEqual(ADVERTISED_EIGHT);
   });
 
-  it("a possessed capability also retires its conditional tool", () => {
-    expect(
-      selectHiddenForCaps(SYNTH, { ...NONE, promptContextInject: true })
-    ).toEqual(["bravo", "charlie"]);
+  it("unerr_remember is not advertised and not a catalog member", () => {
+    expect([...advertisedToolNames()]).not.toContain("unerr_remember");
+    expect([...listToolNames()]).not.toContain("unerr_remember");
   });
 
-  it("distinct capabilities retire distinct tools", () => {
-    expect(selectHiddenForCaps(SYNTH, { ...NONE, stop: true })).toEqual([
-      "bravo",
-      "delta",
-    ]);
+  it("hiddenToolNames returns the empty set (nothing is demoted)", () => {
+    expect([...hiddenToolNames()]).toEqual([]);
   });
 
-  it("a full hook profile retires every conditional tool", () => {
-    expect(
-      selectHiddenForCaps(SYNTH, {
-        promptContextInject: true,
-        toolContextInject: true,
-        sessionStart: true,
-        stop: true,
-      })
-    ).toEqual(["bravo", "charlie", "delta"]);
-  });
-});
-
-describe("real catalog: agent-aware advertisement (Sprint 7 keystone)", () => {
-  const NONE: HookCapProfile = {
-    promptContextInject: false,
-    toolContextInject: false,
-    sessionStart: false,
-    stop: false,
-  };
-  const CLAUDE_CODE: HookCapProfile = {
-    promptContextInject: true,
-    toolContextInject: true,
-    sessionStart: true,
-    stop: true,
-  };
-
-  it("hook-less profile retires exactly the unconditional hidden set (no regression)", () => {
-    expect([...hiddenToolNamesForCaps(NONE)].sort()).toEqual(
-      [...hiddenToolNames()].sort()
+  it("advertised equals the full catalog (no tool is withheld)", () => {
+    expect([...advertisedToolNames()].sort()).toEqual(
+      [...listToolNames()].sort()
     );
-  });
-
-  it("hook-replaceable tools stay advertised for EVERY profile (coupling rule)", () => {
-    // unerr_recall_notes + unerr_turn_summary are hook-accelerated (the
-    // UserPromptSubmit recall block and the Stop close-out line fire at zero
-    // round-trip), but they are deliberately NOT carrying `hiddenForHookCap`:
-    // the bundled skills (local-pack.ts) are shipped verbatim to every agent
-    // and name both tools as call targets, and hook-less agents have no
-    // injection path. Hiding them for hook-capable agents would violate the
-    // coupling rule ("never hide a tool while instructions name it"). They are
-    // retired only once the skills become hook-capability-aware (T12.4 scope).
-    for (const caps of [NONE, CLAUDE_CODE]) {
-      const advertised = new Set(advertisedToolNamesForCaps(caps));
-      expect(advertised.has("unerr_recall_notes")).toBe(true);
-      expect(advertised.has("unerr_turn_summary")).toBe(true);
-    }
-  });
-
-  it("no real tool is currently conditionally hidden — every profile advertises identically", () => {
-    // The agent-aware mechanism is proven against SYNTH above. The real catalog
-    // carries ZERO `hiddenForHookCap` tools today (skills not yet hook-aware),
-    // so advertisement is invariant across hook profiles. When the first real
-    // tool is gated, this invariant flips and the SYNTH suite remains the proof.
-    const claude = new Set(hiddenToolNamesForCaps(CLAUDE_CODE));
-    const none = new Set(hiddenToolNamesForCaps(NONE));
-    expect([...claude].sort()).toEqual([...none].sort());
-    expect([...none].sort()).toEqual([...hiddenToolNames()].sort());
-  });
-
-  it("advertised + hidden partition the catalog for every profile", () => {
-    for (const caps of [NONE, CLAUDE_CODE]) {
-      const adv = advertisedToolNamesForCaps(caps);
-      const hid = hiddenToolNamesForCaps(caps);
-      expect([...adv, ...hid].sort()).toEqual([...listToolNames()].sort());
-      expect(adv.filter((n) => hid.includes(n))).toHaveLength(0);
-    }
   });
 });
 
@@ -250,49 +182,17 @@ describe("advertisement slice: ADVERTISED_TOOL_DEFINITIONS drops only hidden", (
   });
 });
 
-describe("demotion allowlist guard (exactly the intended tools are hidden)", () => {
-  // The keystone landed additively (nothing hidden). Sprints 9/10 flip flags
-  // AFTER user rebuild confirms the replacement hooks/surfaces work. This guard
-  // pins the EXACT demotion set: an accidental hidden:true on any other tool
-  // (or a missing one here) fails the test. Each entry must (a) merge into an
-  // advertised survivor and (b) be referenced by NO agent-facing instruction
-  // surface (nudge/skill/instruction-writer/CLAUDE.md) — else the model is told
-  // to call a tool it can no longer see.
-  const EXPECTED_HIDDEN = [
-    // Sprint 9 T9.1: file_outline returns a strict superset (entities +
-    // imports + exports). No instruction surface names get_file.
-    "get_file",
-    // Sprint 11: folded into get_entity({want:['imports']}) + file_outline's
-    // `imports` field. Instruction surfaces rewritten off get_imports first.
-    "get_imports",
-    // Sprint 11 (6-write merge): folded into unerr_track({op:'fact'}), which
-    // routes to record_fact's handler. Instruction surfaces (CLAUDE.md, skills,
-    // instruction-writer, exec nudge, session messages) rewritten first.
-    "record_fact",
-    // Sprint 11 (6-write merge): folded into unerr_track({op:'recall'}) + passive
-    // ur|fct lines. Instruction surfaces (channels list, always-on list, speak-
-    // plainly map, exec nudge, memory skill) rewritten off recall_facts first.
-    "recall_facts",
-    // Sprint 11 (6-write merge): the four narrative markers ride a closing-message
-    // `unerr-save:` sentinel scraped by the Stop hook (sentinel-persist.ts routes
-    // the scrape to these tools over UDS — they stay dispatchable). Advertised
-    // escape is unerr_track({op:'intent'|'decision'|'blocker'|'resolution'}). All
-    // instruction + hook-nudge surfaces rewritten to the sentinel first.
-    "mark_intent",
-    "mark_decision",
-    "mark_blocker",
-    "mark_resolution",
-    // Sprint 10 (CLI/occasional demotions): structural queries reachable via
-    // file_outline + get_references without a hot-loop slot, and the review
-    // engine that fires automatically (commit gate + in-flight review) and is
-    // on-demand as `unerr review`. All instruction + hook + hint surfaces that
-    // named them as tools-to-call were rewritten to advertised survivors first.
-    "get_cross_boundary_links",
-    "file_connections",
-    "review_changes",
-  ].sort();
+describe("demotion allowlist guard (nothing is hidden post token-overhead deletion)", () => {
+  // After the token-overhead deletion the previously-demoted tools (get_file,
+  // get_imports, record_fact, recall_facts, the four mark_* markers,
+  // get_cross_boundary_links, file_connections, review_changes) were PHYSICALLY
+  // REMOVED from the catalog (TIER_ENTRIES) — they are no longer present-but-
+  // hidden, they are simply absent. The catalog is now exactly the 9 advertised
+  // tools, so the demotion set is empty. An accidental hidden:true on any tool
+  // would fail this guard.
+  const EXPECTED_HIDDEN: string[] = [];
 
-  it("the hidden set is exactly the demotion allowlist", () => {
+  it("the hidden set is empty (no tool is demoted)", () => {
     expect([...hiddenToolNames()].sort()).toEqual(EXPECTED_HIDDEN);
   });
 

@@ -4,7 +4,8 @@
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
+import { resolveWithHome } from "../../utils/expand-home.js";
 import type { Tool, ToolContext, ToolOutput } from "../types.js";
 
 export const fileWriteTool: Tool = {
@@ -33,7 +34,7 @@ export const fileWriteTool: Tool = {
     args: Record<string, unknown>,
     ctx: ToolContext
   ): Promise<ToolOutput> {
-    const filePath = resolve(ctx.cwd, args.file_path as string);
+    const filePath = resolveWithHome(ctx.cwd, args.file_path as string);
     const content = args.content as string;
 
     try {

@@ -14,7 +14,9 @@
  * The in-memory engine is only used for tests and CI.
  */
 
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { CozoDb } from "./cozo-schema.js";
 
@@ -164,12 +166,29 @@ async function enableWalMode(dbPath: string): Promise<void> {
  * the WAL file to zero.
  *
  * Called out-of-band on a short-lived better-sqlite3 connection — the same
- * driver and pattern as `enableWalMode`. WAL mode permits concurrent
- * connections, so this is safe to run while cozo holds the file. Best-effort:
- * `TRUNCATE` returns SQLITE_BUSY (and falls back to a partial PASSIVE fold) if a
- * reader is mid-snapshot; the `busy_timeout` gives it a brief window and any
- * residual failure is swallowed so a checkpoint can never block a reindex or
- * shutdown. Idempotent — checkpointing an empty/absent WAL is a no-op.
+ * driver and pattern as `enableWalMode`.
+ *
+ * SAFETY — only call this when cozo does NOT have dbPath open in THIS process.
+ * better-sqlite3 and cozo are two separately-linked SQLite copies; each keeps
+ * its own in-process lock table, so SQLite's posix-lock workaround does not
+ * span them. When this function's `sqlite.close()` closes its file descriptor,
+ * POSIX semantics drop EVERY advisory lock this process holds on dbPath —
+ * including the read locks cozo's pooled readers believe they hold
+ * (sqlite.org/howtocorrupt.html §2.3). A later truncating checkpoint then runs
+ * under a live reader's feet: the reader follows a stale WAL-index frame
+ * offset into a truncated WAL → SIGBUS in sqlite3WalFindFrame, or reads a
+ * corrupt page → cozo panics on a rayon worker → SIGABRT. Both crash modes
+ * were observed killing the per-repo proxy mid-session. Safe call sites are
+ * boot (before cozo opens the file) and shutdown (after `db.close()`). For a
+ * live-session checkpoint use `checkpointWalDetached` — a separate PROCESS is
+ * SQLite's standard multi-process WAL scenario and coordinates correctly with
+ * cozo's readers through the -shm file.
+ *
+ * Best-effort: `TRUNCATE` returns SQLITE_BUSY (and falls back to a partial
+ * PASSIVE fold) if a reader is mid-snapshot; the `busy_timeout` gives it a
+ * brief window and any residual failure is swallowed so a checkpoint can never
+ * block a reindex or shutdown. Idempotent — checkpointing an empty/absent WAL
+ * is a no-op.
  */
 export async function checkpointWal(dbPath: string): Promise<void> {
   try {
@@ -208,6 +227,69 @@ export async function checkpointWal(dbPath: string): Promise<void> {
   } catch (err) {
     process.stderr.write(
       `[unerr] WARN: WAL checkpoint failed on ${dbPath} (${err instanceof Error ? err.message : String(err)}); WAL left for the next checkpoint\n`
+    );
+  }
+}
+
+/**
+ * Child-process body for `checkpointWalDetached`, run via `node -e`.
+ * Mirrors `checkpointWal`'s busy-retry loop (6 attempts, 50ms→800ms backoff,
+ * ~1.55s worst case) but synchronously — `Atomics.wait` is a plain blocking
+ * sleep, fine in a single-purpose child. argv layout under `-e`:
+ * argv[1] = dbPath, argv[2] = resolved better-sqlite3 entry point (the child
+ * has no module-resolution context of its own, so the parent resolves it).
+ * Everything is best-effort and silent: stdio is ignored and any failure just
+ * leaves the WAL for the next boot/shutdown checkpoint.
+ */
+const CHECKPOINT_CHILD_SCRIPT = `
+try {
+  const Database = require(process.argv[2]);
+  const sqlite = new Database(process.argv[1]);
+  try {
+    sqlite.pragma("busy_timeout = 2000");
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      const res = sqlite.pragma("wal_checkpoint(TRUNCATE)");
+      if (((res && res[0] && res[0].busy) || 0) === 0) break;
+      if (attempt < 6) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * 2 ** (attempt - 1));
+      }
+    }
+  } finally {
+    sqlite.close();
+  }
+} catch {}
+`;
+
+/**
+ * Fold + truncate the WAL from a SEPARATE process, safe to call while cozo
+ * has dbPath open in this one.
+ *
+ * Why a child process: an in-process better-sqlite3 connection on a db cozo
+ * also holds is the sqlite.org/howtocorrupt.html §2.3 hazard — its `close()`
+ * cancels cozo's POSIX advisory locks (two separately-linked SQLite copies
+ * don't share an in-process lock table), which let a truncating checkpoint
+ * run under live cozo readers and crashed the proxy with SIGBUS/SIGABRT. A
+ * separate process is SQLite's standard multi-process WAL scenario: its locks
+ * are its own, and the checkpoint coordinates with cozo's readers through the
+ * -shm read marks (returns busy instead of truncating pinned frames).
+ *
+ * Fire-and-forget: detached, stdio ignored, unref'd — never delays a graph
+ * swap or holds the event loop. Failure to spawn is logged and swallowed;
+ * the boot/shutdown in-process checkpoints remain the backstop.
+ */
+export function checkpointWalDetached(dbPath: string): void {
+  try {
+    const requireFromHere = createRequire(import.meta.url);
+    const sqliteModulePath = requireFromHere.resolve("better-sqlite3");
+    const child = spawn(
+      process.execPath,
+      ["-e", CHECKPOINT_CHILD_SCRIPT, dbPath, sqliteModulePath],
+      { detached: true, stdio: "ignore" }
+    );
+    child.unref();
+  } catch (err) {
+    process.stderr.write(
+      `[unerr] WARN: could not spawn detached WAL checkpoint for ${dbPath} (${err instanceof Error ? err.message : String(err)}); WAL left for the next checkpoint\n`
     );
   }
 }

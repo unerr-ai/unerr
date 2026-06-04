@@ -200,7 +200,7 @@ describe("runFileReadForRouter", () => {
     expect((r.content as string).includes("compressShellOutput")).toBe(true);
   });
 
-  it("entity not found on large file: returns outline with suggestions", async () => {
+  it("entity not found on large file: compact suggestions-only error, no outline dump", async () => {
     const dir = makeTmpDir("not-found");
     const filler = Array.from({ length: 210 }, (_, i) => `// line ${i}`).join(
       "\n"
@@ -219,9 +219,43 @@ describe("runFileReadForRouter", () => {
     const c = r.content as Record<string, unknown>;
     expect(c.gated).toBe(true);
     expect(c.entity_search).toBeDefined();
-    const search = c.entity_search as { matched: boolean; query: string };
+    const search = c.entity_search as {
+      matched: boolean;
+      query: string;
+      suggestions: string[];
+    };
     expect(search.matched).toBe(false);
     expect(search.query).toBe("nonExistentThing");
+    // Suggestions fall back to outline entity names so the retry is concrete
+    expect(search.suggestions).toContain("realFunction");
+    // The full outline (entities array, imports, exports) is withheld —
+    // a miss used to cost ~3k tokens of outline dump
+    expect(c.entities).toBeUndefined();
+    expect(c.imports).toBeUndefined();
+    expect(c.exports).toBeUndefined();
+    expect(c._gate_reason).toContain("realFunction");
+  });
+
+  it("bare method name resolves the Class.method entity (method-suffix match)", async () => {
+    const dir = makeTmpDir("method-suffix");
+    const filler = Array.from({ length: 210 }, (_, i) => `// pad ${i}`).join(
+      "\n"
+    );
+    writeFileSync(
+      join(dir, "envelope.ts"),
+      `${filler}\nexport class ResponseEnvelope {\n  maybeCompressContent(input: string): string {\n    return input;\n  }\n}\n`,
+      "utf-8"
+    );
+
+    // AST extractor names the method "ResponseEnvelope.maybeCompressContent";
+    // a bare-name query must still resolve it deterministically.
+    const r = await runFileReadForRouter(
+      { file_path: "envelope.ts", entity: "maybeCompressContent" },
+      { cwd: dir, graph: null }
+    );
+
+    expect(typeof r.content).toBe("string");
+    expect((r.content as string).includes("maybeCompressContent")).toBe(true);
   });
 
   it("provides tokens_estimate in _layer6_meta", async () => {
@@ -272,6 +306,32 @@ describe("rankEntityMatches", () => {
     expect(ranked[0]!.score).toBe(90);
     expect(ranked[0]!.entity.name).toBe("compressOutput");
     expect(ranked[0]!.matchType).toBe("case_insensitive");
+  });
+
+  it("method-suffix match scores 95 (bare name vs Class.method)", () => {
+    const ents = [
+      {
+        name: "ResponseEnvelope.maybeCompressContent",
+        start_line: 10,
+        body: "fn",
+      },
+      { name: "maybeCompressContentHelper", start_line: 30, body: "fn" },
+    ];
+    const ranked = rankEntityMatches(ents, "maybeCompressContent");
+    expect(ranked[0]!.score).toBe(95);
+    expect(ranked[0]!.entity.name).toBe(
+      "ResponseEnvelope.maybeCompressContent"
+    );
+    expect(ranked[0]!.matchType).toBe("method_suffix");
+  });
+
+  it("case-insensitive method-suffix match scores 85", () => {
+    const ents = [
+      { name: "QueryRouter.dispatchTool", start_line: 5, body: "fn" },
+    ];
+    const ranked = rankEntityMatches(ents, "dispatchtool");
+    expect(ranked[0]!.score).toBe(85);
+    expect(ranked[0]!.matchType).toBe("method_suffix");
   });
 
   it("prefix match scores 80", () => {

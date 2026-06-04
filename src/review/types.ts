@@ -1,5 +1,5 @@
 /**
- * Core data model for the unerr review engine (docs/reviewer-architecture.md §4, §6).
+ * Core data model for the unerr review engine (.internal/reviewer-architecture.md §4, §6).
  *
  * One engine, three surfaces (in-flight / commit gate / on-demand). These types
  * are the single source of truth so a finding is identical wherever it fires.
