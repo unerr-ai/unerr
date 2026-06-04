@@ -150,9 +150,10 @@ kind + anchor inline. Example: *"Per the wrn on src/proxy/proxy.ts, both
 stdio and UDS sites must mirror."* No citation = the note wasn't load-bearing.
 
 **Moment 4 — Save at task end.** When the task closes and you learned
-something non-obvious + likely useful next session + anchorable, emit it
-as a sentinel line anywhere in your closing message — zero round-trip,
-the Stop hook scrapes and persists it: `unerr-save: note <DSL wire>`.
+something non-obvious + likely useful next session + anchorable, emit it as a
+sentinel line anywhere in your closing message — zero round-trip, the Stop
+hook scrapes and persists it:
+`unerr-save: note <DSL wire>`
 
 ### DSL vocabulary
 
@@ -176,16 +177,12 @@ A save is justified only if all three hold: (a) non-obvious from the code,
 (b) likely useful next session, (c) anchorable. If any miss — don't save.
 
 Session save cap: 15. Over the cap new rows are dropped server-side and
-existing notes are reinforced instead — don't pad your closing message
-with extra sentinels.
+existing notes are reinforced instead — emit fewer, stronger saves.
 
 ### Conflict + supersession
 
-When you save a note that opposes an existing one (same kind+anchor,
-opposite polarity), both sides are kept and surface together on
-next-turn recall — cite both sides in your plan when they appear.
-
-Superseded notes flip to inactive server-side (kept for audit,
-excluded from queries) — write the replacement note and the old one
-retires on the next recall cycle.
+When a saved note opposes an existing one (same kind+anchor, opposite
+polarity), both sides are kept and surface together on next-turn recall —
+cite both in your plan when they appear. Superseded notes flip to inactive
+server-side (kept for audit, excluded from queries).
 
