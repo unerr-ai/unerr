@@ -30,10 +30,6 @@ import { registerDashboardCommand } from "../src/commands/dashboard.js";
 import { registerDebugCommand } from "../src/commands/debug.js";
 import { registerDoctorCommand } from "../src/commands/doctor.js";
 import { registerExecCommand } from "../src/commands/exec.js";
-import {
-  registerDiscoverCommand,
-  registerGainCommand,
-} from "../src/commands/gain.js";
 import { registerHookCommand } from "../src/commands/hook.js";
 import { registerIndexCommand } from "../src/commands/index.js";
 import { registerInitCommand } from "../src/commands/init.js";
@@ -59,8 +55,6 @@ const REGISTRARS: Array<(program: Command) => unknown> = [
   registerDashboardCommand,
   registerDebugCommand,
   registerDoctorCommand,
-  registerGainCommand,
-  registerDiscoverCommand,
   registerPmCommand,
   registerReviewCommand,
   registerRouterCommands,
@@ -87,7 +81,7 @@ const GROUPS: Array<{ label: string; commands: string[] }> = [
   { label: "Daemon & Dashboard", commands: ["pm", "dashboard"] },
   {
     label: "Code Intelligence",
-    commands: ["index", "enrich", "learn", "discover", "manifest"],
+    commands: ["index", "enrich", "learn", "manifest"],
   },
   { label: "Review & Quality", commands: ["review", "check-commit"] },
   {
@@ -97,7 +91,6 @@ const GROUPS: Array<{ label: string; commands: string[] }> = [
       "stats",
       "doctor",
       "debug",
-      "gain",
       "timeline",
       "branches",
       "config-verify",

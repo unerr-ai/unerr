@@ -62,8 +62,7 @@ export interface Tool extends ToolDefinition {
 /** Tool source category for routing and display. */
 export type ToolCategory =
   | "intelligence" // unerr graph-backed tools (get_function, search_code, check_rules, etc.)
-  | "coding" // File system + shell tools (file_read, file_write, bash, grep, etc.)
-  | "local"; // Local-only tools (semantic_search, find_similar via local graph)
+  | "coding"; // File system + shell tools (file_read, file_write, bash, grep, etc.)
 
 /** Tool with category metadata for registry organization. */
 export interface CategorizedTool extends Tool {

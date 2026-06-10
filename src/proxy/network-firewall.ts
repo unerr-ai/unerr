@@ -6,8 +6,8 @@
  * suspenders safety net: even if a code path accidentally imports a
  * cloud service, the firewall catches it.
  *
- * Localhost addresses (Ollama, LM Studio, CozoDB) are always allowed.
- * The user's configured BYO-LLM baseUrl is also allowlisted.
+ * Localhost addresses (CozoDB) are always allowed. Additional hosts may
+ * be allowlisted via addAllowedHost()/addAllowedUrl() before seal().
  *
  * Allowlist is built BEFORE seal() via addAllowedHost(). Once seal()
  * is called the allowlist is frozen — no runtime additions permitted.
@@ -24,7 +24,7 @@ const LOCALHOST_HOSTNAMES = new Set([
   "0.0.0.0",
 ]);
 
-/** Parsed URL hostname cache for allowlisted BYO-LLM endpoints. */
+/** Parsed URL hostname cache for allowlisted endpoints. */
 const allowlistedHosts = new Set<string>();
 
 let sealed = false;
@@ -97,7 +97,7 @@ export function addAllowedUrl(url: string): void {
  * Seal the network firewall. All non-localhost fetch() calls will be
  * rejected with a NetworkFirewallError.
  *
- * @param allowedBaseUrls - Additional URLs to allowlist (e.g., BYO-LLM baseUrl).
+ * @param allowedBaseUrls - Additional URLs to allowlist.
  *   Only the hostname is extracted; paths are ignored.
  *   These are added to any hosts previously registered via addAllowedHost().
  */

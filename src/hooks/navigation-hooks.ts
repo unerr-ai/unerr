@@ -108,42 +108,55 @@ function onceVerbose(key: string, full: string, terse: string): string {
 
 // ── PreToolUse Handlers (agent-agnostic) ─────────────────────────────
 
-// Read is the ONE tool we never `deny()` — Claude Code's Edit workflow
-// requires built-in Read on the file first, so a deny here would break
-// editing entirely. Nudge-only.
+// Read routing (conditional deny). Built-in Read serves exactly ONE
+// legitimate purpose: the pre-Edit gate. Claude Code's Edit/Write require a
+// built-in Read of the file first (file-level + mtime check) and `file_read`
+// (MCP) does NOT satisfy that gate — only the built-in Read tool or a bare
+// single-file `cat`/`head`/`sed -n` flips Claude Code's internal read-tracking.
+// A *targeted* Read (offset/limit) is that pre-Edit pattern: one call returns
+// the byte-exact `old_string` window AND satisfies the gate. A *full-file*
+// Read with no offset/limit is almost always exploration — and exploration
+// must route through file_read/unerr_context (graph-backed; conventions, facts,
+// and drift auto-injected). So: allow targeted reads + non-code reads silently;
+// deny-once + redirect full-file CODE reads. Deny only the first attempt per
+// file (then nudge) to avoid the #43189/#47565 double-deny retry loop.
 const preReadHandler: HookHandler = (normalized) => {
   const input = normalized.toolInput;
   const filePath = extractFilePath(input);
   if (!filePath) return passthrough();
 
-  const isClaudeCode = normalized.agentName === "claude-code";
   const hasOffset = input.offset !== undefined;
   const hasLimit = input.limit !== undefined;
   const isTargeted = hasOffset || hasLimit;
 
-  // Claude Code: targeted Read (offset/limit) before Edit is the correct workflow — allow silently.
-  // Non-Claude Code agents: built-in Read is never needed, always nudge toward file_read.
-  if (isClaudeCode && isTargeted) {
-    return passthrough();
-  }
+  // Targeted Read (offset/limit) = the legitimate pre-Edit pattern on every
+  // agent — satisfies the Edit gate and returns the exact lines. Allow silently.
+  if (isTargeted) return passthrough();
 
-  if (isClaudeCode) {
-    // Full-file Read in Claude Code — nudge to use offset/limit for the Edit workflow
-    return nudge(
-      onceVerbose(
-        "read-routing-cc",
-        `READ ROUTING: Built-in Read is ONLY for the Edit workflow (Read → Edit). Use offset/limit to read only the lines you plan to edit — do NOT read the entire file.\nFor all other reading, use unerr tools instead:\n- Reading to understand: \`file_read({ file_path: "${filePath}" })\`\n- File structure: \`file_outline("${filePath}")\`\n- Specific function: \`get_entity\` or \`file_read\` with \`entity\` param`,
-        `Read full-file "${filePath}" — use offset/limit (Edit workflow) or file_read({file_path:"${filePath}"}) to understand.`
-      )
-    );
-  }
+  // Non-code files (docs, json, yaml, images, lockfiles) — built-in Read is the
+  // sanctioned path; file_read's graph value (conventions/drift/callers) is
+  // code-specific. Reading these whole is normal. Allow silently.
+  if (!isCodeFile(filePath)) return passthrough();
 
-  // Non-Claude Code agents: always nudge toward file_read
+  // Full-file CODE Read with no offset/limit → exploration. Redirect.
+  const isClaudeCode = normalized.agentName === "claude-code";
+  // A whole-file read MIGHT be a pre-Edit read on a small file. Never dead-end
+  // that: the redirect names the offset/limit escape so re-issuing passes.
+  const editClause = isClaudeCode
+    ? `\n- About to EDIT "${filePath}"? Re-call Read with offset/limit on just the edit window — that satisfies the Edit gate and returns the exact \`old_string\` lines (file_read cannot satisfy the gate).`
+    : "";
+  const reason = `Read("${filePath}") full-file is blocked — route code exploration through unerr instead:\n- Understand the file: \`file_read({file_path:"${filePath}"})\` (auto-injects conventions, facts, drift)\n- Task-scoped recon in one call (anchored notes + blast radius + conventions): \`unerr_context({prompt:"<what you are about to do>"})\`\n- File structure first: \`file_outline("${filePath}")\`\n- One symbol's profile/body: \`search_code({query:'<name>', detail:true})\`${editClause}`;
+
+  // Deny the first full-file read per file; nudge (collapsing to terse after the
+  // first verbose banner) on repeats within the dedup window.
+  if (shouldEmitOnce(`deny:Read:${filePath}`, DENY_ONCE_TTL_MS)) {
+    return deny(reason);
+  }
   return nudge(
     onceVerbose(
-      "read-routing-other",
-      `Use unerr tools instead of built-in Read:\n- \`file_read({ file_path: "${filePath}" })\` — auto-injects conventions, facts, drift status\n- \`file_outline("${filePath}")\` — file structure overview\n- \`get_entity\` or \`file_read\` with \`entity\` param — specific function/class`,
-      `Read "${filePath}" — prefer file_read({file_path:"${filePath}"}) (graph-backed, +conventions/facts).`
+      "read-routing",
+      reason,
+      `Read full-file "${filePath}" — file_read({file_path:"${filePath}"}) to understand, or Read offset/limit for a pre-Edit read.`
     )
   );
 };
@@ -337,7 +350,32 @@ const preEditHandlerAsync: AsyncHookHandler = async (normalized) => {
   const sections: string[] = [];
   if (warnings.length > 0) {
     // The cascade section already carries the read-prereq header.
-    sections.push(formatCascadeNudge(warnings, filePath, readPrereq));
+    const cascade = formatCascadeNudge(warnings, filePath, readPrereq);
+    // Graph-confirmed caller cascade → escalate to deny-once. A signature
+    // change with real callers at risk is exactly when
+    // get_references({direction:'callers'}) must run BEFORE the edit. An
+    // advisory nudge here fires on every edit and is demonstrably ignored
+    // (observed ~4 get_references calls against ~147 Edits in 12h); deny is the
+    // only lever that drove Grep/Glob/WebFetch adoption to 100% displacement.
+    // Deny the first attempt to force the caller sweep, then nudge on the retry
+    // so the agent never enters a deny loop (#43189/#47565). Gated on
+    // warnings.length>0 — it never fires on edits the graph can't tie to real
+    // callers, so there is no blanket-deny noise. Boundary-only edits (warn,
+    // never block) stay a nudge below.
+    const entityKeys = warnings
+      .map((w) => w.changed_entity_key)
+      .sort()
+      .join(",");
+    if (
+      shouldEmitOnce(`deny:Edit:${filePath}:${entityKeys}`, DENY_ONCE_TTL_MS)
+    ) {
+      return deny(
+        `${cascade}\n\nThis Edit is blocked once: run get_references({direction:'callers'}) on the entit${
+          warnings.length > 1 ? "ies" : "y"
+        } above NOW, update every caller in the same change, then re-attempt the Edit (it will proceed).`
+      );
+    }
+    sections.push(cascade);
   }
   if (boundary.length > 0) {
     const body = formatBoundaryNudge(boundary);
@@ -426,7 +464,7 @@ const postGrepHandler: HookHandler = (normalized) => {
     return enrich(
       `You just grepped for "${pattern}". For structured results, try:\n` +
         `- \`get_references "${pattern}"\` — finds ALL callers including indirect references (no false positives from comments/strings)\n` +
-        `- \`get_entity "${pattern}"\` — returns the entity with its full signature, body, and metadata\n` +
+        `- \`search_code({query:"${pattern}", detail:true})\` — resolves the entity with its full signature, body, and metadata\n` +
         `- \`search_code "${pattern}"\` — ranked results across the entire codebase in <5ms`
     );
   }

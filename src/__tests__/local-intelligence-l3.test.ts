@@ -1,5 +1,5 @@
 /**
- * Sprint L3 Tests: Local Project Stats (L3.3) & entity_embeddings relation (L3.4).
+ * Sprint L3 Tests: Local Project Stats (L3.3).
  *
  * Uses an in-memory mock CozoDB (real cozo-node's run() is async/Promise-based,
  * but the CozoDb interface expects synchronous returns).
@@ -28,14 +28,6 @@ interface MockFileIndex {
   entityKey: string;
 }
 
-interface MockEmbedding {
-  entityKey: string;
-  vectorJson: string;
-  model: string;
-  dimensions: number;
-  computedAt: string;
-}
-
 class MockCozoDb implements CozoDb {
   readonly entities: MockEntity[] = [];
   readonly edges: MockEdge[] = [];
@@ -49,68 +41,13 @@ class MockCozoDb implements CozoDb {
     cohesion: number;
   }> = [];
   readonly corrections: Array<{ entityKey: string; errorType: string }> = [];
-  readonly embeddings: Map<string, MockEmbedding> = new Map();
 
   async run(
     query: string,
-    params?: Record<string, unknown>
+    _params?: Record<string, unknown>
   ): Promise<{ rows: unknown[][] }> {
     // ── :create — no-op
     if (query.includes(":create ")) {
-      return { rows: [] };
-    }
-
-    // ── :put entity_embeddings
-    if (query.includes(":put entity_embeddings")) {
-      const ek = this.extractInlineOrParam(
-        query,
-        params,
-        "entity_key",
-        0
-      ) as string;
-      const vj = this.extractInlineOrParam(
-        query,
-        params,
-        "vector_json",
-        1
-      ) as string;
-      const model = this.extractInlineOrParam(
-        query,
-        params,
-        "model",
-        2
-      ) as string;
-      const dims = this.extractInlineOrParam(
-        query,
-        params,
-        "dimensions",
-        3
-      ) as number;
-      const ca = this.extractInlineOrParam(
-        query,
-        params,
-        "computed_at",
-        4
-      ) as string;
-      this.embeddings.set(ek, {
-        entityKey: ek,
-        vectorJson: vj,
-        model,
-        dimensions: dims,
-        computedAt: ca,
-      });
-      return { rows: [] };
-    }
-
-    // ── :rm entity_embeddings
-    if (query.includes(":rm entity_embeddings")) {
-      const ek = this.extractInlineOrParam(
-        query,
-        params,
-        "entity_key",
-        0
-      ) as string;
-      this.embeddings.delete(ek);
       return { rows: [] };
     }
 
@@ -197,89 +134,8 @@ class MockCozoDb implements CozoDb {
       return { rows: [[this.corrections.length]] };
     }
 
-    // ── entity_embeddings queries
-
-    // Read all: entity_key, vector_json, model, dimensions
-    if (
-      query.includes("entity_key, vector_json, model, dimensions") &&
-      query.includes("*entity_embeddings")
-    ) {
-      const rows: unknown[][] = [];
-      for (const emb of this.embeddings.values()) {
-        rows.push([emb.entityKey, emb.vectorJson, emb.model, emb.dimensions]);
-      }
-      return { rows };
-    }
-
-    // Count after delete
-    if (query.includes("entity_key") && query.includes("*entity_embeddings")) {
-      const rows: unknown[][] = [];
-      for (const key of this.embeddings.keys()) {
-        rows.push([key]);
-      }
-      return { rows };
-    }
-
     // Default
     return { rows: [] };
-  }
-
-  private extractInlineOrParam(
-    query: string,
-    params: Record<string, unknown> | undefined,
-    _field: string,
-    _index: number
-  ): unknown {
-    // For the entity_embeddings CRUD test, values come from the <- [[...]] clause
-    // Parse the values from the inline array
-    const match = query.match(/<-\s*\[\[(.*?)\]\]/);
-    if (match) {
-      const values = this.parseInlineValues(match[1] ?? "");
-      if (_index < values.length) return values[_index];
-    }
-    return params?.[_field] ?? "";
-  }
-
-  private parseInlineValues(str: string): unknown[] {
-    const values: unknown[] = [];
-    let i = 0;
-    while (i < str.length) {
-      // Skip whitespace and commas
-      while (i < str.length && (str[i] === " " || str[i] === ",")) i++;
-      if (i >= str.length) break;
-
-      if (str[i] === '"') {
-        // String literal
-        i++;
-        let val = "";
-        while (i < str.length && str[i] !== '"') {
-          val += str[i];
-          i++;
-        }
-        i++; // skip closing quote
-        values.push(val);
-      } else if (str[i] === "$") {
-        // Parameter reference — skip for now
-        while (i < str.length && str[i] !== "," && str[i] !== "]") i++;
-        values.push(null); // placeholder
-      } else {
-        // Number or boolean
-        let val = "";
-        while (
-          i < str.length &&
-          str[i] !== "," &&
-          str[i] !== "]" &&
-          str[i] !== " "
-        ) {
-          val += str[i];
-          i++;
-        }
-        if (val === "true") values.push(true);
-        else if (val === "false") values.push(false);
-        else values.push(Number(val));
-      }
-    }
-    return values;
   }
 }
 
@@ -442,37 +298,5 @@ describe("CozoGraphStore.getLocalProjectStats", () => {
     const elapsed = performance.now() - t0;
 
     expect(elapsed).toBeLessThan(50); // generous for CI; typically <5ms
-  });
-});
-
-// ── L3.4: entity_embeddings relation ────────────────────────
-
-describe("entity_embeddings relation", () => {
-  it("exists in schema and supports CRUD", async () => {
-    const db = createTestDb();
-
-    // Insert via mock's run method (simulates CozoDB :put)
-    await db.run(
-      `?[entity_key, vector_json, model, dimensions, computed_at] <- [["fn::test", "[0.1,0.2,0.3]", "test-model", 3, "2026-04-17"]]
-       :put entity_embeddings {entity_key => vector_json, model, dimensions, computed_at}`
-    );
-
-    // Read
-    const result = await db.run(
-      "?[entity_key, vector_json, model, dimensions] := *entity_embeddings{entity_key, vector_json, model, dimensions}"
-    );
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]?.[0]).toBe("fn::test");
-    expect(result.rows[0]?.[2]).toBe("test-model");
-    expect(result.rows[0]?.[3]).toBe(3);
-
-    // Delete
-    await db.run(
-      `?[entity_key] <- [["fn::test"]] :rm entity_embeddings {entity_key}`
-    );
-    const afterDelete = await db.run(
-      "?[entity_key] := *entity_embeddings{entity_key}"
-    );
-    expect(afterDelete.rows).toHaveLength(0);
   });
 });

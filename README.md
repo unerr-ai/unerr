@@ -50,6 +50,7 @@
 - [What changes when you use it](#what-changes-when-you-use-it)
 - [See it in action](#see-it-in-action)
 - [Quick Start](#quick-start)
+- [Connect your team (optional)](#connect-your-team-optional)
 - [Who it's for](#who-its-for)
 - [Why it's one thing and not five plugins](#why-its-one-thing-and-not-five-plugins)
 - [What it does under the hood](#what-it-does-under-the-hood)
@@ -178,6 +179,26 @@ Close and reopen your IDE, or start a new chat session. Your agent picks up uner
 
 ---
 
+## Connect your team (optional)
+
+Everything above works with no account and no network — that never changes. `unerr login` is an optional add-on for teams on a paid plan: it connects this machine to your team, keeps the team's shared conventions in sync, and tells the CLI which plan you're on.
+
+```bash
+unerr login      # connect this machine — opens your browser to approve
+unerr whoami     # show which team this machine is connected to
+unerr logout     # disconnect and delete the local credentials
+```
+
+**What gets sent — and what never does.** The connection carries settings only: the plan you're on, and your team's shared conventions document (plain text someone on your team wrote and chose to share). Your source code, your prompts, and your diffs never leave your machine — the service has no endpoint that accepts them.
+
+**Where credentials live.** The token for this machine goes into your OS keychain (Keychain Access on macOS, Secret Service on Linux, Credential Manager on Windows). If no keychain is available, it falls back to `~/.unerr/credentials.json` (readable only by you) and warns you once.
+
+**Revoking access.** `unerr logout` disconnects this machine. A team admin can also revoke any machine from the web app under **Settings → Machines** — the token stops working right away, even if the laptop is lost.
+
+**Offline behavior.** The CLI caches your plan locally and keeps working without a connection. If it can't reach the service for about a week, it falls back to the free plan until it reconnects — but everything local (the code map, memory, the guards) needs no plan and never stops working.
+
+---
+
 ## Who it's for
 
 - **Engineers working in large, existing codebases.** The things a senior engineer keeps in their head — what depends on what, which patterns are load-bearing, what broke here before — handed to the agent before every edit, so it stops breaking code it never read.
@@ -254,11 +275,15 @@ One local DB per repo. Zero network calls. No API keys. No cloud. Your code neve
 
 ```bash
 unerr install <agent>   # MCP config + skills + hooks + instructions for one agent
-unerr uninstall         # Remove unerr from this repo
+unerr uninstall         # Remove unerr from this repo (add --strip-annotations to also remove @sem lines)
 unerr doctor            # Check PATH + environment, auto-fix if unerr isn't on all shells
 unerr status            # Process health, entity count, graph age
 unerr stats             # Session statistics (tokens, tool calls, compression)
 unerr --mcp             # Stdio bridge — what your IDE invokes via .mcp.json
+
+unerr login             # Connect this machine to your team (optional, paid plans)
+unerr whoami            # Show the connected team and machine
+unerr logout            # Disconnect and delete the local credentials
 
 unerr pm status         # Process manager: PID, uptime, repos, memory, idle countdown
 unerr pm logs           # Tail ~/.unerr/logs/unerrd.log
@@ -267,11 +292,13 @@ unerr pm dashboard      # Open http://localhost:9847
 
 `unerrd` is a lightweight Node process that supervises every registered repo. Your IDE invocation auto-spawns it; it exits cleanly after 30 minutes of no activity. `unerr pm --help` lists the rest.
 
-### MCP tools (8 advertised)
+No lock-in: any `@sem` domain comments unerr's agent adds are plain comments — your code runs identically without them and without unerr. `unerr uninstall --strip-annotations` removes every sentinel line repo-wide while keeping the prose summaries.
+
+### MCP tools (7 advertised)
 
 Grouped by what the agent gets, not by file:
 
-- **Reads (7)** — `search_code`, `file_outline` (structure without body), `file_read` (context-aware, auto-injects conventions, facts, and drift), `get_entity` (signature plus callers / callees / imports in one call), `get_references` (callers or callees — catches indirect refs grep misses), `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache — replaces built-in WebFetch), and `unerr_context` (one call that folds anchored notes + search + references + conventions for what you're about to edit).
+- **Reads (6)** — `search_code` (ranked entity search; `detail:true` resolves one entity — signature plus callers / callees / imports in the same call), `file_outline` (structure without body), `file_read` (context-aware, auto-injects conventions, facts, and drift), `get_references` (callers or callees — catches indirect refs grep misses), `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache — replaces built-in WebFetch), and `unerr_context` (one call that folds anchored notes + search + references + conventions for what you're about to edit).
 - **Memory & session (1)** — `unerr_track` (one op-union call for intent / decision / blocker / resolution / fact / recall — powers turn titles and the cross-session resume strip).
 
 Persistence costs zero tool calls: a UserPromptSubmit hook captures user-stated rules ("remember this", "always X") automatically, and agent notes + session markers ride a `unerr-save:` sentinel in the closing message that a Stop hook scrapes and persists. On Claude Code the rest of the always-on ceremony also runs for free: the prompt hook injects recalled notes, a PostToolUse hook injects detected conventions on the first file read, and the Stop hook prints the turn close-out — all at zero extra round-trip, so the agent never spends a call on them.

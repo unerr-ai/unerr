@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  elideCommentLines,
   rankEntityMatches,
   runFileReadForRouter,
 } from "../tools/coding/file-read-protocol.js";
@@ -368,5 +369,91 @@ describe("rankEntityMatches", () => {
   it("returns empty array when nothing matches", () => {
     const ranked = rankEntityMatches(entities, "zzzzNotHere");
     expect(ranked).toHaveLength(0);
+  });
+});
+
+describe("elideCommentLines (SC-E.2)", () => {
+  const SENT = ["@sem"];
+
+  it("collapses line comments to a marker, preserves code + line count", () => {
+    const input = [
+      "// leading note",
+      "function foo() {",
+      "  # python-style comment",
+      "  return 1;",
+      "}",
+    ];
+    const { lines, elided } = elideCommentLines(input, SENT);
+    expect(elided).toBe(2);
+    expect(lines).toEqual([
+      "…",
+      "function foo() {",
+      "  …",
+      "  return 1;",
+      "}",
+    ]);
+    // Line count preserved → offset/limit numbering stays correct.
+    expect(lines.length).toBe(input.length);
+  });
+
+  it("keeps sentinel-bearing comments verbatim", () => {
+    const input = [
+      "// @sem domain=auth role=guard",
+      "// plain prose",
+      "const x = 1;",
+    ];
+    const { lines, elided } = elideCommentLines(input, SENT);
+    expect(elided).toBe(1);
+    expect(lines[0]).toBe("// @sem domain=auth role=guard");
+    expect(lines[1]).toBe("…");
+    expect(lines[2]).toBe("const x = 1;");
+  });
+
+  it("elides a multi-line block comment body, preserving a sentinel inside it", () => {
+    const input = [
+      "/**",
+      " * Does a thing.",
+      " * @sem domain=billing",
+      " */",
+      "export function bill() {}",
+    ];
+    const { lines } = elideCommentLines(input, SENT);
+    // Markers preserve each line's indentation, so the ` * …` body lines map to
+    // ` …` while the unindented `/**` opener maps to `…`.
+    expect(lines).toEqual([
+      "…",
+      " …",
+      " * @sem domain=billing",
+      " …",
+      "export function bill() {}",
+    ]);
+  });
+
+  it("elides a Python docstring block", () => {
+    const input = [
+      "def f():",
+      '    """',
+      "    Long docstring prose.",
+      '    """',
+      "    return 2",
+    ];
+    const { lines, elided } = elideCommentLines(input, SENT);
+    expect(elided).toBe(3);
+    expect(lines).toEqual([
+      "def f():",
+      "    …",
+      "    …",
+      "    …",
+      "    return 2",
+    ]);
+  });
+
+  it("never touches code, blank lines, or a shebang", () => {
+    const input = ["#!/usr/bin/env node", "", "const a = 1; // trailing"];
+    const { lines, elided } = elideCommentLines(input, SENT);
+    // Shebang kept (#!), blank kept, code-with-trailing-comment kept verbatim
+    // (not a comment-only line → fidelity wins).
+    expect(elided).toBe(0);
+    expect(lines).toEqual(input);
   });
 });

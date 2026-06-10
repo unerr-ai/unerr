@@ -200,6 +200,27 @@ describe("MetricsStore", () => {
     expect(s.tokenFlowBySession("s-2")[0]?.mechanism).toBe("shell_compression");
   });
 
+  it("sums tokens_saved per session (authoritative cumulative)", () => {
+    const s = openMetricsStore(dir);
+    const base = {
+      ts: Date.now(),
+      ts_iso: new Date().toISOString(),
+      pid: 1234,
+      turn: 0,
+      mechanism: "shell_compression",
+      tool: null,
+      tokens_without: 0,
+      tokens_with: 0,
+      detail: null,
+    };
+    s.insertTokenFlow({ ...base, session_id: "sum-a", tokens_saved: 800 });
+    s.insertTokenFlow({ ...base, session_id: "sum-a", tokens_saved: 4500 });
+    s.insertTokenFlow({ ...base, session_id: "sum-b", tokens_saved: 100 });
+    expect(s.sessionTokensSaved("sum-a")).toBe(5300);
+    expect(s.sessionTokensSaved("sum-b")).toBe(100);
+    expect(s.sessionTokensSaved("missing")).toBe(0);
+  });
+
   it("upserts session_history (one row per session_id)", () => {
     const s = openMetricsStore(dir);
     s.upsertSessionHistory({

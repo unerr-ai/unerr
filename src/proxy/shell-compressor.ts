@@ -148,6 +148,22 @@ export async function compressShellOutput(
       ? mergeStderrIntoStdout(stdout, options.stderr)
       : stdout;
 
+  // Empty / whitespace-only output — nothing to compress and nothing worth
+  // recording. Without this guard the downstream record paths stamp a
+  // meaningless `raw_bytes=0, compressed_bytes=0` row into compression_events
+  // (seen when a manually-nested `unerr exec` swallows its child's output).
+  // Return passthrough before touching any telemetry sink.
+  if (streamIn.trim() === "") {
+    return {
+      text: streamIn,
+      classification: {
+        category: "structured" as const,
+        confidence: 1,
+        hint_source: "content_heuristic" as const,
+      },
+    };
+  }
+
   if (streamIn.includes("\u0000")) {
     const classification = {
       category: "structured" as const,
@@ -525,7 +541,8 @@ export async function compressShellOutput(
 }
 
 /**
- * Layer 10: Record shell compression savings to token-flow.jsonl.
+ * Layer 10: Record shell compression savings to the token_flow_events
+ * table in metrics.db (formerly logs/token-flow.jsonl).
  * Uses UNERR_SESSION_ID from env (set by parent proxy/MCP process).
  * Exec processes have turn=0 since they lack turn context.
  */
@@ -558,9 +575,23 @@ function recordShellTokenFlow(
       }
     }
     // Exec processes inherit attribution from the proxy via env vars set in
-    // proxy.ts at boot. Turn defaults to 0 when no current turn is known —
-    // the exec ran outside an open MCP tool boundary.
-    const turn = Number.parseInt(process.env.UNERR_TURN ?? "0", 10) || 0;
+    // proxy.ts at boot. UNERR_TURN reaches only proxy-spawned children, but an
+    // exec is spawned by the IDE shell — so mirror the session.id fallback and
+    // read state/current.turn (written by the proxy at each tools/call
+    // boundary). Without this every shell row stamps turn=0 regardless of the
+    // live turn.
+    let turn = Number.parseInt(process.env.UNERR_TURN ?? "", 10);
+    if (!Number.isFinite(turn)) {
+      try {
+        turn =
+          Number.parseInt(
+            readFileSync(`${unerrDir}/state/current.turn`, "utf-8").trim(),
+            10
+          ) || 0;
+      } catch {
+        turn = 0;
+      }
+    }
     // PostToolUse hooks (`.claude/hooks/PostToolUse.sh`) spawn `unerr
     // compress-output` from the IDE's own shell, so this exec doesn't inherit
     // UNERR_AGENT from the proxy. Fall back to the IDE's own env markers

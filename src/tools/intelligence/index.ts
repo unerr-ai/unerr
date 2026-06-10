@@ -27,33 +27,8 @@ const TOOL_DEFS: Array<{
   description: string;
   inputSchema: Record<string, unknown>;
 }> = [
-  {
-    name: "get_entity",
-    description:
-      "Get any code entity (function, class, type, variable) by key — signature, metadata, callers, callees, risk level. Returns STRUCTURAL by default; pass include_body:true for full body.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        key: {
-          type: "string",
-          description: "Entity key (e.g., 'handleRequest', 'QueryRouter')",
-        },
-        kind: {
-          type: "string",
-          enum: ["function", "class", "type", "variable"],
-          description: "Optional entity kind filter",
-        },
-        include_body: {
-          type: "boolean",
-          description:
-            "Include full body. Default false — signature + first ~15 lines preview only.",
-          default: false,
-        },
-        token_budget: TOKEN_BUDGET_PROP,
-      },
-      required: ["key"],
-    },
-  },
+  // get_entity merged into search_code({detail:true}) 2026-06 — see
+  // src/proxy/tool-definitions.ts (this legacy list has no callers).
   {
     name: "get_file",
     description: "Get all entities defined in a file",
@@ -179,35 +154,6 @@ const TOOL_DEFS: Array<{
         },
         token_budget: TOKEN_BUDGET_PROP,
       },
-    },
-  },
-  {
-    name: "semantic_search",
-    description:
-      "Vector-based semantic search across the codebase. Finds conceptually similar code even with different naming.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Natural language search query" },
-        limit: { type: "number", description: "Max results. Default: 10" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "find_similar",
-    description:
-      "Find entities similar to a given entity (by embedding distance)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        key: {
-          type: "string",
-          description: "Entity key to find similar entities for",
-        },
-        limit: { type: "number", description: "Max results. Default: 10" },
-      },
-      required: ["key"],
     },
   },
   {

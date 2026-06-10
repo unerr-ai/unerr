@@ -202,6 +202,15 @@ export function compressDiff(
   const totalLines = lines.length;
   const totalFiles = diffFiles.length;
 
+  // No parseable `diff --git` files AND no `@@` hunk headers → this isn't a
+  // diff at all (e.g. a command misclassified on stray "git diff" substrings
+  // or `+----+` table borders). Pass the raw output through untouched rather
+  // than stamp a misleading `_shell_diff:files=0,+0/-0` header onto non-diff
+  // content. A headerless-but-real unified diff still carries `@@` hunks, so
+  // it falls through to normal processing and keeps its risk annotations.
+  const hasHunkHeader = lines.some((l) => l.startsWith("@@"));
+  if (totalFiles === 0 && !hasHunkHeader) return raw;
+
   const totalAdd = diffFiles.reduce((s, f) => s + f.additions, 0);
   const totalDel = diffFiles.reduce((s, f) => s + f.deletions, 0);
   const header = buildHeader(totalFiles, totalAdd, totalDel);

@@ -393,7 +393,8 @@ export class SignalScorer {
           type: "warning",
           content: raw.hidden_coupling,
           // Coupled entity is named in `content`; instruct a concrete read.
-          action: "read the coupled entity via get_entity before edit",
+          action:
+            "read the coupled entity via search_code({query:'<coupled entity>', detail:true}) before edit",
           actionability: 0.85,
           relevance: 0.8,
           confidence: 0.7,
@@ -502,7 +503,7 @@ export class SignalScorer {
 
   /**
    * Convert raw convention to prescriptive signal.
-   * For get_entity/file_read: "Follow [pattern] for new [kind]s — 87% adherence"
+   * For search_code({detail:true})/file_read: "Follow [pattern] for new [kind]s — 87% adherence"
    * For get_conventions: keep descriptive (agent asked for overview)
    */
   conventionToSignal(

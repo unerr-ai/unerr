@@ -52,60 +52,76 @@ function clinePayload(path: string) {
 // ── preReadHook: Claude Code ─────────────────────────────────────────
 
 describe("preReadHook — Claude Code", () => {
-  it("passthrough for targeted Read (offset/limit)", () => {
+  it("passthrough for targeted Read (offset/limit) — the pre-Edit pattern", () => {
     const result = JSON.parse(
       runPreReadHook(
         claudeCodePayload({ file_path: "src/foo.ts", offset: 10, limit: 20 })
       )
     );
-    // Empty object = passthrough (no nudge)
+    // Empty object = passthrough (no nudge, no deny)
     expect(result).toEqual({});
   });
 
-  it("nudges for full-file Read (no offset/limit)", () => {
+  it("DENIES the first full-file CODE Read, redirecting to file_read + unerr_context", () => {
     const result = JSON.parse(
       runPreReadHook(claudeCodePayload({ file_path: "src/foo.ts" }))
     );
-    const msg = result.hookSpecificOutput?.systemMessage ?? "";
-    expect(msg).toContain("ONLY for the Edit workflow");
-    expect(msg).toContain("offset/limit");
+    expect(result.hookSpecificOutput?.permissionDecision).toBe("deny");
+    const reason = result.hookSpecificOutput?.permissionDecisionReason ?? "";
+    expect(reason).toContain("full-file is blocked");
+    expect(reason).toContain("file_read");
+    expect(reason).toContain("unerr_context");
+    // Never dead-ends a genuine pre-Edit read on a whole file.
+    expect(reason).toContain("offset/limit");
+  });
+
+  it("nudges (does not deny twice) on a repeat full-file Read of the same file", () => {
+    const payload = claudeCodePayload({ file_path: "src/foo.ts" });
+    const first = JSON.parse(runPreReadHook(payload));
+    expect(first.hookSpecificOutput?.permissionDecision).toBe("deny");
+    const second = JSON.parse(runPreReadHook(payload));
+    // Repeat within the window → allow + systemMessage nudge, never a 2nd deny
+    // (guards the #43189/#47565 double-deny retry loop).
+    expect(second.hookSpecificOutput?.permissionDecision).not.toBe("deny");
+    const msg = second.hookSpecificOutput?.systemMessage ?? "";
     expect(msg).toContain("file_read");
   });
 
-  it("still nudges for non-code files (preRead has no isCodeFile gate)", () => {
+  it("passthrough for non-code files (README.md) — built-in Read is sanctioned", () => {
     const result = JSON.parse(
       runPreReadHook(claudeCodePayload({ file_path: "README.md" }))
     );
-    const msg = result.hookSpecificOutput?.systemMessage ?? "";
-    expect(msg).toContain("file_read");
+    // Non-code files allow silently — file_read's graph value is code-specific.
+    expect(result).toEqual({});
   });
 });
 
 // ── preReadHook: Non-Claude Code (Cursor) ────────────────────────────
 
 describe("preReadHook — Cursor (non-Claude Code)", () => {
-  it("nudges toward file_read (no Edit workflow mention)", () => {
+  it("DENIES first full-file CODE Read via permission/agent_message", () => {
     const result = JSON.parse(
       runPreReadHook(cursorPayload({ file_path: "src/foo.ts" }))
     );
-    // Cursor adapter uses `agent_message` at root level for pre-tool-use nudges
+    expect(result.permission).toBe("deny");
     const msg = result.agent_message ?? "";
-    // Should NOT mention Edit workflow or offset/limit requirement
-    expect(msg).not.toContain("ONLY for the Edit workflow");
-    // Should mention file_read as the preferred tool
     expect(msg).toContain("file_read");
+    expect(msg).toContain("unerr_context");
+    // Non-Claude Code agents get no Edit-gate clause (no read-before-edit gate).
+    expect(msg).not.toContain("Edit gate");
   });
 
-  it("still nudges even with offset/limit (Cursor doesn't need targeted Read)", () => {
+  it("passthrough for targeted Read (offset/limit) on every agent", () => {
     const result = JSON.parse(
       runPreReadHook(
         cursorPayload({ file_path: "src/foo.ts", offset: 10, limit: 20 })
       )
     );
-    // Cursor adapter uses `agent_message` for pre-tool-use nudges
-    const msg = result.agent_message ?? "";
-    // Non-Claude Code: always nudge toward file_read, even with offset/limit
-    expect(msg).toContain("file_read");
+    // Targeted reads are the legitimate pre-Edit pattern — allow silently.
+    // Cursor's adapter renders passthrough as {permission:'allow'} (vs {} for
+    // Claude Code); either way it carries no deny and no agent_message nudge.
+    expect(result.permission).not.toBe("deny");
+    expect(result.agent_message).toBeUndefined();
   });
 });
 

@@ -55,6 +55,14 @@ export const DEFAULT_POLICY: Record<string, DedupPolicy> = {
   pro: "on_change",
   sem: "on_change",
   epi: "on_change",
+  // Comment-drift (Layer 8 §5.1) — on_change fires the staleness nudge once per
+  // episode: stable message → emitted once, then suppressed until the prose is
+  // re-stamped (clearing it) and a later edit re-drifts with a new message.
+  cdr: "on_change",
+  // Boundary-erosion (Layer 8 §6, SC-D.3) — on_change fires the low-purity
+  // community nudge once per episode: the message carries the purity percent,
+  // so it re-emits only when the community's purity vote actually shifts.
+  ber: "on_change",
   ctx: "drop",
 };
 

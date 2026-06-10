@@ -98,9 +98,13 @@ function errorResult(message: string): UnerrContextResult {
 
 /**
  * Handle one `unerr_context` call. Args mirror `unerr recon`:
- *   - `prompt`  (required) — what the agent is about to do, verbatim.
- *   - `budget`  (optional) — whole-bundle token budget; defaults to recon's 2000.
- *   - `digest`  (optional) — force the flat large-sweep digest render.
+ *   - `prompt`          (required) — what the agent is about to do, verbatim.
+ *   - `budget`          (optional) — whole-bundle token budget; defaults to recon's 4000.
+ *   - `digest`          (optional) — force the flat large-sweep digest render.
+ *   - `response_format` (optional) — 'detailed' inlines verbatim focus bodies;
+ *                        'concise' returns names+signatures+callers only. Default
+ *                        is derived from task size server-side (agents can't be
+ *                        trusted to set it, and Gemini strips a schema `default`).
  */
 export async function handleUnerrContextProxy(
   args: Record<string, unknown>,
@@ -117,6 +121,10 @@ export async function handleUnerrContextProxy(
       ? args.budget
       : undefined;
   const explicitDigest = args.digest === true;
+  const explicitFormat =
+    args.response_format === "concise" || args.response_format === "detailed"
+      ? (args.response_format as "concise" | "detailed")
+      : undefined;
 
   // The composer needs notes warm + graph shapes raw. recall_notes routes to
   // the proxy notes store; every other tool routes to QueryRouter.executeRaw.
@@ -134,6 +142,12 @@ export async function handleUnerrContextProxy(
   const searchLimit =
     preVerdict.size === "large_sweep" ? SWEEP_SEARCH_LIMIT : undefined;
 
+  // Large sweeps orient (concise — no body fetch, flat size); focused edits
+  // front-load the verbatim body (detailed). An explicit arg always wins.
+  const responseFormat: "concise" | "detailed" =
+    explicitFormat ??
+    (preVerdict.size === "large_sweep" ? "concise" : "detailed");
+
   let bundle: Awaited<ReturnType<typeof composeRecon>>;
   try {
     bundle = await composeRecon({
@@ -141,6 +155,14 @@ export async function handleUnerrContextProxy(
       runner,
       ...(budget !== undefined ? { budget } : {}),
       searchLimit,
+      responseFormat,
+      // External `want` fan-out: composeRecon walks it ONLY when a real
+      // downstream-MCP gateway is injected here as `mcpSources`. There is no
+      // toggle — capability is presence, not a flag (this runs on the user's
+      // machine; nobody flips switches). No downstream gateway exists yet, so
+      // none is injected and `want` is not advertised on the tool. When the
+      // gateway lands, inject it here and add `want` back to the schema in the
+      // same change — the composeRecon seam is already built and tested.
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -150,7 +172,11 @@ export async function handleUnerrContextProxy(
   const entityCount = reconEntityCount(bundle);
   const verdict = classifyTaskSize(prompt, { entityCount });
   const files = reconFileSpread(bundle);
-  const useDigest = explicitDigest || verdict.size === "large_sweep";
+  // Digest ⟺ no bodies were inlined. The digest collapses bodies to file:line
+  // ranges, so it only fits the concise mode (orientation / large sweep) — a
+  // 'detailed' bundle always renders verbatim bodies via renderReconText. An
+  // explicit digest:true still forces the flat render regardless.
+  const useDigest = explicitDigest || responseFormat === "concise";
   const text = useDigest ? renderReconDigest(bundle) : renderReconText(bundle);
 
   recordReconServed(

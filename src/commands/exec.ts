@@ -35,7 +35,7 @@ const EXEC_NUDGES = [
   // #7 TRIM — entity / convention / fact set
   // (get_conventions left the advertised catalog — file_read with
   // purpose:'explore' auto-injects the same conventions.)
-  "[unerr] Entity details: get_entity · Before writing: file_read({purpose:'explore'}) auto-injects conventions · For prior facts: unerr_track({op:'recall'})",
+  "[unerr] Entity details: search_code({query:'<name>', detail:true}) · Before writing: file_read({purpose:'explore'}) auto-injects conventions · For prior facts: unerr_track({op:'recall'})",
   // #8 — pre-edit nudge (get_critical_nodes left the advertised catalog;
   // the same chokepoint signal is the fan_in column on get_references rows)
   "[unerr] Before editing: get_references({direction:'callers'}) to check callers — a long caller list marks a chokepoint.",
@@ -43,7 +43,7 @@ const EXEC_NUDGES = [
   // (get_critical_nodes / get_test_coverage / get_project_stats left the
   // advertised catalog; test files in a get_references caller list are the
   // tests for an entity, unerr_context is the one-call task-scoped bundle.)
-  "[unerr] Structure: file_outline (file map) · get_entity (one symbol) · unerr_context({prompt:'<task>'}) (task-scoped recon bundle)",
+  "[unerr] Structure: file_outline (file map) · search_code({detail:true}) (one symbol) · unerr_context({prompt:'<task>'}) (task-scoped recon bundle)",
   // #10 TRIM — narrative markers with when-tags
   "[unerr] Markers (zero round-trip): emit `unerr-save: intent|decision|blocker|resolution <one-line>` in your closing message — the Stop hook persists them to power timeline + resume",
   // #11 — user-fed memory: hook captures user rules; agent notes ride the sentinel

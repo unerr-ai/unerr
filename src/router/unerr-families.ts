@@ -52,7 +52,7 @@ export const UNERR_FAMILIES: Readonly<
   graph: {
     name: "graph",
     label: "Code graph navigation",
-    tools: ["search_code", "get_entity", "get_references", "unerr_context"],
+    tools: ["search_code", "get_references", "unerr_context"],
   },
   file: {
     name: "file",

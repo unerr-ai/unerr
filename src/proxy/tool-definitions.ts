@@ -58,11 +58,38 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         query: {
           type: "string",
           description:
-            "Entity name or partial name to search for (e.g., 'compress', 'handleRequest')",
+            "Entity name, partial name, or exact key (e.g., 'compress', 'handleRequest', 'QueryRouter.dispatch')",
         },
         limit: {
           type: "number",
-          description: "Maximum results to return (default: 20)",
+          description:
+            "Max results in list mode (default 20); caps want:['callers','callees'] rows in detail mode (default 25)",
+        },
+        detail: {
+          type: "boolean",
+          description:
+            "Resolve query to the single best-matching entity and return its profile — signature + first ~15 lines, fan-in/out, risk level — instead of the ranked list. include_body and want imply detail.",
+          default: false,
+        },
+        include_body: {
+          type: "boolean",
+          description:
+            "Detail mode: include the full function/class body (default false — signature + ~15-line preview).",
+          default: false,
+        },
+        want: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["callers", "callees", "imports"],
+          },
+          description:
+            "Detail mode extras attached in one call: 'callers'/'callees' (each capped by `limit`, with a *_total count) and 'imports' (the entity's file-level import list).",
+        },
+        kind: {
+          type: "string",
+          enum: ["function", "class", "type", "variable"],
+          description: "Detail mode: optional entity kind filter.",
         },
         token_budget: TOKEN_BUDGET_PROP,
       },
@@ -87,7 +114,13 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         budget: {
           type: "integer",
           description:
-            "Whole-bundle token budget (default 2000). Sections are kept by priority — notes, callers, entities, conventions — and trimmed to fit.",
+            "Whole-bundle token budget (default 4000). Sections are kept by priority — focus bodies, callers, notes, conventions — and trimmed to fit.",
+        },
+        response_format: {
+          type: "string",
+          enum: ["concise", "detailed"],
+          description:
+            "Verbosity. 'detailed' (use right before an edit) inlines the 2–4 focus entities' verbatim source bodies with file:line ranges, so you skip the follow-up file_read. 'concise' (use when orienting a large sweep) returns names, signatures, and callers only. Defaults from task size server-side — set explicitly to override.",
         },
         digest: {
           type: "boolean",
@@ -195,56 +228,9 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
     },
   },
 
-  get_entity: {
-    inputSchema: {
-      type: "object",
-      properties: {
-        key: {
-          type: "string",
-          description:
-            "Entity key (e.g., 'handleRequest', 'QueryRouter.dispatch', 'QueryRouter')",
-        },
-        entity_name: {
-          type: "string",
-          description:
-            "Alias for `key`. If both are provided, `key` wins. Useful for natural-language names.",
-        },
-        kind: {
-          type: "string",
-          enum: ["function", "class", "type", "variable"],
-          description: "Optional entity kind filter.",
-        },
-        include_body: {
-          type: "boolean",
-          description:
-            "Include the full function/class body. Default false — returns signature + first ~15 lines.",
-          default: false,
-        },
-        want: {
-          type: "array",
-          items: {
-            type: "string",
-            enum: ["callers", "callees", "imports"],
-          },
-          description:
-            "Extras to attach in one call: 'callers'/'callees' (folds in get_references) and 'imports' (the entity's file-level import list). Each is capped by `limit`; callers/callees also return a *_total count.",
-        },
-        limit: {
-          type: "number",
-          description:
-            "Cap for want:['callers','callees'] rows (default 25). Ignored when want is unset.",
-          default: 25,
-        },
-        token_budget: TOKEN_BUDGET_PROP,
-      },
-      required: ["key"],
-    },
-    annotations: {
-      title: "Get Entity Details",
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
+  // get_entity merged into search_code (2026-06): detail/include_body/want/kind
+  // on search_code translate to the internal get_entity executor in
+  // QueryRouter.execute(). De-advertised, dispatched by name only.
 
   get_references: {
     inputSchema: {

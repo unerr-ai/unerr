@@ -15,92 +15,6 @@ import { z } from "zod";
 
 // ── Schema ────────────────────────────────────────────────────
 
-const LlmProviderEnum = z.enum([
-  "ollama",
-  "lm-studio",
-  "openai-compatible",
-  "anthropic-direct",
-]);
-
-const EndpointConfigSchema = z.object({
-  provider: LlmProviderEnum.optional(),
-  baseUrl: z.string().optional(),
-  model: z.string().optional(),
-  apiKey: z.string().optional(),
-});
-
-/**
- * BYO-LLM provider configuration for True Local Mode.
- *
- * Supports two usage patterns:
- *
- * 1. **Simple (single provider):** Set top-level `provider`, `baseUrl`, `apiKey`.
- *    Both embedding and inference use the same provider. `embeddingModel` and
- *    `chatModel` select which models to use.
- *
- * 2. **Split (different providers):** Set `embedding` and/or `inference` sub-objects.
- *    Each can have its own `provider`, `baseUrl`, `apiKey`, and `model`.
- *    Sub-object fields override top-level fields for that concern.
- *
- * Examples:
- *   - Ollama for everything: { provider: "ollama" }
- *   - Fireworks embedding + Anthropic chat:
- *     { embedding: { provider: "openai-compatible", baseUrl: "https://api.fireworks.ai/inference/v1", model: "...", apiKey: "..." },
- *       inference: { provider: "anthropic-direct", apiKey: "..." } }
- */
-export const LocalLlmConfigSchema = z.object({
-  provider: LlmProviderEnum.default("ollama"),
-  baseUrl: z.string().optional(),
-  embeddingModel: z.string().default("nomic-embed-text"),
-  chatModel: z.string().default("llama3"),
-  apiKey: z.string().optional(),
-  maxConcurrency: z.number().int().min(1).default(2),
-  embeddingDimensions: z.number().int().min(1).default(384),
-  embedding: EndpointConfigSchema.optional(),
-  inference: EndpointConfigSchema.optional(),
-});
-
-export type LocalLlmConfig = z.infer<typeof LocalLlmConfigSchema>;
-
-export interface ResolvedEndpoint {
-  provider: string;
-  baseUrl: string | undefined;
-  model: string;
-  apiKey: string | undefined;
-}
-
-/**
- * Resolve the effective embedding endpoint config.
- * `config.embedding` fields override top-level `config` fields.
- */
-export function resolveEmbeddingEndpoint(
-  config: LocalLlmConfig
-): ResolvedEndpoint {
-  const e = config.embedding;
-  return {
-    provider: e?.provider ?? config.provider,
-    baseUrl: e?.baseUrl ?? config.baseUrl,
-    model: e?.model ?? config.embeddingModel,
-    apiKey: e?.apiKey ?? config.apiKey,
-  };
-}
-
-/**
- * Resolve the effective inference (chat) endpoint config.
- * `config.inference` fields override top-level `config` fields.
- */
-export function resolveInferenceEndpoint(
-  config: LocalLlmConfig
-): ResolvedEndpoint {
-  const i = config.inference;
-  return {
-    provider: i?.provider ?? config.provider,
-    baseUrl: i?.baseUrl ?? config.baseUrl,
-    model: i?.model ?? config.chatModel,
-    apiKey: i?.apiKey ?? config.apiKey,
-  };
-}
-
 const LlmConfigSchema = z.object({
   provider: z
     .enum(["anthropic", "openai", "google", "ollama", "openai-compatible"])
@@ -137,6 +51,63 @@ export const FetchUrlConfigSchema = z.object({
 
 export type FetchUrlConfig = z.infer<typeof FetchUrlConfigSchema>;
 
+/**
+ * Layer 8 comment-contract config (`comments.*` keys).
+ * See .internal/roadmap/LAYER_8_DOMAIN_UNDERSTANDING.md §2.1.1.
+ */
+export const CommentsConfigSchema = z.object({
+  /**
+   * Sentinel token(s) recognized inside doc comments. Vendor-neutral default
+   * (`@sem`); teams alias their own token here. Empty list disables sentinel
+   * parsing entirely.
+   */
+  sentinel: z.array(z.string().min(1)).default(["@sem"]),
+  /**
+   * Whether the instruction-writer injects the §2.4 maintenance-contract
+   * section (the agent maintains `@sem` comments in the same edit). Default
+   * on; `comments.maintain false` removes the section on next `install` —
+   * harvest, path inference, and propagation still populate the domain graph
+   * read-only. See LAYER_8_DOMAIN_UNDERSTANDING.md §2.4.
+   */
+  maintain: z.boolean().default(true),
+  /**
+   * Sprint SC-E.2: elide non-sentinel comment prose from `file_read` explore
+   * windows to save tokens (the code + `@sem` anchors stay; comment-only lines
+   * collapse to a `…` marker, line numbers preserved). Default OFF — gated on a
+   * fidelity benchmark over the frozen corpus before it can default on, since
+   * removing comments can cost the agent context. See
+   * LAYER_8_DOMAIN_UNDERSTANDING.md §E.2.
+   */
+  elide: z.boolean().default(false),
+});
+
+export type CommentsConfig = z.infer<typeof CommentsConfigSchema>;
+
+/**
+ * Auth-surfacing config. Tier-3 OS notifications are best-effort and, per
+ * LOGIN_UX_STRATEGY.md §9 decision 4, fire only on the high-signal `revoked`
+ * transition by default. `notifyGrace` opts into a notification on the softer
+ * `degraded_free` transition too (off by default to avoid noise on offline
+ * work). Overridable per machine via the `UNERR_NOTIFY_GRACE` env var.
+ */
+export const AuthConfigSchema = z.object({
+  notifyGrace: z.boolean().default(false),
+});
+
+export type AuthConfig = z.infer<typeof AuthConfigSchema>;
+
+/**
+ * Auto-update config (AUTO_UPDATE_STRATEGY.md §9). `mode`: `auto` (detect +
+ * auto-apply minor/patch + notify for major), `notify` (detect + notify only),
+ * `off` (fully disabled). Default `auto` for friction-free minor/patch upgrades;
+ * the `UNERR_NO_AUTO_UPDATE` env var downgrades `auto`→`notify` at runtime.
+ */
+export const UpdateConfigSchema = z.object({
+  mode: z.enum(["auto", "notify", "off"]).default("auto"),
+});
+
+export type UpdateConfig = z.infer<typeof UpdateConfigSchema>;
+
 export const SettingsSchema = z.object({
   /** Default Claude model for interactive sessions */
   model: z.string().default("claude-sonnet-4-20250514"),
@@ -150,8 +121,12 @@ export const SettingsSchema = z.object({
   verbose: z.boolean().default(false),
   /** AI SDK LLM configuration (Sprint D — unified multi-provider) */
   llm: LlmConfigSchema.optional(),
-  /** BYO-LLM configuration for local LLM providers */
-  localLlm: LocalLlmConfigSchema.optional(),
+  /** Layer 8 comment-contract config (sentinel token aliases, etc.) */
+  comments: CommentsConfigSchema.default(() => ({
+    sentinel: ["@sem"],
+    maintain: true,
+    elide: false,
+  })),
   /** fetch_url runtime config (Playwright SPA fallback, etc.) */
   fetchUrl: FetchUrlConfigSchema.default(() => ({
     playwright: {
@@ -161,6 +136,10 @@ export const SettingsSchema = z.object({
     },
     acceptLanguage: "en-US,en;q=0.9",
   })),
+  /** Auth-surfacing config (Tier-3 OS notifications). */
+  auth: AuthConfigSchema.default(() => ({ notifyGrace: false })),
+  /** Auto-update policy (auto | notify | off). */
+  update: UpdateConfigSchema.default(() => ({ mode: "auto" as const })),
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
@@ -214,23 +193,6 @@ export function loadSettings(cwd?: string): Settings {
       }),
     };
   }
-
-  // BYO-LLM env overrides
-  if (process.env.UNERR_LOCAL_LLM_PROVIDER)
-    envOverrides.localLlm = {
-      ...(projectSettings.localLlm as Record<string, unknown> | undefined),
-      ...(userSettings.localLlm as Record<string, unknown> | undefined),
-      provider: process.env.UNERR_LOCAL_LLM_PROVIDER,
-      ...(process.env.UNERR_LOCAL_LLM_BASE_URL && {
-        baseUrl: process.env.UNERR_LOCAL_LLM_BASE_URL,
-      }),
-      ...(process.env.UNERR_LOCAL_LLM_EMBEDDING_MODEL && {
-        embeddingModel: process.env.UNERR_LOCAL_LLM_EMBEDDING_MODEL,
-      }),
-      ...(process.env.UNERR_LOCAL_LLM_CHAT_MODEL && {
-        chatModel: process.env.UNERR_LOCAL_LLM_CHAT_MODEL,
-      }),
-    };
 
   // Merge: defaults ← user ← project ← env
   const merged = {

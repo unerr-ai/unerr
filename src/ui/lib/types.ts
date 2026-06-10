@@ -157,6 +157,9 @@ export type Bottleneck = {
 
 export type CommunityHealth = {
   label: string;
+  /** SC-D.3: the voted domain name + purity %, when the community is tagged. */
+  domain?: string;
+  domainPurityPct?: number;
   entities: number;
   tested: number;
   untested: number;
@@ -166,6 +169,18 @@ export type CommunityHealth = {
   riskMedium: number;
   riskLow: number;
   totalDegree: number;
+};
+
+/** SC-E.3: per-domain entity counts by provenance tier. */
+export type DomainCoverage = {
+  domain: string;
+  comment: number;
+  harvested: number;
+  propagated: number;
+  path: number;
+  total: number;
+  /** % of the domain's entities tagged from durable (comment/harvested) sources. */
+  durablePct: number;
 };
 
 export type InsightsResponse = {
@@ -180,6 +195,7 @@ export type InsightsResponse = {
     riskDistribution: { high: number; medium: number; low: number };
     riskConcentration: number;
     communityHealth: CommunityHealth[];
+    domainCoverage?: DomainCoverage[];
     mostCoupledPair: { from: string; to: string; weight: number } | null;
     insights: InsightCard[];
   } | null;

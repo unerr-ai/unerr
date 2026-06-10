@@ -231,6 +231,7 @@ export const SAFE_MODIFICATION_SKILL: SkillDefinition = {
     "Phase 6 — Edit.",
     "  Call built-in `Read({offset,limit})` on the exact target lines (built-in Read is required immediately before Edit — `file_read` does NOT satisfy Edit's read-gate). Then apply the Edit.",
     "  Cross-file refactor (rename/move/extract) — for every reference returned by Phase 3, repeat: built-in Read on the caller's reference site, then Edit.",
+    "  Domain comment (Layer 8): when the edited entity carries an `@sem` doc comment AND the edit changed what it does or why, rewrite the prose summary and `@sem domain=<tag>` line in the SAME Edit call. Purpose unchanged → leave the comment untouched. NEVER delete an `@sem` comment unless the user instructs it.",
     "",
     "Phase 7 — Verify.",
     "  Re-call `file_read({file_path:'<path>', purpose:'explore'})`; confirm no new convention violations (conventions auto-inject).",
@@ -297,7 +298,7 @@ export const EXPLORATION_SKILL: SkillDefinition = {
     "  Use the count to size the change before reading any file body.",
     "",
     "Phase 4 — Architecture sweep.",
-    "  Call `file_outline({file_path:'<entry>'})` — its `imports` field traces the import graph from an entry point (or `get_entity({key:'<name>', want:['imports']})` for one entity's file).",
+    "  Call `file_outline({file_path:'<entry>'})` — its `imports` field traces the import graph from an entry point (or `search_code({query:'<name>', want:['imports']})` for one entity's file).",
     "  Call `get_references({key:'<entity_key>', direction:'callers'})` on candidate entry points — a high fan_in (or a `ur|rsk fan_in=<N>` line) marks a chokepoint.",
     "  Follow connections via `get_references` direction:callees from the main function to walk the execution path.",
     "",
@@ -321,13 +322,7 @@ export const EXPLORATION_SKILL: SkillDefinition = {
   ].join("\n"),
   category: "navigation",
   trigger: { type: "agent-requested" },
-  tools: [
-    "search_code",
-    "get_references",
-    "get_entity",
-    "file_outline",
-    "file_read",
-  ],
+  tools: ["search_code", "get_references", "file_outline", "file_read"],
   version: "1.0.0",
 };
 
@@ -550,6 +545,7 @@ export const BUILD_AND_DEBUG_SKILL: SkillDefinition = {
     "",
     "Phase A6 — Build.",
     "  Implement the shape from A4. Before each `Edit`, call built-in `Read` (offset/limit).",
+    "  Domain comment (Layer 8): when you create an exported entity, write its doc comment block before the next edit — prose ≤2 sentences (what + why, never how), then `@sem domain=<tag>`. Reuse an active domain tag (the `unerr_context` bundle lists active tags); add a new tag only when none fits. Never restate the entity name as the summary.",
     "",
     "Phase A7 — Verify.",
     "  Run the targeted test for the new surface (not the full suite). Emit `unerr-save: resolution <fix>` in your closing message for any blocker that fired.",
@@ -823,7 +819,6 @@ export const REVIEW_SKILL: SkillDefinition = {
   tools: [
     "unerr_context",
     "search_code",
-    "get_entity",
     "get_references",
     "file_read",
     "unerr_track",

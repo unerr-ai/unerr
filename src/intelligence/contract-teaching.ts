@@ -131,7 +131,7 @@ export const TOOL_DESCRIPTION_NUDGES: readonly ToolDescriptionNudge[] = [
   {
     tool: "search_code",
     nudge:
-      "Then call unerr_context({prompt:'<task>'}) for anchored notes + callers + conventions on the top result.",
+      "If an entity's contract surprises you, emit unerr-save: note fct|e:<entity_key>|~|<one-line> in your closing message.",
   },
   {
     tool: "file_read",
@@ -143,9 +143,6 @@ export const TOOL_DESCRIPTION_NUDGES: readonly ToolDescriptionNudge[] = [
     nudge:
       "If fan_in≥10, emit unerr-save: note wrn|e:<entity_key>|-|<chokepoint reason> in your closing message.",
   },
-  {
-    tool: "get_entity",
-    nudge:
-      "If contract surprises you, emit unerr-save: note fct|e:<entity_key>|~|<one-line> in your closing message.",
-  },
+  // get_entity merged into search_code({detail:true}) 2026-06 — its
+  // contract-surprise nudge moved onto search_code above.
 ];

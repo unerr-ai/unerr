@@ -18,6 +18,7 @@ import { registerBranchesCommand } from "../commands/branches.js";
 import { registerCheckCommitCommand } from "../commands/check-commit.js";
 import { registerCompressOutputCommand } from "../commands/compress-output.js";
 import { registerConfigVerifyCommand } from "../commands/config-verify.js";
+import { registerConventionsCommand } from "../commands/conventions.js";
 import { registerDashboardCommand } from "../commands/dashboard.js";
 import { registerDebugCommand } from "../commands/debug.js";
 import {
@@ -25,16 +26,14 @@ import {
   verifyUnerrOnPath,
 } from "../commands/doctor.js";
 import { registerExecCommand } from "../commands/exec.js";
-import {
-  registerDiscoverCommand,
-  registerGainCommand,
-} from "../commands/gain.js";
 import { registerGraphCommand } from "../commands/graph.js";
 import { registerHookCommand } from "../commands/hook.js";
 import { registerIndexCommand } from "../commands/index.js";
 import { registerInitCommand } from "../commands/init.js";
 import { registerInstallCommand } from "../commands/install.js";
 import { registerLearnCommand } from "../commands/learn.js";
+import { registerLoginCommand } from "../commands/login.js";
+import { registerLogoutCommand } from "../commands/logout.js";
 import { registerManifestCommand } from "../commands/manifest.js";
 import { registerPmCommand } from "../commands/pm.js";
 import { registerReconCommand } from "../commands/recon.js";
@@ -46,6 +45,8 @@ import { registerStatsCommand } from "../commands/stats.js";
 import { registerStatusCommand } from "../commands/status.js";
 import { registerTimelineCommand } from "../commands/timeline.js";
 import { registerUninstallCommand } from "../commands/uninstall.js";
+import { registerUpdateCommand } from "../commands/update.js";
+import { registerWhoamiCommand } from "../commands/whoami.js";
 import { installFileLogger } from "../utils/file-logger.js";
 import {
   cleanupLegacyLogs,
@@ -1031,7 +1032,13 @@ const MCP_RETRY_BACKOFF = 1.5;
 const MCP_BACKOFF_RESET_MS = 30_000;
 
 type DiscoveryResult =
-  | { kind: "daemon"; sockPath: string; daemonSock: string }
+  | {
+      kind: "daemon";
+      sockPath: string;
+      daemonSock: string;
+      /** U4: the daemon's reported running version (absent on an old daemon). */
+      daemonVersion?: string;
+    }
   | { kind: "none" };
 
 /**
@@ -1283,13 +1290,19 @@ async function discoverWithRetry(
   cwd: string,
   daemonSockPath: () => string,
   probeDaemon: (sock: string) => Promise<boolean>,
-  ensureRepo: (sock: string, repo: string) => Promise<string>,
+  ensureRepo: (
+    sock: string,
+    repo: string
+  ) => Promise<{ sock: string; daemonVersion?: string }>,
   tryAcquireSpawnLock: () => boolean,
   releaseSpawnLock: () => void
 ): Promise<DiscoveryResult> {
   let retryMs = MCP_INITIAL_RETRY_MS;
   let attempt = 0;
   let spawnAttempted = false;
+  // U4: one-shot guard so a stale-daemon convergence requests shutdown at most
+  // once per discovery pass (never a shutdown→respawn→re-detect-stale loop).
+  let convergeRequested = false;
 
   // Per-poll window for unerrd to come up after an auto-spawn. This is NOT a
   // hard failure budget — the outer for(;;) loop re-probes indefinitely, so a
@@ -1309,8 +1322,45 @@ async function discoverWithRetry(
       // sock. Going through unerrd (never connecting to proxy.sock directly) is
       // what keeps `pm status` honest and the dashboard online.
       try {
-        const sockPath = await ensureRepo(daemonSock, cwd);
-        return { kind: "daemon", sockPath, daemonSock };
+        const { sock, daemonVersion } = await ensureRepo(daemonSock, cwd);
+
+        // ── U4: bridge↔daemon version handshake ──
+        // The bridge is fresh-spawned (always the on-disk version); the daemon
+        // is long-lived and may be running stale code after an upgrade. Decide
+        // what to do about any skew before we hand the session to the proxy.
+        if (daemonVersion && !convergeRequested) {
+          const { classifyVersionSkew } = await import(
+            "../update/version-handshake.js"
+          );
+          const { UNERR_VERSION } = await import("../version.js");
+          const skew = classifyVersionSkew(UNERR_VERSION, daemonVersion);
+          if (skew.action === "converge") {
+            convergeRequested = true;
+            process.stderr.write(`[unerr:mcp] ${skew.reason}\n`);
+            const { requestDaemonShutdown } = await import(
+              "../daemon/client.js"
+            );
+            await requestDaemonShutdown(daemonSock);
+            // Wait for the stale daemon to actually exit (bounded ~5s), then
+            // Step 2 re-spawns a fresh daemon on the new on-disk version.
+            for (
+              let i = 0;
+              i < 50 && (await probeDaemon(daemonSock));
+              i++
+            ) {
+              await new Promise<void>((r) => {
+                const t = setTimeout(r, 100);
+                if (typeof t.unref === "function") t.unref();
+              });
+            }
+            continue;
+          }
+          if (skew.action === "surface") {
+            process.stderr.write(`[unerr:mcp] version skew: ${skew.reason}\n`);
+          }
+        }
+
+        return { kind: "daemon", sockPath: sock, daemonSock, daemonVersion };
       } catch (err) {
         process.stderr.write(
           `[unerr:mcp] ensureRepo failed: ${(err as Error).message}, retrying...\n`
@@ -1484,18 +1534,21 @@ program
   });
 
 registerStatusCommand(program);
+registerUpdateCommand(program);
 registerStatsCommand(program);
 registerInstallCommand(program);
 registerDashboardCommand(program);
 registerDebugCommand(program);
 registerDoctorCommand(program);
-registerGainCommand(program);
 registerReconCommand(program);
 registerGraphCommand(program);
-registerDiscoverCommand(program);
 registerPmCommand(program);
 registerReviewCommand(program);
 registerRouterCommands(program);
+registerLoginCommand(program);
+registerLogoutCommand(program);
+registerWhoamiCommand(program);
+registerConventionsCommand(program);
 
 // ── Hidden Commands (callable but not shown in --help) ──────
 

@@ -37,3 +37,16 @@ describe("compressShellOutput graph boost (FE-F.6)", () => {
     expect(graph.findEntityByName).toHaveBeenCalled();
   });
 });
+
+describe("compressShellOutput empty-output guard", () => {
+  it("passes empty output through without recording a zero-byte event", async () => {
+    const r = await compressShellOutput("echo", "");
+    expect(r.text).toBe("");
+    expect(r.classification.category).toBe("structured");
+  });
+
+  it("passes whitespace-only output through unchanged", async () => {
+    const r = await compressShellOutput("echo", "   \n\n  ");
+    expect(r.text).toBe("   \n\n  ");
+  });
+});

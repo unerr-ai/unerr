@@ -89,23 +89,22 @@ describe("tool-budget: enforceBudget", () => {
 describe("tool-descriptions: tier registry", () => {
   const ALL = listToolNames();
 
-  it("contains exactly 8 tools (the advertised catalog after the token-overhead deletion; unerr_remember left for the hook write paths, 2026-06)", () => {
-    expect(ALL.length).toBe(8);
+  it("contains exactly 7 tools (the advertised catalog after the token-overhead deletion; unerr_remember left for the hook write paths, get_entity merged into search_code({detail:true}), 2026-06)", () => {
+    expect(ALL.length).toBe(7);
   });
 
-  it("partitions tools into exactly 7 / 0 / 1 across tiers 1 / 2 / 3", () => {
-    expect(toolsByTier(1)).toHaveLength(7);
+  it("partitions tools into exactly 6 / 0 / 1 across tiers 1 / 2 / 3", () => {
+    expect(toolsByTier(1)).toHaveLength(6);
     expect(toolsByTier(2)).toHaveLength(0);
     expect(toolsByTier(3)).toHaveLength(1);
   });
 
-  it("places the 7 starter tools in tier 1", () => {
+  it("places the 6 starter tools in tier 1", () => {
     const tier1 = new Set(toolsByTier(1));
     for (const name of [
       "search_code",
       "file_outline",
       "file_read",
-      "get_entity",
       "get_references",
       "fetch_url",
       "unerr_context",

@@ -184,7 +184,10 @@ async function handleRequest(
     case "ensure": {
       try {
         const sock = await pm.ensure(req.repo);
-        return { ok: true, sock };
+        // U4: stamp our own running version so the fresh-spawned bridge can
+        // detect a stale daemon (manual/auto upgrade) and converge.
+        const { UNERR_VERSION } = await import("../version.js");
+        return { ok: true, sock, version: UNERR_VERSION };
       } catch (err) {
         return { ok: false, error: (err as Error).message };
       }
@@ -229,6 +232,25 @@ async function handleRequest(
     case "shutdown":
       // Handled by the caller — triggers graceful shutdown
       return { ok: true };
+
+    case "entitlements": {
+      // Answer the per-repo proxy's tier query from local state only — never
+      // a network call. Reads + verifies the signed cache file.
+      try {
+        const { tierFromCache } = await import("../cloud/tier-query.js");
+        const tier = tierFromCache();
+        return {
+          ok: true,
+          plan: tier.plan,
+          source: tier.source,
+          features: tier.features,
+          reconnect_by: tier.reconnect_by,
+        };
+      } catch {
+        // Cloud module unavailable for any reason → free, never block.
+        return { ok: true, plan: "free", source: "none", features: {} };
+      }
+    }
 
     case "dashboard-state":
       return { ok: true, repos: pm.getStatus() };
@@ -429,10 +451,26 @@ export async function startDaemon(opts: {
     log.warn(`Warm-start scheduler failed: ${(err as Error).message}`);
   }
 
-  // Add warm-start cancellation to shutdown
+  // Start the entitlement refresh job (non-critical — the CLI works fully
+  // logged out). Refreshes once now, then every 12h ± jitter on an unref'd
+  // timer. Offline failures are silent; a revoked machine self-wipes and the
+  // job stops. Skips silently when not logged in.
+  let stopEntitlementRefresh: (() => void) | null = null;
+  try {
+    const { startEntitlementRefresh } = await import("../cloud/refresh-job.js");
+    const job = startEntitlementRefresh({
+      log: (msg) => log.info(msg),
+    });
+    stopEntitlementRefresh = job.stop;
+  } catch (err) {
+    log.warn(`Entitlement refresh failed to start: ${(err as Error).message}`);
+  }
+
+  // Add warm-start + entitlement-refresh cancellation to shutdown
   const origShutdown = shutdown;
   const wrappedShutdown = async (reason: string) => {
     cancelWarmStart?.();
+    stopEntitlementRefresh?.();
     await origShutdown(reason);
   };
   process.removeAllListeners("SIGTERM");

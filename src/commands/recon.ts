@@ -20,6 +20,7 @@
  */
 
 import type { Command } from "commander";
+import { readEntityBodyLines } from "../intelligence/entity-source.js";
 import {
   hasPersistedGraph,
   openPersistentDb,
@@ -33,6 +34,12 @@ import {
   renderReconDigest,
   renderReconText,
 } from "../intelligence/recon.js";
+import {
+  type AnnotationDb,
+  attachAnnotations,
+  fetchActiveDomainTags,
+  fetchVocabularyNudges,
+} from "../intelligence/semantic/annotation-indexer.js";
 import { classifyTaskSize } from "../intelligence/task-size.js";
 import { getOrCreateSid } from "../utils/log-paths.js";
 import { initFileLog, startupLog } from "../utils/startup-log.js";
@@ -79,6 +86,7 @@ export function parseReconArgs(argv: string[]): {
  * already covers anchored notes.
  */
 function buildGraphRunner(graph: {
+  db: AnnotationDb;
   searchEntities: (
     q: string,
     limit?: number
@@ -91,6 +99,15 @@ function buildGraphRunner(graph: {
       score: number;
     }>
   >;
+  getEntity: (key: string) => Promise<{
+    key: string;
+    name: string;
+    kind: string;
+    file_path: string;
+    start_line: number;
+    end_line: number;
+    signature: string;
+  } | null>;
   getCallersOf: (key: string) => Promise<Array<Record<string, unknown>>>;
   getConventions: () => Promise<
     Array<{ kind: string } & Record<string, unknown>>
@@ -101,8 +118,48 @@ function buildGraphRunner(graph: {
       case "search_code": {
         const query = String(args.query ?? "");
         if (!query) return [];
+        // Profile mode (detail/include_body): recon's focus-body fetch resolves
+        // ONE entity by key and wants its verbatim source inlined. Mirror the
+        // warm get_entity path (read body from source via the shared reader) so
+        // the cold CLI inlines the SAME body the warm unerr_context does.
+        if (args.detail === true || args.include_body === true) {
+          const entity = await graph.getEntity(query);
+          if (!entity) return null;
+          const bodyLines = readEntityBodyLines(
+            entity.file_path,
+            entity.start_line,
+            entity.end_line,
+            process.cwd()
+          );
+          if (!bodyLines) return entity; // no source on disk → signature only
+          const tokenBudget =
+            typeof args.token_budget === "number" && args.token_budget >= 100
+              ? args.token_budget
+              : 400;
+          const maxChars = tokenBudget * 4; // CHARS_PER_TOKEN, mirrors get_entity
+          const fullBody = bodyLines.join("\n");
+          const truncated = fullBody.length > maxChars;
+          return {
+            ...entity,
+            body: truncated ? fullBody.slice(0, maxChars) : fullBody,
+            ...(truncated ? { _truncated: { partial: true } } : {}),
+          };
+        }
         const limit = typeof args.limit === "number" ? args.limit : 10;
-        return await graph.searchEntities(query, limit);
+        const rows = await graph.searchEntities(query, limit);
+        // Layer 8 §5.4: attach domain annotations to the recon "Entities"
+        // section; best-effort, un-annotated hits pass through unchanged.
+        return await attachAnnotations(graph.db, rows);
+      }
+      case "domain_tags": {
+        // Layer 8 §5.4 "reuse before invent": active domain-tag vocabulary by
+        // entity count. Best-effort — [] on any error.
+        return { tags: await fetchActiveDomainTags(graph.db) };
+      }
+      case "vocab_nudges": {
+        // Layer 8 §5.2 / §6.4: canonical/provisional split + near-duplicate
+        // merge hints. Best-effort — empty sets on any error.
+        return await fetchVocabularyNudges(graph.db);
       }
       case "get_references": {
         const key = String(args.key ?? "");
@@ -190,16 +247,27 @@ export async function runReconMain(argv: string[]): Promise<number> {
     const preVerdict = classifyTaskSize(prompt);
     const searchLimit =
       preVerdict.size === "large_sweep" ? SWEEP_SEARCH_LIMIT : undefined;
+    // Large sweeps orient (concise — no body fetch, flat digest); focused edits
+    // front-load the verbatim body (detailed). Mirrors the warm unerr_context
+    // handler so cold and warm paths render identically.
+    const responseFormat: "concise" | "detailed" =
+      preVerdict.size === "large_sweep" ? "concise" : "detailed";
 
-    const bundle = await composeRecon({ prompt, runner, budget, searchLimit });
+    const bundle = await composeRecon({
+      prompt,
+      runner,
+      budget,
+      searchLimit,
+      responseFormat,
+    });
 
     const entityCount = reconEntityCount(bundle);
     const verdict = classifyTaskSize(prompt, { entityCount });
     const files = reconFileSpread(bundle);
-    // Use the digest when explicitly asked, or whenever the realized task is a
-    // large sweep — the digest stays flat as files-scanned grows, which is the
-    // shape a subagent must return to keep the main thread from amplifying.
-    const useDigest = digest || verdict.size === "large_sweep";
+    // Digest ⟺ no bodies inlined (concise) or the user forced --digest. The
+    // digest collapses bodies to file:line ranges and stays flat as files-scanned
+    // grows; a detailed bundle renders verbatim bodies via renderReconText.
+    const useDigest = digest || responseFormat === "concise";
 
     if (json) {
       process.stdout.write(`${JSON.stringify(bundle)}\n`);

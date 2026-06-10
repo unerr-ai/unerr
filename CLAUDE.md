@@ -32,22 +32,30 @@ Source files alone are half the brief.
 
 ### Recon first — one call replaces the discovery fan-out
 
-On any non-trivial coding turn, call `unerr_context({prompt:"<what you are about to do>"})` as your FIRST move. One call returns the anchored notes + matching entities + the focus entity's callers (blast radius) + conventions — ranked and trimmed to a 2000-token budget. It runs the whole discovery sequence in-process, so it replaces the 3–4-call fan-out (`search_code` → `get_references` → per-file convention reads). That fan-out is the dominant token cost: each separate tool call re-bills the entire accumulated prefix, so four sequential calls re-pay the prefix four times. `unerr_context` pays it once.
+On any non-trivial coding turn, call `unerr_context({prompt:"<what you are about to do>"})` as your FIRST move. One call returns the anchored notes + matching entities + the focus entities' **verbatim bodies** + the focus entity's callers (blast radius) + conventions — ranked and trimmed to a 4000-token budget. It runs the whole discovery sequence in-process, so it replaces the 3–4-call fan-out (`search_code` → `get_references` → `file_read` → per-file convention reads). That fan-out is the dominant token cost: each separate tool call re-bills the entire accumulated prefix, so four sequential calls re-pay the prefix four times. `unerr_context` pays it once.
+
+The bundle emits a `ur|fct inlined above — do NOT re-read: <file:line ranges>` line naming the source it already carried verbatim. Obey it: fall back to `file_read`/`search_code` ONLY for source the bundle did not already inline. Re-reading a range the bundle already delivered re-pays the prefix for nothing.
 
 - Trivial / read-only lookup (locate one symbol, read one function): skip `unerr_context` and skip the marker ceremony — call `search_code` or `file_read` directly. The footprint self-selects by task size; do not add ceremony a lookup does not earn.
-- Single-entity edit: call `unerr_context({prompt:"<task>"})` once, act on the bundle, then edit.
+- Single-entity edit: call `unerr_context({prompt:"<task>", response_format:'detailed'})` once — `detailed` inlines the 2–4 focus entities' verbatim bodies with `file:line` citations so you edit straight from the bundle — then edit.
+- Orienting only (no edit yet): `unerr_context({prompt:"<task>", response_format:'concise'})` — names + signatures + blast-radius callers, no bodies.
 - Large sweep (rename / migrate / "every place that…"): run `unerr recon "<task>"` from Bash inside a Task subagent — it auto-emits a flat digest that stays the same size as files-scanned grows. Return ONLY the digest to the main thread, so main-thread context stays flat instead of amplifying across 20 hops.
 
-Args: `budget:3000` widens the slice, `digest:true` forces the flat summary. When the MCP transport is unavailable (or from a Task subagent), the same bundle is one Bash call away: `unerr recon "<task>" [--budget N] [--digest] [--json]` — no MCP discovery hop.
+Args:
+- `budget:6000` widens the slice (default `4000`, wide enough to inline the focus entities' source).
+- `response_format:'concise' | 'detailed'` — `concise` = notes + entity names/signatures + blast-radius callers (no bodies); `detailed` = additionally inlines the VERBATIM bodies of the 2–4 focus entities with `file:line` citations. The default is picked server-side from task size, so you need not set it — but pass `response_format:'detailed'` right before an edit and `'concise'` when just orienting.
+- `digest:true` forces the flat summary.
 
-### Tool surface — eight tools, always on
+When the MCP transport is unavailable (or from a Task subagent), the same bundle is one Bash call away: `unerr recon "<task>" [--budget N] [--digest] [--json]` — no MCP discovery hop.
+
+### Tool surface — seven tools, always on
 
 Every unerr tool is advertised from the start: `unerr_context`
 (the one-shot recon composite — reach for it first), `search_code`,
-`file_read`, `file_outline`, `get_entity`, `get_references`, `fetch_url`,
+`file_read`, `file_outline`, `get_references`, `fetch_url`,
 `unerr_track`. There is no hidden roster to earn.
 (File imports: `file_outline` returns an `imports` field;
-`get_entity({want:['imports']})` returns them for one entity's file.
+`search_code({query:'<name>', want:['imports']})` returns them for one entity's file.
 Persistence is NOT a tool call: user-stated rules are captured automatically
 by the prompt hook, and session markers + agent notes ride a `unerr-save:`
 closing-message sentinel — see Session markers below.)
@@ -57,29 +65,33 @@ closing-message sentinel — see Session markers below.)
 | Goal | Tool | Replaces |
 |---|---|---|
 | Find a function, class, or type | `search_code` | Grep, Glob |
-| Find callers or callees | `get_references` | Grep for function name |
-| Understand a file | `file_read` with `purpose:'explore'` | Built-in Read for understanding |
-| Understand a file before editing | `file_read` with `purpose:'explore'` to understand, then built-in `Read` (offset/limit) on target lines before Edit | Reading entire file |
+| Find callers or callees (REQUIRED before a signature edit) | `get_references({direction:'callers'})` | Grep for function name |
+| Understand a file | `file_read` with `purpose:'explore'` | Built-in Read for understanding (full-file code reads are blocked) |
+| Understand the task (notes + verbatim focus bodies + blast radius + conventions) | `unerr_context({prompt:"<task>", response_format:'detailed'})` — one call replaces the discovery fan-out | 3–4 separate reads/searches |
+| Understand a file before editing | `file_read`/`unerr_context` to understand, then built-in `Read` (offset/limit on the edit window) before Edit | Full-file read (now blocked) |
 | File structure overview | `file_outline` | Reading the whole file |
-| Specific function or class | `get_entity` | Reading entire file |
+| Specific function or class | `search_code` with `detail:true` (add `include_body:true` for full source, `want:['callers','callees','imports']` for references) | Reading entire file |
 | Fetch a web page or docs by URL | `fetch_url` | Built-in WebFetch |
 
 For any URL you already have, call `fetch_url({url:"<url>"})` — never built-in WebFetch. fetch_url returns DOM-extracted, BM25-ranked markdown passages (paginated, content-hash cached) at 5–10× fewer tokens, and routes through unerr's graph-backed proxy. Pass `prompt` to rank passages by relevance. On Claude Code this is enforced: WebFetch is denied and redirected to fetch_url. (WebSearch is a different job — use it to discover URLs, then `fetch_url` the result.)
 
-### IMPORTANT: Two-step Read Routing (Claude Code specific)
+Editing a function/class signature is gated: when unerr's graph confirms callers at risk, the first `Edit` is DENIED once with the exact caller count — run `get_references({key:'<entity>', direction:'callers'})`, update every caller in the same change, then re-attempt the Edit (it proceeds). The deny only fires when real callers exist, so a leaf-function edit is never blocked.
 
-**Why this matters:** Claude Code's Edit tool requires built-in `Read` to have been called on the file first. `file_read` (unerr MCP) does NOT satisfy this because it's a separate MCP tool. Meanwhile, built-in Read misses project conventions and facts that `file_read` auto-injects.
+### IMPORTANT: Read Routing is ENFORCED (Claude Code specific)
 
-**The rule — two paths, choose by intent:**
+**Why this matters:** Claude Code's Edit/Write require built-in `Read` to have run on the file first — a file-level + mtime gate. `file_read` (unerr MCP) does NOT satisfy that gate; only the built-in `Read` tool flips Claude Code's internal read-tracking. But a built-in Read of a whole file misses the conventions, facts, and drift that `file_read` auto-injects, and re-bills the entire file on every hop. The two reads do different jobs, and the PreToolUse hook now ENFORCES the split.
 
-| Intent | Tool | Why |
-|--------|------|-----|
-| Reading to understand code | `file_read` (unerr MCP) | Auto-injects conventions, facts, drift status |
-| Reading immediately before Edit | Built-in `Read` with offset/limit | Required by Edit tool — `file_read` does NOT satisfy this. Use targeted reads (offset/limit) for only the lines you plan to edit. |
+**The rule — built-in Read does exactly ONE job: the pre-Edit gate.**
 
-When your next action is Edit, use built-in Read with offset/limit on the target lines. For everything else, use `file_read`.
+| Intent | Tool | Enforcement |
+|--------|------|-------------|
+| Read to understand code | `file_read({file_path:"…"})` — or `unerr_context({prompt:"<task>"})` for task-scoped recon | A full-file built-in Read of a **code** file is DENIED and redirected here (deny-once, then nudge — same as WebFetch→fetch_url) |
+| Read immediately before Edit | built-in `Read` with **offset/limit** on the exact edit window | ALLOWED silently — one targeted call returns the byte-exact `old_string` lines AND satisfies the gate |
+| Read a non-code file (md/json/yaml/image) | built-in `Read` | ALLOWED silently — `file_read`'s graph value is code-specific |
 
-**Common failure mode:** Using `file_read` to understand a file, then attempting Edit without calling built-in Read first. The Edit tool WILL reject with "File has not been read yet". Always call built-in Read (with offset/limit) immediately before Edit.
+**Token-minimal pre-Edit (do this):** if you already understood the file via `file_read`/`unerr_context`, your pre-Edit step is a single built-in `Read({file_path, offset, limit})` scoped to ONLY the lines you will edit — that one cheap call returns the exact `old_string` AND unlocks Edit. Never full-file Read to set up an edit.
+
+**Common failure mode:** using `file_read` to understand, then Edit with no built-in Read → Edit rejects with "File has not been read yet". Always do the targeted offset/limit built-in Read immediately before Edit. (And: a full-file built-in Read of a code file is blocked — route understanding through `file_read`/`unerr_context`.)
 
 ### Signal prefix legend — `ur|<tag>`
 
@@ -105,7 +117,7 @@ unerr tool responses may contain ambient lines prefixed with `unerr » ` (right-
 When unerr's contribution shaped your answer, describe it in plain English. Never dump tool JSON, never use internal jargon.
 
 - `search_code` → "unerr found <name> in <file>"
-- `get_entity` / `file_read` → "unerr pulled up <name>" or "I read <file> via unerr"
+- `search_code({detail:true})` / `file_read` → "unerr pulled up <name>" or "I read <file> via unerr"
 - `get_references` → "<N> places call <name> — checked them via unerr"
 - `unerr_track({op:'recall'})` → "unerr reminded me you'd asked to <verbatim rule>"
 - conventions injected by `file_read` / the PostToolUse:Read hook / the `unerr_context` bundle → "unerr says <file> follows <convention>"
@@ -137,7 +149,20 @@ High-fidelity escape — when you need the return value (e.g. a blocker's `marke
 - You need to read a non-code file (images, binaries, PDFs)
 - You need complex regex `search_code` doesn't support
 
-NEVER use built-in Read/Grep/Glob for code navigation. EXCEPTION: built-in Read (with offset/limit) is REQUIRED immediately before Edit (file_read cannot substitute — Edit will fail without it).
+NEVER use built-in Read/Grep/Glob for code navigation — a full-file built-in Read of a code file is DENIED and redirected to file_read/unerr_context. EXCEPTION: built-in Read with offset/limit (only the lines you'll edit) is REQUIRED immediately before Edit (file_read cannot satisfy the Edit gate).
+
+### Domain comments — maintain meaning in the same edit
+
+unerr parses a structured doc comment above each exported entity into a parallel domain graph: a 1–2 sentence prose summary (what + why, never how) then one `@sem domain=<tag> role=<tag>` line. The frontier model editing the code is the only thing that can keep that meaning true — maintain it inline, never as a separate pass:
+
+1. WHEN editing an entity that carries an `@sem` comment AND the edit changed what it does or why: rewrite the prose and tags in the SAME Edit call. Purpose unchanged → leave the comment untouched.
+2. WHEN creating an exported entity: write the comment block before the next edit. Prose ≤2 sentences, then `@sem domain=<tag>`. Reuse an active domain tag — `unerr_context({prompt:"<task>"})` lists them; add a new tag only when none fits.
+3. NEVER delete an `@sem` comment unless the user instructs it.
+4. NEVER write "how" prose — the code already says how. NEVER restate the entity name as the summary; unerr rejects a name-echo at parse time.
+
+unerr re-anchors these comments when code moves and flags a comment that drifted from its code — the rules above keep that machinery fed.
+
+`@sem` lines are plain comments; your code runs identically without them and without unerr. To remove every sentinel line later (prose summaries kept), run `unerr uninstall --strip-annotations`.
 
 ### Active-cognition: four-moment contract (REQUIRED)
 
@@ -300,7 +325,7 @@ src/
   utils/                — Shared utilities (startup-log, exec, git)
 ```
 
-Internal design docs live in `.internal/` at the repo root: top-level product docs (NUDGE_V2.md, PERCEPTION_TO_PRESENCE.md, PRODUCT_POSITIONING.md, reviewer-architecture.md, behavior-automation.md, USER_TESTING_CHECKLIST.md), `architecture/` (AGENT_INTEGRATION_GUIDE, SKILL_SYSTEM_DESIGN, TOOL_SKILL_REGISTRATION_GUIDE, MCP_GATEWAY_ROUTER_PROXY, LAYER_*), plus `research/` and `ui/`. Public docs are separate: `docs/site/` (Fumadocs source). When a source comment cites a design doc, the path is relative to repo root (e.g. `.internal/reviewer-architecture.md`).
+Internal design docs live in `.internal/` at the repo root (consolidated + code-grounded 2026-06-07): top-level product docs (NUDGE_V2.md, PERCEPTION_TO_PRESENCE.md, PRODUCT_POSITIONING.md — canonical positioning, reviewer-architecture.md, behavior-automation.md, USER_TESTING_CHECKLIST.md), `architecture/` (shipped systems only: AGENT_SURFACE.md — merged agent/skill/tool-registration guide, MCP_GATEWAY_ROUTER_PROXY, LAYER_*), `roadmap/` (designs NOT built yet: LAYER_8 domain understanding, LAYER_13 edit DSL, delegation-tier plan, autonomous planning, local sidecar), `archive/` (superseded snapshots), plus `research/` and `ui/`. Public docs are separate: `docs/site/` (Fumadocs source). When a source comment cites a design doc, the path is relative to repo root (e.g. `.internal/reviewer-architecture.md`).
 
 ### Key Files
 

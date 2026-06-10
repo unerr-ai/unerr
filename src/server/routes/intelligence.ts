@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import type { HealthGradeResult } from "../../intelligence/health-grade.js";
 import { isTestFile } from "../../intelligence/indexer/test-detector.js";
 import type { CozoGraphStore } from "../../intelligence/local-graph.js";
+import { computeDomainCoverage } from "../../intelligence/semantic/domain-graph.js";
 import {
   computeOverallDurability,
   computePromptDurabilityProfiles,
@@ -1178,6 +1179,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
       string,
       {
         label: string;
+        community: number;
         entities: number;
         totalDegree: number;
         riskHigh: number;
@@ -1196,6 +1198,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
       if (!comm) {
         comm = {
           label,
+          community: n.community,
           entities: 0,
           totalDegree: 0,
           riskHigh: 0,
@@ -1222,9 +1225,33 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
       else comm.riskLow++;
     }
 
+    // SC-D.3: name communities by their voted domain. Load the
+    // community_domains vote so the dashboard can show "auth (88%)" instead of
+    // a bare cluster id. Best-effort — empty when the relation is unmaterialized.
+    const communityDomainMap = new Map<
+      number,
+      { domain: string; purity: number }
+    >();
+    try {
+      const cdResult = await deps.localGraph.db.run(
+        `?[community_id, domain, purity] :=
+           *community_domains{community_id, domain, purity}, domain != ""`
+      );
+      for (const row of cdResult.rows) {
+        communityDomainMap.set(row[0] as number, {
+          domain: row[1] as string,
+          purity: row[2] as number,
+        });
+      }
+    } catch {
+      // community_domains not yet materialized — communities stay unnamed.
+    }
+
     // Read cohesion data from file communities if available
     const communityHealth: Array<{
       label: string;
+      domain?: string;
+      domainPurityPct?: number;
       entities: number;
       tested: number;
       untested: number;
@@ -1238,8 +1265,15 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
 
     for (const [, comm] of communityMap) {
       const total = comm.tested + comm.untested;
+      const domainVote = communityDomainMap.get(comm.community);
       communityHealth.push({
         label: comm.label,
+        ...(domainVote
+          ? {
+              domain: domainVote.domain,
+              domainPurityPct: Math.round(domainVote.purity * 100),
+            }
+          : {}),
         entities: comm.entities,
         tested: comm.tested,
         untested: comm.untested,
@@ -1409,6 +1443,13 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
               ? "D"
               : "F";
 
+    // ── Domain coverage by provenance tier (SC-E.3) ───────────────────────
+    // Per domain, how many entities are tagged at each provenance tier
+    // (comment 0.95 > harvested 0.7 > propagated 0.6 > path 0.4). Surfaces the
+    // *quality* of domain coverage: comment-authored is durable human intent;
+    // path-inferred is a weak graph guess. Additive — never replaces a metric.
+    const domainCoverage = await computeDomainCoverage(deps.localGraph.db);
+
     return c.json({
       data: {
         healthScore,
@@ -1421,6 +1462,7 @@ export function createIntelligenceRoutes(deps: IntelligenceRouteDeps): Hono {
         riskDistribution,
         riskConcentration,
         communityHealth,
+        domainCoverage,
         mostCoupledPair,
         insights,
       },

@@ -220,10 +220,347 @@ describe("composeRecon", () => {
       get_conventions: CONVENTIONS,
       search_code: SEARCH_HIT,
       get_references: REFERENCES,
+      domain_tags: { tags: [] },
+      vocab_nudges: { canonical: [], provisional: [], merge: [] },
     });
     await composeRecon({ prompt: "edit fooBar", runner, budget: 5000 });
-    // notes + conventions + search + references = 4 underlying calls, total
-    expect((runner as ReturnType<typeof vi.fn>).mock.calls.length).toBe(4);
+    // notes + conventions + domain_tags + vocab_nudges + search(list) +
+    // references + 1 focus-body fetch (search_code detail for the single hit)
+    // = 7 calls. The body fetch is server-side; the agent still pays ONE
+    // round-trip — the "no fan-out" guarantee is about AGENT round-trips.
+    expect((runner as ReturnType<typeof vi.fn>).mock.calls.length).toBe(7);
+  });
+
+  // ── Phase 1: focus bodies (collapse the read fan-out) ──────────────────────
+  /**
+   * Runner that returns a verbatim body for `search_code` detail calls
+   * (include_body:true), keyed by the entity `query`. List-mode search_code and
+   * the other tools come from `table`. Mirrors QueryRouter.executeRaw's detail
+   * shape: an entity object with body + file_path + start/end lines.
+   */
+  function bodyAwareRunner(
+    table: Record<string, unknown>,
+    bodies: Record<
+      string,
+      {
+        body: string;
+        file?: string;
+        start?: number;
+        end?: number;
+        truncated?: boolean;
+      }
+    >
+  ): ReconRunner {
+    return vi.fn(async (tool: string, args: Record<string, unknown>) => {
+      if (tool === "search_code" && args?.include_body === true) {
+        const key = String(args.query);
+        const b = bodies[key];
+        if (!b) return { matched: false, query: key };
+        return {
+          key,
+          name: key,
+          file_path: b.file ?? `src/${key}.ts`,
+          start_line: b.start ?? 1,
+          end_line: b.end ?? 1,
+          body: b.body,
+          ...(b.truncated ? { _truncated: { total_lines: 999 } } : {}),
+        };
+      }
+      const v = table[tool];
+      return typeof v === "function" ? (v as () => unknown)() : v;
+    });
+  }
+
+  it("inlines the verbatim focus-entity body when detail returns one", async () => {
+    const runner = bodyAwareRunner(
+      {
+        unerr_recall_notes: NOTES,
+        get_conventions: CONVENTIONS,
+        search_code: SEARCH_HIT,
+        get_references: REFERENCES,
+      },
+      {
+        ent1: {
+          body: "function fooBar() {\n  return retry(3);\n}",
+          file: "src/foo.ts",
+          start: 40,
+          end: 42,
+        },
+      }
+    );
+    const bundle = await composeRecon({
+      prompt: "add a retry to fooBar in src/foo.ts",
+      runner,
+      budget: 5000,
+    });
+    const body = bundle.sections.find((s) => s.tool === "focus_bodies");
+    expect(body).toBeDefined();
+    const text = renderReconText(bundle);
+    // verbatim source present, with the file:line header (primacy slot)
+    expect(text).toContain("function fooBar()");
+    expect(text).toContain("src/foo.ts:40-42");
+    // D5 read-suppression manifest at the bottom names the inlined range
+    expect(text).toContain("do NOT call file_read/Read on: src/foo.ts:40-42");
+  });
+
+  it("renders focus bodies FIRST and anchored notes LAST (U-curve)", async () => {
+    const runner = bodyAwareRunner(
+      {
+        unerr_recall_notes: NOTES,
+        get_conventions: CONVENTIONS,
+        search_code: SEARCH_HIT,
+        get_references: REFERENCES,
+      },
+      {
+        ent1: {
+          body: "function fooBar() { return 1; }",
+          file: "src/foo.ts",
+          start: 1,
+          end: 1,
+        },
+      }
+    );
+    const bundle = await composeRecon({
+      prompt: "edit fooBar",
+      runner,
+      budget: 5000,
+    });
+    const text = renderReconText(bundle);
+    const bodyPos = text.indexOf("Focus source");
+    const notesPos = text.indexOf("Anchored notes");
+    expect(bodyPos).toBeGreaterThanOrEqual(0);
+    expect(notesPos).toBeGreaterThan(bodyPos); // notes sit after bodies (recency)
+  });
+
+  it("caps inlined bodies to at most MAX_FOCUS_BODIES (4) entities", async () => {
+    const hits = Array.from({ length: 6 }, (_, i) => ({
+      key: `e${i}`,
+      name: `fn${i}`,
+      file_path: `src/f${i}.ts`,
+      kind: "function",
+    }));
+    const bodies: Record<string, { body: string }> = {};
+    for (let i = 0; i < 6; i++)
+      bodies[`e${i}`] = { body: `function fn${i}(){}` };
+    const runner = bodyAwareRunner(
+      {
+        unerr_recall_notes: { notes: [] },
+        get_conventions: { naming: [], import_direction: [], structure: [] },
+        search_code: hits,
+        get_references: REFERENCES,
+      },
+      bodies
+    );
+    await composeRecon({
+      prompt: "touch fn0 fn1 fn2 fn3 fn4 fn5",
+      runner,
+      budget: 8000,
+    });
+    const bodyFetches = (runner as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) =>
+        c[0] === "search_code" &&
+        (c[1] as Record<string, unknown>)?.include_body === true
+    );
+    expect(bodyFetches.length).toBeLessThanOrEqual(4);
+  });
+
+  it("excludes truncated bodies from the do-not-re-read manifest", async () => {
+    const runner = bodyAwareRunner(
+      {
+        unerr_recall_notes: { notes: [] },
+        get_conventions: { naming: [], import_direction: [], structure: [] },
+        search_code: SEARCH_HIT,
+        get_references: REFERENCES,
+      },
+      {
+        ent1: {
+          body: "function fooBar() { /* partial */ }",
+          file: "src/foo.ts",
+          start: 40,
+          end: 90,
+          truncated: true,
+        },
+      }
+    );
+    const bundle = await composeRecon({
+      prompt: "edit fooBar",
+      runner,
+      budget: 5000,
+    });
+    const text = renderReconText(bundle);
+    // body still inlined…
+    expect(text).toContain("function fooBar()");
+    // …but the manifest must NOT claim a truncated slice is fully delivered
+    expect(text).not.toContain(
+      "do NOT call file_read/Read on: src/foo.ts:40-90"
+    );
+    // and it offers the full-source escape hatch
+    expect(text).toContain("body truncated");
+  });
+
+  it("inlines the top body even in 'concise' mode when the bundle is thin (D6 floor)", async () => {
+    // Sparse repo — empty notes, tiny callers/entities/conventions, all under the
+    // 300-token floor. 'concise' would normally skip bodies, but the floor forces
+    // the single top body so the call never returns a near-empty bundle.
+    const runner = bodyAwareRunner(
+      {
+        unerr_recall_notes: { notes: [] },
+        get_conventions: { naming: [], import_direction: [], structure: [] },
+        search_code: SEARCH_HIT,
+        get_references: REFERENCES,
+      },
+      {
+        ent1: {
+          body: "function fooBar() { return retry(3); }",
+          file: "src/foo.ts",
+          start: 5,
+          end: 7,
+        },
+      }
+    );
+    const bundle = await composeRecon({
+      prompt: "edit fooBar",
+      runner,
+      budget: 5000,
+      responseFormat: "concise",
+    });
+    expect(
+      bundle.sections.find((s) => s.tool === "focus_bodies")
+    ).toBeDefined();
+    const fetches = (runner as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) =>
+        c[0] === "search_code" &&
+        (c[1] as Record<string, unknown>)?.include_body === true
+    );
+    expect(fetches).toHaveLength(1); // floor inlines exactly the top body, no more
+  });
+
+  it("skips bodies in 'concise' mode when the non-body bundle clears the floor", async () => {
+    // Rich repo — a fat entity list pushes the non-body content well past the
+    // 300-token floor, so 'concise' stays body-free (orientation, not editing).
+    const manyHits = Array.from({ length: 60 }, (_, i) => ({
+      key: `ent${i}`,
+      name: `handlerNumber${i}`,
+      file_path: `src/handlers/module-${i}/handler-${i}.ts`,
+      kind: "function",
+    }));
+    const runner = bodyAwareRunner(
+      {
+        unerr_recall_notes: { notes: [] },
+        get_conventions: { naming: [], import_direction: [], structure: [] },
+        search_code: manyHits,
+        get_references: REFERENCES,
+      },
+      { ent0: { body: "function handlerNumber0() {}" } }
+    );
+    const bundle = await composeRecon({
+      prompt: "rename handlerNumber everywhere",
+      runner,
+      budget: 5000,
+      responseFormat: "concise",
+    });
+    expect(
+      bundle.sections.find((s) => s.tool === "focus_bodies")
+    ).toBeUndefined();
+    const fetches = (runner as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) =>
+        c[0] === "search_code" &&
+        (c[1] as Record<string, unknown>)?.include_body === true
+    );
+    expect(fetches).toHaveLength(0); // concise + rich bundle ⇒ no body fetch
+  });
+
+  it("folds `want` sources in as the lowest-priority sections when a gateway is injected (S3)", async () => {
+    const runner = bodyAwareRunner(
+      {
+        unerr_recall_notes: NOTES,
+        get_conventions: CONVENTIONS,
+        search_code: SEARCH_HIT,
+        get_references: REFERENCES,
+      },
+      {
+        ent1: {
+          body: "function fooBar(){}",
+          file: "src/foo.ts",
+          start: 1,
+          end: 1,
+        },
+      }
+    );
+    const gateway = vi.fn(async (server: string, op: string) => ({
+      server,
+      op,
+      rows: 3,
+    }));
+    const bundle = await composeRecon({
+      prompt: "edit fooBar using the orders table",
+      runner,
+      budget: 8000,
+      want: ["postgres:orders", "github:pr/45"],
+      mcpSources: { runner: gateway, timeoutMs: 1000 },
+    });
+    const ext = bundle.sections.filter((s) => s.tool.includes("::"));
+    // declared order preserved, planned to the right downstream op
+    expect(ext.map((s) => s.tool)).toEqual([
+      "postgres::get_schema",
+      "github::get_issue",
+    ]);
+    // every external source ranks below the code rings (>= 7)
+    for (const s of ext) expect(s.priority).toBeGreaterThanOrEqual(7);
+    // rendered with human-readable titles, after the code rings
+    const text = renderReconText(bundle);
+    expect(text).toContain("postgres:orders");
+    expect(text).toContain("github:pr/45");
+  });
+
+  it("silently skips the `want` fan-out when no downstream gateway is injected (no toggle)", async () => {
+    const runner = bodyAwareRunner(
+      {
+        unerr_recall_notes: NOTES,
+        get_conventions: CONVENTIONS,
+        search_code: SEARCH_HIT,
+        get_references: REFERENCES,
+      },
+      { ent1: { body: "function fooBar(){}" } }
+    );
+    // `want` is declared but NO `mcpSources` gateway is present — capability is
+    // absent, so the fan-out is not walked at all. No "disabled" noise, no drop.
+    const bundle = await composeRecon({
+      prompt: "edit fooBar",
+      runner,
+      budget: 8000,
+      want: ["postgres:orders"],
+    });
+    expect(bundle.sections.some((s) => s.tool.includes("::"))).toBe(false);
+    expect(bundle.dropped.some((d) => d.tool === "want_source")).toBe(false);
+  });
+
+  it("ignores the 'code' want kind — served by the local rings (S3)", async () => {
+    const runner = bodyAwareRunner(
+      {
+        unerr_recall_notes: NOTES,
+        get_conventions: CONVENTIONS,
+        search_code: SEARCH_HIT,
+        get_references: REFERENCES,
+      },
+      { ent1: { body: "function fooBar(){}" } }
+    );
+    const gateway = vi.fn(async (server: string, op: string) => ({
+      server,
+      op,
+    }));
+    await composeRecon({
+      prompt: "edit fooBar",
+      runner,
+      budget: 8000,
+      want: ["code", "postgres:orders"],
+      mcpSources: { runner: gateway, timeoutMs: 1000 },
+    });
+    // only the postgres source reaches the gateway; 'code' is never planned
+    expect(gateway).toHaveBeenCalledTimes(1);
+    expect(gateway).toHaveBeenCalledWith("postgres", "get_schema", {
+      table: "orders",
+    });
   });
 
   it("ranks anchored notes first, callers second", async () => {
@@ -542,6 +879,171 @@ describe("renderReconDigest", () => {
     expect(digest).toContain("naming: camelCase");
     // no raw search JSON leaked
     expect(digest).not.toContain('"score"');
+  });
+
+  it("surfaces the domain annotation on an entity line, leaves un-annotated lines bare (SC-B.3)", async () => {
+    const annotatedHits = [
+      {
+        key: "e:validateToken",
+        name: "validateToken",
+        file_path: "src/auth/token.ts",
+        kind: "function",
+        domain: "auth",
+        role: "gateway",
+        summary: "Validates a session token against the active key set",
+      },
+      {
+        key: "e:plainHelper",
+        name: "plainHelper",
+        file_path: "src/auth/token.ts",
+        kind: "function",
+      },
+    ];
+    const runner = makeRunner({
+      unerr_recall_notes: { notes: [] },
+      get_conventions: { naming: [], import_direction: [], structure: [] },
+      search_code: annotatedHits,
+      get_references: {
+        references: [],
+        direction: "callers",
+        total: 0,
+        truncated: false,
+      },
+    });
+    const bundle = await composeRecon({
+      prompt: "edit validateToken auth flow",
+      runner,
+      budget: 5000,
+    });
+    const digest = renderReconDigest(bundle);
+    expect(digest).toContain(
+      'validateToken (function) [auth/gateway — "Validates a session token against the active key set"]'
+    );
+    // The un-annotated sibling on the same file stays bare — identical to today.
+    expect(digest).toContain("plainHelper (function)");
+    expect(digest).not.toContain("plainHelper (function) [");
+  });
+
+  it("serves the active domain-tag vocabulary ranked by entity count (SC-B.4)", async () => {
+    const runner = makeRunner({
+      unerr_recall_notes: { notes: [] },
+      get_conventions: { naming: [], import_direction: [], structure: [] },
+      search_code: SEARCH_HIT,
+      get_references: {
+        references: [],
+        direction: "callers",
+        total: 0,
+        truncated: false,
+      },
+      domain_tags: {
+        tags: [
+          { domain: "auth", count: 12 },
+          { domain: "payments", count: 8 },
+        ],
+      },
+    });
+    const bundle = await composeRecon({
+      prompt: "add a new exported helper to the auth flow",
+      runner,
+      budget: 5000,
+    });
+    // The section is present in the bundle.
+    expect(bundle.sections.map((s) => s.tool)).toContain("domain_tags");
+    // Digest collapses it to one "reuse before invent" line, ranked by count.
+    const digest = renderReconDigest(bundle);
+    expect(digest).toContain("## domain tags");
+    expect(digest).toContain(
+      "reuse before inventing a domain tag: auth (12), payments (8)"
+    );
+    // Full render carries the same flat line (not raw JSON).
+    const text = renderReconText(bundle);
+    expect(text).toContain(
+      "reuse before inventing a domain tag: auth (12), payments (8)"
+    );
+    expect(text).not.toContain('"count"');
+  });
+
+  it("drops the domain-tags section quietly when the vocabulary is empty (SC-B.4)", async () => {
+    const runner = makeRunner({
+      unerr_recall_notes: { notes: [] },
+      get_conventions: { naming: [], import_direction: [], structure: [] },
+      search_code: SEARCH_HIT,
+      get_references: {
+        references: [],
+        direction: "callers",
+        total: 0,
+        truncated: false,
+      },
+      domain_tags: { tags: [] },
+    });
+    const bundle = await composeRecon({
+      prompt: "add a helper",
+      runner,
+      budget: 5000,
+    });
+    expect(bundle.sections.map((s) => s.tool)).not.toContain("domain_tags");
+    expect(renderReconDigest(bundle)).not.toContain("domain tags");
+  });
+
+  it("renders vocabulary nudges — sprawl merge + provisional tags (SC-C.4)", async () => {
+    const runner = makeRunner({
+      unerr_recall_notes: { notes: [] },
+      get_conventions: { naming: [], import_direction: [], structure: [] },
+      search_code: SEARCH_HIT,
+      get_references: {
+        references: [],
+        direction: "callers",
+        total: 0,
+        truncated: false,
+      },
+      vocab_nudges: {
+        canonical: [{ domain: "authentication", count: 5 }],
+        provisional: [{ domain: "draft", count: 1 }],
+        merge: [
+          { from: "authn", fromCount: 2, into: "authentication", intoCount: 5 },
+        ],
+      },
+    });
+    const bundle = await composeRecon({
+      prompt: "add an auth helper",
+      runner,
+      budget: 5000,
+    });
+    expect(bundle.sections.map((s) => s.tool)).toContain("vocab_nudges");
+    const digest = renderReconDigest(bundle);
+    expect(digest).toContain("## vocabulary");
+    expect(digest).toContain(
+      "domain tag sprawl — rename to consolidate: authn (2) → authentication (5)"
+    );
+    expect(digest).toContain(
+      "provisional domain tags (under 3 entities — promote by reuse or rename): draft (1)"
+    );
+    // Full render carries the same flat lines, not raw JSON.
+    const text = renderReconText(bundle);
+    expect(text).toContain("authn (2) → authentication (5)");
+    expect(text).not.toContain('"fromCount"');
+  });
+
+  it("drops the vocabulary section quietly when there is nothing to nudge (SC-C.4)", async () => {
+    const runner = makeRunner({
+      unerr_recall_notes: { notes: [] },
+      get_conventions: { naming: [], import_direction: [], structure: [] },
+      search_code: SEARCH_HIT,
+      get_references: {
+        references: [],
+        direction: "callers",
+        total: 0,
+        truncated: false,
+      },
+      vocab_nudges: { canonical: [], provisional: [], merge: [] },
+    });
+    const bundle = await composeRecon({
+      prompt: "add a helper",
+      runner,
+      budget: 5000,
+    });
+    expect(bundle.sections.map((s) => s.tool)).not.toContain("vocab_nudges");
+    expect(renderReconDigest(bundle)).not.toContain("## vocabulary");
   });
 
   it("keeps anchored notes verbatim (load-bearing rules never collapse)", async () => {

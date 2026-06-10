@@ -45,6 +45,7 @@ Phase A5 — Mark intent.
 
 Phase A6 — Build.
   Implement the shape from A4. Before each `Edit`, call built-in `Read` (offset/limit).
+  Domain comment (Layer 8): when you create an exported entity, write its doc comment block before the next edit — prose ≤2 sentences (what + why, never how), then `@sem domain=<tag>`. Reuse an active domain tag (the `unerr_context` bundle lists active tags); add a new tag only when none fits. Never restate the entity name as the summary.
 
 Phase A7 — Verify.
   Run the targeted test for the new surface (not the full suite). Emit `unerr-save: resolution <fix>` in your closing message for any blocker that fired.

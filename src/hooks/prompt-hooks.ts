@@ -678,11 +678,11 @@ const promptSubmitHandler: HookHandler = (normalized) => {
     ? "[unerr] Prefer unerr MCP tools for code work (faster, graph-backed, project-aware): " +
       "`search_code` (NOT grep/glob) · `get_references` (NOT grep for fn names) · " +
       "`file_read` (NOT built-in Read for understanding; built-in Read is only for pre-Edit) · " +
-      "`file_outline` · `get_entity`. " +
+      "`file_outline` · `search_code({detail:true})` for one symbol's profile. " +
       "Mark progress with zero round-trip — emit `unerr-save: intent|decision|blocker|resolution <one-line>` " +
       "in your closing message; the Stop hook persists them to the cross-session timeline."
     : "[unerr] Prefer unerr MCP tools (graph-backed, <5ms): " +
-      "`search_code` · `get_references` · `file_read` · `file_outline` · `get_entity`. " +
+      "`search_code` · `get_references` · `file_read` · `file_outline`. " +
       "Mark progress by emitting `unerr-save: <intent|decision|blocker|resolution> <one-line>` in your " +
       "closing message — the Stop hook keeps the timeline coherent across sessions.";
 

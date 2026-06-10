@@ -224,7 +224,7 @@ Fix F — two-register pattern (Surface-Reliability, 2026-05-24): ur|<tag> is re
  * the alias translates the semantic tag to one of four wire tags:
  *
  *   act ← hlt, skl, unl, act, pg, rsm  (do something now)
- *   ctx ← dft, ctx, hth                 (state changed)
+ *   ctx ← dft, ctx, cdr, hth            (state changed)
  *   rsk ← rsk, wrn, hst                 (caution on path)
  *   fct ← fct, hnt, cnv, pro, sem, epi  (information)
  *
@@ -244,8 +244,10 @@ export const WIRE_TAG_ALIAS: Readonly<Record<string, string>> = Object.freeze({
   rsm: "act",
   dft: "ctx",
   ctx: "ctx",
+  cdr: "ctx",
   hth: "ctx",
   rsk: "rsk",
+  ber: "rsk",
   wrn: "rsk",
   hst: "rsk",
   fct: "fct",
@@ -368,6 +370,56 @@ export function buildSignalPrefix(
         "dft",
         entityKey,
         `${d.entityStatus}${where}${by} — re-read before edit`
+      );
+    }
+  }
+
+  // Layer 8 §5.1 (SC-C.2): comment-drift nudge. The entity body moved while
+  // its @sem/doc comment did not (status='stale', set by the C.1 predicate),
+  // so the prose now predates the code. Distinct semantic tag `cdr` (→ wire
+  // `ctx`) keeps a separate dedup scope from structural `dft`; its default
+  // `on_change` policy means it fires once per staleness episode, not per turn
+  // — re-firing only when the message changes (comment re-stamped, then a new
+  // edit re-drifts) or a new session resets the table.
+  if (meta?.comment_drift) {
+    const cd = meta.comment_drift as {
+      name?: string;
+      file?: string;
+      line?: number;
+      entityKey?: string;
+    };
+    if (cd.name && cd.file) {
+      const at =
+        typeof cd.line === "number" && cd.line > 0 ? `:${cd.line}` : "";
+      tryPush(
+        "cdr",
+        cd.entityKey ?? entityKey,
+        `doc comment on ${cd.name} predates its current body — update the prose + @sem line above ${cd.name} in ${cd.file}${at}, or re-stamp it unchanged if the purpose holds`
+      );
+    }
+  }
+
+  // Layer 8 §6 (SC-D.3): boundary-erosion nudge. The focus entity sits in a
+  // low-purity Louvain community (purity < 0.7, stamped by
+  // extractBoundaryErosionMeta), meaning the community blends domains. An edit
+  // here can pull code across a contested boundary, so name the dominant
+  // domain + purity and steer to the cross-domain edge map. Tag `ber` (→ wire
+  // `rsk`) keeps its own dedup scope; default `on_change` fires once per
+  // community-purity episode, not per turn.
+  if (meta?.boundary_erosion) {
+    const be = meta.boundary_erosion as {
+      entityKey?: string;
+      domain?: string;
+      purity?: number;
+      communityId?: number;
+    };
+    if (be.domain && typeof be.purity === "number") {
+      const pct = Math.round(be.purity * 100);
+      const who = be.entityKey ?? entityKey ?? "the focus entity";
+      tryPush(
+        "ber",
+        be.entityKey ?? entityKey,
+        `${who} is in a contested ${be.domain} community (purity ${pct}%); call get_references({direction:'callers'}) before editing to keep the change in ${be.domain}`
       );
     }
   }

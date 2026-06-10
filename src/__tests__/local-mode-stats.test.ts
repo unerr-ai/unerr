@@ -25,11 +25,9 @@ import {
   recordBlastRadius,
   recordCommunityContext,
   recordCorrectionInjection,
-  recordEmbedding,
   recordGraphQuery,
   recordIndexingResult,
   recordLatency,
-  recordSemanticSearch,
   recordToolCall,
   recordTruncationSavings,
   recordViolation,
@@ -46,9 +44,6 @@ describe("createLocalModeStats", () => {
     expect(lm.edgesComputed).toBe(0);
     expect(lm.indexingTimeMs).toBe(0);
     expect(lm.communitiesDetected).toBe(0);
-    expect(lm.embeddingsComputed).toBe(0);
-    expect(lm.embeddingTimeMs).toBe(0);
-    expect(lm.semanticSearches).toBe(0);
     expect(lm.tokensSavedByTruncation).toBe(0);
     expect(lm.truncatedResponses).toBe(0);
     expect(lm.correctionPatternsInjected).toBe(0);
@@ -137,18 +132,6 @@ describe("LocalModeStats recording functions", () => {
     expect(lm.communityContextsInjected).toBe(1);
   });
 
-  it("recordEmbedding accumulates counts and time", () => {
-    recordEmbedding(lm, 100, 500);
-    recordEmbedding(lm, 50, 300);
-    expect(lm.embeddingsComputed).toBe(150);
-    expect(lm.embeddingTimeMs).toBe(800);
-  });
-
-  it("recordSemanticSearch increments counter", () => {
-    recordSemanticSearch(lm);
-    recordSemanticSearch(lm);
-    expect(lm.semanticSearches).toBe(2);
-  });
 });
 
 // ── Local Mode Shutdown Summary ─────────────────────────────────
@@ -249,15 +232,6 @@ describe("formatLocalModeSessionStats", () => {
     expect(result).toContain("Network Isolation:");
   });
 
-  it("includes semantic intelligence when embeddings computed", () => {
-    const stats = makeStats();
-    recordEmbedding(stats.localMode as LocalModeStats, 100, 500);
-    recordSemanticSearch(stats.localMode as LocalModeStats);
-    const result = formatLocalModeSessionStats(stats) as string;
-    expect(result).toContain("Semantic Intelligence:");
-    expect(result).toContain("Embeddings computed:");
-    expect(result).toContain("Semantic searches:");
-  });
 });
 
 // ── Cumulative Local Stats Persistence ──────────────────────────
@@ -325,7 +299,6 @@ describe("CumulativeLocalStats", () => {
       totalViolationsCaught: 50,
       totalCorrectionsApplied: 10,
       totalFilesIndexed: 200,
-      totalSemanticSearches: 30,
       avgLatencyP50: 2.5,
     };
     const filePath = join(tmpDir, ".unerr", "cumulative-local-stats.json");

@@ -20,7 +20,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import type { Command } from "commander";
+import { isLoggedIn, readCredentials } from "../cloud/credentials.js";
+import { runLogin } from "./login.js";
 import {
   AGENT_REGISTRY,
   getAgent,
@@ -80,6 +83,14 @@ export function registerInstallCommand(program: Command): void {
       "--review-gate",
       "Also install the git pre-commit/post-commit review gate (opt-in)"
     )
+    .option(
+      "--no-login",
+      "Skip the connect-your-team prompt and stay on the free plan"
+    )
+    .option(
+      "--token <token>",
+      "Connect non-interactively with a machine token (CI / headless)"
+    )
     .action(
       async (
         agent?: string,
@@ -89,6 +100,8 @@ export function registerInstallCommand(program: Command): void {
           showSkills?: boolean;
           showInstructions?: boolean | string;
           reviewGate?: boolean;
+          login?: boolean;
+          token?: string;
         }
       ) => {
         const cwd = process.cwd();
@@ -223,8 +236,115 @@ export function registerInstallCommand(program: Command): void {
           `  \x1b[38;2;161;161;170mStart a new ${agentDef.name} chat session to begin using unerr.\x1b[0m\n`
         );
         process.stderr.write("\n");
+
+        // A5: chain into login — the highest-intent moment. Install ALWAYS
+        // succeeds into free; login is the optional, additive last step.
+        await chainInstallLogin({ login: opts?.login, token: opts?.token });
       }
     );
+}
+
+/**
+ * The four install-time login verdicts. Pure data so the branch logic is
+ * decided in one testable place and executed elsewhere:
+ *  - `token`   → connect non-interactively with the supplied machine token.
+ *  - `already` → this machine is already connected; do nothing.
+ *  - `later`   → stay free, print how to connect later (opt-out or no TTY).
+ *  - `prompt`  → ask once, interactively, then maybe run the device flow.
+ */
+export type InstallLoginPlan =
+  | { action: "token"; token: string }
+  | { action: "already" }
+  | { action: "later" }
+  | { action: "prompt" };
+
+/**
+ * Decide the install-time login verdict from the CLI options and the ambient
+ * connection/TTY state. Pure — no I/O, no side effects — so every escape path
+ * (token, already-connected, opt-out, no-TTY, interactive) is unit-testable
+ * without a real terminal or network. Precedence: an explicit `--token` wins,
+ * then an existing connection, then opt-out/no-TTY, else prompt.
+ */
+export function planInstallLogin(
+  opts: { login?: boolean; token?: string },
+  ctx: { loggedIn: boolean; hasTty: boolean }
+): InstallLoginPlan {
+  if (opts.token) return { action: "token", token: opts.token };
+  if (ctx.loggedIn) return { action: "already" };
+  if (opts.login === false || !ctx.hasTty) return { action: "later" };
+  return { action: "prompt" };
+}
+
+/**
+ * A5: install-time login chaining — the highest-intent moment to connect.
+ * Prompt-by-default with a one-key skip (owner decision). Install has ALREADY
+ * succeeded into free; this only adds the cloud connection, and EVERY exit
+ * path leaves a working free install (closes F1: no silent "you must log in").
+ * The free→Pro pull otherwise lives on contextual feature-gate nudges, never a
+ * nag. Branch selection is delegated to the pure planInstallLogin; this
+ * function only runs the chosen verdict.
+ */
+async function chainInstallLogin(opts: {
+  login?: boolean;
+  token?: string;
+}): Promise<void> {
+  const out = (line: string) => process.stderr.write(`${line}\n`);
+  const plan = planInstallLogin(opts, {
+    loggedIn: isLoggedIn(),
+    hasTty: Boolean(process.stdin.isTTY && process.stderr.isTTY),
+  });
+
+  const laterLine = () => {
+    out(
+      "  \x1b[38;2;161;161;170mYou're on the free plan. Run `unerr login` any time to connect your team.\x1b[0m"
+    );
+    out("");
+  };
+
+  switch (plan.action) {
+    case "token":
+      await runLogin({ token: plan.token });
+      return;
+    case "already": {
+      const creds = readCredentials();
+      const where = creds?.organization_id
+        ? ` to ${creds.organization_id}`
+        : "";
+      out(`  \x1b[38;2;52;211;153m✓\x1b[0m Already connected${where}.`);
+      out("");
+      return;
+    }
+    case "later":
+      laterLine();
+      return;
+    case "prompt":
+      if (await askConnect()) {
+        await runLogin();
+      } else {
+        laterLine();
+      }
+      return;
+  }
+}
+
+/** One-key [Y/n] confirm on stderr; empty/yes → true, 30s timeout → false. */
+function askConnect(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const rl = createInterface({
+      input: process.stdin,
+      output: process.stderr,
+    });
+    const timer = setTimeout(() => {
+      rl.close();
+      resolve(false);
+    }, 30_000);
+    rl.question("  Connect to your unerr team now? [Y/n] ", (answer) => {
+      clearTimeout(timer);
+      rl.close();
+      const a = answer.trim().toLowerCase();
+      resolve(a === "" || a === "y" || a === "yes");
+    });
+  });
 }
 
 /**
@@ -497,7 +617,7 @@ function showSetupInstructions(agentName: string): void {
     w("  \x1b[2m──────────────\x1b[0m\n");
     w("  In a new chat session, verify unerr tools are available.\n");
     w("  You should see tools like: unerr_context, search_code, file_read,\n");
-    w("  file_outline, get_entity, get_references.\n\n");
+    w("  file_outline, get_references.\n\n");
 
     w("  \x1b[1mStep 4: Start a new chat session\x1b[0m\n");
     w("  \x1b[2m────────────────────────────────\x1b[0m\n");

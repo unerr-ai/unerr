@@ -22,6 +22,14 @@
  * unit-testable in isolation.
  */
 
+import {
+  DEFAULT_MCP_SOURCE_TIMEOUT_MS,
+  type GatewayRunner,
+  type McpSourceSection,
+  fetchMcpSources,
+  parseWantEntries,
+} from "./recon-mcp-sources.js";
+
 /** Runs one underlying tool and returns its raw structured content. */
 export type ReconRunner = (
   tool: string,
@@ -49,8 +57,14 @@ export interface ReconSection {
 export interface DroppedSection {
   readonly tool: string;
   readonly title: string;
-  /** "budget" (no room left) or "error" (the runner threw). */
-  readonly reason: "budget" | "error";
+  /**
+   * Why the section is absent. Local sections: "budget" (no room left) or
+   * "error" (the runner threw). External `want` sources add their own fates:
+   * "timeout" (exceeded the per-source cap), "unknown_kind" (no plan for that
+   * kind). There is no "disabled" — external sources are only fetched when a
+   * downstream gateway is actually present, never gated behind a toggle.
+   */
+  readonly reason: "budget" | "error" | "timeout" | "unknown_kind";
 }
 
 export interface ReconBundle {
@@ -71,7 +85,12 @@ export interface ReconBundle {
 export interface ReconOptions {
   readonly prompt: string;
   readonly runner: ReconRunner;
-  /** Whole-bundle token budget. Default 2000 — small enough to beat the fan-out. */
+  /**
+   * Whole-bundle token budget. Default 4000 — wide enough to inline the focus
+   * entities' verbatim bodies (Phase 1) so the agent edits without a read
+   * fan-out, still small enough that one recon beats 5 separate round-trips.
+   * Bodies are capped to ~50% of this so callers/notes are never starved.
+   */
   readonly budget?: number;
   /** Token estimator. Default: JSON byte length / 4. */
   readonly countTokens?: TokenCounter;
@@ -79,11 +98,53 @@ export interface ReconOptions {
   readonly maxReferences?: number;
   /** Max search hits considered. Default 10. */
   readonly searchLimit?: number;
+  /**
+   * Verbosity — Anthropic's canonical `response_format` knob. 'detailed' inlines
+   * the focus entities' verbatim bodies (Phase 1, the edit path); 'concise' omits
+   * them (orientation / large sweeps), saving the body fetches and their tokens.
+   * Default 'detailed' — front-loading the edit is the common case.
+   */
+  readonly responseFormat?: "concise" | "detailed";
+  /**
+   * Agent-declared external sources (Option A) — closed-vocab tokens like
+   * "postgres:orders" or "github:pr/45". `composeRecon` fans out to each through
+   * the injected `mcpSources` gateway and folds the results in as the lowest-
+   * priority sections (kept only after every code ring). The 'code' kind is
+   * ignored here — it is served by the local rings. Parsed by `parseWantEntries`.
+   */
+  readonly want?: string[];
+  /**
+   * Downstream-MCP gateway for the `want` fan-out. Injected by the caller so
+   * this module stays pure. Its mere PRESENCE is the capability signal — the
+   * caller supplies it only when a real downstream gateway exists, and omits it
+   * otherwise. There is no enable/disable toggle: when absent, the `want` fan-out
+   * is simply not walked (it runs on the user's machine — nothing to flip).
+   */
+  readonly mcpSources?: {
+    readonly runner: GatewayRunner;
+    readonly timeoutMs?: number;
+  };
 }
 
-const DEFAULT_BUDGET = 2000;
+const DEFAULT_BUDGET = 4000;
 const DEFAULT_MAX_REFERENCES = 15;
 const DEFAULT_SEARCH_LIMIT = 10;
+
+/** Max focus entities whose verbatim bodies are inlined (Phase 1). */
+const MAX_FOCUS_BODIES = 4;
+/** Fraction of the whole-bundle budget the inlined bodies may claim. */
+const FOCUS_BODY_BUDGET_FRACTION = 0.5;
+/** Per-entity body token cap floor/ceiling (research: ~400–800 tok/entity). */
+const MIN_BODY_TOKENS = 300;
+const MAX_BODY_TOKENS = 800;
+/**
+ * Thin-bundle value floor (decision D6). When the non-body content (notes +
+ * callers + entities + conventions) would total under this many tokens — the
+ * new/sparse-repo case the audit saw return ~60 tokens — recon force-inlines
+ * the top focus body even in 'concise' mode, so the tool never hands back a
+ * near-empty bundle that teaches the agent it's useless.
+ */
+const THIN_BUNDLE_FLOOR_TOKENS = 300;
 
 /**
  * Search width recon uses once the task classifies as a large sweep — wider than
@@ -398,6 +459,194 @@ function conventionsEmpty(data: unknown): boolean {
 }
 
 /**
+ * One inlined focus-entity source block. Carries the verbatim body the agent
+ * is about to edit (the token-overhead audit found every recon call was chased
+ * by 2–5 file_reads of these exact entities), plus the file:line range so the
+ * read-suppression manifest (D5) can tell the agent NOT to re-read it.
+ */
+export interface FocusBody {
+  readonly key: string | null;
+  readonly name: string | null;
+  readonly file: string | null;
+  readonly startLine: number | null;
+  readonly endLine: number | null;
+  /** Verbatim source (D4 — never paraphrased). May be a server-truncated slice. */
+  readonly body: string;
+  /** True when the runner truncated the body to the per-entity token cap. */
+  readonly truncated: boolean;
+}
+
+function focusBodiesEmpty(data: unknown): boolean {
+  return !Array.isArray(data) || data.length === 0;
+}
+
+/**
+ * Dig the entity bearing a `body`/`body_preview` out of whatever envelope
+ * `search_code({detail:true,include_body:true})` returned (raw entity object,
+ * `{entity:{…}}`, or an `{entities|results|hits|rows:[…]}` list). Shape-tolerant
+ * by house style — the runner shape differs between executeRaw and the fakes.
+ */
+function findEntityWithBody(raw: unknown): Record<string, unknown> | null {
+  if (raw == null || typeof raw !== "object") return null;
+  const direct = raw as Record<string, unknown>;
+  const hasBody = (o: Record<string, unknown>): boolean =>
+    typeof o.body === "string" || typeof o.body_preview === "string";
+  if (hasBody(direct)) return direct;
+  if (direct.entity && typeof direct.entity === "object") {
+    const e = direct.entity as Record<string, unknown>;
+    if (hasBody(e)) return e;
+  }
+  for (const el of asEntityArray(raw)) {
+    if (
+      el &&
+      typeof el === "object" &&
+      hasBody(el as Record<string, unknown>)
+    ) {
+      return el as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+/** Parse one `search_code` detail result into a FocusBody, or null if it carried no source. */
+function extractFocusBody(raw: unknown): FocusBody | null {
+  const e = findEntityWithBody(raw);
+  if (!e) return null;
+  const body =
+    typeof e.body === "string"
+      ? e.body
+      : typeof e.body_preview === "string"
+        ? e.body_preview
+        : "";
+  if (!body.trim()) return null;
+  return {
+    key: (e.key as string) ?? (e.entity_key as string) ?? null,
+    name: (e.name as string) ?? null,
+    file: (e.file_path as string) ?? (e.file as string) ?? null,
+    startLine: typeof e.start_line === "number" ? e.start_line : null,
+    endLine: typeof e.end_line === "number" ? e.end_line : null,
+    body,
+    truncated: e._truncated != null || e._preview != null,
+  };
+}
+
+/** Extract the `{tags:[…]}` (or bare array) shape the domain_tags runner returns. */
+function domainTagsOf(data: unknown): Array<{ domain: string; count: number }> {
+  if (data == null) return [];
+  const raw = Array.isArray(data)
+    ? data
+    : Array.isArray((data as Record<string, unknown>).tags)
+      ? ((data as Record<string, unknown>).tags as unknown[])
+      : [];
+  const out: Array<{ domain: string; count: number }> = [];
+  for (const t of raw) {
+    if (t == null || typeof t !== "object") continue;
+    const o = t as Record<string, unknown>;
+    const domain = typeof o.domain === "string" ? o.domain : "";
+    const count = Number(o.count ?? 0);
+    if (domain === "") continue;
+    out.push({ domain, count });
+  }
+  return out;
+}
+
+function domainTagsEmpty(data: unknown): boolean {
+  return domainTagsOf(data).length === 0;
+}
+
+/**
+ * Render the active domain-tag vocabulary as one compact "reuse before invent"
+ * line: `auth (12), payments (8), graph-indexing (5)`. Empty → "" (caller skips
+ * the section). Same line in both the full and digest renders — it's already flat.
+ */
+function formatDomainTags(data: unknown): string {
+  const tags = domainTagsOf(data);
+  if (!tags.length) return "";
+  return `reuse before inventing a domain tag: ${tags
+    .map((t) => `${t.domain} (${t.count})`)
+    .join(", ")}`;
+}
+
+/**
+ * §5.2 promotion threshold mirrored locally — recon stays pure (no
+ * annotation-indexer import). A domain under this many entities is provisional.
+ * Must equal `PROMOTION_THRESHOLD` in annotation-indexer.ts.
+ */
+const VOCAB_PROMOTION_THRESHOLD = 3;
+
+/** Parse the `{canonical,provisional,merge}` shape the vocab_nudges runner returns. */
+function vocabNudgesOf(data: unknown): {
+  provisional: Array<{ domain: string; count: number }>;
+  merge: Array<{
+    from: string;
+    fromCount: number;
+    into: string;
+    intoCount: number;
+  }>;
+} {
+  const o = (data ?? {}) as Record<string, unknown>;
+  const provisional: Array<{ domain: string; count: number }> = [];
+  for (const t of Array.isArray(o.provisional) ? o.provisional : []) {
+    if (t == null || typeof t !== "object") continue;
+    const r = t as Record<string, unknown>;
+    const domain = typeof r.domain === "string" ? r.domain : "";
+    if (domain === "") continue;
+    provisional.push({ domain, count: Number(r.count ?? 0) });
+  }
+  const merge: Array<{
+    from: string;
+    fromCount: number;
+    into: string;
+    intoCount: number;
+  }> = [];
+  for (const m of Array.isArray(o.merge) ? o.merge : []) {
+    if (m == null || typeof m !== "object") continue;
+    const r = m as Record<string, unknown>;
+    const from = typeof r.from === "string" ? r.from : "";
+    const into = typeof r.into === "string" ? r.into : "";
+    if (from === "" || into === "") continue;
+    merge.push({
+      from,
+      fromCount: Number(r.fromCount ?? 0),
+      into,
+      intoCount: Number(r.intoCount ?? 0),
+    });
+  }
+  return { provisional, merge };
+}
+
+function vocabNudgesEmpty(data: unknown): boolean {
+  const { provisional, merge } = vocabNudgesOf(data);
+  return provisional.length === 0 && merge.length === 0;
+}
+
+/**
+ * Render the vocabulary nudges (§5.2 / §6.4): near-duplicate consolidation
+ * hints first (the actionable rename), then the provisional-tag list (under the
+ * promotion threshold — promote by reuse or rename). Empty → "" (caller skips
+ * the section). Flat already — same line in full and digest renders.
+ */
+function formatVocabNudges(data: unknown): string {
+  const { provisional, merge } = vocabNudgesOf(data);
+  const lines: string[] = [];
+  if (merge.length) {
+    lines.push(
+      `domain tag sprawl — rename to consolidate: ${merge
+        .map((m) => `${m.from} (${m.fromCount}) → ${m.into} (${m.intoCount})`)
+        .join("; ")}`
+    );
+  }
+  if (provisional.length) {
+    lines.push(
+      `provisional domain tags (under ${VOCAB_PROMOTION_THRESHOLD} entities — promote by reuse or rename): ${provisional
+        .map((t) => `${t.domain} (${t.count})`)
+        .join(", ")}`
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
  * Run the discovery sequence as one composite. Steps that throw are recorded
  * as dropped (reason "error") and never abort the bundle — recon degrades to
  * whatever it could gather, which is still strictly better than nothing.
@@ -410,10 +659,32 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
     countTokens = defaultCountTokens,
     maxReferences = DEFAULT_MAX_REFERENCES,
     searchLimit = DEFAULT_SEARCH_LIMIT,
+    responseFormat = "detailed",
+    want,
+    mcpSources,
   } = opts;
 
   const terms = extractQueryTerms(prompt);
   const dropped: DroppedSection[] = [];
+
+  // Agent-declared external `want` fan-out, kicked off in parallel with the
+  // local discovery so it adds no serial latency. It runs ONLY when the caller
+  // injected a real `mcpSources` gateway — that presence IS the capability
+  // signal, there is no toggle. With no gateway the fan-out is silently skipped.
+  // Never throws, each source isolated. The 'code' kind is served by the local
+  // rings, so it is filtered out here.
+  const mcpSourcesP: Promise<McpSourceSection[]> = (async () => {
+    if (!want || want.length === 0 || !mcpSources) return [];
+    const entries = parseWantEntries(want).filter((e) => e.kind !== "code");
+    if (entries.length === 0) return [];
+    const result = await fetchMcpSources(entries, mcpSources.runner, {
+      timeoutMs: mcpSources.timeoutMs ?? DEFAULT_MCP_SOURCE_TIMEOUT_MS,
+    });
+    for (const d of result.dropped) {
+      dropped.push({ tool: "want_source", title: d.title, reason: d.reason });
+    }
+    return result.sections;
+  })();
 
   const safeRun = async (
     tool: string,
@@ -432,6 +703,10 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
   // entity search. references depends on the search result, so it waits.
   const notesP = safeRun("unerr_recall_notes", { prompt }, "Anchored notes");
   const conventionsP = safeRun("get_conventions", {}, "Conventions");
+  // Layer 8 §5.4 — the active domain-tag vocabulary ("reuse before invent").
+  const domainTagsP = safeRun("domain_tags", {}, "Active domain tags");
+  // Layer 8 §5.2 / §6.4 — vocabulary nudges (sprawl merge + provisional tags).
+  const vocabNudgesP = safeRun("vocab_nudges", {}, "Vocabulary nudges");
   const searchP =
     terms.length > 0
       ? safeRun(
@@ -441,11 +716,14 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
         )
       : Promise.resolve(undefined);
 
-  const [notes, conventions, search] = await Promise.all([
-    notesP,
-    conventionsP,
-    searchP,
-  ]);
+  const [notes, conventions, domainTags, vocabNudges, search] =
+    await Promise.all([
+      notesP,
+      conventionsP,
+      domainTagsP,
+      vocabNudgesP,
+      searchP,
+    ]);
 
   // Phase 2 — lock onto a focus entity and pull its blast radius (depth-1).
   // Candidates are ranked (prompt-named file first, test scaffolding last)
@@ -472,6 +750,60 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
   // (section titles and task-size classification still want a name).
   if (!focus) focus = focusCandidates[0] ?? null;
 
+  // Phase 2b — inline the verbatim source of the top focus entities the agent
+  // is about to edit. The token-overhead audit found every recon call was
+  // chased by 2–5 file_reads of these exact entities; carrying their bodies
+  // collapses that read fan-out into this one call. Bodies are the bundle's
+  // irreducible core — kept right after notes in the budget pass and given the
+  // primacy render slot (lost-in-the-middle: Liu et al., TACL 2024). Each body
+  // is capped so the set stays ≤ ~50% of the budget and never starves callers.
+  // 'concise' callers (orientation / large sweeps) skip body inlining entirely —
+  // no fetch, no section, no tokens. 'detailed' (default) front-loads the edit.
+  // EXCEPT the thin-bundle floor (D6): when the non-body content is sparse
+  // (new/sparse repo), 'concise' still inlines the single top body so the call
+  // never returns a near-empty bundle. 'detailed' already carries bodies, so the
+  // floor is moot there.
+  const nonBodyFloorTokens =
+    (notes !== undefined ? countTokens(notes) : 0) +
+    (references !== undefined ? countTokens(references) : 0) +
+    (search !== undefined ? countTokens(search) : 0) +
+    (conventions !== undefined ? countTokens(conventions) : 0);
+  const thinBundle = nonBodyFloorTokens < THIN_BUNDLE_FLOOR_TOKENS;
+  const bodyTargets =
+    responseFormat === "concise"
+      ? thinBundle
+        ? focusCandidates.slice(0, 1)
+        : []
+      : focusCandidates.slice(0, MAX_FOCUS_BODIES);
+  let focusBodies: FocusBody[] | undefined;
+  if (bodyTargets.length > 0) {
+    const bodyBudget = Math.floor(budget * FOCUS_BODY_BUDGET_FRACTION);
+    const perBodyCap = Math.min(
+      MAX_BODY_TOKENS,
+      Math.max(MIN_BODY_TOKENS, Math.floor(bodyBudget / bodyTargets.length))
+    );
+    const fetched = await Promise.all(
+      bodyTargets.map((c) =>
+        safeRun(
+          "search_code",
+          {
+            query: c.key,
+            detail: true,
+            include_body: true,
+            token_budget: perBodyCap,
+          },
+          `Source of ${c.name ?? c.key}`
+        )
+      )
+    );
+    const bodies: FocusBody[] = [];
+    for (const raw of fetched) {
+      const b = extractFocusBody(raw);
+      if (b) bodies.push(b);
+    }
+    if (bodies.length > 0) focusBodies = bodies;
+  }
+
   // Assemble candidate sections in priority order. Anchored notes (the user's
   // own rules) rank first; the focus entity's callers (blast radius — unerr's
   // core safe-change signal) next; then the raw search list and conventions.
@@ -488,18 +820,39 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
     candidates.push({ tool, title, priority, args: {}, data, isEmpty });
   };
 
+  // Keep-priority (lower = kept first under budget pressure). Notes and focus
+  // bodies are the irreducible core; callers next; the rest fills remaining
+  // room. Note: this is the BUDGET order, NOT the render order — the renderer
+  // re-sorts for the lost-in-the-middle U-curve (bodies first, notes last).
   add("unerr_recall_notes", "Anchored notes", 0, notes, notesEmpty);
+  add("focus_bodies", "Focus source", 1, focusBodies, focusBodiesEmpty);
   if (focus) {
     add(
       "get_references",
       `Callers of ${focus.name ?? focus.key}`,
-      1,
+      2,
       references,
       referencesEmpty
     );
   }
-  add("search_code", "Entities", 2, search, searchEmpty);
-  add("get_conventions", "Conventions", 3, conventions, conventionsEmpty);
+  add("search_code", "Entities", 3, search, searchEmpty);
+  add("get_conventions", "Conventions", 4, conventions, conventionsEmpty);
+  add("domain_tags", "Active domain tags", 5, domainTags, domainTagsEmpty);
+  add("vocab_nudges", "Vocabulary nudges", 6, vocabNudges, vocabNudgesEmpty);
+
+  // Fold in the external `want` sources (Phase 3). Each carries its own sinking
+  // priority (>= MCP_SOURCE_BASE_PRIORITY = 7) so it is kept only after every
+  // code ring, and is non-empty by construction (fetchMcpSources omits failures).
+  for (const s of await mcpSourcesP) {
+    candidates.push({
+      tool: s.tool,
+      title: s.title,
+      priority: s.priority,
+      args: {},
+      data: s.data,
+      isEmpty: () => false,
+    });
+  }
 
   candidates.sort((a, b) => a.priority - b.priority);
 
@@ -565,9 +918,78 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
   };
 }
 
+/** Format `file:start-end` for a focus body (best-effort when lines are unknown). */
+function focusBodyRange(b: FocusBody): string {
+  if (!b.file) return b.name ?? b.key ?? "?";
+  if (b.startLine != null && b.endLine != null) {
+    return `${b.file}:${b.startLine}-${b.endLine}`;
+  }
+  if (b.startLine != null) return `${b.file}:${b.startLine}`;
+  return b.file;
+}
+
+/** Render the inlined focus-entity bodies — verbatim, fenced, file:line header. */
+function formatFocusBodies(data: unknown): string {
+  if (!Array.isArray(data)) return "";
+  const out: string[] = [];
+  for (const raw of data as FocusBody[]) {
+    if (!raw || typeof raw.body !== "string" || !raw.body.trim()) continue;
+    out.push(`### ${focusBodyRange(raw)}${raw.name ? ` — ${raw.name}` : ""}`);
+    out.push("```");
+    out.push(raw.body);
+    out.push("```");
+    if (raw.truncated) {
+      const k = raw.key ?? raw.name ?? "";
+      out.push(
+        `↳ body truncated — full source: search_code({query:"${k}", include_body:true, token_budget:1500})`
+      );
+    }
+  }
+  return out.join("\n");
+}
+
+/**
+ * D5 read-suppression manifest — the recency-slot line naming the exact
+ * file:line ranges already inlined, so the agent does NOT spend a round-trip
+ * re-reading them. Obeys the CLAUDE.md nudge rules: imperative, named tool,
+ * numeric ranges, no deictics. Truncated bodies are excluded (they are partial,
+ * so a re-read may be legitimate). Empty when no full bodies were inlined.
+ */
+function buildReadManifest(bundle: ReconBundle): string {
+  const bodySection = bundle.sections.find((s) => s.tool === "focus_bodies");
+  if (!bodySection || !Array.isArray(bodySection.data)) return "";
+  const ranges = (bodySection.data as FocusBody[])
+    .filter((b) => b?.file && !b.truncated)
+    .map((b) => focusBodyRange(b));
+  if (!ranges.length) return "";
+  return `ur|fct inlined above — do NOT call file_read/Read on: ${ranges.join(", ")}`;
+}
+
+/**
+ * Display order for the lost-in-the-middle U-curve (Liu et al., TACL 2024):
+ * focus bodies take the primacy slot, load-bearing notes the recency slot, and
+ * low-salience material is buried in the middle. Decoupled from the budget
+ * keep-priority (which keeps notes + bodies first). Lower = earlier.
+ */
+const RENDER_RANK: Readonly<Record<string, number>> = {
+  focus_bodies: 0,
+  search_code: 1,
+  get_references: 2,
+  get_conventions: 3,
+  domain_tags: 5,
+  vocab_nudges: 6,
+  unerr_recall_notes: 7,
+};
+/** Render position for a section tool; unknown (e.g. MCP sources) → mid-bundle. */
+function renderRank(tool: string): number {
+  return RENDER_RANK[tool] ?? 4;
+}
+
 /**
  * Render a recon bundle as compact, agent-readable text for the CLI stdout or
- * the MCP wire. Deterministic ordering; one labeled block per section.
+ * the MCP wire. Sections are emitted in salience order (focus bodies first,
+ * anchored notes + the read-suppression manifest last) per the lost-in-the-
+ * middle U-curve — distinct from the budget keep-priority on `bundle.sections`.
  */
 export function renderReconText(bundle: ReconBundle): string {
   const lines: string[] = [];
@@ -578,10 +1000,30 @@ export function renderReconText(bundle: ReconBundle): string {
     lines.push(`focus: ${bundle.focusName ?? bundle.focusKey}`);
   }
   if (bundle.terms.length) lines.push(`terms: ${bundle.terms.join(", ")}`);
-  for (const s of bundle.sections) {
+  const ordered = [...bundle.sections].sort(
+    (a, b) => renderRank(a.tool) - renderRank(b.tool)
+  );
+  for (const s of ordered) {
     lines.push("");
     lines.push(`## ${s.title}${s.shrunk ? " (trimmed)" : ""}`);
+    if (s.tool === "focus_bodies") {
+      lines.push(formatFocusBodies(s.data));
+      continue;
+    }
+    if (s.tool === "domain_tags") {
+      lines.push(formatDomainTags(s.data));
+      continue;
+    }
+    if (s.tool === "vocab_nudges") {
+      lines.push(formatVocabNudges(s.data));
+      continue;
+    }
     lines.push(typeof s.data === "string" ? s.data : JSON.stringify(s.data));
+  }
+  const manifest = buildReadManifest(bundle);
+  if (manifest) {
+    lines.push("");
+    lines.push(manifest);
   }
   if (bundle.dropped.length) {
     lines.push("");
@@ -618,6 +1060,22 @@ function entityFiles(data: unknown): string[] {
   return [...files];
 }
 
+/**
+ * Layer 8 §5.4: the domain-annotation suffix for one entity digest line —
+ * `[domain/role — "summary"]`. Empty when the entity carries no annotation, so
+ * an un-annotated line is identical to today.
+ */
+function formatEntityAnnotation(e: Record<string, unknown>): string {
+  const domain = typeof e.domain === "string" ? e.domain : "";
+  const role = typeof e.role === "string" ? e.role : "";
+  const summary = typeof e.summary === "string" ? e.summary : "";
+  if (!domain && !role && !summary) return "";
+  const tag = [domain, role].filter(Boolean).join("/");
+  const inner =
+    tag && summary ? `${tag} — "${summary}"` : tag ? tag : `"${summary}"`;
+  return ` [${inner}]`;
+}
+
 /** Group search entities by file: `src/foo.ts: fooBar (function), baz (method)`. */
 function groupEntitiesByFile(
   data: unknown
@@ -627,8 +1085,9 @@ function groupEntitiesByFile(
     const file = (e.file_path as string) ?? (e.file as string) ?? "(unknown)";
     const name = (e.name as string) ?? (e.key as string) ?? "?";
     const kind = e.kind ? ` (${e.kind})` : "";
+    const annotation = formatEntityAnnotation(e);
     const list = map.get(file) ?? [];
-    list.push(`${name}${kind}`);
+    list.push(`${name}${kind}${annotation}`);
     map.set(file, list);
   }
   return [...map.entries()].map(([file, names]) => ({ file, names }));
@@ -710,6 +1169,17 @@ export function renderReconDigest(bundle: ReconBundle): string {
       for (const { file, names } of byFile) {
         lines.push(`${file}: ${names.join(", ")}`);
       }
+    } else if (s.tool === "focus_bodies") {
+      // Digest stays flat-size: bodies collapse to their file:line ranges, not
+      // full source. (In practice large sweeps run 'concise', so no bodies are
+      // fetched — this branch only fires on an explicit digest+detailed call.)
+      const bodies = Array.isArray(s.data) ? (s.data as FocusBody[]) : [];
+      if (!bodies.length) continue;
+      lines.push("");
+      lines.push(`## focus source (${bodies.length})`);
+      for (const b of bodies) {
+        lines.push(`${focusBodyRange(b)}${b.name ? ` ${b.name}` : ""}`);
+      }
     } else if (s.tool === "get_references") {
       const { total, files } = summarizeReferences(s.data);
       lines.push("");
@@ -727,6 +1197,18 @@ export function renderReconDigest(bundle: ReconBundle): string {
       lines.push("");
       lines.push(`## conventions${s.shrunk ? " (trimmed)" : ""}`);
       lines.push(conv);
+    } else if (s.tool === "domain_tags") {
+      const tags = formatDomainTags(s.data);
+      if (!tags) continue;
+      lines.push("");
+      lines.push(`## domain tags${s.shrunk ? " (trimmed)" : ""}`);
+      lines.push(tags);
+    } else if (s.tool === "vocab_nudges") {
+      const nudges = formatVocabNudges(s.data);
+      if (!nudges) continue;
+      lines.push("");
+      lines.push(`## vocabulary${s.shrunk ? " (trimmed)" : ""}`);
+      lines.push(nudges);
     } else {
       // Anchored notes and any other section — keep verbatim; load-bearing.
       lines.push("");

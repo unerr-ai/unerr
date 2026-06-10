@@ -252,4 +252,80 @@ describe("instruction-writer", () => {
       expect(existsSync(join(tmpDir, "CLAUDE.md"))).toBe(false);
     });
   });
+
+  describe("Layer 8 §2.4 — maintenance-contract section (comments.maintain)", () => {
+    const MARKER = "Domain comments — maintain meaning in the same edit";
+
+    function writeMaintainSetting(value: boolean): void {
+      mkdirSync(join(tmpDir, ".unerr"), { recursive: true });
+      writeFileSync(
+        join(tmpDir, ".unerr", "settings.json"),
+        JSON.stringify({ comments: { maintain: value } })
+      );
+    }
+
+    it("includes the section by default (no config) — claude-code", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain(MARKER);
+      expect(content).toContain("@sem domain=");
+    });
+
+    it("includes the section by default — cursor (mdc)", () => {
+      const result = writeInstructionFile(tmpDir, "cursor");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain(MARKER);
+    });
+
+    it("comments.maintain=false omits the section — claude-code", () => {
+      writeMaintainSetting(false);
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).not.toContain(MARKER);
+      // The rest of the instruction block is untouched.
+      expect(content).toContain("get_references");
+      expect(content).toContain("<!-- unerr:start -->");
+    });
+
+    it("comments.maintain=false omits the section — cursor (mdc)", () => {
+      writeMaintainSetting(false);
+      const result = writeInstructionFile(tmpDir, "cursor");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).not.toContain(MARKER);
+      expect(content).toContain("get_references");
+    });
+
+    it("comments.maintain=true is explicit-on and keeps the section", () => {
+      writeMaintainSetting(true);
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain(MARKER);
+    });
+
+    it("is idempotent — second write with the section skips", () => {
+      writeInstructionFile(tmpDir, "claude-code");
+      const second = writeInstructionFile(tmpDir, "claude-code");
+      expect(second.action).toBe("skipped");
+    });
+
+    it("toggling the flag off rewrites the section away", () => {
+      const first = writeInstructionFile(tmpDir, "claude-code");
+      expect(first.action).toBe("created");
+      expect(readFileSync(first.path, "utf-8")).toContain(MARKER);
+
+      writeMaintainSetting(false);
+      const second = writeInstructionFile(tmpDir, "claude-code");
+      expect(second.action).toBe("updated");
+      expect(readFileSync(second.path, "utf-8")).not.toContain(MARKER);
+    });
+
+    it("carries the §2.1.1 inert promise + strip command (SC-B.5)", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain(
+        "`@sem` lines are plain comments; your code runs identically without them and without unerr."
+      );
+      expect(content).toContain("unerr uninstall --strip-annotations");
+    });
+  });
 });

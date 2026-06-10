@@ -346,6 +346,20 @@ export class ProcessManager {
     await Promise.allSettled(shutdowns);
   }
 
+  /**
+   * U5: true when no IDE is connected to any managed repo — the quiet window in
+   * which an auto-update may safely apply (no in-flight MCP session to disrupt).
+   * Adopted external proxies run their own lifecycle, so their connections don't
+   * count against the daemon's quiet state.
+   */
+  isQuietForUpdate(): boolean {
+    for (const repo of this.repos.values()) {
+      if (repo.adopted) continue;
+      if (repo.connections > 0) return false;
+    }
+    return true;
+  }
+
   /** Get status for all managed repos (for daemon status / dashboard). */
   getStatus(): RepoStatusEntry[] {
     const registry = readRegistry();
@@ -593,6 +607,17 @@ export class ProcessManager {
     if (this.stopped) return;
 
     const now = Date.now();
+
+    // Ride the sweep for the throttled auto-update cycle (U1 detection + U5
+    // apply). Fire-and-forget + self-throttling (24h) + never-throws, so it adds
+    // no latency and a failed/offline check is silent. `isQuiet` gates the apply
+    // so an upgrade only ever runs when no IDE is connected. Lazy import keeps
+    // the update subsystem out of the manager's hot module graph.
+    void import("../update/update-runner.js")
+      .then((m) => m.runUpdateCycle({ isQuiet: () => this.isQuietForUpdate() }))
+      .catch(() => {
+        /* best-effort — auto-update never breaks the sweep */
+      });
 
     for (const repo of this.repos.values()) {
       if (repo.status !== "running") continue;

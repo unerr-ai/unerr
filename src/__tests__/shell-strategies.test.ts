@@ -353,6 +353,19 @@ describe("compressDiff (FE-F T4)", () => {
     const out = compressDiff(raw, risks);
     expect(out).toContain("[HIGH-RISK:login");
   });
+
+  it("passes non-diff content through without a false _shell_diff header", () => {
+    // SQL/table output misclassified as diff (stray "git diff" substring +
+    // `+---+` borders, but no `diff --git` line and no `@@` hunk header).
+    const raw = `+------+-------------+
+| id   | note        |
++------+-------------+
+| 1    | git diff ok |
++------+-------------+`;
+    const out = compressDiff(raw);
+    expect(out).toBe(raw);
+    expect(out).not.toContain("_shell_diff:");
+  });
 });
 
 describe("compressTreePaths (FE-F T5)", () => {

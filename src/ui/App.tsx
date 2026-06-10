@@ -77,9 +77,13 @@ export function App() {
   const { data: systemStatus } = useQuery({
     queryKey: ["system", "status"],
     queryFn: () =>
-      fetchJson<{ data: { cwd: string } }>("/api/system/status").catch(
-        () => null
-      ),
+      fetchJson<{
+        data: {
+          cwd: string;
+          auth?: { line: string; badge: string } | null;
+          update?: { status: string; line: string } | null;
+        };
+      }>("/api/system/status").catch(() => null),
     staleTime: 60_000,
     enabled: daemonResolved && !isDaemonMode,
   });
@@ -171,6 +175,8 @@ export function App() {
         repoLabel={parsed.repoLabel}
         isDaemonMode={isDaemonMode}
         repos={repos}
+        authBanner={systemStatus?.data?.auth ?? null}
+        updateBanner={systemStatus?.data?.update ?? null}
       >
         {body}
       </AppShell>

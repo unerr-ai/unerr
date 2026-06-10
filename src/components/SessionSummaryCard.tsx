@@ -231,19 +231,6 @@ function LocalModeCard({
         </Box>
       )}
 
-      {/* Semantic Intelligence (if BYO-LLM was used) */}
-      {lm.semanticSearches > 0 && (
-        <Box flexDirection="column" marginTop={1} marginLeft={4}>
-          <Text bold>Semantic Intelligence:</Text>
-          <Box marginLeft={2}>
-            <Text color={t.dim}>
-              {lm.semanticSearches} quer
-              {lm.semanticSearches !== 1 ? "ies" : "y"} via local embeddings
-            </Text>
-          </Box>
-        </Box>
-      )}
-
       {/* Network Isolation — always shown in Local Mode */}
       <Box flexDirection="column" marginTop={1} marginLeft={4}>
         <Text bold>Network Isolation:</Text>

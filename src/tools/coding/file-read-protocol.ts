@@ -5,6 +5,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { relative } from "node:path";
+import { loadSettings } from "../../config/settings.js";
 import { extractEntities } from "../../intelligence/ast-extractor.js";
 import type { CozoGraphStore } from "../../intelligence/local-graph.js";
 import { estimateTokens } from "../../intelligence/token-estimator.js";
@@ -51,6 +52,117 @@ function isGeneratedPath(rel: string): boolean {
 
 function isProbableLogPath(rel: string): boolean {
   return /\.(log|txt)$/i.test(rel) || /\/logs?\//i.test(rel);
+}
+
+/**
+ * Sprint SC-E.2 — comment elision for `file_read` explore windows.
+ *
+ * Collapses *comment-only* lines (line comments, JSDoc/block-comment bodies,
+ * Python docstrings) to a bare `…` marker so their prose stops costing tokens,
+ * while keeping byte-for-byte fidelity on three things that must survive:
+ *   1. Code lines — never touched.
+ *   2. Sentinel-bearing comments (`@sem …` or any configured token) — kept
+ *      verbatim; they carry the domain semantics this whole layer exists for.
+ *   3. Line numbers — one marker per elided line, so the window's `effOffset+i`
+ *      numbering still maps to real file positions and a follow-up offset/limit
+ *      Read lands on the right lines before an Edit.
+ *
+ * Conservative by design: a line is elided only when it is *unambiguously*
+ * comment-only. Anything with code before/after the comment, or any line the
+ * block tracker is unsure about, is kept verbatim — fidelity wins ties.
+ *
+ * Pure + synchronous. Returns the rewritten lines plus the elided count.
+ */
+export function elideCommentLines(
+  lines: string[],
+  sentinels: string[]
+): { lines: string[]; elided: number } {
+  const tokens = sentinels.filter((s) => s.length > 0);
+  const hasSentinel = (line: string): boolean =>
+    tokens.some((t) => line.includes(t));
+  const out: string[] = [];
+  let elided = 0;
+  // Tracks an open `/* … */` or `""" … """` / `''' … '''` block across lines.
+  let blockCloser: string | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const indent = line.slice(0, line.length - line.trimStart().length);
+
+    // Inside a multi-line block comment / docstring.
+    if (blockCloser !== null) {
+      const keepVerbatim = hasSentinel(line);
+      if (trimmed.includes(blockCloser)) {
+        // The closer is on this line. Only elide when nothing of substance
+        // follows the closer (pure comment tail); otherwise keep verbatim.
+        const after = trimmed.slice(
+          trimmed.indexOf(blockCloser) + blockCloser.length
+        );
+        blockCloser = null;
+        if (after.trim() === "" && !keepVerbatim) {
+          out.push(`${indent}…`);
+          elided++;
+          continue;
+        }
+        out.push(line);
+        continue;
+      }
+      // Still inside the block.
+      if (keepVerbatim) {
+        out.push(line);
+      } else {
+        out.push(`${indent}…`);
+        elided++;
+      }
+      continue;
+    }
+
+    if (trimmed === "" || hasSentinel(line)) {
+      out.push(line);
+      continue;
+    }
+
+    // Single-line comments: //…, #… (not a shebang), and a self-closed /* … */.
+    const isLineComment =
+      trimmed.startsWith("//") ||
+      (trimmed.startsWith("#") && !trimmed.startsWith("#!")) ||
+      trimmed.startsWith("*") || // JSDoc continuation body
+      (trimmed.startsWith("/*") && trimmed.includes("*/")) ||
+      (trimmed.startsWith("<!--") && trimmed.includes("-->"));
+    if (isLineComment) {
+      out.push(`${indent}…`);
+      elided++;
+      continue;
+    }
+
+    // Opening a multi-line block — elide the opener line too (it carries no
+    // code) and remember the closer so the body collapses on later iterations.
+    if (trimmed.startsWith("/*")) {
+      blockCloser = "*/";
+      out.push(`${indent}…`);
+      elided++;
+      continue;
+    }
+    if (trimmed.startsWith('"""') || trimmed.startsWith("'''")) {
+      const q = trimmed.slice(0, 3);
+      // A docstring that opens and closes on the same line with a closer later.
+      const rest = trimmed.slice(3);
+      if (rest.includes(q)) {
+        out.push(`${indent}…`);
+        elided++;
+        continue;
+      }
+      blockCloser = q;
+      out.push(`${indent}…`);
+      elided++;
+      continue;
+    }
+
+    // Code (or anything ambiguous) — keep verbatim.
+    out.push(line);
+  }
+
+  return { lines: out, elided };
 }
 
 export interface FileReadRouterResult {
@@ -463,7 +575,22 @@ export async function runFileReadForRouter(
   const effOffset = offset ?? 1;
   const effLimit = limit ?? Math.min(budgetLines, totalLines);
 
-  const sliced = lines.slice(effOffset - 1, effOffset - 1 + effLimit);
+  const rawSliced = lines.slice(effOffset - 1, effOffset - 1 + effLimit);
+  // SC-E.2: optional comment elision (default off, gated on a fidelity
+  // benchmark). Loaded lazily here so the gated/outline/entity-miss early
+  // returns above never pay the settings read.
+  let sliced = rawSliced;
+  let commentsElided = 0;
+  try {
+    const commentsCfg = loadSettings(ctx.cwd).comments;
+    if (commentsCfg.elide) {
+      const result = elideCommentLines(rawSliced, commentsCfg.sentinel);
+      sliced = result.lines;
+      commentsElided = result.elided;
+    }
+  } catch {
+    // Settings unreadable — serve the window verbatim (fidelity-first).
+  }
   const numbered = sliced
     .map((line, i) => `${effOffset + i}\t${line}`)
     .join("\n");
@@ -573,6 +700,9 @@ export async function runFileReadForRouter(
     if (entityMatchInfo?.matchType && entityMatchInfo.matchType !== "exact") {
       meta.optimization += ` (${entityMatchInfo.matchType})`;
     }
+  }
+  if (commentsElided > 0) {
+    meta.optimization = `${meta.optimization ?? "file_read"} · ${commentsElided} comment lines elided`;
   }
   if (
     isProbableLogPath(rel) &&

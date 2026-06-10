@@ -19,7 +19,6 @@
  *   - deep_dive_design_system: Design tokens for UI implementation (Sprint 11)
  *   - communities: Community-level metadata from Louvain detection (Leapfrog Sprint A)
  *   - corrections: Learned error→fix patterns from shadow ledger (Leapfrog Sprint B)
- *   - entity_embeddings: Per-entity embedding vectors for local semantic search (Sprint L3)
  *   - file_edges: Weighted file-to-file edges aggregated from L0 (Multi-Level Graph)
  *   - class_edges: Weighted class-to-class edges aggregated from L0 (Multi-Level Graph)
  *   - file_communities: Materialized file-level communities from cascaded Louvain (Multi-Level Graph)
@@ -572,25 +571,6 @@ export async function initSchema(db: CozoDb): Promise<void> {
   `
   );
 
-  // ── Sprint L3: Entity Embeddings for Local Semantic Search ───────
-
-  // Entity embeddings — per-entity embedding vectors for local semantic search.
-  await createIfMissing(
-    db,
-    existing,
-    "entity_embeddings",
-    `
-    :create entity_embeddings {
-      entity_key: String
-      =>
-      vector_json: String default "[]",
-      model: String default "",
-      dimensions: Int default 0,
-      computed_at: String default ""
-    }
-  `
-  );
-
   // ── Multi-Level Graph: L1 Materialized Relations ────────────────
 
   // Weighted file-to-file edges (L1). Aggregated from L0 entity edges during indexing.
@@ -674,6 +654,75 @@ export async function initSchema(db: CozoDb): Promise<void> {
       key: String
       =>
       value: String default ""
+    }
+  `
+  );
+
+  // ── Layer 8: Domain Understanding (comment-driven semantic layer) ──
+  // See .internal/roadmap/LAYER_8_DOMAIN_UNDERSTANDING.md §7. The domain
+  // graph annotates structural truth, never mutates entities/edges.
+
+  // Per-entity semantic annotation captured from doc comments at index time.
+  // source: 'comment' | 'harvested' | 'propagated' | 'path' (§5.3 confidence
+  // tiers — higher-confidence sources overwrite lower, never the reverse).
+  // status: 'active' | 'stale' (§5.1 drift predicate flips to stale when
+  // content_hash changes while comment_hash does not).
+  await createIfMissing(
+    db,
+    existing,
+    "domain_annotations",
+    `
+    :create domain_annotations {
+      entity_key: String
+      =>
+      summary: String default "",
+      domain: String default "",
+      role: String default "",
+      extras: String default "{}",
+      source: String default "path",
+      confidence: Float default 0.0,
+      status: String default "active",
+      comment_hash: String default "",
+      content_hash: String default "",
+      computed_at: String default ""
+    }
+  `
+  );
+
+  // Domain-graph edges between domain tags (NOT entities — §6).
+  // edge_type: 'coupled_declared' | 'calls_observed' | 'co_change'.
+  await createIfMissing(
+    db,
+    existing,
+    "domain_edges",
+    `
+    :create domain_edges {
+      from_domain: String,
+      to_domain: String,
+      edge_type: String
+      =>
+      weight: Float default 0.0,
+      evidence_count: Int default 0,
+      computed_at: String default ""
+    }
+  `
+  );
+
+  // Community-level merge of the structural + domain graphs (§6 vote):
+  // dominant domain tag per Louvain community with coverage + purity.
+  // Low purity = boundary-erosion signal (ur|rsk).
+  await createIfMissing(
+    db,
+    existing,
+    "community_domains",
+    `
+    :create community_domains {
+      community_id: Int
+      =>
+      domain: String default "",
+      coverage: Float default 0.0,
+      purity: Float default 0.0,
+      computed_at: String default ""
     }
   `
   );

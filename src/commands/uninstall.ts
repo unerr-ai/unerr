@@ -31,6 +31,9 @@ import {
 import { removeClaudeHook } from "../config/hook-installer.js";
 import { removeInstructionSection } from "../config/instruction-writer.js";
 import { removeMcpConfig } from "../config/mcp-config-writer.js";
+import { loadSettings } from "../config/settings.js";
+import { DEFAULT_SENTINEL_TOKENS } from "../intelligence/semantic/docstring-extractor.js";
+import { stripAnnotationsFromRepo } from "../intelligence/semantic/strip-annotations.js";
 import { removeInstalledSkills } from "../skills/resolver.js";
 import { uninstallReviewGateHooks } from "../tracking/review-gate-hooks.js";
 import type { IdeType } from "../utils/detect.js";
@@ -49,22 +52,66 @@ export function registerUninstallCommand(program: Command): void {
   program
     .command("uninstall [agent]")
     .description("Remove unerr configs and hooks from this project")
-    .action(async (agent: string | undefined) => {
-      const cwd = process.cwd();
+    .option(
+      "--strip-annotations",
+      "also remove @sem sentinel lines from source comments repo-wide (prose summaries are kept)"
+    )
+    .action(
+      async (
+        agent: string | undefined,
+        opts: { stripAnnotations?: boolean }
+      ) => {
+        const cwd = process.cwd();
 
-      if (agent) {
-        const normalized = normalizeAgentName(agent);
-        const agentDef = getAgent(normalized as IdeType);
-        if (!agentDef) {
-          process.stderr.write(`\x1b[31m✗\x1b[0m Unknown agent: "${agent}"\n`);
-          return;
+        if (agent) {
+          const normalized = normalizeAgentName(agent);
+          const agentDef = getAgent(normalized as IdeType);
+          if (!agentDef) {
+            process.stderr.write(
+              `\x1b[31m✗\x1b[0m Unknown agent: "${agent}"\n`
+            );
+            return;
+          }
+          const result = runUninstall(cwd, normalized as IdeType);
+          displayUninstallResult(agentDef.name, result);
+        } else {
+          runUninstallAll(cwd);
         }
-        const result = runUninstall(cwd, normalized as IdeType);
-        displayUninstallResult(agentDef.name, result);
-      } else {
-        runUninstallAll(cwd);
+
+        if (opts.stripAnnotations) {
+          stripAnnotationsAndReport(cwd);
+        }
       }
-    });
+    );
+}
+
+/**
+ * Layer 8 §2.1.1 exit story — strip `@sem` sentinel lines from source comments
+ * repo-wide. Sentinel tokens come from `comments.sentinel` (default `@sem`);
+ * prose summaries are preserved. Idempotent: a clean repo reports 0 changes.
+ */
+function stripAnnotationsAndReport(cwd: string): void {
+  let tokens = DEFAULT_SENTINEL_TOKENS;
+  try {
+    const configured = loadSettings(cwd).comments.sentinel;
+    if (configured.length > 0) tokens = configured;
+  } catch {
+    tokens = DEFAULT_SENTINEL_TOKENS;
+  }
+  const { filesChanged, linesRemoved } = stripAnnotationsFromRepo(cwd, tokens);
+  if (filesChanged === 0) {
+    process.stderr.write(
+      "\x1b[32m✓\x1b[0m No @sem sentinel lines found — nothing to strip.\n"
+    );
+    return;
+  }
+  process.stderr.write(
+    `\x1b[32m✓\x1b[0m Stripped ${linesRemoved} @sem sentinel line${
+      linesRemoved === 1 ? "" : "s"
+    } from ${filesChanged} file${
+      filesChanged === 1 ? "" : "s"
+    } (prose summaries kept; review the diff with \`git diff\`).\n`
+  );
 }
 
 /**

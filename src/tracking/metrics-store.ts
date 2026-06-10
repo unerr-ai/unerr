@@ -435,6 +435,7 @@ interface Statements {
   tokenFlowSince: ReturnType<DatabaseT["prepare"]>;
   tokenFlowAll: ReturnType<DatabaseT["prepare"]>;
   tokenFlowBySession: ReturnType<DatabaseT["prepare"]>;
+  tokenFlowSessionSum: ReturnType<DatabaseT["prepare"]>;
   behaviorEventsAll: ReturnType<DatabaseT["prepare"]>;
   behaviorEventsBySession: ReturnType<DatabaseT["prepare"]>;
   behaviorEventsSince: ReturnType<DatabaseT["prepare"]>;
@@ -570,6 +571,10 @@ export class MetricsStore {
       `),
       tokenFlowBySession: this.db.prepare(`
         SELECT * FROM token_flow_events WHERE session_id = @sessionId ORDER BY id ASC
+      `),
+      tokenFlowSessionSum: this.db.prepare(`
+        SELECT COALESCE(SUM(tokens_saved), 0) AS total
+        FROM token_flow_events WHERE session_id = @sessionId
       `),
       behaviorEventsAll: this.db.prepare(`
         SELECT * FROM behavior_events ORDER BY id ASC
@@ -814,6 +819,20 @@ export class MetricsStore {
     return this.stmt.tokenFlowBySession.all({
       sessionId,
     }) as TokenFlowEventRow[];
+  }
+
+  /**
+   * Running total of `tokens_saved` for one session — authoritative across
+   * process restarts (sums the persisted table, not an in-memory counter).
+   * Used by the log tailer to stamp a real cumulative on relayed child/exec
+   * token-flow lines instead of a hardcoded 0.
+   */
+  sessionTokensSaved(sessionId: string): number {
+    if (!this.stmt) return 0;
+    const row = this.stmt.tokenFlowSessionSum.get({ sessionId }) as
+      | { total: number }
+      | undefined;
+    return row?.total ?? 0;
   }
 
   allBehaviorEvents(): BehaviorEventRow[] {

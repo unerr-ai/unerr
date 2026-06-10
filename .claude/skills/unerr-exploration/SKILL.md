@@ -29,7 +29,7 @@ Phase 3 — References.
   Use the count to size the change before reading any file body.
 
 Phase 4 — Architecture sweep.
-  Call `file_outline({file_path:'<entry>'})` — its `imports` field traces the import graph from an entry point (or `get_entity({key:'<name>', want:['imports']})` for one entity's file).
+  Call `file_outline({file_path:'<entry>'})` — its `imports` field traces the import graph from an entry point (or `search_code({query:'<name>', want:['imports']})` for one entity's file).
   Call `get_references({key:'<entity_key>', direction:'callers'})` on candidate entry points — a high fan_in (or a `ur|rsk fan_in=<N>` line) marks a chokepoint.
   Follow connections via `get_references` direction:callees from the main function to walk the execution path.
 

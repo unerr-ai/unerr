@@ -120,18 +120,6 @@ export class StartupRenderer {
     this.rerender();
   }
 
-  /** Set BYO-LLM connection status for startup display. */
-  setByoLlmStatus(
-    status: "connected" | "not_configured" | "unreachable",
-    provider?: string,
-    model?: string
-  ): void {
-    this.state.byoLlmStatus = status;
-    if (provider) this.state.byoLlmProvider = provider;
-    if (model) this.state.byoLlmModel = model;
-    this.rerender();
-  }
-
   /** Set the total tool count for Act 3. */
   setToolCount(count: number): void {
     this.state.toolCount = count;

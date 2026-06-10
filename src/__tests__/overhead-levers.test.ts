@@ -57,13 +57,13 @@ describe("summarizeOverheadLevers", () => {
     const events: LeverEvent[] = [
       { msg: "ceremony_suppressed", banner: "edit-read-prereq" },
       { msg: "ceremony_suppressed", banner: "edit-read-prereq" },
-      { msg: "ceremony_suppressed", banner: "read-routing-cc" },
+      { msg: "ceremony_suppressed", banner: "read-routing" },
     ];
     const s = summarizeOverheadLevers(events);
     expect(s.ceremony.suppressed_count).toBe(3);
     expect(s.ceremony.by_banner).toEqual({
       "edit-read-prereq": 2,
-      "read-routing-cc": 1,
+      "read-routing": 1,
     });
   });
 

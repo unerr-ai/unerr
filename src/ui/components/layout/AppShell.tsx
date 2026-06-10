@@ -44,6 +44,18 @@ type Props = {
   repoLabel?: string | null;
   isDaemonMode?: boolean;
   repos?: { label: string; status: string }[];
+  /**
+   * A4 Tier-2 passive auth banner. Rendered below the header ONLY when the
+   * badge is `warn`/`attention` (a plan is lapsing/lost) — `ok`/`info` states
+   * show nothing, so the banner never nags a working or deliberate-free user.
+   */
+  authBanner?: { line: string; badge: string } | null;
+  /**
+   * U3 Tier-2 passive auto-update banner. Rendered below the header ONLY for
+   * actionable states (`available`/`pending`/`rolled-back`) — `up-to-date`
+   * and `disabled` show nothing, so a current install never sees a banner.
+   */
+  updateBanner?: { line: string; status: string } | null;
   children: ReactNode;
 };
 
@@ -56,6 +68,8 @@ export function AppShell({
   repoLabel,
   isDaemonMode,
   repos,
+  authBanner,
+  updateBanner,
   children,
 }: Props) {
   const repo = repoPath ? parseRepoPath(repoPath) : null;
@@ -208,6 +222,44 @@ export function AppShell({
             </div>
           )}
         </header>
+        {authBanner &&
+          (authBanner.badge === "warn" || authBanner.badge === "attention") && (
+            <div
+              role="status"
+              className={`flex items-center gap-2 border-b px-6 py-2.5 text-sm ${
+                authBanner.badge === "attention"
+                  ? "border-error/30 bg-error/10 text-error"
+                  : "border-warning/30 bg-warning/10 text-warning"
+              }`}
+            >
+              <span
+                className={`inline-flex h-2 w-2 shrink-0 rounded-full ${
+                  authBanner.badge === "attention" ? "bg-error" : "bg-warning"
+                }`}
+              />
+              <span>{authBanner.line}</span>
+            </div>
+          )}
+        {updateBanner &&
+          (updateBanner.status === "available" ||
+            updateBanner.status === "pending" ||
+            updateBanner.status === "rolled-back") && (
+            <div
+              role="status"
+              className={`flex items-center gap-2 border-b px-6 py-2.5 text-sm ${
+                updateBanner.status === "rolled-back"
+                  ? "border-error/30 bg-error/10 text-error"
+                  : "border-data/30 bg-data/10 text-data"
+              }`}
+            >
+              <span
+                className={`inline-flex h-2 w-2 shrink-0 rounded-full ${
+                  updateBanner.status === "rolled-back" ? "bg-error" : "bg-data"
+                }`}
+              />
+              <span>{updateBanner.line}</span>
+            </div>
+          )}
         <div className="flex-1 p-6">{children}</div>
       </main>
     </div>

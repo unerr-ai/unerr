@@ -28,7 +28,7 @@ export const TOOL_CLUSTERS: ToolCluster[] = [
   {
     id: "navigation",
     name: "Code Navigation",
-    tools: ["search_code", "get_entity", "get_references"],
+    tools: ["search_code", "get_references"],
     triggerKeywords: [
       "find",
       "search",

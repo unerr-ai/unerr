@@ -58,7 +58,6 @@ function makeLocalStats(): SessionStats {
       correctionPatternsInjected: 2,
       tokensSavedByTruncation: 12000,
       truncatedResponses: 4,
-      semanticSearches: 7,
       cumulativeLatencySavedMs: 4850,
       firewallBlockedCount: 0,
     },
@@ -201,16 +200,6 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
     expect(frame).toContain("4 responses budget-trimmed");
   });
 
-  it("shows Semantic Intelligence when BYO-LLM used", () => {
-    const stats = makeLocalStats();
-    const { lastFrame } = renderWithTheme(
-      React.createElement(SessionSummaryCard, { stats })
-    );
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("Semantic Intelligence:");
-    expect(frame).toContain("7 queries via local embeddings");
-  });
-
   it("shows Network Isolation section with firewall sealed", () => {
     const stats = makeLocalStats();
     const { lastFrame } = renderWithTheme(
@@ -296,7 +285,6 @@ describe("SessionSummaryCard Local Mode (L7.2)", () => {
           totalViolationsCaught: 8,
           totalCorrectionsApplied: 3,
           totalFilesIndexed: 200,
-          totalSemanticSearches: 15,
           avgLatencyP50: 2.1,
         },
       })
@@ -383,18 +371,6 @@ describe("StartupRenderer Local Mode (L7.4)", () => {
     renderer.setToolCount(11);
     // @ts-expect-error accessing private for test
     expect(renderer.state.toolCount).toBe(11);
-  });
-
-  it("setByoLlmStatus sets BYO-LLM fields", async () => {
-    const { StartupRenderer } = await import("../proxy/startup-renderer.js");
-    const renderer = new StartupRenderer();
-    renderer.setByoLlmStatus("connected", "ollama", "nomic-embed-text");
-    // @ts-expect-error accessing private for test
-    expect(renderer.state.byoLlmStatus).toBe("connected");
-    // @ts-expect-error accessing private for test
-    expect(renderer.state.byoLlmProvider).toBe("ollama");
-    // @ts-expect-error accessing private for test
-    expect(renderer.state.byoLlmModel).toBe("nomic-embed-text");
   });
 
   it("setLocalIndexStats sets indexing stats", async () => {

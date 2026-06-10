@@ -24,6 +24,7 @@ import type { CozoDb } from "../intelligence/cozo-schema.js";
 import { initSchema } from "../intelligence/cozo-schema.js";
 import { CozoGraphStore } from "../intelligence/local-graph.js";
 import { IncompleteWorkDetector } from "../behaviors/incomplete-work.js";
+import { resetHookDedup } from "../hooks/hook-dedup.js";
 import {
   runPostEditHook,
   runPreEditHookAsync,
@@ -137,6 +138,10 @@ describe("behavior firing — pre-edit cascade end-to-end (P0.6)", () => {
     });
     await new Promise<void>((resolve) => server!.listen(sockPath, resolve));
     process.chdir(tmpRepo);
+    // Deterministic deny-once: reset the file-backed gate so each test's first
+    // graph-confirmed cascade reliably DENIES (rather than nudging because a
+    // prior test already consumed the once-token for the same key).
+    resetHookDedup();
   });
 
   afterEach(() => {
@@ -149,7 +154,7 @@ describe("behavior firing — pre-edit cascade end-to-end (P0.6)", () => {
     }
   });
 
-  it("injects the real caller count + sites when a signature edit has callers", async () => {
+  it("DENIES the first signature edit with graph-confirmed callers, forcing get_references", async () => {
     const out = await runPreEditHookAsync(
       editPayload(
         "src/pay.ts",
@@ -160,14 +165,39 @@ describe("behavior firing — pre-edit cascade end-to-end (P0.6)", () => {
 
     // Valid JSON (never a crash — exit 0 contract).
     expect(() => JSON.parse(out)).not.toThrow();
+    const parsed = JSON.parse(out);
+    // Graph-confirmed caller cascade → deny-once (the lever that actually moves
+    // get_references adoption), not an advisory nudge.
+    expect(parsed.hookSpecificOutput?.permissionDecision).toBe("deny");
+    const reason = parsed.hookSpecificOutput?.permissionDecisionReason ?? "";
     // The computed cascade signal reached the agent-facing output.
-    expect(out).toContain("⚡ unerr · cascade guard:");
-    expect(out).toContain("caller(s) at risk");
-    expect(out).toContain("2 caller(s) at risk"); // checkout + refund
-    expect(out).toContain("parameter_added");
-    expect(out).toContain("get_references");
+    expect(reason).toContain("⚡ unerr · cascade guard:");
+    expect(reason).toContain("2 caller(s) at risk"); // checkout + refund
+    expect(reason).toContain("parameter_added");
+    expect(reason).toContain("get_references");
+    // The deny names the concrete next step + that the retry will proceed.
+    expect(reason).toContain("blocked once");
+    expect(reason).toContain("re-attempt the Edit");
     // It names the real callers, not a placeholder.
-    expect(out).toContain("pay");
+    expect(reason).toContain("pay");
+  });
+
+  it("nudges (does NOT deny twice) on the retry of the same signature edit", async () => {
+    const payload = editPayload(
+      "src/pay.ts",
+      "export function pay(a) {",
+      "export function pay(a, b) {"
+    );
+    const first = JSON.parse(await runPreEditHookAsync(payload));
+    expect(first.hookSpecificOutput?.permissionDecision).toBe("deny");
+
+    // Same entity within the dedup window → allow + cascade nudge, never a 2nd
+    // deny (guards the #43189/#47565 double-deny retry loop).
+    const second = JSON.parse(await runPreEditHookAsync(payload));
+    expect(second.hookSpecificOutput?.permissionDecision).not.toBe("deny");
+    const msg = second.hookSpecificOutput?.systemMessage ?? "";
+    expect(msg).toContain("⚡ unerr · cascade guard:");
+    expect(msg).toContain("get_references");
   });
 
   it("falls back to the static nudge when the edit changes no signature with callers", async () => {

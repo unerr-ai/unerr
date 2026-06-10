@@ -22,6 +22,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
+import { loadSettings } from "../config/settings.js";
 import { formatUnknownError } from "../utils/format-error.js";
 import {
   EXTRACTOR_VERSION,
@@ -46,6 +47,17 @@ import type {
 import { generateLocalRules } from "./local-rule-generator.js";
 import { persistLocalSnapshot } from "./local-snapshot.js";
 import { buildSearchIndex, tokenize } from "./search-index.js";
+import {
+  type AnnotationCandidate,
+  type AnnotationTarget,
+  buildPathFloorRows,
+  collectAnnotationCandidates,
+  gateCandidates,
+  removeOrphanedAnnotations,
+  upsertAnnotations,
+} from "./semantic/annotation-indexer.js";
+import { DEFAULT_SENTINEL_TOKENS } from "./semantic/docstring-extractor.js";
+import { deriveDomainGraph } from "./semantic/domain-graph.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -314,6 +326,17 @@ export async function indexLocalProject(
   // (readFileSync utf-8 → sha1) as incremental-indexer's hashContent, so a hash
   // written here matches what the next incremental cycle computes.
   const fileContentHashes = new Map<string, string>();
+  // Layer 8 SC-A.3: parsed-but-not-yet-gated doc-comment annotations, collected
+  // per file while content is in scope. Gating waits until all entity names
+  // are known (the identifier cross-check needs the full graph vocabulary);
+  // rows land in domain_annotations in Phase 6.6.
+  const annotationCandidates: AnnotationCandidate[] = [];
+  let sentinelTokens: readonly string[] = DEFAULT_SENTINEL_TOKENS;
+  try {
+    sentinelTokens = loadSettings(projectRoot).comments.sentinel;
+  } catch {
+    /* settings unreadable — default token list */
+  }
   let filesProcessed = 0;
 
   for (const absPath of files) {
@@ -349,6 +372,7 @@ export async function indexLocalProject(
     // is_test=false. The old fileIsTest fallback was lossy — it conflated
     // "lives in a test file" with "is a test", polluting test-coverage
     // results with fixtures/helpers.
+    const annotationTargets: AnnotationTarget[] = [];
     for (const entity of entities) {
       const key = entityKey(
         repoId,
@@ -357,6 +381,12 @@ export async function indexLocalProject(
         entity.name,
         entity.signature
       );
+      annotationTargets.push({
+        key,
+        name: entity.name,
+        startLine: entity.line_start,
+        endLine: entity.line_end,
+      });
       allEntities.push({
         key,
         kind: entity.kind,
@@ -374,6 +404,11 @@ export async function indexLocalProject(
         parent_class: entity.parent_class,
       });
     }
+
+    // Layer 8: parse doc-comment annotations while content is in scope
+    annotationCandidates.push(
+      ...collectAnnotationCandidates(content, annotationTargets, sentinelTokens)
+    );
 
     // Extract edges (tag with source file for cross-file resolution)
     const edges = await extractEdgesAsync(content, relPath, entities);
@@ -517,6 +552,33 @@ export async function indexLocalProject(
   // Phase 6.5: Materialize L1 edges (file→file, class→class weighted aggregates)
   await materializeL1Edges(graphStore);
 
+  // Phase 6.6: Layer 8 — domain annotations. Gate the parsed comment
+  // candidates now that every entity name is known (identifier cross-check),
+  // upsert surviving rows (comment 0.95 / harvested 0.7), then lay the
+  // path-inference floor (path 0.4) — AFTER the higher tiers so the upsert's
+  // provenance ordering skips floored entities that already carry a comment
+  // or harvested row. Prune rows whose entity vanished. Best-effort:
+  // annotations never block the index.
+  try {
+    const knownIdentifiers = new Set(allEntities.map((e) => e.name));
+    const annotationRows = gateCandidates(annotationCandidates, {
+      knownIdentifiers,
+    });
+    const written = await upsertAnnotations(graphStore.db, annotationRows);
+    const floored = await upsertAnnotations(
+      graphStore.db,
+      buildPathFloorRows(allEntities)
+    );
+    await removeOrphanedAnnotations(graphStore.db, indexedEntityKeys);
+    if (written + floored > 0) {
+      log.info(
+        `Domain annotations: ${written} from doc comments, ${floored} from path inference`
+      );
+    }
+  } catch (err) {
+    log.info(`Domain annotation sync skipped: ${formatUnknownError(err)}`);
+  }
+
   // Phase 7: Community detection (handled inside CozoGraphStore)
   progress?.({
     processed: filesProcessed,
@@ -525,6 +587,20 @@ export async function indexLocalProject(
     currentFile: null,
   });
   const communityCount = await runCommunityDetection(graphStore);
+
+  // Phase 7.5: Layer 8 §6 — domain-graph derivation. Deterministic, zero-LLM:
+  // propagate domain labels along communities + call edges, vote each community
+  // its dominant domain (coverage/purity), and build the domain edges. Runs
+  // after community detection (it reads `entities.community`) and is best-effort
+  // — a failure never blocks the index.
+  try {
+    const domainGraph = await deriveDomainGraph(graphStore.db);
+    log.info(
+      `Domain graph: ${domainGraph.propagated} propagated, ${domainGraph.communities} communities labeled, ${domainGraph.edges} edges`
+    );
+  } catch (err) {
+    log.info(`Domain-graph derivation skipped: ${(err as Error).message}`);
+  }
 
   // Phase 8: Convention detection + rule generation (L6)
   progress?.({
@@ -1445,7 +1521,11 @@ async function populateCozoDB(
   // of dirty pages each commit writes to the WAL (the WAL captures every dirty
   // page, and under the proxy's held reader none are reclaimed mid-index).
   entityRows.sort((a, b) =>
-    (a[0] as string) < (b[0] as string) ? -1 : (a[0] as string) > (b[0] as string) ? 1 : 0
+    (a[0] as string) < (b[0] as string)
+      ? -1
+      : (a[0] as string) > (b[0] as string)
+        ? 1
+        : 0
   );
   fileIndexRows.sort((a, b) => {
     const fa = a[0] as string;

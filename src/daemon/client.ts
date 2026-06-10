@@ -13,8 +13,9 @@ import { type Socket, createConnection } from "node:net";
 import { join } from "node:path";
 import {
   type DaemonResponse,
-  type EnsureOkResponse,
   ENSURE_REPO_REQUEST_TIMEOUT_MS,
+  type EnsureOkResponse,
+  type EntitlementsOkResponse,
   type OkResponse,
   type StatusOkResponse,
 } from "./protocol.js";
@@ -121,7 +122,7 @@ export function sendFireAndForget(
 export async function ensureRepo(
   sockPath: string,
   repoPath: string
-): Promise<string> {
+): Promise<{ sock: string; daemonVersion?: string }> {
   // `ensure` blocks on the daemon while a cold repo indexes (up to
   // REPO_READY_TIMEOUT_MS). Use the longer ENSURE_REPO_REQUEST_TIMEOUT_MS so
   // the bridge doesn't abandon a proxy that is still legitimately indexing a
@@ -135,7 +136,10 @@ export async function ensureRepo(
   if (!resp.ok) {
     throw new Error(`ensureRepo failed: ${(resp as { error: string }).error}`);
   }
-  return (resp as EnsureOkResponse).sock;
+  const ok = resp as EnsureOkResponse;
+  // U4: `version` carries the daemon's running version for the skew handshake
+  // (absent on an older daemon — the caller treats that as "no skew action").
+  return { sock: ok.sock, daemonVersion: ok.version };
 }
 
 /**
@@ -176,6 +180,21 @@ export function sendActivity(sockPath: string, repoPath: string): void {
   sendFireAndForget(sockPath, { cmd: "activity", repo: repoPath });
 }
 
+/**
+ * U4: ask the daemon to gracefully shut down (drain children → exit). Used by
+ * the version handshake to converge a stale daemon: after this resolves the
+ * bridge's discovery loop re-spawns a fresh daemon on the new on-disk version.
+ * Best-effort — returns true if the daemon acknowledged, false otherwise.
+ */
+export async function requestDaemonShutdown(sockPath: string): Promise<boolean> {
+  try {
+    const resp = await sendRequest(sockPath, { cmd: "shutdown" }, 5_000);
+    return resp.ok === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Get status of all managed repos. */
 export async function getStatus(sockPath: string): Promise<StatusOkResponse> {
   const resp = await sendRequest(sockPath, { cmd: "status" });
@@ -183,6 +202,26 @@ export async function getStatus(sockPath: string): Promise<StatusOkResponse> {
     throw new Error(`getStatus failed: ${(resp as { error: string }).error}`);
   }
   return resp as StatusOkResponse;
+}
+
+/**
+ * Ask the daemon for the current pricing tier (Sprint I3). Returns null when
+ * the daemon is unreachable (so the caller falls back to reading the cache
+ * file directly). Never throws — a short timeout, swallow errors. The daemon
+ * answers from local state only; this never causes a network call.
+ */
+export async function getDaemonTier(
+  sockPath: string
+): Promise<EntitlementsOkResponse | null> {
+  try {
+    const resp = await sendRequest(sockPath, { cmd: "entitlements" }, 2_000);
+    if (resp.ok && "plan" in resp) {
+      return resp as EntitlementsOkResponse;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**

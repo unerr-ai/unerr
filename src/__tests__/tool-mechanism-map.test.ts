@@ -48,13 +48,12 @@ describe("tool-mechanism-map — partition over TIER_ENTRIES", () => {
 });
 
 describe("tool-mechanism-map — surviving MCP catalog", () => {
-  it("final catalog is exactly the seven interactive reads", () => {
+  it("final catalog is exactly the six interactive reads (get_entity merged into search_code({detail:true}) 2026-06)", () => {
     expect(finalMcpCatalog()).toEqual(
       [
         "fetch_url",
         "file_outline",
         "file_read",
-        "get_entity",
         "get_references",
         "search_code",
         "unerr_context",

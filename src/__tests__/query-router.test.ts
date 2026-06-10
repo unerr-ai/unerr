@@ -213,9 +213,6 @@ describe("QueryRouter", () => {
       // expect(router.isKnownTool("check_rules")).toBe(true);
       // expect(router.isKnownTool("get_business_context")).toBe(true);
       expect(router.isKnownTool("get_conventions")).toBe(true);
-      // Disabled: semantic_search, find_similar — embedding store never wired
-      // expect(router.isKnownTool("semantic_search")).toBe(true);
-      // expect(router.isKnownTool("find_similar")).toBe(true);
       expect(router.isKnownTool("get_project_stats")).toBe(true);
       expect(router.isKnownTool("fetch_url")).toBe(true);
     });
@@ -235,6 +232,36 @@ describe("QueryRouter", () => {
       const result = await router.execute("get_function", { key: "fn1" });
       expect(result._meta.source).toBe("local");
       expect(localGraph.getEntity).toHaveBeenCalledWith("fn1");
+    });
+
+    // Regression: executeRaw (the in-process recon runner) must apply the same
+    // search_code{detail}→get_entity translation execute() does. Without it the
+    // recon focus-body fetch hit the plain search_code list (rows, no body) and
+    // unerr_context inlined NO verbatim bodies in detailed mode.
+    it("executeRaw translates search_code profile mode to a single entity (not the list)", async () => {
+      const localGraph = createMockLocalGraph();
+      const router = new QueryRouter(localGraph);
+
+      const raw = (await router.executeRaw("search_code", {
+        query: "fn1",
+        detail: true,
+        include_body: true,
+      })) as Record<string, unknown>;
+
+      // Resolved to the single get_entity profile, not the (empty) search list.
+      expect(Array.isArray(raw)).toBe(false);
+      expect(raw.name).toBe("doStuff");
+      expect(localGraph.getEntity).toHaveBeenCalledWith("fn1");
+    });
+
+    it("executeRaw leaves a plain search_code as the list search", async () => {
+      const localGraph = createMockLocalGraph();
+      const router = new QueryRouter(localGraph);
+
+      const raw = await router.executeRaw("search_code", { query: "fn1" });
+      // No detail/include_body → list search path (searchEntities mock → []).
+      expect(Array.isArray(raw)).toBe(true);
+      expect(localGraph.getEntity).not.toHaveBeenCalled();
     });
 
     it("returns error when local fails (no cloud fallback)", async () => {
@@ -553,14 +580,14 @@ describe("QueryRouter", () => {
       const router = new QueryRouter(createMockLocalGraph());
       router.setMode("setup");
 
-      const result = await router.execute("semantic_search", { query: "auth" });
+      const result = await router.execute("get_project_stats", {});
       expect(result._meta.mode).toBe("setup");
       const content = result.content as {
         message: string;
         tool: string;
         available: boolean;
       };
-      expect(content.tool).toBe("semantic_search");
+      expect(content.tool).toBe("get_project_stats");
       expect(content.available).toBe(false);
     });
 
@@ -634,9 +661,9 @@ describe("QueryRouter", () => {
 
       const result = await router.execute("get_function", { key: "fn1" });
       // All tools should be degraded in setup mode (19 = 18 base after disabling
-      // get_rules, check_rules, get_business_context, semantic_search,
-      // find_similar, unerr_revert_entity, 8 blueprint tools; +1 fetch_url;
-      // +1 review_changes — Surface C local tool added to LOCAL_TOOLS)
+      // get_rules, check_rules, get_business_context, unerr_revert_entity,
+      // 8 blueprint tools; +1 fetch_url; +1 review_changes — Surface C local
+      // tool added to LOCAL_TOOLS)
       expect(result._meta.tools_degraded?.length).toBe(19);
     });
   });
@@ -1301,8 +1328,6 @@ describe("QueryRouter", () => {
     });
   });
 
-  // L8.3: Deferred Embedding Status Tests — disabled (semantic_search/find_similar removed from LOCAL_TOOLS)
-
   // ── Sprint 9 T9.2: get_entity({want:[...]}) read-merge ──────────
   // get_entity absorbs get_references + get_imports via the `want` param.
   // The field-identity contract (merged rows == standalone rows) is held
@@ -1315,11 +1340,26 @@ describe("QueryRouter", () => {
     function graphWithRefs() {
       const g = createMockLocalGraph();
       (g.getCallersOf as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { key: "caller1", name: "callerOne", file_path: "a.ts", body: "SECRET" },
-        { key: "caller2", name: "callerTwo", file_path: "b.ts", body: "SECRET" },
+        {
+          key: "caller1",
+          name: "callerOne",
+          file_path: "a.ts",
+          body: "SECRET",
+        },
+        {
+          key: "caller2",
+          name: "callerTwo",
+          file_path: "b.ts",
+          body: "SECRET",
+        },
       ]);
       (g.getCalleesOf as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { key: "callee1", name: "calleeOne", file_path: "c.ts", body: "SECRET" },
+        {
+          key: "callee1",
+          name: "calleeOne",
+          file_path: "c.ts",
+          body: "SECRET",
+        },
       ]);
       (g.getImports as ReturnType<typeof vi.fn>).mockResolvedValue([
         { imported_file: "./foo.ts" },
@@ -1373,6 +1413,84 @@ describe("QueryRouter", () => {
       });
       expect(merged.getCallersOf).toHaveBeenCalledWith("fn1");
       expect(standalone.getCallersOf).toHaveBeenCalledWith("fn1");
+    });
+  });
+
+  // ── get_entity merge (2026-06): search_code detail-flag translation ──
+  // get_entity left the advertised catalog; its executor is reached via
+  // search_code({detail:true}) (or include_body / non-empty want, which
+  // imply detail). The translation happens at the top of execute(), so it
+  // covers both transports. Parity contract: a translated search_code call
+  // takes the exact same executor path as a by-name get_entity call.
+  describe("search_code detail-flag translation (get_entity merge)", () => {
+    // NOTE: the get_entity executor's key-resolution fallback may itself call
+    // searchEntities (fuzzy resolve, limit 15) when the mock db returns no
+    // by-key/by-name rows — so "translation happened" is asserted by the
+    // executor-only reads (getEntity / getCallersOf) plus the ABSENCE of the
+    // ranked-list call shape searchEntities(query, 20).
+    it("detail:true routes to the get_entity executor, not ranked search", async () => {
+      const g = createMockLocalGraph();
+      const router = new QueryRouter(g);
+      await router.execute("search_code", { query: "fn1", detail: true });
+      expect(g.getEntity).toHaveBeenCalled();
+      expect(g.searchEntities).not.toHaveBeenCalledWith("fn1", 20);
+    });
+
+    it("non-empty want implies detail — attaches callers via the shared helper", async () => {
+      const g = createMockLocalGraph();
+      (g.getCallersOf as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { key: "caller1", name: "callerOne", file_path: "a.ts", body: "x" },
+      ]);
+      const router = new QueryRouter(g);
+      await router.execute("search_code", { query: "fn1", want: ["callers"] });
+      expect(g.getCallersOf).toHaveBeenCalledWith("fn1");
+      expect(g.searchEntities).not.toHaveBeenCalledWith("fn1", 20);
+    });
+
+    it("include_body:true implies detail", async () => {
+      const g = createMockLocalGraph();
+      const router = new QueryRouter(g);
+      await router.execute("search_code", {
+        query: "fn1",
+        include_body: true,
+      });
+      expect(g.getEntity).toHaveBeenCalled();
+      expect(g.searchEntities).not.toHaveBeenCalledWith("fn1", 20);
+    });
+
+    it("plain search_code stays a ranked-list search (no translation)", async () => {
+      const g = createMockLocalGraph();
+      const router = new QueryRouter(g);
+      await router.execute("search_code", { query: "fn1" });
+      expect(g.searchEntities).toHaveBeenCalledWith("fn1", 20);
+      expect(g.getEntity).not.toHaveBeenCalled();
+    });
+
+    it("translated call resolves the same entity as by-name get_entity (parity)", async () => {
+      const translated = createMockLocalGraph();
+      await new QueryRouter(translated).execute("search_code", {
+        query: "fn1",
+        detail: true,
+      });
+      const byName = createMockLocalGraph();
+      await new QueryRouter(byName).execute("get_entity", { key: "fn1" });
+      // Both surfaces hit the same executor with the same resolved key —
+      // identical graph reads, identical first-call arguments.
+      expect(
+        (translated.getEntity as ReturnType<typeof vi.fn>).mock.calls[0]
+      ).toEqual((byName.getEntity as ReturnType<typeof vi.fn>).mock.calls[0]);
+    });
+
+    it("explicit key wins over query when both are present", async () => {
+      const g = createMockLocalGraph();
+      (g.getCallersOf as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      const router = new QueryRouter(g);
+      await router.execute("search_code", {
+        query: "ignored",
+        key: "fn1",
+        want: ["callers"],
+      });
+      expect(g.getCallersOf).toHaveBeenCalledWith("fn1");
     });
   });
 });

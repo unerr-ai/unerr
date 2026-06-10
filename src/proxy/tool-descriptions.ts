@@ -47,14 +47,15 @@ export interface TierEntry {
 }
 
 /**
- * The MCP catalog — exactly the 8 tools the model sees in `tools/list`:
- *   search_code, file_outline, file_read, get_entity, get_references,
- *   fetch_url, unerr_context, unerr_track.
+ * The MCP catalog — exactly the 7 tools the model sees in `tools/list`:
+ *   search_code, file_outline, file_read, get_references, fetch_url,
+ *   unerr_context, unerr_track.
  *
  * Everything else the proxy can dispatch is NOT a catalog member. Those names
- * (get_conventions, unerr_recall_notes, unerr_remember, mark_*, record_fact,
- * recall_facts, get_critical_nodes, get_cross_boundary_links, file_connections,
- * get_test_coverage, get_imports, get_file, get_project_stats, review_changes,
+ * (get_entity, get_conventions, unerr_recall_notes, unerr_remember, mark_*,
+ * record_fact, recall_facts, get_critical_nodes, get_cross_boundary_links,
+ * file_connections, get_test_coverage, get_imports, get_file,
+ * get_project_stats, review_changes,
  * unerr_turn_summary, unerr_surface2_line) stay reachable ONLY by name — the
  * proxy's by-name dispatch switch matches them regardless of catalog
  * membership — because a Claude Code lifecycle hook (UDS `tools/call`), the
@@ -79,7 +80,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   search_code: {
     tier: 1,
     active:
-      "Search code entities (function/class/type/variable) by name across project. Returns ranked results with file paths and kinds, <5ms. Then call unerr_context({prompt:'<task>'}) for anchored notes + callers + conventions on the top result.",
+      "Search code entities by name — ranked matches, <5ms. detail:true resolves ONE entity (signature, fan-in/out, risk); include_body:true adds source; want:['callers','callees','imports'] attaches refs. If an entity's contract surprises you, emit unerr-save: note fct|e:<entity_key>|~|<one-line> in your closing message.",
     locked: "[tier 1 — always exposed]",
   },
   file_outline: {
@@ -94,12 +95,8 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
       "Read a file by path, or a single function via the entity param. file_read auto-injects rule-notes, conventions, and drift for the file inline — read them before editing.",
     locked: "[tier 1 — always exposed]",
   },
-  get_entity: {
-    tier: 1,
-    active:
-      "Get a code entity (function/class/type/variable) by key — signature + metadata, and via want:['callers','callees','imports'] the references + file imports in one call. include_body:true for full source. If contract surprises you, emit unerr-save: note fct|e:<entity_key>|~|<one-line> in your closing message.",
-    locked: "[tier 1 — always exposed]",
-  },
+  // get_entity merged into search_code({detail:true}) 2026-06 — executor
+  // retained in QueryRouter, dispatched by name only (see roster above).
   get_references: {
     tier: 1,
     active:
@@ -119,7 +116,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   unerr_context: {
     tier: 1,
     active:
-      "One-shot repo context before you edit. Collapses anchored-notes + search_code + get_references + get_conventions into ONE call — pass prompt:'<what you are about to do>'. Returns the merged, budget-trimmed bundle so the discovery fan-out costs one round-trip, not five.",
+      "One-shot repo context before you edit: anchored-notes + search_code + get_references + get_conventions in ONE call, plus the focus entities' verbatim source inlined with file:line. The bundle names what you already have, so skip the re-read. pass prompt:'<task>'; response_format 'detailed'|'concise'.",
     locked: "[tier 1 — always exposed]",
   },
 

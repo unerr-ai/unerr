@@ -40,7 +40,7 @@ import type { PersistenceEffectivenessTracker } from "../tracking/persistence-ef
 import type { TokenFlowWriter } from "../tracking/token-flow.js";
 import { formatUnknownError } from "../utils/format-error.js";
 import type { BackgroundIndexer } from "./background-indexer.js";
-import type { LocalEmbeddingStore } from "./local-embeddings.js";
+import { readEntityBodyLines } from "./entity-source.js";
 import type {
   CozoGraphStore,
   DriftEntity,
@@ -48,6 +48,11 @@ import type {
 } from "./local-graph.js";
 import type { evaluateRules as EvaluateRulesFn } from "./rule-evaluator.js";
 import { tokenize } from "./search-index.js";
+import {
+  attachAnnotations,
+  fetchActiveDomainTags,
+  fetchVocabularyNudges,
+} from "./semantic/annotation-indexer.js";
 import { SessionContext } from "./session-context.js";
 import type { createSessionHealthMonitor } from "./session-health-monitor.js";
 import { smartTruncate, truncateResultList } from "./smart-truncate.js";
@@ -55,13 +60,35 @@ import { estimateTokens } from "./token-estimator.js";
 
 export type ToolSource = "local";
 
-/** L8.3: Deferred embedding computation status (shared between proxy and QueryRouter). */
-export interface EmbeddingStatus {
-  ready: boolean;
-  progress: number;
-  total: number;
-}
 export type ProxyMode = "local" | "parse" | "setup";
+
+/**
+ * Resolve `search_code` profile mode (`detail` / `include_body` / `want`) to the
+ * internal `get_entity` executor, carrying `query` over as `key`. Shared by the
+ * public `execute()` path and `executeRaw()` (the in-process recon runner) so
+ * the two can never diverge — `executeLocal` dispatches purely on tool name, so
+ * an un-translated `search_code{detail:true}` would hit the list search (rows,
+ * no body) instead of the single-entity profile. Pure: returns the resolved
+ * tool name + args, mutating nothing.
+ */
+function resolveProfileTool(
+  toolName: string,
+  args: Record<string, unknown>
+): { toolName: string; args: Record<string, unknown> } {
+  if (
+    toolName === "search_code" &&
+    (args.detail === true ||
+      args.include_body === true ||
+      (Array.isArray(args.want) && args.want.length > 0))
+  ) {
+    const next =
+      args.key === undefined && args.query !== undefined
+        ? { ...args, key: args.query }
+        : args;
+    return { toolName: "get_entity", args: next };
+  }
+  return { toolName, args };
+}
 
 /**
  * Tool registry: all tools run locally against CozoDB.
@@ -96,9 +123,6 @@ const LOCAL_TOOLS = new Set([
   // "unerr_get_sprint_context",
   // "unerr_get_checkpoint_status",
 
-  // Local embedding tools (disabled — embedding store never wired in proxy/mcp-server)
-  // "semantic_search",
-  // "find_similar",
   "get_project_stats",
 
   // Sprint R: File-level graph tools
@@ -172,6 +196,14 @@ export interface CommunityMeta {
   label: string;
   size: number;
   cohesion: number;
+  /**
+   * Layer 8 §6 (SC-D.3): the dominant domain this community votes for, with the
+   * vote's purity (0–1). Present when the community carries a `community_domains`
+   * row. Lets the dashboard + digests name a community by its domain instead of
+   * a bare cluster ID.
+   */
+  domain?: string;
+  domain_purity?: number;
 }
 
 /** Cross-community edge metadata carried on internal `meta` (Leapfrog Sprint A). */
@@ -399,6 +431,24 @@ export interface ToolResult {
     tools_degraded?: string[];
     entity_risk?: EntityRiskMeta;
     drift?: DriftMeta;
+    /** Layer 8 §5.1 (SC-C.2): stale @sem/doc annotation on the focus entity. */
+    comment_drift?: {
+      entityKey: string;
+      name: string;
+      file: string;
+      line: number;
+    };
+    /**
+     * Layer 8 §6 (SC-D.3): the focus entity sits in a low-purity Louvain
+     * community — the domain vote is contested, so an edit here risks eroding
+     * a domain boundary. buildSignalPrefix renders it as a `ur|rsk` line.
+     */
+    boundary_erosion?: {
+      entityKey: string;
+      domain: string;
+      purity: number;
+      communityId: number;
+    };
     auto_check?: AutoCheckResult;
     /** Sprint 2: Blast radius metadata */
     blast_radius?: BlastRadiusMeta;
@@ -441,8 +491,6 @@ export interface ToolResult {
     indexed_files?: number;
     /** L11.2: Total files to index (during indexing) */
     total_files?: number;
-    /** L8.3: Embedding computation status (e.g. "computing") */
-    embedding_status?: string;
     /** Layer 6 — wire shape of `content` for the agent */
     format?: "json" | "columnar" | "outline";
     /** Layer 6 FE-C: column order for `_fmt:columnar` bodies */
@@ -596,12 +644,6 @@ export class QueryRouter {
 
   /** L11.1: Background indexer reference — enables partial graph responses during indexing. */
   private backgroundIndexer: BackgroundIndexer | null = null;
-
-  /** Sprint L3: Local embedding store for semantic search / find_similar. */
-  private embeddingStore: LocalEmbeddingStore | null = null;
-
-  /** L8.3: Deferred embedding computation status. */
-  private embeddingStatus: EmbeddingStatus | null = null;
 
   /** L9.4: DriftTracker for writing changed files to drift overlay in Local Mode. */
   private driftTracker: DriftTracker | null = null;
@@ -854,22 +896,6 @@ export class QueryRouter {
    */
   setBackgroundIndexer(indexer: BackgroundIndexer): void {
     this.backgroundIndexer = indexer;
-  }
-
-  /**
-   * Set the local embedding store (Sprint L3).
-   * When set, semantic_search and find_similar route locally.
-   */
-  setEmbeddingStore(store: LocalEmbeddingStore): void {
-    this.embeddingStore = store;
-  }
-
-  /**
-   * Set the deferred embedding computation status (L8.3).
-   * The proxy updates this object's progress/ready fields as computation proceeds.
-   */
-  setEmbeddingStatus(status: EmbeddingStatus): void {
-    this.embeddingStatus = status;
   }
 
   /**
@@ -1160,10 +1186,23 @@ export class QueryRouter {
   }
 
   async execute(
-    toolName: string,
-    args: Record<string, unknown>
+    requestedTool: string,
+    requestedArgs: Record<string, unknown>
   ): Promise<ToolResult> {
     const t0 = performance.now();
+
+    // search_code profile mode — detail:true (or include_body / want, which
+    // imply it) resolves the query to ONE entity and returns the full profile.
+    // Translated to the internal get_entity executor (de-advertised from the
+    // catalog 2026-06, retained by name like get_function/get_class) so every
+    // downstream stage — risk injection, noise stripping, wire encoding,
+    // telemetry — keys on the single-entity tool name it already handles.
+    // Same early-translate pattern as translateUnerrTrack (proxy.ts). The
+    // translation is shared with executeRaw via resolveProfileTool so the public
+    // and raw paths can never diverge (executeLocal dispatches on tool name).
+    const profile = resolveProfileTool(requestedTool, requestedArgs);
+    const toolName = profile.toolName;
+    const args = profile.args;
 
     // Mode-aware: SETUP mode returns informational response (not an error)
     if (this.currentMode === "setup") {
@@ -1370,6 +1409,28 @@ export class QueryRouter {
         meta.drift = driftMeta;
       }
 
+      // Layer 8 §5.1 (SC-C.2): inject comment-drift metadata when the focus
+      // entity carries a stale @sem/doc annotation (body moved, comment did
+      // not). buildSignalPrefix renders it as a once-per-episode `ur|ctx` nudge.
+      const commentDriftMeta = await this.extractCommentDriftMeta(
+        toolName,
+        args
+      );
+      if (commentDriftMeta) {
+        meta.comment_drift = commentDriftMeta;
+      }
+
+      // Layer 8 §6 (SC-D.3): inject boundary-erosion metadata when the focus
+      // entity lives in a low-purity community (the domain vote is contested).
+      // buildSignalPrefix renders it as a once-per-episode `ur|rsk` nudge.
+      const boundaryErosionMeta = await this.extractBoundaryErosionMeta(
+        toolName,
+        args
+      );
+      if (boundaryErosionMeta) {
+        meta.boundary_erosion = boundaryErosionMeta;
+      }
+
       // Persistent-memory effectiveness: subsequent activity on an entity
       // counts as the agent "acting on" any open fact/convention signal for
       // that entity. Drift / high entity_risk also signal a potential
@@ -1394,7 +1455,7 @@ export class QueryRouter {
         }
       }
 
-      // L8.3: Merge inner _meta from executeLocal (e.g. embedding_status)
+      // Merge inner _meta from executeLocal (e.g. indexing status)
       if (
         result &&
         typeof result === "object" &&
@@ -2039,12 +2100,26 @@ export class QueryRouter {
           const communityInfo =
             await this.localGraph.getCommunityForEntity(entityKey);
           if (communityInfo && communityInfo.id >= 0) {
+            // SC-D.3: name the community by its voted domain when one exists.
+            const domainVote = await this.lookupCommunityDomain(
+              communityInfo.id
+            );
             result._meta.community = {
               id: communityInfo.id,
               label: communityInfo.label,
               size: communityInfo.size,
               cohesion: communityInfo.cohesion,
+              ...(domainVote
+                ? {
+                    domain: domainVote.domain,
+                    domain_purity: domainVote.purity,
+                  }
+                : {}),
             };
+            // SC-D.3: prefer the voted domain name over the bare cluster label.
+            const named = domainVote
+              ? `Domain "${domainVote.domain}" (community ${communityInfo.label}, purity ${Math.round(domainVote.purity * 100)}%, ${communityInfo.size} entities, cohesion ${communityInfo.cohesion})`
+              : `Community "${communityInfo.label}" (${communityInfo.size} entities, cohesion ${communityInfo.cohesion})`;
             const crossEdges =
               await this.localGraph.getCrossCommunityEdges(entityKey);
             if (crossEdges.length > 0) {
@@ -2057,9 +2132,9 @@ export class QueryRouter {
                   relation: e.relation,
                 }));
               result._meta.cross_community_count = crossEdges.length;
-              context.community = `Community "${communityInfo.label}" (${communityInfo.size} entities, cohesion ${communityInfo.cohesion}). ${crossEdges.length} cross-community connection${crossEdges.length !== 1 ? "s" : ""} to: ${[...new Set(crossEdges.map((e) => e.entity_community_label))].join(", ")}`;
+              context.community = `${named}. ${crossEdges.length} cross-community connection${crossEdges.length !== 1 ? "s" : ""} to: ${[...new Set(crossEdges.map((e) => e.entity_community_label))].join(", ")}`;
             } else {
-              context.community = `Community "${communityInfo.label}" (${communityInfo.size} entities, cohesion ${communityInfo.cohesion}). No cross-community connections.`;
+              context.community = `${named}. No cross-community connections.`;
             }
             hasContext = true;
           }
@@ -2992,7 +3067,13 @@ export class QueryRouter {
     toolName: string,
     args: Record<string, unknown>
   ): Promise<unknown> {
-    return this.executeLocal(toolName, args);
+    // Mirror the public execute() path: search_code in profile mode
+    // (detail / include_body / want) resolves to ONE entity via get_entity.
+    // executeLocal dispatches purely on tool name, so the raw recon runner MUST
+    // translate here too — otherwise the focus-body fetch hits the plain
+    // search_code case (rows, no body) and recon inlines nothing.
+    const profile = resolveProfileTool(toolName, args);
+    return this.executeLocal(profile.toolName, profile.args);
   }
 
   /**
@@ -3072,10 +3153,13 @@ export class QueryRouter {
           total: entities.length,
         };
       }
-      case "get_entity": // consolidated: replaces get_function + get_class
+      case "get_entity": // internal alias — advertised surface is search_code({detail:true})
       case "get_function": // alias (backward compat)
       case "get_class": {
-        const rawArg = (args.key as string) ?? (args.name as string);
+        const rawArg =
+          (args.key as string) ??
+          (args.name as string) ??
+          (args.query as string);
         // Aliases imply a kind even when the caller didn't pass one
         const aliasKind =
           toolName === "get_function"
@@ -3109,83 +3193,78 @@ export class QueryRouter {
             suggestions,
             _hint:
               suggestions.length > 0
-                ? `No entity named "${rawArg}". Closest names: ${suggestions.join(", ")}. Re-call get_entity with one of these, or search_code({query:"${rawArg}"}).`
+                ? `No entity named "${rawArg}". Closest names: ${suggestions.join(", ")}. Re-call search_code({query:"<one of these>", detail:true}), or search_code({query:"${rawArg}"}) for the ranked list.`
                 : `No entity named "${rawArg}". Run search_code({query:"${rawArg}"}) to locate it.`,
           };
         }
-        // Resolve actual body from source file — CozoDB stores body_hash, not body text
-        if (entity?.file_path && entity.start_line > 0) {
-          try {
-            const { readFileSync } = await import("node:fs");
-            const { resolve } = await import("node:path");
-            const cwd = this.projectRoot ?? process.cwd();
-            const abs = resolve(cwd, entity.file_path);
-            const lines = readFileSync(abs, "utf-8").split("\n");
-            const start = entity.start_line - 1; // 0-based
-            const end = entity.end_line ?? lines.length;
-            const bodyLines = lines.slice(start, end);
+        // Resolve actual body from source file — CozoDB stores body_hash, not
+        // body text. readEntityBodyLines is the shared reader (also used by the
+        // cold-path recon runner) so warm and cold inline byte-identical source.
+        const bodyLines = readEntityBodyLines(
+          entity?.file_path,
+          entity?.start_line,
+          entity?.end_line,
+          this.projectRoot ?? process.cwd()
+        );
+        if (bodyLines) {
+          const CHARS_PER_TOKEN = 4;
+          const tokenBudget =
+            typeof args.token_budget === "number" && args.token_budget >= 100
+              ? args.token_budget
+              : 400;
+          // Body inclusion is opt-in. Heuristic: explicit include_body, or
+          // budget >= 1500 (caller clearly asked for full body), or aliases
+          // that historically returned full bodies. Default => preview only.
+          const includeBody =
+            args.include_body === true ||
+            tokenBudget >= 1500 ||
+            toolName === "get_function" ||
+            toolName === "get_class";
+          const fullBody = bodyLines.join("\n");
+          // Budget the wire cap (enforceByteCap) will require to deliver the
+          // full body uncapped. The cap serializes the ENTIRE response (body +
+          // JSON envelope + newline/quote escaping) and rounds the token
+          // estimate up to the next 100. Mirror that here over the projected
+          // full-body entity so the suggested token_budget actually clears the
+          // cap on retry. Estimating only the raw body (the prior
+          // `estimateTokens(fullBody)+100`) undershot — JSON escaping plus the
+          // entity envelope inflate the on-wire bytes, so the agent bounced off
+          // a second gate (e.g. suggested 2876 when the cap needed 3400).
+          const suggestedBudget =
+            Math.ceil(estimateTokens({ ...entity, body: fullBody }) / 100) *
+            100;
 
-            const CHARS_PER_TOKEN = 4;
-            const tokenBudget =
-              typeof args.token_budget === "number" && args.token_budget >= 100
-                ? args.token_budget
-                : 400;
-            // Body inclusion is opt-in. Heuristic: explicit include_body, or
-            // budget >= 1500 (caller clearly asked for full body), or aliases
-            // that historically returned full bodies. Default => preview only.
-            const includeBody =
-              args.include_body === true ||
-              tokenBudget >= 1500 ||
-              toolName === "get_function" ||
-              toolName === "get_class";
-            const fullBody = bodyLines.join("\n");
-            // Budget the wire cap (enforceByteCap) will require to deliver the
-            // full body uncapped. The cap serializes the ENTIRE response (body +
-            // JSON envelope + newline/quote escaping) and rounds the token
-            // estimate up to the next 100. Mirror that here over the projected
-            // full-body entity so the suggested token_budget actually clears the
-            // cap on retry. Estimating only the raw body (the prior
-            // `estimateTokens(fullBody)+100`) undershot — JSON escaping plus the
-            // entity envelope inflate the on-wire bytes, so the agent bounced off
-            // a second gate (e.g. suggested 2876 when the cap needed 3400).
-            const suggestedBudget =
-              Math.ceil(estimateTokens({ ...entity, body: fullBody }) / 100) *
-              100;
-
-            if (!includeBody) {
-              // Structural preview: first ~15 lines as a signature/intro snippet
-              const PREVIEW_LINES = 15;
-              const previewLines = bodyLines.slice(0, PREVIEW_LINES);
-              (entity as unknown as Record<string, unknown>).body_preview =
-                previewLines.join("\n");
-              if (bodyLines.length > PREVIEW_LINES) {
-                (entity as unknown as Record<string, unknown>)._preview = {
-                  shown_lines: PREVIEW_LINES,
-                  total_lines: bodyLines.length,
-                  _hint: `Structural preview only — showing first ${PREVIEW_LINES} of ${bodyLines.length} lines. Pass include_body:true (or token_budget:${suggestedBudget}) to get the full body.`,
-                };
-              }
-            } else if (fullBody.length > tokenBudget * CHARS_PER_TOKEN) {
-              const maxChars = tokenBudget * CHARS_PER_TOKEN;
-              const truncatedLines: string[] = [];
-              let charCount = 0;
-              for (const line of bodyLines) {
-                if (charCount + line.length + 1 > maxChars) break;
-                truncatedLines.push(line);
-                charCount += line.length + 1;
-              }
-              entity.body = truncatedLines.join("\n");
-              (entity as unknown as Record<string, unknown>)._truncated = {
-                shown_lines: truncatedLines.length,
+          if (!includeBody) {
+            // Structural preview: first ~15 lines as a signature/intro snippet
+            const PREVIEW_LINES = 15;
+            const previewLines = bodyLines.slice(0, PREVIEW_LINES);
+            (entity as unknown as Record<string, unknown>).body_preview =
+              previewLines.join("\n");
+            if (bodyLines.length > PREVIEW_LINES) {
+              (entity as unknown as Record<string, unknown>)._preview = {
+                shown_lines: PREVIEW_LINES,
                 total_lines: bodyLines.length,
-                omitted_lines: `${entity.start_line + truncatedLines.length}-${entity.start_line + bodyLines.length - 1}`,
-                _hint: `Body truncated: showing ${truncatedLines.length} of ${bodyLines.length} lines (~${tokenBudget} tokens). To see the full entity, pass token_budget: ${suggestedBudget}. Or use file_read with offset: ${entity.start_line + truncatedLines.length}, limit: ${bodyLines.length - truncatedLines.length} to read the remaining lines.`,
+                _hint: `Structural preview only — showing first ${PREVIEW_LINES} of ${bodyLines.length} lines. Pass include_body:true (or token_budget:${suggestedBudget}) to get the full body.`,
               };
-            } else {
-              entity.body = fullBody;
             }
-          } catch {
-            // File may not exist on disk — keep whatever body the DB had
+          } else if (fullBody.length > tokenBudget * CHARS_PER_TOKEN) {
+            const maxChars = tokenBudget * CHARS_PER_TOKEN;
+            const truncatedLines: string[] = [];
+            let charCount = 0;
+            for (const line of bodyLines) {
+              if (charCount + line.length + 1 > maxChars) break;
+              truncatedLines.push(line);
+              charCount += line.length + 1;
+            }
+            entity.body = truncatedLines.join("\n");
+            (entity as unknown as Record<string, unknown>)._truncated = {
+              shown_lines: truncatedLines.length,
+              total_lines: bodyLines.length,
+              omitted_lines: `${entity.start_line + truncatedLines.length}-${entity.start_line + bodyLines.length - 1}`,
+              _hint: `Body truncated: showing ${truncatedLines.length} of ${bodyLines.length} lines (~${tokenBudget} tokens). To see the full entity, pass token_budget: ${suggestedBudget}. Or use file_read with offset: ${entity.start_line + truncatedLines.length}, limit: ${bodyLines.length - truncatedLines.length} to read the remaining lines.`,
+            };
+          } else {
+            entity.body = fullBody;
           }
         }
         // T9.2: get_entity absorbs get_references + get_imports via `want`.
@@ -3275,7 +3354,25 @@ export class QueryRouter {
       case "search_code": {
         const query = args.query as string;
         const limit = (args.limit as number) ?? 20;
-        return await this.localGraph.searchEntities(query, limit);
+        const rows = await this.localGraph.searchEntities(query, limit);
+        // Layer 8 §5.4: serve the domain annotation alongside each hit when one
+        // exists; un-annotated hits (and an absent graph db) pass through
+        // unchanged — attachAnnotations is best-effort.
+        return await attachAnnotations(this.localGraph.db, rows);
+      }
+      case "domain_tags": {
+        // Layer 8 §5.4 "reuse before invent": the active domain-tag vocabulary
+        // ranked by entity count, served in the recon bundle so a new
+        // `@sem domain=` reuses an existing tag. Best-effort — [] on any error.
+        const tags = await fetchActiveDomainTags(this.localGraph.db);
+        return { tags };
+      }
+      case "vocab_nudges": {
+        // Layer 8 §5.2 / §6.4: the canonical/provisional split at the promotion
+        // threshold plus near-duplicate merge hints, served in the recon bundle
+        // so an agent standardises a `@sem domain=` instead of minting sprawl.
+        // Best-effort — empty sets on any error.
+        return await fetchVocabularyNudges(this.localGraph.db);
       }
       // Disabled: get_rules + check_rules — no rules detected/stored yet, always returns empty.
       // case "get_rules": { ... }
@@ -3407,7 +3504,6 @@ export class QueryRouter {
           tests: coverage,
         };
       }
-      // case "semantic_search" and "find_similar" disabled — embedding store never wired
       case "file_outline": {
         const { buildFileOutline } = await import(
           "../tools/coding/file-outline.js"
@@ -3878,7 +3974,152 @@ export class QueryRouter {
 
     return null;
   }
+
+  /**
+   * Layer 8 §5.1 (SC-C.2): detect a stale @sem/doc annotation on the focus
+   * entity (body moved, comment did not — status flipped by the C.1 predicate).
+   * Returns the name + file:line buildSignalPrefix needs for the
+   * once-per-episode comment-drift nudge, or null when no stale annotation
+   * exists. Best-effort: a DB error or absent annotation never disturbs the
+   * response.
+   */
+  private async extractCommentDriftMeta(
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<{
+    entityKey: string;
+    name: string;
+    file: string;
+    line: number;
+  } | null> {
+    if (!ENTITY_TOOLS.has(toolName)) return null;
+    const key = args.key as string | undefined;
+    if (!key) return null;
+    try {
+      const db = (
+        this.localGraph as unknown as {
+          db: import("./cozo-schema.js").CozoDb;
+        }
+      ).db;
+      // entity_key is the domain_annotations primary key (direct lookup, not a
+      // secondary index), joined to entities for the name + line. status is a
+      // value-column constant filter.
+      const res = await db.run(
+        `?[name, file_path, start_line] :=
+           *domain_annotations{entity_key: $key, status: "stale"},
+           *entities{key: $key, name, file_path, start_line}`,
+        { key }
+      );
+      if (res.rows.length === 0) return null;
+      const [name, filePath, startLine] = res.rows[0] as [
+        string,
+        string,
+        number,
+      ];
+      return {
+        entityKey: key,
+        name,
+        file: filePath,
+        line: typeof startLine === "number" ? startLine : 0,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Layer 8 §6 (SC-D.3): the voted domain + purity for a Louvain community,
+   * or null when the community has no `community_domains` row (untagged) or the
+   * lookup fails. Used to name communities by their domain in the `_meta`
+   * envelope + dashboard.
+   */
+  private async lookupCommunityDomain(
+    communityId: number
+  ): Promise<{ domain: string; purity: number } | null> {
+    try {
+      const db = (
+        this.localGraph as unknown as {
+          db: import("./cozo-schema.js").CozoDb;
+        }
+      ).db;
+      const res = await db.run(
+        `?[domain, purity] :=
+           *community_domains{community_id: $cid, domain, purity},
+           domain != ""`,
+        { cid: communityId }
+      );
+      if (res.rows.length === 0) return null;
+      const [domain, purity] = res.rows[0] as [string, number];
+      return { domain, purity: typeof purity === "number" ? purity : 0 };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Layer 8 §6 (SC-D.3): boundary-erosion signal. The focus entity's Louvain
+   * community carries a `community_domains` vote whose purity is below
+   * BOUNDARY_PURITY_THRESHOLD — the community mixes domains, so an edit here
+   * risks pulling code across a contested domain boundary. Returns the
+   * dominant domain + purity for the `ur|rsk` line, or null when the entity
+   * is in a pure (or unlabeled) community.
+   */
+  private async extractBoundaryErosionMeta(
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<{
+    entityKey: string;
+    domain: string;
+    purity: number;
+    communityId: number;
+  } | null> {
+    if (!ENTITY_TOOLS.has(toolName)) return null;
+    const key = args.key as string | undefined;
+    if (!key) return null;
+    try {
+      const db = (
+        this.localGraph as unknown as {
+          db: import("./cozo-schema.js").CozoDb;
+        }
+      ).db;
+      // Resolve the entity's community (primary-key lookup), then join the
+      // community_domains vote. domain is filtered non-empty so unlabeled
+      // communities never trip the signal.
+      const res = await db.run(
+        `?[domain, purity, community] :=
+           *entities{key: $key, community},
+           *community_domains{community_id: community, domain, purity},
+           domain != ""`,
+        { key }
+      );
+      if (res.rows.length === 0) return null;
+      const [domain, purity, community] = res.rows[0] as [
+        string,
+        number,
+        number,
+      ];
+      if (typeof purity !== "number" || purity >= BOUNDARY_PURITY_THRESHOLD) {
+        return null;
+      }
+      return {
+        entityKey: key,
+        domain,
+        purity,
+        communityId: typeof community === "number" ? community : -1,
+      };
+    } catch {
+      return null;
+    }
+  }
 }
+
+/**
+ * Layer 8 §6 (SC-D.3): a community whose domain vote falls below this purity
+ * is "contested" — editing an entity inside it earns a boundary-erosion
+ * `ur|rsk` line. 0.7 means the dominant domain holds under 70% of the
+ * confidence-weighted vote.
+ */
+const BOUNDARY_PURITY_THRESHOLD = 0.7;
 
 /** Entity-returning tool names where risk injection is relevant. */
 const ENTITY_TOOLS = new Set([

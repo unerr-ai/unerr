@@ -143,6 +143,7 @@ describe("Phase 4 — GraphHolder dispatch at the check cadence", () => {
         edgesAdded: 0,
         edgesDeleted: 0,
         elapsedMs: 1,
+        annotationsChanged: false,
       };
     });
     holder.setRebuildFactory(async () => {

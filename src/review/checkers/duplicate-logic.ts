@@ -62,7 +62,7 @@ export class DuplicateLogicChecker implements ReviewChecker {
         evidence: [
           `${change.name} (${change.filePath}) shares ${pct}% of its body shape with ${best.name} (${best.filePath})`,
         ],
-        action: `call get_entity({name:'${best.name}'}); reuse ${best.name} from ${best.filePath} instead of duplicating it`,
+        action: `call search_code({query:'${best.name}', detail:true}); reuse ${best.name} from ${best.filePath} instead of duplicating it`,
         needsModel: false,
       });
     }

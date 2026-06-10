@@ -107,11 +107,6 @@ export interface LocalModeStats {
   indexingTimeMs: number;
   communitiesDetected: number;
 
-  // Embedding proof (if BYO-LLM configured)
-  embeddingsComputed: number;
-  embeddingTimeMs: number;
-  semanticSearches: number;
-
   // Token savings proof
   tokensSavedByTruncation: number;
   truncatedResponses: number;
@@ -138,9 +133,6 @@ export function createLocalModeStats(): LocalModeStats {
     edgesComputed: 0,
     indexingTimeMs: 0,
     communitiesDetected: 0,
-    embeddingsComputed: 0,
-    embeddingTimeMs: 0,
-    semanticSearches: 0,
     tokensSavedByTruncation: 0,
     truncatedResponses: 0,
     correctionPatternsInjected: 0,
@@ -199,19 +191,6 @@ export function recordCorrectionInjection(localStats: LocalModeStats): void {
 
 export function recordCommunityContext(localStats: LocalModeStats): void {
   localStats.communityContextsInjected++;
-}
-
-export function recordEmbedding(
-  localStats: LocalModeStats,
-  count: number,
-  timeMs: number
-): void {
-  localStats.embeddingsComputed += count;
-  localStats.embeddingTimeMs += timeMs;
-}
-
-export function recordSemanticSearch(localStats: LocalModeStats): void {
-  localStats.semanticSearches++;
 }
 
 /** Accumulate latency advantage (remote baseline minus actual local latency). */
@@ -634,19 +613,6 @@ export function formatLocalModeSessionStats(
       );
   }
 
-  // Semantic Intelligence (only if BYO-LLM was used)
-  if (lm.embeddingsComputed > 0) {
-    lines.push("[unerr]");
-    lines.push("[unerr] Semantic Intelligence:");
-    lines.push(
-      `[unerr]   ${pad("Embeddings computed:", W - 2)} ${lm.embeddingsComputed}`
-    );
-    if (lm.semanticSearches > 0)
-      lines.push(
-        `[unerr]   ${pad("Semantic searches:", W - 2)} ${lm.semanticSearches}`
-      );
-  }
-
   // Network Isolation (always shown in Local Mode)
   lines.push("[unerr]");
   lines.push("[unerr] Network Isolation:");
@@ -742,7 +708,6 @@ export interface CumulativeLocalStats {
   totalViolationsCaught: number;
   totalCorrectionsApplied: number;
   totalFilesIndexed: number;
-  totalSemanticSearches: number;
   avgLatencyP50: number;
 }
 
@@ -760,7 +725,6 @@ function createEmptyCumulativeLocal(weekStart: string): CumulativeLocalStats {
     totalViolationsCaught: 0,
     totalCorrectionsApplied: 0,
     totalFilesIndexed: 0,
-    totalSemanticSearches: 0,
     avgLatencyP50: 0,
   };
 }
@@ -795,7 +759,6 @@ export function persistCumulativeLocalStats(
   cumulative.totalViolationsCaught += stats.violationsCaught;
   cumulative.totalCorrectionsApplied += lm.correctionPatternsInjected;
   cumulative.totalFilesIndexed += lm.filesIndexed;
-  cumulative.totalSemanticSearches += lm.semanticSearches;
 
   // Rolling average of p50 latency
   const localPercentiles = computePercentiles(

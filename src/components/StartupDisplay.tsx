@@ -47,12 +47,6 @@ export interface StartupState {
   localMode: boolean;
   /** Local Mode indexing stats for Act 1. */
   localIndexStats?: LocalIndexStats;
-  /** BYO-LLM connection status. */
-  byoLlmStatus?: "connected" | "not_configured" | "unreachable";
-  /** BYO-LLM provider name (e.g., "ollama"). */
-  byoLlmProvider?: string;
-  /** BYO-LLM model name (e.g., "nomic-embed-text"). */
-  byoLlmModel?: string;
   /** Total tools ready (for Local Mode Act 3). */
   toolCount?: number;
 }

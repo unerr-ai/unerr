@@ -6,6 +6,7 @@ import { navigateRoute } from "@/lib/router";
 import type {
   Bottleneck,
   CommunityHealth,
+  DomainCoverage,
   EfficiencyResponse,
   GraphStatsResponse,
   InsightCard,
@@ -654,6 +655,85 @@ function RiskHotspotsSection({
  * SECTION 4: Module Health Grid
  * ═══════════════════════════════════════════════════════════════════════ */
 
+/**
+ * SC-E.3 — domain coverage by provenance tier. A horizontal stacked bar per
+ * domain (comment / harvested / propagated / path), sorted with the weakest
+ * durable coverage first so the domains most in need of `@sem` backfill lead.
+ * Additive — sits below Module Health, never replaces it.
+ */
+function DomainCoveragePane({ coverage }: { coverage: DomainCoverage[] }) {
+  if (coverage.length === 0) return null;
+
+  const tiers = [
+    { key: "comment" as const, label: "comment", color: "bg-emerald-400" },
+    { key: "harvested" as const, label: "harvested", color: "bg-cyan-400" },
+    { key: "propagated" as const, label: "propagated", color: "bg-amber-400" },
+    { key: "path" as const, label: "path", color: "bg-surface-overlay" },
+  ];
+
+  return (
+    <section>
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="section-label text-violet-500">Domain Coverage</h2>
+        <span className="t-tertiary text-xs">
+          how each domain is tagged — durable (comment/harvested) vs. inferred
+          (propagated/path)
+        </span>
+      </div>
+      <div className="glass-panel rounded-xl p-4 space-y-3">
+        {coverage.map((d) => {
+          const durColor =
+            d.durablePct >= 75
+              ? "text-emerald-400"
+              : d.durablePct >= 40
+                ? "text-amber-400"
+                : "text-red-400";
+          return (
+            <div key={d.domain}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-foreground-emphasis truncate max-w-[200px]">
+                  {d.domain}
+                  <span className="ml-2 t-tertiary font-mono text-[10px]">
+                    {d.total} entities
+                  </span>
+                </span>
+                <span className={`font-mono text-sm font-semibold ${durColor}`}>
+                  {d.durablePct}% durable
+                </span>
+              </div>
+              <div className="flex h-2 rounded-full overflow-hidden bg-surface-overlay">
+                {tiers.map((t) => {
+                  const pct = d.total > 0 ? (d[t.key] / d.total) * 100 : 0;
+                  if (pct === 0) return null;
+                  return (
+                    <div
+                      key={t.key}
+                      className={t.color}
+                      style={{ width: `${pct}%` }}
+                      title={`${t.label}: ${d[t.key]}`}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
+          {tiers.map((t) => (
+            <span
+              key={t.key}
+              className="flex items-center gap-1 t-tertiary text-[10px]"
+            >
+              <span className={`inline-block h-2 w-2 rounded-sm ${t.color}`} />
+              {t.label}
+            </span>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ModuleHealthGrid({
   communities,
   onSelectModule,
@@ -695,8 +775,24 @@ function ModuleHealthGrid({
               aria-label={`Open ${c.label} in File Health Map`}
             >
               <div className="flex items-center justify-between mb-2">
+                {/* SC-D.3: lead with the voted domain when the community is
+                    tagged; keep the cluster label as a secondary line. */}
                 <span className="text-sm font-medium text-foreground-emphasis truncate max-w-[160px]">
-                  {c.label}
+                  {c.domain ? (
+                    <>
+                      {c.domain}
+                      {typeof c.domainPurityPct === "number" ? (
+                        <span className="ml-1 t-tertiary font-mono text-[10px]">
+                          {c.domainPurityPct}% pure
+                        </span>
+                      ) : null}
+                      <span className="block t-tertiary text-[10px] truncate">
+                        {c.label}
+                      </span>
+                    </>
+                  ) : (
+                    c.label
+                  )}
                 </span>
                 <span className={`font-mono text-sm font-semibold ${brColor}`}>
                   {c.blastRadiusCoveragePct}%
@@ -932,6 +1028,11 @@ export function GraphExplorer() {
               communities={insights.communityHealth}
               onSelectModule={openModuleInHealthMap}
             />
+          )}
+
+          {/* Domain Coverage — % of each domain tagged by provenance tier (SC-E.3) */}
+          {insights?.domainCoverage && insights.domainCoverage.length > 0 && (
+            <DomainCoveragePane coverage={insights.domainCoverage} />
           )}
         </div>
       ) : (

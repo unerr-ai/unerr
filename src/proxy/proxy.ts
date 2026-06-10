@@ -1789,6 +1789,25 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   } catch {
     /* best effort */
   }
+  // Mirror the live turn to a file the same way session.id is mirrored above.
+  // Exec processes (shell compressor, hook-runner) are spawned by the IDE
+  // shell, not the proxy, so they never inherit the proxy's UNERR_TURN env
+  // update — without this file every shell-compression row stamps turn=0.
+  // `persistLiveTurn` is called at the tools/call boundary below; it only
+  // touches disk when the turn actually advances (≤ once per turn, not per
+  // tool call), keeping the dispatch path off the synchronous-write hot loop.
+  const currentTurnPath = join(unerrDirForLedger, "state", "current.turn");
+  let lastPersistedTurn = -1;
+  const persistLiveTurn = (turn: number): void => {
+    if (turn === lastPersistedTurn) return;
+    lastPersistedTurn = turn;
+    try {
+      fsWriteFileSync(currentTurnPath, String(turn), "utf-8");
+    } catch {
+      /* best effort — env var UNERR_TURN remains the primary channel */
+    }
+  };
+  persistLiveTurn(sessionTurnProvider());
   router.setTokenFlow(tokenFlowWriter);
   efficiencyTracker = createEfficiencyTracker(tokenFlowWriter);
   router.setEfficiencyTracker(efficiencyTracker);
@@ -1986,8 +2005,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // before ShadowLedger.record() (which happens AFTER tool execution).
     shadowLedger.getTurnSegmenter().noteTurnOpen(shadowLedger.getSessionId());
     // Mirror live turn into env so out-of-band exec processes (shell
-    // compressor, hook-runner) attach their rows to the active turn.
-    process.env.UNERR_TURN = String(sessionTurnProvider());
+    // compressor, hook-runner) attach their rows to the active turn. Env
+    // reaches only proxy-spawned children; persistLiveTurn mirrors it to
+    // state/current.turn so IDE-spawned exec processes can read it too.
+    const liveTurn = sessionTurnProvider();
+    process.env.UNERR_TURN = String(liveTurn);
+    persistLiveTurn(liveTurn);
 
     // ── Sprint 8: unerr_track op-union → legacy (name, args) ──
     // Translate FIRST so the legacy tool's boundary validation + dispatch run
@@ -2569,6 +2592,49 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     const footerBlock = signalFooter ? `\n${signalFooter.trimEnd()}` : "";
     const bodyEnd = bodyText.endsWith("\n") ? "" : "\n";
 
+    // A3: Tier-1 in-band auth surfacing. Read the local auth state (no daemon
+    // round-trip, no keychain) and attach the one `ur|act`/`ur|fct` line the
+    // state warrants — deduped once per session per state via the shared
+    // signal table. Never breaks a response: any failure yields no auth line.
+    let authBlock = "";
+    try {
+      const { authState } = await import("../cloud/auth-state.js");
+      const { authSurfaceSignal } = await import("../cloud/auth-surface.js");
+      const sig = authSurfaceSignal(authState());
+      if (sig) {
+        const { getSignalDedup } = await import("./signal-dedup.js");
+        if (getSignalDedup().shouldEmit(sig.tag, `auth:${sig.dedupKey}`, sig.content)) {
+          authBlock = `\nur|${sig.tag} ${sig.content}`;
+        }
+      }
+    } catch {
+      /* auth surfacing is best-effort — never break a tool response */
+    }
+
+    // U3: Tier-1 in-band auto-update surfacing. Render the persisted update
+    // state (applied / available-not-auto-applying / rolled-back) into the one
+    // `ur|act`/`ur|fct` line it warrants — deduped once per session per event
+    // via the shared signal table. Best-effort: any failure yields no line.
+    let updateBlock = "";
+    try {
+      const { updateSignal } = await import("../update/update-surface.js");
+      const sig = updateSignal();
+      if (sig) {
+        const { getSignalDedup } = await import("./signal-dedup.js");
+        if (
+          getSignalDedup().shouldEmit(
+            sig.tag,
+            `update:${sig.dedupKey}`,
+            sig.content
+          )
+        ) {
+          updateBlock = `\nur|${sig.tag} ${sig.content}`;
+        }
+      }
+    } catch {
+      /* update surfacing is best-effort — never break a tool response */
+    }
+
     // Surfaces 2/3/4 (user-prose channel): preface above body, footer
     // below the page hint and above the signal footer. Failures here
     // never break the response.
@@ -2589,14 +2655,17 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       behaviorEvents: behaviorEventWriter,
     });
 
-    // Final assembly: preface → data → page-hint → user footer → signal footer.
+    // Final assembly: preface → data → page-hint → user footer → signal
+    // footer → auth + update lines (signals, so they ride with the footer).
     const finalText =
       userBlock.head +
       bodyText +
       bodyEnd +
       pageBlock +
       userBlock.tail +
-      footerBlock;
+      footerBlock +
+      authBlock +
+      updateBlock;
 
     // P0-3: A soft-refused (locked) tool call surfaces as a tool error
     // so every known MCP client (Cursor, Cline, Codex, Claude Code)
@@ -2657,6 +2726,27 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   let liveGraph:
     | import("../intelligence/local-graph.js").CozoGraphStore
     | null = localGraph;
+
+  // Layer 8: debounced domain-graph re-derive on the live-edit path. Each
+  // annotation-touching incremental batch arms the timer; after a quiet window
+  // the derive (propagation → community vote → domain edges) runs ONCE over the
+  // current graph, coalescing a save-storm. Bound to `liveGraph` (not a captured
+  // db) so a full-reindex swap retargets it to the fresh instance, never a
+  // retired one. Best-effort: failures log and are swallowed.
+  const { DomainDeriveScheduler } = await import(
+    "../intelligence/semantic/domain-derive-scheduler.js"
+  );
+  const domainDeriveScheduler = new DomainDeriveScheduler({
+    getDb: () => liveGraph?.db ?? null,
+    onDerive: (r) =>
+      log.info(
+        `Domain graph re-derived (incremental): ${r.propagated} propagated, ${r.communities} communities, ${r.edges} edges`
+      ),
+    onError: (err) =>
+      log.warn(
+        `Domain graph re-derive failed: ${err instanceof Error ? err.message : String(err)}`
+      ),
+  });
 
   transportMux.setHandler(async (clientId, message) => {
     // Bridge-side hello: independent of MCP `initialize`. The bridge sends
@@ -2976,6 +3066,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         // from creeping up across a long editing session of small writes.
         // Detached for the same reason as above: cozo holds graph.db live.
         if (graphDbPath) checkpointWalDetached(graphDbPath);
+        // Layer 8: an annotation-touching batch arms the debounced domain
+        // re-derive so the community vote / propagated labels track this edit
+        // within seconds instead of waiting for the idle full reindex.
+        if (result.annotationsChanged) domainDeriveScheduler.schedule();
         return result;
       });
 
@@ -3374,6 +3468,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             log.info(
               `Incremental startup reindex: ${r.filesProcessed} files, +${r.entitiesAdded}/~${r.entitiesUpdated}/-${r.entitiesDeleted} entities in ${r.elapsedMs}ms`
             );
+            // Layer 8: files changed while offline may have moved annotations —
+            // arm the debounced derive so the domain vote reflects them shortly
+            // after boot (the persisted graph already carries the prior derive).
+            if (r.annotationsChanged) domainDeriveScheduler.schedule();
             const s = await graph.getLocalProjectStats();
             await finalizeIndexing({
               entityCount: s.entityCount,
@@ -4102,7 +4200,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           totalViolationsCaught: unifiedStats.weekly.violationsCaught,
           totalCorrectionsApplied: unifiedStats.weekly.correctionsApplied,
           totalFilesIndexed: 0,
-          totalSemanticSearches: 0,
           avgLatencyP50: unifiedStats.weekly.avgLatencyP50,
         };
 
@@ -4361,6 +4458,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // Cleanup
       clearInterval(statsSnapshotInterval);
       commitWatcher.stop();
+      // Layer 8: cancel any pending domain re-derive so it never fires against a
+      // graph being torn down (the timer is unref'd, so this is hygiene, not a
+      // hang fix).
+      domainDeriveScheduler.stop();
       stopBranchPoller?.();
       // Task 7.2: Stop UDS transport (cleans up socket file)
       transportMux.stop();

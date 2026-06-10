@@ -9,6 +9,9 @@
  * falls back byte-identically to the sync nudge path when no proxy is up.
  */
 
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   parseRecallReply,
@@ -102,23 +105,34 @@ describe("queryRecallNotes — degradation", () => {
 
 describe("runUserPromptSubmitHookAsync — degradation", () => {
   it("with no proxy up, still emits the static nudge (no recalled-notes block)", async () => {
-    // No proxy.sock in the test cwd ⇒ queryRecallNotes → null ⇒ base nudge.
+    // queryRecallNotes resolves its default socket to `<cwd>/.unerr/state/
+    // proxy.sock`. Run from a fresh temp cwd that has no such socket so recall
+    // degrades to null — otherwise the hook reaches whatever live daemon serves
+    // the dev repo's cwd and injects REAL notes, making this assertion
+    // env-dependent (it must hold precisely when no proxy is up).
     // (We can't byte-compare against the sync path: the resume strip / STEP-1
     //  pickup is one-shot session state consumed by whichever call runs first.)
-    const stdin = JSON.stringify({
-      hook_event_name: "UserPromptSubmit",
-      prompt: "refactor the auth handler to add a retry",
-    });
-    const async_ = await runUserPromptSubmitHookAsync(stdin);
-    // The static recall nudge survives, but Sprint 7 (T7.3/T7.7) rephrased it:
-    // it states recall already ran and never names the (now agent-hidden)
-    // unerr_recall_notes tool.
-    expect(async_).toContain("anchored-note recall already ran");
-    expect(async_).not.toContain("unerr_recall_notes");
-    // …and no recalled-notes block leaked in with the proxy down.
-    expect(async_).not.toContain("unerr recalled");
-    // Valid Claude Code hook envelope.
-    expect(() => JSON.parse(async_)).not.toThrow();
+    const prevCwd = process.cwd();
+    const tmp = mkdtempSync(join(tmpdir(), "unerr-recall-noproxy-"));
+    process.chdir(tmp);
+    try {
+      const stdin = JSON.stringify({
+        hook_event_name: "UserPromptSubmit",
+        prompt: "refactor the auth handler to add a retry",
+      });
+      const async_ = await runUserPromptSubmitHookAsync(stdin);
+      // The static recall nudge survives, but Sprint 7 (T7.3/T7.7) rephrased it:
+      // it states recall already ran and never names the (now agent-hidden)
+      // unerr_recall_notes tool.
+      expect(async_).toContain("anchored-note recall already ran");
+      expect(async_).not.toContain("unerr_recall_notes");
+      // …and no recalled-notes block leaked in with the proxy down.
+      expect(async_).not.toContain("unerr recalled");
+      // Valid Claude Code hook envelope.
+      expect(() => JSON.parse(async_)).not.toThrow();
+    } finally {
+      process.chdir(prevCwd);
+    }
   });
 
   it("returns valid JSON for a non-code prompt (no recall attempted)", async () => {

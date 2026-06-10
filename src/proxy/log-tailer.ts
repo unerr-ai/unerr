@@ -86,8 +86,20 @@ function printCompressionEntry(entry: Record<string, unknown>): void {
   );
 }
 
-/** Format and print a token-flow.jsonl entry from child processes. */
-function printTokenFlowEntry(entry: Record<string, unknown>): void {
+/**
+ * Format and print a token-flow entry from child processes.
+ *
+ * `sessionTotal` is the authoritative cumulative for the row's session, summed
+ * from the persisted `token_flow_events` table (see MetricsStore.sessionTokensSaved)
+ * — never a hardcoded 0. A short-lived `unerr exec` child can't see prior
+ * invocations' running total, so the tailer (which holds the metrics store open)
+ * resolves it here. This keeps `session_total` in events.jsonl honest for anyone
+ * grepping cumulative shell-compression savings.
+ */
+function printTokenFlowEntry(
+  entry: Record<string, unknown>,
+  sessionTotal: number
+): void {
   const pid = Number(entry.pid ?? 0);
   if (pid === process.pid) return;
 
@@ -100,7 +112,7 @@ function printTokenFlowEntry(entry: Record<string, unknown>): void {
     mechanism: String(entry.mechanism ?? "unknown"),
     tokensSaved,
     tokensDelivered: Number(entry.tokens_with ?? 0),
-    sessionTotal: 0,
+    sessionTotal,
     pid,
   });
 }
@@ -298,7 +310,7 @@ export function startLogTailer(
       const tRows = store.tokenFlowSince(lastTokenFlowId);
       for (const r of tRows) {
         const entry = tokenFlowRowToEntry(r);
-        printTokenFlowEntry(entry);
+        printTokenFlowEntry(entry, store.sessionTokensSaved(r.session_id));
         options?.onTokenFlowEvent?.(entry);
         lastTokenFlowId = r.id;
       }

@@ -41,6 +41,45 @@ describe("classifyTaskSize — prompt-only", () => {
       "large_sweep"
     );
   });
+
+  it("classifies a focused refactor/rename of a NAMED entity as single_entity (not a sweep)", () => {
+    // Regression: bare action verbs (refactor/rename/migrate/audit) used to mark
+    // large_sweep on their own, which downgraded the bundle to a body-less digest
+    // for exactly these focused edits and forced the agent to re-request bodies.
+    // A named identifier means one entity — keep the verbatim focus body.
+    expect(
+      classifyTaskSize("refactor parseHeader to handle a null token").size
+    ).toBe("single_entity");
+    expect(classifyTaskSize("rename getUser to fetchUser").size).toBe(
+      "single_entity"
+    );
+    expect(classifyTaskSize("migrate signToken to ed25519").size).toBe(
+      "single_entity"
+    );
+    expect(
+      classifyTaskSize("add a maxBytes guard to readEntityBodyLines").size
+    ).toBe("single_entity");
+  });
+
+  it("classifies an action verb with NO named entity as large_sweep", () => {
+    // "refactor the error handling" names no entity → broad → orient with a digest.
+    expect(classifyTaskSize("refactor the error handling").size).toBe(
+      "large_sweep"
+    );
+    expect(classifyTaskSize("audit the authentication flow").size).toBe(
+      "large_sweep"
+    );
+  });
+
+  it("breadth phrase still wins even when an entity is named", () => {
+    // "across the codebase" / "everywhere" name the breadth outright.
+    expect(
+      classifyTaskSize("refactor signToken everywhere it is called").size
+    ).toBe("large_sweep");
+    expect(
+      classifyTaskSize("rename fetchMcpSources across the codebase").size
+    ).toBe("large_sweep");
+  });
 });
 
 describe("classifyTaskSize — with recon cardinality", () => {
@@ -48,9 +87,9 @@ describe("classifyTaskSize — with recon cardinality", () => {
     expect(
       classifyTaskSize("what is the latency tracker", { entityCount: 1 }).size
     ).toBe("trivial");
-    expect(
-      classifyTaskSize("explain this", { entityCount: 0 }).size
-    ).toBe("trivial");
+    expect(classifyTaskSize("explain this", { entityCount: 0 }).size).toBe(
+      "trivial"
+    );
   });
 
   it("single_entity for 2–3 entities", () => {
@@ -62,9 +101,14 @@ describe("classifyTaskSize — with recon cardinality", () => {
     );
   });
 
-  it("large_sweep for >3 entities", () => {
+  it("does NOT promote to large_sweep on high cardinality (search breadth ≠ sweep)", () => {
+    // recon returns ~10 ranked candidates for any focused prompt — a high count
+    // is search breadth, not a sweep. Only a sweep PHRASE marks one.
     expect(classifyTaskSize("edit fooBar", { entityCount: 8 }).size).toBe(
-      "large_sweep"
+      "single_entity"
+    );
+    expect(classifyTaskSize("edit fooBar", { entityCount: 20 }).size).toBe(
+      "single_entity"
     );
   });
 

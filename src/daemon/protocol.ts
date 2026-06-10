@@ -129,6 +129,16 @@ export interface RepoDetailRequest {
   repo: string;
 }
 
+/**
+ * Ask the daemon for the current pricing tier (Sprint I3). The daemon owns
+ * the entitlement refresh, so it has the freshest answer; per-repo proxies
+ * query this instead of touching the cloud themselves. Answered from local
+ * state only — never triggers a network call.
+ */
+export interface EntitlementsRequest {
+  cmd: "entitlements";
+}
+
 export type DaemonRequest =
   | EnsureRequest
   | ConnectRequest
@@ -140,7 +150,8 @@ export type DaemonRequest =
   | StopRequest
   | ShutdownRequest
   | DashboardStateRequest
-  | RepoDetailRequest;
+  | RepoDetailRequest
+  | EntitlementsRequest;
 
 // ── unerrd → client responses ───────────────────────────────────
 
@@ -151,6 +162,14 @@ export interface OkResponse {
 export interface EnsureOkResponse {
   ok: true;
   sock: string;
+  /**
+   * U4: the daemon's own running version, stamped on every ensure so the
+   * fresh-spawned bridge can detect a stale daemon (manual/auto upgrade left
+   * the long-lived daemon on old in-memory code) with no extra round-trip.
+   * Optional for forward-compat: an older daemon omits it, and the bridge
+   * treats an absent version as "no skew action."
+   */
+  version?: string;
 }
 
 export interface ErrorResponse {
@@ -180,11 +199,26 @@ export interface StatusOkResponse {
   repos: RepoStatusEntry[];
 }
 
+/**
+ * The daemon's answer to an `entitlements` request (Sprint I3). Mirrors the
+ * proxy-facing tier snapshot: the gating plan, where it came from, and the
+ * feature map. `source: "free_fallback"` / `"none"` means free.
+ */
+export interface EntitlementsOkResponse {
+  ok: true;
+  plan: string;
+  source: "fresh" | "grace" | "free_fallback" | "none";
+  features: Record<string, boolean>;
+  /** When in grace: ISO date to reconnect by. */
+  reconnect_by?: string;
+}
+
 export type DaemonResponse =
   | OkResponse
   | EnsureOkResponse
   | ErrorResponse
-  | StatusOkResponse;
+  | StatusOkResponse
+  | EntitlementsOkResponse;
 
 // ── IPC: unerrd ↔ child repo process (Node.js process.send) ────
 

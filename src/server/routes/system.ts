@@ -35,6 +35,54 @@ export function createSystemRoutes(deps: SystemRouteDeps): Hono {
     const uptime = Math.round((Date.now() - deps.startedAt) / 1000);
     const graphStats = await deps.getGraphStats();
 
+    // A4: the Tier-2 passive auth surface for the dashboard header banner.
+    // Same state machine the in-band signal and CLI status read — one truth.
+    // Best-effort: a derivation failure must never break the status payload.
+    let auth: {
+      state: string;
+      badge: string;
+      plan: string;
+      line: string;
+      reconnect_by?: string;
+      organization_id?: string;
+      machine_name?: string;
+    } | null = null;
+    try {
+      const { authState } = await import("../../cloud/auth-state.js");
+      const { authBadge, authStateLine } = await import(
+        "../../cloud/auth-surface.js"
+      );
+      const s = authState();
+      auth = {
+        state: s.state,
+        badge: authBadge(s.state),
+        plan: s.plan,
+        line: authStateLine(s),
+        reconnect_by: s.reconnect_by,
+        organization_id: s.organization_id,
+        machine_name: s.machine_name,
+      };
+    } catch {
+      /* auth surface is additive — omit it rather than fail status */
+    }
+
+    // U3: the Tier-2 passive auto-update surface for the dashboard. Same
+    // persisted state the in-band signal and CLI status read — one truth.
+    // Best-effort: a derivation failure must never break the status payload.
+    let update:
+      | (ReturnType<
+          typeof import("../../update/update-surface.js").updateStatusPanel
+        > & { line: string })
+      | null = null;
+    try {
+      const { updateStatusPanel, updateStatusLine } = await import(
+        "../../update/update-surface.js"
+      );
+      update = { ...updateStatusPanel(), line: updateStatusLine() };
+    } catch {
+      /* update surface is additive — omit it rather than fail status */
+    }
+
     return c.json({
       data: {
         status: "running",
@@ -45,6 +93,8 @@ export function createSystemRoutes(deps: SystemRouteDeps): Hono {
         cwd: deps.cwd,
         ide: deps.ide,
         graph: graphStats,
+        auth,
+        update,
         session: {
           tool_calls: deps.stats.toolCallsLocal,
           tokens_saved: deps.stats.estimatedTokensSaved,

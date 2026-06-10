@@ -19,12 +19,22 @@
  *   - L1 edge materialization — full rollup
  *   - Snapshot persistence
  *
+ * Raw `domain_annotations` ARE synced here (Step 4.5) and inline comment-drift
+ * is detected; the Layer 8 domain *derive* (propagation → community vote →
+ * domain edges) is NOT run inline — it is O(communities + edges) and wasteful
+ * per save. Instead this returns `annotationsChanged`, and the proxy debounces
+ * a single `deriveDomainGraph` pass (DomainDeriveScheduler) shortly after the
+ * edit settles. Community *membership* still refreshes only at the full reindex
+ * (Louvain above), so the debounced derive votes over current annotations +
+ * existing communities.
+ *
  * Falls back to full reindex on any failure.
  */
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { loadSettings } from "../config/settings.js";
 import {
   type ExtractedEntity,
   entityKey,
@@ -38,6 +48,14 @@ import type {
   CozoGraphStore,
 } from "./local-graph.js";
 import { updateSearchIndexIncremental } from "./search-index.js";
+import {
+  buildPathFloorRows,
+  collectAnnotationCandidates,
+  gateCandidates,
+  removeAnnotationsForKeys,
+  upsertAnnotations,
+} from "./semantic/annotation-indexer.js";
+import { DEFAULT_SENTINEL_TOKENS } from "./semantic/docstring-extractor.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -50,6 +68,16 @@ export interface IncrementalResult {
   edgesAdded: number;
   edgesDeleted: number;
   elapsedMs: number;
+  /**
+   * Layer 8: true when this batch wrote or removed at least one
+   * `domain_annotations` row (a comment/harvest/path change, or an annotated
+   * entity deletion). The caller uses it to debounce a `deriveDomainGraph`
+   * re-derive — the community vote / propagation / domain edges refresh shortly
+   * after a live edit instead of waiting for the idle full reindex. Stays false
+   * when nothing annotation-relevant moved, so a code-only edit schedules no
+   * derive.
+   */
+  annotationsChanged: boolean;
 }
 
 type DbLike = {
@@ -95,6 +123,28 @@ export async function indexFilesIncremental(
   // Track keys for incremental search index update
   const changedEntityKeys = new Set<string>();
   const deletedEntityKeys = new Set<string>();
+  // Layer 8: flips true once any domain_annotations row is written or removed,
+  // so the caller can debounce a deriveDomainGraph re-derive.
+  let annotationsChanged = false;
+
+  // Layer 8 SC-A.3: sentinel tokens for doc-comment annotations, and a
+  // lazily-fetched graph name set for the identifier cross-check gate
+  // (queried once per batch, only when a file actually carries a sentinel
+  // or prose doc comment).
+  let sentinelTokens: readonly string[] = DEFAULT_SENTINEL_TOKENS;
+  try {
+    sentinelTokens = loadSettings(projectRoot).comments.sentinel;
+  } catch {
+    /* settings unreadable — default token list */
+  }
+  let knownIdentifiers: Set<string> | null = null;
+  const getKnownIdentifiers = async (): Promise<Set<string>> => {
+    if (knownIdentifiers === null) {
+      const result = await db.run("?[name] := *entities{name}");
+      knownIdentifiers = new Set(result.rows.map((r) => r[0] as string));
+    }
+    return knownIdentifiers;
+  };
 
   for (const filePath of changedFiles) {
     const absPath = filePath.startsWith("/")
@@ -190,6 +240,89 @@ export async function indexFilesIncremental(
       }
     }
 
+    // ── Step 4.5: Sync domain annotations (Layer 8) ──
+    // Runs BEFORE the empty-diff early-continue: a comment-text edit that
+    // doesn't shift line numbers changes no entity row, but its annotation
+    // must still update. The upsert's comment_hash skip makes unchanged
+    // comments a no-write; the path floor (0.4) runs after the higher tiers
+    // so provenance ordering skips already-annotated entities. Best-effort —
+    // annotations never block indexing.
+    try {
+      const targets = newExtracted.map((e, i) => ({
+        // newEntities maps 1:1 over newExtracted, so [i] is always present
+        key: newEntities[i]!.key,
+        name: e.name,
+        startLine: e.line_start,
+        endLine: e.line_end,
+      }));
+      const candidates = collectAnnotationCandidates(
+        content,
+        targets,
+        sentinelTokens
+      );
+      const annotationRows =
+        candidates.length > 0
+          ? gateCandidates(candidates, {
+              knownIdentifiers: await getKnownIdentifiers(),
+            })
+          : [];
+      // Reconcile stale durable annotations BEFORE the upsert. An in-place
+      // comment edit keeps the entity row alive, so it never lands in `deleted`;
+      // and upsertAnnotations is tier-guarded (comment 0.95 > harvested 0.7 >
+      // path 0.4 — a higher prior tier is never overwritten by a lower-or-equal
+      // new one). So a prior comment row survives both a full @sem deletion (no
+      // new durable candidate → only the path floor, which the guard blocks) and
+      // a downgrade (@sem stripped, prose kept → harvested candidate, which the
+      // guard also blocks). Either way a phantom domain label lingers until the
+      // next full reindex. Detect any prior comment/harvested row whose tier now
+      // exceeds the best current durable candidate for that entity, delete it so
+      // the upsert + path floor below re-apply the current truth, and flip
+      // annotationsChanged so the debounced domain re-derive runs.
+      if (newEntities.length > 0) {
+        const DURABLE_TIER: Record<string, number> = { harvested: 2, comment: 3 };
+        const bestCurrentTier = new Map<string, number>();
+        for (const r of annotationRows) {
+          const t = DURABLE_TIER[r.source] ?? 0;
+          bestCurrentTier.set(
+            r.entity_key,
+            Math.max(bestCurrentTier.get(r.entity_key) ?? 0, t)
+          );
+        }
+        const priorDurable = await db.run(
+          `candidate[entity_key] <- $keys
+           ?[entity_key, source] :=
+             candidate[entity_key],
+             *domain_annotations{entity_key, source}`,
+          { keys: newEntities.map((e) => [e.key]) }
+        );
+        const staleDurableKeys = priorDurable.rows
+          .filter((r) => {
+            const priorTier = DURABLE_TIER[r[1] as string] ?? 0;
+            if (priorTier === 0) return false; // only comment/harvested go stale
+            return priorTier > (bestCurrentTier.get(r[0] as string) ?? 0);
+          })
+          .map((r) => r[0] as string);
+        if (staleDurableKeys.length > 0) {
+          await removeAnnotationsForKeys(db, staleDurableKeys);
+          annotationsChanged = true;
+        }
+      }
+      if (annotationRows.length > 0) {
+        if ((await upsertAnnotations(db, annotationRows)) > 0) {
+          annotationsChanged = true;
+        }
+      }
+      const floored = await upsertAnnotations(
+        db,
+        buildPathFloorRows(
+          newEntities.map((e) => ({ key: e.key, file_path: relPath }))
+        )
+      );
+      if (floored > 0) annotationsChanged = true;
+    } catch {
+      /* annotation sync is best-effort */
+    }
+
     // If nothing changed in this file, skip — but record the hash so the
     // next cycle takes the early cutoff above instead of re-extracting.
     if (added.length === 0 && updated.length === 0 && deleted.length === 0) {
@@ -204,6 +337,15 @@ export async function indexFilesIncremental(
     if (deleted.length > 0) {
       const deletedKeys = deleted.map((e) => e.key);
       await removeEntitiesAndEdgesBatched(db, deletedKeys);
+      try {
+        await removeAnnotationsForKeys(db, deletedKeys);
+        // Conservative: a deleted entity may have carried a domain label, so a
+        // re-derive is scheduled. Over-eager only for un-annotated deletes,
+        // which the debounce coalesces away — never misses a real removal.
+        annotationsChanged = true;
+      } catch {
+        /* stale rows are pruned by the next full index's orphan sweep */
+      }
       for (const entity of deleted) {
         affectedEntityKeys.add(entity.key);
         deletedEntityKeys.add(entity.key);
@@ -341,6 +483,7 @@ export async function indexFilesIncremental(
     edgesAdded: totalEdgesAdded,
     edgesDeleted: totalEdgesDeleted,
     elapsedMs: Date.now() - startMs,
+    annotationsChanged,
   };
 }
 
@@ -463,6 +606,14 @@ async function deleteFileFromGraph(
       edgesDeleted += await removeEntitiesAndEdgesBatched(db, entityKeys);
       entitiesDeleted += entityKeys.length;
       for (const key of entityKeys) affectedKeys.add(key);
+      // Layer 8: drop domain annotations for THIS file's entities only —
+      // affectedKeys later gains surviving neighbours from other files
+      // (for fan-count recalc), whose annotations must stay.
+      try {
+        await removeAnnotationsForKeys(db, entityKeys);
+      } catch {
+        /* stale rows are pruned by the next full index's orphan sweep */
+      }
     }
   } catch {
     /* file not in index */

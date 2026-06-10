@@ -52,8 +52,6 @@ export interface StatusData {
     mode: "local";
     firewallStatus: string;
     firewallBlocked?: number;
-    byoLlm?: string;
-    byoLlmStatus?: "connected" | "not_configured" | "unreachable";
     lastIndexed?: string;
     corrections?: number;
     communityCount?: number;
@@ -244,19 +242,6 @@ export function StatusDashboard({
             }
             valueColor={t.success}
           />
-          {data.localMode.byoLlm && (
-            <KeyValue
-              label="BYO-LLM"
-              value={data.localMode.byoLlm}
-              valueColor={
-                data.localMode.byoLlmStatus === "connected"
-                  ? t.success
-                  : data.localMode.byoLlmStatus === "unreachable"
-                    ? "red"
-                    : t.dim
-              }
-            />
-          )}
           {data.localMode.lastIndexed && (
             <KeyValue label="Indexed" value={data.localMode.lastIndexed} />
           )}

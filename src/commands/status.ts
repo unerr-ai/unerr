@@ -24,7 +24,6 @@ import { getRemoteUrl } from "../utils/git.js";
  * Surfaces actionable next steps based on current state.
  */
 function buildSuggestions(data: {
-  byoLlmStatus?: "connected" | "not_configured" | "unreachable";
   lastIndexed?: string;
   conventionCount?: number;
   skillCount?: number;
@@ -33,24 +32,11 @@ function buildSuggestions(data: {
 }): string[] {
   const suggestions: string[] = [];
 
-  if (data.byoLlmStatus === "not_configured") {
-    suggestions.push(
-      "Configure BYO-LLM for semantic search: edit ~/.unerr/settings.json"
-    );
-  }
-  if (data.byoLlmStatus === "unreachable") {
-    suggestions.push("LLM is unreachable. Start Ollama: ollama serve");
-  }
   if (!data.lastIndexed) {
     suggestions.push("No index yet. Run 'unerr' to start indexing.");
   }
   if (data.conventionCount === 0 || data.conventionCount == null) {
     suggestions.push("Run 'unerr' to detect conventions and generate rules");
-  }
-  if (data.byoLlmStatus === "connected") {
-    suggestions.push(
-      "Run 'unerr enrich' to generate business context with your LLM"
-    );
   }
   suggestions.push("Run 'unerr chat' to talk to your codebase interactively");
 
@@ -321,48 +307,6 @@ export function registerStatusCommand(program: Command): void {
         /* ignore */
       }
 
-      // BYO-LLM
-      let byoLlm: string | undefined;
-      let byoLlmStatus: "connected" | "not_configured" | "unreachable" =
-        "not_configured";
-      const { loadSettings } = await import("../config/settings.js");
-      const settings = loadSettings();
-      if (settings.localLlm) {
-        const { resolveEmbeddingEndpoint, resolveInferenceEndpoint } =
-          await import("../config/settings.js");
-        const embEp = resolveEmbeddingEndpoint(settings.localLlm);
-        const infEp = resolveInferenceEndpoint(settings.localLlm);
-        const embDesc = embEp.baseUrl
-          ? `${embEp.provider} at ${embEp.baseUrl}`
-          : embEp.provider;
-        byoLlm = `embed: ${embDesc} (${embEp.model})`;
-        const infDesc = infEp.baseUrl
-          ? `${infEp.provider} at ${infEp.baseUrl}`
-          : infEp.provider;
-        byoLlm += `, chat: ${infDesc} (${infEp.model})`;
-        // Health check against the embedding endpoint
-        if (embEp.baseUrl) {
-          try {
-            const stripped = embEp.baseUrl.replace(/\/+$/, "");
-            const healthUrl =
-              embEp.provider === "ollama"
-                ? `${stripped}/api/tags`
-                : `${stripped}/v1/models`;
-            const headers: Record<string, string> = {};
-            if (embEp.apiKey) headers.Authorization = `Bearer ${embEp.apiKey}`;
-            const hc = await fetch(healthUrl, {
-              headers,
-              signal: AbortSignal.timeout(2000),
-            });
-            byoLlmStatus = hc.ok ? "connected" : "unreachable";
-          } catch {
-            byoLlmStatus = "unreachable";
-          }
-        }
-      } else {
-        byoLlm = "Not configured";
-      }
-
       // Last indexed
       let lastIndexed: string | undefined;
       const snapshotMetaPath = join(unerrDir, "state", "snapshot_meta.json");
@@ -579,7 +523,6 @@ export function registerStatusCommand(program: Command): void {
 
       // Suggestions engine
       const suggestions = buildSuggestions({
-        byoLlmStatus,
         lastIndexed,
         conventionCount,
         skillCount,
@@ -629,8 +572,6 @@ export function registerStatusCommand(program: Command): void {
         mode: "local",
         firewallStatus,
         firewallBlocked,
-        byoLlm,
-        byoLlmStatus,
         lastIndexed,
         corrections,
         communityCount,
@@ -703,6 +644,40 @@ export function registerStatusCommand(program: Command): void {
         tokenFlow: tokenFlowData,
       };
 
+      // ── Cloud login state (optional — the CLI works fully logged out) ─
+      // Read-only and local: no network call, never blocks. One line.
+      try {
+        const { loginStateLine } = await import("../cloud/login-state.js");
+        process.stderr.write(`\n  Team:     ${loginStateLine()}\n`);
+
+        // Plan line — read-only and offline (reads the signed cache only).
+        const { effectiveTier } = await import("../cloud/entitlements.js");
+        const tier = effectiveTier();
+        process.stderr.write(`  Plan:     ${tier.plan}\n`);
+        if (tier.source === "grace" && tier.reconnect_by) {
+          const by = new Date(tier.reconnect_by).toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          });
+          process.stderr.write(
+            `            running on a cached plan — reconnect by ${by}\n`
+          );
+        }
+      } catch {
+        /* ignore — cloud login is optional */
+      }
+
+      // ── Auto-update state (read-only, offline — reads persisted state) ─
+      try {
+        const { updateStatusLine } = await import(
+          "../update/update-surface.js"
+        );
+        process.stderr.write(`  Update:   ${updateStatusLine()}\n`);
+      } catch {
+        /* ignore — update surface is additive */
+      }
+
       try {
         const { StatusDashboard } = await import(
           "../components/StatusDashboard.js"
@@ -729,7 +704,6 @@ export function registerStatusCommand(program: Command): void {
 `;
         if (lm) {
           output += `  Firewall: ${lm.firewallStatus}${lm.firewallBlocked != null ? ` (${lm.firewallBlocked} blocked)` : ""}\n`;
-          if (lm.byoLlm) output += `  BYO-LLM:  ${lm.byoLlm}\n`;
           if (lm.lastIndexed) output += `  Indexed:  ${lm.lastIndexed}\n`;
           if (lm.communityCount)
             output += `  Communities: ${lm.communityCount} clusters\n`;

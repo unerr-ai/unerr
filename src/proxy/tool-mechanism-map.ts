@@ -62,18 +62,19 @@ export interface MechanismEntry {
 }
 
 /**
- * The verdict for every tool in TIER_ENTRIES — now exactly the 8 advertised
+ * The verdict for every tool in TIER_ENTRIES — now exactly the 7 advertised
  * survivors (the Phase-2 migration is complete; the removed names are no
  * longer catalog members, so the drift guard would reject a verdict for them).
  *
- * Survivors (mechanism "mcp", 7) are the interactive reads the model drives:
- *   unerr_context, search_code, file_read, file_outline, get_entity,
+ * Survivors (mechanism "mcp", 6) are the interactive reads the model drives:
+ *   unerr_context, search_code, file_read, file_outline,
  *   get_references, fetch_url.
  * The one advertised write (unerr_track) is mechanism "hook" — it rides
  * lifecycle hooks for hook-capable agents and stays advertised as the MCP
  * escape for hook-less ones.
  *
- * The capabilities that USED to be catalog tools (mark_*, record_fact,
+ * The capabilities that USED to be catalog tools (get_entity — merged into
+ * search_code({detail:true}) 2026-06 — mark_*, record_fact,
  * recall_facts, get_conventions, get_imports, get_file, get_project_stats,
  * review_changes, get_critical_nodes, get_cross_boundary_links,
  * file_connections, get_test_coverage, unerr_surface2_line, unerr_turn_summary)
@@ -99,11 +100,6 @@ export const TOOL_MECHANISM: Readonly<Record<string, MechanismEntry>> = {
   file_outline: {
     mechanism: "mcp",
     rationale: "Model needs file structure back to plan a targeted read.",
-  },
-  get_entity: {
-    mechanism: "mcp",
-    rationale:
-      "Model needs entity + refs + imports back; folds in callers/callees/imports via a want[] flag.",
   },
   get_references: {
     mechanism: "mcp",

@@ -28,7 +28,10 @@ export interface TaskSizeVerdict {
 export interface ClassifyOptions {
   /**
    * Number of entities a recon/search turned up for this prompt, when known.
-   * Sharpens the verdict: 0–1 → trivial/single, ≤3 → single_entity, more → sweep.
+   * Sharpens trivial-vs-single only: read-only verb + ≤1 entity → trivial,
+   * otherwise → single_entity. It does NOT promote to large_sweep — recon's
+   * search returns ~10 ranked candidates for ANY focused prompt, so cardinality
+   * is search breadth, not task size; only a sweep PHRASE marks a real sweep.
    * Omit when classifying purely from the prompt (pre-recon).
    */
   readonly entityCount?: number;
@@ -39,21 +42,64 @@ export interface ClassifyOptions {
  * no mutation, so the markers + turn_summary ceremony buys nothing.
  */
 const READ_ONLY_OPENERS = [
-  "explain", "what", "what's", "whats", "how", "why", "describe", "show",
-  "summarize", "summarise", "tell", "where", "which", "does", "do", "is",
-  "are", "can", "list", "understand", "walk", "give",
+  "explain",
+  "what",
+  "what's",
+  "whats",
+  "how",
+  "why",
+  "describe",
+  "show",
+  "summarize",
+  "summarise",
+  "tell",
+  "where",
+  "which",
+  "does",
+  "do",
+  "is",
+  "are",
+  "can",
+  "list",
+  "understand",
+  "walk",
+  "give",
 ];
 
 /**
- * Phrases that mark a genuinely broad sweep regardless of how many entities a
- * single search returned — "every place", "across the codebase", a rename/migrate.
+ * Breadth phrases that mark a genuinely many-site change regardless of the verb —
+ * "every place", "across the codebase", "all callers". These ALWAYS win, because
+ * the phrase itself names the breadth.
  */
-const SWEEP_SIGNALS = [
-  "every ", "all the ", "everywhere", "across the", "throughout",
-  "each of", "all of", "wherever", "refactor", "rename", "migrate",
-  "sweep", "audit", "every place", "all callers", "all usages",
-  "all references", "codebase-wide", "project-wide", "all files",
+const BREADTH_SIGNALS = [
+  "every ",
+  "all the ",
+  "everywhere",
+  "across the",
+  "throughout",
+  "each of",
+  "all of",
+  "wherever",
+  "sweep",
+  "every place",
+  "all callers",
+  "all usages",
+  "all references",
+  "codebase-wide",
+  "project-wide",
+  "all files",
 ];
+
+/**
+ * Action verbs that DESCRIBE a change but do not by themselves imply breadth:
+ * "refactor signToken" / "rename getUser to fetchUser" are focused single-entity
+ * edits; "refactor across the codebase" is a sweep (caught by a BREADTH_SIGNAL).
+ * These mark a sweep ONLY when the prompt names no specific code identifier — i.e.
+ * the target is broad and unnamed ("refactor the error handling") rather than a
+ * single entity. Conflating the verb with breadth was stripping the focus body
+ * from exactly the focused-edit case the recon bundle exists to front-load.
+ */
+const SCOPED_ACTION_VERBS = ["refactor", "rename", "migrate", "audit"];
 
 const WORD_RE = /[^a-z0-9_]+/;
 
@@ -63,8 +109,19 @@ function firstWord(prompt: string): string {
   return t[0] ?? "";
 }
 
-function hasSweepSignal(lower: string): boolean {
-  return SWEEP_SIGNALS.some((s) => lower.includes(s));
+function hasSweepSignal(lower: string, prompt: string): boolean {
+  // A breadth phrase names the scope outright — always a sweep.
+  if (BREADTH_SIGNALS.some((s) => lower.includes(s))) return true;
+  // An action verb (refactor/rename/migrate/audit) is a sweep only when no
+  // single entity is named: "refactor parseHeader" is focused; "refactor the
+  // error handling" (no identifier) is broad.
+  if (
+    SCOPED_ACTION_VERBS.some((v) => lower.includes(v)) &&
+    !mentionsIdentifier(prompt)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function isReadOnlyOpener(prompt: string): boolean {
@@ -80,18 +137,18 @@ function mentionsIdentifier(prompt: string): boolean {
 }
 
 /**
- * Classify the footprint a prompt deserves. When `entityCount` is supplied the
- * cardinality dominates (it reflects what recon actually found); otherwise the
- * verdict comes from prompt shape alone, defaulting to `single_entity` — the
- * safe middle (one recon bundle), never the zero-ceremony `trivial` path unless
- * the prompt clearly reads as a lookup.
+ * Classify the footprint a prompt deserves. A sweep PHRASE always wins
+ * (large_sweep). Otherwise the verdict defaults to `single_entity` — the safe
+ * middle (one recon bundle) — and a supplied `entityCount` only demotes to the
+ * zero-ceremony `trivial` path (read-only verb + ≤1 entity). Cardinality never
+ * promotes to large_sweep: recon's ~10-candidate search breadth is not task size.
  */
 export function classifyTaskSize(
   prompt: string,
   opts: ClassifyOptions = {}
 ): TaskSizeVerdict {
   const lower = (prompt ?? "").toLowerCase();
-  const sweep = hasSweepSignal(lower);
+  const sweep = hasSweepSignal(lower, prompt ?? "");
   const readOnly = isReadOnlyOpener(prompt ?? "");
   const { entityCount } = opts;
 
@@ -102,12 +159,10 @@ export function classifyTaskSize(
   }
 
   if (typeof entityCount === "number") {
-    if (entityCount > 3) {
-      return {
-        size: "large_sweep",
-        reason: `recon found ${entityCount} entities (> 3)`,
-      };
-    }
+    // Cardinality does NOT promote to large_sweep: recon's search returns ~10
+    // ranked candidates for any focused prompt, so a high count is search
+    // breadth, not a sweep. Only a sweep PHRASE (handled above) marks one.
+    // entityCount sharpens the trivial-vs-single split only.
     if (readOnly && entityCount <= 1) {
       return {
         size: "trivial",

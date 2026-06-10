@@ -81,7 +81,9 @@ describe("TOOL_DESCRIPTION_NUDGES (D10)", () => {
     expect(tools).toContain("search_code");
     expect(tools).toContain("file_read");
     expect(tools).toContain("get_references");
-    expect(tools).toContain("get_entity");
+    // get_entity merged into search_code({detail:true}) 2026-06 — its
+    // contract-surprise nudge now rides search_code's entry.
+    expect(tools).not.toContain("get_entity");
   });
 
   it("each nudge routes to a surviving contract mechanism", () => {

@@ -39,6 +39,7 @@ Phase 5 — Drift check.
 Phase 6 — Edit.
   Call built-in `Read({offset,limit})` on the exact target lines (built-in Read is required immediately before Edit — `file_read` does NOT satisfy Edit's read-gate). Then apply the Edit.
   Cross-file refactor (rename/move/extract) — for every reference returned by Phase 3, repeat: built-in Read on the caller's reference site, then Edit.
+  Domain comment (Layer 8): when the edited entity carries an `@sem` doc comment AND the edit changed what it does or why, rewrite the prose summary and `@sem domain=<tag>` line in the SAME Edit call. Purpose unchanged → leave the comment untouched. NEVER delete an `@sem` comment unless the user instructs it.
 
 Phase 7 — Verify.
   Re-call `file_read({file_path:'<path>', purpose:'explore'})`; confirm no new convention violations (conventions auto-inject).
