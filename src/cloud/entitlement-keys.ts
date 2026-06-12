@@ -44,9 +44,13 @@
  * For dev/preview, use the UNERR_ENTITLEMENT_PUBKEY env override above.
  */
 export const PINNED_ENTITLEMENT_KEYS: Readonly<Record<string, string>> = {
-  // Placeholder — replace/extend with real published keys at first rotation.
+  // Placeholder — non-functional; kept so the shape stays obvious. Never signed.
   "k-dev-placeholder":
     "MCowBQYDK2VwAyEAjOx0ihgtBFRjajlwUVIt6PZoFC7jy1GNodX70Nxej3A=",
+  // First production key (2026-06-12). Public half only; private key lives in
+  // the unerr-web-service production env. Never remove an old kid.
+  "k2026-06-12":
+    "MCowBQYDK2VwAyEAt0RQhSZl1rs7kyNSJImTf/T4mtkiLAgOZTASHwbQXgA=",
 };
 
 /** Env var holding a dev/preview public key (base64 SPKI DER). */
