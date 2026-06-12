@@ -35,6 +35,30 @@ export interface UpdateSignal {
   tag: "act" | "fct";
   content: string;
   dedupKey: string;
+  /** The version this signal is about (drives the persistent available-line throttle). */
+  version?: string;
+}
+
+/** Default throttle for the notify-only "available" line: surface at most once/day. */
+export const DEFAULT_AVAILABLE_THROTTLE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Daily throttle decision for the notify-only "available" line. The in-band
+ * signal is session-deduped, but a notify-only install (Homebrew/Volta) or
+ * policy `notify` would otherwise re-surface the same "available" line every
+ * new IDE session. True when it should surface now: never surfaced, a different
+ * version than last time (a new release resets the throttle), or >= the
+ * interval since the last surface. Pure.
+ */
+export function shouldSurfaceAvailable(
+  state: UpdateState,
+  version: string,
+  now: number,
+  intervalMs: number = DEFAULT_AVAILABLE_THROTTLE_MS
+): boolean {
+  if (state.available_notified_version !== version) return true;
+  if (state.available_notified_at == null) return true;
+  return now - state.available_notified_at >= intervalMs;
 }
 
 export interface UpdateSurfaceDeps {
@@ -70,6 +94,7 @@ export function updateSignal(deps: UpdateSurfaceDeps = {}): UpdateSignal | null 
       tag: "act",
       content: `unerr ${r.to} failed its health check and was rolled back to ${r.from} — staying on ${r.from}; release notes: ${releaseNotesUrl(r.from)}`,
       dedupKey: `rollback:${r.to}`,
+      version: r.to,
     };
   }
 
@@ -90,6 +115,7 @@ export function updateSignal(deps: UpdateSurfaceDeps = {}): UpdateSignal | null 
           tag: "act",
           content: `run \`${cmd}\` — unerr ${latest} available (${kind}; release notes: ${releaseNotesUrl(latest)})`,
           dedupKey: `available:${latest}`,
+          version: latest,
         };
       }
     }
@@ -103,6 +129,7 @@ export function updateSignal(deps: UpdateSurfaceDeps = {}): UpdateSignal | null 
       tag: "fct",
       content: `unerr auto-updated ${a.from} → ${a.to} (${kind}) — release notes: ${releaseNotesUrl(a.to)}`,
       dedupKey: `applied:${a.to}`,
+      version: a.to,
     };
   }
 

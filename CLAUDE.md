@@ -227,6 +227,19 @@ server-side (kept for audit, excluded from queries).
 
 # CLAUDE.md
 
+## Response Style (Always Apply)
+
+Write every response to the user in plain, simple English that a non-expert can follow on the first read.
+
+1. **Plain words over jargon.** Say what you mean directly. If a technical term is unavoidable, explain it in a few words the first time you use it. Don't assume the reader knows internal names, acronyms, or library specifics.
+2. **No sales or marketing language.** Skip words like "seamless", "powerful", "robust", "leverage", "unlock", "supercharge", "best-in-class". Just describe what something does and what you did.
+3. **No business fluff.** No "value-add", "synergy", "stakeholder", "going forward", "at the end of the day". State the facts and the next step.
+4. **Short sentences, clear structure.** Lead with the answer. Use short paragraphs or bullet points. Break long explanations into small steps the reader can follow one at a time.
+5. **Be concrete.** Name the actual file, command, or result instead of vague phrases like "the relevant part" or "things". Show, don't hype.
+6. **Say it straight.** If something failed, didn't work, or you're unsure, say so plainly. Don't dress up bad news or overstate what's done.
+
+This applies to all user-facing text — explanations, summaries, plans, and status updates. It does not change code, comments, or commit messages, which follow the conventions elsewhere in this file.
+
 ## Critical Rules (Always Apply)
 
 1. **Read files in chunks.** ~108K LOC production code (~178K including tests + UI). Use `offset`/`limit` (100–200 lines). Search first (grep/glob), then read only the sections you need. Never dump entire files.

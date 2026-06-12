@@ -2603,7 +2603,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const sig = authSurfaceSignal(authState());
       if (sig) {
         const { getSignalDedup } = await import("./signal-dedup.js");
-        if (getSignalDedup().shouldEmit(sig.tag, `auth:${sig.dedupKey}`, sig.content)) {
+        if (
+          getSignalDedup().shouldEmit(
+            sig.tag,
+            `auth:${sig.dedupKey}`,
+            sig.content
+          )
+        ) {
           authBlock = `\nur|${sig.tag} ${sig.content}`;
         }
       }
@@ -2617,18 +2623,46 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // via the shared signal table. Best-effort: any failure yields no line.
     let updateBlock = "";
     try {
-      const { updateSignal } = await import("../update/update-surface.js");
+      const { updateSignal, shouldSurfaceAvailable } = await import(
+        "../update/update-surface.js"
+      );
       const sig = updateSignal();
       if (sig) {
-        const { getSignalDedup } = await import("./signal-dedup.js");
-        if (
-          getSignalDedup().shouldEmit(
-            sig.tag,
-            `update:${sig.dedupKey}`,
-            sig.content
-          )
-        ) {
-          updateBlock = `\nur|${sig.tag} ${sig.content}`;
+        // The "available" line (notify-only install / policy notify) carries a
+        // persistent daily throttle on top of the session dedup, so a Homebrew/
+        // Volta user is not nagged every session. Applied/rolled-back stay on
+        // the session dedup alone.
+        const isAvailable = sig.dedupKey.startsWith("available:");
+        let surface = true;
+        let persistAvailable: (() => void) | null = null;
+        if (isAvailable && sig.version) {
+          const { readUpdateState, writeUpdateState } = await import(
+            "../update/update-state.js"
+          );
+          const now = Date.now();
+          const ver = sig.version;
+          if (shouldSurfaceAvailable(readUpdateState(), ver, now)) {
+            persistAvailable = () =>
+              writeUpdateState({
+                available_notified_at: now,
+                available_notified_version: ver,
+              });
+          } else {
+            surface = false;
+          }
+        }
+        if (surface) {
+          const { getSignalDedup } = await import("./signal-dedup.js");
+          if (
+            getSignalDedup().shouldEmit(
+              sig.tag,
+              `update:${sig.dedupKey}`,
+              sig.content
+            )
+          ) {
+            updateBlock = `\nur|${sig.tag} ${sig.content}`;
+            persistAvailable?.();
+          }
         }
       }
     } catch {
@@ -2698,6 +2732,25 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
   lifecycle.send({ type: "INDEX_COMPLETE" });
   lifecycle.send({ type: "MCP_READY" });
+
+  // After an auto-update, this freshly-spawned (new-version) proxy re-asserts
+  // unerr's install footprint for every agent already configured in this repo —
+  // so a changed MCP entry / instruction block / skill set lands without the
+  // user re-running `unerr install`. Self-gating on a per-repo version marker
+  // (no-op when unchanged), fire-and-forget after the server is serving so it
+  // never delays first output, and never throws.
+  void import("../config/agent-reinstall.js")
+    .then((m) => m.refreshAgentInstallsIfUpgraded(process.cwd()))
+    .then((r) => {
+      if (r && r.refreshed.length > 0) {
+        startupLog.done(
+          `Refreshed unerr install for ${r.refreshed.join(", ")} (${r.fromVersion ?? "unknown"} → ${r.toVersion})`
+        );
+      }
+    })
+    .catch(() => {
+      /* best-effort — install refresh never blocks the proxy */
+    });
 
   // ── Step 7a-2: UDS Transport for Multi-Client (Task 7.2) ──────
 

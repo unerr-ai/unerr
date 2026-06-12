@@ -10,13 +10,13 @@
 
 import { describe, expect, it } from "vitest";
 import type { InstallClassification } from "../update/install-manager.js";
+import type { UpdateState } from "../update/update-state.js";
 import {
   releaseNotesUrl,
   updateSignal,
   updateStatusLine,
   updateStatusPanel,
 } from "../update/update-surface.js";
-import type { UpdateState } from "../update/update-state.js";
 
 const SELF_UPGRADABLE: InstallClassification = {
   manager: "npm",
@@ -87,7 +87,7 @@ describe("updateSignal — in-band line", () => {
     expect(sig?.content).toContain("(major;");
   });
 
-  it("minor available + notify_only install → loud with the native command", () => {
+  it("minor available + notify_only install → loud with the npm command", () => {
     const sig = updateSignal({
       policy: "auto",
       current: "0.2.11",
@@ -95,7 +95,7 @@ describe("updateSignal — in-band line", () => {
       classification: NOTIFY_ONLY,
     });
     expect(sig?.tag).toBe("act");
-    expect(sig?.content).toContain("brew upgrade unerr");
+    expect(sig?.content).toContain("npm install -g @unerr-ai/unerr@0.3.0");
     expect(sig?.content).toContain("0.3.0 available");
   });
 
@@ -166,9 +166,14 @@ describe("updateStatusPanel / updateStatusLine", () => {
     expect(p.status).toBe("up-to-date");
     expect(p.upgradeCommand).toBeNull();
     expect(p.lastCheckedAt).toBe(1000);
-    expect(updateStatusLine({ policy: "auto", current: "0.2.13", state: { latest_version: "0.2.13" }, classification: SELF_UPGRADABLE })).toContain(
-      "up to date"
-    );
+    expect(
+      updateStatusLine({
+        policy: "auto",
+        current: "0.2.13",
+        state: { latest_version: "0.2.13" },
+        classification: SELF_UPGRADABLE,
+      })
+    ).toContain("up to date");
   });
 
   it("available surfaces the exact command + kind", () => {
@@ -191,9 +196,14 @@ describe("updateStatusPanel / updateStatusLine", () => {
       classification: SELF_UPGRADABLE,
     });
     expect(p.status).toBe("disabled");
-    expect(updateStatusLine({ policy: "off", current: "0.2.11", state: EMPTY, classification: SELF_UPGRADABLE })).toContain(
-      "disabled"
-    );
+    expect(
+      updateStatusLine({
+        policy: "off",
+        current: "0.2.11",
+        state: EMPTY,
+        classification: SELF_UPGRADABLE,
+      })
+    ).toContain("disabled");
   });
 
   it("pending when a staged version differs from current", () => {

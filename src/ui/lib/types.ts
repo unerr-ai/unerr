@@ -424,6 +424,21 @@ export type SystemStatusEnvelope = {
       violations_caught: number;
       started_at: string;
     };
+    auth?: { line: string; badge: string } | null;
+    /** Auto-update panel (server/routes/system.ts → updateStatusPanel + line). */
+    update?: {
+      current: string;
+      latest: string | null;
+      kind: string;
+      status: "disabled" | "up-to-date" | "available" | "pending" | "rolled-back";
+      policy: "auto" | "notify" | "off";
+      manager: string;
+      mode: "self_upgradable" | "notify_only";
+      upgradeCommand: string | null;
+      lastCheckedAt: number | null;
+      pendingVersion: string | null;
+      line: string;
+    } | null;
   };
   _meta: { latency_ms?: number };
 };

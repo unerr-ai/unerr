@@ -237,6 +237,39 @@ export function registerInstallCommand(program: Command): void {
         );
         process.stderr.write("\n");
 
+        // Disclose auto-update once per machine (informed default-on): it ships
+        // on, so the first setup names the behaviour + the off-switch, then the
+        // `disclosed_at` flag keeps it from repeating. Best-effort, never blocks.
+        try {
+          const { discloseAutoUpdateOnce } = await import(
+            "../update/disclosure.js"
+          );
+          const lines: string[] = [];
+          if (discloseAutoUpdateOnce((l) => lines.push(l))) {
+            process.stderr.write(
+              `  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1m${lines[0]}\x1b[0m\n`
+            );
+            for (const l of lines.slice(1)) {
+              process.stderr.write(`    \x1b[38;2;161;161;170m${l}\x1b[0m\n`);
+            }
+            process.stderr.write("\n");
+          } else {
+            // Already disclosed — keep the control discoverable with one resting
+            // line reflecting the current policy + the exact change command.
+            const { updatePolicy } = await import(
+              "../update/update-config.js"
+            );
+            const mode = updatePolicy();
+            const label =
+              mode === "auto" ? "on" : mode === "notify" ? "notify-only" : "off";
+            process.stderr.write(
+              `  \x1b[38;2;161;161;170mAuto-update: ${label} · change: unerr update --mode auto|notify|off\x1b[0m\n\n`
+            );
+          }
+        } catch {
+          /* disclosure is additive — never block install on it */
+        }
+
         // A5: chain into login — the highest-intent moment. Install ALWAYS
         // succeeds into free; login is the optional, additive last step.
         await chainInstallLogin({ login: opts?.login, token: opts?.token });

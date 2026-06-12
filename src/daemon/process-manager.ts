@@ -19,6 +19,11 @@ import { type ChildProcess, fork } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
+import {
+  fleetUpgradePending,
+  readUpdateState,
+} from "../update/update-state.js";
+import { UNERR_VERSION } from "../version.js";
 import type {
   ChildMessage,
   NeedsInputSignal,
@@ -89,6 +94,41 @@ export type ProcessEventHandler = (
 // ── Process Manager ─────────────────────────────────────────────
 
 const IDLE_SWEEP_INTERVAL_MS = 60_000;
+
+/**
+ * After an auto-update lands on disk, idle proxies are recycled this much sooner
+ * than their configured idleTimeout so the fleet adopts the new version fast.
+ * One minute of zero connections is "idle enough" to recycle without disrupting
+ * any session.
+ */
+const UPGRADE_RECYCLE_IDLE_MS = 60_000;
+
+/**
+ * Decide whether an idle per-repo proxy should be recycled NOW to adopt an
+ * upgrade that already landed on disk. True only when an upgrade is pending and
+ * the child is one we forked (not adopted), running, has no connected bridge,
+ * and has been idle at least {@link UPGRADE_RECYCLE_IDLE_MS}. Pure + total.
+ *
+ * Recycling = stop the child; its next MCP request respawns it on the new
+ * on-disk version. The bridge (`unerr --mcp`) always runs the on-disk version
+ * and is re-spawned by the IDE, so "no connection" is exactly when recycling the
+ * proxy is safe and sufficient to converge the fleet onto the upgrade.
+ */
+export function shouldRecycleForUpgrade(
+  repo: Pick<
+    ManagedRepo,
+    "status" | "adopted" | "connections" | "lastActivity"
+  >,
+  now: number,
+  upgradePending: boolean,
+  idleMs: number = UPGRADE_RECYCLE_IDLE_MS
+): boolean {
+  if (!upgradePending) return false;
+  if (repo.status !== "running") return false;
+  if (repo.adopted) return false;
+  if (repo.connections > 0) return false;
+  return now - repo.lastActivity >= idleMs;
+}
 
 /** Liveness probe — does a process with this PID currently exist? */
 function isProcessAlive(pid: number): boolean {
@@ -619,12 +659,37 @@ export class ProcessManager {
         /* best-effort — auto-update never breaks the sweep */
       });
 
+    // Did an auto-update already land on disk that the running fleet hasn't
+    // adopted? If so, idle proxies are recycled early (below) to pick it up.
+    // Best-effort — a missing/corrupt state file reads as "no upgrade pending".
+    let upgradePending = false;
+    try {
+      upgradePending = fleetUpgradePending(readUpdateState(), UNERR_VERSION);
+    } catch {
+      /* never break the sweep on a state read */
+    }
+
     for (const repo of this.repos.values()) {
       if (repo.status !== "running") continue;
       // Adopted external proxies have no IPC handle and run their own idle
       // lifecycle (own PID lock) — unerrd doesn't sweep what it didn't fork.
       if (repo.adopted) continue;
       if (repo.connections > 0) continue;
+
+      // Upgrade adoption: recycle an idle proxy early — even one pinned with
+      // idleTimeout === 0 — so its next spawn runs the new on-disk version.
+      if (shouldRecycleForUpgrade(repo, now, upgradePending)) {
+        this.onEvent?.(
+          "stopped",
+          repo,
+          "recycling idle proxy to adopt upgrade"
+        );
+        this.shutdownChild(repo).catch(() => {
+          /* best-effort */
+        });
+        continue;
+      }
+
       if (repo.idleTimeout === 0) continue;
 
       const idleMs = now - repo.lastActivity;

@@ -3,8 +3,9 @@
  *
  * The safety contract: ONLY an npm/pnpm-global layout with a writable root is
  * `self_upgradable`; Homebrew, Volta, asdf, nvm, npx, a non-writable root, and
- * any ambiguous path all degrade to `notify_only` with the correct per-manager
- * upgrade command. All inputs are injected — no real filesystem or install.
+ * any ambiguous path all degrade to `notify_only`. We only support npm/pnpm
+ * upgrades, so every other manager is shown the npm command. All inputs are
+ * injected — no real filesystem or install.
  */
 
 import { describe, expect, it } from "vitest";
@@ -114,8 +115,9 @@ describe("classifyInstall — upgrade mode gate", () => {
 
   it("pnpm global + writable → self_upgradable", () => {
     expect(
-      classify(`${HOME}/Library/pnpm/global/5/node_modules/@unerr-ai/unerr/cli.js`)
-        .mode
+      classify(
+        `${HOME}/Library/pnpm/global/5/node_modules/@unerr-ai/unerr/cli.js`
+      ).mode
     ).toBe("self_upgradable");
   });
 
@@ -135,10 +137,12 @@ describe("classifyInstall — upgrade mode gate", () => {
   });
 
   it("unknown / empty path → notify_only", () => {
-    expect(classify("/opt/company-tools/unerr/cli.js").mode).toBe("notify_only");
-    expect(
-      classifyInstall({ execPath: "", realpath: (p) => p }).mode
-    ).toBe("notify_only");
+    expect(classify("/opt/company-tools/unerr/cli.js").mode).toBe(
+      "notify_only"
+    );
+    expect(classifyInstall({ execPath: "", realpath: (p) => p }).mode).toBe(
+      "notify_only"
+    );
   });
 });
 
@@ -150,10 +154,21 @@ describe("upgradeCommand — exact per-manager command", () => {
     expect(upgradeCommand("pnpm")).toBe("pnpm add -g @unerr-ai/unerr@latest");
   });
 
-  it("homebrew / volta get their native upgrade", () => {
-    expect(upgradeCommand("homebrew")).toBe("brew upgrade unerr");
+  it("every non-pnpm manager falls back to the npm command (npm-only support)", () => {
+    // No native brew/volta/asdf path yet — all notify-only managers are pointed
+    // at the npm command, never `brew upgrade` / `volta install`.
+    expect(upgradeCommand("homebrew")).toBe(
+      "npm install -g @unerr-ai/unerr@latest"
+    );
     expect(upgradeCommand("volta", "0.2.13")).toBe(
-      "volta install @unerr-ai/unerr@0.2.13"
+      "npm install -g @unerr-ai/unerr@0.2.13"
+    );
+    expect(upgradeCommand("asdf")).toBe(
+      "npm install -g @unerr-ai/unerr@latest"
+    );
+    expect(upgradeCommand("nvm")).toBe("npm install -g @unerr-ai/unerr@latest");
+    expect(upgradeCommand("unknown")).toBe(
+      "npm install -g @unerr-ai/unerr@latest"
     );
   });
 });

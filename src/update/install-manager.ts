@@ -15,7 +15,7 @@
  * real install. Never throws.
  */
 
-import { accessSync, constants, realpathSync } from "node:fs";
+import { constants, accessSync, realpathSync } from "node:fs";
 import { homedir as osHomedir } from "node:os";
 import { dirname } from "node:path";
 import { PACKAGE_NAME } from "./version-check.js";
@@ -140,29 +140,25 @@ function defaultIsWritable(dir: string): boolean {
 }
 
 /**
- * Build the exact upgrade command for a manager + target version. Self-upgrade
- * managers get the global-install form; the rest get their native upgrade.
- * `version` omitted → `@latest` (status display); supplied → pinned (apply).
+ * Build the exact upgrade command for a manager + target version. We only
+ * support npm and pnpm global upgrades right now: an npm install upgrades in
+ * place with `npm install -g`, a pnpm install with `pnpm add -g`. Every other
+ * detected manager (volta, asdf, nvm, npx, homebrew, unknown) is notify-only
+ * (classifyInstall) and is pointed at the npm command — we have no native
+ * upgrade path for them yet. `version` omitted → `@latest` (status display);
+ * supplied → pinned (apply).
  */
 export function upgradeCommand(
   manager: InstallManager,
   version?: string
 ): string {
-  const spec = version ? `${PACKAGE_NAME}@${version}` : `${PACKAGE_NAME}@latest`;
+  const spec = version
+    ? `${PACKAGE_NAME}@${version}`
+    : `${PACKAGE_NAME}@latest`;
   switch (manager) {
-    case "npm":
-      return `npm install -g ${spec}`;
     case "pnpm":
       return `pnpm add -g ${spec}`;
-    case "homebrew":
-      return "brew upgrade unerr";
-    case "volta":
-      return `volta install ${spec}`;
-    case "asdf":
-      return `npm install -g ${spec} # then: asdf reshim nodejs`;
-    case "nvm":
-    case "npx":
-    case "unknown":
+    default:
       return `npm install -g ${spec}`;
   }
 }

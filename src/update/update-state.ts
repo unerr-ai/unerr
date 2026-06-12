@@ -49,6 +49,12 @@ export interface UpdateState {
   last_good_version?: string;
   /** A staged upgrade applied on disk, awaiting the next spawn to take effect. */
   pending_version?: string;
+  /** Epoch ms the first-run auto-update disclosure was shown (once per machine). */
+  disclosed_at?: number;
+  /** Epoch ms the notify-only "available" line was last surfaced (daily throttle). */
+  available_notified_at?: number;
+  /** The version the last "available" line named (resets the throttle on a new release). */
+  available_notified_version?: string;
 }
 
 /** `~/.unerr/state/update.json` (honours UNERR_HOME). */
@@ -77,4 +83,17 @@ export function writeUpdateState(patch: Partial<UpdateState>): void {
   } catch {
     /* update state is non-critical — never break a caller on a write failure */
   }
+}
+
+/**
+ * True when an auto-update already landed on disk that the `running` process
+ * has NOT adopted yet — i.e. `last_applied.to` differs from the running
+ * version. The daemon reads this each idle sweep to decide whether to recycle
+ * idle per-repo proxies early so their next spawn picks up the new version.
+ */
+export function fleetUpgradePending(
+  state: UpdateState,
+  running: string
+): boolean {
+  return !!state.last_applied && state.last_applied.to !== running;
 }

@@ -271,6 +271,85 @@ function ConfigSection({ config }: { config: Record<string, unknown> }) {
 
 // ── Main Page ────────────────────────────────────────────────────────
 
+// ── Auto-update Card ─────────────────────────────────────────────────
+
+/** Coarse "how long ago" for the last registry check. */
+function relTime(ms: number | null): string {
+  if (!ms) return "never";
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return "just now";
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function AutoUpdateCard({
+  update,
+}: {
+  update: NonNullable<SystemStatusEnvelope["data"]["update"]>;
+}) {
+  const dot =
+    update.status === "rolled-back"
+      ? "bg-red-500"
+      : update.status === "available" || update.status === "pending"
+        ? "bg-amber-400"
+        : update.status === "disabled"
+          ? "bg-gray-500"
+          : "bg-emerald-500";
+  const policyLabel =
+    update.policy === "auto"
+      ? "Auto (patch + minor)"
+      : update.policy === "notify"
+        ? "Notify only"
+        : "Off";
+  return (
+    <section className="glass-panel rounded-xl p-5">
+      <div className="flex items-center justify-between">
+        <h2 className="section-label text-violet-500 flex items-center gap-2">
+          <span className={`inline-block h-2.5 w-2.5 rounded-full ${dot}`} />
+          Auto-update
+        </h2>
+        <span className="t-tertiary text-xs">
+          checked {relTime(update.lastCheckedAt)}
+        </span>
+      </div>
+      <p className="mt-2 text-sm text-foreground">{update.line}</p>
+      <dl className="mt-3">
+        <DetailRow label="Current version" value={update.current} />
+        <DetailRow label="Latest" value={update.latest ?? "—"} />
+        <DetailRow label="Policy" value={policyLabel} mono={false} />
+        <DetailRow
+          label="Install"
+          value={`${update.manager} · ${update.mode === "self_upgradable" ? "self-updates" : "notify only"}`}
+          mono={false}
+        />
+        {update.pendingVersion && (
+          <DetailRow
+            label="Staged"
+            value={`${update.pendingVersion} (applies on next restart)`}
+            mono={false}
+          />
+        )}
+        {update.upgradeCommand && (
+          <DetailRow
+            label="Upgrade command"
+            value={update.upgradeCommand}
+            copyable
+          />
+        )}
+      </dl>
+      <p className="mt-3 t-tertiary text-xs">
+        Change with{" "}
+        <code className="font-mono text-foreground">
+          unerr update --mode auto|notify|off
+        </code>
+      </p>
+    </section>
+  );
+}
+
 export function SettingsPage() {
   const { url, queryKey } = useRepoApi();
   const statusQ = useQuery({
@@ -435,6 +514,9 @@ export function SettingsPage() {
           color="amber"
         />
       </div>
+
+      {/* ── Auto-update ──────────────────────────────────────────────── */}
+      {st?.update && <AutoUpdateCard update={st.update} />}
 
       {/* ── Two-Column: Process Details + Skills ─────────────────────── */}
       <div className="flex flex-col gap-6 lg:flex-row">

@@ -116,6 +116,20 @@ export async function runSetup(cwd?: string): Promise<WizardResult> {
   );
   summaryLines.push("convention enforcement, and <5ms graph queries.");
 
+  // Disclose auto-update once per machine (informed default-on) — shares the
+  // `disclosed_at` flag with `unerr install`, so whichever onboarding path runs
+  // first shows it and the other stays quiet. Best-effort, never blocks setup.
+  try {
+    const { discloseAutoUpdateOnce } = await import("../update/disclosure.js");
+    const lines: string[] = [];
+    if (discloseAutoUpdateOnce((l) => lines.push(l))) {
+      summaryLines.push("");
+      summaryLines.push(...lines);
+    }
+  } catch {
+    // Non-blocking — disclosure can show on the next setup instead.
+  }
+
   clack.note(summaryLines.join("\n"), "✅ Intelligence layer configured");
   clack.outro("🚀 Starting intelligence engine...");
 

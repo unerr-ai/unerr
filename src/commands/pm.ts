@@ -450,6 +450,17 @@ export function registerPmCommand(program: Command): void {
         `\n  \x1b[1munerr pm\x1b[0m — ${repos.length} repo${repos.length === 1 ? "" : "s"} registered\n`
       );
 
+      // Daemon version + auto-update state — read-only, offline (reads the
+      // persisted update record). Additive: a derivation failure omits the line.
+      try {
+        const { updateStatusLine } = await import(
+          "../update/update-surface.js"
+        );
+        write(`  \x1b[1mVersion:\x1b[0m   ${updateStatusLine()}\n`);
+      } catch {
+        // Update surface is additive — skip the line rather than fail status.
+      }
+
       // Surface where the dashboard lives so it's discoverable — only claim
       // the URL is live when the HTTP API actually answered (liveStatus set).
       if (liveStatus !== null) {
