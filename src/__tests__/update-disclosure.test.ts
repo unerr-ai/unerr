@@ -6,11 +6,11 @@ import {
 import type { UpdateState } from "../update/update-state.js";
 
 describe("buildDisclosureLines", () => {
-  it("names the behaviour and the exact off-switch command", () => {
+  it("names the behaviour and where to change it", () => {
     const lines = buildDisclosureLines();
     expect(lines.length).toBeGreaterThan(0);
     expect(lines[0]).toMatch(/auto-update is on/i);
-    expect(lines.join("\n")).toContain("unerr update --mode notify");
+    expect(lines.join("\n")).toContain("dashboard → Settings → Auto-update");
     // No hedge verbs (CLAUDE.md nudge rules).
     expect(lines.join("\n")).not.toMatch(/\b(consider|verify|try|may want)\b/i);
   });

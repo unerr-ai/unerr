@@ -7,6 +7,8 @@
  *   3. unerrd ↔ child repo processes (ready/activity/stats/shutdown)
  */
 
+import type { TierLimits } from "../cloud/tier-model.js";
+
 // ── Shared primitives ────────────────────────────────────────────
 
 /**
@@ -178,6 +180,20 @@ export interface ErrorResponse {
   parentConflict?: string;
 }
 
+/**
+ * The daemon refused to start a repo because the free tier (1 active repo) is
+ * already serving a different repo. Distinct from `ErrorResponse` so the bridge
+ * can surface a clean cap refusal (JSON-RPC -32003) instead of a generic error.
+ */
+export interface EnsureRefusedResponse {
+  ok: false;
+  refused: "already_active";
+  /** The repo currently holding the single free-tier active slot. */
+  activePath: string;
+  /** Human-facing message naming the exact stop / upgrade commands. */
+  message: string;
+}
+
 export type RepoStatus = "running" | "stopped" | "starting" | "error";
 
 export interface RepoStatusEntry {
@@ -209,6 +225,8 @@ export interface EntitlementsOkResponse {
   plan: string;
   source: "fresh" | "grace" | "free_fallback" | "none";
   features: Record<string, boolean>;
+  /** The plan's resolved limits (repos / seats / machines). `-1` = unlimited. */
+  limits: TierLimits;
   /** When in grace: ISO date to reconnect by. */
   reconnect_by?: string;
 }
@@ -216,6 +234,7 @@ export interface EntitlementsOkResponse {
 export type DaemonResponse =
   | OkResponse
   | EnsureOkResponse
+  | EnsureRefusedResponse
   | ErrorResponse
   | StatusOkResponse
   | EntitlementsOkResponse;

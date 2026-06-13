@@ -27,7 +27,11 @@ import { type Server, createConnection, createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ProcessManager } from "../daemon/process-manager.js";
-import type { DaemonRequest, DaemonResponse } from "../daemon/protocol.js";
+import {
+  DAEMON_DASHBOARD_PORT,
+  type DaemonRequest,
+  type DaemonResponse,
+} from "../daemon/protocol.js";
 import {
   addRepo,
   globalDir,
@@ -183,11 +187,22 @@ async function handleRequest(
   switch (req.cmd) {
     case "ensure": {
       try {
-        const sock = await pm.ensure(req.repo);
+        const outcome = await pm.ensure(req.repo);
+        // Free-tier single-active backstop: a different repo already holds the
+        // one slot — surface a structured refusal so the bridge answers the
+        // IDE with a clean cap error instead of relaying.
+        if (typeof outcome !== "string") {
+          return {
+            ok: false,
+            refused: "already_active",
+            activePath: outcome.activePath,
+            message: outcome.message,
+          };
+        }
         // U4: stamp our own running version so the fresh-spawned bridge can
         // detect a stale daemon (manual/auto upgrade) and converge.
         const { UNERR_VERSION } = await import("../version.js");
-        return { ok: true, sock, version: UNERR_VERSION };
+        return { ok: true, sock: outcome, version: UNERR_VERSION };
       } catch (err) {
         return { ok: false, error: (err as Error).message };
       }
@@ -209,7 +224,14 @@ async function handleRequest(
       return { ok: true, repos: pm.getStatus() };
 
     case "add": {
-      const result = addRepo(req.repo, req.settings ?? {});
+      // Resolve the plan's repo limit from local state (the daemon owns the
+      // freshest entitlement cache) and inject it so the registry enforces the
+      // free-tier cap without importing cloud (which would cycle).
+      const { tierFromCache } = await import("../cloud/tier-query.js");
+      const { repoLimit } = await import("../cloud/tier-model.js");
+      const result = addRepo(req.repo, req.settings ?? {}, {
+        repoLimit: repoLimit(tierFromCache()),
+      });
       if (result.ok) return { ok: true };
       return {
         ok: false,
@@ -244,11 +266,19 @@ async function handleRequest(
           plan: tier.plan,
           source: tier.source,
           features: tier.features,
+          limits: tier.limits,
           reconnect_by: tier.reconnect_by,
         };
       } catch {
         // Cloud module unavailable for any reason → free, never block.
-        return { ok: true, plan: "free", source: "none", features: {} };
+        const { FREE_TIER_LIMITS } = await import("../cloud/tier-model.js");
+        return {
+          ok: true,
+          plan: "free",
+          source: "none",
+          features: {},
+          limits: FREE_TIER_LIMITS,
+        };
       }
     }
 
@@ -339,8 +369,17 @@ export async function startDaemon(opts: {
   }
 
   const pm = new ProcessManager();
+  // Set lazily once the reporter starts (after the dashboard binds); proxy
+  // start/stop is a fleet-changing event that triggers a debounced inventory push.
+  let fleetReporter: {
+    notifyEvent: (r: string) => void;
+    stop: () => void;
+  } | null = null;
   pm.setEventHandler((event, repo, detail) => {
     log.info(`[${repo.label}] ${event}${detail ? `: ${detail}` : ""}`);
+    if (event === "started" || event === "stopped") {
+      fleetReporter?.notifyEvent(`proxy-${event}`);
+    }
   });
 
   const server = createUdsServer(pm);
@@ -466,11 +505,40 @@ export async function startDaemon(opts: {
     log.warn(`Entitlement refresh failed to start: ${(err as Error).message}`);
   }
 
-  // Add warm-start + entitlement-refresh cancellation to shutdown
+  // Start the fleet reporter (non-critical — reports this machine's repo
+  // inventory + process runtime to the account dashboard. Default-on when logged
+  // in; the opt-out gate and the logged-out check make it skip silently. Repo
+  // add/remove + proxy start/stop trigger a debounced inventory push via the
+  // pm event handler above.)
+  try {
+    const { FleetReporter } = await import("../daemon/fleet-reporter.js");
+    const { readCredentials } = await import("../cloud/credentials.js");
+    const reporter = new FleetReporter({
+      getStatusEntries: () => pm.getStatus(),
+      resolveAuth: () => {
+        const creds = readCredentials();
+        if (!creds || creds.machine_id.length === 0) return null;
+        return {
+          apiUrl: creds.api_url,
+          token: creds.token,
+          machineId: creds.machine_id,
+        };
+      },
+      dashboardPort: () => apiHandle?.port ?? DAEMON_DASHBOARD_PORT,
+      log: (msg) => log.info(msg),
+    });
+    reporter.start();
+    fleetReporter = reporter;
+  } catch (err) {
+    log.warn(`Fleet reporter failed to start: ${(err as Error).message}`);
+  }
+
+  // Add warm-start + entitlement-refresh + fleet-reporter cancellation to shutdown
   const origShutdown = shutdown;
   const wrappedShutdown = async (reason: string) => {
     cancelWarmStart?.();
     stopEntitlementRefresh?.();
+    fleetReporter?.stop();
     await origShutdown(reason);
   };
   process.removeAllListeners("SIGTERM");

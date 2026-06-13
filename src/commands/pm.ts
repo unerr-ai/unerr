@@ -33,6 +33,7 @@ import {
   SETTINGS_SCHEMA,
   parseSettingsFlags,
 } from "../daemon/settings-schema.js";
+import { currentRepoLimit } from "../cloud/tier-query.js";
 import { runEnvironmentChecks } from "./doctor.js";
 
 const write = (msg: string) => process.stderr.write(msg);
@@ -61,6 +62,34 @@ function resolveRegisteredRepo(arg: string) {
     repos.find((r) => r.path === arg) ??
     repos.find((r) => resolve(expandHome(r.path)) === target)
   );
+}
+
+/**
+ * Stop a repo's running child and drop its registry row, freeing the free-tier
+ * cap slot. When unerrd is up the call routes through its "remove" RPC (which
+ * stops the child before unregistering); otherwise it falls back to the bare
+ * registry removal. Returns whether a registry row was actually dropped.
+ *
+ * @sem domain=process-manager role=mutator
+ */
+export async function unregisterRepo(targetPath: string): Promise<boolean> {
+  const { daemonSockPath, probeDaemon, sendRequest } = await import(
+    "../daemon/client.js"
+  );
+  const sock = daemonSockPath();
+  if (await probeDaemon(sock)) {
+    try {
+      const resp = await sendRequest(
+        sock,
+        { cmd: "remove", repo: targetPath },
+        5_000
+      );
+      return resp.ok === true;
+    } catch {
+      // Daemon went away mid-request — fall back to the bare registry removal.
+    }
+  }
+  return removeRepo(targetPath);
 }
 
 export function registerPmCommand(program: Command): void {
@@ -309,6 +338,7 @@ export function registerPmCommand(program: Command): void {
       const result = addRepo(targetPath, settings, {
         skipParentCheck: opts.skipParentCheck,
         skipChildCheck: opts.skipChildCheck,
+        repoLimit: currentRepoLimit(),
       });
 
       if (!result.ok) {
@@ -349,11 +379,13 @@ export function registerPmCommand(program: Command): void {
 
   pm.command("remove [path]")
     .description("Unregister a repo from unerrd")
-    .action((pathArg: string | undefined) => {
+    .action(async (pathArg: string | undefined) => {
       const targetPath = resolve(pathArg ?? ".");
-      const removed = removeRepo(targetPath);
+      const removed = await unregisterRepo(targetPath);
       if (removed) {
-        write(`\x1b[38;2;52;211;153m\u2713\x1b[0m Removed ${targetPath}\n`);
+        write(
+          `\x1b[38;2;52;211;153m\u2713\x1b[0m Removed ${targetPath}; slot freed.\n`
+        );
       } else {
         write(
           `\x1b[38;2;248;113;113m\u2717\x1b[0m Not registered: ${targetPath}\n`
@@ -367,9 +399,11 @@ export function registerPmCommand(program: Command): void {
   pm.command("status")
     .description("List all registered repos and their state")
     .action(async () => {
+      const { offerLoginIfNeeded } = await import("./login.js");
       const repos = listRepos();
       if (repos.length === 0) {
         write("No repos registered. Use `unerr pm add .` to register.\n");
+        await offerLoginIfNeeded();
         return;
       }
 
@@ -521,6 +555,10 @@ export function registerPmCommand(program: Command): void {
 
         write("\n");
       }
+
+      // `unerr pm status` is a login entry point too — offer the one-key
+      // connect prompt (no-op if already connected or non-interactive).
+      await offerLoginIfNeeded();
     });
 
   // ── pm config <path> ────────────────────────────────────

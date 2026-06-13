@@ -14,6 +14,8 @@ import { type ChildProcess, spawn as cpSpawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
+import { repoLimit } from "../cloud/tier-model.js";
+import { tierFromCache } from "../cloud/tier-query.js";
 import { isCI } from "./detect-ci.js";
 import type { ProcessManager } from "./process-manager.js";
 import type { RepoEntry } from "./protocol.js";
@@ -157,6 +159,26 @@ export function selectCandidates(
   return { candidates, skipped };
 }
 
+/**
+ * The single most-recently-active repo across `repos`, ranked by
+ * `max(lastActivity ?? lastStarted ?? addedAt)`. Used by the free-tier
+ * autostart restriction: when only one repo may run, only this one starts.
+ * Returns null for an empty registry.
+ */
+export function lastActiveRepo(repos: RepoEntry[]): RepoEntry | null {
+  let best: RepoEntry | null = null;
+  let bestTs = Number.NEGATIVE_INFINITY;
+  for (const entry of repos) {
+    const stamp = entry.lastActivity ?? entry.lastStarted ?? entry.addedAt;
+    const ts = stamp ? new Date(stamp).getTime() : 0;
+    if (ts > bestTs) {
+      bestTs = ts;
+      best = entry;
+    }
+  }
+  return best;
+}
+
 // ── Scheduler ─────────────────────────────────────────────────
 
 export interface WarmStartResult {
@@ -189,7 +211,17 @@ export async function runWarmStart(
   if (isCI()) return result;
 
   const registry = readRegistry();
-  const { candidates, skipped } = selectCandidates(registry.repos, config);
+
+  // Free-tier single-active cap: when only one repo may run, autostart starts
+  // ONLY the single last-active repo and skips the rest (they stay registered
+  // but dormant). Limit >1 / unlimited (Pro/Team) starts all as before.
+  let repos = registry.repos;
+  if (repoLimit(tierFromCache()) === 1 && repos.length > 1) {
+    const only = lastActiveRepo(repos);
+    repos = only ? [only] : [];
+  }
+
+  const { candidates, skipped } = selectCandidates(repos, config);
 
   for (const s of skipped) {
     result.skipped.push({ label: s.entry.label, reason: s.reason });

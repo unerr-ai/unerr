@@ -15,12 +15,24 @@
 
 import { daemonSockPath, getDaemonTier } from "../daemon/client.js";
 import { effectiveTier, readEntitlementCache } from "./entitlements.js";
+import {
+  FREE_TIER_LIMITS,
+  parseLimits,
+  repoLimit,
+  type TierLimits,
+} from "./tier-model.js";
 
 /** The tier snapshot a proxy acts on. */
 export interface TierSnapshot {
   plan: string;
   source: "fresh" | "grace" | "free_fallback" | "none";
   features: Record<string, boolean>;
+  /**
+   * The plan's resolved limits (repos / seats / machines). Carried so any
+   * feature reads one shape both online (daemon) and offline (cache). `-1` is
+   * unlimited; free fail-safes to 1. See {@link TierLimits}.
+   */
+  limits: TierLimits;
   /** When in grace: ISO date to reconnect by. */
   reconnect_by?: string;
 }
@@ -46,12 +58,23 @@ export async function resolveTier(
 export function tierFromCache(now: number = Date.now()): TierSnapshot {
   const tier = effectiveTier(now);
   const features = featuresForTier(tier.source, now);
+  const limits = limitsForTier(tier.source);
   return {
     plan: tier.plan,
     source: tier.source,
     features,
+    limits,
     reconnect_by: tier.reconnect_by,
   };
+}
+
+/**
+ * The current plan's repo limit, read offline from the cache. `-1` is
+ * unlimited; free fail-safes to 1. The repo cap's callers inject this into
+ * `addRepo` so the registry never imports cloud (which would cycle).
+ */
+export function currentRepoLimit(now: number = Date.now()): number {
+  return repoLimit(tierFromCache(now));
 }
 
 /**
@@ -68,4 +91,17 @@ function featuresForTier(
     return cache?.claims?.features ?? {};
   }
   return {};
+}
+
+/**
+ * The limits to expose for a tier. Fresh/grace parse the verified claims'
+ * `limits` map; otherwise the free fail-safe (1 repo / 1 seat / 1 machine).
+ * Parsed through the central tier model so the wire keys live in one place.
+ */
+function limitsForTier(source: TierSnapshot["source"]): TierLimits {
+  if (source === "fresh" || source === "grace") {
+    const cache = readEntitlementCache();
+    return parseLimits(cache?.claims?.limits);
+  }
+  return FREE_TIER_LIMITS;
 }

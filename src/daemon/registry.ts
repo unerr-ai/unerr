@@ -16,6 +16,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { checkRegisterRepo } from "../cloud/repo-cap.js";
+import { UNLIMITED } from "../cloud/tier-model.js";
 import {
   DEFAULT_IDLE_TIMEOUT_S,
   type NeedsInputSignal,
@@ -120,6 +122,8 @@ export interface AddConflict {
   error: string;
   parentConflict?: string;
   childConflicts?: string[];
+  /** Set when the refusal is the free-tier repo cap (vs a path conflict). */
+  freeCapExceeded?: boolean;
 }
 
 /**
@@ -137,15 +141,39 @@ export interface AddConflict {
 export function addRepo(
   rawPath: string,
   settings: Partial<RepoSettings> = {},
-  opts: { skipParentCheck?: boolean; skipChildCheck?: boolean } = {}
+  opts: {
+    skipParentCheck?: boolean;
+    skipChildCheck?: boolean;
+    /**
+     * The plan's repo limit (`repoLimit(tierFromCache())`). Resolved by the
+     * caller and injected so this module stays free of any cloud import (the
+     * daemon client already imports registry — importing it back would cycle).
+     * Omitted ⇒ no cap (treated as unlimited); `skipCap` also bypasses.
+     */
+    repoLimit?: number;
+    skipCap?: boolean;
+  } = {}
 ): AddResult | AddConflict {
   const absPath = resolve(expandHome(rawPath));
   const reg = readRegistry();
 
-  // Already registered — idempotent
+  // Already registered — idempotent (re-adding the current repo is always
+  // allowed, so this short-circuits before the cap check below).
   const existing = reg.repos.find((r) => r.path === absPath);
   if (existing) {
     return { ok: true, entry: existing, created: false };
+  }
+
+  // Free-tier repo cap: refuse a new repo once the account is at its limit.
+  // Runs after idempotency (above) and before the path-conflict checks.
+  if (!opts.skipCap) {
+    const verdict = checkRegisterRepo({
+      limit: opts.repoLimit ?? UNLIMITED,
+      currentCount: reg.repos.length,
+    });
+    if (!verdict.allowed) {
+      return { ok: false, error: verdict.message, freeCapExceeded: true };
+    }
   }
 
   // Parent-directory conflict: walk up from absPath checking for existing registrations

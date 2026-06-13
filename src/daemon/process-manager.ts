@@ -19,6 +19,9 @@ import { type ChildProcess, fork } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
+import { checkActivateRepo } from "../cloud/repo-cap.js";
+import { repoLimit } from "../cloud/tier-model.js";
+import { tierFromCache } from "../cloud/tier-query.js";
 import {
   fleetUpgradePending,
   readUpdateState,
@@ -40,6 +43,23 @@ import {
 } from "./registry.js";
 
 // ── Types ───────────────────────────────────────────────────────
+
+/**
+ * The result of {@link ProcessManager.ensure}: the per-repo UDS sock path on
+ * success, or a structured free-tier refusal when the single active slot is
+ * already held by a different repo.
+ */
+export type EnsureRefusal = {
+  refused: "already_active";
+  activePath: string;
+  message: string;
+};
+export type EnsureOutcome = string | EnsureRefusal;
+
+/** Type guard — true when `ensure` refused rather than returning a sock path. */
+export function isEnsureRefusal(o: EnsureOutcome): o is EnsureRefusal {
+  return typeof o !== "string";
+}
 
 /**
  * One caller blocked in {@link ProcessManager.waitForReady} for a repo whose
@@ -221,9 +241,33 @@ export class ProcessManager {
   /**
    * Ensure a repo process is running. If already running, returns the sock path.
    * If stopped, spawns it and waits for the "ready" IPC message.
+   *
+   * Free-tier backstop: when the repo limit is 1 and a DIFFERENT repo is
+   * already running/starting, refuses instead of spawning a second proxy —
+   * returns a structured `{ refused: "already_active", activePath, message }`.
+   * The daemon is single-process, so this check serializes without a race.
    */
-  async ensure(repoPath: string): Promise<string> {
+  async ensure(repoPath: string): Promise<EnsureOutcome> {
     const key = canonRepoKey(repoPath);
+
+    if (repoLimit(tierFromCache()) === 1) {
+      const active = this.activeForeignRepo(key);
+      if (active) {
+        const verdict = checkActivateRepo({
+          limit: 1,
+          activePath: active,
+          requestedPath: repoPath,
+        });
+        if (!verdict.allowed) {
+          return {
+            refused: "already_active",
+            activePath: active,
+            message: verdict.message,
+          };
+        }
+      }
+    }
+
     const existing = this.repos.get(key);
     if (existing?.status === "running" && existing.sock) {
       // "running" is only trustworthy if the proxy is BOTH alive AND its UDS
@@ -272,6 +316,21 @@ export class ProcessManager {
       if (readopted) return readopted;
       throw err;
     }
+  }
+
+  /**
+   * The path of a managed repo currently `running` or `starting` that is NOT
+   * `excludeKey`, or null when no other repo is active. Used by the free-tier
+   * single-active backstop to refuse a second concurrent repo.
+   */
+  private activeForeignRepo(excludeKey: string): string | null {
+    for (const [key, repo] of this.repos) {
+      if (key === excludeKey) continue;
+      if (repo.status === "running" || repo.status === "starting") {
+        return repo.path;
+      }
+    }
+    return null;
   }
 
   /**

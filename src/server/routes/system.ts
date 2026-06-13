@@ -1,12 +1,15 @@
 /**
  * Layer 7: System status and configuration routes.
  *
- * GET /api/system/status  — Proxy state, uptime, PID, graph info
- * GET /api/system/config  — Repo config, IDE, installed skills
+ * GET  /api/system/status       — Proxy state, uptime, PID, graph info
+ * GET  /api/system/config       — Repo config, IDE, installed skills
+ * POST /api/system/update-mode  — Set the machine-wide auto-update policy
+ * POST /api/system/update-check — Force a registry check for a newer release
  */
 
 import { Hono } from "hono";
 import type { SessionStats } from "../../proxy/session-stats.js";
+import type { UpdatePolicy } from "../../update/update-config.js";
 
 export interface SystemRouteDeps {
   /** Session stats (live counters) */
@@ -141,6 +144,59 @@ export function createSystemRoutes(deps: SystemRouteDeps): Hono {
         repo_config: config,
         ide: deps.ide,
         skills_installed: skills,
+      },
+      _meta: {
+        source: "local",
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+      },
+    });
+  });
+
+  // U3: set the machine-wide auto-update policy. Replaces the removed
+  // `unerr update --mode` CLI — the dashboard Settings page is now the one
+  // place to change it. Persists to ~/.unerr/settings.json; the daemon picks
+  // it up on its next sweep (no restart). Returns the refreshed status panel.
+  app.post("/update-mode", async (c) => {
+    const start = performance.now();
+    const body = (await c.req.json().catch(() => ({}))) as { mode?: unknown };
+    const mode = String(body.mode ?? "")
+      .trim()
+      .toLowerCase();
+    if (mode !== "auto" && mode !== "notify" && mode !== "off") {
+      return c.json(
+        { error: 'mode must be one of "auto", "notify", "off"' },
+        400
+      );
+    }
+    const { writeUpdateMode } = await import(
+      "../../update/update-mode-writer.js"
+    );
+    writeUpdateMode(mode as UpdatePolicy);
+    const { updateStatusPanel, updateStatusLine } = await import(
+      "../../update/update-surface.js"
+    );
+    return c.json({
+      data: { ...updateStatusPanel(), line: updateStatusLine() },
+      _meta: {
+        source: "local",
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+      },
+    });
+  });
+
+  // U3: force a registry check now (bypass the throttle). Replaces the removed
+  // `unerr update --check` CLI. Returns the check result + refreshed panel.
+  app.post("/update-check", async (c) => {
+    const start = performance.now();
+    const { checkForUpdate } = await import("../../update/version-check.js");
+    const check = await checkForUpdate({ force: true });
+    const { updateStatusPanel, updateStatusLine } = await import(
+      "../../update/update-surface.js"
+    );
+    return c.json({
+      data: {
+        check,
+        panel: { ...updateStatusPanel(), line: updateStatusLine() },
       },
       _meta: {
         source: "local",

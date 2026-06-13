@@ -20,10 +20,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import type { Command } from "commander";
 import { isLoggedIn, readCredentials } from "../cloud/credentials.js";
-import { runLogin } from "./login.js";
+import { checkRegisterRepo, RepoCapError } from "../cloud/repo-cap.js";
+import { currentRepoLimit } from "../cloud/tier-query.js";
+import { findRepo, listRepos } from "../daemon/registry.js";
 import {
   AGENT_REGISTRY,
   getAgent,
@@ -48,6 +49,7 @@ import {
   removeInstalledSkills,
   resolveAndInstallSkills,
 } from "../skills/resolver.js";
+import { askConnect, runLogin } from "./login.js";
 
 export interface InstallResult {
   agent: string;
@@ -84,10 +86,6 @@ export function registerInstallCommand(program: Command): void {
       "Also install the git pre-commit/post-commit review gate (opt-in)"
     )
     .option(
-      "--no-login",
-      "Skip the connect-your-team prompt and stay on the free plan"
-    )
-    .option(
       "--token <token>",
       "Connect non-interactively with a machine token (CI / headless)"
     )
@@ -100,7 +98,6 @@ export function registerInstallCommand(program: Command): void {
           showSkills?: boolean;
           showInstructions?: boolean | string;
           reviewGate?: boolean;
-          login?: boolean;
           token?: string;
         }
       ) => {
@@ -140,9 +137,21 @@ export function registerInstallCommand(program: Command): void {
           return;
         }
 
-        const result = await runInstall(cwd, normalizedAgent as any, {
-          forceTools: opts?.forceTools,
-        });
+        let result: InstallResult;
+        try {
+          result = await runInstall(cwd, normalizedAgent as any, {
+            forceTools: opts?.forceTools,
+          });
+        } catch (err) {
+          if (err instanceof RepoCapError) {
+            // Free-tier repo cap hit — print the upgrade/free-slot guidance and
+            // exit non-zero. No config was written (the check runs first).
+            process.stderr.write(`\n  \x1b[31m✗\x1b[0m ${err.message}\n`);
+            process.exitCode = 1;
+            return;
+          }
+          throw err;
+        }
 
         // Display results
         process.stderr.write("\n");
@@ -256,14 +265,16 @@ export function registerInstallCommand(program: Command): void {
           } else {
             // Already disclosed — keep the control discoverable with one resting
             // line reflecting the current policy + the exact change command.
-            const { updatePolicy } = await import(
-              "../update/update-config.js"
-            );
+            const { updatePolicy } = await import("../update/update-config.js");
             const mode = updatePolicy();
             const label =
-              mode === "auto" ? "on" : mode === "notify" ? "notify-only" : "off";
+              mode === "auto"
+                ? "on"
+                : mode === "notify"
+                  ? "notify-only"
+                  : "off";
             process.stderr.write(
-              `  \x1b[38;2;161;161;170mAuto-update: ${label} · change: unerr update --mode auto|notify|off\x1b[0m\n\n`
+              `  \x1b[38;2;161;161;170mAuto-update: ${label} · change it in the unerr dashboard → Settings\x1b[0m\n\n`
             );
           }
         } catch {
@@ -272,7 +283,7 @@ export function registerInstallCommand(program: Command): void {
 
         // A5: chain into login — the highest-intent moment. Install ALWAYS
         // succeeds into free; login is the optional, additive last step.
-        await chainInstallLogin({ login: opts?.login, token: opts?.token });
+        await chainInstallLogin({ token: opts?.token });
       }
     );
 }
@@ -282,7 +293,7 @@ export function registerInstallCommand(program: Command): void {
  * decided in one testable place and executed elsewhere:
  *  - `token`   → connect non-interactively with the supplied machine token.
  *  - `already` → this machine is already connected; do nothing.
- *  - `later`   → stay free, print how to connect later (opt-out or no TTY).
+ *  - `later`   → stay free, print how to connect later (non-interactive / no TTY).
  *  - `prompt`  → ask once, interactively, then maybe run the device flow.
  */
 export type InstallLoginPlan =
@@ -294,17 +305,19 @@ export type InstallLoginPlan =
 /**
  * Decide the install-time login verdict from the CLI options and the ambient
  * connection/TTY state. Pure — no I/O, no side effects — so every escape path
- * (token, already-connected, opt-out, no-TTY, interactive) is unit-testable
- * without a real terminal or network. Precedence: an explicit `--token` wins,
- * then an existing connection, then opt-out/no-TTY, else prompt.
+ * (token, already-connected, no-TTY, interactive) is unit-testable without a
+ * real terminal or network. Precedence: an explicit `--token` wins, then an
+ * existing connection, then a non-TTY install (CI / piped) stays free, else
+ * prompt. Login is on by default — there is no opt-out flag; a TTY install
+ * always offers the one-key prompt.
  */
 export function planInstallLogin(
-  opts: { login?: boolean; token?: string },
+  opts: { token?: string },
   ctx: { loggedIn: boolean; hasTty: boolean }
 ): InstallLoginPlan {
   if (opts.token) return { action: "token", token: opts.token };
   if (ctx.loggedIn) return { action: "already" };
-  if (opts.login === false || !ctx.hasTty) return { action: "later" };
+  if (!ctx.hasTty) return { action: "later" };
   return { action: "prompt" };
 }
 
@@ -317,10 +330,7 @@ export function planInstallLogin(
  * nag. Branch selection is delegated to the pure planInstallLogin; this
  * function only runs the chosen verdict.
  */
-async function chainInstallLogin(opts: {
-  login?: boolean;
-  token?: string;
-}): Promise<void> {
+async function chainInstallLogin(opts: { token?: string }): Promise<void> {
   const out = (line: string) => process.stderr.write(`${line}\n`);
   const plan = planInstallLogin(opts, {
     loggedIn: isLoggedIn(),
@@ -360,26 +370,6 @@ async function chainInstallLogin(opts: {
   }
 }
 
-/** One-key [Y/n] confirm on stderr; empty/yes → true, 30s timeout → false. */
-function askConnect(): Promise<boolean> {
-  return new Promise((resolve) => {
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stderr,
-    });
-    const timer = setTimeout(() => {
-      rl.close();
-      resolve(false);
-    }, 30_000);
-    rl.question("  Connect to your unerr team now? [Y/n] ", (answer) => {
-      clearTimeout(timer);
-      rl.close();
-      const a = answer.trim().toLowerCase();
-      resolve(a === "" || a === "y" || a === "yes");
-    });
-  });
-}
-
 /**
  * Core install logic — writes MCP config + skills for a single agent.
  */
@@ -390,6 +380,19 @@ export async function runInstall(
 ): Promise<InstallResult> {
   const agentDef = getAgent(ide);
   const agentName = agentDef?.name ?? ide;
+
+  // 0. Free-tier repo cap — refuse a brand-new 2nd repo BEFORE writing any
+  //    config, so a capped repo never gets a half-written .mcp.json. Adding
+  //    another agent for an already-registered repo is always allowed.
+  if (!findRepo(cwd)) {
+    const verdict = checkRegisterRepo({
+      limit: currentRepoLimit(),
+      currentCount: listRepos().length,
+    });
+    if (!verdict.allowed) {
+      throw new RepoCapError(verdict.message);
+    }
+  }
 
   // 1. Write MCP config (project-level)
   const mcpConfig = writeMcpConfig(cwd, ide);
@@ -477,11 +480,11 @@ export async function runInstall(
     const { daemonSockPath, probeDaemon, ensureRepo } = await import(
       "../daemon/client.js"
     );
-    const { addRepo, findRepo } = await import("../daemon/registry.js");
+    const { addRepo } = await import("../daemon/registry.js");
     const sock = daemonSockPath();
     if (await probeDaemon(sock)) {
       if (!findRepo(cwd)) {
-        addRepo(cwd, {});
+        addRepo(cwd, {}, { repoLimit: currentRepoLimit() });
         repoRegistered = true;
       }
       await ensureRepo(sock, cwd).catch(() => {});

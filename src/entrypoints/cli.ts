@@ -45,7 +45,6 @@ import { registerStatsCommand } from "../commands/stats.js";
 import { registerStatusCommand } from "../commands/status.js";
 import { registerTimelineCommand } from "../commands/timeline.js";
 import { registerUninstallCommand } from "../commands/uninstall.js";
-import { registerUpdateCommand } from "../commands/update.js";
 import { registerWhoamiCommand } from "../commands/whoami.js";
 import { installFileLogger } from "../utils/file-logger.js";
 import {
@@ -70,6 +69,35 @@ async function startProxy(repoId?: string): Promise<void> {
   const { startProxy: boot } = await import("../proxy/proxy.js");
   const httpPort = Number.parseInt(process.env.UNERR_HTTP_PORT ?? "0", 10);
   await boot({ repoId, httpPort: httpPort || undefined });
+}
+
+/**
+ * Free-tier single-active backstop for the daemon-less standalone path. When
+ * the repo limit is 1, acquire the global active-repo lock for `cwd` before
+ * serving; if a LIVE pid for a DIFFERENT repo holds it, fatal-exit with the
+ * exact stop/upgrade commands. The lock is released on clean exit. When the
+ * daemon is up it is the source of truth; this file-lock is the fallback.
+ */
+async function guardActiveRepoSlot(cwd: string): Promise<void> {
+  const { currentRepoLimit } = await import("../cloud/tier-query.js");
+  if (currentRepoLimit() !== 1) return;
+
+  const { acquireActiveRepoLock, releaseActiveRepoLock } = await import(
+    "../daemon/active-repo-lock.js"
+  );
+  const result = acquireActiveRepoLock(cwd);
+  if (!result.acquired) {
+    const { checkActivateRepo } = await import("../cloud/repo-cap.js");
+    const verdict = checkActivateRepo({
+      limit: 1,
+      activePath: result.holder.path,
+      requestedPath: cwd,
+    });
+    process.stderr.write(`\n  ${verdict.message}\n\n`);
+    process.exit(1);
+  }
+  // Release on clean exit so the slot frees for the next repo.
+  process.once("exit", releaseActiveRepoLock);
 }
 
 /**
@@ -794,6 +822,7 @@ async function resumeBoot(config: Record<string, unknown>): Promise<void> {
   process.stderr.write("[unerr] Starting proxy...\n");
 
   await autoVerifyIdeConfigs();
+  await guardActiveRepoSlot(process.cwd());
   await startProxy(config.repoId as string | undefined);
 }
 
@@ -846,6 +875,11 @@ async function firstRunBoot(): Promise<void> {
 
   if (result.action === "setup") {
     await autoVerifyIdeConfigs();
+    // First run is the highest-intent moment to connect — offer the one-key
+    // prompt before serving (no-op if already connected or non-interactive).
+    const { offerLoginIfNeeded } = await import("../commands/login.js");
+    await offerLoginIfNeeded();
+    await guardActiveRepoSlot(process.cwd());
     await startProxy(result.repoId);
     return;
   }
@@ -1039,6 +1073,15 @@ type DiscoveryResult =
       /** U4: the daemon's reported running version (absent on an old daemon). */
       daemonVersion?: string;
     }
+  | {
+      /**
+       * Free-tier single-active cap: the daemon refused to start this repo
+       * because a different one already holds the one slot. The bridge answers
+       * the IDE's initialize with a JSON-RPC cap error and exits.
+       */
+      kind: "refused";
+      message: string;
+    }
   | { kind: "none" };
 
 /**
@@ -1061,6 +1104,32 @@ type DiscoveryResult =
  * re-enters the discovery loop so reconnection happens automatically when
  * the unerr process restarts.
  */
+/**
+ * Scan a stdin chunk for an `initialize` request and return its JSON-RPC id
+ * (which may be `null`). Returns `undefined` when no complete `initialize`
+ * frame is present, so the caller keeps the previously-captured id. Used to
+ * answer a free-tier cap refusal against the exact request the IDE is waiting
+ * on.
+ */
+function sniffInitializeId(chunk: Buffer): string | number | null | undefined {
+  const text = chunk.toString("utf8");
+  for (const line of text.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      const msg = JSON.parse(line) as {
+        method?: string;
+        id?: string | number | null;
+      };
+      if (msg && typeof msg === "object" && msg.method === "initialize") {
+        return msg.id ?? null;
+      }
+    } catch {
+      // Partial / non-JSON line — ignore; a later chunk completes it.
+    }
+  }
+  return undefined;
+}
+
 async function mcpBoot(
   cwd: string,
   opts: { codingAgent?: string } = {}
@@ -1094,7 +1163,12 @@ async function mcpBoot(
   );
   const interceptor = new StaticCatalogInterceptor();
   const stdinPreBuffer: Buffer[] = [];
+  // The IDE's `initialize` request id, captured so a free-tier cap refusal can
+  // answer that exact request with a JSON-RPC error (-32003) instead of a sock.
+  let initializeId: string | number | null = null;
   const preBufferHandler = (chunk: Buffer) => {
+    const id = sniffInitializeId(chunk);
+    if (id !== undefined) initializeId = id;
     const out = interceptor.ingest(chunk);
     for (const reply of out.replies) {
       process.stdout.write(reply);
@@ -1192,6 +1266,25 @@ async function mcpBoot(
         "[unerr:mcp] stdin closed during auto-spawn — exiting\n"
       );
       return;
+    }
+
+    // Free-tier single-active cap: the daemon refused this repo. Answer the
+    // IDE's initialize with a JSON-RPC cap error (-32003) on stdout, then exit
+    // non-zero. Do NOT start the bridge — relaying would serve a 2nd repo. The
+    // static interceptor must not mask this, so detach it before replying.
+    if (discovery.kind === "refused") {
+      process.stdin.removeListener("data", preBufferHandler);
+      process.stdin.removeListener("end", earlyEndHandler);
+      process.stderr.write(`[unerr:mcp] ${discovery.message}\n`);
+      process.stdout.write(
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: initializeId,
+          error: { code: -32003, message: discovery.message },
+        })}\n`
+      );
+      releaseSpawnLock();
+      process.exit(1);
     }
 
     if (discovery.kind === "daemon") {
@@ -1293,7 +1386,10 @@ async function discoverWithRetry(
   ensureRepo: (
     sock: string,
     repo: string
-  ) => Promise<{ sock: string; daemonVersion?: string }>,
+  ) => Promise<
+    | { sock: string; daemonVersion?: string }
+    | { refused: "already_active"; activePath: string; message: string }
+  >,
   tryAcquireSpawnLock: () => boolean,
   releaseSpawnLock: () => void
 ): Promise<DiscoveryResult> {
@@ -1322,7 +1418,16 @@ async function discoverWithRetry(
       // sock. Going through unerrd (never connecting to proxy.sock directly) is
       // what keeps `pm status` honest and the dashboard online.
       try {
-        const { sock, daemonVersion } = await ensureRepo(daemonSock, cwd);
+        const ensured = await ensureRepo(daemonSock, cwd);
+
+        // Free-tier single-active cap: the daemon refused this repo because a
+        // different one holds the one slot. Surface it to the IDE as a clean
+        // JSON-RPC error — do NOT retry (retrying would hot-loop forever).
+        if ("refused" in ensured) {
+          return { kind: "refused", message: ensured.message };
+        }
+
+        const { sock, daemonVersion } = ensured;
 
         // ── U4: bridge↔daemon version handshake ──
         // The bridge is fresh-spawned (always the on-disk version); the daemon
@@ -1343,11 +1448,7 @@ async function discoverWithRetry(
             await requestDaemonShutdown(daemonSock);
             // Wait for the stale daemon to actually exit (bounded ~5s), then
             // Step 2 re-spawns a fresh daemon on the new on-disk version.
-            for (
-              let i = 0;
-              i < 50 && (await probeDaemon(daemonSock));
-              i++
-            ) {
+            for (let i = 0; i < 50 && (await probeDaemon(daemonSock)); i++) {
               await new Promise<void>((r) => {
                 const t = setTimeout(r, 100);
                 if (typeof t.unref === "function") t.unref();
@@ -1534,7 +1635,6 @@ program
   });
 
 registerStatusCommand(program);
-registerUpdateCommand(program);
 registerStatsCommand(program);
 registerInstallCommand(program);
 registerDashboardCommand(program);

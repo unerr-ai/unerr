@@ -2,8 +2,10 @@ import { SkeletonBlock } from "@/components/ui/Skeleton";
 import { fetchJson } from "@/lib/api";
 import { useRepoApi } from "@/lib/repo-context";
 import type { SystemConfigEnvelope, SystemStatusEnvelope } from "@/lib/types";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+
+type UpdatePolicy = "auto" | "notify" | "off";
 
 // ── Directive-compliance diagnostics (mirrors /api/logbook/compliance) ─
 // Relocated here from the dashboard's "What unerr did" — these are
@@ -340,13 +342,81 @@ function AutoUpdateCard({
           />
         )}
       </dl>
-      <p className="mt-3 t-tertiary text-xs">
-        Change with{" "}
-        <code className="font-mono text-foreground">
-          unerr update --mode auto|notify|off
-        </code>
-      </p>
+      <UpdateControls policy={update.policy} />
     </section>
+  );
+}
+
+// ── Auto-update controls (the only place to change the policy now that the
+//    `unerr update` CLI is gone). Writes the machine-wide mode + forces a
+//    registry check via /api/system/update-mode and /api/system/update-check,
+//    then refreshes the status query so the card reflects the new state. ──
+function UpdateControls({ policy }: { policy: UpdatePolicy }) {
+  const { url, queryKey } = useRepoApi();
+  const qc = useQueryClient();
+  const refresh = () =>
+    qc.invalidateQueries({ queryKey: queryKey(["system", "status"]) });
+
+  const setMode = useMutation({
+    mutationFn: (mode: UpdatePolicy) =>
+      fetchJson<unknown>(url("/api/system/update-mode"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      }),
+    onSuccess: refresh,
+  });
+
+  const checkNow = useMutation({
+    mutationFn: () =>
+      fetchJson<unknown>(url("/api/system/update-check"), { method: "POST" }),
+    onSuccess: refresh,
+  });
+
+  const options: { value: UpdatePolicy; label: string }[] = [
+    { value: "auto", label: "Auto" },
+    { value: "notify", label: "Notify" },
+    { value: "off", label: "Off" },
+  ];
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="inline-flex rounded-lg border border-white/10 p-0.5">
+        {options.map((o) => {
+          const active = policy === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              disabled={setMode.isPending}
+              onClick={() => setMode.mutate(o.value)}
+              className={`rounded-md px-3 py-1.5 text-xs transition-colors disabled:opacity-50 ${
+                active
+                  ? "bg-violet-500/20 text-violet-200"
+                  : "text-foreground/70 hover:text-foreground"
+              }`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          disabled={checkNow.isPending}
+          onClick={() => checkNow.mutate()}
+          className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-foreground/80 hover:text-foreground disabled:opacity-50"
+        >
+          {checkNow.isPending ? "Checking…" : "Check for updates now"}
+        </button>
+        {setMode.isError && (
+          <span className="text-xs text-red-400">
+            Couldn't save — try again.
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 

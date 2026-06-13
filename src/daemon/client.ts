@@ -15,6 +15,7 @@ import {
   type DaemonResponse,
   ENSURE_REPO_REQUEST_TIMEOUT_MS,
   type EnsureOkResponse,
+  type EnsureRefusedResponse,
   type EntitlementsOkResponse,
   type OkResponse,
   type StatusOkResponse,
@@ -115,14 +116,36 @@ export function sendFireAndForget(
 // ── High-level client methods ─────────────────────────────────────
 
 /**
+ * The daemon refused to start the repo because the free tier's single active
+ * slot is already held by a different repo. Returned by {@link ensureRepo}
+ * instead of a sock so the bridge can answer the IDE with a cap error.
+ */
+export interface EnsureRepoRefused {
+  refused: "already_active";
+  activePath: string;
+  message: string;
+}
+
+/** Type guard — true when {@link ensureRepo} refused rather than returned a sock. */
+export function isEnsureRepoRefused(
+  r: { sock: string; daemonVersion?: string } | EnsureRepoRefused
+): r is EnsureRepoRefused {
+  return "refused" in r;
+}
+
+/**
  * Ensure a repo process is running. Returns the per-repo UDS sock path.
  * If the repo is already running, returns immediately.
  * If not, the supervisor spawns it and waits for ready.
+ *
+ * On the free tier with another repo already active, returns a structured
+ * {@link EnsureRepoRefused} instead of throwing — the bridge surfaces it as a
+ * JSON-RPC cap error.
  */
 export async function ensureRepo(
   sockPath: string,
   repoPath: string
-): Promise<{ sock: string; daemonVersion?: string }> {
+): Promise<{ sock: string; daemonVersion?: string } | EnsureRepoRefused> {
   // `ensure` blocks on the daemon while a cold repo indexes (up to
   // REPO_READY_TIMEOUT_MS). Use the longer ENSURE_REPO_REQUEST_TIMEOUT_MS so
   // the bridge doesn't abandon a proxy that is still legitimately indexing a
@@ -134,6 +157,17 @@ export async function ensureRepo(
     ENSURE_REPO_REQUEST_TIMEOUT_MS
   );
   if (!resp.ok) {
+    // Free-tier single-active refusal: a different repo holds the one slot.
+    // Surface it structurally (not as a thrown error) so the bridge answers
+    // the IDE's initialize with a clean cap error and exits.
+    if ((resp as EnsureRefusedResponse).refused === "already_active") {
+      const refusal = resp as EnsureRefusedResponse;
+      return {
+        refused: "already_active",
+        activePath: refusal.activePath,
+        message: refusal.message,
+      };
+    }
     throw new Error(`ensureRepo failed: ${(resp as { error: string }).error}`);
   }
   const ok = resp as EnsureOkResponse;

@@ -38,7 +38,7 @@ export function buildDisclosureLines(): string[] {
   return [
     "Auto-update is on — unerr installs patch and minor updates automatically.",
     "It applies only when no editor is connected, health-checks the new build, and rolls back on failure.",
-    "Major versions ask first. Turn it off: `unerr update --mode notify` (or `off`).",
+    "Major versions ask first. Change it any time in the unerr dashboard → Settings → Auto-update.",
   ];
 }
 
@@ -58,6 +58,8 @@ export function discloseAutoUpdateOnce(
   if (policy === "off") return false;
 
   for (const line of buildDisclosureLines()) emit(line);
-  (deps.writeState ?? writeUpdateState)({ disclosed_at: deps.now ?? Date.now() });
+  (deps.writeState ?? writeUpdateState)({
+    disclosed_at: deps.now ?? Date.now(),
+  });
   return true;
 }

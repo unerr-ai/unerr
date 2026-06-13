@@ -14,6 +14,7 @@ import {
   existsSync,
   readFileSync,
   rmdirSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -56,10 +57,14 @@ export function registerUninstallCommand(program: Command): void {
       "--strip-annotations",
       "also remove @sem sentinel lines from source comments repo-wide (prose summaries are kept)"
     )
+    .option(
+      "--purge",
+      "also delete this repo's .unerr/ data directory (indexed graph, facts, logs)"
+    )
     .action(
       async (
         agent: string | undefined,
-        opts: { stripAnnotations?: boolean }
+        opts: { stripAnnotations?: boolean; purge?: boolean }
       ) => {
         const cwd = process.cwd();
 
@@ -78,11 +83,76 @@ export function registerUninstallCommand(program: Command): void {
           runUninstallAll(cwd);
         }
 
+        // Free the free-tier cap slot: stop the running child + drop the
+        // registry row for this repo. Routes through the daemon "remove" RPC
+        // when unerrd is up (stop-then-remove), else bare registry removal.
+        await unregisterRepoFromPm(cwd);
+
+        // Keep .unerr/ data by default — never destroy user data silently.
+        // Only --purge deletes the indexed graph, facts, and logs.
+        if (opts.purge) {
+          purgeDataDir(cwd);
+        }
+
         if (opts.stripAnnotations) {
           stripAnnotationsAndReport(cwd);
         }
       }
     );
+}
+
+/**
+ * Stop this repo's running unerr child and drop its registry row so the
+ * free-tier cap slot is freed. Routes through unerrd's "remove" RPC (which
+ * stops before unregistering) when the daemon is up; otherwise removes the
+ * registry row directly.
+ *
+ * @sem domain=process-manager role=mutator
+ */
+async function unregisterRepoFromPm(cwd: string): Promise<void> {
+  try {
+    const { daemonSockPath, probeDaemon, sendRequest } = await import(
+      "../daemon/client.js"
+    );
+    const sock = daemonSockPath();
+    if (await probeDaemon(sock)) {
+      try {
+        await sendRequest(sock, { cmd: "remove", repo: cwd }, 5_000);
+        return;
+      } catch {
+        // Daemon went away mid-request — fall back to bare removal below.
+      }
+    }
+    const { removeRepo } = await import("../daemon/registry.js");
+    removeRepo(cwd);
+  } catch {
+    // Registry/daemon unavailable — uninstall still succeeds without it.
+  }
+}
+
+/**
+ * Delete the repo's `.unerr/` data directory. Only called under `--purge`,
+ * never by default — the data dir holds the user's indexed graph, facts, and
+ * logs, which uninstall preserves unless explicitly told to purge.
+ */
+function purgeDataDir(cwd: string): void {
+  const dataDir = join(cwd, ".unerr");
+  if (!existsSync(dataDir)) {
+    process.stderr.write(
+      "  \x1b[38;2;161;161;170m· No .unerr/ data dir to purge.\x1b[0m\n"
+    );
+    return;
+  }
+  try {
+    rmSync(dataDir, { recursive: true, force: true });
+    process.stderr.write(
+      "  \x1b[38;2;52;211;153m✓\x1b[0m .unerr/ data directory purged.\n"
+    );
+  } catch (err) {
+    process.stderr.write(
+      `  \x1b[38;2;248;113;113m✗\x1b[0m Failed to purge .unerr/: ${(err as Error).message}\n`
+    );
+  }
 }
 
 /**

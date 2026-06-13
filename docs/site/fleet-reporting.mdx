@@ -1,0 +1,48 @@
+---
+title: Fleet reporting
+description: "What a logged-in machine reports to your dashboard, and where to see it."
+---
+
+When you log in with `unerr login`, the daemon on that machine reports a small
+amount of information to your account so the dashboard can show every machine in
+one place — which repos are under unerr, where they are, and whether each process
+is running. This page lists exactly what is sent and where to see it.
+
+If you never log in, nothing is reported. unerr works fully offline with no
+account.
+
+## What is sent
+
+Two kinds of report, both tied to your account (never anonymous):
+
+- **Inventory** — sent when you log in, when a repo is added or removed, when a
+  per-repo process starts or stops, and on a slow timer. It contains, for each
+  repo on the machine:
+  - the repo's path on disk and its label
+  - the git origin host, owner, and repo name (e.g. `github.com / your-org / your-repo`)
+  - the unerrd dashboard port and each repo's local port
+  - process status: running or stopped, process id, memory, entity/edge counts
+- **Heartbeat** — a lightweight check-in on a short timer that says the machine
+  is still alive. It carries only labels and process status — no disk paths and
+  no git origin.
+
+It also reports basic machine info: a machine id and name (the ones minted at
+login), the OS, and the daemon's own process id, uptime, and memory.
+
+## What is never sent
+
+- Your source code or any file contents.
+- Your machine token or any credential. Git remote URLs are stripped of any
+  embedded username/password before the host is read, so a token baked into a
+  remote URL never leaves the machine.
+
+## Where to see it
+
+The same data is available locally, so you don't need the cloud to inspect it:
+
+- Run `unerr pm status` to list the repos on this machine and whether each
+  process is running.
+- Open the local dashboard (`unerr dashboard`) for the same view in the browser.
+
+On your account dashboard, the reported data shows every machine you've logged in
+on, side by side.

@@ -48,7 +48,7 @@ export interface VersionCheckDeps {
   fetchLatest?: (pkg: string) => Promise<string | null>;
   /** Throttle interval (default 24h). */
   intervalMs?: number;
-  /** Skip the throttle (e.g. an explicit `unerr update --check`). */
+  /** Skip the throttle (e.g. the dashboard's "Check for updates now"). */
   force?: boolean;
 }
 

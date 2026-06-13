@@ -21,6 +21,10 @@
  * No new dependencies: this uses the global `fetch` shipped with Node 20+.
  */
 
+import type {
+  FleetReport,
+  HeartbeatReport,
+} from "../daemon/fleet-inventory.js";
 import { UNERR_VERSION } from "../version.js";
 import { DEFAULT_API_URL } from "./credentials.js";
 
@@ -30,6 +34,26 @@ const TIMEOUT_MS = 10_000;
 const MAX_RETRIES = 2;
 /** Base backoff; grows linearly: 300ms, 600ms. */
 const BACKOFF_BASE_MS = 300;
+
+/**
+ * Fleet ingest endpoint paths. The machine is resolved server-side from the
+ * bearer token, so no machine id appears in the path or the body.
+ */
+const CHECKIN_PATH = "/api/v1/cli/machine/checkin";
+const INVENTORY_PATH = "/api/v1/cli/machine/inventory";
+
+/** Server's answer to a heartbeat — steers the next cadence centrally. */
+export interface CheckinResponse {
+  ack: boolean;
+  /** Seconds the CLI should wait before the next checkin (server-driven). */
+  next_checkin_after_seconds?: number;
+}
+
+/** Server's answer to a full inventory push. */
+export interface InventoryAck {
+  accepted: boolean;
+  stored_at?: string;
+}
 
 /** The `{ error: { code, message } }` envelope for authenticated routes. */
 export interface CloudErrorEnvelope {
@@ -182,6 +206,32 @@ export class CloudClient {
       method: "PUT",
       auth: true,
       body: version === undefined ? { content } : { content, version },
+    });
+  }
+
+  /**
+   * `POST …/checkin` — the lightweight fleet heartbeat. The response may carry
+   * `next_checkin_after_seconds` to steer the next cadence centrally.
+   */
+  async postCheckin(
+    beat: HeartbeatReport
+  ): Promise<CloudResult<CheckinResponse>> {
+    return this.request<CheckinResponse>(CHECKIN_PATH, {
+      method: "POST",
+      auth: true,
+      body: beat,
+    });
+  }
+
+  /**
+   * `PUT …/inventory` — the full fleet snapshot. Idempotent upsert: resending
+   * the same body leaves the same server-side state.
+   */
+  async putInventory(report: FleetReport): Promise<CloudResult<InventoryAck>> {
+    return this.request<InventoryAck>(INVENTORY_PATH, {
+      method: "PUT",
+      auth: true,
+      body: report,
     });
   }
 

@@ -99,8 +99,8 @@ export type AuthConfig = z.infer<typeof AuthConfigSchema>;
 /**
  * Auto-update config (AUTO_UPDATE_STRATEGY.md §9). `mode`: `auto` (detect +
  * auto-apply minor/patch + notify for major), `notify` (detect + notify only),
- * `off` (fully disabled). Default `auto` for friction-free minor/patch upgrades;
- * the `UNERR_NO_AUTO_UPDATE` env var downgrades `auto`→`notify` at runtime.
+ * `off` (fully disabled). Default `auto` for friction-free minor/patch upgrades.
+ * There is no env opt-out — change the mode here (or via the dashboard) to opt out.
  */
 export const UpdateConfigSchema = z.object({
   mode: z.enum(["auto", "notify", "off"]).default("auto"),

@@ -205,12 +205,14 @@ export function readCredentials(): Credentials | null {
  */
 export function readCredentialMetadata(): {
   organization_id: string;
+  machine_id: string;
   machine_name: string;
 } | null {
   const envToken = process.env.UNERR_TOKEN;
   if (envToken && envToken.trim().length > 0) {
     return {
       organization_id: process.env.UNERR_ORG_ID?.trim() ?? "",
+      machine_id: process.env.UNERR_MACHINE_ID?.trim() ?? "",
       machine_name: "",
     };
   }
@@ -224,6 +226,7 @@ export function readCredentialMetadata(): {
     ) as Partial<Credentials>;
     return {
       organization_id: parsed.organization_id ?? "",
+      machine_id: parsed.machine_id ?? "",
       machine_name: parsed.machine_name ?? "",
     };
   } catch {
