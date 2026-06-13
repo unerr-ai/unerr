@@ -30,7 +30,7 @@
     "test:local-mode": "vitest run src/__tests__/local-mode-offline.test.ts src/__tests__/network-boundary.test.ts",
     "check:tool-budget": "tsx scripts/check-tool-budget.ts",
     "gen:docs": "tsx scripts/gen-docs-reference.ts",
-    "dev:entitlement": "node scripts/dev-entitlement.mjs"
+    "dev:config": "node scripts/dev-config.mjs"
   },
   "dependencies": {
     "@clack/prompts": "^1.2.0",

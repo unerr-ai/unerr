@@ -16,7 +16,7 @@
  */
 
 import { type ChildProcess, fork } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import { checkActivateRepo } from "../cloud/repo-cap.js";
@@ -41,6 +41,7 @@ import {
   readRegistry,
   writeRegistry,
 } from "./registry.js";
+import { repoLog, repoLogsDir } from "../utils/log-paths.js";
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -122,6 +123,18 @@ const IDLE_SWEEP_INTERVAL_MS = 60_000;
  * any session.
  */
 const UPGRADE_RECYCLE_IDLE_MS = 60_000;
+
+/**
+ * Startup circuit breaker. After this many CONSECUTIVE failed startups (a
+ * forked child exits before it ever signals "ready"), `ensure()` stops forking
+ * and fast-fails with the captured exit reason instead of spawning another
+ * doomed child. This turns an invisible fork storm — a stale or broken binary
+ * respawned on every bridge retry, each fork paying a full reindex — into one
+ * loud error that names the proxy.log to read. Half-open after the cooldown:
+ * exactly one fresh attempt is allowed, so a transient cause self-heals.
+ */
+const STARTUP_FAILURE_THRESHOLD = 3;
+const STARTUP_BREAKER_COOLDOWN_MS = 30_000;
 
 /**
  * Decide whether an idle per-repo proxy should be recycled NOW to adopt an
@@ -214,6 +227,16 @@ export class ProcessManager {
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private onEvent: ProcessEventHandler | null = null;
   private stopped = false;
+  /**
+   * Per-repo consecutive startup-failure tally for the circuit breaker. Keyed
+   * by canonical repo key, kept OUTSIDE `repos` because the ManagedRepo entry
+   * is recreated on every spawn. Incremented when a child dies while still
+   * `starting`; cleared the moment a child reaches `ready` (or is adopted).
+   */
+  private startupFailures = new Map<
+    string,
+    { count: number; lastAt: number; lastError: string }
+  >();
 
   /** Register an event handler for lifecycle events (logging, dashboard SSE). */
   setEventHandler(handler: ProcessEventHandler): void {
@@ -299,7 +322,32 @@ export class ProcessManager {
     // "stopped" — the churn that left the real primary serving but untracked
     // while `pm status` and the dashboard read "stopped".
     const adopted = this.tryAdopt(key);
-    if (adopted) return adopted;
+    if (adopted) {
+      // A live proxy is serving — any prior fork failures are moot.
+      this.startupFailures.delete(key);
+      return adopted;
+    }
+
+    // Startup circuit breaker: if this repo's child has failed to start
+    // STARTUP_FAILURE_THRESHOLD times in a row and we're still inside the
+    // cooldown, do NOT fork another doomed child — fast-fail with the captured
+    // reason. This stops the fork storm (each fork pays a full reindex) and
+    // turns a silent crash-loop into one actionable error.
+    const breaker = this.startupFailures.get(key);
+    if (
+      breaker &&
+      breaker.count >= STARTUP_FAILURE_THRESHOLD &&
+      Date.now() - breaker.lastAt < STARTUP_BREAKER_COOLDOWN_MS
+    ) {
+      const waitS = Math.ceil(
+        (STARTUP_BREAKER_COOLDOWN_MS - (Date.now() - breaker.lastAt)) / 1000
+      );
+      throw new Error(
+        `unerr proxy for ${repoPath} failed to start ${breaker.count}× in a row ` +
+          `(last exit: ${breaker.lastError}). Pausing respawns for ${waitS}s. ` +
+          `Read ${repoLog.proxy(repoPath)} for the crash, then \`unerr pm stop\` and reconnect.`
+      );
+    }
 
     try {
       return await this.spawn(key);
@@ -313,7 +361,10 @@ export class ProcessManager {
       // instead of surfacing "Child exited during startup" and stranding the
       // bridge in its ensureRepo retry loop.
       const readopted = this.tryAdopt(key);
-      if (readopted) return readopted;
+      if (readopted) {
+        this.startupFailures.delete(key);
+        return readopted;
+      }
       throw err;
     }
   }
@@ -520,9 +571,26 @@ export class ProcessManager {
 
     const unerrBin = process.argv[1]!;
 
+    // Child stderr → the repo's own proxy.log (append), NOT inherited. The
+    // daemon runs detached with stderr on /dev/null, so an inherited fd 2
+    // silently swallows a child's startup crash — exactly how a stale binary
+    // crash-looped for hours with zero trace. A dedicated O_APPEND fd captures
+    // every byte the child writes BEFORE it installs its own file logger
+    // (the early sweep/cleanup calls in daemonChildBoot). Falls back to
+    // "inherit" only if the log can't be opened.
+    let stderrTarget: number | "inherit" = "inherit";
+    let stderrFd: number | null = null;
+    try {
+      mkdirSync(repoLogsDir(repoPath), { recursive: true });
+      stderrFd = openSync(repoLog.proxy(repoPath), "a");
+      stderrTarget = stderrFd;
+    } catch {
+      // Can't open the log (perms, race) — inherit so we lose nothing we had.
+    }
+
     const child = fork(unerrBin, ["--daemon-child"], {
       cwd: repoPath,
-      stdio: ["ignore", "ignore", "inherit", "ipc"],
+      stdio: ["ignore", "ignore", stderrTarget, "ipc"],
       detached: false,
       env: {
         ...process.env,
@@ -530,6 +598,16 @@ export class ProcessManager {
         UNERR_REPO_PATH: repoPath,
       },
     });
+
+    // The child holds its own dup of the fd now; drop the parent's copy so a
+    // long-lived daemon doesn't leak one fd per spawn.
+    if (stderrFd !== null) {
+      try {
+        closeSync(stderrFd);
+      } catch {
+        /* already closed / never opened — nothing to do */
+      }
+    }
 
     repo.child = child;
     repo.pid = child.pid ?? null;
@@ -621,6 +699,9 @@ export class ProcessManager {
       case "ready":
         repo.sock = msg.sock;
         repo.status = "running";
+        // A clean startup clears any prior failure tally — the breaker only
+        // trips on CONSECUTIVE misses.
+        this.startupFailures.delete(repoPath);
         this.resolveReadyWaiters(repo, msg.sock);
         this.onEvent?.("started", repo);
         break;
@@ -658,6 +739,26 @@ export class ProcessManager {
     repo.connections = 0;
 
     if (prev === "starting") {
+      // Startup failure: the child died before it ever signaled "ready". Tally
+      // it for the circuit breaker so a crash-loop trips after
+      // STARTUP_FAILURE_THRESHOLD consecutive misses instead of forking forever.
+      const b = this.startupFailures.get(repoPath) ?? {
+        count: 0,
+        lastAt: 0,
+        lastError: "",
+      };
+      b.count += 1;
+      b.lastAt = Date.now();
+      b.lastError = `code=${code}, signal=${signal}`;
+      this.startupFailures.set(repoPath, b);
+      if (b.count === STARTUP_FAILURE_THRESHOLD) {
+        this.onEvent?.(
+          "error",
+          repo,
+          `startup circuit OPEN: ${b.count} consecutive failures (last ${b.lastError}); pausing respawns for ${STARTUP_BREAKER_COOLDOWN_MS / 1000}s — read ${repoLog.proxy(repoPath)}`
+        );
+      }
+
       this.rejectReadyWaiters(
         repo,
         new Error(

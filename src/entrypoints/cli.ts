@@ -4,9 +4,7 @@
  *
  * Boot State Machine:
  *   unerr                  — THE command. First-run: wizard → index → serve. Subsequent: resume → serve.
- *   unerr chat             — Interactive AI assistant (Ink REPL)
- *   unerr status           — Quick diagnostic dump
- *   unerr debug            — Full diagnostic for support
+ *   unerr status           — Repo/proxy/graph/drift diagnostic for the current repo
  *
  * All other commands are hidden but remain callable for power users and scripts.
  */
@@ -14,36 +12,25 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Command } from "commander";
-import { registerBranchesCommand } from "../commands/branches.js";
 import { registerCheckCommitCommand } from "../commands/check-commit.js";
 import { registerCompressOutputCommand } from "../commands/compress-output.js";
-import { registerConfigVerifyCommand } from "../commands/config-verify.js";
 import { registerConventionsCommand } from "../commands/conventions.js";
-import { registerDashboardCommand } from "../commands/dashboard.js";
-import { registerDebugCommand } from "../commands/debug.js";
 import {
   registerDoctorCommand,
   verifyUnerrOnPath,
 } from "../commands/doctor.js";
 import { registerExecCommand } from "../commands/exec.js";
-import { registerGraphCommand } from "../commands/graph.js";
 import { registerHookCommand } from "../commands/hook.js";
 import { registerIndexCommand } from "../commands/index.js";
-import { registerInitCommand } from "../commands/init.js";
 import { registerInstallCommand } from "../commands/install.js";
 import { registerLearnCommand } from "../commands/learn.js";
 import { registerLoginCommand } from "../commands/login.js";
 import { registerLogoutCommand } from "../commands/logout.js";
-import { registerManifestCommand } from "../commands/manifest.js";
 import { registerPmCommand } from "../commands/pm.js";
 import { registerReconCommand } from "../commands/recon.js";
 import { registerReviewCommand } from "../commands/review.js";
-import { registerRewindCommand } from "../commands/rewind.js";
 import { registerRouterCommands } from "../commands/router.js";
-import { registerSkillsCommand } from "../commands/skills.js";
-import { registerStatsCommand } from "../commands/stats.js";
 import { registerStatusCommand } from "../commands/status.js";
-import { registerTimelineCommand } from "../commands/timeline.js";
 import { registerUninstallCommand } from "../commands/uninstall.js";
 import { registerWhoamiCommand } from "../commands/whoami.js";
 import { installFileLogger } from "../utils/file-logger.js";
@@ -66,6 +53,12 @@ import { UNERR_VERSION } from "../version.js";
  * Start the unified proxy.
  */
 async function startProxy(repoId?: string): Promise<void> {
+  // Dev-only: apply `.unerr/dev.json` (local API URL / tier) before cloud boot.
+  // Compile-time stripped from the published build (UNERR_PROD_BUILD=1).
+  if (__UNERR_DEV_BUILD__) {
+    const { applyDevConfig } = await import("../cloud/dev-mode.js");
+    await applyDevConfig(process.cwd());
+  }
   const { startProxy: boot } = await import("../proxy/proxy.js");
   const httpPort = Number.parseInt(process.env.UNERR_HTTP_PORT ?? "0", 10);
   await boot({ repoId, httpPort: httpPort || undefined });
@@ -908,6 +901,13 @@ async function daemonChildBoot(cwd: string): Promise<void> {
 
   initFileLog(cwd);
 
+  // Dev-only: apply `.unerr/dev.json` (local API URL / tier) before cloud boot.
+  // Compile-time stripped from the published build (UNERR_PROD_BUILD=1).
+  if (__UNERR_DEV_BUILD__) {
+    const { applyDevConfig } = await import("../cloud/dev-mode.js");
+    await applyDevConfig(cwd);
+  }
+
   const config = readLocalConfig(cwd);
   if (!config) {
     process.stderr.write(
@@ -1622,26 +1622,10 @@ program
 
 // ── Visible Commands (shown in --help) ──────────────────────
 
-program
-  .command("chat")
-  .description("Interactive AI assistant (coming soon)")
-  .option("--model <model>", "Claude model to use")
-  .option("--no-graph", "Skip loading the code intelligence graph")
-  .action(async () => {
-    process.stderr.write(
-      "\n  unerr chat is temporarily disabled.\n  Use unerr as an MCP proxy with your preferred AI agent instead.\n\n"
-    );
-    process.exit(0);
-  });
-
 registerStatusCommand(program);
-registerStatsCommand(program);
 registerInstallCommand(program);
-registerDashboardCommand(program);
-registerDebugCommand(program);
 registerDoctorCommand(program);
 registerReconCommand(program);
-registerGraphCommand(program);
 registerPmCommand(program);
 registerReviewCommand(program);
 registerRouterCommands(program);
@@ -1653,19 +1637,12 @@ registerConventionsCommand(program);
 // ── Hidden Commands (callable but not shown in --help) ──────
 
 const hiddenCommands = [
-  registerBranchesCommand,
   registerCheckCommitCommand,
   registerCompressOutputCommand,
-  registerConfigVerifyCommand,
   registerExecCommand,
   registerHookCommand,
   registerIndexCommand,
-  registerInitCommand,
   registerLearnCommand,
-  registerManifestCommand,
-  registerRewindCommand,
-  registerSkillsCommand,
-  registerTimelineCommand,
   registerUninstallCommand,
 ];
 
@@ -1673,14 +1650,10 @@ for (const register of hiddenCommands) {
   register(program);
 }
 
-// Hide all commands except chat, status, debug from --help output
+// Hide all commands except the short core set from --help output
 const visibleCommands = new Set([
   "status",
-  "stats",
   "install",
-  "dashboard",
-  "debug",
-  "init",
   "pm",
   "review",
   "router",

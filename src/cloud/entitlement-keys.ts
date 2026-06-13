@@ -33,9 +33,11 @@
  * with the override can still verify production tokens too. The override is
  * the ONLY way to trust a non-shipped key — there is no other escape hatch.
  *
- * To test any paid tier locally with no server at all, run
- * `pnpm dev:entitlement mint <plan>` (scripts/dev-entitlement.mjs): it mints a
- * token for the plan, writes the cache, and prints the two env vars above.
+ * To test any tier locally with no server at all, write `.unerr/dev.json`
+ * (`pnpm dev:config --host <url> --tier <plan>`). In a DEV build only, the
+ * boot-time reader (src/cloud/dev-mode.ts) mints a token for that plan and
+ * trusts the local dev key in-process. That reader is compile-time stripped
+ * from the published build, so dropping the file in production does nothing.
  */
 
 /**

@@ -6,7 +6,11 @@
       "args": [
         "--mcp",
         "--coding-agent=claude-code"
-      ]
+      ],
+      "env": {
+        "UNERR_ENTITLEMENT_KID": "k-dev-local",
+        "UNERR_ENTITLEMENT_PUBKEY": "MCowBQYDK2VwAyEA+viJ4HdvnHiThJwvChstBLv65iCdtEGGmBDvw7TM0VI="
+      }
     }
   }
 }

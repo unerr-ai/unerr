@@ -277,7 +277,7 @@ describe("mcpBoot auto-spawn", () => {
       "utf-8"
     );
     // The bridge must never silently call addRepo() from MCP boot.
-    // Registration happens via the explicit `unerr pm add` path or via
+    // Registration happens via the `unerr install` path or via
     // the supervisor's ensureRepo handler — never from the bridge itself.
     expect(content).not.toContain("addRepo(cwd, {})");
     expect(content).not.toContain("addRepo(cwd,{})");

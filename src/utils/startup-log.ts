@@ -751,7 +751,7 @@ export const startupLog = {
   dashboardReady(url: string) {
     write(`  ${SYM.brain} ${bold("Dashboard")} ${muted("—")} ${cyan(url)}`);
     write(
-      `    ${muted("Tip:")} ${dim("unerr dashboard")} ${muted("opens this in your browser")}`
+      `    ${muted("Tip:")} ${dim("unerr pm dashboard")} ${muted("opens this in your browser")}`
     );
     writeToFile("dashboard_ready", "Dashboard ready", { url });
   },

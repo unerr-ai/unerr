@@ -38,7 +38,6 @@ function buildSuggestions(data: {
   if (data.conventionCount === 0 || data.conventionCount == null) {
     suggestions.push("Run 'unerr' to detect conventions and generate rules");
   }
-  suggestions.push("Run 'unerr chat' to talk to your codebase interactively");
 
   if (data.skillCount === 0 || data.skillCount == null) {
     suggestions.push(

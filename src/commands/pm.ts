@@ -4,13 +4,13 @@
  * Subcommands:
  *   start            Start the unerrd supervisor
  *   stop [path]      Stop one repo's process (path/label), or the whole supervisor
- *   add <path>       Register a repo with unerrd
  *   remove <path>    Unregister a repo
  *   status           List all registered repos + state
- *   config <path>    View/modify per-repo settings
+ *   logs             Tail daemon and repo log files
  *
- * Registry operations (add/remove/config/status) work without a running unerrd.
- * Process management (start/stop) spawns or terminates the supervisor.
+ * Repos are registered by `unerr install`, not here. Registry reads
+ * (remove/status) work without a running unerrd; start/stop spawn or
+ * terminate the supervisor.
  */
 
 import { homedir } from "node:os";
@@ -21,19 +21,7 @@ import {
   DAEMON_DASHBOARD_PORT,
   daemonDashboardUrl,
 } from "../daemon/protocol.js";
-import {
-  addRepo,
-  findRepo,
-  listRepos,
-  readNeedsInput,
-  removeRepo,
-  updateRepoSettings,
-} from "../daemon/registry.js";
-import {
-  SETTINGS_SCHEMA,
-  parseSettingsFlags,
-} from "../daemon/settings-schema.js";
-import { currentRepoLimit } from "../cloud/tier-query.js";
+import { listRepos, readNeedsInput, removeRepo } from "../daemon/registry.js";
 import { runEnvironmentChecks } from "./doctor.js";
 
 const write = (msg: string) => process.stderr.write(msg);
@@ -285,96 +273,6 @@ export function registerPmCommand(program: Command): void {
       }
     });
 
-  // ── pm add <path> ───────────────────────────────────────
-
-  const addCmd = pm
-    .command("add [path]")
-    .description("Register a repo with unerrd")
-    .option(
-      "--skip-parent-check",
-      "Allow registration even if parent dir is registered"
-    )
-    .option(
-      "--skip-child-check",
-      "Allow registration even if subdirectories are registered"
-    );
-
-  for (const s of SETTINGS_SCHEMA) {
-    addCmd.option(`--${s.flag} <value>`, s.description);
-  }
-
-  addCmd.action(
-    async (
-      pathArg: string | undefined,
-      opts: Record<string, string | undefined> & {
-        skipParentCheck?: boolean;
-        skipChildCheck?: boolean;
-      }
-    ) => {
-      const targetPath = resolve(pathArg ?? ".");
-
-      // Parse and validate settings flags
-      const settingsRaw: Record<string, string | undefined> = {};
-      for (const s of SETTINGS_SCHEMA) {
-        const camelFlag = s.flag.replace(/-([a-z])/g, (_, c: string) =>
-          c.toUpperCase()
-        );
-        if (opts[camelFlag] !== undefined) {
-          settingsRaw[s.flag] = opts[camelFlag];
-        }
-      }
-
-      let settings: Record<string, string | number | boolean>;
-      try {
-        settings = parseSettingsFlags(settingsRaw);
-      } catch (err) {
-        write(
-          `\x1b[38;2;248;113;113m\u2717\x1b[0m ${(err as Error).message}\n`
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      const result = addRepo(targetPath, settings, {
-        skipParentCheck: opts.skipParentCheck,
-        skipChildCheck: opts.skipChildCheck,
-        repoLimit: currentRepoLimit(),
-      });
-
-      if (!result.ok) {
-        write(`\x1b[38;2;248;113;113m\u2717\x1b[0m ${result.error}\n`);
-        if (result.parentConflict) {
-          write(
-            `  Parent: ${result.parentConflict}\n  Use --skip-parent-check to override.\n`
-          );
-        }
-        if (result.childConflicts) {
-          write(
-            `  Children: ${result.childConflicts.join(", ")}\n  Use --skip-child-check to override.\n`
-          );
-        }
-        process.exitCode = 1;
-        return;
-      }
-
-      if (result.created) {
-        write(
-          `\x1b[38;2;52;211;153m\u2713\x1b[0m Registered \x1b[1m${result.entry.label}\x1b[0m (${result.entry.path})\n`
-        );
-        const keys = Object.keys(settings);
-        if (keys.length > 0) {
-          write(
-            `  Settings: ${keys.map((k) => `${k}=${settings[k]}`).join(", ")}\n`
-          );
-        }
-      } else {
-        write(
-          `\x1b[38;2;251;191;36m\u25c6\x1b[0m Already registered: \x1b[1m${result.entry.label}\x1b[0m\n`
-        );
-      }
-    }
-  );
-
   // ── pm remove <path> ────────────────────────────────────
 
   pm.command("remove [path]")
@@ -399,11 +297,11 @@ export function registerPmCommand(program: Command): void {
   pm.command("status")
     .description("List all registered repos and their state")
     .action(async () => {
-      const { offerLoginIfNeeded } = await import("./login.js");
       const repos = listRepos();
       if (repos.length === 0) {
-        write("No repos registered. Use `unerr pm add .` to register.\n");
-        await offerLoginIfNeeded();
+        write(
+          "No repos registered. Run `unerr install` in a repo to register it.\n"
+        );
         return;
       }
 
@@ -547,127 +445,14 @@ export function registerPmCommand(program: Command): void {
           for (const ni of needsInput) {
             write(
               `      ${ni.key}: auto-selected \x1b[1m${ni.auto}\x1b[0m (${ni.reason})\n` +
-                `        Alternatives: ${ni.alternatives.join(", ")}\n` +
-                `        Override: unerr pm config ${repo.path} --${toKebab(ni.key)}=${ni.alternatives[0]}\n`
+                `        Alternatives: ${ni.alternatives.join(", ")}\n`
             );
           }
         }
 
         write("\n");
       }
-
-      // `unerr pm status` is a login entry point too — offer the one-key
-      // connect prompt (no-op if already connected or non-interactive).
-      await offerLoginIfNeeded();
     });
-
-  // ── pm config <path> ────────────────────────────────────
-
-  const configCmd = pm
-    .command("config [path]")
-    .description("View or modify per-repo settings")
-    .option("--show", "Show current settings without modifying");
-
-  for (const s of SETTINGS_SCHEMA) {
-    configCmd.option(`--${s.flag} <value>`, s.description);
-  }
-
-  configCmd.action(
-    (
-      pathArg: string | undefined,
-      opts: Record<string, string | undefined> & { show?: boolean }
-    ) => {
-      const targetPath = resolve(pathArg ?? ".");
-
-      // Collect setting flags
-      const settingsRaw: Record<string, string | undefined> = {};
-      for (const s of SETTINGS_SCHEMA) {
-        const camelFlag = s.flag.replace(/-([a-z])/g, (_, c: string) =>
-          c.toUpperCase()
-        );
-        if (opts[camelFlag] !== undefined) {
-          settingsRaw[s.flag] = opts[camelFlag];
-        }
-      }
-
-      const hasSettingFlags = Object.keys(settingsRaw).length > 0;
-
-      if (opts.show || !hasSettingFlags) {
-        // Show mode
-        const entry = findRepo(targetPath);
-        if (!entry) {
-          write(
-            `\x1b[38;2;248;113;113m\u2717\x1b[0m Not registered: ${targetPath}\n` +
-              `  Register first: unerr pm add ${targetPath}\n`
-          );
-          process.exitCode = 1;
-          return;
-        }
-
-        write(
-          `\n  \x1b[1m${entry.label}\x1b[0m — ${entry.path}\n\n` +
-            `  Idle timeout: ${entry.idleTimeout === 0 ? "never" : `${entry.idleTimeout}s`}\n` +
-            `  Added: ${entry.addedAt}\n`
-        );
-
-        const settingsEntries = Object.entries(entry.settings).filter(
-          ([, v]) => v !== undefined
-        );
-        if (settingsEntries.length > 0) {
-          write("  Settings:\n");
-          for (const [k, v] of settingsEntries) {
-            write(`    ${k}: ${v}\n`);
-          }
-        }
-
-        const needsInput = readNeedsInput(entry.path);
-        if (needsInput.length > 0) {
-          write(
-            "\n  \x1b[38;2;251;191;36m⚠ Auto-detected picks (override with flags):\x1b[0m\n"
-          );
-          for (const ni of needsInput) {
-            write(
-              `    ${ni.key}: ${ni.auto} (${ni.reason})\n` +
-                `      Override: --${toKebab(ni.key)}=${ni.alternatives[0]}\n`
-            );
-          }
-        }
-
-        write("\n");
-        return;
-      }
-
-      // Modify mode
-      let parsed: Record<string, string | number | boolean>;
-      try {
-        parsed = parseSettingsFlags(settingsRaw);
-      } catch (err) {
-        write(
-          `\x1b[38;2;248;113;113m\u2717\x1b[0m ${(err as Error).message}\n`
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      const updated = updateRepoSettings(targetPath, parsed);
-      if (!updated) {
-        write(
-          `\x1b[38;2;248;113;113m\u2717\x1b[0m Not registered: ${targetPath}\n` +
-            `  Register first: unerr pm add ${targetPath}\n`
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      write(
-        `\x1b[38;2;52;211;153m\u2713\x1b[0m Updated \x1b[1m${updated.label}\x1b[0m: ${Object.entries(
-          parsed
-        )
-          .map(([k, v]) => `${k}=${v}`)
-          .join(", ")}\n`
-      );
-    }
-  );
 
   // ── pm logs ──────────────────────────────────────────────
 
@@ -776,126 +561,4 @@ export function registerPmCommand(program: Command): void {
         }
       }
     );
-
-  // ── pm dashboard ────────────────────────────────────────
-
-  pm.command("dashboard")
-    .description("Open the unerr dashboard in browser")
-    .option(
-      "--port <port>",
-      `Dashboard port (default: ${DAEMON_DASHBOARD_PORT})`
-    )
-    .action(async (opts: { port?: string }) => {
-      const port = opts.port
-        ? Number(opts.port)
-        : (readDashboardState()?.port ?? DAEMON_DASHBOARD_PORT);
-      const url = daemonDashboardUrl(port);
-
-      const { platform } = await import("node:os");
-      const { execSync: ex } = await import("node:child_process");
-
-      try {
-        const plat = platform();
-        if (plat === "darwin") {
-          ex(`open "${url}"`, { stdio: "ignore" });
-        } else if (plat === "linux") {
-          ex(`xdg-open "${url}"`, { stdio: "ignore" });
-        } else if (plat === "win32") {
-          ex(`start "" "${url}"`, { stdio: "ignore" });
-        } else {
-          write(`Open ${url} in your browser.\n`);
-          return;
-        }
-        write(`\x1b[38;2;52;211;153m\u2713\x1b[0m Opening ${url}\n`);
-      } catch {
-        write(`Open ${url} in your browser.\n`);
-      }
-    });
-
-  // ── pm config (global warm-start flags) ─────────────────
-
-  pm.command("set")
-    .description("Set global daemon configuration")
-    .option(
-      "--warm-start-budget <n>",
-      "Max repos to warm-start on boot (0=disabled)"
-    )
-    .option("--warm-start-idle-days <n>", "Skip repos inactive for N+ days")
-    .option("--warm-start-delay-ms <n>", "Delay after boot before warm-start")
-    .action(
-      async (opts: {
-        warmStartBudget?: string;
-        warmStartIdleDays?: string;
-        warmStartDelayMs?: string;
-      }) => {
-        const { saveWarmStartConfig } = await import("../daemon/warm-start.js");
-
-        const partial: Record<string, number> = {};
-        let anySet = false;
-
-        if (opts.warmStartBudget !== undefined) {
-          const n = Number.parseInt(opts.warmStartBudget, 10);
-          if (!Number.isFinite(n) || n < 0) {
-            write(
-              `\x1b[38;2;248;113;113m\u2717\x1b[0m Invalid warm-start-budget: ${opts.warmStartBudget}\n`
-            );
-            process.exitCode = 1;
-            return;
-          }
-          partial.warmStartBudget = n;
-          anySet = true;
-        }
-
-        if (opts.warmStartIdleDays !== undefined) {
-          const n = Number.parseInt(opts.warmStartIdleDays, 10);
-          if (!Number.isFinite(n) || n < 0) {
-            write(
-              `\x1b[38;2;248;113;113m\u2717\x1b[0m Invalid warm-start-idle-days: ${opts.warmStartIdleDays}\n`
-            );
-            process.exitCode = 1;
-            return;
-          }
-          partial.warmStartIdleDays = n;
-          anySet = true;
-        }
-
-        if (opts.warmStartDelayMs !== undefined) {
-          const n = Number.parseInt(opts.warmStartDelayMs, 10);
-          if (!Number.isFinite(n) || n < 0) {
-            write(
-              `\x1b[38;2;248;113;113m\u2717\x1b[0m Invalid warm-start-delay-ms: ${opts.warmStartDelayMs}\n`
-            );
-            process.exitCode = 1;
-            return;
-          }
-          partial.warmStartDelayMs = n;
-          anySet = true;
-        }
-
-        if (!anySet) {
-          // Show current config
-          const { loadWarmStartConfig } = await import(
-            "../daemon/warm-start.js"
-          );
-          const config = loadWarmStartConfig();
-          write("\n  \x1b[1mGlobal daemon config\x1b[0m\n\n");
-          write(`  warmStartBudget:   ${config.warmStartBudget}\n`);
-          write(`  warmStartIdleDays: ${config.warmStartIdleDays}\n`);
-          write(`  warmStartDelayMs:  ${config.warmStartDelayMs}\n\n`);
-          return;
-        }
-
-        saveWarmStartConfig(partial);
-        write(
-          `\x1b[38;2;52;211;153m\u2713\x1b[0m Updated: ${Object.entries(partial)
-            .map(([k, v]) => `${k}=${v}`)
-            .join(", ")}\n`
-        );
-      }
-    );
-}
-
-/** Convert camelCase key to kebab-case for CLI flags. */
-function toKebab(s: string): string {
-  return s.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
 }

@@ -3,8 +3,8 @@
  *
  * Verifies:
  *   - Auto-detection identifies installed AI tools by directory presence
- *   - `unerr init` installs Claude Code hook at correct path
- *   - `unerr init` writes MCP config for detected tools
+ *   - installClaudeHook installs the Claude Code hook at the correct path
+ *   - writeMcpConfig writes MCP config for detected tools
  *   - `compress-output` command accepts graph risk map
  *   - `unerr uninstall` removes hooks cleanly
  *   - Hook status appears in status output data
@@ -15,7 +15,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { runInit } from "../commands/init.js";
 import {
   installClaudeHook,
   isClaudeHookInstalled,
@@ -104,17 +103,16 @@ describe("Sprint S6: CLI Hooks Integration", () => {
     });
   });
 
-  describe("S6.2: Hook installation via init", () => {
+  describe("S6.2: Hook installation", () => {
     it("installs Claude Code PostToolUse hook at correct path", () => {
       const cwd = makeTmpDir();
       mkdirSync(join(cwd, ".claude"), { recursive: true });
 
-      const result = runInit(cwd);
+      const result = installClaudeHook(cwd);
 
       const hookPath = join(cwd, ".claude", "hooks", "PostToolUse.sh");
       expect(existsSync(hookPath)).toBe(true);
-      expect(result.hooksInstalled.length).toBeGreaterThan(0);
-      expect(result.hooksInstalled[0]).toContain("Claude Code hook");
+      expect(result.action).toBe("installed");
     });
 
     it("skips hook if already installed", () => {
@@ -125,10 +123,8 @@ describe("Sprint S6: CLI Hooks Integration", () => {
         "#!/bin/bash\n# existing"
       );
 
-      const result = runInit(cwd);
-      expect(result.skipped.some((s) => s.includes("already installed"))).toBe(
-        true
-      );
+      const result = installClaudeHook(cwd);
+      expect(result.action).toBe("already_exists");
     });
 
     it("hook content references unerr compress-output", () => {
@@ -146,12 +142,12 @@ describe("Sprint S6: CLI Hooks Integration", () => {
     });
   });
 
-  describe("S6.3: MCP config writing via init", () => {
+  describe("S6.3: MCP config writing", () => {
     it("writes .cursor/mcp.json for Cursor project", () => {
       const cwd = makeTmpDir();
       mkdirSync(join(cwd, ".cursor"), { recursive: true });
 
-      const result = runInit(cwd);
+      const result = writeMcpConfig(cwd, "cursor");
 
       const configPath = join(cwd, ".cursor", "mcp.json");
       expect(existsSync(configPath)).toBe(true);
@@ -159,14 +155,14 @@ describe("Sprint S6: CLI Hooks Integration", () => {
       expect(config.mcpServers.unerr).toBeDefined();
       expect(config.mcpServers.unerr.command).toContain("unerr");
       expect(config.mcpServers.unerr.args).toContain("--mcp");
-      expect(result.configsWritten.length).toBeGreaterThan(0);
+      expect(result.action).toBe("created");
     });
 
     it("writes .mcp.json for Claude Code project", () => {
       const cwd = makeTmpDir();
       mkdirSync(join(cwd, ".claude"), { recursive: true });
 
-      const result = runInit(cwd);
+      writeMcpConfig(cwd, "claude-code");
 
       const configPath = join(cwd, ".mcp.json");
       expect(existsSync(configPath)).toBe(true);
@@ -185,7 +181,7 @@ describe("Sprint S6: CLI Hooks Integration", () => {
         JSON.stringify(existingConfig)
       );
 
-      runInit(cwd);
+      writeMcpConfig(cwd, "cursor");
 
       const config = JSON.parse(
         readFileSync(join(cwd, ".cursor", "mcp.json"), "utf-8")
@@ -197,18 +193,16 @@ describe("Sprint S6: CLI Hooks Integration", () => {
     it("skips if unerr already configured with same command", () => {
       const cwd = makeTmpDir();
       mkdirSync(join(cwd, ".cursor"), { recursive: true });
-      // First install writes the resolved command
-      runInit(cwd);
+      // First write installs the resolved command
+      writeMcpConfig(cwd, "cursor");
       const configPath = join(cwd, ".cursor", "mcp.json");
       const written = JSON.parse(readFileSync(configPath, "utf-8"));
       const resolvedCmd = written.mcpServers.unerr.command;
       expect(resolvedCmd).toContain("unerr");
 
-      // Second install with same command should skip
-      const result = runInit(cwd);
-      expect(result.skipped.some((s) => s.includes("already configured"))).toBe(
-        true
-      );
+      // Second write with same command should skip
+      const result = writeMcpConfig(cwd, "cursor");
+      expect(result.action).toBe("skipped");
     });
   });
 

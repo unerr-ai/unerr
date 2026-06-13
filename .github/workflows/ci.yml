@@ -45,6 +45,11 @@ jobs:
     needs: build-and-test
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    # Manual-approval gate: this requires a GitHub Environment named "npm-publish"
+    # with a required reviewer configured in repo settings (Settings → Environments).
+    # The job holds until a reviewer approves, same mechanism as web-landing's
+    # `environment: production`.
+    environment: npm-publish
     permissions:
       contents: read
       id-token: write
@@ -63,8 +68,17 @@ jobs:
 
       - run: pnpm install
 
-      - name: Build
+      - name: Build (production — strips dev mode)
         run: pnpm run build
+        env:
+          UNERR_PROD_BUILD: "1"
+
+      - name: Verify dev-free
+        run: |
+          # a. Built bundle must not contain the dev reader (stripped by UNERR_PROD_BUILD=1).
+          grep -q "applyDevConfig" dist/cli.js && { echo "::error::dev reader present in production bundle"; exit 1; } || echo "ok: no dev reader in bundle"
+          # b. npm tarball must not include dev scaffolding (dev.json / dev-config / cloud/dev-mode).
+          npm pack --dry-run 2>&1 | grep -E "dev\.json|dev-config|dev-mode" && { echo "::error::dev scaffolding in tarball"; exit 1; } || echo "ok: tarball is dev-free"
 
       - name: Publish to npm
         run: pnpm publish --no-git-checks
