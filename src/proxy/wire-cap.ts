@@ -21,8 +21,13 @@
  * proxy.ts, AFTER buildSignalPrefix but BEFORE serialization.
  */
 
+import { rankChunksByQuery } from "../intelligence/chunk-ranker.js";
+import { byImportanceDesc } from "../intelligence/importance.js";
 import { estimateTokenCount } from "../intelligence/token-estimator.js";
+import type { ReversibleCompressionFields } from "./shell-compression-log.js";
+import { buildCacheMarker } from "./reversible-cache.js";
 import { toWireTag } from "./response-envelope.js";
+import { getSharedReversibleCache } from "./shared-cache.js";
 
 export interface WireCapResult {
   /** Possibly-truncated body — still the same JSON shape, smaller arrays. */
@@ -32,6 +37,13 @@ export interface WireCapResult {
    * agent what to do to retrieve the rest. null when no truncation occurred.
    */
   pageHint: string | null;
+  /**
+   * §4 reversible-compression metrics for this cap event (T1.3/T3.2/T7.4).
+   * Undefined when nothing was dropped (pristine pass-through). The production
+   * call sites (query-router / proxy) forward this to `appendCompressionLog`;
+   * tests and other callers can ignore it (optional field, destructure-safe).
+   */
+  metrics?: ReversibleCompressionFields;
 }
 
 interface ToolCap {
@@ -203,6 +215,138 @@ function buildPageHint(
 }
 
 /**
+ * Tools whose capped arrays carry graph entities (each element has `fan_in` /
+ * `fan_out` / `risk_level` / `key` columns). Only these get importance ordering
+ * (T3.2) and query-relevance ordering (T7.4) before the positional slice —
+ * non-entity payloads (fetch_url passages, recall facts) keep their existing
+ * order (T3.5: importance applies only where wire elements map to entities).
+ */
+const ENTITY_ARRAY_TOOLS: Readonly<Record<string, true>> = {
+  search_code: true,
+  get_references: true,
+  get_critical_nodes: true,
+  file_connections: true,
+};
+
+/** Extract the importance fields from a wire array element, tolerating any shape. */
+function entityImportanceFields(item: unknown): {
+  fan_in?: number;
+  fan_out?: number;
+  risk_level?: string;
+  key?: string;
+} {
+  if (typeof item !== "object" || item === null) return {};
+  const o = item as Record<string, unknown>;
+  return {
+    fan_in: typeof o.fan_in === "number" ? o.fan_in : undefined,
+    fan_out: typeof o.fan_out === "number" ? o.fan_out : undefined,
+    risk_level: typeof o.risk_level === "string" ? o.risk_level : undefined,
+    key: typeof o.key === "string" ? o.key : undefined,
+  };
+}
+
+/** Concatenated text of an entity row, scored lexically against the query. */
+function entityChunkText(item: unknown): string {
+  if (typeof item !== "object" || item === null) return "";
+  const o = item as Record<string, unknown>;
+  return [o.name, o.signature, o.summary, o.file_path, o.body]
+    .filter((v): v is string => typeof v === "string")
+    .join(" ");
+}
+
+/**
+ * Result of reordering an entity array before the positional slice: the
+ * reordered array and which signal ordered it (for the §4 `ranking_key`).
+ * When the tool's elements are not graph entities, returns the input untouched
+ * with `ranking_key: 'positional'` so the metrics row stays honest.
+ */
+interface RankedArray {
+  ordered: unknown[];
+  ranking_key: "query" | "importance" | "positional";
+}
+
+/**
+ * Order an entity array so the survivors of a positional slice are the most
+ * load-bearing / most on-query items. Query relevance leads when a non-blank
+ * `prompt`/`query` arg is present (T7.4); graph importance is the fallback
+ * (T3.2). Deterministic: same input → same order (both ranker and importance
+ * sort break ties stably). Non-entity tools are left untouched.
+ */
+function rankEntityArray(
+  toolName: string,
+  arr: unknown[],
+  args: Record<string, unknown>
+): RankedArray {
+  if (!ENTITY_ARRAY_TOOLS[toolName] || arr.length <= 1) {
+    return { ordered: arr, ranking_key: "positional" };
+  }
+
+  const queryArg =
+    typeof args.prompt === "string" && args.prompt.trim().length > 0
+      ? args.prompt.trim()
+      : typeof args.query === "string" && args.query.trim().length > 0
+        ? args.query.trim()
+        : null;
+
+  if (queryArg) {
+    const ranked = rankChunksByQuery(
+      arr.map((item) => ({ text: entityChunkText(item) })),
+      queryArg
+    );
+    // rankChunksByQuery returns one entry per input index; reorder by it.
+    const ordered = ranked.map((r) => arr[r.index]);
+    return { ordered, ranking_key: "query" };
+  }
+
+  const ordered = byImportanceDesc(arr, entityImportanceFields);
+  return { ordered, ranking_key: "importance" };
+}
+
+/**
+ * Count how many of the dropped items were lower-importance than every kept
+ * item — the §4 `dropped_low_importance` signal. After importance ordering the
+ * dropped tail is exactly the low-importance items, so this is `dropped.length`
+ * whenever any item carried a non-zero importance signal. Returns 0 when no
+ * element had graph columns (nothing to attribute to importance).
+ */
+function countDroppedLowImportance(dropped: unknown[]): number {
+  let withSignal = 0;
+  for (const d of dropped) {
+    const f = entityImportanceFields(d);
+    if (
+      (typeof f.fan_in === "number" && f.fan_in > 0) ||
+      (typeof f.fan_out === "number" && f.fan_out > 0) ||
+      f.risk_level !== undefined
+    ) {
+      withSignal++;
+    }
+  }
+  return withSignal;
+}
+
+/**
+ * Assemble the §4 ordering metrics for one array slice. `ranking_key` records
+ * which signal ordered the survivors; `dropped_low_importance` counts the
+ * low-`fan_in` items the importance pass dropped; `query_relevance_pruned`
+ * counts the items query relevance dropped (only set when a real query ordered
+ * the array). Returns undefined when the order was positional with nothing
+ * graph-attributable, so a non-entity slice leaves these columns null.
+ */
+function buildSliceMetrics(
+  ranking_key: "query" | "importance" | "positional",
+  droppedLow: number
+): ReversibleCompressionFields {
+  const fields: ReversibleCompressionFields = { ranking_key };
+  if (ranking_key === "importance") {
+    fields.survivors_by_importance = true;
+    fields.dropped_low_importance = droppedLow;
+  } else if (ranking_key === "query") {
+    fields.query_relevance_pruned = droppedLow;
+  }
+  return fields;
+}
+
+/**
  * Apply the per-tool cap to the response body and produce a page hint when
  * truncation occurred. Pure: does not mutate the input.
  */
@@ -225,7 +369,12 @@ export function applyWireCap(
     if (rawBody.length <= limit)
       return enforceTokenCap(toolName, rawBody, args, null, tokenCap);
     const total = rawBody.length;
-    const sliced = rawBody.slice(0, limit);
+    // T3.2/T7.4: order entity rows by query relevance (when a query is present)
+    // or graph importance before the positional slice, so the dropped tail is
+    // the least load-bearing items. Non-entity tools keep positional order.
+    const { ordered, ranking_key } = rankEntityArray(toolName, rawBody, args);
+    const sliced = ordered.slice(0, limit);
+    const droppedLow = countDroppedLowImportance(ordered.slice(limit));
     const hint = buildPageHint(
       toolName,
       total - limit,
@@ -234,7 +383,12 @@ export function applyWireCap(
       sliced.length,
       cap.filterHint
     );
-    return enforceTokenCap(toolName, sliced, args, hint, tokenCap);
+    const capped = enforceTokenCap(toolName, sliced, args, hint, tokenCap);
+    capped.metrics = {
+      ...capped.metrics,
+      ...buildSliceMetrics(ranking_key, droppedLow),
+    };
+    return capped;
   }
 
   // Wrapper object pattern: {<arrayKey>: [...], ...rest}
@@ -245,11 +399,21 @@ export function applyWireCap(
     cap.arrayKey in rawBody
   ) {
     const obj = rawBody as Record<string, unknown>;
-    const arr = obj[cap.arrayKey];
-    if (!Array.isArray(arr)) {
+    const rawArr = obj[cap.arrayKey];
+    if (!Array.isArray(rawArr)) {
       return enforceTokenCap(toolName, rawBody, args, null, tokenCap);
     }
     const arrayKey = cap.arrayKey;
+
+    // T3.2/T7.4: reorder entity rows by query relevance / graph importance
+    // before the positional slice so the kept prefix is the most load-bearing
+    // items. Non-entity wrappers (fetch_url passages, recall facts) are
+    // untouched (`ranking_key:'positional'`).
+    const { ordered: arr, ranking_key } = rankEntityArray(
+      toolName,
+      rawArr,
+      args
+    );
 
     // True item count = what's in `arr` plus whatever the handler already
     // truncated upstream (it tells us via `total` or `more_available`).
@@ -312,13 +476,19 @@ export function applyWireCap(
             cap.filterHint
           )
         : null;
-    return enforceTokenCap(
+    const droppedLow = countDroppedLowImportance(arr.slice(delivered));
+    const capped = enforceTokenCap(
       toolName,
       buildBody(delivered),
       args,
       hint,
       tokenCap
     );
+    capped.metrics = {
+      ...capped.metrics,
+      ...buildSliceMetrics(ranking_key, droppedLow),
+    };
+    return capped;
   }
 
   return enforceTokenCap(toolName, rawBody, args, null, tokenCap);
@@ -447,6 +617,16 @@ function enforceTokenCap(
     hintTail = `narrow with entity:<name>/limit:<n> or token_budget:${cappedBudget}`;
   }
 
+  // T1.3/T1.4: cache the full original keyed by content hash so the agent can
+  // pull back ONLY the slice it needs (O(slice)) via a cache_ref retrieval,
+  // instead of re-requesting the whole payload at a larger token_budget and
+  // re-paying every token. The cache_ref marker REPLACES the silent drop on
+  // this path only — the existing too_large body + token-budget hint stay, so
+  // a cache miss still falls back to today's recompute behavior.
+  const cacheRef = getSharedReversibleCache().put(serialized, {
+    file: typeof args.file_path === "string" ? args.file_path : undefined,
+  });
+
   const oversize: Record<string, unknown> = {
     status: "too_large",
     reason,
@@ -456,6 +636,7 @@ function enforceTokenCap(
     needed_tokens: neededTokens,
     suggested_token_budget: cappedBudget,
     tool: toolName,
+    cache_ref: cacheRef,
   };
   if (requestedBudget !== null) {
     oversize.requested_token_budget = requestedBudget;
@@ -463,6 +644,23 @@ function enforceTokenCap(
   if (entityArg) {
     oversize.entity = entityArg;
   }
-  const overHint = `ur|${toWireTag("pg")} ${toolName} ${tokens}tok>${tokenCap}tok — ${hintTail}`;
-  return { body: oversize, pageHint: overHint };
+  // Cache-ref marker: the reversible-retrieval next-action (concrete numbers,
+  // named tool, imperative — obeys the nudge-writing rules; buildCacheMarker
+  // owns the wording so it stays byte-stable for identical input).
+  const cacheMarker = buildCacheMarker({
+    hash: cacheRef,
+    droppedBytes: serialized.length,
+  });
+  const overHint = `ur|${toWireTag("pg")} ${toolName} ${tokens}tok>${tokenCap}tok — ${hintTail}\n${cacheMarker}`;
+  // The cached original is the whole payload; the slice the agent retrieves is
+  // what it actually pays for on the follow-up. Record this as a `compress`
+  // event carrying the cache_ref so a later `retrieve` row pairs back to it.
+  const metrics: ReversibleCompressionFields = {
+    event_kind: "compress",
+    mechanism: "wire_cap",
+    cache_ref: cacheRef,
+    original_tokens: tokens,
+    delivered_tokens: estimateTokenCount(JSON.stringify(oversize)),
+  };
+  return { body: oversize, pageHint: overHint, metrics };
 }

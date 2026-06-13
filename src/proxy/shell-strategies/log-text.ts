@@ -3,6 +3,8 @@
  * Deduplicates by normalized pattern, preserves errors, emits compact summary.
  */
 
+import { rankChunksByQuery } from "../../intelligence/chunk-ranker.js";
+
 const SMALL_THRESHOLD = 80;
 const MAX_PATTERNS = 20;
 const MAX_ERROR_LINES = 30;
@@ -87,7 +89,11 @@ function isCleanSuccess(text: string): { ok: boolean; line?: string } {
   return { ok: false };
 }
 
-export function compressLogText(text: string, command?: string): string {
+export function compressLogText(
+  text: string,
+  command?: string,
+  query?: string
+): string {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const total = lines.length;
 
@@ -149,8 +155,21 @@ export function compressLogText(text: string, command?: string): string {
       if (existing) existing.count++;
       else errDedup.set(e, { line: e, count: 1 });
     }
+    let entries = [...errDedup.values()];
+    // T7.5/T7.6: when a current-task query is available AND the deduped error
+    // set exceeds the cut, order entries by query relevance so the on-task
+    // errors survive the MAX_ERROR_LINES truncation (recall over ratio — only
+    // reorders, never drops below the cut what positional order would have
+    // kept). No query → keep insertion order (no regression).
+    if (query && query.trim().length > 0 && entries.length > MAX_ERROR_LINES) {
+      const ranked = rankChunksByQuery(
+        entries.map((e) => ({ text: e.line })),
+        query
+      );
+      entries = ranked.map((r) => entries[r.index]!);
+    }
     let shown = 0;
-    for (const { line, count } of errDedup.values()) {
+    for (const { line, count } of entries) {
       if (shown >= MAX_ERROR_LINES) break;
       parts.push(count > 1 ? `${line}  [×${count}]` : line);
       shown++;

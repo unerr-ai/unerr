@@ -31,6 +31,17 @@ export const TOKEN_BUDGET_PROP = {
   default: 400,
 } as const;
 
+/**
+ * Shared input-schema property for the reversible-cache retrieve side (T1.5).
+ * Pagination-capable tools accept it to pull a withheld slice back from the
+ * local cache instead of re-requesting the whole payload at a larger budget.
+ */
+export const CACHE_REF_PROP = {
+  type: "string",
+  description:
+    "Reversible-cache hash from a prior `ur|cache-ref` marker. When set, return the withheld slice via offset/limit from the local cache (~1ms) instead of recomputing the whole payload. On a cache miss the tool recomputes normally.",
+} as const;
+
 interface ToolSchema {
   readonly inputSchema: {
     readonly type: "object";
@@ -91,6 +102,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           enum: ["function", "class", "type", "variable"],
           description: "Detail mode: optional entity kind filter.",
         },
+        cache_ref: CACHE_REF_PROP,
         token_budget: TOKEN_BUDGET_PROP,
       },
       required: ["query"],
@@ -161,6 +173,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           description:
             "Maximum passages to return (default 30, max 300). Also acts as BM25 topK when prompt is set.",
         },
+        cache_ref: CACHE_REF_PROP,
         token_budget: TOKEN_BUDGET_PROP,
       },
       required: ["url"],
@@ -217,6 +230,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           description:
             "Read intent: 'explore' (default, budget-capped) or 'reference' (entity/offset only, tight budget).",
         },
+        cache_ref: CACHE_REF_PROP,
         token_budget: TOKEN_BUDGET_PROP,
       },
       required: ["file_path"],
@@ -255,6 +269,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           description: "Max references to return (default 25).",
           default: 25,
         },
+        cache_ref: CACHE_REF_PROP,
         token_budget: TOKEN_BUDGET_PROP,
       },
       required: ["key"],

@@ -24,6 +24,10 @@ import {
   readOverheadLeverEvents,
   summarizeOverheadLevers,
 } from "../../tracking/overhead-levers.js";
+import {
+  type CompressionEventRow,
+  openMetricsStore,
+} from "../../tracking/metrics-store.js";
 import { getPromptForTurn } from "../../tracking/prompt-trace.js";
 import {
   type SessionEconomySummary,
@@ -860,6 +864,101 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
       _meta: {
         latency_ms: Math.round((performance.now() - start) * 100) / 100,
         source: "server-side levers; absolute token bill is offline-only",
+      },
+    });
+  });
+
+  // ── /reversibility — §4 reversible-compression aggregates ───────────
+  //
+  // Sprint U TU.1/TU.2/TU.4/TU.5/TU.6: project the new `compression_events`
+  // fields (REVERSIBLE_COMPRESSION_PLAN.md §4) for the dashboard. ADDITIVE —
+  // a brand-new endpoint reading the SAME `compression_events` stream; no
+  // existing endpoint or response key is touched. Fidelity-honest: the
+  // headline `rerequest_saved_tokens` total excludes rows whose probe failed
+  // (`fidelity_pass = 0`), matching the per-turn line (TU.9) and the
+  // benchmark-integrity stance (never a savings number without its gate).
+  app.get("/reversibility", (c) => {
+    const start = performance.now();
+    const store = openMetricsStore(deps.unerrDir);
+    // recentCompression returns newest-first; a generous cap covers the
+    // dashboard window without scanning the whole table.
+    const rows = store.recentCompression(5000) as CompressionEventRow[];
+
+    let retrieveRows = 0;
+    let recomputeRows = 0;
+    let cacheHits = 0;
+    let cacheMisses = 0;
+    // Fidelity-honest re-request savings: exclude fidelity_pass === 0.
+    let rerequestSavedTokens = 0;
+    let rerequestSavedTokensDropped = 0; // savings on fidelity-FAILED rows (shown separately)
+    // S3 / S7 attribution.
+    let droppedLowImportance = 0;
+    let queryRelevancePruned = 0;
+    const rankingKeyCounts: Record<string, number> = {};
+    // S2 prefix-stability trend (most-recent-first; truncated to a sparkline).
+    const prefixStableTrend: Array<{ ts_iso: string; stable: boolean }> = [];
+    // S5 fidelity-by-mechanism badge.
+    const fidelityByMechanism: Record<
+      string,
+      { pass: number; fail: number }
+    > = {};
+
+    for (const r of rows) {
+      const fidelityFailed = r.fidelity_pass === 0;
+      if (r.event_kind === "retrieve") {
+        retrieveRows++;
+        const saved = r.rerequest_saved_tokens ?? 0;
+        if (fidelityFailed) rerequestSavedTokensDropped += saved;
+        else rerequestSavedTokens += saved;
+      } else if (r.event_kind === "recompute") {
+        recomputeRows++;
+      }
+      if (r.cache_hit === 1) cacheHits++;
+      else if (r.cache_hit === 0) cacheMisses++;
+      if (r.dropped_low_importance !== null)
+        droppedLowImportance += r.dropped_low_importance;
+      if (r.query_relevance_pruned !== null)
+        queryRelevancePruned += r.query_relevance_pruned;
+      if (r.ranking_key !== null)
+        rankingKeyCounts[r.ranking_key] =
+          (rankingKeyCounts[r.ranking_key] ?? 0) + 1;
+      if (r.prefix_stable !== null && prefixStableTrend.length < 40)
+        prefixStableTrend.push({
+          ts_iso: r.ts_iso,
+          stable: r.prefix_stable === 1,
+        });
+      if (r.mechanism !== null && r.fidelity_pass !== null) {
+        const m = (fidelityByMechanism[r.mechanism] ??= { pass: 0, fail: 0 });
+        if (r.fidelity_pass === 1) m.pass++;
+        else m.fail++;
+      }
+    }
+
+    const cacheLookups = cacheHits + cacheMisses;
+    return c.json({
+      data: {
+        // TU.2 — reversibility headline.
+        retrieve_rows: retrieveRows,
+        recompute_rows: recomputeRows,
+        rerequest_saved_tokens: rerequestSavedTokens,
+        rerequest_saved_tokens_fidelity_failed: rerequestSavedTokensDropped,
+        // TU.2 — cache effectiveness.
+        cache_hits: cacheHits,
+        cache_misses: cacheMisses,
+        cache_hit_rate: cacheLookups > 0 ? cacheHits / cacheLookups : 0,
+        // TU.4 — prefix-stability sparkline (most-recent-first).
+        prefix_stable_trend: prefixStableTrend,
+        // TU.5 — fidelity badge per mechanism.
+        fidelity_by_mechanism: fidelityByMechanism,
+        // TU.6 — graph-importance + query-relevance attribution.
+        dropped_low_importance: droppedLowImportance,
+        query_relevance_pruned: queryRelevancePruned,
+        ranking_key_counts: rankingKeyCounts,
+        // S8 — current transcript-footprint estimate.
+        transcript_footprint_tokens: store.transcriptFootprintLatest(),
+      },
+      _meta: {
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
       },
     });
   });

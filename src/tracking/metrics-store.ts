@@ -72,6 +72,27 @@ export interface CompressionEventRow {
   saved_pct: number;
   omni_fallback: number; // 0 / 1
   tee_file: string | null;
+  // ── §4 reversible-compression fields (REVERSIBLE_COMPRESSION_PLAN.md) ──
+  // All nullable/defaulted so legacy rows and existing inserts stay valid.
+  // Each engine sprint (S0–S8) populates its own subset; a row that doesn't
+  // apply to a saving leaves that field null. Token counts are computed
+  // through src/intelligence/token-estimator.ts (o200k_base) on both sides
+  // so before/after is apples-to-apples.
+  original_tokens: number | null; // S0: tokens before this compression
+  delivered_tokens: number | null; // S0: tokens actually put on the wire
+  mechanism: string | null; // S0: which of the 7 compressors produced the row
+  fidelity_pass: number | null; // S0/S4: 1/0/null — did the must-survive fact survive
+  event_kind: string; // S1: 'compress' | 'retrieve' | 'recompute' (default 'compress')
+  cache_ref: string | null; // S1: content-hash linking a retrieve back to its compress
+  rerequest_saved_tokens: number | null; // S1: tokens saved vs full re-deliver on a retrieve
+  cache_hit: number | null; // S1: 1/0/null — did the retrieval hit a live cache entry
+  prefix_stable: number | null; // S2: 1/0/null — was the injected prefix byte-identical to last turn
+  prefix_bytes: number | null; // S2: size of the injected prefix block
+  survivors_by_importance: number | null; // S3: 1/0/null — survivors ordered by graph importance
+  dropped_low_importance: number | null; // S3: count of low-fan_in items dropped
+  ranking_key: string | null; // S7: 'query' | 'importance' | 'positional'
+  query_relevance_pruned: number | null; // S7: chunks pruned by query relevance beyond budget floor
+  transcript_footprint_tokens: number | null; // S8: cumulative tokens unerr contributed this session
 }
 
 export interface FileReadEventRow {
@@ -199,7 +220,46 @@ export interface FetchCacheRow {
 
 // ── Insert input types — what writers pass in ─────────────────────────
 
-export type CompressionEventInsert = Omit<CompressionEventRow, "id">;
+// The §4 reversible-compression fields are OPTIONAL on insert (every one
+// defaults to null, except event_kind which defaults to 'compress'), so the
+// existing writer (appendCompressionLog) compiles and runs without passing any
+// of them. insertCompression coalesces the missing ones to their defaults.
+type CompressionEventBase = Omit<
+  CompressionEventRow,
+  | "id"
+  | "original_tokens"
+  | "delivered_tokens"
+  | "mechanism"
+  | "fidelity_pass"
+  | "event_kind"
+  | "cache_ref"
+  | "rerequest_saved_tokens"
+  | "cache_hit"
+  | "prefix_stable"
+  | "prefix_bytes"
+  | "survivors_by_importance"
+  | "dropped_low_importance"
+  | "ranking_key"
+  | "query_relevance_pruned"
+  | "transcript_footprint_tokens"
+>;
+export type CompressionEventInsert = CompressionEventBase & {
+  original_tokens?: number | null;
+  delivered_tokens?: number | null;
+  mechanism?: string | null;
+  fidelity_pass?: number | null;
+  event_kind?: string;
+  cache_ref?: string | null;
+  rerequest_saved_tokens?: number | null;
+  cache_hit?: number | null;
+  prefix_stable?: number | null;
+  prefix_bytes?: number | null;
+  survivors_by_importance?: number | null;
+  dropped_low_importance?: number | null;
+  ranking_key?: string | null;
+  query_relevance_pruned?: number | null;
+  transcript_footprint_tokens?: number | null;
+};
 export type FileReadEventInsert = Omit<FileReadEventRow, "id">;
 /** `agent` defaults to "unknown" via DB DEFAULT + writer coalesce, so it's
  *  optional on insert. The on-disk row always has a concrete value. */
@@ -226,7 +286,26 @@ CREATE TABLE IF NOT EXISTS compression_events (
   compressed_bytes INTEGER NOT NULL,
   saved_pct REAL NOT NULL,
   omni_fallback INTEGER NOT NULL,
-  tee_file TEXT
+  tee_file TEXT,
+  -- §4 reversible-compression fields (REVERSIBLE_COMPRESSION_PLAN.md).
+  -- All nullable / defaulted so existing inserts stay valid. ADDITIVE_COLUMNS
+  -- below ALTERs these onto pre-existing DBs (pre-release "edit in place"; no
+  -- migration step). Never remove/rename the columns above this comment.
+  original_tokens INTEGER,
+  delivered_tokens INTEGER,
+  mechanism TEXT,
+  fidelity_pass INTEGER,
+  event_kind TEXT NOT NULL DEFAULT 'compress',
+  cache_ref TEXT,
+  rerequest_saved_tokens INTEGER,
+  cache_hit INTEGER,
+  prefix_stable INTEGER,
+  prefix_bytes INTEGER,
+  survivors_by_importance INTEGER,
+  dropped_low_importance INTEGER,
+  ranking_key TEXT,
+  query_relevance_pruned INTEGER,
+  transcript_footprint_tokens INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_compression_ts ON compression_events(ts);
 CREATE INDEX IF NOT EXISTS idx_compression_category ON compression_events(category);
@@ -400,6 +479,48 @@ const ADDITIVE_COLUMNS: ReadonlyArray<{
     column: "agent",
     decl: "TEXT NOT NULL DEFAULT 'unknown'",
   },
+  // §4 reversible-compression fields. ALTER them onto pre-existing
+  // compression_events tables (the SCHEMA block above only creates them on a
+  // fresh DB). All nullable / defaulted so legacy rows stay valid.
+  { table: "compression_events", column: "original_tokens", decl: "INTEGER" },
+  { table: "compression_events", column: "delivered_tokens", decl: "INTEGER" },
+  { table: "compression_events", column: "mechanism", decl: "TEXT" },
+  { table: "compression_events", column: "fidelity_pass", decl: "INTEGER" },
+  {
+    table: "compression_events",
+    column: "event_kind",
+    decl: "TEXT NOT NULL DEFAULT 'compress'",
+  },
+  { table: "compression_events", column: "cache_ref", decl: "TEXT" },
+  {
+    table: "compression_events",
+    column: "rerequest_saved_tokens",
+    decl: "INTEGER",
+  },
+  { table: "compression_events", column: "cache_hit", decl: "INTEGER" },
+  { table: "compression_events", column: "prefix_stable", decl: "INTEGER" },
+  { table: "compression_events", column: "prefix_bytes", decl: "INTEGER" },
+  {
+    table: "compression_events",
+    column: "survivors_by_importance",
+    decl: "INTEGER",
+  },
+  {
+    table: "compression_events",
+    column: "dropped_low_importance",
+    decl: "INTEGER",
+  },
+  { table: "compression_events", column: "ranking_key", decl: "TEXT" },
+  {
+    table: "compression_events",
+    column: "query_relevance_pruned",
+    decl: "INTEGER",
+  },
+  {
+    table: "compression_events",
+    column: "transcript_footprint_tokens",
+    decl: "INTEGER",
+  },
 ];
 
 function reconcileAdditiveColumns(db: DatabaseT): void {
@@ -431,6 +552,9 @@ interface Statements {
   recentCompression: ReturnType<DatabaseT["prepare"]>;
   recentFileReads: ReturnType<DatabaseT["prepare"]>;
   compressionSince: ReturnType<DatabaseT["prepare"]>;
+  reversibleSavedSince: ReturnType<DatabaseT["prepare"]>;
+  reversibleSavedTotal: ReturnType<DatabaseT["prepare"]>;
+  transcriptFootprintLatest: ReturnType<DatabaseT["prepare"]>;
   fileReadsSince: ReturnType<DatabaseT["prepare"]>;
   tokenFlowSince: ReturnType<DatabaseT["prepare"]>;
   tokenFlowAll: ReturnType<DatabaseT["prepare"]>;
@@ -481,9 +605,17 @@ export class MetricsStore {
       insertCompression: this.db.prepare(`
         INSERT INTO compression_events
           (ts, ts_iso, command, category, confidence, raw_bytes, compressed_bytes,
-           saved_pct, omni_fallback, tee_file)
+           saved_pct, omni_fallback, tee_file,
+           original_tokens, delivered_tokens, mechanism, fidelity_pass, event_kind,
+           cache_ref, rerequest_saved_tokens, cache_hit, prefix_stable, prefix_bytes,
+           survivors_by_importance, dropped_low_importance, ranking_key,
+           query_relevance_pruned, transcript_footprint_tokens)
         VALUES (@ts, @ts_iso, @command, @category, @confidence, @raw_bytes,
-                @compressed_bytes, @saved_pct, @omni_fallback, @tee_file)
+                @compressed_bytes, @saved_pct, @omni_fallback, @tee_file,
+                @original_tokens, @delivered_tokens, @mechanism, @fidelity_pass, @event_kind,
+                @cache_ref, @rerequest_saved_tokens, @cache_hit, @prefix_stable, @prefix_bytes,
+                @survivors_by_importance, @dropped_low_importance, @ranking_key,
+                @query_relevance_pruned, @transcript_footprint_tokens)
       `),
       insertFileRead: this.db.prepare(`
         INSERT INTO file_read_events
@@ -559,6 +691,37 @@ export class MetricsStore {
       `),
       compressionSince: this.db.prepare(`
         SELECT * FROM compression_events WHERE id > @lastId ORDER BY id ASC LIMIT @limit
+      `),
+      // Sum reversibility re-request savings (S1 retrieve rows) since a wall-
+      // clock boundary, fidelity-honest: a row whose probe FAILED
+      // (fidelity_pass = 0) is excluded so the per-turn economy line never
+      // counts a saving that dropped the answer (Sprint U TU.7/TU.9). NULL
+      // fidelity (unprobed) still counts — a retrieve is lossless by
+      // construction (it returns a verbatim slice of the cached original).
+      reversibleSavedSince: this.db.prepare(`
+        SELECT COALESCE(SUM(rerequest_saved_tokens), 0) AS total
+        FROM compression_events
+        WHERE event_kind = 'retrieve'
+          AND ts >= @sinceTs
+          AND COALESCE(fidelity_pass, 1) <> 0
+      `),
+      // Whole-store reversibility savings (session-cumulative — the metrics
+      // store is per-repo, so every retrieve row belongs to this repo's
+      // activity). Same fidelity gate as reversibleSavedSince.
+      reversibleSavedTotal: this.db.prepare(`
+        SELECT COALESCE(SUM(rerequest_saved_tokens), 0) AS total
+        FROM compression_events
+        WHERE event_kind = 'retrieve'
+          AND COALESCE(fidelity_pass, 1) <> 0
+      `),
+      // Latest cumulative transcript-footprint estimate (S8). The writers
+      // stamp a running per-session total on each compress row; the most
+      // recent non-null value is the current estimate.
+      transcriptFootprintLatest: this.db.prepare(`
+        SELECT transcript_footprint_tokens AS footprint
+        FROM compression_events
+        WHERE transcript_footprint_tokens IS NOT NULL
+        ORDER BY id DESC LIMIT 1
       `),
       fileReadsSince: this.db.prepare(`
         SELECT * FROM file_read_events WHERE id > @lastId ORDER BY id ASC LIMIT @limit
@@ -742,7 +905,37 @@ export class MetricsStore {
 
   insertCompression(row: CompressionEventInsert): number {
     if (!this.stmt) return 0;
-    return Number(this.stmt.insertCompression.run(row).lastInsertRowid);
+    // better-sqlite3 named binding requires every @param to be present on the
+    // object, so coalesce the optional §4 fields to their defaults (null, or
+    // 'compress' for event_kind). Existing callers pass none of them.
+    const full: Omit<CompressionEventRow, "id"> = {
+      ts: row.ts,
+      ts_iso: row.ts_iso,
+      command: row.command,
+      category: row.category,
+      confidence: row.confidence,
+      raw_bytes: row.raw_bytes,
+      compressed_bytes: row.compressed_bytes,
+      saved_pct: row.saved_pct,
+      omni_fallback: row.omni_fallback,
+      tee_file: row.tee_file,
+      original_tokens: row.original_tokens ?? null,
+      delivered_tokens: row.delivered_tokens ?? null,
+      mechanism: row.mechanism ?? null,
+      fidelity_pass: row.fidelity_pass ?? null,
+      event_kind: row.event_kind ?? "compress",
+      cache_ref: row.cache_ref ?? null,
+      rerequest_saved_tokens: row.rerequest_saved_tokens ?? null,
+      cache_hit: row.cache_hit ?? null,
+      prefix_stable: row.prefix_stable ?? null,
+      prefix_bytes: row.prefix_bytes ?? null,
+      survivors_by_importance: row.survivors_by_importance ?? null,
+      dropped_low_importance: row.dropped_low_importance ?? null,
+      ranking_key: row.ranking_key ?? null,
+      query_relevance_pruned: row.query_relevance_pruned ?? null,
+      transcript_footprint_tokens: row.transcript_footprint_tokens ?? null,
+    };
+    return Number(this.stmt.insertCompression.run(full).lastInsertRowid);
   }
 
   insertFileRead(row: FileReadEventInsert): number {
@@ -791,6 +984,48 @@ export class MetricsStore {
       lastId,
       limit,
     }) as CompressionEventRow[];
+  }
+
+  /**
+   * Sum reversibility re-request savings (`rerequest_saved_tokens` on S1
+   * `event_kind:'retrieve'` rows) recorded at or after `sinceTs` (epoch ms).
+   * Fidelity-honest: rows whose probe failed (`fidelity_pass = 0`) are
+   * excluded so the per-turn economy line never counts a saving that dropped
+   * the answer. Drives Sprint U TU.7 — folding reversibility into the
+   * per-turn `unerr »` total.
+   */
+  reversibleSavedSince(sinceTs: number): number {
+    if (!this.stmt) return 0;
+    const row = this.stmt.reversibleSavedSince.get({ sinceTs }) as
+      | { total: number }
+      | undefined;
+    return row?.total ?? 0;
+  }
+
+  /**
+   * Whole-store reversibility re-request savings (session-cumulative — the
+   * metrics store is per-repo). Same fidelity gate as
+   * {@link reversibleSavedSince}.
+   */
+  reversibleSavedTotal(): number {
+    if (!this.stmt) return 0;
+    const row = this.stmt.reversibleSavedTotal.get({}) as
+      | { total: number }
+      | undefined;
+    return row?.total ?? 0;
+  }
+
+  /**
+   * Latest cumulative transcript-footprint estimate (`transcript_footprint_tokens`,
+   * Sprint S8) — the most recent non-null running total of tool-output tokens
+   * unerr put into the transcript. 0 when nothing has been stamped yet.
+   */
+  transcriptFootprintLatest(): number {
+    if (!this.stmt) return 0;
+    const row = this.stmt.transcriptFootprintLatest.get({}) as
+      | { footprint: number | null }
+      | undefined;
+    return row?.footprint ?? 0;
   }
 
   fileReadsSince(lastId: number, limit = 500): FileReadEventRow[] {

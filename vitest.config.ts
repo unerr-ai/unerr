@@ -2,7 +2,12 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["src/__tests__/**/*.test.ts"],
+    include: [
+      "src/__tests__/**/*.test.ts",
+      // Benchmark harnesses live outside src/ (excluded from the src-only
+      // tsconfig rootDir), so their pure-logic tests are colocated here.
+      "benchmarks/**/*.test.ts",
+    ],
     // Forks pool (child_process) is required: ~16 tests call process.chdir(),
     // which throws "process.chdir() is not supported in workers" under the
     // default `threads` pool (worker_threads). Forks also sidesteps the

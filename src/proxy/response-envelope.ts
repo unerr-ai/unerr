@@ -42,6 +42,7 @@ export interface ContextInjectorArgs {
 
 import { estimateTokens } from "../intelligence/token-estimator.js";
 import { UNERR_VERSION } from "../version.js";
+import { CACHE_MARKER_LEGEND } from "./reversible-cache.js";
 export { estimateTokens };
 
 const VERSION = `@proxy${UNERR_VERSION}`;
@@ -212,6 +213,7 @@ export const SIGNAL_PREFIX_LEGEND = `ur|<tag> is an unerr signal in MCP response
   rsk  risk — caution on this code path. Covers blast radius (callers first), anti-pattern (don't reintroduce), prior failure history (read modes before retry). Body names the risk.
   fct  fact — information for context. Covers surfaced project facts (subtype in [brackets]), co-change hints, convention/procedural/semantic/episodic passthroughs. Body carries the fact.
   ur|  generic nudge (no tag).
+  cache-ref  ${CACHE_MARKER_LEGEND}
 
 Fix F — two-register pattern (Surface-Reliability, 2026-05-24): ur|<tag> is reserved for FACTS (ctx, rsk, fct) — information the agent should weigh. COMMANDS are emitted as bare imperatives starting with an RFC 2119 verb (CALL, RUN, READ, MUST, DO NOT, STEP-N), no \`ur|\` wrapper. New emission sites SHOULD use the bare-imperative form for commands; existing \`ur|act\` lines remain valid for backward compatibility (the agent treats both identically).`;
 
@@ -309,6 +311,7 @@ const MAX_SIGNAL_LINES = 2;
 const MAX_SIGNAL_BYTES = 240;
 
 import { getSignalDedup } from "./signal-dedup.js";
+import { orderTags } from "./prefix-order.js";
 
 export function buildSignalPrefix(
   meta: Record<string, unknown> | undefined,
@@ -316,24 +319,31 @@ export function buildSignalPrefix(
   entityKey: string | null = null
 ): string {
   const dedup = getSignalDedup();
-  const lines: string[] = [];
-  // In-block dedup on the final wire line. The session dedup keys on
-  // (tag, scopeKey), so the SAME body attached under two scope keys (e.g.
-  // a fact surfaced once entity-scoped and once global) passed shouldEmit
-  // twice and landed twice in ONE injection block. Identical wire lines in
-  // a single block are always noise — drop repeats regardless of scope.
-  const emittedWireLines = new Set<string>();
+  // Candidates are collected UNCAPPED in source-call order, then ordered by
+  // fixed priority bucket (orderTags) before the dedup + MAX_SIGNAL_LINES cap
+  // is applied (T2.3). Ordering before the cap means the highest-priority line
+  // (act → ctx → rsk → fct) survives the 2-line cap deterministically, so the
+  // same input emits the same two lines every turn — byte-stable for the
+  // provider prompt cache. The dedup side-effect (shouldEmit records emission)
+  // fires ONLY on lines that actually pass the cap, so dedup state never drifts.
+  interface SignalCandidate {
+    tag: string;
+    scopeKey: string | null;
+    body: string;
+    wireTag: string;
+    wireLine: string;
+  }
+  const candidates: SignalCandidate[] = [];
 
   function tryPush(tag: string, scopeKey: string | null, body: string): void {
-    if (lines.length >= MAX_SIGNAL_LINES) return;
-    const wireLine = `ur|${toWireTag(tag)} ${body}`;
-    if (emittedWireLines.has(wireLine)) return;
-    // Dedup scope keeps the *semantic* tag so e.g. a hlt and a skl line on
-    // the same entity don't suppress each other after they collapse onto
-    // the same wire bucket. The wire output uses the aliased tag.
-    if (!dedup.shouldEmit(tag, scopeKey, body)) return;
-    emittedWireLines.add(wireLine);
-    lines.push(wireLine);
+    const wireTag = toWireTag(tag);
+    candidates.push({
+      tag,
+      scopeKey,
+      body,
+      wireTag,
+      wireLine: `ur|${wireTag} ${body}`,
+    });
   }
 
   if (meta?.circuit_breaker) {
@@ -509,7 +519,6 @@ export function buildSignalPrefix(
       entity?: string;
     }>;
     for (const s of signals) {
-      if (lines.length >= MAX_SIGNAL_LINES) break;
       if (!s.content) continue;
       const tag = signalTag(s.type);
       const action = s.action ? ` — ${s.action}` : "";
@@ -520,6 +529,33 @@ export function buildSignalPrefix(
   // Dropped: context.tool_adoption.hint — appeared on every call regardless of
   // whether tool was already adopted; the instruction-writer surfaces this at
   // session boot.
+
+  // T2.3: order all candidates by fixed priority bucket (act → ctx → rsk → fct)
+  // BEFORE dedup + cap, so the highest-priority lines survive the 2-line cap
+  // deterministically. orderTags keys on the WIRE tag (matches the 4-bucket
+  // legend) and breaks ties by body text — same input → same two lines, every
+  // turn. Dedup's recording side-effect runs only on lines that clear the cap.
+  const ordered = orderTags(
+    candidates.map((c) => ({ tag: c.wireTag, body: c.body, _src: c }))
+  );
+  const lines: string[] = [];
+  // In-block dedup on the final wire line. The session dedup keys on
+  // (tag, scopeKey), so the SAME body attached under two scope keys (e.g.
+  // a fact surfaced once entity-scoped and once global) passed shouldEmit
+  // twice and landed twice in ONE injection block. Identical wire lines in
+  // a single block are always noise — drop repeats regardless of scope.
+  const emittedWireLines = new Set<string>();
+  for (const o of ordered) {
+    if (lines.length >= MAX_SIGNAL_LINES) break;
+    const c = o._src;
+    if (emittedWireLines.has(c.wireLine)) continue;
+    // Dedup scope keeps the *semantic* tag so e.g. a hlt and a skl line on
+    // the same entity don't suppress each other after they collapse onto
+    // the same wire bucket. The wire output uses the aliased tag.
+    if (!dedup.shouldEmit(c.tag, c.scopeKey, c.body)) continue;
+    emittedWireLines.add(c.wireLine);
+    lines.push(c.wireLine);
+  }
 
   if (lines.length === 0) return "";
   let block = `${lines.join("\n")}\n\n`;

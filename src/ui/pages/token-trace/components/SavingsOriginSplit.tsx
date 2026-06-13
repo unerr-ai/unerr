@@ -38,6 +38,21 @@ interface HeadroomLite {
   };
 }
 
+/** Subset of /api/token-flow/reversibility the split needs — the §4 fields
+ *  (REVERSIBLE_COMPRESSION_PLAN.md) that attribute to "understanding your
+ *  code": re-request reuse (S1), graph-importance survivors (S3), and
+ *  query-relevance pruning (S7). Folded into the EXISTING primary tier as an
+ *  additive sub-line; the two-bucket split is unchanged. */
+interface ReversibilityLite {
+  data: {
+    rerequest_saved_tokens?: number;
+    cache_hits?: number;
+    cache_misses?: number;
+    dropped_low_importance?: number;
+    query_relevance_pruned?: number;
+  };
+}
+
 function InfoDot({ text }: { text: string }) {
   return (
     <span
@@ -202,6 +217,23 @@ export function SavingsOriginSplit({
       ? si.headroom_turns / si.total_tokens_saved
       : 0;
 
+  // TU.3 — reversibility / graph-importance / query-relevance attribution.
+  // Additive: read the §4 aggregates and fold them into the EXISTING
+  // "understanding your code" tier as a sub-line. No third bucket.
+  const reversibilityQ = useQuery({
+    queryKey: queryKey(["token-flow", "reversibility"]),
+    queryFn: () =>
+      fetchJson<ReversibilityLite>(url("/api/token-flow/reversibility")),
+    refetchInterval: 30_000,
+  });
+  const rev = reversibilityQ.data?.data;
+  const reuseTokens = rev?.rerequest_saved_tokens ?? 0;
+  const droppedLowImp = rev?.dropped_low_importance ?? 0;
+  const queryPruned = rev?.query_relevance_pruned ?? 0;
+  const cacheLookups = (rev?.cache_hits ?? 0) + (rev?.cache_misses ?? 0);
+  const cacheHitPct =
+    cacheLookups > 0 ? Math.round(((rev?.cache_hits ?? 0) / cacheLookups) * 100) : 0;
+
   const { intelligence, compression, total } =
     splitMechanismsByTier(byMechanism);
   const denom = total || totalSaved || 1;
@@ -253,6 +285,35 @@ export function SavingsOriginSplit({
           caption="trimming tool output — table-stakes for any token tool"
         />
       </div>
+
+      {/* TU.3 — reversibility + graph-importance + query-relevance sub-line.
+       *  These savings attribute to "understanding your code" (the graph chose
+       *  what to keep and offloaded the rest), so they render here under the
+       *  primary tier rather than as a third bucket. Shown only when at least
+       *  one signal is non-zero so a fresh install stays clean. */}
+      {(reuseTokens > 0 || droppedLowImp > 0 || queryPruned > 0) && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-violet-500/20 bg-violet-500/[0.04] px-3 py-2 text-[11px] t-tertiary">
+          <span className="font-medium text-violet-300">
+            understanding-side wins
+          </span>
+          {reuseTokens > 0 && (
+            <span className="font-mono tabular-nums">
+              {fmt(reuseTokens)} tok reused (slice pull-back, {cacheHitPct}% cache
+              hit)
+            </span>
+          )}
+          {droppedLowImp > 0 && (
+            <span className="font-mono tabular-nums">
+              {fmt(droppedLowImp)} low-centrality items dropped
+            </span>
+          )}
+          {queryPruned > 0 && (
+            <span className="font-mono tabular-nums">
+              {fmt(queryPruned)} chunks query-pruned
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="mt-4 border-t border-border-subtle pt-3">
         <p className="text-sm leading-snug t-secondary">

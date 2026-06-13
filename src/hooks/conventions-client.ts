@@ -18,6 +18,7 @@
 
 import { existsSync } from "node:fs";
 import { connect } from "node:net";
+import { orderConventions } from "../proxy/prefix-order.js";
 import { defaultProxySockPath } from "./blast-radius-client.js";
 
 /** Round-trip ceiling — a warm in-proxy Datalog query (<5ms); this budget
@@ -157,12 +158,25 @@ export function renderConventionsBlock(
   conventions: DetectedConvention[]
 ): string | null {
   if (conventions.length === 0) return null;
+  // T2.3 — adherence_rate still picks the top-N MEMBERSHIP (it re-computes on
+  // re-index, so it must not drive the emitted byte order). orderConventions
+  // then emits survivors in a stable key order (file path → name; conventions
+  // carry no path, so name is the stable key) so the conventions block — a
+  // "static-ish" prefix region — is byte-identical across turns and the
+  // provider prompt cache holds. Tie on adherence broken by name to keep the
+  // top-N membership itself deterministic.
   const top = [...conventions]
-    .sort((a, b) => b.adherence_rate - a.adherence_rate)
+    .sort((a, b) => {
+      if (b.adherence_rate !== a.adherence_rate) {
+        return b.adherence_rate - a.adherence_rate;
+      }
+      return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    })
     .slice(0, MAX_CONVENTIONS_RENDERED);
+  const ordered = orderConventions(top);
   const header =
     "unerr detected the conventions this project follows — match them when writing or editing code:";
-  const lines = top.map((c) => {
+  const lines = ordered.map((c) => {
     const pct = Math.round(c.adherence_rate * 100);
     const detail = c.description ? ` — ${c.description}` : "";
     return `  • [${c.kind}] ${c.name} (${pct}% adherence)${detail}`;

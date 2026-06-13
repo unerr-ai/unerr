@@ -11,7 +11,29 @@
  */
 
 import { join } from "node:path";
+import { estimateTokenCount } from "../intelligence/token-estimator.js";
 import { openMetricsStore } from "../tracking/metrics-store.js";
+
+/**
+ * Before/after token accounting for one compression event. The §4 metrics
+ * (REVERSIBLE_COMPRESSION_PLAN.md) need a single accounting path so the ratio
+ * is apples-to-apples: BOTH numbers come from the same token-estimator code
+ * path (o200k_base via estimateTokenCount). Every compressor that wants to
+ * record `original_tokens` / `delivered_tokens` / `mechanism` calls this once.
+ *
+ * @sem domain=metrics role=accounting
+ */
+export function accountCompression(
+  original: string,
+  delivered: string,
+  mechanism: string
+): { original_tokens: number; delivered_tokens: number; mechanism: string } {
+  return {
+    original_tokens: estimateTokenCount(original),
+    delivered_tokens: estimateTokenCount(delivered),
+    mechanism,
+  };
+}
 
 export interface CompressionLogEntry {
   ts: string;
@@ -23,6 +45,41 @@ export interface CompressionLogEntry {
   savedPct: number;
   omniFallback: boolean;
   teeFile?: string;
+  /**
+   * §4 reversible-compression fields (REVERSIBLE_COMPRESSION_PLAN.md). All
+   * OPTIONAL — a compressor that does not run reversible/importance/query-aware
+   * logic omits them and the row keeps its existing shape (the columns default
+   * to null / `event_kind:'compress'`). Carried through to `insertCompression`.
+   */
+  reversible?: ReversibleCompressionFields;
+}
+
+/**
+ * The subset of `compression_events` §4 columns a compress site can populate.
+ * Every field is optional; a missing field is coalesced to its column default
+ * by `insertCompression` (null, or `'compress'` for `event_kind`). This is the
+ * single accounting path the §4 metrics design references so the dashboard and
+ * the `unerr »` line read one consistent source.
+ */
+export interface ReversibleCompressionFields {
+  /** Per-event before/after token count + which compressor (T0.2). */
+  original_tokens?: number;
+  delivered_tokens?: number;
+  mechanism?: string;
+  /** Did the must-survive fact survive (S0/S4); null/undefined when unprobed. */
+  fidelity_pass?: boolean;
+  /** `compress` (default) | `retrieve` | `recompute` (S1). */
+  event_kind?: "compress" | "retrieve" | "recompute";
+  /** Content hash of the cached original when S1 cached one. */
+  cache_ref?: string;
+  /** Did this truncation order survivors by graph importance (S3). */
+  survivors_by_importance?: boolean;
+  /** How many low-`fan_in` items the importance ordering dropped (S3). */
+  dropped_low_importance?: number;
+  /** Which signal ordered survivors (S7): `query` | `importance` | `positional`. */
+  ranking_key?: "query" | "importance" | "positional";
+  /** How many chunks query relevance pruned beyond the budget floor (S7). */
+  query_relevance_pruned?: number;
 }
 
 export interface FileReadLogEntry {
@@ -47,6 +104,19 @@ export function appendCompressionLog(
 ): void {
   try {
     const store = openMetricsStore(join(cwd, ".unerr"));
+    const rev = entry.reversible;
+    // Sprint S8 — running transcript-footprint estimate. Each compress event
+    // adds the tokens it actually put on the wire (`delivered_tokens`, or the
+    // compressed-byte estimate when the compressor did not supply a token
+    // count) to the prior cumulative. A `retrieve`/`recompute` row is the
+    // offload PATH, not new transcript bulk, so it does not advance the
+    // footprint (cache-retrieve.ts writes those rows and leaves the column
+    // null). This is the source-side number S8 reports — unerr cannot rewrite
+    // the transcript, but it can measure what it contributes to it.
+    const deliveredTokens =
+      rev?.delivered_tokens ?? Math.round(entry.compressedBytes / 4);
+    const transcriptFootprint =
+      store.transcriptFootprintLatest() + Math.max(0, deliveredTokens);
     store.insertCompression({
       ts: parseTs(entry.ts),
       ts_iso: entry.ts,
@@ -58,6 +128,35 @@ export function appendCompressionLog(
       saved_pct: entry.savedPct,
       omni_fallback: entry.omniFallback ? 1 : 0,
       tee_file: entry.teeFile ?? null,
+      // §4 fields — only set when the compressor supplied them; omitted ones
+      // coalesce to their column defaults in insertCompression (boolean → 0/1,
+      // event_kind → 'compress'). Never replaces an existing column.
+      ...(rev?.original_tokens !== undefined
+        ? { original_tokens: rev.original_tokens }
+        : {}),
+      ...(rev?.delivered_tokens !== undefined
+        ? { delivered_tokens: rev.delivered_tokens }
+        : {}),
+      ...(rev?.mechanism !== undefined ? { mechanism: rev.mechanism } : {}),
+      ...(rev?.fidelity_pass !== undefined
+        ? { fidelity_pass: rev.fidelity_pass ? 1 : 0 }
+        : {}),
+      ...(rev?.event_kind !== undefined ? { event_kind: rev.event_kind } : {}),
+      ...(rev?.cache_ref !== undefined ? { cache_ref: rev.cache_ref } : {}),
+      ...(rev?.survivors_by_importance !== undefined
+        ? { survivors_by_importance: rev.survivors_by_importance ? 1 : 0 }
+        : {}),
+      ...(rev?.dropped_low_importance !== undefined
+        ? { dropped_low_importance: rev.dropped_low_importance }
+        : {}),
+      ...(rev?.ranking_key !== undefined
+        ? { ranking_key: rev.ranking_key }
+        : {}),
+      ...(rev?.query_relevance_pruned !== undefined
+        ? { query_relevance_pruned: rev.query_relevance_pruned }
+        : {}),
+      // S8 — running cumulative footprint stamped on every compress row.
+      transcript_footprint_tokens: transcriptFootprint,
     });
   } catch {
     /* best effort */

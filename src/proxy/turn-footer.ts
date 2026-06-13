@@ -25,10 +25,12 @@
  * See: .internal/PERCEPTION_TO_PRESENCE.md §9.3, §12 Sprint 3.
  */
 
+import { openMetricsStore } from "../tracking/metrics-store.js";
 import {
   type NamedEvent,
   countNamedEventsByType,
   getPhrasing,
+  latestPromptBoundaryTs,
   makeInCurrentTurn,
   readNamedEvents,
 } from "../tracking/named-events.js";
@@ -143,6 +145,13 @@ export interface HybridTurnLineInputs {
    *  session value instead of collapsing to a bare "1 thing" line. Empty
    *  string when the session has no nameable activity. */
   sessionHighlightsPhrase: string;
+  /** Sprint U TU.8 — of `turnTokensSaved`, how many tokens came from
+   *  reversibility re-request reuse (`event_kind:'retrieve'` slice pull-backs)
+   *  rather than raw compression. Drives the optional one-line mechanism
+   *  breakdown `(Xk compress · Yk reuse)`. Optional, defaults to 0 so existing
+   *  callers (and the turn-summary tests) stay valid; when 0 the line renders
+   *  exactly as before (no breakdown). */
+  turnRerequestSaved?: number;
 }
 
 /**
@@ -181,6 +190,7 @@ export function renderHybridTurnLine(inputs: HybridTurnLineInputs): string {
     sessionHeadroom,
     sessionTotalEvents,
     sessionHighlightsPhrase,
+    turnRerequestSaved = 0,
   } = inputs;
 
   if (
@@ -206,10 +216,24 @@ export function renderHybridTurnLine(inputs: HybridTurnLineInputs): string {
 
   // Productive turn — the per-turn delta is the headline; session tail follows.
   if (turnTokensSaved > 0) {
-    const turnHighlights = topHighlightsPhrase(turnEvents, 2);
     const exact = turnTokensSaved.toLocaleString("en-US");
-    const turnPart = turnHighlights
-      ? `this turn: +${exact} tokens (${turnHighlights})`
+
+    // Sprint U TU.8 — one-line mechanism breakdown. When part of this turn's
+    // savings came from reversibility reuse (a cached-slice pull-back instead
+    // of a full re-deliver), split the parenthetical into compress vs reuse so
+    // the user sees WHERE the tokens came from. The breakdown REPLACES the
+    // event-highlights parenthetical (one parenthetical only — stays one line);
+    // it renders only when BOTH a compress portion and a reuse portion are
+    // non-zero, so a pure-compression or pure-reuse turn keeps the original
+    // highlights framing. Numbers are concrete (no `:N` placeholders).
+    const compressPortion = turnTokensSaved - turnRerequestSaved;
+    const showBreakdown = turnRerequestSaved > 0 && compressPortion > 0;
+    const parenthetical = showBreakdown
+      ? `${formatTokenCount(compressPortion)} compress · ${formatTokenCount(turnRerequestSaved)} reuse`
+      : topHighlightsPhrase(turnEvents, 2);
+
+    const turnPart = parenthetical
+      ? `this turn: +${exact} tokens (${parenthetical})`
       : `this turn: +${exact} tokens`;
     const sessionPart =
       sessionTail.length > 0 ? `session: ${sessionTail.join(", ")}` : "";
@@ -287,6 +311,31 @@ export function renderSessionEconomyLineLive(
       }
     }
 
+    // Sprint U TU.7/TU.9 — fold reversibility re-request savings into the same
+    // line. A slice-retrieval (`event_kind:'retrieve'`) records its win on the
+    // compression_events stream, NOT token_flow_events, so the loop above never
+    // saw it. Add it as an extra summand (additive — never drops the shell/file/
+    // wire savings already summed). compression_events carry no session_id, but
+    // the metrics store is per-repo and we slice the turn by the same prompt-
+    // boundary timestamp the line already uses; the store query is fidelity-
+    // honest (excludes fidelity_pass = 0 rows, TU.9).
+    const boundaryTs = latestPromptBoundaryTs(allEvents);
+    let turnRerequestSaved = 0;
+    let sessionRerequestSaved = 0;
+    try {
+      const store = openMetricsStore(unerrDir);
+      sessionRerequestSaved = store.reversibleSavedTotal();
+      // Only attributable to THIS turn when a prompt boundary exists; without
+      // one (pre-hook session) we cannot bound the slice, so we leave the
+      // per-turn reversibility add at 0 rather than over-counting.
+      turnRerequestSaved =
+        boundaryTs !== null ? store.reversibleSavedSince(boundaryTs) : 0;
+    } catch {
+      /* best-effort — a metrics read failure never breaks the summary line */
+    }
+    turnTokensSaved += turnRerequestSaved;
+    const sessionTokensSaved = totalTokensSaved + sessionRerequestSaved;
+
     // Session activity phrase for the quiet-turn framing. Exclude
     // `user_prompt_received` — it's a turn-boundary marker, not unerr value,
     // and naming "N prompts" reads as noise next to "recalled notes" /
@@ -299,10 +348,11 @@ export function renderSessionEconomyLineLive(
     const line = renderHybridTurnLine({
       turnTokensSaved,
       turnEvents,
-      sessionTokensSaved: totalTokensSaved,
+      sessionTokensSaved,
       sessionHeadroom: headroomCompounded,
       sessionTotalEvents: allEvents.length,
       sessionHighlightsPhrase,
+      turnRerequestSaved,
     });
 
     const mkHighlights = (counts: Record<string, number>) =>
@@ -320,7 +370,9 @@ export function renderSessionEconomyLineLive(
     return {
       line,
       total_events: allEvents.length,
-      total_tokens_saved: totalTokensSaved,
+      // Augmented with session reversibility savings (TU.7) so the Stop report
+      // and any downstream consumer reflect re-request wins in the cumulative.
+      total_tokens_saved: sessionTokensSaved,
       headroom_compounded: headroomCompounded,
       current_turn: currentTurn,
       turn_events: turnEvents.length,

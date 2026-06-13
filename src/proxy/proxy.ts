@@ -2282,11 +2282,42 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         }
       }
       if (parsed) {
-        const { body: cappedBody, pageHint } = applyWireCapFact(
-          name,
-          parsed,
-          args
-        );
+        const {
+          body: cappedBody,
+          pageHint,
+          metrics: factCapMetrics,
+        } = applyWireCapFact(name, parsed, args);
+        // §4: record the wire-cap event (reversible too_large cache, ordering)
+        // on the existing compression_events stream. Best-effort.
+        if (factCapMetrics) {
+          try {
+            const { appendCompressionLog } = await import(
+              "./shell-compression-log.js"
+            );
+            appendCompressionLog(process.cwd(), {
+              ts: new Date().toISOString(),
+              command: name,
+              category: "wire_cap",
+              confidence: 1,
+              rawBytes: factCapMetrics.original_tokens ?? 0,
+              compressedBytes: factCapMetrics.delivered_tokens ?? 0,
+              savedPct:
+                factCapMetrics.original_tokens &&
+                factCapMetrics.original_tokens > 0
+                  ? Math.max(
+                      0,
+                      1 -
+                        (factCapMetrics.delivered_tokens ?? 0) /
+                          factCapMetrics.original_tokens
+                    )
+                  : 0,
+              omniFallback: false,
+              reversible: factCapMetrics,
+            });
+          } catch {
+            /* best effort — metrics never block the wire */
+          }
+        }
         const pageBlock = pageHint ? `${pageHint}\n\n` : "";
         // Forward isError so error responses from the fact handler reach
         // the agent as failed tool calls, not as opaque JSON bodies.

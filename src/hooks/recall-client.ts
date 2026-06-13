@@ -19,6 +19,7 @@
 
 import { existsSync } from "node:fs";
 import { connect } from "node:net";
+import { orderNotes } from "../proxy/prefix-order.js";
 import { defaultProxySockPath } from "./blast-radius-client.js";
 
 /** Round-trip ceiling. Recall is a warm in-proxy query (<5ms); this budget
@@ -147,11 +148,17 @@ export function parseRecallReply(line: string): RecalledNote[] | null {
  */
 export function renderRecallBlock(notes: RecalledNote[]): string | null {
   if (notes.length === 0) return null;
+  // T2.3 — the SET of notes is per-prompt (legitimately dynamic), but for a
+  // given set the byte order must be stable so the injected block doesn't bust
+  // the provider prompt cache turn to turn. The proxy/UDS reply order has no
+  // stability guarantee; orderNotes imposes a total order (anchor → kind →
+  // content) so identical recalled sets serialize identically.
+  const ordered = orderNotes(notes);
   const header =
-    notes.length === 1
+    ordered.length === 1
       ? "unerr recalled 1 note anchored to what you're about to touch — apply it before editing:"
-      : `unerr recalled ${notes.length} notes anchored to what you're about to touch — apply them before editing:`;
-  const lines = notes.map(
+      : `unerr recalled ${ordered.length} notes anchored to what you're about to touch — apply them before editing:`;
+  const lines = ordered.map(
     (n) => `  • [${n.kind} ${n.anchor} ${n.polarity}] ${n.content}`
   );
   return `${header}\n${lines.join("\n")}`;

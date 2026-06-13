@@ -101,15 +101,33 @@ describe("renderConventionsBlock", () => {
     expect(block!).toContain("camelCase");
   });
 
-  it("sorts by adherence descending and caps at MAX_CONVENTIONS_RENDERED", () => {
+  it("picks top-N MEMBERSHIP by adherence but emits in stable name order (T2.3)", () => {
     const many = Array.from({ length: MAX_CONVENTIONS_RENDERED + 4 }, (_, i) =>
       mk(`conv${i}`, i / 100)
     );
     const block = renderConventionsBlock(many)!;
     const bulletLines = block.split("\n").filter((l) => l.trim().startsWith("•"));
     expect(bulletLines).toHaveLength(MAX_CONVENTIONS_RENDERED);
-    // Highest adherence (the last-indexed) must appear first.
-    expect(bulletLines[0]).toContain(`conv${many.length - 1}`);
+    // Membership is the highest-adherence top-N (conv4..conv9 here); the
+    // lowest-adherence ones (conv0..conv3) are excluded.
+    expect(block).toContain("conv9");
+    expect(block).not.toContain("conv0 ");
+    // The EMITTED order is by name (a stable key independent of the drifting
+    // adherence float), so the first bullet is the alphabetically-first
+    // survivor — not the highest adherence. This is what keeps the conventions
+    // prefix block byte-stable across turns.
+    expect(bulletLines[0]).toContain("conv4");
+    const names = bulletLines.map(
+      (l) => l.match(/conv\d+/)?.[0] ?? ""
+    );
+    expect(names).toEqual([...names].sort());
+  });
+
+  it("is byte-stable across two calls for the same input (T2.3)", () => {
+    const convs = [mk("zeta", 0.9), mk("alpha", 0.9), mk("mid", 0.9)];
+    const a = renderConventionsBlock(convs);
+    const b = renderConventionsBlock([...convs].reverse());
+    expect(a).toBe(b);
   });
 });
 

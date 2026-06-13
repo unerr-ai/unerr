@@ -22,6 +22,7 @@
  * unit-testable in isolation.
  */
 
+import { byImportanceDesc } from "./importance.js";
 import {
   DEFAULT_MCP_SOURCE_TIMEOUT_MS,
   type GatewayRunner,
@@ -397,11 +398,47 @@ export function shrinkToBudget(
       // Can't split further (length 1) — drop it entirely as a last resort.
       longest.arr.length = 0;
     } else {
+      // T3.3: when the longest array holds graph entities, reorder it
+      // highest-importance-first IN PLACE before dropping the tail, so the
+      // survivors are the load-bearing hubs rather than a positional head.
+      // Non-entity arrays keep their order (orderByImportanceInPlace no-ops).
+      orderByImportanceInPlace(longest.arr);
       longest.arr.length = keep;
     }
     shrunk = true;
   }
   return { data: clone, shrunk };
+}
+
+/**
+ * If `arr`'s elements carry graph-importance columns (`fan_in` / `fan_out` /
+ * `risk_level`), reorder them highest-importance-first in place so a following
+ * tail-drop keeps the hubs (T3.3). No-op when no element has those columns, so
+ * arbitrary arrays (strings, conventions) keep their existing order.
+ * Deterministic — ties break on the entity key.
+ */
+function orderByImportanceInPlace(arr: unknown[]): void {
+  const hasSignal = arr.some((el) => {
+    if (typeof el !== "object" || el === null) return false;
+    const o = el as Record<string, unknown>;
+    return (
+      typeof o.fan_in === "number" ||
+      typeof o.fan_out === "number" ||
+      typeof o.risk_level === "string"
+    );
+  });
+  if (!hasSignal) return;
+  const ordered = byImportanceDesc(arr, (el) => {
+    if (typeof el !== "object" || el === null) return {};
+    const o = el as Record<string, unknown>;
+    return {
+      fan_in: typeof o.fan_in === "number" ? o.fan_in : undefined,
+      fan_out: typeof o.fan_out === "number" ? o.fan_out : undefined,
+      risk_level: typeof o.risk_level === "string" ? o.risk_level : undefined,
+      key: typeof o.key === "string" ? o.key : undefined,
+    };
+  });
+  for (let i = 0; i < ordered.length; i++) arr[i] = ordered[i];
 }
 
 /** Find the array with the most elements anywhere in a structured value. */

@@ -21,6 +21,10 @@ import type {
 } from "../proxy/compression-quality-monitor.js";
 import type { ContextRotDetector } from "../proxy/context-rot-detector.js";
 import type { EfficiencyTracker } from "../proxy/efficiency-tracker.js";
+import {
+  recordCacheRetrieve,
+  resolveCacheRef,
+} from "../proxy/cache-retrieve.js";
 import { formatToolOutput } from "../proxy/format-encoder.js";
 import {
   type EntityRiskInfo,
@@ -55,6 +59,7 @@ import {
 } from "./semantic/annotation-indexer.js";
 import { SessionContext } from "./session-context.js";
 import type { createSessionHealthMonitor } from "./session-health-monitor.js";
+import { getSharedReversibleCache } from "../proxy/shared-cache.js";
 import { smartTruncate, truncateResultList } from "./smart-truncate.js";
 import { estimateTokens } from "./token-estimator.js";
 
@@ -139,6 +144,13 @@ const LOCAL_TOOLS = new Set([
   // P3: on-demand review (Surface C)
   "review_changes",
 ]);
+
+/**
+ * Pagination-capable tools that accept an optional `cache_ref` to pull a
+ * withheld slice back from the reversible cache (T1.5). fetch_url is handled in
+ * its own Tool.execute (it does not route through executeLocal).
+ */
+const CACHE_REF_TOOLS = new Set(["search_code", "get_references", "file_read"]);
 
 export interface EntityRiskMeta {
   fan_in: number;
@@ -1488,15 +1500,46 @@ export class QueryRouter {
       const { applyWireCap: applyCapEarly } = await import(
         "../proxy/wire-cap.js"
       );
-      const { body: cappedContent, pageHint: cappedHint } = applyCapEarly(
-        toolName,
-        cleanedContent,
-        args
-      );
+      const {
+        body: cappedContent,
+        pageHint: cappedHint,
+        metrics: capMetrics,
+      } = applyCapEarly(toolName, cleanedContent, args);
       if (cappedHint) {
         // _unerr_page_hint is an internal-only field — wire boundaries
         // consume it (prepend to body) and never serialize it on the wire.
         (meta as Record<string, unknown>)._unerr_page_hint = cappedHint;
+      }
+      // §4: record the wire-cap event's reversible/importance/query fields on
+      // the existing compression_events stream (no new event type). Best-effort
+      // — a recording failure never affects the response.
+      if (capMetrics) {
+        try {
+          const { appendCompressionLog } = await import(
+            "../proxy/shell-compression-log.js"
+          );
+          appendCompressionLog(this.projectRoot ?? process.cwd(), {
+            ts: new Date().toISOString(),
+            command: toolName,
+            category: "wire_cap",
+            confidence: 1,
+            rawBytes: capMetrics.original_tokens ?? 0,
+            compressedBytes: capMetrics.delivered_tokens ?? 0,
+            savedPct:
+              capMetrics.original_tokens && capMetrics.original_tokens > 0
+                ? Math.max(
+                    0,
+                    1 -
+                      (capMetrics.delivered_tokens ?? 0) /
+                        capMetrics.original_tokens
+                  )
+                : 0,
+            omniFallback: false,
+            reversible: capMetrics,
+          });
+        } catch {
+          /* best effort — metrics never block the wire */
+        }
       }
 
       // Layer 6 FE-C / FE-E: columnar wire encoding (after compression, before envelope)
@@ -2833,6 +2876,13 @@ export class QueryRouter {
           signatures: entity.signature ?? "",
           bodies: entity.body ?? "",
           budget,
+          // T1.4: cache the full entity body so a follow-up read pulls back only
+          // the withheld window via cache_ref. Keyed on the file path so a
+          // changed file forces a miss → recompute (staleness guard).
+          cacheOriginal: (full) =>
+            getSharedReversibleCache().put(full, {
+              file: entity.file_path,
+            }),
         });
 
         meta.truncated = truncated.truncated;
@@ -2840,6 +2890,45 @@ export class QueryRouter {
         meta.tokens_used = truncated.tokens_used;
         meta.tokens_budget = truncated.tokens_budget;
         meta.full_tokens_estimate = truncated.full_tokens_estimate;
+
+        // §4: record the smart-truncation event on compression_events with its
+        // reversible cache_ref so the dashboard pairs it to a later retrieve.
+        if (truncated.truncated) {
+          try {
+            const { appendCompressionLog } = await import(
+              "../proxy/shell-compression-log.js"
+            );
+            appendCompressionLog(this.projectRoot ?? process.cwd(), {
+              ts: new Date().toISOString(),
+              command: toolName,
+              category: "smart_truncation",
+              confidence: 1,
+              rawBytes: truncated.full_tokens_estimate,
+              compressedBytes: truncated.tokens_used,
+              savedPct:
+                truncated.full_tokens_estimate > 0
+                  ? Math.max(
+                      0,
+                      1 -
+                        truncated.tokens_used /
+                          truncated.full_tokens_estimate
+                    )
+                  : 0,
+              omniFallback: false,
+              reversible: {
+                event_kind: "compress",
+                mechanism: "smart_truncation",
+                original_tokens: truncated.full_tokens_estimate,
+                delivered_tokens: truncated.tokens_used,
+                ...(truncated.cache_ref
+                  ? { cache_ref: truncated.cache_ref }
+                  : {}),
+              },
+            });
+          } catch {
+            /* best effort — metrics never block the wire */
+          }
+        }
 
         // Layer 10: Record smart truncation savings
         if (truncated.truncated && this.tokenFlow) {
@@ -3135,6 +3224,30 @@ export class QueryRouter {
     toolName: string,
     args: Record<string, unknown>
   ): Promise<unknown> {
+    // T1.5/T1.6 — reversible-cache retrieve side. When a pagination-capable
+    // tool (search_code, get_references, file_read) is handed a `cache_ref`,
+    // resolve the withheld slice from the shared in-process cache in O(slice)
+    // instead of recomputing the whole payload. A live entry is a hit (return
+    // the slice, record the re-request savings); an evicted/unknown hash is a
+    // miss (record it, then fall through to the normal recompute path below).
+    // Additive: with no `cache_ref` arg this block is skipped entirely.
+    const cacheRef = typeof args.cache_ref === "string" ? args.cache_ref : null;
+    if (cacheRef && CACHE_REF_TOOLS.has(toolName)) {
+      const cwd = this.projectRoot ?? process.cwd();
+      const hit = resolveCacheRef(cacheRef, args.offset, args.limit);
+      recordCacheRetrieve(cwd, toolName, cacheRef, hit);
+      if (hit) {
+        return {
+          cache_ref: hit.cache_ref,
+          offset: hit.offset,
+          limit: hit.limit,
+          slice: hit.slice,
+          cache_hit: true,
+          rerequest_saved_tokens: hit.rerequest_saved_tokens,
+        };
+      }
+      // Miss → fall through; the normal handler recomputes (fidelity unchanged).
+    }
     switch (toolName) {
       case "get_file": {
         // Per tool description: "Get all entities in a file." Returns the

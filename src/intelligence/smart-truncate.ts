@@ -29,6 +29,14 @@ export interface TruncationResult {
   truncated: boolean;
   truncation_level: TruncationLevel;
   full_tokens_estimate: number;
+  /**
+   * §4 reversible-compression: content hash of the cached full original when a
+   * `cacheOriginal` callback was supplied AND truncation dropped content (T1.4).
+   * Undefined when nothing was dropped or no cache was wired. The caller records
+   * it on the compression_events row and the retrieve side resolves a slice
+   * against it instead of re-requesting the whole entity at a larger budget.
+   */
+  cache_ref?: string;
 }
 
 export interface TruncationInput {
@@ -37,6 +45,15 @@ export interface TruncationInput {
   signatures: string;
   bodies: string;
   budget: number;
+  /**
+   * Optional reversible-cache hook (T1.4). When supplied AND the entity is
+   * truncated, `smartTruncate` calls it with the FULL pre-truncation content
+   * and folds the returned hash into the marker + `cache_ref`, so a follow-up
+   * read pulls back only the withheld window. Kept as a callback (not a direct
+   * `getSharedReversibleCache` import) so the function stays pure and the cache
+   * lifecycle is owned by the caller — also keeps unit tests cache-free.
+   */
+  cacheOriginal?: (fullContent: string) => string;
 }
 
 const CHARS_PER_TOKEN = 4;
@@ -132,7 +149,21 @@ export function smartTruncate(input: TruncationInput): TruncationResult {
     }
   }
 
+  let cacheRef: string | undefined;
   if (level !== "full") {
+    // T1.4: cache the FULL original so the agent can pull back only the
+    // withheld window via a cache_ref read, instead of re-requesting the whole
+    // entity at a larger token_budget. Best-effort — a cache failure or absent
+    // callback just leaves the existing token_budget marker unchanged.
+    if (input.cacheOriginal) {
+      try {
+        const ref = input.cacheOriginal(fullContent);
+        if (ref) cacheRef = ref;
+      } catch {
+        /* best effort — never block truncation on a cache failure */
+      }
+    }
+
     const totalBodyLines = input.bodies ? input.bodies.split("\n").length : 0;
     const includedBodyLines =
       level === "signatures_and_bodies" || level === "signatures_only"
@@ -140,10 +171,16 @@ export function smartTruncate(input: TruncationInput): TruncationResult {
         : 0;
     const omittedLines = totalBodyLines - includedBodyLines;
 
+    // Cache-ref retrieval is the cheaper next-action than a full re-request, so
+    // surface it alongside the existing token_budget marker (kept for the cache
+    // -miss fallback path). Concrete numbers, named tool — nudge-rule-compliant.
+    const cacheTail = cacheRef
+      ? ` Or retrieve the withheld slice via file_read({cache_ref:'${cacheRef}', offset:0, limit:2000}).`
+      : "";
     if (omittedLines > 0) {
-      result += `\n\n// ... ${omittedLines} lines omitted. Request with token_budget: ${fullTokens} for full content.`;
+      result += `\n\n// ... ${omittedLines} lines omitted. Request with token_budget: ${fullTokens} for full content.${cacheTail}`;
     } else {
-      result += `\n\n// ... truncated. Request with token_budget: ${fullTokens} for full content.`;
+      result += `\n\n// ... truncated. Request with token_budget: ${fullTokens} for full content.${cacheTail}`;
     }
   }
 
@@ -154,6 +191,7 @@ export function smartTruncate(input: TruncationInput): TruncationResult {
     truncated: level !== "full",
     truncation_level: level,
     full_tokens_estimate: fullTokens,
+    ...(cacheRef ? { cache_ref: cacheRef } : {}),
   };
 }
 

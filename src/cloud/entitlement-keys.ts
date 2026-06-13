@@ -14,8 +14,8 @@
  * every key we have ever published pinned here (old + new), so an old CLI
  * keeps verifying old tokens until the user updates. To add a production key:
  *
- *   1. On the server, run `node scripts/generate-entitlement-key.mjs <kid>`
- *      (unerr-web-service). It prints the public key + its kid.
+ *   1. On the server, run `node scripts/generate-secrets.mjs entitlement <kid>`
+ *      (unerr-web-service). It prints the private key (env) + public key + kid.
  *   2. Paste the public key below under its kid. Never remove an old kid.
  *   3. Release the CLI. Once it has spread, the server switches to the new
  *      private key.
@@ -32,6 +32,10 @@
  * The override is ADDED to the pinned set (it does not replace it), so a CLI
  * with the override can still verify production tokens too. The override is
  * the ONLY way to trust a non-shipped key — there is no other escape hatch.
+ *
+ * To test any paid tier locally with no server at all, run
+ * `pnpm dev:entitlement mint <plan>` (scripts/dev-entitlement.mjs): it mints a
+ * token for the plan, writes the cache, and prints the two env vars above.
  */
 
 /**
