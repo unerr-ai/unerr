@@ -103,7 +103,7 @@ export function createRouterApiV2(deps: RouterApiV2Deps): Hono {
 
   app.get("/intent/:turn", (c) => {
     const turn = Number.parseInt(c.req.param("turn"), 10);
-    if (isNaN(turn)) {
+    if (Number.isNaN(turn)) {
       return c.json({ error: "Invalid turn number" }, 400);
     }
 

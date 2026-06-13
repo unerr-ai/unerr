@@ -115,12 +115,14 @@ describe("op-union selection — mapping corpus (the spot-eval record)", () => {
       tool: "mark_intent",
     },
     {
-      scenario: "chose UDS over a control tool because the bridge owns no state",
+      scenario:
+        "chose UDS over a control tool because the bridge owns no state",
       op: "decision",
       tool: "mark_decision",
     },
     {
-      scenario: "stuck — the second concurrent MCP session hangs on waitForReady",
+      scenario:
+        "stuck — the second concurrent MCP session hangs on waitForReady",
       op: "blocker",
       tool: "mark_blocker",
     },
@@ -130,7 +132,8 @@ describe("op-union selection — mapping corpus (the spot-eval record)", () => {
       tool: "mark_resolution",
     },
     {
-      scenario: "this project routes all CozoDB access through await — never sync",
+      scenario:
+        "this project routes all CozoDB access through await — never sync",
       op: "fact",
       tool: "record_fact",
     },

@@ -239,7 +239,9 @@ describe("tool-definitions: outbound MCP composition", () => {
     const locked = renderToolDefinition("unerr_track", "locked");
     expect(locked.description).toBe(getDescription("unerr_track", "locked"));
     const unlocked = renderToolDefinition("unerr_track", "unlocked");
-    expect(unlocked.description).toBe(getDescription("unerr_track", "unlocked"));
+    expect(unlocked.description).toBe(
+      getDescription("unerr_track", "unlocked")
+    );
   });
 
   it("renderToolDefinition throws for unknown tool", () => {

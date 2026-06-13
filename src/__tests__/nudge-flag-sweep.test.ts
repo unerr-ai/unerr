@@ -41,7 +41,8 @@ describe("sweepNudgeFlags", () => {
 
   afterEach(() => {
     rmSync(cwd, { recursive: true, force: true });
-    if (prevSession === undefined) delete process.env.UNERR_SESSION_ID;
+    if (prevSession === undefined)
+      Reflect.deleteProperty(process.env, "UNERR_SESSION_ID");
     else process.env.UNERR_SESSION_ID = prevSession;
   });
 

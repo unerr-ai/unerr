@@ -44,7 +44,11 @@ describe("formatStopReport — branding + plain English", () => {
       sessionTokensSaved: 25_000,
       sessionHeadroom: 3,
       turnHighlights: [
-        { event_type: "shell_compressed", count: 12, phrasing: "trimmed shell outputs" },
+        {
+          event_type: "shell_compressed",
+          count: 12,
+          phrasing: "trimmed shell outputs",
+        },
         { event_type: "review_finding", count: 6, phrasing: "review findings" },
       ],
     });
@@ -72,7 +76,11 @@ describe("formatStopReport — branding + plain English", () => {
       sessionTokensSaved: 25_000,
       sessionHighlights: [
         { event_type: "graph_lookup", count: 12, phrasing: "code lookups" },
-        { event_type: "compact_read", count: 8, phrasing: "compact file reads" },
+        {
+          event_type: "compact_read",
+          count: 8,
+          phrasing: "compact file reads",
+        },
         { event_type: "fact_recalled", count: 4, phrasing: "remembered notes" },
       ],
     });
@@ -112,11 +120,19 @@ describe("formatStopReport — branding + plain English", () => {
       count: 10 - i,
       phrasing: `thing${i}`,
     }));
-    const turn = formatStopReport({ ...NONE, turnTokensSaved: 5, turnHighlights: many });
+    const turn = formatStopReport({
+      ...NONE,
+      turnTokensSaved: 5,
+      turnHighlights: many,
+    });
     expect(turn).toContain("(10 thing0, 9 thing1)");
     expect(turn).not.toContain("thing2");
 
-    const quiet = formatStopReport({ ...NONE, sessionTokensSaved: 5, sessionHighlights: many });
+    const quiet = formatStopReport({
+      ...NONE,
+      sessionTokensSaved: 5,
+      sessionHighlights: many,
+    });
     expect(quiet).toContain("thing0, 9 thing1, 8 thing2 so far");
     expect(quiet).not.toContain("thing3");
   });

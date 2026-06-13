@@ -843,7 +843,7 @@ function upgradeToHttps(url: string): string {
   } catch {
     return url;
   }
-  return "https://" + url.slice(7);
+  return `https://${url.slice(7)}`;
 }
 
 interface FetchedHtml {

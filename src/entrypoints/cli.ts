@@ -146,9 +146,7 @@ function assertSafeRepoCwd(cwd: string): void {
   const where =
     verdict === "home" ? "your home directory" : "the filesystem root";
   process.stderr.write(
-    `\n  unerr runs per project — it can't run in ${where} (${cwd}).\n` +
-      "  A .unerr/ here would collide with unerr's global state in ~/.unerr.\n" +
-      "  cd into a project directory and run unerr again.\n\n"
+    `\n  unerr runs per project — it can't run in ${where} (${cwd}).\n  A .unerr/ here would collide with unerr's global state in ~/.unerr.\n  cd into a project directory and run unerr again.\n\n`
   );
   process.exit(1);
 }

@@ -27,7 +27,8 @@ export interface SemVer {
  */
 export type ReleaseKind = "none" | "patch" | "minor" | "major";
 
-const SEMVER_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+const SEMVER_RE =
+  /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
 
 /** Parse a version string, or null when it isn't a clean semver. */
 export function parseSemver(version: string): SemVer | null {

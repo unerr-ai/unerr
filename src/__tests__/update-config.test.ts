@@ -21,20 +21,20 @@ describe("updatePolicy — precedence", () => {
 
   it("keeps an explicit off off — never weakened by a pin", () => {
     expect(updatePolicy({ configMode: "off" })).toBe("off");
-    expect(
-      updatePolicy({ configMode: "off", serverChannel: "pinned" })
-    ).toBe("off");
+    expect(updatePolicy({ configMode: "off", serverChannel: "pinned" })).toBe(
+      "off"
+    );
   });
 
   it("an enterprise pinned channel caps auto down to notify", () => {
-    expect(
-      updatePolicy({ configMode: "auto", serverChannel: "pinned" })
-    ).toBe("notify");
+    expect(updatePolicy({ configMode: "auto", serverChannel: "pinned" })).toBe(
+      "notify"
+    );
   });
 
   it("a stable channel does not cap auto", () => {
-    expect(
-      updatePolicy({ configMode: "auto", serverChannel: "stable" })
-    ).toBe("auto");
+    expect(updatePolicy({ configMode: "auto", serverChannel: "stable" })).toBe(
+      "auto"
+    );
   });
 });

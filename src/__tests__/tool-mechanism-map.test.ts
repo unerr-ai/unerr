@@ -16,6 +16,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { TIER_ENTRIES } from "../proxy/tool-descriptions.js";
 import {
   TOOL_MECHANISM,
   fallbackMcpCatalog,
@@ -23,7 +24,6 @@ import {
   mechanismOf,
   toolsByMechanism,
 } from "../proxy/tool-mechanism-map.js";
-import { TIER_ENTRIES } from "../proxy/tool-descriptions.js";
 import { UNERR_TOOL_TO_FAMILY } from "../router/unerr-families.js";
 
 describe("tool-mechanism-map — partition over TIER_ENTRIES", () => {
@@ -86,7 +86,10 @@ describe("tool-mechanism-map — merged tools fold into a survivor", () => {
   it("every merged tool folds into a surviving target (mcp read or hook+fallback)", () => {
     for (const [name, entry] of Object.entries(TOOL_MECHANISM)) {
       if (entry.mechanism === "merged") {
-        expect(entry.mergedInto, `${name} must declare mergedInto`).toBeTruthy();
+        expect(
+          entry.mergedInto,
+          `${name} must declare mergedInto`
+        ).toBeTruthy();
         const target = entry.mergedInto!;
         const t = TOOL_MECHANISM[target];
         const survives =

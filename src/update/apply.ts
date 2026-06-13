@@ -27,7 +27,10 @@
  */
 
 import { UNERR_VERSION } from "../version.js";
-import { type CollisionResult, isPackageManagerBusy } from "./collision-guard.js";
+import {
+  type CollisionResult,
+  isPackageManagerBusy,
+} from "./collision-guard.js";
 import {
   type InstallClassification,
   classifyInstall,
@@ -104,7 +107,9 @@ function defaultHealthCheck(expected: string): Promise<boolean> {
         ["--version"],
         { timeout: 15_000, encoding: "utf-8" },
         (err, stdout) => {
-          resolve(!err && typeof stdout === "string" && stdout.includes(expected));
+          resolve(
+            !err && typeof stdout === "string" && stdout.includes(expected)
+          );
         }
       );
     });
@@ -142,7 +147,10 @@ export async function applyUpdate(deps: ApplyDeps = {}): Promise<ApplyOutcome> {
   // Gate 3 — install-manager confidence.
   const cls = deps.classification ?? classifyInstall();
   if (cls.mode !== "self_upgradable")
-    return { status: "skipped", reason: cls.reason ?? "install is notify-only" };
+    return {
+      status: "skipped",
+      reason: cls.reason ?? "install is notify-only",
+    };
 
   // Gate 4 — idempotency: don't re-install an already-applied or known-bad version.
   if (state.last_applied?.to === latest)
@@ -158,7 +166,10 @@ export async function applyUpdate(deps: ApplyDeps = {}): Promise<ApplyOutcome> {
 
   // Gate 5 — quiet window (no IDE connected).
   if (deps.isQuiet && !deps.isQuiet())
-    return { status: "skipped", reason: "an IDE session is active — deferring" };
+    return {
+      status: "skipped",
+      reason: "an IDE session is active — deferring",
+    };
 
   // Gate 6 — foreign package-manager collision.
   const busy = (deps.isBusy ?? (() => isPackageManagerBusy()))();
@@ -176,7 +187,10 @@ export async function applyUpdate(deps: ApplyDeps = {}): Promise<ApplyOutcome> {
   if (!install.ok) {
     // Nothing was swapped under us — drop the pending marker, stay on current.
     writeState({ pending_version: undefined });
-    return { status: "failed", reason: `install failed: ${brief(install.output)}` };
+    return {
+      status: "failed",
+      reason: `install failed: ${brief(install.output)}`,
+    };
   }
 
   // Health-check the freshly-installed binary before trusting it.
@@ -199,5 +213,10 @@ export async function applyUpdate(deps: ApplyDeps = {}): Promise<ApplyOutcome> {
     last_rollback: { from: good, to: latest, at },
     pending_version: undefined,
   });
-  return { status: "rolled_back", from: good, to: latest, restored: restore.ok };
+  return {
+    status: "rolled_back",
+    from: good,
+    to: latest,
+    restored: restore.ok,
+  };
 }

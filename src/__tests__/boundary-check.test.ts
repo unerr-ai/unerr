@@ -9,9 +9,9 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  computeBoundaryViolations,
   DEFAULT_BOUNDARY_CHECK_CONFIG,
   type LayerRule,
+  computeBoundaryViolations,
   parseImports,
   resolveImportPath,
 } from "../intelligence/boundary-check.js";
@@ -21,7 +21,7 @@ describe("parseImports", () => {
     const content = [
       `import { a } from "../svc/a.js";`,
       `import type { T } from "../svc/t.js";`,
-      `// @unerr-allow cross-community: shared bootstrap`,
+      "// @unerr-allow cross-community: shared bootstrap",
       `import { boot } from "../other/boot.js";`,
       `import { Server } from "@modelcontextprotocol/sdk/server/index.js";`,
     ].join("\n");
@@ -89,7 +89,7 @@ describe("computeBoundaryViolations", () => {
 
   it("skips imports carrying an @unerr-allow override", () => {
     const content = [
-      `// @unerr-allow cross-community: intentional bootstrap edge`,
+      "// @unerr-allow cross-community: intentional bootstrap edge",
       `import { store } from "../data/store.js";`,
     ].join("\n");
     expect(
@@ -144,9 +144,9 @@ describe("computeBoundaryViolations", () => {
     // bridge.ts importing a proxy sibling is fine — only intelligence/behaviors/
     // tracking are forbidden by DM-0.
     const content = `import { something } from "./bridge-catalog.js";`;
-    expect(
-      computeBoundaryViolations("src/proxy/bridge.ts", content)
-    ).toEqual([]);
+    expect(computeBoundaryViolations("src/proxy/bridge.ts", content)).toEqual(
+      []
+    );
   });
 
   it("returns [] for empty content", () => {

@@ -210,13 +210,21 @@ describe.skipIf(!hasData)("token-flow API routes", () => {
 
   describe("GET /events", () => {
     it("filters by session_id and turn", async () => {
-      const { json: sessionsJson } = await fetchRoute(app, "/sessions");
-      const sessions = sessionsJson.data as Array<{ session_id: string }>;
-      const targetId = sessions[0]!.session_id;
+      // Derive the filter from a real event rather than assuming the newest
+      // session has a turn-0 event. Turn numbers now come from the live
+      // state/current.turn counter, so a session's events are no longer
+      // guaranteed to start at turn 0 — pick a (session_id, turn) pair that
+      // actually exists so the filter is guaranteed at least one match.
+      const sample = readTokenFlowEvents(unerrDir).find(
+        (e) => e.mechanism !== "persistent_memory"
+      );
+      expect(sample).toBeDefined();
+      const targetId = sample!.session_id;
+      const targetTurn = sample!.turn;
 
       const { status, json } = await fetchRoute(
         app,
-        `/events?session_id=${targetId}&turn=0`
+        `/events?session_id=${targetId}&turn=${targetTurn}`
       );
       expect(status).toBe(200);
       const evts = json.data as TokenFlowEvent[];
@@ -224,7 +232,7 @@ describe.skipIf(!hasData)("token-flow API routes", () => {
 
       for (const e of evts) {
         expect(e.session_id).toBe(targetId);
-        expect(e.turn).toBe(0);
+        expect(e.turn).toBe(targetTurn);
         expect(typeof e.tokens_saved).toBe("number");
         expect(typeof e.tokens_without).toBe("number");
         expect(typeof e.tokens_with).toBe("number");

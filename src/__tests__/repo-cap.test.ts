@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  checkActivateRepo,
-  checkRegisterRepo,
-} from "../cloud/repo-cap.js";
+import { checkActivateRepo, checkRegisterRepo } from "../cloud/repo-cap.js";
 import { UNLIMITED } from "../cloud/tier-model.js";
 
 describe("checkRegisterRepo", () => {

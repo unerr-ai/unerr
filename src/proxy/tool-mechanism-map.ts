@@ -108,7 +108,8 @@ export const TOOL_MECHANISM: Readonly<Record<string, MechanismEntry>> = {
   },
   fetch_url: {
     mechanism: "mcp",
-    rationale: "Model needs the page back; also the enforced WebFetch replacement.",
+    rationale:
+      "Model needs the page back; also the enforced WebFetch replacement.",
   },
 
   // ── Writes → hooks (fire-and-forget; needed next turn, not this one) ─────
@@ -130,8 +131,7 @@ export function mechanismOf(toolName: string): MechanismEntry {
   const entry = TOOL_MECHANISM[toolName];
   if (!entry) {
     throw new Error(
-      `tool-mechanism-map: no mechanism verdict for "${toolName}". ` +
-        `Add it to TOOL_MECHANISM in src/proxy/tool-mechanism-map.ts.`
+      `tool-mechanism-map: no mechanism verdict for "${toolName}". Add it to TOOL_MECHANISM in src/proxy/tool-mechanism-map.ts.`
     );
   }
   return entry;

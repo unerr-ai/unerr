@@ -14,9 +14,9 @@ import { mkdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createTokenFlowRoutes } from "../server/routes/token-flow.js";
 import { appendCompressionLog } from "../proxy/shell-compression-log.js";
 import { renderSessionEconomyLineLive } from "../proxy/turn-footer.js";
+import { createTokenFlowRoutes } from "../server/routes/token-flow.js";
 import {
   closeMetricsStore,
   openMetricsStore,
@@ -38,7 +38,10 @@ describe("reversibility surfacing — turn line + dashboard + footprint", () => 
   });
 
   /** Seed one user-prompt boundary so the per-turn slice resolves by timestamp. */
-  function seedPromptBoundary(store: ReturnType<typeof openMetricsStore>, ts: number) {
+  function seedPromptBoundary(
+    store: ReturnType<typeof openMetricsStore>,
+    ts: number
+  ) {
     store.insertBehaviorEvent({
       ts,
       ts_iso: new Date(ts).toISOString(),
@@ -143,7 +146,10 @@ describe("reversibility surfacing — turn line + dashboard + footprint", () => 
   it("accumulates transcript_footprint_tokens across compress writes (S8)", () => {
     // appendCompressionLog opens openMetricsStore(join(cwd, ".unerr")); use a
     // dedicated isolated cwd whose `.unerr` is the store dir we read back.
-    const cwd = join(os.tmpdir(), `unerr-rev-cwd-${Date.now()}-${Math.random()}`);
+    const cwd = join(
+      os.tmpdir(),
+      `unerr-rev-cwd-${Date.now()}-${Math.random()}`
+    );
     const storeDir = join(cwd, ".unerr");
     mkdirSync(storeDir, { recursive: true });
     try {
@@ -205,9 +211,7 @@ describe("reversibility surfacing — turn line + dashboard + footprint", () => 
       unerrDir,
       getTokenFlowWriter: () => null,
     });
-    const res = await app.fetch(
-      new Request("http://localhost/reversibility")
-    );
+    const res = await app.fetch(new Request("http://localhost/reversibility"));
     expect(res.status).toBe(200);
     const json = (await res.json()) as { data: Record<string, number> };
     const d = json.data;

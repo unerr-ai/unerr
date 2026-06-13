@@ -82,7 +82,8 @@ const CATEGORY_META: Record<
     label: "Conventions your code follows",
     icon: "◆",
     color: "violet",
-    description: "Patterns unerr detected in your codebase — naming styles, import order, file structure",
+    description:
+      "Patterns unerr detected in your codebase — naming styles, import order, file structure",
     emptyMsg:
       "No conventions detected yet. unerr discovers these as it indexes your project.",
   },
@@ -90,7 +91,8 @@ const CATEGORY_META: Record<
     label: "Files you work on most",
     icon: "⚡",
     color: "cyan",
-    description: "The files your agent keeps coming back to — unerr prioritizes these in context",
+    description:
+      "The files your agent keeps coming back to — unerr prioritizes these in context",
     emptyMsg:
       "Not enough data yet. After a few sessions, unerr will spot your most-touched files.",
   },
@@ -98,21 +100,24 @@ const CATEGORY_META: Record<
     label: "Mistakes to avoid",
     icon: "✗",
     color: "red",
-    description: "Things that went wrong before — unerr warns your agent so it doesn't repeat them",
+    description:
+      "Things that went wrong before — unerr warns your agent so it doesn't repeat them",
     emptyMsg: "No past mistakes recorded. That's a good thing.",
   },
   episodic: {
     label: "Change outcomes",
     icon: "◎",
     color: "amber",
-    description: "Which changes stuck and which got reverted — so your agent knows what works",
+    description:
+      "Which changes stuck and which got reverted — so your agent knows what works",
     emptyMsg: "No change history tracked yet.",
   },
   convention: {
     label: "Rules you've taught unerr",
     icon: "▸",
     color: "emerald",
-    description: "Rules you explicitly told unerr to remember — these override everything else",
+    description:
+      "Rules you explicitly told unerr to remember — these override everything else",
     emptyMsg:
       'No rules taught yet. Tell your agent "remember: always use camelCase" and unerr will enforce it.',
   },
@@ -275,7 +280,8 @@ export function FactsPage() {
   const allManageFacts = useMemo(
     () =>
       facts.filter((f) => {
-        if (manageSource === "user_fed" && f.source !== "user_fed") return false;
+        if (manageSource === "user_fed" && f.source !== "user_fed")
+          return false;
         if (manageSource === "auto" && f.source === "user_fed") return false;
         if (manageStatus === "active" && f.disabled) return false;
         if (manageStatus === "disabled" && !f.disabled) return false;
@@ -330,9 +336,7 @@ export function FactsPage() {
               <p className="text-violet-400 font-mono font-bold text-4xl">
                 {health.total}
               </p>
-              <p className="t-tertiary text-[10px] mt-1">
-                things remembered
-              </p>
+              <p className="t-tertiary text-[10px] mt-1">things remembered</p>
             </div>
           )}
         </div>
@@ -360,8 +364,7 @@ export function FactsPage() {
             <MiniStat
               label="Mistakes to avoid"
               value={
-                (health.by_type.negative ?? 0) +
-                (health.by_type.episodic ?? 0)
+                (health.by_type.negative ?? 0) + (health.by_type.episodic ?? 0)
               }
               color="text-red-400"
             />
@@ -510,7 +513,9 @@ export function FactsPage() {
                     <tr className="border-b border-border-subtle t-tertiary uppercase">
                       <th className="py-2 pr-3 font-medium">Kind</th>
                       <th className="py-2 pr-3 font-medium">About</th>
-                      <th className="py-2 pr-3 font-medium">What unerr remembers</th>
+                      <th className="py-2 pr-3 font-medium">
+                        What unerr remembers
+                      </th>
                       <th className="py-2 pr-3 font-medium">Status</th>
                       <th className="py-2 pr-3 font-medium">Certainty</th>
                       <th className="py-2 pr-3 font-medium">Learned</th>
@@ -964,7 +969,10 @@ function PatternCard({
       <div className="flex items-center justify-between text-[10px] t-tertiary">
         <span>Learned {formatAge(fact.created_at)}</span>
         {fact.reinforcement_count > 0 && (
-          <span>Confirmed {fact.reinforcement_count} time{fact.reinforcement_count === 1 ? "" : "s"}</span>
+          <span>
+            Confirmed {fact.reinforcement_count} time
+            {fact.reinforcement_count === 1 ? "" : "s"}
+          </span>
         )}
       </div>
     </div>
@@ -1180,7 +1188,8 @@ const SOURCE_LABELS: Record<string, { label: string; description: string }> = {
   },
   session_analysis: {
     label: "Learned from your sessions",
-    description: "Discovered by watching which files and patterns you work with across sessions",
+    description:
+      "Discovered by watching which files and patterns you work with across sessions",
   },
   causal_bridge: {
     label: "Learned from change outcomes",
@@ -1453,13 +1462,13 @@ function MemoryDetailModal({
               )}
             </div>
           </ModalSection>
-
         </div>
 
         {/* Footer actions — unified controls folded in from Sidekick Memory:
             Edit · Reinforce/Re-enable · Disable · Forget. */}
         <div className="sticky bottom-0 flex items-center justify-between gap-3 px-6 py-4 border-t border-border-subtle bg-surface/95 backdrop-blur-sm rounded-b-2xl">
-          <span className="text-[10px] t-tertiary" />{/* spacer */}
+          <span className="text-[10px] t-tertiary" />
+          {/* spacer */}
           {editing ? (
             <div className="flex gap-2">
               <button
@@ -1778,12 +1787,21 @@ const TYPE_STYLES: Record<string, { color: string; label: string }> = {
   procedural: { color: "bg-cyan-500/15 text-cyan-400", label: "frequent file" },
   semantic: { color: "bg-violet-500/15 text-violet-400", label: "convention" },
   negative: { color: "bg-red-500/15 text-red-400", label: "lesson" },
-  convention: { color: "bg-emerald-500/15 text-emerald-400", label: "your rule" },
-  episodic: { color: "bg-amber-500/15 text-amber-400", label: "change outcome" },
+  convention: {
+    color: "bg-emerald-500/15 text-emerald-400",
+    label: "your rule",
+  },
+  episodic: {
+    color: "bg-amber-500/15 text-amber-400",
+    label: "change outcome",
+  },
 };
 
 function TypePill({ type }: { type: string }) {
-  const style = TYPE_STYLES[type] ?? { color: "bg-surface-overlay text-muted-foreground", label: type };
+  const style = TYPE_STYLES[type] ?? {
+    color: "bg-surface-overlay text-muted-foreground",
+    label: type,
+  };
   return (
     <span
       className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${style.color}`}

@@ -22,12 +22,12 @@ import {
   runPromptSubmitHook,
   runPromptSubmitHookAsync,
 } from "./hook-runner.js";
-import { queryRecallNotes, renderRecallBlock } from "./recall-client.js";
-import { captureUserRule, detectUserRule } from "./remember-client.js";
 import {
   readProxySessionId,
   recordUserPromptReceived,
 } from "./prompt-capture.js";
+import { queryRecallNotes, renderRecallBlock } from "./recall-client.js";
+import { captureUserRule, detectUserRule } from "./remember-client.js";
 
 // ── Path A: keyword fast path — verb clusters → named sub-skills ─────────────
 // Mirrors docs/identity-impact-redesign.md §3 Path A table. Each cluster

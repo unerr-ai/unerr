@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  type ImportanceInput,
   byImportanceDesc,
   importanceScore,
-  type ImportanceInput,
 } from "../intelligence/importance.js";
 
 /** Identity getter for tests that hold the entity shape directly. */
@@ -39,7 +39,9 @@ describe("importanceScore", () => {
 
   it("defaults missing columns to the lowest score (0)", () => {
     expect(importanceScore({})).toBe(0);
-    expect(importanceScore({ fan_in: undefined, risk_level: undefined })).toBe(0);
+    expect(importanceScore({ fan_in: undefined, risk_level: undefined })).toBe(
+      0
+    );
   });
 
   it("treats invalid/negative/NaN counts as 0, never throwing", () => {

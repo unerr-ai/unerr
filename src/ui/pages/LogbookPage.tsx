@@ -241,7 +241,10 @@ function useCountUp(target: number, durationMs = 900): number {
   return val;
 }
 
-function CountUp({ value, format }: { value: number; format: (n: number) => string }) {
+function CountUp({
+  value,
+  format,
+}: { value: number; format: (n: number) => string }) {
   const v = useCountUp(value);
   return <>{format(Math.round(v))}</>;
 }
@@ -249,14 +252,46 @@ function CountUp({ value, format }: { value: number; format: (n: number) => stri
 // ── Per-session color coding ─────────────────────────────────────────
 
 const SESSION_PALETTE: { stripe: string; chip: string; bg: string }[] = [
-  { stripe: "border-l-violet-400", chip: "bg-violet-500/15 text-violet-200", bg: "bg-violet-500/4" },
-  { stripe: "border-l-cyan-400", chip: "bg-cyan-500/15 text-cyan-200", bg: "bg-cyan-500/4" },
-  { stripe: "border-l-emerald-400", chip: "bg-emerald-500/15 text-emerald-200", bg: "bg-emerald-500/4" },
-  { stripe: "border-l-amber-400", chip: "bg-amber-500/15 text-amber-200", bg: "bg-amber-500/4" },
-  { stripe: "border-l-rose-400", chip: "bg-rose-500/15 text-rose-200", bg: "bg-rose-500/4" },
-  { stripe: "border-l-sky-400", chip: "bg-sky-500/15 text-sky-200", bg: "bg-sky-500/4" },
-  { stripe: "border-l-fuchsia-400", chip: "bg-fuchsia-500/15 text-fuchsia-200", bg: "bg-fuchsia-500/4" },
-  { stripe: "border-l-lime-400", chip: "bg-lime-500/15 text-lime-200", bg: "bg-lime-500/4" },
+  {
+    stripe: "border-l-violet-400",
+    chip: "bg-violet-500/15 text-violet-200",
+    bg: "bg-violet-500/4",
+  },
+  {
+    stripe: "border-l-cyan-400",
+    chip: "bg-cyan-500/15 text-cyan-200",
+    bg: "bg-cyan-500/4",
+  },
+  {
+    stripe: "border-l-emerald-400",
+    chip: "bg-emerald-500/15 text-emerald-200",
+    bg: "bg-emerald-500/4",
+  },
+  {
+    stripe: "border-l-amber-400",
+    chip: "bg-amber-500/15 text-amber-200",
+    bg: "bg-amber-500/4",
+  },
+  {
+    stripe: "border-l-rose-400",
+    chip: "bg-rose-500/15 text-rose-200",
+    bg: "bg-rose-500/4",
+  },
+  {
+    stripe: "border-l-sky-400",
+    chip: "bg-sky-500/15 text-sky-200",
+    bg: "bg-sky-500/4",
+  },
+  {
+    stripe: "border-l-fuchsia-400",
+    chip: "bg-fuchsia-500/15 text-fuchsia-200",
+    bg: "bg-fuchsia-500/4",
+  },
+  {
+    stripe: "border-l-lime-400",
+    chip: "bg-lime-500/15 text-lime-200",
+    bg: "bg-lime-500/4",
+  },
 ];
 
 function sessionColor(id: string): (typeof SESSION_PALETTE)[number] {
@@ -401,20 +436,26 @@ function describeEvent(
     // ─── Token savings ───────────────────────────────────────────────
     case "tokenflow.shell_compression": {
       const cmd = typeof meta.command === "string" ? meta.command : null;
-      if (cmd) return `Compressed the output of "${trunc(cmd, 60)}" so the agent sees a concise version`;
+      if (cmd)
+        return `Compressed the output of "${trunc(cmd, 60)}" so the agent sees a concise version`;
       return "Compressed a long command output so the agent doesn't waste tokens reading it";
     }
     case "tokenflow.file_read": {
-      const lines = typeof meta.total_lines === "number" ? meta.total_lines : null;
-      if (file && lines) return `Only sent the relevant part of ${file} (${lines}-line file) instead of the whole thing`;
-      if (file) return `Sent only the relevant section of ${file} instead of the entire file`;
+      const lines =
+        typeof meta.total_lines === "number" ? meta.total_lines : null;
+      if (file && lines)
+        return `Only sent the relevant part of ${file} (${lines}-line file) instead of the whole thing`;
+      if (file)
+        return `Sent only the relevant section of ${file} instead of the entire file`;
       return "Sent only the relevant section instead of the full file";
     }
     case "tokenflow.graph_query":
-      if (tool) return `Answered the ${tool} question from the code graph — no file reading needed`;
+      if (tool)
+        return `Answered the ${tool} question from the code graph — no file reading needed`;
       return "Answered from the code graph — saved the agent from reading files one by one";
     case "tokenflow.format_encoding":
-      if (tool) return `Made the ${tool} response smaller so it uses fewer tokens`;
+      if (tool)
+        return `Made the ${tool} response smaller so it uses fewer tokens`;
       return "Made the response smaller so it uses fewer tokens";
     case "tokenflow.fetch_url":
       return "Stripped navigation, ads, and boilerplate from a web page before sending it to the agent";
@@ -426,18 +467,23 @@ function describeEvent(
       return "Performed a maintenance step automatically so the agent didn't have to";
     case "tokenflow.persistent_memory": {
       const verdict = typeof meta.verdict === "string" ? meta.verdict : null;
-      if (verdict === "acted_on") return "Loaded a note from memory — the agent used it in its work";
-      if (verdict === "reinforced") return "Re-surfaced a note from memory — it's still relevant";
-      if (verdict === "ignored") return "Loaded a note from memory, but the agent didn't use it this time";
+      if (verdict === "acted_on")
+        return "Loaded a note from memory — the agent used it in its work";
+      if (verdict === "reinforced")
+        return "Re-surfaced a note from memory — it's still relevant";
+      if (verdict === "ignored")
+        return "Loaded a note from memory, but the agent didn't use it this time";
       return "Loaded stored notes from memory instead of the agent having to re-learn them";
     }
 
     // ─── Prevented mistakes ──────────────────────────────────────────
     case "stale_edit_prevented":
-      if (file) return `Stopped the agent from editing ${file} because the file had changed since it was last read`;
+      if (file)
+        return `Stopped the agent from editing ${file} because the file had changed since it was last read`;
       return "Stopped the agent from editing a file that had been modified — avoided overwriting new changes";
     case "cascade_guard":
-      if (file) return `Other code depends on ${file} — warned the agent before editing to prevent breakage`;
+      if (file)
+        return `Other code depends on ${file} — warned the agent before editing to prevent breakage`;
       return "Warned the agent that other code depends on what it was about to change";
     case "boundary_violation_flagged": {
       const violations =
@@ -466,26 +512,32 @@ function describeEvent(
     case "cascade_warning_consumed":
       return "The agent read the dependency warning and adjusted its approach before editing";
     case "intervention_halted":
-      if (tool) return `Blocked the ${tool} call because it was going in the wrong direction`;
+      if (tool)
+        return `Blocked the ${tool} call because it was going in the wrong direction`;
       return "Blocked a tool call that would have taken the agent off track";
     case "intervention_warned":
-      if (tool) return `Warned the agent that the ${tool} call looked risky — it adjusted its approach`;
+      if (tool)
+        return `Warned the agent that the ${tool} call looked risky — it adjusted its approach`;
       return "Warned the agent about a risky operation — it adjusted its approach";
     case "loop_broken":
       return "The agent was retrying the same thing — unerr broke the loop before it wasted more tokens";
 
     // ─── Smarter code understanding ──────────────────────────────────
     case "full_read_avoided":
-      if (file) return `Sent only the relevant part of ${file} instead of the entire file`;
+      if (file)
+        return `Sent only the relevant part of ${file} instead of the entire file`;
       return "Sent a focused section instead of dumping the full file into context";
     case "graph_query_served":
-      if (tool) return `Answered a ${tool} question instantly from the code graph`;
+      if (tool)
+        return `Answered a ${tool} question instantly from the code graph`;
       return "Answered a code question instantly from the code graph — no file reading needed";
     case "caller_check_enforced":
-      if (file) return `Made the agent check what other code uses ${file} before making changes`;
+      if (file)
+        return `Made the agent check what other code uses ${file} before making changes`;
       return "Made the agent check what other code depends on this before editing";
     case "drift_consumed":
-      if (file) return `Noticed ${file} was modified on disk and told the agent to re-read it before editing`;
+      if (file)
+        return `Noticed ${file} was modified on disk and told the agent to re-read it before editing`;
       return "A file was modified on disk — told the agent to re-read it before editing";
     case "convention_applied":
       if (content) return `Applied your project rule: "${trunc(content)}"`;
@@ -494,13 +546,16 @@ function describeEvent(
     // ─── Memory ──────────────────────────────────────────────────────
     case "fact_recalled": {
       const count = typeof meta.count === "number" ? meta.count : 1;
-      if (content && count > 1) return `Recalled ${count} stored notes — top one: "${trunc(content)}"`;
+      if (content && count > 1)
+        return `Recalled ${count} stored notes — top one: "${trunc(content)}"`;
       if (content) return `Recalled: "${trunc(content)}"`;
       return `Recalled ${count} ${count === 1 ? "note" : "notes"} that you taught unerr in a previous session`;
     }
     case "fact_stored_user_fed": {
-      const quote = typeof meta.source_quote === "string" ? meta.source_quote : null;
-      if (quote) return `You said: "${trunc(quote)}" — saved for future sessions`;
+      const quote =
+        typeof meta.source_quote === "string" ? meta.source_quote : null;
+      if (quote)
+        return `You said: "${trunc(quote)}" — saved for future sessions`;
       if (content) return `Saved for future sessions: "${trunc(content)}"`;
       return "Saved a rule you told unerr to remember — it will apply in future sessions";
     }
@@ -925,9 +980,7 @@ function PromptCard({
             {item.summary.featured_verb ? (
               <>
                 <span className="hidden sm:inline t-ghost">·</span>
-                <span
-                  className={`text-[11px] ${TONE_COLORS[tone]}`}
-                >
+                <span className={`text-[11px] ${TONE_COLORS[tone]}`}>
                   {item.summary.featured_verb}
                 </span>
               </>
@@ -984,23 +1037,44 @@ function PromptDetail({
 
   const events = data.events ?? [];
   const transcript = data.transcript ?? [];
-  const tokenOpt = data.token_optimization ?? { total_saved: 0, mechanisms: {} };
+  const tokenOpt = data.token_optimization ?? {
+    total_saved: 0,
+    mechanisms: {},
+  };
   const toolCalls = data.tool_calls ?? [];
   const markers = data.markers ?? [];
 
   const tabs = [
     { id: "events" as const, label: "Events", count: events.length },
     ...(toolCalls.length > 0
-      ? [{ id: "tool_calls" as const, label: "Tool Calls", count: toolCalls.length }]
+      ? [
+          {
+            id: "tool_calls" as const,
+            label: "Tool Calls",
+            count: toolCalls.length,
+          },
+        ]
       : []),
     ...(markers.length > 0
       ? [{ id: "markers" as const, label: "Markers", count: markers.length }]
       : []),
     ...(data.has_transcript
-      ? [{ id: "transcript" as const, label: "Execution Trace", count: transcript.length }]
+      ? [
+          {
+            id: "transcript" as const,
+            label: "Execution Trace",
+            count: transcript.length,
+          },
+        ]
       : []),
     ...(tokenOpt.total_saved > 0
-      ? [{ id: "tokens" as const, label: "Token Savings", count: Object.keys(tokenOpt.mechanisms).length }]
+      ? [
+          {
+            id: "tokens" as const,
+            label: "Token Savings",
+            count: Object.keys(tokenOpt.mechanisms).length,
+          },
+        ]
       : []),
   ];
 
@@ -1008,9 +1082,9 @@ function PromptDetail({
     <div className="border-t border-border-subtle">
       {/* Attribution summary */}
       {data.attribution &&
-        ((data.attribution.recalls?.length ?? 0) > 0 ||
-          (data.attribution.captures?.length ?? 0) > 0 ||
-          (data.attribution.drift?.length ?? 0) > 0) ? (
+      ((data.attribution.recalls?.length ?? 0) > 0 ||
+        (data.attribution.captures?.length ?? 0) > 0 ||
+        (data.attribution.drift?.length ?? 0) > 0) ? (
         <div className="border-b border-border-subtle bg-violet-500/4 px-5 py-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-300/70">
             What unerr contributed
@@ -1073,9 +1147,7 @@ function PromptDetail({
         <div className="ml-auto flex items-center gap-2 px-3">
           <button
             type="button"
-            onClick={() =>
-              navigateRoute("activity", { session: sessionId })
-            }
+            onClick={() => navigateRoute("activity", { session: sessionId })}
             className="rounded px-2 py-1 text-[10px] text-violet-300 transition-colors hover:bg-violet-500/10 hover:text-violet-200"
           >
             Activity →
@@ -1115,7 +1187,12 @@ function PromptDetail({
 
 // ── Events Tab ───────────────────────────────────────────────────────
 
-type EventCategory = "catches" | "intelligence" | "memory" | "savings" | "other";
+type EventCategory =
+  | "catches"
+  | "intelligence"
+  | "memory"
+  | "savings"
+  | "other";
 
 const EVENT_CATEGORY: Record<string, EventCategory> = {
   stale_edit_prevented: "catches",
@@ -1284,7 +1361,9 @@ function EventsTab({
         return (
           <div key={cat}>
             <div className="mb-2 flex items-baseline gap-2">
-              <h4 className={`text-[11px] font-semibold uppercase tracking-widest ${meta.color}`}>
+              <h4
+                className={`text-[11px] font-semibold uppercase tracking-widest ${meta.color}`}
+              >
                 {meta.label}
               </h4>
               <span className="font-mono text-[10px] tabular-nums t-tertiary">
@@ -1313,30 +1392,57 @@ function EventsTab({
 // ── Tool Calls Tab ──────────────────────────────────────────────────
 
 const TOOL_CATEGORIES: Record<string, { label: string; color: string }> = {
-  search_code:     { label: "Search",      color: "text-cyan-300 bg-cyan-500/10" },
-  get_entity:      { label: "Read entity", color: "text-cyan-300 bg-cyan-500/10" },
-  get_references:  { label: "References",  color: "text-cyan-300 bg-cyan-500/10" },
-  file_read:       { label: "File read",   color: "text-cyan-300 bg-cyan-500/10" },
-  file_outline:    { label: "Outline",     color: "text-cyan-300 bg-cyan-500/10" },
-  get_imports:     { label: "Imports",     color: "text-cyan-300 bg-cyan-500/10" },
-  get_conventions: { label: "Conventions", color: "text-emerald-300 bg-emerald-500/10" },
-  get_rules:       { label: "Rules",       color: "text-emerald-300 bg-emerald-500/10" },
-  recall_facts:    { label: "Recall facts", color: "text-violet-300 bg-violet-500/10" },
-  unerr_recall_notes: { label: "Recall notes", color: "text-violet-300 bg-violet-500/10" },
-  unerr_remember:  { label: "Remember",   color: "text-violet-300 bg-violet-500/10" },
-  record_fact:     { label: "Record fact", color: "text-violet-300 bg-violet-500/10" },
-  unerr_turn_summary: { label: "Turn summary", color: "text-zinc-400 bg-white/5" },
-  fetch_url:       { label: "Fetch URL",   color: "text-amber-300 bg-amber-500/10" },
-  get_critical_nodes: { label: "Critical nodes", color: "text-rose-300 bg-rose-500/10" },
+  search_code: { label: "Search", color: "text-cyan-300 bg-cyan-500/10" },
+  get_entity: { label: "Read entity", color: "text-cyan-300 bg-cyan-500/10" },
+  get_references: {
+    label: "References",
+    color: "text-cyan-300 bg-cyan-500/10",
+  },
+  file_read: { label: "File read", color: "text-cyan-300 bg-cyan-500/10" },
+  file_outline: { label: "Outline", color: "text-cyan-300 bg-cyan-500/10" },
+  get_imports: { label: "Imports", color: "text-cyan-300 bg-cyan-500/10" },
+  get_conventions: {
+    label: "Conventions",
+    color: "text-emerald-300 bg-emerald-500/10",
+  },
+  get_rules: { label: "Rules", color: "text-emerald-300 bg-emerald-500/10" },
+  recall_facts: {
+    label: "Recall facts",
+    color: "text-violet-300 bg-violet-500/10",
+  },
+  unerr_recall_notes: {
+    label: "Recall notes",
+    color: "text-violet-300 bg-violet-500/10",
+  },
+  unerr_remember: {
+    label: "Remember",
+    color: "text-violet-300 bg-violet-500/10",
+  },
+  record_fact: {
+    label: "Record fact",
+    color: "text-violet-300 bg-violet-500/10",
+  },
+  unerr_turn_summary: {
+    label: "Turn summary",
+    color: "text-zinc-400 bg-white/5",
+  },
+  fetch_url: { label: "Fetch URL", color: "text-amber-300 bg-amber-500/10" },
+  get_critical_nodes: {
+    label: "Critical nodes",
+    color: "text-rose-300 bg-rose-500/10",
+  },
 };
 
 function summarizeArgs(args: Record<string, unknown>): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(args)) {
     if (v === null || v === undefined || v === "") continue;
-    const val = typeof v === "string"
-      ? v.length > 60 ? `${v.slice(0, 60)}…` : v
-      : JSON.stringify(v);
+    const val =
+      typeof v === "string"
+        ? v.length > 60
+          ? `${v.slice(0, 60)}…`
+          : v
+        : JSON.stringify(v);
     parts.push(`${k}: ${val}`);
   }
   return parts.join(", ");
@@ -1426,9 +1532,9 @@ const MARKER_STYLES: Record<
   string,
   { icon: string; color: string; label: string }
 > = {
-  mark_intent:     { icon: "◆", color: "text-violet-400", label: "Intent" },
-  mark_decision:   { icon: "⟡", color: "text-cyan-400",   label: "Decision" },
-  mark_blocker:    { icon: "⚠", color: "text-amber-400",  label: "Blocker" },
+  mark_intent: { icon: "◆", color: "text-violet-400", label: "Intent" },
+  mark_decision: { icon: "⟡", color: "text-cyan-400", label: "Decision" },
+  mark_blocker: { icon: "⚠", color: "text-amber-400", label: "Blocker" },
   mark_resolution: { icon: "✓", color: "text-emerald-400", label: "Resolved" },
 };
 
@@ -1601,12 +1707,8 @@ function TranscriptTab({
             {/* Token usage */}
             {turn.tokens_input > 0 || turn.tokens_output > 0 ? (
               <div className="mt-2 flex gap-3 font-mono text-[10px] tabular-nums t-tertiary">
-                <span>
-                  {fmtNum(turn.tokens_input)} in
-                </span>
-                <span>
-                  {fmtNum(turn.tokens_output)} out
-                </span>
+                <span>{fmtNum(turn.tokens_input)} in</span>
+                <span>{fmtNum(turn.tokens_output)} out</span>
               </div>
             ) : null}
           </div>
@@ -1651,7 +1753,8 @@ function TokensTab({
               optimization.total_saved > 0
                 ? (saved / optimization.total_saved) * 100
                 : 0;
-            const label = MECHANISM_LABELS[mechanism] ?? mechanism.replace(/_/g, " ");
+            const label =
+              MECHANISM_LABELS[mechanism] ?? mechanism.replace(/_/g, " ");
             return (
               <div key={mechanism} className="space-y-1">
                 <div className="flex items-baseline justify-between">
@@ -1757,7 +1860,10 @@ export function LogbookPage() {
   const sessionId = sessionParam || "";
   const page = Math.max(1, Number(pageParam ?? 1) || 1);
   const isDefault =
-    !dateParam && !agentParam && !sessionParam && (!pageParam || pageParam === "1");
+    !dateParam &&
+    !agentParam &&
+    !sessionParam &&
+    (!pageParam || pageParam === "1");
 
   const bounds = useMemo(() => dayBounds(date), [date]);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -1834,9 +1940,14 @@ export function LogbookPage() {
   });
 
   // Reset expansion on filter change
+  const filterKey = `${date}|${agent}|${sessionId}|${page}`;
   useEffect(() => {
+    // Referenced so the effect re-runs when any filter changes; biome's
+    // useExhaustiveDependencies counts a single derived key, not four
+    // values whose only role is to retrigger the reset.
+    void filterKey;
     setExpandedKey(null);
-  }, [date, agent, sessionId, page]);
+  }, [filterKey]);
 
   const story = storyQ.data?.data;
   const facets = facetsQ.data?.data;

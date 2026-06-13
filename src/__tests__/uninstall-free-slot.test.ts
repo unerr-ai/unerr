@@ -25,8 +25,8 @@ vi.mock("node:os", async () => {
   return { ...actual, homedir: () => testHome };
 });
 
-import { addRepo, listRepos, writeRegistry } from "../daemon/registry.js";
 import { registerUninstallCommand } from "../commands/uninstall.js";
+import { addRepo, listRepos, writeRegistry } from "../daemon/registry.js";
 
 let n = 0;
 let originalCwd: string;

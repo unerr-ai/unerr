@@ -58,8 +58,7 @@ describe("Layer 8 domain-graph schema (SC-A.2)", () => {
       { key: "src/auth/token.ts::validateToken" }
     );
     expect(result.rows).toHaveLength(1);
-    const [summary, domain, role, source, confidence, status] =
-      result.rows[0]!;
+    const [summary, domain, role, source, confidence, status] = result.rows[0]!;
     expect(summary).toContain("session token");
     expect(domain).toBe("auth");
     expect(role).toBe("gateway");

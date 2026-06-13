@@ -23,7 +23,7 @@
 
 import { loadSettings } from "../config/settings.js";
 import { readNotifiedState, setNotifiedState } from "./auth-events.js";
-import { authState, type AuthStateName } from "./auth-state.js";
+import { type AuthStateName, authState } from "./auth-state.js";
 import { osNotify } from "./os-notify.js";
 
 /** States that reset the latch — the machine is healthy / deliberately free. */
@@ -35,17 +35,18 @@ const HEALTHY: ReadonlySet<AuthStateName> = new Set<AuthStateName>([
 
 /** The toast copy per notify-worthy state. Every line names `unerr login` and
  *  states local features keep working (the cross-tier invariant). */
-const MESSAGES: Partial<Record<AuthStateName, { title: string; body: string }>> =
-  {
-    revoked: {
-      title: "unerr — this machine was disconnected",
-      body: "Your team removed this machine. Run `unerr login` to reconnect. Local features keep working.",
-    },
-    degraded_free: {
-      title: "unerr — Pro features paused",
-      body: "Your plan's entitlement expired. Run `unerr login` to restore Pro. Local features keep working.",
-    },
-  };
+const MESSAGES: Partial<
+  Record<AuthStateName, { title: string; body: string }>
+> = {
+  revoked: {
+    title: "unerr — this machine was disconnected",
+    body: "Your team removed this machine. Run `unerr login` to reconnect. Local features keep working.",
+  },
+  degraded_free: {
+    title: "unerr — Pro features paused",
+    body: "Your plan's entitlement expired. Run `unerr login` to restore Pro. Local features keep working.",
+  },
+};
 
 /** Resolve whether a `degraded_free` transition should notify: env var wins,
  *  else the `auth.notifyGrace` setting (default off). Never throws. */

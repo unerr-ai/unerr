@@ -679,11 +679,7 @@ async function checkMultiNode(): Promise<CheckResult> {
     name: "Default node",
     status: "warn",
     message: "differs from the node currently running unerr",
-    detail:
-      `unerr running under: ${ours.replace(homedir(), "~")}\n` +
-      `Your shell's default:  ${theirs.replace(homedir(), "~")}\n` +
-      "If cozo-node was built against one Node ABI but loaded by the other, it will fail to load at runtime.\n" +
-      "Recommended: open a shell using your default node, then `npm i -g @unerr-ai/unerr`.",
+    detail: `unerr running under: ${ours.replace(homedir(), "~")}\nYour shell's default:  ${theirs.replace(homedir(), "~")}\nIf cozo-node was built against one Node ABI but loaded by the other, it will fail to load at runtime.\nRecommended: open a shell using your default node, then \`npm i -g @unerr-ai/unerr\`.`,
   };
 }
 
@@ -826,9 +822,7 @@ async function checkNativeModule(): Promise<CheckResult> {
         status: "warn",
         message:
           "cozo-node not installed — unerr runs in PARSE mode (regex graph, reduced accuracy)",
-        detail:
-          "cozo-node is a required native module, but its prebuilt binary could not be downloaded or built at install time.\n" +
-          NATIVE_FIX_HINT,
+        detail: `cozo-node is a required native module, but its prebuilt binary could not be downloaded or built at install time.\n${NATIVE_FIX_HINT}`,
       };
     }
     // Installed but the binary can't load (ABI mismatch / corrupt). Still
@@ -838,10 +832,7 @@ async function checkNativeModule(): Promise<CheckResult> {
       status: "warn",
       message:
         "cozo-node failed to load — unerr runs in PARSE mode (regex graph, reduced accuracy)",
-      detail:
-        `${msg}\n` +
-        "The native binary is likely built for a different Node ABI or platform.\n" +
-        "Reinstall under the node you intend to use: `npm i -g @unerr-ai/unerr`.",
+      detail: `${msg}\nThe native binary is likely built for a different Node ABI or platform.\nReinstall under the node you intend to use: \`npm i -g @unerr-ai/unerr\`.`,
     };
   }
 }

@@ -31,11 +31,11 @@ async function seedEntity(db: CozoDb, key: string): Promise<void> {
     { key, fp: `src/${key}.ts` }
   );
   await db.run(
-    `?[file_path, entity_key] <- [[$fp, $key]] :put file_index {file_path, entity_key}`,
+    "?[file_path, entity_key] <- [[$fp, $key]] :put file_index {file_path, entity_key}",
     { key, fp: `src/${key}.ts` }
   );
   await db.run(
-    `?[token, entity_key] <- [[$tok, $key]] :put search_tokens {token, entity_key}`,
+    "?[token, entity_key] <- [[$tok, $key]] :put search_tokens {token, entity_key}",
     { key, tok: `tok-${key}` }
   );
 }
@@ -60,7 +60,7 @@ async function countRows(db: CozoDb, relation: string): Promise<number> {
 }
 
 async function countEdges(db: CozoDb): Promise<number> {
-  const r = await db.run(`?[count(f)] := *edges{from_key: f}`);
+  const r = await db.run("?[count(f)] := *edges{from_key: f}");
   if (r.rows.length === 0) return 0;
   return Number((r.rows[0] as unknown[])[0] ?? 0);
 }

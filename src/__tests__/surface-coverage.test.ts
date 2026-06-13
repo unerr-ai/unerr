@@ -186,8 +186,11 @@ describe("Phase 4 Sprint 14 — surface coverage matrix", () => {
       const wrapped = buildUserBlock(lines);
       expect(wrapped.startsWith(USER_BLOCK_PREFIX)).toBe(true);
       // No ANSI / no markdown — plain-text body content (the contract
-      // every agent's MCP client preserves).
-      expect(wrapped).not.toMatch(/\x1b\[/);
+      // every agent's MCP client preserves). An ANSI sequence starts with
+      // ESC (char 27) followed by "[". Match via a plain string so neither a
+      // control-char regex literal nor a RegExp constructor is needed.
+      const ANSI_CSI = `${String.fromCharCode(27)}[`;
+      expect(wrapped.includes(ANSI_CSI)).toBe(false);
       expect(wrapped).not.toMatch(/^\*\*/m);
     });
 

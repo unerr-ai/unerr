@@ -22,9 +22,8 @@ import {
 import { join } from "node:path";
 import type { Command } from "commander";
 import { isLoggedIn, readCredentials } from "../cloud/credentials.js";
-import { checkRegisterRepo, RepoCapError } from "../cloud/repo-cap.js";
+import { RepoCapError, checkRegisterRepo } from "../cloud/repo-cap.js";
 import { currentRepoLimit } from "../cloud/tier-query.js";
-import { findRepo, listRepos } from "../daemon/registry.js";
 import {
   AGENT_REGISTRY,
   getAgent,
@@ -44,6 +43,7 @@ import {
   isConfigured,
   writeMcpConfig,
 } from "../config/mcp-config-writer.js";
+import { findRepo, listRepos } from "../daemon/registry.js";
 import { BUNDLED_SKILLS } from "../skills/local-pack.js";
 import {
   removeInstalledSkills,

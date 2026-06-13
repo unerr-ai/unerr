@@ -65,9 +65,7 @@ describe("preWebFetchHook — Claude Code", () => {
   it("nudges (does not deny) on a repeat of the same URL within the window", () => {
     const url = "https://example.com/cc-repeat";
     runPreWebFetchHook(claudeCodePayload({ url })); // first → deny
-    const second = JSON.parse(
-      runPreWebFetchHook(claudeCodePayload({ url }))
-    );
+    const second = JSON.parse(runPreWebFetchHook(claudeCodePayload({ url })));
     // Repeat → allow + systemMessage nudge, never a second deny.
     expect(second.hookSpecificOutput.permissionDecision).toBe("allow");
     expect(second.hookSpecificOutput.systemMessage).toContain("fetch_url");
@@ -97,9 +95,7 @@ describe("preWebFetchHook — Claude Code", () => {
 describe("preWebFetchHook — Cursor", () => {
   it("denies via Cursor's permission/agent_message channel", () => {
     const url = "https://example.com/cursor-deny";
-    const result = JSON.parse(
-      runPreWebFetchHook(cursorPayload({ url }))
-    );
+    const result = JSON.parse(runPreWebFetchHook(cursorPayload({ url })));
     expect(result.permission).toBe("deny");
     expect(result.agent_message).toContain("fetch_url");
     expect(result.agent_message).toContain(url);
@@ -111,9 +107,7 @@ describe("preWebFetchHook — Cursor", () => {
 describe("preWebFetchHook — Cline", () => {
   it("denies via Cline's allow:false/reason channel", () => {
     const url = "https://example.com/cline-deny";
-    const result = JSON.parse(
-      runPreWebFetchHook(clinePayload({ url }))
-    );
+    const result = JSON.parse(runPreWebFetchHook(clinePayload({ url })));
     expect(result.allow).toBe(false);
     expect(result.reason).toContain("fetch_url");
     expect(result.reason).toContain(url);

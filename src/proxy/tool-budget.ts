@@ -43,8 +43,7 @@ export class ToolBudgetError extends Error {
     readonly cap: number
   ) {
     super(
-      `Tool "${toolName}" description exceeds ${budgetKey} budget: ${observed} > ${cap} tokens. ` +
-        `Compress the description until it fits, or move the tool to a different tier.`
+      `Tool "${toolName}" description exceeds ${budgetKey} budget: ${observed} > ${cap} tokens. Compress the description until it fits, or move the tool to a different tier.`
     );
     this.name = "ToolBudgetError";
   }

@@ -75,6 +75,7 @@ export function RouterIntentPage() {
         </h2>
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={() => setSelectedTurn(Math.max(0, selectedTurn - 1))}
             className="rounded border border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-800"
           >
@@ -84,6 +85,7 @@ export function RouterIntentPage() {
             Turn {selectedTurn}
           </span>
           <button
+            type="button"
             onClick={() => setSelectedTurn(selectedTurn + 1)}
             className="rounded border border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-800"
           >

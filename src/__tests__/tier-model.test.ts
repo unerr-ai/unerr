@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   FREE_TIER_LIMITS,
+  UNLIMITED,
   isUnlimited,
   machineLimit,
   parseLimits,
   repoLimit,
   seatLimit,
   tierLabel,
-  UNLIMITED,
 } from "../cloud/tier-model.js";
 
 describe("parseLimits", () => {

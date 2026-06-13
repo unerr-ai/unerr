@@ -11,13 +11,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { runPostReadHookAsync } from "../hooks/navigation-hooks.js";
 import {
   type DetectedConvention,
   MAX_CONVENTIONS_RENDERED,
   parseConventionsReply,
   renderConventionsBlock,
 } from "../hooks/conventions-client.js";
+import { runPostReadHookAsync } from "../hooks/navigation-hooks.js";
 
 function rpcReply(payload: unknown): string {
   return JSON.stringify({
@@ -31,35 +31,60 @@ describe("parseConventionsReply", () => {
   it("flattens every kind list into one convention array", () => {
     const line = rpcReply({
       naming: [
-        { name: "camelCase", kind: "naming", adherence_rate: 0.9, description: "fns" },
+        {
+          name: "camelCase",
+          kind: "naming",
+          adherence_rate: 0.9,
+          description: "fns",
+        },
       ],
       import_direction: [
-        { name: "no-cycles", kind: "import_direction", adherence_rate: 0.8, description: "" },
+        {
+          name: "no-cycles",
+          kind: "import_direction",
+          adherence_rate: 0.8,
+          description: "",
+        },
       ],
       structure: [],
     });
     const parsed = parseConventionsReply(line);
     expect(parsed).not.toBeNull();
-    expect(parsed!.map((c) => c.name).sort()).toEqual(["camelCase", "no-cycles"]);
+    expect(parsed!.map((c) => c.name).sort()).toEqual([
+      "camelCase",
+      "no-cycles",
+    ]);
   });
 
   it("tolerates the {data:{…}} envelope shape", () => {
     const line = rpcReply({
       data: {
         naming: [
-          { name: "PascalCase", kind: "naming", adherence_rate: 0.7, description: "types" },
+          {
+            name: "PascalCase",
+            kind: "naming",
+            adherence_rate: 0.7,
+            description: "types",
+          },
         ],
       },
     });
     const parsed = parseConventionsReply(line);
     expect(parsed).toEqual([
-      { name: "PascalCase", kind: "naming", adherence_rate: 0.7, description: "types" },
+      {
+        name: "PascalCase",
+        kind: "naming",
+        adherence_rate: 0.7,
+        description: "types",
+      },
     ]);
   });
 
   it("returns null on an error reply", () => {
     expect(
-      parseConventionsReply(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -1 } }))
+      parseConventionsReply(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -1 } })
+      )
     ).toBeNull();
   });
 
@@ -106,7 +131,9 @@ describe("renderConventionsBlock", () => {
       mk(`conv${i}`, i / 100)
     );
     const block = renderConventionsBlock(many)!;
-    const bulletLines = block.split("\n").filter((l) => l.trim().startsWith("•"));
+    const bulletLines = block
+      .split("\n")
+      .filter((l) => l.trim().startsWith("•"));
     expect(bulletLines).toHaveLength(MAX_CONVENTIONS_RENDERED);
     // Membership is the highest-adherence top-N (conv4..conv9 here); the
     // lowest-adherence ones (conv0..conv3) are excluded.
@@ -117,9 +144,7 @@ describe("renderConventionsBlock", () => {
     // survivor — not the highest adherence. This is what keeps the conventions
     // prefix block byte-stable across turns.
     expect(bulletLines[0]).toContain("conv4");
-    const names = bulletLines.map(
-      (l) => l.match(/conv\d+/)?.[0] ?? ""
-    );
+    const names = bulletLines.map((l) => l.match(/conv\d+/)?.[0] ?? "");
     expect(names).toEqual([...names].sort());
   });
 

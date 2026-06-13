@@ -66,14 +66,14 @@ def load(): pass
   });
 
   it("preserves the block closer when the sentinel rides the closing line", () => {
-    const src = `/** something @sem domain=auth */\nexport const x = 1;\n`;
+    const src = "/** something @sem domain=auth */\nexport const x = 1;\n";
     // One-line self-contained block: removed entirely (nothing else load-bearing).
     expect(stripSentinelLines(src).content).toBe("export const x = 1;\n");
 
-    const multi = `/**\n * prose @sem domain=auth */\nexport const y = 2;\n`;
+    const multi = "/**\n * prose @sem domain=auth */\nexport const y = 2;\n";
     const out = stripSentinelLines(multi).content;
     // The closer is kept so the following code is never commented out.
-    expect(out).toBe(`/**\n */\nexport const y = 2;\n`);
+    expect(out).toBe("/**\n */\nexport const y = 2;\n");
     expect(out).toContain("export const y = 2;");
   });
 
@@ -84,19 +84,19 @@ def load(): pass
   });
 
   it("requires the token to be followed by whitespace or EOL (no @semantic match)", () => {
-    const src = `// @semantic note\nconst z = 1;\n`;
+    const src = "// @semantic note\nconst z = 1;\n";
     expect(stripSentinelLines(src).linesRemoved).toBe(0);
   });
 
   it("honors a custom sentinel token list", () => {
-    const src = `// @ctx domain=auth\nconst a = 1;\n`;
+    const src = "// @ctx domain=auth\nconst a = 1;\n";
     expect(stripSentinelLines(src, ["@ctx"]).linesRemoved).toBe(1);
     // Default token does not match the custom one.
     expect(stripSentinelLines(src).linesRemoved).toBe(0);
   });
 
   it("is idempotent and a no-op on content with no sentinels", () => {
-    const clean = `export function plain() {}\n`;
+    const clean = "export function plain() {}\n";
     const once = stripSentinelLines(clean);
     expect(once.content).toBe(clean);
     expect(once.linesRemoved).toBe(0);
@@ -106,7 +106,7 @@ def load(): pass
   });
 
   it("empty token list is a no-op", () => {
-    const src = `// @sem domain=auth\nconst q = 1;\n`;
+    const src = "// @sem domain=auth\nconst q = 1;\n";
     expect(stripSentinelLines(src, []).content).toBe(src);
   });
 });
@@ -124,19 +124,19 @@ describe("stripAnnotationsFromRepo (SC-B.5)", () => {
   it("strips across source files, skips excluded dirs and non-source files", () => {
     writeFileSync(
       join(dir, "a.ts"),
-      `/**\n * Does a thing.\n * @sem domain=auth\n */\nexport const a = 1;\n`
+      "/**\n * Does a thing.\n * @sem domain=auth\n */\nexport const a = 1;\n"
     );
     writeFileSync(
       join(dir, "b.py"),
-      `# A helper.\n# @sem domain=payments\ndef b(): pass\n`
+      "# A helper.\n# @sem domain=payments\ndef b(): pass\n"
     );
     // Non-source file with a sentinel-looking line — must be left alone.
-    writeFileSync(join(dir, "notes.md"), `// @sem domain=auth\n`);
+    writeFileSync(join(dir, "notes.md"), "// @sem domain=auth\n");
     // Excluded dir — must not be walked.
     mkdirSync(join(dir, "node_modules", "pkg"), { recursive: true });
     writeFileSync(
       join(dir, "node_modules", "pkg", "c.ts"),
-      `// @sem domain=vendor\nexport const c = 1;\n`
+      "// @sem domain=vendor\nexport const c = 1;\n"
     );
 
     const res = stripAnnotationsFromRepo(dir);
@@ -155,7 +155,7 @@ describe("stripAnnotationsFromRepo (SC-B.5)", () => {
   it("is idempotent — a second sweep changes nothing", () => {
     writeFileSync(
       join(dir, "x.ts"),
-      `// @sem domain=auth\nexport const x = 1;\n`
+      "// @sem domain=auth\nexport const x = 1;\n"
     );
     expect(stripAnnotationsFromRepo(dir).filesChanged).toBe(1);
     const second = stripAnnotationsFromRepo(dir);
@@ -164,7 +164,7 @@ describe("stripAnnotationsFromRepo (SC-B.5)", () => {
   });
 
   it("reports zero changes on a repo with no annotations", () => {
-    writeFileSync(join(dir, "clean.ts"), `export const k = 1;\n`);
+    writeFileSync(join(dir, "clean.ts"), "export const k = 1;\n");
     const res = stripAnnotationsFromRepo(dir);
     expect(res.filesScanned).toBe(1);
     expect(res.filesChanged).toBe(0);

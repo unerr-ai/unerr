@@ -140,7 +140,9 @@ export class ToolExposureStore {
     const cutoff = Date.now() - retentionDays * 86_400_000;
     let kept = records.filter((r) => r.ts >= cutoff);
     if (kept.length > maxRecords) {
-      kept = [...kept].sort((a, b) => a.ts - b.ts).slice(kept.length - maxRecords);
+      kept = [...kept]
+        .sort((a, b) => a.ts - b.ts)
+        .slice(kept.length - maxRecords);
     }
 
     const removed = records.length - kept.length;
@@ -148,9 +150,13 @@ export class ToolExposureStore {
 
     try {
       const tmp = `${this.filePath}.tmp-${process.pid}`;
-      await fs.writeFile(tmp, kept.map((r) => `${JSON.stringify(r)}\n`).join(""), {
-        encoding: "utf8",
-      });
+      await fs.writeFile(
+        tmp,
+        kept.map((r) => `${JSON.stringify(r)}\n`).join(""),
+        {
+          encoding: "utf8",
+        }
+      );
       await fs.rename(tmp, this.filePath);
     } catch {
       return 0; // rewrite failed — original file is intact

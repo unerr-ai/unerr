@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 /**
  * Compression harness (S0/T0.5 + S4) — runs the FROZEN corpus through the LIVE
  * compressors and reports per-fixture { original_tokens, delivered_tokens,
@@ -40,6 +41,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { rankChunksByQuery } from "../intelligence/chunk-ranker.js";
+import { smartTruncate } from "../intelligence/smart-truncate.js";
 import { estimateTokenCount } from "../intelligence/token-estimator.js";
 import { accountCompression } from "../proxy/shell-compression-log.js";
 import {
@@ -48,9 +51,6 @@ import {
 } from "../proxy/shell-compressor.js";
 import { compressLogText } from "../proxy/shell-strategies/log-text.js";
 import { applyWireCap } from "../proxy/wire-cap.js";
-import { smartTruncate } from "../intelligence/smart-truncate.js";
-import { rankChunksByQuery } from "../intelligence/chunk-ranker.js";
-import { createHash } from "node:crypto";
 
 const CORPUS_DIR = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -309,7 +309,7 @@ function rollupByCategory(reports: FixtureReport[]): CategoryRollup[] {
   return rollups;
 }
 
-export async function runHarness(): Promise<FixtureReport[]> {
+async function runHarness(): Promise<FixtureReport[]> {
   const manifest = loadManifest();
   const reports: FixtureReport[] = [];
   for (const f of manifest.fixtures) {
@@ -323,21 +323,23 @@ function formatReport(reports: FixtureReport[]): string {
   lines.push("");
   lines.push("=== Compression harness report (S0 frozen corpus) ===");
   lines.push(
-    "fixture".padEnd(22) +
+    `${
+      "fixture".padEnd(22) +
       "mech".padEnd(18) +
       "orig".padStart(8) +
       "deliv".padStart(8) +
-      "saved%".padStart(9) +
-      "  fidelity"
+      "saved%".padStart(9)
+    }  fidelity`
   );
   for (const r of reports) {
     lines.push(
-      r.id.padEnd(22) +
+      `${
+        r.id.padEnd(22) +
         r.mechanism.padEnd(18) +
         String(r.original_tokens).padStart(8) +
         String(r.delivered_tokens).padStart(8) +
-        `${r.saved_pct.toFixed(1)}%`.padStart(9) +
-        `  ${r.fidelity_pass ? "PASS" : "FAIL"}`
+        `${r.saved_pct.toFixed(1)}%`.padStart(9)
+      }  ${r.fidelity_pass ? "PASS" : "FAIL"}`
     );
   }
   lines.push("");
@@ -367,10 +369,7 @@ function renderResultsMd(reports: FixtureReport[]): string {
   const rollups = rollupByCategory(reports);
   const totalOrig = reports.reduce((s, r) => s + r.original_tokens, 0);
   const totalGross = reports.reduce((s, r) => s + r.delivered_tokens, 0);
-  const totalGated = reports.reduce(
-    (s, r) => s + gatedDeliveredTokens(r),
-    0
-  );
+  const totalGated = reports.reduce((s, r) => s + gatedDeliveredTokens(r), 0);
   const grossPct = totalOrig === 0 ? 0 : (1 - totalGross / totalOrig) * 100;
   const gatedPct = totalOrig === 0 ? 0 : (1 - totalGated / totalOrig) * 100;
   const totalPasses = reports.filter((r) => r.fidelity_pass).length;
@@ -422,8 +421,7 @@ function renderResultsMd(reports: FixtureReport[]): string {
   out.push("| --- | --- | --- | --- | --- | --- | --- |");
   // Stable order: category, then fixture id, so the table is byte-deterministic.
   const ordered = [...reports].sort(
-    (a, b) =>
-      a.category.localeCompare(b.category) || a.id.localeCompare(b.id)
+    (a, b) => a.category.localeCompare(b.category) || a.id.localeCompare(b.id)
   );
   for (const r of ordered) {
     out.push(

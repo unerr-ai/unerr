@@ -34,7 +34,11 @@ vi.mock("node:os", async (importOriginal) => {
 
 import { maybeNotifyAuthTransition } from "../cloud/auth-notify.js";
 import { authState } from "../cloud/auth-state.js";
-import { authBadge, authStateLine, authSurfaceSignal } from "../cloud/auth-surface.js";
+import {
+  authBadge,
+  authStateLine,
+  authSurfaceSignal,
+} from "../cloud/auth-surface.js";
 import type { CloudClient } from "../cloud/client.js";
 import { credentialsPath, isLoggedIn } from "../cloud/credentials.js";
 import {
@@ -236,7 +240,9 @@ describe("A6 auth e2e drills", () => {
           ok: true,
           status: 200,
           // Signed by the WRONG key → verification fails → bad_token.
-          data: { entitlement_token: token(claimsAt(nowSec), wrong.privateKey) },
+          data: {
+            entitlement_token: token(claimsAt(nowSec), wrong.privateKey),
+          },
           serverTimeMs: Date.now(),
         }),
       notifyTransition: h.notifyTransition,

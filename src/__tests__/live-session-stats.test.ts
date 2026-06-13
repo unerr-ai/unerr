@@ -50,10 +50,15 @@ describe("live session sidecars", () => {
   });
 
   afterEach(() => {
-    if (savedHome === undefined) delete process.env.HOME;
-    else process.env.HOME = savedHome;
-    if (savedProfile === undefined) delete process.env.USERPROFILE;
-    else process.env.USERPROFILE = savedProfile;
+    // Variable key (not a static `delete process.env.HOME`) satisfies biome's
+    // noDelete + useLiteralKeys while still removing the key when it was unset.
+    for (const [key, saved] of [
+      ["HOME", savedHome],
+      ["USERPROFILE", savedProfile],
+    ] as const) {
+      if (saved === undefined) delete process.env[key];
+      else process.env[key] = saved;
+    }
     rmSync(fakeHome, { recursive: true, force: true });
   });
 

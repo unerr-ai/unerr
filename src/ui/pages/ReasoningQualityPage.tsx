@@ -166,7 +166,11 @@ function qualityLabel(multiplier: number): {
       bg: "bg-emerald-500/20",
     };
   if (multiplier >= 3)
-    return { text: "Strong", color: "text-emerald-400", bg: "bg-emerald-500/20" };
+    return {
+      text: "Strong",
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/20",
+    };
   if (multiplier >= 2)
     return { text: "Good", color: "text-cyan-400", bg: "bg-cyan-500/20" };
   if (multiplier >= 1.5)
@@ -327,9 +331,7 @@ function GlobalView({
   if (!g || g.total_events === 0) {
     return (
       <div className="el-raised rounded-lg p-10 text-center">
-        <p className="t-secondary text-lg">
-          No reasoning data yet
-        </p>
+        <p className="t-secondary text-lg">No reasoning data yet</p>
         <p className="t-tertiary mt-2 text-sm max-w-md mx-auto">
           This page tracks how unerr improves your agent's thinking — not just
           saving tokens, but making every remaining token count more. Data
@@ -361,9 +363,9 @@ function GlobalView({
             </h2>
             <p className="t-tertiary text-xs mt-1 max-w-lg leading-relaxed">
               unerr doesn't just save tokens — it makes every remaining token
-              count more. By feeding the right code, past learnings, and
-              project conventions at exactly the right moment, your agent
-              makes better decisions with less context.
+              count more. By feeding the right code, past learnings, and project
+              conventions at exactly the right moment, your agent makes better
+              decisions with less context.
             </p>
           </div>
           <div className="text-right shrink-0">
@@ -375,9 +377,7 @@ function GlobalView({
             >
               {ql.text}
             </span>
-            <p className="t-tertiary text-[10px] mt-1">
-              reasoning improvement
-            </p>
+            <p className="t-tertiary text-[10px] mt-1">reasoning improvement</p>
           </div>
         </div>
       </div>
@@ -441,7 +441,13 @@ function GlobalView({
                 ? `${g.memory_signals_fired}`
                 : "—"
           }
-          unit={g.memory_verdicts_total > 0 ? "" : g.memory_signals_fired > 0 ? " notes" : ""}
+          unit={
+            g.memory_verdicts_total > 0
+              ? ""
+              : g.memory_signals_fired > 0
+                ? " notes"
+                : ""
+          }
           subtitle={
             g.memory_verdicts_total > 0
               ? "of past learnings actually changed the agent's decisions"
@@ -482,9 +488,7 @@ function GlobalView({
                 </p>
               </div>
               <div>
-                <span className="t-tertiary text-[10px]">
-                  Attention boost
-                </span>
+                <span className="t-tertiary text-[10px]">Attention boost</span>
                 <p className="text-foreground font-mono text-sm">
                   {g.attention_multiplier}x
                 </p>
@@ -883,9 +887,7 @@ function GlobalView({
               </p>
             </div>
             <div>
-              <p className="t-tertiary text-[10px]">
-                Conventions applied
-              </p>
+              <p className="t-tertiary text-[10px]">Conventions applied</p>
               <p className="text-foreground font-mono text-sm font-medium mt-0.5">
                 {fmt(g.conventions_surfaced)}
               </p>
@@ -897,9 +899,7 @@ function GlobalView({
               </p>
             </div>
             <div>
-              <p className="t-tertiary text-[10px]">
-                Anti-patterns warned
-              </p>
+              <p className="t-tertiary text-[10px]">Anti-patterns warned</p>
               <p className="text-foreground font-mono text-sm font-medium mt-0.5">
                 {fmt(g.negative_warnings)}
               </p>
@@ -1190,7 +1190,13 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 ? `${s.memory_signals_fired}`
                 : "—"
           }
-          unit={s.memory_verdicts_total > 0 ? "" : s.memory_signals_fired > 0 ? " notes" : ""}
+          unit={
+            s.memory_verdicts_total > 0
+              ? ""
+              : s.memory_signals_fired > 0
+                ? " notes"
+                : ""
+          }
           subtitle={
             s.memory_verdicts_total > 0
               ? "load-bearing"
@@ -1208,9 +1214,9 @@ function SessionView({ sessionId }: { sessionId: string }) {
             How context quality changed through the session
           </h3>
           <p className="t-tertiary text-xs mb-3">
-            Each bar is one turn. Without unerr, this line typically drops
-            as context fills up — a rising or flat line means the session
-            stayed clean.
+            Each bar is one turn. Without unerr, this line typically drops as
+            context fills up — a rising or flat line means the session stayed
+            clean.
           </p>
           <div className="flex gap-[3px]" style={{ height: "120px" }}>
             {trajectory.slice(-60).map((pt) => {
@@ -1276,9 +1282,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
           <div className="space-y-3">
             <div>
               <div className="flex justify-between items-baseline">
-                <span className="t-secondary text-xs">
-                  Noise removed
-                </span>
+                <span className="t-secondary text-xs">Noise removed</span>
                 <span className="text-foreground font-mono text-sm font-medium">
                   {s.noise_removed_pct}%
                 </span>
@@ -1320,9 +1324,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 </span>
               </div>
               <div className="flex justify-between items-baseline">
-                <span className="t-tertiary text-xs">
-                  Tokens via graph
-                </span>
+                <span className="t-tertiary text-xs">Tokens via graph</span>
                 <span className="t-secondary font-mono text-xs">
                   {fmt(s.graph_tokens_delivered)}
                 </span>
@@ -1339,9 +1341,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
           <div className="space-y-3">
             <div>
               <div className="flex justify-between items-baseline">
-                <span className="t-secondary text-xs">
-                  One-call resolution
-                </span>
+                <span className="t-secondary text-xs">One-call resolution</span>
                 <span className="text-foreground font-mono text-sm font-medium">
                   {s.first_call_resolution_rate}%
                 </span>
@@ -1364,9 +1364,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
               </span>
             </div>
             <div className="flex justify-between items-baseline">
-              <span className="t-secondary text-xs">
-                Search loops stopped
-              </span>
+              <span className="t-secondary text-xs">Search loops stopped</span>
               <span className="text-foreground font-mono text-sm font-medium">
                 {s.exploration_loops_prevented}
               </span>
@@ -1430,9 +1428,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
               </span>
             </div>
             <div className="flex justify-between pt-2 border-t border-border-subtle/50">
-              <span className="t-tertiary text-xs">
-                Total safety score
-              </span>
+              <span className="t-tertiary text-xs">Total safety score</span>
               <span className="text-amber-400 font-mono text-xs font-medium">
                 {s.prevention_score}
               </span>

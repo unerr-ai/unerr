@@ -24,10 +24,10 @@
 import { rankChunksByQuery } from "../intelligence/chunk-ranker.js";
 import { byImportanceDesc } from "../intelligence/importance.js";
 import { estimateTokenCount } from "../intelligence/token-estimator.js";
-import type { ReversibleCompressionFields } from "./shell-compression-log.js";
-import { buildCacheMarker } from "./reversible-cache.js";
 import { toWireTag } from "./response-envelope.js";
+import { buildCacheMarker } from "./reversible-cache.js";
 import { getSharedReversibleCache } from "./shared-cache.js";
+import type { ReversibleCompressionFields } from "./shell-compression-log.js";
 
 export interface WireCapResult {
   /** Possibly-truncated body — still the same JSON shape, smaller arrays. */

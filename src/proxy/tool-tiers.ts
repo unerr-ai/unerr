@@ -197,10 +197,7 @@ export function describeCondition(c: Condition): string {
     unknownPolicyKeys.length > 0
   ) {
     throw new Error(
-      "UNLOCK_CONDITIONS is out of sync with TIER_ENTRIES.\n" +
-        `  Tier 1 tools with a policy (should be none): ${tier1WithPolicy.join(", ") || "(none)"}\n` +
-        `  Tier 2/3 tools missing a policy: ${tier23WithoutPolicy.join(", ") || "(none)"}\n` +
-        `  Unknown policy keys (not in TIER_ENTRIES): ${unknownPolicyKeys.join(", ") || "(none)"}`
+      `UNLOCK_CONDITIONS is out of sync with TIER_ENTRIES.\n  Tier 1 tools with a policy (should be none): ${tier1WithPolicy.join(", ") || "(none)"}\n  Tier 2/3 tools missing a policy: ${tier23WithoutPolicy.join(", ") || "(none)"}\n  Unknown policy keys (not in TIER_ENTRIES): ${unknownPolicyKeys.join(", ") || "(none)"}`
     );
   }
 

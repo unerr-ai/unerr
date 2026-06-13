@@ -20,7 +20,9 @@ import { runStopHookHandlerAsync } from "../hooks/stop-hooks.js";
 
 describe("formatStop — adapter wire shapes", () => {
   it("Claude Code surfaces an enriched line as top-level systemMessage", () => {
-    const out = claudeCodeAdapter.formatStop(enrich("unerr · saved 1.2k tokens"));
+    const out = claudeCodeAdapter.formatStop(
+      enrich("unerr · saved 1.2k tokens")
+    );
     expect(JSON.parse(out)).toEqual({
       systemMessage: "unerr · saved 1.2k tokens",
     });

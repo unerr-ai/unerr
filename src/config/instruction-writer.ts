@@ -60,7 +60,7 @@ unerr re-anchors these comments when code moves and flags a comment that drifted
   // Claude Code requires built-in Read before Edit (readFileState constraint).
   // Other agents can use file_read directly before editing.
   const readForEditRow = isClaudeCode
-    ? `| Understand a file before editing | \`file_read\`/\`unerr_context\` to understand, then built-in \`Read\` (offset/limit on the edit window) before Edit | Full-file read (now blocked) |`
+    ? "| Understand a file before editing | `file_read`/`unerr_context` to understand, then built-in `Read` (offset/limit on the edit window) before Edit | Full-file read (now blocked) |"
     : "| Read a file before editing | `file_read` with `entity` param or offset/limit for targeted access | Reading entire file |";
 
   const twoStepSection = isClaudeCode

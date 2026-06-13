@@ -417,10 +417,7 @@ function AttributionSection({
       </h3>
       <div className="space-y-2">
         {recalls.map((r, i) => (
-          <div
-            key={`recall-${i}`}
-            className="flex items-start gap-2 text-sm"
-          >
+          <div key={`recall-${i}`} className="flex items-start gap-2 text-sm">
             <span className="text-amber-400 shrink-0">💡</span>
             <div>
               <span className="text-amber-400 text-xs font-medium">
@@ -433,10 +430,7 @@ function AttributionSection({
           </div>
         ))}
         {captures.map((c, i) => (
-          <div
-            key={`capture-${i}`}
-            className="flex items-start gap-2 text-sm"
-          >
+          <div key={`capture-${i}`} className="flex items-start gap-2 text-sm">
             <span className="text-emerald-400 shrink-0">📝</span>
             <div>
               <span className="text-emerald-400 text-xs font-medium">
@@ -449,10 +443,7 @@ function AttributionSection({
           </div>
         ))}
         {drift.map((d, i) => (
-          <div
-            key={`drift-${i}`}
-            className="flex items-start gap-2 text-sm"
-          >
+          <div key={`drift-${i}`} className="flex items-start gap-2 text-sm">
             <span className="text-red-400 shrink-0">🔄</span>
             <div>
               <span className="text-red-400 text-xs font-medium">
@@ -730,8 +721,7 @@ export function PromptTracePage() {
   const toolCalls = trace.tool_calls ?? [];
   const markers = trace.markers ?? [];
 
-  const totalActivity =
-    events.length + toolCalls.length + markers.length;
+  const totalActivity = events.length + toolCalls.length + markers.length;
 
   return (
     <div className="space-y-5">

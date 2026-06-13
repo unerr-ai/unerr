@@ -8,7 +8,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { type InstallLoginPlan, planInstallLogin } from "../commands/install.js";
+import {
+  type InstallLoginPlan,
+  planInstallLogin,
+} from "../commands/install.js";
 
 const tty = { loggedIn: false, hasTty: true };
 
@@ -31,9 +34,9 @@ describe("planInstallLogin — install-time login verdict", () => {
   });
 
   it("no TTY (piped / CI without --token) → stays free, never blocks", () => {
-    expect(
-      planInstallLogin({}, { loggedIn: false, hasTty: false })
-    ).toEqual({ action: "later" });
+    expect(planInstallLogin({}, { loggedIn: false, hasTty: false })).toEqual({
+      action: "later",
+    });
   });
 
   it("plain interactive install → prompts once (login on by default)", () => {

@@ -17,9 +17,9 @@ import { daemonSockPath, getDaemonTier } from "../daemon/client.js";
 import { effectiveTier, readEntitlementCache } from "./entitlements.js";
 import {
   FREE_TIER_LIMITS,
+  type TierLimits,
   parseLimits,
   repoLimit,
-  type TierLimits,
 } from "./tier-model.js";
 
 /** The tier snapshot a proxy acts on. */

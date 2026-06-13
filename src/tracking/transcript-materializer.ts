@@ -22,9 +22,12 @@ import { openMetricsStore } from "./metrics-store.js";
 
 const TEXT_LIMIT = 10_000;
 
-function truncate(s: string | null | undefined, limit = TEXT_LIMIT): string | null {
+function truncate(
+  s: string | null | undefined,
+  limit = TEXT_LIMIT
+): string | null {
   if (!s) return null;
-  return s.length > limit ? s.slice(0, limit) + "..." : s;
+  return s.length > limit ? `${s.slice(0, limit)}...` : s;
 }
 
 export interface MaterializeOptions {

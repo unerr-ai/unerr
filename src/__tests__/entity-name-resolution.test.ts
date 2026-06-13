@@ -93,8 +93,10 @@ describe("get_entity name resolution (by_name index regression)", () => {
   function contentOf(
     result: unknown
   ): { key?: string; kind?: string; name?: string } | null {
-    return (result as { content?: { key?: string; kind?: string; name?: string } })
-      ?.content ?? null;
+    return (
+      (result as { content?: { key?: string; kind?: string; name?: string } })
+        ?.content ?? null
+    );
   }
 
   it("resolves a bare class name to the class, not one of its methods", async () => {

@@ -50,9 +50,7 @@ function loadDatabaseCtor(): DatabaseCtor | null {
   } catch (err) {
     cachedDriver = null;
     process.stderr.write(
-      `[unerr] WARN: better-sqlite3 native driver unavailable (${err instanceof Error ? err.message : String(err)}); ` +
-        "metrics/telemetry disabled (dashboard counters stay empty). " +
-        "Install the prebuilt binary or a build toolchain to enable them — core graph tools are unaffected.\n"
+      `[unerr] WARN: better-sqlite3 native driver unavailable (${err instanceof Error ? err.message : String(err)}); metrics/telemetry disabled (dashboard counters stay empty). Install the prebuilt binary or a build toolchain to enable them — core graph tools are unaffected.\n`
     );
   }
   return cachedDriver;

@@ -58,7 +58,9 @@ function defaultListProcesses(platform: NodeJS.Platform): string {
  * our own `@unerr-ai/unerr` install from the match (so a sweep that overlaps our
  * own in-flight apply doesn't read itself as a foreign collision).
  */
-export function isPackageManagerBusy(deps: CollisionDeps = {}): CollisionResult {
+export function isPackageManagerBusy(
+  deps: CollisionDeps = {}
+): CollisionResult {
   const platform = deps.platform ?? process.platform;
   const list = (deps.listProcesses ?? (() => defaultListProcesses(platform)))();
   if (!list) return { busy: false };

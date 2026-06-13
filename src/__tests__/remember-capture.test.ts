@@ -52,7 +52,9 @@ describe("parseCaptureReply", () => {
   it("returns true when the envelope reports a store", () => {
     const reply = JSON.stringify({
       result: {
-        content: [{ text: JSON.stringify({ ok: true, data: { stored: true } }) }],
+        content: [
+          { text: JSON.stringify({ ok: true, data: { stored: true } }) },
+        ],
       },
     });
     expect(parseCaptureReply(reply)).toBe(true);
@@ -70,9 +72,9 @@ describe("parseCaptureReply", () => {
   });
 
   it("returns false on a JSON-RPC error reply", () => {
-    expect(
-      parseCaptureReply(JSON.stringify({ error: { code: -1 } }))
-    ).toBe(false);
+    expect(parseCaptureReply(JSON.stringify({ error: { code: -1 } }))).toBe(
+      false
+    );
   });
 
   it("returns false on malformed JSON", () => {

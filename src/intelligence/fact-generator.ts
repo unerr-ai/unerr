@@ -17,8 +17,8 @@
  */
 
 import {
-  readRecentSessionSummaries,
   type SessionSummaryRecord,
+  readRecentSessionSummaries,
 } from "../tracking/session-summary-writer.js";
 import type { DetectedConvention } from "./local-convention-detector.js";
 import type { CorrectionEntry } from "./negative-knowledge.js";

@@ -34,13 +34,7 @@ describe("toolCallHistogram", () => {
 
 describe("longestOrderedSubsequence", () => {
   it("counts in-order recon steps, tolerating interleaved tools", () => {
-    const seq = [
-      "recall_notes",
-      "Bash",
-      "search_code",
-      "Read",
-      "file_outline",
-    ];
+    const seq = ["recall_notes", "Bash", "search_code", "Read", "file_outline"];
     expect(longestOrderedSubsequence(seq, RECON_SEQUENCE)).toBe(3);
   });
 

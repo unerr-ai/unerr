@@ -19,7 +19,10 @@ import { BLAST_RADIUS_METHOD } from "../proxy/blast-radius-protocol.js";
 
 function shortSockPath(): string {
   // Keep the path short — macOS sun_path is capped at ~104 bytes.
-  return join(tmpdir(), `ur-c-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
+  return join(
+    tmpdir(),
+    `ur-c-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+  );
 }
 
 /** Start a fake proxy that replies to `unerr/blast_radius` with `reply`,
@@ -60,8 +63,12 @@ const sampleWarning = {
   changed_entity_key: "00aa11bb22cc33dd",
   change_type: "parameter_added",
   blast_radius: {
-    direct_callers: [{ file: "src/checkout.ts", entity: "checkout", line: 4, isTest: false }],
-    test_files: [{ file: "src/pay.test.ts", entity: "payTest", line: 9, isTest: true }],
+    direct_callers: [
+      { file: "src/checkout.ts", entity: "checkout", line: 4, isTest: false },
+    ],
+    test_files: [
+      { file: "src/pay.test.ts", entity: "payTest", line: 9, isTest: true },
+    ],
     indirect_callers: 0,
     total_at_risk: 2,
   },
@@ -114,7 +121,10 @@ describe("queryBlastRadius (UDS client)", () => {
       error: { code: -32603, message: "boom" },
     });
     servers.push(server);
-    const res = await queryBlastRadius({ file_path: "src/pay.ts" }, { sockPath });
+    const res = await queryBlastRadius(
+      { file_path: "src/pay.ts" },
+      { sockPath }
+    );
     expect(res).toBeNull();
   });
 });

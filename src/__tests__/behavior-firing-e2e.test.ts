@@ -20,15 +20,15 @@ import { type Server, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { CozoDb } from "../intelligence/cozo-schema.js";
-import { initSchema } from "../intelligence/cozo-schema.js";
-import { CozoGraphStore } from "../intelligence/local-graph.js";
 import { IncompleteWorkDetector } from "../behaviors/incomplete-work.js";
 import { resetHookDedup } from "../hooks/hook-dedup.js";
 import {
   runPostEditHook,
   runPreEditHookAsync,
 } from "../hooks/navigation-hooks.js";
+import type { CozoDb } from "../intelligence/cozo-schema.js";
+import { initSchema } from "../intelligence/cozo-schema.js";
+import { CozoGraphStore } from "../intelligence/local-graph.js";
 import {
   BLAST_RADIUS_METHOD,
   handleBlastRadiusRequest,
@@ -53,7 +53,7 @@ async function seedEntity(db: CozoDb, key: string, fp: string): Promise<void> {
     { key, fp }
   );
   await db.run(
-    `?[file_path, entity_key] <- [[$fp, $key]] :put file_index {file_path, entity_key}`,
+    "?[file_path, entity_key] <- [[$fp, $key]] :put file_index {file_path, entity_key}",
     { key, fp }
   );
 }
@@ -204,11 +204,7 @@ describe("behavior firing — pre-edit cascade end-to-end (P0.6)", () => {
     // Editing a string literal / comment — no function signature → engine
     // returns no warnings → static nudge, not the cascade phrasing.
     const out = await runPreEditHookAsync(
-      editPayload(
-        "src/pay.ts",
-        "const RETRIES = 3;",
-        "const RETRIES = 5;"
-      )
+      editPayload("src/pay.ts", "const RETRIES = 3;", "const RETRIES = 5;")
     );
     expect(() => JSON.parse(out)).not.toThrow();
     expect(out).not.toContain("caller(s) at risk");
@@ -316,7 +312,10 @@ describe("behavior firing — pre-edit cascade end-to-end (P0.6)", () => {
     expect(broken).toBeDefined();
     expect(broken!.entity).toContain("pay");
     expect(broken!.remaining).toEqual(
-      expect.arrayContaining(["src/checkout.ts:checkout", "src/refund.ts:refund"])
+      expect.arrayContaining([
+        "src/checkout.ts:checkout",
+        "src/refund.ts:refund",
+      ])
     );
   });
 });

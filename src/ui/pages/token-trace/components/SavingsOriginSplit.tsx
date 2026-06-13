@@ -232,7 +232,9 @@ export function SavingsOriginSplit({
   const queryPruned = rev?.query_relevance_pruned ?? 0;
   const cacheLookups = (rev?.cache_hits ?? 0) + (rev?.cache_misses ?? 0);
   const cacheHitPct =
-    cacheLookups > 0 ? Math.round(((rev?.cache_hits ?? 0) / cacheLookups) * 100) : 0;
+    cacheLookups > 0
+      ? Math.round(((rev?.cache_hits ?? 0) / cacheLookups) * 100)
+      : 0;
 
   const { intelligence, compression, total } =
     splitMechanismsByTier(byMechanism);
@@ -298,8 +300,8 @@ export function SavingsOriginSplit({
           </span>
           {reuseTokens > 0 && (
             <span className="font-mono tabular-nums">
-              {fmt(reuseTokens)} tok reused (slice pull-back, {cacheHitPct}% cache
-              hit)
+              {fmt(reuseTokens)} tok reused (slice pull-back, {cacheHitPct}%
+              cache hit)
             </span>
           )}
           {droppedLowImp > 0 && (

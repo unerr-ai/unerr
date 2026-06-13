@@ -300,7 +300,7 @@ export class NotesStore {
     const groupId = `cg-${createHash("sha1").update(anchorsJson).digest("hex").slice(0, 12)}`;
 
     const existing = await this.db.run(
-      `?[reinforcement_count] := *co_change_groups{group_id, reinforcement_count}, group_id = $gid`,
+      "?[reinforcement_count] := *co_change_groups{group_id, reinforcement_count}, group_id = $gid",
       { gid: groupId }
     );
     if (existing.rows.length > 0) {

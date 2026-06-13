@@ -19,9 +19,15 @@ describe("agent hook-capability matrix", () => {
   it("declares granular hooks for exactly the hookSupport agents", () => {
     for (const agent of AGENT_REGISTRY) {
       if (agent.hookSupport) {
-        expect(agent.hooks, `${agent.id} hookSupport=true needs hooks`).toBeDefined();
+        expect(
+          agent.hooks,
+          `${agent.id} hookSupport=true needs hooks`
+        ).toBeDefined();
       } else {
-        expect(agent.hooks, `${agent.id} hookSupport=false must omit hooks`).toBeUndefined();
+        expect(
+          agent.hooks,
+          `${agent.id} hookSupport=false must omit hooks`
+        ).toBeUndefined();
       }
     }
   });

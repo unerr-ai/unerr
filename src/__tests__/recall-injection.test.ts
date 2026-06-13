@@ -13,12 +13,12 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { runUserPromptSubmitHookAsync } from "../hooks/prompt-hooks.js";
 import {
   parseRecallReply,
   queryRecallNotes,
   renderRecallBlock,
 } from "../hooks/recall-client.js";
-import { runUserPromptSubmitHookAsync } from "../hooks/prompt-hooks.js";
 
 describe("parseRecallReply", () => {
   it("extracts notes from the {ok,data:{notes}} MCP envelope", () => {
@@ -82,7 +82,12 @@ describe("renderRecallBlock", () => {
 
   it("leads with 'unerr' and keeps each note's DSL anchor for citation", () => {
     const block = renderRecallBlock([
-      { kind: "wrn", anchor: "g:*.test.ts", polarity: "-", content: "no mocks" },
+      {
+        kind: "wrn",
+        anchor: "g:*.test.ts",
+        polarity: "-",
+        content: "no mocks",
+      },
     ]);
     expect(block).toContain("unerr recalled 1 note");
     expect(block).toContain("[wrn g:*.test.ts -] no mocks");

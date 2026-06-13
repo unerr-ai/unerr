@@ -34,7 +34,7 @@ function makeSession(wrongCallRatio: number, totalCalls: number) {
     if (i < wrongCount) {
       traces.push(
         makeTrace({
-          toolName: `tool_a`,
+          toolName: "tool_a",
           family: "pg",
           outcome: "empty",
           turnNumber: i,
@@ -44,7 +44,7 @@ function makeSession(wrongCallRatio: number, totalCalls: number) {
       ts += 500;
       traces.push(
         makeTrace({
-          toolName: `tool_b`,
+          toolName: "tool_b",
           family: "pg",
           turnNumber: i,
           timestamp: ts,
@@ -53,7 +53,7 @@ function makeSession(wrongCallRatio: number, totalCalls: number) {
     } else {
       traces.push(
         makeTrace({
-          toolName: `tool_ok`,
+          toolName: "tool_ok",
           family: "pg",
           responseTokens: 300,
           turnNumber: i,

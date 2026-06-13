@@ -65,10 +65,47 @@ const PROXIMITY_WEIGHT = 1.0;
 const LARGE_INPUT_CHARS = 50_000;
 
 const STOPWORDS = new Set([
-  "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "of",
-  "and", "or", "but", "in", "on", "at", "to", "for", "with", "by", "from",
-  "up", "down", "out", "off", "over", "under", "as", "this", "that", "these",
-  "those", "it", "its", "into", "if", "then", "do", "does", "did",
+  "a",
+  "an",
+  "the",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "of",
+  "and",
+  "or",
+  "but",
+  "in",
+  "on",
+  "at",
+  "to",
+  "for",
+  "with",
+  "by",
+  "from",
+  "up",
+  "down",
+  "out",
+  "off",
+  "over",
+  "under",
+  "as",
+  "this",
+  "that",
+  "these",
+  "those",
+  "it",
+  "its",
+  "into",
+  "if",
+  "then",
+  "do",
+  "does",
+  "did",
 ]);
 
 /**
@@ -93,7 +130,7 @@ function tokenize(text: string): string[] {
 export function rankChunksByQuery(
   chunks: RankableChunk[],
   query: string,
-  opts?: RankChunksOptions,
+  opts?: RankChunksOptions
 ): RankedChunk[] {
   const n = chunks.length;
   if (n === 0) return [];
@@ -164,7 +201,9 @@ export function rankChunksByQuery(
       const termIdf = idf.get(term) ?? 0;
       const numerator = f * (BM25_K1 + 1);
       const denominator =
-        f + BM25_K1 * (1 - BM25_B + BM25_B * (avgDocLength === 0 ? 0 : dl / avgDocLength));
+        f +
+        BM25_K1 *
+          (1 - BM25_B + BM25_B * (avgDocLength === 0 ? 0 : dl / avgDocLength));
       bm25 += termIdf * (denominator === 0 ? 0 : numerator / denominator);
     }
 
@@ -201,7 +240,9 @@ export interface QueryResolutionContext {
  * the unerr_context prompt arg when present and non-blank, else the latest
  * captured user prompt, else null. Deterministic; no clock, no I/O.
  */
-export function resolveCurrentQuery(ctx: QueryResolutionContext): string | null {
+export function resolveCurrentQuery(
+  ctx: QueryResolutionContext
+): string | null {
   const fromContext = ctx.unerrContextPrompt?.trim();
   if (fromContext) return fromContext;
   const fromPrompt = ctx.latestUserPrompt?.trim();

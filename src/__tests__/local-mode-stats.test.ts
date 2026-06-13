@@ -131,7 +131,6 @@ describe("LocalModeStats recording functions", () => {
     recordCommunityContext(lm);
     expect(lm.communityContextsInjected).toBe(1);
   });
-
 });
 
 // ── Local Mode Shutdown Summary ─────────────────────────────────
@@ -231,7 +230,6 @@ describe("formatLocalModeSessionStats", () => {
     // Network Isolation always shown
     expect(result).toContain("Network Isolation:");
   });
-
 });
 
 // ── Cumulative Local Stats Persistence ──────────────────────────

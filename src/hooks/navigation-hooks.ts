@@ -11,12 +11,12 @@ import { join } from "node:path";
 import type { BoundaryViolation } from "../intelligence/boundary-check.js";
 import { lookupCoChangePartners } from "../intelligence/cochange-index.js";
 import type { CascadeWarning } from "../intelligence/edit-impact.js";
+import { splitStableVolatile } from "../proxy/prefix-order.js";
+import { recordPrefixStability } from "../proxy/prefix-stability.js";
 import { formatReviewFindings } from "../review/format.js";
 import { recordEdit } from "../tracking/session-edit-log.js";
 import { initFileLog, startupLog } from "../utils/startup-log.js";
 import { queryBlastRadius } from "./blast-radius-client.js";
-import { splitStableVolatile } from "../proxy/prefix-order.js";
-import { recordPrefixStability } from "../proxy/prefix-stability.js";
 import {
   queryConventions,
   renderConventionsBlock,

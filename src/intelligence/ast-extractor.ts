@@ -145,8 +145,10 @@ function buildLogicalLine(
     result += j === startIdx ? raw : ` ${raw.trim()}`;
     for (let k = 0; k < raw.length; k++) {
       const ch = raw.charCodeAt(k);
-      if (ch === 40) depth++; // (
-      else if (ch === 41) depth--; // )
+      if (ch === 40)
+        depth++; // (
+      else if (ch === 41)
+        depth--; // )
       else if ((ch === 123 || ch === 59) && depth <= 0) return result; // { ;
     }
   }

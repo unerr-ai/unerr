@@ -15,16 +15,16 @@ import {
   enforceBudget,
   isStructuredContent,
 } from "../proxy/budget-enforcer.js";
+import {
+  recordCacheRetrieve,
+  resolveCacheRef,
+} from "../proxy/cache-retrieve.js";
 import type {
   CompressionQualityMonitor,
   ContentType,
 } from "../proxy/compression-quality-monitor.js";
 import type { ContextRotDetector } from "../proxy/context-rot-detector.js";
 import type { EfficiencyTracker } from "../proxy/efficiency-tracker.js";
-import {
-  recordCacheRetrieve,
-  resolveCacheRef,
-} from "../proxy/cache-retrieve.js";
 import { formatToolOutput } from "../proxy/format-encoder.js";
 import {
   type EntityRiskInfo,
@@ -34,6 +34,7 @@ import type { RouterGateway } from "../proxy/router-gateway.js";
 import type { SessionDedup } from "../proxy/session-dedup.js";
 import { createSessionLegendTracker } from "../proxy/session-legend.js";
 import type { SessionEvents } from "../proxy/session-stats.js";
+import { getSharedReversibleCache } from "../proxy/shared-cache.js";
 import type { TokenCounter } from "../proxy/token-counter.js";
 import type { BehaviorEventWriter } from "../tracking/behavior-events.js";
 import type { BranchContext } from "../tracking/branch-context.js";
@@ -59,7 +60,6 @@ import {
 } from "./semantic/annotation-indexer.js";
 import { SessionContext } from "./session-context.js";
 import type { createSessionHealthMonitor } from "./session-health-monitor.js";
-import { getSharedReversibleCache } from "../proxy/shared-cache.js";
 import { smartTruncate, truncateResultList } from "./smart-truncate.js";
 import { estimateTokens } from "./token-estimator.js";
 
@@ -2909,9 +2909,7 @@ export class QueryRouter {
                 truncated.full_tokens_estimate > 0
                   ? Math.max(
                       0,
-                      1 -
-                        truncated.tokens_used /
-                          truncated.full_tokens_estimate
+                      1 - truncated.tokens_used / truncated.full_tokens_estimate
                     )
                   : 0,
               omniFallback: false,

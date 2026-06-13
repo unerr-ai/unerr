@@ -68,7 +68,7 @@ export function writeOverrides(unerrDir: string, state: OverrideState): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  writeFileSync(filePath, JSON.stringify(state, null, 2) + "\n", "utf-8");
+  writeFileSync(filePath, `${JSON.stringify(state, null, 2)}\n`, "utf-8");
 }
 
 /**

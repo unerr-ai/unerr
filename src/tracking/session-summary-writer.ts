@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type SessionSummary, extractChains } from "./ledger-chains.js";
-import { openMetricsStore, type SessionSummaryRow } from "./metrics-store.js";
+import { type SessionSummaryRow, openMetricsStore } from "./metrics-store.js";
 import type { LedgerEntry } from "./shadow-ledger.js";
 
 // ── Types ────────────────────────────────────────────────────────────

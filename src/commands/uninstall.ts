@@ -13,8 +13,8 @@
 import {
   existsSync,
   readFileSync,
-  rmdirSync,
   rmSync,
+  rmdirSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";

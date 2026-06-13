@@ -346,13 +346,20 @@ fi
       await persistLocalSnapshot(
         tempDir,
         "test-repo",
-        [{ key: "e1", kind: "function", name: "doThing", file_path: "src/a.ts" }],
+        [
+          {
+            key: "e1",
+            kind: "function",
+            name: "doThing",
+            file_path: "src/a.ts",
+          },
+        ],
         []
       );
       // It must land at the fixed name, NOT repoId-named.
-      expect(
-        existsSync(join(unerrDir, "snapshots", "graph.msgpack.gz"))
-      ).toBe(true);
+      expect(existsSync(join(unerrDir, "snapshots", "graph.msgpack.gz"))).toBe(
+        true
+      );
 
       const graph = await loadStandaloneGraph(tempDir);
       expect(graph).not.toBeNull();

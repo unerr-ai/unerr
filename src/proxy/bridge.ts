@@ -113,10 +113,9 @@ export function startUdsBridge(
     const catalog = new BridgeCatalog();
     const fallbackTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-    // Track stdin listeners so we can remove them on cleanup
-    let stdinDataHandler: ((chunk: Buffer) => void) | undefined;
-    // biome-ignore lint/style/useConst: assigned after socket.on handlers below
-    let stdinEndHandler: (() => void) | undefined;
+    // Track stdin listeners so we can remove them on cleanup. Declared at their
+    // assignment sites below (`const`); `cleanup()` reads them but only runs on
+    // later async events, long after both are attached.
 
     // Gapless stdin relay (warm-reconnect `tools/list` drop fix). mcpBoot
     // detaches its static-catalog interceptor synchronously right before
@@ -129,7 +128,7 @@ export function startUdsBridge(
     const codingAgent = options?.codingAgent;
     const maybeRewrite = (chunk: Buffer): Buffer =>
       codingAgent ? rewriteInitializeFrame(chunk, codingAgent) : chunk;
-    stdinDataHandler = (chunk: Buffer) => {
+    const stdinDataHandler = (chunk: Buffer) => {
       if (!connected) {
         preConnectQueue.push(chunk);
         return;
@@ -285,7 +284,7 @@ export function startUdsBridge(
       }
     });
 
-    stdinEndHandler = () => {
+    const stdinEndHandler = () => {
       const grace = setTimeout(() => cleanup("stdin_closed"), 3_000);
       socket.once("end", () => {
         clearTimeout(grace);

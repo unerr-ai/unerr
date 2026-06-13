@@ -120,8 +120,8 @@ describe("orderTags", () => {
 describe("orderConventions", () => {
   const convs: (OrderableConvention & { adherence_rate: number })[] = [
     { name: "z-style", file_path: "src/b.ts", adherence_rate: 0.99 },
-    { name: "a-style", file_path: "src/a.ts", adherence_rate: 0.10 },
-    { name: "b-style", file_path: "src/a.ts", adherence_rate: 0.50 },
+    { name: "a-style", file_path: "src/a.ts", adherence_rate: 0.1 },
+    { name: "b-style", file_path: "src/a.ts", adherence_rate: 0.5 },
   ];
 
   it("orders by file path → name, NOT by adherence_rate", () => {
@@ -247,9 +247,7 @@ describe("module purity", () => {
     const src = readFileSync(path, "utf8");
     // Strip comments first — the doc comment legitimately NAMES the banned APIs
     // when promising it doesn't use them. We assert the executable code is clean.
-    const code = src
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/\/\/.*$/gm, "");
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     expect(code).not.toMatch(/Date\.now|new Date|Math\.random/);
   });
 });

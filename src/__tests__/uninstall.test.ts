@@ -194,7 +194,7 @@ describe("uninstall", () => {
       const cwd = process.cwd();
       writeFileSync(
         join(tmpDir, "svc.ts"),
-        `/**\n * Does the thing.\n * @sem domain=auth\n */\nexport const svc = 1;\n`
+        "/**\n * Does the thing.\n * @sem domain=auth\n */\nexport const svc = 1;\n"
       );
       const { Command } = await import("commander");
       const { registerUninstallCommand } = await import(
@@ -221,7 +221,7 @@ describe("uninstall", () => {
 
     it("leaves source untouched without the flag", async () => {
       const cwd = process.cwd();
-      const src = `// @sem domain=auth\nexport const k = 1;\n`;
+      const src = "// @sem domain=auth\nexport const k = 1;\n";
       writeFileSync(join(tmpDir, "k.ts"), src);
       const { Command } = await import("commander");
       const { registerUninstallCommand } = await import(

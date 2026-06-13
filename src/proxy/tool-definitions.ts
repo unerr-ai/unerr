@@ -385,9 +385,7 @@ function buildDefinition(name: string, schema: ToolSchema): ToolDefinition {
   );
   if (missingSchema.length > 0 || missingDescription.length > 0) {
     throw new Error(
-      `tool-definitions.ts <> tool-descriptions.ts keys diverged.\n` +
-        `  Missing schema for: ${missingSchema.join(", ") || "(none)"}\n` +
-        `  Missing description for: ${missingDescription.join(", ") || "(none)"}`
+      `tool-definitions.ts <> tool-descriptions.ts keys diverged.\n  Missing schema for: ${missingSchema.join(", ") || "(none)"}\n  Missing description for: ${missingDescription.join(", ") || "(none)"}`
     );
   }
 }

@@ -16,9 +16,9 @@ import {
   createEnvelopePipeline,
   estimateTokens,
 } from "../proxy/response-envelope.js";
-import { UNERR_VERSION } from "../version.js";
 import { createSessionDedup } from "../proxy/session-dedup.js";
 import { createTokenCounter } from "../proxy/token-counter.js";
+import { UNERR_VERSION } from "../version.js";
 import { createMcpHarness } from "./helpers/mcp-harness.js";
 
 describe("MCP Envelope Integration", () => {

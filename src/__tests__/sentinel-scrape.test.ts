@@ -37,10 +37,11 @@ describe("scrapeSentinels — note form", () => {
   });
 
   it("keeps `|` inside content (only first 3 bars are separators)", () => {
-    const save = parseSentinelBody(
-      "note fct|e:dispatch|~|routes a|b|c by op"
-    );
-    expect(save).toEqual({ kind: "note", wire: "fct|e:dispatch|~|routes a|b|c by op" });
+    const save = parseSentinelBody("note fct|e:dispatch|~|routes a|b|c by op");
+    expect(save).toEqual({
+      kind: "note",
+      wire: "fct|e:dispatch|~|routes a|b|c by op",
+    });
   });
 
   it("survives a leading list marker", () => {
@@ -74,7 +75,11 @@ describe("scrapeSentinels — marker forms", () => {
         op: "decision",
         text: "UDS tools/call over a new control method",
       },
-      { kind: "marker", op: "blocker", text: "proxy busy indexing during test" },
+      {
+        kind: "marker",
+        op: "blocker",
+        text: "proxy busy indexing during test",
+      },
       { kind: "marker", op: "resolution", text: "pinned vitest pool to forks" },
     ]);
   });
@@ -100,7 +105,10 @@ describe("readClosingMessageFromTranscript", () => {
     writeFileSync(
       path,
       [
-        JSON.stringify({ type: "user", message: { role: "user", content: "hi" } }),
+        JSON.stringify({
+          type: "user",
+          message: { role: "user", content: "hi" },
+        }),
         JSON.stringify({
           type: "assistant",
           message: {

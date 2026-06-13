@@ -163,9 +163,9 @@ describe("validation completeness: the full catalog never shrinks", () => {
 
 describe("advertisement slice: ADVERTISED_TOOL_DEFINITIONS drops only hidden", () => {
   it("contains exactly the advertised names", () => {
-    expect(ADVERTISED_TOOL_DEFINITIONS.map((d) => d.name).sort()).toEqual([
-      ...advertisedToolNames(),
-    ].sort());
+    expect(ADVERTISED_TOOL_DEFINITIONS.map((d) => d.name).sort()).toEqual(
+      [...advertisedToolNames()].sort()
+    );
   });
 
   it("contains no hidden tool", () => {

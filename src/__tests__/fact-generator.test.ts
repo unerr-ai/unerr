@@ -4,10 +4,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CozoDb } from "../intelligence/cozo-schema.js";
 import {
-  closeMetricsStore,
-  openMetricsStore,
-} from "../tracking/metrics-store.js";
-import {
   type CausalBridgeEvent,
   generateFromCausalBridge,
   generateFromConventions,
@@ -18,6 +14,10 @@ import { initFactsSchema } from "../intelligence/facts-schema.js";
 import type { DetectedConvention } from "../intelligence/local-convention-detector.js";
 import type { CorrectionEntry } from "../intelligence/negative-knowledge.js";
 import { TemporalFactStore } from "../intelligence/temporal-facts.js";
+import {
+  closeMetricsStore,
+  openMetricsStore,
+} from "../tracking/metrics-store.js";
 import type { SessionSummaryRecord } from "../tracking/session-summary-writer.js";
 
 async function createTestDb(): Promise<CozoDb> {

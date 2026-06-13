@@ -520,8 +520,8 @@ function SubsystemDisabledBanner() {
         Activity tracking isn't active
       </div>
       <p className="t-tertiary text-xs mt-2 leading-relaxed">
-        unerr records your agent's activity while it's running.
-        Restart unerr and reload this page to see the timeline.
+        unerr records your agent's activity while it's running. Restart unerr
+        and reload this page to see the timeline.
       </p>
     </div>
   );
@@ -548,9 +548,11 @@ function FirstRunExplainer({ onDismiss }: { onDismiss: () => void }) {
           exploration. Click any row to see the full details.
         </li>
         <li>
-          <strong className="text-foreground">Goals, decisions, and
-          problems</strong> are tracked automatically as your agent works,
-          turning raw actions into a readable story.
+          <strong className="text-foreground">
+            Goals, decisions, and problems
+          </strong>{" "}
+          are tracked automatically as your agent works, turning raw actions
+          into a readable story.
         </li>
         <li>
           <strong className="text-foreground">Use the filters</strong> to narrow
@@ -601,7 +603,11 @@ function KpiStrip({
       />
       <KpiCard
         label="Unresolved"
-        sublabel={unresolvedCount > 0 ? "problems flagged but not yet fixed" : "all clear — nothing stuck"}
+        sublabel={
+          unresolvedCount > 0
+            ? "problems flagged but not yet fixed"
+            : "all clear — nothing stuck"
+        }
         value={unresolvedCount}
         accent={unresolvedCount > 0 ? "rose" : "zinc"}
       />
@@ -1631,9 +1637,9 @@ function DrawerNotes({ markers }: { markers: MarkerRow[] }) {
   if (markers.length === 0) {
     return (
       <div className="t-tertiary text-xs leading-relaxed">
-        No notes recorded for this action. As your agent uses unerr's
-        workflows, it automatically logs goals, decisions, stuck moments,
-        and solutions — building a readable trail of what happened and why.
+        No notes recorded for this action. As your agent uses unerr's workflows,
+        it automatically logs goals, decisions, stuck moments, and solutions —
+        building a readable trail of what happened and why.
       </div>
     );
   }
@@ -1662,9 +1668,7 @@ function DrawerNotes({ markers }: { markers: MarkerRow[] }) {
               <span className={`text-[10px] uppercase ${meta.color}`}>
                 {meta.emoji} {meta.label}
               </span>
-              <span className="t-tertiary text-[10px]">
-                {fmtTime(m.ts)}
-              </span>
+              <span className="t-tertiary text-[10px]">{fmtTime(m.ts)}</span>
             </div>
             <div className="text-xs text-foreground mt-1">{m.text}</div>
             {m.file_path && (

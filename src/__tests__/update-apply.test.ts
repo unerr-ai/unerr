@@ -49,10 +49,13 @@ function deps(over: Partial<Parameters<typeof applyUpdate>[0]> = {}) {
 describe("collision guard", () => {
   it("flags a foreign npm/pnpm/brew install in flight", () => {
     expect(
-      isPackageManagerBusy({ listProcesses: () => "node\nnpm install left-pad\nbash" }).busy
+      isPackageManagerBusy({
+        listProcesses: () => "node\nnpm install left-pad\nbash",
+      }).busy
     ).toBe(true);
     expect(
-      isPackageManagerBusy({ listProcesses: () => "brew upgrade ripgrep" }).reason
+      isPackageManagerBusy({ listProcesses: () => "brew upgrade ripgrep" })
+        .reason
     ).toContain("brew");
   });
 
@@ -104,7 +107,9 @@ describe("applyUpdate — gates", () => {
   });
 
   it("skips (backs off) when a foreign package manager is busy", async () => {
-    const { base } = deps({ isBusy: () => ({ busy: true, reason: "npm install in progress" }) });
+    const { base } = deps({
+      isBusy: () => ({ busy: true, reason: "npm install in progress" }),
+    });
     const r = await applyUpdate(base);
     expect(r.status).toBe("skipped");
     expect(r).toMatchObject({ reason: expect.stringContaining("npm install") });
@@ -113,7 +118,9 @@ describe("applyUpdate — gates", () => {
 
   it("skips a version already applied (awaiting restart) — no re-install", async () => {
     const { base } = deps({
-      readState: () => ({ last_applied: { from: "0.2.11", to: "0.2.12", at: 1 } }),
+      readState: () => ({
+        last_applied: { from: "0.2.11", to: "0.2.12", at: 1 },
+      }),
     });
     expect((await applyUpdate(base)).status).toBe("skipped");
     expect(base.runInstall).not.toHaveBeenCalled();
@@ -121,7 +128,9 @@ describe("applyUpdate — gates", () => {
 
   it("skips a version that previously failed its health check", async () => {
     const { base } = deps({
-      readState: () => ({ last_rollback: { from: "0.2.11", to: "0.2.12", at: 1 } }),
+      readState: () => ({
+        last_rollback: { from: "0.2.11", to: "0.2.12", at: 1 },
+      }),
     });
     expect((await applyUpdate(base)).status).toBe("skipped");
     expect(base.runInstall).not.toHaveBeenCalled();

@@ -68,7 +68,10 @@ const signatureEdit = (over: Partial<RecordedEdit> = {}): RecordedEdit => ({
 describe("reconcileIncompleteCallers", () => {
   it("flags callers whose file was not edited this session", async () => {
     // Only pay.ts edited — neither checkout nor refund touched.
-    const result = await reconcileIncompleteCallers([signatureEdit()], payGraph());
+    const result = await reconcileIncompleteCallers(
+      [signatureEdit()],
+      payGraph()
+    );
     expect(result).toHaveLength(2);
     const callerFiles = result.map((r) => r.caller_file).sort();
     expect(callerFiles).toEqual(["src/checkout.ts", "src/refund.ts"]);

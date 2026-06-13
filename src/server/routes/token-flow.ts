@@ -21,13 +21,13 @@ import {
   computeCompoundedHeadroom,
 } from "../../tracking/headroom.js";
 import {
-  readOverheadLeverEvents,
-  summarizeOverheadLevers,
-} from "../../tracking/overhead-levers.js";
-import {
   type CompressionEventRow,
   openMetricsStore,
 } from "../../tracking/metrics-store.js";
+import {
+  readOverheadLeverEvents,
+  summarizeOverheadLevers,
+} from "../../tracking/overhead-levers.js";
 import { getPromptForTurn } from "../../tracking/prompt-trace.js";
 import {
   type SessionEconomySummary,
@@ -898,10 +898,8 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
     // S2 prefix-stability trend (most-recent-first; truncated to a sparkline).
     const prefixStableTrend: Array<{ ts_iso: string; stable: boolean }> = [];
     // S5 fidelity-by-mechanism badge.
-    const fidelityByMechanism: Record<
-      string,
-      { pass: number; fail: number }
-    > = {};
+    const fidelityByMechanism: Record<string, { pass: number; fail: number }> =
+      {};
 
     for (const r of rows) {
       const fidelityFailed = r.fidelity_pass === 0;

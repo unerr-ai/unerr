@@ -48,6 +48,7 @@ export function MaskingTooltip({ reason, onUnmask }: MaskingTooltipProps) {
   return (
     <div className="relative inline-block">
       <button
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
         title="Why was this masked?"
@@ -73,6 +74,7 @@ export function MaskingTooltip({ reason, onUnmask }: MaskingTooltipProps) {
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-xs font-semibold text-zinc-200">Why Masked</h4>
             <button
+              type="button"
               onClick={() => setIsOpen(false)}
               className="text-zinc-500 hover:text-zinc-300 text-xs"
             >
@@ -128,6 +130,7 @@ export function MaskingTooltip({ reason, onUnmask }: MaskingTooltipProps) {
             </div>
 
             <button
+              type="button"
               onClick={handleUnmask}
               disabled={unmasking}
               className="w-full rounded border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-400 hover:bg-violet-500/20 disabled:opacity-50 transition-colors"

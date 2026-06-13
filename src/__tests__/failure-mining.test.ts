@@ -19,7 +19,12 @@ import {
 } from "../tracking/failure-mining.js";
 
 function retry(entity: string, detail?: string): FailureSignal {
-  return { kind: "repeated_retry", anchorType: "e", anchorValue: entity, detail };
+  return {
+    kind: "repeated_retry",
+    anchorType: "e",
+    anchorValue: entity,
+    detail,
+  };
 }
 
 describe("mineFailures — recurrence grouping", () => {
@@ -58,7 +63,7 @@ describe("mineFailures — recurrence grouping", () => {
 
   it("keeps entity and file anchors with the same value distinct", () => {
     const signals: FailureSignal[] = [
-      { kind: "repeated_retry", anchorType: "e", anchorValue: "x", },
+      { kind: "repeated_retry", anchorType: "e", anchorValue: "x" },
       { kind: "repeated_retry", anchorType: "e", anchorValue: "x" },
       { kind: "repeated_retry", anchorType: "e", anchorValue: "x" },
       { kind: "repeated_retry", anchorType: "f", anchorValue: "x" },
@@ -71,15 +76,35 @@ describe("mineFailures — recurrence grouping", () => {
   });
 
   it("is deterministic and order-independent of input", () => {
-    const a = mineFailures([retry("A"), retry("A"), retry("A"), retry("B"), retry("B"), retry("B")]);
-    const b = mineFailures([retry("B"), retry("A"), retry("B"), retry("A"), retry("B"), retry("A")]);
+    const a = mineFailures([
+      retry("A"),
+      retry("A"),
+      retry("A"),
+      retry("B"),
+      retry("B"),
+      retry("B"),
+    ]);
+    const b = mineFailures([
+      retry("B"),
+      retry("A"),
+      retry("B"),
+      retry("A"),
+      retry("B"),
+      retry("A"),
+    ]);
     expect(a.map((p) => p.wire)).toEqual(b.map((p) => p.wire));
   });
 
   it("orders proposals by occurrence count, most-recurring first", () => {
     const signals = [
-      retry("Low"), retry("Low"), retry("Low"),
-      retry("High"), retry("High"), retry("High"), retry("High"), retry("High"),
+      retry("Low"),
+      retry("Low"),
+      retry("Low"),
+      retry("High"),
+      retry("High"),
+      retry("High"),
+      retry("High"),
+      retry("High"),
     ];
     const proposals = mineFailures(signals);
     expect(proposals.map((p) => p.note.anchor_value)).toEqual(["High", "Low"]);
@@ -87,9 +112,19 @@ describe("mineFailures — recurrence grouping", () => {
 
   it("ignores malformed signals (missing anchor / bad anchorType)", () => {
     const signals = [
-      { kind: "repeated_retry", anchorType: "e", anchorValue: "" } as FailureSignal,
-      { kind: "repeated_retry", anchorType: "x" as "e", anchorValue: "Foo" } as FailureSignal,
-      retry("Ok"), retry("Ok"), retry("Ok"),
+      {
+        kind: "repeated_retry",
+        anchorType: "e",
+        anchorValue: "",
+      } as FailureSignal,
+      {
+        kind: "repeated_retry",
+        anchorType: "x" as "e",
+        anchorValue: "Foo",
+      } as FailureSignal,
+      retry("Ok"),
+      retry("Ok"),
+      retry("Ok"),
     ];
     const proposals = mineFailures(signals);
     expect(proposals).toHaveLength(1);
@@ -144,11 +179,12 @@ describe("mineFailures — DSL wire formatting", () => {
     const cbContent = mineFailures(cb)[0]?.note.content ?? "";
     expect(cbContent).toContain("circuit-breaker");
 
-    const drift = mineFailures([
-      { kind: "drift_flag", anchorType: "e", anchorValue: "Foo" },
-      { kind: "drift_flag", anchorType: "e", anchorValue: "Foo" },
-      { kind: "drift_flag", anchorType: "e", anchorValue: "Foo" },
-    ])[0]?.note.content ?? "";
+    const drift =
+      mineFailures([
+        { kind: "drift_flag", anchorType: "e", anchorValue: "Foo" },
+        { kind: "drift_flag", anchorType: "e", anchorValue: "Foo" },
+        { kind: "drift_flag", anchorType: "e", anchorValue: "Foo" },
+      ])[0]?.note.content ?? "";
     expect(drift).toContain("drifted");
   });
 });
@@ -159,20 +195,49 @@ describe("signal extractors", () => {
   it("signalsFromLedger keeps only failing edit-tool entries with an anchor", () => {
     const entries: LedgerEntryLike[] = [
       // read-only tool — ignored even if it "failed"
-      { tool: "search_code", result_summary: { error: "x" }, args_summary: { entity: "A" } },
+      {
+        tool: "search_code",
+        result_summary: { error: "x" },
+        args_summary: { entity: "A" },
+      },
       // edit tool, no violation — ignored
-      { tool: "sync_local_diff", result_summary: { had_violations: false }, args_summary: { entity: "B" } },
+      {
+        tool: "sync_local_diff",
+        result_summary: { had_violations: false },
+        args_summary: { entity: "B" },
+      },
       // edit tool, violation, entity anchor — kept
-      { tool: "sync_local_diff", result_summary: { had_violations: true, error: "rule X" }, args_summary: { entity: "C" } },
+      {
+        tool: "sync_local_diff",
+        result_summary: { had_violations: true, error: "rule X" },
+        args_summary: { entity: "C" },
+      },
       // edit tool, failure via success:false, file anchor — kept
-      { tool: "apply_edit", result_summary: { success: false }, args_summary: { file_path: "src/d.ts" } },
+      {
+        tool: "apply_edit",
+        result_summary: { success: false },
+        args_summary: { file_path: "src/d.ts" },
+      },
       // edit tool, violation but no resolvable anchor — dropped
-      { tool: "apply_edit", result_summary: { violations_count: 2 }, args_summary: {} },
+      {
+        tool: "apply_edit",
+        result_summary: { violations_count: 2 },
+        args_summary: {},
+      },
     ];
     const signals = signalsFromLedger(entries, editTools);
     expect(signals).toHaveLength(2);
-    expect(signals[0]).toMatchObject({ kind: "repeated_retry", anchorType: "e", anchorValue: "C", detail: "rule X" });
-    expect(signals[1]).toMatchObject({ kind: "repeated_retry", anchorType: "f", anchorValue: "src/d.ts" });
+    expect(signals[0]).toMatchObject({
+      kind: "repeated_retry",
+      anchorType: "e",
+      anchorValue: "C",
+      detail: "rule X",
+    });
+    expect(signals[1]).toMatchObject({
+      kind: "repeated_retry",
+      anchorType: "f",
+      anchorValue: "src/d.ts",
+    });
   });
 
   it("signalsFromLedger feeds straight into a proposal when an edit repeats", () => {
@@ -211,9 +276,9 @@ describe("signal extractors", () => {
   it("works end-to-end against a mocked async drift source", async () => {
     // Mirror DriftTracker.getDriftSummary being async: mockResolvedValue.
     const fakeTracker = {
-      getDriftedEntities: vi.fn().mockResolvedValue([
-        { key: "Edrift", drift_count: 3 },
-      ]),
+      getDriftedEntities: vi
+        .fn()
+        .mockResolvedValue([{ key: "Edrift", drift_count: 3 }]),
     };
     const entities = await fakeTracker.getDriftedEntities();
     const proposals = mineFailures(signalsFromDrift(entities));

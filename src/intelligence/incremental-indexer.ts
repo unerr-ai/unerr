@@ -279,7 +279,10 @@ export async function indexFilesIncremental(
       // the upsert + path floor below re-apply the current truth, and flip
       // annotationsChanged so the debounced domain re-derive runs.
       if (newEntities.length > 0) {
-        const DURABLE_TIER: Record<string, number> = { harvested: 2, comment: 3 };
+        const DURABLE_TIER: Record<string, number> = {
+          harvested: 2,
+          comment: 3,
+        };
         const bestCurrentTier = new Map<string, number>();
         for (const r of annotationRows) {
           const t = DURABLE_TIER[r.source] ?? 0;

@@ -314,11 +314,12 @@ describe("DriftTracker", () => {
     // Record reconciliation removals.
     const removed: string[] = [];
     const origRemove = graph.removeDriftEntity;
-    (graph as unknown as { removeDriftEntity: (k: string) => void }).removeDriftEntity =
-      (k: string) => {
-        removed.push(k);
-        return origRemove(k);
-      };
+    (
+      graph as unknown as { removeDriftEntity: (k: string) => void }
+    ).removeDriftEntity = (k: string) => {
+      removed.push(k);
+      return origRemove(k);
+    };
 
     // Re-scan with a fresh tracker (empty mtime cache → no unchanged-file skip).
     const tracker2 = new DriftTracker(

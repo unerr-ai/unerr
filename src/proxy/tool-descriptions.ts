@@ -147,8 +147,7 @@ export class UnknownToolError extends Error {
 export class InvalidStateError extends Error {
   constructor(toolName: string, state: DescriptionState) {
     super(
-      `Tool "${toolName}" has no "${state}" description. ` +
-        `Tier 1 tools have no meaningful 'locked' state; tier 1 tools have no 'unlocked' state.`
+      `Tool "${toolName}" has no "${state}" description. Tier 1 tools have no meaningful 'locked' state; tier 1 tools have no 'unlocked' state.`
     );
     this.name = "InvalidStateError";
   }

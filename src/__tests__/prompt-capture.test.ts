@@ -198,10 +198,9 @@ describe("recordUserPromptReceived — boundary dedupe", () => {
       hookPayloadChars: 50,
     });
     expect(second).toBeGreaterThan(0);
-    expect(getPromptsForSession(fix.unerrDir, "len-sess").map((r) => r.prompt)).toEqual([
-      "yes",
-      "yep",
-    ]);
+    expect(
+      getPromptsForSession(fix.unerrDir, "len-sess").map((r) => r.prompt)
+    ).toEqual(["yes", "yep"]);
   });
 
   it("does not dedupe across separate sessions", () => {
@@ -259,10 +258,11 @@ describe("readProxySessionId — hook↔proxy session join", () => {
   const savedEnv = process.env.UNERR_SESSION_ID;
   beforeEach(() => {
     fix = makeFixture();
-    delete process.env.UNERR_SESSION_ID;
+    Reflect.deleteProperty(process.env, "UNERR_SESSION_ID");
   });
   afterEach(() => {
-    if (savedEnv === undefined) delete process.env.UNERR_SESSION_ID;
+    if (savedEnv === undefined)
+      Reflect.deleteProperty(process.env, "UNERR_SESSION_ID");
     else process.env.UNERR_SESSION_ID = savedEnv;
     fix.cleanup();
   });

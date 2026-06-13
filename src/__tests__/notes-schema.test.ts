@@ -126,7 +126,7 @@ describe("notes + co_change_groups schema (A1)", () => {
       );
     }
 
-    const stored = await db.run(`?[note_id] := *notes{note_id}`);
+    const stored = await db.run("?[note_id] := *notes{note_id}");
     expect(stored.rows.length).toBe(cases.length);
   });
 
@@ -141,7 +141,7 @@ describe("notes + co_change_groups schema (A1)", () => {
        :put co_change_groups`
     );
     const stored = await db.run(
-      `?[group_id, anchors] := *co_change_groups{group_id, anchors}`
+      "?[group_id, anchors] := *co_change_groups{group_id, anchors}"
     );
     expect(stored.rows.length).toBe(1);
     const anchors = JSON.parse(stored.rows[0]?.[1] as string);

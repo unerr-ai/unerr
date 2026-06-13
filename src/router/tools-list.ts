@@ -138,9 +138,5 @@ export function buildToolsList(
 }
 
 function buildSoftRefuseDescription(tool: AliasedTool): string {
-  return (
-    `[locked] ${tool.description} — ` +
-    `This tool is available but not yet unlocked for this session. ` +
-    `Call it to receive unlock instructions.`
-  );
+  return `[locked] ${tool.description} — This tool is available but not yet unlocked for this session. Call it to receive unlock instructions.`;
 }

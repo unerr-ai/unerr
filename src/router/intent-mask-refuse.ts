@@ -50,14 +50,7 @@ export function buildIntentMaskRefuse(
 
   const overrideCmd = `unerr router unmask ${maskedFamily}`;
 
-  const text =
-    `ur|fct ${toolName} hidden — current intent: ${dominantLabel} work (${reasonStr}). ` +
-    `Run \`${overrideCmd}\` to override.\n` +
-    `\n` +
-    `_error: intent_masked\n` +
-    `_family: ${maskedFamily}\n` +
-    `_dominant_intent: ${dominantLabel}\n` +
-    `_override: ${overrideCmd}`;
+  const text = `ur|fct ${toolName} hidden — current intent: ${dominantLabel} work (${reasonStr}). Run \`${overrideCmd}\` to override.\n\n_error: intent_masked\n_family: ${maskedFamily}\n_dominant_intent: ${dominantLabel}\n_override: ${overrideCmd}`;
 
   return {
     content: [{ type: "text", text }],

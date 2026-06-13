@@ -62,7 +62,7 @@ async function seedFixture(db: CozoDb): Promise<void> {
     }
   );
   await db.run(
-    `?[from_key, to_key, type] <- $rows :put edges {from_key, to_key, type}`,
+    "?[from_key, to_key, type] <- $rows :put edges {from_key, to_key, type}",
     {
       rows: [
         ["e:a1", "e:x1", "calls"], // auth → untagged util: propagation seed
@@ -138,7 +138,7 @@ describe("domain graph — §6 derivations (SC-D)", () => {
   it("persists the vote into community_domains (D.2)", async () => {
     await computeCommunityDomains(db);
     const res = await db.run(
-      `?[community_id, domain, purity] := *community_domains{community_id, domain, purity}`
+      "?[community_id, domain, purity] := *community_domains{community_id, domain, purity}"
     );
     expect(res.rows.length).toBe(2);
   });

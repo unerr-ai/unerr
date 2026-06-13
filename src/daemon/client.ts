@@ -220,7 +220,9 @@ export function sendActivity(sockPath: string, repoPath: string): void {
  * bridge's discovery loop re-spawns a fresh daemon on the new on-disk version.
  * Best-effort — returns true if the daemon acknowledged, false otherwise.
  */
-export async function requestDaemonShutdown(sockPath: string): Promise<boolean> {
+export async function requestDaemonShutdown(
+  sockPath: string
+): Promise<boolean> {
   try {
     const resp = await sendRequest(sockPath, { cmd: "shutdown" }, 5_000);
     return resp.ok === true;

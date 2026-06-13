@@ -1991,8 +1991,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // `ctx.clientId` is set only for UDS clients → threads into ledger attribution.
   // ══════════════════════════════════════════════════════════════════
   async function dispatchToolCall(
-    name: string,
-    args: Record<string, unknown>,
+    requestedName: string,
+    requestedArgs: Record<string, unknown>,
     ctx: { clientId?: string }
   ): Promise<{
     content: { type: string; text: string }[];
@@ -2000,6 +2000,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     _meta?: unknown;
     _context?: unknown;
   }> {
+    // Mutable locals so unerr_track aliasing can re-target the dispatch without
+    // reassigning the parameters (noParameterAssign). All code below reads these.
+    let name = requestedName;
+    let args = requestedArgs;
     // Advance the canonical turn counter at the tools/call boundary so
     // every writer.record() inside this dispatch stamps the correct turn
     // before ShadowLedger.record() (which happens AFTER tool execution).
@@ -3643,9 +3647,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // Name the cause (cozo-node missing) and the remedy so a Windows user who
     // hit a blocked prebuilt download knows this is expected and recoverable.
     log.info(
-      `MCP server running on stdio — PARSE mode (reduced accuracy): ${proxyModeReason} ` +
-        `Serving ${parseStats?.entityCount ?? 0} entities from ${parseStats?.fileCount ?? 0} files via regex extraction ` +
-        "(no call graph, drift, or rules). Run `unerr doctor` for how to restore the full graph engine."
+      `MCP server running on stdio — PARSE mode (reduced accuracy): ${proxyModeReason} Serving ${parseStats?.entityCount ?? 0} entities from ${parseStats?.fileCount ?? 0} files via regex extraction (no call graph, drift, or rules). Run \`unerr doctor\` for how to restore the full graph engine.`
     );
   } else {
     const localToolCount = 14;

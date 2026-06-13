@@ -108,16 +108,14 @@ export const UNERR_FAMILY_NAMES: ReadonlySet<UnerrFamilyName> = new Set(
   }
   if (missing.length > 0) {
     throw new Error(
-      `unerr-families: TIER_ENTRIES contains tools not registered to any family: ${missing.join(", ")}. ` +
-        `Add them to src/router/unerr-families.ts.`
+      `unerr-families: TIER_ENTRIES contains tools not registered to any family: ${missing.join(", ")}. Add them to src/router/unerr-families.ts.`
     );
   }
   const registered = [...UNERR_TOOL_TO_FAMILY.keys()];
   const orphaned = registered.filter((t) => !tieredTools.includes(t));
   if (orphaned.length > 0) {
     throw new Error(
-      `unerr-families: registry contains tools not in TIER_ENTRIES: ${orphaned.join(", ")}. ` +
-        `Remove from src/router/unerr-families.ts or add to TIER_ENTRIES.`
+      `unerr-families: registry contains tools not in TIER_ENTRIES: ${orphaned.join(", ")}. Remove from src/router/unerr-families.ts or add to TIER_ENTRIES.`
     );
   }
 })();

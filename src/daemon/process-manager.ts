@@ -16,7 +16,13 @@
  */
 
 import { type ChildProcess, fork } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+} from "node:fs";
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import { checkActivateRepo } from "../cloud/repo-cap.js";
@@ -26,6 +32,7 @@ import {
   fleetUpgradePending,
   readUpdateState,
 } from "../update/update-state.js";
+import { repoLog, repoLogsDir } from "../utils/log-paths.js";
 import { UNERR_VERSION } from "../version.js";
 import type {
   ChildMessage,
@@ -41,7 +48,6 @@ import {
   readRegistry,
   writeRegistry,
 } from "./registry.js";
-import { repoLog, repoLogsDir } from "../utils/log-paths.js";
 
 // ── Types ───────────────────────────────────────────────────────
 

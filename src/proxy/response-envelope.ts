@@ -310,8 +310,8 @@ export function signalTag(type: string | undefined): string {
 const MAX_SIGNAL_LINES = 2;
 const MAX_SIGNAL_BYTES = 240;
 
-import { getSignalDedup } from "./signal-dedup.js";
 import { orderTags } from "./prefix-order.js";
+import { getSignalDedup } from "./signal-dedup.js";
 
 export function buildSignalPrefix(
   meta: Record<string, unknown> | undefined,

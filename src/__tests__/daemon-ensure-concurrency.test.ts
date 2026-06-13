@@ -96,10 +96,10 @@ describe("ProcessManager.ensure — concurrent waiters", () => {
     const guard = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("a waiter hung — lost wakeup")), 2_000)
     );
-    const [s1, s2] = (await Promise.race([
-      Promise.all([p1, p2]),
-      guard,
-    ])) as [string, string];
+    const [s1, s2] = (await Promise.race([Promise.all([p1, p2]), guard])) as [
+      string,
+      string,
+    ];
 
     expect(s1).toBe(sock);
     expect(s2).toBe(sock);
@@ -124,17 +124,16 @@ describe("ProcessManager.ensure — concurrent waiters", () => {
     fakeChild.emit("exit", 1, null);
 
     const guard = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("a waiter hung after child exit")), 2_000)
+      setTimeout(
+        () => reject(new Error("a waiter hung after child exit")),
+        2_000
+      )
     );
-    const settled = await Promise.race([
-      Promise.allSettled([p1, p2]),
-      guard,
-    ]);
+    const settled = await Promise.race([Promise.allSettled([p1, p2]), guard]);
 
-    expect((settled as PromiseSettledResult<string>[]).map((s) => s.status)).toEqual([
-      "rejected",
-      "rejected",
-    ]);
+    expect(
+      (settled as PromiseSettledResult<string>[]).map((s) => s.status)
+    ).toEqual(["rejected", "rejected"]);
   });
 
   it("re-adopts a race-winning proxy when the forked child exits during startup", async () => {

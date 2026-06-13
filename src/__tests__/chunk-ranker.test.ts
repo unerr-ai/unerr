@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  type RankableChunk,
   rankChunksByQuery,
   resolveCurrentQuery,
-  type RankableChunk,
 } from "../intelligence/chunk-ranker.js";
 
 describe("rankChunksByQuery — BM25 lexical ranking", () => {
@@ -36,13 +36,23 @@ describe("rankChunksByQuery — graph-proximity term", () => {
     // Two chunks with identical (zero) lexical overlap with the query, so BM25
     // alone leaves them tied → original-index order (chunk 0 first).
     const chunks: RankableChunk[] = [
-      { text: "completely unrelated prose about gardening tools", entityKey: "far" },
-      { text: "completely unrelated prose about gardening tools", entityKey: "near" },
+      {
+        text: "completely unrelated prose about gardening tools",
+        entityKey: "far",
+      },
+      {
+        text: "completely unrelated prose about gardening tools",
+        entityKey: "near",
+      },
     ];
     const proximity = (key: string) => (key === "near" ? 1 : 0);
-    const ranked = rankChunksByQuery(chunks, "authentication token validation", {
-      graphProximity: proximity,
-    });
+    const ranked = rankChunksByQuery(
+      chunks,
+      "authentication token validation",
+      {
+        graphProximity: proximity,
+      }
+    );
     // The structurally-near chunk (index 1) now outranks the far one.
     expect(ranked[0]!.index).toBe(1);
     expect(ranked[0]!.score).toBeGreaterThan(ranked[1]!.score);
@@ -137,13 +147,13 @@ describe("resolveCurrentQuery — precedence", () => {
       resolveCurrentQuery({
         unerrContextPrompt: "add retry to fetchUser",
         latestUserPrompt: "what does this repo do",
-      }),
+      })
     ).toBe("add retry to fetchUser");
   });
 
   it("falls back to the latest user prompt when no context arg", () => {
     expect(
-      resolveCurrentQuery({ latestUserPrompt: "what does this repo do" }),
+      resolveCurrentQuery({ latestUserPrompt: "what does this repo do" })
     ).toBe("what does this repo do");
   });
 
@@ -156,19 +166,19 @@ describe("resolveCurrentQuery — precedence", () => {
       resolveCurrentQuery({
         unerrContextPrompt: "   ",
         latestUserPrompt: "real task",
-      }),
+      })
     ).toBe("real task");
   });
 
   it("returns null when both are blank/whitespace", () => {
     expect(
-      resolveCurrentQuery({ unerrContextPrompt: "  ", latestUserPrompt: "\t" }),
+      resolveCurrentQuery({ unerrContextPrompt: "  ", latestUserPrompt: "\t" })
     ).toBeNull();
   });
 
   it("trims surrounding whitespace from the resolved query", () => {
     expect(
-      resolveCurrentQuery({ unerrContextPrompt: "  build the ranker  " }),
+      resolveCurrentQuery({ unerrContextPrompt: "  build the ranker  " })
     ).toBe("build the ranker");
   });
 });

@@ -78,7 +78,8 @@ export function longestOrderedSubsequence(
     let prevDiag = 0; // dp[i-1][j-1]
     for (let j = 1; j <= m; j++) {
       const above = dp[j]!; // dp[i-1][j], becomes dp[i-1][j-1] next iter
-      dp[j] = si === pattern[j - 1] ? prevDiag + 1 : Math.max(above, dp[j - 1]!);
+      dp[j] =
+        si === pattern[j - 1] ? prevDiag + 1 : Math.max(above, dp[j - 1]!);
       prevDiag = above;
     }
   }

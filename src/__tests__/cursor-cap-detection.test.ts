@@ -14,8 +14,8 @@ function makeConfig(
   return {
     agentId,
     agentName,
-    configPath: `/fake/.cursor/mcp.json`,
-    relativeConfigPath: `.cursor/mcp.json`,
+    configPath: "/fake/.cursor/mcp.json",
+    relativeConfigPath: ".cursor/mcp.json",
     isUnerrAlreadyRouter: false,
     servers: servers.map((s) => ({
       name: s.name,

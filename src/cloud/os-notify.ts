@@ -73,16 +73,7 @@ export function osNotify(title: string, body: string): void {
         // just no-ops via the swallowed spawn error.
         const t = escapePowerShell(title);
         const b = escapePowerShell(body);
-        const ps =
-          "Add-Type -AssemblyName System.Windows.Forms;" +
-          "$n = New-Object System.Windows.Forms.NotifyIcon;" +
-          "$n.Icon = [System.Drawing.SystemIcons]::Information;" +
-          "$n.BalloonTipTitle = '" +
-          t +
-          "';$n.BalloonTipText = '" +
-          b +
-          "';$n.Visible = $true;$n.ShowBalloonTip(8000);" +
-          "Start-Sleep -Seconds 9;$n.Dispose()";
+        const ps = `Add-Type -AssemblyName System.Windows.Forms;$n = New-Object System.Windows.Forms.NotifyIcon;$n.Icon = [System.Drawing.SystemIcons]::Information;$n.BalloonTipTitle = '${t}';$n.BalloonTipText = '${b}';$n.Visible = $true;$n.ShowBalloonTip(8000);Start-Sleep -Seconds 9;$n.Dispose()`;
         spawnDetached("powershell", [
           "-NoProfile",
           "-NonInteractive",

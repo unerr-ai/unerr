@@ -24,8 +24,8 @@ vi.mock("node:os", async () => {
   return { ...actual, homedir: () => testHome };
 });
 
-import { addRepo, listRepos, writeRegistry } from "../daemon/registry.js";
 import { unregisterRepo } from "../commands/pm.js";
+import { addRepo, listRepos, writeRegistry } from "../daemon/registry.js";
 
 let n = 0;
 function makeRepo(name: string): string {

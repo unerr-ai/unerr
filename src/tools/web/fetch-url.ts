@@ -66,8 +66,7 @@ export const fetchUrlTool: Tool = {
     // slice from the shared in-process cache in O(slice) instead of re-fetching
     // the whole page. A live entry is a hit; an evicted hash is a miss → fall
     // through to the normal network fetch (additive: skipped without cache_ref).
-    const cacheRef =
-      typeof args.cache_ref === "string" ? args.cache_ref : null;
+    const cacheRef = typeof args.cache_ref === "string" ? args.cache_ref : null;
     if (cacheRef) {
       const hit = resolveCacheRef(cacheRef, args.offset, args.limit);
       recordCacheRetrieve(ctx.cwd, "fetch_url", cacheRef, hit);

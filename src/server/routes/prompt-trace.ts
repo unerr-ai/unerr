@@ -211,8 +211,7 @@ export async function assemblePromptTrace(
       id: e.id,
       ts: e.ts,
       type: e.tool,
-      text:
-        typeof e.args_summary?.text === "string" ? e.args_summary.text : "",
+      text: typeof e.args_summary?.text === "string" ? e.args_summary.text : "",
       turn_id: e.turn_id ?? null,
       alternatives: Array.isArray(e.args_summary?.alternatives)
         ? (e.args_summary.alternatives as string[])

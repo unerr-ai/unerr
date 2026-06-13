@@ -181,9 +181,9 @@ describe("log-paths", () => {
 
       // 2 bak files + 1 sessions dir
       expect(removed).toBe(3);
-      expect(existsSync(join(stateDir, "session-history.json.pre-sqlite.bak"))).toBe(
-        false
-      );
+      expect(
+        existsSync(join(stateDir, "session-history.json.pre-sqlite.bak"))
+      ).toBe(false);
       expect(existsSync(join(stateDir, "metrics.json.pre-sqlite.bak"))).toBe(
         false
       );
@@ -207,9 +207,9 @@ describe("log-paths", () => {
       const { cleanupLegacyStateArtefacts } = await import(
         "../utils/log-paths.js"
       );
-      expect(
-        cleanupLegacyStateArtefacts(join(tmpDir, "nope", ".unerr"))
-      ).toBe(0);
+      expect(cleanupLegacyStateArtefacts(join(tmpDir, "nope", ".unerr"))).toBe(
+        0
+      );
     });
   });
 

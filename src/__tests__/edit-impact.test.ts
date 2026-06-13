@@ -7,15 +7,15 @@
  * This is the logic the pre-edit hook (P0.5) and proxy UDS handler (P0.4) call.
  */
 import { describe, expect, it } from "vitest";
-import type { LocalEntity } from "../intelligence/local-graph.js";
 import {
+  type EditImpactGraph,
   buildSuggestion,
   computeEditImpact,
   detectSignatureChange,
-  type EditImpactGraph,
   isTestFilePath,
   toCallerAtRisk,
 } from "../intelligence/edit-impact.js";
+import type { LocalEntity } from "../intelligence/local-graph.js";
 
 function entity(partial: Partial<LocalEntity> & { name: string }): LocalEntity {
   return {
@@ -267,7 +267,9 @@ describe("computeEditImpact", () => {
 
   it("returns [] when there is no edit content", async () => {
     const graph = graphWithCallers([]);
-    expect(await computeEditImpact(graph, "src/pay.ts", null, null)).toEqual([]);
+    expect(await computeEditImpact(graph, "src/pay.ts", null, null)).toEqual(
+      []
+    );
   });
 
   it("returns [] when the file has no indexed entities", async () => {

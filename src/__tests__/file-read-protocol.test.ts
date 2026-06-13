@@ -385,13 +385,7 @@ describe("elideCommentLines (SC-E.2)", () => {
     ];
     const { lines, elided } = elideCommentLines(input, SENT);
     expect(elided).toBe(2);
-    expect(lines).toEqual([
-      "…",
-      "function foo() {",
-      "  …",
-      "  return 1;",
-      "}",
-    ]);
+    expect(lines).toEqual(["…", "function foo() {", "  …", "  return 1;", "}"]);
     // Line count preserved → offset/limit numbering stays correct.
     expect(lines.length).toBe(input.length);
   });

@@ -840,7 +840,8 @@ export function createLogbookRoutes(deps: LogbookRouteDeps): Hono {
       if (!cached) {
         const entries = readLedgerForSession(deps.unerrDir, sessionId);
         cached = {
-          tool_call_count: entries.filter((e) => !MARKER_SET.has(e.tool)).length,
+          tool_call_count: entries.filter((e) => !MARKER_SET.has(e.tool))
+            .length,
           marker_count: entries.filter((e) => MARKER_SET.has(e.tool)).length,
         };
         ledgerStatsCache.set(sessionId, cached);
@@ -1027,14 +1028,11 @@ export function createLogbookRoutes(deps: LogbookRouteDeps): Hono {
         ts: e.ts,
         type: e.tool,
         text:
-          typeof e.args_summary?.text === "string"
-            ? e.args_summary.text
-            : "",
+          typeof e.args_summary?.text === "string" ? e.args_summary.text : "",
         turn_id: e.turn_id ?? null,
-        alternatives:
-          Array.isArray(e.args_summary?.alternatives)
-            ? (e.args_summary.alternatives as string[])
-            : null,
+        alternatives: Array.isArray(e.args_summary?.alternatives)
+          ? (e.args_summary.alternatives as string[])
+          : null,
         blocker_ref:
           typeof e.args_summary?.blocker_ref === "string"
             ? e.args_summary.blocker_ref

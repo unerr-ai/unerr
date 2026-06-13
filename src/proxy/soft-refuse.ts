@@ -117,7 +117,11 @@ function fillExample(
   let out = template;
   if (ctx.path) out = out.split("<path>").join(ctx.path);
   if (ctx.symbol) {
-    out = out.split("<symbol>").join(ctx.symbol).split("<name>").join(ctx.symbol);
+    out = out
+      .split("<symbol>")
+      .join(ctx.symbol)
+      .split("<name>")
+      .join(ctx.symbol);
   }
   if (ctx.changedSymbol) {
     out = out.split("<changed_symbol>").join(ctx.changedSymbol);
@@ -151,8 +155,7 @@ export function buildSoftRefuse(inputs: SoftRefuseInputs): SoftRefuseResult {
   const alt = TIER1_ALTERNATIVE[toolName];
   if (!alt) {
     throw new Error(
-      `buildSoftRefuse: no tier-1 alternative registered for "${toolName}". ` +
-        `Add an entry to TIER1_ALTERNATIVE in soft-refuse.ts.`
+      `buildSoftRefuse: no tier-1 alternative registered for "${toolName}". Add an entry to TIER1_ALTERNATIVE in soft-refuse.ts.`
     );
   }
 
@@ -160,12 +163,7 @@ export function buildSoftRefuse(inputs: SoftRefuseInputs): SoftRefuseResult {
   const example = fillExample(alt.example, args);
   const action = example ? `call ${example} first.` : `call ${alt.tool} first.`;
 
-  const text =
-    `ur|fct ${toolName} locked — ${action}\n` +
-    `\n` +
-    `_error: tool_locked\n` +
-    `_unlock_when: ${unlockWhen}\n` +
-    `_alternative: ${example || alt.tool}`;
+  const text = `ur|fct ${toolName} locked — ${action}\n\n_error: tool_locked\n_unlock_when: ${unlockWhen}\n_alternative: ${example || alt.tool}`;
 
   return {
     content: [{ type: "text", text }],
@@ -190,8 +188,7 @@ export function softRefuseFor(
   const condition = UNLOCK_CONDITIONS[toolName];
   if (!condition) {
     throw new Error(
-      `softRefuseFor: tool "${toolName}" has no unlock policy. ` +
-        `Tier-1 tools should never be gated; tier-2/3 must have an entry in UNLOCK_CONDITIONS.`
+      `softRefuseFor: tool "${toolName}" has no unlock policy. Tier-1 tools should never be gated; tier-2/3 must have an entry in UNLOCK_CONDITIONS.`
     );
   }
   return buildSoftRefuse({ toolName, condition, args });
@@ -210,9 +207,7 @@ export const _internal = { TIER1_ALTERNATIVE };
   const orphan = [...altKeys].filter((n) => !policyKeys.has(n));
   if (missing.length > 0 || orphan.length > 0) {
     throw new Error(
-      "soft-refuse: TIER1_ALTERNATIVE out of sync with UNLOCK_CONDITIONS.\n" +
-        `  Locked tools missing an alternative: ${missing.join(", ") || "(none)"}\n` +
-        `  Alternatives for unknown tools: ${orphan.join(", ") || "(none)"}`
+      `soft-refuse: TIER1_ALTERNATIVE out of sync with UNLOCK_CONDITIONS.\n  Locked tools missing an alternative: ${missing.join(", ") || "(none)"}\n  Alternatives for unknown tools: ${orphan.join(", ") || "(none)"}`
     );
   }
 }

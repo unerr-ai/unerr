@@ -351,8 +351,10 @@ export function removeDisallowedTools(cwd: string): boolean {
     if (removed === 0) return false;
 
     // Clean up empty deny array and permissions object
-    if ((permissions.deny as string[]).length === 0) delete permissions.deny;
-    if (Object.keys(permissions).length === 0) delete settings.permissions;
+    if ((permissions.deny as string[]).length === 0)
+      Reflect.deleteProperty(permissions, "deny");
+    if (Object.keys(permissions).length === 0)
+      Reflect.deleteProperty(settings, "permissions");
 
     writeFileSync(
       settingsPath,
@@ -398,7 +400,8 @@ export function removePreToolUseBashHook(cwd: string): boolean {
       totalRemoved += removed;
 
       // Clean up empty arrays
-      if ((hooks[eventType] as unknown[]).length === 0) delete hooks[eventType];
+      if ((hooks[eventType] as unknown[]).length === 0)
+        Reflect.deleteProperty(hooks, eventType);
     }
 
     if (totalRemoved === 0) return false;

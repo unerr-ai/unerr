@@ -163,7 +163,7 @@ export function scoreIntent(input: ScorerInput): ScorerOutput {
     }
 
     if (sticky && !reasons.some((r) => r.includes("sticky"))) {
-      reasons.push(`sticky: used in last 5 turns`);
+      reasons.push("sticky: used in last 5 turns");
     }
 
     scores.push({

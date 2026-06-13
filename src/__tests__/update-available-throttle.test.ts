@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { UpdateState } from "../update/update-state.js";
 import {
   DEFAULT_AVAILABLE_THROTTLE_MS,
   shouldSurfaceAvailable,
   updateSignal,
 } from "../update/update-surface.js";
-import type { UpdateState } from "../update/update-state.js";
 
 describe("shouldSurfaceAvailable (daily throttle)", () => {
   const V = "9.9.9";
@@ -27,7 +27,11 @@ describe("shouldSurfaceAvailable (daily throttle)", () => {
       available_notified_at: 10_000,
     };
     expect(
-      shouldSurfaceAvailable(state, V, 10_000 + DEFAULT_AVAILABLE_THROTTLE_MS - 1)
+      shouldSurfaceAvailable(
+        state,
+        V,
+        10_000 + DEFAULT_AVAILABLE_THROTTLE_MS - 1
+      )
     ).toBe(false);
   });
 

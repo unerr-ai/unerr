@@ -11,13 +11,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import {
-  existsSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  unlinkSync,
-} from "node:fs";
+import { existsSync, readdirSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 // ── Session ID ────────────────────────────────────────────────────────

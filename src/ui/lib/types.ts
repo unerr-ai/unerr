@@ -430,7 +430,12 @@ export type SystemStatusEnvelope = {
       current: string;
       latest: string | null;
       kind: string;
-      status: "disabled" | "up-to-date" | "available" | "pending" | "rolled-back";
+      status:
+        | "disabled"
+        | "up-to-date"
+        | "available"
+        | "pending"
+        | "rolled-back";
       policy: "auto" | "notify" | "off";
       manager: string;
       mode: "self_upgradable" | "notify_only";

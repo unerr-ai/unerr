@@ -118,7 +118,7 @@ export class StdioTransport implements McpTransport {
 
       this.pending.set(request.id, { resolve, reject, timer });
 
-      const frame = JSON.stringify(request) + "\n";
+      const frame = `${JSON.stringify(request)}\n`;
       this.child!.stdin!.write(frame, "utf-8", (err) => {
         if (err) {
           clearTimeout(timer);

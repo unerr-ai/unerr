@@ -25,13 +25,11 @@ export const RENAME_LOOKBACK_DEFAULT = 20;
  *  80% for note migration since false positives are worse than misses. */
 export const RENAME_SIMILARITY_MIN_DEFAULT = 80;
 
-export interface GitRunner {
-  /**
-   * Run a git command in `cwd` and return stdout. Throws on non-zero exit.
-   * Signature matches `execFileSync` so the real runner is a thin shim.
-   */
-  (args: readonly string[], cwd: string): string;
-}
+/**
+ * Run a git command in `cwd` and return stdout. Throws on non-zero exit.
+ * Signature matches `execFileSync` so the real runner is a thin shim.
+ */
+export type GitRunner = (args: readonly string[], cwd: string) => string;
 
 /** Default runner wraps execFileSync. Tests pass a fake. */
 export const defaultGitRunner: GitRunner = (args, cwd) =>

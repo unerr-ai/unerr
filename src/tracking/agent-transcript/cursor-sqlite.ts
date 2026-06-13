@@ -19,7 +19,7 @@
  *     avoid over-building; it carries per-message prompts/trace if needed later.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join, normalize } from "node:path";
 import { startupLog } from "../../utils/startup-log.js";
@@ -305,10 +305,7 @@ function findWorkspaceHashesForRepo(
  * The key `composer.composerData` holds a JSON object with
  * `{ allComposers: [{ composerId, lastUpdatedAt }] }` (Cursor 3.0+).
  */
-function readWorkspaceComposerIds(
-  wsDbPath: string,
-  db: RoDatabase
-): string[] {
+function readWorkspaceComposerIds(wsDbPath: string, db: RoDatabase): string[] {
   if (!tableExists(db, "ItemTable")) return [];
   try {
     const rows = db
@@ -498,8 +495,7 @@ export async function readCursorStateVscdb(
     }
 
     // Step 2: Read conversations from global DB
-    const globalPath =
-      opts.globalDbPathOverride ?? cursorGlobalVscdbPath(home);
+    const globalPath = opts.globalDbPathOverride ?? cursorGlobalVscdbPath(home);
     const globalDb = await openReadOnly(globalPath);
     if (!globalDb) return [];
 

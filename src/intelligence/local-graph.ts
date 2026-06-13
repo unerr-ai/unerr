@@ -1403,7 +1403,7 @@ export class CozoGraphStore {
       const ids = [...macroIds];
       try {
         const labelRes = await this.query(
-          `?[id, label] := *communities{id, label}, id in $ids`,
+          "?[id, label] := *communities{id, label}, id in $ids",
           { ids }
         );
         for (const row of labelRes.rows) {

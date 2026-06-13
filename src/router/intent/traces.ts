@@ -76,7 +76,7 @@ export class IntentTraceWriter {
     const filePath = join(this.dir, `${sessionId}.jsonl`);
 
     try {
-      appendFileSync(filePath, JSON.stringify(trace) + "\n", "utf-8");
+      appendFileSync(filePath, `${JSON.stringify(trace)}\n`, "utf-8");
     } catch {
       // Trace persistence is non-critical — never fatal
     }

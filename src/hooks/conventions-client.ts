@@ -106,7 +106,9 @@ export function queryConventions(
  * every kind into one list. Returns `null` on any shape mismatch so the caller
  * injects nothing. Exported for tests.
  */
-export function parseConventionsReply(line: string): DetectedConvention[] | null {
+export function parseConventionsReply(
+  line: string
+): DetectedConvention[] | null {
   try {
     const response = JSON.parse(line) as {
       result?: { content?: Array<{ text?: string }> };

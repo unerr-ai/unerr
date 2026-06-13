@@ -18,7 +18,6 @@ import { describe, expect, it } from "vitest";
 import { rankChunksByQuery } from "../intelligence/chunk-ranker.js";
 import { shrinkToBudget } from "../intelligence/recon.js";
 import { smartTruncate } from "../intelligence/smart-truncate.js";
-import { compressLogText } from "../proxy/shell-strategies/log-text.js";
 import {
   CACHE_MARKER_PREFIX,
   ReversibleCache,
@@ -27,6 +26,7 @@ import {
   getSharedReversibleCache,
   resetSharedReversibleCacheForTest,
 } from "../proxy/shared-cache.js";
+import { compressLogText } from "../proxy/shell-strategies/log-text.js";
 import { applyWireCap } from "../proxy/wire-cap.js";
 
 // Realistic code-like text so the BPE token cap actually overflows (a repeated
@@ -41,7 +41,11 @@ describe("wire-cap too_large — reversible cache (T1.3/T1.4)", () => {
   it("caches the original and emits a cache-ref marker in the page hint", () => {
     resetSharedReversibleCacheForTest();
     const oversized = bigString(20_000);
-    const { body, pageHint, metrics } = applyWireCap("file_read", oversized, {});
+    const { body, pageHint, metrics } = applyWireCap(
+      "file_read",
+      oversized,
+      {}
+    );
     const obj = body as Record<string, unknown>;
 
     expect(obj.status).toBe("too_large");
@@ -102,9 +106,19 @@ describe("wire-cap array slicing — graph importance (T3.2)", () => {
 
   it("uses query relevance when a query arg is present (T7.4)", () => {
     const rows = [
-      { key: "a", name: "parseConfig", fan_in: 0, summary: "loads yaml config" },
+      {
+        key: "a",
+        name: "parseConfig",
+        fan_in: 0,
+        summary: "loads yaml config",
+      },
       { key: "b", name: "renderButton", fan_in: 0, summary: "draws a button" },
-      { key: "c", name: "saveConfig", fan_in: 0, summary: "writes yaml config" },
+      {
+        key: "c",
+        name: "saveConfig",
+        fan_in: 0,
+        summary: "writes yaml config",
+      },
     ];
     // Pad past the limit so a cut happens.
     const padded = [
@@ -125,11 +139,7 @@ describe("wire-cap array slicing — graph importance (T3.2)", () => {
     const passages = Array.from({ length: 50 }, (_, i) => ({
       text: `passage ${i}`,
     }));
-    const { metrics } = applyWireCap(
-      "fetch_url",
-      { passages },
-      { limit: 10 }
-    );
+    const { metrics } = applyWireCap("fetch_url", { passages }, { limit: 10 });
     expect(metrics?.ranking_key).toBe("positional");
   });
 });

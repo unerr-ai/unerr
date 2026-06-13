@@ -9,13 +9,17 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { classifyUpdate, isNewerStable, parseSemver } from "../update/semver.js";
 import {
-  checkForUpdate,
-  DEFAULT_CHECK_INTERVAL_MS,
-} from "../update/version-check.js";
-import { readUpdateState } from "../update/update-state.js";
+  classifyUpdate,
+  isNewerStable,
+  parseSemver,
+} from "../update/semver.js";
 import { runUpdateCycle } from "../update/update-runner.js";
+import { readUpdateState } from "../update/update-state.js";
+import {
+  DEFAULT_CHECK_INTERVAL_MS,
+  checkForUpdate,
+} from "../update/version-check.js";
 
 describe("runUpdateCycle — daemon entry, never throws", () => {
   it("returns the detection result and runs apply for an eligible update", async () => {
@@ -27,7 +31,11 @@ describe("runUpdateCycle — daemon entry, never throws", () => {
         checked_at: 1,
         throttled: false,
       }),
-      apply: async (latest) => ({ status: "applied", from: "0.2.11", to: latest }),
+      apply: async (latest) => ({
+        status: "applied",
+        from: "0.2.11",
+        to: latest,
+      }),
     });
     expect(res.check?.kind).toBe("patch");
     expect(res.apply?.status).toBe("applied");
@@ -102,7 +110,8 @@ describe("checkForUpdate — throttle + offline safety", () => {
 
   afterEach(() => {
     rmSync(home, { recursive: true, force: true });
-    if (savedHome === undefined) delete process.env.UNERR_HOME;
+    if (savedHome === undefined)
+      Reflect.deleteProperty(process.env, "UNERR_HOME");
     else process.env.UNERR_HOME = savedHome;
   });
 
@@ -124,7 +133,11 @@ describe("checkForUpdate — throttle + offline safety", () => {
 
   it("a second check within the interval is throttled (no network)", async () => {
     const fetchLatest = vi.fn().mockResolvedValue("0.3.0");
-    await checkForUpdate({ now: () => 1000, currentVersion: "0.2.11", fetchLatest });
+    await checkForUpdate({
+      now: () => 1000,
+      currentVersion: "0.2.11",
+      fetchLatest,
+    });
     const res = await checkForUpdate({
       now: () => 1000 + DEFAULT_CHECK_INTERVAL_MS - 1,
       currentVersion: "0.2.11",
@@ -137,7 +150,11 @@ describe("checkForUpdate — throttle + offline safety", () => {
 
   it("force bypasses the throttle", async () => {
     const fetchLatest = vi.fn().mockResolvedValue("0.3.0");
-    await checkForUpdate({ now: () => 1000, currentVersion: "0.2.11", fetchLatest });
+    await checkForUpdate({
+      now: () => 1000,
+      currentVersion: "0.2.11",
+      fetchLatest,
+    });
     await checkForUpdate({
       now: () => 1500,
       currentVersion: "0.2.11",
@@ -176,7 +193,9 @@ describe("checkForUpdate — throttle + offline safety", () => {
       const { fetchLatestFromRegistry } = await import(
         "../update/version-check.js"
       );
-      await expect(fetchLatestFromRegistry("@unerr-ai/unerr")).resolves.toBeNull();
+      await expect(
+        fetchLatestFromRegistry("@unerr-ai/unerr")
+      ).resolves.toBeNull();
     } finally {
       globalThis.fetch = realFetch;
     }
@@ -191,7 +210,9 @@ describe("checkForUpdate — throttle + offline safety", () => {
       const { fetchLatestFromRegistry } = await import(
         "../update/version-check.js"
       );
-      await expect(fetchLatestFromRegistry("@unerr-ai/unerr")).resolves.toBeNull();
+      await expect(
+        fetchLatestFromRegistry("@unerr-ai/unerr")
+      ).resolves.toBeNull();
     } finally {
       globalThis.fetch = realFetch;
     }

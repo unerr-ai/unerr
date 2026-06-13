@@ -354,9 +354,7 @@ describe("readCursorStateVscdb", () => {
   ): Promise<void> {
     const { default: Database } = await import("better-sqlite3");
     const db = new Database(globalDbPath);
-    db.exec(
-      "CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT);"
-    );
+    db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT);");
     const insert = db.prepare(
       "INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)"
     );
@@ -380,46 +378,52 @@ describe("readCursorStateVscdb", () => {
     const userBubbleId = "b-user-1";
     const asstBubbleId = "b-asst-1";
 
-    await createGlobalDb([composerId], [
-      {
-        composerId,
-        composerData: {
+    await createGlobalDb(
+      [composerId],
+      [
+        {
           composerId,
-          createdAt: 1716624000000,
-          modelConfig: { modelName: "claude-4-sonnet" },
-          isAgentic: true,
-          fullConversationHeadersOnly: [
-            { bubbleId: userBubbleId, type: 1 },
-            { bubbleId: asstBubbleId, type: 2 },
+          composerData: {
+            composerId,
+            createdAt: 1716624000000,
+            modelConfig: { modelName: "claude-4-sonnet" },
+            isAgentic: true,
+            fullConversationHeadersOnly: [
+              { bubbleId: userBubbleId, type: 1 },
+              { bubbleId: asstBubbleId, type: 2 },
+            ],
+          },
+          bubbles: [
+            {
+              bubbleId: userBubbleId,
+              data: {
+                bubbleId: userBubbleId,
+                type: 1,
+                text: "Fix the login bug in auth.ts",
+                createdAt: "2026-05-25T10:00:00.000Z",
+              },
+            },
+            {
+              bubbleId: asstBubbleId,
+              data: {
+                bubbleId: asstBubbleId,
+                type: 2,
+                text: "I'll fix the auth guard issue.",
+                createdAt: "2026-05-25T10:00:05.000Z",
+                tokenCount: { inputTokens: 1200, outputTokens: 350 },
+                codeBlocks: [
+                  {
+                    uri: "file:///Users/test/demo/src/auth.ts",
+                    languageId: "typescript",
+                  },
+                ],
+                toolFormerData: { Edit: {}, Read: {} },
+              },
+            },
           ],
         },
-        bubbles: [
-          {
-            bubbleId: userBubbleId,
-            data: {
-              bubbleId: userBubbleId,
-              type: 1,
-              text: "Fix the login bug in auth.ts",
-              createdAt: "2026-05-25T10:00:00.000Z",
-            },
-          },
-          {
-            bubbleId: asstBubbleId,
-            data: {
-              bubbleId: asstBubbleId,
-              type: 2,
-              text: "I'll fix the auth guard issue.",
-              createdAt: "2026-05-25T10:00:05.000Z",
-              tokenCount: { inputTokens: 1200, outputTokens: 350 },
-              codeBlocks: [
-                { uri: "file:///Users/test/demo/src/auth.ts", languageId: "typescript" },
-              ],
-              toolFormerData: { Edit: {}, Read: {} },
-            },
-          },
-        ],
-      },
-    ]);
+      ]
+    );
 
     const turns = await readCursorStateVscdb({
       repoCwd: "/Users/test/demo",
@@ -435,7 +439,10 @@ describe("readCursorStateVscdb", () => {
     expect(user.native_session_id).toBe(composerId);
     expect(user.turn_index).toBe(0);
     expect(user.tokens_used).toEqual({
-      input: 0, output: 0, cache_create: 0, cache_read: 0,
+      input: 0,
+      output: 0,
+      cache_create: 0,
+      cache_read: 0,
     });
 
     const asst = turns[1]!;
@@ -444,7 +451,10 @@ describe("readCursorStateVscdb", () => {
     expect(asst.model).toBe("claude-4-sonnet");
     expect(asst.turn_index).toBe(1);
     expect(asst.tokens_used).toEqual({
-      input: 1200, output: 350, cache_create: 0, cache_read: 0,
+      input: 1200,
+      output: 350,
+      cache_create: 0,
+      cache_read: 0,
     });
     expect(asst.tools).toEqual(expect.arrayContaining(["Edit", "Read"]));
     expect(asst.files).toEqual(["/Users/test/demo/src/auth.ts"]);
@@ -454,26 +464,29 @@ describe("readCursorStateVscdb", () => {
     const composerId = "conv-think";
     const bubbleId = "b-think-1";
 
-    await createGlobalDb([composerId], [
-      {
-        composerId,
-        composerData: {
+    await createGlobalDb(
+      [composerId],
+      [
+        {
           composerId,
-          fullConversationHeadersOnly: [{ bubbleId, type: 2 }],
-        },
-        bubbles: [
-          {
-            bubbleId,
-            data: {
-              bubbleId,
-              type: 2,
-              text: "The fix is straightforward.",
-              thinking: { text: "I need to check the auth module first." },
-            },
+          composerData: {
+            composerId,
+            fullConversationHeadersOnly: [{ bubbleId, type: 2 }],
           },
-        ],
-      },
-    ]);
+          bubbles: [
+            {
+              bubbleId,
+              data: {
+                bubbleId,
+                type: 2,
+                text: "The fix is straightforward.",
+                thinking: { text: "I need to check the auth module first." },
+              },
+            },
+          ],
+        },
+      ]
+    );
 
     const turns = await readCursorStateVscdb({
       repoCwd: "/Users/test/demo",
@@ -487,28 +500,37 @@ describe("readCursorStateVscdb", () => {
   });
 
   it("handles multiple conversations", async () => {
-    await createGlobalDb(["c1", "c2"], [
-      {
-        composerId: "c1",
-        composerData: {
+    await createGlobalDb(
+      ["c1", "c2"],
+      [
+        {
           composerId: "c1",
-          fullConversationHeadersOnly: [{ bubbleId: "b1", type: 1 }],
+          composerData: {
+            composerId: "c1",
+            fullConversationHeadersOnly: [{ bubbleId: "b1", type: 1 }],
+          },
+          bubbles: [
+            {
+              bubbleId: "b1",
+              data: { bubbleId: "b1", type: 1, text: "first conv" },
+            },
+          ],
         },
-        bubbles: [
-          { bubbleId: "b1", data: { bubbleId: "b1", type: 1, text: "first conv" } },
-        ],
-      },
-      {
-        composerId: "c2",
-        composerData: {
+        {
           composerId: "c2",
-          fullConversationHeadersOnly: [{ bubbleId: "b2", type: 1 }],
+          composerData: {
+            composerId: "c2",
+            fullConversationHeadersOnly: [{ bubbleId: "b2", type: 1 }],
+          },
+          bubbles: [
+            {
+              bubbleId: "b2",
+              data: { bubbleId: "b2", type: 1, text: "second conv" },
+            },
+          ],
         },
-        bubbles: [
-          { bubbleId: "b2", data: { bubbleId: "b2", type: 1, text: "second conv" } },
-        ],
-      },
-    ]);
+      ]
+    );
 
     const turns = await readCursorStateVscdb({
       repoCwd: "/Users/test/demo",
@@ -547,13 +569,16 @@ describe("readCursorStateVscdb", () => {
   });
 
   it("skips conversations with no fullConversationHeadersOnly", async () => {
-    await createGlobalDb(["empty"], [
-      {
-        composerId: "empty",
-        composerData: { composerId: "empty" },
-        bubbles: [],
-      },
-    ]);
+    await createGlobalDb(
+      ["empty"],
+      [
+        {
+          composerId: "empty",
+          composerData: { composerId: "empty" },
+          bubbles: [],
+        },
+      ]
+    );
 
     const turns = await readCursorStateVscdb({
       repoCwd: "/Users/test/demo",
@@ -564,22 +589,28 @@ describe("readCursorStateVscdb", () => {
   });
 
   it("skips missing bubbles gracefully", async () => {
-    await createGlobalDb(["partial"], [
-      {
-        composerId: "partial",
-        composerData: {
+    await createGlobalDb(
+      ["partial"],
+      [
+        {
           composerId: "partial",
-          fullConversationHeadersOnly: [
-            { bubbleId: "exists", type: 1 },
-            { bubbleId: "ghost", type: 2 },
+          composerData: {
+            composerId: "partial",
+            fullConversationHeadersOnly: [
+              { bubbleId: "exists", type: 1 },
+              { bubbleId: "ghost", type: 2 },
+            ],
+          },
+          bubbles: [
+            {
+              bubbleId: "exists",
+              data: { bubbleId: "exists", type: 1, text: "hello" },
+            },
+            // "ghost" bubble intentionally not created
           ],
         },
-        bubbles: [
-          { bubbleId: "exists", data: { bubbleId: "exists", type: 1, text: "hello" } },
-          // "ghost" bubble intentionally not created
-        ],
-      },
-    ]);
+      ]
+    );
 
     const turns = await readCursorStateVscdb({
       repoCwd: "/Users/test/demo",

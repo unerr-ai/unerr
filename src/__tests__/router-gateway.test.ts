@@ -331,6 +331,6 @@ describe("RouterGateway: cross-client parsability", () => {
   it("refusal text is plain UTF-8 with no control sequences besides newline", () => {
     const refusal = gateway.gate("unerr_track");
     const text = refusal?.content[0]?.text ?? "";
-    expect(text).toMatch(/^[\x09\x0a\x20-\x7e -￿]+$/);
+    expect(text).toMatch(/^[\t\n\x20-\x7e -￿]+$/);
   });
 });

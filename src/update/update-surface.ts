@@ -83,7 +83,9 @@ function resolve(deps: UpdateSurfaceDeps) {
  * result surfaces as an `applied` line next session instead). Priority:
  * rollback (loud) → available-notify (loud) → applied (quiet).
  */
-export function updateSignal(deps: UpdateSurfaceDeps = {}): UpdateSignal | null {
+export function updateSignal(
+  deps: UpdateSurfaceDeps = {}
+): UpdateSignal | null {
   const { state, current, policy } = resolve(deps);
   if (policy === "off") return null;
 
@@ -185,7 +187,8 @@ export function updateStatusPanel(
     policy,
     manager: cls.manager,
     mode: cls.mode,
-    upgradeCommand: kind !== "none" ? upgradeCommand(cls.manager, latest ?? undefined) : null,
+    upgradeCommand:
+      kind !== "none" ? upgradeCommand(cls.manager, latest ?? undefined) : null,
     lastCheckedAt: state.last_checked_at ?? null,
     pendingVersion: state.pending_version ?? null,
   };

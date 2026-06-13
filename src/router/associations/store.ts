@@ -37,7 +37,7 @@ export class AssociationStore {
    */
   append(records: readonly AssociationRecord[]): void {
     if (records.length === 0) return;
-    const lines = records.map((r) => JSON.stringify(r)).join("\n") + "\n";
+    const lines = `${records.map((r) => JSON.stringify(r)).join("\n")}\n`;
     try {
       appendFileSync(this.filePath, lines, "utf-8");
     } catch {
