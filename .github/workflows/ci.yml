@@ -57,26 +57,34 @@ jobs:
       - name: Type check
         run: pnpm run typecheck
 
+      - name: Point /bin/sh at bash (Linux only)
+        # On Debian/Ubuntu `/bin/sh` is dash; on macOS it is bash. unerr's exec
+        # runner spawns `/bin/sh -lc <cmd>` — a LOGIN shell — to capture the
+        # user's real environment (PATH, nvm/pyenv shims). A login shell reads
+        # /etc/profile, and the Blacksmith Linux runner's profile sources
+        # /run/blacksmith/job.env, which is written in bash syntax (`declare -x
+        # …`) to propagate env across steps. dash cannot parse `declare`, so it
+        # prints `/run/blacksmith/job.env: declare: not found` into every
+        # captured command's output and breaks the exec/shell-capture tests.
+        # This is filesystem-driven (the profile sources the file), so clearing
+        # BASH_ENV/ENV does nothing. bash parses `declare` fine — which is why
+        # the macOS leg, where /bin/sh is already bash, passes. Repointing
+        # /bin/sh at bash makes Linux match macOS. The runner is an ephemeral
+        # microVM, so this only affects this job.
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          echo "dash dash/sh boolean false" | sudo debconf-set-selections
+          sudo dpkg-reconfigure -f noninteractive dash
+          echo "/bin/sh -> $(readlink -f /bin/sh)"
+
       - name: Test
         # Redirect stdin from /dev/null so vitest doesn't engage raw mode and
         # hang (see CLAUDE.md "test:run redirects stdin from /dev/null").
         # `pnpm exec` invokes the local vitest binary directly so this matches
         # the `test:run` script's behaviour without re-wrapping the redirect.
         shell: bash
-        # `unset BASH_ENV ENV` BEFORE running vitest. Blacksmith's Linux runner
-        # points both at /run/blacksmith/job.env (a bash-syntax file with
-        # `declare` lines) so cross-step env survives. Our exec-runner tests
-        # spawn `/bin/sh`, which on Ubuntu is dash — dash sources $ENV, chokes
-        # on `declare`, and prints `/run/blacksmith/job.env: declare: not found`
-        # into every captured child's output, breaking the exec/shell-capture
-        # assertions. Setting these to "" via the step `env:` map does NOT help:
-        # an empty-but-present $ENV is still exported to the spawned dash, which
-        # treats it as a path. `unset` removes the variables entirely, so node
-        # and every shell it spawns never inherit them. Scoped to this step, so
-        # Blacksmith's own step-to-step env propagation is untouched.
-        run: |
-          unset BASH_ENV ENV
-          pnpm exec vitest run < /dev/null
+        run: pnpm exec vitest run < /dev/null
 
       - name: Build
         run: pnpm run build
