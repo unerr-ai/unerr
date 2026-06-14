@@ -2094,8 +2094,14 @@ export class QueryRouter {
         let blastRadiusCount = 0;
         let riskLevel = "normal";
 
-        // Task 2.2: Blast radius (first query per entity)
-        if (this.sessionContext.shouldInjectBlastRadius(entityKey)) {
+        // Task 2.2: Blast radius (first query per entity). Skip when the graph
+        // does not implement getBlastRadius (a partial/mock store) so it does
+        // not throw `is not a function` into a per-call warning; a present
+        // method that throws still surfaces to the catch below.
+        if (
+          this.sessionContext.shouldInjectBlastRadius(entityKey) &&
+          typeof this.localGraph.getBlastRadius === "function"
+        ) {
           try {
             const br = await this.localGraph.getBlastRadius(entityKey);
             const brEntities =
@@ -2140,8 +2146,15 @@ export class QueryRouter {
 
         // Leapfrog Sprint A.3: Community context injection (after blast radius)
         try {
+          // Optional enrichment method — a partial or mock graph may not
+          // implement it. Skip silently when absent instead of throwing
+          // `getCommunityForEntity is not a function` into a per-call warning.
+          // A method that IS present but throws still surfaces to the catch.
+          const getCommunity = this.localGraph.getCommunityForEntity;
           const communityInfo =
-            await this.localGraph.getCommunityForEntity(entityKey);
+            typeof getCommunity === "function"
+              ? await getCommunity.call(this.localGraph, entityKey)
+              : null;
           if (communityInfo && communityInfo.id >= 0) {
             // SC-D.3: name the community by its voted domain when one exists.
             const domainVote = await this.lookupCommunityDomain(
@@ -2203,10 +2216,15 @@ export class QueryRouter {
 
         // Leapfrog Sprint B.3: Correction injection (deduped per entity+errorType)
         try {
-          const corrections = await this.localGraph.getCorrections(
-            entityKey,
-            0.7
-          );
+          // Optional enrichment method — skip silently when the graph does not
+          // implement it (partial/mock store) instead of throwing
+          // `getCorrections is not a function` on every call. A present method
+          // that throws still surfaces to the catch below.
+          const getCorrections = this.localGraph.getCorrections;
+          const corrections =
+            typeof getCorrections === "function"
+              ? await getCorrections.call(this.localGraph, entityKey, 0.7)
+              : [];
           const newCorrections = corrections.filter((c) =>
             this.sessionContext.shouldInjectCorrection(
               c.entity_key,
@@ -2330,8 +2348,10 @@ export class QueryRouter {
         // Task 2.3: Convention injection (deduped per convention ID)
         try {
           const entity = await this.localGraph.getEntity(entityKey);
-          if (entity) {
-            const conventions = await this.localGraph.getConventionsForEntity(
+          const getConventions = this.localGraph.getConventionsForEntity;
+          if (entity && typeof getConventions === "function") {
+            const conventions = await getConventions.call(
+              this.localGraph,
               entity.file_path
             );
             const newConventions = conventions.filter((c) =>
