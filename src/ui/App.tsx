@@ -17,6 +17,7 @@ import { Dashboard } from "@/pages/Dashboard";
 import { FactsPage } from "@/pages/FactsPage";
 import { GraphExplorer } from "@/pages/GraphExplorer";
 import { GraphVisualPage } from "@/pages/GraphVisualPage";
+import { GuardPage } from "@/pages/GuardPage";
 import { LogbookPage } from "@/pages/LogbookPage";
 import { PromptTracePage } from "@/pages/PromptTracePage";
 import { ReasoningQualityPage } from "@/pages/ReasoningQualityPage";
@@ -139,6 +140,9 @@ export function App() {
       break;
     case "logbook":
       body = <LogbookPage />;
+      break;
+    case "guard":
+      body = <GuardPage />;
       break;
     case "token-trace":
       body = <TokenFlowPage />;

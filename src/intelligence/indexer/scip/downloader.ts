@@ -12,7 +12,14 @@
  * TypeScript/Python are BUNDLED as npm deps — never downloaded here.
  */
 
-import { chmodSync, createWriteStream, existsSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+} from "node:fs";
 import { rename, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -326,8 +333,11 @@ export async function downloadScipBinary(
       };
     }
 
-    // For Java, the asset name includes the version tag — find it dynamically
+    // For Java, the asset name includes the version tag — find it dynamically.
+    // Track the asset NAME (not just the URL) so we can locate its `.sha256`
+    // sibling asset for checksum verification below.
     let downloadUrl: string | null;
+    let assetName: string | null;
     if (language === "java") {
       const javaAsset = release.assets.find(
         (a) =>
@@ -344,8 +354,10 @@ export async function downloadScipBinary(
         };
       }
       downloadUrl = javaAsset.url;
+      assetName = javaAsset.name;
     } else {
       downloadUrl = buildDownloadUrl(spec, platform, release.tag);
+      assetName = spec.resolveAssetName(platform);
     }
 
     if (!downloadUrl) {
@@ -374,14 +386,52 @@ export async function downloadScipBinary(
       };
     }
 
-    onProgress?.(`Installing ${spec.binaryName}...`);
+    // Download the asset to a temp file FIRST, so its checksum can be verified
+    // before we extract or execute anything. The published `.sha256` covers the
+    // downloaded asset bytes (the .tar.gz / .gz / raw binary), not the extracted
+    // inner binary — so we hash the temp file, not destPath.
+    const assetTmp = `${destPath}.download`;
+    try {
+      await downloadToFile(response, assetTmp);
 
-    if (spec.archiveType === "tar.gz" && spec.archiveBinaryPath) {
-      await extractTarGz(response, spec.archiveBinaryPath, destPath);
-    } else if (spec.archiveType === "gz") {
-      await extractGzSingle(response, destPath);
-    } else {
-      await downloadToFile(response, destPath);
+      // Verify SHA-256 when the release publishes one for this asset. A
+      // published-but-mismatched checksum fails closed (delete + error) — that
+      // is the supply-chain protection. A missing checksum can't block the
+      // download (some repos, e.g. rust-analyzer, don't publish one), so we
+      // proceed but log that verification was skipped.
+      const expectedSha = assetName
+        ? await fetchExpectedSha256(release.assets, assetName)
+        : null;
+      if (expectedSha) {
+        const actualSha = await sha256File(assetTmp);
+        if (actualSha !== expectedSha) {
+          await rm(assetTmp, { force: true }).catch(() => {});
+          return {
+            success: false,
+            binaryPath: null,
+            error: `Checksum mismatch for ${spec.binaryName}: expected ${expectedSha}, got ${actualSha}. Refusing to install a tampered or corrupt binary. ${spec.manualInstall}`,
+            fromCache: false,
+          };
+        }
+        log.info(`SHA-256 verified for ${spec.binaryName} (${expectedSha})`);
+      } else {
+        log.warn(
+          `No SHA-256 published for ${assetName ?? spec.binaryName} — installing without checksum verification`
+        );
+      }
+
+      onProgress?.(`Installing ${spec.binaryName}...`);
+
+      // Extract/move from the verified temp file into place.
+      if (spec.archiveType === "tar.gz" && spec.archiveBinaryPath) {
+        await extractTarGz(assetTmp, spec.archiveBinaryPath, destPath);
+      } else if (spec.archiveType === "gz") {
+        await extractGzSingle(assetTmp, destPath);
+      } else {
+        await rename(assetTmp, destPath);
+      }
+    } finally {
+      await rm(assetTmp, { force: true }).catch(() => {});
     }
 
     // Make executable
@@ -425,17 +475,16 @@ export async function downloadScipBinary(
 }
 
 /**
- * Extract a .tar.gz archive and pull out a specific binary.
+ * Extract a specific binary out of an already-downloaded .tar.gz archive.
+ * `archivePath` is the verified asset file on disk; its lifetime is owned by the
+ * caller (cleaned up there), so this only removes its own scratch extract dir.
  */
 async function extractTarGz(
-  response: Response,
+  archivePath: string,
   binaryPath: string,
   destPath: string
 ): Promise<void> {
   const { exec } = await import("../../../utils/exec.js");
-
-  const archivePath = `${destPath}.tar.gz`;
-  await downloadToFile(response, archivePath);
 
   const extractDir = `${destPath}.extract`;
   mkdirSync(extractDir, { recursive: true });
@@ -468,24 +517,60 @@ async function extractTarGz(
       }
     }
   } finally {
-    await rm(archivePath, { force: true }).catch(() => {});
     await rm(extractDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
 /**
- * Extract a single .gz file (not tar.gz).
+ * Gunzip an already-downloaded single .gz file (not tar.gz) into place.
+ * `srcPath` is the verified asset file on disk, owned/cleaned by the caller.
  */
 async function extractGzSingle(
-  response: Response,
+  srcPath: string,
   destPath: string
 ): Promise<void> {
   const gunzip = createGunzip();
   const dest = createWriteStream(destPath);
-  const body = response.body;
-  if (!body) throw new Error("No response body");
+  await pipeline(createReadStream(srcPath), gunzip, dest);
+}
 
-  await pipeline(body, gunzip, dest);
+/**
+ * Fetch and parse the SHA-256 digest published alongside a release asset.
+ * GitHub release workflows commonly upload `<asset>.sha256` next to each binary.
+ * Returns the lowercase 64-char hex digest, or null when no checksum asset
+ * exists or it can't be parsed (caller treats null as "verification skipped").
+ */
+async function fetchExpectedSha256(
+  assets: { name: string; url: string }[],
+  assetName: string
+): Promise<string | null> {
+  const shaAsset = assets.find(
+    (a) =>
+      a.name === `${assetName}.sha256` || a.name === `${assetName}.sha256sum`
+  );
+  if (!shaAsset) return null;
+  try {
+    const res = await fetch(shaAsset.url, {
+      signal: AbortSignal.timeout(10_000),
+      redirect: "follow",
+    });
+    if (!res.ok) return null;
+    // Format is either a bare hex digest or "<hex>  <filename>" (sha256sum).
+    const hex = (await res.text()).trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+    return /^[0-9a-f]{64}$/.test(hex) ? hex : null;
+  } catch (err) {
+    log.warn(
+      `Could not fetch checksum for ${assetName}: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return null;
+  }
+}
+
+/** Compute the SHA-256 of a file as lowercase hex, streaming so large binaries don't load into memory. */
+async function sha256File(filePath: string): Promise<string> {
+  const hash = createHash("sha256");
+  await pipeline(createReadStream(filePath), hash);
+  return hash.digest("hex");
 }
 
 /**

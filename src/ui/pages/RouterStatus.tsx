@@ -15,6 +15,7 @@
 
 import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { fetchJson } from "@/lib/api";
+import { useRepoApi } from "@/lib/repo-context";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -205,20 +206,22 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
 // ── Page ────────────────────────────────────────────────────────────
 
 export function RouterStatusPage() {
+  const { url, queryKey } = useRepoApi();
   const statusQ = useQuery({
-    queryKey: ["router", "status"],
-    queryFn: () => fetchJson<StatusResponse>("/api/router/status"),
+    queryKey: queryKey(["router", "status"]),
+    queryFn: () => fetchJson<StatusResponse>(url("/api/router/status")),
     refetchInterval: 5_000,
   });
   const sessionsQ = useQuery({
-    queryKey: ["router", "sessions"],
-    queryFn: () => fetchJson<SessionsResponse>("/api/router/sessions"),
+    queryKey: queryKey(["router", "sessions"]),
+    queryFn: () => fetchJson<SessionsResponse>(url("/api/router/sessions")),
     refetchInterval: 15_000,
     enabled: statusQ.data?.data?.enabled === true,
   });
   const recentQ = useQuery({
-    queryKey: ["router", "recent"],
-    queryFn: () => fetchJson<RecentResponse>("/api/router/recent?limit=100"),
+    queryKey: queryKey(["router", "recent"]),
+    queryFn: () =>
+      fetchJson<RecentResponse>(url("/api/router/recent?limit=100")),
     refetchInterval: 4_000,
     enabled: statusQ.data?.data?.enabled === true,
   });

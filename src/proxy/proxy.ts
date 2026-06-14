@@ -67,6 +67,7 @@ import { translateUnerrTrack } from "./unerr-track.js";
 import { installFileLogger } from "../utils/file-logger.js";
 import { formatUnknownError } from "../utils/format-error.js";
 import { stringifyMcpToolJson } from "../utils/mcp-content-json.js";
+import { nodeUpgradeNotice } from "../utils/node-version.js";
 import { startupLog } from "../utils/startup-log.js";
 import {
   type LifecycleActor,
@@ -745,6 +746,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   startupLog.step(
     `PID ${process.pid} ${startupLog.fmt.muted(`· health localhost:${lockResult.healthPort}`)}`
   );
+
+  // Recommend Node ≥22.5 when running below it. Non-blocking — unerr still runs
+  // on the supported floor (Node ≥20.9). This runtime notice is the durable
+  // channel for the recommendation: it survives npm v12 / pnpm install-script
+  // lockdown (a postinstall notice would not). See utils/node-version.ts.
+  const nodeNotice = nodeUpgradeNotice();
+  if (nodeNotice) startupLog.warn(nodeNotice);
 
   // ── Step 1b: Session Resume Detection ────────────────────────────
 
@@ -3995,6 +4003,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       behaviorEvents: {
         unerrDir: unerrDirForApi,
         getBehaviorEventWriter: () => behaviorEventWriter,
+      },
+      guard: {
+        unerrDir: unerrDirForApi,
       },
       logbook: {
         unerrDir: unerrDirForApi,

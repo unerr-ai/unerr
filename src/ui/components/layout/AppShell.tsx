@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 const REPO_NAV: { id: RepoRouteId; label: string }[] = [
   { id: "overview", label: "Dashboard" },
   { id: "logbook", label: "What unerr did" },
+  { id: "guard", label: "Cascade Guard" },
   { id: "token-trace", label: "Token Trace" },
   { id: "reasoning", label: "Reasoning Trace" },
   { id: "visual", label: "Codebase Map" },

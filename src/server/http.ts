@@ -33,6 +33,7 @@ import {
 } from "./routes/behavior-events.js";
 import { createDriftRoutes } from "./routes/drift.js";
 import { type FactsRouteDeps, createFactsRoutes } from "./routes/facts.js";
+import { type GuardRouteDeps, createGuardRoutes } from "./routes/guard.js";
 import {
   type IntelligenceRouteDeps,
   createIntelligenceRoutes,
@@ -86,6 +87,8 @@ export interface DashboardServerOptions {
   tokenFlow?: TokenFlowRouteDeps;
   /** Behavior events API (PREVENT-class verb-noun counters) */
   behaviorEvents?: BehaviorEventRouteDeps;
+  /** Cascade-guard feed (firings grouped by session → prompt, with callers). */
+  guard?: GuardRouteDeps;
   /** Phase 3 Sprint 9 — Logbook (Surface 1 dashboard) */
   logbook?: LogbookRouteDeps;
   /** Phase 3 Sprint 11 — Sidekick Memory facts CRUD */
@@ -179,6 +182,9 @@ export async function startDashboardServer(
       "/api/behavior-events",
       createBehaviorEventRoutes(opts.behaviorEvents)
     );
+  }
+  if (opts.guard) {
+    app.route("/api/guard", createGuardRoutes(opts.guard));
   }
   if (opts.logbook) {
     app.route("/api/logbook", createLogbookRoutes(opts.logbook));

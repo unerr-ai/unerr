@@ -8,6 +8,7 @@ export type RepoRouteId =
   | "graph"
   | "facts"
   | "logbook"
+  | "guard"
   | "token-trace"
   | "reasoning"
   | "prompt-trace"
@@ -30,6 +31,7 @@ const ROUTE_TITLES: Record<RouteId, string> = {
   graph: "Code Intelligence",
   facts: "Project Memory",
   logbook: "What unerr did",
+  guard: "Cascade Guard",
   "token-trace": "Token Trace",
   reasoning: "Reasoning Trace",
   "prompt-trace": "Prompt Trace",
@@ -87,6 +89,9 @@ function matchRepoRoute(seg: string | undefined): RepoRouteId {
     case "logbook":
     case "story":
       return "logbook";
+    case "guard":
+    case "cascade-guard":
+      return "guard";
     // Legacy session-economy bookmarks redirect to Token Trace, which
     // now hosts the headroom story alongside the existing token data.
     case "session-economy":

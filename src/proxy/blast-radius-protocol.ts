@@ -122,11 +122,24 @@ export interface BlastRadiusTelemetrySink {
 }
 
 /**
+ * Per-firing caller list cap stored in `behavior_events.detail`. The guard page
+ * shows the named callers as the verifiable evidence behind each firing; beyond
+ * ~10 the marginal value drops and the JSON blob grows, so we keep the first 10
+ * and record how many more were truncated.
+ */
+const MAX_CALLERS_PERSISTED = 10;
+
+/**
  * Emit the pre-edit guard firings as behavior events so the dashboard's
- * behavior-event panes render them. The caller-cascade signal (D2) and the
- * architecture-boundary signal (D3) are distinct behaviors; each fires its own
- * row only when it actually fires. Best-effort — every error is swallowed so
- * telemetry never blocks the control-channel reply.
+ * behavior-event panes and the cascade-guard page render them. The
+ * caller-cascade signal (D2) and the architecture-boundary signal (D3) are
+ * distinct behaviors; each fires its own row only when it actually fires.
+ *
+ * Beyond the aggregate counts the panes use, each event persists a per-firing
+ * `firings`/`breaches` array — the changed entity, its change type, and the
+ * named callers at risk — so the guard page can show the actual, inspectable
+ * evidence ("13 files call verifyToken") rather than a bare count. Best-effort:
+ * every error is swallowed so telemetry never blocks the control-channel reply.
  */
 export function recordBlastRadiusTelemetry(
   sink: BlastRadiusTelemetrySink,
@@ -146,6 +159,26 @@ export function recordBlastRadiusTelemetry(
           total_at_risk: result.warnings[0]?.blast_radius.total_at_risk ?? 0,
           change_types: [...new Set(result.warnings.map((w) => w.change_type))],
           ...(filePath ? { file_path: filePath } : {}),
+          firings: result.warnings.map((w) => {
+            const callers = [
+              ...w.blast_radius.direct_callers,
+              ...w.blast_radius.test_files,
+            ];
+            const kept = callers.slice(0, MAX_CALLERS_PERSISTED);
+            return {
+              entity: w.changed_entity,
+              entity_key: w.changed_entity_key,
+              change_type: w.change_type,
+              total_at_risk: w.blast_radius.total_at_risk,
+              callers: kept.map((c) => ({
+                file: c.file,
+                entity: c.entity,
+                line: c.line,
+                is_test: c.isTest,
+              })),
+              callers_truncated: Math.max(0, callers.length - kept.length),
+            };
+          }),
         },
       });
     }
@@ -162,6 +195,12 @@ export function recordBlastRadiusTelemetry(
             ...new Set(result.boundary_violations.map((b) => b.target_layer)),
           ],
           ...(filePath ? { file_path: filePath } : {}),
+          breaches: result.boundary_violations.map((b) => ({
+            source_file: b.source_file,
+            source_layer: b.source_layer,
+            target_layer: b.target_layer,
+            specifier: b.specifier,
+          })),
         },
       });
     }

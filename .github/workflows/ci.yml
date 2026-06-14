@@ -13,7 +13,9 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        node-version: [20, 22]
+        # 20 = supported floor (engines.node >=20.9), 22 = recommended line
+        # (>=22.5), 24 = current. All three must stay green.
+        node-version: [20, 22, 24]
 
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +30,12 @@ jobs:
           cache: pnpm
 
       - run: pnpm install
+
+      - name: Verify native DB bindings
+        # Fail fast and loud if cozo-node / better-sqlite3 native binaries did
+        # not build (e.g. pnpm/npm skipped their install scripts). Without this
+        # the miss surfaces as noise across ~170 test files instead of one cause.
+        run: pnpm run check:native
 
       - name: Lint
         run: pnpm run lint

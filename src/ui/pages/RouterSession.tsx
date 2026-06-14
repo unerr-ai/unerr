@@ -11,6 +11,7 @@
 
 import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { fetchJson } from "@/lib/api";
+import { useRepoApi } from "@/lib/repo-context";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -200,11 +201,12 @@ function SessionDetail({ session }: { session: SessionSummary }) {
 }
 
 export function RouterSessionPage() {
+  const { url, queryKey } = useRepoApi();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const sessionsQ = useQuery({
-    queryKey: ["router", "sessions"],
-    queryFn: () => fetchJson<SessionsResponse>("/api/router/sessions"),
+    queryKey: queryKey(["router", "sessions"]),
+    queryFn: () => fetchJson<SessionsResponse>(url("/api/router/sessions")),
     refetchInterval: 10_000,
   });
 

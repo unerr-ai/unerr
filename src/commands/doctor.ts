@@ -21,11 +21,16 @@ import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join, normalize } from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 import type { Command } from "commander";
 import {
   DAEMON_DASHBOARD_PORT,
   daemonDashboardUrl,
 } from "../daemon/protocol.js";
+import {
+  MIN_NODE_VERSION,
+  RECOMMENDED_NODE_VERSION,
+} from "../utils/node-version.js";
 
 // ── ANSI helpers ──────────────────────────────────────────────
 
@@ -605,24 +610,36 @@ async function checkPath(opts: { interactive: boolean }): Promise<CheckResult> {
   };
 }
 
-// 2. Node version meets engines.node minimum (≥20.9.0)
+// 2. Node version — blocking floor at MIN_NODE_VERSION, non-blocking
+// recommendation to reach RECOMMENDED_NODE_VERSION (single source of truth in
+// utils/node-version.ts).
 function checkNodeVersion(): CheckResult {
-  const required = "20.9.0";
   const current = process.versions.node;
-  if (compareSemver(current, required) >= 0) {
+  // Below the hard floor — unerr won't run.
+  if (compareSemver(current, MIN_NODE_VERSION) < 0) {
     return {
       name: "Node version",
-      status: "ok",
-      message: `v${current} (≥${required} required)`,
+      status: "fail",
+      message: `v${current} is below the required ≥${MIN_NODE_VERSION}`,
+      detail:
+        "Upgrade Node — e.g. `nvm install 22 && nvm use 22` — then reinstall: `npm i -g @unerr-ai/unerr`.",
+      blocking: true,
+    };
+  }
+  // Supported, but below the recommended floor — nudge, don't block.
+  if (compareSemver(current, RECOMMENDED_NODE_VERSION) < 0) {
+    return {
+      name: "Node version",
+      status: "warn",
+      message: `v${current} works (≥${MIN_NODE_VERSION}), but Node ≥${RECOMMENDED_NODE_VERSION} is recommended`,
+      detail:
+        "Node ≥22.5 is the recommended runtime for best performance. Upgrade: `nvm install 22 && nvm use 22`.",
     };
   }
   return {
     name: "Node version",
-    status: "fail",
-    message: `v${current} is below the required ≥${required}`,
-    detail:
-      "Upgrade Node — e.g. `nvm install 20 && nvm use 20` — then reinstall: `npm i -g @unerr-ai/unerr`.",
-    blocking: true,
+    status: "ok",
+    message: `v${current} (≥${RECOMMENDED_NODE_VERSION} recommended)`,
   };
 }
 
@@ -868,6 +885,81 @@ async function checkMetricsDriver(): Promise<CheckResult> {
   }
 }
 
+// ── Native-module repair ─────────────────────────────────────
+
+/** Display names of the two native DB checks, so the command can detect failure. */
+const NATIVE_CHECK_NAMES = ["cozo-node", "better-sqlite3"];
+
+/** True if either native DB check did not return status:'ok'. */
+function nativeModulesFailed(results: CheckResult[]): boolean {
+  return results.some(
+    (r) =>
+      NATIVE_CHECK_NAMES.some((n) => r.name.includes(n)) && r.status !== "ok"
+  );
+}
+
+/**
+ * Walk up from this module to the unerr package root — the directory holding
+ * both `package.json` and `node_modules`. That's where a package-manager
+ * rebuild must run so it resolves the installed native deps (works for a global
+ * `npm i -g` install and for a local dev checkout alike).
+ */
+function findInstallRoot(): string | null {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 8; i++) {
+    if (
+      existsSync(join(dir, "package.json")) &&
+      existsSync(join(dir, "node_modules"))
+    ) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+/**
+ * Rebuild the native DB modules in place. This is the end-user recovery path for
+ * the npm v12 / pnpm v10 world, where the package manager skips a dependency's
+ * install script by default and the prebuilt `.node` binary never lands —
+ * leaving cozo-node / better-sqlite3 unable to load. `npm rebuild` / `pnpm
+ * rebuild` explicitly re-run those build scripts (the user invoking this IS the
+ * opt-in the lockdown wants). Best-effort: on any failure it prints the exact
+ * manual command. Returns true only when the rebuild command exited cleanly.
+ */
+function repairNativeModules(): boolean {
+  const root = findInstallRoot();
+  if (!root) {
+    log(
+      `  ${W}✗ Could not locate the unerr install directory — rebuild manually:${R}\n` +
+        `    ${C}npm rebuild better-sqlite3 cozo-node${R}\n\n`
+    );
+    return false;
+  }
+  const usesPnpm = existsSync(join(root, "node_modules", ".pnpm"));
+  const cmd = usesPnpm
+    ? "pnpm rebuild better-sqlite3 cozo-node"
+    : "npm rebuild better-sqlite3 cozo-node";
+  log(
+    `  ${D}Rebuilding native modules: ${cmd}${R}\n  ${D}(in ${root})${R}\n\n`
+  );
+  try {
+    execSync(cmd, { cwd: root, stdio: "inherit" });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log(
+      `\n  ${W}✗ Rebuild failed: ${msg}${R}\n    Run it manually, then re-run \`unerr doctor\`:\n    ${C}cd ${root} && ${cmd}${R}\n\n`
+    );
+    return false;
+  }
+  log(
+    `\n  ${G}✓ Native modules rebuilt. Re-run \`unerr doctor\` to confirm they load.${R}\n\n`
+  );
+  return true;
+}
+
 /**
  * Run every environment check. Used by `unerr doctor` and `unerr pm start`
  * so they share a single source of truth.
@@ -948,8 +1040,28 @@ export function registerDoctorCommand(program: Command): void {
   program
     .command("doctor")
     .description("Check environment (PATH, Node, native modules, port, perms)")
-    .action(async () => {
+    .option(
+      "--fix-native",
+      "Rebuild the native DB modules (cozo-node, better-sqlite3) without prompting if they failed to load"
+    )
+    .action(async (opts: { fixNative?: boolean }) => {
       const result = await runEnvironmentChecks({ interactive: true });
+
+      // Offer to rebuild native DB bindings when they failed to load. Under
+      // pnpm v10 / npm v12 the package manager skips the dependency install
+      // scripts by default, so the prebuilt binary never lands — `unerr doctor`
+      // is the recovery path.
+      if (nativeModulesFailed(result.results)) {
+        const doFix = opts.fixNative
+          ? true
+          : process.stdin.isTTY
+            ? await askYesNo(
+                `\n  ${C}Rebuild native DB modules (cozo-node, better-sqlite3) now? [Y/n] ${R}`
+              )
+            : false;
+        if (doFix) repairNativeModules();
+      }
+
       if (result.blocking) {
         process.exitCode = 1;
       }

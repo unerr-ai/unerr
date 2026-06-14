@@ -288,6 +288,26 @@ describe("recordBlastRadiusTelemetry", () => {
     expect(row!.detail.warnings).toBe(1);
     expect(row!.detail.total_at_risk).toBe(2);
     expect(row!.detail.file_path).toBe("src/pay.ts");
+
+    // Enriched per-firing detail — the verifiable evidence the guard page
+    // renders: the changed entity plus the named callers at risk.
+    const firings = row!.detail.firings as Array<{
+      entity: string;
+      entity_key: string;
+      change_type: string;
+      total_at_risk: number;
+      callers: Array<{ file: string; entity: string; is_test: boolean }>;
+      callers_truncated: number;
+    }>;
+    expect(firings).toHaveLength(1);
+    expect(firings[0]!.entity).toBe("pay");
+    expect(firings[0]!.entity_key).toBe("e:pay");
+    expect(firings[0]!.total_at_risk).toBe(2);
+    expect(firings[0]!.callers_truncated).toBe(0);
+    expect(firings[0]!.callers.map((c) => c.entity).sort()).toEqual([
+      "checkout",
+      "refund",
+    ]);
   });
 
   it("records boundary_violation_flagged with target layers when a boundary crossing fires", async () => {
@@ -309,6 +329,16 @@ describe("recordBlastRadiusTelemetry", () => {
     expect(row!.type).toBe("boundary_violation_flagged");
     expect(row!.detail.violations).toBe(1);
     expect(row!.detail.target_layers).toEqual(["src/intelligence/"]);
+
+    // Enriched per-breach detail — source/target layer + the offending import.
+    const breaches = row!.detail.breaches as Array<{
+      source_layer: string;
+      target_layer: string;
+      specifier: string;
+    }>;
+    expect(breaches).toHaveLength(1);
+    expect(breaches[0]!.target_layer).toBe("src/intelligence/");
+    expect(breaches[0]!.specifier).toContain("edit-impact");
   });
 
   it("records nothing when neither signal fires", () => {
