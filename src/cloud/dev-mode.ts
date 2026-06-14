@@ -199,26 +199,36 @@ function mintDevToken(plan: DevPlan): {
 }
 
 /**
- * Apply the dev profile: the global `~/.unerr/dev.json` as the base, with a
- * repo-level `<repo>/.unerr/dev.json` overriding it per-field. Points at a local
- * API URL and/or forces a tier locally. No-op when neither file exists. Safe to
- * call at every boot; the caller must guard it behind `__UNERR_DEV_BUILD__`.
+ * Merge the dev profile: the global `~/.unerr/dev.json` as the base, with a
+ * repo-level `<repo>/.unerr/dev.json` overriding it per-field. Returns null when
+ * neither file exists. Read-only — reads the files but writes no env or cache.
  */
-export async function applyDevConfig(repoPath: string): Promise<void> {
+function resolveDevProfile(repoPath: string): DevProfile | null {
   const globalProfile = loadProfile(globalDevProfilePath());
   const repoProfile = loadProfile(devProfilePath(repoPath));
-  if (!globalProfile && !repoProfile) return;
+  if (!globalProfile && !repoProfile) return null;
 
   // Repo wins per-field; the global file fills any field the repo omits.
-  const profile: DevProfile = {
+  return {
     apiUrl: repoProfile?.apiUrl ?? globalProfile?.apiUrl,
     tier: repoProfile?.tier ?? globalProfile?.tier,
   };
+}
+
+/**
+ * Apply the dev profile: point cloud access at a local API URL and/or force a
+ * tier locally. No-op when neither dev.json exists. Silent — the active profile
+ * is surfaced by `unerr pm status` (via `describeDevConfig`), not on every boot.
+ * Safe to call at every boot; the caller must guard it behind
+ * `__UNERR_DEV_BUILD__`.
+ */
+export async function applyDevConfig(repoPath: string): Promise<void> {
+  const profile = resolveDevProfile(repoPath);
+  if (!profile) return;
 
   // API URL: an explicit env var always wins (CLI > env > file precedence).
   if (profile.apiUrl && !process.env.UNERR_API_URL?.trim()) {
     process.env.UNERR_API_URL = profile.apiUrl;
-    process.stderr.write(`[unerr dev] API URL → ${profile.apiUrl}\n`);
   }
 
   // Tier: mint a dev token, trust the dev key, write the cache the verifier reads.
@@ -237,6 +247,20 @@ export async function applyDevConfig(repoPath: string): Promise<void> {
       max_server_time: 0,
     };
     writeEntitlementCache(cache);
-    process.stderr.write(`[unerr dev] tier → ${profile.tier}\n`);
   }
+}
+
+/**
+ * Describe the active dev profile as ready-to-print lines for `unerr pm status`
+ * — the one command that surfaces dev mode. Returns an empty array when no
+ * dev.json is present, so the caller prints nothing then. Read-only: unlike
+ * `applyDevConfig` it neither sets env nor mints a token.
+ */
+export function describeDevConfig(repoPath: string): string[] {
+  const profile = resolveDevProfile(repoPath);
+  if (!profile) return [];
+  const lines: string[] = [];
+  if (profile.apiUrl) lines.push(`[unerr dev] API URL → ${profile.apiUrl}`);
+  if (profile.tier) lines.push(`[unerr dev] tier → ${profile.tier}`);
+  return lines;
 }

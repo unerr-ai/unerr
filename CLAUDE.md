@@ -344,7 +344,7 @@ src/
   utils/                — Shared utilities (startup-log, exec, git)
 ```
 
-Internal design docs live in `.internal/` at the repo root (consolidated + code-grounded 2026-06-07): top-level product docs (NUDGE_V2.md, PERCEPTION_TO_PRESENCE.md, PRODUCT_POSITIONING.md — canonical positioning, reviewer-architecture.md, behavior-automation.md, USER_TESTING_CHECKLIST.md), `architecture/` (shipped systems only: AGENT_SURFACE.md — merged agent/skill/tool-registration guide, MCP_GATEWAY_ROUTER_PROXY, LAYER_*), `roadmap/` (designs NOT built yet: LAYER_8 domain understanding, LAYER_13 edit DSL, delegation-tier plan, autonomous planning, local sidecar), `archive/` (superseded snapshots), plus `research/` and `ui/`. Public docs are separate: `docs/site/` (Fumadocs source). When a source comment cites a design doc, the path is relative to repo root (e.g. `.internal/reviewer-architecture.md`).
+Internal design docs live in `.internal/` at the repo root (consolidated + code-grounded 2026-06-07): top-level product docs (NUDGE_V2.md, PERCEPTION_TO_PRESENCE.md, PRODUCT_POSITIONING.md — canonical positioning, reviewer-architecture.md, behavior-automation.md, USER_TESTING_CHECKLIST.md), `architecture/` (shipped systems only: AGENT_SURFACE.md — merged agent/skill/tool-registration guide, MCP_GATEWAY_ROUTER_PROXY, LAYER_*), `roadmap/` (designs NOT built yet: LAYER_8 domain understanding, LAYER_13 edit DSL, delegation-tier plan, autonomous planning, local sidecar), `archive/` (superseded snapshots), plus `research/` and `ui/`. Public docs live in a separate repo, `unerr-docs` (Fumadocs source) — they are no longer in this repo. When a source comment cites a design doc, the path is relative to repo root (e.g. `.internal/reviewer-architecture.md`).
 
 ### Key Files
 

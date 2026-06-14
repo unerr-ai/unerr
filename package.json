@@ -30,7 +30,6 @@
     "test:local-mode": "vitest run src/__tests__/local-mode-offline.test.ts src/__tests__/network-boundary.test.ts",
     "check:tool-budget": "tsx scripts/check-tool-budget.ts",
     "check:native": "node scripts/check-native-modules.mjs",
-    "gen:docs": "tsx scripts/gen-docs-reference.ts",
     "dev:config": "node scripts/dev-config.mjs",
     "dev:entitlement": "node scripts/dev-entitlement.mjs",
     "dev:mcp-probe": "node scripts/dev-mcp-probe.mjs",

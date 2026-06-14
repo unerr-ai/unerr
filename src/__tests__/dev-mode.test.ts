@@ -28,7 +28,7 @@ vi.mock("node:os", async (importOriginal) => {
   };
 });
 
-import { applyDevConfig } from "../cloud/dev-mode.js";
+import { applyDevConfig, describeDevConfig } from "../cloud/dev-mode.js";
 import {
   readEntitlementCache,
   writeEntitlementCache,
@@ -214,5 +214,34 @@ describe("applyDevConfig", () => {
     const restored = readEntitlementCache();
     expect(restored?.claims?.plan).toBe("pro");
     expect(restored?.claims?.limits.max_active_repos).toBe(-1);
+  });
+});
+
+// describeDevConfig backs `unerr pm status` — the one command that surfaces dev
+// mode now that applyDevConfig applies silently on every other boot.
+describe("describeDevConfig", () => {
+  it("returns nothing when no dev.json is present", () => {
+    expect(describeDevConfig(repoDir)).toEqual([]);
+  });
+
+  it("reports the merged API URL and tier as printable lines", () => {
+    writeGlobalDevJson(JSON.stringify({ apiUrl: "http://localhost:3000" }));
+    writeDevJson(JSON.stringify({ tier: "pro" }));
+
+    expect(describeDevConfig(repoDir)).toEqual([
+      "[unerr dev] API URL → http://localhost:3000",
+      "[unerr dev] tier → pro",
+    ]);
+  });
+
+  it("is read-only — sets no env and writes no entitlement cache", () => {
+    writeDevJson(
+      JSON.stringify({ apiUrl: "http://localhost:3000", tier: "pro" })
+    );
+
+    describeDevConfig(repoDir);
+
+    expect(process.env.UNERR_API_URL).toBeUndefined();
+    expect(readEntitlementCache()).toBeNull();
   });
 });

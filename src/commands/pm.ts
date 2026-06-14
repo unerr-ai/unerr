@@ -297,6 +297,14 @@ export function registerPmCommand(program: Command): void {
   pm.command("status")
     .description("List all registered repos and their state")
     .action(async () => {
+      // Dev mode is the one command that surfaces which local API URL / tier
+      // dev.json forced — applyDevConfig stays silent on every other boot.
+      // Compile-stripped in prod, so this whole block leaves the shipped binary.
+      if (__UNERR_DEV_BUILD__) {
+        const { describeDevConfig } = await import("../cloud/dev-mode.js");
+        for (const line of describeDevConfig(process.cwd())) write(`${line}\n`);
+      }
+
       const repos = listRepos();
       if (repos.length === 0) {
         write(
