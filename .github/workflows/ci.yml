@@ -57,26 +57,34 @@ jobs:
       - name: Type check
         run: pnpm run typecheck
 
-      - name: Point /bin/sh at bash (Linux only)
-        # On Debian/Ubuntu `/bin/sh` is dash; on macOS it is bash. unerr's exec
-        # runner spawns `/bin/sh -lc <cmd>` — a LOGIN shell — to capture the
-        # user's real environment (PATH, nvm/pyenv shims). A login shell reads
+      - name: Point /bin/sh at bash (Ubuntu)
+        # On Ubuntu `/bin/sh` is dash; on macOS it is bash. unerr's exec runner
+        # spawns `/bin/sh -lc <cmd>` — a LOGIN shell — to capture the user's
+        # real environment (PATH, nvm/pyenv shims). A login shell reads
         # /etc/profile, and the Blacksmith Linux runner's profile sources
-        # /run/blacksmith/job.env, which is written in bash syntax (`declare -x
-        # …`) to propagate env across steps. dash cannot parse `declare`, so it
-        # prints `/run/blacksmith/job.env: declare: not found` into every
-        # captured command's output and breaks the exec/shell-capture tests.
-        # This is filesystem-driven (the profile sources the file), so clearing
-        # BASH_ENV/ENV does nothing. bash parses `declare` fine — which is why
-        # the macOS leg, where /bin/sh is already bash, passes. Repointing
-        # /bin/sh at bash makes Linux match macOS. The runner is an ephemeral
-        # microVM, so this only affects this job.
-        if: runner.os == 'Linux'
+        # /run/blacksmith/job.env, written in bash syntax (`declare -x …`) to
+        # propagate env across steps. dash cannot parse `declare`, so it prints
+        # `/run/blacksmith/job.env: declare: not found` into every captured
+        # command's output and breaks the exec/shell-capture tests. This is
+        # filesystem-driven (the profile sources the file), so clearing
+        # BASH_ENV/ENV does nothing — and `dpkg-reconfigure dash` did not
+        # repoint /bin/sh on this image. Force the symlink to bash directly:
+        # bash parses `declare` fine, which is why the macOS leg (where /bin/sh
+        # is already bash) passes. The runner is an ephemeral microVM, so this
+        # only affects this job. Guard on the matrix string (not runner.os) so
+        # the match doesn't depend on the runner-provided context.
+        if: contains(matrix.os, 'ubuntu')
         shell: bash
         run: |
-          echo "dash dash/sh boolean false" | sudo debconf-set-selections
-          sudo dpkg-reconfigure -f noninteractive dash
-          echo "/bin/sh -> $(readlink -f /bin/sh)"
+          echo "before: /bin/sh -> $(readlink -f /bin/sh)"
+          sudo ln -sf /bin/bash /bin/sh
+          echo "after:  /bin/sh -> $(readlink -f /bin/sh)"
+          # Proof in the log: a login /bin/sh must now emit nothing (no
+          # `declare: not found`). If this prints the error, the symlink swap
+          # did not take and the test step will still fail.
+          echo "--- login /bin/sh sanity (expect no declare error) ---"
+          /bin/sh -lc 'true'
+          echo "--- sanity exit: $? ---"
 
       - name: Test
         # Redirect stdin from /dev/null so vitest doesn't engage raw mode and
