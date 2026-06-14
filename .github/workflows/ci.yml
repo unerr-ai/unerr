@@ -16,7 +16,15 @@ jobs:
       # matrices, and useful while Windows is being brought online).
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, blacksmith-4vcpu-windows-2025]
+        # Blacksmith runner images (faster GitHub Actions runners). Linux +
+        # Windows boot as Firecracker microVMs; macOS is Apple Silicon. These
+        # require the Blacksmith GitHub App to be installed on this repo. Sizes
+        # mirror GitHub-hosted (4 vCPU Linux/Windows; macOS minimum is 6 vCPU).
+        # Windows on Blacksmith is Public Beta (host = Windows Server 2025).
+        os:
+          - blacksmith-4vcpu-ubuntu-2404
+          - blacksmith-6vcpu-macos-latest
+          - blacksmith-4vcpu-windows-2025
         # 20 = supported floor (engines.node >=20.9), 22 = recommended line
         # (>=22.5), 24 = current. All three Node lines on all three OSes must
         # stay green.
@@ -49,8 +57,9 @@ jobs:
         run: pnpm run typecheck
 
       - name: Test
-        # Run under bash on every OS. On windows-latest GitHub provides Git
-        # Bash, which supplies `/dev/null` — so the stdin redirect that stops
+        # Run under bash on every OS. The Blacksmith Windows runner (based on
+        # GitHub's Windows Server 2025 image) provides Git Bash, which supplies
+        # `/dev/null` — so the stdin redirect that stops
         # vitest hanging in raw mode works the same everywhere. `pnpm exec`
         # invokes the local vitest binary directly, bypassing pnpm's package.json
         # script wrapper (which on Windows would run the `< /dev/null` string
