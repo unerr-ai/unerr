@@ -1,0 +1,38 @@
+---
+title: recon
+description: One-shot composite context for a coding task, from the command line.
+---
+
+Return everything needed for a coding turn in one call: matching entities, the focus entities' source, their callers (blast radius), anchored notes, and conventions — ranked to a token budget.
+
+## Synopsis
+
+```bash
+unerr recon "<task>" [options]
+```
+
+This is the command-line form of the [`unerr_context`](/docs/mcp-tools/unerr-context) MCP tool. The agent normally calls that tool directly. Use `unerr recon` when you want the same bundle from a shell script or a subagent that does not speak MCP.
+
+Pass the task as a quoted string. The output is a flat text digest by default, or JSON with `--json`.
+
+## Options
+
+| Flag | Description |
+|---|---|
+| `--budget <N>` | Token budget for the bundle. Default `4000`. Raise it to include more source. |
+| `--digest` | Force the flat summary form. Stays a fixed size as the number of files scanned grows; good for large sweeps. |
+| `--json` | Output the bundle as JSON instead of text. |
+
+## Examples
+
+```bash
+# Get context for a task
+unerr recon "add a retry to the upload client"
+```
+
+```bash
+# Wider budget, machine-readable output for a script
+unerr recon "rename the auth token field" --budget 6000 --json
+```
+
+Related: [unerr_context tool](/docs/mcp-tools/unerr-context) · [operational memory](/docs/concepts/operational-memory)

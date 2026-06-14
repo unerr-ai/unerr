@@ -1,0 +1,4 @@
+{
+  "title": "Configuration",
+  "pages": ["index", "unerr-directory", "mcp-config", "env-vars", "hooks", "dashboard", "credentials"]
+}

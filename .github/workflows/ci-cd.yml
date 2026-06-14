@@ -1,0 +1,338 @@
+name: CI/CD
+
+# Build and deploy are fully decoupled. Building parks an image in ECR; deploying
+# is a separate manual click. There is NO automatic deploy and NO qa→prod order —
+# qa and prod are independent, deploy either (or both) whenever you want.
+#
+# What this does
+#   PR / non-main push : lint + typecheck + format check + build, and verify the
+#                        app image still builds (no push, no AWS).
+#   push to main       : build & push ONE app image to Amazon ECR as :latest
+#                        (+ an immutable :<version>-<sha> tag) and STOP. The image
+#                        is parked, ready — nothing is deployed.
+#   manual "Run workflow" (workflow_dispatch) : pick ONE action —
+#                        • build      : rebuild & push :latest to ECR (same as a
+#                          push to main). Use to refresh the parked image manually.
+#                        • deploy-qa  : roll qa from the CURRENT :latest. No build,
+#                          no dependency on prod.
+#                        • deploy-prod: roll prod from the CURRENT :latest. No build,
+#                          no dependency on qa.
+#                        The deploy-* actions need an image already in ECR — they do
+#                        not build one. To deploy BOTH, run the workflow twice
+#                        (deploy-qa, then deploy-prod) — in any order.
+#
+# This is a static docs site. There is no database, so there is NO migration step.
+# One image serves every environment: the bytes are identical in qa and prod.
+# Per-environment runtime config (SITE_URL, OPENAI_API_KEY) is injected into the
+# ECS task definition by Terraform (../aws-infra) — NOT baked into the image. This
+# repo bans NEXT_PUBLIC_* (build-time-inlined), so nothing env-specific is baked.
+#
+# Auth: keyless via GitHub OIDC (no long-lived AWS keys).
+#
+# Required repo variables (vars.*) and secrets — set in repo Settings, sourced from
+# the aws-infra Terraform repo:
+#   AWS_DEPLOY_ROLE_ARN   IAM role the OIDC token assumes (build-push + both deploys)
+#   AWS_REGION            AWS region, e.g. ap-south-1
+#   ECR_REPOSITORY_DOCS   ECR repo name for the docs app image
+#   ECS_CLUSTER           ECS cluster name — scope this per environment (qa / production)
+#   ECS_SERVICE           ECS service name to roll
+# ECS_CLUSTER is environment-scoped, so the deploy jobs declare `environment:` to
+# resolve the right value.
+#
+# Runners: the org's Blacksmith runners (blacksmith-4vcpu-ubuntu-2404), same as
+# unerr-web-service. Docker builds use Blacksmith's builder + build-push actions,
+# which share a warm layer cache across runs. Requires this repo to be installed in
+# the Blacksmith GitHub app (Settings → GitHub Apps) — otherwise jobs queue forever.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Manual run — pick what to do"
+        type: choice
+        default: deploy-qa
+        options:
+          - build # rebuild & push :latest to ECR, deploy nothing
+          - deploy-qa # roll qa from the current :latest, no rebuild
+          - deploy-prod # roll prod from the current :latest, no rebuild
+
+# Only one run per branch; cancel superseded PR runs but never an in-flight push.
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Least privilege by default. The OIDC token (id-token: write) is requested only
+# in the jobs that talk to AWS, via their own permissions block.
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. Lint, typecheck, format, build ────────────────────────────────────
+  test:
+    name: Test
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Skip for manual deploy-only runs — rolling an existing image needs no test
+    # pass. Runs on every PR, every push, and the manual build action.
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      inputs.action == 'build'
+    env:
+      # No secrets in CI; env validation is skipped and Next telemetry is off.
+      SKIP_ENV_VALIDATION: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      # `postinstall` runs `fumadocs-mdx`, which needs source.config.ts +
+      # content/docs — both present in the checkout, so install succeeds.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Build
+        run: pnpm build
+
+  # ── 2a. PR only: prove the app image still builds (no push) ───────────────
+  verify-image:
+    name: Verify image builds
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: test
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Build app image (no push)
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+
+  # ── 2b. build & push the app image to ECR, then STOP (no deploy) ──────────
+  build-push:
+    name: Build & push to ECR
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: test
+    # A push to main, or the manual build action. Parks :latest in ECR — it never
+    # deploys. The manual deploy-* actions skip this and roll the existing :latest.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'build')
+    permissions:
+      contents: read
+      id-token: write # required for OIDC
+    outputs:
+      image_tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${VERSION}-${GITHUB_SHA::7}"   # immutable + traceable, e.g. 0.1.0-6a500d7
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Image tag: $TAG"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve image URI
+        id: images
+        run: |
+          REG="${{ steps.ecr.outputs.registry }}"
+          echo "app=$REG/${{ vars.ECR_REPOSITORY_DOCS }}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Build & push app image
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          # No build-args: this repo bans NEXT_PUBLIC_* (build-time-inlined), so
+          # nothing env-specific is baked. All per-environment config (SITE_URL,
+          # OPENAI_API_KEY) is read at runtime from the ECS task definition.
+          tags: |
+            ${{ steps.images.outputs.app }}:${{ steps.tag.outputs.tag }}
+            ${{ steps.images.outputs.app }}:latest
+
+      - name: Summary
+        run: |
+          {
+            echo "### Image pushed :package:"
+            echo ""
+            echo "| Image | Tag |"
+            echo "|-------|-----|"
+            echo "| \`${{ vars.ECR_REPOSITORY_DOCS }}\` | \`${{ steps.tag.outputs.tag }}\` |"
+            echo ""
+            echo "> Image parked in ECR as \`:latest\`. Nothing deployed."
+            echo "> Deploy when ready: **Run workflow → deploy-qa** or **deploy-prod**."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 3a. deploy to qa (manual only, independent) ──────────────────────────
+  # Triggered ONLY by the manual deploy-qa action — never by a push, never tied to
+  # prod. Rolls whatever is currently tagged :latest in ECR (no build, no `needs`).
+  # Bound to the "qa" GitHub environment, which supplies the qa-scoped ECS_CLUSTER
+  # (that env-scoped var REQUIRES this `environment:` line to resolve). Add
+  # *required reviewers* to that environment (repo → Settings → Environments → qa)
+  # if you want a "Review deployments" approval pause; leave them off to roll on the
+  # button click. No database, so no migration step — just roll the service.
+  deploy-qa:
+    name: Deploy to qa
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-qa'
+    environment: qa
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLUSTER: ${{ vars.ECS_CLUSTER }}
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # Show which version :latest currently points to, so the deploy is traceable.
+      - name: Resolve current :latest
+        id: img
+        run: |
+          set -euo pipefail
+          TAGS=$(aws ecr describe-images \
+            --repository-name "${{ vars.ECR_REPOSITORY_DOCS }}" \
+            --image-ids imageTag=latest \
+            --query 'imageDetails[0].imageTags' --output json)
+          VER=$(echo "$TAGS" | jq -r '[.[] | select(. != "latest")][0] // "latest"')
+          echo "Deploying :latest (version: $VER)"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      # The ECS cluster, service, and task definition are owned by Terraform
+      # (../aws-infra) and pin the `:latest` image we just pushed — so this job
+      # does NOT register task definitions. It only rolls the existing service.
+      #
+      # Roll the existing service: --force-new-deployment makes ECS re-pull the
+      # `:latest` image into a fresh rolling deployment. The service's deployment
+      # circuit breaker (defined in Terraform) auto-rolls-back on health failure.
+      # `wait services-stable` blocks until the new tasks are healthy.
+      - name: Roll the ECS service
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "$CLUSTER" \
+            --service "${{ vars.ECS_SERVICE }}" \
+            --force-new-deployment >/dev/null
+
+          echo "Waiting for the service to reach a stable state…"
+          aws ecs wait services-stable --cluster "$CLUSTER" --service "${{ vars.ECS_SERVICE }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed to qa :rocket:"
+            echo ""
+            echo "| Key | Value |"
+            echo "|-----|-------|"
+            echo "| **Image** | \`:latest\` (${{ steps.img.outputs.version }}) |"
+            echo "| **Cluster** | \`${CLUSTER}\` |"
+            echo "| **Service** | \`${{ vars.ECS_SERVICE }}\` |"
+            echo "| **Deployed by** | ${{ github.actor }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 3b. deploy to prod (manual only, independent) ────────────────────────
+  # Triggered ONLY by the manual deploy-prod action — never by a push, never tied
+  # to qa. Goes STRAIGHT to prod and rolls whatever is currently tagged :latest in
+  # ECR (no build, no `needs`, no qa prerequisite). Bound to the "production" GitHub
+  # environment, which supplies the prod-scoped ECS_CLUSTER (that env-scoped var
+  # REQUIRES this `environment:` line). Add *required reviewers* to that environment
+  # for a "Review deployments" approval pause; leave them off to roll on the button
+  # click alone. No database, so no migration step — just roll the service.
+  deploy-prod:
+    name: Deploy to prod
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-prod'
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLUSTER: ${{ vars.ECS_CLUSTER }}
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # Show which version :latest currently points to, so the deploy is traceable.
+      - name: Resolve current :latest
+        id: img
+        run: |
+          set -euo pipefail
+          TAGS=$(aws ecr describe-images \
+            --repository-name "${{ vars.ECR_REPOSITORY_DOCS }}" \
+            --image-ids imageTag=latest \
+            --query 'imageDetails[0].imageTags' --output json)
+          VER=$(echo "$TAGS" | jq -r '[.[] | select(. != "latest")][0] // "latest"')
+          echo "Deploying :latest (version: $VER)"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      # See deploy-qa for the rationale — prod is identical, only the
+      # environment-scoped ECS_CLUSTER differs. No database, so no migration step.
+      - name: Roll the ECS service
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "$CLUSTER" \
+            --service "${{ vars.ECS_SERVICE }}" \
+            --force-new-deployment >/dev/null
+
+          echo "Waiting for the service to reach a stable state…"
+          aws ecs wait services-stable --cluster "$CLUSTER" --service "${{ vars.ECS_SERVICE }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed to prod :rocket:"
+            echo ""
+            echo "| Key | Value |"
+            echo "|-----|-------|"
+            echo "| **Image** | \`:latest\` (${{ steps.img.outputs.version }}) |"
+            echo "| **Cluster** | \`${CLUSTER}\` |"
+            echo "| **Service** | \`${{ vars.ECS_SERVICE }}\` |"
+            echo "| **Deployed by** | ${{ github.actor }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

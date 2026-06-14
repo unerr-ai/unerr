@@ -1,0 +1,4 @@
+{
+  "title": "CLI reference",
+  "pages": ["index", "install", "uninstall", "doctor", "status", "recon", "review", "auth", "conventions", "pm", "router"]
+}

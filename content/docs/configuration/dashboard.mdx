@@ -1,0 +1,28 @@
+---
+title: Dashboard
+description: The local web UI that shows your repos and processes.
+---
+
+unerr serves a local web dashboard from the process manager (`unerrd`). It shows the
+repos unerr knows about and their running processes.
+
+## Open it
+
+The dashboard runs on the port set by `UNERR_HTTP_PORT`. Open that address in a browser:
+
+```bash
+# example, if UNERR_HTTP_PORT=7100
+open http://localhost:7100
+```
+
+The process manager starts on its own the first time an IDE connects, so the dashboard is
+available once unerr is running for a repo.
+
+## What it shows
+
+| State | What you see |
+|---|---|
+| Default (offline) | Your repos and their processes on this machine. |
+| Logged in | The same, plus every machine on your account in one place. |
+
+The cross-machine view requires login. See [Credentials](/docs/configuration/credentials).

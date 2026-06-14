@@ -1,0 +1,42 @@
+---
+title: doctor
+description: Check that the environment is set up correctly for unerr.
+---
+
+Check the local environment and report anything that would stop unerr from working.
+
+## Synopsis
+
+```bash
+unerr doctor [options]
+```
+
+It checks:
+
+- `unerr` is on your `PATH`.
+- The Node version is supported.
+- The native database modules (cozo-node, better-sqlite3) load.
+- The dashboard port is free.
+- File-system permissions for the `.unerr/` directories.
+
+Each check prints pass or fail with a short note on how to fix a failure.
+
+## Options
+
+| Flag | Description |
+|---|---|
+| `--fix-native` | Rebuild the native database modules (cozo-node, better-sqlite3). Use this when a check reports that a native module failed to load. |
+
+## Examples
+
+```bash
+# Run all checks
+unerr doctor
+```
+
+```bash
+# Rebuild the native modules after a Node upgrade
+unerr doctor --fix-native
+```
+
+Related: [status](/docs/cli/status) · [install](/docs/cli/install)

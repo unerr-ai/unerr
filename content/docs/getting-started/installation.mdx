@@ -1,0 +1,59 @@
+---
+title: Installation
+description: Install the unerr CLI globally, then set it up in each repository.
+---
+
+## Prerequisites
+
+- Node.js >= 20.
+
+## 1. Install the CLI
+
+Install once, globally:
+
+```bash
+npm install -g @unerr-ai/unerr
+```
+
+pnpm or yarn global installs work too.
+
+## 2. Verify
+
+```bash
+unerr --version
+```
+
+Expected output:
+
+```
+0.3.0
+```
+
+## 3. Set up a repository
+
+unerr is per-repo. Each repository gets its own config and its own graph under `.unerr/`. Run the install inside each repo you want to use it in.
+
+```bash
+cd /path/to/your/repo
+unerr install claude-code
+```
+
+Replace `claude-code` with your agent's id. `unerr install <agent>` writes the MCP config and the agent's instruction file (and for Claude Code, skills and hooks). See [Supported agents](/docs/getting-started/supported-agents) for the full list of ids.
+
+## 4. Check the environment
+
+If something is off, run:
+
+```bash
+unerr doctor
+```
+
+It checks PATH, Node, native modules, the port, and permissions.
+
+<Callout type="info">
+unerr never writes global MCP config. Each repo gets its own config file (for example `.mcp.json` for Claude Code) with the resolved absolute path to the `unerr` binary. You normally do not hand-edit it.
+</Callout>
+
+## Next
+
+- [First run](/docs/getting-started/first-run)

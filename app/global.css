@@ -1,0 +1,105 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+
+/* unerr "Substrate Dark + Violet" theme.
+   Dark is the default/primary look; light is "Paper Light".
+   Overrides Fumadocs `--color-fd-*` variables. Brand tokens are hex; CSS
+   custom properties accept any color format, so hex is used throughout. */
+
+/* Fonts ------------------------------------------------------------------
+   layout.tsx sets --font-sans (Inter), --font-heading (Space Grotesk),
+   --font-mono (JetBrains Mono) on <html> via next/font. Map Tailwind v4's
+   font-family theme tokens to those vars so utilities pick them up. */
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+  --font-heading: var(--font-space-grotesk), ui-sans-serif, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading), ui-sans-serif, sans-serif;
+}
+
+/* Nav/sidebar wordmark uses this class in lib/layout.shared.tsx. */
+.font-heading {
+  font-family: var(--font-heading), ui-sans-serif, sans-serif;
+}
+
+/* Light theme — "Paper Light" -------------------------------------------- */
+:root {
+  --color-fd-background: #f9fafb;
+  --color-fd-foreground: #111827;
+  --color-fd-muted: #f3f4f6;
+  --color-fd-muted-foreground: #6b7280;
+  --color-fd-popover: #ffffff;
+  --color-fd-popover-foreground: #111827;
+  --color-fd-card: #ffffff;
+  --color-fd-card-foreground: #111827;
+  --color-fd-border: #e5e7eb;
+  --color-fd-primary: #6d28d9; /* Violet 700 */
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-secondary: #f3f4f6;
+  --color-fd-secondary-foreground: #111827;
+  --color-fd-accent: #ede9fe; /* Violet 100 tint */
+  --color-fd-accent-foreground: #6d28d9;
+  --color-fd-ring: #8b5cf6; /* Violet 500 */
+}
+
+/* Dark theme — "Substrate Dark + Violet" (default look) ------------------- */
+.dark {
+  --color-fd-background: #0a0a0f; /* Void Black */
+  --color-fd-foreground: #fafafa; /* Cloud White */
+  --color-fd-muted: #1e1e28; /* Slate */
+  --color-fd-muted-foreground: #a1a1aa;
+  --color-fd-popover: #050507; /* Obsidian */
+  --color-fd-popover-foreground: #fafafa;
+  --color-fd-card: #1e1e28; /* Slate */
+  --color-fd-card-foreground: #fafafa;
+  --color-fd-border: #1e1e28; /* Slate */
+  --color-fd-primary: #8b5cf6; /* Violet 500 */
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-secondary: #1e1e28;
+  --color-fd-secondary-foreground: #fafafa;
+  --color-fd-accent: #6d28d9; /* Violet 700 */
+  --color-fd-accent-foreground: #fafafa;
+  --color-fd-ring: #8b5cf6; /* Violet 500 */
+}
+
+/* Layout fixes (keep) ----------------------------------------------------- */
+
+/* Fumadocs centres the whole layout inside `--fd-layout-width` (default 97rem),
+   which on screens wider than that leaves an empty gutter to the LEFT of the
+   sidebar (its nav is pinned to the centred column). Use the full viewport
+   width so the sidebar sits flush-left at every screen size; the article keeps
+   its own readable max-width below. */
+:root {
+  --fd-layout-width: 100vw;
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}

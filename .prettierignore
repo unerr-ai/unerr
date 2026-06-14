@@ -1,0 +1,7 @@
+.next
+.source
+node_modules
+pnpm-lock.yaml
+public
+*.md
+content/docs

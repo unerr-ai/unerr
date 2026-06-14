@@ -1,0 +1,28 @@
+---
+title: Conventions
+description: The rules a team accretes — detected from code or fed by you — surfaced when the agent edits the relevant file or entity.
+---
+
+Conventions are the rules a codebase builds up over time: "named Datalog syntax for relations with 4+ columns", "imports use `.js` extensions", "all CozoDB access is awaited". unerr surfaces the right ones when the agent edits the file or entity they apply to, so a new change follows the same patterns as the existing code.
+
+A convention reaches unerr two ways:
+
+- **Detected from the code** — unerr notices a repeated pattern across the repo.
+- **Fed by you** — you state a rule and unerr keeps it, anchored to the file or entity it covers.
+
+Conventions are surfaced through the same channels as other [operational memory](/docs/concepts/operational-memory): inline when the agent reads a file, and bundled into the recon context for a task. A convention written as an [anchored note](/docs/concepts/anchored-notes) uses the `cnv` kind.
+
+## Team-shared conventions (cloud feature)
+
+A single shared conventions document for your whole team is a logged-in / cloud feature. Pull your team's conventions into a repo, or push a new set:
+
+```bash
+unerr conventions pull        # fetch and save your team's conventions
+unerr conventions push file   # replace them with a file (or stdin)
+```
+
+<Callout type="info">
+`push` sends only the conventions text — never your code. This needs you to be logged in (`unerr login`). Without logging in, unerr still detects and surfaces conventions locally; only the shared team document requires an account.
+</Callout>
+
+See [`unerr conventions`](/docs/cli/conventions) for the full command reference.

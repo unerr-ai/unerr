@@ -1,0 +1,39 @@
+---
+title: file_outline
+description: Get a file's structure — its entities and imports — without reading the whole file.
+---
+
+Return a file's structure: the entities it defines (functions, classes, types) and its imports. The agent uses it to see what's in a file before deciding what to read.
+
+## When the agent uses it
+
+- To get an overview of an unfamiliar file.
+- To find the right entity in a file, then read or search just that one.
+- To see a file's imports.
+
+Replaces reading the whole file just to learn its shape, which costs far more tokens.
+
+## Arguments
+
+| Argument | Type | What it does |
+|---|---|---|
+| `file_path` | string | Path to the file. Required. |
+
+## Example
+
+```ts
+file_outline({ file_path: "src/proxy/bridge.ts" })
+```
+
+Returns the file's entities and imports:
+
+```json
+{
+  "file_path": "src/proxy/bridge.ts",
+  "entities": [
+    { "name": "startUdsBridge", "kind": "function" },
+    { "name": "connectUds", "kind": "function" }
+  ],
+  "imports": ["node:net", "../utils/startup-log.js"]
+}
+```

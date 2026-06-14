@@ -1,0 +1,48 @@
+---
+title: file_read
+description: Read a file to understand it, with that file's conventions, facts, and drift attached.
+---
+
+Read a file to understand it. Along with the content, it surfaces that file's conventions, facts, and drift — so the agent sees the rules tied to the file at the moment it reads it.
+
+## When the agent uses it
+
+- To understand a file before changing it.
+- Whenever it would otherwise do a built-in read just to learn how code works.
+
+It auto-injects, for that file:
+
+- conventions — rules the team built up for this file or its entities.
+- facts — things recorded about the file in earlier sessions.
+- drift — whether the file changed in a way that may have stale rules attached.
+
+Replaces the built-in read-for-understanding.
+
+<Callout type="info">
+`file_read` does not satisfy an editor's pre-edit read requirement. Right before an edit, the agent does a small built-in read of just the lines it will change.
+</Callout>
+
+## Arguments
+
+| Argument | Type | What it does |
+|---|---|---|
+| `file_path` | string | Path to the file. Required. |
+| `purpose` | string | Why it's reading, e.g. `'explore'`. Helps rank what's surfaced. |
+
+## Example
+
+```ts
+file_read({ file_path: "src/proxy/bridge.ts", purpose: "explore" })
+```
+
+Returns the content plus the file's attached context:
+
+```json
+{
+  "file_path": "src/proxy/bridge.ts",
+  "content": "...",
+  "conventions": ["no intelligence imports", "imports use .js extensions"],
+  "facts": [],
+  "drift": null
+}
+```

@@ -1,0 +1,43 @@
+---
+title: Cursor
+description: Set up unerr for Cursor and confirm the MCP tools appear.
+---
+
+Cursor gets unerr's MCP tools and an instruction file. It does not get skills
+or hooks (those are Claude Code only).
+
+## Setup
+
+1. Install the CLI (once per machine):
+
+   ```bash
+   npm install -g @unerr-ai/unerr
+   ```
+
+2. Go to your repo and install for Cursor:
+
+   ```bash
+   cd /path/to/your/repo
+   unerr install cursor
+   ```
+
+## What it writes
+
+| Path | What it is |
+|---|---|
+| `.cursor/mcp.json` | The MCP config Cursor reads. Shape: `{ "command": "<absolute path to unerr>", "args": ["--mcp"] }`. |
+| `.cursor/rules/unerr-instructions.mdc` | A rule (`alwaysApply: true`) telling the agent to prefer unerr's tools. |
+
+## Confirm the tools appear
+
+1. Restart Cursor or reload the window so it picks up `.cursor/mcp.json`.
+2. Open Cursor's MCP settings and check that the unerr server is listed and
+   connected.
+3. In a chat, the unerr tools (`search_code`, `get_references`, `file_read`,
+   `file_outline`, `unerr_context`, `fetch_url`, `unerr_track`) are now available.
+
+You can also check unerr's side:
+
+```bash
+unerr status
+```

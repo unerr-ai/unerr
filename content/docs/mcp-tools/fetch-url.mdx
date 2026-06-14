@@ -1,0 +1,42 @@
+---
+title: fetch_url
+description: Fetch a web page or docs by URL as ranked, trimmed markdown passages.
+---
+
+Fetch a web page or docs by URL and return it as ranked, trimmed markdown passages. The agent uses it when it needs to read something on the web — API docs, a changelog, a referenced page.
+
+## When the agent uses it
+
+- To read documentation or a page the user linked.
+- Whenever it has a URL and needs the content, instead of the built-in web fetch.
+
+It returns the relevant passages as markdown rather than the full page, so it uses fewer tokens than a raw fetch. Results are cached, so fetching the same URL again is cheaper.
+
+Replaces the built-in web fetch.
+
+## Arguments
+
+| Argument | Type | What it does |
+|---|---|---|
+| `url` | string | The page to fetch. Required. |
+| `prompt` | string | What the agent is looking for. Ranks passages by relevance. |
+
+## Example
+
+```ts
+fetch_url({
+  url: "https://example.com/docs/retry",
+  prompt: "exponential backoff defaults"
+})
+```
+
+Returns the ranked markdown passages:
+
+```json
+{
+  "url": "https://example.com/docs/retry",
+  "passages": [
+    "## Backoff\nThe default base delay is 200ms, doubling up to 5 retries..."
+  ]
+}
+```

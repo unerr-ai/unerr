@@ -1,0 +1,41 @@
+---
+title: pm (process manager)
+description: Manage the unerr process manager and its per-repo servers.
+---
+
+Manage the process manager, `unerrd`. The manager is one lightweight process per machine that supervises the per-repo `unerr` servers, the registry of repos, the dashboard, and the logs. It is auto-spawned the first time an IDE connects and exits after 30 minutes of no activity, so you usually do not start it by hand. Use `unerr pm` to inspect or control it directly.
+
+## Synopsis
+
+```bash
+unerr pm <subcommand> [path]
+```
+
+## Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `start` | Start the process manager if it is not already running. |
+| `stop [path]` | Stop the server for the repo at `path`, or the manager itself if no path is given. |
+| `remove [path]` | Remove the repo at `path` (default: current repo) from the registry. |
+| `status` | Show the manager and the per-repo servers it is managing. |
+| `logs` | Show the cross-repo manager logs. |
+
+## Examples
+
+```bash
+# See what the manager is running
+unerr pm status
+```
+
+```bash
+# Stop the server for a specific repo
+unerr pm stop /Users/me/work/api
+```
+
+```bash
+# Tail the manager logs
+unerr pm logs
+```
+
+Related: [status](/docs/cli/status) · [CLI overview](/docs/cli)

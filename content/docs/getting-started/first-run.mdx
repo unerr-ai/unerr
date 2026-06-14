@@ -1,0 +1,39 @@
+---
+title: First run
+description: What happens the first time your agent connects, and how to confirm unerr is working.
+---
+
+## What happens on first connect
+
+The first time your agent connects, three things start automatically:
+
+1. The bridge (`unerr --mcp`, what your IDE launches) starts the process manager (`unerrd`).
+2. The process manager starts the per-repo `unerr` server for this repo.
+3. The server indexes the repo and begins serving.
+
+Tools work within seconds. Indexing finishes in the background while you work.
+
+<Mermaid chart={`flowchart LR
+  A["IDE / agent"] -->|stdio| B["unerr --mcp (bridge)"]
+  B -->|"auto-spawns"| C["unerrd (process manager)"]
+  C -->|"starts"| D["unerr (per-repo server)"]
+  D -->|"indexes + serves"| D
+`} />
+
+No boot-time service is registered. The lifecycle matches a language server: it starts when an agent connects and the process manager exits after 30 minutes of no activity.
+
+## Confirm it is working
+
+Check the repo and process state:
+
+```bash
+unerr status
+```
+
+This shows the repo, proxy, graph, drift, and ledger state.
+
+Also confirm the unerr tools appear in your agent. The agent should see `search_code`, `get_references`, `file_read`, `file_outline`, `unerr_context`, `fetch_url`, and `unerr_track`.
+
+## Dashboard
+
+The process manager serves a local web dashboard that lists your repos and their processes. Set its port with the `UNERR_HTTP_PORT` environment variable. It is local. If you log in, it can also show every machine on your account, but logging in is optional.

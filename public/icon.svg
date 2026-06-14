@@ -1,0 +1,25 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="brand-grad" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#8B5CF6"/>
+            <stop offset="1" stop-color="#7C3AED"/>
+        </linearGradient>
+        <clipPath id="clip0">
+            <rect width="512" height="512" fill="white"/>
+        </clipPath>
+    </defs>
+    <g clip-path="url(#clip0)">
+        <path d="M43.5942 176.439L176.439 43.5943" stroke="url(#brand-grad)" stroke-width="40" stroke-linecap="round"/>
+        <path d="M31.1857 286.656L127.535 190.307" stroke="url(#brand-grad)" stroke-width="40" stroke-linecap="round"/>
+        <path d="M190.308 127.535L286.657 31.1856" stroke="url(#brand-grad)" stroke-width="40" stroke-linecap="round"/>
+        <path d="M54.5431 359.648L118.046 296.145" stroke="url(#brand-grad)" stroke-width="40" stroke-linecap="round"/>
+        <path d="M296.146 118.046L359.648 54.543" stroke="url(#brand-grad)" stroke-width="40" stroke-linecap="round"/>
+        <path d="M95.4183 416.582L153.812 358.188" stroke="url(#brand-grad)" stroke-width="40" stroke-linecap="round"/>
+        <path d="M358.188 153.812L416.582 95.4183" stroke="url(#brand-grad)" stroke-width="40" stroke-linecap="round"/>
+        <path d="M152.352 457.457L215.855 393.954" stroke="url(#brand-grad)" stroke-width="40" stroke-linecap="round"/>
+        <path d="M393.954 215.855L457.457 152.352" stroke="url(#brand-grad)" stroke-width="40" stroke-linecap="round"/>
+        <path d="M225.344 480.814L321.693 384.465" stroke="url(#brand-grad)" stroke-width="40" stroke-linecap="round"/>
+        <path d="M384.465 321.692L480.814 225.343" stroke="url(#brand-grad)" stroke-width="40" stroke-linecap="round"/>
+        <path d="M335.561 468.406L468.406 335.561" stroke="url(#brand-grad)" stroke-width="40" stroke-linecap="round"/>
+    </g>
+</svg>

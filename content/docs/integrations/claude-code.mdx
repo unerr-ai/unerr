@@ -1,0 +1,86 @@
+---
+title: Claude Code
+description: Set up unerr for Claude Code, including skills, hooks, read-routing, and the edit gate.
+---
+
+Claude Code gets the most from unerr: the MCP tools, plus skills, hooks,
+read-routing, and the edit gate.
+
+## Setup
+
+1. Install the CLI (once per machine):
+
+   ```bash
+   npm install -g @unerr-ai/unerr
+   ```
+
+2. Go to your repo and install for Claude Code:
+
+   ```bash
+   cd /path/to/your/repo
+   unerr install claude-code
+   ```
+
+3. Verify it is set up and running:
+
+   ```bash
+   unerr status
+   ```
+
+   This shows the repo, the proxy, the graph, drift, and ledger state.
+
+## What `unerr install claude-code` writes
+
+| Path | What it is |
+|---|---|
+| `.mcp.json` | The MCP config Claude Code reads. Shape: `{ "command": "<absolute path to unerr>", "args": ["--mcp"] }`. |
+| `CLAUDE.md` | An unerr section is added between sentinel markers, telling the agent to prefer unerr's tools. |
+| `.claude/skills/` | Bundled workflow skills (exploration, safe modification, build-and-debug, review, memory, markers, and an orchestrator). |
+| Claude Code hooks | `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop`. |
+
+## What the hooks enable
+
+| Hook | What it does |
+|---|---|
+| `UserPromptSubmit` | Injects relevant anchored notes and recall before the agent answers. |
+| `PreToolUse` | Routes built-in reads and grep to unerr's tools, gates risky edits (the edit gate), and redirects built-in web fetch to `fetch_url`. |
+| `PostToolUse` | Adds context after tool calls. |
+| `Stop` | Prints the savings line and stores any `unerr-save:` markers from the closing message. |
+
+Hooks never block the agent's own work if they error.
+
+### Read-routing
+
+By default, a full-file built-in read of a code file is routed to unerr's
+`file_read` (which also surfaces that file's conventions, facts, and drift).
+Built-in grep is routed to `search_code`.
+
+### The edit gate
+
+Before the agent edits a function or class signature that has callers, the
+first edit is held once with the caller count. The agent runs
+`get_references({direction:'callers'})`, updates the callers, and re-tries the
+edit, which then proceeds. Editing a leaf entity with no callers is never held.
+
+### Signal lines
+
+Tool responses carry short `ur|<tag>` lines that tell the agent what to do next:
+`act` (do something now), `ctx` (context changed, e.g. re-read a drifted file),
+`rsk` (risk, e.g. check callers first), `fct` (information).
+
+## Keep built-in Read, Grep, and Glob
+
+By default, built-in Read, Grep, and Glob are routed to unerr. To keep them
+enabled instead:
+
+```bash
+unerr install claude-code --no-force-tools
+```
+
+## Add the review gate (optional)
+
+To also install a git pre-commit/post-commit review gate:
+
+```bash
+unerr install claude-code --review-gate
+```

@@ -1,0 +1,33 @@
+---
+title: Overview
+description: The unerr command-line interface and the commands you run yourself.
+---
+
+There is one binary, `unerr`. It runs in three modes, depending on the arguments it gets:
+
+| Mode | Command | What it is |
+|---|---|---|
+| Per-repo server | `unerr` (no args) | Indexes the repo and serves the MCP tools. Owns the graph, facts, conventions, and drift. Long-lived. |
+| Process manager | `unerrd` | One lightweight process per machine. Manages the per-repo servers, the registry, the dashboard, and logs. Auto-spawned on first IDE connection; exits after 30 minutes of no activity. |
+| Bridge | `unerr --mcp` | A thin stdio-to-socket relay that an IDE launches. Forwards MCP messages to the per-repo server. Owns no intelligence. |
+
+You rarely start these yourself. An IDE launches the bridge from `.mcp.json`, the bridge spawns the manager, and the manager spawns per-repo servers. No boot-time service is registered (no launchd, systemd, or scheduled task) — the lifecycle matches a language server. See [first run](/docs/getting-started/first-run) for the full flow.
+
+## Commands you run yourself
+
+| Command | What it does |
+|---|---|
+| [`unerr install [agent]`](/docs/cli/install) | Set up unerr for an AI agent: MCP config, instruction file, and (for Claude Code) skills and hooks. |
+| [`unerr uninstall [agent]`](/docs/cli/uninstall) | Remove unerr config and hooks from the project. |
+| [`unerr doctor`](/docs/cli/doctor) | Check the environment (PATH, Node, native modules, port, permissions). |
+| [`unerr status`](/docs/cli/status) | Show repo, proxy, graph, drift, and ledger state. |
+| [`unerr recon "<task>"`](/docs/cli/recon) | One-shot composite context for a coding turn, from the command line. |
+| [`unerr review`](/docs/cli/review) | Review staged changes or a commit range. |
+| [`unerr login` / `logout` / `whoami`](/docs/cli/auth) | Connect or disconnect the machine from your team. Optional. |
+| [`unerr conventions pull` / `push`](/docs/cli/conventions) | Sync your team's shared conventions document (logged-in feature). |
+| [`unerr pm <subcommand>`](/docs/cli/pm) | Manage the process manager. |
+| [`unerr router <subcommand>`](/docs/cli/router) | Manage the MCP gateway router. |
+
+<Callout type="info">
+unerr has many more subcommands that the agent, skills, and hooks invoke for you (for example to read files, fetch context, or store markers). Those are not meant to be typed by hand and are not documented here. The table above is the full set of user-facing commands.
+</Callout>

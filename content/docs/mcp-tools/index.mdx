@@ -1,0 +1,44 @@
+---
+title: Overview
+description: The seven graph-backed MCP tools unerr serves to your AI coding agent.
+---
+
+unerr serves seven MCP tools to your AI coding agent. The agent calls them on its own as it works — you don't type them. You set them up once per repo with `unerr install <agent>`, which writes the MCP config and the agent's instruction file.
+
+## Why the agent prefers these
+
+The agent's built-in tools (grep, glob, file read, web fetch) work line by line and don't know your code's structure. unerr's tools answer from a local code graph of your repo — entities (functions, classes, types) and edges (calls, references). That gives:
+
+- Graph-backed answers: real callers and callees, not text matches.
+- Project-aware reads: a file read also surfaces that file's conventions, facts, and drift.
+- Fewer tokens: one `unerr_context` call replaces three or four separate searches and reads.
+
+All seven tools are always available. There is nothing to enable per tool.
+
+## The seven tools
+
+| Tool | What it does | Replaces |
+|---|---|---|
+| [`search_code`](/docs/mcp-tools/search-code) | Find a function, class, or type. | grep / glob |
+| [`get_references`](/docs/mcp-tools/get-references) | Find callers or callees of an entity. | grep for a function name |
+| [`file_read`](/docs/mcp-tools/file-read) | Read a file to understand it; also surfaces its conventions, facts, and drift. | built-in read-for-understanding |
+| [`file_outline`](/docs/mcp-tools/file-outline) | A file's structure: its entities and imports. | reading the whole file |
+| [`unerr_context`](/docs/mcp-tools/unerr-context) | One call for a whole coding turn: notes, entities, focus source, callers, conventions. | 3–4 separate searches/reads |
+| [`fetch_url`](/docs/mcp-tools/fetch-url) | Fetch a web page or docs by URL as ranked, trimmed markdown. | built-in web fetch |
+| [`unerr_track`](/docs/mcp-tools/unerr-track) | Persist or recall facts and session markers. | — |
+
+## How a call flows
+
+The agent talks to unerr over MCP. The IDE launches a thin bridge (`unerr --mcp`) that forwards each call to the per-repo `unerr` server, which answers from the local graph.
+
+<Mermaid chart={`flowchart LR
+  A["AI agent"] -->|"MCP call"| B["unerr --mcp bridge"]
+  B -->|"forwards"| C["unerr server"]
+  C -->|"queries"| D["local code graph"]
+  D --> C
+  C -->|"response"| A
+`} />
+
+<Callout type="info">
+On Claude Code, `unerr install claude-code` also routes the built-in Read, Grep, and Glob to these tools so the agent uses them by default. Pass `--no-force-tools` to keep the built-in tools enabled.
+</Callout>

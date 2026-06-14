@@ -1,0 +1,18 @@
+---
+title: Overview
+description: What unerr's operational memory is, and the concepts behind it.
+---
+
+unerr indexes your repo into a local code graph and keeps **operational memory** on top of it: who changed each file, how it drifted, what failed here before, the conventions the team built up, and the rules you gave it across sessions. The agent has already read the code; unerr gives it what the code can't say about itself, at the moment it edits.
+
+Two sources feed every change: the codebase (the system as it is) and unerr (the system as it has been understood).
+
+## Concept pages
+
+- [Operational memory & the code graph](/docs/concepts/operational-memory) — the graph of entities and edges, and the memory layered on it.
+- [Anchored notes](/docs/concepts/anchored-notes) — prose notes tied to a file or entity, surfaced when the agent touches it.
+- [Session markers](/docs/concepts/session-markers) — the cross-session resume strip: intent, decision, blocker, resolution.
+- [Signal prefixes](/docs/concepts/signal-prefixes) — `ur|<tag>` lines on tool responses that tell the agent what to do next.
+- [@sem domain comments](/docs/concepts/sem-comments) — a small structured comment above each exported entity.
+- [Skills](/docs/concepts/skills) — bundled workflow guides for the agent.
+- [Conventions](/docs/concepts/conventions) — rules the team accretes, surfaced when the agent edits the relevant code.

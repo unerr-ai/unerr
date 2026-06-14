@@ -1,0 +1,31 @@
+---
+title: status
+description: Show the current repo, proxy, graph, drift, and ledger state.
+---
+
+Print the current state of unerr for the repo you are in.
+
+## Synopsis
+
+```bash
+unerr status
+```
+
+It reports:
+
+- The repo unerr is associated with.
+- Whether the per-repo proxy (the `unerr` server) is running.
+- The graph: entity and edge counts, and indexing state.
+- Drift: files or entities whose code has moved or changed since they were last understood.
+- The ledger: recorded intent and session markers.
+
+This command takes no options.
+
+## Examples
+
+```bash
+# From inside a repo
+unerr status
+```
+
+Related: [doctor](/docs/cli/doctor) · [pm](/docs/cli/pm)

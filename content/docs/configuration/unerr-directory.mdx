@@ -1,0 +1,43 @@
+---
+title: The .unerr directory
+description: What unerr stores per repo and globally on your machine.
+---
+
+unerr stores data in two places: a per-repo `.unerr/` directory inside each repo, and a
+global `~/.unerr/` directory in your home folder.
+
+## Per-repo: `.unerr/`
+
+Created in the repo on first run. Holds that repo's graph, config, and logs.
+
+| Path | What it holds |
+|---|---|
+| `.unerr/graph.db` | The CozoDB code graph (entities and edges). |
+| `.unerr/config.json` | Per-repo settings, created on first run. |
+| `.unerr/snapshots/` | Saved graph snapshots. |
+| `.unerr/state/proxy.pid` | PID of the per-repo `unerr` server (single-instance lock). |
+| `.unerr/state/proxy.sock` | The per-repo socket the bridge connects to. |
+| `.unerr/logs/proxy.log` | Per-repo server output. |
+| `.unerr/logs/bridge.log` | Output from `unerr --mcp` bridge sessions. |
+| `.unerr/logs/session.log` | CLI, exec, and wizard output (NDJSON). |
+| `.unerr/logs/events.jsonl` | Structured startup and intelligence events. |
+| `.unerr/ledger/` | The intent ledger. |
+| `.unerr/scip/` | Compiler-verified edge data (SCIP). |
+
+<Callout type="info">
+`.unerr/` is safe to delete. unerr re-indexes the repo on the next run. It is git-ignored,
+so it is not committed. To remove it as part of uninstall, run `unerr uninstall --purge`.
+</Callout>
+
+## Global: `~/.unerr/`
+
+One per machine. Used by the process manager (`unerrd`).
+
+| Path | What it holds |
+|---|---|
+| `~/.unerr/unerrd.sock` | The process manager's socket. |
+| `~/.unerr/unerrd.pid` | The process manager's PID. |
+| `~/.unerr/state/spawn.lock` | Lock that prevents two bridges spawning the manager at once. |
+| `~/.unerr/repos.json` | Registry of repos the manager knows about. |
+| `~/.unerr/logs/unerrd.log` | Process manager output. |
+| `~/.unerr/logs/events.jsonl` | Process manager structured events. |

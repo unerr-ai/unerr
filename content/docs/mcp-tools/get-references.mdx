@@ -1,0 +1,44 @@
+---
+title: get_references
+description: Find the callers or callees of an entity from the code graph.
+---
+
+Find what calls an entity, or what an entity calls. The agent uses it to see the blast radius before changing a function's signature, so it can update every caller in the same change.
+
+## When the agent uses it
+
+- Before editing a function or class signature — to find every caller.
+- To understand what a function depends on — its callees.
+
+Answers come from the code graph, so they are real call edges, not text matches.
+
+Replaces grep for a function name.
+
+## Arguments
+
+| Argument | Type | What it does |
+|---|---|---|
+| `key` | string | The entity to look up (its name or graph key). Required. |
+| `direction` | string | `'callers'` (what calls it) or `'callees'` (what it calls). |
+
+## Example
+
+```ts
+get_references({ key: "startProxy", direction: "callers" })
+```
+
+Returns the callers:
+
+```json
+{
+  "key": "startProxy",
+  "direction": "callers",
+  "references": [
+    { "name": "bootProxy", "file_path": "src/entrypoints/cli.ts" }
+  ]
+}
+```
+
+<Callout type="warn">
+On Claude Code, the first edit to a function with callers is blocked once until the agent has checked them with `get_references`. The agent then updates every caller in the same change and re-attempts the edit.
+</Callout>

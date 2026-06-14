@@ -1,0 +1,35 @@
+---
+title: MCP config (.mcp.json)
+description: The project-level MCP config file each agent uses to launch unerr.
+---
+
+The MCP config tells your agent how to launch unerr. It is always project-level. unerr
+never writes to global or home config; each repo gets its own file.
+
+## Per agent, per repo
+
+`unerr install <agent>` writes the config file for that agent in the current repo:
+
+| Agent | MCP config file |
+|---|---|
+| Claude Code | `.mcp.json` |
+| Cursor | `.cursor/mcp.json` |
+| Other agents | that agent's own MCP config file |
+
+Run `unerr install` again in a different repo to set it up there. Two repos are two
+separate setups.
+
+## The shape
+
+The file points the agent at the `unerr` binary in bridge mode:
+
+```json
+{
+  "command": "<absolute path to unerr>",
+  "args": ["--mcp"]
+}
+```
+
+`unerr install` writes this with the resolved absolute path, so you do not hand-edit it.
+If the path ever changes (a reinstall to a new location, for example), run
+`unerr install <agent> --force` to rewrite it.

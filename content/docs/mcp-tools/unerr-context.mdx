@@ -1,0 +1,49 @@
+---
+title: unerr_context
+description: One call that returns everything the agent needs for a coding turn, ranked to a token budget.
+---
+
+One call that returns everything the agent needs to start a coding turn: the anchored notes for the files and entities in scope, matching entities, the focus entities' source, their callers (the blast radius), and the relevant conventions — all ranked to a token budget (default 4000).
+
+## When the agent uses it
+
+At the start of a non-trivial coding turn — implement, fix, refactor, debug. It's the first thing the agent reaches for, before any single search or read.
+
+Replaces three or four separate `search_code`, `file_read`, and `get_references` calls. Doing it in one call costs fewer tokens because the request prefix is paid once instead of per call.
+
+This is the same composite as the [`unerr recon`](/docs/cli/recon) command, which you can run from a script or a subagent.
+
+## Arguments
+
+| Argument | Type | What it does |
+|---|---|---|
+| `prompt` | string | What the agent is about to do. Used to rank what comes back. Required. |
+| `budget` | number | Token budget for the bundle. Default `4000`. Raise it to include more source. |
+| `response_format` | string | `'concise'` = notes, entity names/signatures, and callers, no bodies. `'detailed'` = also includes the focus entities' source. Picked automatically from task size if omitted. |
+| `digest` | boolean | Return a flat summary instead of the full bundle. Useful for large sweeps. |
+
+## Example
+
+```ts
+unerr_context({
+  prompt: "add retry to the UDS bridge connect path",
+  response_format: "detailed"
+})
+```
+
+Returns the bundle for that task:
+
+```json
+{
+  "notes": [
+    { "kind": "wrn", "anchor": "f:src/proxy/bridge.ts", "content": "no intelligence imports" }
+  ],
+  "entities": [
+    { "name": "connectUds", "file_path": "src/proxy/bridge.ts" }
+  ],
+  "callers": [
+    { "name": "startUdsBridge", "file_path": "src/proxy/bridge.ts" }
+  ],
+  "conventions": ["imports use .js extensions"]
+}
+```

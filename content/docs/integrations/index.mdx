@@ -1,0 +1,76 @@
+---
+title: Overview
+description: How unerr sets up each AI coding agent, and which agents support which features.
+---
+
+unerr works with 16 AI coding agents. Setup is the same shape for all of them:
+
+1. Install the CLI once.
+2. In each repo, run `unerr install <agent>`.
+
+`unerr install` writes that agent's MCP config (so the agent can call unerr's
+tools) and, for agents that support a project instruction file, that file too.
+The instruction file tells the agent to prefer unerr's tools over its built-in
+file tools.
+
+## Install the CLI
+
+```bash
+npm install -g @unerr-ai/unerr
+```
+
+pnpm and yarn global installs also work.
+
+## Set up an agent in a repo
+
+```bash
+cd /path/to/your/repo
+unerr install claude-code
+```
+
+The first run indexes the repo and starts serving. Tools work within seconds
+while the graph finishes in the background. No account is needed; unerr runs
+fully on your machine.
+
+## What each agent gets
+
+Only Claude Code gets skills and hooks. Every other agent gets the MCP tools
+and, where supported, an instruction file.
+
+| Agent (`install` id) | Instruction file | Skills + hooks? |
+|---|---|---|
+| Claude Code (`claude-code`) | `CLAUDE.md` | Yes |
+| Cursor (`cursor`) | `.cursor/rules/unerr-instructions.mdc` | No |
+| VS Code (`vscode`) | `.github/copilot-instructions.md` | No |
+| Windsurf (`windsurf`) | `.windsurf/rules/unerr-instructions.md` | No |
+| Gemini CLI (`gemini-cli`) | `GEMINI.md` | No |
+| Codex (`codex`) | `AGENTS.md` | No |
+| Cline (`cline`) | `.clinerules` | No |
+| GitHub Copilot CLI (`github-copilot-cli`) | `.github/copilot-instructions.md` | No |
+| Antigravity (`antigravity`) | `.agents/rules/unerr-instructions.md` | No |
+| Zed (`zed`) | none (MCP config only) | No |
+| Kiro (`kiro`) | none (MCP config only) | No |
+| Aider (`aider`) | none (MCP config only) | No |
+| OpenCode (`opencode`) | none (MCP config only) | No |
+| Trae (`trae`) | none (MCP config only) | No |
+| Augment (`augment`) | none (MCP config only) | No |
+| Continue (`continue`) | none (MCP config only) | No |
+
+The MCP config is always written per repo, never to a global or home config.
+Each repo gets its own file with the resolved absolute path to `unerr`.
+
+## Detailed setup pages
+
+- [Claude Code](/docs/integrations/claude-code) — skills, hooks, read-routing, the edit gate.
+- [Cursor](/docs/integrations/cursor)
+- [VS Code](/docs/integrations/vscode)
+- [Windsurf](/docs/integrations/windsurf)
+- [Other agents](/docs/integrations/other-agents) — Gemini CLI, Codex, Cline, GitHub Copilot CLI, Antigravity, Zed, Kiro, Aider, OpenCode, Trae, Augment, Continue.
+
+## Manual setup for any agent
+
+To print the manual steps without writing files:
+
+```bash
+unerr install --show-instructions <agent>
+```

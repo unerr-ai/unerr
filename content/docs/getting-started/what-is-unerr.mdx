@@ -1,0 +1,46 @@
+---
+title: What is unerr
+description: Local code intelligence that gives your AI agent the call graph and rules it needs to change a large codebase safely.
+---
+
+## The problem
+
+An AI agent can read code, but it cannot hold a large codebase in context. When it edits one file, it does not see everything connected to it. The result:
+
+- It breaks callers it never looked at.
+- It ignores conventions the team already settled on.
+- It retries work that already failed in this codebase before.
+
+## What unerr does
+
+unerr indexes your repository into a local code graph of entities (functions, classes, types) and edges (calls, references). On top of the graph it keeps operational memory: who changed each file, how it drifted, what failed here before, the conventions the team built up, and rules you gave across sessions.
+
+It serves all of this to the agent through MCP tools the agent calls instead of grep and glob. At the moment the agent edits an entity, unerr hands it:
+
+- the right code and its callers,
+- the rules tied to that entity.
+
+When code moves, unerr re-anchors those rules to it, so they do not go stale.
+
+## Local-first
+
+- Runs entirely on your machine.
+- Works fully offline.
+- No account required. If you never log in, nothing leaves your machine.
+
+## How it plugs in
+
+The agent calls unerr's MCP tools instead of its built-in file search. unerr answers from the local graph and the rules anchored to each entity.
+
+<Mermaid chart={`flowchart LR
+  A["AI coding agent"] -->|"calls MCP tools"| B["unerr"]
+  B -->|reads| C["local code graph + rules"]
+  C --> B
+  B -->|"code + callers + rules"| A
+  A -->|"edits safely"| D["your repo"]
+`} />
+
+## Next
+
+- [Install unerr](/docs/getting-started/installation)
+- [Operational memory and the code graph](/docs/concepts/operational-memory)

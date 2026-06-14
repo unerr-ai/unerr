@@ -1,0 +1,16 @@
+---
+title: Environment variables
+description: The environment variables you can set to change unerr's behavior.
+---
+
+You can set these before running unerr or any agent that launches it.
+
+| Variable | What it does | Default / example |
+|---|---|---|
+| `UNERR_HTTP_PORT` | Port for the local dashboard. | example: `7100` |
+| `UNERR_LOG_LEVEL` | Log verbosity. | example: `debug` |
+| `UNERR_TOKEN` | Machine token for non-interactive login (CI / headless). | unset |
+| `UNERR_QUIET` | Reduce console output when set. | unset |
+| `UNERR_VERBOSE` | Increase console output when set. | unset |
+| `NO_COLOR` | Disable colored output when set (standard). | unset |
+| `CI` | Treated as a CI environment when set (standard). | set by most CI systems |

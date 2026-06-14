@@ -1,0 +1,41 @@
+---
+title: conventions
+description: Pull or push your team's shared conventions document.
+---
+
+Sync the shared conventions document for your team. These are the rules unerr surfaces to the agent when it edits the matching file or entity.
+
+<Callout type="info">
+This is a logged-in feature. You must be connected to a team (`unerr login`). Only the conventions text is sent or received — never your code.
+</Callout>
+
+## Synopsis
+
+```bash
+unerr conventions pull
+unerr conventions push [file]
+```
+
+| Subcommand | Description |
+|---|---|
+| `pull` | Fetch your team's conventions and save them for this machine. |
+| `push [file]` | Replace your team's conventions with the contents of `file`, or with stdin if no file is given. |
+
+## Examples
+
+```bash
+# Fetch the team's conventions
+unerr conventions pull
+```
+
+```bash
+# Replace them from a file
+unerr conventions push conventions.md
+```
+
+```bash
+# Replace them from stdin
+cat conventions.md | unerr conventions push
+```
+
+Related: [conventions concept](/docs/concepts/conventions) · [login](/docs/cli/auth)

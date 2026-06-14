@@ -1,0 +1,50 @@
+---
+title: unerr_track
+description: Persist or recall facts and session markers across coding sessions.
+---
+
+Persist or recall facts and session markers. The agent uses it to remember something for next session and to look up what it recorded before.
+
+## When the agent uses it
+
+- To save a fact it learned about an entity or file.
+- To recall facts before starting a task.
+- To record what a turn is doing, decided, got blocked on, or resolved — see [session markers](/docs/concepts/session-markers).
+
+For anchored prose tied to a file or entity, the agent usually writes an [anchored note](/docs/concepts/anchored-notes) instead.
+
+<Callout type="info">
+On Claude Code, session markers normally don't need this tool — the agent emits `unerr-save:` lines in its closing message and a hook stores them with no extra call. `unerr_track` is the explicit form, used when the return value is needed or when a hook isn't available.
+</Callout>
+
+## Arguments
+
+| Argument | Type | What it does |
+|---|---|---|
+| `op` | string | The operation. One of `'fact'`, `'recall'`, `'intent'`, `'decision'`, `'blocker'`, `'resolution'`. Required. |
+| `text` | string | The content to store. For `fact`, `intent`, `decision`, `blocker`, `resolution`. |
+| `target` | string | The entity or file the fact is about. For `op:'fact'`. |
+| `ref` | string | Links a `resolution` to the `blocker` it resolves. |
+
+## Example
+
+```ts
+unerr_track({
+  op: "fact",
+  target: "src/proxy/bridge.ts",
+  text: "the bridge must import nothing from src/intelligence"
+})
+```
+
+Returns confirmation that the fact was stored:
+
+```json
+{ "op": "fact", "stored": true }
+```
+
+A `blocker` returns an id you can pass as `ref` on its `resolution`:
+
+```ts
+unerr_track({ op: "blocker", text: "UDS connect times out on first spawn" })
+// → { "op": "blocker", "marker_id": "blk_8f2a" }
+```

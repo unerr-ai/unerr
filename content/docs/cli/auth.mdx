@@ -1,0 +1,59 @@
+---
+title: login, logout, whoami
+description: Connect or disconnect the machine from your team, and check who is connected.
+---
+
+Connect this machine to your team account, disconnect it, or check the current connection. Logging in is optional.
+
+<Callout type="info">
+unerr works fully offline. If you never log in, nothing leaves your machine. Login enables the dashboard's cross-machine view and team features.
+</Callout>
+
+## login
+
+```bash
+unerr login [--token <token>]
+```
+
+Connect the machine to your team. Without a token it walks you through connecting interactively. With `--token` it connects non-interactively, for CI or headless machines.
+
+When you are logged in, the process manager reports a small inventory to your account — repo paths, git origin, ports, and process status — plus a heartbeat, so the dashboard can show all your machines in one place. No code is sent.
+
+| Flag | Description |
+|---|---|
+| `--token <token>` | Connect with a machine token instead of the interactive flow. |
+
+## logout
+
+```bash
+unerr logout
+```
+
+Disconnect the machine from your team. Reporting stops. Your local graph and data stay where they are.
+
+## whoami
+
+```bash
+unerr whoami
+```
+
+Show the connected team and plan, or report that the machine is not logged in.
+
+## Examples
+
+```bash
+# Interactive login
+unerr login
+```
+
+```bash
+# Headless login in CI with a machine token
+unerr login --token "$UNERR_TOKEN"
+```
+
+```bash
+# Check the current connection
+unerr whoami
+```
+
+Related: [credentials](/docs/configuration/credentials) · [conventions](/docs/cli/conventions)

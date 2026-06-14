@@ -1,0 +1,33 @@
+---
+title: Supported agents
+description: The 16 AI coding agents unerr works with and the install id for each.
+---
+
+unerr works with 16 agents. Run `unerr install <agent>` in a repo using the id below. The command writes the MCP config and, where the agent supports one, a project instruction file telling the agent to prefer unerr's tools.
+
+| Agent | Install id |
+|---|---|
+| Claude Code | `claude-code` |
+| Cursor | `cursor` |
+| VS Code | `vscode` |
+| Windsurf | `windsurf` |
+| Gemini CLI | `gemini-cli` |
+| Codex | `codex` |
+| Cline | `cline` |
+| GitHub Copilot CLI | `github-copilot-cli` |
+| Antigravity | `antigravity` |
+| Zed | `zed` |
+| Kiro | `kiro` |
+| Aider | `aider` |
+| OpenCode | `opencode` |
+| Trae | `trae` |
+| Augment | `augment` |
+| Continue | `continue` |
+
+## Claude Code gets the most
+
+Claude Code receives skills, hooks, read-routing, and the edit gate on top of the MCP tools. Every other agent gets the MCP tools and, where supported, an instruction file that tells it to prefer unerr's tools.
+
+## Per-agent setup
+
+For the exact files written and any per-agent steps, see [Integrations](/docs/integrations).

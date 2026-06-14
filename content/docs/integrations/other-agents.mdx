@@ -1,0 +1,64 @@
+---
+title: Other agents
+description: Set up unerr for Gemini CLI, Codex, Cline, GitHub Copilot CLI, Antigravity, and the MCP-only agents.
+---
+
+These agents get unerr's MCP tools. Some also get an instruction file; the rest
+get the MCP config only. None get skills or hooks (those are Claude Code only).
+
+## Generic setup
+
+The pattern is the same for every agent. Install the CLI once, then run install
+in your repo with the agent's id:
+
+```bash
+npm install -g @unerr-ai/unerr
+cd /path/to/your/repo
+unerr install <id>
+```
+
+For example, `unerr install gemini-cli`.
+
+To print the manual steps for any agent without writing files:
+
+```bash
+unerr install --show-instructions <id>
+```
+
+## Agents with an instruction file
+
+`unerr install` writes the MCP config and the listed instruction file.
+
+| Agent | `install` id | Instruction file |
+|---|---|---|
+| Gemini CLI | `gemini-cli` | `GEMINI.md` |
+| Codex | `codex` | `AGENTS.md` |
+| Cline | `cline` | `.clinerules` |
+| GitHub Copilot CLI | `github-copilot-cli` | `.github/copilot-instructions.md` |
+| Antigravity | `antigravity` | `.agents/rules/unerr-instructions.md` |
+
+## MCP-config-only agents
+
+`unerr install` writes the MCP config. These agents have no project instruction
+file, so none is written.
+
+| Agent | `install` id |
+|---|---|
+| Zed | `zed` |
+| Kiro | `kiro` |
+| Aider | `aider` |
+| OpenCode | `opencode` |
+| Trae | `trae` |
+| Augment | `augment` |
+| Continue | `continue` |
+
+The MCP config shape is `{ "command": "<absolute path to unerr>", "args": ["--mcp"] }`,
+written per repo with the resolved absolute path.
+
+## Confirm it works
+
+After reloading the agent so it picks up the MCP config:
+
+```bash
+unerr status
+```

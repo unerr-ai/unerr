@@ -1,0 +1,20 @@
+---
+title: Skills
+description: Bundled workflow guides that encode the recommended sequence for a kind of task.
+---
+
+Skills are short workflow guides unerr installs for the agent. Each one encodes the recommended sequence of steps for a kind of task — for example, "check callers and conventions before editing an existing function." They keep the agent following the same order every time instead of improvising.
+
+`unerr install claude-code` installs them under `.claude/skills/`. They are part of what Claude Code gets on top of the MCP tools; other agents get the MCP tools and an instruction file but not the skills.
+
+## What each is for
+
+| Skill | When the agent uses it |
+|---|---|
+| Exploration | Finding callers, callees, or hotspots; locating a function or file. Graph query first, before reading files. |
+| Safe modification | Editing an existing function, class, or file: recall, check the blast radius, check conventions, check drift, then edit. |
+| Build and debug | Building a new feature, or reproducing and root-causing a bug before patching it. |
+| Review | Reviewing the agent's own changes or a diff before commit, using graph facts per changed entity. |
+| Memory | Recalling notes at the start of a turn and saving durable facts at the end. |
+| Markers | Leaving [session markers](/docs/concepts/session-markers) (intent, decision, blocker, resolution) at the close of a turn. |
+| Orchestrator | Picks the right skill for the task at hand and runs it. |

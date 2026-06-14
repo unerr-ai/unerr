@@ -1,0 +1,31 @@
+---
+title: Supported languages
+description: The languages unerr indexes, and the precision of call edges per language.
+---
+
+unerr indexes these languages into the code graph.
+
+## Two tiers of precision
+
+- **SCIP (auto)** — TypeScript and TSX. unerr ships a TypeScript SCIP indexer and runs it for you, so call edges are compiler-verified with no setup.
+- **tree-sitter + optional SCIP** — every other language is parsed with tree-sitter for structure (entities, imports, references). If that language's SCIP indexer binary is on your `PATH`, unerr uses it and you get SCIP-level precision too.
+
+## Language table
+
+| Language | Precision |
+|---|---|
+| TypeScript / TSX | SCIP (auto) |
+| JavaScript / JSX | tree-sitter + optional SCIP |
+| Python | tree-sitter + optional SCIP |
+| Java | tree-sitter + optional SCIP |
+| Go | tree-sitter + optional SCIP |
+| Rust | tree-sitter + optional SCIP |
+| Ruby | tree-sitter + optional SCIP |
+| Kotlin | tree-sitter + optional SCIP |
+| C# | tree-sitter + optional SCIP |
+| C++ | tree-sitter + optional SCIP |
+| PHP | tree-sitter + optional SCIP |
+
+<Callout type="info">
+tree-sitter structure works with no extra setup. To raise a non-TypeScript language to SCIP-level call precision, install that language's SCIP indexer binary and make sure it's on your `PATH`.
+</Callout>

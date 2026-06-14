@@ -1,0 +1,52 @@
+---
+title: install
+description: Set up unerr for an AI coding agent in the current repo.
+---
+
+Set up unerr for an AI agent in the current repo. Writes the MCP config, the agent's instruction file, and — for Claude Code — skills and hooks.
+
+## Synopsis
+
+```bash
+unerr install [agent] [options]
+```
+
+Run it from inside the repo you want to set up. `agent` is an agent id such as `claude-code` or `cursor`. With no agent id, install detects what you have and prompts you. See [integrations](/docs/integrations) for the full list of supported agent ids and the files each one gets.
+
+What it writes:
+
+- The project-level MCP config for that agent (for example `.mcp.json` for Claude Code), with the absolute path to `unerr` filled in.
+- The agent's instruction file, where the agent supports one, telling it to prefer unerr's tools.
+- For Claude Code only: skills under `.claude/skills/` and hooks (read routing, the edit gate, prompt-time note injection, the savings line).
+
+Install is idempotent. Running it again updates a section if it changed and skips it if it is already current.
+
+## Options
+
+| Flag | Description |
+|---|---|
+| `--force` | Overwrite an existing config instead of merging or skipping. |
+| `--no-force-tools` | Claude Code only. Keep the built-in Read/Grep/Glob tools enabled. By default they are routed to unerr's tools. |
+| `--show-skills` | Print the skills that would be installed, then exit without writing. |
+| `--show-instructions [agent]` | Print the manual setup steps for an agent, then exit without writing. Useful for agents whose config you edit by hand. |
+| `--review-gate` | Also install the git pre-commit and post-commit review gate. |
+| `--token <token>` | Connect non-interactively with a machine token. For CI and headless setups. |
+
+## Examples
+
+```bash
+# Set up Claude Code in the current repo
+unerr install claude-code
+```
+
+```bash
+# Cursor, overwriting any existing config
+unerr install cursor --force
+```
+
+```bash
+# Print the manual setup steps for Codex without writing anything
+unerr install --show-instructions codex
+```
+
+Related: [integrations](/docs/integrations) · [uninstall](/docs/cli/uninstall) · [credentials](/docs/configuration/credentials)

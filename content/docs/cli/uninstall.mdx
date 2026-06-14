@@ -1,0 +1,37 @@
+---
+title: uninstall
+description: Remove unerr's config and hooks from the current repo.
+---
+
+Remove the unerr config, instruction sections, and hooks that `install` added to the current repo.
+
+## Synopsis
+
+```bash
+unerr uninstall [agent] [options]
+```
+
+Run it from inside the repo. With an `agent` id it removes that agent's setup; with no id it removes what it finds. It deletes the MCP config it wrote, the instruction section between unerr's sentinel markers, and (for Claude Code) the skills and hooks.
+
+By default it leaves your repo's `.unerr/` data directory and your `@sem` comment lines in place.
+
+## Options
+
+| Flag | Description |
+|---|---|
+| `--strip-annotations` | Also remove the `@sem` sentinel lines from comments across the repo. The plain prose summaries above each entity are kept; only the `@sem domain=... role=...` lines are removed. |
+| `--purge` | Also delete this repo's `.unerr/` data directory (graph, snapshots, logs, ledger). |
+
+## Examples
+
+```bash
+# Remove Claude Code setup, keep the .unerr data and annotations
+unerr uninstall claude-code
+```
+
+```bash
+# Remove everything, including the @sem lines and the .unerr directory
+unerr uninstall claude-code --strip-annotations --purge
+```
+
+Related: [install](/docs/cli/install) · [@sem comments](/docs/concepts/sem-comments)

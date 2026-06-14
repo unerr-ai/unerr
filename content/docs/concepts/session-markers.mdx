@@ -1,0 +1,32 @@
+---
+title: Session markers
+description: The cross-session resume strip — intent, decision, blocker, and resolution lines the agent leaves at the end of a turn.
+---
+
+Session markers are short notes the agent leaves about the work itself, so the next session can pick up where the last one stopped. Together they form a resume strip that carries across sessions.
+
+Unlike [anchored notes](/docs/concepts/anchored-notes) (tied to code) and [conventions](/docs/concepts/conventions) (rules), markers describe the *task in progress*: what the agent set out to do, what it chose, what blocked it, and how a block was cleared.
+
+## The four kinds
+
+| kind | what it records |
+|---|---|
+| `intent` | what this turn is doing |
+| `decision` | a deliberate choice between approaches |
+| `blocker` | an unresolved obstacle |
+| `resolution` | how an earlier blocker was fixed |
+
+## How they're saved
+
+The agent emits one line per marker in its closing message:
+
+```text
+unerr-save: intent migrate the auth flow to the new token store
+unerr-save: decision use a feature flag instead of a hard cutover
+unerr-save: blocker the legacy session table has no migration yet
+unerr-save: resolution added the migration in db/2026-06-14-sessions.sql
+```
+
+A Stop hook scrapes these lines and stores them — no extra tool call, only the output tokens of the lines themselves.
+
+The resume strip is then available to the next session, so a new run starts knowing the intent it's continuing and any blocker that's still open.

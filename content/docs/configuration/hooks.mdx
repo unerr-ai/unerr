@@ -1,0 +1,20 @@
+---
+title: Hooks
+description: The Claude Code hooks unerr installs and what each one does.
+---
+
+`unerr install claude-code` adds four Claude Code hooks. They connect unerr to the
+agent's turn so notes, routing, and savings happen without extra tool calls.
+
+| Hook | What it does |
+|---|---|
+| `UserPromptSubmit` | Injects relevant anchored notes and recall before the agent answers. |
+| `PreToolUse` | Routes built-in reads and grep to unerr's tools, gates risky edits, and redirects built-in web fetch to `fetch_url`. |
+| `PostToolUse` | Adds context after a tool runs. |
+| `Stop` | Prints the savings line and stores any `unerr-save:` markers from the agent's closing message. |
+
+<Callout type="info">
+Hooks never block the agent's own work if they error. If a hook fails, the agent
+continues. These hooks are specific to Claude Code; other agents get the MCP tools and,
+where supported, an instruction file instead.
+</Callout>

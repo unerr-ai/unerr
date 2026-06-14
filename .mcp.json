@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "unerr": {
+      "type": "stdio",
+      "command": "/Users/jaswanth/Library/pnpm/unerr",
+      "args": ["--mcp", "--coding-agent=claude-code"]
+    }
+  }
+}

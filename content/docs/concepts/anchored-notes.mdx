@@ -1,0 +1,64 @@
+---
+title: Anchored notes
+description: Prose notes tied to a file or entity, surfaced when the agent touches that anchor and re-anchored when code moves.
+---
+
+An anchored note is a line of prose attached to a graph node — a file or an entity. It was written in an earlier session. unerr surfaces it automatically when the agent next touches that anchor, and re-anchors it when the code moves, so a note tied to a function follows the function when it's renamed or relocated.
+
+Notes are how a decision, warning, or rule from last week reaches the agent at the moment it edits the same code this week.
+
+## Wire format
+
+Notes are written and saved as a single line:
+
+```text
+kind|anchor|polarity|content
+```
+
+Only the first three `|` are field separators — the `content` field may itself contain `|`.
+
+### kind
+
+| kind | meaning |
+|---|---|
+| `cnv` | convention |
+| `rul` | rule |
+| `wrn` | warn |
+| `dec` | decision |
+| `blk` | blocker |
+| `fct` | fact |
+
+### anchor
+
+| anchor | meaning |
+|---|---|
+| `f:<path>` | a file |
+| `e:<entity>` | an entity (function, class, type) |
+| `g:<glob>` | a glob of files |
+| `p:` | project-wide (discouraged — it surfaces on every prompt; prefer a file or entity) |
+
+### polarity
+
+| polarity | meaning |
+|---|---|
+| `+` | do |
+| `-` | don't |
+| `~` | mixed / ambiguous |
+
+## Examples
+
+```text
+rul|f:src/proxy/bridge.ts|-|no intelligence imports here
+wrn|g:*.test.ts|-|don't mock the CozoDB database
+dec|e:TURN_OPEN_GAP_MS|+|15s avoids misclassifying a slow round-trip as a new turn
+```
+
+## Saving a note
+
+The agent saves a note by emitting one line in its closing message:
+
+```text
+unerr-save: note rul|f:src/proxy/bridge.ts|-|no intelligence imports here
+```
+
+A Stop hook scrapes and stores it — no extra tool call. If a new note opposes an existing one (same kind and anchor, opposite polarity), both are kept and surface together next time so the agent can weigh them.

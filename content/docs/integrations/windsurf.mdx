@@ -1,0 +1,43 @@
+---
+title: Windsurf
+description: Set up unerr for Windsurf, including the MCP config and instruction file.
+---
+
+Windsurf gets unerr's MCP tools and an instruction file. It does not get skills
+or hooks (those are Claude Code only).
+
+## Setup
+
+1. Install the CLI (once per machine):
+
+   ```bash
+   npm install -g @unerr-ai/unerr
+   ```
+
+2. Go to your repo and install for Windsurf:
+
+   ```bash
+   cd /path/to/your/repo
+   unerr install windsurf
+   ```
+
+## What it writes
+
+| Path | What it is |
+|---|---|
+| Windsurf MCP config | The MCP config Windsurf reads. Shape: `{ "command": "<absolute path to unerr>", "args": ["--mcp"] }`. |
+| `.windsurf/rules/unerr-instructions.md` | Instruction file telling the agent to prefer unerr's tools. |
+
+## Confirm the tools appear
+
+1. Reload the Windsurf window so it picks up the MCP config.
+2. Check Windsurf's MCP server list and confirm the unerr server is connected.
+3. The unerr tools (`search_code`, `get_references`, `file_read`,
+   `file_outline`, `unerr_context`, `fetch_url`, `unerr_track`) are now available
+   to the agent.
+
+You can also check unerr's side:
+
+```bash
+unerr status
+```

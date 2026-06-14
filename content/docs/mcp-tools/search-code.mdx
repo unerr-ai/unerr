@@ -1,0 +1,44 @@
+---
+title: search_code
+description: Find a function, class, or type in your repo from the local code graph.
+---
+
+Find a function, class, or type by name. The agent uses it to locate code instead of grepping for a text match. It answers from the code graph, so a hit is a real entity with a known file path, not a line that happens to match.
+
+## When the agent uses it
+
+- To find where a symbol is defined.
+- To pull up one symbol's profile (signature, file, fan-in/out) before reading or editing it.
+- To get a symbol's source, or its callers, callees, and imports, in the same call.
+
+Replaces grep and glob for code navigation.
+
+## Arguments
+
+| Argument | Type | What it does |
+|---|---|---|
+| `query` | string | The name (or partial name) to find. Required. |
+| `detail` | boolean | Return one symbol's full profile instead of a list of matches. |
+| `include_body` | boolean | Include the symbol's source. Use with `detail:true`. |
+| `want` | string[] | Also return related entities. Any of `'callers'`, `'callees'`, `'imports'`. |
+
+## Example
+
+```ts
+search_code({ query: "startProxy", detail: true, want: ["callers"] })
+```
+
+Returns the matched entity and its callers:
+
+```json
+{
+  "entity": {
+    "name": "startProxy",
+    "kind": "function",
+    "file_path": "src/proxy/proxy.ts"
+  },
+  "callers": [
+    { "name": "bootProxy", "file_path": "src/entrypoints/cli.ts" }
+  ]
+}
+```

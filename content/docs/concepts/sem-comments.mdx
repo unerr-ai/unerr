@@ -1,0 +1,39 @@
+---
+title: "@sem domain comments"
+description: A small structured comment above each exported entity that unerr parses into a domain view of the code.
+---
+
+A `@sem` comment is a small block above an exported entity. It has two parts:
+
+1. A 1-2 sentence plain summary — **what** the entity is for and **why**, not how (the code already says how).
+2. One `@sem` line with tags: `@sem domain=<tag> role=<tag>`.
+
+unerr parses these into a parallel "domain" view of the code — a map of which entities belong to which part of the system. The summary stays useful to any reader even without unerr.
+
+## Example
+
+```ts
+/**
+ * Opens the per-repo Unix socket so the bridge can forward MCP frames.
+ * Kept separate from indexing so the IDE can connect before the graph is ready.
+ *
+ * @sem domain=transport role=entrypoint
+ */
+export function startUdsBridge() {
+  // ...
+}
+```
+
+## They are plain comments
+
+`@sem` lines are ordinary comments. Your code runs exactly the same with or without them, and with or without unerr installed. They add nothing at runtime.
+
+## Removing them
+
+To take the `@sem` sentinel lines out repo-wide:
+
+```bash
+unerr uninstall --strip-annotations
+```
+
+The prose summaries are kept; only the `@sem domain=... role=...` lines are removed.

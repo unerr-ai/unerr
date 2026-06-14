@@ -1,0 +1,52 @@
+# Keep the build context small and deterministic. Anything regenerated inside
+# the image, or never needed to build, is excluded.
+
+# Dependencies & build output (reinstalled / rebuilt in the image)
+node_modules
+.next
+out
+build
+
+# Fumadocs-generated source. `next build` (fumadocs-mdx plugin) regenerates it
+# from source.config.ts + content/docs inside the image, so never ship the host
+# copy — it would shadow the freshly generated one.
+.source
+
+# Real secret env files NEVER enter the image: .env.local, .env.production, etc.
+# stay out. Runtime config/secrets (SITE_URL, OPENAI_API_KEY) come from the
+# ECS task definition + Secrets Manager. .env.example is a doc, so keep it.
+.env.*
+!.env.example
+
+# VCS & CI
+.git
+.gitignore
+.github
+
+# Local tooling / editor
+.vscode
+.idea
+*.log
+.DS_Store
+
+# Tests & coverage (not needed in a production image)
+coverage
+playwright-report
+test-results
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+e2e
+
+# unerr cache
+.unerr
+
+# Claude tooling
+.claude
+.mcp.json
+
+# Docker artifacts themselves
+Dockerfile
+Dockerfile.*
+.dockerignore

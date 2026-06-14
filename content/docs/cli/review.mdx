@@ -1,0 +1,43 @@
+---
+title: review
+description: Review staged changes or a commit range with the review engine.
+---
+
+Review code changes against the graph and the repo's rules, and report issues by severity.
+
+## Synopsis
+
+```bash
+unerr review [options]
+```
+
+By default it reviews your staged changes. Use `--range` to review a commit range instead. The review uses unerr's graph to catch problems that build and lint pass over — broken callers, contract drift, duplicated logic, boundary breaches, and changes that do not match their stated intent.
+
+## Options
+
+| Flag | Description |
+|---|---|
+| `--staged` | Review staged changes. This is the default. |
+| `--range <A..B>` | Review a commit range instead of staged changes, for example `main..HEAD`. |
+| `--min-severity <level>` | Only report findings at this level or above. One of `info`, `low`, `medium`, `high`, `critical`. Default `medium`. |
+| `--json` | Output findings as JSON. |
+| `--verbose` | Include the evidence and reasoning behind each finding. |
+
+## Examples
+
+```bash
+# Review what's staged right now
+unerr review
+```
+
+```bash
+# Review the current branch against main, only high and above
+unerr review --range main..HEAD --min-severity high
+```
+
+```bash
+# Machine-readable output for a CI step
+unerr review --range main..HEAD --json
+```
+
+Related: [install --review-gate](/docs/cli/install) · [status](/docs/cli/status)

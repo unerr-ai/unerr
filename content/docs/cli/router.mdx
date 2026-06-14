@@ -1,0 +1,42 @@
+---
+title: router
+description: Manage the MCP gateway router that masks tool families by intent.
+---
+
+Manage the gateway router. The router decides which families of MCP tools are visible to the agent based on what the agent is doing — it masks families that are not relevant to the current intent, so the agent sees a smaller, focused tool list. Use `unerr router` to inspect that state and to override which families are shown.
+
+## Synopsis
+
+```bash
+unerr router <subcommand> [family]
+```
+
+## Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `status` | Show which tool families are currently visible or masked. |
+| `unmask <family>` | Force a family to always be visible, regardless of intent. |
+| `mask <family>` | Force a family to always be hidden. |
+| `overrides` | List the mask/unmask overrides you have set. |
+| `clear-overrides` | Remove all overrides and return to intent-based behavior. |
+
+## Examples
+
+```bash
+# See current visibility
+unerr router status
+```
+
+```bash
+# Always show a family, then check your overrides
+unerr router unmask coding
+unerr router overrides
+```
+
+```bash
+# Go back to automatic behavior
+unerr router clear-overrides
+```
+
+Related: [status](/docs/cli/status) · [CLI overview](/docs/cli)

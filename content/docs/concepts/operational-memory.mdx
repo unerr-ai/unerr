@@ -1,0 +1,45 @@
+---
+title: Operational memory & the code graph
+description: How unerr builds a local code graph and layers operational memory on top of it.
+---
+
+unerr does two things with your repo:
+
+1. **Indexes it into a local code graph.** Nodes are entities — functions, classes, types. Edges are relationships — calls and references. The graph is stored on your machine in CozoDB (`.unerr/graph.db`).
+2. **Keeps operational memory on top of the graph.** This is what the source files can't tell you:
+   - who changed each file last,
+   - how a file has drifted,
+   - what failed here before,
+   - the conventions the team built up,
+   - the rules you gave unerr across sessions.
+
+The source files say what the system *does* today. Operational memory says what it has been *understood* to be.
+
+## Two sources feed every change
+
+An agent that has read the code still breaks callers it never saw and rebuilds patterns the team already settled on. unerr fills that gap by giving the agent both sources at the moment it edits.
+
+<Mermaid chart={`flowchart LR
+  A["Codebase (as it is)"] --> C["A change the agent ships"]
+  B["unerr (as it has been understood)"] --> C
+`} />
+
+## Why the graph matters
+
+The graph lets the agent ask precise questions instead of reading files to navigate:
+
+- find a function, class, or type without grep,
+- find the callers or callees of an entity before editing its signature,
+- see the blast radius of a change (how many places it affects).
+
+This keeps the agent's context small: one graph query replaces many file reads.
+
+## Why memory matters
+
+Memory is what re-anchors when code moves. A rule tied to a function follows that function when it's renamed or relocated, so it doesn't go stale and silently stop applying.
+
+Operational memory reaches the agent through several channels, each its own concept:
+
+- [Anchored notes](/docs/concepts/anchored-notes) — prose tied to a file or entity.
+- [Conventions](/docs/concepts/conventions) — rules the team accretes.
+- [@sem domain comments](/docs/concepts/sem-comments) — a structured summary above each exported entity.

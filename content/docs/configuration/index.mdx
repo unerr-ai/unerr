@@ -1,0 +1,19 @@
+---
+title: Overview
+description: How unerr is configured, and which parts are written for you.
+---
+
+Most configuration is written for you. When you run `unerr install <agent>`, unerr
+writes the MCP config, the agent's instruction file, and (for Claude Code) the skills
+and hooks. You rarely need to edit any of it by hand.
+
+The pages in this section describe each piece.
+
+| Page | What it covers |
+|---|---|
+| [The .unerr directory](/docs/configuration/unerr-directory) | The per-repo `.unerr/` and global `~/.unerr/` layouts. |
+| [MCP config](/docs/configuration/mcp-config) | The project-level MCP config file each agent uses. |
+| [Environment variables](/docs/configuration/env-vars) | The variables you can set. |
+| [Hooks](/docs/configuration/hooks) | The Claude Code hooks `unerr install` adds. |
+| [Dashboard](/docs/configuration/dashboard) | The local web UI and its port. |
+| [Credentials](/docs/configuration/credentials) | Optional login, and what gets reported when you do. |

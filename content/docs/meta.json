@@ -1,0 +1,4 @@
+{
+  "title": "Documentation",
+  "pages": ["getting-started", "concepts", "cli", "mcp-tools", "configuration", "integrations", "reference"]
+}

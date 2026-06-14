@@ -1,0 +1,26 @@
+---
+title: Signal prefixes
+description: The ur|<tag> lines on tool responses that tell the agent what to do next.
+---
+
+unerr adds short lines to its tool responses to tell the agent what to do next. Each starts with `ur|` and a three-letter tag. The tag is the priority bucket; the rest of the line is the concrete action.
+
+## The four tags
+
+| tag | meaning | example |
+|---|---|---|
+| `act` | do something now | `ur\|act run get_references({direction:'callers'}) before editing the signature` |
+| `ctx` | context changed — re-read | `ur\|ctx src/proxy/bridge.ts drifted since last read — re-read it` |
+| `rsk` | risk / caution on this path | `ur\|rsk 23 callers of formatToken — check them before editing` |
+| `fct` | fact / information | `ur\|fct this file follows the named-Datalog convention` |
+
+When a response carries one of these, the agent acts on it before reading the rest of the response.
+
+## Ambient `unerr »` lines are not actions
+
+Separately, unerr prints lines that begin with `unerr »` (a right-pointing double angle). These are telemetry for you — for example the savings line at the end of a turn. They are not instructions to the agent, and the agent does not act on them.
+
+| line starts with | who it's for |
+|---|---|
+| `ur\|<tag>` | the agent — an action or fact to use |
+| `unerr »` | you — telemetry, not an action |
