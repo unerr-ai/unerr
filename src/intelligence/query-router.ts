@@ -3859,6 +3859,25 @@ export class QueryRouter {
   }
 
   /**
+   * Run a read query against the Cozo db backing the live graph.
+   *
+   * Returns null when the graph exposes no `db` — a test mock or any non-Cozo
+   * store — so the drift_overlay lookups degrade to "no overlay" silently
+   * instead of throwing `Cannot read properties of undefined (reading 'run')`
+   * and logging a warning on every entity query. A genuine query failure (bad
+   * Datalog, db error) still rejects so the caller's catch can surface it.
+   */
+  private async runDriftQuery(
+    query: string,
+    params: Record<string, unknown>
+  ): Promise<{ rows: unknown[][] } | null> {
+    const db = (this.localGraph as { db?: import("./cozo-schema.js").CozoDb })
+      .db;
+    if (!db) return null;
+    return db.run(query, params);
+  }
+
+  /**
    * Resolve entity with drift overlay merge.
    * If entity exists in drift_overlay, overlay data replaces/augments base entity.
    */
@@ -3872,15 +3891,13 @@ export class QueryRouter {
     // Need to check by key across all files - query drift_overlay directly
     let driftEntity: DriftEntity | null = null;
     try {
-      const result = await (
-        this.localGraph as unknown as { db: import("./cozo-schema.js").CozoDb }
-      ).db.run(
+      const result = await this.runDriftQuery(
         `?[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps] :=
           *drift_overlay[key, name, kind, sig, body, fp, ls, le, ch, ds, iid, ma, origin, pb, ps],
           key = $key`,
         { key }
       );
-      if (result.rows.length > 0) {
+      if (result && result.rows.length > 0) {
         const [
           k,
           name,
@@ -4047,15 +4064,11 @@ export class QueryRouter {
     const key = args.key as string | undefined;
     if (key) {
       try {
-        const driftResult = await (
-          this.localGraph as unknown as {
-            db: import("./cozo-schema.js").CozoDb;
-          }
-        ).db.run(
+        const driftResult = await this.runDriftQuery(
           "?[ds, iid] := *drift_overlay[$key, _, _, _, _, _, _, _, _, ds, iid, _, _, _, _]",
           { key }
         );
-        if (driftResult.rows.length > 0) {
+        if (driftResult && driftResult.rows.length > 0) {
           const [ds, iid] = driftResult.rows[0] as [string, string];
           return {
             entityStatus: ds,
