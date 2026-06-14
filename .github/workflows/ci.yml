@@ -63,18 +63,20 @@ jobs:
         # `pnpm exec` invokes the local vitest binary directly so this matches
         # the `test:run` script's behaviour without re-wrapping the redirect.
         shell: bash
-        # Clear BASH_ENV / ENV. Blacksmith's Linux runner points both at
-        # /run/blacksmith/job.env (a bash-syntax file with `declare` lines) so
-        # cross-step env survives. But our exec-runner tests spawn `/bin/sh`,
-        # which on Ubuntu is dash — dash sources ENV, chokes on `declare`, and
-        # prints `/run/blacksmith/job.env: declare: not found` into every
-        # captured child's output, breaking the exec/shell-capture assertions.
-        # Unsetting them for this step only keeps the spawned shells clean
-        # without affecting Blacksmith's own step-to-step env propagation.
-        env:
-          BASH_ENV: ""
-          ENV: ""
-        run: pnpm exec vitest run < /dev/null
+        # `unset BASH_ENV ENV` BEFORE running vitest. Blacksmith's Linux runner
+        # points both at /run/blacksmith/job.env (a bash-syntax file with
+        # `declare` lines) so cross-step env survives. Our exec-runner tests
+        # spawn `/bin/sh`, which on Ubuntu is dash — dash sources $ENV, chokes
+        # on `declare`, and prints `/run/blacksmith/job.env: declare: not found`
+        # into every captured child's output, breaking the exec/shell-capture
+        # assertions. Setting these to "" via the step `env:` map does NOT help:
+        # an empty-but-present $ENV is still exported to the spawned dash, which
+        # treats it as a path. `unset` removes the variables entirely, so node
+        # and every shell it spawns never inherit them. Scoped to this step, so
+        # Blacksmith's own step-to-step env propagation is untouched.
+        run: |
+          unset BASH_ENV ENV
+          pnpm exec vitest run < /dev/null
 
       - name: Build
         run: pnpm run build
