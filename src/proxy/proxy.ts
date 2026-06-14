@@ -19,8 +19,14 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  statSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import {
+  credentialsPath,
+  entitlementsCachePath,
+} from "../cloud/credentials.js";
+import { loginBlocked, loginGateNotice } from "../cloud/login-gate.js";
 // Static ESM imports, NOT require(): the tsup bundle is pure ESM, where
 // require() hits esbuild's "Dynamic require is not supported" stub — these
 // two are needed in SYNC contexts (runBoundaryValidation, the /commit-context
@@ -80,6 +86,53 @@ const log = {
   warn: (msg: string) => process.stderr.write(`[unerr] WARN: ${msg}\n`),
   error: (msg: string) => process.stderr.write(`[unerr] ERROR: ${msg}\n`),
 };
+
+/** JSON-RPC error code for the mandatory-login block on MCP tool calls. */
+export const LOGIN_BLOCKED_ERROR_CODE = -32004;
+
+// ── Mandatory-login gate: mtime-memoized `loginBlocked()` for the tool path ──
+// `dispatchToolCall` runs on EVERY tools/call and carries a <5ms budget, so it
+// cannot afford `loginBlocked()`'s 2-3 small JSON reads each time. We memoize
+// the verdict and re-evaluate ONLY when the credentials or entitlement file
+// mtime moves. That is what lets a login completed in ANOTHER terminal unblock
+// the NEXT tool call without restarting the proxy: writeCredentials() rewrites
+// credentials.json (new mtime) → the cache key changes → we re-run the gate.
+//
+// A missing file stats to mtime 0; the pair (cred, ent) forms the cache key.
+// `loginBlocked()` itself short-circuits on UNERR_TOKEN, so the headless/CI
+// path needs no special-casing here.
+let loginGateCacheKey: string | null = null;
+let loginGateCacheBlocked = false;
+
+/** mtime-ms of a path, or 0 when it does not exist / cannot be stat'd. */
+function mtimeOrZero(path: string): number {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Memoized `loginBlocked()` for the per-call tool path. Recomputes only when
+ * the credentials or entitlement file mtime changes, so the steady-state cost
+ * is two `statSync` calls (no JSON parse, no auth-state recompute) and a
+ * mid-session login in another terminal unblocks the next call.
+ */
+export function loginBlockedCached(now: number = Date.now()): boolean {
+  const key = `${mtimeOrZero(credentialsPath())}:${mtimeOrZero(entitlementsCachePath())}`;
+  if (key !== loginGateCacheKey) {
+    loginGateCacheKey = key;
+    loginGateCacheBlocked = loginBlocked(now);
+  }
+  return loginGateCacheBlocked;
+}
+
+/** Test-only: drop the memoized login verdict so the next call re-evaluates. */
+export function __resetLoginGateCache(): void {
+  loginGateCacheKey = null;
+  loginGateCacheBlocked = false;
+}
 
 export interface ProxyOptions {
   /** Specific repo ID (auto-detected from .unerr/config.json if omitted) */
@@ -2008,6 +2061,34 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     _meta?: unknown;
     _context?: unknown;
   }> {
+    // ── Mandatory-login gate (-32004) ──────────────────────────────────
+    // Enforced HERE, at the tools/call choke point, NOT at initialize or
+    // tools/list — the agent must connect and receive the catalog so this
+    // error text reaches it (and through it, the human). `initialize` and
+    // `tools/list` have their own handlers and never pass through here.
+    // The verdict is mtime-memoized (loginBlockedCached) to stay inside the
+    // <5ms tool budget while still unblocking the next call after a login in
+    // another terminal. The error rides the tool-result body (isError + a
+    // JSON-RPC-shaped {error:{code,message}}), matching how this function
+    // already surfaces validation/translate failures — the SDK and the UDS
+    // handler wrap the return as `result`, so a bare top-level `error` would
+    // not reach the wire from here.
+    if (loginBlockedCached()) {
+      const message = loginGateNotice();
+      process.stderr.write(`[unerr] tools/call blocked (-32004): ${message}\n`);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              error: { code: LOGIN_BLOCKED_ERROR_CODE, message },
+            }),
+          },
+        ],
+        isError: true,
+      };
+    }
+
     // Mutable locals so unerr_track aliasing can re-target the dispatch without
     // reassigning the parameters (noParameterAssign). All code below reads these.
     let name = requestedName;

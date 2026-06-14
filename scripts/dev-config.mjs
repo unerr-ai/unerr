@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 /**
- * dev-config.mjs — dev-only generator for `<cwd>/.unerr/dev.json`.
+ * dev-config.mjs — dev-only generator for the dev-mode profile `dev.json`.
  *
- * This writes the single file that drives local dev mode: `.unerr/dev.json`.
+ * Targets, selected by flag:
+ *   - GLOBAL (default): `~/.unerr/dev.json` — applies to every repo on this
+ *     machine. Use this to test the per-tier repo caps across several real
+ *     repos: one global tier, many repos, one process manager.
+ *   - REPO (`--repo`):  `<cwd>/.unerr/dev.json` — overrides the global for the
+ *     current repo only.
+ *
  * The file it produces is:
- *   - gitignored (never committed),
+ *   - gitignored (the repo file) / outside any repo (the global file),
  *   - excluded from the npm tarball (never shipped to users),
  *   - read only by a DEV build via `src/cloud/dev-mode.ts`, which is
  *     compile-time stripped from production bundles.
@@ -13,43 +19,49 @@
  * reaches nobody in a published build.
  *
  * Usage:
- *   node scripts/dev-config.mjs --host <host> --tier <tier>
- *   pnpm dev:config --host localhost:3000 --tier pro
+ *   node scripts/dev-config.mjs --host <host> --tier <tier> [--repo]
+ *   pnpm dev:config --host localhost:3000 --tier pro          # global
+ *   pnpm dev:config --tier free --repo                        # this repo only
  *
  * `--host` sets `apiUrl` (a missing scheme is filled with `http://`).
  * `--tier` sets `tier` (one of: free | pro | team | enterprise).
- * At least one flag must be given. Existing fields in dev.json are
- * preserved; only the fields provided this run are overwritten.
+ * `--repo` writes the per-repo file instead of the global one.
+ * At least one of --host / --tier must be given. Existing fields in the target
+ * dev.json are preserved; only the fields provided this run are overwritten.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 
 const VALID_TIERS = ["free", "pro", "team", "enterprise"];
 
 const USAGE = [
-  "Usage: node scripts/dev-config.mjs --host <host> --tier <tier>",
+  "Usage: node scripts/dev-config.mjs --host <host> --tier <tier> [--repo]",
   "",
   "  --host <host>   sets apiUrl (scheme defaults to http:// if omitted)",
   `  --tier <tier>   one of: ${VALID_TIERS.join(" | ")}`,
+  "  --repo          write <cwd>/.unerr/dev.json (default: global ~/.unerr/dev.json)",
   "",
   "At least one of --host / --tier is required.",
 ].join("\n");
 
 /**
- * Parse `--host` and `--tier` out of an argv array.
+ * Parse `--host`, `--tier`, and `--repo` out of an argv array.
  * @param {string[]} argv
- * @returns {{ host?: string, tier?: string }}
+ * @returns {{ host?: string, tier?: string, repo: boolean }}
  */
 function parseArgs(argv) {
-  /** @type {{ host?: string, tier?: string }} */
-  const out = {};
+  /** @type {{ host?: string, tier?: string, repo: boolean }} */
+  const out = { repo: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--host") {
       out.host = argv[++i];
     } else if (arg === "--tier") {
       out.tier = argv[++i];
+    } else if (arg === "--repo") {
+      out.repo = true;
     }
   }
   return out;
@@ -78,7 +90,7 @@ function fail(message) {
 }
 
 function main() {
-  const { host, tier } = parseArgs(process.argv.slice(2));
+  const { host, tier, repo } = parseArgs(process.argv.slice(2));
 
   if (host === undefined && tier === undefined) {
     fail("error: at least one of --host or --tier is required.");
@@ -92,7 +104,8 @@ function main() {
     );
   }
 
-  const dir = path.join(process.cwd(), ".unerr");
+  // Global (~/.unerr) by default; --repo targets the current repo's .unerr.
+  const dir = path.join(repo ? process.cwd() : homedir(), ".unerr");
   const target = path.join(dir, "dev.json");
 
   // Start from existing config when it is present and valid; otherwise fresh.
@@ -123,7 +136,7 @@ function main() {
   });
 
   process.stderr.write(
-    `✓ wrote .unerr/dev.json (apiUrl=${config.apiUrl ?? "<unset>"}, tier=${config.tier ?? "<unset>"})\n`
+    `✓ wrote ${repo ? "<repo>" : "~"}/.unerr/dev.json (apiUrl=${config.apiUrl ?? "<unset>"}, tier=${config.tier ?? "<unset>"})\n`
   );
 }
 

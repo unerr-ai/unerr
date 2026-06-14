@@ -34,6 +34,11 @@ import {
 import { join } from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
+import { loginBlocked } from "../cloud/login-gate.js";
+import {
+  LOGIN_NUDGE_LINE,
+  shouldEmitLoginNudge,
+} from "../hooks/login-nudge.js";
 import { reviewStagedChanges } from "../review/git-review.js";
 import {
   loadStandaloneGraph,
@@ -87,6 +92,23 @@ export function registerCheckCommitCommand(program: Command) {
         recordVerdict?: boolean;
       }) => {
         const cwd = process.cwd();
+
+        // ── Login-blocked passthrough ────────────────────────────────
+        // Signed out → never block or fail the git hook. Allow the commit
+        // (exit 0), skip the review engine entirely, emit at most one
+        // throttled login nudge. Covers both the pre-commit gate and the
+        // post-commit --record-verdict path (nothing to attach when signed out).
+        if (loginBlocked()) {
+          try {
+            if (shouldEmitLoginNudge(cwd)) {
+              process.stderr.write(`${LOGIN_NUDGE_LINE}\n`);
+            }
+          } catch {
+            // Nudge is best-effort — never break the commit.
+          }
+          process.exitCode = 0;
+          return;
+        }
 
         // ── Post-commit path: attach the pending verdict to the new commit ──
         if (opts.recordVerdict) {

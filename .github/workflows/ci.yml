@@ -152,7 +152,11 @@ jobs:
       - name: Verify dev-free
         run: |
           # a. Built bundle must not contain the dev reader (stripped by UNERR_PROD_BUILD=1).
-          grep -q "applyDevConfig" dist/cli.js && { echo "::error::dev reader present in production bundle"; exit 1; } || echo "ok: no dev reader in bundle"
+          #    Match dev-ONLY symbols from the dev-mode module — NOT "applyDevConfig",
+          #    which substring-matches the empty `applyDevConfigOnce` wrapper that
+          #    legitimately survives the strip (its body folds to a no-op; the module
+          #    and these symbols are gone).
+          grep -qE "mintDevToken|k-dev-local|cloud/dev-mode" dist/cli.js && { echo "::error::dev reader present in production bundle"; exit 1; } || echo "ok: no dev reader in bundle"
           # b. npm tarball must not include dev scaffolding (dev.json / dev-config / cloud/dev-mode).
           npm pack --dry-run 2>&1 | grep -E "dev\.json|dev-config|dev-mode" && { echo "::error::dev scaffolding in tarball"; exit 1; } || echo "ok: tarball is dev-free"
 

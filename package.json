@@ -31,7 +31,10 @@
     "check:tool-budget": "tsx scripts/check-tool-budget.ts",
     "check:native": "node scripts/check-native-modules.mjs",
     "gen:docs": "tsx scripts/gen-docs-reference.ts",
-    "dev:config": "node scripts/dev-config.mjs"
+    "dev:config": "node scripts/dev-config.mjs",
+    "dev:entitlement": "node scripts/dev-entitlement.mjs",
+    "dev:mcp-probe": "node scripts/dev-mcp-probe.mjs",
+    "dev:tier-multirepo": "bash scripts/dev-tier-multirepo-live.sh"
   },
   "dependencies": {
     "@clack/prompts": "^1.2.0",

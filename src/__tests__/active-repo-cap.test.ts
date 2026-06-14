@@ -26,6 +26,22 @@ vi.mock("../daemon/system-health.js", () => ({
   loadAverage1: () => 0,
 }));
 
+// Pin the tier to free (limit 1) — the case this cap targets. A real machine
+// can carry a dev-minted PRO entitlement (`.unerr/dev.json` / `UNERR_ENTITLEMENT_*`
+// env), which would resolve `tierFromCache()` to pro, lift the limit, and let the
+// 2nd repo spawn — defeating the assertion. Both call sites under test
+// (process-manager + warm-start) read the exported `tierFromCache`, so mocking it
+// here is enough; every other export stays real.
+vi.mock("../cloud/tier-query.js", async (importActual) => ({
+  ...(await importActual<typeof import("../cloud/tier-query.js")>()),
+  tierFromCache: () => ({
+    plan: "free",
+    source: "free_fallback" as const,
+    features: {},
+    limits: { maxActiveRepos: 1, maxMembers: 1, maxMachines: 1 },
+  }),
+}));
+
 function makeFakeChild(pid: number): EventEmitter & {
   pid: number;
   send: ReturnType<typeof vi.fn>;

@@ -20,6 +20,7 @@
 
 import type { Command } from "commander";
 import pc from "picocolors";
+import { nudgeIfLoggedOut } from "../hooks/login-nudge.js";
 import {
   type ReviewScope,
   parseRangeScope,
@@ -68,6 +69,8 @@ export function registerReviewCommand(program: Command) {
     .option("--json", "Emit the structured report as JSON")
     .option("--verbose", "Show every evidence line, not just the lead")
     .action(async (opts: ReviewOpts) => {
+      // Agent / user surface: never wall. Pass through and nudge once on stderr.
+      nudgeIfLoggedOut();
       await runReview(process.cwd(), opts);
     });
 }

@@ -29,7 +29,10 @@ vi.mock("node:os", async (importOriginal) => {
 });
 
 import { applyDevConfig } from "../cloud/dev-mode.js";
-import { readEntitlementCache } from "../cloud/entitlements.js";
+import {
+  readEntitlementCache,
+  writeEntitlementCache,
+} from "../cloud/entitlements.js";
 
 let tempHome: string;
 let repoDir: string;
@@ -46,6 +49,13 @@ const TOUCHED = [
 /** Write `<repoDir>/.unerr/dev.json` with the given raw string. */
 function writeDevJson(raw: string): void {
   const dir = join(repoDir, ".unerr");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "dev.json"), raw);
+}
+
+/** Write the machine-wide `~/.unerr/dev.json` (homedir is mocked to tempHome). */
+function writeGlobalDevJson(raw: string): void {
+  const dir = join(tempHome, ".unerr");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "dev.json"), raw);
 }
@@ -137,5 +147,72 @@ describe("applyDevConfig", () => {
     await expect(applyDevConfig(repoDir)).resolves.toBeUndefined();
 
     expect(readEntitlementCache()).toBeNull();
+  });
+
+  // ── Global profile (~/.unerr/dev.json) — applies to every repo ──────────────
+
+  it("global dev.json drives a repo that has no repo-level file", async () => {
+    // No <repoDir>/.unerr/dev.json — only the machine-wide one.
+    writeGlobalDevJson(
+      JSON.stringify({ apiUrl: "http://localhost:3000", tier: "free" })
+    );
+
+    await applyDevConfig(repoDir);
+
+    expect(process.env.UNERR_API_URL).toBe("http://localhost:3000");
+    const cache = readEntitlementCache();
+    expect(cache?.claims?.plan).toBe("free");
+    expect(cache?.claims?.limits.max_active_repos).toBe(1);
+  });
+
+  it("repo dev.json overrides the global per-field, global fills the rest", async () => {
+    writeGlobalDevJson(
+      JSON.stringify({ apiUrl: "http://localhost:3000", tier: "free" })
+    );
+    // Repo overrides only the tier; apiUrl falls through to the global value.
+    writeDevJson(JSON.stringify({ tier: "pro" }));
+
+    await applyDevConfig(repoDir);
+
+    expect(process.env.UNERR_API_URL).toBe("http://localhost:3000");
+    const cache = readEntitlementCache();
+    expect(cache?.claims?.plan).toBe("pro");
+    expect(cache?.claims?.limits.max_active_repos).toBe(-1);
+  });
+
+  it("a malformed global file does not void a valid repo file", async () => {
+    writeGlobalDevJson("{ not json ]");
+    writeDevJson(JSON.stringify({ tier: "pro" }));
+
+    await applyDevConfig(repoDir);
+
+    expect(readEntitlementCache()?.claims?.plan).toBe("pro");
+  });
+
+  // Regression: the login wall calls applyDevConfig AGAIN after runLogin, because
+  // the device-flow entitlement refresh overwrites the dev-minted tier with the
+  // dev server's unsigned/free response. Re-applying must restore the signed
+  // pro tier so the post-login gate re-check clears.
+  it("re-minting restores the dev tier after a login refresh clobbered the cache", async () => {
+    writeDevJson(JSON.stringify({ tier: "pro" }));
+    await applyDevConfig(repoDir);
+    expect(readEntitlementCache()?.claims?.plan).toBe("pro");
+
+    // Simulate runLogin's refresh: the dev server "isn't signing plans yet", so
+    // it writes an UNVERIFIED free cache (no signed token, claims null).
+    writeEntitlementCache({
+      token: null,
+      claims: null,
+      fetched_at: Date.now(),
+      max_server_time: 0,
+      unverified: { plan: "free", organization_id: "dev-org" },
+    });
+    expect(readEntitlementCache()?.claims).toBeNull(); // tier was clobbered
+
+    // The wall's reapplyDevConfig step re-mints the signed pro tier.
+    await applyDevConfig(repoDir);
+    const restored = readEntitlementCache();
+    expect(restored?.claims?.plan).toBe("pro");
+    expect(restored?.claims?.limits.max_active_repos).toBe(-1);
   });
 });

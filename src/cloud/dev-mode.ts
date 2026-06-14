@@ -1,23 +1,34 @@
 /**
  * Dev-mode profile reader — local tier + API-URL overrides for development.
  *
- * Reads one gitignored file, `<repo>/.unerr/dev.json`:
+ * Reads two gitignored files, in increasing precedence:
  *
- *   { "apiUrl": "http://localhost:3000", "tier": "pro" }
+ *   1. GLOBAL  `~/.unerr/dev.json`        — applies to every repo on the machine
+ *   2. REPO    `<repo>/.unerr/dev.json`   — overrides the global, per-field
  *
- * Written by `pnpm dev:config --host <url> --tier <plan>`. When present, this
- * reader (called early in boot, before any cloud/entitlement init) points the
- * CLI at a local server and forces a tier locally, with NO env wiring and NO
- * `.mcp.json` edits. Delete the file → real mode (identical to production).
+ * Each file is `{ "apiUrl": "http://localhost:3000", "tier": "pro" }`. The
+ * global file is the primary knob: there is one process manager per machine, so
+ * one global dev profile lets every repo see the same fabricated tier — which is
+ * what testing the per-tier repo caps (free = 1 active repo, pro = unlimited)
+ * across several real repos requires. The repo file stays as a narrow override
+ * for pointing one repo at a different server/tier than the rest.
  *
- * PRODUCTION SAFETY — two independent layers:
+ * Written by `pnpm dev:config --host <url> --tier <plan>` (global by default;
+ * `--repo` targets the repo file). This reader (called early in boot, before any
+ * cloud/entitlement init) points the CLI at a local server and forces a tier
+ * locally, with NO env wiring and NO `.mcp.json` edits. Delete both files → real
+ * mode (identical to production).
+ *
+ * PRODUCTION SAFETY — the compile-time guard is the load-bearing layer:
  *  1. Every call site is guarded by the compile-time constant
  *     `__UNERR_DEV_BUILD__`. The npm publish build sets `UNERR_PROD_BUILD=1`,
  *     so esbuild dead-code-eliminates the guarded `import("./dev-mode.js")` and
  *     this whole module never enters the shipped bundle — there is no code that
- *     reads `dev.json` in production.
- *  2. `.unerr/` is gitignored and excluded from the npm `files` allowlist, so
- *     the file never ships either.
+ *     reads either `dev.json` in production. This alone makes a planted file inert.
+ *  2. Defense in depth for the REPO file only: `.unerr/` is gitignored and
+ *     excluded from the npm `files` allowlist, so it never ships. The GLOBAL
+ *     `~/.unerr/dev.json` lives outside any repo, so layer 2 cannot cover it —
+ *     layer 1 (the stripped module) is its sole and sufficient guard.
  * Dropping a `dev.json` into a published install therefore does nothing. The
  * file-trust escalation the pinned-key model forbids (see entitlement-keys.ts)
  * stays impossible in production.
@@ -79,6 +90,26 @@ const b64url = (data: string): string =>
 
 function devProfilePath(repoPath: string): string {
   return join(repoPath, ".unerr", "dev.json");
+}
+
+/** Machine-wide dev profile — applies to every repo unless a repo file overrides. */
+function globalDevProfilePath(): string {
+  return join(homedir(), ".unerr", "dev.json");
+}
+
+/**
+ * Read one dev profile file. Returns null when absent (a no-op input) or
+ * malformed (warned and skipped, so a bad file in one location never voids the
+ * other). The two locations are read independently, then merged by the caller.
+ */
+function loadProfile(path: string): DevProfile | null {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf-8")) as DevProfile;
+  } catch {
+    process.stderr.write(`[unerr dev] ignoring malformed ${path}\n`);
+    return null;
+  }
 }
 
 function devKeyPath(): string {
@@ -168,21 +199,21 @@ function mintDevToken(plan: DevPlan): {
 }
 
 /**
- * Apply `<repo>/.unerr/dev.json` if it exists: point at a local API URL and/or
- * force a tier locally. No-op when the file is absent. Safe to call at every
- * boot; the caller must guard it behind `__UNERR_DEV_BUILD__`.
+ * Apply the dev profile: the global `~/.unerr/dev.json` as the base, with a
+ * repo-level `<repo>/.unerr/dev.json` overriding it per-field. Points at a local
+ * API URL and/or forces a tier locally. No-op when neither file exists. Safe to
+ * call at every boot; the caller must guard it behind `__UNERR_DEV_BUILD__`.
  */
 export async function applyDevConfig(repoPath: string): Promise<void> {
-  const path = devProfilePath(repoPath);
-  if (!existsSync(path)) return;
+  const globalProfile = loadProfile(globalDevProfilePath());
+  const repoProfile = loadProfile(devProfilePath(repoPath));
+  if (!globalProfile && !repoProfile) return;
 
-  let profile: DevProfile;
-  try {
-    profile = JSON.parse(readFileSync(path, "utf-8")) as DevProfile;
-  } catch {
-    process.stderr.write(`[unerr dev] ignoring malformed ${path}\n`);
-    return;
-  }
+  // Repo wins per-field; the global file fills any field the repo omits.
+  const profile: DevProfile = {
+    apiUrl: repoProfile?.apiUrl ?? globalProfile?.apiUrl,
+    tier: repoProfile?.tier ?? globalProfile?.tier,
+  };
 
   // API URL: an explicit env var always wins (CLI > env > file precedence).
   if (profile.apiUrl && !process.env.UNERR_API_URL?.trim()) {
@@ -194,7 +225,7 @@ export async function applyDevConfig(repoPath: string): Promise<void> {
   if (profile.tier) {
     if (!PLAN_LIMITS[profile.tier]) {
       process.stderr.write(
-        `[unerr dev] unknown tier "${profile.tier}" in ${path} — ignoring\n`
+        `[unerr dev] unknown tier "${profile.tier}" in dev.json — ignoring\n`
       );
       return;
     }

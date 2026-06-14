@@ -20,6 +20,7 @@
  */
 
 import type { Command } from "commander";
+import { nudgeIfLoggedOut } from "../hooks/login-nudge.js";
 import { readEntityBodyLines } from "../intelligence/entity-source.js";
 import {
   hasPersistedGraph,
@@ -323,6 +324,9 @@ export function registerReconCommand(program: Command): void {
     )
     .allowUnknownOption(true)
     .action(async () => {
+      // Agent surface: never wall. Pass through and emit one throttled login
+      // nudge on stderr (stdout stays the clean recon digest the agent parses).
+      nudgeIfLoggedOut();
       const code = await runReconMain(process.argv);
       process.exit(code);
     });

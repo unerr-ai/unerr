@@ -12,6 +12,11 @@
 
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
+import { loginBlocked } from "../cloud/login-gate.js";
+import {
+  LOGIN_NUDGE_LINE,
+  shouldEmitLoginNudge,
+} from "../hooks/login-nudge.js";
 import {
   runPostEditHookAsync,
   runPostGlobHook,
@@ -34,12 +39,34 @@ import {
 import { runPreWebFetchHook } from "../hooks/web-hooks.js";
 
 /**
+ * Login-blocked passthrough for any hook event. When the machine is signed out
+ * (`loginBlocked()`), no hook does graph-aware work: it writes the universal
+ * passthrough JSON ("{}", which every adapter formatter falls back to — never a
+ * deny, never a rewrite) and emits at most one throttled `ur|act` login nudge to
+ * stderr. Returns true when it handled the call so the wrapper skips the handler.
+ */
+function handledByLoginGate(): boolean {
+  if (!loginBlocked()) return false;
+  process.stdout.write("{}");
+  try {
+    if (shouldEmitLoginNudge(process.cwd())) {
+      process.stderr.write(`${LOGIN_NUDGE_LINE}\n`);
+    }
+  } catch {
+    // Nudge is best-effort — never let it break the hook passthrough.
+  }
+  return true;
+}
+
+/**
  * Safe hook action wrapper. Reads stdin, runs the handler, writes stdout.
  * On ANY failure (EAGAIN on stdin, handler throw, etc.) outputs valid JSON "{}"
  * so Claude Code never sees a crash/invalid output and reports "hook error".
+ * When login is blocked, passes through unchanged (no graph work, no deny).
  */
 function safeHookAction(handler: (stdin: string) => string): () => void {
   return () => {
+    if (handledByLoginGate()) return;
     try {
       const stdin = readFileSync(0, "utf-8");
       process.stdout.write(handler(stdin));
@@ -55,6 +82,7 @@ function safeAsyncHookAction(
   handler: (stdin: string) => Promise<string>
 ): () => Promise<void> {
   return async () => {
+    if (handledByLoginGate()) return;
     try {
       const stdin = readFileSync(0, "utf-8");
       process.stdout.write(await handler(stdin));

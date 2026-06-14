@@ -10,22 +10,26 @@
  * All output goes to stderr (stdout stays clean for MCP JSON-RPC). The
  * machine token is never printed.
  *
- * Logging in is optional — the CLI works fully without an account. This
- * command only adds cloud features for paid teams.
+ * Login is mandatory (2026-06-14, owner decision; see
+ * `.internal/LOGIN_UX_STRATEGY.md`). The `preAction` wall in
+ * `src/entrypoints/cli.ts` calls `runLogin()` to drive a blocked command
+ * through the device flow, then re-dispatches the original command. For
+ * non-interactive use (CI / agents), set `UNERR_TOKEN` or pass `--token`.
  */
 
-import { createInterface } from "node:readline";
 import type { Command } from "commander";
 import { CloudClient, assertSafeBaseUrl } from "../cloud/client.js";
 import {
   type Credentials,
   DEFAULT_API_URL,
+  deleteCredentials,
   isLoggedIn,
   readCredentials,
   writeCredentials,
 } from "../cloud/credentials.js";
 import { runDeviceFlow } from "../cloud/device-flow.js";
 import { refreshEntitlements } from "../cloud/entitlements.js";
+import { loginBlocked } from "../cloud/login-gate.js";
 
 function out(line: string): void {
   process.stderr.write(`${line}\n`);
@@ -89,14 +93,42 @@ export async function runLogin(opts: { token?: string } = {}): Promise<void> {
 
   if (isLoggedIn()) {
     const existing = readCredentials();
-    const where = existing?.organization_id
-      ? ` to ${existing.organization_id}`
-      : "";
-    out("");
-    out(`  This machine is already connected${where}.`);
-    out("  Run unerr logout first if you want to switch teams.");
-    out("");
-    return;
+
+    // A connected machine whose gate is NOT blocked is genuinely active —
+    // nothing to do but confirm. (Switching teams still needs an explicit
+    // `unerr logout` first.)
+    if (!loginBlocked()) {
+      const where = existing?.organization_id
+        ? ` to ${existing.organization_id}`
+        : "";
+      out("");
+      out(`  This machine is already connected${where}.`);
+      out("  Run unerr logout first if you want to switch teams.");
+      out("");
+      return;
+    }
+
+    // Connected but BLOCKED (entitlement expired / revoked while the credential
+    // is still on disk). The wall drives runLogin() exactly here, so refusing
+    // with "already connected" would dead-end install/start. Self-heal: renew
+    // the entitlement with the stored token first.
+    if (existing?.token) {
+      out("  Renewing your unerr session...");
+      const landed = await refreshAndDescribePlan(
+        existing.api_url || apiUrl,
+        existing.token
+      );
+      if (!loginBlocked()) {
+        out("");
+        out(`  Reconnected. ${landed}`);
+        out("");
+        return;
+      }
+      // Refresh didn't clear the block — the stored sign-in is dead (revoked /
+      // rejected). Drop it and re-authenticate from scratch below.
+      out("  Your saved sign-in is no longer valid — reconnecting...");
+      deleteCredentials();
+    }
   }
 
   if (opts.token) {
@@ -118,47 +150,6 @@ export function registerLoginCommand(program: Command): void {
     .action(async (opts: { token?: string }) => {
       await runLogin(opts);
     });
-}
-
-/** One-key [Y/n] confirm on stderr; empty/yes → true, 30s timeout → false. */
-export function askConnect(): Promise<boolean> {
-  return new Promise((resolve) => {
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stderr,
-    });
-    const timer = setTimeout(() => {
-      rl.close();
-      resolve(false);
-    }, 30_000);
-    rl.question("  Connect to your unerr team now? [Y/n] ", (answer) => {
-      clearTimeout(timer);
-      rl.close();
-      const a = answer.trim().toLowerCase();
-      resolve(a === "" || a === "y" || a === "yes");
-    });
-  });
-}
-
-/**
- * Offer the one-key connect prompt from any non-serving entry point — bare
- * `unerr` first-run, `unerr pm status`, and `unerr install`. A no-op when this
- * machine is already connected or when there is no interactive terminal (the
- * MCP-serving path, a pipe, or CI), so it never re-nags a connected user and
- * never blocks a non-interactive run. Login is on by default; this is the one
- * shared prompt so a user never has to discover `unerr login` on their own.
- */
-export async function offerLoginIfNeeded(): Promise<void> {
-  if (isLoggedIn()) return;
-  const hasTty = Boolean(process.stdin.isTTY && process.stderr.isTTY);
-  if (!hasTty) return;
-  if (await askConnect()) {
-    await runLogin();
-  } else {
-    process.stderr.write(
-      "\n  \x1b[38;2;161;161;170mYou're on the free plan. Run `unerr login` any time to connect your team.\x1b[0m\n\n"
-    );
-  }
 }
 
 /** `--token` path: validate against entitlements, then save. */

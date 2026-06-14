@@ -227,18 +227,18 @@ server-side (kept for audit, excluded from queries).
 
 # CLAUDE.md
 
-## Response Style (Always Apply)
+## Writing rule — applies to EVERY response and EVERY doc (IMPORTANT)
 
-Write every response to the user in plain, simple English that a non-expert can follow on the first read.
+**Less text, more information.** This is a core project rule, not a style preference. It binds every chat reply and every document written or edited in this repo.
 
-1. **Plain words over jargon.** Say what you mean directly. If a technical term is unavoidable, explain it in a few words the first time you use it. Don't assume the reader knows internal names, acronyms, or library specifics.
-2. **No sales or marketing language.** Skip words like "seamless", "powerful", "robust", "leverage", "unlock", "supercharge", "best-in-class". Just describe what something does and what you did.
-3. **No business fluff.** No "value-add", "synergy", "stakeholder", "going forward", "at the end of the day". State the facts and the next step.
-4. **Short sentences, clear structure.** Lead with the answer. Use short paragraphs or bullet points. Break long explanations into small steps the reader can follow one at a time.
-5. **Be concrete.** Name the actual file, command, or result instead of vague phrases like "the relevant part" or "things". Show, don't hype.
-6. **Say it straight.** If something failed, didn't work, or you're unsure, say so plainly. Don't dress up bad news or overstate what's done.
+1. **Plain language.** Write so anyone can follow it on the first read. Define a term the first time it's needed; otherwise avoid jargon, internal names, and acronyms.
+2. **No sales or marketing words.** Drop hype and business filler: "moat", "wedge", "durable revenue", "table-stakes", "best-in-class", "supercharge", "unlock", "leverage", "seamless", "powerful", "robust", "value-add", "synergy", "stakeholder", "going forward". State what something does and what you did.
+3. **Structure over prose.** Prefer tables, short lists, and short sentences to paragraphs. Lead with the answer, then the detail.
+4. **Only what the reader needs.** Cut padding. Do not pad to sound thorough or complete.
+5. **Be concrete.** Name the actual file, command, number, or result — not "the relevant part" or "things".
+6. **Say it straight.** If something failed, was skipped, or you're unsure, say so plainly. Don't dress up bad news or overstate what's done.
 
-This applies to all user-facing text — explanations, summaries, plans, and status updates. It does not change code, comments, or commit messages, which follow the conventions elsewhere in this file.
+Scope: all user-facing text (replies, summaries, plans, status updates) and all docs in this repo. It does not change code, comments, or commit messages, which follow the conventions elsewhere in this file.
 
 ## Critical Rules (Always Apply)
 

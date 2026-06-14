@@ -11,6 +11,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
+import { loginBlocked } from "../cloud/login-gate.js";
+import {
+  LOGIN_NUDGE_LINE,
+  shouldEmitLoginNudge,
+} from "../hooks/login-nudge.js";
 import {
   type EntityRiskInfo,
   compressOutput,
@@ -68,6 +73,20 @@ export function registerCompressOutputCommand(program: Command): void {
 
       if (input.length === 0) {
         process.exit(0);
+        return;
+      }
+
+      // Login-blocked passthrough: signed out → no graph-aware compression.
+      // Echo the input unchanged plus at most one throttled login nudge.
+      if (loginBlocked()) {
+        process.stdout.write(input);
+        try {
+          if (shouldEmitLoginNudge(process.cwd())) {
+            process.stderr.write(`${LOGIN_NUDGE_LINE}\n`);
+          }
+        } catch {
+          // Nudge is best-effort — never break the passthrough.
+        }
         return;
       }
 

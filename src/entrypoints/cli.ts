@@ -12,6 +12,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Command } from "commander";
+import {
+  isInternalEntryShape,
+  loginBlocked,
+  loginGateNotice,
+} from "../cloud/login-gate.js";
 import { registerCheckCommitCommand } from "../commands/check-commit.js";
 import { registerCompressOutputCommand } from "../commands/compress-output.js";
 import { registerConventionsCommand } from "../commands/conventions.js";
@@ -50,15 +55,52 @@ import { UNERR_VERSION } from "../version.js";
 // ── Helpers ─────────────────────────────────────────────────
 
 /**
+ * Dev-only: apply `<repo>/.unerr/dev.json` (local API URL + forced tier) exactly
+ * once per process, before any login / cloud / proxy code reads an API URL or an
+ * entitlement. This is the SINGLE place dev config enters the binary: the
+ * `preAction` wall calls it ahead of every command (login, pm, the proxy,
+ * `--mcp`, `--daemon-child`), so dev.json routes ALL cloud access through the
+ * local server — no command can reach `https://app.unerr.dev` while a dev.json
+ * is present.
+ *
+ * `__UNERR_DEV_BUILD__` is the compile-time switch. The npm publish build sets
+ * `UNERR_PROD_BUILD=1`, so esbuild's `minifySyntax` pass physically removes the
+ * `if (false) { … }` branch and the `dev-mode.js` import never enters the
+ * shipped bundle. One call site means one branch to strip.
+ */
+let devConfigApplied = false;
+async function applyDevConfigOnce(repoPath: string): Promise<void> {
+  if (__UNERR_DEV_BUILD__ && !devConfigApplied) {
+    devConfigApplied = true;
+    const { applyDevConfig } = await import("../cloud/dev-mode.js");
+    await applyDevConfig(repoPath);
+  }
+}
+
+/**
+ * Re-mint the dev entitlement after a login refresh overwrote it.
+ *
+ * The login device flow refreshes the entitlement cache from the dev server,
+ * which "isn't signing plans yet" — so the fabricated dev tier preAction wrote
+ * gets replaced by an unsigned/free entitlement, and the post-login gate
+ * re-check would wrongly report "Login did not complete." Re-applying dev.json
+ * restores the signed dev tier. The real credential the login wrote stays
+ * untouched, and `loginBlocked()` still requires that credential to be present,
+ * so a genuinely failed login is never masked — only the tier is restored.
+ * Bypasses the once-latch (the clobber happens after the first apply) and is
+ * compile-stripped in prod.
+ */
+async function reapplyDevConfig(repoPath: string): Promise<void> {
+  if (__UNERR_DEV_BUILD__) {
+    const { applyDevConfig } = await import("../cloud/dev-mode.js");
+    await applyDevConfig(repoPath);
+  }
+}
+
+/**
  * Start the unified proxy.
  */
 async function startProxy(repoId?: string): Promise<void> {
-  // Dev-only: apply `.unerr/dev.json` (local API URL / tier) before cloud boot.
-  // Compile-time stripped from the published build (UNERR_PROD_BUILD=1).
-  if (__UNERR_DEV_BUILD__) {
-    const { applyDevConfig } = await import("../cloud/dev-mode.js");
-    await applyDevConfig(process.cwd());
-  }
   const { startProxy: boot } = await import("../proxy/proxy.js");
   const httpPort = Number.parseInt(process.env.UNERR_HTTP_PORT ?? "0", 10);
   await boot({ repoId, httpPort: httpPort || undefined });
@@ -866,10 +908,9 @@ async function firstRunBoot(): Promise<void> {
 
   if (result.action === "setup") {
     await autoVerifyIdeConfigs();
-    // First run is the highest-intent moment to connect — offer the one-key
-    // prompt before serving (no-op if already connected or non-interactive).
-    const { offerLoginIfNeeded } = await import("../commands/login.js");
-    await offerLoginIfNeeded();
+    // Login is mandatory (2026-06-14): the bare `unerr` invocation is the
+    // default command action, so the `preAction` wall has already enforced a
+    // usable login before this boot path runs. No separate prompt here.
     await guardActiveRepoSlot(process.cwd());
     await startProxy(result.repoId);
     return;
@@ -899,12 +940,8 @@ async function daemonChildBoot(cwd: string): Promise<void> {
 
   initFileLog(cwd);
 
-  // Dev-only: apply `.unerr/dev.json` (local API URL / tier) before cloud boot.
-  // Compile-time stripped from the published build (UNERR_PROD_BUILD=1).
-  if (__UNERR_DEV_BUILD__) {
-    const { applyDevConfig } = await import("../cloud/dev-mode.js");
-    await applyDevConfig(cwd);
-  }
+  // Dev config (`.unerr/dev.json`) is applied centrally in the `preAction` wall
+  // before this boot path runs — see applyDevConfigOnce.
 
   const config = readLocalConfig(cwd);
   if (!config) {
@@ -1647,6 +1684,122 @@ const hiddenCommands = [
 for (const register of hiddenCommands) {
   register(program);
 }
+
+// ── Login wall — only commands that add / modify / start ────
+//
+// A login wall fires ONLY for user-typed commands that ADD, MODIFY, or START
+// something. This follows the established CLI split (npm / docker / wrangler /
+// supabase): local + read + teardown work logged out; publishing / deploying /
+// mutating shared state needs auth. Authentication friction is most costly at
+// goal-oriented moments, and a tool must never trap a user — teardown (`stop`,
+// `remove`, `uninstall`) and viewing (`status`, `pm status`, `router …`) must
+// always work, even logged out.
+//
+// Three buckets, decided in the single `preAction` choke point below:
+//  - WALL  (interactive login): bare `unerr` (register repo + serve), `install`,
+//    `pm start`, `conventions` (reads/writes the team's shared cloud document).
+//  - EXEMPT (no login, silent): `status`, `doctor`, `uninstall`, `pm stop`,
+//    `pm remove`, `pm status`, `pm logs`, `router …`, `login`/`logout`/`whoami`.
+//  - NUDGE  (agent/hook surfaces): pass through unchanged + emit ONE throttled
+//    `run \`unerr login\`` line from their own handlers — `recon`, `review`,
+//    `index`, `learn`, `exec`, `compress-output`, `check-commit`, `hook`.
+//    They never wall, so the IDE / git hooks / agent are never broken.
+//
+// `--mcp`/`--daemon-child` bypass the wall entirely (the per-repo proxy enforces
+// those non-interactive paths separately). `UNERR_TOKEN` is the CI escape hatch.
+
+/**
+ * True for the commands that require an interactive login before they run: the
+ * user-typed commands that ADD, MODIFY, or START something. Everything else
+ * (view / teardown / recovery / agent surfaces) returns false and never walls.
+ *
+ * Verified empirically (Commander 12.1.0): the bare `unerr` default action has
+ * no `parent`; a subcommand like `pm start` reports `actionCmd.name() === "start"`
+ * and `actionCmd.parent.name() === "pm"`; `conventions push` reports
+ * `name === "push"` and `parent === "conventions"`.
+ */
+function requiresInteractiveLogin(actionCmd: Command): boolean {
+  // Bare `unerr` (no parent) = first-run (register repo) + serve, or resume serve.
+  if (!actionCmd.parent) return true;
+  const name = actionCmd.name();
+  const parent = actionCmd.parent.name();
+  // `install` writes IDE config + registers the repo.
+  if (name === "install") return true;
+  // `pm start` starts the process manager (NOT `pm stop`/`remove`/`status`/`logs`).
+  if (parent === "pm" && name === "start") return true;
+  // `conventions` (and its pull/push subs) read/write the team's shared cloud doc.
+  if (name === "conventions" || parent === "conventions") return true;
+  return false;
+}
+
+/**
+ * Drive the user from a blocked command to a usable login, then RETURN so
+ * Commander runs the original command's action — this is the true re-dispatch
+ * (no argv re-parse). In an interactive terminal it runs the device flow and
+ * returns on success; without a TTY it prints the notice + the `UNERR_TOKEN`
+ * escape hatch and exits non-zero (never opens a browser, never hangs).
+ */
+async function loginThenContinue(): Promise<void> {
+  const notice = loginGateNotice();
+
+  if (!process.stderr.isTTY) {
+    // CI / piped / agent-spawned: never open a browser, never hang. (If
+    // UNERR_TOKEN were set, loginBlocked() would be false and we'd not be here.)
+    process.stderr.write(`\n  ${notice}\n`);
+    process.stderr.write(
+      "  For non-interactive use (CI / agents), set UNERR_TOKEN to a machine token.\n\n"
+    );
+    process.exit(1);
+  }
+
+  // Interactive: announce, run the existing device flow, then return so
+  // Commander proceeds to the original command's action.
+  process.stderr.write(`\n  ${notice}\n\n`);
+  const { runLogin } = await import("../commands/login.js");
+  await runLogin();
+
+  // Dev-only: runLogin refreshed the entitlement from the dev server, replacing
+  // the fabricated dev tier with an unsigned/free one. Re-mint so the gate
+  // re-check below reflects dev.json again. No-op in prod; never masks a failed
+  // login because loginBlocked() still requires the credential runLogin writes.
+  await reapplyDevConfig(process.cwd());
+
+  if (loginBlocked()) {
+    // Device flow failed, timed out, or was declined — refuse the command.
+    process.stderr.write(
+      "\n  Login did not complete — run `unerr login`, then retry.\n\n"
+    );
+    process.exit(1);
+  }
+}
+
+program.hook("preAction", async (_thisCmd, actionCmd) => {
+  // Dev-only: apply `.unerr/dev.json` before ANY login / cloud / proxy code
+  // reads an API URL or entitlement. This hook fires ahead of every command
+  // (login, pm, the proxy default action, --mcp, --daemon-child), so it is the
+  // single choke point that routes all cloud access through the dev server. A
+  // dev.json with a `tier` mints a local entitlement here that fabricates the
+  // PLAN only — login is still required (loginBlocked() keys off real credential
+  // presence, not the entitlement), so dev exercises the real wall against the
+  // dev server. Compile-stripped in prod.
+  await applyDevConfigOnce(process.cwd());
+
+  // --mcp / --daemon-child: non-interactive entry shapes the proxy enforces
+  // separately; never run an interactive wall here.
+  if (isInternalEntryShape()) return;
+
+  // Wall ONLY the add / modify / start commands. View, teardown, and recovery
+  // run freely logged out; agent + hook surfaces (recon/review/index/learn/exec/
+  // compress-output/check-commit/hook) pass through and self-nudge in their own
+  // handlers (src/hooks/login-nudge.ts) — they must never break the IDE/agent.
+  // Non-wall commands don't even consult the gate.
+  if (!requiresInteractiveLogin(actionCmd)) return;
+
+  // A wall command, but already logged in (or a dev tier is active) → proceed.
+  if (!loginBlocked()) return;
+
+  await loginThenContinue();
+});
 
 // Hide all commands except the short core set from --help output
 const visibleCommands = new Set([

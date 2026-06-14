@@ -21,6 +21,7 @@ import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import type { Command } from "commander";
 import pc from "picocolors";
+import { nudgeIfLoggedOut } from "../hooks/login-nudge.js";
 import type { CozoDb } from "../intelligence/cozo-schema.js";
 import type { SnapshotEnvelope } from "../intelligence/local-graph.js";
 import { detectCorrections } from "../tracking/correction-detector.js";
@@ -43,6 +44,8 @@ export function registerLearnCommand(program: Command) {
         json?: boolean;
         minConf: string;
       }) => {
+        // Agent / maintenance surface: never wall. Nudge once on stderr if logged out.
+        nudgeIfLoggedOut();
         const days = Math.max(1, Number.parseInt(opts.days, 10) || 7);
         const minConf = Math.max(
           0,

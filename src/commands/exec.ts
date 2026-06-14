@@ -10,6 +10,11 @@
  */
 
 import type { Command } from "commander";
+import { loginBlocked } from "../cloud/login-gate.js";
+import {
+  LOGIN_NUDGE_LINE,
+  shouldEmitLoginNudge,
+} from "../hooks/login-nudge.js";
 import { formatDriftNudge, isDriftCommand } from "../proxy/drift-detector.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { compressShellOutput } from "../proxy/shell-compressor.js";
@@ -268,6 +273,14 @@ export async function runExecMain(argv: string[]): Promise<number> {
     return exitCode;
   }
 
+  // Login-blocked passthrough: signed out → skip ONLY the graph-aware
+  // compression below. The command still runs and the empty-output / signal
+  // attribution safety nets still fire (those are correctness, not
+  // compression — a failed command must never return nothing). A throttled
+  // login nudge is appended at the end. Never deny, never open a browser,
+  // never exit non-zero for being logged out.
+  const blocked = loginBlocked();
+
   // Tee file bypass: when the agent reads a .unerr/tee/ file to recover raw output,
   // skip compression — re-compressing defeats the purpose of the tee backup.
   const TEE_RAW_LINE_LIMIT = 150;
@@ -291,28 +304,36 @@ export async function runExecMain(argv: string[]): Promise<number> {
   }
 
   let printedBody = "";
-  try {
-    const out = await compressShellOutput(cmd, combined, {
-      cwd: process.cwd(),
-      exitCode: exitCode || undefined,
-    });
-    printedBody = out.text;
-    process.stdout.write(out.text);
-    if (!out.text.endsWith("\n")) process.stdout.write("\n");
-  } catch (err) {
-    // Compression failed — log the error and fall back to raw output
-    const msg = err instanceof Error ? err.message : String(err);
-    startupLog.fileOnly(
-      "warn",
-      `shell compression failed, falling back to raw output: ${msg}`
-    );
-    process.stderr.write(
-      `[unerr:exec] compression failed, showing raw output: ${msg}\n`
-    );
+  if (blocked) {
+    // Signed out → print raw, skip graph-aware compression.
     printedBody = combined;
     process.stdout.write(combined);
     if (combined.length > 0 && !combined.endsWith("\n"))
       process.stdout.write("\n");
+  } else {
+    try {
+      const out = await compressShellOutput(cmd, combined, {
+        cwd: process.cwd(),
+        exitCode: exitCode || undefined,
+      });
+      printedBody = out.text;
+      process.stdout.write(out.text);
+      if (!out.text.endsWith("\n")) process.stdout.write("\n");
+    } catch (err) {
+      // Compression failed — log the error and fall back to raw output
+      const msg = err instanceof Error ? err.message : String(err);
+      startupLog.fileOnly(
+        "warn",
+        `shell compression failed, falling back to raw output: ${msg}`
+      );
+      process.stderr.write(
+        `[unerr:exec] compression failed, showing raw output: ${msg}\n`
+      );
+      printedBody = combined;
+      process.stdout.write(combined);
+      if (combined.length > 0 && !combined.endsWith("\n"))
+        process.stdout.write("\n");
+    }
   }
 
   const bodyEmpty = printedBody.trim().length === 0;
@@ -370,6 +391,18 @@ export async function runExecMain(argv: string[]): Promise<number> {
   // live capture is redundant. Failure/signal paths keep it — recovery source.
   if (exitCode === 0 && run.signal === null) {
     discardLiveTee(run.liveTeePath);
+  }
+
+  // Signed out: one throttled nudge so the agent learns login is needed,
+  // appended after the command's own output. Best-effort — never throws.
+  if (blocked) {
+    try {
+      if (shouldEmitLoginNudge(process.cwd())) {
+        process.stdout.write(`\n${LOGIN_NUDGE_LINE}\n`);
+      }
+    } catch {
+      // Nudge is best-effort — never break the command's output.
+    }
   }
 
   return exitCode;

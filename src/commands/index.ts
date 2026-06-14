@@ -8,6 +8,7 @@
 
 import { createHash } from "node:crypto";
 import type { Command } from "commander";
+import { nudgeIfLoggedOut } from "../hooks/login-nudge.js";
 import { getRemoteUrl, isGitRepo } from "../utils/git.js";
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -36,6 +37,8 @@ export function registerIndexCommand(program: Command): void {
     .option("--json", "Output results as JSON (to stdout)")
     .action(
       async (opts: { force?: boolean; verbose?: boolean; json?: boolean }) => {
+        // Maintenance/agent surface: never wall. Nudge once on stderr if logged out.
+        nudgeIfLoggedOut();
         if (!(await isInsideGitRepo())) {
           process.stderr.write("[unerr] Error: not inside a git repository.\n");
           process.exit(1);

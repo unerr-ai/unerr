@@ -21,7 +21,6 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
-import { isLoggedIn, readCredentials } from "../cloud/credentials.js";
 import { RepoCapError, checkRegisterRepo } from "../cloud/repo-cap.js";
 import { currentRepoLimit } from "../cloud/tier-query.js";
 import {
@@ -49,7 +48,6 @@ import {
   removeInstalledSkills,
   resolveAndInstallSkills,
 } from "../skills/resolver.js";
-import { askConnect, runLogin } from "./login.js";
 
 export interface InstallResult {
   agent: string;
@@ -281,93 +279,11 @@ export function registerInstallCommand(program: Command): void {
           /* disclosure is additive — never block install on it */
         }
 
-        // A5: chain into login — the highest-intent moment. Install ALWAYS
-        // succeeds into free; login is the optional, additive last step.
-        await chainInstallLogin({ token: opts?.token });
+        // Login is mandatory (2026-06-14): `install` is a gated command, so the
+        // `preAction` wall in cli.ts has already enforced a usable login before
+        // this action runs. No separate install-time login offer.
       }
     );
-}
-
-/**
- * The four install-time login verdicts. Pure data so the branch logic is
- * decided in one testable place and executed elsewhere:
- *  - `token`   → connect non-interactively with the supplied machine token.
- *  - `already` → this machine is already connected; do nothing.
- *  - `later`   → stay free, print how to connect later (non-interactive / no TTY).
- *  - `prompt`  → ask once, interactively, then maybe run the device flow.
- */
-export type InstallLoginPlan =
-  | { action: "token"; token: string }
-  | { action: "already" }
-  | { action: "later" }
-  | { action: "prompt" };
-
-/**
- * Decide the install-time login verdict from the CLI options and the ambient
- * connection/TTY state. Pure — no I/O, no side effects — so every escape path
- * (token, already-connected, no-TTY, interactive) is unit-testable without a
- * real terminal or network. Precedence: an explicit `--token` wins, then an
- * existing connection, then a non-TTY install (CI / piped) stays free, else
- * prompt. Login is on by default — there is no opt-out flag; a TTY install
- * always offers the one-key prompt.
- */
-export function planInstallLogin(
-  opts: { token?: string },
-  ctx: { loggedIn: boolean; hasTty: boolean }
-): InstallLoginPlan {
-  if (opts.token) return { action: "token", token: opts.token };
-  if (ctx.loggedIn) return { action: "already" };
-  if (!ctx.hasTty) return { action: "later" };
-  return { action: "prompt" };
-}
-
-/**
- * A5: install-time login chaining — the highest-intent moment to connect.
- * Prompt-by-default with a one-key skip (owner decision). Install has ALREADY
- * succeeded into free; this only adds the cloud connection, and EVERY exit
- * path leaves a working free install (closes F1: no silent "you must log in").
- * The free→Pro pull otherwise lives on contextual feature-gate nudges, never a
- * nag. Branch selection is delegated to the pure planInstallLogin; this
- * function only runs the chosen verdict.
- */
-async function chainInstallLogin(opts: { token?: string }): Promise<void> {
-  const out = (line: string) => process.stderr.write(`${line}\n`);
-  const plan = planInstallLogin(opts, {
-    loggedIn: isLoggedIn(),
-    hasTty: Boolean(process.stdin.isTTY && process.stderr.isTTY),
-  });
-
-  const laterLine = () => {
-    out(
-      "  \x1b[38;2;161;161;170mYou're on the free plan. Run `unerr login` any time to connect your team.\x1b[0m"
-    );
-    out("");
-  };
-
-  switch (plan.action) {
-    case "token":
-      await runLogin({ token: plan.token });
-      return;
-    case "already": {
-      const creds = readCredentials();
-      const where = creds?.organization_id
-        ? ` to ${creds.organization_id}`
-        : "";
-      out(`  \x1b[38;2;52;211;153m✓\x1b[0m Already connected${where}.`);
-      out("");
-      return;
-    }
-    case "later":
-      laterLine();
-      return;
-    case "prompt":
-      if (await askConnect()) {
-        await runLogin();
-      } else {
-        laterLine();
-      }
-      return;
-  }
 }
 
 /**
