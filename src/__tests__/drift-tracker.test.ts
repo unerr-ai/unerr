@@ -2,7 +2,14 @@
  * P10-TEST-03: Drift tracker tests — drift computation, overlay management.
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -43,6 +50,20 @@ afterEach(() => {
     /* ignore */
   }
 });
+
+/**
+ * Force a file's mtime strictly forward so MtimeCache.check() always sees a
+ * change. Two writeFileSync calls in quick succession can land in the same
+ * filesystem mtime tick (coarse granularity on CI microVM filesystems, e.g.
+ * Blacksmith/Firecracker), which makes MtimeCache correctly report "no change"
+ * and breaks tests that depend on the second write being seen. Stamping a
+ * +2s mtime removes that timing dependence without touching product code.
+ */
+function bumpMtime(filePath: string): void {
+  const current = statSync(filePath).mtimeMs;
+  const later = new Date(current + 2000);
+  utimesSync(filePath, later, later);
+}
 
 /** Create a mock CozoGraphStore with in-memory drift overlay */
 function createMockGraph(baseEntities: LocalEntity[] = []): CozoGraphStore & {
@@ -502,8 +523,12 @@ describe("DriftTracker", () => {
     // First call — processes
     await tracker.processFile("src/changing.ts", "abc123");
 
-    // Modify file — mtime changes
+    // Modify file — mtime changes. Force a strictly-later mtime instead of
+    // relying on filesystem timestamp granularity: on coarse-granularity
+    // filesystems (e.g. the Blacksmith Firecracker microVM) two rapid writes
+    // can share one mtime tick, which would make MtimeCache see no change.
     writeFileSync(filePath, "export function changing() { return 2 }");
+    bumpMtime(filePath);
 
     // Second call — mtime changed, should process
     const r2 = await tracker.processFile("src/changing.ts", "abc123");
@@ -558,8 +583,10 @@ describe("MtimeCache", () => {
     writeFileSync(filePath, "content v1");
     cache.check(filePath); // populate
 
-    // Modify — mtime changes
+    // Modify — mtime changes. Force a strictly-later mtime so the assertion
+    // does not depend on filesystem timestamp granularity (see bumpMtime).
     writeFileSync(filePath, "content v2");
+    bumpMtime(filePath);
     expect(cache.check(filePath)).toBe(true);
   });
 

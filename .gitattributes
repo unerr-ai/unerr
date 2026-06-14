@@ -1,12 +1,12 @@
 # Line-ending policy — keep every text file LF in the repo AND in the working
 # tree on every OS.
 #
-# Why this exists: GitHub's Windows runners check code out with Git's
-# core.autocrlf default, which rewrites LF -> CRLF in the working tree. Biome's
-# formatter expects LF (biome.json formatter.lineEnding defaults to lf), so on
-# the windows-latest CI leg every file is flagged with a stray carriage return
-# and `pnpm run lint` fails on 1000+ files. `eol=lf` overrides core.autocrlf, so
-# the checkout is LF on Windows too and Biome sees what macOS/Linux see.
+# Why this exists: on Windows, Git's core.autocrlf default rewrites LF -> CRLF
+# in the working tree on checkout. Biome's formatter expects LF (biome.json
+# formatter.lineEnding defaults to lf), so a CRLF checkout flags every file with
+# a stray carriage return and `pnpm run lint` fails on 1000+ files. `eol=lf`
+# overrides core.autocrlf, so any Windows checkout (a local contributor, even
+# though Windows is not in the CI matrix) sees the same LF as macOS/Linux.
 #
 # After changing this file, run `git add --renormalize .` once to apply it to
 # already-tracked files.

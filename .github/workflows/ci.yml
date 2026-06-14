@@ -13,20 +13,21 @@ jobs:
     strategy:
       # Don't let one OS/Node failure cancel the other legs — we want to see
       # every platform's result in a single run (recommended for cross-platform
-      # matrices, and useful while Windows is being brought online).
+      # matrices).
       fail-fast: false
       matrix:
-        # Blacksmith runner images (faster GitHub Actions runners). Linux +
-        # Windows boot as Firecracker microVMs; macOS is Apple Silicon. These
-        # require the Blacksmith GitHub App to be installed on this repo. Sizes
-        # mirror GitHub-hosted (4 vCPU Linux/Windows; macOS minimum is 6 vCPU).
-        # Windows on Blacksmith is Public Beta (host = Windows Server 2025).
+        # Blacksmith runner images (faster GitHub Actions runners). Linux boots
+        # as a Firecracker microVM; macOS is Apple Silicon. These require the
+        # Blacksmith GitHub App to be installed on this repo. Sizes mirror
+        # GitHub-hosted (4 vCPU Linux; macOS minimum is 6 vCPU). Windows is not
+        # in the matrix — the product has POSIX assumptions (open-file delete,
+        # path separators, /bin/sh, UDS sockets) that aren't worth fixing until
+        # Windows is a supported install target.
         os:
           - blacksmith-4vcpu-ubuntu-2404
           - blacksmith-6vcpu-macos-latest
-          - blacksmith-4vcpu-windows-2025
         # 20 = supported floor (engines.node >=20.9), 22 = recommended line
-        # (>=22.5), 24 = current. All three Node lines on all three OSes must
+        # (>=22.5), 24 = current. All three Node lines on both OSes must
         # stay green.
         node-version: [20, 22, 24]
 
@@ -57,14 +58,22 @@ jobs:
         run: pnpm run typecheck
 
       - name: Test
-        # Run under bash on every OS. The Blacksmith Windows runner (based on
-        # GitHub's Windows Server 2025 image) provides Git Bash, which supplies
-        # `/dev/null` — so the stdin redirect that stops
-        # vitest hanging in raw mode works the same everywhere. `pnpm exec`
-        # invokes the local vitest binary directly, bypassing pnpm's package.json
-        # script wrapper (which on Windows would run the `< /dev/null` string
-        # through cmd.exe, where /dev/null does not exist).
+        # Redirect stdin from /dev/null so vitest doesn't engage raw mode and
+        # hang (see CLAUDE.md "test:run redirects stdin from /dev/null").
+        # `pnpm exec` invokes the local vitest binary directly so this matches
+        # the `test:run` script's behaviour without re-wrapping the redirect.
         shell: bash
+        # Clear BASH_ENV / ENV. Blacksmith's Linux runner points both at
+        # /run/blacksmith/job.env (a bash-syntax file with `declare` lines) so
+        # cross-step env survives. But our exec-runner tests spawn `/bin/sh`,
+        # which on Ubuntu is dash — dash sources ENV, chokes on `declare`, and
+        # prints `/run/blacksmith/job.env: declare: not found` into every
+        # captured child's output, breaking the exec/shell-capture assertions.
+        # Unsetting them for this step only keeps the spawned shells clean
+        # without affecting Blacksmith's own step-to-step env propagation.
+        env:
+          BASH_ENV: ""
+          ENV: ""
         run: pnpm exec vitest run < /dev/null
 
       - name: Build
