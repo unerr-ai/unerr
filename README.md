@@ -3,17 +3,25 @@
 </h1>
 
 <p align="center">
-  <strong>To make a coding agent work well on real code, you end up bolting a bunch of separate things onto it —<br/>
-  one to find the right code, one to stop it forgetting, one to trim the clutter, your rules, a few checks to catch<br/>
-  mistakes. You set them all up, you keep them running, and it still ignores half of them — because each one is<br/>
-  only advice it can skip, and they all pull at its attention at once.</strong>
+  <strong>TypeScript for your coding agent.</strong>
 </p>
 
 <p align="center">
-  unerr puts all of that into one piece, built into the way the agent already works — so it's not one more thing the<br/>
-  agent can choose to ignore. As the agent goes, it finds the right code, keeps your rules in front of it, trims the<br/>
-  clutter, and catches a break before it lands — all together, with nothing for you to set up. The agent wastes less<br/>
-  time, money, and attention redoing work, and you waste less of yours setting tools up and cleaning up after it.
+  TypeScript made it safe to change a big JavaScript codebase — it catches the break before it ships.<br/>
+  unerr does that for your AI agent: before it edits, it shows what the change endangers, keeps your<br/>
+  conventions in front of it, and re-anchors the rule when the code moves. You stop babysitting it.
+</p>
+
+<p align="center">
+  <sub><strong>Mission control for your coding agents</strong> — a runtime in the agent's loop, on your machine, across every agent you run. It plugs into the agents you already use; it is <strong>not a new language and not a type system</strong>.</sub>
+</p>
+
+<p align="center">
+  <strong>SPEND</strong> · <strong>CONSISTENCY</strong> · <strong>VISIBILITY</strong> · <strong>INSIGHT</strong> — across every agent, in one place.
+</p>
+
+<p align="center">
+  <sub>Running more than one agent? unerr is the one view across all of them — what they spend, catch, and change. The same view across a whole team is <a href="#you-today-your-team-soon">arriving soon</a>.</sub>
 </p>
 
 <p align="center">
@@ -45,14 +53,14 @@
 <details>
 <summary><strong>Contents</strong></summary>
 
-- [Why I built this](#why-i-built-this)
-- [What's actually going wrong](#whats-actually-going-wrong)
-- [What changes when you use it](#what-changes-when-you-use-it)
-- [See it in action](#see-it-in-action)
+- [What it actually is](#what-it-actually-is)
+- [Why one runtime instead of five plugins](#why-one-runtime-instead-of-five-plugins)
+- [The four things it gives you](#the-four-things-it-gives-you)
 - [Quick Start](#quick-start)
-- [Connect your team (optional)](#connect-your-team-optional)
+- [See it in action](#see-it-in-action)
+- [You today, your team soon](#you-today-your-team-soon)
+- [Logging in (optional)](#logging-in-optional)
 - [Who it's for](#who-its-for)
-- [Why it's one thing and not five plugins](#why-its-one-thing-and-not-five-plugins)
 - [What it does under the hood](#what-it-does-under-the-hood)
 - [About the fewer tokens](#about-the-fewer-tokens)
 - [License](#license)
@@ -61,59 +69,123 @@
 
 ---
 
-## Why I built this
+## What it actually is
 
-I built unerr because I got tired of cleaning up after my own coding agent.
+**unerr is not a new language and not a type system.** TypeScript is the *role* it borrows, not the mechanism — the safety layer that made it safe to change a big codebase. unerr's safety comes from a live code graph, rules tied to the code, and checks that run in the agent's loop; it plugs into the agents you already use, the same way TypeScript added safety to JavaScript without replacing it. Here's the literal version in one breath.
 
-I was running coding agents on real work — not toy projects — and to stop them from messing things up I kept bolting on extra stuff. A memory file here, some rules there, something to keep the agent from forgetting what it was doing, a few guardrails. And two things drove me crazy.
+Every coding agent on your machine — Cursor, Claude Code, Copilot, Windsurf — speaks the same protocol, MCP. unerr sits in that one path, on your machine, and does four jobs *while the agent works* instead of waiting to be asked:
 
-One: setting all that up is its own job, and every one of those things is really just a *suggestion* to the agent. A rule it can acknowledge and then ignore once it gets busy. A memory it has to remember to check. A reviewer that only speaks up after the break is already written. They don't work together — they compete for the agent's attention, and half of them get dropped exactly when you need them.
+- finds the right code and hands the agent the 50 lines that matter, not 3,000;
+- keeps your rules pinned to the code they're about and brings them up at the edit;
+- trims long command output and file reads down to the slice the agent needs;
+- catches a change that would break callers it never read — before the edit lands.
 
-Two: while all that's going on, the agent is burning time and money redoing work and breaking things it shouldn't have touched — and I'm sitting there babysitting it, because the one time I look away is the time it quietly breaks something that matters.
+One install does all four, for every agent you run, on every repo. No rules file to hand-maintain, no five-plugin toolchain to keep current, nothing the agent has to remember to call. That's the whole product. Everything below is detail.
 
-unerr is the thing I wanted to exist: one piece that does all of that itself, right while the agent is working — so you don't have to assemble a toolchain, or write a flawless prompt every time, or sit through the back-and-forth just to trust what it ships. The agent wastes less of its own time and a lot less of your money, and you spend far less effort watching over it.
-
-It's free, open source, and runs entirely on your machine.
-
----
-
-## What's actually going wrong
-
-On any codebase big enough to matter, the agent can't hold the whole thing in its head. So it works from the slice it can see and never looks at the rest. It changes a function and breaks the other places that call it — places it never read. It writes a fourth copy of a pattern your team already settled on, even with the rule sitting right there in your `.cursorrules`. Neither of those shows up as an error. They show up later, as your afternoon.
-
-The usual fixes both leak:
-
-- **Things that *tell* the agent stuff** — memory stores, rule files, context tools — only help when the agent remembers to use them. Optional advice is optional, and a busy agent skips it.
-- **Things that *check* the agent afterward** — reviewers, linters, CI — only speak up after the code is already written. By then it's a pull-request comment and a second round of work, not a break that never happened.
-
-And every one of these is a separate thing you have to install, configure, and keep current. The more you add, the more they pull against each other for the agent's limited attention, and the more of your time goes into maintaining the setup instead of shipping.
-
-unerr closes that gap by doing the work at the moment it matters — when the agent reads and when it edits — instead of waiting to be asked or waiting to complain after the fact. The agent doesn't have to remember anything. The thing that would have stopped the break is already in front of it, before the change lands.
+It's free, open source, and runs entirely on your machine — **mission control for the agents you run**, here today. The same runtime extends to a shared view across your whole team, [arriving soon](#you-today-your-team-soon) — and your individual setup carries straight over.
 
 ---
 
-## What changes when you use it
+## Why one runtime instead of five plugins
 
-| What you feel | What's happening |
+To make an agent behave on real code, the usual answer is to bolt on separate tools — one to search code, one for memory, one to trim output, your rules, a reviewer. Two things go wrong, every time.
+
+**MCP only carries requests the agent *chooses* to make.** A memory plugin, a code-search plugin, a context trimmer — they all just sit there waiting to be called, and a busy agent low on room skips the one it has to remember to call. Optional advice is optional.
+
+**Every tool you add costs the agent attention before it does any work.** GitHub's own MCP server spends [~42,000 tokens just defining its tools](https://eclipsesource.com/blogs/2026/01/22/mcp-context-overload/) before the first request; a handful of servers together can eat the majority of the context window. The more you add, the worse each one performs.
+
+unerr doesn't sit and wait. It steps in at the moments that matter — when the agent reads a file, when it's about to make a change — and puts the one relevant thing in front of it on its own. You can't forget to call something that isn't waiting to be called.
+
+And the useful behaviors only exist when the pieces live together, because each needs information no single plugin has alone:
+
+| To do this… | …it needs, at the same instant |
 |---|---|
-| **You stop babysitting.** The agent runs for an hour and you're not bracing for a silent break. | Before it changes a function, unerr shows it every other place that depends on that function — on its own, without the agent asking. |
-| **Your rules finally stick.** The standard you set gets applied at the edit, not acknowledged and forgotten three turns later. | unerr ties each rule to the part of the code it's about and brings it up the moment the agent touches that part — and keeps it pinned there even after the code moves. |
-| **It stops going in circles.** No more watching it try the same broken fix three times. | unerr notices when the agent is re-trying something that already failed and stops it before it burns another turn. |
-| **It stays sharp deep into a long session.** | unerr hands the agent the small, relevant slice of a file or a command's output instead of dumping thousands of lines into the window, so the model isn't drowning in noise by turn 50. |
+| Catch a breaking change | what the agent is about to edit **and** everything that depends on it |
+| Know a saved rule has gone stale | that rule tied to real code, so it notices the moment the code moves |
+| Spot a convention slipping | the patterns your codebase already uses **and** the new code being written |
+| Stop a retry-loop | the full history of what the agent already tried this session |
 
-Here's what it actually looks like in your chat. Before the edit runs, unerr drops a line like this into the agent's context, on its own:
+You can't buy those as five separate tools and bolt them together. That's why unerr is one local runtime, not a fifth plugin in the list — and why one thing instead of five also means the agent isn't burning attention deciding which plugin to call.
 
-> ⚡ unerr · editing `src/payments/gateway.ts` changes a function that **24 other places depend on, across 6 files**. Update every one of them in this same change before finishing.
+> This isn't an MCP gateway that bundles your existing servers behind one address — those still hand the agent every tool up front. unerr replaces what those add-ons *do*, so there's nothing left to bundle.
 
-The result is an agent that behaves a lot more like a careful senior engineer: it checks what a change affects before making it, honors the standards you set, and doesn't keep retrying something that already failed.
+---
+
+## The four things it gives you
+
+The same runtime, seen four ways. Today this is mission control for the agents one developer runs — you feel all four in your own work, across your tools and your repos, instead of a dashboard per tool. The shared, team-wide version is arriving soon.
+
+### ⚡ SPEND — cut what the agents cost to run
+
+Because unerr only ever hands the agent the one relevant thing — the rule for the function in front of it, 50 lines instead of 3,000 — it spends far fewer tokens getting there. In head-to-head benchmarks against grep-and-read, unerr removes **86–90% of the tokens an agent spends reading and navigating code** — same questions, same tokenizer, with a fidelity gate that throws out any "saving" that lost the answer.
+
+That number is the read/navigate slice, not a promise about your whole bill. It's measured, not estimated, and you can [reproduce it on your own repo](./benchmarks/README.md).
+
+### 📐 CONSISTENCY — your conventions, applied at the edit
+
+A rules file is something an agent can acknowledge and then skip three turns later. unerr ties each rule to the part of the code it's about, brings it up the moment the agent touches that part, and keeps it pinned there even after the code moves. Conventions it detects on its own once a pattern holds across the codebase become rules without you writing them down. One standard, applied the same way across every agent you run and every session — Cursor today, Claude Code tomorrow, same rule.
+
+### 👁 VISIBILITY — one view across every agent and repo
+
+What your agents are spending, what they caught, what they changed — read from the same place the agents read from, not reconstructed from billing metadata after the fact. One local daemon sees across your IDEs and repos, so moving from Claude Code in the terminal to Cursor in the editor is one continuous thread, not a relearn each session. Local-first: your code never leaves the machine.
+
+### 🧭 INSIGHT — see what the AI actually did
+
+Usage dashboards tell you tokens went out. They don't tell you whether the spend produced anything. unerr surfaces the decisions the agent made, capability versus dependency, and whether you're still steering the work. Today it's a mirror for your own work — self-coaching, not scoring. (When shared team views land, they stay aggregate and team-level — never per-developer ranking.) The question is whether the AI is helping, not who to rank.
+
+---
+
+## Quick Start
+
+Three steps. Step 1 is once per machine; steps 2–3 are per repo.
+
+### 1. Install the CLI
+
+```bash
+npm install -g @unerr-ai/unerr
+```
+
+Puts the `unerr` binary on your PATH. If your shell can't find it afterward (this happens with nvm, fnm, volta, and pnpm), run `unerr doctor` once — it patches your shell config and won't need to run again.
+
+### 2. Set it up for your agent (per repo)
+
+```bash
+cd ~/your-project
+unerr install cursor
+```
+
+That writes the MCP config, skills, hooks, and instructions for that agent in the current repo. Swap `cursor` for any supported agent:
+
+```bash
+unerr install claude-code
+unerr install cursor
+unerr install antigravity
+unerr install windsurf
+unerr install gemini-cli
+unerr install github-copilot-cli
+```
+
+You can install more than one agent in the same repo — each writes its own config. Re-running updates the setup if anything changed and skips it if nothing did. Remove it with `unerr uninstall`.
+
+### 3. Restart your IDE
+
+Close and reopen your IDE, or start a new chat session. Your agent picks up unerr through MCP and everything is available from the next prompt.
+
+> **Dashboard:** <http://localhost:9847> — open it any time to watch unerr work.
+
+> Using a different MCP client, or setting it up by hand? `unerr install --show-instructions <agent>` prints copy-pasteable steps.
 
 ---
 
 ## See it in action
 
-The demo above is one moment, caught live. Day to day, there are two places you watch it working — in the chat, and in a browser.
+The demo at the top is one moment, caught live. Day to day, there are two places you watch it working — in the chat, and in a browser.
 
-**In the chat.** Every coding turn opens with one line naming what unerr brought in ("brought in a convention you wrote yesterday for `src/payments/gateway.ts`…") and closes with one line totalling what it caught and saved you. The catches are named, countable events — not a vague percentage.
+**In the chat.** Before an edit runs, unerr drops a line into the agent's context on its own:
+
+> ⚡ unerr · editing `src/payments/gateway.ts` changes a function that **24 other places depend on, across 6 files**. Update every one of them in this same change before finishing.
+
+Every turn opens with one line naming what unerr brought in and closes with one line totalling what it caught and saved — named, countable catches, not a vague percentage.
 
 **In a browser.** A live dashboard at `http://localhost:9847` reads from the same place the agent reads from — what it remembers, what it caught, and which of those things actually shaped the next answer.
 
@@ -137,110 +209,70 @@ The demo above is one moment, caught live. Day to day, there are two places you 
 
 ---
 
-## Quick Start
+## You today, your team soon
 
-Three steps. Step 1 is once per machine; steps 2–3 are per repo.
+Today unerr is mission control for the agents **you** run: the code map, the seven MCP tools, all the in-loop behaviors, memory, and the dashboard — free, local, no account needed, across your tools and your repos.
 
-### 1. Install the CLI
+The same runtime extends to your whole team — one shared view across every engineer's agents — and that's **arriving soon.** Your individual setup carries straight over; there's nothing to redo when it lands. For platform and engineering leads, that's Datadog-style visibility and control across every agent your team runs: what they cost, what they changed, and whether the team is building capability or dependency — in one place, and without code or prompts ever leaving your engineers' machines.
 
-```bash
-npm install -g @unerr-ai/unerr
-```
+| | You, today | Your team, soon |
+|---|---|---|
+| Code map, the 7 MCP tools, all in-loop behaviors | ✓ | ✓ |
+| Output trimming + savings receipts, hooks, skills, every agent | ✓ | ✓ |
+| Memory, conventions, dashboard for your own work | ✓ | ✓ |
+| One continuous thread across the agents and repos you run | ✓ | ✓ |
+| Conventions and memory **shared** across the team | | ✓ soon |
+| Edit-time behaviors **enforceable** org-wide (block / approve) | | ✓ soon |
+| One rolled-up view of what the whole team's agents spend and catch | | ✓ soon |
 
-Puts the `unerr` binary on your PATH. If your shell can't find it afterward (this happens with nvm, fnm, volta, and pnpm), run `unerr doctor` once — it patches your shell config and won't need to run again.
-
-### 2. Set it up for your agent (per repo)
-
-```bash
-cd ~/your-project
-unerr install cursor
-```
-
-That writes the MCP config, skills, hooks, and instructions for that agent in the current repo. Swap `cursor` for any of the supported agents:
-
-```bash
-unerr install claude-code
-unerr install cursor
-unerr install antigravity
-unerr install windsurf
-unerr install gemini-cli
-unerr install github-copilot-cli
-```
-
-You can install more than one agent in the same repo — each writes its own config. Re-running updates the setup if anything changed and skips it if nothing did. Remove it with `unerr uninstall`.
-
-### 3. Restart your IDE
-
-Close and reopen your IDE, or start a new chat session. Your agent picks up unerr through MCP and everything is available from the next prompt.
-
-> **Dashboard:** <http://localhost:9847> — open it any time to watch unerr work.
-
-> Using a different MCP client, or setting it up by hand? `unerr install --show-instructions <agent>` prints copy-pasteable steps.
+The individual product works with no account and no network, forever. Follow [unerr.dev](https://www.unerr.dev/) for the team rollout.
 
 ---
 
-## Connect your team (optional)
+## Logging in (optional)
 
-Everything above works with no account and no network — that never changes. `unerr login` is an optional add-on for teams on a paid plan: it connects this machine to your team, keeps the team's shared conventions in sync, and tells the CLI which plan you're on.
+Logging in is optional and the bare runtime — code map, memory, the guards — works fully without it. Today it connects this machine to your account and tells the CLI which plan you're on; it's also the identity your team's shared view is built on.
 
 ```bash
 unerr login      # connect this machine — opens your browser to approve
-unerr whoami     # show which team this machine is connected to
+unerr whoami     # show the account this machine is connected to
 unerr logout     # disconnect and delete the local credentials
 ```
 
-**What gets sent — and what never does.** The connection carries settings only: the plan you're on, and your team's shared conventions document (plain text someone on your team wrote and chose to share). Your source code, your prompts, and your diffs never leave your machine — the service has no endpoint that accepts them.
+**What gets sent — and what never does.** The connection carries settings only: the plan you're on, and any shared conventions document (plain text you chose to share). Your source code, your prompts, and your diffs never leave your machine — the service has no endpoint that accepts them.
 
 **Where credentials live.** The token for this machine goes into your OS keychain (Keychain Access on macOS, Secret Service on Linux, Credential Manager on Windows). If no keychain is available, it falls back to `~/.unerr/credentials.json` (readable only by you) and warns you once.
 
-**Revoking access.** `unerr logout` disconnects this machine. A team admin can also revoke any machine from the web app under **Settings → Machines** — the token stops working right away, even if the laptop is lost.
+**Revoking access.** `unerr logout` disconnects this machine. You can also revoke any machine from the web app under **Settings → Machines** — the token stops working right away, even if the laptop is lost.
 
-**Offline behavior.** The CLI caches your plan locally and keeps working without a connection. If it can't reach the service for about a week, it falls back to the free plan until it reconnects — but everything local (the code map, memory, the guards) needs no plan and never stops working.
+**Offline behavior.** The CLI caches your plan locally and keeps working without a connection. If it can't reach the service for about a week, it falls back to the free plan until it reconnects — but everything local needs no plan and never stops working.
 
 ---
 
 ## Who it's for
 
-- **Engineers working in large, existing codebases.** The things a senior engineer keeps in their head — what depends on what, which patterns are load-bearing, what broke here before — handed to the agent before every edit, so it stops breaking code it never read.
-- **Teams with conventions worth keeping.** The standard you agreed on once, applied every time the agent touches that part of the code — no rules file to hand-maintain, re-paste, or fight merge conflicts over, and no hoping the agent remembers to look.
-- **Solo builders and vibe coders shipping into a codebase that's already grown.** One continuous thread across your tools — move from Claude Code in the terminal to Cursor in the IDE and what unerr knows about your repo comes with you, instead of relearning it every session.
+- **Engineers in large, existing codebases.** What a senior engineer keeps in their head — what depends on what, which patterns are load-bearing, what broke here before — handed to the agent before every edit, so it stops breaking code it never read. Your review goes back to being about the *change*, not a hunt for the callers the agent never saw.
+- **Anyone running more than one agent.** One continuous thread across your tools — move from Claude Code in the terminal to Cursor in the editor and what unerr knows about your repo comes with you, instead of relearning it every session.
+- **Developers with conventions worth keeping.** The standard you settled on once, applied every time your agent touches that part of the code — no rules file to hand-maintain, re-paste, or fight merge conflicts over, and no hoping the agent remembers to look.
+- **Solo builders and vibe coders shipping into a codebase that's already grown.** The guardrails of a careful senior engineer, on a project you're moving through fast and can't hold in your head.
 
----
-
-## Why it's one thing and not five plugins
-
-This is the part that took me a while to get right, so it's worth saying plainly.
-
-Every coding agent on your machine speaks the same protocol, MCP. MCP carries requests the agent *chooses* to make — it doesn't hand the agent context on its own, and it doesn't fire anything by itself. So a memory plugin, a code-search plugin, and a context trimmer all just sit there waiting to be called. And an agent that's busy or low on room skips the thing it has to remember to call. That's the whole leak.
-
-unerr doesn't sit and wait. It steps in at the moments that matter — when the agent reads a file, when it's about to make a change — and puts the one relevant thing in front of it automatically. You can't forget to call something that isn't waiting to be called.
-
-The catch is that this only works if the pieces live together, because the useful ones each need information no single plugin has on its own:
-
-- Catching a breaking change needs to know both *what the agent is about to edit* and *what depends on it* — at the same instant.
-- Knowing a saved rule has gone stale needs that rule tied to the actual code, so it notices the moment the code moves.
-- Spotting a convention slipping needs both the patterns your codebase already uses and the new code being written, side by side.
-- Stopping a retry-loop needs the full history of what the agent already tried this session.
-
-You can't buy those as five separate tools and bolt them together — they only exist when everything lives in one place. That's why unerr is one local thing, not a fifth plugin in your agent's list. And one thing instead of five means the agent isn't spending its attention deciding which plugin to call — a real cost once that list gets long. Researchers have measured a routine set of these add-ons eating [more than 20% of an agent's context window before it does any actual work](https://eclipsesource.com/blogs/2026/01/22/mcp-context-overload/).
-
-(This isn't an MCP gateway that bundles your existing servers behind one address — those still hand the agent every tool up front. unerr replaces what those add-ons *do*, so there's nothing left to bundle.)
+Your team's shared view is arriving soon, and this same individual setup carries straight over to it.
 
 ---
 
 ## What it does under the hood
 
-One local process per repo. You don't have to think about any of this to use it — but if you want to know what's actually running, here it is.
+One local process per repo. You don't have to think about any of this to use it — but if you want to know what's running, here it is.
 
 | The piece | What's in it | What it gives the agent |
 |---|---|---|
 | **A live map of your code** | CozoDB · tree-sitter · SCIP-verified call data · 18+ languages · sub-5ms lookups | Before any file read, the agent gets the 50 lines that matter and the list of what depends on them — not 3,000 lines and a guess. |
 | **Memory tied to the code** | typed facts · conventions auto-detected once a pattern holds ≥70% of the time · confidence that decays over time | Every saved fact is pinned to a real file or function. When that code moves, the fact flags itself instead of quietly going wrong. |
-| **The right slice, delivered automatically** | shell-output trimming (645+ command types) · web pages fetched at 5–10× less bulk · function-targeted file reads | The relevant piece shows up at the moment the agent reads — it never has to remember which tool to reach for. |
-| **The behaviors that catch problems** | breaking-change guard · convention-slip guard · retry-loop breaker · session continuity · auto-doc · change narrative · architecture guard | Each one fires on a combination of the three above, *at the moment of the edit* — not as a tool the agent picked, not as a review after the fact. |
+| **The right slice, delivered automatically** | shell-output trimming (645+ command types) · web pages fetched at 5–10× less bulk · function-targeted file reads | The relevant piece shows up the moment the agent reads — it never has to remember which tool to reach for. |
+| **The behaviors that catch problems** | breaking-change guard · convention-slip guard · retry-loop breaker · session continuity · auto-doc · change narrative · architecture guard | Each fires on a combination of the three above, *at the moment of the edit* — not as a tool the agent picked, not as a review after the fact. |
 
 <details>
-<summary><strong>Architecture, CLI commands, MCP tools, manual config, dev setup</strong></summary>
+<summary><strong>Architecture, CLI commands, MCP tools, manual config, benchmarks</strong></summary>
 
 ### Architecture
 
@@ -281,8 +313,8 @@ unerr status            # Process health, entity count, graph age
 unerr stats             # Session statistics (tokens, tool calls, compression)
 unerr --mcp             # Stdio bridge — what your IDE invokes via .mcp.json
 
-unerr login             # Connect this machine to your team (optional, paid plans)
-unerr whoami            # Show the connected team and machine
+unerr login             # Connect this machine to your account (optional)
+unerr whoami            # Show the connected account and machine
 unerr logout            # Disconnect and delete the local credentials
 
 unerr pm status         # Process manager: PID, uptime, repos, memory, idle countdown
@@ -301,7 +333,7 @@ Grouped by what the agent gets, not by file:
 - **Reads (6)** — `search_code` (ranked entity search; `detail:true` resolves one entity — signature plus callers / callees / imports in the same call), `file_outline` (structure without body), `file_read` (context-aware, auto-injects conventions, facts, and drift), `get_references` (callers or callees — catches indirect refs grep misses), `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache — replaces built-in WebFetch), and `unerr_context` (one call that folds anchored notes + search + references + conventions for what you're about to edit).
 - **Memory & session (1)** — `unerr_track` (one op-union call for intent / decision / blocker / resolution / fact / recall — powers turn titles and the cross-session resume strip).
 
-Persistence costs zero tool calls: a UserPromptSubmit hook captures user-stated rules ("remember this", "always X") automatically, and agent notes + session markers ride a `unerr-save:` sentinel in the closing message that a Stop hook scrapes and persists. On Claude Code the rest of the always-on ceremony also runs for free: the prompt hook injects recalled notes, a PostToolUse hook injects detected conventions on the first file read, and the Stop hook prints the turn close-out — all at zero extra round-trip, so the agent never spends a call on them.
+Persistence costs zero tool calls: a UserPromptSubmit hook captures user-stated rules ("remember this", "always X") automatically, and agent notes + session markers ride a `unerr-save:` sentinel in the closing message that a Stop hook scrapes and persists. On Claude Code the rest of the always-on ceremony also runs for free: the prompt hook injects recalled notes, a PostToolUse hook injects detected conventions on the first file read, and the Stop hook prints the turn close-out — all at zero extra round-trip.
 
 Every response carries inline `ur|<tag>` signals for high-priority guidance — drift, breaking-change warnings, loop-breaker halts — so the agent acts on what it just learned without burning a turn.
 
@@ -332,13 +364,13 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, day-to-day commands, code co
 
 ## About the fewer tokens
 
-I didn't build unerr to save tokens — I built it to stop bad changes. But a tool that only ever hands the agent the one relevant thing — the rule for the function in front of it, 50 lines instead of 3,000 — ends up spending far fewer tokens almost by accident. So you get that too:
+Token savings is a receipt, not the reason — a dozen tools now claim some version of the same number, so it isn't where the product lives. But it's real, and you get it as a side effect of only ever handing the agent the one relevant thing:
 
 - **86–90%** of an agent's code-navigation tokens removed in head-to-head benchmarks against grep-and-read — real tokenizer, fidelity-gated, reproducible on any repo. [See the benchmarks →](./benchmarks/README.md)
 - Roughly **84%** of an agent's tokens are tool output, mostly file reads ([JetBrains, NeurIPS 2025](https://blog.jetbrains.com/research/2025/12/efficient-context-management/)). unerr steps in at the read, so the window doesn't fill up with noise.
-- **0** AI calls per query in the core — the lookups, facts, and warnings are all computed directly. No API keys, no per-turn inference cost, no telemetry.
+- **0** AI calls per query in the core — the lookups, facts, and warnings are computed directly. No API keys, no per-turn inference cost, no telemetry.
 
-But the token number was never the point. The point is that the agent lands on the right code, sees the thing that would have stopped the break, and you stop paying — in money *and* in afternoons — for work it would otherwise have had to undo.
+The point was never the number. The point is that the agent lands on the right code, sees the thing that would have stopped the break, and you stop paying — in money *and* in afternoons — for work it would otherwise have had to undo.
 
 ---
 
