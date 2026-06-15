@@ -120,11 +120,18 @@ describe("free-tier runtime single-active cap", () => {
     const { resetCICache } = await import("../daemon/detect-ci.js");
     resetCICache();
 
+    // Timestamps are RELATIVE to now: the warm-start idle cutoff
+    // (warmStartIdleDays = 14) skips any repo whose lastActivity is older than
+    // that window, so absolute dates would time-bomb the test once "now" drifts
+    // past the cutoff. repoB is the most recent (and within the window) → the
+    // single repo the limit-1 cap selects.
+    const DAY = 24 * 60 * 60 * 1000;
+    const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
     const repoB = join(testDir, "r-b");
     const repos = [
-      entry(join(testDir, "r-a"), "2026-01-02T00:00:00.000Z"),
-      entry(repoB, "2026-06-01T00:00:00.000Z"), // most recent → only this one
-      entry(join(testDir, "r-c"), "2026-03-01T00:00:00.000Z"),
+      entry(join(testDir, "r-a"), iso(5 * DAY)),
+      entry(repoB, iso(1 * DAY)), // most recent (within idle window) → only this one
+      entry(join(testDir, "r-c"), iso(3 * DAY)),
     ];
     for (const e of repos) mkdirSync(e.path, { recursive: true });
     writeFileSync(

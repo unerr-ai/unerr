@@ -295,6 +295,18 @@ function formatCascadeNudge(
     lines.push(
       `- ${w.changed_entity} (${w.change_type}): ${w.blast_radius.total_at_risk} caller(s) at risk across ${files.size} file(s) — ${direct} source, ${tests} test. ${w.suggestion} call get_references({key:'${w.changed_entity_key}', direction:'callers'}) and update every caller before finishing.`
     );
+    // CROSS_REPO_INTELLIGENCE Sprint 6.1: name the peer repos that import this
+    // entity so the cascade isn't shipped while callers in another repo go
+    // unupdated. Names the repos + counts; the agent updates them via the same
+    // get_references({scope:'workspace'}) cross-repo path.
+    if (w.cross_repo && w.cross_repo.peers.length > 0) {
+      const repos = w.cross_repo.peers
+        .map((p) => `${p.label} (${p.callers})`)
+        .join(", ");
+      lines.push(
+        `  · plus ${w.cross_repo.total_peer_callers} caller(s) in ${w.cross_repo.peers.length} peer repo(s): ${repos} — run get_references({key:'${w.changed_entity_key}', direction:'callers', scope:'workspace'}) and update those repos too.`
+      );
+    }
   }
   return lines.join("\n");
 }

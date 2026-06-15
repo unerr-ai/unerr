@@ -354,9 +354,48 @@ async function recordPendingVerdict(cwd: string): Promise<void> {
     }
   }
 
+  // ── C5: auto-draft a decision record at merge ────────────────────────
+  // After a successful commit, draft ONE short paragraph from the recent
+  // local decision markers (never a blank template) and persist it for
+  // confirmation. Best-effort + gated on `canSyncRecall()` so a free /
+  // logged-out repo does no work; code-bearing prose stays LOCAL (the draft
+  // body is written to `~/.unerr/state/recall.json`, never sent to the cloud
+  // by this path). Interactive y/n confirmation is documented-pending — the
+  // git post-commit hook is non-interactive, so the draft is captured for the
+  // surface to confirm later.
+  await autoDraftDecisionAtMerge(cwd);
+
   try {
     rmSync(statePath, { force: true });
   } catch {
     /* ignore */
+  }
+}
+
+/**
+ * Draft a decision record at merge (C5). Reads the recent local decision
+ * markers, builds ONE short paragraph via `autoDraftAtMerge` (never a blank
+ * template), and persists it to the recall store for confirmation. Paid-gated
+ * (`canSyncRecall()` → free/logged-out does nothing) and fully best-effort:
+ * every failure is swallowed so it can never affect the commit. The full draft
+ * body is LOCAL prose (it may quote code) and is never sent to the cloud here.
+ */
+async function autoDraftDecisionAtMerge(cwd: string): Promise<void> {
+  try {
+    const { canSyncRecall } = await import("../cloud/entitlements.js");
+    if (!canSyncRecall()) return;
+    const { readDecisionRecords, autoDraftAtMerge } = await import(
+      "../cloud/decision-record.js"
+    );
+    const records = await readDecisionRecords(cwd, { limit: 50 });
+    const draft = autoDraftAtMerge(records);
+    if (!draft) return;
+    const { saveDecisionDraft } = await import("../cloud/recall-store.js");
+    await saveDecisionDraft(draft);
+    logInfo("check-commit: drafted decision record at merge", {
+      id: draft.id,
+    });
+  } catch (err) {
+    logInfo("check-commit: decision auto-draft skipped", err);
   }
 }

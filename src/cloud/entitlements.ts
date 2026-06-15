@@ -357,3 +357,51 @@ export function effectiveTier(now: number = Date.now()): EffectiveTier {
 
   return { plan: "free", source: "free_fallback" };
 }
+
+/**
+ * May this machine push telemetry (events, traces, relational sync) right now?
+ * Telemetry flows on EVERY plan, free included — it is the default, and the
+ * path by which a new user first connects a machine and signs in (the growth
+ * mechanism, not a paid feature). The only suppression is an explicit
+ * `cloud_ingest: false` feature flag (the enterprise force-disable lever). The
+ * logged-out case is gated separately by the absence of credentials/auth
+ * (`resolveAuth()` in the drain loop), so this can return `true` for a
+ * logged-out machine and the missing token still stops the push. The CLI-side
+ * mirror of the server's `canPushTelemetry` (unerr-web-service
+ * `lib/cli/entitlements.ts`), which likewise no longer gates on plan. Recall
+ * (the paid differentiator) is gated separately by {@link canSyncRecall}.
+ *
+ * @sem domain=cloud role=entitlement
+ */
+export function canPushTelemetry(now: number = Date.now()): boolean {
+  const tier = effectiveTier(now);
+  // The verified claims carry the features map only while fresh or in grace;
+  // an absent/expired cache yields {} → cloud_ingest is treated as enabled.
+  const features =
+    tier.source === "fresh" || tier.source === "grace"
+      ? (readEntitlementCache()?.claims?.features ?? {})
+      : {};
+  return features.cloud_ingest !== false;
+}
+
+/**
+ * May this machine sync recall (the anti-forgetting round-trip: surface,
+ * dismiss, fetch, weekly recap) right now? Recall is the paid differentiator,
+ * so unlike {@link canPushTelemetry} this DOES gate on plan: any paid plan may,
+ * a free or logged-out machine may not, and `cloud_ingest: false` force-disables
+ * it. This is the B5 pre-check that keeps a free user from a request the server
+ * would answer `403`; the server's `requireRecall` stays the authoritative gate.
+ *
+ * @sem domain=cloud role=entitlement
+ */
+export function canSyncRecall(now: number = Date.now()): boolean {
+  const tier = effectiveTier(now);
+  if (tier.plan === "free") return false;
+  // The verified claims carry the features map only while fresh or in grace;
+  // outside that window `tier.plan` is already "free", handled above.
+  const features =
+    tier.source === "fresh" || tier.source === "grace"
+      ? (readEntitlementCache()?.claims?.features ?? {})
+      : {};
+  return features.cloud_ingest !== false;
+}

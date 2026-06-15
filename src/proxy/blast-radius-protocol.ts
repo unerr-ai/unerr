@@ -50,6 +50,21 @@ export interface BlastRadiusResult {
 }
 
 /**
+ * Structural guard for a {@link BlastRadiusResult} arriving over the wire —
+ * CROSS_REPO_INTELLIGENCE Sprint 6.2 routes a foreign-file gate to the owning
+ * peer, whose reply is untyped `unknown`. Validates the two array fields so a
+ * malformed/partial peer reply degrades to a home compute instead of being
+ * trusted blindly.
+ */
+export function isBlastRadiusResult(
+  value: unknown
+): value is BlastRadiusResult {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return Array.isArray(v.warnings) && Array.isArray(v.boundary_violations);
+}
+
+/**
  * Answer a blast-radius request against the warm in-process graph. "Blast radius
  * of an edit" spans two questions, answered in one round-trip: which callers are
  * at risk from a signature change ({@link computeEditImpact}) and which new
@@ -177,6 +192,9 @@ export function recordBlastRadiusTelemetry(
                 is_test: c.isTest,
               })),
               callers_truncated: Math.max(0, callers.length - kept.length),
+              // Sprint 6.1: cross-repo caller rollup when the federation
+              // augmentation found peer importers (Pro tier). Absent otherwise.
+              ...(w.cross_repo ? { cross_repo: w.cross_repo } : {}),
             };
           }),
         },

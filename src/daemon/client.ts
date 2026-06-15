@@ -18,7 +18,9 @@ import {
   type EnsureRefusedResponse,
   type EntitlementsOkResponse,
   type OkResponse,
+  type PeersOkResponse,
   type StatusOkResponse,
+  type WorkspaceRefusedResponse,
 } from "./protocol.js";
 import { globalDir } from "./registry.js";
 
@@ -253,6 +255,33 @@ export async function getDaemonTier(
     const resp = await sendRequest(sockPath, { cmd: "entitlements" }, 2_000);
     if (resp.ok && "plan" in resp) {
       return resp as EntitlementsOkResponse;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ask the daemon for the home repo's federatable peers (cross-repo
+ * intelligence). Returns the peer list on pro/enterprise, a `workspace_pro_only`
+ * refusal on free, or null when the daemon is unreachable (caller degrades to
+ * home-only). Never throws. Answered from local registry state — no network.
+ */
+export async function getPeers(
+  sockPath: string,
+  homeRepo: string
+): Promise<PeersOkResponse | WorkspaceRefusedResponse | null> {
+  try {
+    const resp = await sendRequest(sockPath, { cmd: "peers", homeRepo }, 2_000);
+    if (resp.ok && "peers" in resp) {
+      return resp as PeersOkResponse;
+    }
+    if (
+      !resp.ok &&
+      (resp as WorkspaceRefusedResponse).refused === "workspace_pro_only"
+    ) {
+      return resp as WorkspaceRefusedResponse;
     }
     return null;
   } catch {

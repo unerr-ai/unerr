@@ -46,6 +46,10 @@ import type { TokenFlowWriter } from "../tracking/token-flow.js";
 import { formatUnknownError } from "../utils/format-error.js";
 import type { BackgroundIndexer } from "./background-indexer.js";
 import { readEntityBodyLines } from "./entity-source.js";
+import {
+  type WorkspacePeerResult,
+  mergeWorkspaceResults,
+} from "./federation/merge.js";
 import type {
   CozoGraphStore,
   DriftEntity,
@@ -151,6 +155,22 @@ const LOCAL_TOOLS = new Set([
  * its own Tool.execute (it does not route through executeLocal).
  */
 const CACHE_REF_TOOLS = new Set(["search_code", "get_references", "file_read"]);
+
+/**
+ * Tools whose `scope:'workspace'` fans the SAME query out to sibling repos and
+ * merges results (CROSS_REPO_INTELLIGENCE Sprint 3). `search_code` only — its
+ * query string is meaningful in every repo. `get_references` can't fan out a
+ * raw key (keys are repo-local); it takes the Sprint 4 moniker path instead.
+ * `unerr_context` federates in its own proxy handler; `file_read` uses implicit
+ * path routing rather than a fan-out merge.
+ */
+const WORKSPACE_FANOUT_TOOLS = new Set(["search_code"]);
+
+/**
+ * Path-bearing tools eligible for implicit cross-repo routing: a path that
+ * resolves outside the home repo is served by the sibling repo that owns it.
+ */
+const PATH_ROUTED_TOOLS = new Set(["file_read", "file_outline"]);
 
 export interface EntityRiskMeta {
   fan_in: number;
@@ -544,6 +564,19 @@ export interface ToolResult {
     gate_status?: "locked";
     /** P0-3: Tools newly unlocked by the call that produced this result. */
     unlocked_tools?: readonly string[];
+    /**
+     * CROSS_REPO_INTELLIGENCE Sprint 3: workspace-scoped fan-out summary —
+     * how many peer repos contributed and whether any were skipped/timed-out
+     * (so the result is incomplete). buildSignalPrefix renders a `ur|fct` line.
+     */
+    workspace?: { peers: number; partial: boolean };
+    /**
+     * Set when `scope:'workspace'` was requested on free tier: the upgrade nudge
+     * to surface while still returning the home-only result.
+     */
+    workspace_refused?: string;
+    /** Set when an implicit cross-repo path route served this from a peer repo. */
+    routed_repo?: string;
   };
   /** Sprint 2: Agent-readable context hints */
   _context?: ContextHints;
@@ -646,6 +679,27 @@ export class QueryRouter {
 
   /** Project root path for file operations (Task 7.4 revert). */
   private projectRoot: string | null = null;
+
+  /**
+   * Cross-repo federation coordinator (CROSS_REPO_INTELLIGENCE Sprint 3). Null
+   * until the proxy injects one via `setFederationCoordinator` — when null,
+   * `scope:'workspace'` silently degrades to the home repo. The coordinator owns
+   * the pro-tier gate, peer discovery, fan-out, and the per-peer circuit breaker.
+   */
+  private federationCoordinator:
+    | import("./federation/coordinator.js").FederationCoordinator
+    | null = null;
+
+  /**
+   * This repo's SCIP moniker index (CROSS_REPO_INTELLIGENCE Sprint 4). Gives a
+   * focus entity its stable cross-repo identity so `get_references` can ask
+   * peers who imports it, and answers a peer's `xref_by_moniker` lookup. Null
+   * until the proxy injects one via `setMonikerIndex` (no SCIP / not indexed →
+   * cross-repo references silently degrade to the home repo).
+   */
+  private monikerIndex:
+    | import("./federation/moniker-index.js").MonikerIndex
+    | null = null;
 
   /** P3 review_changes: resolves the anchored-notes surface for the memory-drift
    *  checker. Injected by the proxy (closes over its NotesStore); null in
@@ -889,6 +943,30 @@ export class QueryRouter {
    */
   setProjectRoot(root: string): void {
     this.projectRoot = root;
+  }
+
+  /**
+   * Inject the cross-repo federation coordinator (CROSS_REPO_INTELLIGENCE
+   * Sprint 3). The proxy wires one over the daemon client + peer transport on
+   * pro/enterprise; on free tier the coordinator itself refuses, so this can be
+   * set unconditionally. Unset → `scope:'workspace'` degrades to the home repo.
+   */
+  setFederationCoordinator(
+    coordinator: import("./federation/coordinator.js").FederationCoordinator
+  ): void {
+    this.federationCoordinator = coordinator;
+  }
+
+  /**
+   * Inject this repo's SCIP moniker index (CROSS_REPO_INTELLIGENCE Sprint 4).
+   * The proxy loads `.unerr/scip/monikers.json` at startup and on every
+   * reindex, so cross-repo `get_references` always reflects the current graph.
+   * Unset → cross-repo references degrade to the home repo silently.
+   */
+  setMonikerIndex(
+    index: import("./federation/moniker-index.js").MonikerIndex | null
+  ): void {
+    this.monikerIndex = index;
   }
 
   /**
@@ -1215,6 +1293,36 @@ export class QueryRouter {
     const profile = resolveProfileTool(requestedTool, requestedArgs);
     const toolName = profile.toolName;
     const args = profile.args;
+
+    // Cross-repo scope (CROSS_REPO_INTELLIGENCE Sprint 3). `scope:'workspace'`
+    // on a query fan-out tool federates the SAME query to sibling repos and
+    // merges; the coordinator forces `scope:'repo'` on every peer sub-call, so
+    // the recursive home call below (also `scope:'repo'`) can never re-enter
+    // this branch. With no coordinator wired (federation off, or free tier)
+    // executeWorkspace returns the home-only result in the SAME structured
+    // shape, so the wire output is consistent whether or not federation is on.
+    if (args.scope === "workspace" && WORKSPACE_FANOUT_TOOLS.has(toolName)) {
+      return this.executeWorkspace(toolName, args);
+    }
+
+    // Cross-repo references (CROSS_REPO_INTELLIGENCE Sprint 4). A home entity
+    // key is meaningless on a peer, so `get_references({scope:'workspace'})`
+    // can't fan out the raw key — it resolves the focus entity's STABLE moniker
+    // and asks each peer who references THAT (an `xref_by_moniker` lookup),
+    // then merges the cross-repo importers into the local result.
+    if (args.scope === "workspace" && toolName === "get_references") {
+      return this.executeWorkspaceReferences(args);
+    }
+
+    // Implicit cross-repo path routing (Sprint 3 §3.3). A path-bearing tool
+    // whose path resolves OUTSIDE the home repo is routed to the sibling repo
+    // that owns it — scenario 3 (agent references a foreign file mid-session).
+    // The cheap home-root pre-check keeps the common in-repo read off the
+    // network path entirely.
+    if (this.federationCoordinator && PATH_ROUTED_TOOLS.has(toolName)) {
+      const routed = await this.maybeRoutePathCall(toolName, args, t0);
+      if (routed) return routed;
+    }
 
     // Mode-aware: SETUP mode returns informational response (not an error)
     if (this.currentMode === "setup") {
@@ -3170,6 +3278,242 @@ export class QueryRouter {
    * Pass any LOCAL_TOOLS name; the composer only ever calls search_code,
    * get_references, and get_conventions through it.
    */
+  /**
+   * Workspace-scoped fan-out (CROSS_REPO_INTELLIGENCE Sprint 3). Merges at the
+   * STRUCTURED layer: the home result comes from `executeRaw` (not the columnar-
+   * formatted `execute` output) so home rows and peer rows share one shape and
+   * merge cleanly with per-repo labels. Both sides force `scope:'repo'`, so a
+   * federated call can never re-federate. On free tier the coordinator refuses
+   * and the home-only result is returned with an upgrade nudge — never an error.
+   * The merged structured content is wrapped as a ToolResult; the proxy applies
+   * the final wire encoding once (cross-repo rows skip the home columnar legend).
+   */
+  /**
+   * Record one `cross_repo_access` behavior event per workspace tool call that
+   * reached the federation path (CROSS_REPO_INTELLIGENCE Sprint 5.1). Additive
+   * telemetry — drains through the existing C1 `events` projection. Best-effort:
+   * a missing writer or a record failure never affects the tool result.
+   */
+  private recordCrossRepoAccess(
+    toolName: string,
+    info: { peers: number; partial: boolean; refused: boolean }
+  ): void {
+    const writer = this.behaviorEvents;
+    if (!writer) return;
+    try {
+      writer.record({
+        session_id: writer.sessionId,
+        type: "cross_repo_access",
+        tool: toolName,
+        entity_key: null,
+        response_bytes: null,
+        detail: {
+          peers: info.peers,
+          partial: info.partial,
+          refused: info.refused,
+        },
+      });
+    } catch {
+      // Telemetry is never load-bearing — swallow.
+    }
+  }
+
+  private async executeWorkspace(
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<ToolResult> {
+    const t0 = performance.now();
+    const coord = this.federationCoordinator;
+    const repoArgs = { ...args, scope: "repo" };
+    const homeContent = await this.executeRaw(toolName, repoArgs);
+    const meta: ToolResult["_meta"] = { source: "local", latency_ms: 0 };
+
+    if (!coord) {
+      meta.latency_ms = performance.now() - t0;
+      return { content: homeContent, _meta: meta };
+    }
+
+    const homeRepo = this.projectRoot ?? process.cwd();
+    const fan = await coord.fanOut({ homeRepo, toolName, args: repoArgs });
+
+    if (fan.refused) {
+      meta.workspace_refused = fan.refused.message;
+      meta.latency_ms = performance.now() - t0;
+      this.recordCrossRepoAccess(toolName, {
+        peers: 0,
+        partial: false,
+        refused: true,
+      });
+      return { content: homeContent, _meta: meta };
+    }
+
+    let content = homeContent;
+    if (fan.results.length > 0) {
+      const { basename } = await import("node:path");
+      const homeLabel = basename(homeRepo) || homeRepo;
+      const peers: WorkspacePeerResult[] = fan.results.map((r) => ({
+        repoId: r.repoId,
+        label: r.label,
+        path: r.path,
+        result: r.result,
+      }));
+      content = mergeWorkspaceResults(toolName, homeContent, homeLabel, peers);
+    }
+    meta.workspace = { peers: fan.results.length, partial: fan.partial };
+    meta.latency_ms = performance.now() - t0;
+    this.recordCrossRepoAccess(toolName, {
+      peers: fan.results.length,
+      partial: fan.partial,
+      refused: false,
+    });
+    return { content, _meta: meta };
+  }
+
+  /**
+   * Cross-repo `get_references` (CROSS_REPO_INTELLIGENCE Sprint 4). Resolves the
+   * focus entity's stable moniker from the home moniker index, asks every peer
+   * who references THAT moniker (`xref_by_moniker`), and merges the cross-repo
+   * importers into the local caller/callee list. Degrades to home-only — never
+   * errors — when there is no coordinator, no moniker index, the focus entity
+   * has no cross-repo identity, or the tier refuses.
+   */
+  private async executeWorkspaceReferences(
+    args: Record<string, unknown>
+  ): Promise<ToolResult> {
+    const t0 = performance.now();
+    const coord = this.federationCoordinator;
+    const repoArgs = { ...args, scope: "repo" };
+    const homeContent = await this.executeRaw("get_references", repoArgs);
+    const meta: ToolResult["_meta"] = { source: "local", latency_ms: 0 };
+
+    const finishHome = (): ToolResult => {
+      meta.latency_ms = performance.now() - t0;
+      return { content: homeContent, _meta: meta };
+    };
+
+    if (!coord || !this.monikerIndex) return finishHome();
+
+    // The home entity → its stable cross-repo moniker. No moniker (entity not
+    // exported, or no SCIP) → nothing a peer can match on.
+    const key = await this.resolveKeyArg(args.key as string);
+    const { monikerForEntity } = await import("./federation/moniker-index.js");
+    const moniker = monikerForEntity(this.monikerIndex, key);
+    if (!moniker) return finishHome();
+
+    const homeRepo = this.projectRoot ?? process.cwd();
+    const direction = (args.direction as string) ?? "callers";
+    const fan = await coord.fanOut({
+      homeRepo,
+      toolName: "xref_by_moniker",
+      args: { moniker, direction },
+    });
+
+    if (fan.refused) {
+      meta.workspace_refused = fan.refused.message;
+      this.recordCrossRepoAccess("get_references", {
+        peers: 0,
+        partial: false,
+        refused: true,
+      });
+      return finishHome();
+    }
+
+    let content = homeContent;
+    if (fan.results.length > 0) {
+      const { basename } = await import("node:path");
+      const homeLabel = basename(homeRepo) || homeRepo;
+      const peers: WorkspacePeerResult[] = fan.results.map((r) => ({
+        repoId: r.repoId,
+        label: r.label,
+        path: r.path,
+        result: r.result,
+      }));
+      content = mergeWorkspaceResults(
+        "get_references",
+        homeContent,
+        homeLabel,
+        peers
+      );
+    }
+    meta.workspace = { peers: fan.results.length, partial: fan.partial };
+    meta.latency_ms = performance.now() - t0;
+    this.recordCrossRepoAccess("get_references", {
+      peers: fan.results.length,
+      partial: fan.partial,
+      refused: false,
+    });
+    return { content, _meta: meta };
+  }
+
+  /**
+   * Implicit cross-repo path routing (Sprint 3 §3.3). When a path-bearing tool
+   * names an ABSOLUTE path outside the home repo, route the call to the sibling
+   * repo that owns it and wrap its raw content as a ToolResult. Returns null
+   * (→ caller runs the home path) when no path arg, a relative/home path, or no
+   * owning peer. The cheap home-prefix check keeps in-repo reads off the network.
+   */
+  private async maybeRoutePathCall(
+    toolName: string,
+    args: Record<string, unknown>,
+    t0: number
+  ): Promise<ToolResult | null> {
+    const coord = this.federationCoordinator;
+    if (!coord) return null;
+    const filePath =
+      (args.file_path as string | undefined) ??
+      (args.path as string | undefined);
+    if (!filePath) return null;
+
+    const { resolve, isAbsolute, sep } = await import("node:path");
+    // Relative paths are home-relative by definition — never foreign.
+    if (!isAbsolute(filePath)) return null;
+
+    const homeRepo = this.projectRoot ?? process.cwd();
+    const abs = resolve(filePath);
+    const home = resolve(homeRepo);
+    // Under the home root → local read; no routing.
+    if (
+      abs === home ||
+      abs.startsWith(home.endsWith(sep) ? home : home + sep)
+    ) {
+      return null;
+    }
+
+    const route = await coord.routeByPath({
+      homeRepo,
+      toolName,
+      args,
+      filePath,
+    });
+    if (!route.routed) return null;
+
+    const latency_ms = performance.now() - t0;
+    const meta = {
+      source: "local" as const,
+      latency_ms,
+      routed_repo: route.peer.label,
+    };
+
+    // CROSS_REPO_INTELLIGENCE Sprint 8.1: a path-routed file read/outline returns
+    // a {content, peer_conventions} wrapper. Unwrap the content the agent reads
+    // and lift the owning peer's conventions into `_context.signals`, labeled by
+    // repo, so the wire boundary renders them as `ur|fct` lines — the home graph
+    // has none of the peer's conventions to inject on its own.
+    const { isRoutedFileContent, peerConventionSignals } = await import(
+      "./federation/cross-repo-conventions.js"
+    );
+    if (isRoutedFileContent(route.result)) {
+      const signals = peerConventionSignals(
+        route.result.peer_conventions,
+        route.peer.label
+      );
+      const result: ToolResult = { content: route.result.content, _meta: meta };
+      if (signals.length > 0) result._context = { signals };
+      return result;
+    }
+    return { content: route.result, _meta: meta };
+  }
+
   async executeRaw(
     toolName: string,
     args: Record<string, unknown>
@@ -3462,6 +3806,51 @@ export class QueryRouter {
                 _hint: `Showing ${limit} of ${totalCount}. Pass limit: ${totalCount} to see all.`,
               }
             : {}),
+        };
+      }
+      case "xref_by_moniker": {
+        // CROSS_REPO_INTELLIGENCE Sprint 4 (peer side, internal — not
+        // advertised). Answers the home repo's "who references this exported
+        // symbol?" by returning THIS repo's references to the given normalized
+        // moniker, shaped like get_references so the home can merge them. Empty
+        // when this repo has no moniker index or no references to it.
+        const moniker = args.moniker as string | undefined;
+        const direction = (args.direction as string) ?? "callers";
+        const refs =
+          (moniker && this.monikerIndex?.refs[moniker]) || ([] as const);
+        const references = refs.map((r) => ({
+          name: r.name,
+          file_path: r.file,
+          line: r.line,
+        }));
+        return {
+          references,
+          direction,
+          total: references.length,
+          truncated: false,
+        };
+      }
+      case "moniker_def": {
+        // CROSS_REPO_INTELLIGENCE Sprint 6.3 (peer side, internal — not
+        // advertised). Answers "which of these normalized monikers does THIS
+        // repo still define?" so the home repo can detect a dangling cross-repo
+        // reference (a symbol it imports that moved, was renamed, or was deleted
+        // — all of which change or drop the moniker's definition here). Batched:
+        // the home sends every external moniker it references in ONE call so the
+        // drift pass is a single fan-out, not one per symbol. Returns the subset
+        // this repo defines + this repo's package.
+        const requested = Array.isArray(args.monikers)
+          ? (args.monikers as unknown[]).filter(
+              (m): m is string => typeof m === "string"
+            )
+          : typeof args.moniker === "string"
+            ? [args.moniker]
+            : [];
+        const defs = this.monikerIndex?.defs ?? {};
+        const defined = requested.filter((m) => defs[m] !== undefined);
+        return {
+          package: this.monikerIndex?.package ?? null,
+          defined,
         };
       }
       case "get_callers": {

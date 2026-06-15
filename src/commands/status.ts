@@ -677,6 +677,86 @@ export function registerStatusCommand(program: Command): void {
         /* ignore — update surface is additive */
       }
 
+      // ── Cloud push dead-letters (B7 — read-only, offline) ─────────────
+      // The bounded push spool drops oldest and the drain loop quarantines a
+      // permanently-rejected batch; both are otherwise invisible. Surface the
+      // standing per-repo count from `.unerr/state/push-cursor.json` so an
+      // operator can tell push is lossy. Silent when zero (the common case).
+      try {
+        const { PushCursor } = await import("../cloud/push-cursor.js");
+        const cursor = await PushCursor.open(unerrDir);
+        const dead = cursor.deadLetterTotal();
+        if (dead > 0) {
+          process.stderr.write(
+            `  Push:     ${dead} record(s) dropped/rejected (not delivered to cloud)\n`
+          );
+        }
+      } catch {
+        /* ignore — push is optional and the cursor may not exist */
+      }
+
+      // ── Spaced recall (C5 — read-only, offline) ───────────────────────
+      // The daemon refresh fetches the user's due recall prompts and persists
+      // them to `~/.unerr/state/recall.json`; the merge hook persists confirmed
+      // decision drafts there too. Surface both as short lines so the developer
+      // sees "3 weeks ago you chose X — still remember why?" at a real
+      // touchpoint. Read-only from the local store — no network here. Silent
+      // when empty (logged out / free / nothing due). Output to stderr only.
+      try {
+        const { readRecallStore } = await import("../cloud/recall-store.js");
+        const store = await readRecallStore();
+        const SHOW = 3;
+        for (const p of store.due_prompts.slice(0, SHOW)) {
+          process.stderr.write(`  Recall:   ${p.prompt}\n`);
+        }
+        const extra = store.due_prompts.length - SHOW;
+        if (extra > 0) {
+          process.stderr.write(
+            `            (+${extra} more due — run unerr recall)\n`
+          );
+        }
+        for (const d of store.drafts.slice(-SHOW)) {
+          const oneLine = (d.summary.split("\n")[0] ?? "").slice(0, 100);
+          process.stderr.write(`  Decision: ${oneLine} (confirm at merge)\n`);
+        }
+      } catch {
+        /* ignore — recall is a paid feature and the store may not exist */
+      }
+
+      // ── Weekly recap (C5 — paid, best-effort network) ─────────────────
+      // The recap is one server-side batched LLM call; the CLI only DISPLAYS
+      // it. `fetchWeeklyRecap` gates on `canSyncRecall()` (zero network when
+      // free / logged out) and degrades to `unavailable` when the server recap
+      // route is not live yet — `renderWeeklyRecap` then shows nothing. Best-
+      // effort: a slow / failed fetch never blocks `unerr status`.
+      //
+      // SERVER DEPENDENCY (pending): the machine-token recap route
+      // `GET /api/v1/cli/recap/latest` does not exist yet (CLI_API.md documents
+      // only `/sync/recall`). Until the server ships it, every fetch 404s →
+      // `unavailable` → nothing shown. This is display-only wiring; do NOT add
+      // the server route here.
+      try {
+        const { readCredentials } = await import("../cloud/credentials.js");
+        const creds = readCredentials();
+        if (creds) {
+          const { CloudClient } = await import("../cloud/client.js");
+          const { fetchWeeklyRecap, renderWeeklyRecap } = await import(
+            "../cloud/recall-sync.js"
+          );
+          const client = new CloudClient({
+            apiUrl: creds.api_url,
+            token: creds.token,
+          });
+          const recap = await fetchWeeklyRecap(client);
+          if (recap.result === "ok") {
+            const text = renderWeeklyRecap(recap.recap);
+            if (text) process.stderr.write(`\n  ${text}\n`);
+          }
+        }
+      } catch {
+        /* ignore — recap is paid + best-effort; nothing shown on failure */
+      }
+
       try {
         const { StatusDashboard } = await import(
           "../components/StatusDashboard.js"

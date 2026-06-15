@@ -441,6 +441,11 @@ export class NotesStore {
     for (const a of input.candidate_anchors ?? []) anchorSet.add(a);
     for (const a of inferred.anchors) anchorSet.add(a);
     anchorSet.add("p:");
+    // CROSS_REPO_INTELLIGENCE Sprint 7.2: workspace-wide notes (`w:`) always ride
+    // along, like `p:` — a rule authored for the whole workspace applies to every
+    // repo in it, including this one. Federated recall (7.1) surfaces peers' `w:`
+    // notes; this surfaces the home's own.
+    anchorSet.add("w:");
     const anchors = [...anchorSet];
     const base = await this.recallByAnchors({
       anchors,

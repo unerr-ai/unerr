@@ -68,7 +68,102 @@ export type SyncOutcome =
   | { result: "not_logged_in" }
   | { result: "revoked"; message: string }
   | { result: "network" }
+  // The token's scope cannot own a shared conventions document (a personal /
+  // solo account). The server would answer `PUT /conventions` with
+  // `400 scope_unsupported`; the guard (B6) skips the PUT before any network
+  // call so a solo account never hits a guaranteed-400 loop.
+  | { result: "scope_unsupported"; message: string }
   | { result: "error"; message: string };
+
+/**
+ * The token's conventions scope, read from the entitlements / authorize
+ * surface. `team` (org-scoped) can own the shared document; `personal` (a solo
+ * account) cannot — the server refuses its `PUT /conventions` with
+ * `400 scope_unsupported`. `undefined` means the surface did not report a scope
+ * (an older server); the guard treats that as "allowed" so a missing field
+ * never blocks a legitimate team push (fail-open, the server is the backstop).
+ */
+export type ConventionsScope = "team" | "personal" | undefined;
+
+/** The plain-language reason a personal-scope token cannot push conventions. */
+export const PERSONAL_SCOPE_MESSAGE =
+  "Shared conventions need a team account. This token is personal-scoped, so there's nothing to push to. Conventions still sync DOWN to this machine.";
+
+/**
+ * Decide whether a `PUT /conventions` may run for a token's scope. Only a
+ * `personal` scope is refused; `team` and an absent scope (older server) are
+ * allowed. Pure — read from the entitlements/authorize scope, no network call.
+ *
+ * // @sem domain=cloud role=guard
+ */
+export function isPersonalScope(scope: ConventionsScope): boolean {
+  return scope === "personal";
+}
+
+/**
+ * Read the conventions scope out of a CLI entitlements response. The server
+ * carries it as `scope` (or `scope_type`) on the entitlements/authorize
+ * surface; both spellings are accepted. Returns `undefined` when neither field
+ * is present (older server) so the guard fails open.
+ *
+ * // @sem domain=cloud role=guard
+ */
+export function scopeFromEntitlements(
+  ent: Record<string, unknown> | null | undefined
+): ConventionsScope {
+  if (!ent) return undefined;
+  const raw = ent.scope ?? ent.scope_type;
+  return raw === "team" || raw === "personal" ? raw : undefined;
+}
+
+/**
+ * Push the team conventions document — guarded by the token's scope (B6). A
+ * `personal` scope skips the `PUT` entirely (no network call) and returns
+ * `"scope_unsupported"`, mirroring the gate-skip shape, so a solo account never
+ * fires a guaranteed-`400` request. A `team` / unknown scope performs the PUT
+ * and maps the response onto a {@link SyncOutcome}.
+ *
+ * // @sem domain=cloud role=guard
+ */
+export async function pushTeamConventions(
+  client: CloudClient,
+  content: string,
+  opts: { scope?: ConventionsScope; version?: number; now?: number } = {}
+): Promise<SyncOutcome> {
+  // Scope guard first — a personal token's PUT is a guaranteed 400. Skip it
+  // before any network call (B6).
+  if (isPersonalScope(opts.scope)) {
+    return { result: "scope_unsupported", message: PERSONAL_SCOPE_MESSAGE };
+  }
+
+  const res = await client.putConventions(content, opts.version);
+
+  if (!res.ok) {
+    if (res.status === 0) return { result: "network" };
+    if (res.status === 401 && res.error.code === "revoked_token") {
+      const message = handleRevokedToken();
+      return { result: "revoked", message };
+    }
+    // The server is the backstop: if it still reports a scope mismatch (e.g.
+    // the local scope was unknown), surface it as the same outcome rather than
+    // a generic error, so the caller can stay quiet about a solo account.
+    if (res.status === 400 && res.error.code === "scope_unsupported") {
+      return { result: "scope_unsupported", message: PERSONAL_SCOPE_MESSAGE };
+    }
+    return { result: "error", message: res.error.message };
+  }
+
+  const nowIso = new Date(opts.now ?? Date.now()).toISOString();
+  const version = typeof res.data.version === "number" ? res.data.version : 0;
+  writeTeamConventions({
+    content,
+    version,
+    updated_at: nowIso,
+    etag: `"v${version}"`,
+    synced_at: nowIso,
+  });
+  return { result: "updated", version };
+}
 
 /** Read the stored team-conventions doc. Returns null when absent/corrupt. */
 export function readTeamConventions(): TeamConventions | null {

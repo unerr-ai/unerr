@@ -248,6 +248,8 @@ export const WIRE_TAG_ALIAS: Readonly<Record<string, string>> = Object.freeze({
   ctx: "ctx",
   cdr: "ctx",
   hth: "ctx",
+  wsp: "ctx", // workspace (cross-repo) fan-out partial
+  wsr: "fct", // workspace (cross-repo) refused — free tier upgrade nudge
   rsk: "rsk",
   ber: "rsk",
   wrn: "rsk",
@@ -507,6 +509,33 @@ export function buildSignalPrefix(
         "hth",
         null,
         `${(h.health * 100).toFixed(0)}% — ${h.recommendation ?? "start a new session before next task"}`
+      );
+    }
+  }
+
+  // CROSS_REPO_INTELLIGENCE Sprint 5.2: cross-repo (workspace) refusal nudge.
+  // A free-tier account asked for scope:'workspace'; the daemon refused the
+  // peer fan-out and the call ran home-only. Surface the upgrade path as a
+  // `ur|fct` line — the refusal message itself names the imperative action
+  // (`run unerr login`), so push it verbatim. Tag `wsr` keeps its own dedup
+  // scope (fires once per session per message).
+  if (typeof meta?.workspace_refused === "string" && meta.workspace_refused) {
+    tryPush("wsr", "workspace", meta.workspace_refused);
+  }
+
+  // CROSS_REPO_INTELLIGENCE Sprint 5.2: partial cross-repo fan-out note. Some
+  // peer repos were unreachable, so the merged result is incomplete — warn
+  // before the agent concludes "no external callers" from a truncated list.
+  // Only emit on partial:true; a complete fan-out needs no line (rule 5: a
+  // signal without an action is noise). Tag `wsp` (→ wire `ctx`).
+  if (meta?.workspace) {
+    const ws = meta.workspace as { peers?: number; partial?: boolean };
+    if (ws.partial === true) {
+      const peers = typeof ws.peers === "number" ? ws.peers : 0;
+      tryPush(
+        "wsp",
+        "workspace",
+        `cross-repo references partial — ${peers} peer repos answered, some unreachable; re-run get_references({scope:'workspace'}) before assuming no external callers`
       );
     }
   }

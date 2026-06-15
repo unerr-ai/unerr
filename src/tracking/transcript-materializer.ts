@@ -20,7 +20,11 @@ import {
 } from "./agent-transcript/index.js";
 import { openMetricsStore } from "./metrics-store.js";
 
-const TEXT_LIMIT = 10_000;
+// Matches the transcripts wire cap (`TRANSCRIPT_TEXT_CAP` = 16 KB in
+// src/cloud/drainers/transcripts.ts). Storing up to the wire cap means the
+// transcript push stream's final clip (B2-clip) is the only place prose is
+// trimmed — the store does not silently lose prose below the wire limit first.
+const TEXT_LIMIT = 16_384;
 
 function truncate(
   s: string | null | undefined,

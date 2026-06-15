@@ -26,6 +26,7 @@ import {
 import { type Server, createConnection, createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { resolveFederatedPeers } from "../daemon/peers.js";
 import { ProcessManager } from "../daemon/process-manager.js";
 import {
   DAEMON_DASHBOARD_PORT,
@@ -34,7 +35,9 @@ import {
 } from "../daemon/protocol.js";
 import {
   addRepo,
+  findRepo,
   globalDir,
+  listRepos,
   readRegistry,
   removeRepo,
 } from "../daemon/registry.js";
@@ -187,6 +190,21 @@ async function handleRequest(
   switch (req.cmd) {
     case "ensure": {
       try {
+        // Pro+ lazy auto-add (cross-repo scenarios 1 & 3): if the agent
+        // referenced a repo that is on disk but never `unerr add`-ed, register
+        // it (ephemeral) so it becomes queryable this turn. Gated on unlimited
+        // tier — free never auto-adds, its single slot stays with the explicitly
+        // added repo. Best-effort: a parent/child conflict just leaves it
+        // unregistered and ensure proceeds (the covering proxy serves it).
+        if (!findRepo(req.repo)) {
+          const { tierFromCache } = await import("../cloud/tier-query.js");
+          const { repoLimit, isUnlimited } = await import(
+            "../cloud/tier-model.js"
+          );
+          if (isUnlimited(repoLimit(tierFromCache()))) {
+            addRepo(req.repo, { ephemeral: true }, { skipCap: true });
+          }
+        }
         const outcome = await pm.ensure(req.repo);
         // Free-tier single-active backstop: a different repo already holds the
         // one slot — surface a structured refusal so the bridge answers the
@@ -312,6 +330,45 @@ async function handleRequest(
       };
     }
 
+    case "peers": {
+      // Cross-repo discovery. Pro/enterprise only — the tier gate lives in
+      // resolveFederatedPeers (injected `unlimited`). Discovery does NOT spawn
+      // sleeping peers: the coordinator ensures each peer it actually queries,
+      // so this stays cheap and avoids a fork storm.
+      const { tierFromCache } = await import("../cloud/tier-query.js");
+      const { repoLimit, isUnlimited } = await import("../cloud/tier-model.js");
+      const verdict = resolveFederatedPeers({
+        homeRepo: req.homeRepo,
+        repos: listRepos(),
+        unlimited: isUnlimited(repoLimit(tierFromCache())),
+      });
+      if (!verdict.ok) {
+        return {
+          ok: false,
+          refused: "workspace_pro_only",
+          message: verdict.message,
+        };
+      }
+      const { deriveRepoId } = await import("../cloud/repo-identity.js");
+      const peers = await Promise.all(
+        verdict.peers.map(async (r) => {
+          const managed = pm.getManaged(r.path);
+          const sock =
+            managed && managed.status === "running" && managed.sock
+              ? managed.sock
+              : "";
+          return {
+            repoId: await deriveRepoId(r.path),
+            label: r.label,
+            path: r.path,
+            sock,
+            running: sock !== "",
+          };
+        })
+      );
+      return { ok: true, peers };
+    }
+
     default:
       return {
         ok: false,
@@ -375,6 +432,7 @@ export async function startDaemon(opts: {
     notifyEvent: (r: string) => void;
     stop: () => void;
   } | null = null;
+  let pushReporter: { stop: () => void } | null = null;
   pm.setEventHandler((event, repo, detail) => {
     log.info(`[${repo.label}] ${event}${detail ? `: ${detail}` : ""}`);
     if (event === "started" || event === "stopped") {
@@ -533,12 +591,35 @@ export async function startDaemon(opts: {
     log.warn(`Fleet reporter failed to start: ${(err as Error).message}`);
   }
 
-  // Add warm-start + entitlement-refresh + fleet-reporter cancellation to shutdown
+  // Start the push reporter (non-critical — drains each repo's local telemetry/
+  // sync stores to the cloud on a timer. One machine-wide loop with one
+  // backoff. Default-on when logged in on a paid plan; the B5 gate and the
+  // logged-out check make it skip silently.)
+  try {
+    const { PushReporter } = await import("../daemon/push-reporter.js");
+    const { readCredentials } = await import("../cloud/credentials.js");
+    const reporter = new PushReporter({
+      getRepos: () => pm.getStatus().map((r) => ({ path: r.path })),
+      resolveAuth: () => {
+        const creds = readCredentials();
+        if (!creds || creds.machine_id.length === 0) return null;
+        return { apiUrl: creds.api_url, token: creds.token };
+      },
+      log: (msg) => log.info(msg),
+    });
+    reporter.start();
+    pushReporter = reporter;
+  } catch (err) {
+    log.warn(`Push reporter failed to start: ${(err as Error).message}`);
+  }
+
+  // Add warm-start + entitlement-refresh + fleet/push-reporter cancellation to shutdown
   const origShutdown = shutdown;
   const wrappedShutdown = async (reason: string) => {
     cancelWarmStart?.();
     stopEntitlementRefresh?.();
     fleetReporter?.stop();
+    pushReporter?.stop();
     await origShutdown(reason);
   };
   process.removeAllListeners("SIGTERM");

@@ -264,6 +264,26 @@ describe("NotesStore.recallByPrompt (B3a)", () => {
     expect(types).toEqual(["f", "p"]);
   });
 
+  // Sprint 7.2: a `w:` (workspace-wide) note rides along every recall, exactly
+  // like `p:` — a rule authored for the whole workspace applies to this repo too.
+  it("workspace-wide (w:) notes ride along with anchored ones", async () => {
+    await store.upsertNote({
+      note: "rul|w:|+|every repo logs to stderr only",
+      session_id: SESSION,
+      prompt_hash: "p1",
+    });
+    await store.upsertNote({
+      note: "rul|f:src/proxy/bridge.ts|-|no intelligence imports",
+      session_id: SESSION,
+      prompt_hash: "p2",
+    });
+    const result = await store.recallByPrompt({
+      prompt: "edit src/proxy/bridge.ts",
+    });
+    const types = result.notes.map((n) => n.anchor_type).sort();
+    expect(types).toEqual(["f", "w"]);
+  });
+
   it("does not duplicate a note matched by both exact anchor and glob", async () => {
     await store.upsertNote({
       note: "wrn|g:src/proxy/*.ts|-|stdout is MCP JSON-RPC only",

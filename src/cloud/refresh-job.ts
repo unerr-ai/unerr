@@ -26,6 +26,7 @@ import { syncConventions } from "./conventions-sync.js";
 import { readCredentials } from "./credentials.js";
 import { refreshEntitlements } from "./entitlements.js";
 import { handleRevokedToken } from "./login-state.js";
+import { runRecallSyncOnce } from "./recall-sync.js";
 
 /** Base interval between refreshes: 12 hours. */
 export const REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000;
@@ -120,6 +121,21 @@ export async function runEntitlementRefreshOnce(
           deps.log?.(`conventions: sync failed — ${conv.message}`);
         }
         result = { status: "done", plan: outcome.plan };
+      }
+      // Same run: fetch the user's due recall prompts (C5) and persist them
+      // to the local store so `unerr status` can surface them offline. Gates
+      // itself on `canSyncRecall()` inside `runRecallSyncOnce` (free /
+      // logged-out → zero network), covers offline silently, and never throws
+      // into the refresh outcome — wrapped exactly like `syncConventions`.
+      {
+        const recall = await runRecallSyncOnce({
+          makeClient: deps.makeClient,
+        }).catch(() => ({ result: "error", message: "recall threw" }) as const);
+        if (recall.result === "ok") {
+          deps.log?.(`recall: ${recall.prompts.length} due prompt(s)`);
+        } else if (recall.result === "error") {
+          deps.log?.(`recall: fetch failed — ${recall.message}`);
+        }
       }
       break;
     }

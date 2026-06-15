@@ -25,7 +25,11 @@ describe("CONTRACT_TEACHING_BLOCK (D10)", () => {
 
   it("documents the DSL vocabulary (kinds + anchor types + polarities)", () => {
     expect(CONTRACT_TEACHING_BLOCK).toMatch(/cnv.*rul.*wrn.*dec.*blk.*fct/s);
-    expect(CONTRACT_TEACHING_BLOCK).toMatch(/f:.*e:.*g:.*p:/s);
+    // Sprint 7.5 doc-lockstep guard: the anchor table must list every type the
+    // parser accepts, INCLUDING `w:` (workspace) — note-dsl.ts VALID_ANCHOR_TYPES
+    // and this teaching block must not drift apart.
+    expect(CONTRACT_TEACHING_BLOCK).toMatch(/f:.*e:.*g:.*p:.*w:/s);
+    expect(CONTRACT_TEACHING_BLOCK).toMatch(/workspace-wide/);
     expect(CONTRACT_TEACHING_BLOCK).toMatch(/\+.*-.*~/s);
   });
 

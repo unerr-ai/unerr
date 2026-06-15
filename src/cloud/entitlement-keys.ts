@@ -56,6 +56,7 @@ export const PINNED_ENTITLEMENT_KEYS: Readonly<Record<string, string>> = {
   // First production key (2026-06-12). Public half only; private key lives in
   // the unerr-web-service production env. Never remove an old kid.
   "k2026-06-14": "MCowBQYDK2VwAyEAgSzF/PtRjpqocnEvtjFzKTwKpSeg4hZNJPZZfITivRA=", // production key
+  "k2026-06-15": "MCowBQYDK2VwAyEAuybMMDUe8te9XO4Yd/FoVR6aRScU726ALU/wUhINFGk=", // for local testing
 };
 
 /** Env var holding a dev/preview public key (base64 SPKI DER). */

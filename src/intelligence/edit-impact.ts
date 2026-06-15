@@ -38,6 +38,24 @@ export interface CascadeWarning {
     total_at_risk: number;
   };
   suggestion: string;
+  /**
+   * Cross-repo callers of this entity in federated peer repos (Pro tier).
+   * Populated by the home proxy's federation augmentation
+   * (`augmentBlastRadiusWithPeers`), NOT by `computeEditImpact` — this engine
+   * stays local and process-agnostic. Absent on free tier, when the entity has
+   * no SCIP moniker (not exported / no cross-repo identity), or when no peer
+   * references it. When present, the pre-edit gate cites the peer repos so a
+   * signature change isn't shipped while callers in another repo go unupdated.
+   */
+  cross_repo?: CrossRepoCallers;
+}
+
+/** Per-entity cross-repo caller rollup attached to a {@link CascadeWarning}. */
+export interface CrossRepoCallers {
+  /** Total caller sites across all peer repos. */
+  total_peer_callers: number;
+  /** Per-repo breakdown, only repos with ≥1 caller, highest count first. */
+  peers: Array<{ repoId: string; label: string; callers: number }>;
 }
 
 export type SignatureChangeType =

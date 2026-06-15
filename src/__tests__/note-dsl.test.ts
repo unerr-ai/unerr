@@ -95,6 +95,16 @@ describe("note-dsl parser (A2)", () => {
     expect(parsed.anchor_value).toBe("");
   });
 
+  it("accepts empty value for workspace-wide anchor (Sprint 7.2)", () => {
+    const parsed = parseNote("rul|w:|+|every repo logs to stderr only");
+    expect(parsed.anchor_type).toBe("w");
+    expect(parsed.anchor_value).toBe("");
+    // round-trips through the serializer unchanged
+    expect(serializeNote(parsed)).toBe(
+      "rul|w:|+|every repo logs to stderr only"
+    );
+  });
+
   it("rejects invalid kind, anchor_type, and polarity", () => {
     expect(() => parseNote("xxx|f:src/a.ts|+|content")).toThrow(/invalid kind/);
     expect(() => parseNote("rul|x:foo|+|content")).toThrow(

@@ -107,7 +107,7 @@ export async function gitQuery(
 
 /**
  * Open a `http(s):` URL in the system default browser (no shell interpolation).
- * Localhost-only dashboard links use this from `unerr dashboard`.
+ * `unerr dashboard` uses this to open the cloud dashboard URL.
  */
 export async function openUrlInDefaultBrowser(url: string): Promise<void> {
   if (!/^https?:\/\//i.test(url)) {

@@ -14,13 +14,16 @@
  *  - Expected API errors do NOT throw — every call returns a typed result
  *    object the caller switches on. Only programmer misuse throws.
  *  - The `{ error: { code, message } }` envelope is parsed into the result.
- *  - Modest retry/backoff for *network* errors only (never for HTTP error
- *    responses — those are answers, not failures).
+ *  - Modest retry/backoff for *network* errors always; plus opt-in retries for
+ *    transient HTTP statuses (`429`/`503`) on batch pushes, honoring
+ *    `Retry-After`. Terminal statuses (`400`/`403`/`413`) are never retried.
  *  - 10-second timeout per attempt via `AbortSignal.timeout`.
  *
- * No new dependencies: this uses the global `fetch` shipped with Node 20+.
+ * No new dependencies: this uses the global `fetch` shipped with Node 20+ and
+ * the built-in `node:zlib` for gzip on batch pushes.
  */
 
+import { gzipSync } from "node:zlib";
 import type {
   FleetReport,
   HeartbeatReport,
@@ -34,6 +37,8 @@ const TIMEOUT_MS = 10_000;
 const MAX_RETRIES = 2;
 /** Base backoff; grows linearly: 300ms, 600ms. */
 const BACKOFF_BASE_MS = 300;
+/** Ceiling on one retry backoff sleep; a larger `Retry-After` is clamped here. */
+const RETRY_CAP_MS = 30_000;
 
 /**
  * Fleet ingest endpoint paths. The machine is resolved server-side from the
@@ -41,6 +46,40 @@ const BACKOFF_BASE_MS = 300;
  */
 const CHECKIN_PATH = "/api/v1/cli/machine/checkin";
 const INVENTORY_PATH = "/api/v1/cli/machine/inventory";
+
+/**
+ * Batch push endpoints. The ClickHouse `ingest/*` streams take row arrays
+ * (`sessions` takes one object); the Postgres `sync/*` streams carry the
+ * developer's facts, timeline, and repo-state hashes. Exact bodies + caps are
+ * in `docs/CLI_API.md`; the machine is resolved server-side from the token.
+ */
+const INGEST_EVENTS_PATH = "/api/v1/cli/ingest/events";
+const INGEST_TRANSCRIPTS_PATH = "/api/v1/cli/ingest/transcripts";
+const INGEST_LEDGER_PATH = "/api/v1/cli/ingest/ledger";
+const INGEST_ROUTER_PATH = "/api/v1/cli/ingest/router";
+const INGEST_SESSIONS_PATH = "/api/v1/cli/ingest/sessions";
+const SYNC_FACTS_PATH = "/api/v1/cli/sync/facts";
+const SYNC_TIMELINE_PATH = "/api/v1/cli/sync/timeline";
+const SYNC_STATE_PATH = "/api/v1/cli/sync/state";
+/**
+ * The anti-forgetting (spaced-recall) machine-token surface. `GET` lists the
+ * caller's due/unanswered prompts; `POST` answers one. Both are paid-gated and
+ * self-scoped server-side (the cookie routes `/api/recall/*` stay web-only).
+ */
+const SYNC_RECALL_PATH = "/api/v1/cli/sync/recall";
+
+/**
+ * The retry policy every batch push shares: retry a `429` (rate limited) or
+ * `503` (server busy) up to 4 attempts total with full-jitter backoff that
+ * honors `Retry-After`. `400`/`403`/`413` stay terminal — they mean the
+ * request is wrong, not transiently failing.
+ */
+const BATCH_RETRY: RetryPolicy = {
+  retryStatuses: [429, 503],
+  maxAttempts: 4,
+  baseMs: BACKOFF_BASE_MS,
+  capMs: RETRY_CAP_MS,
+};
 
 /** Server's answer to a heartbeat — steers the next cadence centrally. */
 export interface CheckinResponse {
@@ -53,6 +92,27 @@ export interface CheckinResponse {
 export interface InventoryAck {
   accepted: boolean;
   stored_at?: string;
+}
+
+/**
+ * Per-batch result of a push to `/ingest/*` or `/sync/*`. The ClickHouse ingest
+ * streams (events/transcripts/ledger/router) answer with `accepted`/`rejected`
+ * COUNTS plus a `results[]` array carrying one `{ event_id, status, code }` per
+ * record in request order; `sync/timeline` and `sync/state` answer with just
+ * the two counts; `sync/facts` echoes the stored rows and `ingest/sessions`
+ * returns `{ session_id, status }`. The index signature keeps those per-stream
+ * extras. A `rejected` row is permanent (firewall / malformed) — the drain loop
+ * counts it as a dead letter and advances past it rather than re-push (B7).
+ */
+export interface BatchAck {
+  accepted?: number;
+  rejected?: number;
+  results?: Array<{
+    event_id: string;
+    status: "accepted" | "rejected";
+    code?: string;
+  }>;
+  [key: string]: unknown;
 }
 
 /** The `{ error: { code, message } }` envelope for authenticated routes. */
@@ -134,6 +194,52 @@ export interface Entitlements {
   [key: string]: unknown;
 }
 
+/**
+ * One unanswered recall prompt from `GET /api/v1/cli/sync/recall`. The
+ * anti-forgetting loop (C5) renders these as "3 weeks ago you chose X — still
+ * remember why?". `due_at` may be `null`. `decision_ref` ties the prompt back
+ * to a server-side decision record. Self-scoped to the token's user.
+ */
+export interface RecallPrompt {
+  id: string;
+  prompt: string;
+  decision_ref: string | null;
+  due_at: string | null;
+  created_at: string;
+  [key: string]: unknown;
+}
+
+/** Body of `GET /api/v1/cli/sync/recall` — `{ prompts: [...] }`. */
+export interface RecallPromptList {
+  prompts: RecallPrompt[];
+}
+
+/**
+ * The server's answer to `POST /api/v1/cli/sync/recall` — `{ answer_id,
+ * prompt_id, remembered }`. `answer_id` is the server's id for the stored
+ * answer; the CLI's idempotency key (`client_answer_id`) is what we SEND, not
+ * what comes back.
+ */
+export interface RecallAnswerAck {
+  answer_id: string;
+  prompt_id: string;
+  remembered: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * The POST body for a recall answer. `client_answer_id` is a CLI-stable
+ * UUIDv5 (never random) so a retried / spool-redrained answer upserts and
+ * writes ONCE (B4-client). `note` is optional, ≤2048 chars, code-stripped
+ * client-side (HR-2) — never raw code.
+ */
+export interface RecallAnswerInput {
+  prompt_id: string;
+  remembered: boolean;
+  note?: string;
+  client_answer_id: string;
+}
+
 export interface CloudClientOptions {
   /** Base URL, e.g. `https://app.unerr.dev`. Trailing slash trimmed. */
   apiUrl: string;
@@ -141,9 +247,28 @@ export interface CloudClientOptions {
   token?: string;
 }
 
+/**
+ * Retry policy for a single request. The default (no policy) preserves the
+ * historical behavior: retry network failures only, with linear backoff, and
+ * return any HTTP error response untouched. A batch push opts into HTTP-status
+ * retries via `retryStatuses` — then a `429`/`503` is retried with full-jitter
+ * backoff that honors a `Retry-After` header. Terminal statuses
+ * (`400`/`403`/`413`) are never retried whatever the policy says.
+ */
+interface RetryPolicy {
+  /** HTTP statuses to retry (e.g. `[429, 503]`). Absent/empty = none. */
+  retryStatuses?: number[];
+  /** Total attempts including the first (default `MAX_RETRIES + 1` = 3). */
+  maxAttempts?: number;
+  /** Base for full-jitter backoff in ms (default `BACKOFF_BASE_MS`). */
+  baseMs?: number;
+  /** Cap on a single backoff sleep in ms (default `RETRY_CAP_MS`). */
+  capMs?: number;
+}
+
 /** Options for a single request. */
 interface RequestOptions {
-  method?: "GET" | "POST" | "PUT";
+  method?: "GET" | "POST" | "PUT" | "PATCH";
   /** JSON body to send. */
   body?: unknown;
   /** Send the bearer token (default true when a token is configured). */
@@ -154,6 +279,14 @@ interface RequestOptions {
    * header, set separately and never logged).
    */
   extraHeaders?: Record<string, string>;
+  /**
+   * Gzip the JSON body and set `Content-Encoding: gzip`. Used by the batch
+   * pushes (`/ingest/*`, `/sync/*`) where up to thousands of rows compress
+   * well; the small fleet/auth bodies leave it off.
+   */
+  gzip?: boolean;
+  /** Opt into HTTP-status retries (see {@link RetryPolicy}). */
+  retry?: RetryPolicy;
 }
 
 export class CloudClient {
@@ -236,6 +369,125 @@ export class CloudClient {
   }
 
   /**
+   * `POST …/ingest/events` — a batch of metric events (the five `type`s share
+   * one array, ≤100/push). Each row carries a stable `event_id` so a retried
+   * push de-dups server-side.
+   */
+  async ingestEvents(events: unknown[]): Promise<CloudResult<BatchAck>> {
+    return this.postBatch(INGEST_EVENTS_PATH, { events });
+  }
+
+  /**
+   * `POST …/ingest/transcripts` — per-turn reasoning prose (≤100/push),
+   * code-stripped client-side before it is ever passed here (HR-2).
+   */
+  async ingestTranscripts(
+    transcripts: unknown[]
+  ): Promise<CloudResult<BatchAck>> {
+    return this.postBatch(INGEST_TRANSCRIPTS_PATH, { transcripts });
+  }
+
+  /**
+   * `POST …/ingest/ledger` — tool-call metadata rows (≤500/push): the tool, a
+   * redacted args shape, status, timing. Never raw arguments.
+   */
+  async ingestLedger(ledger: unknown[]): Promise<CloudResult<BatchAck>> {
+    return this.postBatch(INGEST_LEDGER_PATH, { ledger });
+  }
+
+  /** `POST …/ingest/router` — model-routing telemetry rows (≤200/push). */
+  async ingestRouter(router: unknown[]): Promise<CloudResult<BatchAck>> {
+    return this.postBatch(INGEST_ROUTER_PATH, { router });
+  }
+
+  /**
+   * `POST …/ingest/sessions` — one session metadata object per push (totals
+   * and counts, code-free). Unlike the other ingest streams this is a single
+   * object, not an array.
+   */
+  async ingestSession(session: unknown): Promise<CloudResult<BatchAck>> {
+    return this.postBatch(INGEST_SESSIONS_PATH, { session });
+  }
+
+  /**
+   * `POST …/sync/facts` — upsert the developer's memory notes (≤500/push); a
+   * row with the same id updates in place, never duplicates. Requires a team
+   * scope — a personal token is refused with `400 scope_unsupported` (B6).
+   */
+  async syncFacts(facts: unknown[]): Promise<CloudResult<BatchAck>> {
+    return this.postBatch(SYNC_FACTS_PATH, { facts });
+  }
+
+  /** `POST …/sync/timeline` — turn/intent/marker/signal entries (≤500/push). */
+  async syncTimeline(timeline: unknown[]): Promise<CloudResult<BatchAck>> {
+    return this.postBatch(SYNC_TIMELINE_PATH, { timeline });
+  }
+
+  /**
+   * `POST …/sync/state?repo=<repoId>` — file content-hashes + co-change + drift
+   * (hashes only, never file bodies). The `repo` query param is required; both
+   * arrays are capped at 5000/push.
+   */
+  async syncState(
+    repoId: string,
+    state: unknown[],
+    drift: unknown[]
+  ): Promise<CloudResult<BatchAck>> {
+    const path = `${SYNC_STATE_PATH}?repo=${encodeURIComponent(repoId)}`;
+    return this.postBatch(path, { state, drift });
+  }
+
+  /**
+   * `GET /api/v1/cli/sync/recall` — the caller's unanswered recall prompts,
+   * due/oldest first, self-scoped to the token's user. Paid-gated server-side;
+   * the caller pre-checks `canSyncRecall()` so a free machine never reaches
+   * here. `due_at` may be `null`. Drives the anti-forgetting loop (C5).
+   */
+  async getRecallPrompts(): Promise<CloudResult<RecallPromptList>> {
+    return this.request<RecallPromptList>(SYNC_RECALL_PATH, {
+      method: "GET",
+      auth: true,
+    });
+  }
+
+  /**
+   * `POST /api/v1/cli/sync/recall` — answer one recall prompt. The body's
+   * `client_answer_id` is a CLI-stable UUIDv5 (never random): the server
+   * UPSERTS on it, so a retried / spool-redrained answer writes ONCE
+   * (B4-client; idempotent against the P0/S3 upsert). An unknown / foreign
+   * `prompt_id` → `404`. `note` (when present) is already code-stripped (HR-2).
+   * Retries `429`/`503` via `BATCH_RETRY`; `404`/`403` stay terminal.
+   */
+  async postRecallAnswer(
+    answer: RecallAnswerInput
+  ): Promise<CloudResult<RecallAnswerAck>> {
+    return this.request<RecallAnswerAck>(SYNC_RECALL_PATH, {
+      method: "POST",
+      auth: true,
+      body: answer,
+      retry: BATCH_RETRY,
+    });
+  }
+
+  /**
+   * Shared batch POST: bearer auth, gzip the body, and the `BATCH_RETRY`
+   * policy (retry `429`/`503` with `Retry-After`). Every `/ingest/*` and
+   * `/sync/*` method routes through here so they share one transport.
+   */
+  private postBatch<T = BatchAck>(
+    path: string,
+    body: unknown
+  ): Promise<CloudResult<T>> {
+    return this.request<T>(path, {
+      method: "POST",
+      auth: true,
+      gzip: true,
+      body,
+      retry: BATCH_RETRY,
+    });
+  }
+
+  /**
    * Low-level request. Public so device-flow can reuse the same fetch +
    * timeout + retry discipline for the unauthenticated device endpoints.
    *
@@ -267,14 +519,31 @@ export class CloudClient {
     if (opts.extraHeaders) {
       for (const [k, v] of Object.entries(opts.extraHeaders)) headers[k] = v;
     }
+    // Serialize the body, gzipping it for batch pushes that opt in. Small
+    // fleet/auth bodies stay plain JSON.
+    let payload: string | Uint8Array | undefined;
+    if (opts.body !== undefined) {
+      const json = JSON.stringify(opts.body);
+      if (opts.gzip) {
+        payload = gzipSync(Buffer.from(json));
+        headers["Content-Encoding"] = "gzip";
+      } else {
+        payload = json;
+      }
+    }
+    // `Uint8Array` (the gzip case) is a valid `fetch` body at runtime under
+    // Node's undici but isn't in the DOM `BodyInit` lib type — cast past it.
     const init: RequestInit = {
       method,
       headers,
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      body: payload as BodyInit | undefined,
     };
 
+    const maxAttempts = Math.max(1, opts.retry?.maxAttempts ?? MAX_RETRIES + 1);
+    const retryStatuses = opts.retry?.retryStatuses ?? [];
     let lastNetworkMessage = "Could not reach the unerr cloud.";
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const isLast = attempt === maxAttempts - 1;
       let res: Response;
       try {
         res = await fetch(url, {
@@ -283,10 +552,10 @@ export class CloudClient {
         });
       } catch (err) {
         // Network-level failure (offline, DNS, TLS, timeout/abort). Retry
-        // with backoff, then give up with a network result. Never include
-        // the token (it is only in headers, never in the message).
+        // with linear backoff, then give up with a network result. Never
+        // include the token (it is only in headers, never in the message).
         lastNetworkMessage = describeNetworkError(err);
-        if (attempt < MAX_RETRIES) {
+        if (!isLast) {
           await sleep(BACKOFF_BASE_MS * (attempt + 1));
           continue;
         }
@@ -298,11 +567,27 @@ export class CloudClient {
         };
       }
 
-      // We got an HTTP response — parse the body and return. No retry.
+      // A transient HTTP status the caller opted into (429/503) is retried with
+      // full-jitter backoff that honors `Retry-After`; every other status —
+      // success or terminal 4xx — is returned as-is, never retried.
+      if (!isLast && retryStatuses.includes(res.status)) {
+        const retryAfterMs = parseRetryAfter(res.headers.get("retry-after"));
+        const capMs = opts.retry?.capMs ?? RETRY_CAP_MS;
+        const baseMs = opts.retry?.baseMs ?? BACKOFF_BASE_MS;
+        const delay =
+          retryAfterMs !== undefined
+            ? Math.min(retryAfterMs, capMs)
+            : fullJitter(attempt, baseMs, capMs);
+        await sleep(delay);
+        continue;
+      }
+
+      // A response we won't retry — parse the body and return.
       return this.toResult<T>(res);
     }
 
-    // Unreachable (loop always returns), but satisfies the type checker.
+    // Unreachable (the last attempt always returns), but satisfies the type
+    // checker.
     return {
       ok: false,
       status: 0,
@@ -419,6 +704,38 @@ function describeNetworkError(err: unknown): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Parse a `Retry-After` header into milliseconds. The header is either a delay
+ * in whole seconds or an HTTP date; both are handled. Returns `undefined` when
+ * the header is absent or unparseable so the caller falls back to jittered
+ * backoff.
+ */
+export function parseRetryAfter(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+  if (trimmed === "") return undefined;
+  // A bare integer is a delay in seconds.
+  if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1000;
+  // Otherwise an HTTP date — convert to a delay from now, floored at 0.
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs)) return Math.max(0, dateMs - Date.now());
+  return undefined;
+}
+
+/**
+ * Full-jitter backoff (AWS "Exponential Backoff and Jitter"): a random delay in
+ * `[0, min(cap, base * 2^attempt)]`. The randomness spreads retries from many
+ * machines so a shared `503` doesn't resynchronize them into a thundering herd.
+ */
+export function fullJitter(
+  attempt: number,
+  baseMs: number,
+  capMs: number
+): number {
+  const ceiling = Math.min(capMs, baseMs * 2 ** attempt);
+  return Math.floor(Math.random() * ceiling);
 }
 
 /** Hostnames that are allowed to be reached over plain http:// (dev only). */

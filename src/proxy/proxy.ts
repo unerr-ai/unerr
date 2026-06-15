@@ -42,7 +42,6 @@ import { createReconDetector } from "../tracking/turn-telemetry.js";
 import { UNERR_VERSION } from "../version.js";
 import { aliasAndValidate } from "./arg-validator.js";
 import { PidLock } from "./pid-lock.js";
-import type { RouterTelemetryRecord } from "./router-telemetry.js";
 import {
   type SessionStats,
   createSessionStats,
@@ -214,7 +213,18 @@ async function handleUnerrRecallNotesProxy(
   args: Record<string, unknown>,
   unerrDir: string,
   behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter,
-  currentTurn?: number
+  currentTurn?: number,
+  // CROSS_REPO_INTELLIGENCE Sprint 7.1: optional federation hook. When provided
+  // (home proxy, Pro tier) it returns workspace-relevant notes held by peer
+  // repos for the prompt; they are merged after the home notes. Omitted on free
+  // tier / standalone proxy → home-only recall, unchanged.
+  federate?: (
+    prompt: string
+  ) => Promise<
+    import(
+      "../intelligence/federation/cross-repo-recall.js"
+    ).FederatedRecallResult
+  >
 ): Promise<{
   content: Array<{ type: string; text: string }>;
   isError?: boolean;
@@ -247,6 +257,26 @@ async function handleUnerrRecallNotesProxy(
       store,
       recallArgs as Parameters<typeof recallNotes>[1]
     );
+    // CROSS_REPO_INTELLIGENCE Sprint 7.1: federate. Append workspace-relevant
+    // notes held by peer repos (anchor-matched cross-repo references + their `w:`
+    // notes) after the home notes, labeled by repo. No-op on free tier / no
+    // coordinator (federate omitted) or when the call carries no prompt.
+    if (
+      federate &&
+      result.ok &&
+      result.data &&
+      typeof args.prompt === "string"
+    ) {
+      try {
+        const fed = await federate(args.prompt);
+        if (fed.notes.length > 0) {
+          const data = result.data as { notes?: unknown[] };
+          data.notes = [...(data.notes ?? []), ...fed.notes];
+        }
+      } catch {
+        /* federation is advisory — a fault never blocks the home recall */
+      }
+    }
     // Emit a fact_recalled behavior event carrying rich DSL fields from the
     // top returned note. Surface 2 reads these via
     // `renderContextPrefaceLive` → `renderLoadedNoteLine` so the preface can
@@ -556,7 +586,20 @@ async function handleRecallFactsProxy(
     ).PersistenceEffectivenessTracker;
     turn: number;
   },
-  behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter
+  behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter,
+  // CROSS_REPO_INTELLIGENCE Sprint 7.4: optional federation hook. When provided
+  // (home proxy, Pro tier) it returns workspace-relevant facts held by peer
+  // repos for the scope; they are merged after the home facts, labeled by repo.
+  // Omitted on free tier / standalone proxy → home-only recall, unchanged.
+  federate?: (
+    scope: string,
+    factType: string,
+    minConfidence: number
+  ) => Promise<
+    import(
+      "../intelligence/federation/cross-repo-fact-recall.js"
+    ).FederatedFactRecallResult
+  >
 ): Promise<{
   content: Array<{ type: string; text: string }>;
   _meta?: unknown;
@@ -669,6 +712,31 @@ async function handleRecallFactsProxy(
       if (needsConfirmation) base.needs_confirmation = true;
       return base;
     });
+
+    // CROSS_REPO_INTELLIGENCE Sprint 7.4: federate. Append workspace-relevant
+    // facts held by peer repos for this scope (entity/file-scoped facts; the
+    // peer's `project`-scoped facts are dropped peer-side) after the home facts,
+    // each labeled by repo. No-op on free tier / no coordinator (federate
+    // omitted) or when the call carries no scope.
+    if (federate && typeof scope === "string" && scope.length > 0) {
+      try {
+        const fed = await federate(scope, factType, minConfidence);
+        for (const f of fed.facts) {
+          response.push({
+            fact_id: f.fact_id,
+            type: f.fact_type,
+            content: f.content,
+            confidence: Math.round(f.effective_confidence * 100) / 100,
+            subject: f.subject,
+            source: f.source,
+            reinforced: f.reinforcement_count,
+            repo: f.repo,
+          });
+        }
+      } catch {
+        /* federation is advisory — a fault never blocks the home recall */
+      }
+    }
 
     const body: Record<string, unknown> = {
       facts: response,
@@ -1140,11 +1208,109 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   const { QueryRouter } = await import("../intelligence/query-router.js");
   const router = new QueryRouter(graphForRouter, ruleEvaluator);
   router.setMode(proxyMode, proxyModeReason);
-  // Layer 7: Wire event bus for dashboard SSE transport
-  const { eventBus } = await import("../server/event-bus.js");
-  router.setEventBus(eventBus);
   // Sprint 2: Wire session events for value counter (Task 2.7)
   router.setSessionEvents(stats.events);
+
+  // CROSS_REPO_INTELLIGENCE Sprint 3: wire the federation coordinator so
+  // `scope:'workspace'` and implicit cross-repo path routing can reach sibling
+  // repos. Peer discovery + ensure go back through the daemon over UDS; when no
+  // daemon is reachable (standalone proxy) the coordinator degrades to home-only.
+  // The pro-tier gate lives in the daemon's `peers` handler, so this is wired
+  // unconditionally — free tier gets a refusal, not a missing capability.
+  // Hoisted to function scope (not the block below) so the unerr/blast_radius
+  // control handler can federate the pre-edit cascade (Sprint 6.1).
+  let federationCoordinatorRef:
+    | import("../intelligence/federation/coordinator.js").FederationCoordinator
+    | null = null;
+  let monikerIndexRef:
+    | import("../intelligence/federation/moniker-index.js").MonikerIndex
+    | null = null;
+  // CROSS_REPO_INTELLIGENCE Sprint 6.3: assigned once the behavior writer exists
+  // (below); refreshMonikerIndex fires it after every index load/reindex so a
+  // peer that moved/renamed/deleted an exported symbol surfaces as dangling
+  // cross-repo references. Null until wired — the first load triggers it once.
+  let runCrossRepoDriftSweep: (() => void) | null = null;
+  // Sprint 6.4: live federated peer package names, refreshed by each drift sweep
+  // (its fan-out already learns every answering peer's package). Read synchronously
+  // by the unerr/blast_radius handler to flag a new import reaching into a sibling
+  // repo's internals — no per-edit fan-out. Empty until the first sweep answers.
+  const peerPackagesRef = new Set<string>();
+  {
+    const { createFederationCoordinator } = await import(
+      "../intelligence/federation/coordinator.js"
+    );
+    const {
+      daemonSockPath,
+      getPeers: getDaemonPeers,
+      ensureRepo,
+      isEnsureRepoRefused,
+    } = await import("../daemon/client.js");
+    const federationCoordinator = createFederationCoordinator({
+      getPeers: (homeRepo) => getDaemonPeers(daemonSockPath(), homeRepo),
+      ensurePeer: async (peer) => {
+        try {
+          const r = await ensureRepo(daemonSockPath(), peer.path);
+          return isEnsureRepoRefused(r) ? null : r.sock;
+        } catch {
+          return null;
+        }
+      },
+    });
+    federationCoordinatorRef = federationCoordinator;
+    router.setFederationCoordinator(federationCoordinator);
+  }
+
+  // CROSS_REPO_INTELLIGENCE Sprint 7.1: federated recall hook passed to the
+  // recall handler. Fans the prompt out to peers and returns their
+  // workspace-relevant notes (anchor-matched + `w:`). The coordinator enforces
+  // the Pro-tier gate (free → refusal → empty), so this is wired unconditionally;
+  // a standalone proxy with a null coordinator returns empty too.
+  const federateRecall = async (prompt: string) => {
+    const { federateRecallNotes } = await import(
+      "../intelligence/federation/cross-repo-recall.js"
+    );
+    return federateRecallNotes({
+      prompt,
+      coordinator: federationCoordinatorRef,
+      homeRepo: process.cwd(),
+    });
+  };
+  const federateFacts = async (
+    scope: string,
+    factType: string,
+    minConfidence: number
+  ) => {
+    const { federateRecallFacts } = await import(
+      "../intelligence/federation/cross-repo-fact-recall.js"
+    );
+    return federateRecallFacts({
+      scope,
+      factType,
+      minConfidence,
+      coordinator: federationCoordinatorRef,
+      homeRepo: process.cwd(),
+    });
+  };
+
+  // CROSS_REPO_INTELLIGENCE Sprint 4: load this repo's SCIP moniker index so
+  // cross-repo `get_references` can name the focus entity across a repo
+  // boundary and answer peers' `xref_by_moniker` lookups. Refreshed on every
+  // reindex (the orchestrator rewrites the artifact). Absent artifact (no SCIP
+  // / not yet indexed) → null, cross-repo references degrade to home-only.
+  const refreshMonikerIndex = async (): Promise<void> => {
+    try {
+      const { readMonikerIndex } = await import(
+        "../intelligence/federation/moniker-index.js"
+      );
+      const index = readMonikerIndex(process.cwd());
+      monikerIndexRef = index;
+      router.setMonikerIndex(index);
+      runCrossRepoDriftSweep?.();
+    } catch {
+      /* best-effort — a missing/corrupt artifact never breaks startup */
+    }
+  };
+  await refreshMonikerIndex();
 
   // Sprint S1: Wire output compression & quality loop
   const { createSessionDedup } = await import("./session-dedup.js");
@@ -1375,12 +1541,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     const { createIntentTokenTracker } = await import(
       "../tracking/intent-token-tracker.js"
     );
-    const { eventBus: intentEventBus } = await import("../server/event-bus.js");
-    const intentTracker = createIntentTokenTracker({
-      dashboardSink: (payload) => {
-        intentEventBus.emit("intent", payload);
-      },
-    });
+    const intentTracker = createIntentTokenTracker();
     router.setIntentTracker(intentTracker);
     log.info("Intent token tracker active");
   } catch {
@@ -1884,10 +2045,54 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     shadowLedger.getSessionId(),
     { turnProvider: sessionTurnProvider, agent: initialAgent }
   );
-  behaviorEventWriter.onRecord((event) => {
-    eventBus.emit("behavior_event", event);
-  });
   router.setBehaviorEvents(behaviorEventWriter);
+
+  // CROSS_REPO_INTELLIGENCE Sprint 6.3: wire the cross-repo drift sweep now that
+  // the behavior writer exists. Each call fans the batch `moniker_def` query out
+  // to peers (Pro tier; free refuses → no-op) and records a `cross_repo_drift`
+  // event when a referenced peer symbol no longer resolves. Fire-and-forget so a
+  // slow/unreachable peer never blocks startup or a reindex swap; refreshMonikerIndex
+  // invokes it after every index load. The initial load above ran before this
+  // assignment, so kick one sweep here to cover that first index.
+  runCrossRepoDriftSweep = () => {
+    void (async () => {
+      try {
+        const { detectCrossRepoDrift } = await import(
+          "../intelligence/federation/cross-repo-drift.js"
+        );
+        const drift = await detectCrossRepoDrift(
+          monikerIndexRef,
+          federationCoordinatorRef,
+          process.cwd()
+        );
+        // Sprint 6.4: cache the live sibling package set for the import-breach
+        // check. Replace wholesale so a peer that left the workspace drops out.
+        peerPackagesRef.clear();
+        for (const pkg of drift.peerPackages) peerPackagesRef.add(pkg);
+        if (drift.dangling.length === 0) return;
+        behaviorEventWriter.record({
+          session_id: behaviorEventWriter.sessionId,
+          type: "cross_repo_drift",
+          tool: null,
+          entity_key: null,
+          response_bytes: null,
+          detail: {
+            dangling: drift.dangling.length,
+            partial: drift.partial,
+            findings: drift.dangling.slice(0, 10).map((d) => ({
+              moniker: d.moniker,
+              package: d.package,
+              name: d.name,
+              sites: d.sites,
+            })),
+          },
+        });
+      } catch {
+        /* best-effort — a drift sweep never breaks the proxy */
+      }
+    })();
+  };
+  runCrossRepoDriftSweep();
 
   // Emit a single cross_session_resume event at boot when this proxy run
   // is resuming a prior session. Drives Surface 1 attribution + footer
@@ -1945,6 +2150,37 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       detail: { signature, first_occurrence: firstOccurrence },
     });
   });
+
+  // C3 line_survival_rollup producer. Daily, network-free git arithmetic
+  // counting (per author cohort × 30/90d window) lines authored vs lines
+  // still present in HEAD, written as behavior_events rows the cloud-push
+  // behavior drainer copies through the HR-2 firewall (counts/enums only).
+  // Same cadence/shape as the ST-6 ledger-archive job above.
+  const [{ computeAndRecordLineSurvival }, { openMetricsStore }] =
+    await Promise.all([
+      import("../tracking/line-survival.js"),
+      import("../tracking/metrics-store.js"),
+    ]);
+  const lineSurvivalIntervalMs = 24 * 60 * 60_000;
+  const runLineSurvival = () => {
+    void computeAndRecordLineSurvival({
+      cwd: process.cwd(),
+      sink: openMetricsStore(unerrDirForLedger),
+      sessionId: behaviorEventWriter.sessionId,
+      agent: initialAgent,
+    }).catch((err: unknown) => {
+      log.warn(
+        `Line-survival rollup failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    });
+  };
+  const lineSurvivalInterval = setInterval(
+    runLineSurvival,
+    lineSurvivalIntervalMs
+  );
+  // Fire once on boot so the first session contributes a rollup without
+  // waiting a full day. Best-effort and non-blocking.
+  runLineSurvival();
 
   // Persistent memory effectiveness tracker — emits verdict events when
   // fact/convention/resume injections close their observation window.
@@ -2254,7 +2490,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         args,
         unerrDirForLedger,
         behaviorEventWriter,
-        sessionTurnProvider()
+        sessionTurnProvider(),
+        federateRecall
       );
     }
 
@@ -2273,7 +2510,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             { prompt },
             unerrDirForLedger,
             behaviorEventWriter,
-            sessionTurnProvider()
+            sessionTurnProvider(),
+            federateRecall
           );
           const txt = res.content?.[0]?.text;
           if (!txt) return undefined;
@@ -2362,7 +2600,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
                   tracker: effectivenessTracker,
                   turn: router.sessionContext.getToolCallCount(),
                 },
-                behaviorEventWriter
+                behaviorEventWriter,
+                federateFacts
               );
       const { applyWireCap: applyWireCapFact } = await import("./wire-cap.js");
       const rawText = factResult.content?.[0]?.text;
@@ -2520,13 +2759,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       };
       const viols = checkResult.violations;
       if (viols && viols.length > 0) {
-        void import("../server/event-bus.js").then(({ eventBus }) => {
-          eventBus.emit("violation", {
-            source: "check_rules",
-            count: viols.length,
-            rules: viols.slice(0, 24).map((v) => v.ruleKey),
-          });
-        });
         for (let i = 0; i < viols.length; i++) {
           recordViolation(stats);
         }
@@ -2965,9 +3197,82 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const blastParams = message.params as
         | import("./blast-radius-protocol.js").BlastRadiusRequestParams
         | undefined;
-      const { handleBlastRadiusRequest, recordBlastRadiusTelemetry } =
-        await import("./blast-radius-protocol.js");
-      const result = await handleBlastRadiusRequest(graphRef, blastParams);
+      const {
+        handleBlastRadiusRequest,
+        recordBlastRadiusTelemetry,
+        BLAST_RADIUS_METHOD,
+        isBlastRadiusResult,
+      } = await import("./blast-radius-protocol.js");
+
+      // CROSS_REPO_INTELLIGENCE Sprint 6.2: route the gate to the owning peer
+      // when the edited file lives in a federated sibling repo. The home graph
+      // has none of the peer's entities, so a foreign-file edit would otherwise
+      // degrade to the static nudge; routeByPath sends the blast-radius
+      // computation to the repo that actually owns the file. Home-owned files
+      // (the common case) skip this and compute locally below.
+      let result:
+        | import("./blast-radius-protocol.js").BlastRadiusResult
+        | null = null;
+      const blastFilePath = blastParams?.file_path;
+      if (federationCoordinatorRef && blastFilePath) {
+        try {
+          const route = await federationCoordinatorRef.routeByPath({
+            homeRepo: process.cwd(),
+            toolName: BLAST_RADIUS_METHOD,
+            args: (blastParams ?? {}) as Record<string, unknown>,
+            filePath: blastFilePath,
+          });
+          if (route.routed && isBlastRadiusResult(route.result)) {
+            result = route.result;
+          }
+        } catch {
+          /* fall back to the home compute below */
+        }
+      }
+
+      // Home-owned (or unrouted) file: compute against the warm home graph, then
+      // CROSS_REPO_INTELLIGENCE Sprint 6.1 — federate the cascade. For each
+      // changed exported entity, count its callers in peer repos via the L2
+      // SCIP linker and attach them to the warning, so the pre-edit hook cites
+      // cross-repo callers. No-op on free tier / no coordinator / no moniker
+      // index — the local cascade still fires.
+      if (!result) {
+        result = await handleBlastRadiusRequest(graphRef, blastParams);
+        if (federationCoordinatorRef && result.warnings.length > 0) {
+          try {
+            const { augmentBlastRadiusWithPeers } = await import(
+              "../intelligence/federation/cross-repo-blast.js"
+            );
+            await augmentBlastRadiusWithPeers(result.warnings, {
+              monikerIndex: monikerIndexRef,
+              coordinator: federationCoordinatorRef,
+              homeRepo: process.cwd(),
+            });
+          } catch {
+            /* federation is advisory — never block the gate reply */
+          }
+        }
+        // Sprint 6.4: flag a NEW import in the home edit that reaches into a
+        // federated sibling's internals (not its package entry). Shaped as a
+        // BoundaryViolation so it rides the existing boundary nudge + telemetry.
+        // No-op until the first drift sweep has populated peerPackagesRef.
+        if (peerPackagesRef.size > 0 && blastParams?.new_content) {
+          try {
+            const { detectCrossRepoImportBreaches } = await import(
+              "../intelligence/federation/cross-repo-boundary.js"
+            );
+            const breaches = detectCrossRepoImportBreaches(
+              blastParams.file_path ?? "",
+              blastParams.new_content,
+              peerPackagesRef
+            );
+            if (breaches.length > 0)
+              result.boundary_violations.push(...breaches);
+          } catch {
+            /* federation is advisory — never block the gate reply */
+          }
+        }
+      }
 
       // Telemetry: surface the pre-edit guard firings so the dashboard's
       // behavior-event panes render them (mirrors the unerr/review_edit block
@@ -2999,7 +3304,35 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         | import("./review-protocol.js").ReviewEditRequestParams
         | undefined;
       const { handleReviewEditRequest } = await import("./review-protocol.js");
-      const result = await handleReviewEditRequest(graphRef, reviewParams);
+
+      // CROSS_REPO_INTELLIGENCE Sprint 8.2: route the post-edit review to the
+      // owning peer when the edited file lives in a federated sibling repo. The
+      // home graph has none of the peer's entities, so a foreign-file review
+      // would otherwise return clean/empty; routeByPath sends the review to the
+      // repo that actually owns the file. Home-owned files compute locally below.
+      let result: import("./review-protocol.js").ReviewEditResult | null = null;
+      const reviewFilePath = reviewParams?.file_path;
+      if (federationCoordinatorRef && reviewFilePath) {
+        try {
+          const { REVIEW_EDIT_METHOD, isReviewEditResult } = await import(
+            "./review-protocol.js"
+          );
+          const route = await federationCoordinatorRef.routeByPath({
+            homeRepo: process.cwd(),
+            toolName: REVIEW_EDIT_METHOD,
+            args: (reviewParams ?? {}) as Record<string, unknown>,
+            filePath: reviewFilePath,
+          });
+          if (route.routed && isReviewEditResult(route.result)) {
+            result = route.result;
+          }
+        } catch {
+          /* fall back to the home compute below */
+        }
+      }
+      if (!result) {
+        result = await handleReviewEditRequest(graphRef, reviewParams);
+      }
 
       // Telemetry: one behavior event per emission (not per finding) so the
       // close-out receipt can render a "flagged N review finding(s)" row.
@@ -3030,6 +3363,267 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       }
 
       return { jsonrpc: "2.0" as const, id: message.id, result };
+    }
+
+    // Control channel: cross-repo federation (CROSS_REPO_INTELLIGENCE Sprint 3).
+    // Another repo's proxy (the federation coordinator) connects, sends ONE
+    // frame naming a tool + args, reads ONE response, disconnects. Runs the RAW
+    // executor (no prose/signal assembly) against the warm in-process graph so
+    // results merge structurally on the home side. Mirrors `unerr/blast_radius`:
+    // a non-MCP method intercepted before the tool dispatch, no login/tier gate
+    // here (the calling proxy already enforced the workspace pro-gate; this is a
+    // same-machine same-user internal channel). The coordinator forces
+    // `scope:'repo'` on args, so a federated call can never re-federate.
+    if (message.method === "unerr/federated_call") {
+      const fedParams = message.params as
+        | { name?: string; arguments?: Record<string, unknown> }
+        | undefined;
+      const fedName = fedParams?.name;
+      if (!fedName) {
+        return {
+          jsonrpc: "2.0" as const,
+          id: message.id,
+          result: { content: null },
+        };
+      }
+      // CROSS_REPO_INTELLIGENCE Sprint 6.2: the owning-repo gate route. When the
+      // home proxy detects an edit to a file this peer owns, it federates the
+      // blast-radius computation here (not an MCP tool — `executeRaw` can't run
+      // it) so the cascade resolves against THIS repo's warm graph. Returns the
+      // BlastRadiusResult as `content`, matching the home handler's expectation.
+      const { BLAST_RADIUS_METHOD } = await import(
+        "./blast-radius-protocol.js"
+      );
+      if (fedName === BLAST_RADIUS_METHOD) {
+        try {
+          const graphRef = liveGraph;
+          const { handleBlastRadiusRequest } = await import(
+            "./blast-radius-protocol.js"
+          );
+          const content = await handleBlastRadiusRequest(
+            graphRef,
+            fedParams?.arguments as
+              | import("./blast-radius-protocol.js").BlastRadiusRequestParams
+              | undefined
+          );
+          return {
+            jsonrpc: "2.0" as const,
+            id: message.id,
+            result: { content },
+          };
+        } catch {
+          return {
+            jsonrpc: "2.0" as const,
+            id: message.id,
+            result: { content: null },
+          };
+        }
+      }
+      // CROSS_REPO_INTELLIGENCE Sprint 8.2: peer-side post-edit review executor.
+      // The home routes a foreign-file review here; this peer reruns the whole
+      // ReviewEngine against ITS warm graph (the file's owning repo) and returns
+      // the ReviewEditResult as `content`. Like blast-radius, this is a control
+      // method — `executeRaw` can't run it — so it gets its own special-case.
+      const { REVIEW_EDIT_METHOD } = await import("./review-protocol.js");
+      if (fedName === REVIEW_EDIT_METHOD) {
+        try {
+          const { handleReviewEditRequest } = await import(
+            "./review-protocol.js"
+          );
+          const content = await handleReviewEditRequest(
+            liveGraph,
+            fedParams?.arguments as
+              | import("./review-protocol.js").ReviewEditRequestParams
+              | undefined
+          );
+          return {
+            jsonrpc: "2.0" as const,
+            id: message.id,
+            result: { content },
+          };
+        } catch {
+          return {
+            jsonrpc: "2.0" as const,
+            id: message.id,
+            result: { content: null },
+          };
+        }
+      }
+      // CROSS_REPO_INTELLIGENCE Sprint 7.1: peer-side recall executor. The home
+      // proxy fans a prompt out here; this peer recalls its own anchored notes
+      // for the prompt — its prompt-matched own-entity/file notes PLUS its `w:`
+      // (workspace-wide) notes — and returns them. The home drops this peer's
+      // `p:` (project-scoped) notes; only workspace-relevant notes cross. Not an
+      // MCP tool, so it can't ride `executeRaw`.
+      const { RECALL_NOTES_PEER_METHOD } = await import(
+        "../intelligence/federation/cross-repo-recall.js"
+      );
+      if (fedName === RECALL_NOTES_PEER_METHOD) {
+        try {
+          const recallPrompt = (
+            fedParams?.arguments as { prompt?: unknown } | undefined
+          )?.prompt;
+          if (typeof recallPrompt !== "string" || recallPrompt.length === 0) {
+            return {
+              jsonrpc: "2.0" as const,
+              id: message.id,
+              result: { content: { notes: [] } },
+            };
+          }
+          const peerStore = await getProxyNotesStore(unerrDirForLedger);
+          if (!peerStore) {
+            return {
+              jsonrpc: "2.0" as const,
+              id: message.id,
+              result: { content: { notes: [] } },
+            };
+          }
+          const recalled = await peerStore.recallByPrompt({
+            prompt: recallPrompt,
+          });
+          return {
+            jsonrpc: "2.0" as const,
+            id: message.id,
+            result: { content: { notes: recalled.notes } },
+          };
+        } catch {
+          return {
+            jsonrpc: "2.0" as const,
+            id: message.id,
+            result: { content: { notes: [] } },
+          };
+        }
+      }
+      // CROSS_REPO_INTELLIGENCE Sprint 7.4: peer-side fact-recall executor. The
+      // home proxy fans a scope out here; this peer recalls its own temporal
+      // facts for the scope and returns them. The home drops this peer's
+      // `project`-scoped facts; only entity/file-scoped facts cross. Not an MCP
+      // tool, so it can't ride `executeRaw`.
+      const { RECALL_FACTS_PEER_METHOD } = await import(
+        "../intelligence/federation/cross-repo-fact-recall.js"
+      );
+      if (fedName === RECALL_FACTS_PEER_METHOD) {
+        try {
+          const fa = fedParams?.arguments as
+            | { scope?: unknown; fact_type?: unknown; min_confidence?: unknown }
+            | undefined;
+          const factScope = fa?.scope;
+          if (typeof factScope !== "string" || factScope.length === 0) {
+            return {
+              jsonrpc: "2.0" as const,
+              id: message.id,
+              result: { content: { facts: [] } },
+            };
+          }
+          const peerFactStore = await getProxyFactStore(unerrDirForLedger);
+          if (!peerFactStore) {
+            return {
+              jsonrpc: "2.0" as const,
+              id: message.id,
+              result: { content: { facts: [] } },
+            };
+          }
+          const minConf =
+            typeof fa?.min_confidence === "number" ? fa.min_confidence : 0.3;
+          const wantType =
+            typeof fa?.fact_type === "string" ? fa.fact_type : "all";
+          let peerFacts =
+            wantType === "negative"
+              ? await peerFactStore.recallNegative(minConf)
+              : await peerFactStore.recallByScope(factScope, minConf);
+          if (wantType !== "all" && wantType !== "negative") {
+            peerFacts = peerFacts.filter((f) => f.fact_type === wantType);
+          }
+          return {
+            jsonrpc: "2.0" as const,
+            id: message.id,
+            result: { content: { facts: peerFacts } },
+          };
+        } catch {
+          return {
+            jsonrpc: "2.0" as const,
+            id: message.id,
+            result: { content: { facts: [] } },
+          };
+        }
+      }
+      // CROSS_REPO_INTELLIGENCE Sprint 8.1: peer-side convention attach for a
+      // foreign-path file read/outline. The home routes the read here; this peer
+      // serves the content AND attaches its own conventions for the file (the
+      // home's `executeRaw` path can't compute them — it has none of this repo's
+      // graph). Returned as a {content, peer_conventions} wrapper the home
+      // unwraps. Conventions are best-effort: any fault returns the bare content.
+      const { PEER_CONVENTION_FILE_METHODS } = await import(
+        "../intelligence/federation/cross-repo-conventions.js"
+      );
+      if (PEER_CONVENTION_FILE_METHODS.has(fedName)) {
+        try {
+          const content = await router.executeRaw(
+            fedName,
+            fedParams?.arguments ?? {}
+          );
+          let peerConventions: Array<{
+            id: string;
+            name: string;
+            adherence_pct: number;
+            rule: string;
+          }> = [];
+          const fp = (
+            fedParams?.arguments as
+              | { file_path?: unknown; path?: unknown }
+              | undefined
+          )?.file_path;
+          const filePathArg = typeof fp === "string" ? fp : undefined;
+          if (liveGraph && filePathArg) {
+            try {
+              peerConventions = await liveGraph.getConventionsForEntity(
+                filePathArg,
+                3
+              );
+            } catch {
+              /* conventions are best-effort — serve content regardless */
+            }
+          }
+          return {
+            jsonrpc: "2.0" as const,
+            id: message.id,
+            result: { content: { content, peer_conventions: peerConventions } },
+          };
+        } catch (err: unknown) {
+          process.stderr.write(
+            `[unerr] unerr/federated_call(${fedName}) threw: ${
+              err instanceof Error ? err.message : String(err)
+            }\n`
+          );
+          return {
+            jsonrpc: "2.0" as const,
+            id: message.id,
+            result: { content: null },
+          };
+        }
+      }
+      try {
+        const content = await router.executeRaw(
+          fedName,
+          fedParams?.arguments ?? {}
+        );
+        return {
+          jsonrpc: "2.0" as const,
+          id: message.id,
+          result: { content },
+        };
+      } catch (err: unknown) {
+        process.stderr.write(
+          `[unerr] unerr/federated_call(${fedName}) threw: ${
+            err instanceof Error ? err.message : String(err)
+          }\n`
+        );
+        return {
+          jsonrpc: "2.0" as const,
+          id: message.id,
+          result: { content: null },
+        };
+      }
     }
 
     // MCP protocol: handle initialize handshake for bridged clients
@@ -3192,11 +3786,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // L9.4: Wire DriftTracker into QueryRouter for sync_local_diff overlay writes
       router.setDriftTracker(_driftTracker);
 
-      const { eventBus } = await import("../server/event-bus.js");
-      _driftTracker.setDriftEventSink((payload) => {
-        eventBus.emit("drift", payload);
-      });
-
       // L2.5: Swap-on-idle graph rebuild via GraphHolder.
       // DriftTracker notifies GraphHolder of file changes → idle timer → full rebuild
       // into a fresh CozoDB instance → atomic swap to all consumers.
@@ -3265,6 +3854,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // instance so hook-path cascade queries never hit the retired graph.
       graphHolder.onSwap((newGraph) => {
         liveGraph = newGraph;
+      });
+      // CROSS_REPO_INTELLIGENCE Sprint 4: a full reindex re-runs SCIP and
+      // rewrites `.unerr/scip/monikers.json`, so reload the moniker index on
+      // swap to keep cross-repo references current (cheap JSON read; a no-op
+      // for incremental swaps that didn't touch the artifact).
+      graphHolder.onSwap(() => {
+        void refreshMonikerIndex();
       });
 
       // NOTE: DriftTracker → GraphHolder notification intentionally NOT wired.
@@ -3985,228 +4581,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   };
   const statsSnapshotInterval = setInterval(writeStatsSnapshot, 10_000); // every 10s
 
-  // ── Step 7d: Layer 7 Dashboard HTTP Server ──────────────────────
-  // Non-blocking: runs after MCP is ready, failure doesn't affect proxy.
-  let dashboardHandle: { port: number; close: () => void } | null = null;
-  try {
-    const { startDashboardServer } = await import("../server/http.js");
-    const { detectIde: detectIdeDashboard } = await import(
-      "../utils/detect.js"
-    );
-    const ideType = await detectIdeDashboard(process.cwd());
-
-    const unerrDirForApi = join(process.cwd(), ".unerr");
-
-    // Phase 3 Sprint 11 — share TemporalFactStore across temporal + facts deps.
-    // Pre-built here so both routes use the same handle.
-    let sharedFactStore: Awaited<
-      ReturnType<
-        typeof import(
-          "../intelligence/temporal-facts.js"
-        )["TemporalFactStore"]["create"]
-      >
-    > | null = null;
-    try {
-      const { TemporalFactStore } = await import(
-        "../intelligence/temporal-facts.js"
-      );
-      sharedFactStore = await TemporalFactStore.create(process.cwd());
-    } catch {
-      sharedFactStore = null;
-    }
-
-    // P0-6: Wire the MCP router dashboard API from the live gateway +
-    // on-disk telemetry. Without these deps /api/router/* never mounts
-    // (createRouterRoutes is only added when opts.router is present), so
-    // every router page 404s and renders empty despite the gateway
-    // recording every dispatch to .unerr/router/metrics.jsonl.
-    const { aggregateSession, groupBySession } = await import(
-      "./router-session-metrics.js"
-    );
-    const { readRouterConfig } = await import(
-      "../config/router-config-writer.js"
-    );
-
-    dashboardHandle = await startDashboardServer({
-      system: {
-        stats,
-        cwd: process.cwd(),
-        dashboardPort: 0, // Resolved during port scan
-        startedAt: stats.sessionStartedAt,
-        ide: ideType,
-        getGraphStats: async () => {
-          if (!localGraph) return { entities: 0, edges: 0, rules: 0 };
-          const projectStats = await localGraph.getLocalProjectStats();
-          return {
-            entities: projectStats.entityCount,
-            edges: projectStats.edgeCount,
-            rules: projectStats.ruleCount,
-          };
-        },
-      },
-      intelligence: {
-        localGraph,
-        cwd: process.cwd(),
-        unerrDir: unerrDirForApi,
-        getRecentLedgerEntries: (limit) => shadowLedger.getRecentEntries(limit),
-        getHealthGrade: async () => {
-          if (healthResult) return healthResult;
-          if (!localGraph || proxyMode === "parse") return null;
-          try {
-            const { computeHealthGrade } = await import(
-              "../intelligence/health-grade.js"
-            );
-            return await computeHealthGrade(localGraph.db);
-          } catch {
-            return null;
-          }
-        },
-        getSignalStats: () => router.getSignalStats(),
-      },
-      session: {
-        stats,
-        getEfficiencySnapshot: () => router.getEfficiencySnapshot(),
-        getIntentGroups: () => router.getIntentGroups(),
-        getRecentLedgerEntries: (limit) => shadowLedger.getRecentEntries(limit),
-      },
-      stream: { stats },
-      stateDir,
-      apiOnly: !!opts.daemonChild,
-      tokenFlow: {
-        unerrDir: unerrDirForApi,
-        getTokenFlowWriter: () => tokenFlowWriter,
-        getAgentName: (_sessionId: string) => {
-          // Return most recent connected agent name (proxy has one active session)
-          const last = [...agentNameByClient.values()].pop();
-          return last ?? server.getClientVersion?.()?.name ?? undefined;
-        },
-      },
-      behaviorEvents: {
-        unerrDir: unerrDirForApi,
-        getBehaviorEventWriter: () => behaviorEventWriter,
-      },
-      guard: {
-        unerrDir: unerrDirForApi,
-      },
-      logbook: {
-        unerrDir: unerrDirForApi,
-        repoCwd: process.cwd(),
-        getAgentName: () => {
-          const last = [...agentNameByClient.values()].pop();
-          return last ?? server.getClientVersion?.()?.name ?? null;
-        },
-      },
-      facts: sharedFactStore
-        ? {
-            factStore: sharedFactStore,
-            getDirtyFiles: () => new Set<string>(),
-            emitEvent: (_type: string, _data: unknown) => {
-              // SSE event bus — wired to dashboard EventSource
-            },
-            // Same resolver the live fact injector uses, so the
-            // /injection-preview route reproduces injection selection
-            // exactly rather than reimplementing it.
-            getEntityKeysForFile: (filePath: string) =>
-              router.getEntityKeysForFile(filePath),
-          }
-        : undefined,
-      reasoningQuality: {
-        unerrDir: unerrDirForApi,
-        getTokenFlowWriter: () => tokenFlowWriter,
-        getAgentName: (_sessionId: string) => {
-          const last = [...agentNameByClient.values()].pop();
-          return last ?? server.getClientVersion?.()?.name ?? undefined;
-        },
-      },
-      promptTrace: {
-        unerrDir: unerrDirForApi,
-        repoCwd: process.cwd(),
-        getAgentName: (_sessionId: string) => {
-          const last = [...agentNameByClient.values()].pop();
-          return last ?? server.getClientVersion?.()?.name ?? undefined;
-        },
-      },
-      timeline: timelineHandle
-        ? {
-            store: timelineHandle.store,
-            getRecentLedgerEntries: (limit: number) =>
-              shadowLedger.getRecentEntries(limit),
-            // §5 — let /turns attach each turn's verbatim originating prompt
-            // (read-time redacted; null when capture_prompts is off).
-            getPromptsForSession: (sessionId: string) =>
-              getPromptsForSession(unerrDirForApi, sessionId),
-          }
-        : undefined,
-      temporal: await (async () => {
-        try {
-          const { readRecentSessionSummaries } = await import(
-            "../tracking/session-summary-writer.js"
-          );
-          if (!sharedFactStore) return undefined;
-          const factStore = sharedFactStore;
-          return {
-            factStore,
-            // Read recent sessions from `.unerr/metrics.db` (session_summaries)
-            // via the canonical reader. The old per-session
-            // `.unerr/sessions/*.jsonl` files were frozen at the SQLite
-            // migration, so reading them here showed stale session history.
-            loadRecentSessions: (limit: number) =>
-              readRecentSessionSummaries(unerrDirForApi, limit),
-            emitEvent: (_type: string, _data: unknown) => {
-              // SSE event bus — wired to dashboard EventSource
-            },
-          };
-        } catch {
-          return undefined;
-        }
-      })(),
-      router: {
-        // The gateway is active and recording telemetry, so the router is
-        // operating even before external MCP servers are consolidated.
-        // `proxiedServers` stays empty until `unerr enable mcp-router`
-        // rewrites IDE configs to route them through this endpoint.
-        getRouterConfig: () => {
-          const real = readRouterConfig(unerrDirForApi);
-          if (real) return real;
-          return {
-            version: 1 as const,
-            enabled: true,
-            enabledAt: new Date(
-              stats.sessionStartedAt ?? Date.now()
-            ).toISOString(),
-            proxiedServers: [],
-            rewrittenConfigs: [],
-          };
-        },
-        getSessionSummary: () => routerGateway.getSessionSummary(),
-        readAllRecords: () => routerGateway.getTelemetryRecorder().readAll(),
-        aggregateRecords: (records) =>
-          [...groupBySession(records).values()]
-            .map((recs) => aggregateSession(recs))
-            .filter((s): s is NonNullable<typeof s> => s !== null)
-            .sort((a, b) => b.lastCallTs.localeCompare(a.lastCallTs)),
-        groupRecords: (records) =>
-          groupBySession(records) as ReadonlyMap<
-            string,
-            RouterTelemetryRecord[]
-          >,
-        aggregateSingle: (records) => aggregateSession(records),
-      },
-    });
-
-    if (dashboardHandle) {
-      startupLog.dashboardReady(`http://127.0.0.1:${dashboardHandle.port}`);
-    }
-    if (opts.daemonChild && opts.onDaemonReady) {
-      opts.onDaemonReady({
-        sock: sockPath,
-        port: dashboardHandle?.port ?? null,
-      });
-    }
-  } catch (err: unknown) {
-    log.warn(
-      `Dashboard server failed: ${err instanceof Error ? err.message : String(err)}`
-    );
+  // ── Step 7d: Daemon readiness signal ────────────────────────────
+  // The local analytics dashboard (HTTP server + React SPA) was removed in
+  // L1 — the cloud dashboard is now the one analytics surface. We still tell
+  // the daemon the proxy is up so `pm status` / fleet reporting reflect it.
+  if (opts.daemonChild && opts.onDaemonReady) {
+    opts.onDaemonReady({ sock: sockPath, port: null });
   }
 
   // ── Step 8: Graceful Shutdown ────────────────────────────────────
@@ -4645,8 +5025,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       transportMux.stop();
       // Task 5.3: Stop HTTP transport
       httpTransportHandle?.close();
-      // Layer 7: Stop dashboard server
-      dashboardHandle?.close();
       // Persist a FINAL stats snapshot instead of deleting it. The next proxy
       // boot reads this file (detectSessionResume) to CONTINUE under the same
       // session id on a warm restart within SESSION_RESUME_ID_WINDOW_MS — if we
@@ -4689,6 +5067,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       }
       // ST-6: Stop daily ledger-archive interval.
       clearInterval(ledgerArchiveInterval);
+      // C3: Stop daily line-survival rollup interval.
+      clearInterval(lineSurvivalInterval);
       // ST-1c: Release timeline subsystem (no-op if disabled or never started)
       timelineHandle?.stop();
 

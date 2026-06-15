@@ -747,15 +747,6 @@ export const startupLog = {
     });
   },
 
-  /** Layer 7 — web dashboard is listening (127.0.0.1, same process as proxy) */
-  dashboardReady(url: string) {
-    write(`  ${SYM.brain} ${bold("Dashboard")} ${muted("—")} ${cyan(url)}`);
-    write(
-      `    ${muted("Tip:")} ${dim("unerr pm dashboard")} ${muted("opens this in your browser")}`
-    );
-    writeToFile("dashboard_ready", "Dashboard ready", { url });
-  },
-
   /**
    * Buffer all subsequent startup-log writes until resume() is called.
    * Used to keep interactive prompts (e.g. SCIP build-tool picker) free of

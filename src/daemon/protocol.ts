@@ -47,6 +47,18 @@ export interface RepoSettings {
   idleTimeout?: number;
   javaBuildTool?: JavaBuildTool;
   autostart?: "eager" | "auto" | "never";
+  /**
+   * Cross-repo federation opt-out. When `false`, this repo never appears in
+   * another repo's workspace-scoped results. Absent ⇒ true (federate). Only
+   * consulted on pro/enterprise tiers — free never federates regardless.
+   */
+  federate?: boolean;
+  /**
+   * Set when the daemon lazy-added this repo because an agent referenced its
+   * path mid-session (it was on disk but not explicitly `unerr add`-ed). Lets a
+   * later sweep distinguish auto-added entries from user-registered ones.
+   */
+  ephemeral?: boolean;
   [key: string]: string | number | boolean | undefined;
 }
 
@@ -141,6 +153,20 @@ export interface EntitlementsRequest {
   cmd: "entitlements";
 }
 
+/**
+ * Ask the daemon which other registered repos the home repo may federate with
+ * (cross-repo intelligence). Returns peers minus the home repo, minus any repo
+ * that opted out (`settings.federate === false`). Pro/enterprise only — the
+ * daemon refuses on free with `workspace_pro_only`. Discovery only: the daemon
+ * does not spawn sleeping peers here (the coordinator ensures each peer it
+ * actually queries), so this stays cheap and avoids a spawn storm.
+ */
+export interface PeersRequest {
+  cmd: "peers";
+  /** Absolute path of the repo making the request; excluded from the result. */
+  homeRepo: string;
+}
+
 export type DaemonRequest =
   | EnsureRequest
   | ConnectRequest
@@ -153,7 +179,8 @@ export type DaemonRequest =
   | ShutdownRequest
   | DashboardStateRequest
   | RepoDetailRequest
-  | EntitlementsRequest;
+  | EntitlementsRequest
+  | PeersRequest;
 
 // ── unerrd → client responses ───────────────────────────────────
 
@@ -231,13 +258,47 @@ export interface EntitlementsOkResponse {
   reconnect_by?: string;
 }
 
+/** One federatable peer repo the home repo may query cross-repo. */
+export interface PeerEntry {
+  /** Stable cross-machine id (git-origin hash, or path hash for remote-less). */
+  repoId: string;
+  /** Human label from the registry. */
+  label: string;
+  /** Absolute path on this machine. */
+  path: string;
+  /** Peer proxy UDS socket when already running; empty string when asleep. */
+  sock: string;
+  /** True when the peer proxy is live now (sock is connectable). */
+  running: boolean;
+}
+
+export interface PeersOkResponse {
+  ok: true;
+  peers: PeerEntry[];
+}
+
+/**
+ * The daemon refused a `peers` request because cross-repo federation is a
+ * pro/enterprise feature and the active plan is free. Distinct from
+ * `ErrorResponse` so the proxy can degrade to home-only and surface a clean
+ * upgrade nudge instead of a generic error.
+ */
+export interface WorkspaceRefusedResponse {
+  ok: false;
+  refused: "workspace_pro_only";
+  /** Human-facing message naming the upgrade path. */
+  message: string;
+}
+
 export type DaemonResponse =
   | OkResponse
   | EnsureOkResponse
   | EnsureRefusedResponse
   | ErrorResponse
   | StatusOkResponse
-  | EntitlementsOkResponse;
+  | EntitlementsOkResponse
+  | PeersOkResponse
+  | WorkspaceRefusedResponse;
 
 // ── IPC: unerrd ↔ child repo process (Node.js process.send) ────
 

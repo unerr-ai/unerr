@@ -197,7 +197,7 @@ Wire format: `kind|anchor|polarity|content`
 | Field | Values | Notes |
 |---|---|---|
 | kind | cnv (convention), rul (rule), wrn (warn), dec (decision), blk (blocker), fct (fact) | Pick the strongest fit. |
-| anchor | f:<path> · e:<entity> · g:<glob> · p: | `p:` is project-wide. **Discouraged** — pollutes prompt-receipt query. Prefer file/entity. |
+| anchor | f:<path> · e:<entity> · g:<glob> · p: · w: | `p:` is project-wide, `w:` is workspace-wide (every repo in a Pro federation). Both empty-valued; both **discouraged** — they pollute the prompt-receipt query. Prefer file/entity. |
 | polarity | + (do) / - (don't) / ~ (mixed) | `~` for ambiguous; future agent surfaces both sides. |
 | content | single line of prose | May contain `|` — only the first three are field separators. |
 

@@ -25,7 +25,10 @@ import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import { CloudClient } from "../cloud/client.js";
 import {
+  PERSONAL_SCOPE_MESSAGE,
+  isPersonalScope,
   readTeamConventions,
+  scopeFromEntitlements,
   syncConventions,
   writeTeamConventions,
 } from "../cloud/conventions-sync.js";
@@ -151,6 +154,20 @@ export function registerConventionsCommand(program: Command): void {
         apiUrl: creds.api_url,
         token: creds.token,
       });
+
+      // B6: a personal-scope token cannot own a shared conventions document —
+      // the server answers PUT with `400 scope_unsupported`. Skip the PUT
+      // before any write so a solo account gets a plain explanation, not an
+      // error. An unknown scope (older server) falls through and the server is
+      // the backstop. Entitlement-fetch failure also falls through.
+      const ent = await client.getEntitlements();
+      const scope = scopeFromEntitlements(ent.ok ? ent.data : null);
+      if (isPersonalScope(scope)) {
+        out("");
+        out(`  ${PERSONAL_SCOPE_MESSAGE}`);
+        out("");
+        return;
+      }
 
       // Send the last-seen version for the optimistic lock. Absent when we
       // have never pulled (the server then treats it as a fresh write).

@@ -124,6 +124,10 @@ function anchorPhrase(
       // Project-wide anchors — the DSL discourages them and the "for"
       // phrase reads as filler ("for the project"). Omit entirely.
       return "";
+    case "w":
+      // Workspace-wide anchors (Sprint 7.2) span every repo in the workspace —
+      // surface that so the user knows the rule is cross-repo, not repo-local.
+      return "(workspace-wide)";
   }
 }
 

@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { parseExecCommandLine, runExecMain } from "../commands/exec.js";
 import { mergePreToolUseBashHook } from "../config/claude-settings-hooks.js";
 import { runPreBashHook } from "../hooks/shell-hooks.js";
@@ -71,6 +71,23 @@ describe("parseExecCommandLine", () => {
 });
 
 describe("runExecMain", () => {
+  // Force a minimal POSIX shell for the spawn. Production reads `$SHELL` so
+  // nvm/fnm load, but the dev's real `$SHELL` (zsh with a heavy profile) sources
+  // nvm/fnm/zshrc on every `-lc` spawn, which under the parallel forks pool is
+  // both slow (overran the 5s default) and non-deterministic. `/bin/sh -lc`
+  // sources only a minimal profile, so the spawn is fast and the parse-error
+  // path is exercised identically (sh emits "syntax error"/"unexpected EOF",
+  // which isShellParseError and the assertion both match). Restored after so no
+  // sibling test inherits the override.
+  const realShell = process.env.SHELL;
+  beforeAll(() => {
+    process.env.SHELL = "/bin/sh";
+  });
+  afterAll(() => {
+    if (realShell === undefined) Reflect.deleteProperty(process.env, "SHELL");
+    else process.env.SHELL = realShell;
+  });
+
   it("runs echo via bash -lc", async () => {
     const spy = vi
       .spyOn(process.stdout, "write")

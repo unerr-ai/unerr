@@ -3,7 +3,7 @@
  *
  * Wire format: kind|anchor|polarity|content
  *   kind     — cnv|rul|wrn|dec|blk|fct
- *   anchor   — f:<path> | e:<entity> | g:<glob> | p:
+ *   anchor   — f:<path> | e:<entity> | g:<glob> | p: | w:
  *   polarity — + (do) | - (don't) | ~ (mixed)
  *   content  — single-line prose; may contain '|' characters
  *
@@ -12,7 +12,7 @@
  */
 
 export type NoteKind = "cnv" | "rul" | "wrn" | "dec" | "blk" | "fct";
-export type NoteAnchorType = "f" | "e" | "g" | "p";
+export type NoteAnchorType = "f" | "e" | "g" | "p" | "w";
 export type NotePolarity = "+" | "-" | "~";
 
 export interface ParsedNote {
@@ -36,6 +36,14 @@ const VALID_ANCHOR_TYPES: ReadonlySet<NoteAnchorType> = new Set([
   "e",
   "g",
   "p",
+  "w",
+]);
+
+/** Anchor types whose value is empty by design: `p:` (project-wide) and `w:`
+ *  (workspace-wide, CROSS_REPO_INTELLIGENCE Sprint 7.2). All others require a value. */
+const EMPTY_VALUE_ANCHOR_TYPES: ReadonlySet<NoteAnchorType> = new Set([
+  "p",
+  "w",
 ]);
 const VALID_POLARITIES: ReadonlySet<NotePolarity> = new Set(["+", "-", "~"]);
 
@@ -102,8 +110,8 @@ function parseAnchor(s: string): {
     throw new NoteDslError(`invalid anchor_type '${s[0]}'`, "anchor");
   }
   const anchor_value = s.slice(2);
-  // Project-wide anchor 'p:' has empty value; all others require one.
-  if (anchor_type !== "p" && anchor_value.length === 0) {
+  // 'p:' (project) and 'w:' (workspace) have empty values; all others require one.
+  if (!EMPTY_VALUE_ANCHOR_TYPES.has(anchor_type) && anchor_value.length === 0) {
     throw new NoteDslError(`anchor required (got '${s}')`, "anchor");
   }
   return { anchor_type, anchor_value };
@@ -123,7 +131,10 @@ export function serializeNote(note: ParsedNote): string {
   if (!VALID_POLARITIES.has(note.polarity)) {
     throw new NoteDslError(`invalid polarity '${note.polarity}'`, "polarity");
   }
-  if (note.anchor_type !== "p" && note.anchor_value.length === 0) {
+  if (
+    !EMPTY_VALUE_ANCHOR_TYPES.has(note.anchor_type) &&
+    note.anchor_value.length === 0
+  ) {
     throw new NoteDslError("anchor required", "anchor");
   }
   if (note.content.trim().length === 0) {

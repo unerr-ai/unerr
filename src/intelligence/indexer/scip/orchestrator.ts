@@ -25,8 +25,16 @@ import {
 import { join } from "node:path";
 import { exec } from "../../../utils/exec.js";
 import { createModuleLogger } from "../../../utils/logger.js";
+import {
+  buildMonikerIndex,
+  writeMonikerIndex,
+} from "../../federation/moniker-index.js";
 import type { IndexedEdge } from "../plugin-interface.js";
-import { type ScipDecodeResult, decodeScipOutput } from "./decoder.js";
+import {
+  type ScipDecodeResult,
+  type ScipDocument,
+  decodeScipOutput,
+} from "./decoder.js";
 import {
   type ScipBinaryInfo,
   detectProjectLanguages,
@@ -89,6 +97,9 @@ export async function enrichWithScip(
   let lastMergeResult: MergeResult | null = null;
   let anySucceeded = false;
   const processedLanguages: string[] = [];
+  // Sprint 4: accumulate decoded occurrences across all languages so the
+  // cross-repo moniker index is built once, from the full symbol surface.
+  const allScipDocuments: ScipDocument[] = [];
 
   for (const { language, fileCount } of languages) {
     // Step 2: Resolve SCIP binary
@@ -206,6 +217,7 @@ export async function enrichWithScip(
     // Step 5: Decode protobuf output
     const decodeResult = await decodeScipOutput(runResult.outputPath);
     lastDecodeResult = decodeResult;
+    allScipDocuments.push(...decodeResult.documents);
 
     // Step 6: Merge with current edges (accumulates across languages)
     const indexedEdges: IndexedEdge[] = currentEdges.map((e) => ({
@@ -247,6 +259,36 @@ export async function enrichWithScip(
     );
   }
 
+  // Sprint 4: persist the cross-repo moniker index (best-effort; a failure
+  // here never blocks indexing). Needs entity data to resolve definitions to
+  // graph keys, and a package name to tell own-exports from foreign references.
+  if (entities && allScipDocuments.length > 0) {
+    try {
+      const ownPackage = readOwnPackageName(projectRoot);
+      if (ownPackage) {
+        const monikerIndex = buildMonikerIndex(
+          {
+            documents: allScipDocuments,
+            symbolCount: 0,
+            definitionCount: 0,
+            referenceCount: 0,
+            durationMs: 0,
+          },
+          entities,
+          ownPackage
+        );
+        writeMonikerIndex(projectRoot, monikerIndex);
+        log.info(
+          `SCIP moniker index: ${Object.keys(monikerIndex.defs).length} exports, ${Object.keys(monikerIndex.refs).length} cross-package refs (package "${ownPackage}")`
+        );
+      }
+    } catch (err) {
+      log.warn(
+        `SCIP moniker index skipped: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
   return {
     language: processedLanguages.join("+"),
     binaryAvailable: true,
@@ -258,6 +300,21 @@ export async function enrichWithScip(
     skipped: false,
     skipReason: null,
   };
+}
+
+/**
+ * Read the npm package name from a repo's package.json — the package qualifier
+ * the moniker index uses to tell own-exports from foreign references. Null when
+ * absent or unreadable (the index is then skipped, never errored).
+ */
+function readOwnPackageName(projectRoot: string): string | null {
+  try {
+    const raw = readFileSync(join(projectRoot, "package.json"), "utf-8");
+    const name = (JSON.parse(raw) as { name?: unknown }).name;
+    return typeof name === "string" && name.length > 0 ? name : null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Java Build Tool Detection ─────────────────────────────────────

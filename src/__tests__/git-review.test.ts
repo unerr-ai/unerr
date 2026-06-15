@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { simpleGit } from "simple-git";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CozoGraphStore,
   LocalEntity,
@@ -52,6 +52,12 @@ function entity(over: Partial<LocalEntity> & { key: string }): LocalEntity {
     ...over,
   };
 }
+
+// The "(real git)" describe blocks shell out to real `git` via simple-git
+// (init/add/commit across temp repos). Under the parallel forks pool that
+// subprocess contention legitimately overruns vitest's 5s default, so widen
+// the test and hook budgets for this file.
+vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 
 describe("isReviewableFile", () => {
   it("accepts code extensions and rejects everything else", () => {

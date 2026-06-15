@@ -310,6 +310,30 @@ describe("recordBlastRadiusTelemetry", () => {
     ]);
   });
 
+  it("carries the cross-repo caller rollup into the cascade_guard firing (Sprint 6.1/6.4)", async () => {
+    const result = await handleBlastRadiusRequest(fakeGraph(twoCallers), {
+      file_path: "src/pay.ts",
+      old_content: "function pay(a)",
+      new_content: "function pay(a, b)",
+    });
+    // Simulate augmentBlastRadiusWithPeers having attached peer callers.
+    result.warnings[0]!.cross_repo = {
+      total_peer_callers: 4,
+      peers: [
+        { repoId: "web", label: "web", callers: 3 },
+        { repoId: "api", label: "api", callers: 1 },
+      ],
+    };
+    const sink = fakeSink();
+    recordBlastRadiusTelemetry(sink, result, "src/pay.ts");
+
+    const firings = sink.records[0]!.detail.firings as Array<{
+      cross_repo?: { total_peer_callers: number; peers: unknown[] };
+    }>;
+    expect(firings[0]!.cross_repo?.total_peer_callers).toBe(4);
+    expect(firings[0]!.cross_repo?.peers).toHaveLength(2);
+  });
+
   it("records boundary_violation_flagged with target layers when a boundary crossing fires", async () => {
     const projectRoot = "/home/alice/proj";
     const result = await handleBlastRadiusRequest(

@@ -39,6 +39,11 @@ describe("instruction-writer", () => {
       expect(content).toContain("search_code");
       expect(content).toContain("fetch_url");
       expect(content).toContain("Built-in WebFetch");
+      // CROSS_REPO_INTELLIGENCE: installed instructions must surface the
+      // workspace (Pro) scope so the agent discovers cross-repo search/routing
+      // at the prose level, not only from the tool schema.
+      expect(content).toContain("scope:'workspace'");
+      expect(content).toContain("Workspace scope (Pro)");
     });
 
     it("appends to existing CLAUDE.md without sentinel", () => {

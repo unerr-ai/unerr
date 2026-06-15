@@ -42,6 +42,21 @@ export const CACHE_REF_PROP = {
     "Reversible-cache hash from a prior `ur|cache-ref` marker. When set, return the withheld slice via offset/limit from the local cache (~1ms) instead of recomputing the whole payload. On a cache miss the tool recomputes normally.",
 } as const;
 
+/**
+ * Shared input-schema property for cross-repo scope. `'repo'` (default) answers
+ * from the current repo only; `'workspace'` fans the query out to the other
+ * unerr repos on this machine and merges, each result labeled with its repo.
+ * Pro/enterprise only — on free tier `'workspace'` degrades to the home repo
+ * plus a one-line upgrade nudge (the call never errors).
+ */
+export const SCOPE_PROP = {
+  type: "string",
+  enum: ["repo", "workspace"],
+  description:
+    "Search scope: 'repo' (default, current repo only) or 'workspace' (all your unerr repos on this machine, results labeled by repo). Workspace is a Pro feature — free tier returns the current repo plus an upgrade nudge.",
+  default: "repo",
+} as const;
+
 interface ToolSchema {
   readonly inputSchema: {
     readonly type: "object";
@@ -102,6 +117,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           enum: ["function", "class", "type", "variable"],
           description: "Detail mode: optional entity kind filter.",
         },
+        scope: SCOPE_PROP,
         cache_ref: CACHE_REF_PROP,
         token_budget: TOKEN_BUDGET_PROP,
       },
@@ -139,6 +155,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           description:
             "Force the flat large-sweep digest render (entities grouped by file, callers collapsed to a count). Auto-enabled when the task classifies as a large sweep.",
         },
+        scope: SCOPE_PROP,
       },
       required: ["prompt"],
     },
@@ -230,6 +247,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           description:
             "Read intent: 'explore' (default, budget-capped) or 'reference' (entity/offset only, tight budget).",
         },
+        scope: SCOPE_PROP,
         cache_ref: CACHE_REF_PROP,
         token_budget: TOKEN_BUDGET_PROP,
       },
@@ -269,6 +287,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           description: "Max references to return (default 25).",
           default: 25,
         },
+        scope: SCOPE_PROP,
         cache_ref: CACHE_REF_PROP,
         token_budget: TOKEN_BUDGET_PROP,
       },

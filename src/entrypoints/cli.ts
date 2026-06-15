@@ -20,6 +20,7 @@ import {
 import { registerCheckCommitCommand } from "../commands/check-commit.js";
 import { registerCompressOutputCommand } from "../commands/compress-output.js";
 import { registerConventionsCommand } from "../commands/conventions.js";
+import { registerDashboardCommand } from "../commands/dashboard.js";
 import {
   registerDoctorCommand,
   verifyUnerrOnPath,
@@ -1511,9 +1512,8 @@ async function discoverWithRetry(
       if (acquired) {
         try {
           await spawnProcessManager();
-          const { daemonDashboardUrl } = await import("../daemon/protocol.js");
           process.stderr.write(
-            `unerr| started process manager. Dashboard: ${daemonDashboardUrl()}\n`
+            "unerr| started process manager. Dashboard: run `unerr dashboard` (cloud)\n"
           );
           process.stderr.write(
             "unerr| to stop: unerr pm stop  (idle exit after 30 min)\n"
@@ -1668,6 +1668,7 @@ registerLoginCommand(program);
 registerLogoutCommand(program);
 registerWhoamiCommand(program);
 registerConventionsCommand(program);
+registerDashboardCommand(program);
 
 // ── Hidden Commands (callable but not shown in --help) ──────
 

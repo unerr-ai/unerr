@@ -89,6 +89,19 @@ const EMPTY_RESULT: ReviewEditResult = {
 };
 
 /**
+ * Structural guard for a {@link ReviewEditResult} arriving over the wire —
+ * CROSS_REPO_INTELLIGENCE Sprint 8.2 routes a foreign-file post-edit review to
+ * the owning peer, whose reply is untyped `unknown`. Validates the findings
+ * array + the clean flag so a malformed/partial peer reply degrades to a home
+ * compute instead of being trusted blindly.
+ */
+export function isReviewEditResult(value: unknown): value is ReviewEditResult {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return Array.isArray(v.findings) && typeof v.clean === "boolean";
+}
+
+/**
  * Run the review engine over a single in-flight edit against the warm graph.
  *
  * L0 change extraction for one edit: the touched file becomes one `ChangeFile`,
