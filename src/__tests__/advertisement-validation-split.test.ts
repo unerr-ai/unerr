@@ -69,25 +69,28 @@ describe("pure selectors: selectAdvertised / selectHidden", () => {
 
 describe("real catalog: advertisement is identical for every agent (caps machinery removed)", () => {
   // The per-agent "caps" advertisement machinery (HookCapProfile-aware hidden
-  // sets) was DELETED. Advertisement is now identical for all agents: all 7
-  // tools advertised, none hidden. The 7 advertised tools are the entire
+  // sets) was DELETED. Advertisement is now identical for all agents: all 9
+  // tools advertised, none hidden. The 9 advertised tools are the entire
   // catalog — advertised === full set, hidden === []. (unerr_remember left
   // the catalog 2026-06: its write paths ride hooks — UserPromptSubmit
   // capture + the `unerr-save:` Stop-hook sentinel — and the hook clients
   // dispatch it by name over UDS. get_entity merged into
-  // search_code({detail:true}) 2026-06; its executor stays by-name only.)
-  const ADVERTISED_SEVEN = [
+  // search_code({detail:true}) 2026-06; its executor stays by-name only.
+  // file_edit + file_write added 2026-06: unerr-owned edit path, both tier 1.)
+  const ADVERTISED_NINE = [
     "fetch_url",
+    "file_edit",
     "file_outline",
     "file_read",
+    "file_write",
     "get_references",
     "search_code",
     "unerr_context",
     "unerr_track",
   ];
 
-  it("advertisedToolNames returns exactly the seven advertised tools", () => {
-    expect([...advertisedToolNames()].sort()).toEqual(ADVERTISED_SEVEN);
+  it("advertisedToolNames returns exactly the nine advertised tools", () => {
+    expect([...advertisedToolNames()].sort()).toEqual(ADVERTISED_NINE);
   });
 
   it("unerr_remember is not advertised and not a catalog member", () => {

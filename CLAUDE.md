@@ -48,12 +48,13 @@ Args:
 
 When the MCP transport is unavailable (or from a Task subagent), the same bundle is one Bash call away: `unerr recon "<task>" [--budget N] [--digest] [--json]` — no MCP discovery hop.
 
-### Tool surface — seven tools, always on
+### Tool surface — nine tools, always on
 
 Every unerr tool is advertised from the start: `unerr_context`
 (the one-shot recon composite — reach for it first), `search_code`,
-`file_read`, `file_outline`, `get_references`, `fetch_url`,
-`unerr_track`. There is no hidden roster to earn.
+`file_read`, `file_outline`, `file_edit`, `file_write`,
+`get_references`, `fetch_url`, `unerr_track`. There is no hidden
+roster to earn.
 (File imports: `file_outline` returns an `imports` field;
 `search_code({query:'<name>', want:['imports']})` returns them for one entity's file.
 Persistence is NOT a tool call: user-stated rules are captured automatically
@@ -66,9 +67,9 @@ closing-message sentinel — see Session markers below.)
 |---|---|---|
 | Find a function, class, or type | `search_code` | Grep, Glob |
 | Find callers or callees (REQUIRED before a signature edit) | `get_references({direction:'callers'})` | Grep for function name |
-| Understand a file | `file_read` with `purpose:'explore'` | Built-in Read for understanding (full-file code reads are blocked) |
+| Understand a file | `file_read` with `purpose:'explore'` | Built-in Read for understanding (full-file code reads are discouraged) |
 | Understand the task (notes + verbatim focus bodies + blast radius + conventions) | `unerr_context({prompt:"<task>", response_format:'detailed'})` — one call replaces the discovery fan-out | 3–4 separate reads/searches |
-| Understand a file before editing | `file_read`/`unerr_context` to understand, then built-in `Read` (offset/limit on the edit window) before Edit | Full-file read (now blocked) |
+| Change a file | `file_edit` (exact string replace) / `file_write` (whole file) — no built-in Read needed first | built-in Edit/Write + a mandatory pre-Read |
 | File structure overview | `file_outline` | Reading the whole file |
 | Specific function or class | `search_code` with `detail:true` (add `include_body:true` for full source, `want:['callers','callees','imports']` for references) | Reading entire file |
 | Fetch a web page or docs by URL | `fetch_url` | Built-in WebFetch |
@@ -77,21 +78,20 @@ For any URL you already have, call `fetch_url({url:"<url>"})` — never built-in
 
 Editing a function/class signature is gated: when unerr's graph confirms callers at risk, the first `Edit` is DENIED once with the exact caller count — run `get_references({key:'<entity>', direction:'callers'})`, update every caller in the same change, then re-attempt the Edit (it proceeds). The deny only fires when real callers exist, so a leaf-function edit is never blocked.
 
-### IMPORTANT: Read Routing is ENFORCED (Claude Code specific)
+### Editing — route through file_edit / file_write
 
-**Why this matters:** Claude Code's Edit/Write require built-in `Read` to have run on the file first — a file-level + mtime gate. `file_read` (unerr MCP) does NOT satisfy that gate; only the built-in `Read` tool flips Claude Code's internal read-tracking. But a built-in Read of a whole file misses the conventions, facts, and drift that `file_read` auto-injects, and re-bills the entire file on every hop. The two reads do different jobs, and the PreToolUse hook now ENFORCES the split.
+unerr ships its own edit path, so you never need a built-in `Read` before changing a file:
 
-**The rule — built-in Read does exactly ONE job: the pre-Edit gate.**
+- `file_edit({file_path, old_string, new_string})` — exact string replacement. `old_string` must be unique (add surrounding context) unless `replace_all:true`. Pass `base_hash` (from the `file_read` you based the edit on) to reject the edit if the file changed since.
+- `file_write({file_path, content})` — create a file, or overwrite a whole one (encoding + line ending preserved). Use `file_edit` to change part of an existing file.
 
-| Intent | Tool | Enforcement |
-|--------|------|-------------|
-| Read to understand code | `file_read({file_path:"…"})` — or `unerr_context({prompt:"<task>"})` for task-scoped recon | A full-file built-in Read of a **code** file is DENIED and redirected here (deny-once, then nudge — same as WebFetch→fetch_url) |
-| Read immediately before Edit | built-in `Read` with **offset/limit** on the exact edit window | ALLOWED silently — one targeted call returns the byte-exact `old_string` lines AND satisfies the gate |
-| Read a non-code file (md/json/yaml/image) | built-in `Read` | ALLOWED silently — `file_read`'s graph value is code-specific |
+These run in the unerr process, so a prior built-in `Read` is NOT required — skip it. The signature / blast-radius gate still applies: a signature change with callers at risk denies the first `file_edit` once — run `get_references`, update every caller, then re-attempt (it proceeds).
 
-**Token-minimal pre-Edit (do this):** if you already understood the file via `file_read`/`unerr_context`, your pre-Edit step is a single built-in `Read({file_path, offset, limit})` scoped to ONLY the lines you will edit — that one cheap call returns the exact `old_string` AND unlocks Edit. Never full-file Read to set up an edit.
+Full-file built-in `Read` of a **code** file stays discouraged — it re-bills the whole file on every later turn. Route understanding through `file_read` / `unerr_context`. Read the entire file only when you genuinely need all of it (a true whole-file rewrite, or content that doesn't localize to a window); the redirect fires once per file, so re-issuing the same full read proceeds. Non-code files (md/json/yaml/images) read normally with built-in `Read`.
 
-**Common failure mode:** using `file_read` to understand, then Edit with no built-in Read → Edit rejects with "File has not been read yet". Always do the targeted offset/limit built-in Read immediately before Edit. (And: a full-file built-in Read of a code file is blocked — route understanding through `file_read`/`unerr_context`.)
+### Workspace scope (Pro) — query your other repos
+
+`search_code`, `file_read`, `file_outline`, and `unerr_context` accept `scope:'workspace'` — it fans the call to every other unerr repo registered on this machine and labels each hit by repo. Default is `scope:'repo'` (current repo only). Read or edit a path that lives in a sibling repo and unerr auto-routes to the owning repo with no flag — its callers (blast radius), conventions, and post-edit review run against that repo's graph. Cross-repo facts, recalled notes, and a sibling's conventions arrive as `ur|fct` lines labeled by repo. Free tier returns the current repo plus one `ur|fct` line to run `unerr login`; Pro returns the merged result, and one peer down degrades to a partial result, never a failure.
 
 ### Signal prefix legend — `ur|<tag>`
 
@@ -149,7 +149,7 @@ High-fidelity escape — when you need the return value (e.g. a blocker's `marke
 - You need to read a non-code file (images, binaries, PDFs)
 - You need complex regex `search_code` doesn't support
 
-NEVER use built-in Read/Grep/Glob for code navigation — a full-file built-in Read of a code file is DENIED and redirected to file_read/unerr_context. EXCEPTION: built-in Read with offset/limit (only the lines you'll edit) is REQUIRED immediately before Edit (file_read cannot satisfy the Edit gate).
+NEVER use built-in Read/Grep/Glob for code navigation — a full-file built-in Read of a code file is DENIED and redirected to file_read/unerr_context. To change a file, call `file_edit` (exact string replace) or `file_write` (whole file) — the unerr edit path needs no prior built-in Read.
 
 ### Domain comments — maintain meaning in the same edit
 

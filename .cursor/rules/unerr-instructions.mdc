@@ -82,6 +82,10 @@ For any URL you already have, call `fetch_url({url:"<url>"})` — never built-in
 Editing a function/class signature is gated: when unerr's graph confirms callers at risk, the first `Edit` is DENIED once with the exact caller count — run `get_references({key:'<entity>', direction:'callers'})`, update every caller in the same change, then re-attempt the Edit (it proceeds). The deny only fires when real callers exist, so a leaf-function edit is never blocked.
 
 
+### Workspace scope (Pro) — query your other repos
+
+`search_code`, `file_read`, `file_outline`, and `unerr_context` accept `scope:'workspace'` — it fans the call to every other unerr repo registered on this machine and labels each hit by repo. Default is `scope:'repo'` (current repo only). Read or edit a path that lives in a sibling repo and unerr auto-routes to the owning repo with no flag — its callers (blast radius), conventions, and post-edit review run against that repo's graph. Cross-repo facts, recalled notes, and a sibling's conventions arrive as `ur|fct` lines labeled by repo. Free tier returns the current repo plus one `ur|fct` line to run `unerr login`; Pro returns the merged result, and one peer down degrades to a partial result, never a failure.
+
 ### Signal prefix legend — `ur|<tag>`
 
 Four wire tags (consolidated 14→4 in 2026-05). Body line is self-describing — the tag is the priority bucket.
@@ -186,7 +190,7 @@ Wire format: `kind|anchor|polarity|content`
 | Field | Values | Notes |
 |---|---|---|
 | kind | cnv (convention), rul (rule), wrn (warn), dec (decision), blk (blocker), fct (fact) | Pick the strongest fit. |
-| anchor | f:<path> · e:<entity> · g:<glob> · p: | `p:` is project-wide. **Discouraged** — pollutes prompt-receipt query. Prefer file/entity. |
+| anchor | f:<path> · e:<entity> · g:<glob> · p: · w: | `p:` is project-wide, `w:` is workspace-wide (every repo in a Pro federation). Both empty-valued; both **discouraged** — they pollute the prompt-receipt query. Prefer file/entity. |
 | polarity | + (do) / - (don't) / ~ (mixed) | `~` for ambiguous; future agent surfaces both sides. |
 | content | single line of prose | May contain `|` — only the first three are field separators. |
 

@@ -10,7 +10,7 @@
  * Four unerr families (one per advertised-catalog cluster):
  *
  *   graph    — code-graph navigation (search, entity, refs, recon composite)
- *   file     — file-protocol reads (outline, read)
+ *   file     — file protocol (outline, read, edit, write)
  *   markers  — session markers + facts op-union (unerr_track)
  *   web      — external fetch (fetch_url)
  *
@@ -24,7 +24,7 @@
  * exists so the router has the full picture for telemetry, dashboard
  * rendering, and any future per-family policy (rate-limits, attribution).
  *
- * Only the 8 ADVERTISED tools appear here. The names the proxy dispatches by
+ * Only the ADVERTISED catalog tools appear here. The names the proxy dispatches by
  * name only (unerr_remember, mark_*, record_fact, recall_facts,
  * get_conventions, the demoted graph reads, …) are not catalog members, so
  * they are deliberately absent — the bidirectional invariant below would
@@ -57,7 +57,7 @@ export const UNERR_FAMILIES: Readonly<
   file: {
     name: "file",
     label: "File protocol",
-    tools: ["file_outline", "file_read"],
+    tools: ["file_outline", "file_read", "file_edit", "file_write"],
   },
   markers: {
     name: "markers",

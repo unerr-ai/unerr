@@ -68,11 +68,15 @@ describe("preReadHook — Claude Code", () => {
     );
     expect(result.hookSpecificOutput?.permissionDecision).toBe("deny");
     const reason = result.hookSpecificOutput?.permissionDecisionReason ?? "";
-    expect(reason).toContain("full-file is blocked");
+    // Deny is PRESERVED but reframed (B6): "wasteful" not "blocked"; escape is
+    // re-calling Read when you genuinely need the WHOLE file, and edits route
+    // through file_edit (no prior Read).
+    expect(reason).toContain("full-file is wasteful");
     expect(reason).toContain("file_read");
     expect(reason).toContain("unerr_context");
-    // Never dead-ends a genuine pre-Edit read on a whole file.
-    expect(reason).toContain("offset/limit");
+    expect(reason).toContain("file_edit");
+    // Never dead-ends a genuine whole-file read: re-calling Read proceeds.
+    expect(reason).toContain("Re-call Read");
   });
 
   it("nudges (does not deny twice) on a repeat full-file Read of the same file", () => {
@@ -128,7 +132,11 @@ describe("preReadHook — Cursor (non-Claude Code)", () => {
 // ── preEditHook: Claude Code ─────────────────────────────────────────
 
 describe("preEditHook — Claude Code", () => {
-  it("includes Read prerequisite warning", () => {
+  // Read-before-Edit nudges were REMOVED (B6): edits route through the
+  // unerr-owned file_edit path, which needs no prior built-in Read. The
+  // pre-edit nudge now only names the blast-radius next step. The banner no
+  // longer mentions built-in Read at all.
+  it("nudges get_references before edit, never mentions built-in Read", () => {
     const result = JSON.parse(
       runPreEditHook(
         claudeCodePayload({
@@ -139,8 +147,10 @@ describe("preEditHook — Claude Code", () => {
       )
     );
     const msg = result.hookSpecificOutput?.systemMessage ?? "";
-    expect(msg).toContain("CRITICAL: Edit REQUIRES built-in Read");
-    expect(msg).toContain("file_read (MCP) does NOT satisfy this");
+    expect(msg).toContain("get_references");
+    expect(msg).toContain("src/foo.ts");
+    expect(msg).not.toContain("CRITICAL: Edit REQUIRES built-in Read");
+    expect(msg).not.toContain("built-in Read");
   });
 
   it("includes blast radius warning for signature changes", () => {
@@ -154,31 +164,9 @@ describe("preEditHook — Claude Code", () => {
       )
     );
     const msg = result.hookSpecificOutput?.systemMessage ?? "";
-    expect(msg).toContain("CRITICAL: Edit REQUIRES built-in Read");
     expect(msg).toContain("function/class signature");
     expect(msg).toContain("get_references");
-  });
-
-  // R4 (Sprint 2): the verbose read-prerequisite banner emits in full once,
-  // then collapses to a terse, still-actionable one-liner — this is the
-  // ceremony-cut that stops re-billing ~1.4k tok/turn on every hop.
-  it("collapses the read-prerequisite banner to terse after first emission", () => {
-    const payload = claudeCodePayload({
-      file_path: "src/foo.ts",
-      old_string: "const x = 1",
-      new_string: "const x = 2",
-    });
-    const first = JSON.parse(runPreEditHook(payload));
-    const firstMsg = first.hookSpecificOutput?.systemMessage ?? "";
-    expect(firstMsg).toContain("CRITICAL: Edit REQUIRES built-in Read");
-
-    const second = JSON.parse(runPreEditHook(payload));
-    const secondMsg = second.hookSpecificOutput?.systemMessage ?? "";
-    // Terse form: no full CRITICAL block, but still names the file + the rule.
-    expect(secondMsg).not.toContain("CRITICAL: Edit REQUIRES built-in Read");
-    expect(secondMsg).toContain("built-in Read");
-    expect(secondMsg).toContain("src/foo.ts");
-    expect(secondMsg.length).toBeLessThan(firstMsg.length);
+    expect(msg).not.toContain("CRITICAL: Edit REQUIRES built-in Read");
   });
 });
 
@@ -218,7 +206,9 @@ describe("postReadHook — agent-aware enrichment", () => {
       runPostReadHook(claudeCodePayload({ file_path: "src/post-read-cc.ts" }))
     );
     const msg = result.hookSpecificOutput?.additionalContext ?? "";
-    expect(msg).toContain("Edit needs built-in Read first");
+    expect(msg).toContain(
+      "To change this file call file_edit (no built-in Read needed)"
+    );
     expect(msg).toContain("file_read");
   });
 

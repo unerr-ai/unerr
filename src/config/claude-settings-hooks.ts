@@ -88,9 +88,20 @@ function buildMatcherHooks(): {
     { event: "PreToolUse", matcher: "Read", command: `${bin} hook pre-read` },
     { event: "PreToolUse", matcher: "Grep", command: `${bin} hook pre-grep` },
     { event: "PreToolUse", matcher: "Glob", command: `${bin} hook pre-glob` },
-    // PreToolUse — blast radius + convention validation for writes
-    { event: "PreToolUse", matcher: "Write", command: `${bin} hook pre-write` },
-    { event: "PreToolUse", matcher: "Edit", command: `${bin} hook pre-edit` },
+    // PreToolUse — blast radius + convention validation for writes. The matcher
+    // alternation also catches unerr's own MCP edit tools (tool name
+    // `mcp__unerr__file_edit` / `…file_write`), so the signature / blast-radius
+    // gate fires for them exactly as it does for the built-in Edit/Write.
+    {
+      event: "PreToolUse",
+      matcher: "Write|file_write",
+      command: `${bin} hook pre-write`,
+    },
+    {
+      event: "PreToolUse",
+      matcher: "Edit|file_edit",
+      command: `${bin} hook pre-edit`,
+    },
     // PreToolUse — redirect built-in WebFetch to fetch_url (DOM-extracted,
     // BM25-ranked, 5–10× fewer tokens; routes through the QueryRouter).
     {
@@ -104,10 +115,14 @@ function buildMatcherHooks(): {
     { event: "PostToolUse", matcher: "Glob", command: `${bin} hook post-glob` },
     {
       event: "PostToolUse",
-      matcher: "Write",
+      matcher: "Write|file_write",
       command: `${bin} hook post-write`,
     },
-    { event: "PostToolUse", matcher: "Edit", command: `${bin} hook post-edit` },
+    {
+      event: "PostToolUse",
+      matcher: "Edit|file_edit",
+      command: `${bin} hook post-edit`,
+    },
     // SessionStart — emits resume strip on session boot. Matcher alternation
     // fires for all four start modes (startup, resume, clear, compact).
     {

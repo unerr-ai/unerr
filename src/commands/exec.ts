@@ -36,7 +36,7 @@ const EXEC_NUDGES = [
   // #5 TRIM — code navigation set
   "[unerr] Code nav (<5ms, graph-backed): search_code · get_references · file_read",
   // #6 TRIM — read protocol set
-  "[unerr] Read code: file_read (Read built-in: only pre-Edit) · Search: search_code (not grep) · Structure: file_outline",
+  "[unerr] Read code: file_read · Change files: file_edit/file_write (no built-in Read needed) · Search: search_code (not grep) · Structure: file_outline",
   // #7 TRIM — entity / convention / fact set
   // (get_conventions left the advertised catalog — file_read with
   // purpose:'explore' auto-injects the same conventions.)

@@ -94,7 +94,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         detail: {
           type: "boolean",
           description:
-            "Resolve query to the single best-matching entity and return its profile — signature + first ~15 lines, fan-in/out, risk level — instead of the ranked list. include_body and want imply detail.",
+            "Resolve query to the single best-matching entity and return its profile — signature + first ~15 lines, fan-in/out, risk level — instead of the ranked list (default false). include_body and want imply detail.",
           default: false,
         },
         include_body: {
@@ -154,6 +154,11 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           type: "boolean",
           description:
             "Force the flat large-sweep digest render (entities grouped by file, callers collapsed to a count). Auto-enabled when the task classifies as a large sweep.",
+        },
+        expand: {
+          type: "boolean",
+          description:
+            "Set true before a signature change: pre-inlines the top callers' verbatim bodies (the exact sites you must update), so you skip the per-caller file_read after the blast-radius gate. Off by default — only worth it when the edit touches callers.",
         },
         scope: SCOPE_PROP,
       },
@@ -256,6 +261,65 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
     annotations: {
       title: "Read File with Context",
       readOnlyHint: true,
+      openWorldHint: false,
+    },
+  },
+
+  file_edit: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        file_path: {
+          type: "string",
+          description: "Path to the file to edit",
+        },
+        old_string: {
+          type: "string",
+          description:
+            "The exact string to find and replace. Must be unique in the file unless replace_all is true — add surrounding context to disambiguate.",
+        },
+        new_string: {
+          type: "string",
+          description: "The replacement string.",
+        },
+        replace_all: {
+          type: "boolean",
+          description:
+            "Replace every occurrence instead of just the first (default false).",
+        },
+        base_hash: {
+          type: "string",
+          description:
+            "Optional staleness guard: the content hash returned by the file_read / prior file_edit you based this edit on. The edit is rejected if the on-disk file changed since.",
+        },
+      },
+      required: ["file_path", "old_string", "new_string"],
+    },
+    annotations: {
+      title: "Edit File (exact replace)",
+      readOnlyHint: false,
+      openWorldHint: false,
+    },
+  },
+
+  file_write: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        file_path: {
+          type: "string",
+          description: "Path to the file to write (created if missing).",
+        },
+        content: {
+          type: "string",
+          description: "The full content to write to the file.",
+        },
+      },
+      required: ["file_path", "content"],
+    },
+    annotations: {
+      title: "Write File (create/overwrite)",
+      readOnlyHint: false,
       openWorldHint: false,
     },
   },

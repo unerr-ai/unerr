@@ -533,8 +533,8 @@ export async function runFileReadForRouter(
         entity_search: { ...search, suggestions },
         entities_total: outline.entities.length,
         _gate_reason: suggestions.length
-          ? `Entity "${entityName}" not found in ${rel}. Call file_read({file_path:'${rel}', entity:'${suggestions[0]}'}) (or another suggestions entry), pass offset+limit, or call file_outline({file_path:'${rel}'}) for the full structure. NOTE: If you plan to Edit this file, you MUST call built-in Read (not file_read) first.`
-          : `Entity "${entityName}" not found in ${rel}. Call file_outline({file_path:'${rel}'}) to list the ${outline.entities.length} entities, then retry file_read with an exact name or offset+limit. NOTE: If you plan to Edit this file, you MUST call built-in Read (not file_read) first.`,
+          ? `Entity "${entityName}" not found in ${rel}. Call file_read({file_path:'${rel}', entity:'${suggestions[0]}'}) (or another suggestions entry), pass offset+limit, or call file_outline({file_path:'${rel}'}) for the full structure. To change this file, call file_edit (no built-in Read needed).`
+          : `Entity "${entityName}" not found in ${rel}. Call file_outline({file_path:'${rel}'}) to list the ${outline.entities.length} entities, then retry file_read with an exact name or offset+limit. To change this file, call file_edit (no built-in Read needed).`,
       };
       logFileRead(
         ctx.cwd,

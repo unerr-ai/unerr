@@ -62,15 +62,19 @@ export interface MechanismEntry {
 }
 
 /**
- * The verdict for every tool in TIER_ENTRIES — now exactly the 7 advertised
+ * The verdict for every tool in TIER_ENTRIES — now exactly the 9 advertised
  * survivors (the Phase-2 migration is complete; the removed names are no
  * longer catalog members, so the drift guard would reject a verdict for them).
  *
- * Survivors (mechanism "mcp", 6) are the interactive reads the model drives:
+ * Survivors (mechanism "mcp", 8) are the interactive reads/edits the model
+ * drives:
  *   unerr_context, search_code, file_read, file_outline,
- *   get_references, fetch_url.
- * The one advertised write (unerr_track) is mechanism "hook" — it rides
- * lifecycle hooks for hook-capable agents and stays advertised as the MCP
+ *   get_references, fetch_url, file_edit, file_write.
+ * file_edit / file_write are interactive: the model needs the apply result
+ * (replaced count / staleness reject / written bytes) back this turn to decide
+ * its next move, so they are MCP, not hooks.
+ * The one advertised write-via-marker (unerr_track) is mechanism "hook" — it
+ * rides lifecycle hooks for hook-capable agents and stays advertised as the MCP
  * escape for hook-less ones.
  *
  * The capabilities that USED to be catalog tools (get_entity — merged into
@@ -110,6 +114,16 @@ export const TOOL_MECHANISM: Readonly<Record<string, MechanismEntry>> = {
     mechanism: "mcp",
     rationale:
       "Model needs the page back; also the enforced WebFetch replacement.",
+  },
+  file_edit: {
+    mechanism: "mcp",
+    rationale:
+      "unerr-owned exact-string edit; model needs the apply result back this turn (replaced count, or a staleness/blast-radius reject) to decide its next move.",
+  },
+  file_write: {
+    mechanism: "mcp",
+    rationale:
+      "unerr-owned whole-file create/overwrite; model needs the written-bytes result back this turn to confirm the effect before proceeding.",
   },
 
   // ── Writes → hooks (fire-and-forget; needed next turn, not this one) ─────

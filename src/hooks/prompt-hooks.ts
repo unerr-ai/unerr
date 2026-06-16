@@ -677,7 +677,7 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   const toolRoster = isCodeTask
     ? "[unerr] Prefer unerr MCP tools for code work (faster, graph-backed, project-aware): " +
       "`search_code` (NOT grep/glob) · `get_references` (NOT grep for fn names) · " +
-      "`file_read` (NOT built-in Read for understanding; built-in Read is only for pre-Edit) · " +
+      "`file_read` (NOT built-in Read for understanding) · `file_edit`/`file_write` to change files (no built-in Read needed) · " +
       "`file_outline` · `search_code({detail:true})` for one symbol's profile. " +
       "Mark progress with zero round-trip — emit `unerr-save: intent|decision|blocker|resolution <one-line>` " +
       "in your closing message; the Stop hook persists them to the cross-session timeline."

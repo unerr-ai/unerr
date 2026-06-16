@@ -140,17 +140,21 @@ const preReadHandler: HookHandler = (normalized) => {
   // code-specific. Reading these whole is normal. Allow silently.
   if (!isCodeFile(filePath)) return passthrough();
 
-  // Full-file CODE Read with no offset/limit → exploration. Redirect.
+  // Full-file CODE Read with no offset/limit → wasteful exploration. Redirect.
+  // (OWN_EDIT_TOOL.md T-N1: the deny STAYS, but the rationale is no longer the
+  // Edit gate — edits run through file_edit, which needs no prior Read at all.
+  // Full-file reads are discouraged because they re-bill the whole file on every
+  // later cached turn; the legitimate escape is naming that you need the WHOLE
+  // file, not the gate.)
   const isClaudeCode = normalized.agentName === "claude-code";
-  // A whole-file read MIGHT be a pre-Edit read on a small file. Never dead-end
-  // that: the redirect names the offset/limit escape so re-issuing passes.
   const editClause = isClaudeCode
-    ? `\n- About to EDIT "${filePath}"? Re-call Read with offset/limit on just the edit window — that satisfies the Edit gate and returns the exact \`old_string\` lines (file_read cannot satisfy the gate).`
+    ? `\n- About to EDIT "${filePath}"? Call \`file_edit({file_path:"${filePath}", old_string, new_string})\` — the unerr edit path needs no prior Read.`
     : "";
-  const reason = `Read("${filePath}") full-file is blocked — route code exploration through unerr instead:\n- Understand the file: \`file_read({file_path:"${filePath}"})\` (auto-injects conventions, facts, drift)\n- Task-scoped recon in one call (anchored notes + blast radius + conventions): \`unerr_context({prompt:"<what you are about to do>"})\`\n- File structure first: \`file_outline("${filePath}")\`\n- One symbol's profile/body: \`search_code({query:'<name>', detail:true})\`${editClause}`;
+  const reason = `Read("${filePath}") full-file is wasteful — route code exploration through unerr instead:\n- Understand the file: \`file_read({file_path:"${filePath}"})\` (auto-injects conventions, facts, drift)\n- Task-scoped recon in one call (anchored notes + blast radius + conventions): \`unerr_context({prompt:"<what you are about to do>"})\`\n- File structure first: \`file_outline("${filePath}")\`\n- One symbol's profile/body: \`search_code({query:'<name>', detail:true})\`\n- Genuinely need the ENTIRE file? Re-call Read — this redirect fires once per file.${editClause}`;
 
   // Deny the first full-file read per file; nudge (collapsing to terse after the
-  // first verbose banner) on repeats within the dedup window.
+  // first verbose banner) on repeats within the dedup window — so re-issuing the
+  // same full-file Read passes when the agent truly needs the whole file.
   if (shouldEmitOnce(`deny:Read:${filePath}`, DENY_ONCE_TTL_MS)) {
     return deny(reason);
   }
@@ -158,7 +162,7 @@ const preReadHandler: HookHandler = (normalized) => {
     onceVerbose(
       "read-routing",
       reason,
-      `Read full-file "${filePath}" — file_read({file_path:"${filePath}"}) to understand, or Read offset/limit for a pre-Edit read.`
+      `Read full-file "${filePath}" — file_read({file_path:"${filePath}"}) to understand, file_edit to change it, or re-call Read if you truly need the whole file.`
     )
   );
 };
@@ -227,24 +231,10 @@ const preWriteHandler: HookHandler = (normalized) => {
   );
 };
 
-/** Read-prerequisite preamble — Claude Code only (other agents don't require
- *  built-in Read before Edit). Returns "" for non-Claude-Code agents. */
-function readPrereqClause(isClaudeCode: boolean, filePath: string): string {
-  if (!isClaudeCode) return "";
-  return `${onceVerbose(
-    "edit-read-prereq",
-    `CRITICAL: Edit REQUIRES built-in Read to have been called on "${filePath}" first. file_read (MCP) does NOT satisfy this — the Edit tool will fail with "File has not been read yet". If you haven't called built-in Read (with offset/limit on the target lines) on this file, do so now before attempting Edit.`,
-    `Edit needs built-in Read on "${filePath}" first (offset/limit) — file_read (MCP) does not satisfy it.`
-  )}\n\n`;
-}
-
 const preEditHandler: HookHandler = (normalized) => {
   const input = normalized.toolInput;
   const filePath = extractFilePath(input);
   if (!filePath || !isCodeFile(filePath)) return passthrough();
-
-  const isClaudeCode = normalized.agentName === "claude-code";
-  const readPrereq = readPrereqClause(isClaudeCode, filePath);
 
   const oldStr = input.old_string as string | undefined;
   const hasSignatureChange =
@@ -255,12 +245,12 @@ const preEditHandler: HookHandler = (normalized) => {
 
   if (hasSignatureChange) {
     return nudge(
-      `${readPrereq}You're editing a function/class signature in "${filePath}". This may break callers.\n- \`get_references({direction:"callers"})\` on the entity you're modifying — all callers must be updated to match, and test files in the caller list are the tests to run`
+      `You're editing a function/class signature in "${filePath}". This may break callers.\n- \`get_references({direction:"callers"})\` on the entity you're modifying — all callers must be updated to match, and test files in the caller list are the tests to run`
     );
   }
 
   return nudge(
-    `${readPrereq}Before editing "${filePath}":\n- \`get_references\` on any entity you're changing — ensure callers won't break`
+    `Before editing "${filePath}":\n- \`get_references\` on any entity you're changing — ensure callers won't break`
   );
 };
 
@@ -273,12 +263,9 @@ const preEditHandler: HookHandler = (normalized) => {
  */
 function formatCascadeNudge(
   warnings: CascadeWarning[],
-  filePath: string,
-  readPrereq: string
+  filePath: string
 ): string {
   const lines: string[] = [];
-  const head = readPrereq.trimEnd();
-  if (head) lines.push(head);
   lines.push(
     `⚡ unerr · cascade guard: editing "${filePath}" changes ${warnings.length} signature(s) with callers that must be updated in the same change:`
   );
@@ -359,12 +346,9 @@ const preEditHandlerAsync: AsyncHookHandler = async (normalized) => {
     return preEditHandler(normalized);
   }
 
-  const isClaudeCode = normalized.agentName === "claude-code";
-  const readPrereq = readPrereqClause(isClaudeCode, filePath);
   const sections: string[] = [];
   if (warnings.length > 0) {
-    // The cascade section already carries the read-prereq header.
-    const cascade = formatCascadeNudge(warnings, filePath, readPrereq);
+    const cascade = formatCascadeNudge(warnings, filePath);
     // Graph-confirmed caller cascade → escalate to deny-once. A signature
     // change with real callers at risk is exactly when
     // get_references({direction:'callers'}) must run BEFORE the edit. An
@@ -392,10 +376,7 @@ const preEditHandlerAsync: AsyncHookHandler = async (normalized) => {
     sections.push(cascade);
   }
   if (boundary.length > 0) {
-    const body = formatBoundaryNudge(boundary);
-    // Prepend the read-prereq only when cascade didn't already emit it.
-    const head = warnings.length === 0 ? readPrereq.trimEnd() : "";
-    sections.push(head ? `${head}\n${body}` : body);
+    sections.push(formatBoundaryNudge(boundary));
   }
   return nudge(sections.join("\n\n"));
 };
@@ -411,7 +392,7 @@ const postReadHandler: HookHandler = (normalized) => {
   const isClaudeCode = normalized.agentName === "claude-code";
   if (isClaudeCode) {
     return enrich(
-      "ur|fct Edit needs built-in Read first; for understanding use `file_read` (auto-injects facts/drift)."
+      "ur|fct To change this file call file_edit (no built-in Read needed); to understand it use `file_read` (auto-injects facts/drift)."
     );
   }
   return enrich(
@@ -454,7 +435,7 @@ const postReadHandlerAsync: AsyncHookHandler = async (normalized) => {
   if (shouldEmitOnce(`Read:${filePath}`)) {
     nudgeLine =
       normalized.agentName === "claude-code"
-        ? "ur|fct Edit needs built-in Read first; for understanding use `file_read` (auto-injects facts/drift)."
+        ? "ur|fct To change this file call file_edit (no built-in Read needed); to understand it use `file_read` (auto-injects facts/drift)."
         : "ur|fct Prefer `file_read` over built-in Read — it auto-injects conventions, facts, drift.";
   }
 

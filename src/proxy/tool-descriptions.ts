@@ -47,9 +47,9 @@ export interface TierEntry {
 }
 
 /**
- * The MCP catalog — exactly the 7 tools the model sees in `tools/list`:
- *   search_code, file_outline, file_read, get_references, fetch_url,
- *   unerr_context, unerr_track.
+ * The MCP catalog — the tools the model sees in `tools/list`:
+ *   search_code, file_outline, file_read, file_edit, file_write,
+ *   get_references, fetch_url, unerr_context, unerr_track.
  *
  * Everything else the proxy can dispatch is NOT a catalog member. Those names
  * (get_entity, get_conventions, unerr_recall_notes, unerr_remember, mark_*,
@@ -95,6 +95,18 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
       "Read a file by path, or a single function via the entity param. file_read auto-injects rule-notes, conventions, and drift for the file inline — read them before editing.",
     locked: "[tier 1 — always exposed]",
   },
+  file_edit: {
+    tier: 1,
+    active:
+      "Exact string replacement — the unerr edit path, no built-in Read needed first. old_string must be unique (add context) unless replace_all:true. Pass base_hash from the file_read you based the edit on to reject if the file changed.",
+    locked: "[tier 1 — always exposed]",
+  },
+  file_write: {
+    tier: 1,
+    active:
+      "Create or overwrite a file — the unerr write path, no built-in Read needed first. Creates parent dirs; preserves the existing file's encoding + line ending on overwrite. Use file_edit for changing part of an existing file.",
+    locked: "[tier 1 — always exposed]",
+  },
   // get_entity merged into search_code({detail:true}) 2026-06 — executor
   // retained in QueryRouter, dispatched by name only (see roster above).
   get_references: {
@@ -116,7 +128,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   unerr_context: {
     tier: 1,
     active:
-      "One-shot repo context before you edit: anchored-notes + search_code + get_references + get_conventions in ONE call, plus the focus entities' verbatim source inlined with file:line. The bundle names what you already have, so skip the re-read. pass prompt:'<task>'; response_format 'detailed'|'concise'.",
+      "One-shot repo context before you edit: anchored notes + search_code + get_references + get_conventions in ONE call, plus the focus entities' verbatim source inlined with file:line — skip the re-read. Args: prompt:'<task>'; response_format 'detailed'|'concise'; expand:true before a signature change.",
     locked: "[tier 1 — always exposed]",
   },
 
