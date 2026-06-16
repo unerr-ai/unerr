@@ -53,6 +53,22 @@ interface ReversibilityLite {
   };
 }
 
+/** Subset of /api/token-flow/bundle-savings the split needs — Layer B's
+ *  post-hoc reconciliation of `unerr_context` bundles. The by_mechanism
+ *  `context_bundle` number in the tier total is the Layer-A MODELED upper
+ *  bound; this is the credible REALIZED number (modeled × confirmed round-trips),
+ *  folded under the primary tier as an additive sub-line. The headline two-tier
+ *  split is unchanged. */
+interface BundleSavingsLite {
+  data: {
+    bundles?: number;
+    modeled_tokens_saved?: number;
+    realized_tokens_saved?: number;
+    realization_ratio?: number;
+    summary?: { bundle_hit_rate?: number };
+  };
+}
+
 function InfoDot({ text }: { text: string }) {
   return (
     <span
@@ -236,6 +252,20 @@ export function SavingsOriginSplit({
       ? Math.round(((rev?.cache_hits ?? 0) / cacheLookups) * 100)
       : 0;
 
+  // Layer B — realized `unerr_context` bundle savings (credible lower bound,
+  // reconciled against what the agent actually did next). Additive sub-line under
+  // the primary tier; the modeled number stays in the tier total via by_mechanism.
+  const bundleQ = useQuery({
+    queryKey: queryKey(["token-flow", "bundle-savings"]),
+    queryFn: () =>
+      fetchJson<BundleSavingsLite>(url("/api/token-flow/bundle-savings")),
+    refetchInterval: 30_000,
+  });
+  const bundle = bundleQ.data?.data;
+  const bundleRealized = bundle?.realized_tokens_saved ?? 0;
+  const bundleModeled = bundle?.modeled_tokens_saved ?? 0;
+  const bundleConfirmedPct = Math.round((bundle?.realization_ratio ?? 0) * 100);
+
   const { intelligence, compression, total } =
     splitMechanismsByTier(byMechanism);
   const denom = total || totalSaved || 1;
@@ -293,7 +323,10 @@ export function SavingsOriginSplit({
        *  what to keep and offloaded the rest), so they render here under the
        *  primary tier rather than as a third bucket. Shown only when at least
        *  one signal is non-zero so a fresh install stays clean. */}
-      {(reuseTokens > 0 || droppedLowImp > 0 || queryPruned > 0) && (
+      {(reuseTokens > 0 ||
+        droppedLowImp > 0 ||
+        queryPruned > 0 ||
+        bundleRealized > 0) && (
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-violet-500/20 bg-violet-500/[0.04] px-3 py-2 text-[11px] t-tertiary">
           <span className="font-medium text-violet-300">
             understanding-side wins
@@ -312,6 +345,12 @@ export function SavingsOriginSplit({
           {queryPruned > 0 && (
             <span className="font-mono tabular-nums">
               {fmt(queryPruned)} chunks query-pruned
+            </span>
+          )}
+          {bundleRealized > 0 && (
+            <span className="font-mono tabular-nums">
+              {fmt(bundleRealized)} tok context-bundle realized of{" "}
+              {fmt(bundleModeled)} modeled ({bundleConfirmedPct}% confirmed)
             </span>
           )}
         </div>

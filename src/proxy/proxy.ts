@@ -2525,6 +2525,63 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           }
         },
         repoCwd: dirname(unerrDirForLedger),
+        // E4 Layer A sink: surface the modeled round-trip savings as the
+        // SavingsOriginSplit "context bundling" origin (token_flow_event, sync)
+        // and as the §4 accounting row (compression_event, event_kind
+        // 'context_bundle'). The token_flow detail carries the Layer-B manifest
+        // (delivered/expand keys) for the post-hoc reconciliation route.
+        recordBundleSavings: (model) => {
+          tokenFlowWriter.record({
+            session_id: tokenFlowWriter.sessionId,
+            mechanism: "context_bundle",
+            tool: "unerr_context",
+            tokens_without: model.original_tokens,
+            tokens_with: model.delivered_tokens,
+            tokens_saved: model.rerequest_saved_tokens,
+            detail: {
+              sources_collapsed: model.sources_collapsed,
+              round_trips_modeled: model.round_trips_modeled,
+              expand_items: model.expand_items,
+              manifest_items: model.manifest_items,
+              delivered_entity_keys: model.delivered_entity_keys,
+              delivered_files: model.delivered_files,
+              expand_keys: model.expand_keys,
+            },
+          });
+          // Fire-and-forget: the compression-log import is async; a throw is
+          // swallowed (telemetry is never load-bearing).
+          void (async () => {
+            try {
+              const { appendCompressionLog } = await import(
+                "./shell-compression-log.js"
+              );
+              appendCompressionLog(dirname(unerrDirForLedger), {
+                ts: new Date().toISOString(),
+                command: "unerr_context",
+                category: "context_bundle",
+                confidence: 1,
+                rawBytes: model.original_tokens,
+                compressedBytes: model.delivered_tokens,
+                savedPct:
+                  model.original_tokens > 0
+                    ? Math.max(
+                        0,
+                        model.rerequest_saved_tokens / model.original_tokens
+                      )
+                    : 0,
+                omniFallback: false,
+                reversible: {
+                  original_tokens: model.original_tokens,
+                  delivered_tokens: model.delivered_tokens,
+                  mechanism: "context_bundle",
+                  event_kind: "context_bundle",
+                },
+              });
+            } catch {
+              /* telemetry never load-bearing */
+            }
+          })();
+        },
       });
     }
 
@@ -2692,6 +2749,68 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         );
         return deepDiveResult;
       }
+    }
+
+    // ── Edit/write tools (file_edit, file_write) ──
+    // The unerr-owned edit path (OWN_EDIT_TOOL.md B4). Runs in THIS process, so
+    // it never needs the host agent's read-tracking gate the way the built-in
+    // Edit/Write do. These are not graph queries, so they bypass
+    // QueryRouter.execute and its read-enrichment entirely — they carry their
+    // own correctness (quote-tolerant match, staleness guard, encoding/CRLF
+    // preservation) in edit-core.ts. The blast-radius / signature gate is
+    // PRESERVED out-of-band: the Claude Code PreToolUse hook matches `file_edit`
+    // (claude-settings-hooks.ts) and denies-once when callers are at risk,
+    // exactly as it does for the built-in Edit. The rendered diff is written
+    // out-of-band to the file log; the tool_result is a one-line confirmation.
+    if (name === "file_edit" || name === "file_write") {
+      const { fileEditTool, fileWriteTool } = await import(
+        "../tools/coding/index.js"
+      );
+      const tool = name === "file_edit" ? fileEditTool : fileWriteTool;
+      const t0 = performance.now();
+      const out = await tool.execute(args, {
+        cwd: process.cwd(),
+        graph: localGraph ?? undefined,
+      });
+      const text =
+        typeof out.content === "string"
+          ? out.content
+          : stringifyMcpToolJson(out.content);
+
+      recordToolCall(stats);
+      recordLatency(stats.latency, performance.now() - t0);
+      pidLock.recordToolCall();
+
+      // Shadow-ledger the edit + capture the edit narrative (Sprint 4), so the
+      // unerr-owned edit path feeds the same timeline as the built-in editor.
+      const branch = branchContext?.currentBranch ?? "unknown";
+      const headSha = branchContext?.headSha ?? "";
+      shadowLedger.record(
+        name,
+        args,
+        {
+          tool: name,
+          source: "local",
+          edited: out.isError !== true,
+          ...(ctx.clientId ? { client: ctx.clientId } : {}),
+        },
+        branch,
+        headSha
+      );
+      if (narrativeCapture && out.isError !== true) {
+        const recentEntries = shadowLedger.getRecentEntries(10);
+        const lastEntry = recentEntries[recentEntries.length - 1];
+        if (lastEntry) {
+          setImmediate(() =>
+            narrativeCapture?.captureEditNarrative(lastEntry).catch(() => {})
+          );
+        }
+      }
+
+      return {
+        content: [{ type: "text", text }],
+        ...(out.isError ? { isError: true } : {}),
+      };
     }
 
     // MCP tools: Layer 6 wire formats (columnar / json) are applied inside QueryRouter.execute.

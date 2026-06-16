@@ -15,6 +15,8 @@
 
 import { join } from "node:path";
 import { Hono } from "hono";
+import { readBehaviorEvents } from "../../tracking/behavior-events.js";
+import { reconcileBundleSavings } from "../../tracking/bundle-reconcile.js";
 import {
   CONTEXT_LIMIT_TOKENS,
   DEFAULT_UNOBSERVED_OVERHEAD_TOKENS,
@@ -215,6 +217,33 @@ export function createTokenFlowRoutes(deps: TokenFlowRouteDeps): Hono {
         ...summary,
         event_count: sessionEvents.length,
       },
+      _meta: {
+        latency_ms: Math.round((performance.now() - start) * 100) / 100,
+      },
+    });
+  });
+
+  // ── /bundle-savings — Layer B realized vs Layer A modeled ──────
+  // A `unerr_context` bundle models an UPPER-BOUND savings at emit time (each
+  // `context_bundle` token_flow_event). This reconciles every bundle against
+  // what the agent actually did over the following turns: a re-read of a
+  // delivered file (a `file_read` token_flow_event) claws the claim back, while
+  // a caller-aware edit (`cascade_guard` / `caller_check_enforced`
+  // behavior_event) confirms it. Returns the credible realized number beside the
+  // modeled one so the SavingsOriginSplit can show both. Additive — leaves
+  // /global's modeled by_mechanism number untouched.
+  app.get("/bundle-savings", (c) => {
+    const start = performance.now();
+    const range = {
+      from_ts: c.req.query("from_ts") || undefined,
+      to_ts: c.req.query("to_ts") || undefined,
+    };
+    const report = reconcileBundleSavings(
+      readTokenFlowEvents(deps.unerrDir, range),
+      readBehaviorEvents(deps.unerrDir, range)
+    );
+    return c.json({
+      data: report,
       _meta: {
         latency_ms: Math.round((performance.now() - start) * 100) / 100,
       },

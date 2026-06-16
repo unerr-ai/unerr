@@ -165,10 +165,19 @@ export const MECH_COLORS: Record<
     bar: "bg-teal-500",
     ring: "ring-teal-500/40",
   },
+  // E4 — context-bundle round-trip avoidance. Violet-adjacent (fuchsia) to read
+  // as a sibling of graph_query in the code-intelligence tier.
+  context_bundle: {
+    bg: "bg-fuchsia-500/20",
+    text: "text-fuchsia-300",
+    bar: "bg-fuchsia-500",
+    ring: "ring-fuchsia-500/40",
+  },
 };
 
 export const ALL_MECHANISMS = [
   "graph_query",
+  "context_bundle",
   "file_read",
   "shell_compression",
   "format_encoding",
@@ -195,7 +204,14 @@ export const ALL_MECHANISMS = [
 // category ("output compression") as the frame of reference, then show
 // the work that only repo-understanding can do (category-design framing,
 // Lochhead / Dunford).
-export const INTELLIGENCE_MECHANISMS = new Set(["graph_query", "file_read"]);
+// context_bundle joins the intelligence tier: collapsing the discovery fan-out
+// is only possible BECAUSE unerr holds the graph — no output-compressor can do
+// it. It is the measurable "understanding" origin, distinct from byte-trimming.
+export const INTELLIGENCE_MECHANISMS = new Set([
+  "graph_query",
+  "file_read",
+  "context_bundle",
+]);
 
 export interface MechanismTier {
   key: "intelligence" | "compression";

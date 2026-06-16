@@ -29,7 +29,11 @@ export type TokenFlowMechanism =
   | "file_read"
   | "fetch_url"
   | "behavior_automation"
-  | "persistent_memory";
+  | "persistent_memory"
+  // E4: the understanding-tier origin — one unerr_context bundle collapsing the
+  // discovery fan-out into a single call, saving the re-paid context prefix of
+  // every round-trip it replaces. Distinct from output-compression.
+  | "context_bundle";
 
 export interface TokenFlowEvent {
   /** Monotonic counter per-process (not UUID — fast, no allocation) */
