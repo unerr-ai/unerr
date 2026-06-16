@@ -27,6 +27,11 @@
  * See `unerr-web-service/docs/CLI_API.md` (ingest/transcripts).
  */
 
+import {
+  TRACE_MAX_TRACE_TEXT,
+  TRACE_MAX_TRANSCRIPTS_PER_BATCH,
+  TranscriptRecord,
+} from "@unerr-ai/contracts/traces";
 import type Database from "better-sqlite3";
 import type { BatchAck, CloudResult } from "../client.js";
 import { deterministicId } from "../event-id.js";
@@ -39,11 +44,11 @@ import type {
 import { stripCodeFromText } from "../strip-code.js";
 import { TRACE_SCHEMA_VERSION, buildEnvelope } from "./envelope.js";
 
-/** Endpoint cap: at most 100 transcript records per push. */
-export const TRANSCRIPTS_BATCH_CAP = 100;
+/** Endpoint cap — sourced from the contract (`TRACE_MAX_TRANSCRIPTS_PER_BATCH`). */
+export const TRANSCRIPTS_BATCH_CAP = TRACE_MAX_TRANSCRIPTS_PER_BATCH;
 
-/** Max trace_text length pushed to the wire (server cap is 16 KB). */
-export const TRANSCRIPT_TEXT_CAP = 16384;
+/** Max trace_text length on the wire — sourced from the contract (`TRACE_MAX_TRACE_TEXT`, 16 KB). */
+export const TRANSCRIPT_TEXT_CAP = TRACE_MAX_TRACE_TEXT;
 
 /**
  * Clip a turn's reasoning prose for the wire: strip embedded code (HR-2) then
@@ -115,6 +120,7 @@ export async function buildTranscriptDrainers(
 
   const drainer: StreamDrainer = {
     key: "transcripts",
+    schema: TranscriptRecord,
     async read(from: CursorPos): Promise<StreamBatch | null> {
       const lastId = from.lastId ?? 0;
       const dbRows = select.all(lastId, TRANSCRIPTS_BATCH_CAP) as Array<

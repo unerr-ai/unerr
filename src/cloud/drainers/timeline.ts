@@ -20,6 +20,10 @@
  * See `unerr-web-service/docs/CLI_API.md` (sync/timeline) for the wire shape.
  */
 
+import {
+  SYNC_MAX_ROWS_PER_SYNC,
+  TimelineRecord,
+} from "@unerr-ai/contracts/sync";
 import type { CozoDb } from "../../intelligence/cozo-schema.js";
 import type { BatchAck, CloudResult } from "../client.js";
 import { deterministicId } from "../event-id.js";
@@ -32,8 +36,8 @@ import {
 } from "../push-drainer.js";
 import { openCozoRead } from "./cozo-read.js";
 
-/** Endpoint cap: at most 500 timeline entries per push. */
-const TIMELINE_BATCH_CAP = 500;
+/** Endpoint cap — sourced from the contract (`SYNC_MAX_ROWS_PER_SYNC`). */
+const TIMELINE_BATCH_CAP = SYNC_MAX_ROWS_PER_SYNC;
 
 /** Coerce an epoch-ms Float into ISO-8601, or undefined when not finite. */
 function toIso(value: unknown): string | undefined {
@@ -62,6 +66,7 @@ function markerKind(
 function makeTurnsDrainer(ctx: DrainerContext, db: CozoDb): StreamDrainer {
   return {
     key: "timeline:turns",
+    schema: TimelineRecord,
     async read(from: CursorPos): Promise<StreamBatch | null> {
       const since = from.lastId ?? 0;
       const result = await db.run(
@@ -110,6 +115,7 @@ function makeTurnsDrainer(ctx: DrainerContext, db: CozoDb): StreamDrainer {
 function makeMarkersDrainer(ctx: DrainerContext, db: CozoDb): StreamDrainer {
   return {
     key: "timeline:markers",
+    schema: TimelineRecord,
     async read(from: CursorPos): Promise<StreamBatch | null> {
       const since = from.lastId ?? 0;
       const result = await db.run(

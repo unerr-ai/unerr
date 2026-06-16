@@ -16,6 +16,7 @@
  * See `unerr-web-service/docs/CLI_API.md` (ingest/sessions) for the wire shape.
  */
 
+import { SessionRecord } from "@unerr-ai/contracts/sync";
 import type Database from "better-sqlite3";
 import type { BatchAck, CloudResult } from "../client.js";
 import type { CursorPos } from "../push-cursor.js";
@@ -81,6 +82,7 @@ export async function buildSessionsDrainers(
 
   const drainer: StreamDrainer = {
     key: "sessions",
+    schema: SessionRecord,
     async read(from: CursorPos): Promise<StreamBatch | null> {
       const lastId = from.lastId ?? 0;
       const row = select.get(lastId) as Record<string, unknown> | undefined;

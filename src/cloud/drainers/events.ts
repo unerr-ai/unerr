@@ -33,6 +33,10 @@
  * See `unerr-web-service/docs/CLI_API.md` (ingest/events) for the wire shape.
  */
 
+import {
+  INGEST_MAX_EVENTS_PER_BATCH,
+  IngestEvent,
+} from "@unerr-ai/contracts/events";
 import type Database from "better-sqlite3";
 import type { BatchAck, CloudResult } from "../client.js";
 import { deterministicId } from "../event-id.js";
@@ -49,8 +53,8 @@ import {
   hashEntityKey,
 } from "./envelope.js";
 
-/** Endpoint cap: at most 100 events per push. */
-const EVENTS_BATCH_CAP = 100;
+/** Endpoint cap — sourced from the contract (`INGEST_MAX_EVENTS_PER_BATCH`). */
+const EVENTS_BATCH_CAP = INGEST_MAX_EVENTS_PER_BATCH;
 
 /** Coerce a metrics.db ts_iso/ts pair into an ISO-8601 string for the wire. */
 function rowTs(row: { ts_iso?: unknown; ts?: unknown }): string {
@@ -227,6 +231,7 @@ function makeRowidDrainer(
   );
   return {
     key: spec.key,
+    schema: IngestEvent,
     async read(from: CursorPos): Promise<StreamBatch | null> {
       const lastId = from.lastId ?? 0;
       const raw = select.all(lastId) as Array<Record<string, unknown>>;
@@ -274,6 +279,7 @@ function makeSessionSummaryDrainer(
   );
   return {
     key: "events:session_summary",
+    schema: IngestEvent,
     async read(from: CursorPos): Promise<StreamBatch | null> {
       const sinceIso =
         from.lastId !== undefined ? new Date(from.lastId).toISOString() : "";

@@ -13,6 +13,7 @@
  */
 
 import type { BatchAck, CloudClient, CloudResult } from "./client.js";
+import { type ContractSchema, validateRows } from "./drainers/validate.js";
 import { canPushTelemetry } from "./entitlements.js";
 import type { CursorPos, PushCursor } from "./push-cursor.js";
 
@@ -39,6 +40,15 @@ export interface StreamDrainer {
   read(from: CursorPos): Promise<StreamBatch | null>;
   /** Push one batch; returns the server's per-record ack. */
   push(rows: unknown[]): Promise<CloudResult<BatchAck>>;
+  /**
+   * The `@unerr-ai/contracts` body schema for one wire row of this stream (e.g.
+   * `IngestEvent`, `TranscriptRecord`, `SessionRecord`). When set, `drainStream`
+   * validates every row against it before push — the contract is the single
+   * source of the wire shape, so a row that drifts from it is dropped (or, under
+   * `UNERR_CONTRACT_STRICT=1`, throws) rather than shipped. Omit for a stream
+   * with no contract body yet.
+   */
+  readonly schema?: ContractSchema;
 }
 
 /**
@@ -208,7 +218,30 @@ async function drainStream(
       break;
     }
 
-    const res = await drainer.push(batch.rows);
+    // Contract gate: validate each built row against its `@unerr-ai/contracts`
+    // body before it leaves the machine (the contract is the single source of
+    // the wire shape). Invalid rows are dropped + logged; under
+    // `UNERR_CONTRACT_STRICT=1` the first mismatch throws (tests/CI).
+    // `batch.next` is computed from the SOURCE rows, so the cursor advances
+    // past dropped rows in every branch below — a dropped row is never re-read.
+    const rows = drainer.schema
+      ? validateRows(drainer.schema, batch.rows, drainer.key, log)
+      : batch.rows;
+    if (rows.length === 0) {
+      // Every row in the batch failed contract validation. Treat it like a
+      // server-side 4xx poison batch: dead-letter the source rows and advance
+      // so the stream never hot-loops re-reading the same invalid rows.
+      cursor.addDeadLetters(drainer.key, batch.rows.length);
+      deadLettered += batch.rows.length;
+      cursor.advance(drainer.key, batch.next);
+      status = "dead_lettered";
+      log?.(
+        `push: ${drainer.key} all ${batch.rows.length} row(s) failed contract validation — dead-lettered`
+      );
+      continue;
+    }
+
+    const res = await drainer.push(rows);
 
     if (res.ok) {
       const rejected = res.data?.rejected ?? 0;
@@ -216,10 +249,10 @@ async function drainStream(
         cursor.addDeadLetters(drainer.key, rejected);
         deadLettered += rejected;
         log?.(
-          `push: ${drainer.key} server rejected ${rejected}/${batch.rows.length} row(s) — dead-lettered`
+          `push: ${drainer.key} server rejected ${rejected}/${rows.length} row(s) — dead-lettered`
         );
       }
-      pushed += batch.rows.length - rejected;
+      pushed += rows.length - rejected;
       cursor.advance(drainer.key, batch.next);
       status = deadLettered > 0 ? "dead_lettered" : "ok";
       continue;
@@ -246,12 +279,12 @@ async function drainStream(
       // Terminal client error (400 malformed, 413 too large, …): the batch
       // itself is bad. Quarantine it and advance so the loop never hot-loops on
       // the same poison batch (B7).
-      cursor.addDeadLetters(drainer.key, batch.rows.length);
-      deadLettered += batch.rows.length;
+      cursor.addDeadLetters(drainer.key, rows.length);
+      deadLettered += rows.length;
       cursor.advance(drainer.key, batch.next);
       status = "dead_lettered";
       log?.(
-        `push: ${drainer.key} batch rejected ${res.status} ${res.error.code} — dead-lettered ${batch.rows.length} row(s)`
+        `push: ${drainer.key} batch rejected ${res.status} ${res.error.code} — dead-lettered ${rows.length} row(s)`
       );
       continue;
     }

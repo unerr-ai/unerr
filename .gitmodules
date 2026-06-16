@@ -1,0 +1,3 @@
+[submodule "vendor/contracts"]
+	path = vendor/contracts
+	url = https://github.com/unerr-ai/unerr-contracts.git

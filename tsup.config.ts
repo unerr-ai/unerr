@@ -15,6 +15,13 @@ export default defineConfig({
   dts: true,
   splitting: false,
   external: ["cozo-node", "better-sqlite3"],
+  // `@unerr-ai/contracts` is `restricted` on GitHub Packages; the CLI ships to
+  // PUBLIC npm, so end users could never fetch it as a runtime dep. It MUST be
+  // inlined into dist. tsup auto-externalizes `dependencies` (e.g. zod stays
+  // external — the CLI already ships it), so the vendored contract is force-
+  // bundled here. zod / @orpc/contract stay external (CLI provides zod; the CLI
+  // never imports the @orpc-bearing `/api` subpath).
+  noExternal: ["@unerr-ai/contracts"],
   define: {
     __UNERR_DEV_BUILD__: isProdBuild ? "false" : "true",
   },

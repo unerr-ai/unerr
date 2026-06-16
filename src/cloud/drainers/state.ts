@@ -24,6 +24,10 @@
  * See `unerr-web-service/docs/CLI_API.md` (sync/state) for the wire shape.
  */
 
+import {
+  DriftRecordInput,
+  SYNC_MAX_STATE_FILES_PER_SYNC,
+} from "@unerr-ai/contracts/sync";
 import type { CozoDb } from "../../intelligence/cozo-schema.js";
 import type { BatchAck, CloudResult } from "../client.js";
 import { deterministicId } from "../event-id.js";
@@ -36,8 +40,8 @@ import {
 } from "../push-drainer.js";
 import { openCozoRead } from "./cozo-read.js";
 
-/** Endpoint cap: at most 5000 drift records per push. */
-const STATE_BATCH_CAP = 5000;
+/** Endpoint cap — sourced from the contract (`SYNC_MAX_STATE_FILES_PER_SYNC`). */
+const STATE_BATCH_CAP = SYNC_MAX_STATE_FILES_PER_SYNC;
 
 /** Coerce an epoch-ms Float into ISO-8601, or undefined when not finite. */
 function toIso(value: unknown): string | undefined {
@@ -65,6 +69,7 @@ export async function buildStateDrainers(
 
   const drainer: StreamDrainer = {
     key: "state:drift",
+    schema: DriftRecordInput,
     async read(from: CursorPos): Promise<StreamBatch | null> {
       const since = from.lastId ?? 0;
       // Notes whose anchor disappeared (anchor_missing == true), past the

@@ -40,6 +40,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.90.12
         version: 5.100.8(react@19.2.5)
+      '@unerr-ai/contracts':
+        specifier: link:vendor/contracts
+        version: link:vendor/contracts
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0

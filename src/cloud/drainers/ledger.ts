@@ -13,6 +13,10 @@
  * `args_shape`), never the raw arg values. See `CLI_API.md` (ingest/ledger).
  */
 
+import {
+  LedgerRecord,
+  TRACE_MAX_LEDGER_PER_BATCH,
+} from "@unerr-ai/contracts/traces";
 import type { LedgerEntry } from "../../tracking/shadow-ledger.js";
 import type { BatchAck, CloudResult } from "../client.js";
 import { deterministicId } from "../event-id.js";
@@ -25,8 +29,8 @@ import {
 } from "../push-drainer.js";
 import { TRACE_SCHEMA_VERSION, buildEnvelope } from "./envelope.js";
 
-/** Endpoint cap: at most 500 ledger rows per push (one turn fires many calls). */
-const LEDGER_BATCH_CAP = 500;
+/** Endpoint cap — sourced from the contract (`TRACE_MAX_LEDGER_PER_BATCH`). */
+const LEDGER_BATCH_CAP = TRACE_MAX_LEDGER_PER_BATCH;
 
 /** Read every non-empty line of a jsonl file, or `[]` if it doesn't exist. */
 async function readJsonlLines(path: string): Promise<string[]> {
@@ -62,6 +66,7 @@ export async function buildLedgerDrainers(
 
   const drainer: StreamDrainer = {
     key: "ledger",
+    schema: LedgerRecord,
     async read(from: CursorPos): Promise<StreamBatch | null> {
       const lines = await readJsonlLines(path);
       let start = from.lastIndex ?? 0;

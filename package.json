@@ -15,7 +15,8 @@
     ".": "./dist/cli.js"
   },
   "scripts": {
-    "build": "pnpm run build:ui && pnpm run build:cli",
+    "build": "pnpm run build:contracts && pnpm run build:ui && pnpm run build:cli",
+    "build:contracts": "pnpm -C vendor/contracts install --ignore-workspace --prefer-offline && pnpm -C vendor/contracts build",
     "build:cli": "tsup src/entrypoints/cli.ts --format esm --target node20 --dts --no-splitting --external cozo-node --external better-sqlite3",
     "dev": "tsx watch src/entrypoints/cli.ts",
     "test": "vitest",
@@ -36,6 +37,7 @@
     "dev:tier-multirepo": "bash scripts/dev-tier-multirepo-live.sh"
   },
   "dependencies": {
+    "@unerr-ai/contracts": "link:vendor/contracts",
     "@clack/prompts": "^1.2.0",
     "@hono/node-server": "^2.0.1",
     "@modelcontextprotocol/sdk": "^1.29.0",

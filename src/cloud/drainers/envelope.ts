@@ -14,19 +14,16 @@
  */
 
 import { createHash } from "node:crypto";
+import { INGEST_SCHEMA_VERSION } from "@unerr-ai/contracts/events";
+import { TRACE_SCHEMA_VERSION as CONTRACT_TRACE_SCHEMA_VERSION } from "@unerr-ai/contracts/traces";
 
-/** events schema version (`MODEL-REVISION-ADDITION`, additive-only).
- *  1-0-2 (C3 edge classification): the `behavior` detail tail may now carry
- *  the classification fields a C3 row tagged — `direction` / `task_type` /
- *  `alternatives_count` / `stakes` (decision_event), `agent_authored` /
- *  `lines_added` / `lines_removed` / `entity_id` / `reviewed_before_apply`
- *  (edit_event), `iterations` / `outcome` / `accepted_without_edit`
- *  (task_completion), `authored_by` / `cohort_days` / `lines_authored` /
- *  `lines_still_present` (line_survival_rollup). All counts + enums + the
- *  hashed `entity_id` — every one passes the HR-2 firewall unchanged. */
-export const EVENTS_SCHEMA_VERSION = "1-0-2";
-/** trace-stream schema version (ledger/router/transcripts). */
-export const TRACE_SCHEMA_VERSION = "1-0-0";
+/** events schema version — sourced from `@unerr-ai/contracts/events`
+ *  (`INGEST_SCHEMA_VERSION`, currently `1-0-2`) so the CLI and web-service can
+ *  never disagree. The SchemaVer history lives in the contract module. */
+export const EVENTS_SCHEMA_VERSION = INGEST_SCHEMA_VERSION;
+/** trace-stream schema version (ledger/router/transcripts) — sourced from
+ *  `@unerr-ai/contracts/traces` (`TRACE_SCHEMA_VERSION`). */
+export const TRACE_SCHEMA_VERSION = CONTRACT_TRACE_SCHEMA_VERSION;
 
 /** Exact, case-insensitive key denylist — a detail key matching one is dropped. */
 const DENYLIST = new Set<string>([

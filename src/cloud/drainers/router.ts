@@ -12,6 +12,10 @@
  * See `unerr-web-service/docs/CLI_API.md` (ingest/router) for the wire shape.
  */
 
+import {
+  RouterRecord,
+  TRACE_MAX_ROUTER_PER_BATCH,
+} from "@unerr-ai/contracts/traces";
 import type { RouterTelemetryRecord } from "../../proxy/router-telemetry.js";
 import type { BatchAck, CloudResult } from "../client.js";
 import { deterministicId } from "../event-id.js";
@@ -24,8 +28,8 @@ import {
 } from "../push-drainer.js";
 import { TRACE_SCHEMA_VERSION, buildEnvelope } from "./envelope.js";
 
-/** Endpoint cap: at most 200 router rows per push. */
-const ROUTER_BATCH_CAP = 200;
+/** Endpoint cap — sourced from the contract (`TRACE_MAX_ROUTER_PER_BATCH`). */
+const ROUTER_BATCH_CAP = TRACE_MAX_ROUTER_PER_BATCH;
 
 /** Read every non-empty line of a jsonl file, or `[]` if it doesn't exist. */
 async function readJsonlLines(path: string): Promise<string[]> {
@@ -54,6 +58,7 @@ export async function buildRouterDrainers(
 
   const drainer: StreamDrainer = {
     key: "router",
+    schema: RouterRecord,
     async read(from: CursorPos): Promise<StreamBatch | null> {
       const lines = await readJsonlLines(path);
       let start = from.lastIndex ?? 0;

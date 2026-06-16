@@ -15,6 +15,7 @@
  * See `unerr-web-service/docs/CLI_API.md` (sync/facts) for the wire shape.
  */
 
+import { FactCreate, SYNC_MAX_ROWS_PER_SYNC } from "@unerr-ai/contracts/sync";
 import type { CozoDb } from "../../intelligence/cozo-schema.js";
 import type { BatchAck, CloudResult } from "../client.js";
 import { deterministicId } from "../event-id.js";
@@ -27,8 +28,8 @@ import {
 } from "../push-drainer.js";
 import { openCozoRead } from "./cozo-read.js";
 
-/** Endpoint cap: at most 500 facts per push. */
-const FACTS_BATCH_CAP = 500;
+/** Endpoint cap — sourced from the contract (`SYNC_MAX_ROWS_PER_SYNC`). */
+const FACTS_BATCH_CAP = SYNC_MAX_ROWS_PER_SYNC;
 
 /** Coerce an epoch-ms Float into ISO-8601, or undefined when not finite. */
 function toIso(value: unknown): string | undefined {
@@ -56,6 +57,7 @@ export async function buildFactsDrainers(
 
   const drainer: StreamDrainer = {
     key: "facts",
+    schema: FactCreate,
     async read(from: CursorPos): Promise<StreamBatch | null> {
       const since = from.lastId ?? 0;
       // Only ACTIVE notes (inactive == false), seen strictly after the
