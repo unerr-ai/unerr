@@ -1,0 +1,107 @@
+/**
+ * E5 (A5) — cross-agent surface for `unerr_context`.
+ *
+ * unerr advertises one MCP schema to every agent it supports (Claude Code,
+ * Cursor, Codex, Gemini CLI, Cline, Copilot CLI). They do NOT all honor the
+ * same JSON-Schema features — most notably Gemini strips a property `default`,
+ * so a default expressed ONLY as a schema `default` silently vanishes and the
+ * agent never learns the fallback. unerr's invariant is therefore: a schema
+ * `default` is a hint only — the server enforces the default regardless, and the
+ * default must ALSO be stated in the property's description TEXT so a stripping
+ * agent still learns it. (unerr_context goes further: response_format carries no
+ * schema `default` at all, since it is derived server-side from task size.)
+ * These tests guard that invariant catalog-wide and pin the `unerr_context`
+ * surface (top-level description + schema) that all agents see at tools/list.
+ */
+
+import { describe, expect, it } from "vitest";
+import { BUDGETS, countTokens } from "../proxy/tool-budget.js";
+import { TOOL_DEFINITIONS } from "../proxy/tool-definitions.js";
+
+type JsonSchema = {
+  type?: string;
+  properties?: Record<string, Record<string, unknown>>;
+  required?: string[];
+  enum?: unknown[];
+};
+
+const unerrContext = TOOL_DEFINITIONS.find((d) => d.name === "unerr_context");
+
+describe("unerr_context cross-agent surface (A5)", () => {
+  it("is advertised with a top-level description naming the core levers", () => {
+    expect(unerrContext).toBeDefined();
+    const desc = unerrContext?.description ?? "";
+    // The one-liner every agent sees must name how to drive it.
+    expect(desc).toContain("prompt");
+    expect(desc).toContain("response_format");
+    expect(desc).toContain("expand");
+    // Tier-1 active descriptions are capped — must stay within budget.
+    expect(countTokens(desc)).toBeLessThanOrEqual(BUDGETS.tier1Active);
+  });
+
+  it("requires only `prompt` — every other lever is optional", () => {
+    const schema = unerrContext?.inputSchema as JsonSchema;
+    expect(schema.required).toEqual(["prompt"]);
+    // The optional levers exist so agents can find them.
+    for (const k of ["budget", "response_format", "digest", "expand"]) {
+      expect(schema.properties?.[k]).toBeDefined();
+    }
+  });
+
+  it("does NOT pin response_format with a schema `default` — it is server-derived from task size", () => {
+    const schema = unerrContext?.inputSchema as JsonSchema;
+    const rf = schema.properties?.response_format as
+      | { description?: string; default?: unknown }
+      | undefined;
+    // A schema default here would mislead: the format is chosen server-side and
+    // Gemini would strip the default anyway. The derivation lives in prose.
+    expect(rf && Object.hasOwn(rf, "default")).toBe(false);
+    expect(rf?.description ?? "").toMatch(/default|server/i);
+  });
+
+  it("declares response_format as an explicit string enum", () => {
+    const schema = unerrContext?.inputSchema as JsonSchema;
+    const rf = schema.properties?.response_format as JsonSchema | undefined;
+    expect(rf?.type).toBe("string");
+    expect(rf?.enum).toEqual(["concise", "detailed"]);
+  });
+});
+
+describe("cross-agent schema invariants (catalog-wide)", () => {
+  it("any schema `default` is also stated in the property description, so a stripping agent (Gemini) still learns it", () => {
+    const offenders: string[] = [];
+    for (const def of TOOL_DEFINITIONS) {
+      const schema = def.inputSchema as JsonSchema;
+      for (const [name, prop] of Object.entries(schema.properties ?? {})) {
+        if (!Object.hasOwn(prop, "default")) continue;
+        const description = String(prop.description ?? "");
+        // The default must be recoverable from prose alone (the word "default"
+        // appears), since the server enforces it regardless of what the agent
+        // sends — the schema `default` is only a hint.
+        if (!/default/i.test(description))
+          offenders.push(`${def.name}.${name}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("every property carries a non-empty description and every required field exists", () => {
+    for (const def of TOOL_DEFINITIONS) {
+      const schema = def.inputSchema as JsonSchema;
+      const props = schema.properties ?? {};
+      for (const [name, prop] of Object.entries(props)) {
+        const description = prop.description;
+        expect(
+          typeof description === "string" && description.length > 0,
+          `${def.name}.${name} needs a non-empty description`
+        ).toBe(true);
+      }
+      for (const req of schema.required ?? []) {
+        expect(
+          Object.hasOwn(props, req),
+          `${def.name} requires "${req}" but it is not in properties`
+        ).toBe(true);
+      }
+    }
+  });
+});

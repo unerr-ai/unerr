@@ -22,9 +22,11 @@
  */
 
 import {
+  type BundleSavingsModel,
   type ReconRunner,
   SWEEP_SEARCH_LIMIT,
   composeRecon,
+  modelBundleSavings,
   reconEntityCount,
   reconFileSpread,
   renderReconDigest,
@@ -53,6 +55,16 @@ export interface UnerrContextDeps {
   recallNotes: (prompt: string) => Promise<unknown>;
   /** Repo cwd — used to init the telemetry log before the lever emit. */
   repoCwd: string;
+  /**
+   * E4 Layer A sink — persist the modeled bundle savings (a `context_bundle`
+   * compression_event + the matching token_flow_event that feeds the
+   * SavingsOriginSplit "context bundling / round-trip avoidance" origin). The
+   * `model` carries the Layer-B manifest (delivered/expand keys) for the
+   * post-hoc reconciliation. Optional + injected so the handler stays
+   * unit-testable with a fake; the proxy wires the real DB writers. Failures
+   * are swallowed by the caller — telemetry is never load-bearing.
+   */
+  recordBundleSavings?: (model: BundleSavingsModel) => void;
 }
 
 let _leverLogInit = false;
@@ -125,6 +137,9 @@ export async function handleUnerrContextProxy(
     args.response_format === "concise" || args.response_format === "detailed"
       ? (args.response_format as "concise" | "detailed")
       : undefined;
+  // Speculative expand ring (E2): pre-inline the top callers' bodies. Opt-in —
+  // only worth the tokens when the edit actually touches callers.
+  const expand = args.expand === true;
 
   // The composer needs notes warm + graph shapes raw. recall_notes routes to
   // the proxy notes store; every other tool routes to QueryRouter.executeRaw.
@@ -156,6 +171,7 @@ export async function handleUnerrContextProxy(
       ...(budget !== undefined ? { budget } : {}),
       searchLimit,
       responseFormat,
+      expand,
       // External `want` fan-out: composeRecon walks it ONLY when a real
       // downstream-MCP gateway is injected here as `mcpSources`. There is no
       // toggle — capability is presence, not a flag (this runs on the user's
@@ -190,6 +206,18 @@ export async function handleUnerrContextProxy(
     },
     deps.repoCwd
   );
+
+  // E4 Layer A: model this bundle's round-trip savings and hand them to the
+  // injected sink (compression_event + token_flow_event). Pure computation here;
+  // the proxy owns the DB writes. Never load-bearing — a throwing sink is
+  // swallowed so telemetry can never fail the recon call.
+  if (deps.recordBundleSavings) {
+    try {
+      deps.recordBundleSavings(modelBundleSavings(bundle));
+    } catch {
+      /* telemetry never load-bearing */
+    }
+  }
 
   return { content: [{ type: "text", text }] };
 }

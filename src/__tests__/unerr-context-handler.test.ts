@@ -152,4 +152,34 @@ describe("handleUnerrContextProxy", () => {
     // recall_notes must NOT reach runRaw — it has its own warm path.
     expect(toolsCalled).not.toContain("unerr_recall_notes");
   });
+
+  it("hands the E4 Layer-A model (with the Layer-B manifest) to recordBundleSavings", async () => {
+    const recordBundleSavings = vi.fn();
+    await handleUnerrContextProxy(
+      { prompt: "edit fetchUser in src/api/user.ts" },
+      baseDeps({ recordBundleSavings })
+    );
+    expect(recordBundleSavings).toHaveBeenCalledOnce();
+    const model = recordBundleSavings.mock.calls[0]?.[0];
+    // modeled fields present
+    expect(model.sources_collapsed).toBeGreaterThan(0);
+    expect(model.round_trips_modeled).toBe(model.sources_collapsed - 1);
+    expect(model.delivered_tokens).toBeGreaterThan(0);
+    // Layer-B manifest carried for post-hoc reconciliation
+    expect(Array.isArray(model.delivered_entity_keys)).toBe(true);
+    expect(Array.isArray(model.delivered_files)).toBe(true);
+    expect(Array.isArray(model.expand_keys)).toBe(true);
+  });
+
+  it("swallows a throwing recordBundleSavings — telemetry is never load-bearing", async () => {
+    const recordBundleSavings = vi.fn(() => {
+      throw new Error("sink down");
+    });
+    const res = await handleUnerrContextProxy(
+      { prompt: "edit fetchUser" },
+      baseDeps({ recordBundleSavings })
+    );
+    expect(res.isError).toBeUndefined();
+    expect(res.content[0]?.text).toContain("unerr recon");
+  });
 });
