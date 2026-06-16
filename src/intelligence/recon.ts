@@ -30,6 +30,11 @@ import {
   fetchMcpSources,
   parseWantEntries,
 } from "./recon-mcp-sources.js";
+import {
+  type ShellRunner,
+  fetchShellSources,
+  parseShellWants,
+} from "./recon-shell-sources.js";
 
 /** Runs one underlying tool and returns its raw structured content. */
 export type ReconRunner = (
@@ -62,10 +67,16 @@ export interface DroppedSection {
    * Why the section is absent. Local sections: "budget" (no room left) or
    * "error" (the runner threw). External `want` sources add their own fates:
    * "timeout" (exceeded the per-source cap), "unknown_kind" (no plan for that
-   * kind). There is no "disabled" — external sources are only fetched when a
-   * downstream gateway is actually present, never gated behind a toggle.
+   * kind), "not_allowed" (a `shell:` command failed the read-only allowlist).
+   * There is no "disabled" — external sources are only fetched when a downstream
+   * gateway is actually present, never gated behind a toggle.
    */
-  readonly reason: "budget" | "error" | "timeout" | "unknown_kind";
+  readonly reason:
+    | "budget"
+    | "error"
+    | "timeout"
+    | "unknown_kind"
+    | "not_allowed";
 }
 
 export interface ReconBundle {
@@ -81,6 +92,32 @@ export interface ReconBundle {
   readonly budget: number;
   /** True when at least one section was dropped or shrunk for the budget. */
   readonly truncated: boolean;
+}
+
+/**
+ * The exact follow-up call that re-fetches a section recon dropped for budget,
+ * so the coverage footer is paste-ready instead of advisory. Returns null when
+ * the only remedy is a wider budget (recall-only rings carry no direct re-fetch).
+ * @sem domain=recon role=nudge
+ */
+function followUpFor(d: DroppedSection, bundle: ReconBundle): string | null {
+  const terms = bundle.terms.join(" ").trim();
+  const key = bundle.focusKey ?? bundle.focusName;
+  switch (d.tool) {
+    case "get_references":
+      return key ? `get_references({key:'${key}', direction:'callers'})` : null;
+    case "search_code":
+      return terms ? `search_code({query:'${terms}'})` : null;
+    case "focus_bodies":
+      if (key) return `search_code({query:'${key}', include_body:true})`;
+      return terms
+        ? `search_code({query:'${terms}', include_body:true})`
+        : null;
+    case "get_conventions":
+      return "file_read on the file you will edit (conventions auto-inject)";
+    default:
+      return null;
+  }
 }
 
 export interface ReconOptions {
@@ -115,6 +152,15 @@ export interface ReconOptions {
    */
   readonly want?: string[];
   /**
+   * Speculative expansion (E2). When true and a focus entity with callers is
+   * found, pre-inline the verbatim bodies of the top callers — the exact sites
+   * the agent edits next when changing a signature — as a lowest-priority,
+   * budget-trimmed ring. Absorbs the "update every caller" read fan-out the
+   * blast-radius gate would otherwise force. Default false (off): the bodies are
+   * only worth their tokens when the edit actually touches callers.
+   */
+  readonly expand?: boolean;
+  /**
    * Downstream-MCP gateway for the `want` fan-out. Injected by the caller so
    * this module stays pure. Its mere PRESENCE is the capability signal — the
    * caller supplies it only when a real downstream gateway exists, and omits it
@@ -124,6 +170,18 @@ export interface ReconOptions {
   readonly mcpSources?: {
     readonly runner: GatewayRunner;
     readonly timeoutMs?: number;
+  };
+  /**
+   * Read-only shell executor for the `shell:<cmd>` want kind (E2). Same
+   * presence-is-capability discipline as `mcpSources`: injected only when the
+   * caller has a safe, allowlist-guarded executor. When absent, `shell:` wants
+   * degrade to `dropped` and nothing runs. The module validates every command
+   * (read-only git only, no metacharacters) before this runner sees it.
+   */
+  readonly shellSources?: {
+    readonly runner: ShellRunner;
+    readonly timeoutMs?: number;
+    readonly maxBytes?: number;
   };
 }
 
@@ -138,6 +196,10 @@ const FOCUS_BODY_BUDGET_FRACTION = 0.5;
 /** Per-entity body token cap floor/ceiling (research: ~400–800 tok/entity). */
 const MIN_BODY_TOKENS = 300;
 const MAX_BODY_TOKENS = 800;
+/** Max caller bodies pre-inlined by the speculative `expand` ring (E2). */
+const EXPAND_MAX_CALLERS = 3;
+/** Per-caller body token cap for the expand ring — tighter than focus bodies. */
+const EXPAND_BODY_TOKENS = 400;
 /**
  * Thin-bundle value floor (decision D6). When the non-body content (notes +
  * callers + entities + conventions) would total under this many tokens — the
@@ -367,6 +429,42 @@ function asEntityArray(v: unknown): unknown[] {
 }
 
 /**
+ * Drop entities from the search result whose verbatim body is already inlined as
+ * a focus body, so the "Entities" overview never re-pays tokens for a row the
+ * bundle already carries in full. Preserves the original container shape (bare
+ * array or {entities|results|hits|rows} wrapper).
+ * @sem domain=recon role=dedup
+ */
+function dedupeSearchAgainstBodies(
+  search: unknown,
+  focusBodies: FocusBody[] | undefined
+): unknown {
+  if (!focusBodies?.length) return search;
+  const bodyKeys = new Set(
+    focusBodies.map((b) => b.key).filter((k): k is string => !!k)
+  );
+  if (!bodyKeys.size) return search;
+  const filterArr = (arr: unknown[]): unknown[] =>
+    arr.filter((e) => {
+      const k =
+        e && typeof e === "object"
+          ? (e as Record<string, unknown>).key
+          : undefined;
+      return typeof k !== "string" || !bodyKeys.has(k);
+    });
+  if (Array.isArray(search)) return filterArr(search);
+  if (search && typeof search === "object") {
+    const o = search as Record<string, unknown>;
+    for (const field of ["entities", "results", "hits", "rows"]) {
+      if (Array.isArray(o[field])) {
+        return { ...o, [field]: filterArr(o[field] as unknown[]) };
+      }
+    }
+  }
+  return search;
+}
+
+/**
  * Greedily shrink list-bearing structured data until it fits `budget` tokens.
  * Repeatedly slices the longest array in the payload in half. Returns the
  * possibly-shrunk data and whether anything was cut. Never mutates the input.
@@ -545,6 +643,34 @@ function findEntityWithBody(raw: unknown): Record<string, unknown> | null {
   return null;
 }
 
+/**
+ * Pull the top caller keys from a get_references result for the speculative
+ * `expand` ring (E2). References shape: {references:[{key,name,...}], ...}.
+ * @sem domain=recon role=expand
+ */
+function topCallerKeys(
+  references: unknown,
+  max: number
+): Array<{ key: string; name: string | null }> {
+  if (!references || typeof references !== "object") return [];
+  const arr = (references as Record<string, unknown>).references;
+  if (!Array.isArray(arr)) return [];
+  const out: Array<{ key: string; name: string | null }> = [];
+  for (const r of arr) {
+    if (r && typeof r === "object") {
+      const rec = r as Record<string, unknown>;
+      if (typeof rec.key === "string") {
+        out.push({
+          key: rec.key,
+          name: typeof rec.name === "string" ? rec.name : null,
+        });
+        if (out.length >= max) break;
+      }
+    }
+  }
+  return out;
+}
+
 /** Parse one `search_code` detail result into a FocusBody, or null if it carried no source. */
 function extractFocusBody(raw: unknown): FocusBody | null {
   const e = findEntityWithBody(raw);
@@ -698,7 +824,9 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
     searchLimit = DEFAULT_SEARCH_LIMIT,
     responseFormat = "detailed",
     want,
+    expand = false,
     mcpSources,
+    shellSources,
   } = opts;
 
   const terms = extractQueryTerms(prompt);
@@ -719,6 +847,30 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
     });
     for (const d of result.dropped) {
       dropped.push({ tool: "want_source", title: d.title, reason: d.reason });
+    }
+    return result.sections;
+  })();
+
+  // Read-only shell `want` fan-out (E2), same presence-is-capability discipline:
+  // runs ONLY when a `shellSources` executor is injected. Each command is
+  // validated (read-only git, no metacharacters) inside fetchShellSources before
+  // the executor sees it, and isolated behind a per-command timeout + cap.
+  const shellSourcesP: Promise<
+    Awaited<ReturnType<typeof fetchShellSources>>["sections"]
+  > = (async () => {
+    if (!want || want.length === 0 || !shellSources) return [];
+    const wants = parseShellWants(want);
+    if (wants.length === 0) return [];
+    const result = await fetchShellSources(wants, shellSources.runner, {
+      ...(shellSources.timeoutMs !== undefined
+        ? { timeoutMs: shellSources.timeoutMs }
+        : {}),
+      ...(shellSources.maxBytes !== undefined
+        ? { maxBytes: shellSources.maxBytes }
+        : {}),
+    });
+    for (const d of result.dropped) {
+      dropped.push({ tool: "shell_source", title: d.title, reason: d.reason });
     }
     return result.sections;
   })();
@@ -841,6 +993,42 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
     if (bodies.length > 0) focusBodies = bodies;
   }
 
+  // Phase 2c — speculative `expand` ring (E2). When the caller asks for it and a
+  // focus entity has callers, pre-inline the verbatim bodies of the top callers:
+  // the exact sites the blast-radius gate forces the agent to open and edit next.
+  // Carrying them now collapses that read fan-out into this one call. Skips any
+  // caller already inlined as a focus body, and is budget-trimmed (lowest local
+  // priority) so it never starves the irreducible core.
+  let expandBodies: FocusBody[] | undefined;
+  if (expand && references !== undefined) {
+    const inlined = new Set((focusBodies ?? []).map((b) => b.key));
+    const targets = topCallerKeys(references, EXPAND_MAX_CALLERS).filter(
+      (c) => !inlined.has(c.key)
+    );
+    if (targets.length > 0) {
+      const fetched = await Promise.all(
+        targets.map((c) =>
+          safeRun(
+            "search_code",
+            {
+              query: c.key,
+              detail: true,
+              include_body: true,
+              token_budget: EXPAND_BODY_TOKENS,
+            },
+            `Caller source of ${c.name ?? c.key}`
+          )
+        )
+      );
+      const bodies: FocusBody[] = [];
+      for (const raw of fetched) {
+        const b = extractFocusBody(raw);
+        if (b) bodies.push(b);
+      }
+      if (bodies.length > 0) expandBodies = bodies;
+    }
+  }
+
   // Assemble candidate sections in priority order. Anchored notes (the user's
   // own rules) rank first; the focus entity's callers (blast radius — unerr's
   // core safe-change signal) next; then the raw search list and conventions.
@@ -872,15 +1060,42 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
       referencesEmpty
     );
   }
-  add("search_code", "Entities", 3, search, searchEmpty);
+  // Precision: an entity already inlined verbatim as a focus body is redundant
+  // in the "Entities" overview — drop it so the bundle never double-pays.
+  const dedupedSearch = dedupeSearchAgainstBodies(search, focusBodies);
+  const dedupedSearchEmpty =
+    searchEmpty || asEntityArray(dedupedSearch).length === 0;
+  add("search_code", "Entities", 3, dedupedSearch, dedupedSearchEmpty);
   add("get_conventions", "Conventions", 4, conventions, conventionsEmpty);
   add("domain_tags", "Active domain tags", 5, domainTags, domainTagsEmpty);
   add("vocab_nudges", "Vocabulary nudges", 6, vocabNudges, vocabNudgesEmpty);
+  // Speculative expand ring (E2) — lowest local priority (after every code ring,
+  // before external want sources), trimmed first under budget pressure.
+  add(
+    "expand_callers",
+    "Caller bodies (expand)",
+    6.5,
+    expandBodies,
+    focusBodiesEmpty
+  );
 
   // Fold in the external `want` sources (Phase 3). Each carries its own sinking
   // priority (>= MCP_SOURCE_BASE_PRIORITY = 7) so it is kept only after every
   // code ring, and is non-empty by construction (fetchMcpSources omits failures).
   for (const s of await mcpSourcesP) {
+    candidates.push({
+      tool: s.tool,
+      title: s.title,
+      priority: s.priority,
+      args: {},
+      data: s.data,
+      isEmpty: () => false,
+    });
+  }
+
+  // Read-only shell sources (E2) sink below every MCP source — git history is
+  // context, the lowest-priority ring of all.
+  for (const s of await shellSourcesP) {
     candidates.push({
       tool: s.tool,
       title: s.title,
@@ -993,9 +1208,11 @@ function formatFocusBodies(data: unknown): string {
  * so a re-read may be legitimate). Empty when no full bodies were inlined.
  */
 function buildReadManifest(bundle: ReconBundle): string {
-  const bodySection = bundle.sections.find((s) => s.tool === "focus_bodies");
-  if (!bodySection || !Array.isArray(bodySection.data)) return "";
-  const ranges = (bodySection.data as FocusBody[])
+  // Both the focus bodies and the expand-ring caller bodies are inlined verbatim
+  // with file:line headers — neither needs a re-read round-trip.
+  const ranges = bundle.sections
+    .filter((s) => s.tool === "focus_bodies" || s.tool === "expand_callers")
+    .flatMap((s) => (Array.isArray(s.data) ? (s.data as FocusBody[]) : []))
     .filter((b) => b?.file && !b.truncated)
     .map((b) => focusBodyRange(b));
   if (!ranges.length) return "";
@@ -1010,6 +1227,7 @@ function buildReadManifest(bundle: ReconBundle): string {
  */
 const RENDER_RANK: Readonly<Record<string, number>> = {
   focus_bodies: 0,
+  expand_callers: 0.5,
   search_code: 1,
   get_references: 2,
   get_conventions: 3,
@@ -1043,7 +1261,7 @@ export function renderReconText(bundle: ReconBundle): string {
   for (const s of ordered) {
     lines.push("");
     lines.push(`## ${s.title}${s.shrunk ? " (trimmed)" : ""}`);
-    if (s.tool === "focus_bodies") {
+    if (s.tool === "focus_bodies" || s.tool === "expand_callers") {
       lines.push(formatFocusBodies(s.data));
       continue;
     }
@@ -1063,14 +1281,16 @@ export function renderReconText(bundle: ReconBundle): string {
     lines.push(manifest);
   }
   if (bundle.dropped.length) {
-    lines.push("");
     const budgetDrops = bundle.dropped.filter((d) => d.reason === "budget");
     if (budgetDrops.length) {
+      lines.push("");
       lines.push(
-        `omitted for budget (raise budget to include): ${budgetDrops
-          .map((d) => d.title)
-          .join(", ")}`
+        `omitted for budget — re-run with budget:${bundle.budget * 2} to include, or fetch directly:`
       );
+      for (const d of budgetDrops) {
+        const call = followUpFor(d, bundle);
+        lines.push(call ? `  - ${d.title} → ${call}` : `  - ${d.title}`);
+      }
     }
   }
   return lines.join("\n");
@@ -1206,14 +1426,16 @@ export function renderReconDigest(bundle: ReconBundle): string {
       for (const { file, names } of byFile) {
         lines.push(`${file}: ${names.join(", ")}`);
       }
-    } else if (s.tool === "focus_bodies") {
+    } else if (s.tool === "focus_bodies" || s.tool === "expand_callers") {
       // Digest stays flat-size: bodies collapse to their file:line ranges, not
       // full source. (In practice large sweeps run 'concise', so no bodies are
       // fetched — this branch only fires on an explicit digest+detailed call.)
       const bodies = Array.isArray(s.data) ? (s.data as FocusBody[]) : [];
       if (!bodies.length) continue;
+      const label =
+        s.tool === "expand_callers" ? "caller source" : "focus source";
       lines.push("");
-      lines.push(`## focus source (${bodies.length})`);
+      lines.push(`## ${label} (${bodies.length})`);
       for (const b of bodies) {
         lines.push(`${focusBodyRange(b)}${b.name ? ` ${b.name}` : ""}`);
       }
@@ -1277,4 +1499,113 @@ export function reconFileSpread(bundle: ReconBundle): string[] {
     }
   }
   return [...files];
+}
+
+/** Verbatim-body sections (focus + expand ring) flattened to FocusBody rows. */
+function bundleBodies(bundle: ReconBundle, tool: string): FocusBody[] {
+  return bundle.sections
+    .filter((s) => s.tool === tool)
+    .flatMap((s) => (Array.isArray(s.data) ? (s.data as FocusBody[]) : []));
+}
+
+/**
+ * E4 Layer A — emit-time MODELED savings for one recon bundle.
+ *
+ * The bundle is ONE round-trip that stands in for the discovery fan-out an agent
+ * would otherwise run as N separate calls (search → references → a file_read per
+ * focus body → conventions). The dominant cost of that fan-out is NOT the
+ * section content — it is that every separate call re-bills the entire
+ * accumulated context prefix (CLAUDE.md "Recon first"). So the modeled saving is
+ * the re-paid prefix the single bundle avoids: `round_trips × prefix estimate`.
+ *
+ * This is the UPPER BOUND — a counterfactual that assumes the agent WOULD have
+ * fetched every folded section separately. Layer B reconciles it post-hoc
+ * against what the agent actually did next (re-fetch ⇒ miss, expand item used ⇒
+ * confirmed avoided trip). The `delivered_*`/`expand_keys` arrays are Layer B's
+ * input — they name exactly what this bundle put on the wire. Pure +
+ * deterministic so it unit-tests against a hand-built bundle.
+ * @sem domain=recon role=telemetry
+ */
+export interface BundleSavingsModel {
+  /** Distinct rings folded into the bundle; each is one avoided tool call. */
+  readonly sources_collapsed: number;
+  /** Round-trips the single bundle call replaces: max(0, sources_collapsed−1). */
+  readonly round_trips_modeled: number;
+  /** Counterfactual cost if each source were fetched as its own call. */
+  readonly original_tokens: number;
+  /** Tokens actually put on the wire (the bundle). */
+  readonly delivered_tokens: number;
+  /** Tokens saved vs the fan-out: round_trips_modeled × prefix estimate. */
+  readonly rerequest_saved_tokens: number;
+  /** Verbatim focus bodies inlined — the file_reads the manifest suppresses. */
+  readonly manifest_items: number;
+  /** Speculative expand-ring caller bodies pre-inlined. */
+  readonly expand_items: number;
+  /** Delivered entity keys (search hits + focus bodies) — Layer B re-fetch input. */
+  readonly delivered_entity_keys: string[];
+  /** Delivered file paths — Layer B re-fetch input. */
+  readonly delivered_files: string[];
+  /** Expand-ring caller keys — Layer B confirmed-avoided-trip input. */
+  readonly expand_keys: string[];
+}
+
+/**
+ * Default per-call prefix estimate (tokens) for the Layer-A model when the
+ * caller can't supply the live session figure. Deliberately conservative — a
+ * modest mid-session accumulated prefix, NOT a peak — so the modeled upper bound
+ * never over-claims. The credible number is Layer B's, not this.
+ */
+export const DEFAULT_PREFIX_TOKENS = 4000;
+
+/**
+ * Compute the Layer-A modeled savings + the Layer-B manifest for a bundle.
+ * @sem domain=recon role=telemetry
+ */
+export function modelBundleSavings(
+  bundle: ReconBundle,
+  opts: { prefixTokens?: number } = {}
+): BundleSavingsModel {
+  const prefixTokens =
+    typeof opts.prefixTokens === "number" && opts.prefixTokens > 0
+      ? opts.prefixTokens
+      : DEFAULT_PREFIX_TOKENS;
+  const sources_collapsed = bundle.sections.length;
+  const round_trips_modeled = Math.max(0, sources_collapsed - 1);
+  const delivered_tokens = bundle.totalTokens;
+  const rerequest_saved_tokens = round_trips_modeled * prefixTokens;
+  const original_tokens = delivered_tokens + rerequest_saved_tokens;
+
+  const focusBodies = bundleBodies(bundle, "focus_bodies");
+  const expandBodies = bundleBodies(bundle, "expand_callers");
+  // manifest_items mirrors buildReadManifest: only non-truncated, file-bearing
+  // bodies are re-read-suppressed (a truncated slice may legitimately re-read).
+  const manifest_items = focusBodies.filter(
+    (b) => b?.file && !b.truncated
+  ).length;
+
+  const entityKeys = new Set<string>();
+  for (const e of asEntityArray(
+    bundle.sections.find((s) => s.tool === "search_code")?.data
+  ) as Record<string, unknown>[]) {
+    const k = typeof e.key === "string" ? e.key : "";
+    if (k) entityKeys.add(k);
+  }
+  for (const b of focusBodies) if (b.key) entityKeys.add(b.key);
+
+  const expand_keys = expandBodies
+    .map((b) => b.key)
+    .filter((k): k is string => !!k);
+
+  return {
+    sources_collapsed,
+    round_trips_modeled,
+    original_tokens,
+    delivered_tokens,
+    rerequest_saved_tokens,
+    manifest_items,
+    expand_items: expandBodies.length,
+    delivered_entity_keys: [...entityKeys],
+    delivered_files: reconFileSpread(bundle),
+    expand_keys,
+  };
 }

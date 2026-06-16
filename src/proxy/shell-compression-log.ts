@@ -68,8 +68,8 @@ export interface ReversibleCompressionFields {
   mechanism?: string;
   /** Did the must-survive fact survive (S0/S4); null/undefined when unprobed. */
   fidelity_pass?: boolean;
-  /** `compress` (default) | `retrieve` | `recompute` (S1). */
-  event_kind?: "compress" | "retrieve" | "recompute";
+  /** `compress` (default) | `retrieve` | `recompute` (S1) | `context_bundle` (E4). */
+  event_kind?: "compress" | "retrieve" | "recompute" | "context_bundle";
   /** Content hash of the cached original when S1 cached one. */
   cache_ref?: string;
   /** Did this truncation order survivors by graph importance (S3). */

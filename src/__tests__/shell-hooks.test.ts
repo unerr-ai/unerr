@@ -166,8 +166,10 @@ describe("mergePreToolUseBashHook", () => {
     const preTool = settings.hooks?.PreToolUse;
     expect(Array.isArray(preTool)).toBe(true);
     // No duplicate unerr entries.
-    // 7 PreToolUse matcher entries: Bash, Read, Grep, Glob, Write, Edit,
-    // WebFetch — each with one `unerr hook pre-*` command. No duplicates
+    // 7 PreToolUse matcher entries: Bash, Read, Grep, Glob, Write|file_write,
+    // Edit|file_edit, WebFetch — each with one `unerr hook pre-*` command. The
+    // Write/Edit matchers carry the MCP-tool alternates so the gate fires for
+    // mcp__unerr__file_write / mcp__unerr__file_edit too (B6). No duplicates
     // (key check: each matcher appears exactly once).
     const unerrEntries = (
       preTool as Array<{
@@ -181,12 +183,12 @@ describe("mergePreToolUseBashHook", () => {
     const matchers = unerrEntries.map((e) => e.matcher).sort();
     expect(matchers).toEqual([
       "Bash",
-      "Edit",
+      "Edit|file_edit",
       "Glob",
       "Grep",
       "Read",
       "WebFetch",
-      "Write",
+      "Write|file_write",
     ]);
     rmSync(dir, { recursive: true, force: true });
   });

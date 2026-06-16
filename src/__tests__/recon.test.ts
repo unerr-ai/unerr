@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_PREFIX_TOKENS,
+  type ReconBundle,
   type ReconRunner,
   composeRecon,
   defaultCountTokens,
   extractQueryTerms,
+  modelBundleSavings,
   pickTopEntity,
   rankFocusEntities,
   reconEntityCount,
@@ -1101,5 +1104,399 @@ describe("renderReconDigest", () => {
     const largeLines = renderReconDigest(largeBundle).split("\n").length;
     // 60 files ≈ 60 lines + header — linear in files, not in JSON field count.
     expect(largeLines - smallLines).toBeLessThanOrEqual(62);
+  });
+});
+
+// ── A2 (E3): precision — dedup focus bodies from the entity list + actionable
+// coverage footer naming the exact follow-up call for budget-dropped sections.
+describe("recon precision (A2)", () => {
+  function bodyRunner(
+    table: Record<string, unknown>,
+    bodies: Record<string, { body: string; file: string }>
+  ): ReconRunner {
+    return vi.fn(async (tool: string, args: Record<string, unknown>) => {
+      if (tool === "search_code" && args?.include_body === true) {
+        const key = String(args.query);
+        const b = bodies[key];
+        if (!b) return { matched: false, query: key };
+        return {
+          key,
+          name: key,
+          file_path: b.file,
+          start_line: 1,
+          end_line: 1,
+          body: b.body,
+        };
+      }
+      const v = table[tool];
+      return typeof v === "function" ? (v as () => unknown)() : v;
+    });
+  }
+
+  it("drops an entity from the Entities list once it is inlined as a focus body", async () => {
+    const runner = bodyRunner(
+      {
+        unerr_recall_notes: { notes: [] },
+        get_conventions: { naming: [], import_direction: [], structure: [] },
+        search_code: [
+          {
+            key: "ent1",
+            name: "fooBar",
+            file_path: "src/foo.ts",
+            kind: "function",
+          },
+          {
+            key: "ent2",
+            name: "otherFn",
+            file_path: "src/other.ts",
+            kind: "function",
+          },
+        ],
+        get_references: {
+          references: [],
+          direction: "callers",
+          total: 0,
+          truncated: false,
+        },
+      },
+      // only ent1 has a fetchable body → ent1 becomes a focus body, ent2 does not
+      { ent1: { body: "function fooBar() { return 1; }", file: "src/foo.ts" } }
+    );
+    const bundle = await composeRecon({
+      prompt: "edit fooBar in src/foo.ts",
+      runner,
+      budget: 5000,
+    });
+    const entities = bundle.sections.find((s) => s.tool === "search_code");
+    expect(entities).toBeDefined();
+    const blob = JSON.stringify(entities?.data);
+    // ent1 is inlined verbatim as a focus body → removed from the list
+    expect(blob).not.toContain('"ent1"');
+    // ent2 has no body → stays in the overview
+    expect(blob).toContain('"ent2"');
+  });
+
+  it("coverage footer names the exact follow-up call for each budget-dropped section", () => {
+    // Construct the bundle directly — the renderer + followUpFor are the unit
+    // under test; budget-tuning composeRecon to force a specific drop is fragile.
+    const bundle: ReconBundle = {
+      prompt: "edit fooBar in src/foo.ts",
+      terms: ["fooBar", "src/foo.ts"],
+      focusKey: "ent1",
+      focusName: "fooBar",
+      sections: [],
+      dropped: [
+        {
+          tool: "get_references",
+          title: "Callers of fooBar",
+          reason: "budget",
+        },
+        { tool: "search_code", title: "Entities", reason: "budget" },
+        { tool: "get_conventions", title: "Conventions", reason: "budget" },
+        // recall-only ring: no direct re-fetch, only a wider budget helps
+        { tool: "domain_tags", title: "Active domain tags", reason: "budget" },
+        // a non-budget drop must NOT appear in the footer
+        { tool: "search_code", title: "errored", reason: "error" },
+      ],
+      totalTokens: 0,
+      budget: 4000,
+      truncated: true,
+    };
+    const text = renderReconText(bundle);
+    // concrete number (2× budget), never a :N placeholder
+    expect(text).toContain(
+      "omitted for budget — re-run with budget:8000 to include, or fetch directly:"
+    );
+    // paste-ready follow-up per dropped ring, with real args interpolated
+    expect(text).toContain(
+      "Callers of fooBar → get_references({key:'ent1', direction:'callers'})"
+    );
+    expect(text).toContain(
+      "Entities → search_code({query:'fooBar src/foo.ts'})"
+    );
+    expect(text).toContain(
+      "Conventions → file_read on the file you will edit (conventions auto-inject)"
+    );
+    // recall-only ring: listed without a call (only a wider budget helps)
+    expect(text).toContain("  - Active domain tags");
+    expect(text).not.toContain("Active domain tags →");
+    // error-reason drops are not budget drops — kept out of this footer
+    expect(text).not.toContain("errored");
+  });
+});
+
+// ── A3 (E2): speculative expand ring — pre-inline the top callers' verbatim
+// bodies (the sites the blast-radius gate forces the agent to edit next).
+describe("recon expand ring (A3)", () => {
+  function expandRunner(
+    bodies: Record<string, { body: string; file: string }>
+  ): ReconRunner {
+    const refs = {
+      references: [
+        { key: "c1", name: "callerOne", file_path: "src/a.ts" },
+        { key: "c2", name: "callerTwo", file_path: "src/b.ts" },
+      ],
+      direction: "callers",
+      total: 2,
+      truncated: false,
+    };
+    return vi.fn(async (tool: string, args: Record<string, unknown>) => {
+      if (tool === "search_code" && args?.include_body === true) {
+        const key = String(args.query);
+        const b = bodies[key];
+        if (!b) return { matched: false, query: key };
+        return {
+          key,
+          name: key,
+          file_path: b.file,
+          start_line: 10,
+          end_line: 12,
+          body: b.body,
+        };
+      }
+      if (tool === "search_code") {
+        return [
+          {
+            key: "ent1",
+            name: "fooBar",
+            file_path: "src/foo.ts",
+            kind: "function",
+          },
+        ];
+      }
+      if (tool === "get_references") return refs;
+      if (tool === "unerr_recall_notes") return { notes: [] };
+      if (tool === "get_conventions")
+        return { naming: [], import_direction: [], structure: [] };
+      return undefined;
+    });
+  }
+
+  it("pre-inlines top caller bodies as a section only when expand:true", async () => {
+    const bodies = {
+      ent1: { body: "function fooBar() { return 1; }", file: "src/foo.ts" },
+      c1: { body: "function callerOne() { fooBar(); }", file: "src/a.ts" },
+      c2: { body: "function callerTwo() { fooBar(); }", file: "src/b.ts" },
+    };
+    const off = await composeRecon({
+      prompt: "change fooBar signature in src/foo.ts",
+      runner: expandRunner(bodies),
+      budget: 5000,
+    });
+    expect(off.sections.some((s) => s.tool === "expand_callers")).toBe(false);
+
+    const on = await composeRecon({
+      prompt: "change fooBar signature in src/foo.ts",
+      runner: expandRunner(bodies),
+      budget: 5000,
+      expand: true,
+    });
+    const ring = on.sections.find((s) => s.tool === "expand_callers");
+    expect(ring).toBeDefined();
+    const text = renderReconText(on);
+    // caller bodies inlined verbatim with file:line headers
+    expect(text).toContain("function callerOne()");
+    expect(text).toContain("src/a.ts:10-12");
+    // and named in the do-not-re-read manifest
+    expect(text).toContain(
+      "do NOT call file_read/Read on: src/foo.ts:10-12, src/a.ts:10-12, src/b.ts:10-12"
+    );
+  });
+
+  it("does not re-inline a caller already carried as a focus body", async () => {
+    // ent1's body is fetched as the focus body; if a caller key collided it
+    // must not be double-fetched. Here callers are c1/c2 (distinct), so both
+    // appear once; assert no duplicate file:line in the manifest.
+    const bodies = {
+      ent1: { body: "function fooBar() { return 1; }", file: "src/foo.ts" },
+      c1: { body: "function callerOne() {}", file: "src/a.ts" },
+      c2: { body: "function callerTwo() {}", file: "src/b.ts" },
+    };
+    const bundle = await composeRecon({
+      prompt: "edit fooBar in src/foo.ts",
+      runner: expandRunner(bodies),
+      budget: 5000,
+      expand: true,
+    });
+    const ring = bundle.sections.find((s) => s.tool === "expand_callers");
+    const keys = (ring?.data as Array<{ key: string }>).map((b) => b.key);
+    expect(keys).toEqual(["c1", "c2"]);
+  });
+
+  it("is a no-op when expand is off and no caller fetch happens", async () => {
+    const runner = expandRunner({
+      ent1: { body: "function fooBar() {}", file: "src/foo.ts" },
+      c1: { body: "x", file: "src/a.ts" },
+      c2: { body: "y", file: "src/b.ts" },
+    });
+    await composeRecon({
+      prompt: "edit fooBar in src/foo.ts",
+      runner,
+      budget: 5000,
+    });
+    const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
+    // no include_body fetch was issued for a caller key (c1/c2)
+    const callerFetches = calls.filter(
+      (c) =>
+        c[0] === "search_code" &&
+        (c[1] as Record<string, unknown>)?.include_body === true &&
+        ["c1", "c2"].includes(String((c[1] as Record<string, unknown>)?.query))
+    );
+    expect(callerFetches.length).toBe(0);
+  });
+});
+
+// ── A3 (E2): read-only shell `want` kind folded into the bundle ──────────────
+describe("recon shell sources (A3)", () => {
+  it("folds an allowlisted shell:git command in only when a runner is injected", async () => {
+    const runner = makeRunner({
+      unerr_recall_notes: { notes: [] },
+      get_conventions: { naming: [], import_direction: [], structure: [] },
+      search_code: SEARCH_HIT,
+      get_references: REFERENCES,
+    });
+    const shellRunner = vi.fn(async (argv: string[]) => ({
+      stdout: `abc123 recent change\n${argv.join(" ")}`,
+      truncated: false,
+    }));
+
+    // no shellSources injected → the shell want is silently skipped
+    const off = await composeRecon({
+      prompt: "edit fooBar in src/foo.ts",
+      runner,
+      budget: 5000,
+      want: ["shell:git log -n3 -- src/foo.ts"],
+    });
+    expect(off.sections.some((s) => s.tool.startsWith("shell::"))).toBe(false);
+    expect(shellRunner).not.toHaveBeenCalled();
+
+    // runner injected → the command runs and its output is a section
+    const on = await composeRecon({
+      prompt: "edit fooBar in src/foo.ts",
+      runner,
+      budget: 5000,
+      want: ["shell:git log -n3 -- src/foo.ts"],
+      shellSources: { runner: shellRunner },
+    });
+    const section = on.sections.find((s) => s.tool === "shell::git-log");
+    expect(section).toBeDefined();
+    expect(String(section?.data)).toContain("recent change");
+  });
+
+  it("drops a disallowed shell command without running it", async () => {
+    const runner = makeRunner({
+      unerr_recall_notes: { notes: [] },
+      get_conventions: { naming: [], import_direction: [], structure: [] },
+      search_code: SEARCH_HIT,
+      get_references: REFERENCES,
+    });
+    const shellRunner = vi.fn(async () => ({ stdout: "", truncated: false }));
+    const bundle = await composeRecon({
+      prompt: "edit fooBar",
+      runner,
+      budget: 5000,
+      want: ["shell:rm -rf /"],
+      shellSources: { runner: shellRunner },
+    });
+    expect(shellRunner).not.toHaveBeenCalled();
+    expect(
+      bundle.dropped.some(
+        (d) => d.tool === "shell_source" && d.reason === "not_allowed"
+      )
+    ).toBe(true);
+  });
+});
+
+// ── A4 (E4): emit-time MODELED savings — the Layer-A upper bound + the
+// Layer-B manifest the post-hoc reconciliation reads.
+describe("modelBundleSavings (A4)", () => {
+  function bundleWith(
+    sections: ReconBundle["sections"],
+    totalTokens: number
+  ): ReconBundle {
+    return {
+      prompt: "edit fooBar",
+      terms: ["fooBar"],
+      focusKey: "ent1",
+      focusName: "fooBar",
+      sections,
+      dropped: [],
+      totalTokens,
+      budget: 4000,
+      truncated: false,
+    };
+  }
+
+  function section(
+    tool: string,
+    data: unknown,
+    tokens = 100
+  ): ReconBundle["sections"][number] {
+    return { tool, title: tool, data, tokens, priority: 1, shrunk: false };
+  }
+
+  it("models round-trips and re-paid prefix from a multi-source bundle", () => {
+    const bundle = bundleWith(
+      [
+        section("search_code", [
+          { key: "ent1", name: "fooBar", file_path: "src/foo.ts" },
+          { key: "ent2", name: "bar", file_path: "src/bar.ts" },
+        ]),
+        section("get_references", { references: [], direction: "callers" }),
+        section("get_conventions", { naming: [] }),
+      ],
+      900
+    );
+    const m = modelBundleSavings(bundle);
+    // 3 folded rings = 3 sources, replacing the call → 2 avoided round-trips.
+    expect(m.sources_collapsed).toBe(3);
+    expect(m.round_trips_modeled).toBe(2);
+    expect(m.delivered_tokens).toBe(900);
+    expect(m.rerequest_saved_tokens).toBe(2 * DEFAULT_PREFIX_TOKENS);
+    expect(m.original_tokens).toBe(900 + 2 * DEFAULT_PREFIX_TOKENS);
+    // entity keys from the search section feed the Layer-B re-fetch check.
+    expect(m.delivered_entity_keys).toEqual(["ent1", "ent2"]);
+    expect(m.delivered_files).toContain("src/foo.ts");
+  });
+
+  it("honors an injected prefix estimate over the default", () => {
+    const bundle = bundleWith(
+      [section("search_code", []), section("get_references", {})],
+      200
+    );
+    const m = modelBundleSavings(bundle, { prefixTokens: 10_000 });
+    expect(m.round_trips_modeled).toBe(1);
+    expect(m.rerequest_saved_tokens).toBe(10_000);
+  });
+
+  it("counts only non-truncated focus bodies as manifest items, and expand bodies as expand items", () => {
+    const bundle = bundleWith(
+      [
+        section("focus_bodies", [
+          { key: "ent1", file: "src/foo.ts", body: "…", truncated: false },
+          // truncated slice may legitimately be re-read → not manifest-counted
+          { key: "ent2", file: "src/bar.ts", body: "…", truncated: true },
+        ]),
+        section("expand_callers", [
+          { key: "c1", file: "src/a.ts", body: "…", truncated: false },
+        ]),
+      ],
+      500
+    );
+    const m = modelBundleSavings(bundle);
+    expect(m.manifest_items).toBe(1);
+    expect(m.expand_items).toBe(1);
+    expect(m.expand_keys).toEqual(["c1"]);
+    // focus-body keys join the delivered set (deduped) for Layer B.
+    expect(m.delivered_entity_keys).toContain("ent1");
+  });
+
+  it("models zero savings for a single-source bundle (nothing to collapse)", () => {
+    const bundle = bundleWith([section("search_code", [])], 100);
+    const m = modelBundleSavings(bundle);
+    expect(m.sources_collapsed).toBe(1);
+    expect(m.round_trips_modeled).toBe(0);
+    expect(m.rerequest_saved_tokens).toBe(0);
+    expect(m.original_tokens).toBe(100);
   });
 });
