@@ -1,4 +1,0 @@
-# Raw JSON output is regenerable churn — don't commit it.
-# The .md reports ARE the published artifact (shown in the GitHub repo) — keep them.
-*.json
-!.gitignore

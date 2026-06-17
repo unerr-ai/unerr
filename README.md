@@ -119,7 +119,7 @@ The same runtime, seen four ways. Today this is mission control for the agents o
 
 Because unerr only ever hands the agent the one relevant thing — the rule for the function in front of it, 50 lines instead of 3,000 — it spends far fewer tokens getting there. In head-to-head benchmarks against grep-and-read, unerr removes **86–90% of the tokens an agent spends reading and navigating code** — same questions, same tokenizer, with a fidelity gate that throws out any "saving" that lost the answer.
 
-That number is the read/navigate slice, not a promise about your whole bill. It's measured, not estimated, and you can [reproduce it on your own repo](./benchmarks/README.md).
+That number is the read/navigate slice, not a promise about your whole bill. It's measured, not estimated, and you can [reproduce it on your own repo](https://github.com/unerr-ai/unerr-benchmarks).
 
 ### 📐 CONSISTENCY — your conventions, applied at the edit
 
@@ -272,7 +272,7 @@ One local process per repo. You don't have to think about any of this to use it 
 | **The behaviors that catch problems** | breaking-change guard · convention-slip guard · retry-loop breaker · session continuity · auto-doc · change narrative · architecture guard | Each fires on a combination of the three above, *at the moment of the edit* — not as a tool the agent picked, not as a review after the fact. |
 
 <details>
-<summary><strong>Architecture, CLI commands, MCP tools, manual config, benchmarks</strong></summary>
+<summary><strong>Architecture, CLI commands, MCP tools, manual config</strong></summary>
 
 ### Architecture
 
@@ -352,7 +352,7 @@ Every response carries inline `ur|<tag>` signals for high-priority guidance — 
 
 ### Benchmarks
 
-unerr removes **86–90% of the tokens** an agent would otherwise spend navigating and reading code — measured, not estimated, across the same questions and the same tokenizer, with a fidelity gate that discards any "saving" that lost the answer. Methodology, reproduction commands, and per-repo results: [benchmarks/README.md](./benchmarks/README.md).
+unerr removes **86–90% of the tokens** an agent would otherwise spend navigating and reading code — measured, not estimated, across the same questions and the same tokenizer, with a fidelity gate that discards any "saving" that lost the answer. Methodology, reproduction commands, and per-repo results live in the separate [unerr-benchmarks](https://github.com/unerr-ai/unerr-benchmarks) repo.
 
 ### Contributing
 
@@ -366,7 +366,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, day-to-day commands, code co
 
 Token savings is a receipt, not the reason — a dozen tools now claim some version of the same number, so it isn't where the product lives. But it's real, and you get it as a side effect of only ever handing the agent the one relevant thing:
 
-- **86–90%** of an agent's code-navigation tokens removed in head-to-head benchmarks against grep-and-read — real tokenizer, fidelity-gated, reproducible on any repo. [See the benchmarks →](./benchmarks/README.md)
+- **86–90%** of an agent's code-navigation tokens removed in head-to-head benchmarks against grep-and-read — real tokenizer, fidelity-gated, reproducible on any repo. [See the benchmarks →](https://github.com/unerr-ai/unerr-benchmarks)
 - Roughly **84%** of an agent's tokens are tool output, mostly file reads ([JetBrains, NeurIPS 2025](https://blog.jetbrains.com/research/2025/12/efficient-context-management/)). unerr steps in at the read, so the window doesn't fill up with noise.
 - **0** AI calls per query in the core — the lookups, facts, and warnings are computed directly. No API keys, no per-turn inference cost, no telemetry.
 
