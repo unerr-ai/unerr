@@ -27,6 +27,7 @@ import {
   type StreamDrainer,
   fitBatch,
 } from "../push-drainer.js";
+import { nativeSessionIdForUnerrId } from "../../tracking/session-records.js";
 import { TRACE_SCHEMA_VERSION, buildEnvelope } from "./envelope.js";
 
 /** Endpoint cap — sourced from the contract (`TRACE_MAX_LEDGER_PER_BATCH`). */
@@ -80,6 +81,18 @@ export async function buildLedgerDrainers(
       // consumed, so the cursor never stalls on bad input).
       const mapped: Array<{ row: unknown; lineCount: number }> = [];
       let skippedLeading = 0;
+      // Drain-time native-id resolution: the ledger entry carries only the
+      // unerr per-bridge session_id, so map it to the agent's native id (the
+      // PRIMARY grouping key) via the shared sessions file. Memoized per read so
+      // a batch from one session reads the file once.
+      const nativeByUnerrId = new Map<string, string | null>();
+      const nativeFor = (unerrSessionId: string): string | null => {
+        const hit = nativeByUnerrId.get(unerrSessionId);
+        if (hit !== undefined) return hit;
+        const resolved = nativeSessionIdForUnerrId(ctx.unerrDir, unerrSessionId);
+        nativeByUnerrId.set(unerrSessionId, resolved);
+        return resolved;
+      };
       for (const line of pending) {
         let entry: LedgerEntry;
         try {
@@ -102,6 +115,7 @@ export async function buildLedgerDrainers(
               ts: entry.ts,
               source: ctx.source,
               sessionId: entry.session_id,
+              nativeSessionId: nativeFor(entry.session_id),
               detail: {},
             }),
             tool: entry.tool,

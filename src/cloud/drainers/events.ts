@@ -104,16 +104,55 @@ const C3_DETAIL_KEYS = [
 ] as const;
 
 /**
- * Project the C3 classification fields out of a behavior_events row's parsed
- * `detail` JSON. Copies ONLY the declared {@link C3_DETAIL_KEYS} (allow-list,
- * not pass-through) so an unrelated free-form behavior detail never rides along.
- * Returns the picked fields plus a hashed `entity_id` (the opaque, firewall-safe
- * stand-in for the row's denylisted `entity_key`). Empty when the row carried no
- * C3 detail — the behavior mapper then emits only its base fields.
+ * Retrieval detail keys (Part 4 task 15) — present on recall-class behaviors
+ * (fact_recalled, convention_applied, context_bundle, cross_session_resume,
+ * resume_blockers_surfaced). The RAG-observability / RETRIEVER-span analogue:
+ * what unerr pulled from memory and how well it matched. `retrieved` is an array
+ * of `{kind, anchor, score}`; the rest are counts + a delivered flag.
+ */
+const RETRIEVAL_DETAIL_KEYS = [
+  "retrieved", // [{kind, anchor?, score?}]
+  "candidate_count", // int ≥ 0
+  "returned_count", // int ≥ 0
+  "used", // bool — did it reach the agent
+] as const;
+
+/**
+ * Guardrail detail keys (Part 4 task 17) — present on prevention-class behaviors
+ * (cascade_guard, stale_edit_prevented, loop_broken, caller_check_enforced,
+ * review_finding_surfaced, intervention_halted, intervention_warned). The
+ * GUARDRAIL-span analogue: what unerr enforced, why, and on what target. The
+ * terminal effect is `action`; the C3 `outcome` enum is a different axis (change
+ * survival) and is not reused for guardrails.
+ */
+const GUARDRAIL_DETAIL_KEYS = [
+  "policy", // which guardrail fired (short label)
+  "action", // enum: halted | warned | flagged
+  "reason", // short why (never source)
+  "target_file", // repo-relative file (server HR-2 may strip an absolute path)
+  "target_entity", // opaque entity id
+  "target_tool_use_id", // the agent's tool_use id the guardrail acted on
+] as const;
+
+/** Every behavior-detail key the wire allows, in one allow-list. */
+const BEHAVIOR_DETAIL_KEYS = [
+  ...C3_DETAIL_KEYS,
+  ...RETRIEVAL_DETAIL_KEYS,
+  ...GUARDRAIL_DETAIL_KEYS,
+] as const;
+
+/**
+ * Project the allowed detail fields out of a behavior_events row's parsed
+ * `detail` JSON. Copies ONLY the declared {@link BEHAVIOR_DETAIL_KEYS} (C3 edge
+ * classification + retrieval + guardrail; allow-list, not pass-through) so an
+ * unrelated free-form behavior detail never rides along. Returns the picked
+ * fields plus a hashed `entity_id` (the opaque, firewall-safe stand-in for the
+ * row's denylisted `entity_key`). Empty when the row carried no tagged detail —
+ * the behavior mapper then emits only its base fields.
  *
  * // @sem domain=cloud role=drainer
  */
-function classificationDetail(
+function behaviorDetailTail(
   row: Record<string, unknown>
 ): Record<string, unknown> {
   let parsed: Record<string, unknown> = {};
@@ -127,7 +166,7 @@ function classificationDetail(
     }
   }
   const out: Record<string, unknown> = {};
-  for (const k of C3_DETAIL_KEYS) {
+  for (const k of BEHAVIOR_DETAIL_KEYS) {
     const v = parsed[k];
     if (v !== undefined && v !== null) out[k] = v;
   }
@@ -198,7 +237,7 @@ const ROWID_TABLES: RowidTable[] = [
         kind: r.type,
         tool: r.tool,
         response_bytes: r.response_bytes,
-        ...classificationDetail(r),
+        ...behaviorDetailTail(r),
       }),
   },
   {
@@ -250,7 +289,13 @@ function makeRowidDrainer(
           source: ctx.source,
           sessionId:
             typeof r.session_id === "string" ? r.session_id : undefined,
+          nativeSessionId:
+            typeof r.native_session_id === "string"
+              ? r.native_session_id
+              : undefined,
           turn: typeof r.turn === "number" ? r.turn : undefined,
+          toolUseId:
+            typeof r.tool_use_id === "string" ? r.tool_use_id : undefined,
           detail: spec.detail(r),
         }),
       }));
@@ -312,6 +357,10 @@ function makeSessionSummaryDrainer(
             source: ctx.source,
             sessionId:
               typeof r.session_id === "string" ? r.session_id : undefined,
+            nativeSessionId:
+              typeof r.native_session_id === "string"
+                ? r.native_session_id
+                : undefined,
             detail,
           }),
         };

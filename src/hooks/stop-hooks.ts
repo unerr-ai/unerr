@@ -19,7 +19,7 @@
 
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-import { renderStopReportLive } from "../proxy/turn-footer.js";
+import { renderStopReportLive } from "../proxy/turn-report.js";
 import { readNamedEvents } from "../tracking/named-events.js";
 import {
   type HookHandler,

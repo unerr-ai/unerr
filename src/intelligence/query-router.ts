@@ -1928,6 +1928,10 @@ export class QueryRouter {
             detail: {
               attempts: breakerResult?.attempts ?? 0,
               forced_by_health: Boolean(forceBreak && !breakerResult),
+              policy: "loop_breaker",
+              action: "halted",
+              reason: msg,
+              ...(entityKey ? { target_entity: entityKey } : {}),
             },
           });
           // S9.7: Stderr notification on circuit break

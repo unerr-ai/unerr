@@ -30,7 +30,11 @@
  * stays compact. Deterministic, no IO, no module-level state.
  */
 
-import type { NamedEvent } from "../tracking/named-events.js";
+import {
+  type NamedEvent,
+  eventBucket,
+  isHardPrevention,
+} from "../tracking/named-events.js";
 import type { RuntimeJoinCounts } from "../tracking/runtime-joins.js";
 import type {
   AttributionCapture,
@@ -103,6 +107,36 @@ export interface ReceiptBlockInputs {
    * intervention) — preserves the pre-redesign UX when nothing fired.
    */
   fallbackLine: string;
+  /** When true (a recap turn — `currentTurn % RECAP_EVERY_N_TURNS === 0` or a
+   *  quiet turn, decided in `turn-report.ts`), append the session recap block
+   *  (Prevented / Remembered / Saved across the whole session). The recap is
+   *  folded into the per-turn line periodically because there is no reliable
+   *  user-visible session-end signal across agents. */
+  recapTurn?: boolean;
+  /** Whole-session event tally (count desc) — source of the recap buckets.
+   *  Ignored when `recapTurn` is false. */
+  sessionHighlights?: readonly ReportHighlight[];
+  /** Distinct files the session's saved notes (`fact_stored_*`) landed in —
+   *  surfaced as "(across N files)" on the Remembered recap row. 0 → omitted. */
+  rememberedFileCount?: number;
+  /** Lifetime (cross-session, per-repo) anchors. When present, the recap shows
+   *  an All-time line; omitted → no All-time line (honest-zero). */
+  lifetime?: {
+    prevented?: number;
+    tokensSaved?: number;
+    spendUsd?: number;
+  };
+  /** Render a one-line summary for surfaces without a multi-line channel —
+   *  selected via agent-registry capability, never agent-name special-casing. */
+  singleLine?: boolean;
+}
+
+/** One session event-type tally — `phrasing` is already singular/plural-correct
+ *  for `count` (the shape `renderSessionEconomyLineLive` returns). */
+export interface ReportHighlight {
+  event_type: string;
+  count: number;
+  phrasing: string;
 }
 
 interface Bullet {
@@ -147,10 +181,16 @@ function pickQuote(row: AttributionRecall | AttributionCapture): string {
 
 function formatTokens(n: number): string {
   const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1_000_000) {
+    const m = abs / 1_000_000;
+    const fixed = m >= 10 ? m.toFixed(0) : m.toFixed(1);
+    return `${sign}${fixed.replace(/\.0$/, "")}M`;
+  }
   if (abs >= 1000) {
     const k = abs / 1000;
     const fixed = k >= 10 ? k.toFixed(0) : k.toFixed(1);
-    return `${n < 0 ? "-" : ""}${fixed.replace(/\.0$/, "")}k`;
+    return `${sign}${fixed.replace(/\.0$/, "")}k`;
   }
   return `${n}`;
 }
@@ -339,7 +379,11 @@ function preventionText(e: NamedEvent): string {
   }
 }
 
-function preventionBullets(turnEvents: readonly NamedEvent[]): Bullet[] {
+/** Deduped prevention events this turn — one per (type, target), severity
+ *  order (block > stale > cascade > loop > warn). Source of BOTH the prevention
+ *  bullets and the State-1 averted-loss headline, so the headline count always
+ *  matches the bullets shown. */
+function collectPreventions(turnEvents: readonly NamedEvent[]): NamedEvent[] {
   const seen = new Set<string>();
   const picked: NamedEvent[] = [];
   for (const e of turnEvents) {
@@ -354,10 +398,35 @@ function preventionBullets(turnEvents: readonly NamedEvent[]): Bullet[] {
       (PREVENTION_SEVERITY[a.event_type] ?? 9) -
       (PREVENTION_SEVERITY[b.event_type] ?? 9)
   );
-  return picked
+  return picked;
+}
+
+function preventionBullets(turnEvents: readonly NamedEvent[]): Bullet[] {
+  return collectPreventions(turnEvents)
     .map((e) => preventionText(e))
     .filter((text) => text.length > 0)
     .map((text) => ({ text, priority: PRIORITY.PREVENTION, weight: 0 }));
+}
+
+/**
+ * State 1 — averted-loss headline. When unerr stopped something this turn,
+ * the headline leads with WHAT IT STOPPED (the rarest, highest-stakes signal)
+ * instead of the token number, which moves to the footer. Hard stops
+ * (`isHardPrevention`: blocked / stale-edit / cascade / loop) drive
+ * "stopped N changes before they broke"; a soft-only turn (warned) reads
+ * "flagged N risky edits before they ran".
+ */
+function buildPreventionHeadline(preventions: readonly NamedEvent[]): string {
+  const hard = preventions.filter((e) => isHardPrevention(e.event_type)).length;
+  if (hard > 0) {
+    const noun = hard === 1 ? "change" : "changes";
+    const pron = hard === 1 ? "it" : "they";
+    return `unerr » stopped ${hard} ${noun} before ${pron} broke this turn`;
+  }
+  const soft = preventions.length;
+  const noun = soft === 1 ? "edit" : "edits";
+  const pron = soft === 1 ? "it" : "they";
+  return `unerr » flagged ${soft} risky ${noun} before ${pron} ran this turn`;
 }
 
 function buildHeadline(
@@ -376,15 +445,118 @@ function buildHeadline(
   return "unerr » this turn — here's where unerr helped";
 }
 
+/** 2-space indent for the session-recap rows — aligns the bucket labels under
+ *  the recap header, markdown-safe (4+ spaces renders as a code block). */
+const RECAP_INDENT = "  ";
+
+interface RecapBucket {
+  total: number;
+  /** Hard-stop count (prevented bucket only) — drives "likely breakages". */
+  hard: number;
+  /** Per-event-type phrases, count desc — "4 risky cascading edits". */
+  parts: string[];
+}
+
+/** Group a whole-session highlights tally into the three report buckets
+ *  (Prevented / Remembered / Saved). Events with no bucket — neutral markers,
+ *  `user_prompt_received` — return null from `eventBucket` and are dropped. */
+function bucketizeSession(
+  highlights: readonly ReportHighlight[]
+): Record<"prevented" | "flagged" | "remembered" | "saved", RecapBucket> {
+  const out = {
+    prevented: { total: 0, hard: 0, parts: [] as string[] },
+    flagged: { total: 0, hard: 0, parts: [] as string[] },
+    remembered: { total: 0, hard: 0, parts: [] as string[] },
+    saved: { total: 0, hard: 0, parts: [] as string[] },
+  };
+  for (const h of highlights) {
+    const bucket = eventBucket(h.event_type);
+    if (!bucket) continue;
+    // Soft prevention-bucket events (review findings, drift, warnings) are
+    // "flagged for review", NOT "breakages prevented" — route them to a
+    // separate `flagged` bucket so the session "Prevented" count uses the same
+    // hard-stop definition as the All-time line
+    // (MetricsStore.hardPreventionTotal). Without this split the session shows
+    // a broad count (e.g. 444) while All-time shows hard-only (101) — reads as
+    // a contradiction.
+    const soft = bucket === "prevented" && !isHardPrevention(h.event_type);
+    const s = soft ? out.flagged : out[bucket];
+    s.total += h.count;
+    if (bucket === "prevented" && !soft) s.hard += h.count;
+    s.parts.push(`${h.count} ${h.phrasing}`);
+  }
+  return out;
+}
+
 /**
- * Render the per-turn receipt block. Returns 1 to 5 lines.
- *
- * Behaviour:
- *   - No token savings AND no nameable bullet → `[fallbackLine]` (legacy).
- *   - Otherwise → headline (savings + headroom) + up to 3 ranked concrete
- *     bullets + optional footer (session savings, overflow count).
+ * State 3 — the session recap, folded into the per-turn line on recap turns.
+ * Three labelled rows (only those with content), plus an optional All-time
+ * line when lifetime anchors are supplied. Returns [] when the session has
+ * nothing to report (so the caller can fall through to the turn line alone).
  */
-export function renderReceiptBlock(inputs: ReceiptBlockInputs): string[] {
+function recapBlock(inputs: ReceiptBlockInputs): string[] {
+  const sess = bucketizeSession(inputs.sessionHighlights ?? []);
+  const rows: string[] = [];
+
+  if (sess.prevented.total > 0) {
+    const n = sess.prevented.total;
+    rows.push(
+      `${RECAP_INDENT}Prevented   ${n} likely ${n === 1 ? "breakage" : "breakages"} — ${sess.prevented.parts.join(", ")}`
+    );
+  }
+  if (sess.flagged.total > 0) {
+    const n = sess.flagged.total;
+    rows.push(
+      `${RECAP_INDENT}Flagged     ${n} ${n === 1 ? "thing" : "things"} for review — ${sess.flagged.parts.join(", ")}`
+    );
+  }
+  if (sess.remembered.total > 0) {
+    const fc = inputs.rememberedFileCount ?? 0;
+    const across =
+      fc > 0 ? ` (across ${fc} ${fc === 1 ? "file" : "files"})` : "";
+    rows.push(
+      `${RECAP_INDENT}Remembered  ${sess.remembered.parts.join(" · ")}${across}`
+    );
+  }
+  if (inputs.sessionTokensSaved > 0 || inputs.sessionHeadroom > 0) {
+    const room =
+      inputs.sessionHeadroom > 0
+        ? `  (~${inputs.sessionHeadroom} ${inputs.sessionHeadroom === 1 ? "turn" : "turns"} of extra room)`
+        : "";
+    rows.push(
+      `${RECAP_INDENT}Saved       ${formatTokens(inputs.sessionTokensSaved)} tokens${room}`
+    );
+  }
+
+  const lt = inputs.lifetime;
+  if (lt) {
+    const segs: string[] = [];
+    if (lt.prevented != null && lt.prevented > 0) {
+      segs.push(
+        `${exact(lt.prevented)} ${lt.prevented === 1 ? "breakage" : "breakages"} prevented`
+      );
+    }
+    if (lt.tokensSaved != null && lt.tokensSaved > 0) {
+      const spend =
+        lt.spendUsd != null && lt.spendUsd > 0
+          ? ` (≈ $${Math.round(lt.spendUsd)} of agent spend)`
+          : "";
+      segs.push(`${formatTokens(lt.tokensSaved)} tokens saved${spend}`);
+    }
+    if (segs.length > 0) {
+      rows.push(`${RECAP_INDENT}All-time: ${segs.join(" · ")}.`);
+    }
+  }
+
+  if (rows.length === 0) return [];
+  return ["unerr » this session, unerr kept your agent on track:", ...rows];
+}
+
+/** Per-turn lines: prevention-first (State 1) or token-first (State 2)
+ *  headline + up to 3 ranked concrete bullets + optional footer. Returns []
+ *  on a quiet turn (no savings AND no nameable bullet) so the caller can fold
+ *  in the recap alone or fall back to the legacy single-liner. */
+function renderTurnLines(inputs: ReceiptBlockInputs): string[] {
   const {
     attribution,
     runtimeJoins,
@@ -393,6 +565,8 @@ export function renderReceiptBlock(inputs: ReceiptBlockInputs): string[] {
     sessionHeadroom,
     turnEvents,
   } = inputs;
+
+  const preventions = collectPreventions(turnEvents);
 
   // Collect every candidate bullet, each tagged with its priority tier. The
   // differentiated signals (prevention/interjection, join, memory, drift) rank
@@ -421,16 +595,24 @@ export function renderReceiptBlock(inputs: ReceiptBlockInputs): string[] {
   const shown = candidates.slice(0, MAX_BULLETS);
   const overflow = candidates.length - shown.length;
 
-  if (shown.length === 0 && turnTokensSaved <= 0) {
-    return [inputs.fallbackLine];
-  }
+  if (shown.length === 0 && turnTokensSaved <= 0) return [];
 
+  // Prevention-led when a guardrail fired this turn — the averted loss is the
+  // headline, the token number moves to the footer.
+  const preventionLed = preventions.length > 0;
   const out = [
-    buildHeadline(turnTokensSaved, sessionHeadroom),
+    preventionLed
+      ? buildPreventionHeadline(preventions)
+      : buildHeadline(turnTokensSaved, sessionHeadroom),
     ...shown.map((b) => `${BULLET_INDENT}${BULLET} ${b.text}`),
   ];
 
   const footerParts: string[] = [];
+  // Prevention-led: the headline no longer carries the token number, so add
+  // this turn's savings to the footer rather than dropping them.
+  if (preventionLed && turnTokensSaved > 0) {
+    footerParts.push(`saved ${formatTokens(turnTokensSaved)} this turn`);
+  }
   if (sessionTokensSaved > 0) {
     footerParts.push(`${formatTokens(sessionTokensSaved)} saved this session`);
   }
@@ -440,4 +622,55 @@ export function renderReceiptBlock(inputs: ReceiptBlockInputs): string[] {
   }
 
   return out;
+}
+
+/** One-line fallback for surfaces without a multi-line channel — a session
+ *  summary (prevented · recalled · saved). Selected by the caller via an
+ *  agent-registry capability, never agent-name special-casing. */
+function renderSingleLine(inputs: ReceiptBlockInputs): string[] {
+  const sess = bucketizeSession(inputs.sessionHighlights ?? []);
+  const segs: string[] = [];
+  if (sess.prevented.total > 0) segs.push(`prevented ${sess.prevented.total}`);
+  // "recalled" counts only fact_recalled events — NOT the whole Remembered
+  // bucket (which also holds stored notes, resumed sessions, applied
+  // conventions). Summing those under "recalled" overstates and mislabels
+  // stored/resumed work as recall.
+  const recalled = (inputs.sessionHighlights ?? [])
+    .filter((h) => h.event_type === "fact_recalled")
+    .reduce((n, h) => n + h.count, 0);
+  if (recalled > 0) segs.push(`recalled ${recalled}`);
+  if (inputs.sessionTokensSaved > 0) {
+    const room =
+      inputs.sessionHeadroom > 0
+        ? ` (~${inputs.sessionHeadroom} ${inputs.sessionHeadroom === 1 ? "turn" : "turns"})`
+        : "";
+    segs.push(`saved ${formatTokens(inputs.sessionTokensSaved)} tokens${room}`);
+  }
+  if (segs.length === 0) {
+    return inputs.fallbackLine ? [inputs.fallbackLine] : [];
+  }
+  return [`unerr » session: ${segs.join(" · ")}`];
+}
+
+/**
+ * Render the per-turn receipt block. Returns 1 to ~9 lines. The single shared
+ * renderer behind BOTH close-out surfaces (the `unerr_turn_summary` MCP tool
+ * and the Stop hook) so output is byte-identical regardless of agent.
+ *
+ * Behaviour:
+ *   - `singleLine` → one-line session summary (constrained surfaces).
+ *   - Quiet turn AND no recap → `[fallbackLine]` (legacy single-liner).
+ *   - Otherwise → per-turn lines (prevention-first or token-first headline +
+ *     ranked bullets + footer), with the session recap appended on recap turns.
+ */
+export function renderReceiptBlock(inputs: ReceiptBlockInputs): string[] {
+  if (inputs.singleLine) return renderSingleLine(inputs);
+
+  const turnLines = renderTurnLines(inputs);
+  const recap = inputs.recapTurn ? recapBlock(inputs) : [];
+
+  if (turnLines.length === 0 && recap.length === 0) {
+    return inputs.fallbackLine ? [inputs.fallbackLine] : [];
+  }
+  return [...turnLines, ...recap];
 }

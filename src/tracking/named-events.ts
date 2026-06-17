@@ -290,6 +290,84 @@ function phrasingFor(eventType: string): PhrasingRow {
   return PHRASING[eventType] ?? DEFAULT_PHRASING;
 }
 
+// ── Report buckets ────────────────────────────────────────────────────
+
+/** The three user-facing value groups the close-out report sorts events
+ *  into. `prevented` = a likely failure stopped or flagged before it landed
+ *  (the lead group); `remembered` = knowledge recalled or stored; `saved` =
+ *  tokens or context trimmed. */
+export type ReportBucket = "prevented" | "remembered" | "saved";
+
+/** event_type → bucket for non-tokenflow events. Events absent here carry no
+ *  user-facing value (neutral/skipped markers such as fact_capture_abandoned,
+ *  confirmation_expired, presence_ambient_marker, defuddle_selector_skipped)
+ *  and are excluded from the report. */
+const EVENT_BUCKET: Record<string, ReportBucket> = {
+  // Prevented — a guardrail acted on a likely failure.
+  cascade_guard: "prevented",
+  stale_edit_prevented: "prevented",
+  intervention_halted: "prevented",
+  intervention_warned: "prevented",
+  loop_broken: "prevented",
+  caller_check_enforced: "prevented",
+  review_finding_surfaced: "prevented",
+  drift_consumed: "prevented",
+  cascade_warning_consumed: "prevented",
+  // Remembered — knowledge recalled or stored.
+  fact_recalled: "remembered",
+  fact_stored_user_fed: "remembered",
+  fact_stored_auto: "remembered",
+  convention_applied: "remembered",
+  cross_session_resume: "remembered",
+  resume_blockers_surfaced: "remembered",
+  // Saved — tokens/context trimmed or served cheaply.
+  graph_query_served: "saved",
+  full_read_avoided: "saved",
+  cache_hit: "saved",
+};
+
+/** `tokenflow.<mechanism>` → bucket. persistent_memory is knowledge; the rest
+ *  are token/context savings. */
+const TOKEN_FLOW_BUCKET: Record<string, ReportBucket> = {
+  graph_query: "saved",
+  session_dedup: "saved",
+  shell_compression: "saved",
+  format_encoding: "saved",
+  smart_truncation: "saved",
+  file_read: "saved",
+  fetch_url: "saved",
+  behavior_automation: "saved",
+  persistent_memory: "remembered",
+};
+
+/** The strict subset of `prevented` events that are hard stops — a change the
+ *  agent was about to make that unerr halted/caught. Drives the "Stopped N
+ *  changes before they broke" headline; softer protective events (warnings
+ *  applied, caller checks, review flags) stay in the bucket count but never
+ *  claim a change was stopped. */
+const HARD_PREVENTION: ReadonlySet<string> = new Set([
+  "cascade_guard",
+  "stale_edit_prevented",
+  "intervention_halted",
+  "loop_broken",
+]);
+
+/** Classify an event_type into one of the three report buckets, or null when
+ *  it carries no user-facing value. Handles the `tokenflow.<mechanism>`
+ *  prefix the savings events use. */
+export function eventBucket(eventType: string): ReportBucket | null {
+  if (eventType.startsWith("tokenflow.")) {
+    return TOKEN_FLOW_BUCKET[eventType.slice("tokenflow.".length)] ?? null;
+  }
+  return EVENT_BUCKET[eventType] ?? null;
+}
+
+/** True when an event_type is a hard stop — a change unerr halted before it
+ *  landed (vs a softer warning/check). Used for the prevention headline verb. */
+export function isHardPrevention(eventType: string): boolean {
+  return HARD_PREVENTION.has(eventType);
+}
+
 // ── Agent resolver ────────────────────────────────────────────────────
 
 /** Resolve session_id → agent_name for LEGACY rows that pre-date the

@@ -565,7 +565,12 @@ const promptSubmitHandler: HookHandler = (normalized) => {
       classifiedAs: cluster?.cluster ?? null,
       hookPayloadChars:
         typeof raw === "object" ? JSON.stringify(raw).length : 0,
-      agent: (raw.agent as string | undefined) ?? undefined,
+      agent: (raw.agent as string | undefined) ?? normalized.agentName,
+      // The agent's own conversation id + label, resolved per-agent by the
+      // adapter (Claude `session_id`, Cursor `conversation_id`). Written to the
+      // shared sessions file so the proxy can attach it to its own rows.
+      nativeSessionId: normalized.nativeSessionId ?? null,
+      sessionName: normalized.sessionName ?? null,
     });
   } catch {
     /* never block the hook */

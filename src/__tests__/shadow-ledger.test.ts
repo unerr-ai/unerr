@@ -84,9 +84,15 @@ describe("ShadowLedger", () => {
     expect(e1.session_id).toBe("deadbeefcafe");
   });
 
-  it("mints a fresh 12-hex id when no session id is injected", () => {
+  it("mints a fresh UUID session id when none is injected", () => {
     const ledger = new ShadowLedger(unerrDir);
-    expect(/^[0-9a-f]{12}$/.test(ledger.getSessionId())).toBe(true);
+    // SESSION_ID_CORRELATION: the session id is a UUID, matching the per-bridge
+    // id the bridge mints (was a 12-hex token before the dual session-id model).
+    expect(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+        ledger.getSessionId()
+      )
+    ).toBe(true);
   });
 
   it("appends entries as JSONL (one JSON per line)", () => {

@@ -13,18 +13,10 @@
  */
 
 import { dirname } from "node:path";
-import { currentTurnSlice, readNamedEvents } from "../tracking/named-events.js";
-import {
-  type RuntimeJoinCounts,
-  computeRuntimeJoins,
-} from "../tracking/runtime-joins.js";
+import type { RuntimeJoinCounts } from "../tracking/runtime-joins.js";
 import { updateNudgeState } from "./nudge-state.js";
-import {
-  type ReceiptAttribution,
-  extractReceiptAttribution,
-} from "./receipt-attribution.js";
-import { renderReceiptBlock } from "./receipt-renderer.js";
-import { renderSessionEconomyLineLive } from "./turn-footer.js";
+import type { ReceiptAttribution } from "./receipt-attribution.js";
+import { renderTurnReportLines } from "./turn-report.js";
 
 export interface TurnSummaryResult {
   ok: true;
@@ -89,44 +81,12 @@ export function computeTurnSummaryLine(
   sessionId: string,
   currentTurn: number
 ): string {
-  const data = renderSessionEconomyLineLive(unerrDir, sessionId, currentTurn);
-
-  // Fix L — compute cross-tier joins from the same event stream and splice the
-  // `⚡ unerr runtime: …` segment ahead of the session economy line. Elided
-  // when all counts are zero so the legacy paste contract is preserved
-  // byte-for-byte on join-free turns.
-  let runtimeJoins: RuntimeJoinCounts = {
-    memory_to_graph: 0,
-    graph_to_drift: 0,
-    three_way: 0,
-    entities: [],
-  };
-  let attribution: ReceiptAttribution = {
-    recalls: [],
-    captures: [],
-    drift: [],
-  };
-  let blockLines: string[] = data.line ? [data.line] : [];
-  try {
-    const events = readNamedEvents(unerrDir, { session_id: sessionId });
-    runtimeJoins = computeRuntimeJoins(events, sessionId, currentTurn);
-    attribution = extractReceiptAttribution(events, currentTurn);
-    // Slice to the conversational turn via the prompt boundary so the concrete
-    // bullets describe the same window as data.turn_tokens_saved.
-    const turnEvents = currentTurnSlice(events, currentTurn);
-    blockLines = renderReceiptBlock({
-      attribution,
-      runtimeJoins,
-      turnTokensSaved: data.turn_tokens_saved,
-      sessionTokensSaved: data.total_tokens_saved,
-      sessionHeadroom: data.headroom_compounded,
-      turnEvents,
-      fallbackLine: data.line,
-    });
-  } catch {
-    /* best effort — receipt falls through to legacy single-liner */
-  }
-  return blockLines.join("\n");
+  // Single shared path — same renderer the Stop hook uses, so the MCP paste
+  // and the hook systemMessage are byte-identical. `renderTurnReportLines`
+  // gathers the event stream once, slices the turn, computes runtime joins +
+  // attribution, decides the recap fold-in, and renders via
+  // `renderReceiptBlock`. Best-effort throughout (never throws).
+  return renderTurnReportLines(unerrDir, sessionId, currentTurn).join("\n");
 }
 
 /**

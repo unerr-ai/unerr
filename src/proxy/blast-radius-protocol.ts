@@ -173,7 +173,12 @@ export function recordBlastRadiusTelemetry(
           warnings: result.warnings.length,
           total_at_risk: result.warnings[0]?.blast_radius.total_at_risk ?? 0,
           change_types: [...new Set(result.warnings.map((w) => w.change_type))],
-          ...(filePath ? { file_path: filePath } : {}),
+          policy: "cascade_guard",
+          action: "warned",
+          reason: `${result.warnings.length} signature change(s) with ${
+            result.warnings[0]?.blast_radius.total_at_risk ?? 0
+          } caller(s) at risk`,
+          ...(filePath ? { file_path: filePath, target_file: filePath } : {}),
           firings: result.warnings.map((w) => {
             const callers = [
               ...w.blast_radius.direct_callers,

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { openMetricsStore } from "../tracking/metrics-store.js";
+import { resolveExecSessionContext } from "../tracking/session-records.js";
 
 /**
  * Prefix / KV-cache stability accounting (Sprint 2, T2.5). Records whether the
@@ -62,9 +63,14 @@ export function recordPrefixStability(cwd: string, stableBlock: string): void {
 
     const ts = Date.now();
     const bytes = Buffer.byteLength(stableBlock, "utf8");
+    const sc = resolveExecSessionContext(join(cwd, ".unerr"));
     openMetricsStore(join(cwd, ".unerr")).insertCompression({
       ts,
       ts_iso: new Date(ts).toISOString(),
+      session_id: sc.session_id,
+      native_session_id: sc.native_session_id,
+      turn: sc.turn,
+      agent: sc.agent,
       command: "prefix",
       category: "prefix_stability",
       confidence: 1,

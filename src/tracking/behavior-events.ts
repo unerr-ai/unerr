@@ -12,6 +12,7 @@
  */
 
 import { type BehaviorEventRow, openMetricsStore } from "./metrics-store.js";
+import { NativeSessionResolver } from "./session-records.js";
 
 // ── Data Model ──────────────────────────────────────────────────────
 
@@ -152,6 +153,14 @@ export interface BehaviorEvent {
   ts: string;
   /** Session ID (from ShadowLedger or UNERR_SESSION_ID env). */
   session_id: string;
+  /** The agent's OWN conversation id (Claude `session_id`, Cursor
+   *  `conversation_id`), when the agent exposed it; null otherwise. The PRIMARY
+   *  grouping key — `coalesce(native_session_id, session_id)` names a
+   *  conversation across reconnects and the proxy/hook process split. */
+  native_session_id?: string | null;
+  /** The agent's tool_use id correlating this event to one assistant tool call.
+   *  Only the hook path carries it; null on proxy-dispatched rows. */
+  tool_use_id?: string | null;
   /** Process ID that produced this event. */
   pid: number;
   /** Turn number within session (1-indexed; 0 means "no turn open yet"). */
@@ -205,6 +214,8 @@ function rowToEvent(r: BehaviorEventRow): BehaviorEvent {
     id: r.id,
     ts: r.ts_iso,
     session_id: r.session_id,
+    native_session_id: r.native_session_id ?? null,
+    tool_use_id: r.tool_use_id ?? null,
     pid: r.pid,
     turn: r.turn,
     agent: r.agent ?? "unknown",
@@ -236,6 +247,8 @@ export class BehaviorEventWriter {
   private sinks: BehaviorEventSink[] = [];
   private agent: string;
   private turnProvider: () => number;
+  /** mtime-memoized native-id lookup — see TokenFlowWriter. */
+  private readonly nativeResolver: NativeSessionResolver;
 
   constructor(
     unerrDir: string,
@@ -246,6 +259,7 @@ export class BehaviorEventWriter {
     this.unerrDir = unerrDir;
     this.agent = options.agent ?? "unknown";
     this.turnProvider = options.turnProvider ?? (() => 0);
+    this.nativeResolver = new NativeSessionResolver(unerrDir);
     openMetricsStore(unerrDir);
   }
 
@@ -282,12 +296,21 @@ export class BehaviorEventWriter {
     let rowId = 0;
     const turn = input.turn ?? this.turnProvider();
     const agent = input.agent ?? this.agent;
+    // Honour an explicit native id (the proxy passes the registry-resolved
+    // value); otherwise resolve it by agent so router-internal rows group with
+    // the conversation. See TokenFlowWriter.record for the rationale.
+    const nativeSessionId =
+      input.native_session_id !== undefined
+        ? input.native_session_id
+        : (this.nativeResolver.resolve(agent)?.nativeSessionId ?? null);
 
     try {
       rowId = openMetricsStore(this.unerrDir).insertBehaviorEvent({
         ts: now.getTime(),
         ts_iso: tsIso,
         session_id: input.session_id,
+        native_session_id: nativeSessionId,
+        tool_use_id: input.tool_use_id ?? null,
         pid: process.pid,
         turn,
         agent,

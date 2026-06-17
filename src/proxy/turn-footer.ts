@@ -38,6 +38,7 @@ import {
   summarizeSessionEconomy,
   totalTokensSavedInSession,
 } from "../tracking/session-economy.js";
+import { readSessionRecords } from "../tracking/session-records.js";
 import { readTokenFlowEvents } from "../tracking/token-flow.js";
 
 /**
@@ -270,6 +271,9 @@ export function renderSessionEconomyLineLive(
   currentTurn: number
 ): {
   line: string;
+  /** Human-readable conversation label when the hook recorded one; null
+   *  otherwise. Display-only — lets a client title the session economy line. */
+  session_name: string | null;
   total_events: number;
   total_tokens_saved: number;
   headroom_compounded: number;
@@ -290,10 +294,17 @@ export function renderSessionEconomyLineLive(
   try {
     const allEvents = readNamedEvents(unerrDir, { session_id: sessionId });
     const tokenFlow = readTokenFlowEvents(unerrDir, { session_id: sessionId });
+    // Conversation label (display-only): the hook records it on the shared
+    // sessions file keyed by the unerr session_id; null when unrecorded.
+    const sessionName =
+      readSessionRecords(unerrDir).find(
+        (r) => r.unerr_session_id === sessionId
+      )?.session_name ?? null;
     const totalTokensSaved = totalTokensSavedInSession(tokenFlow, sessionId);
     const headroomCompounded = summarizeSessionEconomy(
       tokenFlow,
-      sessionId
+      sessionId,
+      sessionName
     ).headroom_compounded;
 
     // Per-turn slice — bound to the conversational turn via the
@@ -369,6 +380,7 @@ export function renderSessionEconomyLineLive(
 
     return {
       line,
+      session_name: sessionName,
       total_events: allEvents.length,
       // Augmented with session reversibility savings (TU.7) so the Stop report
       // and any downstream consumer reflect re-request wins in the cumulative.
@@ -383,6 +395,7 @@ export function renderSessionEconomyLineLive(
   } catch {
     return {
       line: "",
+      session_name: null,
       total_events: 0,
       total_tokens_saved: 0,
       headroom_compounded: 0,
@@ -395,102 +408,9 @@ export function renderSessionEconomyLineLive(
   }
 }
 
-/** One event-type tally from the structured highlights breakdown — `phrasing`
- *  is already singular/plural-correct for `count`. */
-interface HighlightTally {
-  event_type: string;
-  count: number;
-  phrasing: string;
-}
-
-/** Inputs for the plain-English Stop close-out report — the subset of
- *  {@link renderSessionEconomyLineLive}'s return that the report reads. */
-export interface StopReportInputs {
-  /** Tokens saved THIS TURN only. */
-  turnTokensSaved: number;
-  /** Cumulative tokens saved across the whole session. */
-  sessionTokensSaved: number;
-  /** Compounded turn-headroom for the session. */
-  sessionHeadroom: number;
-  /** Per-turn event-type breakdown (count desc). */
-  turnHighlights: HighlightTally[];
-  /** Whole-session event-type breakdown (count desc). */
-  sessionHighlights: HighlightTally[];
-}
-
-/** A turn-boundary marker, not unerr value — excluded from the spoken report
- *  (naming "N prompts" reads as noise next to "code lookups"). */
-const STOP_REPORT_BOUNDARY_EVENT = "user_prompt_received";
-
-function stopReportPhrase(hl: HighlightTally[], topN: number): string {
-  return hl
-    .filter((h) => h.event_type !== STOP_REPORT_BOUNDARY_EVENT)
-    .slice(0, topN)
-    .map((h) => `${h.count} ${h.phrasing}`)
-    .join(", ");
-}
-
-/**
- * Plain-English close-out report for the Stop-hook surface. Leads with the
- * "unerr reports" brand and deliberately avoids unerr-internal framing
- * ("session:", "this turn:", "chat room earned", runtime-join jargon) so a
- * reader who has never used unerr understands it. Distinct from
- * {@link renderHybridTurnLine}, which powers the `unerr_turn_summary` MCP paste
- * (the agent prefixes that one with "unerr » ").
- *
- * Returns "" when there is nothing worth reporting — the caller then emits no
- * Stop message at all (no empty "unerr reports —" line).
- */
-export function formatStopReport(inputs: StopReportInputs): string {
-  const { turnTokensSaved, sessionTokensSaved, sessionHeadroom } = inputs;
-  const turnPhrase = stopReportPhrase(inputs.turnHighlights, 2);
-  const sessionPhrase = stopReportPhrase(inputs.sessionHighlights, 3);
-
-  const parts: string[] = [];
-
-  if (turnTokensSaved > 0) {
-    const exact = turnTokensSaved.toLocaleString("en-US");
-    parts.push(
-      turnPhrase
-        ? `saved ${exact} tokens this turn (${turnPhrase})`
-        : `saved ${exact} tokens this turn`
-    );
-  } else if (sessionPhrase) {
-    // Quiet turn — name concrete session activity so the report still carries
-    // value instead of collapsing to a bare "0 tokens" line.
-    parts.push(`${sessionPhrase} so far this session`);
-  }
-
-  if (sessionTokensSaved > 0) {
-    parts.push(`${formatTokenCount(sessionTokensSaved)} tokens saved in total`);
-  }
-
-  if (sessionHeadroom > 0) {
-    parts.push(
-      `~${sessionHeadroom} more ${sessionHeadroom === 1 ? "turn" : "turns"} of room before this chat fills up`
-    );
-  }
-
-  if (parts.length === 0) return "";
-  return `unerr reports — ${parts.join(" · ")}`;
-}
-
-/**
- * Live-render the plain-English Stop report — reads the session event stream and
- * builds the user-facing close-out for the Stop hook. Best-effort: returns ""
- * on any read error (caller emits no message).
- */
-export function renderStopReportLive(
-  unerrDir: string,
-  sessionId: string,
-  currentTurn: number
-): string {
-  const d = renderSessionEconomyLineLive(unerrDir, sessionId, currentTurn);
-  return formatStopReport({
-    turnTokensSaved: d.turn_tokens_saved,
-    sessionTokensSaved: d.total_tokens_saved,
-    sessionHeadroom: d.headroom_compounded,
-    turnHighlights: d.turn_highlights,
-    sessionHighlights: d.highlights,
-  });
-}
+// The end-of-turn close-out report (`renderStopReportLive`) and its plain-
+// English renderer moved to `turn-report.ts` + `receipt-renderer.ts`, where a
+// single shared renderer (`renderReceiptBlock`) drives BOTH the Stop hook and
+// the `unerr_turn_summary` MCP tool so their output is byte-identical across
+// every agent. `renderSessionEconomyLineLive` above stays here — it is the
+// data source those renderers read (and the `fallbackLine` they degrade to).

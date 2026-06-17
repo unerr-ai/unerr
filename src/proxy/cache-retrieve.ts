@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { estimateTokenCount } from "../intelligence/token-estimator.js";
 import { openMetricsStore } from "../tracking/metrics-store.js";
+import { resolveExecSessionContext } from "../tracking/session-records.js";
 import { getSharedReversibleCache } from "./shared-cache.js";
 
 /**
@@ -94,11 +95,16 @@ export function recordCacheRetrieve(
 ): void {
   try {
     const store = openMetricsStore(join(cwd, ".unerr"));
+    const sc = resolveExecSessionContext(join(cwd, ".unerr"));
     const ts = Date.now();
     if (hit) {
       store.insertCompression({
         ts,
         ts_iso: new Date(ts).toISOString(),
+        session_id: sc.session_id,
+        native_session_id: sc.native_session_id,
+        turn: sc.turn,
+        agent: sc.agent,
         command: tool,
         category: "cache_retrieve",
         confidence: 1,
@@ -119,6 +125,10 @@ export function recordCacheRetrieve(
       store.insertCompression({
         ts,
         ts_iso: new Date(ts).toISOString(),
+        session_id: sc.session_id,
+        native_session_id: sc.native_session_id,
+        turn: sc.turn,
+        agent: sc.agent,
         command: tool,
         category: "cache_retrieve",
         confidence: 1,

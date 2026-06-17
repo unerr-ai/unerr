@@ -132,6 +132,8 @@ describe("session-economy", () => {
       const s = summarizeSessionEconomy([], "s1");
       expect(s).toEqual({
         session_id: "s1",
+        native_session_id: null,
+        session_name: null,
         turn_count: 0,
         avg_input_tokens_per_turn: 0,
         total_tokens_saved: 0,
@@ -152,6 +154,42 @@ describe("session-economy", () => {
       expect(s.avg_input_tokens_per_turn).toBe(1000);
       expect(s.total_tokens_saved).toBe(1000);
       expect(s.extra_turns_bought).toBe(1);
+    });
+
+    it("surfaces native_session_id + the passed session_name", () => {
+      const events = [ev({ session_id: "s1", native_session_id: "nat-1" })];
+      const s = summarizeSessionEconomy(events, "s1", "my chat");
+      expect(s.native_session_id).toBe("nat-1");
+      expect(s.session_name).toBe("my chat");
+    });
+  });
+
+  describe("coalesce(native_session_id, session_id) grouping", () => {
+    // A bridge reconnect mints a fresh unerr session_id but keeps the agent's
+    // native id — a rollup keyed off the first unerr id must still span both.
+    it("groups two unerr session_ids that share one native id", () => {
+      const events = [
+        ev({ session_id: "s1", native_session_id: "nat-1", turn: 1, tokens_saved: 500 }),
+        ev({ session_id: "s2", native_session_id: "nat-1", turn: 2, tokens_saved: 700 }),
+      ];
+      expect(totalTokensSavedInSession(events, "s1")).toBe(1200);
+      expect(summarizeSessionEconomy(events, "s1").turn_count).toBe(2);
+    });
+
+    it("does not merge a different native conversation", () => {
+      const events = [
+        ev({ session_id: "s1", native_session_id: "nat-1", tokens_saved: 500 }),
+        ev({ session_id: "s2", native_session_id: "nat-2", tokens_saved: 999 }),
+      ];
+      expect(totalTokensSavedInSession(events, "s1")).toBe(500);
+    });
+
+    it("falls back to exact session_id when no native id is present", () => {
+      const events = [
+        ev({ session_id: "s1", tokens_saved: 300 }),
+        ev({ session_id: "s2", tokens_saved: 400 }),
+      ];
+      expect(totalTokensSavedInSession(events, "s1")).toBe(300);
     });
   });
 });

@@ -15,6 +15,7 @@
  * Protocol: newline-delimited JSON-RPC over UDS (matches TransportMux).
  */
 
+import { randomUUID } from "node:crypto";
 import { type Socket, connect } from "node:net";
 import {
   BridgeCatalog,
@@ -31,6 +32,18 @@ const log = {
 const HEARTBEAT_INTERVAL_MS = 5_000;
 const HEARTBEAT_TIMEOUT_MS = 2_000;
 const MAX_MISSED_HEARTBEATS = 3;
+
+/**
+ * unerr's per-bridge session id — a UUID minted once when this `unerr --mcp`
+ * process loads (one bridge process == one coding-agent conversation). Stable
+ * across UDS reconnects (proxy restart / daemon respawn) because it is module-
+ * scoped, so the proxy keeps grouping a conversation's events under one id even
+ * when the socket drops. Announced to the proxy in the `unerr/hello` frame.
+ * This is the `session_id` that lands on every event row (distinct from the
+ * agent's own `native_session_id`); group a conversation by
+ * coalesce(native_session_id, session_id).
+ */
+const BRIDGE_SESSION_ID = randomUUID();
 
 export interface BridgeResult {
   /** Why the bridge closed. */
@@ -178,11 +191,18 @@ export function startUdsBridge(
       // attribute events from this bridge. The `unerr/hello` notification is
       // a notification (no `id`) — proxy dispatches setAgent and never
       // replies. Safe to send before draining the pre-buffer.
-      if (codingAgent && !socket.destroyed) {
+      // Always send hello (even without a coding-agent flag) so the proxy
+      // registers this bridge's per-conversation `session_id`. The agent is
+      // included when known; the proxy stamps both onto every event from this
+      // clientId.
+      if (!socket.destroyed) {
         const hello = `${JSON.stringify({
           jsonrpc: "2.0",
           method: "unerr/hello",
-          params: { agent: codingAgent },
+          params: {
+            ...(codingAgent ? { agent: codingAgent } : {}),
+            session_id: BRIDGE_SESSION_ID,
+          },
         })}\n`;
         socket.write(hello);
       }

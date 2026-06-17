@@ -62,6 +62,20 @@ export interface CompressionEventRow {
   id: number;
   ts: number;
   ts_iso: string;
+  /** unerr's per-bridge session id (a UUID); null on legacy rows written
+   *  before session correlation. */
+  session_id: string | null;
+  /** The coding agent's own session id when exposed; null otherwise. Group a
+   *  conversation by coalesce(native_session_id, session_id). */
+  native_session_id: string | null;
+  /** Turn index within the session; null when the exec context had none. */
+  turn: number | null;
+  /** Canonical coding-agent id; "unknown" when the resolution chain yielded
+   *  nothing (e.g. a legacy row). */
+  agent: string;
+  /** The agent's native tool_use id for the call this compression served,
+   *  when tool-bound; null otherwise. */
+  tool_use_id: string | null;
   command: string;
   category: string;
   confidence: number;
@@ -98,6 +112,19 @@ export interface FileReadEventRow {
   id: number;
   ts: number;
   ts_iso: string;
+  /** unerr's per-bridge session id (a UUID); null on legacy rows written
+   *  before session correlation. */
+  session_id: string | null;
+  /** The coding agent's own session id when exposed; null otherwise. Group a
+   *  conversation by coalesce(native_session_id, session_id). */
+  native_session_id: string | null;
+  /** Turn index within the session; null when not known. */
+  turn: number | null;
+  /** Canonical coding-agent id; "unknown" on a legacy row. */
+  agent: string;
+  /** The agent's native tool_use id for the file_read call, when tool-bound;
+   *  null otherwise. */
+  tool_use_id: string | null;
   file: string;
   mode: string;
   total_lines: number;
@@ -111,7 +138,12 @@ export interface TokenFlowEventRow {
   id: number;
   ts: number;
   ts_iso: string;
+  /** unerr's per-bridge session id (a UUID) — the stable grouping key. */
   session_id: string;
+  /** The coding agent's own session id (Claude session_id / Cursor
+   *  conversation_id) when the agent exposed it; null otherwise. Group a
+   *  conversation by coalesce(native_session_id, session_id). */
+  native_session_id: string | null;
   pid: number;
   turn: number;
   /** Canonical coding-agent id (claude-code, cursor, codex, …) resolved
@@ -123,12 +155,22 @@ export interface TokenFlowEventRow {
   tokens_without: number;
   tokens_with: number;
   tokens_saved: number;
+  /** The agent's native tool_use id for the call this saving is attributed
+   *  to, when tool-bound; correlates the row to the agent's own transcript
+   *  tool_use entry. Null when not tool-bound. */
+  tool_use_id: string | null;
   detail: string | null; // JSON-encoded
 }
 
 export interface SessionHistoryRow {
   id: number;
   session_id: string;
+  /** The coding agent's own session id when exposed; null otherwise. Group a
+   *  conversation by coalesce(native_session_id, session_id). */
+  native_session_id: string | null;
+  /** Human-readable conversation label (agent session title / first-prompt
+   *  summary) for display; null when unknown. */
+  session_name: string | null;
   started_at: string;
   ended_at: string;
   duration_ms: number;
@@ -146,7 +188,11 @@ export interface BehaviorEventRow {
   id: number;
   ts: number;
   ts_iso: string;
+  /** unerr's per-bridge session id (a UUID) — the stable grouping key. */
   session_id: string;
+  /** The coding agent's own session id when exposed; null otherwise. Group a
+   *  conversation by coalesce(native_session_id, session_id). */
+  native_session_id: string | null;
   pid: number;
   turn: number;
   /** Canonical coding-agent id (claude-code, cursor, codex, …) resolved
@@ -165,11 +211,21 @@ export interface BehaviorEventRow {
   /** Response bytes delivered when the event came from a tool response;
    *  null for purely-behavioral intercepts (no response to measure). */
   response_bytes: number | null;
+  /** The agent's native tool_use id for the call this event is bound to,
+   *  when tool-bound; correlates the row to the agent's own transcript
+   *  tool_use entry. Null when the event fired outside a tool call. */
+  tool_use_id: string | null;
   detail: string | null; // JSON-encoded
 }
 
 export interface SessionSummaryRow {
   session_id: string;
+  /** The coding agent's own session id when exposed; null otherwise. Group a
+   *  conversation by coalesce(native_session_id, session_id). */
+  native_session_id: string | null;
+  /** Human-readable conversation label (agent session title / first-prompt
+   *  summary) for display; null when unknown. */
+  session_name: string | null;
   written_at: string;
   started_at: string;
   ended_at: string;
@@ -226,6 +282,11 @@ export interface FetchCacheRow {
 type CompressionEventBase = Omit<
   CompressionEventRow,
   | "id"
+  | "session_id"
+  | "native_session_id"
+  | "turn"
+  | "agent"
+  | "tool_use_id"
   | "original_tokens"
   | "delivered_tokens"
   | "mechanism"
@@ -244,6 +305,13 @@ type CompressionEventBase = Omit<
   | "batch_size"
 >;
 export type CompressionEventInsert = CompressionEventBase & {
+  /** Session-correlation columns — all optional; the writer coalesces a
+   *  missing value to null (or "unknown" for agent). */
+  session_id?: string | null;
+  native_session_id?: string | null;
+  turn?: number | null;
+  agent?: string;
+  tool_use_id?: string | null;
   original_tokens?: number | null;
   delivered_tokens?: number | null;
   mechanism?: string | null;
@@ -261,16 +329,49 @@ export type CompressionEventInsert = CompressionEventBase & {
   transcript_footprint_tokens?: number | null;
   batch_size?: number | null;
 };
-export type FileReadEventInsert = Omit<FileReadEventRow, "id">;
+export type FileReadEventInsert = Omit<
+  FileReadEventRow,
+  "id" | "session_id" | "native_session_id" | "turn" | "agent" | "tool_use_id"
+> & {
+  /** Session-correlation columns — all optional; the writer coalesces a
+   *  missing value to null (or "unknown" for agent). */
+  session_id?: string | null;
+  native_session_id?: string | null;
+  turn?: number | null;
+  agent?: string;
+  tool_use_id?: string | null;
+};
 /** `agent` defaults to "unknown" via DB DEFAULT + writer coalesce, so it's
  *  optional on insert. The on-disk row always has a concrete value. */
-export type TokenFlowEventInsert = Omit<TokenFlowEventRow, "id" | "agent"> & {
+export type TokenFlowEventInsert = Omit<
+  TokenFlowEventRow,
+  "id" | "agent" | "native_session_id" | "tool_use_id"
+> & {
   agent?: string;
+  native_session_id?: string | null;
+  tool_use_id?: string | null;
 };
-export type SessionHistoryInsert = Omit<SessionHistoryRow, "id">;
-export type SessionSummaryInsert = SessionSummaryRow;
-export type BehaviorEventInsert = Omit<BehaviorEventRow, "id" | "agent"> & {
+export type SessionHistoryInsert = Omit<
+  SessionHistoryRow,
+  "id" | "native_session_id" | "session_name"
+> & {
+  native_session_id?: string | null;
+  session_name?: string | null;
+};
+export type SessionSummaryInsert = Omit<
+  SessionSummaryRow,
+  "native_session_id" | "session_name"
+> & {
+  native_session_id?: string | null;
+  session_name?: string | null;
+};
+export type BehaviorEventInsert = Omit<
+  BehaviorEventRow,
+  "id" | "agent" | "native_session_id" | "tool_use_id"
+> & {
   agent?: string;
+  native_session_id?: string | null;
+  tool_use_id?: string | null;
 };
 
 // ── Store ─────────────────────────────────────────────────────────────
@@ -280,6 +381,11 @@ CREATE TABLE IF NOT EXISTS compression_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts INTEGER NOT NULL,
   ts_iso TEXT NOT NULL,
+  session_id TEXT,
+  native_session_id TEXT,
+  turn INTEGER,
+  agent TEXT NOT NULL DEFAULT 'unknown',
+  tool_use_id TEXT,
   command TEXT NOT NULL,
   category TEXT NOT NULL,
   confidence REAL NOT NULL,
@@ -316,6 +422,11 @@ CREATE TABLE IF NOT EXISTS file_read_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts INTEGER NOT NULL,
   ts_iso TEXT NOT NULL,
+  session_id TEXT,
+  native_session_id TEXT,
+  turn INTEGER,
+  agent TEXT NOT NULL DEFAULT 'unknown',
+  tool_use_id TEXT,
   file TEXT NOT NULL,
   mode TEXT NOT NULL,
   total_lines INTEGER NOT NULL,
@@ -325,12 +436,14 @@ CREATE TABLE IF NOT EXISTS file_read_events (
   token_estimate INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_file_read_ts ON file_read_events(ts);
+CREATE INDEX IF NOT EXISTS idx_file_read_session ON file_read_events(session_id);
 
 CREATE TABLE IF NOT EXISTS token_flow_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts INTEGER NOT NULL,
   ts_iso TEXT NOT NULL,
   session_id TEXT NOT NULL,
+  native_session_id TEXT,
   pid INTEGER NOT NULL,
   turn INTEGER NOT NULL,
   agent TEXT NOT NULL DEFAULT 'unknown',
@@ -339,6 +452,7 @@ CREATE TABLE IF NOT EXISTS token_flow_events (
   tokens_without INTEGER NOT NULL,
   tokens_with INTEGER NOT NULL,
   tokens_saved INTEGER NOT NULL,
+  tool_use_id TEXT,
   detail TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_token_flow_ts ON token_flow_events(ts);
@@ -351,6 +465,8 @@ CREATE INDEX IF NOT EXISTS idx_token_flow_mechanism ON token_flow_events(mechani
 CREATE TABLE IF NOT EXISTS session_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT NOT NULL UNIQUE,
+  native_session_id TEXT,
+  session_name TEXT,
   started_at TEXT NOT NULL,
   ended_at TEXT NOT NULL,
   duration_ms INTEGER NOT NULL,
@@ -367,6 +483,8 @@ CREATE INDEX IF NOT EXISTS idx_session_history_ended ON session_history(ended_at
 
 CREATE TABLE IF NOT EXISTS session_summaries (
   session_id TEXT PRIMARY KEY,
+  native_session_id TEXT,
+  session_name TEXT,
   written_at TEXT NOT NULL,
   started_at TEXT NOT NULL,
   ended_at TEXT NOT NULL,
@@ -396,6 +514,7 @@ CREATE TABLE IF NOT EXISTS behavior_events (
   ts INTEGER NOT NULL,
   ts_iso TEXT NOT NULL,
   session_id TEXT NOT NULL,
+  native_session_id TEXT,
   pid INTEGER NOT NULL,
   turn INTEGER NOT NULL,
   agent TEXT NOT NULL DEFAULT 'unknown',
@@ -403,6 +522,7 @@ CREATE TABLE IF NOT EXISTS behavior_events (
   tool TEXT,
   entity_key TEXT,
   response_bytes INTEGER,
+  tool_use_id TEXT,
   detail TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_behavior_events_ts ON behavior_events(ts);
@@ -481,6 +601,41 @@ const ADDITIVE_COLUMNS: ReadonlyArray<{
     column: "agent",
     decl: "TEXT NOT NULL DEFAULT 'unknown'",
   },
+  // Session-correlation columns (SESSION_ID_CORRELATION). All nullable so
+  // legacy rows stay valid; the writer coalesces a missing value to null.
+  // session_id = unerr's per-bridge UUID (already present); native_session_id
+  // = the agent's own id; tool_use_id = the agent's native tool_use id;
+  // session_name = a human-readable conversation label.
+  { table: "token_flow_events", column: "native_session_id", decl: "TEXT" },
+  { table: "token_flow_events", column: "tool_use_id", decl: "TEXT" },
+  { table: "behavior_events", column: "native_session_id", decl: "TEXT" },
+  { table: "behavior_events", column: "tool_use_id", decl: "TEXT" },
+  { table: "session_history", column: "native_session_id", decl: "TEXT" },
+  { table: "session_history", column: "session_name", decl: "TEXT" },
+  { table: "session_summaries", column: "native_session_id", decl: "TEXT" },
+  { table: "session_summaries", column: "session_name", decl: "TEXT" },
+  // compression_events + file_read_events never carried session identity
+  // before (the drainer read a `session_id` that did not exist → blank on the
+  // wire). Add the full correlation set: session_id (unerr UUID),
+  // native_session_id (agent id), turn, agent attribution, tool_use_id.
+  { table: "compression_events", column: "session_id", decl: "TEXT" },
+  { table: "compression_events", column: "native_session_id", decl: "TEXT" },
+  { table: "compression_events", column: "turn", decl: "INTEGER" },
+  {
+    table: "compression_events",
+    column: "agent",
+    decl: "TEXT NOT NULL DEFAULT 'unknown'",
+  },
+  { table: "compression_events", column: "tool_use_id", decl: "TEXT" },
+  { table: "file_read_events", column: "session_id", decl: "TEXT" },
+  { table: "file_read_events", column: "native_session_id", decl: "TEXT" },
+  { table: "file_read_events", column: "turn", decl: "INTEGER" },
+  {
+    table: "file_read_events",
+    column: "agent",
+    decl: "TEXT NOT NULL DEFAULT 'unknown'",
+  },
+  { table: "file_read_events", column: "tool_use_id", decl: "TEXT" },
   // §4 reversible-compression fields. ALTER them onto pre-existing
   // compression_events tables (the SCHEMA block above only creates them on a
   // fresh DB). All nullable / defaulted so legacy rows stay valid.
@@ -563,6 +718,8 @@ interface Statements {
   tokenFlowAll: ReturnType<DatabaseT["prepare"]>;
   tokenFlowBySession: ReturnType<DatabaseT["prepare"]>;
   tokenFlowSessionSum: ReturnType<DatabaseT["prepare"]>;
+  tokenFlowTotal: ReturnType<DatabaseT["prepare"]>;
+  hardPreventionTotal: ReturnType<DatabaseT["prepare"]>;
   behaviorEventsAll: ReturnType<DatabaseT["prepare"]>;
   behaviorEventsBySession: ReturnType<DatabaseT["prepare"]>;
   behaviorEventsSince: ReturnType<DatabaseT["prepare"]>;
@@ -607,13 +764,15 @@ export class MetricsStore {
     this.stmt = {
       insertCompression: this.db.prepare(`
         INSERT INTO compression_events
-          (ts, ts_iso, command, category, confidence, raw_bytes, compressed_bytes,
+          (ts, ts_iso, session_id, native_session_id, turn, agent, tool_use_id,
+           command, category, confidence, raw_bytes, compressed_bytes,
            saved_pct, omni_fallback, tee_file,
            original_tokens, delivered_tokens, mechanism, fidelity_pass, event_kind,
            cache_ref, rerequest_saved_tokens, cache_hit, prefix_stable, prefix_bytes,
            survivors_by_importance, dropped_low_importance, ranking_key,
            query_relevance_pruned, transcript_footprint_tokens, batch_size)
-        VALUES (@ts, @ts_iso, @command, @category, @confidence, @raw_bytes,
+        VALUES (@ts, @ts_iso, @session_id, @native_session_id, @turn, @agent, @tool_use_id,
+                @command, @category, @confidence, @raw_bytes,
                 @compressed_bytes, @saved_pct, @omni_fallback, @tee_file,
                 @original_tokens, @delivered_tokens, @mechanism, @fidelity_pass, @event_kind,
                 @cache_ref, @rerequest_saved_tokens, @cache_hit, @prefix_stable, @prefix_bytes,
@@ -622,34 +781,42 @@ export class MetricsStore {
       `),
       insertFileRead: this.db.prepare(`
         INSERT INTO file_read_events
-          (ts, ts_iso, file, mode, total_lines, returned_lines, saved_pct,
+          (ts, ts_iso, session_id, native_session_id, turn, agent, tool_use_id,
+           file, mode, total_lines, returned_lines, saved_pct,
            entity, token_estimate)
-        VALUES (@ts, @ts_iso, @file, @mode, @total_lines, @returned_lines,
+        VALUES (@ts, @ts_iso, @session_id, @native_session_id, @turn, @agent, @tool_use_id,
+                @file, @mode, @total_lines, @returned_lines,
                 @saved_pct, @entity, @token_estimate)
       `),
       insertTokenFlow: this.db.prepare(`
         INSERT INTO token_flow_events
-          (ts, ts_iso, session_id, pid, turn, agent, mechanism, tool,
-           tokens_without, tokens_with, tokens_saved, detail)
-        VALUES (@ts, @ts_iso, @session_id, @pid, @turn, @agent, @mechanism, @tool,
-                @tokens_without, @tokens_with, @tokens_saved, @detail)
+          (ts, ts_iso, session_id, native_session_id, pid, turn, agent,
+           mechanism, tool, tokens_without, tokens_with, tokens_saved,
+           tool_use_id, detail)
+        VALUES (@ts, @ts_iso, @session_id, @native_session_id, @pid, @turn,
+                @agent, @mechanism, @tool, @tokens_without, @tokens_with,
+                @tokens_saved, @tool_use_id, @detail)
       `),
       insertBehaviorEvent: this.db.prepare(`
         INSERT INTO behavior_events
-          (ts, ts_iso, session_id, pid, turn, agent, type, tool,
-           entity_key, response_bytes, detail)
-        VALUES (@ts, @ts_iso, @session_id, @pid, @turn, @agent, @type, @tool,
-                @entity_key, @response_bytes, @detail)
+          (ts, ts_iso, session_id, native_session_id, pid, turn, agent, type,
+           tool, entity_key, response_bytes, tool_use_id, detail)
+        VALUES (@ts, @ts_iso, @session_id, @native_session_id, @pid, @turn,
+                @agent, @type, @tool, @entity_key, @response_bytes,
+                @tool_use_id, @detail)
       `),
       upsertSessionHistory: this.db.prepare(`
         INSERT INTO session_history
-          (session_id, started_at, ended_at, duration_ms, tool_calls, tokens_saved,
-           tokens_processed, efficiency, model_id, entity_count,
-           agent_name, token_flow_summary)
-        VALUES (@session_id, @started_at, @ended_at, @duration_ms, @tool_calls,
-                @tokens_saved, @tokens_processed, @efficiency,
-                @model_id, @entity_count, @agent_name, @token_flow_summary)
+          (session_id, native_session_id, session_name, started_at, ended_at,
+           duration_ms, tool_calls, tokens_saved, tokens_processed, efficiency,
+           model_id, entity_count, agent_name, token_flow_summary)
+        VALUES (@session_id, @native_session_id, @session_name, @started_at,
+                @ended_at, @duration_ms, @tool_calls, @tokens_saved,
+                @tokens_processed, @efficiency, @model_id, @entity_count,
+                @agent_name, @token_flow_summary)
         ON CONFLICT(session_id) DO UPDATE SET
+          native_session_id = COALESCE(excluded.native_session_id, session_history.native_session_id),
+          session_name = COALESCE(excluded.session_name, session_history.session_name),
           ended_at = excluded.ended_at,
           duration_ms = excluded.duration_ms,
           tool_calls = excluded.tool_calls,
@@ -661,15 +828,18 @@ export class MetricsStore {
       `),
       upsertSessionSummary: this.db.prepare(`
         INSERT INTO session_summaries
-          (session_id, written_at, started_at, ended_at, duration_ms, tool_calls,
-           chains, files_modified, entities_touched, tools_used, feature_areas,
-           facts_recorded, facts_surfaced, revert_count, rot_score, token_estimate,
-           branch)
-        VALUES (@session_id, @written_at, @started_at, @ended_at, @duration_ms,
-                @tool_calls, @chains, @files_modified, @entities_touched,
-                @tools_used, @feature_areas, @facts_recorded, @facts_surfaced,
-                @revert_count, @rot_score, @token_estimate, @branch)
+          (session_id, native_session_id, session_name, written_at, started_at,
+           ended_at, duration_ms, tool_calls, chains, files_modified,
+           entities_touched, tools_used, feature_areas, facts_recorded,
+           facts_surfaced, revert_count, rot_score, token_estimate, branch)
+        VALUES (@session_id, @native_session_id, @session_name, @written_at,
+                @started_at, @ended_at, @duration_ms, @tool_calls, @chains,
+                @files_modified, @entities_touched, @tools_used, @feature_areas,
+                @facts_recorded, @facts_surfaced, @revert_count, @rot_score,
+                @token_estimate, @branch)
         ON CONFLICT(session_id) DO UPDATE SET
+          native_session_id = COALESCE(excluded.native_session_id, session_summaries.native_session_id),
+          session_name = COALESCE(excluded.session_name, session_summaries.session_name),
           written_at = excluded.written_at,
           ended_at = excluded.ended_at,
           duration_ms = excluded.duration_ms,
@@ -741,6 +911,21 @@ export class MetricsStore {
       tokenFlowSessionSum: this.db.prepare(`
         SELECT COALESCE(SUM(tokens_saved), 0) AS total
         FROM token_flow_events WHERE session_id = @sessionId
+      `),
+      // Lifetime (all-session) tokens saved — SQL SUM so the close-out never
+      // pulls every row into JS.
+      tokenFlowTotal: this.db.prepare(`
+        SELECT COALESCE(SUM(tokens_saved), 0) AS total FROM token_flow_events
+      `),
+      // Lifetime count of hard-prevention guardrail events (blocked / stale-
+      // edit / cascade / loop) — the "breakages prevented" all-time anchor.
+      // Keep this set in lockstep with HARD_PREVENTION / isHardPrevention in
+      // src/tracking/named-events.ts.
+      hardPreventionTotal: this.db.prepare(`
+        SELECT COUNT(*) AS total FROM behavior_events
+        WHERE type IN (
+          'cascade_guard','stale_edit_prevented','intervention_halted','loop_broken'
+        )
       `),
       behaviorEventsAll: this.db.prepare(`
         SELECT * FROM behavior_events ORDER BY id ASC
@@ -914,6 +1099,11 @@ export class MetricsStore {
     const full: Omit<CompressionEventRow, "id"> = {
       ts: row.ts,
       ts_iso: row.ts_iso,
+      session_id: row.session_id ?? null,
+      native_session_id: row.native_session_id ?? null,
+      turn: row.turn ?? null,
+      agent: row.agent ?? "unknown",
+      tool_use_id: row.tool_use_id ?? null,
       command: row.command,
       category: row.category,
       confidence: row.confidence,
@@ -944,29 +1134,69 @@ export class MetricsStore {
 
   insertFileRead(row: FileReadEventInsert): number {
     if (!this.stmt) return 0;
-    return Number(this.stmt.insertFileRead.run(row).lastInsertRowid);
+    // Coalesce the optional session-correlation fields so every bound @param
+    // is present (better-sqlite3 named-binding requirement).
+    const full: Omit<FileReadEventRow, "id"> = {
+      ts: row.ts,
+      ts_iso: row.ts_iso,
+      session_id: row.session_id ?? null,
+      native_session_id: row.native_session_id ?? null,
+      turn: row.turn ?? null,
+      agent: row.agent ?? "unknown",
+      tool_use_id: row.tool_use_id ?? null,
+      file: row.file,
+      mode: row.mode,
+      total_lines: row.total_lines,
+      returned_lines: row.returned_lines,
+      saved_pct: row.saved_pct,
+      entity: row.entity,
+      token_estimate: row.token_estimate,
+    };
+    return Number(this.stmt.insertFileRead.run(full).lastInsertRowid);
   }
 
   insertTokenFlow(row: TokenFlowEventInsert): number {
     if (!this.stmt) return 0;
-    const withAgent = { ...row, agent: row.agent ?? "unknown" };
-    return Number(this.stmt.insertTokenFlow.run(withAgent).lastInsertRowid);
+    // Coalesce the optional session-correlation fields to null so every
+    // bound @param is present (better-sqlite3 named-binding requirement).
+    const full = {
+      ...row,
+      agent: row.agent ?? "unknown",
+      native_session_id: row.native_session_id ?? null,
+      tool_use_id: row.tool_use_id ?? null,
+    };
+    return Number(this.stmt.insertTokenFlow.run(full).lastInsertRowid);
   }
 
   insertBehaviorEvent(row: BehaviorEventInsert): number {
     if (!this.stmt) return 0;
-    const withAgent = { ...row, agent: row.agent ?? "unknown" };
-    return Number(this.stmt.insertBehaviorEvent.run(withAgent).lastInsertRowid);
+    const full = {
+      ...row,
+      agent: row.agent ?? "unknown",
+      native_session_id: row.native_session_id ?? null,
+      tool_use_id: row.tool_use_id ?? null,
+    };
+    return Number(this.stmt.insertBehaviorEvent.run(full).lastInsertRowid);
   }
 
   upsertSessionHistory(row: SessionHistoryInsert): void {
     if (!this.stmt) return;
-    this.stmt.upsertSessionHistory.run(row);
+    const full = {
+      ...row,
+      native_session_id: row.native_session_id ?? null,
+      session_name: row.session_name ?? null,
+    };
+    this.stmt.upsertSessionHistory.run(full);
   }
 
   upsertSessionSummary(row: SessionSummaryInsert): void {
     if (!this.stmt) return;
-    this.stmt.upsertSessionSummary.run(row);
+    const full = {
+      ...row,
+      native_session_id: row.native_session_id ?? null,
+      session_name: row.session_name ?? null,
+    };
+    this.stmt.upsertSessionSummary.run(full);
   }
 
   // ── Reads ───────────────────────────────────────────────────────────
@@ -1014,6 +1244,32 @@ export class MetricsStore {
   reversibleSavedTotal(): number {
     if (!this.stmt) return 0;
     const row = this.stmt.reversibleSavedTotal.get({}) as
+      | { total: number }
+      | undefined;
+    return row?.total ?? 0;
+  }
+
+  /**
+   * Lifetime tokens saved across every session in this repo's store (SQL SUM,
+   * not an in-memory tally). Pair with {@link reversibleSavedTotal} for the
+   * full all-time number surfaced on the close-out "All-time:" line.
+   */
+  tokenFlowTotal(): number {
+    if (!this.stmt) return 0;
+    const row = this.stmt.tokenFlowTotal.get({}) as
+      | { total: number }
+      | undefined;
+    return row?.total ?? 0;
+  }
+
+  /**
+   * Lifetime count of hard-prevention guardrail events (blocked / stale-edit /
+   * cascade / loop) — the "breakages prevented" all-time anchor. Mirrors
+   * `isHardPrevention` in named-events.ts; keep the two sets in lockstep.
+   */
+  hardPreventionTotal(): number {
+    if (!this.stmt) return 0;
+    const row = this.stmt.hardPreventionTotal.get({}) as
       | { total: number }
       | undefined;
     return row?.total ?? 0;
@@ -1124,6 +1380,36 @@ export class MetricsStore {
       /* malformed detail — leave hash null (never matches a real prompt) */
     }
     return { ts: row.ts, hash };
+  }
+
+  /**
+   * True when `(session_id, turn)` already carries activity that precedes a
+   * newly-arriving user prompt — any token-flow row, any non-prompt behavior
+   * row, or a prior `user_prompt_received` row in the same turn. Used to flag a
+   * mid-turn user interjection (the steering / interrupt case): a prompt landing
+   * after tool work has already begun in the live turn, or a second prompt
+   * within one turn. Cheap LIMIT-1 existence probes — safe on the hook path.
+   */
+  turnHasActivityBeforePrompt(sessionId: string, turn: number): boolean {
+    if (!this.db) return false;
+    const tf = this.db
+      .prepare(
+        "SELECT 1 FROM token_flow_events WHERE session_id = ? AND turn = ? LIMIT 1"
+      )
+      .get(sessionId, turn);
+    if (tf) return true;
+    const be = this.db
+      .prepare(
+        "SELECT 1 FROM behavior_events WHERE session_id = ? AND turn = ? AND type != 'user_prompt_received' LIMIT 1"
+      )
+      .get(sessionId, turn);
+    if (be) return true;
+    const prior = this.db
+      .prepare(
+        "SELECT 1 FROM behavior_events WHERE session_id = ? AND turn = ? AND type = 'user_prompt_received' LIMIT 1"
+      )
+      .get(sessionId, turn);
+    return prior !== undefined;
   }
 
   behaviorEventsSince(lastId: number, limit = 500): BehaviorEventRow[] {

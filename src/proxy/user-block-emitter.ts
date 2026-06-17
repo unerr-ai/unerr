@@ -223,6 +223,14 @@ async function buildResumeStrip(ctx: UserBlockContext): Promise<string> {
                 text: b.text.slice(0, 200),
                 file_path: b.file_path,
               })),
+              retrieved: (payload.open_blockers ?? [])
+                .slice(0, 3)
+                .map((b) => ({
+                  kind: "resume_blocker",
+                  ...(b.file_path ? { anchor: b.file_path } : {}),
+                })),
+              returned_count: Math.min(blockerCount, 3),
+              used: true,
             },
           });
         } catch {

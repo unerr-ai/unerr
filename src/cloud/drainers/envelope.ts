@@ -78,7 +78,9 @@ export interface Envelope {
   ts: string;
   source: string;
   session_id?: string;
+  native_session_id?: string;
   turn?: number;
+  tool_use_id?: string;
   detail: Record<string, unknown>;
 }
 
@@ -91,7 +93,15 @@ export interface EnvelopeInput {
   ts: string;
   source: string;
   sessionId?: string;
+  /** The agent's own conversation id (Claude session_id / Cursor
+   *  conversation_id). The PRIMARY grouping key — group by
+   *  coalesce(native_session_id, session_id). Omitted when the agent never
+   *  exposed one. */
+  nativeSessionId?: string | null;
   turn?: number;
+  /** The agent's id for the single tool call this event belongs to, when known.
+   *  Pins the event to one exact invocation (finer than turn). */
+  toolUseId?: string | null;
   /** The pre-sanitize detail tail; passed through {@link sanitizeDetail}. */
   detail: Record<string, unknown>;
 }
@@ -116,7 +126,11 @@ export function buildEnvelope(input: EnvelopeInput): Envelope {
   if (input.agent !== undefined && input.agent !== "") env.agent = input.agent;
   if (input.sessionId !== undefined && input.sessionId !== "")
     env.session_id = input.sessionId;
+  if (input.nativeSessionId != null && input.nativeSessionId !== "")
+    env.native_session_id = input.nativeSessionId;
   if (input.turn !== undefined) env.turn = input.turn;
+  if (input.toolUseId != null && input.toolUseId !== "")
+    env.tool_use_id = input.toolUseId;
   return env;
 }
 

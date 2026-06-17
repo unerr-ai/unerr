@@ -58,7 +58,18 @@ export async function materializeTranscripts(
     if (!cap) return 0;
 
     const store = openMetricsStore(opts.unerrDir);
-    if (store.hasAgentTranscripts(opts.sessionId)) return 0;
+
+    // Incremental high-water mark (replaces the old once-per-session guard).
+    // Re-materialize from the LAST already-stored turn forward, not from zero:
+    // the boundary turn may have grown since the previous pass (its final
+    // assistant message extends as the agent streams), and turns past it are
+    // new. The UPSERT on (session_id, turn, role) makes re-writing the boundary
+    // turn idempotent. A fresh session has highWater = -1 → materialize all.
+    const existing = store.getAgentTranscriptsForSession(opts.sessionId);
+    let highWater = -1;
+    for (const r of existing) {
+      if (r.turn > highWater) highWater = r.turn;
+    }
 
     let turns =
       cap === "jsonl"
@@ -82,6 +93,9 @@ export async function materializeTranscripts(
 
     let count = 0;
     for (const t of turns) {
+      // Skip turns strictly below the boundary — already fully materialized.
+      // Re-upsert the boundary turn (==) and append everything above it.
+      if (t.turn_index < highWater) continue;
       store.upsertAgentTranscript({
         session_id: opts.sessionId,
         native_session_id: t.native_session_id,

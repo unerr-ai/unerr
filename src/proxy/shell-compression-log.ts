@@ -13,6 +13,7 @@
 import { join } from "node:path";
 import { estimateTokenCount } from "../intelligence/token-estimator.js";
 import { openMetricsStore } from "../tracking/metrics-store.js";
+import { resolveExecSessionContext } from "../tracking/session-records.js";
 
 /**
  * Before/after token accounting for one compression event. The §4 metrics
@@ -125,9 +126,17 @@ export function appendCompressionLog(
       rev?.delivered_tokens ?? Math.round(entry.compressedBytes / 4);
     const transcriptFootprint =
       store.transcriptFootprintLatest() + Math.max(0, deliveredTokens);
+    // SESSION_ID_CORRELATION: this row is written from the agent-spawned exec
+    // process, which joins the live conversation through the proxy-mirrored
+    // env / state files + the shared sessions file (by agent).
+    const sc = resolveExecSessionContext(join(cwd, ".unerr"));
     store.insertCompression({
       ts: parseTs(entry.ts),
       ts_iso: entry.ts,
+      session_id: sc.session_id,
+      native_session_id: sc.native_session_id,
+      turn: sc.turn,
+      agent: sc.agent,
       command: entry.command,
       category: entry.category,
       confidence: entry.confidence,
@@ -175,9 +184,14 @@ export function appendCompressionLog(
 export function appendFileReadLog(cwd: string, entry: FileReadLogEntry): void {
   try {
     const store = openMetricsStore(join(cwd, ".unerr"));
+    const sc = resolveExecSessionContext(join(cwd, ".unerr"));
     store.insertFileRead({
       ts: parseTs(entry.ts),
       ts_iso: entry.ts,
+      session_id: sc.session_id,
+      native_session_id: sc.native_session_id,
+      turn: sc.turn,
+      agent: sc.agent,
       file: entry.file,
       mode: entry.mode,
       total_lines: entry.totalLines,

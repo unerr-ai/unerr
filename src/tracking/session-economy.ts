@@ -34,6 +34,41 @@ import {
 import { type TokenFlowEvent, readTokenFlowEvents } from "./token-flow.js";
 
 /**
+ * The native conversation id for an unerr `sessionId`, read off the events that
+ * carry it (the hook stamps `native_session_id` on rows of the same
+ * conversation). Returns null when no event for that session carried a native
+ * id — the conversation then groups by the unerr `session_id` alone.
+ */
+function nativeIdForSession(
+  events: TokenFlowEvent[],
+  sessionId: string
+): string | null {
+  for (const e of events) {
+    if (e.session_id === sessionId && e.native_session_id)
+      return e.native_session_id;
+  }
+  return null;
+}
+
+/**
+ * A predicate matching every event in the SAME conversation as `sessionId`,
+ * grouping by `coalesce(native_session_id, session_id)` (SESSION_ID_CORRELATION
+ * Part 1). When the conversation has a native id, an event belongs if it shares
+ * that native id OR carries the unerr `session_id` (early rows written before
+ * the hook recorded the native id); otherwise it falls back to an exact
+ * `session_id` match. This makes a session-level rollup span a bridge reconnect
+ * (which mints a fresh unerr session id but keeps the agent's native id).
+ */
+function inConversation(
+  events: TokenFlowEvent[],
+  sessionId: string
+): (e: TokenFlowEvent) => boolean {
+  const native = nativeIdForSession(events, sessionId);
+  if (native === null) return (e) => e.session_id === sessionId;
+  return (e) => e.native_session_id === native || e.session_id === sessionId;
+}
+
+/**
  * Average input-token cost of a turn for the given session.
  *
  * "Input tokens" = `tokens_without` summed across every event for the
@@ -53,7 +88,8 @@ export function averageInputTokensPerTurn(
   sessionId: string,
   lastN?: number
 ): number {
-  const session = events.filter((e) => e.session_id === sessionId);
+  const belongs = inConversation(events, sessionId);
+  const session = events.filter(belongs);
   if (session.length === 0) return 0;
 
   // Group by turn, sum tokens_without per turn.
@@ -82,9 +118,10 @@ export function totalTokensSavedInSession(
   events: TokenFlowEvent[],
   sessionId: string
 ): number {
+  const belongs = inConversation(events, sessionId);
   let saved = 0;
   for (const e of events) {
-    if (e.session_id === sessionId) saved += e.tokens_saved;
+    if (belongs(e)) saved += e.tokens_saved;
   }
   return saved;
 }
@@ -195,6 +232,13 @@ export function liveExtraTurnsBought(
  *  chat-pane turn footer. */
 export interface SessionEconomySummary {
   session_id: string;
+  /** The agent's own conversation id when known (the PRIMARY grouping key);
+   *  null when the agent never exposed one. Rows are grouped by
+   *  coalesce(native_session_id, session_id). */
+  native_session_id: string | null;
+  /** Human-readable conversation label when known (resolved by the caller from
+   *  the shared sessions file); null otherwise. Display-only. */
+  session_name: string | null;
   /** Distinct turn indexes seen in token_flow_events for this session. */
   turn_count: number;
   /** Rolling-average input-tokens-per-turn WITHOUT unerr (all turns). */
@@ -219,9 +263,11 @@ export interface SessionEconomySummary {
  *  event list. Pure — no IO. */
 export function summarizeSessionEconomy(
   events: TokenFlowEvent[],
-  sessionId: string
+  sessionId: string,
+  sessionName: string | null = null
 ): SessionEconomySummary {
-  const session = events.filter((e) => e.session_id === sessionId);
+  const belongs = inConversation(events, sessionId);
+  const session = events.filter(belongs);
   const turnSet = new Set<number>();
   for (const e of session) turnSet.add(e.turn);
 
@@ -237,6 +283,8 @@ export function summarizeSessionEconomy(
   });
   return {
     session_id: sessionId,
+    native_session_id: nativeIdForSession(events, sessionId),
+    session_name: sessionName,
     turn_count: turnSet.size,
     avg_input_tokens_per_turn: avgIn,
     total_tokens_saved: saved,

@@ -24,6 +24,10 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { openMetricsStore } from "../tracking/metrics-store.js";
+import {
+  resolveExecSessionContext,
+  upsertSessionRecord,
+} from "../tracking/session-records.js";
 import { materializeTranscripts } from "../tracking/transcript-materializer.js";
 
 /**
@@ -93,6 +97,13 @@ export interface PromptCaptureInput {
   hookPayloadChars: number;
   /** Coding-agent id (claude-code, cursor, …) when known. */
   agent?: string;
+  /** The agent's OWN conversation id (Claude `session_id` / Cursor
+   *  `conversation_id`), resolved by the hook adapter; null for agents that
+   *  don't expose one. Written to the shared sessions file so the proxy and
+   *  event writers can attach it to their rows (the PRIMARY grouping key). */
+  nativeSessionId?: string | null;
+  /** Human-readable conversation label when the agent exposes one. */
+  sessionName?: string | null;
 }
 
 /**
@@ -107,6 +118,20 @@ export function recordUserPromptReceived(input: PromptCaptureInput): number {
     const capture = readCapturePromptsFlag(input.cwd);
     const store = openMetricsStore(input.unerrDir);
     const now = new Date();
+
+    // SESSION_ID_CORRELATION: the hook is the ONLY process that holds the
+    // agent's own conversation id. Write it to the shared sessions file keyed
+    // to this unerr session id so the long-lived proxy and its event writers
+    // (which never see a hook payload) can attach `native_session_id` to their
+    // rows. Best-effort inside; never blocks prompt delivery.
+    upsertSessionRecord(input.unerrDir, {
+      unerrSessionId: input.sessionId,
+      nativeSessionId: input.nativeSessionId ?? null,
+      agent: input.agent ?? "unknown",
+      cwd: input.cwd,
+      sessionName: input.sessionName ?? null,
+      now: now.getTime(),
+    });
 
     // Non-reversible digest of the message — written ALWAYS (it is not the
     // content; it survives the opt-out content suppression below) so the
@@ -135,10 +160,21 @@ export function recordUserPromptReceived(input: PromptCaptureInput): number {
     ) {
       return 0;
     }
+    // Live turn + mid-turn detection. The hook is spawned by the agent shell,
+    // not the proxy, so it reads the live turn the proxy mirrors to
+    // `state/current.turn` (via the exec context). A prompt is mid-turn when
+    // that turn already carries tool/behavior activity (or an earlier prompt) —
+    // the user steered/interrupted while a turn was running.
+    const liveTurn = resolveExecSessionContext(input.unerrDir).turn;
+    const isMidTurn =
+      liveTurn > 0 && store.turnHasActivityBeforePrompt(input.sessionId, liveTurn);
     const detail: Record<string, unknown> = {
       length: input.message.length,
       classified_as: input.classifiedAs,
       hook_payload_chars: input.hookPayloadChars,
+      // Steering signal — the cloud derives the mid-turn RATE from these flags
+      // joined with the transcript; the CLI only stamps the per-prompt fact.
+      is_mid_turn: isMidTurn,
       // Content digest for re-fire dedupe — always present, never reversible
       // to the verbatim message, so it is recorded regardless of opt-in.
       prompt_hash: promptHash,
@@ -151,8 +187,9 @@ export function recordUserPromptReceived(input: PromptCaptureInput): number {
       ts: now.getTime(),
       ts_iso: now.toISOString(),
       session_id: input.sessionId,
+      native_session_id: input.nativeSessionId ?? null,
       pid: process.pid,
-      turn: 0,
+      turn: liveTurn,
       agent: input.agent ?? "unknown",
       type: "user_prompt_received",
       tool: null,

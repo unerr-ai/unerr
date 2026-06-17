@@ -88,6 +88,72 @@ describe("contract single-source — every drainer row matches its contract", ()
     expect(IngestBatchBody.safeParse({ events: [row] }).success).toBe(true);
   });
 
+  it("envelope carries native_session_id + tool_use_id when supplied", () => {
+    const built = buildEnvelope({
+      schemaVersion: EVENTS_SCHEMA_VERSION,
+      repo: REPO,
+      eventId: deterministicId(REPO, "events", "ids"),
+      ts: TS,
+      source: SOURCE,
+      sessionId: "sess-1",
+      nativeSessionId: "claude-native-abc",
+      turn: 3,
+      toolUseId: "toolu_123",
+      detail: { mechanism: "cache", tokens_saved: 1 },
+    });
+    expect(built.native_session_id).toBe("claude-native-abc");
+    expect(built.tool_use_id).toBe("toolu_123");
+    const row = { type: "token_flow", ...built };
+    expect(IngestEvent.safeParse(row).success).toBe(true);
+    // Omitted when null/absent — never stamps an empty key.
+    const bare = buildEnvelope({
+      schemaVersion: EVENTS_SCHEMA_VERSION,
+      repo: REPO,
+      eventId: deterministicId(REPO, "events", "bare"),
+      ts: TS,
+      source: SOURCE,
+      sessionId: "sess-1",
+      nativeSessionId: null,
+      toolUseId: null,
+      detail: {},
+    });
+    expect("native_session_id" in bare).toBe(false);
+    expect("tool_use_id" in bare).toBe(false);
+  });
+
+  it("behavior row with retrieval detail → IngestEvent", () => {
+    const row = {
+      type: "behavior",
+      ...env("events", {
+        kind: "fact_recalled",
+        retrieved: [
+          { kind: "fact", anchor: "e:foo", score: 0.92 },
+          { kind: "convention", anchor: "f:src/a.ts" },
+        ],
+        candidate_count: 8,
+        returned_count: 2,
+        used: true,
+      }),
+    };
+    expect(IngestEvent.safeParse(row).success).toBe(true);
+  });
+
+  it("behavior row with guardrail detail → IngestEvent", () => {
+    const row = {
+      type: "behavior",
+      ...env("events", {
+        kind: "cascade_guard",
+        policy: "cascade_guard",
+        action: "halted",
+        reason: "editing a function with 14 untouched callers",
+        target_file: "src/a.ts",
+        target_entity: "e:foo",
+        target_tool_use_id: "toolu_999",
+      }),
+    };
+    expect(IngestEvent.safeParse(row).success).toBe(true);
+  });
+
   it("transcripts row → TranscriptRecord + TranscriptBatchBody", () => {
     const row = {
       ...env("transcripts"),

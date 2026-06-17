@@ -405,3 +405,195 @@ describe("renderReceiptBlock — narrative redesign", () => {
     );
   });
 });
+
+describe("renderReceiptBlock — State 1 prevention-first headline", () => {
+  it("leads with the averted loss (hard stop) and moves the token number to the footer", () => {
+    const lines = renderReceiptBlock({
+      attribution: emptyAttribution,
+      runtimeJoins: noJoins,
+      turnTokensSaved: 38566,
+      sessionTokensSaved: 0,
+      sessionHeadroom: 0,
+      turnEvents: [
+        fileReadEvent,
+        ev("stale_edit_prevented", {}, { file_path: "src/proxy/proxy.ts" }),
+      ],
+      fallbackLine: "",
+    });
+    expect(lines[0]).toBe("unerr » stopped 1 change before it broke this turn");
+    // the raw token number is no longer in the headline …
+    expect(lines[0]).not.toContain("saved");
+    // … it moved to the footer instead.
+    expect(lines.at(-1)).toContain("saved 39k this turn");
+  });
+
+  it("counts hard stops for the headline ('stopped N changes', plural + 'they')", () => {
+    const lines = renderReceiptBlock({
+      attribution: emptyAttribution,
+      runtimeJoins: noJoins,
+      turnTokensSaved: 0,
+      sessionTokensSaved: 0,
+      sessionHeadroom: 0,
+      turnEvents: [
+        ev("stale_edit_prevented", {}, { file_path: "a.ts" }),
+        ev("intervention_halted", {}, { file_path: "b.ts" }),
+      ],
+      fallbackLine: "",
+    });
+    expect(lines[0]).toBe(
+      "unerr » stopped 2 changes before they broke this turn"
+    );
+  });
+
+  it("reads 'flagged N risky edits' when only a soft warning fired (no hard stop)", () => {
+    const lines = renderReceiptBlock({
+      attribution: emptyAttribution,
+      runtimeJoins: noJoins,
+      turnTokensSaved: 0,
+      sessionTokensSaved: 0,
+      sessionHeadroom: 0,
+      turnEvents: [ev("intervention_warned", {}, { file_path: "c.ts" })],
+      fallbackLine: "",
+    });
+    expect(lines[0]).toBe(
+      "unerr » flagged 1 risky edit before it ran this turn"
+    );
+  });
+});
+
+describe("renderReceiptBlock — State 3 session recap fold-in", () => {
+  const sessionHighlights = [
+    {
+      event_type: "cascade_guard",
+      count: 4,
+      phrasing: "risky cascading edits",
+    },
+    {
+      event_type: "stale_edit_prevented",
+      count: 1,
+      phrasing: "stale code edit",
+    },
+    { event_type: "fact_recalled", count: 12, phrasing: "remembered notes" },
+    {
+      event_type: "fact_stored_user_fed",
+      count: 2,
+      phrasing: "notes from you",
+    },
+    {
+      event_type: "convention_applied",
+      count: 3,
+      phrasing: "project conventions",
+    },
+  ];
+
+  it("appends the three labelled buckets on a recap turn", () => {
+    const text = renderReceiptBlock({
+      attribution: emptyAttribution,
+      runtimeJoins: noJoins,
+      turnTokensSaved: 1200,
+      sessionTokensSaved: 48000,
+      sessionHeadroom: 9,
+      turnEvents: [shellEvent],
+      fallbackLine: "",
+      recapTurn: true,
+      sessionHighlights,
+      rememberedFileCount: 5,
+    }).join("\n");
+    expect(text).toContain(
+      "unerr » this session, unerr kept your agent on track:"
+    );
+    expect(text).toContain(
+      "Prevented   5 likely breakages — 4 risky cascading edits, 1 stale code edit"
+    );
+    expect(text).toContain(
+      "Remembered  12 remembered notes · 2 notes from you · 3 project conventions (across 5 files)"
+    );
+    expect(text).toContain("Saved       48k tokens  (~9 turns of extra room)");
+  });
+
+  it("shows the All-time line only when lifetime anchors are supplied", () => {
+    const text = renderReceiptBlock({
+      attribution: emptyAttribution,
+      runtimeJoins: noJoins,
+      turnTokensSaved: 0,
+      sessionTokensSaved: 1000,
+      sessionHeadroom: 0,
+      turnEvents: [],
+      fallbackLine: "",
+      recapTurn: true,
+      sessionHighlights,
+      lifetime: { prevented: 1240, tokensSaved: 8_000_000 },
+    }).join("\n");
+    expect(text).toContain(
+      "All-time: 1,240 breakages prevented · 8M tokens saved."
+    );
+  });
+
+  it("omits a zero lifetime segment rather than printing '0 breakages'", () => {
+    const text = renderReceiptBlock({
+      attribution: emptyAttribution,
+      runtimeJoins: noJoins,
+      turnTokensSaved: 0,
+      sessionTokensSaved: 1000,
+      sessionHeadroom: 0,
+      turnEvents: [],
+      fallbackLine: "",
+      recapTurn: true,
+      sessionHighlights,
+      lifetime: { prevented: 0, tokensSaved: 250_000 },
+    }).join("\n");
+    expect(text).toContain("All-time: 250k tokens saved.");
+    expect(text).not.toContain("0 breakages");
+  });
+
+  it("on a quiet recap turn renders only the recap (no fallback duplication)", () => {
+    const lines = renderReceiptBlock({
+      attribution: emptyAttribution,
+      runtimeJoins: noJoins,
+      turnTokensSaved: 0,
+      sessionTokensSaved: 5000,
+      sessionHeadroom: 2,
+      turnEvents: [],
+      fallbackLine: "unerr » session: 5k saved",
+      recapTurn: true,
+      sessionHighlights: [
+        { event_type: "fact_recalled", count: 3, phrasing: "remembered notes" },
+      ],
+    });
+    expect(lines[0]).toBe(
+      "unerr » this session, unerr kept your agent on track:"
+    );
+    expect(lines.some((l) => l.includes("session: 5k saved"))).toBe(false);
+  });
+});
+
+describe("renderReceiptBlock — single-line fallback", () => {
+  it("collapses the session to one line for constrained surfaces", () => {
+    const lines = renderReceiptBlock({
+      attribution: emptyAttribution,
+      runtimeJoins: noJoins,
+      turnTokensSaved: 0,
+      sessionTokensSaved: 48000,
+      sessionHeadroom: 9,
+      turnEvents: [],
+      fallbackLine: "",
+      singleLine: true,
+      sessionHighlights: [
+        {
+          event_type: "cascade_guard",
+          count: 6,
+          phrasing: "risky cascading edits",
+        },
+        {
+          event_type: "fact_recalled",
+          count: 12,
+          phrasing: "remembered notes",
+        },
+      ],
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toBe(
+      "unerr » session: prevented 6 · recalled 12 · saved 48k tokens (~9 turns)"
+    );
+  });
+});

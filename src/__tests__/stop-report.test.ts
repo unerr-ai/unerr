@@ -1,139 +1,72 @@
 /**
- * Plain-English Stop close-out report (`formatStopReport`).
+ * End-of-turn report — the single shared path behind BOTH close-out surfaces.
  *
- * The Stop hook surfaces this as a user-facing `systemMessage` (Claude Code
- * labels it "Stop says: …"). It must (a) lead with the "unerr reports" brand
- * and (b) speak plain English — no unerr-internal framing ("session:",
- * "this turn:", "chat room earned"), no raw tool/event-type identifiers.
+ * The redesign (2026-06-17) replaced the thin Stop-only `formatStopReport`
+ * with one renderer (`renderReceiptBlock`) fed by `turn-report.ts`. The Stop
+ * hook (`renderStopReportLive`) and the `unerr_turn_summary` MCP tool
+ * (`computeTurnSummaryLine`) now produce byte-identical output, so the report
+ * works for every agent — not just Claude Code.
+ *
+ * These tests cover the turn-cadence recap decision and the best-effort /
+ * honest-zero behaviour. The prose-rendering states (prevention-first
+ * headline, the three-bucket recap, the single-line fallback) are unit-tested
+ * against the pure renderer in receipt-renderer.test.ts.
  */
 
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { formatStopReport } from "../proxy/turn-footer.js";
+import {
+  RECAP_EVERY_N_TURNS,
+  isRecapTurn,
+  renderStopReportLive,
+} from "../proxy/turn-report.js";
+import { computeTurnSummaryLine } from "../proxy/turn-summary-handler.js";
 
-const NONE = {
-  turnTokensSaved: 0,
-  sessionTokensSaved: 0,
-  sessionHeadroom: 0,
-  turnHighlights: [],
-  sessionHighlights: [],
-};
-
-/** Internal jargon that must never reach this user-facing line. */
-const BANNED = [
-  /\bsession:/i,
-  /\bthis turn:/i,
-  /chat room/i,
-  /\bSurface\s*[1-4]\b/i,
-  /\bSTEP-\s*[0-9N]\b/i,
-  /headroom/i,
-  /\bunerr_[a-z_]+\b/,
-];
-
-function assertClean(line: string): void {
-  for (const pat of BANNED) {
-    expect(line, `banned jargon ${pat} in: ${line}`).not.toMatch(pat);
-  }
-}
-
-describe("formatStopReport — branding + plain English", () => {
-  it("leads with 'unerr reports' on a productive turn", () => {
-    const line = formatStopReport({
-      ...NONE,
-      turnTokensSaved: 12_345,
-      sessionTokensSaved: 25_000,
-      sessionHeadroom: 3,
-      turnHighlights: [
-        {
-          event_type: "shell_compressed",
-          count: 12,
-          phrasing: "trimmed shell outputs",
-        },
-        { event_type: "review_finding", count: 6, phrasing: "review findings" },
-      ],
-    });
-    expect(line.startsWith("unerr reports — ")).toBe(true);
-    expect(line).toContain("saved 12,345 tokens this turn");
-    expect(line).toContain("12 trimmed shell outputs, 6 review findings");
-    expect(line).toContain("25k tokens saved in total");
-    expect(line).toContain("3 more turns of room before this chat fills up");
-    assertClean(line);
+describe("isRecapTurn — turn-cadence recap decision", () => {
+  it("folds in the recap every Nth turn", () => {
+    expect(isRecapTurn(RECAP_EVERY_N_TURNS, false)).toBe(true);
+    expect(isRecapTurn(RECAP_EVERY_N_TURNS * 2, false)).toBe(true);
   });
 
-  it("uses the exact integer for the per-turn count, rounds the session total", () => {
-    const line = formatStopReport({
-      ...NONE,
-      turnTokensSaved: 1_234,
-      sessionTokensSaved: 100_175,
-    });
-    expect(line).toContain("saved 1,234 tokens this turn");
-    expect(line).toContain("100k tokens saved in total");
+  it("does not fold in on an off-cadence productive turn", () => {
+    expect(isRecapTurn(RECAP_EVERY_N_TURNS + 1, false)).toBe(false);
+    expect(isRecapTurn(1, false)).toBe(false);
   });
 
-  it("on a quiet turn (no per-turn savings) names concrete session activity", () => {
-    const line = formatStopReport({
-      ...NONE,
-      sessionTokensSaved: 25_000,
-      sessionHighlights: [
-        { event_type: "graph_lookup", count: 12, phrasing: "code lookups" },
-        {
-          event_type: "compact_read",
-          count: 8,
-          phrasing: "compact file reads",
-        },
-        { event_type: "fact_recalled", count: 4, phrasing: "remembered notes" },
-      ],
-    });
-    expect(line.startsWith("unerr reports — ")).toBe(true);
-    expect(line).toContain(
-      "12 code lookups, 8 compact file reads, 4 remembered notes so far this session"
-    );
-    expect(line).not.toContain("this turn");
-    assertClean(line);
+  it("always folds in on a quiet turn, regardless of cadence", () => {
+    expect(isRecapTurn(1, true)).toBe(true);
+    expect(isRecapTurn(RECAP_EVERY_N_TURNS + 1, true)).toBe(true);
   });
 
-  it("singular headroom reads 'turn', not 'turns'", () => {
-    const line = formatStopReport({ ...NONE, sessionHeadroom: 1 });
-    expect(line).toContain("1 more turn of room before this chat fills up");
+  it("never folds in on turn 0 (pre-first-prompt)", () => {
+    expect(isRecapTurn(0, false)).toBe(false);
+  });
+});
+
+describe("end-of-turn report — best-effort + cross-surface parity", () => {
+  let unerrDir: string;
+
+  beforeEach(() => {
+    unerrDir = mkdtempSync(join(tmpdir(), "unerr-report-"));
+  });
+  afterEach(() => {
+    rmSync(unerrDir, { recursive: true, force: true });
   });
 
-  it("excludes the prompt-boundary event from the spoken activity", () => {
-    const line = formatStopReport({
-      ...NONE,
-      sessionTokensSaved: 1_000,
-      sessionHighlights: [
-        { event_type: "user_prompt_received", count: 9, phrasing: "prompts" },
-        { event_type: "graph_lookup", count: 2, phrasing: "code lookups" },
-      ],
-    });
-    expect(line).not.toContain("prompts");
-    expect(line).toContain("2 code lookups");
+  it("renders nothing for a session with no unerr value (honest-zero)", () => {
+    // Empty .unerr dir → no events, no savings. The report suppresses itself
+    // so the Stop hook emits no systemMessage.
+    expect(renderStopReportLive(unerrDir, "sess-1", 1)).toBe("");
   });
 
-  it("returns empty string when there is nothing to report", () => {
-    expect(formatStopReport(NONE)).toBe("");
-  });
-
-  it("caps per-turn highlights at 2 and session highlights at 3", () => {
-    const many = Array.from({ length: 6 }, (_, i) => ({
-      event_type: `e${i}`,
-      count: 10 - i,
-      phrasing: `thing${i}`,
-    }));
-    const turn = formatStopReport({
-      ...NONE,
-      turnTokensSaved: 5,
-      turnHighlights: many,
-    });
-    expect(turn).toContain("(10 thing0, 9 thing1)");
-    expect(turn).not.toContain("thing2");
-
-    const quiet = formatStopReport({
-      ...NONE,
-      sessionTokensSaved: 5,
-      sessionHighlights: many,
-    });
-    expect(quiet).toContain("thing0, 9 thing1, 8 thing2 so far");
-    expect(quiet).not.toContain("thing3");
+  it("the Stop hook and the MCP tool emit byte-identical text", () => {
+    // Both go through the one shared renderer, so on the same session/turn
+    // their output must match exactly — the cross-agent guarantee.
+    const stop = renderStopReportLive(unerrDir, "sess-1", RECAP_EVERY_N_TURNS);
+    const mcp = computeTurnSummaryLine(unerrDir, "sess-1", RECAP_EVERY_N_TURNS);
+    expect(stop).toBe(mcp);
   });
 });

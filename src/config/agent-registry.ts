@@ -43,6 +43,24 @@ export interface HookCapabilities {
   adapter: "built" | "planned" | "none";
 }
 
+/**
+ * How to read a coding agent's OWN session identity out of its hook payload.
+ * unerr's `session_id` is its per-bridge UUID; this names the field that
+ * carries the agent's native id (Claude `session_id`, Cursor `conversation_id`)
+ * so a turn can be grouped by `coalesce(native_session_id, session_id)`, plus an
+ * optional field carrying a human-readable conversation title.
+ *
+ * `idHookField` defaults to `"session_id"` (see DEFAULT_SESSION_IDENTITY) — the
+ * field Claude Code, Gemini CLI, and Copilot CLI all converge on; only agents
+ * that differ (Cursor) declare a spec.
+ */
+export interface SessionIdentitySpec {
+  /** Hook-payload key carrying the agent's own session id. */
+  idHookField: string;
+  /** Hook-payload key carrying a human-readable conversation title/name, if any. */
+  nameHookField?: string;
+}
+
 export interface AgentDefinition {
   id: IdeType;
   name: string;
@@ -63,6 +81,12 @@ export interface AgentDefinition {
    * Absent ⇒ treat every capability as MCP-only (see DEFAULT_NO_HOOKS).
    */
   hooks?: HookCapabilities;
+  /**
+   * How to read this agent's own session identity from its hook payload.
+   * Absent ⇒ DEFAULT_SESSION_IDENTITY (`idHookField: "session_id"`). Declare
+   * one only when the agent differs (e.g. Cursor's `conversation_id`).
+   */
+  sessionIdentity?: SessionIdentitySpec;
   /** Short description for the config show command */
   description: string;
   /** Relative path from project root for agent instruction file (CLAUDE.md, AGENTS.md, etc.) */
@@ -101,6 +125,8 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     description: "AI-native code editor (VS Code fork)",
     instructionFilePath: ".cursor/rules/unerr-instructions.mdc",
     instructionFormat: "mdc",
+    // Cursor names its conversation id `conversation_id`, not `session_id`.
+    sessionIdentity: { idHookField: "conversation_id" },
   },
   {
     id: "claude-code",
@@ -350,6 +376,42 @@ export const DEFAULT_NO_HOOKS: HookCapabilities = {
  */
 export function getHookCapabilities(id: IdeType): HookCapabilities {
   return getAgent(id)?.hooks ?? DEFAULT_NO_HOOKS;
+}
+
+/**
+ * The session-identity spec for an agent that declares none: read the agent's
+ * own id from the `session_id` hook field (Claude Code, Gemini CLI, Copilot CLI
+ * all converge on this), with no conversation title. Cursor overrides this with
+ * `conversation_id`.
+ */
+export const DEFAULT_SESSION_IDENTITY: SessionIdentitySpec = {
+  idHookField: "session_id",
+};
+
+/**
+ * Read a coding agent's OWN session identity out of its raw hook payload, using
+ * the agent's `SessionIdentitySpec` (or DEFAULT_SESSION_IDENTITY). Returns
+ * `native_session_id` (the agent's conversation id, distinct from unerr's
+ * per-bridge `session_id`) and an optional human-readable `session_name`. Both
+ * are `null` when absent or not a usable non-empty string — never throws, so
+ * callers can stamp the result directly onto an event row.
+ */
+export function resolveSessionIdentity(
+  id: IdeType,
+  payload: Record<string, unknown> | null | undefined,
+): { nativeSessionId: string | null; sessionName: string | null } {
+  const spec = getAgent(id)?.sessionIdentity ?? DEFAULT_SESSION_IDENTITY;
+  const read = (field: string | undefined): string | null => {
+    if (!field || !payload) return null;
+    const value = payload[field];
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  };
+  return {
+    nativeSessionId: read(spec.idHookField),
+    sessionName: read(spec.nameHookField),
+  };
 }
 
 /**

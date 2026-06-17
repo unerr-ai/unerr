@@ -318,6 +318,11 @@ async function handleUnerrRecallNotesProxy(
               top_reinforcement_count: top.reinforcement_count,
               top_anchor_missing: top.anchor_missing,
               top_conflict_group_id: top.conflict_group_id,
+              retrieved: notes.map((n) => ({
+                kind: n.kind,
+                ...(n.anchor_value ? { anchor: n.anchor_value } : {}),
+              })),
+              returned_count: notes.length,
             },
           });
         }
@@ -687,6 +692,11 @@ async function handleRecallFactsProxy(
           fact_types: Array.from(new Set(sliced.map((f) => f.fact_type))),
           top_content: top?.content ?? null,
           top_created_at: top?.created_at ?? null,
+          retrieved: sliced.map((f) => ({
+            kind: "fact",
+            ...(f.subject ? { anchor: f.subject } : {}),
+          })),
+          returned_count: sliced.length,
         },
       });
     }
@@ -2047,6 +2057,20 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   );
   router.setBehaviorEvents(behaviorEventWriter);
 
+  // SESSION_ID_CORRELATION: per-bridge session identity. One proxy serves N
+  // bridges (one per coding-agent conversation) over UDS; the single
+  // ShadowLedger session id can no longer name a conversation. The registry
+  // resolves each `clientId` to the per-bridge UUID the bridge announced in
+  // `unerr/hello`, and attaches the agent's own `native_session_id` (written to
+  // the shared sessions file by the prompt hook) so proxy-side and hook-side
+  // events of one conversation group under the same key. Falls back to the
+  // ledger's session id for the standalone (stdio, no-clientId) path.
+  const { ProxySessionRegistry } = await import("./session-registry.js");
+  const sessionRegistry = new ProxySessionRegistry(
+    unerrDirForLedger,
+    shadowLedger.getSessionId()
+  );
+
   // CROSS_REPO_INTELLIGENCE Sprint 6.3: wire the cross-repo drift sweep now that
   // the behavior writer exists. Each call fans the batch `moniker_def` query out
   // to peers (Pro tier; free refuses → no-op) and records a `cross_repo_drift`
@@ -2108,6 +2132,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       detail: {
         prior_tool_calls: stats.previousSession.toolCallsLocal,
         prior_duration_minutes: stats.previousSession.durationMinutes,
+        retrieved: [{ kind: "resume" }],
+        returned_count: 1,
+        used: true,
       },
     });
 
@@ -2341,6 +2368,15 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     process.env.UNERR_TURN = String(liveTurn);
     persistLiveTurn(liveTurn);
 
+    // SESSION_ID_CORRELATION: resolve this client's conversation identity once
+    // per dispatch. `session_id` is the per-bridge UUID announced in
+    // `unerr/hello`; `native_session_id` is the agent's own id (written to the
+    // shared sessions file by the prompt hook). Both ride every writer.record()
+    // below so proxy-side and hook-side rows of one conversation group under
+    // `coalesce(native_session_id, session_id)`. Falls back to the ledger id on
+    // the standalone (no-clientId) path.
+    const sessionIdentity = sessionRegistry.resolve(ctx.clientId, process.cwd());
+
     // ── Sprint 8: unerr_track op-union → legacy (name, args) ──
     // Translate FIRST so the legacy tool's boundary validation + dispatch run
     // unchanged (single execution path, no behavioural fork). The legacy
@@ -2415,7 +2451,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // a discrete intervention event instead so the dashboard surfaces
       // *what was prevented*, not a guessed token number.
       behaviorEventWriter.record({
-        session_id: behaviorEventWriter.sessionId,
+        session_id: sessionIdentity.sessionId,
+        native_session_id: sessionIdentity.nativeSessionId,
         turn: stats.toolCallsLocal + 1,
         type: "intervention_halted",
         tool: name,
@@ -2423,7 +2460,20 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         response_bytes: preOutput._context
           ? JSON.stringify(preOutput._context).length
           : null,
-        detail: { behavior_id: preOutput.behaviorId },
+        detail: {
+          behavior_id: preOutput.behaviorId,
+          policy: preOutput.behaviorId,
+          action: "halted",
+          ...(typeof preOutput._context?.reason === "string"
+            ? { reason: preOutput._context.reason }
+            : {}),
+          ...(behaviorCtx.filePath
+            ? { target_file: behaviorCtx.filePath }
+            : {}),
+          ...(behaviorCtx.entityKey
+            ? { target_entity: behaviorCtx.entityKey }
+            : {}),
+        },
       });
 
       return {
@@ -2532,7 +2582,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         // (delivered/expand keys) for the post-hoc reconciliation route.
         recordBundleSavings: (model) => {
           tokenFlowWriter.record({
-            session_id: tokenFlowWriter.sessionId,
+            session_id: sessionIdentity.sessionId,
+            native_session_id: sessionIdentity.nativeSessionId,
             mechanism: "context_bundle",
             tool: "unerr_context",
             tokens_without: model.original_tokens,
@@ -3278,14 +3329,25 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // `--coding-agent` flag so attribution still works on reconnects where
     // the IDE never re-sends `initialize`.
     if (message.method === "unerr/hello") {
-      const helloAgent = (message.params as { agent?: string } | undefined)
-        ?.agent;
-      if (helloAgent) {
-        const resolved = resolveAgentId({
-          codingAgent: helloAgent,
-          clientInfoName: null,
-          detectFromEnv: () => null,
-        });
+      const helloParams = message.params as
+        | { agent?: string; session_id?: string }
+        | undefined;
+      const helloAgent = helloParams?.agent;
+      const resolved = helloAgent
+        ? resolveAgentId({
+            codingAgent: helloAgent,
+            clientInfoName: null,
+            detectFromEnv: () => null,
+          })
+        : null;
+      // Register the per-bridge session identity regardless of whether an agent
+      // flag was sent — the bridge always announces its `session_id`, and a
+      // missing agent simply leaves it null for the latest-record fallback.
+      sessionRegistry.registerHello(clientId, {
+        unerrSessionId: helloParams?.session_id ?? null,
+        agent: resolved,
+      });
+      if (resolved) {
         agentNameByClient.set(clientId, resolved);
         tokenFlowWriter.setAgent(resolved);
         behaviorEventWriter.setAgent(resolved);
@@ -3469,7 +3531,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
               // P4: was a Tier-2 host-synthesis evidence block injected this edit?
               // Lets the close-out telemetry measure whether the model acts on it.
               synthesis_injected: result.evidenceBlock !== null,
-              ...(filePath ? { file_path: filePath } : {}),
+              policy: "review_finding",
+              action: "flagged",
+              ...(result.findings[0]?.title
+                ? { reason: result.findings[0].title }
+                : {}),
+              ...(filePath ? { file_path: filePath, target_file: filePath } : {}),
             },
           });
         } catch {
@@ -3757,6 +3824,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           detectFromEnv: () => null,
         });
         agentNameByClient.set(clientId, resolved);
+        // Bind the agent to this client's session record so native-id
+        // resolution can find the right conversation later (a bridge that sent
+        // no agent in `unerr/hello` is still attributed from `initialize`).
+        sessionRegistry.setAgent(clientId, resolved);
         // Update the global writer agent. For multi-client daemons serving
         // multiple coding agents simultaneously this is last-writer-wins;
         // per-call override via input.agent (passed from the UDS dispatcher

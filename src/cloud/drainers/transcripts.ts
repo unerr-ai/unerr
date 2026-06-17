@@ -157,6 +157,7 @@ export async function buildTranscriptDrainers(
             source: ctx.source,
             agent: strOrUndefined(r.agent),
             sessionId,
+            nativeSessionId: strOrUndefined(r.native_session_id),
             turn,
             detail: {},
           }),

@@ -13,7 +13,7 @@
  * All logging to stderr.
  */
 
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   appendFileSync,
   existsSync,
@@ -86,7 +86,12 @@ export class ShadowLedger {
   constructor(unerrDir: string, options: ShadowLedgerOptions = {}) {
     this.ledgerDir = join(unerrDir, "ledger");
     this.filePath = join(this.ledgerDir, "shadow.jsonl");
-    this.sessionId = options.sessionId ?? generateId();
+    // SESSION_ID_CORRELATION: the session id is a UUID, matching the per-bridge
+    // id the bridge mints. This id is the standalone-path fallback (the bridge
+    // path uses the per-client id from the registry); a UUID keeps the
+    // idempotency-key format consistent across both paths. Entry ids below stay
+    // the compact 12-hex `generateId` — they are internal, not session keys.
+    this.sessionId = options.sessionId ?? randomUUID();
     this.turnSegmenter = options.turnSegmenter ?? new TurnSegmenter();
 
     // Ensure directory exists

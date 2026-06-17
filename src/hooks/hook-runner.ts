@@ -17,10 +17,12 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { resolveSessionIdentity } from "../config/agent-registry.js";
 import {
   consumeAnyPendingTopicShift,
   setPendingTopicShift,
 } from "../intelligence/topic-shift.js";
+import type { IdeType } from "../utils/detect.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { claudeCodeAdapter } from "./adapters/claude-code.js";
 import { clineAdapter } from "./adapters/cline.js";
@@ -67,6 +69,16 @@ export interface NormalizedPayload {
   event?: HookEvent;
   /** Detected agent name (e.g., "claude-code", "cursor", "cline"). */
   agentName?: string;
+  /**
+   * The agent's OWN conversation/session id read from its hook payload
+   * (Claude `session_id`, Cursor `conversation_id`), distinct from unerr's
+   * per-bridge `session_id`. `null` when the payload carries none. Used to
+   * group a conversation by `coalesce(native_session_id, session_id)`.
+   */
+  nativeSessionId?: string | null;
+  /** Human-readable conversation title from the payload, if the agent sends
+   *  one. `null` when absent. */
+  sessionName?: string | null;
 }
 
 /**
@@ -134,6 +146,27 @@ export function detectAdapter(payload: Record<string, unknown>): HookAdapter {
   return claudeCodeAdapter;
 }
 
+/**
+ * Normalize a raw payload through an adapter and stamp the agent attribution:
+ * the detected `agentName`, plus the agent's native session id + conversation
+ * name resolved from its `SessionIdentitySpec`. Every runner entry point goes
+ * through this so the id triple is populated consistently on one path.
+ */
+function normalizeWithAdapter(
+  adapter: HookAdapter,
+  payload: Record<string, unknown>,
+): NormalizedPayload {
+  const normalized = adapter.normalize(payload);
+  normalized.agentName = adapter.name;
+  const { nativeSessionId, sessionName } = resolveSessionIdentity(
+    adapter.name as IdeType,
+    payload,
+  );
+  normalized.nativeSessionId = nativeSessionId;
+  normalized.sessionName = sessionName;
+  return normalized;
+}
+
 /** Parse stdin JSON, returning null on failure. */
 function parseStdin(stdinJson: string): Record<string, unknown> | null {
   const trimmed = stdinJson.trim();
@@ -165,8 +198,7 @@ export function runPreToolUseHook(
   if (!payload) return "{}";
 
   const adapter = detectAdapter(payload);
-  const normalized = adapter.normalize(payload);
-  normalized.agentName = adapter.name;
+  const normalized = normalizeWithAdapter(adapter, payload);
   const result = handler(normalized);
   const augmented = augmentForAmbientPreInjection(normalized, result);
   return adapter.formatPreToolUse(augmented);
@@ -193,8 +225,7 @@ export async function runPreToolUseHookAsync(
   if (!payload) return "{}";
 
   const adapter = detectAdapter(payload);
-  const normalized = adapter.normalize(payload);
-  normalized.agentName = adapter.name;
+  const normalized = normalizeWithAdapter(adapter, payload);
   const result = await handler(normalized);
   const augmented = augmentForAmbientPreInjection(normalized, result);
   return adapter.formatPreToolUse(augmented);
@@ -211,8 +242,7 @@ export function runPostToolUseHook(
   if (!payload) return "{}";
 
   const adapter = detectAdapter(payload);
-  const normalized = adapter.normalize(payload);
-  normalized.agentName = adapter.name;
+  const normalized = normalizeWithAdapter(adapter, payload);
   const result = handler(normalized);
   return adapter.formatPostToolUse(result);
 }
@@ -230,8 +260,7 @@ export async function runPostToolUseHookAsync(
   if (!payload) return "{}";
 
   const adapter = detectAdapter(payload);
-  const normalized = adapter.normalize(payload);
-  normalized.agentName = adapter.name;
+  const normalized = normalizeWithAdapter(adapter, payload);
   const result = await handler(normalized);
   return adapter.formatPostToolUse(result);
 }
@@ -247,8 +276,7 @@ export function runPromptSubmitHook(
   if (!payload) return "{}";
 
   const adapter = detectAdapter(payload);
-  const normalized = adapter.normalize(payload);
-  normalized.agentName = adapter.name;
+  const normalized = normalizeWithAdapter(adapter, payload);
   const result = handler(normalized);
   return adapter.formatPromptSubmit(result);
 }
@@ -267,8 +295,7 @@ export async function runPromptSubmitHookAsync(
   if (!payload) return "{}";
 
   const adapter = detectAdapter(payload);
-  const normalized = adapter.normalize(payload);
-  normalized.agentName = adapter.name;
+  const normalized = normalizeWithAdapter(adapter, payload);
   const result = await handler(normalized);
   return adapter.formatPromptSubmit(result);
 }
@@ -287,8 +314,7 @@ export function runSessionStartHook(
   if (!payload) return "{}";
 
   const adapter = detectAdapter(payload);
-  const normalized = adapter.normalize(payload);
-  normalized.agentName = adapter.name;
+  const normalized = normalizeWithAdapter(adapter, payload);
   normalized.event = "SessionStart";
   const result = handler(normalized);
   return adapter.formatSessionStart(result);
@@ -308,8 +334,7 @@ export async function runStopHookAsync(
   if (!payload) return "{}";
 
   const adapter = detectAdapter(payload);
-  const normalized = adapter.normalize(payload);
-  normalized.agentName = adapter.name;
+  const normalized = normalizeWithAdapter(adapter, payload);
   normalized.event = "Stop";
   const result = await handler(normalized);
   return adapter.formatStop(result);

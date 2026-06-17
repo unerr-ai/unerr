@@ -26,6 +26,7 @@ import {
   type StreamDrainer,
   fitBatch,
 } from "../push-drainer.js";
+import { nativeSessionIdForUnerrId } from "../../tracking/session-records.js";
 import { TRACE_SCHEMA_VERSION, buildEnvelope } from "./envelope.js";
 
 /** Endpoint cap — sourced from the contract (`TRACE_MAX_ROUTER_PER_BATCH`). */
@@ -70,6 +71,17 @@ export async function buildRouterDrainers(
       const mapped: Array<{ row: unknown; lineCount: number }> = [];
       let skippedLeading = 0;
       let absIndex = start;
+      // Drain-time native-id resolution (see ledger.ts): map the unerr
+      // session_id on each router row to the agent's native id, memoized per
+      // read so a one-session batch reads the shared file once.
+      const nativeByUnerrId = new Map<string, string | null>();
+      const nativeFor = (unerrSessionId: string): string | null => {
+        const hit = nativeByUnerrId.get(unerrSessionId);
+        if (hit !== undefined) return hit;
+        const resolved = nativeSessionIdForUnerrId(ctx.unerrDir, unerrSessionId);
+        nativeByUnerrId.set(unerrSessionId, resolved);
+        return resolved;
+      };
       for (const line of pending) {
         const lineAbsIndex = absIndex;
         absIndex += 1;
@@ -99,6 +111,10 @@ export async function buildRouterDrainers(
               ts: rec.ts,
               source: ctx.source,
               sessionId: rec.sessionId,
+              nativeSessionId:
+                typeof rec.sessionId === "string" && rec.sessionId.length > 0
+                  ? nativeFor(rec.sessionId)
+                  : undefined,
               detail: {},
             }),
             policy:
