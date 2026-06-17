@@ -23,6 +23,7 @@
  */
 
 import { byImportanceDesc } from "./importance.js";
+import { type RankableNote, rankLoadBearing } from "./note-ranking.js";
 import {
   DEFAULT_MCP_SOURCE_TIMEOUT_MS,
   type GatewayRunner,
@@ -208,6 +209,17 @@ const EXPAND_BODY_TOKENS = 400;
  * near-empty bundle that teaches the agent it's useless.
  */
 const THIN_BUNDLE_FLOOR_TOKENS = 300;
+/**
+ * Realized file spread (distinct files among the search entities) at or below
+ * which a 'concise' bundle is treated as a focused edit rather than a sweep:
+ * its focus bodies are inlined and it renders verbatim, not as a flat digest.
+ * `responseFormat` is chosen prompt-only (before recon runs), so a focused edit
+ * carrying a breadth phrase ("fix retry across the boot path in startProxy")
+ * gets the 'concise' guess; once recon realizes the footprint is narrow, that
+ * guess is wrong and suppressing the body would only force a re-read (the F2
+ * fan-out the bundle exists to collapse). A genuine sweep spans many more files.
+ */
+const FOCUSED_FILE_SPREAD_MAX = 3;
 
 /**
  * Search width recon uses once the task classifies as a large sweep — wider than
@@ -572,6 +584,31 @@ function notesEmpty(data: unknown): boolean {
   const o = data as Record<string, unknown>;
   if (Array.isArray(o.notes)) return o.notes.length === 0;
   return false;
+}
+
+/**
+ * W5: order an anchored-notes section by load-bearing score — the SAME ranking
+ * the per-prompt recall hook uses (`note-ranking.ts`), so both note surfaces
+ * agree on what matters. Ordering only: `unerr_context` never caps notes (it is
+ * the full-set surface the capped per-turn recall injection points back to); but
+ * when budget pressure trims the section the weakest notes drop first and the
+ * rules that change the plan survive. Shape-preserving — `{notes:[…]}`, a bare
+ * array, or anything else passes through untouched but reordered.
+ */
+function orderNotesByLoadBearing(data: unknown, prompt: string): unknown {
+  if (Array.isArray(data)) {
+    return rankLoadBearing(data as RankableNote[], prompt);
+  }
+  if (data && typeof data === "object") {
+    const o = data as Record<string, unknown>;
+    if (Array.isArray(o.notes)) {
+      return {
+        ...o,
+        notes: rankLoadBearing(o.notes as RankableNote[], prompt),
+      };
+    }
+  }
+  return data;
 }
 
 function searchEmpty(data: unknown): boolean {
@@ -958,12 +995,25 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
     (search !== undefined ? countTokens(search) : 0) +
     (conventions !== undefined ? countTokens(conventions) : 0);
   const thinBundle = nonBodyFloorTokens < THIN_BUNDLE_FLOOR_TOKENS;
-  const bodyTargets =
-    responseFormat === "concise"
-      ? thinBundle
-        ? focusCandidates.slice(0, 1)
-        : []
-      : focusCandidates.slice(0, MAX_FOCUS_BODIES);
+  // W4: the prompt-only 'concise' guess that REALIZED as a focused edit (search
+  // entities concentrate in ≤ FOCUSED_FILE_SPREAD_MAX files) is not a sweep —
+  // front-load its bodies exactly like a 'detailed' call so the agent never
+  // re-reads them. A genuine large sweep spans many files → bodies stay out and
+  // the bundle renders as a flat digest.
+  const searchFileCount = search !== undefined ? entityFiles(search).length : 0;
+  const focusedFootprint =
+    searchFileCount > 0 && searchFileCount <= FOCUSED_FILE_SPREAD_MAX;
+  const bodyTargets = (() => {
+    if (responseFormat !== "concise" || focusedFootprint) {
+      // 'detailed', or a 'concise' call that realized as a focused edit.
+      return focusCandidates.slice(0, MAX_FOCUS_BODIES);
+    }
+    // D6 thin-bundle floor: still inline the single top body so a sparse repo
+    // never returns a near-empty bundle.
+    if (thinBundle) return focusCandidates.slice(0, 1);
+    // Genuine large sweep — orient only, no bodies.
+    return focusCandidates.slice(0, 0);
+  })();
   let focusBodies: FocusBody[] | undefined;
   if (bodyTargets.length > 0) {
     const bodyBudget = Math.floor(budget * FOCUS_BODY_BUDGET_FRACTION);
@@ -1049,7 +1099,13 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
   // bodies are the irreducible core; callers next; the rest fills remaining
   // room. Note: this is the BUDGET order, NOT the render order — the renderer
   // re-sorts for the lost-in-the-middle U-curve (bodies first, notes last).
-  add("unerr_recall_notes", "Anchored notes", 0, notes, notesEmpty);
+  add(
+    "unerr_recall_notes",
+    "Anchored notes",
+    0,
+    orderNotesByLoadBearing(notes, prompt),
+    notesEmpty
+  );
   add("focus_bodies", "Focus source", 1, focusBodies, focusBodiesEmpty);
   if (focus) {
     add(

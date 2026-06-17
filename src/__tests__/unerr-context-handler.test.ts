@@ -137,6 +137,89 @@ describe("handleUnerrContextProxy", () => {
     expect(res.content[0]!.text).toContain("unerr recon digest");
   });
 
+  it("W4: a focused edit misclassified as a sweep (breadth phrase, narrow footprint) renders verbatim bodies, not a digest", async () => {
+    // "across the" trips the breadth signal → prompt-only verdict is large_sweep
+    // → responseFormat 'concise'. But recon realizes ONE entity in ONE file —
+    // a focused edit. The focus body must be inlined and the bundle rendered
+    // verbatim (renderReconText), NOT collapsed to a body-less digest that would
+    // force the agent to re-read startProxy.
+    const runRaw: ReconRunner = async (tool, args) => {
+      if (tool === "search_code") {
+        const entity: Record<string, unknown> = {
+          key: "e:startProxy",
+          name: "startProxy",
+          kind: "function",
+          file_path: "src/proxy/proxy.ts",
+          score: 9,
+        };
+        // The focus-body fetch asks for include_body — only then carry source.
+        if (args.include_body === true) {
+          entity.body = "export function startProxy() { /* BODY_SENTINEL */ }";
+          entity.start_line = 10;
+          entity.end_line = 20;
+        }
+        return [entity];
+      }
+      if (tool === "get_references") {
+        return { references: [], direction: "callers", total: 0 };
+      }
+      return { naming: [], import_direction: [], structure: [] };
+    };
+    const res = await handleUnerrContextProxy(
+      { prompt: "fix the retry across the boot path in startProxy" },
+      baseDeps({ runRaw })
+    );
+    const text = res.content[0]!.text;
+    expect(text).toContain("unerr recon —");
+    expect(text).not.toContain("unerr recon digest");
+    expect(text).toContain("## Focus source");
+    expect(text).toContain("BODY_SENTINEL");
+  });
+
+  it("W4: a genuine large sweep stays a body-less digest", async () => {
+    // Many entities across many files → no focused footprint → no bodies → flat
+    // digest, even though the focus-body fetch would have a body to offer.
+    const entities = Array.from({ length: 24 }, (_, i) => ({
+      key: `e:handler${i}`,
+      name: `handler${i}`,
+      kind: "function",
+      file_path: `src/handlers/h${i}.ts`,
+      score: 5,
+      body: "/* present but must NOT be inlined for a real sweep */",
+    }));
+    const res = await handleUnerrContextProxy(
+      { prompt: "rename logger to log everywhere across the codebase" },
+      baseDeps({ runRaw: fakeRunRaw({ entities }) })
+    );
+    const text = res.content[0]!.text;
+    expect(text).toContain("unerr recon digest");
+    expect(text).not.toContain("## Focus source");
+  });
+
+  it("W5: orders the anchored-notes section by load-bearing score (shared with recall)", async () => {
+    // recall returns weak-then-strong; rankLoadBearing must reorder so the
+    // file-anchored rule (load-bearing) renders before the project-wide fact.
+    const recallNotes = vi.fn(async () => ({
+      notes: [
+        { kind: "fct", anchor: "p:", polarity: "~", content: "WEAK_NOTE" },
+        {
+          kind: "rul",
+          anchor: "f:src/api/user.ts",
+          polarity: "-",
+          content: "STRONG_RULE",
+        },
+      ],
+    }));
+    const res = await handleUnerrContextProxy(
+      { prompt: "edit fetchUser in src/api/user.ts" },
+      baseDeps({ recallNotes })
+    );
+    const text = res.content[0]!.text;
+    expect(text).toContain("STRONG_RULE");
+    expect(text).toContain("WEAK_NOTE");
+    expect(text.indexOf("STRONG_RULE")).toBeLessThan(text.indexOf("WEAK_NOTE"));
+  });
+
   it("routes recall_notes to recallNotes and graph tools to runRaw", async () => {
     const recallNotes = vi.fn(async () => ({ notes: [] }));
     const runRaw = vi.fn(fakeRunRaw());

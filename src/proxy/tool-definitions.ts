@@ -27,7 +27,7 @@ import {
 export const TOKEN_BUDGET_PROP = {
   type: "integer",
   description:
-    "Maximum tokens for this response (default: 400 — structural summary only). Pass include_body:true OR token_budget:1500+ to retrieve full bodies.",
+    "Max response tokens (default 400 = structural summary). Use 1500+ or include_body:true for full bodies.",
   default: 400,
 } as const;
 
@@ -39,7 +39,7 @@ export const TOKEN_BUDGET_PROP = {
 export const CACHE_REF_PROP = {
   type: "string",
   description:
-    "Reversible-cache hash from a prior `ur|cache-ref` marker. When set, return the withheld slice via offset/limit from the local cache (~1ms) instead of recomputing the whole payload. On a cache miss the tool recomputes normally.",
+    "Hash from a prior `ur|cache-ref` marker — returns the withheld slice from local cache via offset/limit (~1ms) instead of recomputing. Recomputes on a cache miss.",
 } as const;
 
 /**
@@ -53,7 +53,7 @@ export const SCOPE_PROP = {
   type: "string",
   enum: ["repo", "workspace"],
   description:
-    "Search scope: 'repo' (default, current repo only) or 'workspace' (all your unerr repos on this machine, results labeled by repo). Workspace is a Pro feature — free tier returns the current repo plus an upgrade nudge.",
+    "'repo' (default, current repo) or 'workspace' (all your unerr repos, labeled by repo). Pro — free tier returns the current repo + an upgrade nudge.",
   default: "repo",
 } as const;
 
@@ -94,7 +94,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         detail: {
           type: "boolean",
           description:
-            "Resolve query to the single best-matching entity and return its profile — signature + first ~15 lines, fan-in/out, risk level — instead of the ranked list (default false). include_body and want imply detail.",
+            "Resolve to the single best entity — profile (signature, ~15-line preview, fan-in/out, risk) instead of the default ranked list. include_body and want imply detail.",
           default: false,
         },
         include_body: {
@@ -148,7 +148,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           type: "string",
           enum: ["concise", "detailed"],
           description:
-            "Verbosity. 'detailed' (use right before an edit) inlines the 2–4 focus entities' verbatim source bodies with file:line ranges, so you skip the follow-up file_read. 'concise' (use when orienting a large sweep) returns names, signatures, and callers only. Defaults from task size server-side — set explicitly to override.",
+            "'detailed' (before an edit) inlines the 2–4 focus entities' verbatim bodies with file:line, skipping the follow-up file_read; 'concise' (orienting) = names, signatures, callers only. Defaults from task size — set to override.",
         },
         digest: {
           type: "boolean",
@@ -158,7 +158,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         expand: {
           type: "boolean",
           description:
-            "Set true before a signature change: pre-inlines the top callers' verbatim bodies (the exact sites you must update), so you skip the per-caller file_read after the blast-radius gate. Off by default — only worth it when the edit touches callers.",
+            "Before a signature change: pre-inlines the top callers' verbatim bodies (the sites to update), skipping the per-caller file_read. Off by default — only when the edit touches callers.",
         },
         scope: SCOPE_PROP,
       },
@@ -178,12 +178,19 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         url: {
           type: "string",
           description:
-            "Absolute URL to fetch (http or https). Localhost is allowed without TLS upgrade.",
+            "Absolute URL of ONE page to fetch (http or https). Localhost is allowed without TLS upgrade. Use urls for several pages.",
+        },
+        urls: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 10,
+          description:
+            "Absolute URLs to fetch in ONE call (max 10) — parallel, passages BM25-ranked across all pages, one roundtrip. After a web search, pass the result URLs here. url OR urls, never both.",
         },
         prompt: {
           type: "string",
           description:
-            "Optional. When set AND extracted markdown > 8 KB, passages are re-ranked by BM25 relevance to this prompt (default top 20).",
+            "Optional. When set AND extracted markdown > 8 KB, passages are re-ranked by BM25 relevance to this prompt (default top 20). In bulk mode it ranks across all pages.",
         },
         offset: {
           type: "integer",
@@ -198,7 +205,10 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         cache_ref: CACHE_REF_PROP,
         token_budget: TOKEN_BUDGET_PROP,
       },
-      required: ["url"],
+      // url XOR urls — enforced at runtime in runFetchUrlRequest (a JSON-schema
+      // oneOf can't express "exactly one of two optional props" cleanly), so
+      // neither is `required` here.
+      required: [],
     },
     annotations: {
       title: "Fetch Web Page (Markdown + BM25)",
@@ -271,54 +281,37 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
       properties: {
         file_path: {
           type: "string",
-          description: "Path to the file to edit",
+          description: "Path to the file to change.",
         },
         old_string: {
           type: "string",
           description:
-            "The exact string to find and replace. Must be unique in the file unless replace_all is true — add surrounding context to disambiguate.",
+            "Edit mode: the exact string to find and replace. Must be unique in the file unless replace_all is true — add surrounding context to disambiguate.",
         },
         new_string: {
           type: "string",
-          description: "The replacement string.",
+          description: "Edit mode: the replacement string.",
         },
         replace_all: {
           type: "boolean",
           description:
-            "Replace every occurrence instead of just the first (default false).",
+            "Edit mode: replace every occurrence instead of just the first (default false).",
         },
         base_hash: {
           type: "string",
           description:
-            "Optional staleness guard: the content hash returned by the file_read / prior file_edit you based this edit on. The edit is rejected if the on-disk file changed since.",
-        },
-      },
-      required: ["file_path", "old_string", "new_string"],
-    },
-    annotations: {
-      title: "Edit File (exact replace)",
-      readOnlyHint: false,
-      openWorldHint: false,
-    },
-  },
-
-  file_write: {
-    inputSchema: {
-      type: "object",
-      properties: {
-        file_path: {
-          type: "string",
-          description: "Path to the file to write (created if missing).",
+            "Staleness guard: the hash from the file_read / prior file_edit you based this on. Edit rejected if the file changed since.",
         },
         content: {
           type: "string",
-          description: "The full content to write to the file.",
+          description:
+            "Write mode: full file content. Creates (with parent dirs) or overwrites, preserving encoding + line ending. EITHER content OR old_string+new_string, not both.",
         },
       },
-      required: ["file_path", "content"],
+      required: ["file_path"],
     },
     annotations: {
-      title: "Write File (create/overwrite)",
+      title: "Change File (edit or whole-file write)",
       readOnlyHint: false,
       openWorldHint: false,
     },

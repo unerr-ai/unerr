@@ -44,9 +44,54 @@ export interface CarryOverResult {
   memoryHelped: boolean;
 }
 
+/** Per-bucket token totals for one arm, plus a price-weighted unit total. The
+ * weights are Anthropic's published rate ratios relative to the 1× input rate:
+ * cache-write 1.25×, cache-read 0.1×, output ≈5×. Weighted units approximate the
+ * real bill composition; raw `total` is the plain token count. */
+export interface TokenBuckets {
+  freshInput: number;
+  cacheCreate: number;
+  cacheRead: number;
+  output: number;
+  /** Plain token count = fresh + cacheCreate + cacheRead + output. */
+  total: number;
+  /** Price-weighted units = fresh·1 + cacheCreate·1.25 + cacheRead·0.1 + output·5. */
+  weightedUnits: number;
+}
+
+/** Anthropic rate ratios vs the 1× input rate (used for `weightedUnits` only). */
+const RATE = { fresh: 1, cacheCreate: 1.25, cacheRead: 0.1, output: 5 } as const;
+
+/** Sum every token bucket across one arm's runs. */
+export function sumTokens(runs: RunRecord[]): TokenBuckets {
+  const b: TokenBuckets = {
+    freshInput: 0,
+    cacheCreate: 0,
+    cacheRead: 0,
+    output: 0,
+    total: 0,
+    weightedUnits: 0,
+  };
+  for (const r of runs) {
+    b.freshInput += r.freshInputTokens;
+    b.cacheCreate += r.cacheCreateTokens;
+    b.cacheRead += r.cacheReadTokens;
+    b.output += r.outputTokens;
+  }
+  b.total = b.freshInput + b.cacheCreate + b.cacheRead + b.output;
+  b.weightedUnits =
+    b.freshInput * RATE.fresh +
+    b.cacheCreate * RATE.cacheCreate +
+    b.cacheRead * RATE.cacheRead +
+    b.output * RATE.output;
+  return b;
+}
+
 /** The whole Track 4 scorecard. */
 export interface Track4Report {
   scores: Partial<ArmScores>;
+  /** Per-arm token buckets (fresh / cache-write / cache-read / output + totals). */
+  tokensByArm: Partial<Record<ArmId, TokenBuckets>>;
   /** baseline → unerr comparison (savings/resolve/turns/AUC). Null if either arm absent. */
   unerrVsBaseline: AbComparison | null;
   /** Total guardrail fires across all unerr runs. */
@@ -135,9 +180,11 @@ export function buildReport(runs: RunRecord[]): Track4Report {
   const grouped = byArm(runs);
   const scores: Partial<ArmScores> = {};
   const costByArm: Partial<Record<ArmId, number>> = {};
+  const tokensByArm: Partial<Record<ArmId, TokenBuckets>> = {};
   for (const [arm, armRuns] of grouped) {
     scores[arm] = scoreArm(arm, armRuns);
     costByArm[arm] = armRuns.reduce((a, r) => a + r.costUsd, 0);
+    tokensByArm[arm] = sumTokens(armRuns);
   }
 
   const baseline = scores.baseline;
@@ -153,6 +200,7 @@ export function buildReport(runs: RunRecord[]): Track4Report {
 
   return {
     scores,
+    tokensByArm,
     unerrVsBaseline,
     guardrailFires,
     guardrailSaves: findGuardrailSaves(runs),
@@ -160,6 +208,50 @@ export function buildReport(runs: RunRecord[]): Track4Report {
     memoryWins: carryOver.filter((c) => c.memoryHelped).length,
     costByArm,
   };
+}
+
+/** Percent reduction from `base` to `treat` (positive = treatment is smaller). */
+function reductionPct(base: number, treat: number): string {
+  if (base === 0) return "—";
+  return `${(((base - treat) / base) * 100).toFixed(1)}%`;
+}
+
+/**
+ * Render the full per-bucket token table the user asked for: fresh input,
+ * cache-write, cache-read, output, the plain total, and the price-weighted total
+ * — per arm, with a baseline→unerr reduction column when both arms ran.
+ */
+function renderTokenBreakdown(L: string[], report: Track4Report): void {
+  L.push("## Token usage — full breakdown (all buckets)");
+  const base = report.tokensByArm.baseline;
+  const unerr = report.tokensByArm.unerr;
+  if (!base && !unerr) {
+    L.push("_No token data recorded._");
+    L.push("");
+    return;
+  }
+  const fmt = (n: number): string => Math.round(n).toLocaleString();
+  const rows: Array<[string, keyof TokenBuckets]> = [
+    ["Fresh input (1×)", "freshInput"],
+    ["Cache write (1.25×)", "cacheCreate"],
+    ["Cache read (0.1×)", "cacheRead"],
+    ["Output (≈5×)", "output"],
+    ["**Total tokens**", "total"],
+    ["Cost-weighted units", "weightedUnits"],
+  ];
+  L.push(`| Bucket | Baseline | unerr | Reduction |`);
+  L.push(`|---|--:|--:|--:|`);
+  for (const [label, key] of rows) {
+    const b = base ? base[key] : 0;
+    const u = unerr ? unerr[key] : 0;
+    const red = base && unerr ? reductionPct(b, u) : "—";
+    L.push(`| ${label} | ${base ? fmt(b) : "—"} | ${unerr ? fmt(u) : "—"} | ${red} |`);
+  }
+  L.push("");
+  L.push(
+    "_Reduction is baseline→unerr (positive = unerr spends fewer). Weighted units apply Anthropic rate ratios (cache-write 1.25×, cache-read 0.1×, output 5×) to approximate the real bill; raw total is the plain token count._"
+  );
+  L.push("");
 }
 
 /** Render the scorecard as a markdown report. */
@@ -192,6 +284,8 @@ export function renderReport(report: Track4Report): string {
     L.push("_baseline and unerr arms both required — one is missing._");
   }
   L.push("");
+
+  renderTokenBreakdown(L, report);
 
   L.push("## Guardrails");
   L.push(`Total guardrail fires across unerr runs: **${report.guardrailFires}**`);

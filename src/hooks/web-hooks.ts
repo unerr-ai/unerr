@@ -22,12 +22,15 @@
  * moves on instead of hammering WebFetch.
  */
 
+import { FETCH_PROTOCOL_LIMITS } from "../tools/web/fetch-url-protocol.js";
 import { shouldEmitOnce } from "./hook-dedup.js";
 import {
   type HookHandler,
   deny,
+  enrich,
   nudge,
   passthrough,
+  runPostToolUseHook,
   runPreToolUseHook,
 } from "./hook-runner.js";
 
@@ -95,4 +98,76 @@ export const preWebFetchHandler: HookHandler = (normalized) => {
 
 export function runPreWebFetchHook(stdinJson: string): string {
   return runPreToolUseHook(stdinJson, preWebFetchHandler);
+}
+
+// ── Post-WebSearch nudge ─────────────────────────────────────────────
+//
+// WebSearch only DISCOVERS URLs — it has no fetch_url superset to redirect to,
+// so we never deny it. But the moment it returns several result URLs, the
+// agent's next move is usually to read them — and the token-cheap way to do
+// that is ONE bulk `fetch_url({urls:[...]})` (pages fetched in parallel,
+// passages BM25-ranked across all of them, one roundtrip) instead of N
+// separate fetch_url calls that each re-pay the accumulated prefix. This is a
+// PostToolUse enrich (additionalContext) — additive, never a deny, so there is
+// no retry-loop risk; we still dedup per query so an agent that re-runs the
+// same search isn't re-nudged.
+
+/** Dedup TTL for the post-WebSearch nudge — one nudge per query per window. */
+const SEARCH_NUDGE_TTL_MS = 5 * 60 * 1000;
+
+/** Absolute http(s) URLs only; bare hostnames and relative paths are ignored.
+ *  Trailing punctuation (closing paren, comma, period) is trimmed so a URL
+ *  lifted from prose doesn't carry a stray character into the suggestion. */
+const URL_RX = /https?:\/\/[^\s"'<>)\]]+/g;
+
+/** Pull result URLs out of a WebSearch tool_response. The response shape
+ *  varies by agent (Claude Code nests `{results:[{url}]}`; some adapters hand
+ *  back a formatted string), so we stringify the whole response and scan for
+ *  absolute URLs — robust to shape, then dedupe (first-seen order) and cap at
+ *  the same `maxBatchUrls` fetch_url enforces. */
+function extractSearchResultUrls(raw: Record<string, unknown>): string[] {
+  const resp = raw.tool_response ?? raw.toolResponse;
+  if (resp === undefined || resp === null) return [];
+  const text = typeof resp === "string" ? resp : JSON.stringify(resp);
+  const seen: string[] = [];
+  const dedup = new Set<string>();
+  for (const m of text.matchAll(URL_RX)) {
+    const url = m[0].replace(/[.,)\]]+$/, "");
+    if (dedup.has(url)) continue;
+    dedup.add(url);
+    seen.push(url);
+    if (seen.length >= FETCH_PROTOCOL_LIMITS.maxBatchUrls) break;
+  }
+  return seen;
+}
+
+/**
+ * PostToolUse handler for WebSearch. When the search returned 2+ result URLs,
+ * enrich the agent's context with the exact bulk `fetch_url({urls:[...]})` call
+ * that reads them all in one roundtrip. A single result (or none) isn't worth a
+ * bulk call, so we stay silent.
+ */
+export const postWebSearchHandler: HookHandler = (normalized) => {
+  const urls = extractSearchResultUrls(normalized.raw);
+  if (urls.length < 2) return passthrough();
+
+  const query =
+    typeof normalized.toolInput.query === "string"
+      ? (normalized.toolInput.query as string)
+      : "";
+  if (!shouldEmitOnce(`nudge:WebSearch:${query}`, SEARCH_NUDGE_TTL_MS)) {
+    return passthrough();
+  }
+
+  const list = urls.map((u) => `"${u}"`).join(", ");
+  const promptArg =
+    query.length > 0 && query.length <= MAX_INLINE_PROMPT_CHARS
+      ? `, prompt:"${query}"`
+      : "";
+  const message = `${urls.length} result URLs found. Read them ALL in one roundtrip: call \`fetch_url({urls:[${list}]${promptArg}})\` — unerr fetches the pages in parallel, BM25-ranks passages across all of them, and returns one payload. Do NOT call fetch_url once per URL; the bulk form pays the prefix cost once instead of ${urls.length} times.`;
+  return enrich(message);
+};
+
+export function runPostWebSearchHook(stdinJson: string): string {
+  return runPostToolUseHook(stdinJson, postWebSearchHandler);
 }

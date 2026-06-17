@@ -94,6 +94,18 @@ export interface NudgeSessionState {
    *  was injected but the agent did NOT call `unerr_surface2_line`. Resets
    *  to 0 the moment the tool runs. */
   consecutive_surface2_misses: number;
+  /** Token-tax fix (#7) — whether the prompt-submit hook has already emitted
+   *  the static tool-roster + skill catalog this session. Both duplicate the
+   *  cached CLAUDE.md tool-routing section and the installed `.claude/skills/`
+   *  menu, so re-injecting them every turn is uncacheable re-bill. Emit once
+   *  per session; later turns carry only prompt-specific signal (recall,
+   *  drift, stitch, the four-moment ur|act lines, Path A skill dispatch). */
+  static_boilerplate_emitted: boolean;
+  /** Token-tax fix (#9) — whether the `unerr exec` rotating tool-adoption
+   *  nudge has already been emitted this session. The roster duplicates the
+   *  cached CLAUDE.md tool table, so re-emitting it on every Bash call is
+   *  per-operation re-bill; emit once per session, then stay silent. */
+  exec_nudge_emitted: boolean;
 }
 
 function defaultState(): NudgeSessionState {
@@ -116,6 +128,8 @@ function defaultState(): NudgeSessionState {
     surface2_required_count: 0,
     surface2_called_count: 0,
     consecutive_surface2_misses: 0,
+    static_boilerplate_emitted: false,
+    exec_nudge_emitted: false,
   };
 }
 
@@ -185,6 +199,10 @@ export function readNudgeState(cwd: string): NudgeSessionState {
         typeof parsed.consecutive_surface2_misses === "number"
           ? parsed.consecutive_surface2_misses
           : 0,
+      // Missing key on an older state file defaults to false → the catalog +
+      // roster emit once after upgrade, then gate. Forward-compatible.
+      static_boilerplate_emitted: Boolean(parsed.static_boilerplate_emitted),
+      exec_nudge_emitted: Boolean(parsed.exec_nudge_emitted),
     };
   } catch {
     return defaultState();

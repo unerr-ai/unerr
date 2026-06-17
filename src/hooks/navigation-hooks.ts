@@ -387,7 +387,12 @@ const postReadHandler: HookHandler = (normalized) => {
   const input = normalized.toolInput;
   const filePath = extractFilePath(input);
   if (!filePath || !isCodeFile(filePath)) return passthrough();
-  if (!shouldEmitOnce(`Read:${filePath}`)) return passthrough();
+  // The read-preference line carries no file-specific content, so emit it once
+  // per session — not once per distinct file. Re-billing the identical nudge on
+  // every code-file read was pure per-operation tax (#9). File-specific
+  // blast-radius signal rides the post-EDIT hook, which keeps its per-file dedup.
+  if (!shouldEmitOnce("read-pref:session", VERBOSE_BANNER_TTL_MS))
+    return passthrough();
 
   const isClaudeCode = normalized.agentName === "claude-code";
   if (isClaudeCode) {
@@ -430,9 +435,11 @@ const postReadHandlerAsync: AsyncHookHandler = async (normalized) => {
     }
   }
 
-  // Static read-preference nudge — same per-file dedup as the sync path.
+  // Static read-preference nudge — generic, so once per session (not per file),
+  // matching the sync postReadHandler (#9). The conventions block above is
+  // already session-scoped.
   let nudgeLine: string | null = null;
-  if (shouldEmitOnce(`Read:${filePath}`)) {
+  if (shouldEmitOnce("read-pref:session", VERBOSE_BANNER_TTL_MS)) {
     nudgeLine =
       normalized.agentName === "claude-code"
         ? "ur|fct To change this file call file_edit (no built-in Read needed); to understand it use `file_read` (auto-injects facts/drift)."

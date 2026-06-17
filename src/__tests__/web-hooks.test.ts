@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetHookDedup } from "../hooks/hook-dedup.js";
-import { runPreWebFetchHook } from "../hooks/web-hooks.js";
+import {
+  runPostWebSearchHook,
+  runPreWebFetchHook,
+} from "../hooks/web-hooks.js";
 
 /**
  * Tests for the WebFetch → fetch_url redirect hook.
@@ -111,5 +114,86 @@ describe("preWebFetchHook — Cline", () => {
     expect(result.allow).toBe(false);
     expect(result.reason).toContain("fetch_url");
     expect(result.reason).toContain(url);
+  });
+});
+
+// ── Post-WebSearch bulk-fetch nudge ──────────────────────────────────
+
+function webSearchPayload(query: string, toolResponse: unknown): string {
+  return JSON.stringify({
+    hook_event_name: "PostToolUse",
+    tool_name: "WebSearch",
+    tool_input: { query },
+    tool_response: toolResponse,
+  });
+}
+
+describe("postWebSearchHook — bulk fetch_url nudge", () => {
+  it("nudges fetch_url({urls:[...]}) with every result URL after a search", () => {
+    const result = JSON.parse(
+      runPostWebSearchHook(
+        webSearchPayload("cozodb datalog recursion", {
+          results: [
+            { title: "A", url: "https://a.example.com/docs" },
+            { title: "B", url: "https://b.example.com/guide" },
+            { title: "C", url: "https://c.example.com/ref" },
+          ],
+        })
+      )
+    );
+    const ctx = result.hookSpecificOutput.additionalContext as string;
+    expect(ctx).toContain("fetch_url({urls:[");
+    expect(ctx).toContain("https://a.example.com/docs");
+    expect(ctx).toContain("https://b.example.com/guide");
+    expect(ctx).toContain("https://c.example.com/ref");
+    // Carries the query through to BM25 ranking.
+    expect(ctx).toContain('prompt:"cozodb datalog recursion"');
+  });
+
+  it("parses URLs out of a formatted-string tool_response", () => {
+    const text =
+      "1. Alpha — https://a.example.com/x\n2. Beta — https://b.example.com/y";
+    const result = JSON.parse(
+      runPostWebSearchHook(webSearchPayload("topic", text))
+    );
+    const ctx = result.hookSpecificOutput.additionalContext as string;
+    expect(ctx).toContain("https://a.example.com/x");
+    expect(ctx).toContain("https://b.example.com/y");
+  });
+
+  it("stays silent (passthrough) when fewer than two URLs are found", () => {
+    const result = JSON.parse(
+      runPostWebSearchHook(
+        webSearchPayload("single", {
+          results: [{ title: "Only", url: "https://only.example.com" }],
+        })
+      )
+    );
+    expect(result).toEqual({});
+  });
+
+  it("does not re-nudge the same query within the dedup window", () => {
+    const payload = webSearchPayload("repeat query", {
+      results: [
+        { url: "https://a.example.com" },
+        { url: "https://b.example.com" },
+      ],
+    });
+    const first = JSON.parse(runPostWebSearchHook(payload));
+    expect(first.hookSpecificOutput.additionalContext).toContain("fetch_url");
+    const second = JSON.parse(runPostWebSearchHook(payload));
+    expect(second).toEqual({});
+  });
+
+  it("caps the suggested URL list at maxBatchUrls", () => {
+    const results = Array.from({ length: 15 }, (_, i) => ({
+      url: `https://r${i}.example.com/page`,
+    }));
+    const result = JSON.parse(
+      runPostWebSearchHook(webSearchPayload("many", { results }))
+    );
+    const ctx = result.hookSpecificOutput.additionalContext as string;
+    const matches = ctx.match(/https:\/\/r\d+\.example\.com/g) ?? [];
+    expect(matches.length).toBe(10);
   });
 });

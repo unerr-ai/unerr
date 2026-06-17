@@ -287,6 +287,55 @@ export function buildSuggestion(
   return parts.join(" ");
 }
 
+/** Max caller sites listed inline before deferring the rest to get_references. */
+const MAX_INLINE_CALLERS = 8;
+
+/**
+ * Turns graph-confirmed signature-change warnings into one inline `ur|rsk` line
+ * per warning for the file_edit response, so every agent — hook-less ones
+ * included — receives the callers-at-risk in the same response and never has to
+ * spend a get_references round-trip to learn them.
+ * @sem domain=intelligence role=presenter
+ */
+export function renderInlineBlastRadius(
+  warnings: CascadeWarning[]
+): string | null {
+  if (warnings.length === 0) return null;
+
+  const lines = warnings.map((w) => {
+    const ordered = [
+      ...w.blast_radius.direct_callers,
+      ...w.blast_radius.test_files,
+    ];
+    const shown = ordered.slice(0, MAX_INLINE_CALLERS);
+    const sites = shown
+      .map((c) =>
+        c.line > 0 ? `${c.entity} (${c.file}:${c.line})` : `${c.entity} (${c.file})`
+      )
+      .join(", ");
+
+    const overflow = ordered.length - shown.length;
+    const more =
+      overflow > 0
+        ? `, +${overflow} more via get_references({key:'${w.changed_entity_key}', direction:'callers'})`
+        : "";
+
+    let line =
+      `ur|rsk signature change to ${w.changed_entity} — ${w.blast_radius.total_at_risk} caller(s) to update: ${sites}${more}`;
+
+    const peers = w.cross_repo?.peers ?? [];
+    if (peers.length > 0) {
+      const peerList = peers.map((p) => `${p.label} (${p.callers})`).join(", ");
+      line +=
+        ` · plus ${w.cross_repo?.total_peer_callers} caller(s) in peer repo(s): ${peerList} — get_references({key:'${w.changed_entity_key}', direction:'callers', scope:'workspace'})`;
+    }
+
+    return line;
+  });
+
+  return lines.join("\n");
+}
+
 /**
  * Compute the cascade warnings for an in-flight edit. Pure of any session
  * state — returns one `CascadeWarning` per entity in `filePath` whose signature

@@ -44,8 +44,8 @@ describe("tool-tiers: UNLOCK_CONDITIONS alignment with TIER_ENTRIES", () => {
     }
   });
 
-  it("expected tier sizes — 8 / 0 / 1 (unerr_track is the sole Tier 3 tool; file_edit + file_write added 2026-06 to tier 1; get_entity merged into search_code)", () => {
-    expect(toolsByTier(1)).toHaveLength(8);
+  it("expected tier sizes — 7 / 0 / 1 (unerr_track is the sole Tier 3 tool; file_edit is the merged edit/write tool in tier 1; get_entity merged into search_code)", () => {
+    expect(toolsByTier(1)).toHaveLength(7);
     expect(toolsByTier(2)).toHaveLength(0);
     expect(toolsByTier(3)).toHaveLength(1);
   });

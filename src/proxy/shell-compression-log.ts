@@ -46,6 +46,14 @@ export interface CompressionLogEntry {
   omniFallback: boolean;
   teeFile?: string;
   /**
+   * Number of pages in the bulk fetch_url batch this row belongs to. Set by
+   * the batch orchestrator (FetchUrlContext.batchSize); omitted for a single
+   * fetch and every non-fetch_url compressor. Lets the dashboard group a
+   * batch's per-page rows without inventing an aggregate row — savings stay
+   * per-page (no double counting).
+   */
+  batchSize?: number;
+  /**
    * §4 reversible-compression fields (REVERSIBLE_COMPRESSION_PLAN.md). All
    * OPTIONAL — a compressor that does not run reversible/importance/query-aware
    * logic omits them and the row keeps its existing shape (the columns default
@@ -128,6 +136,7 @@ export function appendCompressionLog(
       saved_pct: entry.savedPct,
       omni_fallback: entry.omniFallback ? 1 : 0,
       tee_file: entry.teeFile ?? null,
+      ...(entry.batchSize !== undefined ? { batch_size: entry.batchSize } : {}),
       // §4 fields — only set when the compressor supplied them; omitted ones
       // coalesce to their column defaults in insertCompression (boolean → 0/1,
       // event_kind → 'compress'). Never replaces an existing column.

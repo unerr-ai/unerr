@@ -32,5 +32,18 @@ export default defineConfig({
   // Dev builds skip this and keep the readable, un-folded output.
   esbuildOptions(options) {
     if (isProdBuild) options.minifySyntax = true;
+    // The vendored `@unerr-ai/contracts` declares `sideEffects: false` and emits
+    // its 7 subpath entries with tsup code-splitting, so the entries share a
+    // chunk via a bare `import '../chunk-*.js'`. Inlining the contract here
+    // (`noExternal`) makes esbuild tree-shake that side-effect-free bare import
+    // and warn `ignored-bare-import`. The drop is correct — every schema arrives
+    // via a named import and the package runs no top-level code — so silence
+    // just that one message instead of letting it clutter every build. Root
+    // cause is esbuild#2922 (multi-entry + splitting → unneeded chunk imports);
+    // the alternative root fix is `splitting:false` in the contract's tsup.
+    options.logOverride = {
+      ...options.logOverride,
+      "ignored-bare-import": "silent",
+    };
   },
 });

@@ -188,11 +188,18 @@ export async function handleUnerrContextProxy(
   const entityCount = reconEntityCount(bundle);
   const verdict = classifyTaskSize(prompt, { entityCount });
   const files = reconFileSpread(bundle);
-  // Digest ⟺ no bodies were inlined. The digest collapses bodies to file:line
-  // ranges, so it only fits the concise mode (orientation / large sweep) — a
-  // 'detailed' bundle always renders verbatim bodies via renderReconText. An
-  // explicit digest:true still forces the flat render regardless.
-  const useDigest = explicitDigest || responseFormat === "concise";
+  // Digest ⟺ no focus bodies were inlined. The digest collapses bodies to
+  // file:line ranges, so rendering it over an inlined body throws the body away
+  // and forces the agent to re-read it (the W4 no-op). A 'detailed' bundle and a
+  // 'concise' bundle that realized as a focused edit (composeRecon's
+  // focused-footprint floor) both carry bodies → render verbatim. An explicit
+  // digest:true still forces the flat render regardless.
+  const hasFocusBodies = bundle.sections.some(
+    (s) =>
+      s.tool === "focus_bodies" && Array.isArray(s.data) && s.data.length > 0
+  );
+  const useDigest =
+    explicitDigest || (responseFormat === "concise" && !hasFocusBodies);
   const text = useDigest ? renderReconDigest(bundle) : renderReconText(bundle);
 
   recordReconServed(

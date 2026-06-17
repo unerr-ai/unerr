@@ -25,6 +25,13 @@ export interface FetchUrlTelemetry {
   playwrightRescued?: boolean;
   bm25Ranked?: boolean;
   wordCount?: number;
+  /**
+   * Number of URLs in the bulk batch this fetch belonged to. Set by
+   * runFetchUrlBatch (via FetchUrlContext.batchSize); undefined for a plain
+   * single fetch. Recorded on the per-page compression row so the dashboard
+   * can group a batch's pages — savings stay per-page (no double counting).
+   */
+  batchSize?: number;
 }
 
 export function recordFetchUrlTelemetry(
@@ -57,5 +64,6 @@ export function recordFetchUrlTelemetry(
     savedPct,
     omniFallback: ev.extractor === "raw-body",
     teeFile,
+    batchSize: ev.batchSize,
   });
 }

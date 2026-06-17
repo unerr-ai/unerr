@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
@@ -7,6 +7,15 @@ export default defineConfig({
       // Benchmark harnesses live outside src/ (excluded from the src-only
       // tsconfig rootDir), so their pure-logic tests are colocated here.
       "benchmarks/**/*.test.ts",
+    ],
+    exclude: [
+      ...configDefaults.exclude,
+      // Track4 A/B clones the target OSS repo into each run's out/worktrees/
+      // (e.g. track4-single-repo-ab/hono-run/out/...). Those are the TARGET
+      // repo's own tests (deno/bun/fastly globals that can't collect here),
+      // not unerr tests — the benchmarks/** include glob would otherwise sweep
+      // them into the suite as ~200 failing-to-collect foreign suites.
+      "benchmarks/**/out/**",
     ],
     // Forks pool (child_process) is required: ~16 tests call process.chdir(),
     // which throws "process.chdir() is not supported in workers" under the

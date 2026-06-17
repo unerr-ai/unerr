@@ -8,25 +8,23 @@
  * @sem domain=benchmark role=orchestrator
  */
 import { execSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
-  buildClaudeArgs,
   type DriverOptions,
+  type DriverResult,
+  buildClaudeArgs,
   runClaude,
 } from "./claude-driver.js";
 import { readPlatformEvents } from "./metrics-reader.js";
 import {
   type ArmWorkspace,
   applyBreak,
+  installUnerrFlow,
   resetWorktree,
   runOracle,
   setupArmWorkspace,
+  uninstallUnerrFlow,
   wipeUnerrMemory,
   writeEmptyMcpConfig,
 } from "./repo-harness.js";
@@ -34,11 +32,11 @@ import { buildReport, renderReport } from "./score.js";
 import {
   ALL_ARMS,
   type ArmId,
+  type RunRecord,
+  type TaskManifest,
   armKeepsMemory,
   armUsesUnerr,
   emptyPlatform,
-  type RunRecord,
-  type TaskManifest,
 } from "./types.js";
 
 /** Parsed CLI flags. */
@@ -48,7 +46,9 @@ interface CliOpts {
   arms: ArmId[];
   dryRun: boolean;
   scoreOnly: boolean;
-  outDir: string;
+  /** Explicit --out override; when unset, main() derives a path OUTSIDE the
+   * target repo's tree (see the parent-conflict note in main). */
+  outDir?: string;
   permissionMode: string;
   model?: string;
   maxTurns?: number;
@@ -83,8 +83,11 @@ function parseArgs(argv: string[]): CliOpts {
     arms,
     dryRun: has("dry-run"),
     scoreOnly: has("score-only"),
-    outDir: resolve(flag("out") ?? join(dirname(resolve(manifestPath)), "out")),
-    permissionMode: flag("permission-mode") ?? "acceptEdits",
+    outDir: flag("out") ? resolve(flag("out") as string) : undefined,
+    // Default to bypassPermissions → --dangerously-skip-permissions so the
+    // unerr arm's mcp__unerr__* tool calls are never blocked on a permission
+    // prompt the unattended run can't answer (acceptEdits blocked them).
+    permissionMode: flag("permission-mode") ?? "bypassPermissions",
     model: flag("model"),
     maxTurns: flag("max-turns") ? Number(flag("max-turns")) : undefined,
   };
@@ -107,9 +110,20 @@ async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
   const manifest = loadManifest(opts.manifestPath);
   const arms = manifest.arms ?? opts.arms;
-  mkdirSync(opts.outDir, { recursive: true });
+  const repoDir = resolve(manifest.repo);
 
-  const runsPath = join(opts.outDir, "runs.jsonl");
+  // The worktrees MUST live OUTSIDE any registered unerr repo. detectParentConflict
+  // (src/daemon/registry.ts) rejects registering a repo nested under a registered
+  // parent, so a worktree placed inside this checkout (e.g. benchmarks/.../out)
+  // never gets its config.json mirrored and the per-repo child crash-loops with
+  // "No .unerr/config.json". Defaulting beside the target repo (e.g.
+  // ~/bench-repos/track4-ab-out) keeps every worktree clear of this repo's tree.
+  // Override with --out, but point it somewhere not under a registered repo.
+  const outDir = opts.outDir ?? join(dirname(repoDir), "track4-ab-out");
+  mkdirSync(outDir, { recursive: true });
+  process.stderr.write(`out dir → ${outDir}\n`);
+
+  const runsPath = join(outDir, "runs.jsonl");
 
   // --score-only: re-score an existing runs.jsonl without touching the agent.
   if (opts.scoreOnly) {
@@ -117,11 +131,11 @@ async function main(): Promise<void> {
       .split("\n")
       .filter(Boolean)
       .map((l) => JSON.parse(l) as RunRecord);
-    writeReport(runs, opts.outDir);
+    writeReport(runs, outDir);
     return;
   }
 
-  const emptyMcp = writeEmptyMcpConfig(join(opts.outDir, "empty-mcp.json"));
+  const emptyMcp = writeEmptyMcpConfig(join(outDir, "empty-mcp.json"));
   const driverOpts: DriverOptions = {
     permissionMode: opts.permissionMode,
     model: opts.model,
@@ -129,17 +143,13 @@ async function main(): Promise<void> {
     maxTurns: opts.maxTurns,
   };
 
-  const repoDir = resolve(manifest.repo);
-  const workRoot = join(opts.outDir, "worktrees");
+  const workRoot = join(outDir, "worktrees");
 
   // Install unerr into a worktree by writing its project-level .mcp.json. The
   // unerr binary is expected on PATH (the dev links it globally during testing).
   const installUnerr = (worktreeDir: string): void => {
     if (opts.dryRun) return;
-    execSync("unerr install claude-code", {
-      cwd: worktreeDir,
-      stdio: "inherit",
-    });
+    installUnerrFlow(worktreeDir);
   };
 
   const records: RunRecord[] = [];
@@ -154,7 +164,10 @@ async function main(): Promise<void> {
       installUnerr
     );
     if (manifest.setupCommand && !opts.dryRun) {
-      execSync(manifest.setupCommand, { cwd: ws.worktreeDir, stdio: "inherit" });
+      execSync(manifest.setupCommand, {
+        cwd: ws.worktreeDir,
+        stdio: "inherit",
+      });
     }
 
     for (let rep = 0; rep < opts.reps; rep++) {
@@ -177,6 +190,9 @@ async function main(): Promise<void> {
             dependsOn: task.dependsOn ?? [],
             resolved: false,
             inputTokens: 0,
+            freshInputTokens: 0,
+            cacheCreateTokens: 0,
+            cacheReadTokens: 0,
             outputTokens: 0,
             turns: 0,
             wallMs: 0,
@@ -186,12 +202,16 @@ async function main(): Promise<void> {
           };
         } else {
           let breakages = 0;
-          let driver = {
+          let driver: DriverResult = {
             inputTokens: 0,
+            freshInputTokens: 0,
+            cacheCreateTokens: 0,
+            cacheReadTokens: 0,
             outputTokens: 0,
             turns: 0,
             costUsd: 0,
             isError: false,
+            resultText: "",
           };
           try {
             driver = runClaude(task.prompt, arm, ws.worktreeDir, driverOpts);
@@ -216,6 +236,9 @@ async function main(): Promise<void> {
             dependsOn: task.dependsOn ?? [],
             resolved: oracle.resolved,
             inputTokens: driver.inputTokens,
+            freshInputTokens: driver.freshInputTokens,
+            cacheCreateTokens: driver.cacheCreateTokens,
+            cacheReadTokens: driver.cacheReadTokens,
             outputTokens: driver.outputTokens,
             turns: driver.turns,
             wallMs: endTs - startTs,
@@ -238,12 +261,19 @@ async function main(): Promise<void> {
         }
       }
     }
+
+    // Deregister unerr from the daemon for this arm, mirroring the manual
+    // `unerr uninstall claude-code` teardown so the next arm (and the next run)
+    // starts from a clean registry. Baseline never installed unerr, so skip it.
+    if (!opts.dryRun && armUsesUnerr(arm)) {
+      uninstallUnerrFlow(ws.worktreeDir);
+    }
   }
 
   writeFileSync(runsPath, `${recordLines.join("\n")}\n`);
   process.stderr.write(`\nwrote ${records.length} runs → ${runsPath}\n`);
   if (!opts.dryRun) {
-    writeReport(records, opts.outDir);
+    writeReport(records, outDir);
   }
 }
 

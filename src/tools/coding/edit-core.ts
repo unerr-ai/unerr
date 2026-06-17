@@ -1,7 +1,7 @@
 /**
- * Edit core — pure, dependency-free primitives for the `file_edit` / `file_write`
- * harness. Kept separate from the tool wiring so the matching, encoding, hashing,
- * and diff logic is unit-testable in isolation.
+ * Edit core — pure, dependency-free primitives for the `file_edit` harness
+ * (edit + whole-file write modes). Kept separate from the tool wiring so the
+ * matching, encoding, hashing, and diff logic is unit-testable in isolation.
  *
  * These mirror the safety guarantees of a production editor (encoding + line-
  * ending preservation, quote-tolerant matching, uniqueness checks, a content

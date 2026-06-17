@@ -36,7 +36,7 @@ const EXEC_NUDGES = [
   // #5 TRIM — code navigation set
   "[unerr] Code nav (<5ms, graph-backed): search_code · get_references · file_read",
   // #6 TRIM — read protocol set
-  "[unerr] Read code: file_read · Change files: file_edit/file_write (no built-in Read needed) · Search: search_code (not grep) · Structure: file_outline",
+  "[unerr] Read code: file_read · Change files: file_edit (edit or whole-file write, no built-in Read needed) · Search: search_code (not grep) · Structure: file_outline",
   // #7 TRIM — entity / convention / fact set
   // (get_conventions left the advertised catalog — file_read with
   // purpose:'explore' auto-injects the same conventions.)
@@ -142,9 +142,27 @@ function appendExecNudge(cmd: string, outputBytes: number): void {
   // nudge fires on every call, so suppressing it on small outputs prevents
   // the "nudge bigger than output" UX failure).
   if (!shouldEmitV1Nudge(outputBytes)) return;
+  // Once per session (#9): the rotating roster duplicates the cached CLAUDE.md
+  // tool table, so re-emitting it on every Bash call was per-operation re-bill.
+  // Emit one line, then rely on the cached instruction file + the prompt-hook
+  // roster (itself now once-per-session). Best-effort state — a missed read/
+  // write just re-emits next call, never crashes the command.
+  const cwd = process.cwd();
+  try {
+    if (readNudgeState(cwd).exec_nudge_emitted) return;
+  } catch {
+    // state unavailable — fall through and emit once (fail toward teaching)
+  }
   const nudge =
     EXEC_NUDGES[Math.floor(Date.now() / 60000) % EXEC_NUDGES.length];
   process.stdout.write(`\n${nudge}\n`);
+  try {
+    updateNudgeState(cwd, (s) => {
+      s.exec_nudge_emitted = true;
+    });
+  } catch {
+    // best-effort persist; a missed write just re-emits next call (still correct)
+  }
 }
 
 /** Parse argv for tokens after `exec`, optionally after `--`. */

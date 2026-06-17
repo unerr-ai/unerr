@@ -36,7 +36,10 @@ import {
   runStopHookHandlerAsync,
   runStopPersistWorkerAsync,
 } from "../hooks/stop-hooks.js";
-import { runPreWebFetchHook } from "../hooks/web-hooks.js";
+import {
+  runPostWebSearchHook,
+  runPreWebFetchHook,
+} from "../hooks/web-hooks.js";
 
 /**
  * Login-blocked passthrough for any hook event. When the machine is signed out
@@ -155,6 +158,13 @@ export function registerHookCommand(program: Command): void {
     .command("post-glob")
     .description("Enrich Glob output with graph navigation suggestions")
     .action(safeHookAction(runPostGlobHook));
+
+  hook
+    .command("post-websearch")
+    .description(
+      "Nudge bulk fetch_url({urls:[...]}) to read all search results in one roundtrip"
+    )
+    .action(safeHookAction(runPostWebSearchHook));
 
   hook
     .command("post-write")

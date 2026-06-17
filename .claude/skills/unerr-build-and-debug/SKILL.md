@@ -44,7 +44,7 @@ Phase A5 — Mark intent.
   After confirmation, note intent for the resume strip: emit `unerr-save: intent <one-sentence summary, ≤80 chars>` in your closing message.
 
 Phase A6 — Build.
-  Implement the shape from A4. Before each `Edit`, call built-in `Read` (offset/limit).
+  Implement the shape from A4 via `file_edit` — old_string+new_string for an exact replace, or content for a new file / whole-file rewrite — no prior built-in `Read` is needed.
   Domain comment (Layer 8): when you create an exported entity, write its doc comment block before the next edit — prose ≤2 sentences (what + why, never how), then `@sem domain=<tag>`. Reuse an active domain tag (the `unerr_context` bundle lists active tags); add a new tag only when none fits. Never restate the entity name as the summary.
 
 Phase A7 — Verify.
@@ -79,7 +79,7 @@ Phase B5 — Root-cause.
   Name the failure mode in one sentence. If you cannot, you have not isolated yet — return to B4.
 
 Phase B6 — Fix.
-  Edit the root-cause site only. Before `Edit`, call built-in `Read` (offset/limit) on the target lines.
+  Edit the root-cause site only, via `file_edit({file_path:'<path>', old_string:'<exact>', new_string:'<replacement>'})` — no prior built-in `Read` is needed. A signature change with callers at risk denies the first `file_edit` once: run `get_references({direction:'callers'})`, update every caller, then re-attempt.
 
 Phase B7 — Verify.
   Run the targeted test that reproduced the failure. Add a regression test if none existed. Emit `unerr-save: resolution <fix>` in your closing message for any blocker the bug raised.

@@ -91,6 +91,7 @@ export interface CompressionEventRow {
   ranking_key: string | null; // S7: 'query' | 'importance' | 'positional'
   query_relevance_pruned: number | null; // S7: chunks pruned by query relevance beyond budget floor
   transcript_footprint_tokens: number | null; // S8: cumulative tokens unerr contributed this session
+  batch_size: number | null; // fetch_url bulk mode: # pages in the batch this row belongs to (null = single fetch / non-fetch_url)
 }
 
 export interface FileReadEventRow {
@@ -240,6 +241,7 @@ type CompressionEventBase = Omit<
   | "ranking_key"
   | "query_relevance_pruned"
   | "transcript_footprint_tokens"
+  | "batch_size"
 >;
 export type CompressionEventInsert = CompressionEventBase & {
   original_tokens?: number | null;
@@ -257,6 +259,7 @@ export type CompressionEventInsert = CompressionEventBase & {
   ranking_key?: string | null;
   query_relevance_pruned?: number | null;
   transcript_footprint_tokens?: number | null;
+  batch_size?: number | null;
 };
 export type FileReadEventInsert = Omit<FileReadEventRow, "id">;
 /** `agent` defaults to "unknown" via DB DEFAULT + writer coalesce, so it's
@@ -303,7 +306,8 @@ CREATE TABLE IF NOT EXISTS compression_events (
   dropped_low_importance INTEGER,
   ranking_key TEXT,
   query_relevance_pruned INTEGER,
-  transcript_footprint_tokens INTEGER
+  transcript_footprint_tokens INTEGER,
+  batch_size INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_compression_ts ON compression_events(ts);
 CREATE INDEX IF NOT EXISTS idx_compression_category ON compression_events(category);
@@ -519,6 +523,7 @@ const ADDITIVE_COLUMNS: ReadonlyArray<{
     column: "transcript_footprint_tokens",
     decl: "INTEGER",
   },
+  { table: "compression_events", column: "batch_size", decl: "INTEGER" },
 ];
 
 function reconcileAdditiveColumns(db: DatabaseT): void {
@@ -607,13 +612,13 @@ export class MetricsStore {
            original_tokens, delivered_tokens, mechanism, fidelity_pass, event_kind,
            cache_ref, rerequest_saved_tokens, cache_hit, prefix_stable, prefix_bytes,
            survivors_by_importance, dropped_low_importance, ranking_key,
-           query_relevance_pruned, transcript_footprint_tokens)
+           query_relevance_pruned, transcript_footprint_tokens, batch_size)
         VALUES (@ts, @ts_iso, @command, @category, @confidence, @raw_bytes,
                 @compressed_bytes, @saved_pct, @omni_fallback, @tee_file,
                 @original_tokens, @delivered_tokens, @mechanism, @fidelity_pass, @event_kind,
                 @cache_ref, @rerequest_saved_tokens, @cache_hit, @prefix_stable, @prefix_bytes,
                 @survivors_by_importance, @dropped_low_importance, @ranking_key,
-                @query_relevance_pruned, @transcript_footprint_tokens)
+                @query_relevance_pruned, @transcript_footprint_tokens, @batch_size)
       `),
       insertFileRead: this.db.prepare(`
         INSERT INTO file_read_events
@@ -932,6 +937,7 @@ export class MetricsStore {
       ranking_key: row.ranking_key ?? null,
       query_relevance_pruned: row.query_relevance_pruned ?? null,
       transcript_footprint_tokens: row.transcript_footprint_tokens ?? null,
+      batch_size: row.batch_size ?? null,
     };
     return Number(this.stmt.insertCompression.run(full).lastInsertRowid);
   }

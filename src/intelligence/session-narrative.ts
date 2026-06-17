@@ -60,7 +60,7 @@ const TOOL_INTENT: Record<string, string> = {
 
 /** Edit-type tool names (from agents' built-in tools). */
 const EDIT_TOOLS = new Set([
-  "file_write",
+  "file_edit",
   "write_file",
   "edit_file",
   "str_replace_editor",

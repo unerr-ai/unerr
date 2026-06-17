@@ -57,7 +57,7 @@ export const UNERR_FAMILIES: Readonly<
   file: {
     name: "file",
     label: "File protocol",
-    tools: ["file_outline", "file_read", "file_edit", "file_write"],
+    tools: ["file_outline", "file_read", "file_edit"],
   },
   markers: {
     name: "markers",

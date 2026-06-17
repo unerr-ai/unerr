@@ -24,7 +24,7 @@ import {
   rawBodyFromHtmlSync,
 } from "./extract.js";
 import { htmlToMarkdown } from "./markdown.js";
-import { splitMarkdownIntoPassages } from "./passage-split.js";
+import { type Passage, splitMarkdownIntoPassages } from "./passage-split.js";
 import {
   type HostRule,
   lookupHostRule,
@@ -144,11 +144,23 @@ export type FetchUrlResult = FetchUrlOk | FetchUrlBlocked | FetchUrlHttpError;
 export interface FetchUrlContext {
   cwd: string;
   abortSignal?: AbortSignal;
+  /**
+   * Number of URLs in the batch this fetch belongs to, set by
+   * `runFetchUrlBatch`. Threaded into telemetry so each per-page compression
+   * row records its `batch_size`. A plain single fetch leaves this undefined
+   * (recorded as no batch). Additive — the 21 single-URL callers omit it and
+   * `runFetchUrl`'s behavior is unchanged when it is absent.
+   */
+  batchSize?: number;
 }
 
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
 const BM25_GATE_BYTES = 8 * 1024;
 const BM25_DEFAULT_TOPK = 20;
+/** Default passage window for a bulk fetch when the caller passes no `limit`.
+ *  Matches the wire-cap `fetch_url` defaultLimit so a batch's first page of
+ *  merged passages clears the byte cap without a paginate-and-retry hop. */
+const BATCH_DEFAULT_LIMIT = 30;
 
 /**
  * Tunable limits for the fetch_url pipeline. Exported as a mutable object
@@ -167,6 +179,15 @@ export const FETCH_PROTOCOL_LIMITS = {
   baseTimeoutMs: 15_000,
   totalDeadlineMs: 120_000,
   extractionTimeoutMs: 30_000,
+  /** Bulk fetch: most URLs accepted per `fetch_url({urls:[...]})` call. Extra
+   *  URLs past this are dropped at the tool surface with a clear error. */
+  maxBatchUrls: 10,
+  /** Bulk fetch: how many per-URL fetches run at once. The rest queue. */
+  batchConcurrency: 5,
+  /** Bulk fetch: overall wall-clock cap across the whole batch. A URL not
+   *  finished by then is recorded as a deadline failure and the batch returns
+   *  whatever completed (per-URL `baseTimeoutMs` still applies underneath). */
+  batchDeadlineMs: 30_000,
 };
 
 /**
@@ -378,6 +399,7 @@ export async function runFetchUrl(
         extractor: "raw-body",
         cacheHit: false,
         blocked: initialChallenge.kind,
+        batchSize: ctx.batchSize,
       });
       const blockedTitle = extractTitleFromHtml(fetched.html);
       storeNegativeFetchCache(
@@ -548,6 +570,7 @@ export async function runFetchUrl(
     playwrightRescued,
     bm25Ranked,
     wordCount,
+    batchSize: ctx.batchSize,
   });
 
   return {
@@ -584,6 +607,471 @@ export async function runFetchUrl(
       inflated: rawBytes > 0 && compressedBytes >= rawBytes,
     },
   };
+}
+
+// ── Bulk (multi-URL) fetch ────────────────────────────────────────────
+//
+// runFetchUrlBatch is a WRAPPER over runFetchUrl: it fetches N URLs in
+// parallel (bounded concurrency + an overall deadline), BM25-ranks the
+// passages ACROSS all pages so the strongest survive and weak pages drop
+// out, and returns one payload in a single tool roundtrip. runFetchUrl's
+// signature is unchanged — single-URL callers are untouched.
+
+/** One per-URL row in a batch result: what was fetched and how it went. */
+export interface FetchUrlBatchSource {
+  source_index: number;
+  url: string;
+  final_url: string;
+  status: number;
+  result_status: "ok" | "blocked" | "http_error";
+  title: string;
+  extractor?: FetchUrlOk["extractor"];
+  word_count?: number;
+  extracted_tokens?: number;
+  cache_hit?: boolean;
+  /** Failure reason for blocked / http_error sources; absent on ok. */
+  error?: string;
+}
+
+/** A passage in a batch result, carrying provenance back to its source page. */
+export interface FetchUrlBatchPassage {
+  /** Post-rank ordinal in the merged list — drives wire-cap pagination. */
+  index: number;
+  source_index: number;
+  source_url: string;
+  heading: string | null;
+  text: string;
+  start_line: number;
+}
+
+export interface FetchUrlBatchOk {
+  result_status: "ok";
+  mode: "batch";
+  /** Echoed shared prompt (null when none was passed). */
+  query: string | null;
+  sources: FetchUrlBatchSource[];
+  /** Globally BM25-ranked across all OK pages (or round-robin by source when
+   *  no prompt), then paginated by offset/limit. */
+  passages: FetchUrlBatchPassage[];
+  total: number;
+  returned: number;
+  more_available: number;
+  truncated: boolean;
+  fetched: number;
+  ok: number;
+  failed: number;
+  raw_tokens_total: number;
+  extracted_tokens_total: number;
+  compression_ratio: number;
+}
+
+export interface FetchUrlBatchError {
+  result_status: "batch_error";
+  mode: "batch";
+  query: string | null;
+  /** Every URL's failure row, so the agent sees why each one failed. */
+  sources: FetchUrlBatchSource[];
+  fetched: number;
+  ok: 0;
+  failed: number;
+  suggestion: string;
+}
+
+export type FetchUrlBatchResult = FetchUrlBatchOk | FetchUrlBatchError;
+
+/** A passage tagged with its origin page, so cross-page ranking can keep
+ *  provenance while reusing the same BM25 ranker the single path uses. */
+interface SourcedPassage extends Passage {
+  sourceIndex: number;
+  sourceUrl: string;
+}
+
+/** Sentinel for a per-URL fetch that threw or blew the batch deadline. */
+interface BatchFetchFailure {
+  result_status: "batch_failed";
+  error: string;
+}
+
+/** Race a fetch against the remaining batch deadline. Resolves to a typed
+ *  failure sentinel on timeout instead of rejecting, so one slow host never
+ *  sinks the batch. The underlying fetch keeps its own per-attempt timeout. */
+function raceBatchDeadline(
+  p: Promise<FetchUrlResult>,
+  ms: number
+): Promise<FetchUrlResult | BatchFetchFailure> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve({
+        result_status: "batch_failed",
+        error: "batch_deadline_exceeded",
+      });
+    }, ms);
+    if (typeof timer.unref === "function") timer.unref();
+    p.then(
+      (r) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(r);
+      },
+      (e) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
+  });
+}
+
+/** Run per-URL fetches with a bounded worker pool and an overall deadline.
+ *  Returns one slot per input URL, in input order: either the FetchUrlResult
+ *  or a BatchFetchFailure. Never rejects. */
+async function runBatchFetches(
+  urls: string[],
+  perPageShared: Omit<FetchUrlArgs, "url">,
+  ctx: FetchUrlContext,
+  concurrency: number,
+  deadlineMs: number
+): Promise<Array<FetchUrlResult | BatchFetchFailure>> {
+  const deadline = Date.now() + deadlineMs;
+  const out = new Array<FetchUrlResult | BatchFetchFailure>(urls.length);
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= urls.length) return;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        out[i] = {
+          result_status: "batch_failed",
+          error: "batch_deadline_exceeded",
+        };
+        continue;
+      }
+      try {
+        out[i] = await raceBatchDeadline(
+          runFetchUrl({ url: urls[i] as string, ...perPageShared }, ctx),
+          remaining
+        );
+      } catch (e) {
+        out[i] = {
+          result_status: "batch_failed",
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }
+  };
+  const pool = Math.min(Math.max(1, concurrency), urls.length || 1);
+  await Promise.all(Array.from({ length: pool }, () => worker()));
+  return out;
+}
+
+/** Interleave passages by source (round-robin) so no single page dominates
+ *  the head of the merged list when there is no prompt to rank by. */
+function interleaveBySource(passages: SourcedPassage[]): SourcedPassage[] {
+  if (passages.length === 0) return passages;
+  const bySource = new Map<number, SourcedPassage[]>();
+  for (const p of passages) {
+    const arr = bySource.get(p.sourceIndex);
+    if (arr) arr.push(p);
+    else bySource.set(p.sourceIndex, [p]);
+  }
+  const queues = [...bySource.values()];
+  const out: SourcedPassage[] = [];
+  let drained = false;
+  while (!drained) {
+    drained = true;
+    for (const q of queues) {
+      const next = q.shift();
+      if (next) {
+        out.push(next);
+        drained = false;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Fetch many URLs in one call. See the block comment above for the contract.
+ *
+ * @param urls    Result URLs to fetch (deduped + capped at maxBatchUrls here).
+ * @param shared  prompt/offset/limit/token_budget/refresh applied to the batch.
+ * @param ctx     fetch context (cwd + abort); batchSize is set per-page here.
+ */
+export async function runFetchUrlBatch(
+  urls: string[],
+  shared: Omit<FetchUrlArgs, "url">,
+  ctx: FetchUrlContext
+): Promise<FetchUrlBatchResult> {
+  const query =
+    typeof shared.prompt === "string" && shared.prompt.trim().length > 0
+      ? shared.prompt.trim()
+      : null;
+
+  // 1. Normalize — dedupe (first-seen order preserved), cap at maxBatchUrls.
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const u of urls) {
+    if (typeof u !== "string") continue;
+    const trimmed = u.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    deduped.push(trimmed);
+    if (deduped.length >= FETCH_PROTOCOL_LIMITS.maxBatchUrls) break;
+  }
+
+  // 2. Parallel fetch. Per-page args carry prompt (per-page pre-rank) +
+  //    token_budget + refresh, but NOT offset/limit — pagination is applied
+  //    once, globally, over the merged passages below. batchSize threads into
+  //    each page's telemetry row.
+  const perPageShared: Omit<FetchUrlArgs, "url"> = {
+    prompt: shared.prompt,
+    token_budget: shared.token_budget,
+    refresh: shared.refresh,
+  };
+  const perPageCtx: FetchUrlContext = { ...ctx, batchSize: deduped.length };
+  const settled = await runBatchFetches(
+    deduped,
+    perPageShared,
+    perPageCtx,
+    FETCH_PROTOCOL_LIMITS.batchConcurrency,
+    FETCH_PROTOCOL_LIMITS.batchDeadlineMs
+  );
+
+  // 3. Partition into per-source rows + collect OK pages' passages, tagged
+  //    with a globally-unique index so cross-page BM25 dedup is correct.
+  const sources: FetchUrlBatchSource[] = [];
+  const merged: SourcedPassage[] = [];
+  let rawBytesTotal = 0;
+  let extractedBytesTotal = 0;
+  let rawTokensTotal = 0;
+  let extractedTokensTotal = 0;
+  let okCount = 0;
+  let globalIndex = 0;
+
+  deduped.forEach((url, sourceIndex) => {
+    const r = settled[sourceIndex];
+    if (r && r.result_status === "ok") {
+      okCount++;
+      rawBytesTotal += r.raw_bytes;
+      extractedBytesTotal += r.extracted_bytes;
+      rawTokensTotal += r.raw_tokens;
+      extractedTokensTotal += r.extracted_tokens;
+      sources.push({
+        source_index: sourceIndex,
+        url: r.url,
+        final_url: r.final_url,
+        status: r.status,
+        result_status: "ok",
+        title: r.title,
+        extractor: r.extractor,
+        word_count: r.word_count,
+        extracted_tokens: r.extracted_tokens,
+        cache_hit: r.cache_hit,
+      });
+      for (const p of r.passages) {
+        merged.push({
+          index: globalIndex++,
+          heading: p.heading,
+          text: p.text,
+          startLine: p.start_line,
+          sourceIndex,
+          sourceUrl: r.final_url,
+        });
+      }
+    } else if (r && r.result_status === "blocked") {
+      sources.push({
+        source_index: sourceIndex,
+        url: r.url,
+        final_url: r.final_url,
+        status: r.status,
+        result_status: "blocked",
+        title: r.title,
+        error: `anti_bot_challenge:${r.detected}`,
+      });
+    } else if (r && r.result_status === "http_error") {
+      sources.push({
+        source_index: sourceIndex,
+        url: r.url,
+        final_url: r.final_url,
+        status: r.status,
+        result_status: "http_error",
+        title: "",
+        error: r.status ? `${r.reason}:${r.status}` : r.reason,
+      });
+    } else {
+      sources.push({
+        source_index: sourceIndex,
+        url,
+        final_url: url,
+        status: 0,
+        result_status: "http_error",
+        title: "",
+        error: r && "error" in r ? r.error : "fetch_failed",
+      });
+    }
+  });
+
+  // 4. All-fail → aggregate error (no passages to return).
+  if (okCount === 0) {
+    return {
+      result_status: "batch_error",
+      mode: "batch",
+      query,
+      sources,
+      fetched: deduped.length,
+      ok: 0,
+      failed: deduped.length,
+      suggestion:
+        deduped.length === 0
+          ? "fetch_url({urls:[...]}) requires at least one URL"
+          : "every URL failed — retry one with fetch_url({url:...}) to see its error, or check connectivity",
+    };
+  }
+
+  // 5. Cross-page rank. With a prompt and enough combined text, BM25-rank the
+  //    merged passages globally so the strongest across ALL pages win and weak
+  //    pages drop out. Otherwise interleave by source so no page dominates.
+  let ordered: SourcedPassage[];
+  const combinedBytes = Buffer.byteLength(
+    merged.map((p) => p.text).join("\n"),
+    "utf-8"
+  );
+  if (query && combinedBytes > BM25_GATE_BYTES && merged.length > 0) {
+    ordered = (await rankPassagesByPrompt(merged, {
+      prompt: query,
+      topK: merged.length,
+    })) as SourcedPassage[];
+  } else {
+    ordered = interleaveBySource(merged);
+  }
+
+  // 6. Paginate the merged list. `total` stays the full ranked count so the
+  //    agent can page the remainder; wire-cap re-slices `passages` by byte
+  //    budget exactly as it does for a single fetch.
+  const offset = Math.max(0, shared.offset ?? 0);
+  const limit =
+    typeof shared.limit === "number" && shared.limit > 0
+      ? Math.floor(shared.limit)
+      : BATCH_DEFAULT_LIMIT;
+  const total = ordered.length;
+  const window = (offset > 0 ? ordered.slice(offset) : ordered).slice(0, limit);
+  const returned = window.length;
+  const moreAvailable = Math.max(0, total - offset - returned);
+
+  const passages: FetchUrlBatchPassage[] = window.map((p, i) => ({
+    index: offset + i,
+    source_index: p.sourceIndex,
+    source_url: p.sourceUrl,
+    heading: p.heading,
+    text: p.text,
+    start_line: p.startLine,
+  }));
+
+  return {
+    result_status: "ok",
+    mode: "batch",
+    query,
+    sources,
+    passages,
+    total,
+    returned,
+    more_available: moreAvailable,
+    truncated: moreAvailable > 0,
+    fetched: deduped.length,
+    ok: okCount,
+    failed: deduped.length - okCount,
+    raw_tokens_total: rawTokensTotal,
+    extracted_tokens_total: extractedTokensTotal,
+    compression_ratio: safeCompressionRatio(rawBytesTotal, extractedBytesTotal),
+  };
+}
+
+/**
+ * A fetch_url request that failed argument validation before any network work.
+ * Returned (never thrown) so the agent sees a concrete, paste-ready fix in the
+ * tool body instead of an opaque tool failure. Mirrors the `batch_error` shape
+ * (status + suggestion) so one body contract covers every fetch_url failure.
+ *
+ * @sem domain=web role=error-shape
+ */
+export interface FetchUrlInvalidRequest {
+  result_status: "invalid_request";
+  error: string;
+  suggestion: string;
+}
+
+function invalidFetchRequest(
+  error: string,
+  suggestion: string
+): FetchUrlInvalidRequest {
+  return { result_status: "invalid_request", error, suggestion };
+}
+
+/**
+ * The single live entry point for the `fetch_url` tool: validate the `url` XOR
+ * `urls` request shape, then route to the single-page or bulk fetcher. This is
+ * the ONE place that decides single-vs-bulk — the QueryRouter `fetch_url` case
+ * calls only this, so there is no second copy of the routing/validation logic.
+ *
+ * @sem domain=web role=request-dispatch
+ */
+export async function runFetchUrlRequest(
+  args: FetchUrlArgs & { urls?: unknown },
+  ctx: FetchUrlContext
+): Promise<FetchUrlResult | FetchUrlBatchResult | FetchUrlInvalidRequest> {
+  const rawUrls = Array.isArray(args.urls) ? args.urls : null;
+  const hasUrl = typeof args.url === "string" && args.url.trim().length > 0;
+  const shared: Omit<FetchUrlArgs, "url"> = {
+    prompt: args.prompt,
+    offset: args.offset,
+    limit: args.limit,
+    token_budget: args.token_budget,
+    refresh: args.refresh,
+  };
+
+  // Bulk mode — `urls:[...]`. Fan out N pages in one roundtrip, BM25-ranked
+  // across all of them. Validation errors return a typed body (no throw).
+  if (rawUrls !== null) {
+    if (hasUrl) {
+      return invalidFetchRequest(
+        "fetch_url accepts either url (single page) or urls (bulk), not both.",
+        'Pass one: url:"https://..." for a single page, or urls:["https://a","https://b"] for several in one call.'
+      );
+    }
+    const urls = rawUrls.filter(
+      (u): u is string => typeof u === "string" && u.trim().length > 0
+    );
+    if (urls.length === 0) {
+      return invalidFetchRequest(
+        "fetch_url urls must be a non-empty array of URL strings.",
+        'Example: urls:["https://a","https://b"].'
+      );
+    }
+    if (urls.length > FETCH_PROTOCOL_LIMITS.maxBatchUrls) {
+      return invalidFetchRequest(
+        `fetch_url urls accepts at most ${FETCH_PROTOCOL_LIMITS.maxBatchUrls} URLs (got ${urls.length}).`,
+        `Split into ${Math.ceil(
+          urls.length / FETCH_PROTOCOL_LIMITS.maxBatchUrls
+        )} calls of at most ${FETCH_PROTOCOL_LIMITS.maxBatchUrls} URLs each.`
+      );
+    }
+    return runFetchUrlBatch(urls, shared, ctx);
+  }
+
+  // Single mode — `url:"..."`.
+  if (!hasUrl) {
+    return invalidFetchRequest(
+      "fetch_url requires a url or urls argument.",
+      'Pass url:"https://..." for one page, or urls:[...] for several in one roundtrip.'
+    );
+  }
+  return runFetchUrl({ url: args.url, ...shared }, ctx);
 }
 
 export { safeCompressionRatio } from "./compression-ratio.js";

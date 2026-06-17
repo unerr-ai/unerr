@@ -9,7 +9,7 @@
  * (no proxy → no conventions block, but the static read nudge still fires).
  */
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   type DetectedConvention,
@@ -17,6 +17,7 @@ import {
   parseConventionsReply,
   renderConventionsBlock,
 } from "../hooks/conventions-client.js";
+import { resetHookDedup } from "../hooks/hook-dedup.js";
 import { runPostReadHookAsync } from "../hooks/navigation-hooks.js";
 
 function rpcReply(payload: unknown): string {
@@ -157,6 +158,13 @@ describe("renderConventionsBlock", () => {
 });
 
 describe("runPostReadHookAsync degradation (no proxy)", () => {
+  // The static read nudge is gated once-per-session on a shared on-disk dedup
+  // file; reset it so each test starts with the session key unspent (other test
+  // files in the suite share the same .unerr/state/hook-recent.json on disk).
+  beforeEach(() => {
+    resetHookDedup();
+  });
+
   const codePayload = (file: string) =>
     JSON.stringify({
       hook_event_name: "PostToolUse",

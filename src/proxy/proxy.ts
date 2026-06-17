@@ -2751,7 +2751,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       }
     }
 
-    // ── Edit/write tools (file_edit, file_write) ──
+    // ── Edit/write tool (file_edit — one tool, edit + whole-file write modes) ──
     // The unerr-owned edit path (OWN_EDIT_TOOL.md B4). Runs in THIS process, so
     // it never needs the host agent's read-tracking gate the way the built-in
     // Edit/Write do. These are not graph queries, so they bypass
@@ -2762,13 +2762,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // (claude-settings-hooks.ts) and denies-once when callers are at risk,
     // exactly as it does for the built-in Edit. The rendered diff is written
     // out-of-band to the file log; the tool_result is a one-line confirmation.
-    if (name === "file_edit" || name === "file_write") {
-      const { fileEditTool, fileWriteTool } = await import(
-        "../tools/coding/index.js"
-      );
-      const tool = name === "file_edit" ? fileEditTool : fileWriteTool;
+    if (name === "file_edit") {
+      const { fileEditTool } = await import("../tools/coding/index.js");
       const t0 = performance.now();
-      const out = await tool.execute(args, {
+      const out = await fileEditTool.execute(args, {
         cwd: process.cwd(),
         graph: localGraph ?? undefined,
       });
@@ -2925,7 +2922,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
     // Sprint 4: Capture edit narratives as episodic facts
     const NARRATIVE_EDIT_TOOLS = new Set([
-      "file_write",
       "write_file",
       "edit_file",
       "str_replace_editor",

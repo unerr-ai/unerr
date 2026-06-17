@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { claudeCodeAdapter } from "../hooks/adapters/claude-code.js";
 import { clineAdapter } from "../hooks/adapters/cline.js";
@@ -328,22 +331,33 @@ describe("runPromptSubmitHook", () => {
     expect(result.hookSpecificOutput.additionalContext).toBe("Use unerr tools");
   });
 
-  // T3.2 — the default prompt-submit handler must include the
-  // always-on skill catalog in its emitted additionalContext.
+  // T3.2 — the default prompt-submit handler includes the skill catalog on
+  // the first turn of a session. (Token-tax #7 gates it to once per session,
+  // keyed on the per-repo nudge-state, so this runs in a fresh tmp cwd to get
+  // a clean first-turn state rather than the repo's accumulated flags.)
   it("default handler emits the Path B 'available skills' catalog", async () => {
     const { runUserPromptSubmitHook } = await import(
       "../hooks/prompt-hooks.js"
     );
-    const stdin = JSON.stringify({
-      hook_event_name: "UserPromptSubmit",
-      user_message: "fix the failing auth tests right now",
-    });
-    const result = JSON.parse(runUserPromptSubmitHook(stdin));
-    const ctx = result.hookSpecificOutput.additionalContext ?? "";
-    expect(ctx).toContain("available skills");
-    // Post-27→7 consolidation: bug verbs route to unerr-build-and-debug.
-    expect(ctx).toContain("unerr-build-and-debug");
-    expect(ctx).toContain("using-unerr");
+    const dir = mkdtempSync(join(os.tmpdir(), "unerr-hook-runner-"));
+    mkdirSync(join(dir, ".unerr", "state"), { recursive: true });
+    const prevCwd = process.cwd();
+    process.chdir(dir);
+    try {
+      const stdin = JSON.stringify({
+        hook_event_name: "UserPromptSubmit",
+        user_message: "fix the failing auth tests right now",
+      });
+      const result = JSON.parse(runUserPromptSubmitHook(stdin));
+      const ctx = result.hookSpecificOutput.additionalContext ?? "";
+      expect(ctx).toContain("available skills");
+      // Post-27→7 consolidation: bug verbs route to unerr-build-and-debug.
+      expect(ctx).toContain("unerr-build-and-debug");
+      expect(ctx).toContain("using-unerr");
+    } finally {
+      process.chdir(prevCwd);
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   // T3.1 — Path A routes the matched cluster to a named skill in the

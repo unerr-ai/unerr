@@ -27,6 +27,10 @@ import {
   recordUserPromptReceived,
 } from "./prompt-capture.js";
 import { queryRecallNotes, renderRecallBlock } from "./recall-client.js";
+import {
+  DEFAULT_RECALL_MAX,
+  selectLoadBearing,
+} from "../intelligence/note-ranking.js";
 import { captureUserRule, detectUserRule } from "./remember-client.js";
 
 // ── Path A: keyword fast path — verb clusters → named sub-skills ─────────────
@@ -668,27 +672,53 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   const actBlock =
     cappedActLines.length > 0 ? `${cappedActLines.join("\n")}\n` : "";
 
-  // Path B — always-on skill catalog block.
-  const catalogBlock = buildSkillCatalog();
+  // Path B — static tool-roster + skill catalog. Both duplicate the cached
+  // CLAUDE.md tool-routing section and the installed `.claude/skills/` menu, so
+  // re-injecting them on every turn is pure uncacheable re-bill (token-tax #7).
+  // Emit once per session (first enrich turn); later turns rely on the cached
+  // instruction file + the per-turn Path A skill-dispatch line. The
+  // prompt-specific signal (stitch, ur|act four-moment lines, topic-shift, and
+  // the recall block the async handler prepends) still rides every turn.
+  let staticEmitted = false;
+  try {
+    staticEmitted = readNudgeState(process.cwd()).static_boilerplate_emitted;
+  } catch {
+    // State unavailable — treat as not-yet-emitted (fail toward emitting once).
+  }
 
-  // Code-task split decides only the tool-roster phrasing.
+  // W6 — trivial-turn floor: defer the once-per-session roster until the first
+  // CODE turn. A trivial/non-code prompt (a question, a chat aside) gets none of
+  // the static boilerplate, so its injection footprint approaches the fixed
+  // floor (§8). The roster still fires exactly once — on the first code turn —
+  // and the cached instruction file already carries the same routing meanwhile.
   const isCodeTask = isCodeContext(message);
-
-  const toolRoster = isCodeTask
-    ? "[unerr] Prefer unerr MCP tools for code work (faster, graph-backed, project-aware): " +
+  let staticTail = "";
+  if (!staticEmitted && isCodeTask) {
+    // Reached only on a code turn (gated above), so the roster is always the
+    // code-work phrasing.
+    const toolRoster =
+      "[unerr] Prefer unerr MCP tools for code work (faster, graph-backed, project-aware): " +
       "`search_code` (NOT grep/glob) · `get_references` (NOT grep for fn names) · " +
-      "`file_read` (NOT built-in Read for understanding) · `file_edit`/`file_write` to change files (no built-in Read needed) · " +
+      "`file_read` (NOT built-in Read for understanding) · `file_edit` to change files — old_string+new_string to edit, or content for a whole file (no built-in Read needed) · " +
       "`file_outline` · `search_code({detail:true})` for one symbol's profile. " +
       "Mark progress with zero round-trip — emit `unerr-save: intent|decision|blocker|resolution <one-line>` " +
-      "in your closing message; the Stop hook persists them to the cross-session timeline."
-    : "[unerr] Prefer unerr MCP tools (graph-backed, <5ms): " +
-      "`search_code` · `get_references` · `file_read` · `file_outline`. " +
-      "Mark progress by emitting `unerr-save: <intent|decision|blocker|resolution> <one-line>` in your " +
-      "closing message — the Stop hook keeps the timeline coherent across sessions.";
+      "in your closing message; the Stop hook persists them to the cross-session timeline.";
+    staticTail = `${toolRoster}\n\n${buildSkillCatalog()}`;
+    try {
+      updateNudgeState(process.cwd(), (s) => {
+        s.static_boilerplate_emitted = true;
+      });
+    } catch {
+      // Best-effort — a missed write just re-emits next turn (still correct).
+    }
+  }
 
-  return enrich(
-    `${stitchPrefix}${actBlock}${shiftPrefix}${toolRoster}\n\n${catalogBlock}`
-  );
+  const body = `${stitchPrefix}${actBlock}${shiftPrefix}${staticTail}`;
+  // Nothing prompt-specific to inject (all one-shots spent, no recall/drift/
+  // stitch, static boilerplate already emitted) → stay passthrough rather than
+  // emit an empty additionalContext.
+  if (body.trim().length === 0) return passthrough();
+  return enrich(body);
 };
 
 /**
@@ -746,7 +776,17 @@ const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
       capturePromise,
     ]);
     if (notes && notes.length > 0) {
-      const block = renderRecallBlock(notes);
+      // W2/W5 — inject only the load-bearing top slice per turn, not every
+      // matched note. The proxy returns all anchored-note matches; re-injecting
+      // the full set each turn re-bills uncacheable tokens for notes the turn
+      // won't act on. Rank by load-bearing score (kind/anchor/polarity/prompt
+      // overlap) and keep DEFAULT_RECALL_MAX; the rest stay reachable via
+      // unerr_context, which the moment-1 line already points the agent to.
+      const topNotes = selectLoadBearing(notes, {
+        prompt: message,
+        max: DEFAULT_RECALL_MAX,
+      });
+      const block = renderRecallBlock(topNotes);
       if (block) {
         // T7.7 — the injected block IS Moment 1. Drop the STEP-0 recall nudge
         // from the assembled output so the agent isn't told to re-fetch what it

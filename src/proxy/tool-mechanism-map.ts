@@ -66,13 +66,13 @@ export interface MechanismEntry {
  * survivors (the Phase-2 migration is complete; the removed names are no
  * longer catalog members, so the drift guard would reject a verdict for them).
  *
- * Survivors (mechanism "mcp", 8) are the interactive reads/edits the model
+ * Survivors (mechanism "mcp", 7) are the interactive reads/edits the model
  * drives:
  *   unerr_context, search_code, file_read, file_outline,
- *   get_references, fetch_url, file_edit, file_write.
- * file_edit / file_write are interactive: the model needs the apply result
- * (replaced count / staleness reject / written bytes) back this turn to decide
- * its next move, so they are MCP, not hooks.
+ *   get_references, fetch_url, file_edit.
+ * file_edit is interactive: the model needs the apply result (replaced count /
+ * staleness reject / written bytes) back this turn to decide its next move, so
+ * it is MCP, not a hook.
  * The one advertised write-via-marker (unerr_track) is mechanism "hook" — it
  * rides lifecycle hooks for hook-capable agents and stays advertised as the MCP
  * escape for hook-less ones.
@@ -118,12 +118,7 @@ export const TOOL_MECHANISM: Readonly<Record<string, MechanismEntry>> = {
   file_edit: {
     mechanism: "mcp",
     rationale:
-      "unerr-owned exact-string edit; model needs the apply result back this turn (replaced count, or a staleness/blast-radius reject) to decide its next move.",
-  },
-  file_write: {
-    mechanism: "mcp",
-    rationale:
-      "unerr-owned whole-file create/overwrite; model needs the written-bytes result back this turn to confirm the effect before proceeding.",
+      "unerr-owned change path (exact-string edit OR whole-file write); model needs the apply result back this turn (replaced count / written bytes, or a staleness/blast-radius reject) to decide its next move.",
   },
 
   // ── Writes → hooks (fire-and-forget; needed next turn, not this one) ─────

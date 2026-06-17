@@ -88,18 +88,25 @@ function buildMatcherHooks(): {
     { event: "PreToolUse", matcher: "Read", command: `${bin} hook pre-read` },
     { event: "PreToolUse", matcher: "Grep", command: `${bin} hook pre-grep` },
     { event: "PreToolUse", matcher: "Glob", command: `${bin} hook pre-glob` },
-    // PreToolUse — blast radius + convention validation for writes. The matcher
-    // alternation also catches unerr's own MCP edit tools (tool name
-    // `mcp__unerr__file_edit` / `…file_write`), so the signature / blast-radius
-    // gate fires for them exactly as it does for the built-in Edit/Write.
+    // PreToolUse — blast radius + convention validation for writes. unerr's own
+    // edit path is the single MCP tool `mcp__unerr__file_edit` (it does both
+    // targeted edits AND whole-file writes), so the Edit matcher catches it and
+    // routes it through the strong graph-backed pre-edit gate — including its
+    // whole-file write mode. The built-in Write keeps its own pre-write nudge.
+    // Claude Code matcher rule: a matcher containing only [A-Za-z0-9_|] is an
+    // EXACT-string match per `|`-alternative (NOT a substring/regex match). So
+    // the alternative must be the FULL MCP tool name `mcp__unerr__file_edit`
+    // (the server is always registered as "unerr") — a bare `file_edit` would
+    // exact-match a tool literally named "file_edit", which never exists, and
+    // silently never fire.
     {
       event: "PreToolUse",
-      matcher: "Write|file_write",
+      matcher: "Write",
       command: `${bin} hook pre-write`,
     },
     {
       event: "PreToolUse",
-      matcher: "Edit|file_edit",
+      matcher: "Edit|mcp__unerr__file_edit",
       command: `${bin} hook pre-edit`,
     },
     // PreToolUse — redirect built-in WebFetch to fetch_url (DOM-extracted,
@@ -113,14 +120,22 @@ function buildMatcherHooks(): {
     { event: "PostToolUse", matcher: "Read", command: `${bin} hook post-read` },
     { event: "PostToolUse", matcher: "Grep", command: `${bin} hook post-grep` },
     { event: "PostToolUse", matcher: "Glob", command: `${bin} hook post-glob` },
+    // PostToolUse — after a web search returns result URLs, nudge one bulk
+    // fetch_url({urls:[...]}) to read them all in a single roundtrip instead of
+    // one fetch_url per page. Additive enrich only; WebSearch is never denied.
     {
       event: "PostToolUse",
-      matcher: "Write|file_write",
+      matcher: "WebSearch",
+      command: `${bin} hook post-websearch`,
+    },
+    {
+      event: "PostToolUse",
+      matcher: "Write",
       command: `${bin} hook post-write`,
     },
     {
       event: "PostToolUse",
-      matcher: "Edit|file_edit",
+      matcher: "Edit|mcp__unerr__file_edit",
       command: `${bin} hook post-edit`,
     },
     // SessionStart — emits resume strip on session boot. Matcher alternation

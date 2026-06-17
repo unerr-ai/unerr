@@ -300,16 +300,38 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     return parsed.hookSpecificOutput?.additionalContext ?? "";
   }
 
-  it("includes the skill catalog in every emission", () => {
-    const stdin = JSON.stringify({
-      hook_event_name: "UserPromptSubmit",
-      user_message: "just a quick general question about how this works",
-    });
-    const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("available skills");
+  it("emits the skill catalog on the first CODE turn, then gates it once per session", () => {
+    const mk = (msg: string) =>
+      JSON.stringify({ hook_event_name: "UserPromptSubmit", user_message: msg });
+
+    // W6 floor: a trivial / non-code prompt does NOT spend the once-per-session
+    // boilerplate. Its injection stays near the fixed floor (§8).
+    const trivial = readContext(
+      runUserPromptSubmitHook(
+        mk("just a quick general question about how this works")
+      )
+    );
+    expect(trivial).not.toContain("available skills");
+    expect(trivial).not.toContain("[unerr] Prefer unerr MCP tools");
+
+    // First CODE turn: static boilerplate (tool roster + skill catalog) present —
+    // the roster was deferred from the trivial turn above, not skipped.
+    const first = readContext(
+      runUserPromptSubmitHook(mk("refactor the proxy boot sequence to add a retry"))
+    );
+    expect(first).toContain("available skills");
     // Post-27→7: bug verbs route to unerr-build-and-debug; master is unchanged.
-    expect(ctx).toContain("unerr-build-and-debug");
-    expect(ctx).toContain("unerr-using-unerr");
+    expect(first).toContain("unerr-build-and-debug");
+    expect(first).toContain("unerr-using-unerr");
+
+    // Token-tax #7: the catalog + roster duplicate the cached CLAUDE.md +
+    // installed skills, so they emit once per session. A later code turn (same
+    // cwd → same nudge-state) must NOT re-inject them.
+    const second = readContext(
+      runUserPromptSubmitHook(mk("fix the bind retry in the boot sequence"))
+    );
+    expect(second).not.toContain("available skills");
+    expect(second).not.toContain("[unerr] Prefer unerr MCP tools");
   });
 
   it("Path A fires for 'replace X with Y' and routes to safe-modification", () => {

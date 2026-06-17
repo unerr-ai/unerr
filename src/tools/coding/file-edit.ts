@@ -1,5 +1,11 @@
 /**
- * FileEdit Tool — exact string replacement in a file, the unerr-owned edit path.
+ * FileEdit Tool — change a file, the unerr-owned edit/write path (one tool, two modes).
+ *
+ * Two mutually-exclusive modes, picked by which args are present:
+ *   - Targeted edit: old_string + new_string (+ replace_all, base_hash) — exact
+ *     string replacement, quote-tolerant, uniqueness-checked.
+ *   - Whole-file write: content — create or overwrite the entire file.
+ * Exactly one mode must be supplied; both or neither is an error.
  *
  * Unlike the host agent's built-in editor, this runs in the unerr process, so it
  * never relies on the agent's read-tracking gate (an MCP tool can't satisfy that
@@ -8,14 +14,23 @@
  * checks, encoding + line-ending preservation, and an optional content-hash
  * staleness guard.
  *
- * The rendered diff is written out-of-band to the file log (never the
+ * The rendered diff (edit mode) is written out-of-band to the file log (never the
  * tool_result): a diff in the result would re-bill on every later cached turn
- * and can erase the round-trip saving. The model gets a one-line confirmation.
+ * and can erase the round-trip saving. The model gets a one-line confirmation
+ * (with added/removed line counts) plus a `ur|act` line telling it to echo the
+ * change in its REPLY, mirroring the host's edit card: file path, then the change
+ * summary, then a -/+ diff. The host collapses the tool card, so the model's
+ * prose is the only surface where the user actually sees what changed. The echo
+ * costs ~0 extra tokens: the model already holds old_string/new_string from the
+ * call it just made.
  *
  * @sem domain=utilities role=tool
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { renderInlineBlastRadius } from "../../intelligence/edit-impact.js";
+import { handleBlastRadiusRequest } from "../../proxy/blast-radius-protocol.js";
 import { resolveWithHome } from "../../utils/expand-home.js";
 import { initFileLog, startupLog } from "../../utils/startup-log.js";
 import type { Tool, ToolContext, ToolOutput } from "../types.js";
@@ -32,6 +47,14 @@ import {
 
 let _logInit = false;
 
+// Appended to every successful result. The host collapses the tool card, so the
+// model's REPLY is the only surface the user sees — these tell it to echo the
+// change there. Double-quoted (not template) so the ```diff fence needs no escaping.
+const EDIT_ECHO_HINT =
+  "ur|act show the user the change in your reply, mirroring the host's edit card: line 1 = the file path relative to the project root, line 2 = the change summary from this result (the added/removed line counts), then the edited lines as a fenced ```diff block (- old_string / + new_string, the strings you just sent) — the tool card is collapsed, so your reply is the only place the user sees which file changed and how.";
+const WRITE_ECHO_HINT =
+  "ur|act show the user the change in your reply, mirroring the host's edit card: line 1 = the file path relative to the project root, line 2 = the change summary from this result (the added/removed line counts), then the key written lines as a fenced ```diff block (+ lines), or a 1-2 line summary if the file is large — the tool card is collapsed, so your reply is the only place the user sees which file changed and how.";
+
 /** Write the rendered diff to the file log only — never to stdout or the result. */
 function emitDiffOutOfBand(cwd: string, diff: string): void {
   if (process.env.VITEST) return;
@@ -46,33 +69,180 @@ function emitDiffOutOfBand(cwd: string, diff: string): void {
   }
 }
 
+/**
+ * Whole-file create/overwrite (content mode). Preserves an existing file's
+ * encoding + line ending; a new file gets UTF-8 / LF. Parent dirs are created.
+ */
+function writeWholeFile(filePath: string, content: string): ToolOutput {
+  mkdirSync(dirname(filePath), { recursive: true });
+
+  let encoding: ReturnType<typeof decodeFile>["encoding"] = "utf8";
+  let hadBom = false;
+  let lineEnding: "\r\n" | "\n" = "\n";
+  const overwrite = existsSync(filePath);
+  let removed = 0;
+  if (overwrite) {
+    const prev = decodeFile(readFileSync(filePath));
+    encoding = prev.encoding;
+    hadBom = prev.hadBom;
+    lineEnding = prev.lineEnding;
+    removed = prev.text.split("\n").length;
+  }
+
+  const restored = restoreNewlines(content.replace(/\r\n/g, "\n"), lineEnding);
+  writeFileSync(filePath, encodeFile(restored, encoding, hadBom));
+
+  const lineCount = content.split("\n").length;
+  return {
+    content: `${overwrite ? "Overwrote" : "Wrote"} ${lineCount} lines to ${filePath} — added ${lineCount} line(s), removed ${removed} line(s)\n${WRITE_ECHO_HINT}`,
+    metadata: { new_hash: contentHash(content), overwrite },
+  };
+}
+
+/**
+ * Targeted exact-string replacement (old_string/new_string mode), with optional
+ * staleness guard and a quote-tolerant, uniqueness-checked match.
+ */
+function replaceInFile(
+  filePath: string,
+  oldString: string,
+  newString: string,
+  replaceAll: boolean,
+  baseHash: string | undefined,
+  cwd: string
+): ToolOutput {
+  if (!existsSync(filePath)) {
+    return { content: `File not found: ${filePath}`, isError: true };
+  }
+
+  const decoded = decodeFile(readFileSync(filePath));
+  const normContent = normalizeNewlines(decoded.text);
+
+  // Staleness guard (opt-in): reject if the file drifted since the read the
+  // agent based this edit on. Hash is over normalized content, so LF/CRLF
+  // checkouts compare equal.
+  if (baseHash !== undefined) {
+    const currentHash = contentHash(normContent);
+    if (currentHash !== baseHash) {
+      return {
+        content: editErrorHint("stale", filePath, 0),
+        isError: true,
+        metadata: { error_code: "stale", current_hash: currentHash },
+      };
+    }
+  }
+
+  const normOld = normalizeNewlines(oldString);
+  const normNew = normalizeNewlines(newString);
+  const result = performReplace(normContent, normOld, normNew, replaceAll);
+
+  if (!result.ok) {
+    return {
+      content: editErrorHint(result.code, filePath, result.count),
+      isError: true,
+      metadata: { error_code: result.code, match_count: result.count },
+    };
+  }
+
+  const restored = restoreNewlines(result.content, decoded.lineEnding);
+  writeFileSync(
+    filePath,
+    encodeFile(restored, decoded.encoding, decoded.hadBom)
+  );
+
+  emitDiffOutOfBand(
+    cwd,
+    renderEditDiff(filePath, normContent, normOld, normNew, result.indices)
+  );
+
+  // Line deltas for the reply echo (mirrors the host card's "Added N / removed M").
+  const removed = normOld.split("\n").length * result.replaced;
+  const added = normNew.split("\n").length * result.replaced;
+  const newHash = contentHash(result.content);
+  return {
+    content: `Replaced ${result.replaced} occurrence(s) in ${filePath} — added ${added} line(s), removed ${removed} line(s)\n${EDIT_ECHO_HINT}`,
+    // new_hash lets the agent chain a follow-up file_edit with no re-read;
+    // metadata is out-of-band (filtered from model context), so it never
+    // bloats the prefix.
+    metadata: {
+      replaced: result.replaced,
+      new_hash: newHash,
+      normalized_match: result.normalized,
+    },
+  };
+}
+
+/**
+ * Append the graph-confirmed inline blast-radius `ur|rsk` line to a successful
+ * targeted edit, so every agent gets the callers-at-risk for a signature change
+ * in the same response without a get_references round-trip. Never load-bearing:
+ * any failure (or no graph / no signature change / <2 callers) returns `result`
+ * unchanged, keeping zero false positives.
+ */
+async function augmentWithBlastRadius(
+  result: ToolOutput,
+  filePath: string,
+  oldString: string,
+  newString: string,
+  ctx: ToolContext
+): Promise<ToolOutput> {
+  if (result.isError || !ctx.graph) return result;
+  try {
+    const { warnings } = await handleBlastRadiusRequest(
+      ctx.graph,
+      {
+        file_path: filePath,
+        old_content: oldString,
+        new_content: newString,
+      },
+      ctx.cwd
+    );
+    const line = renderInlineBlastRadius(warnings);
+    if (!line) return result;
+    return { ...result, content: `${result.content}\n${line}` };
+  } catch {
+    /* blast-radius is never load-bearing */
+    return result;
+  }
+}
+
 export const fileEditTool: Tool = {
   name: "file_edit",
   description:
-    "Perform an exact string replacement in a file — the unerr-owned edit path, no built-in Read required first. " +
-    "old_string must be unique (add surrounding context) unless replace_all:true. " +
-    "Pass base_hash (from the file_read that you based the edit on) to reject the edit if the file changed since.",
+    "Change a file — the unerr-owned edit/write path, no built-in Read required first. " +
+    "Two modes: pass old_string + new_string for an exact replacement (unique unless replace_all:true), " +
+    "or pass content to create/overwrite the whole file. Supply exactly one mode. " +
+    "Pass base_hash (from the file_read you based the edit on) to reject the edit if the file changed since.",
   inputSchema: {
     type: "object",
     properties: {
-      file_path: { type: "string", description: "Path to the file to edit" },
+      file_path: { type: "string", description: "Path to the file to change" },
       old_string: {
         type: "string",
-        description: "The exact string to find and replace",
+        description:
+          "Edit mode: the exact string to find and replace. Must be unique (add surrounding context) unless replace_all:true.",
       },
-      new_string: { type: "string", description: "The replacement string" },
+      new_string: {
+        type: "string",
+        description: "Edit mode: the replacement string.",
+      },
       replace_all: {
         type: "boolean",
         description:
-          "Replace all occurrences instead of just the first. Default: false",
+          "Edit mode: replace all occurrences instead of just the first. Default: false",
       },
       base_hash: {
         type: "string",
         description:
-          "Optional staleness guard: the content hash from the file_read you based this edit on. The edit is rejected if the on-disk file changed since.",
+          "Edit mode staleness guard: the content hash from the file_read you based this edit on. The edit is rejected if the on-disk file changed since.",
+      },
+      content: {
+        type: "string",
+        description:
+          "Write mode: the full content of the file. Creates the file (and parent dirs) if missing, overwrites if present (preserving encoding + line ending).",
       },
     },
-    required: ["file_path", "old_string", "new_string"],
+    required: ["file_path"],
   },
   isReadOnly: false,
   requiresPermission: true,
@@ -82,72 +252,56 @@ export const fileEditTool: Tool = {
     ctx: ToolContext
   ): Promise<ToolOutput> {
     const filePath = resolveWithHome(ctx.cwd, args.file_path as string);
-    const oldString = args.old_string as string;
-    const newString = args.new_string as string;
-    const replaceAll = (args.replace_all as boolean) ?? false;
-    const baseHash =
-      typeof args.base_hash === "string" ? args.base_hash : undefined;
+    const hasContent = typeof args.content === "string";
+    const hasReplace =
+      typeof args.old_string === "string" &&
+      typeof args.new_string === "string";
 
-    if (!existsSync(filePath)) {
-      return { content: `File not found: ${filePath}`, isError: true };
+    // Exactly one mode.
+    if (hasContent && hasReplace) {
+      return {
+        content:
+          "file_edit: pass EITHER content (whole-file write) OR old_string+new_string (targeted edit), not both.",
+        isError: true,
+        metadata: { error_code: "mode_conflict" },
+      };
+    }
+    if (!hasContent && !hasReplace) {
+      return {
+        content:
+          "file_edit: provide content (whole-file write) or old_string+new_string (targeted edit).",
+        isError: true,
+        metadata: { error_code: "mode_missing" },
+      };
     }
 
     try {
-      const decoded = decodeFile(readFileSync(filePath));
-      const normContent = normalizeNewlines(decoded.text);
-
-      // Staleness guard (opt-in): reject if the file drifted since the read the
-      // agent based this edit on. Hash is over normalized content, so LF/CRLF
-      // checkouts compare equal.
-      if (baseHash !== undefined) {
-        const currentHash = contentHash(normContent);
-        if (currentHash !== baseHash) {
-          return {
-            content: editErrorHint("stale", filePath, 0),
-            isError: true,
-            metadata: { error_code: "stale", current_hash: currentHash },
-          };
-        }
+      if (hasContent) {
+        return writeWholeFile(filePath, args.content as string);
       }
-
-      const normOld = normalizeNewlines(oldString);
-      const normNew = normalizeNewlines(newString);
-      const result = performReplace(normContent, normOld, normNew, replaceAll);
-
-      if (!result.ok) {
-        return {
-          content: editErrorHint(result.code, filePath, result.count),
-          isError: true,
-          metadata: { error_code: result.code, match_count: result.count },
-        };
-      }
-
-      const restored = restoreNewlines(result.content, decoded.lineEnding);
-      writeFileSync(
+      const replaceAll = (args.replace_all as boolean) ?? false;
+      const baseHash =
+        typeof args.base_hash === "string" ? args.base_hash : undefined;
+      const oldString = args.old_string as string;
+      const newString = args.new_string as string;
+      const editResult = replaceInFile(
         filePath,
-        encodeFile(restored, decoded.encoding, decoded.hadBom)
+        oldString,
+        newString,
+        replaceAll,
+        baseHash,
+        ctx.cwd
       );
-
-      emitDiffOutOfBand(
-        ctx.cwd,
-        renderEditDiff(filePath, normContent, normOld, normNew, result.indices)
+      return augmentWithBlastRadius(
+        editResult,
+        filePath,
+        oldString,
+        newString,
+        ctx
       );
-
-      const newHash = contentHash(result.content);
-      return {
-        content: `Replaced ${result.replaced} occurrence(s) in ${filePath}`,
-        // new_hash lets the agent chain a follow-up file_edit with no re-read;
-        // metadata is out-of-band (filtered from model context), so it never
-        // bloats the prefix.
-        metadata: {
-          replaced: result.replaced,
-          new_hash: newHash,
-          normalized_match: result.normalized,
-        },
-      };
     } catch (err) {
       return {
-        content: `Error editing file: ${err instanceof Error ? err.message : String(err)}`,
+        content: `Error changing file: ${err instanceof Error ? err.message : String(err)}`,
         isError: true,
       };
     }

@@ -8,12 +8,31 @@
  * @sem domain=benchmark role=driver
  */
 import { execFileSync } from "node:child_process";
-import { armUsesUnerr, type ArmId } from "./types.js";
+import { type ArmId, armUsesUnerr } from "./types.js";
+
+/**
+ * Forces the headless agent to run the turn autonomously. A `claude -p` run has
+ * no human to answer, so a task that's even slightly under-specified would make
+ * the agent STOP and ask — which hangs an unattended benchmark forever. This is
+ * the same guard the in-agent demo tape uses (demo/unerr-cascade-demo.tape):
+ * no clarifying questions, no option menus, no plan-mode pause, no confirm step.
+ * Applied to BOTH arms so it never becomes a hidden variable between them.
+ */
+const AUTONOMOUS_SYSTEM_PROMPT =
+  "You are running in an unattended benchmark with no human available to " +
+  "answer. Execute the task end to end autonomously. Never ask clarifying " +
+  "questions. Never present options for the user to choose. Never call " +
+  "AskUserQuestion. Never stop to confirm or seek approval. Never enter plan " +
+  "mode. Pick the most reasonable interpretation and implement it directly, " +
+  "including updating every caller.";
 
 /** Knobs for the headless agent invocation. */
 export interface DriverOptions {
-  /** Permission mode passed to `claude -p`. Unattended runs need a mode that
-   * does not prompt (e.g. `acceptEdits`, or `bypassPermissions`). */
+  /** Permission posture for `claude -p`. Unattended runs must never prompt.
+   * `bypassPermissions` maps to `--dangerously-skip-permissions` (clears EVERY
+   * prompt, including MCP tool calls); any other value is passed through as
+   * `--permission-mode <value>`. `acceptEdits` is NOT enough for the unerr arm:
+   * it auto-approves file edits but still blocks `mcp__unerr__*` tool calls. */
   permissionMode: string;
   /** Optional model snapshot to pin (freezes one variable across arms). */
   model?: string;
@@ -25,8 +44,14 @@ export interface DriverOptions {
 
 /** Parsed result of one headless agent run. */
 export interface DriverResult {
-  /** Total input tokens billed = prompt + cache-create + cache-read. */
+  /** Total input tokens billed = fresh + cache-create + cache-read. */
   inputTokens: number;
+  /** Fresh (uncached) prompt input tokens — billed at the 1× input rate. */
+  freshInputTokens: number;
+  /** Cache-write tokens — the prefix written into the cache (1.25× input rate). */
+  cacheCreateTokens: number;
+  /** Cache-read tokens — the prefix served from cache (0.1× input rate). */
+  cacheReadTokens: number;
   outputTokens: number;
   turns: number;
   costUsd: number;
@@ -63,14 +88,19 @@ export function buildClaudeArgs(
   arm: ArmId,
   opts: DriverOptions
 ): string[] {
-  const args = [
-    "-p",
-    prompt,
-    "--output-format",
-    "json",
-    "--permission-mode",
-    opts.permissionMode,
-  ];
+  const args = ["-p", prompt, "--output-format", "json"];
+  // Keep the unattended run from stalling on a clarifying question / plan-mode
+  // pause. Same autonomy guard the demo tape uses; applied to both arms.
+  args.push("--append-system-prompt", AUTONOMOUS_SYSTEM_PROMPT);
+  if (opts.permissionMode === "bypassPermissions") {
+    // MCP tool calls (mcp__unerr__*) are NOT auto-approved by acceptEdits, so
+    // the unerr arm could not call a single unerr tool under it. This flag
+    // clears every prompt for the unattended run; both arms use it so unerr's
+    // presence stays the only variable.
+    args.push("--dangerously-skip-permissions");
+  } else {
+    args.push("--permission-mode", opts.permissionMode);
+  }
   if (opts.model) {
     args.push("--model", opts.model);
   }
@@ -99,9 +129,13 @@ export function totalInputTokens(usage: ClaudeUsage | undefined): number {
 /** Parse the JSON Claude Code prints in `--output-format json` mode. */
 export function parseClaudeJson(stdout: string): DriverResult {
   const parsed = JSON.parse(stdout) as ClaudeJsonResult;
+  const usage = parsed.usage;
   return {
-    inputTokens: totalInputTokens(parsed.usage),
-    outputTokens: parsed.usage?.output_tokens ?? 0,
+    inputTokens: totalInputTokens(usage),
+    freshInputTokens: usage?.input_tokens ?? 0,
+    cacheCreateTokens: usage?.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
+    outputTokens: usage?.output_tokens ?? 0,
     turns: parsed.num_turns ?? 0,
     costUsd: parsed.total_cost_usd ?? 0,
     isError: parsed.is_error === true,

@@ -78,6 +78,12 @@ export interface RunRecord extends Trajectory {
   arm: ArmId;
   taskId: string;
   dependsOn: string[];
+  /** Fresh (uncached) input tokens — 1× input rate. Sub-component of `inputTokens`. */
+  freshInputTokens: number;
+  /** Cache-write tokens — 1.25× input rate. Sub-component of `inputTokens`. */
+  cacheCreateTokens: number;
+  /** Cache-read tokens — 0.1× input rate. Sub-component of `inputTokens`. */
+  cacheReadTokens: number;
   /** Wall-clock of the agent run in ms. */
   wallMs: number;
   /** Real cost from the `claude -p` JSON `total_cost_usd` (0 on a subscription). */

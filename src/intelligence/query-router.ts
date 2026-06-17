@@ -4068,11 +4068,14 @@ export class QueryRouter {
         });
       }
       case "fetch_url": {
-        const { runFetchUrl } = await import(
+        // One entry point handles BOTH modes: single `url` and bulk `urls:[...]`.
+        // runFetchUrlRequest validates the XOR shape and routes to runFetchUrl
+        // or runFetchUrlBatch — the only place that decision lives.
+        const { runFetchUrlRequest } = await import(
           "../tools/web/fetch-url-protocol.js"
         );
-        return runFetchUrl(
-          args as unknown as Parameters<typeof runFetchUrl>[0],
+        return runFetchUrlRequest(
+          args as unknown as Parameters<typeof runFetchUrlRequest>[0],
           {
             cwd: this.projectRoot ?? process.cwd(),
           }

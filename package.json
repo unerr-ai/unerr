@@ -15,8 +15,9 @@
     ".": "./dist/cli.js"
   },
   "scripts": {
+    "postinstall": "test -d vendor/contracts/src && NODE_AUTH_TOKEN=${NODE_AUTH_TOKEN:-} pnpm -C vendor/contracts install --ignore-workspace --prefer-offline && NODE_AUTH_TOKEN=${NODE_AUTH_TOKEN:-} pnpm -C vendor/contracts build || true",
     "build": "pnpm run build:contracts && pnpm run build:ui && pnpm run build:cli",
-    "build:contracts": "pnpm -C vendor/contracts install --ignore-workspace --prefer-offline && pnpm -C vendor/contracts build",
+    "build:contracts": "NODE_AUTH_TOKEN=${NODE_AUTH_TOKEN:-} pnpm -C vendor/contracts install --ignore-workspace --prefer-offline && NODE_AUTH_TOKEN=${NODE_AUTH_TOKEN:-} pnpm -C vendor/contracts build",
     "build:cli": "tsup src/entrypoints/cli.ts --format esm --target node20 --dts --no-splitting --external cozo-node --external better-sqlite3",
     "dev": "tsx watch src/entrypoints/cli.ts",
     "test": "vitest",

@@ -14,8 +14,8 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  buildClaudeArgs,
   type DriverOptions,
+  buildClaudeArgs,
   parseClaudeJson,
   totalInputTokens,
 } from "./claude-driver.js";
@@ -26,13 +26,15 @@ import {
 import {
   buildReport,
   findGuardrailSaves,
+  renderReport,
   scoreCarryOver,
+  sumTokens,
 } from "./score.js";
 import {
   type ArmId,
-  emptyPlatform,
   type PlatformEvents,
   type RunRecord,
+  emptyPlatform,
 } from "./types.js";
 
 const DRIVER: DriverOptions = {
@@ -59,6 +61,9 @@ function record(
     dependsOn: [],
     resolved: false,
     inputTokens: 1000,
+    freshInputTokens: 200,
+    cacheCreateTokens: 300,
+    cacheReadTokens: 500,
     outputTokens: 100,
     turns: 5,
     wallMs: 1000,
@@ -96,6 +101,26 @@ describe("claude-driver arg wiring", () => {
     expect(args).toContain("--output-format");
     expect(args[args.indexOf("--output-format") + 1]).toBe("json");
     expect(args[args.indexOf("--permission-mode") + 1]).toBe("acceptEdits");
+  });
+
+  it("maps bypassPermissions to --dangerously-skip-permissions (MCP tools need it)", () => {
+    const args = buildClaudeArgs("fix bug", "unerr", {
+      ...DRIVER,
+      permissionMode: "bypassPermissions",
+    });
+    expect(args).toContain("--dangerously-skip-permissions");
+    // Mutually exclusive with --permission-mode — never emit both.
+    expect(args).not.toContain("--permission-mode");
+  });
+
+  it("appends the autonomy system prompt for both arms (unattended-safe)", () => {
+    for (const arm of ["baseline", "unerr"] as const) {
+      const args = buildClaudeArgs("fix bug", arm, DRIVER);
+      const i = args.indexOf("--append-system-prompt");
+      expect(i).toBeGreaterThanOrEqual(0);
+      expect(args[i + 1]).toMatch(/Never ask clarifying questions/);
+      expect(args[i + 1]).toMatch(/Never enter plan mode/);
+    }
   });
 
   it("adds optional model + max-turns when set", () => {
@@ -138,12 +163,67 @@ describe("claude-driver JSON parsing", () => {
     );
     expect(out).toEqual({
       inputTokens: 100,
+      freshInputTokens: 10,
+      cacheCreateTokens: 0,
+      cacheReadTokens: 90,
       outputTokens: 33,
       turns: 7,
       costUsd: 0.42,
       isError: false,
       resultText: "done",
     });
+  });
+});
+
+describe("token breakdown", () => {
+  it("sums each bucket and weights units by the rate ratios", () => {
+    const runs: RunRecord[] = [
+      record("unerr", "t1", {
+        freshInputTokens: 100,
+        cacheCreateTokens: 200,
+        cacheReadTokens: 1000,
+        outputTokens: 50,
+      }),
+      record("unerr", "t2", {
+        freshInputTokens: 50,
+        cacheCreateTokens: 0,
+        cacheReadTokens: 500,
+        outputTokens: 10,
+      }),
+    ];
+    const b = sumTokens(runs);
+    expect(b.freshInput).toBe(150);
+    expect(b.cacheCreate).toBe(200);
+    expect(b.cacheRead).toBe(1500);
+    expect(b.output).toBe(60);
+    // plain count = 150 + 200 + 1500 + 60
+    expect(b.total).toBe(1910);
+    // weighted = 150·1 + 200·1.25 + 1500·0.1 + 60·5 = 150 + 250 + 150 + 300
+    expect(b.weightedUnits).toBe(850);
+  });
+
+  it("renders a per-bucket table with a baseline→unerr reduction column", () => {
+    const runs: RunRecord[] = [
+      record("baseline", "t1", {
+        freshInputTokens: 1000,
+        cacheCreateTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 100,
+      }),
+      record("unerr", "t1", {
+        freshInputTokens: 400,
+        cacheCreateTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 60,
+      }),
+    ];
+    const md = renderReport(buildReport(runs));
+    expect(md).toContain("Token usage — full breakdown");
+    expect(md).toContain("Fresh input (1×)");
+    expect(md).toContain("Cache read (0.1×)");
+    expect(md).toContain("**Total tokens**");
+    // fresh: 1000 → 400 is a 60% reduction
+    expect(md).toContain("60.0%");
   });
 });
 
@@ -161,7 +241,9 @@ describe("metrics-reader", () => {
        CREATE TABLE token_flow_events (ts INTEGER, tokens_saved INTEGER);
        CREATE TABLE compression_events (ts INTEGER, saved_pct REAL);`
     );
-    const bi = db.prepare("INSERT INTO behavior_events (ts, type) VALUES (?, ?)");
+    const bi = db.prepare(
+      "INSERT INTO behavior_events (ts, type) VALUES (?, ?)"
+    );
     for (const r of rows.behavior ?? []) bi.run(r.ts, r.type);
     const fi = db.prepare(
       "INSERT INTO token_flow_events (ts, tokens_saved) VALUES (?, ?)"

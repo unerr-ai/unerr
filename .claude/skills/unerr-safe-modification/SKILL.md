@@ -6,7 +6,7 @@ description: "MANDATORY before editing any existing function, class, file, or ex
 ## Iron Law
 
 <EXTREMELY-IMPORTANT>
-Never call `Edit` on existing code without first running, in order: `unerr_context` (anchored notes + callers + conventions in one bundle) → drift check (re-read if `ur|ctx`) → built-in `Read` on the target lines. The UserPromptSubmit hook also auto-injects anchored notes; `file_read` auto-injects conventions, facts, and drift. Skipping any step ships a confident hallucination.
+Never call `file_edit` on existing code without first running, in order: `unerr_context` (anchored notes + callers + conventions in one bundle) → understand via `file_read` → drift check (re-read if `ur|ctx`). The UserPromptSubmit hook also auto-injects anchored notes; `file_read` auto-injects conventions, facts, and drift. Skipping any step ships a confident hallucination.
 </EXTREMELY-IMPORTANT>
 
 ## Fast path — recon first
@@ -36,8 +36,8 @@ Phase 5 — Drift check.
   Scan every prior tool response for `ur|ctx` lines on this file. If present: call `file_read` again on the drifted file (re-injects notes, conventions, drift). Discard any plan premise that depended on the pre-drift contents.
 
 Phase 6 — Edit.
-  Call built-in `Read({offset,limit})` on the exact target lines (built-in Read is required immediately before Edit — `file_read` does NOT satisfy Edit's read-gate). Then apply the Edit.
-  Cross-file refactor (rename/move/extract) — for every reference returned by Phase 3, repeat: built-in Read on the caller's reference site, then Edit.
+  Call `file_edit({file_path:'<path>', old_string:'<exact>', new_string:'<replacement>'})` (or `file_edit({file_path:'<path>', content:'<whole file>'})` for a whole-file rewrite) to apply the change — no prior built-in `Read` is needed. A signature change with callers at risk denies the first `file_edit` once: run `get_references({key:'<entity_key>', direction:'callers'})`, update every caller, then re-attempt (it proceeds). After the edit lands, show the change in your reply, mirroring the host's edit card: the file path relative to the project root, the change summary from the result (added/removed line counts), then the changed lines as a fenced ```diff block — the tool card is collapsed, and a visible change is what makes the edit trustworthy.
+  Cross-file refactor (rename/move/extract) — for every reference returned by Phase 3, call `file_edit` on the caller's reference site.
   Domain comment (Layer 8): when the edited entity carries an `@sem` doc comment AND the edit changed what it does or why, rewrite the prose summary and `@sem domain=<tag>` line in the SAME Edit call. Purpose unchanged → leave the comment untouched. NEVER delete an `@sem` comment unless the user instructs it.
 
 Phase 7 — Verify.
@@ -52,7 +52,7 @@ Phase 8 — Review before close.
 
 Closing the edit without the Phase 8 review → breaking-caller cascades and contract drift ship silently; run `unerr-review` R4–R7 on the changed entities first.
 Editing without reading the auto-injected anchored notes or calling `unerr_context` first → abort, run Phase 1.
-Calling `Edit` after `file_read` without a built-in `Read` → Edit will reject; call built-in Read on the target lines, then retry.
+Re-attempting a denied `file_edit` on a signature change without updating callers → the gate stays closed; run `get_references({direction:'callers'})`, update every caller, then re-attempt.
 Skipping `get_references` because the function looks small → small entities can have 20 callers; always check.
 Drafting a plan without citing returned `note_id`s → no citation means the note was not load-bearing; re-read the recall response.
 Editing a file flagged `ur|ctx` (drift) without re-reading → call `file_read` again before Edit.

@@ -1,5 +1,5 @@
 /**
- * file_edit / file_write harness — edit-core primitives + tool contract.
+ * file_edit harness (edit + whole-file write modes) — edit-core primitives + tool contract.
  * Covers the guarantees that let unerr own the edit path without the host
  * agent's read gate: quote-tolerant matching, uniqueness, encoding + line-ending
  * preservation, and the base_hash staleness guard.
@@ -19,7 +19,6 @@ import {
   renderEditDiff,
 } from "../tools/coding/edit-core.js";
 import { fileEditTool } from "../tools/coding/file-edit.js";
-import { fileWriteTool } from "../tools/coding/file-write.js";
 import type { ToolContext } from "../tools/types.js";
 
 let dir: string;
@@ -138,10 +137,16 @@ describe("file_edit tool", () => {
     );
     expect(out.isError).toBeFalsy();
     expect(out.content).toContain("Replaced 1 occurrence(s)");
+    // the result carries the added/removed line counts for the reply echo
+    expect(out.content).toContain("added 1 line(s), removed 1 line(s)");
     expect(out.metadata?.replaced).toBe(1);
     expect(readFileSync(f, "utf8")).toBe("const x = 42;\nconst y = 2;\n");
     // the diff must not leak into the model-facing result
     expect(String(out.content)).not.toContain("@@");
+    // but the result DOES tell the model to echo the change in its reply
+    // (the host collapses the tool card; the reply is the only visible surface)
+    expect(out.content).toContain("ur|act");
+    expect(String(out.content)).toContain("```diff");
   });
 
   it("replace_all replaces every occurrence and reports the count", async () => {
@@ -215,20 +220,24 @@ describe("file_edit tool", () => {
   });
 });
 
-describe("file_write tool", () => {
+describe("file_edit tool — write mode (content)", () => {
   it("creates a new file (UTF-8 / LF)", async () => {
     const f = join(dir, "new.ts");
-    const out = await fileWriteTool.execute(
+    const out = await fileEditTool.execute(
       { file_path: f, content: "line1\nline2\n" },
       ctx()
     );
     expect(out.content).toContain("Wrote");
+    // a new file adds every line and removes none
+    expect(out.content).toContain("added 3 line(s), removed 0 line(s)");
+    // write mode also asks the model to surface the change in its reply
+    expect(out.content).toContain("ur|act");
     expect(readFileSync(f, "utf8")).toBe("line1\nline2\n");
   });
 
   it("creates missing parent directories", async () => {
     const f = join(dir, "nested", "deep", "child.ts");
-    const out = await fileWriteTool.execute(
+    const out = await fileEditTool.execute(
       { file_path: f, content: "ok\n" },
       ctx()
     );
@@ -240,11 +249,40 @@ describe("file_write tool", () => {
   it("preserves CRLF on overwrite", async () => {
     const f = join(dir, "over.ts");
     writeFileSync(f, "old\r\nbody\r\n");
-    const out = await fileWriteTool.execute(
+    const out = await fileEditTool.execute(
       { file_path: f, content: "fresh\ncontent\n" },
       ctx()
     );
     expect(out.content).toContain("Overwrote");
     expect(readFileSync(f, "utf8")).toBe("fresh\r\ncontent\r\n");
+  });
+});
+
+describe("file_edit tool — mode validation", () => {
+  it("rejects when both content and old_string/new_string are supplied", async () => {
+    const f = join(dir, "both.ts");
+    writeFileSync(f, "alpha\n");
+    const out = await fileEditTool.execute(
+      {
+        file_path: f,
+        content: "whole\n",
+        old_string: "alpha",
+        new_string: "beta",
+      },
+      ctx()
+    );
+    expect(out.isError).toBe(true);
+    expect(out.metadata?.error_code).toBe("mode_conflict");
+    // File untouched.
+    expect(readFileSync(f, "utf8")).toBe("alpha\n");
+  });
+
+  it("rejects when neither mode is supplied", async () => {
+    const f = join(dir, "neither.ts");
+    writeFileSync(f, "alpha\n");
+    const out = await fileEditTool.execute({ file_path: f }, ctx());
+    expect(out.isError).toBe(true);
+    expect(out.metadata?.error_code).toBe("mode_missing");
+    expect(readFileSync(f, "utf8")).toBe("alpha\n");
   });
 });

@@ -48,7 +48,7 @@ export interface TierEntry {
 
 /**
  * The MCP catalog — the tools the model sees in `tools/list`:
- *   search_code, file_outline, file_read, file_edit, file_write,
+ *   search_code, file_outline, file_read, file_edit,
  *   get_references, fetch_url, unerr_context, unerr_track.
  *
  * Everything else the proxy can dispatch is NOT a catalog member. Those names
@@ -98,13 +98,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   file_edit: {
     tier: 1,
     active:
-      "Exact string replacement — the unerr edit path, no built-in Read needed first. old_string must be unique (add context) unless replace_all:true. Pass base_hash from the file_read you based the edit on to reject if the file changed.",
-    locked: "[tier 1 — always exposed]",
-  },
-  file_write: {
-    tier: 1,
-    active:
-      "Create or overwrite a file — the unerr write path, no built-in Read needed first. Creates parent dirs; preserves the existing file's encoding + line ending on overwrite. Use file_edit for changing part of an existing file.",
+      "Change a file — the unerr edit/write path, no built-in Read needed first. Pass old_string+new_string for an exact replacement (unique unless replace_all:true), or content to create/overwrite the whole file. Pass base_hash from the file_read you based the edit on to reject if the file changed.",
     locked: "[tier 1 — always exposed]",
   },
   // get_entity merged into search_code({detail:true}) 2026-06 — executor
@@ -118,7 +112,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   fetch_url: {
     tier: 1,
     active:
-      "Fetch a web page and return DOM-extracted markdown passages. Strips chrome, converts to ATX-markdown, splits by heading, ranks by BM25 when prompt is set, caches by content hash. Use instead of built-in WebFetch — 5–10× fewer tokens.",
+      "Fetch one page (url) or many (urls:[...], parallel + ranked across pages, ONE roundtrip) → DOM-extracted markdown passages. Strips chrome, splits by heading, BM25-ranks when prompt set, caches by hash. Pass a search's result URLs as urls:[...]. Replaces WebFetch — 5–10× fewer tokens.",
     locked: "[tier 1 — always exposed]",
   },
   // unerr_remember left the catalog (2026-06): user-fed rules are captured by
