@@ -12,7 +12,6 @@ import type { BoundaryViolation } from "../intelligence/boundary-check.js";
 import { lookupCoChangePartners } from "../intelligence/cochange-index.js";
 import type { CascadeWarning } from "../intelligence/edit-impact.js";
 import { splitStableVolatile } from "../proxy/prefix-order.js";
-import { recordPrefixStability } from "../proxy/prefix-stability.js";
 import { formatReviewFindings } from "../review/format.js";
 import { recordEdit } from "../tracking/session-edit-log.js";
 import { initFileLog, startupLog } from "../utils/startup-log.js";
@@ -457,11 +456,6 @@ const postReadHandlerAsync: AsyncHookHandler = async (normalized) => {
       : []),
     ...(nudgeLine ? [{ kind: "notes", text: nudgeLine }] : []),
   ]);
-  const stableText = stable.map((b) => b.text).join("\n\n");
-  // T2.5 — record whether this turn's stable prefix is byte-identical to the
-  // prior turn's, and its size, onto compression_events. Only when a stable
-  // block was actually emitted this turn (conventions fired).
-  if (stableText) recordPrefixStability(process.cwd(), stableText);
 
   const parts = [...stable, ...volatile]
     .map((b) => b.text)

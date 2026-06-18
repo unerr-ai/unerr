@@ -6,9 +6,12 @@ import { resolveExecSessionContext } from "../tracking/session-records.js";
 
 /**
  * Prefix / KV-cache stability accounting (Sprint 2, T2.5). Records whether the
- * static injected prefix (legend, conventions) was byte-identical to the prior
- * turn and how large it was, onto the EXISTING `compression_events` stream — no
- * new event type. A drop to prefix_stable=false flags a cache-bust regression.
+ * context prefix unerr injects each coding turn (the anchored-note recall block
+ * the UserPromptSubmit hook prepends) was byte-identical to the prior turn and
+ * how large it was, onto the EXISTING `compression_events` stream — no new event
+ * type. prefix_stable=1 means the same notes were re-injected (the provider
+ * prompt cache can hold them); a drop to 0 marks a turn that re-billed
+ * uncacheable bytes. Visibility only — does not change what is injected.
  *
  * @sem domain=compression role=accounting
  */

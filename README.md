@@ -3,17 +3,17 @@
 </h1>
 
 <p align="center">
-  <strong>TypeScript for your coding agent.</strong>
+  <strong>The local runtime for your coding agents.</strong>
 </p>
 
 <p align="center">
-  TypeScript made it safe to change a big JavaScript codebase — it catches the break before it ships.<br/>
-  unerr does that for your AI agent: before it edits, it shows what the change endangers, keeps your<br/>
-  conventions in front of it, and re-anchors the rule when the code moves. You stop babysitting it.
+  Node gives your code one predictable place to run. unerr gives your coding agents one<br/>
+  predictable place to work — the live call graph, your team's rules, and edit-time guardrails,<br/>
+  in the agent's loop, on your machine, the same across every agent and every repo.
 </p>
 
 <p align="center">
-  <sub><strong>Mission control for your coding agents</strong> — a runtime in the agent's loop, on your machine, across every agent you run. It plugs into the agents you already use; it is <strong>not a new language and not a type system</strong>.</sub>
+  <sub><strong>One install wires up every agent you run.</strong> No five-plugin toolchain to assemble and keep current — one local layer that finds the right code, keeps your rules in front of the agent, trims the noise out of reads, and catches a breaking change before the edit lands. It plugs into the agents you already use; it is <strong>not a new IDE and not a new model</strong>.</sub>
 </p>
 
 <p align="center">
@@ -34,7 +34,6 @@
   <img src="https://img.shields.io/badge/runtime-Node.js_≥20-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js" />
   <img src="https://img.shields.io/badge/protocol-MCP-7C3AED?style=flat-square" alt="MCP" />
   <img src="https://img.shields.io/badge/local--first-no_cloud-22D3EE?style=flat-square" alt="Local-first" />
-  <img src="https://img.shields.io/badge/license-Apache--2.0-A1A1AA?style=flat-square" alt="License" />
 </p>
 
 <p align="center">
@@ -63,7 +62,6 @@
 - [Who it's for](#who-its-for)
 - [What it does under the hood](#what-it-does-under-the-hood)
 - [About the fewer tokens](#about-the-fewer-tokens)
-- [License](#license)
 
 </details>
 
@@ -71,7 +69,7 @@
 
 ## What it actually is
 
-**unerr is not a new language and not a type system.** TypeScript is the *role* it borrows, not the mechanism — the safety layer that made it safe to change a big codebase. unerr's safety comes from a live code graph, rules tied to the code, and checks that run in the agent's loop; it plugs into the agents you already use, the same way TypeScript added safety to JavaScript without replacing it. Here's the literal version in one breath.
+**unerr is not a new IDE and not a new model.** Runtime is the *role* it borrows, not the mechanism — the way Node or Docker gives code one predictable place to run, unerr gives every coding agent on your machine one predictable layer to work through. Its safety comes from a live code graph, rules tied to the code, and checks that run in the agent's loop; it plugs into the agents you already use instead of replacing them. Here's the literal version in one breath.
 
 Every coding agent on your machine — Cursor, Claude Code, Copilot, Windsurf — speaks the same protocol, MCP. unerr sits in that one path, on your machine, and does four jobs *while the agent works* instead of waiting to be asked:
 
@@ -82,13 +80,13 @@ Every coding agent on your machine — Cursor, Claude Code, Copilot, Windsurf �
 
 One install does all four, for every agent you run, on every repo. No rules file to hand-maintain, no five-plugin toolchain to keep current, nothing the agent has to remember to call. That's the whole product. Everything below is detail.
 
-It's free, open source, and runs entirely on your machine — **mission control for the agents you run**, here today. The same runtime extends to a shared view across your whole team, [arriving soon](#you-today-your-team-soon) — and your individual setup carries straight over.
+It runs entirely on your machine — **the one runtime behind every agent you run**, here today. The same runtime extends to a shared view across your whole team, [arriving soon](#you-today-your-team-soon) — and your individual setup carries straight over.
 
 ---
 
 ## Why one runtime instead of five plugins
 
-To make an agent behave on real code, the usual answer is to bolt on separate tools — one to search code, one for memory, one to trim output, your rules, a reviewer. Two things go wrong, every time.
+To make an agent behave on real code, the usual answer is to bolt on separate tools — one to search code, one for memory, one to trim output, your rules, a reviewer. Five point tools to wire up, keep current, and hope the agent calls. Two things go wrong with that, every time.
 
 **MCP only carries requests the agent *chooses* to make.** A memory plugin, a code-search plugin, a context trimmer — they all just sit there waiting to be called, and a busy agent low on room skips the one it has to remember to call. Optional advice is optional.
 
@@ -113,7 +111,7 @@ You can't buy those as five separate tools and bolt them together. That's why un
 
 ## The four things it gives you
 
-The same runtime, seen four ways. Today this is mission control for the agents one developer runs — you feel all four in your own work, across your tools and your repos, instead of a dashboard per tool. The shared, team-wide version is arriving soon.
+The same runtime, four things you feel in your own work — across every agent and every repo on your machine, with no dashboard-per-tool to keep checking. (Running a team? The same four roll up into one shared view — [arriving soon](#you-today-your-team-soon).)
 
 ### ⚡ SPEND — cut what the agents cost to run
 
@@ -211,7 +209,7 @@ Every turn opens with one line naming what unerr brought in and closes with one 
 
 ## You today, your team soon
 
-Today unerr is mission control for the agents **you** run: the code map, the seven MCP tools, all the in-loop behaviors, memory, and the dashboard — free, local, no account needed, across your tools and your repos.
+Today unerr is the local runtime behind the agents **you** run: the code map, the seven MCP tools, all the in-loop behaviors, memory, and the dashboard — local, no account needed, across your tools and your repos.
 
 The same runtime extends to your whole team — one shared view across every engineer's agents — and that's **arriving soon.** Your individual setup carries straight over; there's nothing to redo when it lands. For platform and engineering leads, that's Datadog-style visibility and control across every agent your team runs: what they cost, what they changed, and whether the team is building capability or dependency — in one place, and without code or prompts ever leaving your engineers' machines.
 
@@ -333,7 +331,7 @@ Grouped by what the agent gets, not by file:
 - **Reads (6)** — `search_code` (ranked entity search; `detail:true` resolves one entity — signature plus callers / callees / imports in the same call), `file_outline` (structure without body), `file_read` (context-aware, auto-injects conventions, facts, and drift), `get_references` (callers or callees — catches indirect refs grep misses), `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache — replaces built-in WebFetch), and `unerr_context` (one call that folds anchored notes + search + references + conventions for what you're about to edit).
 - **Memory & session (1)** — `unerr_track` (one op-union call for intent / decision / blocker / resolution / fact / recall — powers turn titles and the cross-session resume strip).
 
-Persistence costs zero tool calls: a UserPromptSubmit hook captures user-stated rules ("remember this", "always X") automatically, and agent notes + session markers ride a `unerr-save:` sentinel in the closing message that a Stop hook scrapes and persists. On Claude Code the rest of the always-on ceremony also runs for free: the prompt hook injects recalled notes, a PostToolUse hook injects detected conventions on the first file read, and the Stop hook prints the turn close-out — all at zero extra round-trip.
+Persistence costs zero tool calls: a UserPromptSubmit hook captures user-stated rules ("remember this", "always X") automatically, and agent notes + session markers ride a `unerr-save:` sentinel in the closing message that a Stop hook scrapes and persists. On Claude Code the rest of the always-on ceremony runs automatically: the prompt hook injects recalled notes, a PostToolUse hook injects detected conventions on the first file read, and the Stop hook prints the turn close-out — all at zero extra round-trip.
 
 Every response carries inline `ur|<tag>` signals for high-priority guidance — drift, breaking-change warnings, loop-breaker halts — so the agent acts on what it just learned without burning a turn.
 
@@ -374,14 +372,8 @@ The point was never the number. The point is that the agent lands on the right c
 
 ---
 
-## License
-
-[Apache License 2.0](./LICENSE) — free to use, modify, and distribute, including commercially. Includes an explicit patent grant.
-
----
-
 <p align="center">
   <code>npm install -g @unerr-ai/unerr</code>
   <br /><br />
-  <a href="https://www.unerr.dev/"><sub>unerr.dev</sub></a> · <a href="https://www.npmjs.com/package/@unerr-ai/unerr"><sub>npm registry</sub></a> · <a href="https://discord.gg/2BjRftz8kG"><sub>Discord</sub></a> · <a href="https://x.com/unerr_ai"><sub>X</sub></a> · <a href="https://www.linkedin.com/company/unerr"><sub>LinkedIn</sub></a> · <sub>Fully local. No account. No cloud. Free.</sub>
+  <a href="https://www.unerr.dev/"><sub>unerr.dev</sub></a> · <a href="https://www.npmjs.com/package/@unerr-ai/unerr"><sub>npm registry</sub></a> · <a href="https://discord.gg/2BjRftz8kG"><sub>Discord</sub></a> · <a href="https://x.com/unerr_ai"><sub>X</sub></a> · <a href="https://www.linkedin.com/company/unerr"><sub>LinkedIn</sub></a> · <sub>Fully local. No account. No cloud.</sub>
 </p>

@@ -18,6 +18,7 @@ import {
 } from "../intelligence/note-ranking.js";
 import { consumeAnyPendingTopicShift } from "../intelligence/topic-shift.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
+import { recordPrefixStability } from "../proxy/prefix-stability.js";
 import {
   type AsyncHookHandler,
   type HookHandler,
@@ -793,6 +794,13 @@ const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
       });
       const block = renderRecallBlock(topNotes);
       if (block) {
+        // Prefix/KV-cache gauge: the recall block is the dynamic context unerr
+        // injects at the prompt tail every coding turn — the content most likely
+        // to bust the provider prompt cache. Record whether it was byte-identical
+        // to last turn (stable when the task's top notes hold steady) and its
+        // size, onto the existing compression_events stream. Visibility only — it
+        // changes nothing about what is injected.
+        recordPrefixStability(process.cwd(), block);
         // T7.7 — the injected block IS Moment 1. Drop the STEP-0 recall nudge
         // from the assembled output so the agent isn't told to re-fetch what it
         // already has (the double-charge). Stripped ONLY here, where the
