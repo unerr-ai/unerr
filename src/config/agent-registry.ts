@@ -11,7 +11,8 @@ export type McpConfigFormat =
   | "mcp-json" // Standard { mcpServers: { ... } }
   | "settings-json" // VS Code style { "mcp": { "servers": { ... } } }
   | "copilot-json" // GitHub Copilot CLI { mcpServers: { ... } } with type: "local"
-  | "continue-config"; // Continue.dev { mcpServers: [...] } in config.json
+  | "continue-config" // Continue.dev { mcpServers: [...] } in config.json
+  | "toml"; // Codex: [mcp_servers.unerr] in config.toml
 
 /**
  * Granular hook-event capabilities — what an agent's native hook system can
@@ -171,14 +172,12 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     dirMarkers: [".windsurf"],
     envVars: ["WINDSURF_EDITOR"],
     hookSupport: true,
-    // Cascade hooks fire on user_prompt (pre) and mcp_tool_use (post) and the
-    // cascade response (stop-like); no once-per-session start. Adapter TODO.
     hooks: {
       promptContextInject: true,
       toolContextInject: true,
       sessionStart: false,
       stop: true,
-      adapter: "planned",
+      adapter: "built",
     },
     description: "Codeium's AI IDE (Cascade)",
     instructionFilePath: ".windsurf/rules/unerr-instructions.md",
@@ -204,12 +203,10 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     dirMarkers: [".cline"],
     envVars: [],
     hookSupport: true,
-    // Cline hooks attach context around tool execution; no documented prompt-
-    // submit / session-start / stop injection. Conservative until verified.
     hooks: {
-      promptContextInject: false,
+      promptContextInject: true,
       toolContextInject: true,
-      sessionStart: false,
+      sessionStart: true,
       stop: false,
       adapter: "built",
     },
@@ -253,26 +250,21 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
   {
     id: "codex",
     name: "Codex",
-    projectConfigPath: ".codex/mcp.json",
-    configFormat: "mcp-json",
+    projectConfigPath: ".codex/config.toml",
+    configFormat: "toml",
     dirMarkers: [".codex"],
-    envVars: [],
-    hookSupport: false,
+    envVars: ["CODEX_SESSION_ID"],
+    hookSupport: true,
+    hooks: {
+      promptContextInject: true,
+      toolContextInject: true,
+      sessionStart: true,
+      stop: false,
+      adapter: "built",
+    },
     description: "OpenAI's CLI coding agent",
     instructionFilePath: "AGENTS.md",
     instructionFormat: "markdown",
-  },
-  {
-    id: "aider",
-    name: "Aider",
-    projectConfigPath: ".aider/mcp.json",
-    configFormat: "mcp-json",
-    dirMarkers: [".aider"],
-    envVars: ["AIDER_MODEL"],
-    hookSupport: false,
-    description: "AI pair programming in your terminal",
-    instructionFilePath: null,
-    instructionFormat: null,
   },
   {
     id: "opencode",
@@ -318,14 +310,12 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     dirMarkers: [".github", ".copilot"],
     envVars: ["GITHUB_COPILOT_TOKEN"],
     hookSupport: true,
-    // 6 hook types centred on tool execution; no documented prompt/session/stop
-    // context inject. Conservative until verified. Adapter TODO.
     hooks: {
       promptContextInject: false,
       toolContextInject: true,
-      sessionStart: false,
+      sessionStart: true,
       stop: false,
-      adapter: "planned",
+      adapter: "built",
     },
     description: "GitHub's CLI AI assistant",
     instructionFilePath: ".github/copilot-instructions.md",
@@ -346,11 +336,19 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
   {
     id: "antigravity",
     name: "Google Antigravity",
-    projectConfigPath: ".antigravity/mcp_config.json",
+    projectConfigPath: ".gemini/config/mcp_config.json",
+    configScope: "global",
     configFormat: "mcp-json",
     dirMarkers: [".antigravity", ".agents"],
     envVars: ["ANTIGRAVITY_PROJECT_DIR", "ANTIGRAVITY_VERSION"],
-    hookSupport: false,
+    hookSupport: true,
+    hooks: {
+      promptContextInject: false,
+      toolContextInject: true,
+      sessionStart: false,
+      stop: false,
+      adapter: "built",
+    },
     description: "Google's AI coding IDE (Gemini 3)",
     instructionFilePath: ".agents/rules/unerr-instructions.md",
     instructionFormat: "antigravity-rule",

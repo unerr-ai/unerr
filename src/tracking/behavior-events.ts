@@ -144,7 +144,18 @@ export type BehaviorEventType =
    *  ≥1 peer unreachable (a defining peer may have been missed), `detail.findings`
    *  = capped sample of `{moniker, package, name, sites}`. Drains through the
    *  existing C1 `events` behavior projection — no new drainer or event table. */
-  | "cross_repo_drift";
+  | "cross_repo_drift"
+  // ── OWN_EDIT_TOOL — deterministic end-of-turn "files changed" receipt ──
+  /** A `file_edit` (targeted edit or whole-file write) applied successfully.
+   *  One row per successful edit. `detail.file_path` = repo-relative path,
+   *  `detail.added` / `detail.removed` = line counts, `detail.ranges` = the
+   *  changed line ranges in the resulting file, `detail.mode` =
+   *  edit|create|overwrite. The receipt renderer lists every file edited this
+   *  turn with its line numbers — host-emitted, so it never depends on the
+   *  model echoing the change in its reply. Carries no token-savings claim, so
+   *  `eventBucket` returns null (excluded from the Prevented/Remembered/Saved
+   *  recap); it renders in its own dedicated receipt section. */
+  | "code_edit_applied";
 
 export interface BehaviorEvent {
   /** Monotonic counter per-process. */

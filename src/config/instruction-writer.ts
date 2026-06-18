@@ -63,6 +63,16 @@ unerr re-anchors these comments when code moves and flags a comment that drifted
   const readForEditRow =
     "| Change a file | `file_edit` — old_string+new_string (exact replace) OR content (whole file), no built-in Read needed first | built-in Edit/Write + a mandatory pre-Read |";
 
+  // The deterministic end-of-turn "files changed" receipt is emitted by the Stop
+  // hook, which ONLY Claude Code surfaces as a user-facing systemMessage (Cursor /
+  // Cline have no Stop-with-systemMessage channel — see stop-hooks.ts). On those
+  // agents the receipt never auto-renders, so "you don't need to echo" would leave
+  // the user with no view of the change. Gate the note to Claude Code for now;
+  // extend to another agent only once it has an equivalent end-of-turn receipt.
+  const receiptNote = isClaudeCode
+    ? '\n\nYou do NOT need to echo each edit in your reply. unerr surfaces a deterministic "files changed this turn" receipt at end-of-turn — every file you edited, with its line numbers and added/removed counts — emitted by the host (the Stop hook), not by you. Just make the edits; the receipt shows the user what changed.'
+    : "";
+
   const twoStepSection = `
 ### Editing — route through file_edit
 
@@ -71,9 +81,7 @@ unerr ships its own edit path, so you never need a built-in \`Read\` before chan
 - Targeted edit — \`file_edit({file_path, old_string, new_string})\`. \`old_string\` must be unique (add context) unless \`replace_all:true\`. Pass \`base_hash\` from the \`file_read\` you based it on to reject a stale edit.
 - Whole-file write — \`file_edit({file_path, content})\` — create or overwrite a file.
 
-Blast-radius: when a signature change has graph-confirmed callers at risk, the \`file_edit\` response lists them inline — \`ur|rsk signature change to <name> — N caller(s) to update: <entity> (<file>:<line>), …\`. Update every listed caller in the same change; the list is in the response, so no separate \`get_references\` round-trip is needed (it falls back to \`get_references\` only past the inline cap). On Claude Code / Cursor the first such \`file_edit\` is also denied once until you've updated the callers — re-attempt and it proceeds.
-
-After every \`file_edit\`, show the change in your REPLY (the host collapses the tool card): the file path, the change-summary line, then the edited lines as a fenced \`\`\`diff block (\`- old\` / \`+ new\`) — or a 1–2 line summary for a whole-file write.
+Blast-radius: when a signature change has graph-confirmed callers at risk, the \`file_edit\` response lists them inline — \`ur|rsk signature change to <name> — N caller(s) to update: <entity> (<file>:<line>), …\`. Update every listed caller in the same change; the list is in the response, so no separate \`get_references\` round-trip is needed (it falls back to \`get_references\` only past the inline cap). On Claude Code / Cursor the first such \`file_edit\` is also denied once until you've updated the callers — re-attempt and it proceeds.${receiptNote}
 
 Full-file built-in \`Read\` of a **code** file stays discouraged (it re-bills the whole file every later turn) — route understanding through \`file_read\` / \`unerr_context\`. Read the whole file only when you genuinely need all of it; the redirect fires once per file. Non-code files (md/json/yaml/images) read normally.`;
 

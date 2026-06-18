@@ -11,7 +11,8 @@
  *   4. Run the hook handler (returns agent-agnostic HookResult)
  *   5. Format the response via adapter
  *
- * Supported agents: Claude Code, Cursor, Cline.
+ * Supported agents: Claude Code, Cursor, Cline, Codex, GitHub Copilot CLI,
+ * Windsurf, Google Antigravity.
  * Fallback: Claude Code (most common MCP hook consumer).
  */
 
@@ -24,9 +25,13 @@ import {
 } from "../intelligence/topic-shift.js";
 import type { IdeType } from "../utils/detect.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
+import { antigravityAdapter } from "./adapters/antigravity.js";
 import { claudeCodeAdapter } from "./adapters/claude-code.js";
 import { clineAdapter } from "./adapters/cline.js";
+import { codexAdapter } from "./adapters/codex.js";
+import { copilotCliAdapter } from "./adapters/copilot-cli.js";
 import { cursorAdapter } from "./adapters/cursor.js";
+import { windsurfAdapter } from "./adapters/windsurf.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -128,8 +133,12 @@ export interface HookAdapter {
  * Claude Code is last (default fallback).
  */
 const ADAPTERS: HookAdapter[] = [
-  cursorAdapter,
-  clineAdapter,
+  copilotCliAdapter, // hookType + hookVersion — most distinctive
+  codexAdapter, // hook_event_name + Codex-specific tool names / env
+  windsurfAdapter, // cascade_id / event_type prefix
+  antigravityAdapter, // event (PascalCase) + tool + args
+  cursorAdapter, // tool_name + cwd, no hook_event_name
+  clineAdapter, // tool + params, no hook_event_name
   claudeCodeAdapter, // default fallback
 ];
 

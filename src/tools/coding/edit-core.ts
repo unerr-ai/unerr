@@ -299,6 +299,46 @@ function sliceLines(
   return lines;
 }
 
+/** One contiguous block of changed lines, 1-indexed, in the resulting file. */
+export interface EditedLineRange {
+  start: number;
+  end: number;
+}
+
+/**
+ * 1-indexed line ranges in the NEW (post-edit) content where each replacement
+ * landed — the line numbers the end-of-turn summary shows the user. Derived
+ * from the replacement offsets and the (length-preserving normalized) lengths,
+ * so it costs O(edits), not O(file).
+ *
+ * Every occurrence replaces the same `search` with the same `replacement`, so
+ * the kth replacement is shifted by `k * (replacement.len - search.len)` from
+ * its offset in the original — applied here to map old offsets into the new
+ * file's coordinate space.
+ */
+export function computeEditedLineRanges(
+  after: string,
+  search: string,
+  replacement: string,
+  indices: number[]
+): EditedLineRange[] {
+  const lineStarts = computeLineStarts(after);
+  const delta = replacement.length - search.length;
+  const ranges: EditedLineRange[] = [];
+  let k = 0;
+  for (const idx of indices) {
+    const newStart = idx + k * delta;
+    // For a pure deletion (replacement === ""), the changed point collapses to
+    // one line; otherwise span to the last char of the inserted text.
+    const newEnd = newStart + Math.max(0, replacement.length - 1);
+    const start = offsetToLine(lineStarts, newStart) + 1;
+    const end = offsetToLine(lineStarts, Math.max(newStart, newEnd)) + 1;
+    ranges.push({ start, end });
+    k++;
+  }
+  return ranges;
+}
+
 /** Agent-facing hint for each failure — imperative, names the next action. */
 export function editErrorHint(
   code: EditErrorCode,

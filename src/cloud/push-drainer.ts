@@ -137,6 +137,12 @@ export interface DrainOutcome {
   stream: string;
   /** Rows the server accepted and stored. */
   pushed: number;
+  /**
+   * Rows the server could not process now but durably parked for server-side
+   * replay (contract >= events 1-0-5). Delivered, not lost — the cursor advances
+   * and these are never dead-lettered.
+   */
+  parked: number;
   /** Rows permanently rejected and skipped past (B7). */
   deadLettered: number;
   status: DrainStatus;
@@ -176,6 +182,7 @@ export async function drainRepo(
     return drainers.map((d) => ({
       stream: d.key,
       pushed: 0,
+      parked: 0,
       deadLettered: 0,
       status: "skipped_gate" as const,
     }));
@@ -197,6 +204,7 @@ async function drainStream(
   log?: (msg: string) => void
 ): Promise<DrainOutcome> {
   let pushed = 0;
+  let parkedRows = 0;
   let deadLettered = 0;
   let status: DrainStatus = "empty";
 
@@ -244,15 +252,54 @@ async function drainStream(
     const res = await drainer.push(rows);
 
     if (res.ok) {
-      const rejected = res.data?.rejected ?? 0;
-      if (rejected > 0) {
-        cursor.addDeadLetters(drainer.key, rejected);
-        deadLettered += rejected;
+      // Classify the ack. accept-and-park (contract >= events 1-0-5): the server
+      // never permanently drops a row it merely cannot process now — it PARKS the
+      // raw payload server-side for replay and reports it under `parked`. Parked
+      // rows are durable (the server has them), so the cursor advances and they
+      // are NOT dead-lettered. A `rejected` row is classified per result:
+      //   - disposition "retryable" → transient server condition; hold the cursor
+      //     and re-send the whole batch next tick (idempotent on event_id).
+      //   - disposition "permanent" (or unspecified — the pre-1-0-5 default) →
+      //     poison; dead-letter and advance so the loop never hot-loops on it.
+      const parked = res.data?.parked ?? 0;
+      const results = res.data?.results ?? [];
+      let permanentRejected = 0;
+      let retryableRejected = 0;
+      for (const r of results) {
+        if (r.status !== "rejected") continue;
+        if (r.disposition === "retryable") retryableRejected += 1;
+        else permanentRejected += 1;
+      }
+      // Pre-1-0-5 server: no per-row disposition — fall back to the aggregate
+      // count and treat every rejection as permanent (preserves prior behavior).
+      if (results.length === 0) permanentRejected = res.data?.rejected ?? 0;
+
+      if (retryableRejected > 0) {
+        // Hold the cursor — the whole batch (accepted + parked rows included) is
+        // re-sent next tick and the server dedups on event_id. A soft failure so
+        // the loop backs off before retrying.
+        status = "server_error";
         log?.(
-          `push: ${drainer.key} server rejected ${rejected}/${rows.length} row(s) — dead-lettered`
+          `push: ${drainer.key} server deferred ${retryableRejected}/${rows.length} row(s) (retryable) — cursor held, retrying next tick`
+        );
+        break;
+      }
+
+      if (permanentRejected > 0) {
+        cursor.addDeadLetters(drainer.key, permanentRejected);
+        deadLettered += permanentRejected;
+        log?.(
+          `push: ${drainer.key} server permanently rejected ${permanentRejected}/${rows.length} row(s) — dead-lettered`
         );
       }
-      pushed += rows.length - rejected;
+      if (parked > 0) {
+        parkedRows += parked;
+        log?.(
+          `push: ${drainer.key} server parked ${parked}/${rows.length} row(s) for server-side replay`
+        );
+      }
+      // accepted + parked are delivered (not lost); `pushed` counts accepted only.
+      pushed += rows.length - permanentRejected - parked;
       cursor.advance(drainer.key, batch.next);
       status = deadLettered > 0 ? "dead_lettered" : "ok";
       continue;
@@ -294,7 +341,13 @@ async function drainStream(
     break;
   }
 
-  return { stream: drainer.key, pushed, deadLettered, status };
+  return {
+    stream: drainer.key,
+    pushed,
+    parked: parkedRows,
+    deadLettered,
+    status,
+  };
 }
 
 function errMessage(err: unknown): string {

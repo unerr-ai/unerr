@@ -137,16 +137,28 @@ describe("file_edit tool", () => {
     );
     expect(out.isError).toBeFalsy();
     expect(out.content).toContain("Replaced 1 occurrence(s)");
-    // the result carries the added/removed line counts for the reply echo
+    // the result carries the added/removed line counts
     expect(out.content).toContain("added 1 line(s), removed 1 line(s)");
     expect(out.metadata?.replaced).toBe(1);
     expect(readFileSync(f, "utf8")).toBe("const x = 42;\nconst y = 2;\n");
     // the diff must not leak into the model-facing result
     expect(String(out.content)).not.toContain("@@");
-    // but the result DOES tell the model to echo the change in its reply
-    // (the host collapses the tool card; the reply is the only visible surface)
-    expect(out.content).toContain("ur|act");
-    expect(String(out.content)).toContain("```diff");
+    // The per-edit reply echo was DROPPED — the user sees the change through the
+    // deterministic end-of-turn "files changed" receipt instead. No echo hint.
+    expect(out.content).not.toContain("ur|act");
+    expect(String(out.content)).not.toContain("```diff");
+    // edit_summary feeds that receipt: repo-relative path, counts, line ranges.
+    const es = out.metadata?.edit_summary as {
+      file: string;
+      mode: string;
+      added: number;
+      removed: number;
+      ranges: Array<{ start: number; end: number }>;
+    };
+    expect(es.mode).toBe("edit");
+    expect(es.added).toBe(1);
+    expect(es.removed).toBe(1);
+    expect(es.ranges).toEqual([{ start: 1, end: 1 }]);
   });
 
   it("replace_all replaces every occurrence and reports the count", async () => {
@@ -230,8 +242,19 @@ describe("file_edit tool — write mode (content)", () => {
     expect(out.content).toContain("Wrote");
     // a new file adds every line and removes none
     expect(out.content).toContain("added 3 line(s), removed 0 line(s)");
-    // write mode also asks the model to surface the change in its reply
-    expect(out.content).toContain("ur|act");
+    // the per-edit echo was dropped — no echo hint in the result
+    expect(out.content).not.toContain("ur|act");
+    // edit_summary spans the whole new file for the end-of-turn receipt
+    const es = out.metadata?.edit_summary as {
+      mode: string;
+      added: number;
+      removed: number;
+      ranges: Array<{ start: number; end: number }>;
+    };
+    expect(es.mode).toBe("create");
+    expect(es.added).toBe(3);
+    expect(es.removed).toBe(0);
+    expect(es.ranges).toEqual([{ start: 1, end: 3 }]);
     expect(readFileSync(f, "utf8")).toBe("line1\nline2\n");
   });
 

@@ -53,9 +53,9 @@ describe("agent hook-capability matrix", () => {
     expect(cur.adapter).toBe("built");
   });
 
-  it("Gemini and Windsurf are capable but their adapters are still planned", () => {
+  it("Gemini adapter is still planned, Windsurf adapter is now built", () => {
     expect(getHookCapabilities("gemini-cli").adapter).toBe("planned");
-    expect(getHookCapabilities("windsurf").adapter).toBe("planned");
+    expect(getHookCapabilities("windsurf").adapter).toBe("built");
   });
 
   it("every hooks profile names a valid adapter status", () => {

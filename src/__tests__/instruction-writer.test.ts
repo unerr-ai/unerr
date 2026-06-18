@@ -282,6 +282,23 @@ describe("instruction-writer", () => {
       expect(content).toContain(MARKER);
     });
 
+    it("includes the 'files changed this turn' receipt note for claude-code", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      // The deterministic end-of-turn receipt is Stop-hook only (Claude Code).
+      expect(content).toContain("files changed this turn");
+      expect(content).toContain("You do NOT need to echo each edit");
+    });
+
+    it("omits the receipt note for cursor (no Stop-hook receipt channel)", () => {
+      const result = writeInstructionFile(tmpDir, "cursor");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).not.toContain("files changed this turn");
+      expect(content).not.toContain("You do NOT need to echo each edit");
+      // but the file_edit routing section itself is still present.
+      expect(content).toContain("Editing — route through file_edit");
+    });
+
     it("comments.maintain=false omits the section — claude-code", () => {
       writeMaintainSetting(false);
       const result = writeInstructionFile(tmpDir, "claude-code");

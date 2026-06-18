@@ -1,20 +1,30 @@
 /**
- * Cline hook adapter.
+ * Cline hook adapter (v3.36 IDE-Hooks protocol).
  *
- * Protocol (Cline extension hooks):
- *   stdin:  { tool: "read_file", params: { path: "..." }, event: "pre_tool" | "post_tool" }
+ * Protocol (.clinerules/hooks/, VS Code, macOS/Linux):
+ *   stdin:  { tool: "read_file", params: { path: "..." }, event: "PreToolUse"|"PostToolUse"|"UserPromptSubmit"|"TaskStart" }
  *   stdout (PreToolUse):
- *     - passthrough: { allow: true }
- *     - nudge:       { allow: true, context: "..." }
- *     - deny:        { allow: false, reason: "..." }  (not used by unerr — never block)
+ *     - passthrough: {}
+ *     - deny:        { cancel: true, reason: "..." }
+ *     - nudge:       { contextModification: "..." }
  *   stdout (PostToolUse):
  *     - passthrough: {}
- *     - enrich:      { context: "..." }
+ *     - enrich:      { contextModification: "..." }
  *   stdout (UserPromptSubmit):
  *     - passthrough: {}
- *     - enrich:      { context: "..." }
+ *     - enrich:      { contextModification: "..." }
+ *   stdout (TaskStart):
+ *     - passthrough: {}
+ *     - enrich:      { contextModification: "..." }
  *
- * Detection: Cline sends `tool` (lowercase, snake_case tool name) + `params` at root.
+ * v3.36 changes from earlier protocol:
+ *   - cancel:true replaces allow:false for denying tool calls
+ *   - contextModification replaces context for injecting agent context
+ *   - PascalCase event names (PreToolUse, not pre_tool)
+ *   - UserPromptSubmit + TaskStart events added
+ *
+ * Detection: Cline sends tool (snake_case) + params at root.
+ * No input rewrite — cancel + contextModification only.
  */
 
 import type {
@@ -23,7 +33,6 @@ import type {
   NormalizedPayload,
 } from "../hook-runner.js";
 
-/** Map Cline tool names to normalized tool names. */
 const CLINE_TOOL_MAP: Record<string, string> = {
   read_file: "Read",
   write_to_file: "Write",
@@ -37,13 +46,12 @@ export const clineAdapter: HookAdapter = {
   name: "cline",
 
   detect(payload: Record<string, unknown>): boolean {
-    // Cline sends `tool` (string) + `params` (object) at root
-    // Distinguish from Claude Code (has hook_event_name) and Cursor (has toolName)
     return (
       typeof payload.tool === "string" &&
       typeof payload.params === "object" &&
       payload.params !== null &&
       typeof payload.hook_event_name !== "string" &&
+      typeof payload.hookType !== "string" &&
       typeof payload.toolName !== "string"
     );
   },
@@ -53,56 +61,51 @@ export const clineAdapter: HookAdapter = {
     const clineTool = payload.tool as string;
     const toolName = CLINE_TOOL_MAP[clineTool] ?? clineTool;
 
-    // Normalize Cline's param names to match our expectations
     const toolInput: Record<string, unknown> = { ...params };
-    // Cline uses `path` instead of `file_path`
     if (toolInput.path && !toolInput.file_path) {
       toolInput.file_path = toolInput.path;
     }
-    // Cline uses `regex` instead of `pattern`
     if (toolInput.regex && !toolInput.pattern) {
       toolInput.pattern = toolInput.regex;
     }
-    // Cline uses `command` for execute_command
-    // (already matches our expected format)
 
-    // Map Cline event names
     let event: NormalizedPayload["event"];
     const clineEvent = payload.event as string | undefined;
-    if (clineEvent === "pre_tool") event = "PreToolUse";
-    else if (clineEvent === "post_tool") event = "PostToolUse";
+    // v3.36 uses PascalCase; support legacy snake_case for backward compat
+    if (clineEvent === "PreToolUse" || clineEvent === "pre_tool")
+      event = "PreToolUse";
+    else if (clineEvent === "PostToolUse" || clineEvent === "post_tool")
+      event = "PostToolUse";
+    else if (clineEvent === "UserPromptSubmit") event = "UserPromptSubmit";
+    else if (clineEvent === "TaskStart") event = "SessionStart";
 
     return { raw: payload, toolInput, toolName, event };
   },
 
   formatPreToolUse(result: HookResult): string {
-    if (result.action === "passthrough") {
-      return JSON.stringify({ allow: true });
-    }
+    if (result.action === "passthrough") return "{}";
 
     if (result.action === "deny") {
       return JSON.stringify({
-        allow: false,
+        cancel: true,
         reason: result.message ?? "Blocked by unerr policy.",
       });
     }
 
     if (result.action === "nudge" && result.message) {
       return JSON.stringify({
-        allow: true,
-        context: result.message,
+        contextModification: result.message,
       });
     }
 
-    if (result.action === "rewrite" && result.updatedInput) {
-      // Cline doesn't support input rewriting directly — allow with context
+    if (result.action === "rewrite") {
       return JSON.stringify({
-        allow: true,
-        context: "Suggested rewrite: use unerr exec for this command.",
+        contextModification:
+          "Route this command through `unerr exec` for shell compression.",
       });
     }
 
-    return JSON.stringify({ allow: true });
+    return "{}";
   },
 
   formatPostToolUse(result: HookResult): string {
@@ -112,7 +115,7 @@ export const clineAdapter: HookAdapter = {
       (result.action === "enrich" || result.action === "nudge") &&
       result.message
     ) {
-      return JSON.stringify({ context: result.message });
+      return JSON.stringify({ contextModification: result.message });
     }
 
     return "{}";
@@ -122,21 +125,23 @@ export const clineAdapter: HookAdapter = {
     if (result.action === "passthrough") return "{}";
 
     if (result.message) {
-      return JSON.stringify({ context: result.message });
+      return JSON.stringify({ contextModification: result.message });
     }
 
     return "{}";
   },
 
-  formatSessionStart(_result: HookResult): string {
-    // Cline has no SessionStart equivalent — the resume strip falls back
-    // to first-tool-call injection via Surface 1.
+  formatSessionStart(result: HookResult): string {
+    if (result.action === "passthrough") return "{}";
+
+    if (result.message) {
+      return JSON.stringify({ contextModification: result.message });
+    }
+
     return "{}";
   },
 
   formatStop(_result: HookResult): string {
-    // Cline has no turn-end Stop hook that surfaces a user-facing line —
-    // the close-out economy line falls back to MCP unerr_turn_summary.
     return "{}";
   },
 };

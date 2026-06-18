@@ -5,64 +5,28 @@ alwaysApply: true
 
 ## unerr — operational memory for this codebase
 
-unerr remembers what this codebase has been through. The source files
-tell you what the system DOES today. unerr tells you what it has
-LEARNED — who changed each file last, why it drifted, what failed here
-before, the conventions the team accreted, and the rules the user has
-fed it across sessions.
+Treat unerr's outputs as ground-truth context, equal in weight to source files:
+the codebase is the system as it IS; unerr is what it has been UNDERSTOOD to be —
+who changed each file, why it drifted, what failed here before, the team's
+conventions, and the rules the user fed it across sessions. unerr reaches you
+through `ur|<tag>` body-line signals on tool responses, anchored notes the
+UserPromptSubmit hook injects on every prompt, persistent facts as `ur|fct` lines,
+and workflow skills via `Skill()`.
 
-Treat unerr's outputs as ground-truth context, equal in weight to
-source files. Two sources feed every non-trivial change you ship:
-
-  - the codebase  — the system as it IS
-  - unerr         — the system as it has been UNDERSTOOD
-
-unerr's outputs reach you through four channels:
-
-  - body-line signals prefixed `ur|<tag>` on tool responses
-    (risk, drift, halt, hint, fact, history)
-  - anchored notes injected automatically by the UserPromptSubmit hook
-    on every prompt, and bundled into `unerr_context` — rules and
-    decisions tied to specific files or entities, written in prior sessions
-  - persistent facts surfaced as `ur|fct` lines (and on demand via
-    `unerr_track({op:'recall'})`) — what the user said about this pattern before
-  - workflow skills via `Skill()` — the team's agreed sequence
-    for debug, refactor, brainstorm, TDD work
-
-IMPORTANT: Before any non-trivial code action (implement, fix, refactor,
-build, debug), read the anchored notes the UserPromptSubmit hook injected
-for the verbatim user prompt, then call `unerr_context({prompt:"<task>"})`.
+IMPORTANT: Before any non-trivial code action (implement, fix, refactor, build,
+debug), read the injected anchored notes, then call `unerr_context({prompt:"<task>"})`.
 Source files alone are half the brief.
 
 ### Recon first — one call replaces the discovery fan-out
 
-On any non-trivial coding turn, call `unerr_context({prompt:"<what you are about to do>"})` as your FIRST move. One call returns the anchored notes + matching entities + the focus entities' **verbatim bodies** + the focus entity's callers (blast radius) + conventions — ranked and trimmed to a 4000-token budget. It runs the whole discovery sequence in-process, so it replaces the 3–4-call fan-out (`search_code` → `get_references` → `file_read` → per-file convention reads). That fan-out is the dominant token cost: each separate tool call re-bills the entire accumulated prefix, so four sequential calls re-pay the prefix four times. `unerr_context` pays it once.
+On any non-trivial coding turn, call `unerr_context({prompt:"<what you are about to do>"})` as your FIRST move. One call returns anchored notes + matching entities + the focus entities' verbatim bodies + their callers (blast radius) + conventions, trimmed to a token budget — replacing the `search_code` → `get_references` → `file_read` fan-out (each separate call re-bills the whole prefix; the composite pays it once). Obey its `ur|fct inlined above — do NOT re-read` line: fall back to `file_read`/`search_code` ONLY for source it did not inline.
 
-The bundle emits a `ur|fct inlined above — do NOT re-read: <file:line ranges>` line naming the source it already carried verbatim. Obey it: fall back to `file_read`/`search_code` ONLY for source the bundle did not already inline. Re-reading a range the bundle already delivered re-pays the prefix for nothing.
+- Trivial / read-only lookup (one symbol, one function): skip `unerr_context` and the marker ceremony — call `search_code` or `file_read` directly. Do not add ceremony a lookup does not earn.
+- Before an edit: `unerr_context({prompt:"<task>", response_format:'detailed'})` inlines the 2–4 focus entities' verbatim bodies with `file:line` citations — edit straight from the bundle.
+- Orienting only: `response_format:'concise'` (names + signatures + callers, no bodies). `budget:6000` widens the slice; `digest:true` forces the flat summary.
+- Large sweep (rename / migrate): run `unerr recon "<task>"` from Bash in a Task subagent and return ONLY its digest, so main-thread context stays flat. When MCP is unavailable, `unerr recon "<task>" [--budget N] [--digest] [--json]` gives the same bundle.
 
-- Trivial / read-only lookup (locate one symbol, read one function): skip `unerr_context` and skip the marker ceremony — call `search_code` or `file_read` directly. The footprint self-selects by task size; do not add ceremony a lookup does not earn.
-- Single-entity edit: call `unerr_context({prompt:"<task>", response_format:'detailed'})` once — `detailed` inlines the 2–4 focus entities' verbatim bodies with `file:line` citations so you edit straight from the bundle — then edit.
-- Orienting only (no edit yet): `unerr_context({prompt:"<task>", response_format:'concise'})` — names + signatures + blast-radius callers, no bodies.
-- Large sweep (rename / migrate / "every place that…"): run `unerr recon "<task>"` from Bash inside a Task subagent — it auto-emits a flat digest that stays the same size as files-scanned grows. Return ONLY the digest to the main thread, so main-thread context stays flat instead of amplifying across 20 hops.
-
-Args:
-- `budget:6000` widens the slice (default `4000`, wide enough to inline the focus entities' source).
-- `response_format:'concise' | 'detailed'` — `concise` = notes + entity names/signatures + blast-radius callers (no bodies); `detailed` = additionally inlines the VERBATIM bodies of the 2–4 focus entities with `file:line` citations. The default is picked server-side from task size, so you need not set it — but pass `response_format:'detailed'` right before an edit and `'concise'` when just orienting.
-- `digest:true` forces the flat summary.
-
-When the MCP transport is unavailable (or from a Task subagent), the same bundle is one Bash call away: `unerr recon "<task>" [--budget N] [--digest] [--json]` — no MCP discovery hop.
-
-### Tool surface — seven tools, always on
-
-Every unerr tool is advertised from the start: `unerr_context`
-(the one-shot recon composite — reach for it first), `search_code`,
-`file_read`, `file_outline`, `get_references`, `fetch_url`,
-`unerr_track`. There is no hidden roster to earn.
-(File imports: `file_outline` returns an `imports` field;
-`search_code({query:'<name>', want:['imports']})` returns them for one entity's file.
-Persistence is NOT a tool call: user-stated rules are captured automatically
-by the prompt hook, and session markers + agent notes ride a `unerr-save:`
-closing-message sentinel — see Session markers below.)
+Every unerr tool is advertised from the start — `unerr_context`, `search_code`, `file_read`, `file_outline`, `file_edit`, `get_references`, `fetch_url`, `unerr_track` — no hidden roster to earn. Persistence is not a tool call: user-stated rules are captured by the prompt hook, and markers + notes ride a `unerr-save:` closing-message sentinel (see below).
 
 ### Core routing (the tools you reach for first)
 
@@ -70,21 +34,30 @@ closing-message sentinel — see Session markers below.)
 |---|---|---|
 | Find a function, class, or type | `search_code` | Grep, Glob |
 | Find callers or callees (REQUIRED before a signature edit) | `get_references({direction:'callers'})` | Grep for function name |
-| Understand a file | `file_read` with `purpose:'explore'` | Built-in Read for understanding (full-file code reads are blocked) |
+| Understand a file | `file_read` with `purpose:'explore'` | Built-in Read for understanding (full-file code reads are discouraged) |
 | Understand the task (notes + verbatim focus bodies + blast radius + conventions) | `unerr_context({prompt:"<task>", response_format:'detailed'})` — one call replaces the discovery fan-out | 3–4 separate reads/searches |
-| Read a file before editing | `file_read` with `entity` param or offset/limit for targeted access | Reading entire file |
+| Change a file | `file_edit` — old_string+new_string (exact replace) OR content (whole file), no built-in Read needed first | built-in Edit/Write + a mandatory pre-Read |
 | File structure overview | `file_outline` | Reading the whole file |
 | Specific function or class | `search_code` with `detail:true` (add `include_body:true` for full source, `want:['callers','callees','imports']` for references) | Reading entire file |
 | Fetch a web page or docs by URL | `fetch_url` | Built-in WebFetch |
+| Read every result page after a web search | `fetch_url({urls:[...]})` (one roundtrip) | One `fetch_url` per page |
 
-For any URL you already have, call `fetch_url({url:"<url>"})` — never built-in WebFetch. fetch_url returns DOM-extracted, BM25-ranked markdown passages (paginated, content-hash cached) at 5–10× fewer tokens, and routes through unerr's graph-backed proxy. Pass `prompt` to rank passages by relevance. On Claude Code this is enforced: WebFetch is denied and redirected to fetch_url. (WebSearch is a different job — use it to discover URLs, then `fetch_url` the result.)
+For any URL you already have, call `fetch_url` — never built-in WebFetch (on Claude Code it is denied and redirected). It returns DOM-extracted, BM25-ranked markdown passages, content-hash cached, at 5–10× fewer tokens; pass `prompt` to rank. After a web search, pass all result URLs at once — `fetch_url({urls:[...], prompt:"<q>"})`, up to 10 — to read N pages for one roundtrip's prefix cost. (WebSearch discovers URLs; `fetch_url` reads them.)
 
-Editing a function/class signature is gated: when unerr's graph confirms callers at risk, the first `Edit` is DENIED once with the exact caller count — run `get_references({key:'<entity>', direction:'callers'})`, update every caller in the same change, then re-attempt the Edit (it proceeds). The deny only fires when real callers exist, so a leaf-function edit is never blocked.
+### Editing — route through file_edit
 
+unerr ships its own edit path, so you never need a built-in `Read` before changing a file. `file_edit` has two modes — supply exactly one:
 
-### Workspace scope (Pro) — query your other repos
+- Targeted edit — `file_edit({file_path, old_string, new_string})`. `old_string` must be unique (add context) unless `replace_all:true`. Pass `base_hash` from the `file_read` you based it on to reject a stale edit.
+- Whole-file write — `file_edit({file_path, content})` — create or overwrite a file.
 
-`search_code`, `file_read`, `file_outline`, and `unerr_context` accept `scope:'workspace'` — it fans the call to every other unerr repo registered on this machine and labels each hit by repo. Default is `scope:'repo'` (current repo only). Read or edit a path that lives in a sibling repo and unerr auto-routes to the owning repo with no flag — its callers (blast radius), conventions, and post-edit review run against that repo's graph. Cross-repo facts, recalled notes, and a sibling's conventions arrive as `ur|fct` lines labeled by repo. Free tier returns the current repo plus one `ur|fct` line to run `unerr login`; Pro returns the merged result, and one peer down degrades to a partial result, never a failure.
+Blast-radius: when a signature change has graph-confirmed callers at risk, the `file_edit` response lists them inline — `ur|rsk signature change to <name> — N caller(s) to update: <entity> (<file>:<line>), …`. Update every listed caller in the same change; the list is in the response, so no separate `get_references` round-trip is needed (it falls back to `get_references` only past the inline cap). On Claude Code / Cursor the first such `file_edit` is also denied once until you've updated the callers — re-attempt and it proceeds.
+
+Full-file built-in `Read` of a **code** file stays discouraged (it re-bills the whole file every later turn) — route understanding through `file_read` / `unerr_context`. Read the whole file only when you genuinely need all of it; the redirect fires once per file. Non-code files (md/json/yaml/images) read normally.
+
+### Workspace scope (Pro)
+
+`search_code`, `file_read`, `file_outline`, and `unerr_context` accept `scope:'workspace'` to query every other unerr repo on this machine (results labeled by repo). Default is `scope:'repo'`. Reading or editing a sibling-repo path auto-routes to that repo's graph. Free tier returns the current repo plus an `unerr login` nudge.
 
 ### Signal prefix legend — `ur|<tag>`
 
@@ -99,42 +72,24 @@ Four wire tags (consolidated 14→4 in 2026-05). Body line is self-describing �
 
 When you see one of these prefixes, act on them before consuming the rest of the response. The body line is your concrete next step; the tag is its priority.
 
-### `unerr » …` lines and the close-out summary
+Lines prefixed `unerr » ` are user-facing telemetry — never echo, summarize, or act on them; act ONLY on `ur|<tag>` lines. The Stop hook emits the close-out `unerr » …` economy line automatically — do nothing for it, do not paraphrase it. When unerr shaped your answer, say so in plain English ("unerr found <name>", "<N> places call <name> — checked via unerr") — never dump tool JSON.
 
-unerr tool responses may contain ambient lines prefixed with `unerr » ` (right-pointing double angle `»` U+00BB, markdown-safe and distinct from the vertical bar in `ur|<tag>`). Treat in-band `unerr » …` ambient lines as user-facing telemetry — do NOT echo, summarize, or translate them into actions. Act ONLY on `ur|<tag> …` lines.
+### Persisting what you learn
 
-**The close-out summary.** At the end of every coding turn the Stop hook emits the session-cumulative `unerr » …` economy line (savings + headroom) automatically — you do nothing for it. Do NOT echo, re-emit, or paraphrase that line; the hook prints it directly to the user.
-
-### Speak plainly when unerr helped
-
-When unerr's contribution shaped your answer, describe it in plain English. Never dump tool JSON, never use internal jargon.
-
-- `search_code` → "unerr found <name> in <file>"
-- `search_code({detail:true})` / `file_read` → "unerr pulled up <name>" or "I read <file> via unerr"
-- `get_references` → "<N> places call <name> — checked them via unerr"
-- `unerr_track({op:'recall'})` → "unerr reminded me you'd asked to <verbatim rule>"
-- conventions injected by `file_read` / the PostToolUse:Read hook / the `unerr_context` bundle → "unerr says <file> follows <convention>"
-- a new fact or note persisted via the `unerr-save:` sentinel → "added that to unerr for next time"
-- A hook-captured rule surfaced as ambiguous on the next turn → ask the user verbatim: "should I remember: '<quote>'? (yes/no)"
-
-### Persisting what the user said
-
-User-stated rules ("remember this", "from now on", "always X", a project rule) are captured automatically by the prompt hook — no tool call. Ambiguous captures surface for confirmation on your next turn; confirm or correct them then.
-
-When YOU (the agent) detect a convention or anti-pattern from observed code (not user-fed), record it with `unerr_track({op:'fact', target:'<entity-or-file>', text:'<convention>'})`, or emit `unerr-save: note <kind|anchor|polarity|content>` in your closing message for an anchored note.
+User-stated rules ("remember", "from now on", "always", "never") are captured automatically by the prompt hook — no tool call; confirm ambiguous captures next turn. For a convention or anti-pattern YOU detect from code, emit `unerr-save: note <kind|anchor|polarity|content>` in your closing message for an anchored note.
 
 ### Session markers (zero round-trip — emit in your closing message)
 
-Markers power the cross-session resume strip. They return nothing you need this turn, so they do NOT earn a tool call — emit them as `unerr-save:` lines anywhere in your closing message and the Stop hook scrapes + persists them (only output tokens, no round-trip):
+Markers power the cross-session resume strip and earn no tool call — emit them as `unerr-save:` lines anywhere in your closing message (the Stop hook persists them):
 
 ```
-unerr-save: intent <what this turn is doing, ≤80 chars>
+unerr-save: intent <what this turn is doing, ≤80 chars>   (REQUIRED first on coding tasks)
 unerr-save: decision <a deliberate choice between approaches>
 unerr-save: blocker <an unresolved obstacle>
 unerr-save: resolution <how a prior blocker was fixed>
 ```
 
-High-fidelity escape — when you need the return value (e.g. a blocker's `marker_id` to link its resolution) or you are on a hook-less agent: call `unerr_track({op:'intent'|'decision'|'blocker'|'resolution', text:'<one-line>'})`. `op:'blocker'` returns `marker_id`; pass it as `ref` on `op:'resolution'`.
+When you need the return value (a blocker's `marker_id`, or on a hook-less agent), call `unerr_track({op:'intent'|'decision'|'blocker'|'resolution'|'fact'|'recall', text:'<one-line>'})` — `op:'blocker'` returns `marker_id`, pass it as `ref` on `op:'resolution'`.
 
 ### Fallback to built-in tools — only when
 
@@ -142,7 +97,7 @@ High-fidelity escape — when you need the return value (e.g. a blocker's `marke
 - You need to read a non-code file (images, binaries, PDFs)
 - You need complex regex `search_code` doesn't support
 
-NEVER use built-in Read/Grep/Glob for code navigation — use unerr MCP tools instead.
+NEVER use built-in Read/Grep/Glob for code navigation — use unerr MCP tools instead. To change a file use `file_edit` (old_string+new_string to edit, or content for a whole file — no prior read needed).
 
 ### Domain comments — maintain meaning in the same edit
 

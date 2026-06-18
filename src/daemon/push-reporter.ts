@@ -209,10 +209,11 @@ export class PushReporter {
       await cursor.save();
 
       const pushed = outcomes.reduce((n, o) => n + o.pushed, 0);
+      const parked = outcomes.reduce((n, o) => n + o.parked, 0);
       const dead = outcomes.reduce((n, o) => n + o.deadLettered, 0);
-      if (pushed > 0 || dead > 0) {
+      if (pushed > 0 || parked > 0 || dead > 0) {
         this.deps.log?.(
-          `push: ${repoPath} drained ${pushed} row(s)${dead > 0 ? `, ${dead} dead-lettered` : ""}`
+          `push: ${repoPath} drained ${pushed} row(s)${parked > 0 ? `, ${parked} parked` : ""}${dead > 0 ? `, ${dead} dead-lettered` : ""}`
         );
       }
       return outcomes.some((o) => isSoftFailure(o.status));

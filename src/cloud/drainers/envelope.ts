@@ -18,7 +18,7 @@ import { INGEST_SCHEMA_VERSION } from "@unerr-ai/contracts/events";
 import { TRACE_SCHEMA_VERSION as CONTRACT_TRACE_SCHEMA_VERSION } from "@unerr-ai/contracts/traces";
 
 /** events schema version — sourced from `@unerr-ai/contracts/events`
- *  (`INGEST_SCHEMA_VERSION`, currently `1-0-2`) so the CLI and web-service can
+ *  (`INGEST_SCHEMA_VERSION`, currently `1-0-5`) so the CLI and web-service can
  *  never disagree. The SchemaVer history lives in the contract module. */
 export const EVENTS_SCHEMA_VERSION = INGEST_SCHEMA_VERSION;
 /** trace-stream schema version (ledger/router/transcripts) — sourced from

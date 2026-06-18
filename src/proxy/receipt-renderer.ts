@@ -552,6 +552,116 @@ function recapBlock(inputs: ReceiptBlockInputs): string[] {
   return ["unerr » this session, unerr kept your agent on track:", ...rows];
 }
 
+// ── Files-changed section ────────────────────────────────────────────
+//
+// A deterministic, host-emitted list of every file the agent edited this turn
+// with its changed line ranges — independent of the model echoing the change
+// in its reply (which it dropped ~94% of the time). Sourced from the
+// `code_edit_applied` behavior events the proxy records on each successful
+// `file_edit`. Renders on ANY edit turn, even one with no token savings.
+
+/** Max line ranges shown per file before collapsing to a `+N more` tail. */
+const MAX_RANGES_PER_FILE = 5;
+
+interface FileChange {
+  file: string;
+  added: number;
+  removed: number;
+  ranges: Array<{ start: number; end: number }>;
+}
+
+/** Coerce a metadata `ranges` blob into typed {start,end} pairs, dropping any
+ *  malformed entry. The blob arrives via JSON projection, so values are
+ *  untrusted. */
+function parseRanges(raw: unknown): Array<{ start: number; end: number }> {
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ start: number; end: number }> = [];
+  for (const r of raw) {
+    const start = numberOf((r as { start?: unknown })?.start);
+    const end = numberOf((r as { end?: unknown })?.end);
+    if (start > 0 && end >= start) out.push({ start, end });
+  }
+  return out;
+}
+
+/** Merge overlapping / adjacent ranges (sorted by start) so "lines 10–12,
+ *  13–15" collapses to "lines 10–15". */
+function mergeRanges(
+  ranges: Array<{ start: number; end: number }>
+): Array<{ start: number; end: number }> {
+  if (ranges.length === 0) return [];
+  const sorted = [...ranges].sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: Array<{ start: number; end: number }> = [{ ...sorted[0]! }];
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i]!;
+    const last = merged[merged.length - 1]!;
+    if (cur.start <= last.end + 1) {
+      last.end = Math.max(last.end, cur.end);
+    } else {
+      merged.push({ ...cur });
+    }
+  }
+  return merged;
+}
+
+/** Render merged ranges as "line 12" / "lines 12, 40–58 (+2 more)". */
+function formatRanges(ranges: Array<{ start: number; end: number }>): string {
+  const merged = mergeRanges(ranges);
+  if (merged.length === 0) return "";
+  const shown = merged.slice(0, MAX_RANGES_PER_FILE);
+  const parts = shown.map((r) =>
+    r.start === r.end ? `${r.start}` : `${r.start}–${r.end}`
+  );
+  const overflow = merged.length - shown.length;
+  const tail = overflow > 0 ? ` (+${overflow} more)` : "";
+  const single = merged.length === 1 && merged[0]!.start === merged[0]!.end;
+  return `${single ? "line" : "lines"} ${parts.join(", ")}${tail}`;
+}
+
+/** Aggregate this turn's `code_edit_applied` events into one row per file,
+ *  preserving first-edit order. Multiple edits to the same file sum their
+ *  counts and concatenate their ranges (merged at render time). */
+function collectFileChanges(turnEvents: readonly NamedEvent[]): FileChange[] {
+  const byFile = new Map<string, FileChange>();
+  for (const e of turnEvents) {
+    if (e.event_type !== "code_edit_applied") continue;
+    const file = e.file_path || stringOf(e.metadata.file_path);
+    if (!file) continue;
+    const added = numberOf(e.metadata.added);
+    const removed = numberOf(e.metadata.removed);
+    const ranges = parseRanges(e.metadata.ranges);
+    const existing = byFile.get(file);
+    if (existing) {
+      existing.added += added;
+      existing.removed += removed;
+      existing.ranges.push(...ranges);
+    } else {
+      byFile.set(file, { file, added, removed, ranges });
+    }
+  }
+  return [...byFile.values()];
+}
+
+/**
+ * The deterministic "files changed this turn" block — a header plus one row
+ * per edited file with its added/removed line counts and changed line ranges.
+ * Returns [] when no file was edited this turn.
+ */
+function renderFilesChanged(turnEvents: readonly NamedEvent[]): string[] {
+  const changes = collectFileChanges(turnEvents);
+  if (changes.length === 0) return [];
+  const n = changes.length;
+  const out = [`unerr » ${n} ${n === 1 ? "file" : "files"} changed this turn`];
+  for (const c of changes) {
+    const ranges = formatRanges(c.ranges);
+    const where = ranges ? `  (${ranges})` : "";
+    out.push(
+      `${BULLET_INDENT}${BULLET} ${c.file}  +${c.added} -${c.removed}${where}`
+    );
+  }
+  return out;
+}
+
 /** Per-turn lines: prevention-first (State 1) or token-first (State 2)
  *  headline + up to 3 ranked concrete bullets + optional footer. Returns []
  *  on a quiet turn (no savings AND no nameable bullet) so the caller can fold
@@ -667,10 +777,18 @@ export function renderReceiptBlock(inputs: ReceiptBlockInputs): string[] {
   if (inputs.singleLine) return renderSingleLine(inputs);
 
   const turnLines = renderTurnLines(inputs);
+  const filesChanged = renderFilesChanged(inputs.turnEvents);
   const recap = inputs.recapTurn ? recapBlock(inputs) : [];
 
-  if (turnLines.length === 0 && recap.length === 0) {
+  // The files-changed block renders on ANY edit turn, even one with no token
+  // savings and no bucketed event — so a pure-edit turn still gets a receipt
+  // (it would otherwise fall through to the fallback line / nothing).
+  if (
+    turnLines.length === 0 &&
+    filesChanged.length === 0 &&
+    recap.length === 0
+  ) {
     return inputs.fallbackLine ? [inputs.fallbackLine] : [];
   }
-  return [...turnLines, ...recap];
+  return [...turnLines, ...filesChanged, ...recap];
 }

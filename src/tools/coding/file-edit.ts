@@ -17,24 +17,26 @@
  * The rendered diff (edit mode) is written out-of-band to the file log (never the
  * tool_result): a diff in the result would re-bill on every later cached turn
  * and can erase the round-trip saving. The model gets a one-line confirmation
- * (with added/removed line counts) plus a `ur|act` line telling it to echo the
- * change in its REPLY, mirroring the host's edit card: file path, then the change
- * summary, then a -/+ diff. The host collapses the tool card, so the model's
- * prose is the only surface where the user actually sees what changed. The echo
- * costs ~0 extra tokens: the model already holds old_string/new_string from the
- * call it just made.
+ * with added/removed line counts. The user sees what changed through the
+ * DETERMINISTIC end-of-turn "files changed" receipt (Stop hook), not a
+ * per-edit model echo: each successful edit returns `metadata.edit_summary`
+ * (file, added, removed, changed line ranges) which the proxy records as a
+ * `code_edit_applied` behavior event; the receipt renderer lists every file
+ * edited this turn with its line numbers. This is host-emitted, so it never
+ * depends on the model remembering to echo (which it dropped ~94% of the time).
  *
  * @sem domain=utilities role=tool
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, relative } from "node:path";
 import { renderInlineBlastRadius } from "../../intelligence/edit-impact.js";
 import { handleBlastRadiusRequest } from "../../proxy/blast-radius-protocol.js";
 import { resolveWithHome } from "../../utils/expand-home.js";
 import { initFileLog, startupLog } from "../../utils/startup-log.js";
 import type { Tool, ToolContext, ToolOutput } from "../types.js";
 import {
+  computeEditedLineRanges,
   contentHash,
   decodeFile,
   editErrorHint,
@@ -47,13 +49,12 @@ import {
 
 let _logInit = false;
 
-// Appended to every successful result. The host collapses the tool card, so the
-// model's REPLY is the only surface the user sees — these tell it to echo the
-// change there. Double-quoted (not template) so the ```diff fence needs no escaping.
-const EDIT_ECHO_HINT =
-  "ur|act show the user the change in your reply, mirroring the host's edit card: line 1 = the file path relative to the project root, line 2 = the change summary from this result (the added/removed line counts), then the edited lines as a fenced ```diff block (- old_string / + new_string, the strings you just sent) — the tool card is collapsed, so your reply is the only place the user sees which file changed and how.";
-const WRITE_ECHO_HINT =
-  "ur|act show the user the change in your reply, mirroring the host's edit card: line 1 = the file path relative to the project root, line 2 = the change summary from this result (the added/removed line counts), then the key written lines as a fenced ```diff block (+ lines), or a 1-2 line summary if the file is large — the tool card is collapsed, so your reply is the only place the user sees which file changed and how.";
+/** Path shown to the user — relative to the project root, never absolute or
+ *  `$HOME`-expanded. Falls back to the given path if it sits outside cwd. */
+function toRepoRelative(cwd: string, filePath: string): string {
+  const rel = relative(cwd, filePath);
+  return rel && !rel.startsWith("..") ? rel : filePath;
+}
 
 /** Write the rendered diff to the file log only — never to stdout or the result. */
 function emitDiffOutOfBand(cwd: string, diff: string): void {
@@ -73,7 +74,11 @@ function emitDiffOutOfBand(cwd: string, diff: string): void {
  * Whole-file create/overwrite (content mode). Preserves an existing file's
  * encoding + line ending; a new file gets UTF-8 / LF. Parent dirs are created.
  */
-function writeWholeFile(filePath: string, content: string): ToolOutput {
+function writeWholeFile(
+  filePath: string,
+  content: string,
+  cwd: string
+): ToolOutput {
   mkdirSync(dirname(filePath), { recursive: true });
 
   let encoding: ReturnType<typeof decodeFile>["encoding"] = "utf8";
@@ -93,9 +98,23 @@ function writeWholeFile(filePath: string, content: string): ToolOutput {
   writeFileSync(filePath, encodeFile(restored, encoding, hadBom));
 
   const lineCount = content.split("\n").length;
+  const rel = toRepoRelative(cwd, filePath);
   return {
-    content: `${overwrite ? "Overwrote" : "Wrote"} ${lineCount} lines to ${filePath} — added ${lineCount} line(s), removed ${removed} line(s)\n${WRITE_ECHO_HINT}`,
-    metadata: { new_hash: contentHash(content), overwrite },
+    content: `${overwrite ? "Overwrote" : "Wrote"} ${lineCount} lines to ${filePath} — added ${lineCount} line(s), removed ${removed} line(s)`,
+    // edit_summary feeds the deterministic end-of-turn "files changed" receipt
+    // (the proxy reads it and records a code_edit_applied behavior event). A
+    // whole-file write spans the entire resulting file.
+    metadata: {
+      new_hash: contentHash(content),
+      overwrite,
+      edit_summary: {
+        file: rel,
+        mode: overwrite ? "overwrite" : "create",
+        added: lineCount,
+        removed,
+        ranges: [{ start: 1, end: lineCount }],
+      },
+    },
   };
 }
 
@@ -155,19 +174,34 @@ function replaceInFile(
     renderEditDiff(filePath, normContent, normOld, normNew, result.indices)
   );
 
-  // Line deltas for the reply echo (mirrors the host card's "Added N / removed M").
+  // Line deltas + the changed line ranges, both for the end-of-turn receipt.
   const removed = normOld.split("\n").length * result.replaced;
   const added = normNew.split("\n").length * result.replaced;
+  const ranges = computeEditedLineRanges(
+    result.content,
+    normOld,
+    normNew,
+    result.indices
+  );
   const newHash = contentHash(result.content);
+  const rel = toRepoRelative(cwd, filePath);
   return {
-    content: `Replaced ${result.replaced} occurrence(s) in ${filePath} — added ${added} line(s), removed ${removed} line(s)\n${EDIT_ECHO_HINT}`,
+    content: `Replaced ${result.replaced} occurrence(s) in ${filePath} — added ${added} line(s), removed ${removed} line(s)`,
     // new_hash lets the agent chain a follow-up file_edit with no re-read;
     // metadata is out-of-band (filtered from model context), so it never
-    // bloats the prefix.
+    // bloats the prefix. edit_summary feeds the deterministic end-of-turn
+    // "files changed" receipt via a code_edit_applied behavior event.
     metadata: {
       replaced: result.replaced,
       new_hash: newHash,
       normalized_match: result.normalized,
+      edit_summary: {
+        file: rel,
+        mode: "edit",
+        added,
+        removed,
+        ranges,
+      },
     },
   };
 }
@@ -277,7 +311,7 @@ export const fileEditTool: Tool = {
 
     try {
       if (hasContent) {
-        return writeWholeFile(filePath, args.content as string);
+        return writeWholeFile(filePath, args.content as string, ctx.cwd);
       }
       const replaceAll = (args.replace_all as boolean) ?? false;
       const baseHash =

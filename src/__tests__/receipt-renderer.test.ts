@@ -597,3 +597,82 @@ describe("renderReceiptBlock — single-line fallback", () => {
     );
   });
 });
+
+describe("renderReceiptBlock — files changed this turn", () => {
+  function editEvent(
+    file: string,
+    added: number,
+    removed: number,
+    ranges: Array<{ start: number; end: number }>,
+    mode = "edit"
+  ): NamedEvent {
+    return ev(
+      "code_edit_applied",
+      { file_path: file, added, removed, ranges, mode },
+      { file_path: file }
+    );
+  }
+
+  function base(turnEvents: NamedEvent[]) {
+    return {
+      attribution: emptyAttribution,
+      runtimeJoins: noJoins,
+      turnTokensSaved: 0,
+      sessionTokensSaved: 0,
+      sessionHeadroom: 0,
+      turnEvents,
+      fallbackLine: "unerr » nothing this turn",
+    };
+  }
+
+  it("lists every edited file with counts + line ranges on a no-savings turn", () => {
+    const lines = renderReceiptBlock(
+      base([
+        editEvent("src/proxy/proxy.ts", 28, 2, [{ start: 2856, end: 2888 }]),
+        editEvent("src/tools/coding/file-edit.ts", 24, 12, [
+          { start: 76, end: 100 },
+          { start: 158, end: 185 },
+        ]),
+      ])
+    );
+    expect(lines[0]).toBe("unerr » 2 files changed this turn");
+    expect(lines[1]).toBe("  ◆ src/proxy/proxy.ts  +28 -2  (lines 2856–2888)");
+    expect(lines[2]).toBe(
+      "  ◆ src/tools/coding/file-edit.ts  +24 -12  (lines 76–100, 158–185)"
+    );
+    // the receipt renders even though nothing was saved — it never falls back
+    expect(lines).not.toContain("unerr » nothing this turn");
+  });
+
+  it("aggregates multiple edits to the same file and merges adjacent ranges", () => {
+    const lines = renderReceiptBlock(
+      base([
+        editEvent("src/a.ts", 3, 1, [{ start: 10, end: 12 }]),
+        editEvent("src/a.ts", 2, 0, [{ start: 13, end: 15 }]),
+      ])
+    );
+    expect(lines[0]).toBe("unerr » 1 file changed this turn");
+    expect(lines[1]).toBe("  ◆ src/a.ts  +5 -1  (lines 10–15)");
+  });
+
+  it("renders a single-line range as 'line N'", () => {
+    const lines = renderReceiptBlock(
+      base([editEvent("src/x.ts", 1, 1, [{ start: 42, end: 42 }])])
+    );
+    expect(lines[1]).toBe("  ◆ src/x.ts  +1 -1  (line 42)");
+  });
+
+  it("renders alongside a token-savings headline", () => {
+    const lines = renderReceiptBlock({
+      ...base([editEvent("src/x.ts", 4, 0, [{ start: 1, end: 4 }], "create")]),
+      turnTokensSaved: 5000,
+    });
+    expect(lines[0]).toContain("unerr » this turn: saved 5,000 tokens");
+    expect(lines).toContain("unerr » 1 file changed this turn");
+  });
+
+  it("emits nothing for a turn with no edits and no savings", () => {
+    const lines = renderReceiptBlock(base([]));
+    expect(lines).toEqual(["unerr » nothing this turn"]);
+  });
+});

@@ -11,7 +11,7 @@
  *      preface — formerly Surface 4d.)
  *
  *   2. Agents with an `instructionFilePath` get the L3 (instruction-file)
- *      reinforcement; agents without one (Zed, Kiro, Aider, Opencode,
+ *      reinforcement; agents without one (Zed, Kiro, Opencode,
  *      Trae, Augment, Continue) still get L2 (skill + body content) and
  *      must not lose any surface.
  *

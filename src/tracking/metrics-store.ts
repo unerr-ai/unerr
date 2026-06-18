@@ -436,7 +436,9 @@ CREATE TABLE IF NOT EXISTS file_read_events (
   token_estimate INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_file_read_ts ON file_read_events(ts);
-CREATE INDEX IF NOT EXISTS idx_file_read_session ON file_read_events(session_id);
+-- idx_file_read_session is created after reconcileAdditiveColumns runs (see
+-- POST_RECONCILE_INDEXES): file_read_events.session_id is an additive column,
+-- so legacy DBs must ALTER it in before this index can reference it.
 
 CREATE TABLE IF NOT EXISTS token_flow_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -698,6 +700,7 @@ function reconcileAdditiveColumns(db: DatabaseT): void {
 const POST_RECONCILE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_token_flow_agent ON token_flow_events(agent);
 CREATE INDEX IF NOT EXISTS idx_behavior_events_agent ON behavior_events(agent);
+CREATE INDEX IF NOT EXISTS idx_file_read_session ON file_read_events(session_id);
 `;
 
 interface Statements {

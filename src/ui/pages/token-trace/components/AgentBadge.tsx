@@ -41,7 +41,6 @@ const AGENT_STYLES: Record<
     text: "text-emerald-400",
     label: "Codex",
   },
-  aider: { bg: "bg-rose-500/20", text: "text-rose-400", label: "Aider" },
   opencode: {
     bg: "bg-violet-500/20",
     text: "text-violet-400",

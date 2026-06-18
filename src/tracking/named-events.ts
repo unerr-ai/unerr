@@ -222,6 +222,14 @@ const PHRASING: Record<string, PhrasingRow> = {
     object: "review finding",
     plural: "review findings",
   },
+
+  // OWN_EDIT_TOOL — file_edit applied (drives the "files changed this turn"
+  // receipt section; eventBucket returns null so it stays out of the recap).
+  code_edit_applied: {
+    verb: "changed",
+    object: "edited file",
+    plural: "edited files",
+  },
 };
 
 /** Phrasing for `tokenflow.<mechanism>` synthetic event types. Mirrors

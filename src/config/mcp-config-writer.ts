@@ -163,6 +163,8 @@ export function writeMcpConfig(
       return writeCopilotJsonFormat(configPath, ide);
     case "continue-config":
       return writeContinueFormat(configPath, ide);
+    case "toml":
+      return writeTomlFormat(configPath, ide);
     default:
       return writeMcpJsonFormat(configPath, ide);
   }
@@ -199,6 +201,9 @@ export function removeMcpConfig(cwd: string, ide: IdeType): boolean {
   if (!existsSync(configPath)) return false;
 
   try {
+    if (agent.configFormat === "toml") {
+      return removeTomlConfig(configPath);
+    }
     const existing = JSON.parse(readFileSync(configPath, "utf-8"));
     if (agent.configFormat === "continue-config") {
       if (!Array.isArray(existing.mcpServers)) return false;
@@ -276,6 +281,10 @@ export function isConfigured(cwd: string, ide: IdeType): boolean {
   if (!existsSync(configPath)) return false;
 
   try {
+    if (agent.configFormat === "toml") {
+      const content = readFileSync(configPath, "utf-8");
+      return content.includes(`[mcp_servers.${UNERR_SERVER_KEY}]`);
+    }
     const existing = JSON.parse(readFileSync(configPath, "utf-8"));
     if (agent.configFormat === "continue-config") {
       return (
@@ -328,6 +337,8 @@ export function generateConfigSnippet(ide: IdeType): string {
         null,
         2
       );
+    case "toml":
+      return buildTomlSection(entry);
     default:
       return JSON.stringify(
         { mcpServers: { [UNERR_SERVER_KEY]: entry } },
@@ -460,6 +471,90 @@ function writeContinueFormat(
 
   const config = { mcpServers: [entry] };
   writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+  return { path: configPath, action: "created" };
+}
+
+// ── TOML format (Codex) ──────────────────────────────────────────
+
+/** Build the TOML section string for [mcp_servers.unerr]. */
+function buildTomlSection(entry: McpServerEntry): string {
+  const args = entry.args.map((a) => `"${a}"`).join(", ");
+  return `[mcp_servers.${UNERR_SERVER_KEY}]\ntype = "stdio"\ncommand = "${entry.command}"\nargs = [${args}]`;
+}
+
+/** Remove the [mcp_servers.unerr] section from a TOML file. */
+function removeTomlConfig(configPath: string): boolean {
+  try {
+    const content = readFileSync(configPath, "utf-8");
+    const sectionHeader = `[mcp_servers.${UNERR_SERVER_KEY}]`;
+    const idx = content.indexOf(sectionHeader);
+    if (idx < 0) return false;
+
+    // Find the end of this section (next [section] header or EOF)
+    const afterHeader = idx + sectionHeader.length;
+    const nextSection = content.indexOf("\n[", afterHeader);
+    const end = nextSection >= 0 ? nextSection : content.length;
+
+    const before = content.slice(0, idx).replace(/\n+$/, "");
+    const after = content.slice(end);
+    const updated = (before + after).trim();
+
+    if (updated.length === 0) {
+      unlinkSync(configPath);
+      tryRmdir(dirname(configPath));
+    } else {
+      writeFileSync(configPath, updated + "\n", "utf-8");
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function writeTomlFormat(
+  configPath: string,
+  ide: IdeType
+): {
+  path: string;
+  action: "created" | "updated" | "skipped";
+} {
+  const entry = createUnerrServerEntry(ide);
+  const section = buildTomlSection(entry);
+
+  if (existsSync(configPath)) {
+    try {
+      const content = readFileSync(configPath, "utf-8");
+      const sectionHeader = `[mcp_servers.${UNERR_SERVER_KEY}]`;
+
+      if (content.includes(sectionHeader)) {
+        // Check if the existing section matches
+        const idx = content.indexOf(sectionHeader);
+        const afterHeader = idx + sectionHeader.length;
+        const nextSection = content.indexOf("\n[", afterHeader);
+        const end = nextSection >= 0 ? nextSection : content.length;
+        const existingSection = content.slice(idx, end).trim();
+
+        if (existingSection === section) {
+          return { path: configPath, action: "skipped" };
+        }
+
+        // Replace existing section
+        const before = content.slice(0, idx);
+        const after = content.slice(end);
+        writeFileSync(configPath, before + section + after, "utf-8");
+        return { path: configPath, action: "updated" };
+      }
+
+      // Append the section
+      const separator = content.endsWith("\n") ? "\n" : "\n\n";
+      writeFileSync(configPath, content + separator + section + "\n", "utf-8");
+      return { path: configPath, action: "updated" };
+    } catch {
+      return { path: configPath, action: "skipped" };
+    }
+  }
+
+  writeFileSync(configPath, section + "\n", "utf-8");
   return { path: configPath, action: "created" };
 }
 

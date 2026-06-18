@@ -24,7 +24,6 @@ export type IdeType =
   | "kiro"
   | "gemini-cli"
   | "codex"
-  | "aider"
   | "opencode"
   | "trae"
   | "augment"
@@ -190,7 +189,6 @@ export function detectAgentNameFromEnv(): IdeType | null {
   if (process.env.ANTIGRAVITY_PROJECT_DIR || process.env.ANTIGRAVITY_VERSION)
     return "antigravity";
   if (process.env.CODEX_SESSION_ID) return "codex";
-  if (process.env.AIDER_CHAT_HISTORY_FILE) return "aider";
   const termProgram = process.env.TERM_PROGRAM ?? "";
   if (termProgram === "vscode") {
     const vscodeCwd = (process.env.VSCODE_CWD ?? "").toLowerCase();
@@ -224,8 +222,6 @@ export function ideDisplayName(ide: IdeType): string {
       return "Gemini CLI";
     case "codex":
       return "Codex";
-    case "aider":
-      return "Aider";
     case "opencode":
       return "OpenCode";
     case "trae":
@@ -258,7 +254,6 @@ export const IDE_CHOICES: Array<{ title: string; value: IdeType }> = [
   { title: "Kiro", value: "kiro" },
   { title: "Gemini CLI", value: "gemini-cli" },
   { title: "Codex (OpenAI)", value: "codex" },
-  { title: "Aider", value: "aider" },
   { title: "OpenCode", value: "opencode" },
   { title: "Trae", value: "trae" },
   { title: "Augment", value: "augment" },

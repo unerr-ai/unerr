@@ -58,7 +58,7 @@ Phase 3 — Plan + note intent.
   Emit `unerr-save: intent <one-sentence summary, ≤80 chars>` in your closing message (no tool call — the Stop hook persists it). Write the plan inline; cite returned notes by `kind|anchor`.
 
 Phase 4 — Edit.
-  Call `file_read({file_path:'<target>', purpose:'explore'})` to understand — it auto-injects conventions, facts, and drift inline. Then call `file_edit({file_path:'<target>', old_string:'<exact>', new_string:'<replacement>'})` (or `file_edit({file_path:'<target>', content:'<whole file>'})` for a whole-file rewrite) to make the change. No prior built-in `Read` is needed — the unerr edit path needs no read-gate. Then show the user the change in your reply, mirroring the host's edit card: the file path relative to the project root, the change summary from the result (added/removed line counts), then the edited lines as a fenced ```diff block (`- old` / `+ new`) — the host collapses the tool card, so your reply is the only place the user sees what changed.
+  Call `file_read({file_path:'<target>', purpose:'explore'})` to understand — it auto-injects conventions, facts, and drift inline. Then call `file_edit({file_path:'<target>', old_string:'<exact>', new_string:'<replacement>'})` (or `file_edit({file_path:'<target>', content:'<whole file>'})` for a whole-file rewrite) to make the change. No prior built-in `Read` is needed — the unerr edit path needs no read-gate.
 
 Phase 5 — Verify.
   Run the targeted test file (not the full suite). Emit `unerr-save: resolution <fix>` in your closing message for any blocker that fired during the turn.

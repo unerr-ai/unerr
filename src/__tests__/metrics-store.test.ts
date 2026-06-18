@@ -27,12 +27,16 @@ describe("MetricsStore", () => {
     expect(openMetricsStore(dir)).toBe(openMetricsStore(dir));
   });
 
-  it("upgrades a legacy DB (no `agent` column) without crashing", async () => {
-    // Reproduce the failure mode reported by the user: an existing
-    // metrics.db created before the `agent` column shipped. The SCHEMA
-    // can't create the agent index until reconcileAdditiveColumns has
-    // added the column to the legacy table — ordering bug must not
-    // resurface.
+  it("upgrades a legacy DB (no `agent` / no `session_id`) without crashing", async () => {
+    // Reproduce the failure mode reported by the user twice over:
+    //   1. token_flow_events/behavior_events created before the `agent`
+    //      column shipped — the agent index can't be created until
+    //      reconcileAdditiveColumns adds the column.
+    //   2. file_read_events created before session_id shipped — the
+    //      idx_file_read_session index references a column that does not
+    //      exist on the legacy table. This crashed the proxy at startup
+    //      ("no such column: session_id", code=1 loop). Both index
+    //      statements must run AFTER reconcile (POST_RECONCILE_INDEXES).
     const Database = (await import("better-sqlite3")).default;
     const dbPath = join(dir, "metrics.db");
     const legacy = new Database(dbPath);
@@ -64,11 +68,23 @@ describe("MetricsStore", () => {
         response_bytes INTEGER,
         detail TEXT
       );
+      CREATE TABLE file_read_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        ts_iso TEXT NOT NULL,
+        file TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        total_lines INTEGER NOT NULL,
+        returned_lines INTEGER NOT NULL,
+        saved_pct REAL NOT NULL,
+        entity TEXT,
+        token_estimate INTEGER
+      );
     `);
     legacy.close();
 
-    // Opening MUST succeed — adds the agent column and the index that
-    // depends on it.
+    // Opening MUST succeed — adds the agent + session_id columns and the
+    // indexes that depend on them.
     const s = openMetricsStore(dir);
     s.insertTokenFlow({
       ts: Date.now(),
@@ -86,6 +102,24 @@ describe("MetricsStore", () => {
     const rows = s.tokenFlowBySession("legacy");
     expect(rows).toHaveLength(1);
     expect(rows[0]?.agent).toBe("unknown");
+
+    // file_read_events got session_id ALTERed in — an insert carrying it
+    // must round-trip (proves the column + idx_file_read_session exist).
+    s.insertFileRead({
+      ts: Date.now(),
+      ts_iso: new Date().toISOString(),
+      session_id: "legacy",
+      file: "src/foo.ts",
+      mode: "outline",
+      total_lines: 500,
+      returned_lines: 30,
+      saved_pct: 94,
+      entity: null,
+      token_estimate: 200,
+    });
+    const reads = s.fileReadsSince(0);
+    expect(reads).toHaveLength(1);
+    expect(reads[0]?.file).toBe("src/foo.ts");
   });
 
   it("inserts + reads compression events with monotonic id", () => {

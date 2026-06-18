@@ -2855,6 +2855,33 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         }
       }
 
+      // Record the edit so the deterministic end-of-turn "files changed" receipt
+      // can list every file touched this turn with its line numbers — host-emitted
+      // (Stop hook), so it never depends on the model echoing the change. The tool
+      // returns metadata.edit_summary (out-of-band, filtered from model context).
+      const editSummary = (
+        out.metadata as { edit_summary?: Record<string, unknown> } | undefined
+      )?.edit_summary;
+      if (out.isError !== true && editSummary) {
+        behaviorEventWriter.record({
+          session_id: sessionIdentity.sessionId,
+          native_session_id: sessionIdentity.nativeSessionId,
+          turn: stats.toolCallsLocal + 1,
+          type: "code_edit_applied",
+          tool: name,
+          entity_key:
+            typeof editSummary.file === "string" ? editSummary.file : null,
+          response_bytes: null,
+          detail: {
+            file_path: editSummary.file,
+            mode: editSummary.mode,
+            added: editSummary.added,
+            removed: editSummary.removed,
+            ranges: editSummary.ranges,
+          },
+        });
+      }
+
       return {
         content: [{ type: "text", text }],
         ...(out.isError ? { isError: true } : {}),

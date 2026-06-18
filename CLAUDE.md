@@ -49,7 +49,7 @@ unerr ships its own edit path, so you never need a built-in `Read` before changi
 
 Blast-radius: when a signature change has graph-confirmed callers at risk, the `file_edit` response lists them inline — `ur|rsk signature change to <name> — N caller(s) to update: <entity> (<file>:<line>), …`. Update every listed caller in the same change; the list is in the response, so no separate `get_references` round-trip is needed (it falls back to `get_references` only past the inline cap). On Claude Code / Cursor the first such `file_edit` is also denied once until you've updated the callers — re-attempt and it proceeds.
 
-After every `file_edit`, show the change in your REPLY (the host collapses the tool card): the file path, the change-summary line, then the edited lines as a fenced ```diff block (`- old` / `+ new`) — or a 1–2 line summary for a whole-file write.
+You do NOT need to echo each edit in your reply. unerr surfaces a deterministic "files changed this turn" receipt at end-of-turn — every file you edited, with its line numbers and added/removed counts — emitted by the host (the Stop hook), not by you. Just make the edits; the receipt shows the user what changed.
 
 Full-file built-in `Read` of a **code** file stays discouraged (it re-bills the whole file every later turn) — route understanding through `file_read` / `unerr_context`. Read the whole file only when you genuinely need all of it; the redirect fires once per file. Non-code files (md/json/yaml/images) read normally.
 

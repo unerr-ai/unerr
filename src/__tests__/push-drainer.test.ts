@@ -70,7 +70,13 @@ describe("drainRepo", () => {
     const outcomes = await drainRepo(cursor, [drainer], { isEntitled: deny });
 
     expect(outcomes).toEqual([
-      { stream: "events", pushed: 0, deadLettered: 0, status: "skipped_gate" },
+      {
+        stream: "events",
+        pushed: 0,
+        parked: 0,
+        deadLettered: 0,
+        status: "skipped_gate",
+      },
     ]);
     expect(pushedRows).toHaveLength(0); // never pushed
     expect(cursor.position("events")).toEqual({}); // cursor unmoved
@@ -101,6 +107,7 @@ describe("drainRepo", () => {
     expect(outcomes[0]).toEqual({
       stream: "ledger",
       pushed: 0,
+      parked: 0,
       deadLettered: 0,
       status: "empty",
     });
@@ -166,6 +173,106 @@ describe("drainRepo", () => {
       pushed: 2,
       deadLettered: 1,
       status: "dead_lettered",
+    });
+  });
+
+  it("parks rows durably: advances the cursor, never dead-letters (accept-and-park)", async () => {
+    const cursor = await PushCursor.open(unerrDir);
+    const { drainer } = scriptedDrainer(
+      "events",
+      [{ rows: [{ a: 1 }, { b: 2 }, { c: 3 }], next: { lastId: 9 } }],
+      [
+        ok({
+          accepted: 1,
+          parked: 2,
+          rejected: 0,
+          results: [
+            { event_id: "a", status: "accepted" },
+            {
+              event_id: "b",
+              status: "parked",
+              code: "parked_schema_unsupported",
+            },
+            {
+              event_id: "c",
+              status: "parked",
+              code: "parked_schema_unsupported",
+            },
+          ],
+        }),
+      ]
+    );
+
+    const outcomes = await drainRepo(cursor, [drainer], { isEntitled: allow });
+
+    expect(cursor.position("events")).toEqual({ lastId: 9 }); // advanced — durable
+    expect(cursor.deadLetterTotal()).toBe(0); // parked is NOT data loss
+    expect(outcomes[0]).toMatchObject({
+      pushed: 1,
+      parked: 2,
+      deadLettered: 0,
+      status: "ok",
+    });
+  });
+
+  it("dead-letters a permanently rejected row and advances past it", async () => {
+    const cursor = await PushCursor.open(unerrDir);
+    const { drainer } = scriptedDrainer(
+      "events",
+      [{ rows: [{ a: 1 }, { b: 2 }], next: { lastId: 5 } }],
+      [
+        ok({
+          accepted: 1,
+          rejected: 1,
+          results: [
+            { event_id: "a", status: "accepted" },
+            {
+              event_id: "b",
+              status: "rejected",
+              disposition: "permanent",
+              code: "invalid_payload",
+            },
+          ],
+        }),
+      ]
+    );
+
+    const outcomes = await drainRepo(cursor, [drainer], { isEntitled: allow });
+
+    expect(cursor.position("events")).toEqual({ lastId: 5 }); // advanced
+    expect(cursor.deadLetterTotal()).toBe(1);
+    expect(outcomes[0]).toMatchObject({
+      pushed: 1,
+      parked: 0,
+      deadLettered: 1,
+      status: "dead_lettered",
+    });
+  });
+
+  it("holds the cursor on a retryable per-row reject (no dead-letter)", async () => {
+    const cursor = await PushCursor.open(unerrDir);
+    const { drainer } = scriptedDrainer(
+      "events",
+      [{ rows: [{ a: 1 }, { b: 2 }], next: { lastId: 8 } }],
+      [
+        ok({
+          accepted: 1,
+          rejected: 1,
+          results: [
+            { event_id: "a", status: "accepted" },
+            { event_id: "b", status: "rejected", disposition: "retryable" },
+          ],
+        }),
+      ]
+    );
+
+    const outcomes = await drainRepo(cursor, [drainer], { isEntitled: allow });
+
+    expect(cursor.position("events")).toEqual({}); // held — retried next tick
+    expect(cursor.deadLetterTotal()).toBe(0); // retryable is NOT dead-lettered
+    expect(outcomes[0]).toMatchObject({
+      deadLettered: 0,
+      status: "server_error",
     });
   });
 

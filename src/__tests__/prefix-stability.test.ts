@@ -22,7 +22,7 @@ import { ADVERTISED_TOOL_DEFINITIONS } from "../proxy/tool-definitions.js";
 // not. Keep this strict so legitimate year-month strings don't false-positive.
 const VOLATILE_ISO = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
 
-describe("W1 cache-prefix stability — tools/list (all 16 agents)", () => {
+describe("W1 cache-prefix stability — tools/list (all agents)", () => {
   it("advertised tools are emitted in a deterministic (name-sorted) order", () => {
     const names = ADVERTISED_TOOL_DEFINITIONS.map((d) => d.name);
     expect(names).toEqual([...names].sort());

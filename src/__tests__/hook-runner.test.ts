@@ -206,24 +206,23 @@ describe("clineAdapter", () => {
     expect(n.toolInput.pattern).toBe("myFunc");
   });
 
-  it("formats passthrough as { allow: true }", () => {
-    const result = JSON.parse(clineAdapter.formatPreToolUse(passthrough()));
-    expect(result.allow).toBe(true);
+  it("formats passthrough as {}", () => {
+    const result = clineAdapter.formatPreToolUse(passthrough());
+    expect(result).toBe("{}");
   });
 
-  it("formats nudge with context", () => {
+  it("formats nudge with contextModification (v3.36)", () => {
     const result = JSON.parse(
       clineAdapter.formatPreToolUse(nudge("Use graph tools"))
     );
-    expect(result.allow).toBe(true);
-    expect(result.context).toBe("Use graph tools");
+    expect(result.contextModification).toBe("Use graph tools");
   });
 
-  it("formats PostToolUse enrich with context", () => {
+  it("formats PostToolUse enrich with contextModification (v3.36)", () => {
     const result = JSON.parse(
       clineAdapter.formatPostToolUse(enrich("Try get_references"))
     );
-    expect(result.context).toBe("Try get_references");
+    expect(result.contextModification).toBe("Try get_references");
   });
 
   it("maps post_tool event to PostToolUse", () => {
@@ -275,7 +274,7 @@ describe("runPreToolUseHook", () => {
     expect(result.agent_message).toContain("Use file_read");
   });
 
-  it("routes Cline payload through handler and formats correctly", () => {
+  it("routes Cline payload through handler and formats correctly (v3.36)", () => {
     const stdin = JSON.stringify({
       tool: "read_file",
       params: { path: "src/foo.ts" },
@@ -284,10 +283,8 @@ describe("runPreToolUseHook", () => {
     const result = JSON.parse(
       runPreToolUseHook(stdin, () => nudge("Use file_read"))
     );
-    expect(result.allow).toBe(true);
-    // See note above — ambient injection rides on the first PreToolUse
-    // for non-Claude-Code agents.
-    expect(result.context).toContain("Use file_read");
+    // v3.36 protocol: nudge → contextModification (ambient injection may prepend)
+    expect(result.contextModification).toContain("Use file_read");
   });
 });
 

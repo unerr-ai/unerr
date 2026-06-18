@@ -32,7 +32,7 @@ Phase A4 — RED.
   Write the smallest failing test that captures the acceptance criterion. Run the single test file — confirm it fails for the EXPECTED reason (not a typo, not a missing import).
 
 Phase A5 — GREEN.
-  Write the minimal production code that makes the test pass. No speculative features, no extra branches. Built-in `Read` (offset/limit) before each `Edit`.
+  Write the minimal production code that makes the test pass. No speculative features, no extra branches. Apply changes via `file_edit` / `file_write` — no prior built-in `Read` is needed.
 
 Phase A6 — Re-run.
   Run the single test file again. Confirm green.
@@ -66,7 +66,7 @@ Phase B4 — Mark intent.
   Note intent: emit `unerr-save: intent addressing N review comments on <PR>` in your closing message.
 
 Phase B5 — Apply ACCEPTs.
-  For each ACCEPT: locate the entity via `search_code`, run blast-radius check (`get_references` if exported), apply the change. Built-in `Read` (offset/limit) before each `Edit`.
+  For each ACCEPT: locate the entity via `search_code`, run blast-radius check (`get_references` if exported), apply the change via `file_edit` (old_string+new_string to edit, or content for a whole file) — no prior built-in `Read` is needed.
 
 Phase B6 — Draft PUSHBACKs.
   For each PUSHBACK: cite a project convention (read via `file_read`, which auto-injects conventions), a prior decision (the auto-injected anchored notes or `unerr_context`), or a concrete tradeoff. Hedging ('I think', 'maybe') is not pushback.

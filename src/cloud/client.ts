@@ -106,10 +106,23 @@ export interface InventoryAck {
  */
 export interface BatchAck {
   accepted?: number;
+  /**
+   * Rows the server could not process now but durably persisted to its
+   * quarantine store for server-side replay (contract >= events 1-0-5). Parked
+   * rows are NOT lost — the drainer advances its cursor and never dead-letters
+   * them. Absent (read as 0) from a pre-accept-and-park server.
+   */
+  parked?: number;
   rejected?: number;
   results?: Array<{
     event_id: string;
-    status: "accepted" | "rejected";
+    status: "accepted" | "parked" | "rejected";
+    /**
+     * Set only when status="rejected": "permanent" (poison — dead-letter and
+     * advance) vs "retryable" (transient — hold the cursor, retry next tick).
+     * Unspecified is treated as permanent (the pre-1-0-5 default).
+     */
+    disposition?: "permanent" | "retryable";
     code?: string;
   }>;
   [key: string]: unknown;
