@@ -297,9 +297,8 @@ export function renderSessionEconomyLineLive(
     // Conversation label (display-only): the hook records it on the shared
     // sessions file keyed by the unerr session_id; null when unrecorded.
     const sessionName =
-      readSessionRecords(unerrDir).find(
-        (r) => r.unerr_session_id === sessionId
-      )?.session_name ?? null;
+      readSessionRecords(unerrDir).find((r) => r.unerr_session_id === sessionId)
+        ?.session_name ?? null;
     const totalTokensSaved = totalTokensSavedInSession(tokenFlow, sessionId);
     const headroomCompounded = summarizeSessionEconomy(
       tokenFlow,

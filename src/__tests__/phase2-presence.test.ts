@@ -414,18 +414,6 @@ describe("PendingConfirmationRegistry", () => {
   });
 });
 
-// ── attribution-panel (Sprint 7) — REMOVED ──────────────────────────
-// Surface 4 inline attribution merged into the Surface 3 receipt in
-// §10.7. Regression coverage moved to:
-//   - src/__tests__/receipt-attribution.test.ts (data extractor)
-//   - src/__tests__/receipt-renderer.test.ts (block formatter)
-// Both reproduce the df6410f6 cold-start contract and the source-default
-// guard the deleted tests previously pinned.
-
-describe.skip("attribution-panel (DELETED — see receipt-* tests)", () => {
-  // Intentionally empty. The renderer module was removed in §10.7.
-});
-
 // ── enforcement-loop (Sprint 8) ──────────────────────────────────────
 
 describe("enforcement-loop", () => {

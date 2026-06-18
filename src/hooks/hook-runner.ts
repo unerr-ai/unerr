@@ -23,8 +23,8 @@ import {
   consumeAnyPendingTopicShift,
   setPendingTopicShift,
 } from "../intelligence/topic-shift.js";
-import type { IdeType } from "../utils/detect.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
+import type { IdeType } from "../utils/detect.js";
 import { antigravityAdapter } from "./adapters/antigravity.js";
 import { claudeCodeAdapter } from "./adapters/claude-code.js";
 import { clineAdapter } from "./adapters/cline.js";
@@ -163,13 +163,13 @@ export function detectAdapter(payload: Record<string, unknown>): HookAdapter {
  */
 function normalizeWithAdapter(
   adapter: HookAdapter,
-  payload: Record<string, unknown>,
+  payload: Record<string, unknown>
 ): NormalizedPayload {
   const normalized = adapter.normalize(payload);
   normalized.agentName = adapter.name;
   const { nativeSessionId, sessionName } = resolveSessionIdentity(
     adapter.name as IdeType,
-    payload,
+    payload
   );
   normalized.nativeSessionId = nativeSessionId;
   normalized.sessionName = sessionName;

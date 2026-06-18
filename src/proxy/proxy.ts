@@ -2375,7 +2375,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // below so proxy-side and hook-side rows of one conversation group under
     // `coalesce(native_session_id, session_id)`. Falls back to the ledger id on
     // the standalone (no-clientId) path.
-    const sessionIdentity = sessionRegistry.resolve(ctx.clientId, process.cwd());
+    const sessionIdentity = sessionRegistry.resolve(
+      ctx.clientId,
+      process.cwd()
+    );
 
     // ── Sprint 8: unerr_track op-union → legacy (name, args) ──
     // Translate FIRST so the legacy tool's boundary validation + dispatch run
@@ -3563,7 +3566,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
               ...(result.findings[0]?.title
                 ? { reason: result.findings[0].title }
                 : {}),
-              ...(filePath ? { file_path: filePath, target_file: filePath } : {}),
+              ...(filePath
+                ? { file_path: filePath, target_file: filePath }
+                : {}),
             },
           });
         } catch {

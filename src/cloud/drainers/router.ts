@@ -17,6 +17,7 @@ import {
   TRACE_MAX_ROUTER_PER_BATCH,
 } from "@unerr-ai/contracts/traces";
 import type { RouterTelemetryRecord } from "../../proxy/router-telemetry.js";
+import { nativeSessionIdForUnerrId } from "../../tracking/session-records.js";
 import type { BatchAck, CloudResult } from "../client.js";
 import { deterministicId } from "../event-id.js";
 import type { CursorPos } from "../push-cursor.js";
@@ -26,7 +27,6 @@ import {
   type StreamDrainer,
   fitBatch,
 } from "../push-drainer.js";
-import { nativeSessionIdForUnerrId } from "../../tracking/session-records.js";
 import { TRACE_SCHEMA_VERSION, buildEnvelope } from "./envelope.js";
 
 /** Endpoint cap — sourced from the contract (`TRACE_MAX_ROUTER_PER_BATCH`). */
@@ -78,7 +78,10 @@ export async function buildRouterDrainers(
       const nativeFor = (unerrSessionId: string): string | null => {
         const hit = nativeByUnerrId.get(unerrSessionId);
         if (hit !== undefined) return hit;
-        const resolved = nativeSessionIdForUnerrId(ctx.unerrDir, unerrSessionId);
+        const resolved = nativeSessionIdForUnerrId(
+          ctx.unerrDir,
+          unerrSessionId
+        );
         nativeByUnerrId.set(unerrSessionId, resolved);
         return resolved;
       };

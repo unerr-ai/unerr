@@ -46,7 +46,9 @@ export interface ExecSessionContext {
  *   - the shared sessions file (by agent) for the agent's `native_session_id`.
  * Every read is best-effort; missing inputs degrade to null / "unknown" / 0.
  */
-export function resolveExecSessionContext(unerrDir: string): ExecSessionContext {
+export function resolveExecSessionContext(
+  unerrDir: string
+): ExecSessionContext {
   const readFileTrim = (rel: string): string | null => {
     try {
       const v = readFileSync(join(unerrDir, "state", rel), "utf-8").trim();
@@ -225,7 +227,8 @@ export function latestRecordForAgentIn(
   const exact = records.filter(
     (r) => r.agent === agent && (cwd === undefined || r.cwd === cwd)
   );
-  const pool = exact.length > 0 ? exact : records.filter((r) => r.agent === agent);
+  const pool =
+    exact.length > 0 ? exact : records.filter((r) => r.agent === agent);
   if (pool.length === 0) return null;
   return pool.reduce((a, b) => (b.updated_at > a.updated_at ? b : a));
 }

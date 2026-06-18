@@ -169,8 +169,18 @@ describe("session-economy", () => {
     // native id — a rollup keyed off the first unerr id must still span both.
     it("groups two unerr session_ids that share one native id", () => {
       const events = [
-        ev({ session_id: "s1", native_session_id: "nat-1", turn: 1, tokens_saved: 500 }),
-        ev({ session_id: "s2", native_session_id: "nat-1", turn: 2, tokens_saved: 700 }),
+        ev({
+          session_id: "s1",
+          native_session_id: "nat-1",
+          turn: 1,
+          tokens_saved: 500,
+        }),
+        ev({
+          session_id: "s2",
+          native_session_id: "nat-1",
+          turn: 2,
+          tokens_saved: 700,
+        }),
       ];
       expect(totalTokensSavedInSession(events, "s1")).toBe(1200);
       expect(summarizeSessionEconomy(events, "s1").turn_count).toBe(2);

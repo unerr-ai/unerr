@@ -12,6 +12,10 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  DEFAULT_RECALL_MAX,
+  selectLoadBearing,
+} from "../intelligence/note-ranking.js";
 import { consumeAnyPendingTopicShift } from "../intelligence/topic-shift.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import {
@@ -27,10 +31,6 @@ import {
   recordUserPromptReceived,
 } from "./prompt-capture.js";
 import { queryRecallNotes, renderRecallBlock } from "./recall-client.js";
-import {
-  DEFAULT_RECALL_MAX,
-  selectLoadBearing,
-} from "../intelligence/note-ranking.js";
 import { captureUserRule, detectUserRule } from "./remember-client.js";
 
 // ── Path A: keyword fast path — verb clusters → named sub-skills ─────────────

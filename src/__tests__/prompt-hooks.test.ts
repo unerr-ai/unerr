@@ -302,7 +302,10 @@ describe("runUserPromptSubmitHook end-to-end", () => {
 
   it("emits the skill catalog on the first CODE turn, then gates it once per session", () => {
     const mk = (msg: string) =>
-      JSON.stringify({ hook_event_name: "UserPromptSubmit", user_message: msg });
+      JSON.stringify({
+        hook_event_name: "UserPromptSubmit",
+        user_message: msg,
+      });
 
     // W6 floor: a trivial / non-code prompt does NOT spend the once-per-session
     // boilerplate. Its injection stays near the fixed floor (§8).
@@ -317,7 +320,9 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     // First CODE turn: static boilerplate (tool roster + skill catalog) present —
     // the roster was deferred from the trivial turn above, not skipped.
     const first = readContext(
-      runUserPromptSubmitHook(mk("refactor the proxy boot sequence to add a retry"))
+      runUserPromptSubmitHook(
+        mk("refactor the proxy boot sequence to add a retry")
+      )
     );
     expect(first).toContain("available skills");
     // Post-27→7: bug verbs route to unerr-build-and-debug; master is unchanged.

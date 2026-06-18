@@ -310,7 +310,9 @@ export function renderInlineBlastRadius(
     const shown = ordered.slice(0, MAX_INLINE_CALLERS);
     const sites = shown
       .map((c) =>
-        c.line > 0 ? `${c.entity} (${c.file}:${c.line})` : `${c.entity} (${c.file})`
+        c.line > 0
+          ? `${c.entity} (${c.file}:${c.line})`
+          : `${c.entity} (${c.file})`
       )
       .join(", ");
 
@@ -320,14 +322,12 @@ export function renderInlineBlastRadius(
         ? `, +${overflow} more via get_references({key:'${w.changed_entity_key}', direction:'callers'})`
         : "";
 
-    let line =
-      `ur|rsk signature change to ${w.changed_entity} — ${w.blast_radius.total_at_risk} caller(s) to update: ${sites}${more}`;
+    let line = `ur|rsk signature change to ${w.changed_entity} — ${w.blast_radius.total_at_risk} caller(s) to update: ${sites}${more}`;
 
     const peers = w.cross_repo?.peers ?? [];
     if (peers.length > 0) {
       const peerList = peers.map((p) => `${p.label} (${p.callers})`).join(", ");
-      line +=
-        ` · plus ${w.cross_repo?.total_peer_callers} caller(s) in peer repo(s): ${peerList} — get_references({key:'${w.changed_entity_key}', direction:'callers', scope:'workspace'})`;
+      line += ` · plus ${w.cross_repo?.total_peer_callers} caller(s) in peer repo(s): ${peerList} — get_references({key:'${w.changed_entity_key}', direction:'callers', scope:'workspace'})`;
     }
 
     return line;

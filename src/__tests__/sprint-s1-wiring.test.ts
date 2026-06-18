@@ -107,54 +107,6 @@ describe("Sprint S1: Output Compression Wiring", () => {
     });
   });
 
-  // S1.4 checked `_context.blast_radius` as a direct field. After the
-  // Three-Layer Experience System rollout (Sprint 8/9), that field was
-  // replaced by `_context.signals[]`. Session dedup still works — it now
-  // dedups individual signals — but the wire shape changed. Coverage
-  // continues in signal-scorer.test.ts (dedup branch).
-
-  describe.skip("S1.4: Session dedup filters repeated _context (deprecated — see signal-scorer.test.ts)", () => {
-    it("first call for entity delivers blast_radius in _context", async () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      const dedup = createSessionDedup();
-      router.setSessionDedup(dedup);
-
-      const r1 = await router.execute("get_function", { key: "fn1" });
-      // First call should have blast_radius in _context
-      expect(r1._context?.blast_radius).toBeDefined();
-    });
-
-    it("second call for same entity does not repeat blast_radius", async () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      const dedup = createSessionDedup();
-      router.setSessionDedup(dedup);
-
-      // First call delivers blast_radius
-      await router.execute("get_function", { key: "fn1" });
-
-      // Second call — SessionContext already deduplicates via shouldInjectBlastRadius
-      // AND session dedup filters any remaining repeated keys
-      const r2 = await router.execute("get_function", { key: "fn1" });
-      if (r2._context) {
-        expect(r2._context.blast_radius).toBeUndefined();
-      }
-    });
-
-    it("different entities get independent context delivery", async () => {
-      const graph = createMockGraph();
-      const router = new QueryRouter(graph);
-      const dedup = createSessionDedup();
-      router.setSessionDedup(dedup);
-
-      await router.execute("get_function", { key: "fn1" });
-      const r2 = await router.execute("get_function", { key: "fn2" });
-      // fn2 is a fresh entity — should get blast_radius
-      expect(r2._context?.blast_radius).toBeDefined();
-    });
-  });
-
   describe("S1.7-S1.9: Quality monitor integration", () => {
     it("feeds compression events into quality monitor on large output", async () => {
       const largeText = "error: test failure\n".repeat(2000);

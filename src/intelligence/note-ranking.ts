@@ -62,9 +62,41 @@ const ANCHOR_WEIGHT: Array<[prefix: string, weight: number]> = [
 ];
 
 const STOPWORDS = new Set([
-  "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "with", "is",
-  "it", "this", "that", "be", "as", "at", "by", "from", "into", "over", "but",
-  "not", "no", "do", "if", "we", "you", "i", "are", "was", "so", "up", "out",
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "to",
+  "of",
+  "in",
+  "on",
+  "for",
+  "with",
+  "is",
+  "it",
+  "this",
+  "that",
+  "be",
+  "as",
+  "at",
+  "by",
+  "from",
+  "into",
+  "over",
+  "but",
+  "not",
+  "no",
+  "do",
+  "if",
+  "we",
+  "you",
+  "i",
+  "are",
+  "was",
+  "so",
+  "up",
+  "out",
 ]);
 
 function anchorWeight(anchor: string): number {
@@ -86,7 +118,10 @@ function tokenize(text: string): Set<string> {
  * Load-bearing score for one note against an optional prompt. Higher = more
  * likely the turn must act on it. Bounded and deterministic.
  */
-export function loadBearingScore(note: RankableNote, promptTokens?: Set<string>): number {
+export function loadBearingScore(
+  note: RankableNote,
+  promptTokens?: Set<string>
+): number {
   let score = KIND_WEIGHT[note.kind] ?? DEFAULT_KIND_WEIGHT;
   score += anchorWeight(note.anchor);
   // Explicit do (+) / don't (-) polarity is actionable; ambiguous (~) is not.

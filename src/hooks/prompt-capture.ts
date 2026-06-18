@@ -167,7 +167,8 @@ export function recordUserPromptReceived(input: PromptCaptureInput): number {
     // the user steered/interrupted while a turn was running.
     const liveTurn = resolveExecSessionContext(input.unerrDir).turn;
     const isMidTurn =
-      liveTurn > 0 && store.turnHasActivityBeforePrompt(input.sessionId, liveTurn);
+      liveTurn > 0 &&
+      store.turnHasActivityBeforePrompt(input.sessionId, liveTurn);
     const detail: Record<string, unknown> = {
       length: input.message.length,
       classified_as: input.classifiedAs,

@@ -12,7 +12,7 @@ import {
  * adapter renders it in its own wire format:
  *   - Claude Code → { hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason } }
  *   - Cursor      → { permission: "deny", agent_message }
- *   - Cline       → { allow: false, reason }
+ *   - Cline       → { cancel: true, reason } (v3.36 IDE-Hooks)
  *
  * Deny-once: the first call per URL denies; repeats within the dedup
  * window fall back to a nudge (avoids the 10× retry loop documented in
@@ -108,10 +108,10 @@ describe("preWebFetchHook — Cursor", () => {
 // ── Cline ────────────────────────────────────────────────────────────
 
 describe("preWebFetchHook — Cline", () => {
-  it("denies via Cline's allow:false/reason channel", () => {
+  it("denies via Cline's cancel:true/reason channel (v3.36)", () => {
     const url = "https://example.com/cline-deny";
     const result = JSON.parse(runPreWebFetchHook(clinePayload({ url })));
-    expect(result.allow).toBe(false);
+    expect(result.cancel).toBe(true);
     expect(result.reason).toContain("fetch_url");
     expect(result.reason).toContain(url);
   });

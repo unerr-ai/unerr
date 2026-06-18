@@ -17,6 +17,7 @@ import {
   LedgerRecord,
   TRACE_MAX_LEDGER_PER_BATCH,
 } from "@unerr-ai/contracts/traces";
+import { nativeSessionIdForUnerrId } from "../../tracking/session-records.js";
 import type { LedgerEntry } from "../../tracking/shadow-ledger.js";
 import type { BatchAck, CloudResult } from "../client.js";
 import { deterministicId } from "../event-id.js";
@@ -27,7 +28,6 @@ import {
   type StreamDrainer,
   fitBatch,
 } from "../push-drainer.js";
-import { nativeSessionIdForUnerrId } from "../../tracking/session-records.js";
 import { TRACE_SCHEMA_VERSION, buildEnvelope } from "./envelope.js";
 
 /** Endpoint cap — sourced from the contract (`TRACE_MAX_LEDGER_PER_BATCH`). */
@@ -89,7 +89,10 @@ export async function buildLedgerDrainers(
       const nativeFor = (unerrSessionId: string): string | null => {
         const hit = nativeByUnerrId.get(unerrSessionId);
         if (hit !== undefined) return hit;
-        const resolved = nativeSessionIdForUnerrId(ctx.unerrDir, unerrSessionId);
+        const resolved = nativeSessionIdForUnerrId(
+          ctx.unerrDir,
+          unerrSessionId
+        );
         nativeByUnerrId.set(unerrSessionId, resolved);
         return resolved;
       };

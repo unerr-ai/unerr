@@ -396,7 +396,7 @@ export const DEFAULT_SESSION_IDENTITY: SessionIdentitySpec = {
  */
 export function resolveSessionIdentity(
   id: IdeType,
-  payload: Record<string, unknown> | null | undefined,
+  payload: Record<string, unknown> | null | undefined
 ): { nativeSessionId: string | null; sessionName: string | null } {
   const spec = getAgent(id)?.sessionIdentity ?? DEFAULT_SESSION_IDENTITY;
   const read = (field: string | undefined): string | null => {
