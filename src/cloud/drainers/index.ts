@@ -18,6 +18,7 @@ import type {
 import { buildEventsDrainers } from "./events.js";
 import { buildFactsDrainers } from "./facts.js";
 import { buildLedgerDrainers } from "./ledger.js";
+import { buildReviewDrainers } from "./review.js";
 import { buildRouterDrainers } from "./router.js";
 import { buildSessionsDrainers } from "./sessions.js";
 import { buildStateDrainers } from "./state.js";
@@ -31,6 +32,8 @@ const BUILDERS: Array<(ctx: DrainerContext) => Promise<DrainerSet>> = [
   buildTranscriptDrainers,
   buildLedgerDrainers,
   buildRouterDrainers,
+  // P9 — review findings stream (review_finding events).
+  buildReviewDrainers,
   // C2 — relational sync streams.
   buildSessionsDrainers,
   buildFactsDrainers,

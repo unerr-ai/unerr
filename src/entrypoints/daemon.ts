@@ -261,7 +261,13 @@ async function handleRequest(
     case "remove": {
       await pm.stop(req.repo);
       const removed = removeRepo(req.repo);
-      if (removed) return { ok: true };
+      if (removed) {
+        // Ship the `removed` repo_activity event before the repo leaves the
+        // drain rotation (the proxy is already stopped, so no write contention).
+        const { emitRepoRemoved } = await import("../cloud/repo-removal.js");
+        await emitRepoRemoved(req.repo);
+        return { ok: true };
+      }
       return { ok: false, error: "Not registered" };
     }
 

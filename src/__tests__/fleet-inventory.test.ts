@@ -59,7 +59,11 @@ describe("fleet inventory", () => {
       machine_name: "host",
     });
     mockedListRepos.mockReturnValue([
-      { path: "/repo/a", addedAt: "2026-06-01T00:00:00Z" } as any,
+      {
+        path: "/repo/a",
+        addedAt: "2026-06-01T00:00:00Z",
+        lastStarted: "2026-06-12T00:00:00Z",
+      } as any,
     ]);
     mockedRuntime.mockReturnValue({
       http_port: 51890,
@@ -104,6 +108,10 @@ describe("fleet inventory", () => {
       entity_count: 10,
       edge_count: 20,
       added_at: "2026-06-01T00:00:00Z",
+      // last_activity from the live status entry; last_used_at from the
+      // registry's lastStarted (when the proxy was last used by an agent).
+      last_activity: "2026-06-13T00:00:00Z",
+      last_used_at: "2026-06-12T00:00:00Z",
     });
   });
 
@@ -141,6 +149,10 @@ describe("fleet inventory", () => {
       connections: 1,
       entity_count: 10,
       edge_count: 20,
+      // Usage timestamps are now refreshed on the heartbeat too.
+      added_at: "2026-06-01T00:00:00Z",
+      last_activity: "2026-06-13T00:00:00Z",
+      last_used_at: "2026-06-12T00:00:00Z",
     });
     // The lightweight beat carries the path/status but no origin or ports.
     expect(JSON.stringify(beat)).not.toContain("github");

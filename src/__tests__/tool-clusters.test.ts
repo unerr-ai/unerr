@@ -43,7 +43,7 @@ describe("TOOL_CLUSTERS", () => {
   it("navigation cluster is ordered first (most commonly needed)", () => {
     // Clusters are ordered most→least commonly needed (see TOOL_CLUSTERS doc
     // comment), not by tool count. Navigation must lead; tool counts vary as
-    // clusters grow (e.g. session-narrative gained turn_summary/surface2_line).
+    // clusters grow (e.g. session-narrative gained turn_summary).
     expect(TOOL_CLUSTERS[0]?.id).toBe("navigation");
   });
 

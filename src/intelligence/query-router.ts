@@ -106,21 +106,12 @@ const LOCAL_TOOLS = new Set([
   "get_function",
   "get_class",
   "get_entity", // consolidated: replaces get_function + get_class
-  "get_file",
   "get_callers",
   "get_callees",
   "get_references", // consolidated: replaces get_callers + get_callees
   "get_imports",
   "search_code",
-  // "get_rules", // Disabled: no rules detected/stored yet, always returns empty
-  // "check_rules", // Disabled: alias for get_rules validation mode
-  // "get_business_context", // Disabled: not properly wired, produces no useful data
   "get_conventions",
-  // "unerr_revert_entity", // Disabled: shadow ledger tool, not active
-
-  // Leapfrog Sprint A: Community intelligence tools
-  "get_cross_boundary_links",
-  "get_critical_nodes",
 
   // Sprint 11: Phase 22 Blueprint Deep Dive tools (disabled — no tool-definitions wired)
   // "unerr_get_plan_context",
@@ -132,21 +123,12 @@ const LOCAL_TOOLS = new Set([
   // "unerr_get_sprint_context",
   // "unerr_get_checkpoint_status",
 
-  "get_project_stats",
-
-  // Sprint R: File-level graph tools
-  "file_connections",
-  "get_test_coverage",
-
   // Sprint FE-B: file read protocol
   "file_outline",
   "file_read",
 
   // Sprint FU-1: web fetch
   "fetch_url",
-
-  // P3: on-demand review (Surface C)
-  "review_changes",
 ]);
 
 /**
@@ -590,14 +572,8 @@ const ENRICHABLE_TOOLS = new Set([
   "get_imports",
   "search_code",
   "get_conventions",
-  "get_critical_nodes",
-  "get_cross_boundary_links",
-  "get_test_coverage",
   "file_read",
   "file_outline",
-  "file_connections",
-  "get_project_stats",
-  "get_file",
   // Router-resolved aliases (still flow through enrichResult)
   "get_function",
   "get_class",
@@ -699,13 +675,6 @@ export class QueryRouter {
    */
   private monikerIndex:
     | import("./federation/moniker-index.js").MonikerIndex
-    | null = null;
-
-  /** P3 review_changes: resolves the anchored-notes surface for the memory-drift
-   *  checker. Injected by the proxy (closes over its NotesStore); null in
-   *  standalone/test contexts → memory-drift stays silent. */
-  private notesResolver:
-    | (() => Promise<import("../review/types.js").ReviewNotes | null>)
     | null = null;
 
   /** L11.1: Background indexer reference — enables partial graph responses during indexing. */
@@ -967,17 +936,6 @@ export class QueryRouter {
     index: import("./federation/moniker-index.js").MonikerIndex | null
   ): void {
     this.monikerIndex = index;
-  }
-
-  /**
-   * Inject the anchored-notes resolver for `review_changes` (P3). The proxy
-   * passes a closure over its live NotesStore so the memory-drift checker reads
-   * the same notes the rest of the session sees. Unset → memory-drift silent.
-   */
-  setNotesResolver(
-    fn: () => Promise<import("../review/types.js").ReviewNotes | null>
-  ): void {
-    this.notesResolver = fn;
   }
 
   /**
@@ -1853,7 +1811,7 @@ export class QueryRouter {
   private getDegradedTools(): string[] {
     switch (this.currentMode) {
       case "parse":
-        return [/* "check_rules", "get_business_context", */ "get_conventions"];
+        return ["get_conventions"];
       case "setup":
         return Array.from(LOCAL_TOOLS);
       default:
@@ -2043,8 +2001,7 @@ export class QueryRouter {
         // get_file replace full file reads; everything else (search_code,
         // get_references, get_entity, file_connections, ...) is a graph
         // query.
-        const isFileNav =
-          toolName === "file_outline" || toolName === "get_file";
+        const isFileNav = toolName === "file_outline";
         const type = isFileNav ? "full_read_avoided" : "graph_query_served";
         this.behaviorEvents?.record({
           session_id: this.behaviorEvents.sessionId,
@@ -2960,9 +2917,7 @@ export class QueryRouter {
       result !== null &&
       "signature" in result &&
       "body" in result &&
-      (toolName === "get_function" ||
-        toolName === "get_class" ||
-        toolName === "get_file")
+      (toolName === "get_function" || toolName === "get_class")
     ) {
       const entity = result as {
         key?: string;
@@ -3198,8 +3153,6 @@ export class QueryRouter {
    */
   private inferContentType(toolName: string): ContentType {
     switch (toolName) {
-      case "get_file":
-        return "file_content";
       case "search_code":
         return "generic";
       default:
@@ -3552,6 +3505,48 @@ export class QueryRouter {
   }
 
   /**
+   * Word-boundary literal sweep of an entity's name, for a rename — the textual
+   * occurrences a callers-only graph structurally cannot see (a name in a
+   * test-fixture string, a config key, a dynamic-dispatch string). Excludes the
+   * definition file and every caller file already in `callerResults`, so the
+   * returned matches are exactly the sites the call graph missed. Best-effort:
+   * returns null when the entity or its name can't be resolved.
+   */
+  private async computeTextOccurrences(
+    key: string,
+    callerResults: Array<Record<string, unknown>>
+  ): Promise<{
+    matches: Array<{ file: string; line: number; preview: string }>;
+    total: number;
+    truncated: boolean;
+    note: string;
+  } | null> {
+    const entity = await this.localGraph.getEntity(key);
+    if (!entity?.name) return null;
+    const exclude = new Set<string>();
+    if (entity.file_path) exclude.add(entity.file_path);
+    for (const r of callerResults) {
+      const fp = r.file_path;
+      if (typeof fp === "string" && fp.length > 0) exclude.add(fp);
+    }
+    const { findTextOccurrences } = await import("./text-occurrences.js");
+    const root = this.projectRoot ?? process.cwd();
+    const { matches, total, truncated } = findTextOccurrences(
+      root,
+      entity.name,
+      exclude
+    );
+    if (total === 0) return null;
+    return {
+      matches,
+      total,
+      truncated,
+      // Imperative, no deictic — the agent can act on this verbatim.
+      note: `${total} textual occurrence(s) of "${entity.name}" not in the call graph (strings, configs, comments). Update these alongside the callers for a complete rename.`,
+    };
+  }
+
+  /**
    * Resolved imports for a file, each paired with the symbols imported from it
    * — shared by `get_imports` and `get_entity({want:['imports']})`. The graph
    * stores file→file edges only; symbol names are read from source on demand
@@ -3615,23 +3610,6 @@ export class QueryRouter {
       // Miss → fall through; the normal handler recomputes (fidelity unchanged).
     }
     switch (toolName) {
-      case "get_file": {
-        // Per tool description: "Get all entities in a file." Returns the
-        // entity list — NOT a single fuzzy-matched entity (which is what the
-        // shared get_entity/get_function/get_class path used to do, with
-        // wrong results when "file:<path>" entities weren't indexed and the
-        // fallback fuzzy resolver landed on similarly-named entities).
-        const filePath = (args.key as string) ?? (args.name as string);
-        if (!filePath) {
-          throw new Error("get_file requires a file path in `key`");
-        }
-        const entities = await this.localGraph.getEntitiesByFile(filePath);
-        return {
-          file_path: filePath,
-          entities,
-          total: entities.length,
-        };
-      }
       case "get_entity": // internal alias — advertised surface is search_code({detail:true})
       case "get_function": // alias (backward compat)
       case "get_class": {
@@ -3797,6 +3775,16 @@ export class QueryRouter {
           direction === "callees" ? "callees" : "callers",
           limit
         );
+        // Rename safety (P3): a callers-only graph cannot see a symbol baked into
+        // a test-fixture string, a config key, or a dynamic-dispatch lookup — yet
+        // a rename must update those too. When the agent signals rename intent
+        // (`include_text_occurrences`, callers direction only), pair the semantic
+        // callers with a word-boundary, case-sensitive literal sweep, excluding
+        // every file the call graph already covers so the two lists don't overlap.
+        const textOccurrences =
+          args.include_text_occurrences === true && direction !== "callees"
+            ? await this.computeTextOccurrences(key, results)
+            : null;
         return {
           references: results,
           direction,
@@ -3808,6 +3796,19 @@ export class QueryRouter {
           ...(totalCount > limit
             ? {
                 _hint: `Showing ${limit} of ${totalCount}. Pass limit: ${totalCount} to see all.`,
+              }
+            : {}),
+          // Flat array + scalar siblings (NOT a nested object): the columnar
+          // wire encoder keeps a recognized array plus scalar fields, but drops
+          // a sibling object. With `references` and `text_occurrences` both
+          // top-level arrays, the encoder uses its two-array `_fmt:multi` path
+          // and both survive; the count/note ride as scalars.
+          ...(textOccurrences
+            ? {
+                text_occurrences: textOccurrences.matches,
+                text_occurrences_total: textOccurrences.total,
+                text_occurrences_truncated: textOccurrences.truncated,
+                text_occurrences_note: textOccurrences.note,
               }
             : {}),
         };
@@ -3898,11 +3899,6 @@ export class QueryRouter {
         // Best-effort — empty sets on any error.
         return await fetchVocabularyNudges(this.localGraph.db);
       }
-      // Disabled: get_rules + check_rules — no rules detected/stored yet, always returns empty.
-      // case "get_rules": { ... }
-      // case "check_rules": { ... }
-      // Disabled: get_business_context — not properly wired, produces no useful data.
-      // case "get_business_context": { ... }
       case "get_conventions": {
         const raw = await this.localGraph.getConventions();
         // Hoist each kind to a top-level array so the format-encoder can emit
@@ -3929,103 +3925,6 @@ export class QueryRouter {
           import_direction,
           structure,
           ...(other.length > 0 ? { other } : {}),
-        };
-      }
-      case "get_cross_boundary_links": {
-        const communityId = args.community_id as number | undefined;
-        const topN = (args.top_n as number) ?? 20;
-        const fromPath = args.from_path as string | undefined;
-        const toPath = args.to_path as string | undefined;
-
-        // When BOTH path filters are provided, run a targeted query with
-        // starts_with directly in Datalog.  The old approach (fetch top-N
-        // global cross-community edges, then JS-filter by path) breaks when
-        // the target directories are tightly coupled (Louvain merges them into
-        // one community so fc!=tc never fires) or when the budget runs out
-        // before the relevant edges appear.
-        if (fromPath && toPath) {
-          const norm = (p: string) => p.replace(/\/+$/, "");
-          const result = await this.localGraph.getCrossPathLinks(
-            norm(fromPath),
-            norm(toPath),
-            topN
-          );
-          if (result.length === 0) {
-            return {
-              links: [],
-              _hint:
-                "No edges found between these directory prefixes. " +
-                "call file_outline({file_path:'<file>'}) for a file's imports, " +
-                "or get_references({key:'<name>', direction:'callees'}) for call-level dependencies.",
-            };
-          }
-          return result;
-        }
-
-        // Single-path filter or no filter: use community-based approach.
-        const fetchN = fromPath ? Math.max(topN * 10, 200) : topN;
-        const rows = await this.localGraph.getCrossBoundaryLinks(
-          communityId,
-          fetchN
-        );
-        if (!fromPath) return rows;
-        const norm = (p?: string): string => (p ? p.replace(/\/+$/, "") : "");
-        const f = norm(fromPath);
-        const matches = (file: string, prefix: string): boolean =>
-          !prefix ||
-          file === prefix ||
-          file.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`);
-        const filtered = rows.filter(
-          (r) => matches(r.from_file, f) || matches(r.to_file, f)
-        );
-        const result = filtered.slice(0, topN);
-        if (result.length === 0) {
-          return {
-            links: [],
-            _hint:
-              "No cross-community edges found for this path filter. " +
-              "call file_outline({file_path:'<file>'}) for a file's imports, " +
-              "or get_references({key:'<name>', direction:'callees'}) for call-level dependencies.",
-          };
-        }
-        return result;
-      }
-      case "get_critical_nodes": {
-        const topN = (args.top_n as number) ?? 10;
-        const communityId = args.community_id as number | undefined;
-        return await this.localGraph.getCriticalNodes(topN, communityId);
-      }
-      // case "unerr_revert_entity" disabled — shadow ledger tool, not active
-      case "get_project_stats": {
-        const stats = await this.localGraph.getLocalProjectStats();
-        return {
-          ...stats,
-          healthGrade: this.healthGrade ?? "unknown",
-        };
-      }
-      case "file_connections": {
-        const filePath = args.file_path as string;
-        if (!filePath) throw new Error("file_connections requires file_path");
-        const neighbors = await this.localGraph.getFileNeighbors(filePath);
-        const entities = await this.localGraph.getFileEntities(filePath);
-        return { file: filePath, connections: neighbors, entities };
-      }
-      case "get_test_coverage": {
-        const rawKey = args.key as string;
-        if (!rawKey) throw new Error("get_test_coverage requires key");
-        const key = await this.resolveKeyArg(rawKey);
-        const includeTransitive = (args.include_transitive as boolean) ?? true;
-        const coverage = await this.localGraph.getTestCoverage(
-          key,
-          includeTransitive
-        );
-        // `summary` dropped — it restated test_count in prose ("N tests
-        // cover this entity"). test_count + tests[] are self-describing:
-        // test_count:0 already means no coverage.
-        return {
-          entity: key,
-          test_count: coverage.length,
-          tests: coverage,
         };
       }
       case "file_outline": {
@@ -4085,72 +3984,9 @@ export class QueryRouter {
           }
         );
       }
-      case "review_changes":
-        return this.runReviewChanges(args);
       default:
         throw new Error(`Unknown local tool: ${toolName}`);
     }
-  }
-
-  /**
-   * `review_changes` (Surface C, on-demand) — run the full Tier-1 review engine
-   * over the staged index or a `from..to` range against the warm in-process
-   * graph, and return the structured {@link ReviewReportView}. The same engine
-   * the commit gate and in-flight hook use, so a finding is byte-identical; the
-   * notes resolver (injected by the proxy) gives the memory-drift checker its
-   * evidence. Resolves a structured error object on a bad range/severity arg
-   * rather than throwing — the tool channel surfaces it inline.
-   */
-  private async runReviewChanges(
-    args: Record<string, unknown>
-  ): Promise<unknown> {
-    const { parseRangeScope, reviewScopedChanges } = await import(
-      "../review/git-review.js"
-    );
-    const { buildReviewReportView } = await import("../review/report.js");
-    const { SEVERITY_RANK } = await import("../review/types.js");
-
-    const cwd = this.projectRoot ?? process.cwd();
-    const scopeArg = (args.scope as string | undefined) ?? "staged";
-
-    let scope: import("../review/git-review.js").ReviewScope;
-    if (scopeArg === "range") {
-      const rangeSpec = args.range as string | undefined;
-      const parsed = rangeSpec ? parseRangeScope(rangeSpec) : null;
-      if (!parsed) {
-        return {
-          error:
-            "review_changes: scope:'range' requires range:'<from>..<to>' (e.g. 'main..HEAD')",
-        };
-      }
-      scope = parsed;
-    } else if (scopeArg === "staged") {
-      scope = { kind: "staged" };
-    } else {
-      return {
-        error: `review_changes: unknown scope '${scopeArg}' — use 'staged' or 'range'`,
-      };
-    }
-
-    const minSeverity = (args.min_severity as string | undefined) ?? "medium";
-    if (!(minSeverity in SEVERITY_RANK)) {
-      return {
-        error: `review_changes: invalid min_severity '${minSeverity}' — use info|low|medium|high|critical`,
-      };
-    }
-
-    const notes = this.notesResolver ? await this.notesResolver() : null;
-    const { report, filesReviewed } = await reviewScopedChanges(
-      cwd,
-      scope,
-      this.localGraph,
-      { notes },
-      { minSeverity: minSeverity as import("../review/types.js").Severity }
-    );
-
-    const scopeLabel =
-      scope.kind === "staged" ? "staged" : `${scope.from}..${scope.to}`;
-    return buildReviewReportView(report, scopeLabel, filesReviewed);
   }
 
   /**
@@ -4666,7 +4502,6 @@ const ENTITY_TOOLS = new Set([
   "get_entity",
   "get_function",
   "get_class",
-  "get_file",
   "get_callers",
   "get_callees",
   "get_references",
@@ -4690,7 +4525,6 @@ const ENTITY_ARRAY_TOOLS = new Set([
   "get_callees",
   "get_references",
   "search_code",
-  "file_connections",
   "file_outline",
 ]);
 
@@ -4699,7 +4533,6 @@ const SINGLE_ENTITY_TOOLS = new Set([
   "get_entity",
   "get_function",
   "get_class",
-  "get_file",
 ]);
 
 /**

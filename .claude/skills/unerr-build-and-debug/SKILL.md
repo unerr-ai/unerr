@@ -1,8 +1,9 @@
 ---
 name: unerr-build-and-debug
 description: "MANDATORY when building a new feature/component (Track A) or chasing a bug/test failure/regression (Track B). Track A — STEP-1: agree on shape + acceptance criteria BEFORE drafting code. Track B — STEP-1: reproduce. STEP-2: isolate. STEP-3: root-cause. Do NOT patch before STEP-3 completes. Absorbs the prior brainstorming-before-build and systematic-debugging skills."
-user-invocable: false
 ---
+
+# build-and-debug
 
 ## Two tracks — pick at Phase 0
 

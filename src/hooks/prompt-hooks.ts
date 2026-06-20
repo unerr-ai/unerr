@@ -12,6 +12,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isEnabled } from "../config/feature-flags.js";
 import {
   DEFAULT_RECALL_MAX,
   selectLoadBearing,
@@ -250,7 +251,15 @@ function buildMarkIntentLine(prompt: string): string | null {
 // that tool is hidden for these agents (advertisement is agent-aware) and the
 // call would be redundant. Phrased as state + a read action, not a tool call.
 const MOMENT1_RECALL_NUDGE =
-  "ur|act read any `ur|fct`/anchored notes injected above before drafting — anchored-note recall already ran for this prompt; no notes shown means none matched.";
+  "ur|act read any `ur|fct`/anchored notes shown for this prompt before drafting — anchored-note recall already ran; no notes shown means none matched.";
+
+/**
+ * Byte-stable separator between the cacheable stable head and the per-turn
+ * volatile tail of the UserPromptSubmit block (Lever A, UNERR_PREFIX_RELOCATE).
+ * A fixed string, so it sits at the end of the cached prefix and never busts it;
+ * it marks where this-prompt-specific context begins.
+ */
+const PREFIX_VOLATILE_BOUNDARY = "— unerr: per-turn context —";
 
 function buildMoment1Line(prompt: string): string | null {
   if (!classifyAsTask(prompt)) return null;
@@ -262,32 +271,6 @@ function buildMoment1Line(prompt: string): string | null {
     /* best effort — emission still proceeds */
   }
   return MOMENT1_RECALL_NUDGE;
-}
-
-/** Fix B — Surface 2 preface directive (hybrid hook+MCP form). The
- *  prior 1200-char prose directive was getting truncated, paraphrased,
- *  or dropped by agents (~30% compliance). Surface 2 rendering moved
- *  server-side as the `unerr_surface2_line` MCP tool; the hook is now
- *  a single imperative pointing at the tool. Bumps the per-turn required
- *  counter every fire so Fix D's miss ratio is meaningful; the tool
- *  bumps the called counter on dispatch. */
-function buildSurface2Line(prompt: string): string | null {
-  if (!classifyAsTask(prompt)) return null;
-  try {
-    const cwd = process.cwd();
-    const state = readNudgeState(cwd);
-    const priorMiss =
-      state.surface2_required_count > state.surface2_called_count;
-    updateNudgeState(cwd, (s) => {
-      s.surface2_required_count += 1;
-      s.consecutive_surface2_misses = priorMiss
-        ? s.consecutive_surface2_misses + 1
-        : 0;
-    });
-  } catch {
-    /* best effort — emission still proceeds */
-  }
-  return "ur|act call `unerr_surface2_line({})` ONCE at turn start and paste the returned `line` field VERBATIM, prefixed with `unerr » `, into your first user-facing response. If `line` is empty, emit nothing. Do NOT invent prose, do NOT paraphrase the renderer output.";
 }
 
 /** Lever C — Moment 3 (cite recalled notes in the plan). Fires once per
@@ -622,9 +605,6 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // other tool. The four-moment contract depends on this firing per-turn.
   const moment1Line = buildMoment1Line(message);
 
-  // Lever C — Surface 2 preface directive. One-shot per session.
-  const surface2Line = buildSurface2Line(message);
-
   // Lever C — Moment 3 (cite recalled notes in plan). One-shot per session.
   const moment3Line = buildMoment3PlanCiteLine(message);
 
@@ -650,33 +630,50 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // Gate 1: per-turn cap of 5 ur|act lines. Order = priority high→low.
   // Lines beyond the cap are dropped to prevent context flooding.
   // Path A and fallback are mutually exclusive — only one is non-null.
-  const actCandidates: Array<string | null> = [
-    moment1Line, //          Moment 1 (every coding turn)
-    pathALine, //            Path A skill match — if present
-    fallbackLine, //         Master orchestrator fallback — if no Path A
-    markIntentLine, //       mark_intent one-shot
-    surface2Line, //         Surface 2 preface one-shot
-    moment3Line, //          Moment 3 one-shot
-    implMentionLine, //      impl-narration one-shot
+  // Each candidate carries a `volatile` flag for Lever A (UNERR_PREFIX_RELOCATE):
+  // the Path A line varies per prompt (verb cluster), so it is volatile; every
+  // other line is a fixed nudge template (byte-stable) and belongs in the
+  // cacheable head. Order + cap semantics are unchanged from before.
+  const actCandidates: Array<{ text: string | null; volatile: boolean }> = [
+    { text: moment1Line, volatile: false }, //   Moment 1 (fixed template)
+    { text: pathALine, volatile: true }, //      Path A skill match (verb-specific)
+    { text: fallbackLine, volatile: false }, //  Master orchestrator fallback (fixed)
+    { text: markIntentLine, volatile: false }, // mark_intent one-shot (fixed)
+    { text: moment3Line, volatile: false }, //   Moment 3 one-shot (fixed)
+    { text: implMentionLine, volatile: false }, // impl-narration one-shot (fixed)
   ];
-  const actLines = actCandidates.filter(
-    (line): line is string => typeof line === "string" && line.length > 0
-  );
   const MAX_ACT_LINES_PER_TURN = 5;
   // Fix G — per-line char cap. Anything over 800 chars gets truncated
   // with a `…` suffix. Most agents drop / paraphrase oversize nudge
   // payloads; the cap forces concision at write time so the directive
   // reaches the model intact.
   const MAX_NUDGE_LINE_CHARS = 800;
-  const cappedActLines = actLines
+  const cappedActEntries = actCandidates
+    .filter(
+      (c): c is { text: string; volatile: boolean } =>
+        typeof c.text === "string" && c.text.length > 0
+    )
     .slice(0, MAX_ACT_LINES_PER_TURN)
-    .map((line) =>
-      line.length > MAX_NUDGE_LINE_CHARS
-        ? `${line.slice(0, MAX_NUDGE_LINE_CHARS - 1)}…`
-        : line
-    );
+    .map((c) => ({
+      text:
+        c.text.length > MAX_NUDGE_LINE_CHARS
+          ? `${c.text.slice(0, MAX_NUDGE_LINE_CHARS - 1)}…`
+          : c.text,
+      volatile: c.volatile,
+    }));
+  const cappedActLines = cappedActEntries.map((e) => e.text);
   const actBlock =
     cappedActLines.length > 0 ? `${cappedActLines.join("\n")}\n` : "";
+  // Lever A lanes — the fixed act templates form the stable head; the
+  // verb-specific Path A line joins the volatile tail.
+  const stableActText = cappedActEntries
+    .filter((e) => !e.volatile)
+    .map((e) => e.text)
+    .join("\n");
+  const volatileActText = cappedActEntries
+    .filter((e) => e.volatile)
+    .map((e) => e.text)
+    .join("\n");
 
   // Path B — static tool-roster + skill catalog. Both duplicate the cached
   // CLAUDE.md tool-routing section and the installed `.claude/skills/` menu, so
@@ -698,8 +695,16 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // floor (§8). The roster still fires exactly once — on the first code turn —
   // and the cached instruction file already carries the same routing meanwhile.
   const isCodeTask = isCodeContext(message);
+  // Claude Code carries the SAME tool-routing section in its cached `CLAUDE.md`
+  // (system prompt, always present) and lists the installed `.claude/skills/`
+  // menu natively — so the roster + catalog are pure duplication for it. Skip
+  // the static tail entirely for claude-code; the per-turn four-moment ur|act
+  // lines + recall block (the non-duplicated product value) still ride every
+  // turn. Hook-less / non-claude agents keep the roster (their instruction file
+  // is not in the same cached system prompt the same way).
+  const skipStaticTail = normalized.agentName === "claude-code";
   let staticTail = "";
-  if (!staticEmitted && isCodeTask) {
+  if (!staticEmitted && isCodeTask && !skipStaticTail) {
     // Reached only on a code turn (gated above), so the roster is always the
     // code-work phrasing.
     const toolRoster =
@@ -717,6 +722,34 @@ const promptSubmitHandler: HookHandler = (normalized) => {
     } catch {
       // Best-effort — a missed write just re-emits next turn (still correct).
     }
+  }
+
+  // Lever A (UNERR_PREFIX_RELOCATE): emit ONE block ordered stable-head →
+  // boundary → volatile-tail so the cacheable leading bytes stay byte-stable
+  // turn-to-turn. Stable = fixed nudge templates + roster/catalog; volatile =
+  // resume/stitch, topic-shift, the verb-specific Path A line, and (appended by
+  // the async handler) the anchored-note recall bodies. Flag OFF → byte-identical
+  // legacy order below, so this is a pure reordering gated behind the flag.
+  if (isEnabled("UNERR_PREFIX_RELOCATE", process.cwd())) {
+    const stableHead = [stableActText, staticTail]
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .join("\n\n");
+    const volatileTail = [stitchPrefix, shiftPrefix, volatileActText]
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .join("\n");
+    // prefix_stable now measures the cacheable HEAD (what Lever A protects), not
+    // the volatile recall block the legacy async path records.
+    if (stableHead.length > 0) recordPrefixStability(process.cwd(), stableHead);
+    const ordered =
+      volatileTail.length > 0
+        ? stableHead.length > 0
+          ? `${stableHead}\n\n${PREFIX_VOLATILE_BOUNDARY}\n${volatileTail}`
+          : volatileTail
+        : stableHead;
+    if (ordered.trim().length === 0) return passthrough();
+    return enrich(ordered);
   }
 
   const body = `${stitchPrefix}${actBlock}${shiftPrefix}${staticTail}`;
@@ -794,12 +827,19 @@ const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
       });
       const block = renderRecallBlock(topNotes);
       if (block) {
-        // Prefix/KV-cache gauge: the recall block is the dynamic context unerr
-        // injects at the prompt tail every coding turn — the content most likely
-        // to bust the provider prompt cache. Record whether it was byte-identical
-        // to last turn (stable when the task's top notes hold steady) and its
-        // size, onto the existing compression_events stream. Visibility only — it
-        // changes nothing about what is injected.
+        // Lever A (UNERR_PREFIX_RELOCATE): the recall bodies are volatile, so
+        // APPEND them to the tail of the already-ordered block (whose stable head
+        // the sync handler emitted + recorded). The Moment-1 pointer stays in the
+        // stable head — it now reads "notes shown for this prompt", true whether
+        // they sit above or below — so the cacheable head is unchanged turn to
+        // turn. No re-record here: sync already recorded the head.
+        if (isEnabled("UNERR_PREFIX_RELOCATE", process.cwd())) {
+          return enrich(`${base.message}\n${block}`);
+        }
+        // Legacy path: PREPEND the recall block and record its stability. The
+        // recall block is the dynamic context unerr injects at the prompt tail
+        // every coding turn — the content most likely to bust the provider prompt
+        // cache. prefix_stable=1 when the task's top notes held steady.
         recordPrefixStability(process.cwd(), block);
         // T7.7 — the injected block IS Moment 1. Drop the STEP-0 recall nudge
         // from the assembled output so the agent isn't told to re-fetch what it

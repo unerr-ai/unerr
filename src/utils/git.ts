@@ -144,6 +144,25 @@ export async function getStagedFiles(cwd: string): Promise<string[]> {
   }
 }
 
+/**
+ * Every path git tracks in the work tree (`git ls-files`). The full-repo
+ * reviewer (`unerr review --all`) uses this to enumerate the whole source tree
+ * instead of a git diff slice — each tracked file is reviewed as if freshly
+ * added. Returns `[]` on any git error.
+ */
+export async function listTrackedFiles(cwd: string): Promise<string[]> {
+  try {
+    const git = getGit(cwd);
+    const out = await git.raw(["ls-files"]);
+    return out
+      .split("\n")
+      .map((f) => f.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 /** A staged path plus its index status. `kind` is normalised to the
  *  review ChangeKind vocabulary (added | modified | deleted); renames and
  *  copies are reported as `modified` on their destination path. */

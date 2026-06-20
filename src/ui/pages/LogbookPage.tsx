@@ -344,8 +344,6 @@ const EVENT_TYPE_ICONS: Record<string, string> = {
   confirmation_expired: "◷",
   // Presence
   presence_ambient_marker: "·",
-  surface2_emitted: "▸",
-  surface2_missed: "▹",
   // Prompt
   user_prompt_received: "▶",
   // Token flow
@@ -389,8 +387,6 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   // ─── Presence ──────────────────────────────────────────────────────
   user_prompt_received: "Prompt received",
   presence_ambient_marker: "Running quietly",
-  surface2_emitted: "Added context to the response",
-  surface2_missed: "Context was not added this turn",
   // ─── Token savings ─────────────────────────────────────────────────
   "tokenflow.shell_compression": "Compressed command output",
   "tokenflow.file_read": "Read only what was needed",
@@ -579,10 +575,6 @@ function describeEvent(
     // ─── Presence ────────────────────────────────────────────────────
     case "presence_ambient_marker":
       return "Nothing to report this turn — unerr was running quietly in the background";
-    case "surface2_emitted":
-      return "Added relevant notes, conventions, and warnings to the agent's response";
-    case "surface2_missed":
-      return "Was supposed to add context to the response but didn't fire this turn";
     case "defuddle_selector_skipped":
       return "Ran into an issue parsing a web page but recovered gracefully — no data was lost";
 
@@ -608,7 +600,6 @@ const FEATURED_TONE: Record<string, Tone> = {
   caller_check_enforced: "guard",
   drift_consumed: "guard",
   defuddle_selector_skipped: "guard",
-  surface2_missed: "guard",
   incomplete_work_flagged: "guard",
   // Memory — cross-session intelligence
   fact_recalled: "remember",
@@ -622,7 +613,6 @@ const FEATURED_TONE: Record<string, Tone> = {
   // Serving — intelligence delivered
   graph_query_served: "serve",
   convention_applied: "serve",
-  surface2_emitted: "serve",
 };
 
 const TONE_COLORS: Record<Tone, string> = {
@@ -803,8 +793,6 @@ function FilterStrip({
 const HIDDEN_FROM_PILLS = new Set([
   "user_prompt_received",
   "presence_ambient_marker",
-  "surface2_emitted",
-  "surface2_missed",
   "defuddle_selector_skipped",
   "confirmation_expired",
 ]);
@@ -1216,8 +1204,6 @@ const EVENT_CATEGORY: Record<string, EventCategory> = {
   cache_hit: "savings",
   confirmation_expired: "other",
   presence_ambient_marker: "other",
-  surface2_emitted: "other",
-  surface2_missed: "other",
 };
 
 const CATEGORY_META: Record<

@@ -84,8 +84,6 @@ export function evaluateCondition(c: Condition, s: SessionState): boolean {
       return s.filesAccessedCount() >= 1;
     case "EditOrWriteAttempted":
       return s.editOrWriteAttempted();
-    case "FileReadTruncated":
-      return s.fileReadTruncatedSeen();
     case "IntentMarkerAtLeast":
       return s.intentMarkerCount(c.type) >= c.min;
     case "ToolCallCountAtLeast":

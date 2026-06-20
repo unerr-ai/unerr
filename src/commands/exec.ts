@@ -16,7 +16,11 @@ import {
   shouldEmitLoginNudge,
 } from "../hooks/login-nudge.js";
 import { formatDriftNudge, isDriftCommand } from "../proxy/drift-detector.js";
-import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
+import {
+  pinSessionIdEnv,
+  readNudgeState,
+  updateNudgeState,
+} from "../proxy/nudge-state.js";
 import { compressShellOutput } from "../proxy/shell-compressor.js";
 import {
   readFreshTestArtifact,
@@ -252,6 +256,11 @@ export async function runExecMain(argv: string[]): Promise<number> {
     return 1;
   }
 
+  // Key this fresh `unerr exec` process's nudge-state on the stable proxy
+  // session id (not pid-<pid>), so the once-per-session exec nav-nudge actually
+  // fires once per session instead of on every Bash call. Must run before any
+  // readNudgeState/updateNudgeState below.
+  pinSessionIdEnv(process.cwd());
   getOrCreateSid();
   initFileLog(process.cwd());
 

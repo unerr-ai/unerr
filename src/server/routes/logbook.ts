@@ -408,7 +408,6 @@ function buildRightRail(events: NamedEvent[]): RightRail {
 
 /** Four-counter directive-compliance ribbon. Surfaces how reliably the
  *  agent is honouring the per-turn unerr contracts:
- *    - Surface 2 (loaded-note line via `unerr_surface2_line`)
  *    - Surface 3 (close-out receipt via `unerr_turn_summary`)
  *    - mark_intent (first-tool-call commitment)
  *    - skill invocation (Path A dispatch acknowledged)
@@ -424,7 +423,6 @@ export interface ComplianceCounter {
 }
 
 export interface ComplianceRibbon {
-  surface2: ComplianceCounter;
   surface3: ComplianceCounter;
   mark_intent: ComplianceCounter;
   skill: ComplianceCounter;
@@ -475,15 +473,6 @@ export function buildComplianceRibbon(
   }
 
   return {
-    surface2: {
-      required: state.surface2_required_count,
-      called: state.surface2_called_count,
-      ratio: ratio(state.surface2_called_count, state.surface2_required_count),
-      ratio_label: formatComplianceRatio(
-        ratio(state.surface2_called_count, state.surface2_required_count)
-      ),
-      consecutive_misses: state.consecutive_surface2_misses,
-    },
     surface3: {
       required: state.turn_summary_required_count,
       called: state.turn_summary_emitted_count,

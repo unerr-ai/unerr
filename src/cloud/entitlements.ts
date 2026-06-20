@@ -405,3 +405,25 @@ export function canSyncRecall(now: number = Date.now()): boolean {
       : {};
   return features.cloud_ingest !== false;
 }
+
+/**
+ * May this machine view the cloud-served review prevention framing right now?
+ * The deterministic `unerr review` engine always runs locally — this gates ONLY
+ * the paid prevention recap (what was prevented + tokens_prevented) and the
+ * cloud-served review surfaces, not the local report. Identical semantics to
+ * {@link canSyncRecall}: any paid plan may, a free or logged-out machine may not,
+ * and `cloud_ingest: false` force-disables it. The CLI-side mirror of the
+ * server's `canViewReview` (unerr-web-service `lib/cli/entitlements.ts`); the
+ * server's review-read endpoints stay the authoritative gate.
+ *
+ * @sem domain=cloud role=entitlement
+ */
+export function canViewReview(now: number = Date.now()): boolean {
+  const tier = effectiveTier(now);
+  if (tier.plan === "free") return false;
+  const features =
+    tier.source === "fresh" || tier.source === "grace"
+      ? (readEntitlementCache()?.claims?.features ?? {})
+      : {};
+  return features.cloud_ingest !== false;
+}

@@ -264,7 +264,6 @@ describe("cross_repo_access telemetry (Sprint 5.1)", () => {
     const router = new QueryRouter(mockGraph([localCaller]));
     router.setMonikerIndex(index(homeDefs));
     const sink = fakeWriter();
-    // biome-ignore lint/suspicious/noExplicitAny: duck-typed test writer
     router.setBehaviorEvents(sink as any);
     router.setFederationCoordinator(
       fakeCoordinator({
@@ -296,7 +295,6 @@ describe("cross_repo_access telemetry (Sprint 5.1)", () => {
     const router = new QueryRouter(mockGraph([localCaller]));
     router.setMonikerIndex(index(homeDefs));
     const sink = fakeWriter();
-    // biome-ignore lint/suspicious/noExplicitAny: duck-typed test writer
     router.setBehaviorEvents(sink as any);
     router.setFederationCoordinator(
       fakeCoordinator({ getPeers: async () => REFUSAL })
@@ -313,7 +311,6 @@ describe("cross_repo_access telemetry (Sprint 5.1)", () => {
     const router = new QueryRouter(mockGraph([localCaller]));
     router.setMonikerIndex(index(homeDefs));
     const sink = fakeWriter();
-    // biome-ignore lint/suspicious/noExplicitAny: duck-typed test writer
     router.setBehaviorEvents(sink as any);
     router.setFederationCoordinator(
       fakeCoordinator({

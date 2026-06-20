@@ -105,389 +105,406 @@ export async function indexFilesIncremental(
   repoId: string
 ): Promise<IncrementalResult> {
   const startMs = Date.now();
-  const db: DbLike = {
-    run: (q, p) => graphStore.db.run(q, p),
-    write: (q, p) => graphStore.write(q, p),
-  };
 
-  let filesProcessed = 0;
-  let filesDeleted = 0;
-  let totalEntitiesAdded = 0;
-  let totalEntitiesUpdated = 0;
-  let totalEntitiesDeleted = 0;
-  let totalEdgesAdded = 0;
-  let totalEdgesDeleted = 0;
+  // Apply the whole delta as ONE atomic transaction: the per-file
+  // delete-old-edges → reinsert-new-edges sequence becomes invisible to live
+  // tool reads until it commits whole. Without this, a `get_references` landing
+  // between the delete and the reinsert saw a half-purged edge set and reported
+  // file-cohabitants as callers (the P1 false-positive bug). Reads run on
+  // `immutable` snapshots (CozoGraphStore.query), so they are not blocked by the
+  // open tx — they see the prior consistent graph until commit, then the new one.
+  return graphStore.transact(async (db) => {
+    let filesProcessed = 0;
+    let filesDeleted = 0;
+    let totalEntitiesAdded = 0;
+    let totalEntitiesUpdated = 0;
+    let totalEntitiesDeleted = 0;
+    let totalEdgesAdded = 0;
+    let totalEdgesDeleted = 0;
 
-  // Collect all entity keys that had edges modified (for fan count recalc)
-  const affectedEntityKeys = new Set<string>();
-  // Track keys for incremental search index update
-  const changedEntityKeys = new Set<string>();
-  const deletedEntityKeys = new Set<string>();
-  // Layer 8: flips true once any domain_annotations row is written or removed,
-  // so the caller can debounce a deriveDomainGraph re-derive.
-  let annotationsChanged = false;
+    // Collect all entity keys that had edges modified (for fan count recalc)
+    const affectedEntityKeys = new Set<string>();
+    // Track keys for incremental search index update
+    const changedEntityKeys = new Set<string>();
+    const deletedEntityKeys = new Set<string>();
+    // Layer 8: flips true once any domain_annotations row is written or removed,
+    // so the caller can debounce a deriveDomainGraph re-derive.
+    let annotationsChanged = false;
 
-  // Layer 8 SC-A.3: sentinel tokens for doc-comment annotations, and a
-  // lazily-fetched graph name set for the identifier cross-check gate
-  // (queried once per batch, only when a file actually carries a sentinel
-  // or prose doc comment).
-  let sentinelTokens: readonly string[] = DEFAULT_SENTINEL_TOKENS;
-  try {
-    sentinelTokens = loadSettings(projectRoot).comments.sentinel;
-  } catch {
-    /* settings unreadable — default token list */
-  }
-  let knownIdentifiers: Set<string> | null = null;
-  const getKnownIdentifiers = async (): Promise<Set<string>> => {
-    if (knownIdentifiers === null) {
-      const result = await db.run("?[name] := *entities{name}");
-      knownIdentifiers = new Set(result.rows.map((r) => r[0] as string));
-    }
-    return knownIdentifiers;
-  };
-
-  for (const filePath of changedFiles) {
-    const absPath = filePath.startsWith("/")
-      ? filePath
-      : join(projectRoot, filePath);
-    const relPath = filePath.startsWith("/")
-      ? relative(projectRoot, filePath)
-      : filePath;
-
-    // ── Step 1: Handle deleted files ─────────────────────────────
-    if (!existsSync(absPath)) {
-      const deleted = await deleteFileFromGraph(db, relPath);
-      filesDeleted++;
-      totalEntitiesDeleted += deleted.entitiesDeleted;
-      totalEdgesDeleted += deleted.edgesDeleted;
-      for (const k of deleted.affectedKeys) {
-        affectedEntityKeys.add(k);
-        deletedEntityKeys.add(k);
-      }
-      continue;
-    }
-
-    // ── Step 2: Read + extract ───────────────────────────────────
-    let content: string;
+    // Layer 8 SC-A.3: sentinel tokens for doc-comment annotations, and a
+    // lazily-fetched graph name set for the identifier cross-check gate
+    // (queried once per batch, only when a file actually carries a sentinel
+    // or prose doc comment).
+    let sentinelTokens: readonly string[] = DEFAULT_SENTINEL_TOKENS;
     try {
-      content = readFileSync(absPath, "utf-8");
+      sentinelTokens = loadSettings(projectRoot).comments.sentinel;
     } catch {
-      continue;
+      /* settings unreadable — default token list */
     }
-
-    // ── Content-hash early cutoff (FIX D Phase 3) ────────────────
-    // If the raw content is byte-identical to the last indexed pass AND
-    // the graph still holds entities for this file, the extract→diff→patch
-    // pipeline below cannot produce any change — skip it outright.
-    const fileHash = hashContent(content);
-    const storedHash = await getFileHash(db, relPath);
-    if (
-      storedHash !== null &&
-      storedHash === fileHash &&
-      (await fileHasEntities(db, relPath))
-    ) {
-      filesProcessed++;
-      continue;
-    }
-
-    const newExtracted = await extractEntitiesAsync(content, relPath);
-    const newRawEdges = await extractEdgesAsync(content, relPath, newExtracted);
-    const fileIsTest = isTestFile(relPath);
-
-    // Build new CompactEntities
-    const newEntities: CompactEntity[] = newExtracted.map((e) => ({
-      key: entityKey(repoId, relPath, e.kind, e.name, e.signature),
-      kind: e.kind,
-      name: e.name,
-      file_path: relPath,
-      start_line: e.line_start,
-      signature: e.signature,
-      body: "",
-      fan_in: 0,
-      fan_out: 0,
-      risk_level: "normal",
-      community: -1,
-      is_test: e.is_test ?? fileIsTest,
-      parent_class: e.parent_class,
-    }));
-
-    // ── Step 3: Query old entities from graph ────────────────────
-    const oldEntities = await getFileEntities(db, relPath);
-    const oldEdgeKeys = await getFileEdgeKeysBatched(db, relPath, oldEntities);
-
-    // ── Step 4: Diff ─────────────────────────────────────────────
-    const oldMap = new Map(oldEntities.map((e) => [e.key, e]));
-    const newMap = new Map(newEntities.map((e) => [e.key, e]));
-
-    const added: CompactEntity[] = [];
-    const updated: CompactEntity[] = [];
-    const deleted: CompactEntity[] = [];
-
-    for (const [key, entity] of newMap) {
-      const old = oldMap.get(key);
-      if (!old) {
-        added.push(entity);
-      } else if (
-        old.start_line !== entity.start_line ||
-        old.signature !== entity.signature
-      ) {
-        updated.push(entity);
+    let knownIdentifiers: Set<string> | null = null;
+    const getKnownIdentifiers = async (): Promise<Set<string>> => {
+      if (knownIdentifiers === null) {
+        const result = await db.run("?[name] := *entities{name}");
+        knownIdentifiers = new Set(result.rows.map((r) => r[0] as string));
       }
-    }
-    for (const [key, entity] of oldMap) {
-      if (!newMap.has(key)) {
-        deleted.push(entity);
-      }
-    }
+      return knownIdentifiers;
+    };
 
-    // ── Step 4.5: Sync domain annotations (Layer 8) ──
-    // Runs BEFORE the empty-diff early-continue: a comment-text edit that
-    // doesn't shift line numbers changes no entity row, but its annotation
-    // must still update. The upsert's comment_hash skip makes unchanged
-    // comments a no-write; the path floor (0.4) runs after the higher tiers
-    // so provenance ordering skips already-annotated entities. Best-effort —
-    // annotations never block indexing.
-    try {
-      const targets = newExtracted.map((e, i) => ({
-        // newEntities maps 1:1 over newExtracted, so [i] is always present
-        key: newEntities[i]!.key,
-        name: e.name,
-        startLine: e.line_start,
-        endLine: e.line_end,
-      }));
-      const candidates = collectAnnotationCandidates(
-        content,
-        targets,
-        sentinelTokens
-      );
-      const annotationRows =
-        candidates.length > 0
-          ? gateCandidates(candidates, {
-              knownIdentifiers: await getKnownIdentifiers(),
-            })
-          : [];
-      // Reconcile stale durable annotations BEFORE the upsert. An in-place
-      // comment edit keeps the entity row alive, so it never lands in `deleted`;
-      // and upsertAnnotations is tier-guarded (comment 0.95 > harvested 0.7 >
-      // path 0.4 — a higher prior tier is never overwritten by a lower-or-equal
-      // new one). So a prior comment row survives both a full @sem deletion (no
-      // new durable candidate → only the path floor, which the guard blocks) and
-      // a downgrade (@sem stripped, prose kept → harvested candidate, which the
-      // guard also blocks). Either way a phantom domain label lingers until the
-      // next full reindex. Detect any prior comment/harvested row whose tier now
-      // exceeds the best current durable candidate for that entity, delete it so
-      // the upsert + path floor below re-apply the current truth, and flip
-      // annotationsChanged so the debounced domain re-derive runs.
-      if (newEntities.length > 0) {
-        const DURABLE_TIER: Record<string, number> = {
-          harvested: 2,
-          comment: 3,
-        };
-        const bestCurrentTier = new Map<string, number>();
-        for (const r of annotationRows) {
-          const t = DURABLE_TIER[r.source] ?? 0;
-          bestCurrentTier.set(
-            r.entity_key,
-            Math.max(bestCurrentTier.get(r.entity_key) ?? 0, t)
-          );
+    for (const filePath of changedFiles) {
+      const absPath = filePath.startsWith("/")
+        ? filePath
+        : join(projectRoot, filePath);
+      const relPath = filePath.startsWith("/")
+        ? relative(projectRoot, filePath)
+        : filePath;
+
+      // ── Step 1: Handle deleted files ─────────────────────────────
+      if (!existsSync(absPath)) {
+        const deleted = await deleteFileFromGraph(db, relPath);
+        filesDeleted++;
+        totalEntitiesDeleted += deleted.entitiesDeleted;
+        totalEdgesDeleted += deleted.edgesDeleted;
+        for (const k of deleted.affectedKeys) {
+          affectedEntityKeys.add(k);
+          deletedEntityKeys.add(k);
         }
-        const priorDurable = await db.run(
-          `candidate[entity_key] <- $keys
+        continue;
+      }
+
+      // ── Step 2: Read + extract ───────────────────────────────────
+      let content: string;
+      try {
+        content = readFileSync(absPath, "utf-8");
+      } catch {
+        continue;
+      }
+
+      // ── Content-hash early cutoff (FIX D Phase 3) ────────────────
+      // If the raw content is byte-identical to the last indexed pass AND
+      // the graph still holds entities for this file, the extract→diff→patch
+      // pipeline below cannot produce any change — skip it outright.
+      const fileHash = hashContent(content);
+      const storedHash = await getFileHash(db, relPath);
+      if (
+        storedHash !== null &&
+        storedHash === fileHash &&
+        (await fileHasEntities(db, relPath))
+      ) {
+        filesProcessed++;
+        continue;
+      }
+
+      const newExtracted = await extractEntitiesAsync(content, relPath);
+      const newRawEdges = await extractEdgesAsync(
+        content,
+        relPath,
+        newExtracted
+      );
+      const fileIsTest = isTestFile(relPath);
+
+      // Build new CompactEntities
+      const newEntities: CompactEntity[] = newExtracted.map((e) => ({
+        key: entityKey(repoId, relPath, e.kind, e.name, e.signature),
+        kind: e.kind,
+        name: e.name,
+        file_path: relPath,
+        start_line: e.line_start,
+        signature: e.signature,
+        body: "",
+        fan_in: 0,
+        fan_out: 0,
+        risk_level: "normal",
+        community: -1,
+        is_test: e.is_test ?? fileIsTest,
+        parent_class: e.parent_class,
+      }));
+
+      // ── Step 3: Query old entities from graph ────────────────────
+      const oldEntities = await getFileEntities(db, relPath);
+      const oldEdgeKeys = await getFileEdgeKeysBatched(
+        db,
+        relPath,
+        oldEntities
+      );
+
+      // ── Step 4: Diff ─────────────────────────────────────────────
+      const oldMap = new Map(oldEntities.map((e) => [e.key, e]));
+      const newMap = new Map(newEntities.map((e) => [e.key, e]));
+
+      const added: CompactEntity[] = [];
+      const updated: CompactEntity[] = [];
+      const deleted: CompactEntity[] = [];
+
+      for (const [key, entity] of newMap) {
+        const old = oldMap.get(key);
+        if (!old) {
+          added.push(entity);
+        } else if (
+          old.start_line !== entity.start_line ||
+          old.signature !== entity.signature
+        ) {
+          updated.push(entity);
+        }
+      }
+      for (const [key, entity] of oldMap) {
+        if (!newMap.has(key)) {
+          deleted.push(entity);
+        }
+      }
+
+      // ── Step 4.5: Sync domain annotations (Layer 8) ──
+      // Runs BEFORE the empty-diff early-continue: a comment-text edit that
+      // doesn't shift line numbers changes no entity row, but its annotation
+      // must still update. The upsert's comment_hash skip makes unchanged
+      // comments a no-write; the path floor (0.4) runs after the higher tiers
+      // so provenance ordering skips already-annotated entities. Best-effort —
+      // annotations never block indexing.
+      try {
+        const targets = newExtracted.map((e, i) => ({
+          // newEntities maps 1:1 over newExtracted, so [i] is always present
+          key: newEntities[i]!.key,
+          name: e.name,
+          startLine: e.line_start,
+          endLine: e.line_end,
+        }));
+        const candidates = collectAnnotationCandidates(
+          content,
+          targets,
+          sentinelTokens
+        );
+        const annotationRows =
+          candidates.length > 0
+            ? gateCandidates(candidates, {
+                knownIdentifiers: await getKnownIdentifiers(),
+              })
+            : [];
+        // Reconcile stale durable annotations BEFORE the upsert. An in-place
+        // comment edit keeps the entity row alive, so it never lands in `deleted`;
+        // and upsertAnnotations is tier-guarded (comment 0.95 > harvested 0.7 >
+        // path 0.4 — a higher prior tier is never overwritten by a lower-or-equal
+        // new one). So a prior comment row survives both a full @sem deletion (no
+        // new durable candidate → only the path floor, which the guard blocks) and
+        // a downgrade (@sem stripped, prose kept → harvested candidate, which the
+        // guard also blocks). Either way a phantom domain label lingers until the
+        // next full reindex. Detect any prior comment/harvested row whose tier now
+        // exceeds the best current durable candidate for that entity, delete it so
+        // the upsert + path floor below re-apply the current truth, and flip
+        // annotationsChanged so the debounced domain re-derive runs.
+        if (newEntities.length > 0) {
+          const DURABLE_TIER: Record<string, number> = {
+            harvested: 2,
+            comment: 3,
+          };
+          const bestCurrentTier = new Map<string, number>();
+          for (const r of annotationRows) {
+            const t = DURABLE_TIER[r.source] ?? 0;
+            bestCurrentTier.set(
+              r.entity_key,
+              Math.max(bestCurrentTier.get(r.entity_key) ?? 0, t)
+            );
+          }
+          const priorDurable = await db.run(
+            `candidate[entity_key] <- $keys
            ?[entity_key, source] :=
              candidate[entity_key],
              *domain_annotations{entity_key, source}`,
-          { keys: newEntities.map((e) => [e.key]) }
+            { keys: newEntities.map((e) => [e.key]) }
+          );
+          const staleDurableKeys = priorDurable.rows
+            .filter((r) => {
+              const priorTier = DURABLE_TIER[r[1] as string] ?? 0;
+              if (priorTier === 0) return false; // only comment/harvested go stale
+              return priorTier > (bestCurrentTier.get(r[0] as string) ?? 0);
+            })
+            .map((r) => r[0] as string);
+          if (staleDurableKeys.length > 0) {
+            await removeAnnotationsForKeys(db, staleDurableKeys);
+            annotationsChanged = true;
+          }
+        }
+        if (annotationRows.length > 0) {
+          if ((await upsertAnnotations(db, annotationRows)) > 0) {
+            annotationsChanged = true;
+          }
+        }
+        const floored = await upsertAnnotations(
+          db,
+          buildPathFloorRows(
+            newEntities.map((e) => ({ key: e.key, file_path: relPath }))
+          )
         );
-        const staleDurableKeys = priorDurable.rows
-          .filter((r) => {
-            const priorTier = DURABLE_TIER[r[1] as string] ?? 0;
-            if (priorTier === 0) return false; // only comment/harvested go stale
-            return priorTier > (bestCurrentTier.get(r[0] as string) ?? 0);
-          })
-          .map((r) => r[0] as string);
-        if (staleDurableKeys.length > 0) {
-          await removeAnnotationsForKeys(db, staleDurableKeys);
-          annotationsChanged = true;
-        }
-      }
-      if (annotationRows.length > 0) {
-        if ((await upsertAnnotations(db, annotationRows)) > 0) {
-          annotationsChanged = true;
-        }
-      }
-      const floored = await upsertAnnotations(
-        db,
-        buildPathFloorRows(
-          newEntities.map((e) => ({ key: e.key, file_path: relPath }))
-        )
-      );
-      if (floored > 0) annotationsChanged = true;
-    } catch {
-      /* annotation sync is best-effort */
-    }
-
-    // If nothing changed in this file, skip — but record the hash so the
-    // next cycle takes the early cutoff above instead of re-extracting.
-    if (added.length === 0 && updated.length === 0 && deleted.length === 0) {
-      await setFileHash(db, relPath, fileHash);
-      filesProcessed++;
-      continue;
-    }
-
-    // ── Step 5: Apply graph patches (batched) ────────────────────
-
-    // Delete removed entities + their edges (batched)
-    if (deleted.length > 0) {
-      const deletedKeys = deleted.map((e) => e.key);
-      await removeEntitiesAndEdgesBatched(db, deletedKeys);
-      try {
-        await removeAnnotationsForKeys(db, deletedKeys);
-        // Conservative: a deleted entity may have carried a domain label, so a
-        // re-derive is scheduled. Over-eager only for un-annotated deletes,
-        // which the debounce coalesces away — never misses a real removal.
-        annotationsChanged = true;
+        if (floored > 0) annotationsChanged = true;
       } catch {
-        /* stale rows are pruned by the next full index's orphan sweep */
+        /* annotation sync is best-effort */
       }
-      for (const entity of deleted) {
-        affectedEntityKeys.add(entity.key);
-        deletedEntityKeys.add(entity.key);
-        totalEntitiesDeleted++;
-      }
-    }
 
-    // Delete edges for updated entities (batched)
-    if (updated.length > 0) {
-      const updatedKeys = updated.map((e) => e.key);
-      await removeEdgesForKeysBatched(db, updatedKeys);
-      for (const entity of updated) {
-        affectedEntityKeys.add(entity.key);
+      // If nothing changed in this file, skip — but record the hash so the
+      // next cycle takes the early cutoff above instead of re-extracting.
+      if (added.length === 0 && updated.length === 0 && deleted.length === 0) {
+        await setFileHash(db, relPath, fileHash);
+        filesProcessed++;
+        continue;
       }
-    }
 
-    // Upsert added + updated entities (batched)
-    const toUpsert = [...added, ...updated];
-    if (toUpsert.length > 0) {
-      await upsertEntitiesBatched(db, toUpsert);
-      for (const entity of toUpsert) {
-        affectedEntityKeys.add(entity.key);
-        changedEntityKeys.add(entity.key);
-      }
-      totalEntitiesAdded += added.length;
-      totalEntitiesUpdated += updated.length;
-    }
+      // ── Step 5: Apply graph patches (batched) ────────────────────
 
-    // Remove old edges originating from this file (batched)
-    if (oldEdgeKeys.size > 0) {
-      const edgeTuples: Array<[string, string, string]> = [];
-      for (const edgeKey of oldEdgeKeys) {
-        const [fromKey, toKey, type] = edgeKey.split("::");
-        if (fromKey && toKey && type) {
-          edgeTuples.push([fromKey, toKey, type]);
-          affectedEntityKeys.add(fromKey);
-          affectedEntityKeys.add(toKey);
+      // Delete removed entities + their edges (batched)
+      if (deleted.length > 0) {
+        const deletedKeys = deleted.map((e) => e.key);
+        await removeEntitiesAndEdgesBatched(db, deletedKeys);
+        try {
+          await removeAnnotationsForKeys(db, deletedKeys);
+          // Conservative: a deleted entity may have carried a domain label, so a
+          // re-derive is scheduled. Over-eager only for un-annotated deletes,
+          // which the debounce coalesces away — never misses a real removal.
+          annotationsChanged = true;
+        } catch {
+          /* stale rows are pruned by the next full index's orphan sweep */
+        }
+        for (const entity of deleted) {
+          affectedEntityKeys.add(entity.key);
+          deletedEntityKeys.add(entity.key);
+          totalEntitiesDeleted++;
         }
       }
-      if (edgeTuples.length > 0) {
-        await removeEdgesBatched(db, edgeTuples);
-        totalEdgesDeleted += edgeTuples.length;
+
+      // Delete edges for updated entities (batched)
+      if (updated.length > 0) {
+        const updatedKeys = updated.map((e) => e.key);
+        await removeEdgesForKeysBatched(db, updatedKeys);
+        for (const entity of updated) {
+          affectedEntityKeys.add(entity.key);
+        }
       }
-    }
 
-    // ── Step 6: Resolve cross-file edges (batched) ───────────────
-    // Collect all unique to_names that need global resolution
-    const toResolve = new Set<string>();
-    const localResolved = new Map<string, string | null>();
+      // Upsert added + updated entities (batched)
+      const toUpsert = [...added, ...updated];
+      if (toUpsert.length > 0) {
+        await upsertEntitiesBatched(db, toUpsert);
+        for (const entity of toUpsert) {
+          affectedEntityKeys.add(entity.key);
+          changedEntityKeys.add(entity.key);
+        }
+        totalEntitiesAdded += added.length;
+        totalEntitiesUpdated += updated.length;
+      }
 
-    for (const edge of newRawEdges) {
-      const fromKey = resolveLocalEntityName(
-        edge.from_name,
-        relPath,
-        repoId,
-        newExtracted
-      );
-      if (!fromKey) continue;
-      localResolved.set(edge.from_name, fromKey);
+      // Remove old edges originating from this file (batched)
+      if (oldEdgeKeys.size > 0) {
+        const edgeTuples: Array<[string, string, string]> = [];
+        for (const edgeKey of oldEdgeKeys) {
+          const [fromKey, toKey, type] = edgeKey.split("::");
+          if (fromKey && toKey && type) {
+            edgeTuples.push([fromKey, toKey, type]);
+            affectedEntityKeys.add(fromKey);
+            affectedEntityKeys.add(toKey);
+          }
+        }
+        if (edgeTuples.length > 0) {
+          await removeEdgesBatched(db, edgeTuples);
+          totalEdgesDeleted += edgeTuples.length;
+        }
+      }
 
-      if (edge.to_name !== "__file__") {
-        // Check local first
-        const localKey = resolveLocalEntityName(
-          edge.to_name,
+      // ── Step 6: Resolve cross-file edges (batched) ───────────────
+      // Collect all unique to_names that need global resolution
+      const toResolve = new Set<string>();
+      const localResolved = new Map<string, string | null>();
+
+      for (const edge of newRawEdges) {
+        const fromKey = resolveLocalEntityName(
+          edge.from_name,
           relPath,
           repoId,
           newExtracted
         );
-        if (localKey) {
-          localResolved.set(edge.to_name, localKey);
-        } else {
-          toResolve.add(edge.to_name);
+        if (!fromKey) continue;
+        localResolved.set(edge.from_name, fromKey);
+
+        if (edge.to_name !== "__file__") {
+          // Check local first
+          const localKey = resolveLocalEntityName(
+            edge.to_name,
+            relPath,
+            repoId,
+            newExtracted
+          );
+          if (localKey) {
+            localResolved.set(edge.to_name, localKey);
+          } else {
+            toResolve.add(edge.to_name);
+          }
         }
       }
-    }
 
-    // Batch resolve all global names in a single query
-    const globalResolved =
-      toResolve.size > 0
-        ? await resolveEntityNamesGlobal([...toResolve], db)
-        : new Map<string, string>();
+      // Batch resolve all global names in a single query
+      const globalResolved =
+        toResolve.size > 0
+          ? await resolveEntityNamesGlobal([...toResolve], db)
+          : new Map<string, string>();
 
-    // Now insert all edges in batch
-    const edgesToInsert: Array<[string, string, string]> = [];
-    for (const edge of newRawEdges) {
-      const fromKey =
-        edge.from_name === "__file__"
-          ? `file:${relPath}`
-          : (localResolved.get(edge.from_name) ?? null);
-      if (!fromKey) continue;
+      // Now insert all edges in batch
+      const edgesToInsert: Array<[string, string, string]> = [];
+      for (const edge of newRawEdges) {
+        const fromKey =
+          edge.from_name === "__file__"
+            ? `file:${relPath}`
+            : (localResolved.get(edge.from_name) ?? null);
+        if (!fromKey) continue;
 
-      let toKey: string | null = null;
-      if (edge.to_name === "__file__") {
-        toKey = `file:${relPath}`;
-      } else {
-        toKey =
-          localResolved.get(edge.to_name) ??
-          globalResolved.get(edge.to_name) ??
-          null;
+        let toKey: string | null = null;
+        if (edge.to_name === "__file__") {
+          toKey = `file:${relPath}`;
+        } else {
+          toKey =
+            localResolved.get(edge.to_name) ??
+            globalResolved.get(edge.to_name) ??
+            null;
+        }
+        if (!toKey) continue;
+
+        edgesToInsert.push([fromKey, toKey, edge.type]);
+        affectedEntityKeys.add(fromKey);
+        affectedEntityKeys.add(toKey);
       }
-      if (!toKey) continue;
 
-      edgesToInsert.push([fromKey, toKey, edge.type]);
-      affectedEntityKeys.add(fromKey);
-      affectedEntityKeys.add(toKey);
+      if (edgesToInsert.length > 0) {
+        const inserted = await insertEdgesBatched(db, edgesToInsert);
+        totalEdgesAdded += inserted;
+      }
+
+      // Update file_index + contains edges (batched)
+      if (toUpsert.length > 0) {
+        await updateFileIndexBatched(db, relPath, toUpsert);
+      }
+
+      // Record the content hash so an unchanged next cycle short-circuits.
+      await setFileHash(db, relPath, fileHash);
+      filesProcessed++;
     }
 
-    if (edgesToInsert.length > 0) {
-      const inserted = await insertEdgesBatched(db, edgesToInsert);
-      totalEdgesAdded += inserted;
-    }
+    // ── Step 7: Update fan_in/fan_out for affected entities (batched) ──
+    await updateFanCountsBatched(db, affectedEntityKeys);
 
-    // Update file_index + contains edges (batched)
-    if (toUpsert.length > 0) {
-      await updateFileIndexBatched(db, relPath, toUpsert);
-    }
+    // ── Step 8: Incremental search index update ────────────────────
+    await updateSearchIndexIncremental(
+      db,
+      changedEntityKeys,
+      deletedEntityKeys
+    );
 
-    // Record the content hash so an unchanged next cycle short-circuits.
-    await setFileHash(db, relPath, fileHash);
-    filesProcessed++;
-  }
-
-  // ── Step 7: Update fan_in/fan_out for affected entities (batched) ──
-  await updateFanCountsBatched(db, affectedEntityKeys);
-
-  // ── Step 8: Incremental search index update ────────────────────
-  await updateSearchIndexIncremental(db, changedEntityKeys, deletedEntityKeys);
-
-  return {
-    filesProcessed,
-    filesDeleted,
-    entitiesAdded: totalEntitiesAdded,
-    entitiesUpdated: totalEntitiesUpdated,
-    entitiesDeleted: totalEntitiesDeleted,
-    edgesAdded: totalEdgesAdded,
-    edgesDeleted: totalEdgesDeleted,
-    elapsedMs: Date.now() - startMs,
-    annotationsChanged,
-  };
+    return {
+      filesProcessed,
+      filesDeleted,
+      entitiesAdded: totalEntitiesAdded,
+      entitiesUpdated: totalEntitiesUpdated,
+      entitiesDeleted: totalEntitiesDeleted,
+      edgesAdded: totalEdgesAdded,
+      edgesDeleted: totalEdgesDeleted,
+      elapsedMs: Date.now() - startMs,
+      annotationsChanged,
+    };
+  });
 }
 
 // ── Batched Helpers ─────────────────────────────────────────────

@@ -47,27 +47,13 @@ describe("buildComplianceRibbon (Fix H)", () => {
     }
   });
 
-  it("reports the four canonical counters with sane defaults on empty state", () => {
+  it("reports the canonical counters with sane defaults on empty state", () => {
     const ribbon = buildComplianceRibbon(unerrDir, []);
-    expect(ribbon.surface2.required).toBe(0);
     expect(ribbon.surface3.required).toBe(0);
     expect(ribbon.mark_intent.required).toBe(0);
     expect(ribbon.skill.required).toBe(0);
     // Empty required defaults to ratio=1 (no demand = full compliance)
-    expect(ribbon.surface2.ratio).toBe(1);
-  });
-
-  it("derives Surface 2 ratio from required vs called counts", () => {
-    updateNudgeState(cwd, (s) => {
-      s.surface2_required_count = 10;
-      s.surface2_called_count = 7;
-      s.consecutive_surface2_misses = 2;
-    });
-    const ribbon = buildComplianceRibbon(unerrDir, []);
-    expect(ribbon.surface2.required).toBe(10);
-    expect(ribbon.surface2.called).toBe(7);
-    expect(ribbon.surface2.ratio).toBe(0.7);
-    expect(ribbon.surface2.consecutive_misses).toBe(2);
+    expect(ribbon.surface3.ratio).toBe(1);
   });
 
   it("derives Surface 3 (turn_summary) ratio from required vs emitted", () => {
@@ -122,19 +108,19 @@ describe("/api/logbook/compliance route (Fix H)", () => {
     }
   });
 
-  it("returns a 200 with the four-counter ribbon under data", async () => {
+  it("returns a 200 with the compliance ribbon under data", async () => {
     updateNudgeState(cwd, (s) => {
-      s.surface2_required_count = 8;
-      s.surface2_called_count = 6;
+      s.turn_summary_required_count = 8;
+      s.turn_summary_emitted_count = 6;
     });
     const app = createLogbookRoutes({ unerrDir });
     const res = await app.request("/compliance");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      data: { surface2: { ratio: number } };
+      data: { surface3: { ratio: number } };
       _meta: { latency_ms: number };
     };
-    expect(body.data.surface2.ratio).toBe(0.75);
+    expect(body.data.surface3.ratio).toBe(0.75);
     expect(typeof body._meta.latency_ms).toBe("number");
   });
 });

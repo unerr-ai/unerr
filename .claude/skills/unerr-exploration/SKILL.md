@@ -1,8 +1,9 @@
 ---
 name: unerr-exploration
 description: "MANDATORY when finding callers/callees/hotspots, exploring unfamiliar areas, or locating a function/file. STEP-1: call `search_code` or `get_references` BEFORE any file read. One graph query replaces 5-15 file reads. Do NOT grep, do NOT glob, do NOT read files to navigate. Absorbs the prior graph-first-navigation, architecture-exploration, and file-read-protocol skills."
-user-invocable: false
 ---
+
+# exploration
 
 ## Iron Law
 

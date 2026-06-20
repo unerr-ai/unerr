@@ -523,10 +523,7 @@ export function formatLocalModeSessionStats(
   // Aggregate graph query categories
   const qbt = lm.graphQueriesByType;
   const entityLookups =
-    (qbt.get_function ?? 0) +
-    (qbt.get_class ?? 0) +
-    (qbt.get_file ?? 0) +
-    (qbt.get_module ?? 0);
+    (qbt.get_function ?? 0) + (qbt.get_class ?? 0) + (qbt.get_module ?? 0);
   const searchQueries = qbt.search_code ?? 0;
   const callerCallees = (qbt.get_callers ?? 0) + (qbt.get_callees ?? 0);
 

@@ -30,6 +30,8 @@ import {
 import { runDeviceFlow } from "../cloud/device-flow.js";
 import { refreshEntitlements } from "../cloud/entitlements.js";
 import { loginBlocked } from "../cloud/login-gate.js";
+import { recordLogin } from "../cloud/login-ledger.js";
+import { computeMachineFingerprint } from "../cloud/machine-fingerprint.js";
 
 function out(line: string): void {
   process.stderr.write(`${line}\n`);
@@ -190,6 +192,7 @@ async function loginWithToken(apiUrl: string, token: string): Promise<void> {
     machine_name: "",
   };
   writeCredentials(creds);
+  recordLogin({ machineFingerprint: computeMachineFingerprint() });
 
   // Refresh the signed entitlement cache immediately so offline tier checks
   // work right away, and report the plan we actually landed on.
@@ -214,6 +217,10 @@ async function loginWithDeviceFlow(apiUrl: string): Promise<void> {
         machine_name: result.machine_name,
       };
       writeCredentials(creds);
+      recordLogin({
+        machineFingerprint: computeMachineFingerprint(),
+        machineName: result.machine_name,
+      });
 
       // Prime the signed entitlement cache now (so offline tier checks work
       // immediately) and report the plan we landed on.

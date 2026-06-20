@@ -81,11 +81,9 @@ describe("unerr_remember (executeUnerrRemember)", () => {
         fact_type: "procedural",
         confidence: REMEMBER_CONFIDENCE_FLOOR - 0.1,
       },
-      // biome-ignore lint/suspicious/noExplicitAny: stub double for store
       store as any,
       "s1",
       3,
-      // biome-ignore lint/suspicious/noExplicitAny: stub double for events
       events as any
     );
     expect(res.stored).toBe(false);
@@ -111,11 +109,9 @@ describe("unerr_remember (executeUnerrRemember)", () => {
         fact_type: "convention",
         confidence: 0.6,
       },
-      // biome-ignore lint/suspicious/noExplicitAny: stub
       store as any,
       "s1",
       3,
-      // biome-ignore lint/suspicious/noExplicitAny: stub
       events as any
     );
     expect(res.stored).toBe(true);
@@ -137,11 +133,9 @@ describe("unerr_remember (executeUnerrRemember)", () => {
         fact_type: "procedural",
         confidence: REMEMBER_AMBIGUITY_THRESHOLD + 0.05,
       },
-      // biome-ignore lint/suspicious/noExplicitAny: stub
       store as any,
       "s1",
       3,
-      // biome-ignore lint/suspicious/noExplicitAny: stub
       events as any
     );
     expect(res.stored).toBe(true);
@@ -173,11 +167,9 @@ describe("unerr_remember (executeUnerrRemember)", () => {
         fact_type: "convention",
         confidence: 0.6,
       },
-      // biome-ignore lint/suspicious/noExplicitAny: stub
       store as any,
       "s1",
       1,
-      // biome-ignore lint/suspicious/noExplicitAny: stub
       events as any,
       registry
     );
@@ -197,11 +189,9 @@ describe("unerr_remember (executeUnerrRemember)", () => {
         fact_type: "convention",
         confidence: 0.9,
       },
-      // biome-ignore lint/suspicious/noExplicitAny: stub
       store as any,
       "s1",
       2,
-      // biome-ignore lint/suspicious/noExplicitAny: stub
       events as any,
       registry
     );
@@ -223,24 +213,19 @@ describe("unerr_remember (executeUnerrRemember)", () => {
     await expect(
       executeUnerrRemember(
         { ...baseArgs, content: "" },
-        // biome-ignore lint/suspicious/noExplicitAny: stub
         store as any,
         "s1",
         0,
-        // biome-ignore lint/suspicious/noExplicitAny: stub
         events as any
       )
     ).rejects.toThrow(/content/);
     // An EXPLICITLY-supplied invalid fact_type is still rejected (typo guard).
     await expect(
       executeUnerrRemember(
-        // biome-ignore lint/suspicious/noExplicitAny: deliberate bad input
         { ...baseArgs, fact_type: "nope" as any },
-        // biome-ignore lint/suspicious/noExplicitAny: stub
         store as any,
         "s1",
         0,
-        // biome-ignore lint/suspicious/noExplicitAny: stub
         events as any
       )
     ).rejects.toThrow(/fact_type/);
@@ -253,16 +238,13 @@ describe("unerr_remember (executeUnerrRemember)", () => {
     // store on the first attempt with sensible defaults, not bounce back an
     // error that forces another reasoning round-trip from the calling agent.
     const res = await executeUnerrRemember(
-      // biome-ignore lint/suspicious/noExplicitAny: deliberately-sparse input
       {
         content: "Always co-locate tests with the source file they cover.",
         confidence: 0.9,
       } as any,
-      // biome-ignore lint/suspicious/noExplicitAny: stub
       store as any,
       "s1",
       0,
-      // biome-ignore lint/suspicious/noExplicitAny: stub
       events as any
     );
     expect(res.stored).toBe(true);
@@ -338,11 +320,10 @@ describe("PendingConfirmationRegistry", () => {
   it("sweep emits confirmation_expired for expired entries only", () => {
     const events = makeEventsSink();
     let now = 1_000_000;
-    const reg = new PendingConfirmationRegistry(
-      // biome-ignore lint/suspicious/noExplicitAny: stub
-      events as any,
-      { ttlMs: 100, now: () => now }
-    );
+    const reg = new PendingConfirmationRegistry(events as any, {
+      ttlMs: 100,
+      now: () => now,
+    });
     reg.register({
       fact_id: "fresh",
       session_id: "s1",

@@ -26,3 +26,6 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Python venv for Lever B content compression (dev/build only)
+.venv/

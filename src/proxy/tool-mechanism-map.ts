@@ -11,7 +11,7 @@
  *     bulk → CLI   (occasional / large-output / sweep work, off the catalog)
  *
  * This table is the machine-readable form of `.internal/research/
- * tool-call-token-overhead.md` §7.2. It is the single source of truth that
+ * TOKEN_ECONOMICS_AND_SAVINGS.md` §10. It is the single source of truth that
  * Sprints 7–10 implement against:
  *   - Sprint 7 reads `mechanism === "hook"` to know what to lift into hooks.
  *   - Sprint 9 reads `mechanism === "merged"` to know what folds into a survivor.
@@ -79,9 +79,7 @@ export interface MechanismEntry {
  *
  * The capabilities that USED to be catalog tools (get_entity — merged into
  * search_code({detail:true}) 2026-06 — mark_*, record_fact,
- * recall_facts, get_conventions, get_imports, get_file, get_project_stats,
- * review_changes, get_critical_nodes, get_cross_boundary_links,
- * file_connections, get_test_coverage, unerr_surface2_line, unerr_turn_summary)
+ * recall_facts, get_conventions, get_imports, unerr_turn_summary)
  * are gone from the catalog. They remain reachable only by-name — via a hook's
  * UDS `tools/call`, the unerr_track op-union, the unerr_context composite, or an
  * `unerr exec`/`unerr review`/`unerr stats` CLI — so they need no verdict here.

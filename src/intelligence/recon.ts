@@ -1,7 +1,7 @@
 /**
  * Recon composite — Sprint 1 (R1 + R2 + R3).
  *
- * The token-overhead research (`.internal/research/tool-call-token-overhead.md`)
+ * The token-overhead research (`.internal/research/TOKEN_ECONOMICS_AND_SAVINGS.md`)
  * found that unerr's cost vs no-unerr is dominated by *round-trip amplification*:
  * every separate tool call re-bills the whole accumulated prefix
  * (cache_read ≈ round-trips × prefix). The dominant lever is cutting the number

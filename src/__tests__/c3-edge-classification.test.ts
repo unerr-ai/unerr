@@ -310,10 +310,10 @@ describe("c3 edge classification (behavior detail tail)", () => {
     }
   });
 
-  it("schema_version is the current additive events bump 1-0-5", async () => {
+  it("schema_version is the current additive events bump 1-0-7", async () => {
     const { ctx } = fakeCtx(dir);
     const rows = await drainBehavior(ctx);
-    expect(rows[0]?.schema_version).toBe("1-0-5");
+    expect(rows[0]?.schema_version).toBe("1-0-7");
   });
 
   it("hashEntityKey is deterministic and omits empty keys", () => {

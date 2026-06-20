@@ -82,7 +82,40 @@ function buildMetricsDb(dir: string): string {
       feature_areas TEXT, facts_recorded INTEGER, facts_surfaced TEXT,
       revert_count INTEGER, rot_score REAL, token_estimate INTEGER, branch TEXT
     );
+    CREATE TABLE repo_activity_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, ts_iso TEXT NOT NULL,
+      session_id TEXT, native_session_id TEXT, turn INTEGER, agent TEXT,
+      action TEXT NOT NULL, at TEXT NOT NULL, profile TEXT, tool_use_id TEXT
+    );
   `);
+
+  const raIso = "2026-06-15T11:00:00.000Z";
+  db.prepare(
+    `INSERT INTO repo_activity_events
+     (ts, ts_iso, session_id, native_session_id, turn, agent, action, at, profile, tool_use_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    Date.parse(raIso),
+    raIso,
+    "sess_a",
+    null,
+    null,
+    "claude-code",
+    "started",
+    raIso,
+    JSON.stringify({
+      entity_count: 1200,
+      edge_count: 3400,
+      file_count: 210,
+      languages: ["typescript", "javascript"],
+      convention_count: 14,
+      fact_count: 7,
+      drift_count: 2,
+      top_domains: ["cloud", "intelligence"],
+      indexed_at: raIso,
+    }),
+    null
+  );
 
   const tfIso = "2026-06-15T10:00:00.000Z";
   db.prepare(
@@ -249,7 +282,7 @@ describe("c1 events drainer", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("opens five drainers with the registered cursor keys", async () => {
+  it("opens six drainers with the registered cursor keys", async () => {
     const { ctx } = fakeCtx(dir);
     const set = await buildEventsDrainers(ctx);
     const keys = set.drainers.map((d) => d.key).sort();
@@ -257,10 +290,80 @@ describe("c1 events drainer", () => {
       "events:behavior",
       "events:compression",
       "events:file_read",
+      "events:repo_activity",
       "events:session_summary",
       "events:token_flow",
     ]);
     set.dispose?.();
+  });
+
+  it("maps repo_activity rows with action, at, and the parsed profile", async () => {
+    const { ctx } = fakeCtx(dir);
+    const set = await buildEventsDrainers(ctx);
+    const d = set.drainers.find((x) => x.key === "events:repo_activity")!;
+
+    const batch = await d.read({});
+    expect(batch).not.toBeNull();
+    expect(batch!.rows).toHaveLength(1);
+    expect(batch!.next.lastId).toBe(1);
+
+    const r = batch!.rows[0] as Record<string, unknown>;
+    expect(r.type).toBe("repo_activity");
+    expect(r.repo).toBe("repo_hash_abc");
+    expect(r.agent).toBe("claude-code");
+    expect(r.ts).toBe("2026-06-15T11:00:00.000Z");
+    expect(r.session_id).toBe("sess_a");
+    const detail = r.detail as Record<string, unknown>;
+    expect(detail.action).toBe("started");
+    expect(detail.at).toBe("2026-06-15T11:00:00.000Z");
+    expect(detail.profile).toEqual({
+      entity_count: 1200,
+      edge_count: 3400,
+      file_count: 210,
+      languages: ["typescript", "javascript"],
+      convention_count: 14,
+      fact_count: 7,
+      drift_count: 2,
+      top_domains: ["cloud", "intelligence"],
+      indexed_at: "2026-06-15T11:00:00.000Z",
+    });
+
+    expect(await d.read({ lastId: 1 })).toBeNull();
+    set.dispose?.();
+  });
+
+  it("repo_activity drainer is a no-op when the table is absent (legacy db)", async () => {
+    const legacy = mkdtempSync(join(tmpdir(), "c1-events-legacy-"));
+    try {
+      const dbPath = join(legacy, "metrics.db");
+      const db = new Database(dbPath);
+      // A legacy db that predates repo_activity_events: it still has the older
+      // tables (session_summaries' drainer prepares unconditionally), just not
+      // the new one.
+      db.exec(`CREATE TABLE token_flow_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, ts_iso TEXT,
+        session_id TEXT, pid INTEGER, turn INTEGER, agent TEXT, mechanism TEXT,
+        tool TEXT, tokens_without INTEGER, tokens_with INTEGER,
+        tokens_saved INTEGER, detail TEXT
+      );
+      CREATE TABLE session_summaries (
+        session_id TEXT PRIMARY KEY, written_at TEXT, started_at TEXT,
+        ended_at TEXT, duration_ms INTEGER, tool_calls INTEGER, chains INTEGER,
+        files_modified TEXT, entities_touched TEXT, tools_used TEXT,
+        feature_areas TEXT, facts_recorded INTEGER, facts_surfaced TEXT,
+        revert_count INTEGER, rot_score REAL, token_estimate INTEGER, branch TEXT
+      );`);
+      db.close();
+
+      const { ctx } = fakeCtx(legacy);
+      const set = await buildEventsDrainers(ctx);
+      const d = set.drainers.find((x) => x.key === "events:repo_activity")!;
+      // No-op read — never throws on the missing table.
+      expect(await d.read({})).toBeNull();
+      set.dispose?.();
+    } finally {
+      rmSync(legacy, { recursive: true, force: true });
+    }
   });
 
   it("returns no drainers when metrics.db does not exist", async () => {

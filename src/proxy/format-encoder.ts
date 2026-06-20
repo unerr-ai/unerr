@@ -235,6 +235,9 @@ export function formatToolOutput(
     "items",
     "facts",
     "references",
+    // get_references({include_text_occurrences:true}) returns references +
+    // text_occurrences as two top-level arrays → _fmt:multi keeps both.
+    "text_occurrences",
     "connections",
     "entities",
     "imports",

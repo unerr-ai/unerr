@@ -35,7 +35,7 @@ export interface LoopQueryDetection {
 
 export type LoopDetection = LoopReadDetection | LoopQueryDetection;
 
-const READ_TOOLS = new Set(["file_read", "file_outline", "get_file", "Read"]);
+const READ_TOOLS = new Set(["file_read", "file_outline", "Read"]);
 
 const EDIT_TOOLS = new Set([
   "Edit",

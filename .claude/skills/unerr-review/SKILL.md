@@ -1,8 +1,9 @@
 ---
 name: unerr-review
 description: "MANDATORY when asked to review / audit your own changes or a diff before commit. PRODUCES an evidenced review: gather graph facts per changed entity, THEN judge. Distinct from test-and-review (that ADDRESSES review comments; this PRODUCES the review). Catches what build + lint pass but is still wrong: breaking callers, silent contract drift, duplicate logic, boundary breaches, intent mismatch, hallucinated APIs."
-user-invocable: false
 ---
+
+# review
 
 ## Iron Law
 

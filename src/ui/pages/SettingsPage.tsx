@@ -22,7 +22,6 @@ type ComplianceCounter = {
 
 type ComplianceResponse = {
   data: {
-    surface2: ComplianceCounter;
     surface3: ComplianceCounter;
     mark_intent: ComplianceCounter;
     skill: ComplianceCounter;
@@ -35,10 +34,9 @@ type ComplianceResponse = {
   };
 };
 
-type ComplianceCounterKey = "surface2" | "surface3" | "mark_intent" | "skill";
+type ComplianceCounterKey = "surface3" | "mark_intent" | "skill";
 
 const COMPLIANCE_DIRECTIVES: { key: ComplianceCounterKey; label: string }[] = [
-  { key: "surface2", label: "Surface-2 lines" },
   { key: "surface3", label: "Surface-3 lines" },
   { key: "mark_intent", label: "mark_intent calls" },
   { key: "skill", label: "Skill invocations" },

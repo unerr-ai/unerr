@@ -59,7 +59,6 @@ type ComplianceCounter = {
 
 type ComplianceResponse = {
   data: {
-    surface2: ComplianceCounter;
     surface3: ComplianceCounter;
     mark_intent: ComplianceCounter;
     skill: ComplianceCounter;
@@ -347,8 +346,6 @@ function CountUp({
  *  own protocol signals, not user-visible outcomes. */
 const HIDDEN_DASHBOARD_EVENTS = new Set([
   "user_prompt_received",
-  "surface2_emitted",
-  "surface2_missed",
   "surface4a_emitted",
   "presence_ambient_marker",
   "fact_capture_abandoned",

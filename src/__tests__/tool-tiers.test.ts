@@ -61,7 +61,6 @@ describe("tool-tiers: C constructors round-trip describeCondition", () => {
       C.testFile(),
       C.firstRead(),
       C.editOrWrite(),
-      C.readTruncated(),
       C.intent("intent"),
       C.intent("blocker", 2),
       C.called("get_entity", 3),
@@ -192,12 +191,6 @@ describe("SessionState: signal accumulators", () => {
     expect(s.editOrWriteAttempted()).toBe(true);
   });
 
-  it("file_read truncation flag is sticky", () => {
-    const s = new SessionState();
-    s.recordCall(baseCall({ fileReadTruncated: true }));
-    expect(s.fileReadTruncatedSeen()).toBe(true);
-  });
-
   it("prior-session fact flag is sticky", () => {
     const s = new SessionState();
     s.recordCall(baseCall({ priorSessionFactSurfaced: true }));
@@ -252,39 +245,5 @@ describe("SessionState: nonTrivialActionObserved gate", () => {
       s.recordCall({ toolName: "file_read", filePath: "src/x/same.ts" });
     }
     expect(s.nonTrivialActionObserved()).toBe(false);
-  });
-});
-
-describe("file_read truncation signal extraction", () => {
-  // The catalog no longer contains a tool that unlocks on file_read
-  // truncation (get_file was removed in the token-overhead deletion), but the
-  // signal itself is still extracted and recorded — it remains a real
-  // SessionState accumulator. This pins that extraction chain:
-  //   extractSignals(file_read, meta.truncated=true)
-  //     → signals.fileReadTruncated=true
-  //     → SessionState.recordCall sets fileReadTruncatedSeen.
-
-  it("meta.truncated=true on file_read sets the truncation signal", () => {
-    const s = new SessionState();
-    const signals = extractSignals("file_read", {
-      args: { file_path: "src/proxy/proxy.ts" },
-      content: { text: "<truncated body>" },
-      meta: { truncated: true } as never,
-    });
-    expect(signals.fileReadTruncated).toBe(true);
-    s.recordCall(signals);
-    expect(s.fileReadTruncatedSeen()).toBe(true);
-  });
-
-  it("within-budget file_read leaves the truncation signal unset", () => {
-    const s = new SessionState();
-    const signals = extractSignals("file_read", {
-      args: { file_path: "src/proxy/small.ts" },
-      content: { text: "small body" },
-      meta: { truncated: false } as never,
-    });
-    expect(signals.fileReadTruncated).toBeUndefined();
-    s.recordCall(signals);
-    expect(s.fileReadTruncatedSeen()).toBe(false);
   });
 });

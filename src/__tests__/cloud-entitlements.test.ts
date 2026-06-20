@@ -28,6 +28,7 @@ vi.mock("node:os", async (importOriginal) => {
 import { entitlementsCachePath } from "../cloud/credentials.js";
 import {
   type EntitlementClaims,
+  canViewReview,
   effectiveTier,
   readEntitlementCache,
   verifyEntitlementToken,
@@ -296,6 +297,45 @@ describe("cloud entitlements", () => {
       expect(tier.plan).toBe("free"); // never trusted for gating
       expect(tier.source).toBe("none");
       expect(tier.unverified_plan).toBe("pro");
+    });
+  });
+
+  // ── canViewReview (mirrors canSyncRecall: paid-only, force-disable) ──
+  describe("canViewReview", () => {
+    const writeFor = (claims: EntitlementClaims, maxServerTimeMs: number) => {
+      writeEntitlementCache({
+        token: makeToken(claims),
+        claims,
+        fetched_at: Date.now(),
+        max_server_time: maxServerTimeMs,
+      });
+    };
+
+    it("no cache → free → false", () => {
+      expect(canViewReview()).toBe(false);
+    });
+
+    it("fresh paid plan → true", () => {
+      const now = Date.now();
+      const nowSec = Math.floor(now / 1000);
+      writeFor(claimsAt(nowSec, { freshInS: 3600, plan: "pro" }), now - 1000);
+      expect(canViewReview(now)).toBe(true);
+    });
+
+    it("free plan → false", () => {
+      const now = Date.now();
+      const nowSec = Math.floor(now / 1000);
+      writeFor(claimsAt(nowSec, { freshInS: 3600, plan: "free" }), now - 1000);
+      expect(canViewReview(now)).toBe(false);
+    });
+
+    it("cloud_ingest:false force-disables a paid plan", () => {
+      const now = Date.now();
+      const nowSec = Math.floor(now / 1000);
+      const claims = claimsAt(nowSec, { freshInS: 3600, plan: "pro" });
+      claims.features = { ...claims.features, cloud_ingest: false };
+      writeFor(claims, now - 1000);
+      expect(canViewReview(now)).toBe(false);
     });
   });
 });

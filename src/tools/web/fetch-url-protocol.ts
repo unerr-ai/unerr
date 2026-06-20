@@ -559,11 +559,19 @@ export async function runFetchUrl(
 
   const rawBytes = meaningfulHtmlBytes(fetched.html);
   const compressedBytes = byteLength(markdown);
+  // The savings metric must reflect what the agent RECEIVES, not the full
+  // extracted corpus. On docs-framework pages (Mintlify) the markdown balloons
+  // to multi-MB of embedded doc-tree, dwarfing the script-stripped HTML and
+  // recording a false 4–5× "inflation" in compression_events — yet the agent
+  // only ever gets `sliced` (limit/topK passages, further trimmed by wire-cap).
+  // Record delivered bytes here; the result's extracted_bytes/compression_ratio
+  // below keep the full-markdown extraction view.
+  const deliveredBytes = sliced.reduce((n, p) => n + byteLength(p.text), 0);
 
   recordFetchUrlTelemetry(ctx.cwd, {
     url: fetched.finalUrl,
     rawBytes,
-    compressedBytes,
+    compressedBytes: deliveredBytes,
     durationMs: Date.now() - started,
     extractor: extractor === "cache" ? "raw-body" : extractor,
     cacheHit,

@@ -16,7 +16,12 @@
  * resume strip when there's prior context worth surfacing.
  */
 
+import { createHash } from "node:crypto";
 import { join } from "node:path";
+import {
+  xsessionRecordDelivered,
+  xsessionWasDelivered,
+} from "../proxy/session-dedup.js";
 import {
   formatSessionResumeBlock,
   generateSessionResumePayload,
@@ -27,6 +32,9 @@ import {
   passthrough,
   runSessionStartHook,
 } from "./hook-runner.js";
+
+/** Synthetic entity key for the cross-session resume-block dedup (Lever D). */
+const RESUME_DEDUP_ENTITY = "__session_resume__";
 
 const sessionStartHandler: HookHandler = (_normalized) => {
   // The hook subprocess runs in the repo root (cwd). Read the resume
@@ -50,6 +58,18 @@ export async function runSessionStartHookAsync(
     if (!payload) return runSessionStartHook(stdinJson, sessionStartHandler);
 
     const block = formatSessionResumeBlock(payload);
+
+    // Lever D (§11.4): suppress a resume block identical to one already
+    // delivered in a prior session within the warm window — re-injecting the
+    // same notes across sessions is the cross-session re-injection this lever
+    // drives to zero. Suppression only; no new delivery channel. No-op when
+    // `UNERR_XSESSION_CACHE` is off (probe returns false → always enrich).
+    const cwd = process.cwd();
+    const digest = createHash("sha1").update(block).digest("hex");
+    if (xsessionWasDelivered(cwd, RESUME_DEDUP_ENTITY, digest)) {
+      return runSessionStartHook(stdinJson, sessionStartHandler);
+    }
+    xsessionRecordDelivered(cwd, RESUME_DEDUP_ENTITY, [digest]);
     return runSessionStartHook(stdinJson, () => enrich(block));
   } catch {
     return runSessionStartHook(stdinJson, sessionStartHandler);

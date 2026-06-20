@@ -14,6 +14,7 @@ import {
   deleteEntitlementsCache,
   deleteTeamConventionsCache,
 } from "./credentials.js";
+import { recordLogout } from "./login-ledger.js";
 
 /**
  * The one consistent line shown whenever the team revokes this machine.
@@ -39,6 +40,9 @@ export function handleRevokedToken(): string {
   // above, so `authState()` can still say "revoked" (loud) instead of
   // "logged_out" (silent). Cleared on the next successful login/refresh.
   markRevoked();
+  // Append to the durable login history (survives the wipe above) so the
+  // machine's own record shows the revoke alongside its logins/logouts.
+  recordLogout("revoked");
   return REVOKED_MESSAGE;
 }
 

@@ -3,6 +3,8 @@ name: unerr-markers
 description: "On every coding turn, record intent/decision/blocker/resolution with ZERO round-trip — emit `unerr-save:` lines in your closing message and the Stop hook persists them. No tool call, only output tokens. Do NOT yield mid-tasklist with a status paragraph; finish the work, then emit the markers at close."
 ---
 
+# markers
+
 ## Iron Law
 
 <EXTREMELY-IMPORTANT>

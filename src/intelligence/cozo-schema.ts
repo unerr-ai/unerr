@@ -24,6 +24,25 @@
  *   - file_communities: Materialized file-level communities from cascaded Louvain (Multi-Level Graph)
  */
 
+/**
+ * An interactive multi-statement transaction handle (cozo-node `multiTransact`).
+ * Every `run` on it is buffered into one atomic unit: `commit` makes the whole
+ * set visible at once, `abort` discards it. A concurrent `immutable` read on the
+ * same db sees the pre-commit snapshot until commit lands — never a partial
+ * write set — which is what lets an incremental reindex's delete-then-reinsert
+ * stay invisible to live tool reads until it is whole.
+ *
+ * @sem domain=intelligence role=transaction-handle
+ */
+export interface CozoTx {
+  run(
+    query: string,
+    params?: Record<string, unknown>
+  ): Promise<{ rows: unknown[][] }>;
+  commit(): unknown;
+  abort(): unknown;
+}
+
 export interface CozoDb {
   run(
     query: string,
@@ -36,6 +55,12 @@ export interface CozoDb {
      */
     immutable?: boolean
   ): Promise<{ rows: unknown[][] }>;
+  /**
+   * Begin an interactive read-write transaction (`write=true`). Optional: a
+   * non-cozo mock db or a pre-0.7 binding may omit it, in which case callers
+   * fall back to non-atomic per-statement writes.
+   */
+  multiTransact?(write: boolean): CozoTx;
   close?(): void;
   exportRelations?(relations: string[]): Promise<unknown>;
   importRelations?(data: object): Promise<unknown>;

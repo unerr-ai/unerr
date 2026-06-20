@@ -19,14 +19,6 @@
  *   - entityFanIn       from result._meta.entity_risk.fan_in if set.
  *   - fileImports       counted from result content for file_outline
  *                       (which returns an `imports` array).
- *   - fileReadTruncated from result._meta.truncated when the tool was
- *                       file_read / file_outline / get_file. The router
- *                       dispatch stamps `meta.truncated` whenever the capped
- *                       body is a truncation marker (`status:"too_large"` from
- *                       wire-cap, or `entity_overflow:true` from the entity
- *                       gate) — neither of those file-read paths sets it
- *                       at source, so the flag is set at that convergence
- *                       point. This is what unlocks get_file.
  *   - intentMarker      set when toolName is a `mark_*` tool, derived
  *                       from the suffix.
  *   - priorSessionFactSurfaced — true when the tool surfaced a stored
@@ -124,17 +116,6 @@ export function extractSignals(
   const fileImports = countImports(toolName, content);
   const entityFanIn = meta?.entity_risk?.fan_in;
   const intentMarker = MARK_TOOL_TO_TYPE.get(toolName);
-  // "Full file content withheld" — the signal that should offer get_file —
-  // surfaces in three shapes: `meta.truncated` (delivered body was cut, set by
-  // the smart-truncate entity paths AND by the router dispatch for the
-  // `status:"too_large"`/`entity_overflow` body markers), or `meta.gated` (the
-  // common large-file case: full content replaced by an outline; the outline
-  // itself fits the budget so the budget-enforcer reports truncated:false).
-  const fileReadTruncated =
-    (toolName === "file_read" ||
-      toolName === "file_outline" ||
-      toolName === "get_file") &&
-    (meta?.truncated === true || meta?.gated === true);
   const priorSessionFactSurfaced = derivePriorFact(toolName, content, urTags);
 
   return {
@@ -147,7 +128,6 @@ export function extractSignals(
       ? { testFile: TEST_PATH_RE.test(filePath) }
       : {}),
     ...(EDIT_LIKE_TOOLS.has(toolName) ? { editOrWrite: true } : {}),
-    ...(fileReadTruncated ? { fileReadTruncated: true } : {}),
     ...(intentMarker ? { intentMarker } : {}),
     ...(priorSessionFactSurfaced ? { priorSessionFactSurfaced: true } : {}),
   };
@@ -226,7 +206,7 @@ function parseUrTags(bodyText: string): UrTag[] {
  * the file's import count (a few dozen at most).
  */
 function countImports(toolName: string, content: unknown): number | undefined {
-  if (toolName !== "file_outline" && toolName !== "get_file") return undefined;
+  if (toolName !== "file_outline") return undefined;
   if (typeof content === "string") return countImportsFromMultiString(content);
   if (!content || typeof content !== "object") return undefined;
   const obj = content as Record<string, unknown>;

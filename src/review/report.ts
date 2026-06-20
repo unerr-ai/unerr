@@ -21,6 +21,38 @@ import {
   type Severity,
 } from "./types.js";
 
+/**
+ * The free-tier recap snapshot — counts only, no prevention detail. A free user
+ * sees that findings exist and their severity spread; the depth (what was
+ * prevented + tokens saved) is gated behind {@link buildPreventionRecap}.
+ */
+export interface ReviewRecapSnapshot {
+  total: number;
+  bySeverity: Record<Severity, number>;
+  /** True when nothing surfaced — an evidenced-clean pass. */
+  clean: boolean;
+}
+
+/**
+ * The paid prevention recap — what unerr prevented this review, with the tokens
+ * it kept the agent from spending. Only shown when {@link canViewReview} passes;
+ * a free/logged-out machine gets {@link ReviewRecapSnapshot} + an upgrade nudge.
+ */
+export interface ReviewPreventionRecap {
+  total: number;
+  /** Findings that count toward the headline (everything not advisory). */
+  defects: number;
+  /** Sum of per-finding tokensPrevented estimates. */
+  tokensPrevented: number;
+  /** Top defects, worst-first: title + location + the one-line action. */
+  topFindings: Array<{
+    severity: Severity;
+    title: string;
+    action: string;
+    location?: string;
+  }>;
+}
+
 /** One finding as it appears in the report view — the wire-anchor is hoisted to
  *  the enclosing group, so the finding keeps only its own fields. */
 export interface ReviewReportFindingView {
@@ -208,5 +240,129 @@ export function renderReviewReportText(
     }
   }
 
+  return lines.join("\n");
+}
+
+// ── Recap framing (§9, §18) ──────────────────────────────────────────────────
+
+/**
+ * Build the free-tier recap snapshot from a report view — counts and severity
+ * spread only. This is the free user's ONLY review surface, so it shows the
+ * severity breakdown (enough to see that problems exist) while the prevention
+ * detail stays gated.
+ *
+ * @sem domain=review role=report
+ */
+export function buildRecapSnapshot(
+  view: ReviewReportView
+): ReviewRecapSnapshot {
+  return {
+    total: view.total,
+    bySeverity: view.bySeverity,
+    clean: view.clean,
+  };
+}
+
+/**
+ * Build the paid prevention recap from a report view — what unerr prevented and
+ * the tokens it kept the agent from spending. `tokensPrevented` sums the
+ * per-finding estimates carried on the engine report (advisories included only
+ * if they carried an estimate). Only render this when {@link canViewReview}
+ * passes; otherwise show {@link buildRecapSnapshot} plus an upgrade nudge.
+ *
+ * @sem domain=review role=report
+ */
+export function buildPreventionRecap(
+  view: ReviewReportView,
+  report: ReviewReport,
+  topN = 3
+): ReviewPreventionRecap {
+  let tokensPrevented = 0;
+  for (const f of report.findings) {
+    if (typeof f.tokensPrevented === "number")
+      tokensPrevented += f.tokensPrevented;
+  }
+
+  const defects = view.groups.reduce(
+    (n, g) =>
+      n + g.findings.filter((f) => f.checkerId !== "blast_radius").length,
+    0
+  );
+
+  const topFindings: ReviewPreventionRecap["topFindings"] = [];
+  for (const group of view.groups) {
+    const anchorValue = group.anchor.replace(/^[fe]:/, "");
+    for (const f of group.findings) {
+      const location =
+        group.anchorKind === "file"
+          ? f.line !== undefined
+            ? `${anchorValue}:${f.line}`
+            : anchorValue
+          : anchorValue;
+      topFindings.push({
+        severity: f.severity,
+        title: f.title,
+        action: f.action,
+        location,
+      });
+      if (topFindings.length >= topN) break;
+    }
+    if (topFindings.length >= topN) break;
+  }
+
+  return {
+    total: view.total,
+    defects,
+    tokensPrevented,
+    topFindings,
+  };
+}
+
+/**
+ * Render the recap as plain-text lines (no ANSI). When `gated` (paid + entitled)
+ * the prevention framing is shown — top defects with location + action + a
+ * tokens-prevented total. When not gated, the free snapshot (counts + severity
+ * spread) is shown with a single upgrade nudge naming `unerr review` and `(Pro)`.
+ * Additive — never replaces {@link renderReviewReportText}.
+ *
+ * @sem domain=review role=report
+ */
+export function renderRecapText(
+  view: ReviewReportView,
+  report: ReviewReport,
+  opts: { gated: boolean }
+): string {
+  if (view.total === 0) {
+    return "unerr review — clean (0 findings)";
+  }
+
+  const lines: string[] = [];
+  if (opts.gated) {
+    const recap = buildPreventionRecap(view, report);
+    const tokenSuffix =
+      recap.tokensPrevented > 0
+        ? ` (~${recap.tokensPrevented} tokens saved)`
+        : "";
+    lines.push(
+      `unerr prevented ${recap.defects} issue${recap.defects !== 1 ? "s" : ""} this review${tokenSuffix}`
+    );
+    for (const f of recap.topFindings) {
+      const where = f.location ? ` (${f.location})` : "";
+      lines.push(`  [${f.severity}] ${f.title}${where}`);
+      lines.push(`      → ${f.action}`);
+    }
+  } else {
+    const snap = buildRecapSnapshot(view);
+    const order: Severity[] = ["critical", "high", "medium", "low", "info"];
+    const parts = order
+      .filter((s) => snap.bySeverity[s] > 0)
+      .map((s) => `${snap.bySeverity[s]} ${s}`);
+    lines.push(
+      `${snap.total} finding${snap.total !== 1 ? "s" : ""} ready for this session (${parts.join(", ")})`
+    );
+    lines.push(
+      "  see what was prevented — breaking callers, intent drift & prevention detail with `unerr login` (Pro)"
+    );
+  }
   return lines.join("\n");
 }

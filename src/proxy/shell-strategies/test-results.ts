@@ -774,8 +774,13 @@ function compressFallback(lines: string[]): string {
   const summary =
     lines.find((l) => /\b(tests?\s+\d+|passed|failed|suites?)/i.test(l)) ?? "";
   const body = kept.join("\n").trim();
-  // Summary content is load-bearing; the `_summary:` label was not.
-  return summary ? `${summary}\n${body}` : body;
+  // The fallback keeps every non-pass line, so the summary line is almost always
+  // already inside `body`. Prepending it then duplicates content — and when the
+  // input is a single huge line (a grep/curl of minified JSON misclassified as
+  // test output), that one duplicated line IS the whole payload, doubling it.
+  // Only lead with the summary when the body actually dropped it (collapsed into
+  // a pass-streak). Summary content is load-bearing; the `_summary:` label was not.
+  return summary && !kept.includes(summary) ? `${summary}\n${body}` : body;
 }
 
 export function compressTestResults(

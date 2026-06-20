@@ -1,6 +1,6 @@
 /**
  * Turn telemetry — Sprint 0 instrumentation for the token-overhead reduction
- * work (see `.internal/research/tool-call-token-overhead.md`).
+ * work (see `.internal/research/TOKEN_ECONOMICS_AND_SAVINGS.md`).
  *
  * What this module CAN observe: the sequence of tool calls unerr receives in a
  * session (a server-side proxy for "round-trips"), a histogram by tool name,

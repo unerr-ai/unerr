@@ -230,6 +230,19 @@ const PHRASING: Record<string, PhrasingRow> = {
     object: "edited file",
     plural: "edited files",
   },
+
+  // Lever C — internal model delegation (eventBucket returns null; aggregated
+  // at write, not surfaced in the per-turn recap).
+  delegated_edit: {
+    verb: "delegated",
+    object: "delegated edit",
+    plural: "delegated edits",
+  },
+  delegated_sweep: {
+    verb: "delegated",
+    object: "delegated sweep",
+    plural: "delegated sweeps",
+  },
 };
 
 /** Phrasing for `tokenflow.<mechanism>` synthetic event types. Mirrors

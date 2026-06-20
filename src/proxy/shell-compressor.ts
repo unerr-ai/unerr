@@ -491,6 +491,18 @@ export async function compressShellOutput(
       break;
   }
 
+  // Safety net — test_results must never inflate. The classifier mistags a
+  // single huge line from `grep`/`curl` of minified JSON as test output; that
+  // path adds no enrichment, so emitting MORE than the input is always a bug.
+  // Falling back to the stripped input is strictly fewer bytes and lossless, so
+  // the agent never pays a 2× penalty for a classifier miss. (Other categories
+  // like diff deliberately add risk markers, so this guard is scoped here.)
+  if (
+    classification.category === "test_results" &&
+    text.length > stripped.length
+  )
+    text = stripped;
+
   // R9 — prepend file-risk overlay when the boost ran
   if (fileRiskHeader) text = `${fileRiskHeader}${text}`;
 
@@ -511,7 +523,11 @@ export async function compressShellOutput(
     confidence: classification.confidence,
     rawBytes: stripped.length,
     compressedBytes: text.length,
-    savedPct: Math.max(0, savedPctHi),
+    // Record the true ratio — a negative saved_pct means the final payload grew
+    // (a small file-risk header / tee note on a tiny input). Clamping to 0 hid
+    // the 2× test_results inflation as "0% saved"; the safety net above now
+    // prevents real inflation, so an honest metric surfaces any residual.
+    savedPct: savedPctHi,
     omniFallback: false,
     teeFile: tee?.filePath,
   });

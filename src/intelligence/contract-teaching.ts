@@ -20,63 +20,12 @@
  * See ACTIVE_COGNITION_REASON_LAYER.md §14 Sprint D.
  */
 
-export const CONTRACT_TEACHING_BLOCK = `### Active-cognition: four-moment contract (REQUIRED)
+import { loadContent } from "../content/loader.js";
 
-unerr's Layer B notes are anchored prose attached to graph nodes. The contract
-runs at four moments, every task. Moments 1–2 arrive as injected context plus
-one composite call; Moments 3–4 are yours to act on.
-
-**Moment 1 — Prompt receipt.** When a user prompt arrives, the UserPromptSubmit
-hook injects the relevant anchored notes into your context automatically. Read
-the injected notes before drafting — no recall call is required.
-
-**Moment 2 — Anchor query.** Once you've identified the files/entities you'll
-touch, call \`unerr_context({prompt:"<what you are about to do>"})\` — the
-composite that bundles the anchored notes for those anchors + matching entities
-+ the focus entity's callers + conventions in one call. The bundle returns
-active (non-superseded) notes; topic-shift and co-change groups ride along.
-
-**Moment 3 — Cite in plan.** When you draft a plan, cite returned notes by
-kind + anchor inline. Example: *"Per the wrn on src/proxy/proxy.ts, both
-stdio and UDS sites must mirror."* No citation = the note wasn't load-bearing.
-
-**Moment 4 — Save at task end.** When the task closes and you learned
-something non-obvious + likely useful next session + anchorable, emit it as a
-sentinel line anywhere in your closing message — zero round-trip, the Stop
-hook scrapes and persists it:
-\`unerr-save: note <DSL wire>\`
-
-### DSL vocabulary
-
-Wire format: \`kind|anchor|polarity|content\`
-
-| Field | Values | Notes |
-|---|---|---|
-| kind | cnv (convention), rul (rule), wrn (warn), dec (decision), blk (blocker), fct (fact) | Pick the strongest fit. |
-| anchor | f:<path> · e:<entity> · g:<glob> · p: · w: | \`p:\` is project-wide, \`w:\` is workspace-wide (every repo in a Pro federation). Both empty-valued; both **discouraged** — they pollute the prompt-receipt query. Prefer file/entity. |
-| polarity | + (do) / - (don't) / ~ (mixed) | \`~\` for ambiguous; future agent surfaces both sides. |
-| content | single line of prose | May contain \`|\` — only the first three are field separators. |
-
-Examples:
-- \`rul|f:src/proxy/bridge.ts|-|no intelligence imports\`
-- \`wrn|g:*.test.ts|-|don't mock cozo db\`
-- \`dec|e:TURN_OPEN_GAP_MS|+|15s avoids RTT misclassification\`
-
-### Quality bar (per save)
-
-A save is justified only if all three hold: (a) non-obvious from the code,
-(b) likely useful next session, (c) anchorable. If any miss — don't save.
-
-Session save cap: 15. Over the cap new rows are dropped server-side and
-existing notes are reinforced instead — emit fewer, stronger saves.
-
-### Conflict + supersession
-
-When a saved note opposes an existing one (same kind+anchor, opposite
-polarity), both sides are kept and surface together on next-turn recall —
-cite both in your plan when they appear. Superseded notes flip to inactive
-server-side (kept for audit, excluded from queries).
-`;
+// Source-of-truth prose lives in `src/content/instructions.json`
+// (id `contract-teaching-block`); `loadContent` returns the raw text, or the
+// LLMLingua-compressed variant when `UNERR_LLMLINGUA` is on (Lever B, §11.3).
+export const CONTRACT_TEACHING_BLOCK = loadContent("contract-teaching-block");
 
 export interface SkillSpec {
   /** Filename written into .claude/skills/ (without .md extension). */

@@ -46,6 +46,7 @@ import {
   expandHome,
   readNeedsInput,
   readRegistry,
+  touchRepoActivity,
   writeRegistry,
 } from "./registry.js";
 
@@ -743,6 +744,13 @@ export class ProcessManager {
     repo.pid = null;
     repo.sock = null;
     repo.connections = 0;
+
+    // Persist the last-known activity to the registry before the in-memory
+    // value is lost, so a stopped repo still reports a real last_activity in
+    // the fleet inventory (and after a daemon restart).
+    if (repo.lastActivity > 0) {
+      touchRepoActivity(repoPath, new Date(repo.lastActivity).toISOString());
+    }
 
     if (prev === "starting") {
       // Startup failure: the child died before it ever signaled "ready". Tally

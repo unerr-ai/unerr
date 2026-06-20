@@ -344,6 +344,12 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           description: "Max references to return (default 25).",
           default: 25,
         },
+        include_text_occurrences: {
+          type: "boolean",
+          description:
+            "Default false. Set true for a RENAME. Also returns word-boundary, case-sensitive literal matches of the symbol name the call graph cannot see (a name in a test-fixture string, a config key, a dynamic-dispatch string). Reconcile these alongside the callers — a rename that updates only callers leaves these stale. Only applies with direction:'callers'.",
+          default: false,
+        },
         scope: SCOPE_PROP,
         cache_ref: CACHE_REF_PROP,
         token_budget: TOKEN_BUDGET_PROP,

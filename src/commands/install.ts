@@ -332,6 +332,16 @@ export async function runInstall(
     // Non-blocking
   }
 
+  // 2b. Write the model-pinned delegation sub-agent (Lever C). No-op unless the
+  //     host supports an on-disk sub-agent (Claude Code); Codex delegates via
+  //     `codex exec -m <mini>` and needs no file.
+  try {
+    const { writeJuniorSubagent } = await import("../skills/junior-agent.js");
+    writeJuniorSubagent(ide, cwd);
+  } catch {
+    // Non-blocking
+  }
+
   // 3. Install hooks if supported: agent-specific hook registration
   let hookInstalled = false;
   if (agentDef?.hookSupport) {

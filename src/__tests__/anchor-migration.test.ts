@@ -17,7 +17,6 @@ async function createTestDb(): Promise<CozoDb> {
   ).default
     ? (cozoModule as { default: { CozoDb: unknown } }).default.CozoDb
     : (cozoModule as { CozoDb: unknown }).CozoDb;
-  // biome-ignore lint/suspicious/noExplicitAny: cozo factory
   return new (CozoDbConstructor as any)("mem", "") as CozoDb;
 }
 

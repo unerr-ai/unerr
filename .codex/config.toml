@@ -1,0 +1,4 @@
+[mcp_servers.unerr]
+type = "stdio"
+command = "/Users/jaswanth/Library/pnpm/unerr"
+args = ["--mcp", "--coding-agent=codex"]

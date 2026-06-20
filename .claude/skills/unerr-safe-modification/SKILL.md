@@ -3,6 +3,8 @@ name: unerr-safe-modification
 description: "MANDATORY before editing any existing function, class, file, or exported entity — covers fix/modify/change/update/refactor/rename/move/restructure/extract. STEP-1: recall. STEP-2: blast-radius (`get_references`). STEP-3: conventions. STEP-4: drift-check. STEP-5: edit. Do NOT edit without completing STEP-1 through STEP-4. Absorbs the prior understand-before-modify, blast-radius, convention, drift, and dependency-aware-refactor skills."
 ---
 
+# safe-modification
+
 ## Iron Law
 
 <EXTREMELY-IMPORTANT>
@@ -27,6 +29,7 @@ Phase 3 — Blast radius.
     - 6 ≤ callers ≤ 19 → medium; enumerate every caller path to the user before the edit.
     - callers ≥ 20 or response carries `ur|rsk fan_in=<N>` → high; treat the entity as a chokepoint, propose a non-breaking change (overload / deprecation shim / additive interface) first.
   Call `get_references({key:'<entity_key>', direction:'callees'})` to see how the edit ripples downstream.
+  Rename — add `include_text_occurrences:true`. The call graph misses the name inside strings, config keys, and comments; the response's `text_occurrences` field lists those (word-boundary, case-sensitive, each `file`+`line`). Edit every one alongside the callers. (MCP down: `rg -w -F '<name>'`.)
 
 Phase 4 — Conventions + Plan.
   Read the conventions `file_read` (Phase 2) auto-injected — naming, import-order, error-handling, async pattern, return type. The PostToolUse:Read hook also injects conventions after each read.
@@ -37,7 +40,7 @@ Phase 5 — Drift check.
 
 Phase 6 — Edit.
   Call `file_edit({file_path:'<path>', old_string:'<exact>', new_string:'<replacement>'})` (or `file_edit({file_path:'<path>', content:'<whole file>'})` for a whole-file rewrite) to apply the change — no prior built-in `Read` is needed. A signature change with callers at risk denies the first `file_edit` once: run `get_references({key:'<entity_key>', direction:'callers'})`, update every caller, then re-attempt (it proceeds).
-  Cross-file refactor (rename/move/extract) — for every reference returned by Phase 3, call `file_edit` on the caller's reference site.
+  Cross-file refactor (rename/move/extract) — `file_edit` each Phase 3 caller site, AND each Phase 3 `text_occurrences` entry (string/config/comment use) at its `file`+`line`. Updating only callers leaves the literal uses stale.
   Domain comment (Layer 8): when the edited entity carries an `@sem` doc comment AND the edit changed what it does or why, rewrite the prose summary and `@sem domain=<tag>` line in the SAME Edit call. Purpose unchanged → leave the comment untouched. NEVER delete an `@sem` comment unless the user instructs it.
 
 Phase 7 — Verify.

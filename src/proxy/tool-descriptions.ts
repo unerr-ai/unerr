@@ -53,10 +53,8 @@ export interface TierEntry {
  *
  * Everything else the proxy can dispatch is NOT a catalog member. Those names
  * (get_entity, get_conventions, unerr_recall_notes, unerr_remember, mark_*,
- * record_fact, recall_facts, get_critical_nodes, get_cross_boundary_links,
- * file_connections, get_test_coverage, get_imports, get_file,
- * get_project_stats, review_changes,
- * unerr_turn_summary, unerr_surface2_line) stay reachable ONLY by name — the
+ * record_fact, recall_facts, get_imports,
+ * unerr_turn_summary) stay reachable ONLY by name — the
  * proxy's by-name dispatch switch matches them regardless of catalog
  * membership — because a Claude Code lifecycle hook (UDS `tools/call`), the
  * `unerr_track` op-union, the `unerr_context` recon composite, or an
@@ -64,7 +62,7 @@ export interface TierEntry {
  * `tools/list`, so no agent ever sees them and they cost zero context. Their
  * required-field validation lives where the caller is: `unerr_track` validates
  * its own ops (runBoundaryValidation no-ops for any name not in TOOL_DEFINITIONS).
- * Full rationale: `.internal/research/tool-call-token-overhead.md` §7.
+ * Full rationale: `.internal/research/TOKEN_ECONOMICS_AND_SAVINGS.md` §10.
  *
  * Tier numbers (1/2/3) remain on each entry for the unlock/description
  * machinery; they no longer track "advertised count".

@@ -69,7 +69,7 @@ export interface SoftRefuseInputs {
  * Pull the concrete `path` / `symbol` / `key` the agent already named in
  * the refused call, so the alternative example can be made pastable. A
  * value is only used as a `symbol` when it is NOT path-shaped — a
- * `get_file({key:"src/x.ts"})` refusal fills `<path>` from the key but
+ * `file_read({path:"src/x.ts"})` refusal fills `<path>` from the arg but
  * must leave `<name>` a placeholder (the agent never named a symbol).
  */
 function refusalContext(args: Record<string, unknown> | undefined): {

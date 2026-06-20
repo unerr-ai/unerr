@@ -79,7 +79,7 @@ const ENTITY_TOOLS = new Set([
   "get_business_context",
 ]);
 
-const TEST_TOOLS = new Set(["check_rules", "bash"]);
+const TEST_TOOLS = new Set(["bash"]);
 const EDIT_INDICATORS = new Set(["sync_local_diff"]);
 
 /**

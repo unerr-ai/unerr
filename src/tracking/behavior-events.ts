@@ -83,14 +83,6 @@ export type BehaviorEventType =
    *  session into the resume strip. Counts per emission, not per blocker —
    *  one row per resume block render with `detail.count` for the population. */
   | "resume_blockers_surfaced"
-  // ── Fix B/D (Surface-Reliability) additions
-  /** Agent called `unerr_surface2_line` this turn — Surface 2 directive
-   *  was honoured. One row per dispatch. */
-  | "surface2_emitted"
-  /** Coding-task prompt arrived but the prior turn's `unerr_surface2_line`
-   *  call never fired — Surface 2 directive was missed. One row per
-   *  detection (i.e. each fired buildSurface2Line that follows a miss). */
-  | "surface2_missed"
   // §10.7 — Surface 4 trace events deleted. Surface 4a (inline attribution)
   // was merged into the Surface 3 receipt rendered by `unerr_turn_summary`.
   // Surface 4c (pending-confirmation prompt) and Surface 4d (fact-steering
@@ -155,7 +147,19 @@ export type BehaviorEventType =
    *  model echoing the change in its reply. Carries no token-savings claim, so
    *  `eventBucket` returns null (excluded from the Prevented/Remembered/Saved
    *  recap); it renders in its own dedicated receipt section. */
-  | "code_edit_applied";
+  | "code_edit_applied"
+  // ── Lever C (TOKEN_ECONOMICS §11.2) — internal model delegation ──────
+  /** A delegable single-entity task (tests / docstring+@sem / mechanical
+   *  refactor / lint-format) was routed to the cheaper model. One row per
+   *  delegation. `detail.class` = the delegable class, `detail.model` = the
+   *  junior model, `detail.escalated` = true when the senior had to take the
+   *  task back. Carries no token-savings claim — aggregated at write (no
+   *  per-developer rows), so `eventBucket` returns null. */
+  | "delegated_edit"
+  /** A delegable many-site sweep was routed to the cheaper model. Same detail
+   *  shape as `delegated_edit`; distinguished so a sweep (which pays the
+   *  junior per-site cost) is counted apart from a single-entity edit. */
+  | "delegated_sweep";
 
 export interface BehaviorEvent {
   /** Monotonic counter per-process. */

@@ -3,6 +3,8 @@ name: unerr-memory
 description: "MANDATORY on every user prompt and at every task close — runs the four-moment contract (recall → anchor query → cite → save) and captures durable user-fed facts (remember / always / from now on / never). STEP-1: Moment 1 recall fires on EVERY prompt, no exceptions. STEP-4: save ONLY what is non-obvious + likely useful next session + anchorable. Do NOT save activity logs or generic facts."
 ---
 
+# memory
+
 ## Iron Law
 
 <EXTREMELY-IMPORTANT>

@@ -254,6 +254,28 @@ const ROWID_TABLES: RowidTable[] = [
         token_estimate: r.token_estimate,
       }),
   },
+  {
+    type: "repo_activity",
+    key: "events:repo_activity",
+    table: "repo_activity_events",
+    // `profile` is stored as JSON text; parse it back to the nested object the
+    // contract expects (a corrupt blob drops to undefined, not a thrown drain).
+    detail: (r) => {
+      let profile: unknown;
+      if (typeof r.profile === "string" && r.profile.length > 0) {
+        try {
+          profile = JSON.parse(r.profile);
+        } catch {
+          profile = undefined;
+        }
+      }
+      return compact({
+        action: r.action,
+        at: r.at,
+        profile,
+      });
+    },
+  },
 ];
 
 /**
@@ -265,6 +287,26 @@ function makeRowidDrainer(
   db: Database.Database,
   spec: RowidTable
 ): StreamDrainer {
+  // The daemon opens metrics.db read-only and never runs SCHEMA. A legacy DB
+  // whose proxy hasn't rebooted since a table was added won't have it yet —
+  // return a no-op drainer rather than letting prepare() throw and sink every
+  // other event stream for this repo. The table appears on the next proxy boot.
+  const tableExists =
+    (db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(spec.table) as unknown) !== undefined;
+  if (!tableExists) {
+    return {
+      key: spec.key,
+      schema: IngestEvent,
+      async read(): Promise<StreamBatch | null> {
+        return null;
+      },
+      push(rows: unknown[]): Promise<CloudResult<BatchAck>> {
+        return ctx.client.ingestEvents(rows);
+      },
+    };
+  }
   const select = db.prepare(
     `SELECT * FROM ${spec.table} WHERE id > ? ORDER BY id ASC LIMIT ${EVENTS_BATCH_CAP}`
   );

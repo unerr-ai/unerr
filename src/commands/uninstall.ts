@@ -35,6 +35,7 @@ import { removeMcpConfig } from "../config/mcp-config-writer.js";
 import { loadSettings } from "../config/settings.js";
 import { DEFAULT_SENTINEL_TOKENS } from "../intelligence/semantic/docstring-extractor.js";
 import { stripAnnotationsFromRepo } from "../intelligence/semantic/strip-annotations.js";
+import { removeJuniorSubagent } from "../skills/junior-agent.js";
 import { removeInstalledSkills } from "../skills/resolver.js";
 import { uninstallReviewGateHooks } from "../tracking/review-gate-hooks.js";
 import type { IdeType } from "../utils/detect.js";
@@ -124,7 +125,11 @@ async function unregisterRepoFromPm(cwd: string): Promise<void> {
       }
     }
     const { removeRepo } = await import("../daemon/registry.js");
-    removeRepo(cwd);
+    if (removeRepo(cwd)) {
+      // Daemon-down fallback: ship the `removed` repo_activity event ourselves.
+      const { emitRepoRemoved } = await import("../cloud/repo-removal.js");
+      await emitRepoRemoved(cwd);
+    }
   } catch {
     // Registry/daemon unavailable — uninstall still succeeds without it.
   }
@@ -197,6 +202,15 @@ function runUninstall(cwd: string, ide: IdeType): UninstallResult {
     skillsRemoved = removeInstalledSkills(ide, cwd);
   } catch {
     // Non-blocking
+  }
+
+  // 2b. Remove the delegation sub-agent file (Lever C, Claude Code only).
+  if (ide === "claude-code") {
+    try {
+      removeJuniorSubagent(cwd);
+    } catch {
+      // Non-blocking
+    }
   }
 
   // 3. Remove hooks (agent-specific)

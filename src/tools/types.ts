@@ -61,7 +61,7 @@ export interface Tool extends ToolDefinition {
 
 /** Tool source category for routing and display. */
 export type ToolCategory =
-  | "intelligence" // unerr graph-backed tools (get_function, search_code, check_rules, etc.)
+  | "intelligence" // unerr graph-backed tools (get_function, search_code, etc.)
   | "coding"; // File system + shell tools (file_read, file_edit, bash, grep, etc.)
 
 /** Tool with category metadata for registry organization. */

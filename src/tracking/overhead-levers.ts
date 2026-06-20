@@ -4,7 +4,7 @@
  * The dashboard cannot see the LLM client's billing (`cache_read` /
  * `cache_write`); those live in the agent transcript and are proven offline by
  * `scripts/measure-token-baseline.mjs` against the frozen corpus
- * (`.internal/research/benchmark-corpus.md`). What unerr CAN see server-side is
+ * (`benchmark-corpus.md` in the sibling `unerr-benchmarks` repo). What unerr CAN see server-side is
  * whether the token-overhead LEVERS are firing:
  *
  *   - how often `unerr recon` collapsed the discovery fan-out into one call (R1),

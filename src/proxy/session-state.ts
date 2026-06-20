@@ -90,11 +90,6 @@ export interface CallSignals {
    */
   readonly editOrWrite?: boolean;
   /**
-   * True when file_read returned a truncated body (response_envelope
-   * sets `_truncated: true` or includes a `ur|pg` page hint).
-   */
-  readonly fileReadTruncated?: boolean;
-  /**
    * Intent-marker writes only. When a mark_* tool succeeds, the proxy
    * sets this to the marker's category. `null` / undefined for every
    * other tool.
@@ -135,7 +130,6 @@ export class SessionState {
   private _maxFileImports = 0;
   private _testFileSeen = false;
   private _editOrWriteAttempted = false;
-  private _fileReadTruncatedSeen = false;
   private _priorSessionFactSurfaced = false;
   private _turnCount = 0;
 
@@ -190,7 +184,6 @@ export class SessionState {
 
     if (signals.testFile) this._testFileSeen = true;
     if (signals.editOrWrite) this._editOrWriteAttempted = true;
-    if (signals.fileReadTruncated) this._fileReadTruncatedSeen = true;
     if (signals.priorSessionFactSurfaced) {
       this._priorSessionFactSurfaced = true;
     }
@@ -265,10 +258,6 @@ export class SessionState {
 
   editOrWriteAttempted(): boolean {
     return this._editOrWriteAttempted;
-  }
-
-  fileReadTruncatedSeen(): boolean {
-    return this._fileReadTruncatedSeen;
   }
 
   intentMarkerCount(type: IntentMarkerType): number {

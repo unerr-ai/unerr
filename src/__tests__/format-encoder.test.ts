@@ -96,6 +96,36 @@ describe("formatToolOutput", () => {
     const payload = [{ a: 1 }];
     expect(formatToolOutput("file_read", payload, meta)).toBe(payload);
   });
+
+  it("keeps both references and text_occurrences arrays (get_references rename sweep)", () => {
+    // Regression: the single-array columnar path drops a sibling OBJECT, which
+    // silently swallowed text_occurrences. As two top-level arrays the encoder
+    // takes its _fmt:multi path, so both the callers and the literal-match list
+    // (plus the scalar count/note) reach the agent.
+    const meta: Layer6FormatMeta = { format: "json" };
+    const out = formatToolOutput(
+      "get_references",
+      {
+        references: [{ name: "callerA", file_path: "a.ts", line: 10 }],
+        direction: "callers",
+        total: 1,
+        text_occurrences: [
+          { file: "fixtures.ts", line: 3, preview: 'x="foo"' },
+        ],
+        text_occurrences_total: 1,
+        text_occurrences_note:
+          '1 textual occurrence(s) of "foo" not in the call graph',
+      },
+      meta
+    );
+    const text = typeof out === "string" ? out : JSON.stringify(out);
+    expect(text).toContain("references");
+    expect(text).toContain("text_occurrences");
+    expect(text).toContain("fixtures.ts");
+    expect(text).toContain("callerA");
+    // The scalar note rides along so the rename warning survives.
+    expect(text).toContain("not in the call graph");
+  });
 });
 
 describe("formatToolOutput FE-E (legends, tiers)", () => {

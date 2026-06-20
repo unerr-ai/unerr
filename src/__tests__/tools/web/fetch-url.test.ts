@@ -184,6 +184,40 @@ describe("fetch_url pipeline", () => {
     }
   });
 
+  it("records DELIVERED passage bytes, not the full markdown corpus", async () => {
+    // Regression: telemetry used to record byteLength(full markdown), which on
+    // docs-framework pages balloons to several MB of embedded doc-tree and shows
+    // a false 4–5× "inflation" in compression_events. The agent only ever gets
+    // the sliced passages, so the row must record the sum of delivered passage
+    // bytes — strictly ≤ the extracted markdown.
+    const cwd = mkdtempSync(join(tmpdir(), "fetch-url-"));
+    try {
+      const before = openMetricsStore(join(cwd, ".unerr")).recentCompression(
+        50
+      );
+      const result = await runFetchUrl({ url: baseUrl }, { cwd });
+      if (result.result_status !== "ok") {
+        throw new Error(`expected ok, got ${result.result_status}`);
+      }
+      const after = openMetricsStore(join(cwd, ".unerr")).recentCompression(50);
+      const fetchEvent = after
+        .filter((e) => !before.some((b) => b.id === e.id))
+        .find((e) => e.category === "fetch_url");
+      expect(fetchEvent).toBeDefined();
+      const deliveredBytes = result.passages.reduce(
+        (n, p) => n + Buffer.byteLength(p.text, "utf-8"),
+        0
+      );
+      expect(fetchEvent?.compressed_bytes).toBe(deliveredBytes);
+      // Delivered is never larger than the full extraction it was sliced from.
+      expect(fetchEvent?.compressed_bytes ?? 0).toBeLessThanOrEqual(
+        result.extracted_bytes
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("flows through applyWireCap with passages array shape", () => {
     const body = {
       result_status: "ok" as const,

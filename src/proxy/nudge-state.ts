@@ -49,11 +49,6 @@ export interface NudgeSessionState {
    *  prior session's ledger) for this session. Fires AT MOST once per
    *  UNERR_SESSION_ID. */
   cross_session_stitch_emitted: boolean;
-  /** Fix B/D — DEPRECATED (kept for state-file forward-compatibility only).
-   *  The one-shot Surface 2 directive collapsed under Fix B; the new
-   *  every-turn directive uses `surface2_required_count` /
-   *  `surface2_called_count` instead. */
-  surface2_emitted: boolean;
   /** Lever C — number of times the prompt-submit hook injected the
    *  Moment 1 (`unerr_recall_notes`) directive this session. Fires every
    *  coding-task prompt (not one-shot) — the four-moment contract requires
@@ -83,17 +78,6 @@ export interface NudgeSessionState {
    *  hits the threshold the next prompt receives the escalated receipt
    *  nudge instead of the standard one-liner. */
   consecutive_receipt_misses: number;
-  /** Fix B/D — running count of coding-task prompts where the Surface 2
-   *  directive was injected (every coding turn under Fix D). Pairs with
-   *  `surface2_called_count` for a miss ratio. */
-  surface2_required_count: number;
-  /** Fix B/D — running count of `unerr_surface2_line` MCP tool invocations
-   *  observed this session. */
-  surface2_called_count: number;
-  /** Fix D — consecutive coding-task turns where the Surface 2 directive
-   *  was injected but the agent did NOT call `unerr_surface2_line`. Resets
-   *  to 0 the moment the tool runs. */
-  consecutive_surface2_misses: number;
   /** Token-tax fix (#7) — whether the prompt-submit hook has already emitted
    *  the static tool-roster + skill catalog this session. Both duplicate the
    *  cached CLAUDE.md tool-routing section and the installed `.claude/skills/`
@@ -118,19 +102,40 @@ function defaultState(): NudgeSessionState {
     mark_intent_compliant_count: 0,
     mark_intent_required_count: 0,
     cross_session_stitch_emitted: false,
-    surface2_emitted: false,
     moment1_emitted_count: 0,
     moment3_emitted: false,
     impl_mention_emitted: false,
     turn_summary_required_count: 0,
     turn_summary_emitted_count: 0,
     consecutive_receipt_misses: 0,
-    surface2_required_count: 0,
-    surface2_called_count: 0,
-    consecutive_surface2_misses: 0,
     static_boilerplate_emitted: false,
     exec_nudge_emitted: false,
   };
+}
+
+/**
+ * Pin the stable per-repo session id into `process.env.UNERR_SESSION_ID` so
+ * every nudge-state read/write in THIS process keys on it instead of
+ * `pid-<pid>`. Each Claude Code hook and each `unerr exec` is a fresh
+ * short-lived process that does NOT inherit the long-lived proxy's
+ * UNERR_SESSION_ID; without this, session-scoped one-shots (tool roster, the
+ * exec nav-nudge, mark_intent, …) re-fire on every turn / every Bash call
+ * because each PID gets its own empty flags file. Resolves the id the proxy
+ * persists at `.unerr/state/session.id`. Best-effort: never overrides an
+ * inherited id, never throws — a miss just leaves the prior per-PID fallback.
+ */
+export function pinSessionIdEnv(cwd: string): void {
+  if (process.env.UNERR_SESSION_ID) return;
+  try {
+    const id = readFileSync(
+      join(cwd, ".unerr", "state", "session.id"),
+      "utf8"
+    ).trim();
+    if (id.length > 0) process.env.UNERR_SESSION_ID = id;
+  } catch {
+    // No live proxy / no session.id file — leave unset; statePath falls back
+    // to pid-<pid> exactly as before.
+  }
 }
 
 function statePath(cwd: string): string {
@@ -168,7 +173,6 @@ export function readNudgeState(cwd: string): NudgeSessionState {
       cross_session_stitch_emitted: Boolean(
         parsed.cross_session_stitch_emitted
       ),
-      surface2_emitted: Boolean(parsed.surface2_emitted),
       moment1_emitted_count:
         typeof parsed.moment1_emitted_count === "number"
           ? parsed.moment1_emitted_count
@@ -186,18 +190,6 @@ export function readNudgeState(cwd: string): NudgeSessionState {
       consecutive_receipt_misses:
         typeof parsed.consecutive_receipt_misses === "number"
           ? parsed.consecutive_receipt_misses
-          : 0,
-      surface2_required_count:
-        typeof parsed.surface2_required_count === "number"
-          ? parsed.surface2_required_count
-          : 0,
-      surface2_called_count:
-        typeof parsed.surface2_called_count === "number"
-          ? parsed.surface2_called_count
-          : 0,
-      consecutive_surface2_misses:
-        typeof parsed.consecutive_surface2_misses === "number"
-          ? parsed.consecutive_surface2_misses
           : 0,
       // Missing key on an older state file defaults to false → the catalog +
       // roster emit once after upgrade, then gate. Forward-compatible.

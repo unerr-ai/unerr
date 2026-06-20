@@ -1,7 +1,7 @@
 /**
  * Task-size classifier — Sprint 3 (R5), T3.1.
  *
- * The token-overhead research (`.internal/research/tool-call-token-overhead.md`)
+ * The token-overhead research (`.internal/research/TOKEN_ECONOMICS_AND_SAVINGS.md`)
  * §4 decision rule: unerr is net-positive on large blind-navigation tasks and
  * net-negative on trivial lookups (round-trip overhead wins on the small ones).
  * The fix is to make unerr self-select its footprint by task size so the cheap

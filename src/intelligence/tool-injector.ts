@@ -25,7 +25,7 @@ export interface MCPToolSchema {
 }
 
 /** Tools that receive rule injection */
-const INJECTABLE_TOOLS = new Set(["sync_local_diff", "check_rules"]);
+const INJECTABLE_TOOLS = new Set(["sync_local_diff"]);
 
 /** Max characters for injected rule context (~500 tokens) */
 const MAX_INJECTION_CHARS = 2000;

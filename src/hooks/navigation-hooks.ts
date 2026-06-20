@@ -12,6 +12,7 @@ import type { BoundaryViolation } from "../intelligence/boundary-check.js";
 import { lookupCoChangePartners } from "../intelligence/cochange-index.js";
 import type { CascadeWarning } from "../intelligence/edit-impact.js";
 import { splitStableVolatile } from "../proxy/prefix-order.js";
+import { isReviewEnabled } from "../review/feature-flag.js";
 import { formatReviewFindings } from "../review/format.js";
 import { recordEdit } from "../tracking/session-edit-log.js";
 import { initFileLog, startupLog } from "../utils/startup-log.js";
@@ -471,6 +472,13 @@ const postGrepHandler: HookHandler = (normalized) => {
     | undefined;
   if (typeof pattern !== "string" || pattern.length === 0) return passthrough();
 
+  // §11.6 invariant 1 — emit the grep→graph nudge once per session, not per
+  // grep. The guidance is generic (use search_code / get_references), so re-
+  // billing a content block on every grep is per-tool cache tax: it inflates the
+  // content-block count Claude Code's cache lookback walks. One block/session.
+  if (!shouldEmitOnce("grep-pref:session", VERBOSE_BANNER_TTL_MS))
+    return passthrough();
+
   const looksLikeFunctionSearch = /^[a-zA-Z_]\w*$/.test(pattern);
 
   if (looksLikeFunctionSearch) {
@@ -490,6 +498,10 @@ const postGrepHandler: HookHandler = (normalized) => {
 };
 
 const postGlobHandler: HookHandler = () => {
+  // §11.6 invariant 1 — once per session, not per glob (generic guidance, so a
+  // per-call content block would be pure cache tax).
+  if (!shouldEmitOnce("glob-pref:session", VERBOSE_BANNER_TTL_MS))
+    return passthrough();
   return enrich(
     "You just found files via Glob. For efficient exploration of matched files:\n" +
       "- `file_outline` on each file — see all entities, imports, and exports without reading full contents (<5ms)\n" +
@@ -553,13 +565,18 @@ const postEditHandlerAsync: AsyncHookHandler = async (normalized) => {
     new_content: newContent,
   });
 
-  // Query the review engine over UDS. null = proxy unreachable → review block
-  // is empty and we fall through to the co-change nudge (no regression).
-  const review = await queryReviewEdit({
-    file_path: filePath,
-    old_content: oldContent,
-    new_content: newContent,
-  });
+  // Query the review engine over UDS — gated by the master reviewer switch
+  // (OFF by default while benchmarked). Disabled → skip the round-trip entirely
+  // so a normal edit pays no reviewer overhead; the co-change nudge below still
+  // fires (it is not part of the reviewer surface). null = proxy unreachable →
+  // review block is empty and we fall through to the co-change nudge.
+  const review = isReviewEnabled()
+    ? await queryReviewEdit({
+        file_path: filePath,
+        old_content: oldContent,
+        new_content: newContent,
+      })
+    : null;
   const reviewBlock =
     review && !review.clean
       ? formatReviewFindings(review.findings, review.suppressed)

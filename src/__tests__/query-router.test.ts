@@ -203,17 +203,11 @@ describe("QueryRouter", () => {
       const router = new QueryRouter(createMockLocalGraph());
       expect(router.isKnownTool("get_function")).toBe(true);
       expect(router.isKnownTool("get_class")).toBe(true);
-      expect(router.isKnownTool("get_file")).toBe(true);
       expect(router.isKnownTool("get_callers")).toBe(true);
       expect(router.isKnownTool("get_callees")).toBe(true);
       expect(router.isKnownTool("get_imports")).toBe(true);
       expect(router.isKnownTool("search_code")).toBe(true);
-      // Disabled: get_rules, check_rules, get_business_context — not wired/no data
-      // expect(router.isKnownTool("get_rules")).toBe(true);
-      // expect(router.isKnownTool("check_rules")).toBe(true);
-      // expect(router.isKnownTool("get_business_context")).toBe(true);
       expect(router.isKnownTool("get_conventions")).toBe(true);
-      expect(router.isKnownTool("get_project_stats")).toBe(true);
       expect(router.isKnownTool("fetch_url")).toBe(true);
     });
 
@@ -660,11 +654,13 @@ describe("QueryRouter", () => {
       router.setMode("setup");
 
       const result = await router.execute("get_function", { key: "fn1" });
-      // All tools should be degraded in setup mode (19 = 18 base after disabling
-      // get_rules, check_rules, get_business_context, unerr_revert_entity,
-      // 8 blueprint tools; +1 fetch_url; +1 review_changes — Surface C local
-      // tool added to LOCAL_TOOLS)
-      expect(result._meta.tools_degraded?.length).toBe(19);
+      // All tools are degraded in setup mode. LOCAL_TOOLS = get_function,
+      // get_class, get_entity, get_callers, get_callees, get_references,
+      // get_imports, search_code, get_conventions, file_outline, file_read,
+      // fetch_url (12). The graph-read + review tools (get_file, review_changes,
+      // get_critical_nodes, get_cross_boundary_links, get_project_stats,
+      // file_connections, get_test_coverage) were removed.
+      expect(result._meta.tools_degraded?.length).toBe(12);
     });
   });
 

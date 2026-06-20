@@ -19,8 +19,10 @@
  * agents into failed-call retry loops (raised 2026-05).
  */
 
+import { parseDelegationIntent } from "../../intelligence/delegation.js";
 import { updateNudgeState } from "../../proxy/nudge-state.js";
 import type { CozoTimelineStore } from "../../timeline/timeline-store.js";
+import type { BehaviorEventInput } from "../../tracking/behavior-events.js";
 import type { ShadowLedger } from "../../tracking/shadow-ledger.js";
 
 export const MARKER_TOOLS = [
@@ -57,6 +59,13 @@ export interface HandleMarkerDeps {
   store: CozoTimelineStore;
   branch: string;
   headSha: string;
+  /**
+   * Optional behavior-event writer. When present, a `mark_intent` whose text is a
+   * delegation signal (`delegate <class>[ sweep]: …`, emitted by the unerr-delegate
+   * skill) records a `delegated_edit` / `delegated_sweep` row — the deterministic
+   * Lever C C6 telemetry emit point. Best-effort: a failure never fails the marker.
+   */
+  behaviorWriter?: { record(input: BehaviorEventInput): void };
 }
 
 export interface MarkerCallResult {
@@ -170,6 +179,29 @@ export async function handleMarkerCall(
       });
     } catch {
       /* best effort */
+    }
+
+    // Lever C (C6): a delegation intent records aggregated telemetry. The
+    // delegable class + sweep flag come from the marker text the unerr-delegate
+    // skill emits; no per-developer detail is stored.
+    if (deps.behaviorWriter) {
+      const intent = parseDelegationIntent(redactedText);
+      if (intent) {
+        try {
+          deps.behaviorWriter.record({
+            session_id: entry.session_id,
+            native_session_id: null,
+            tool_use_id: null,
+            type: intent.sweep ? "delegated_sweep" : "delegated_edit",
+            tool: "mark_intent",
+            entity_key: null,
+            response_bytes: null,
+            detail: { class: intent.class, sweep: intent.sweep },
+          });
+        } catch {
+          /* best effort */
+        }
+      }
     }
   }
 

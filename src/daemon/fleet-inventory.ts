@@ -53,6 +53,7 @@ export interface FleetRepoReport {
   edge_count: number | null;
   added_at: string | null;
   last_activity: string | null;
+  last_used_at: string | null;
 }
 
 /** The full inventory payload (`PUT …/inventory`). */
@@ -70,6 +71,9 @@ export interface HeartbeatRepo {
   connections: number;
   entity_count: number | null;
   edge_count: number | null;
+  added_at: string | null;
+  last_activity: string | null;
+  last_used_at: string | null;
 }
 
 /** The heartbeat payload (`POST …/checkin`). */
@@ -99,8 +103,11 @@ export async function buildFleetReport(
   const machine = buildMachineSnapshot(inputs);
   if (!machine) return null;
 
-  const addedAtByPath = new Map(
-    listRepos().map((r) => [r.path, r.addedAt] as const)
+  const usageByPath = new Map(
+    listRepos().map(
+      (r) =>
+        [r.path, { addedAt: r.addedAt, lastStarted: r.lastStarted }] as const
+    )
   );
   const entries = inputs.statusEntries.slice(0, MAX_REPOS_PER_REPORT);
 
@@ -116,8 +123,10 @@ export async function buildFleetReport(
       connections: e.connections,
       entity_count: e.entityCount,
       edge_count: e.edgeCount,
-      added_at: addedAtByPath.get(e.path) ?? null,
+      added_at: usageByPath.get(e.path)?.addedAt ?? null,
       last_activity: e.lastActivity,
+      // last_used_at = when the proxy was last started (used by an agent).
+      last_used_at: usageByPath.get(e.path)?.lastStarted ?? null,
     }))
   );
 
@@ -147,6 +156,16 @@ export function buildHeartbeatReport(
   const machine = buildMachineSnapshot(inputs);
   if (!machine) return null;
 
+  // One cheap registry read so the heartbeat keeps usage timestamps fresh
+  // between full snapshots (added_at / last_used_at come from the registry;
+  // last_activity from the live status entry).
+  const usageByPath = new Map(
+    listRepos().map(
+      (r) =>
+        [r.path, { addedAt: r.addedAt, lastStarted: r.lastStarted }] as const
+    )
+  );
+
   const repos: HeartbeatRepo[] = inputs.statusEntries
     .slice(0, MAX_REPOS_PER_REPORT)
     .map((e) => ({
@@ -156,6 +175,9 @@ export function buildHeartbeatReport(
       connections: e.connections,
       entity_count: e.entityCount,
       edge_count: e.edgeCount,
+      added_at: usageByPath.get(e.path)?.addedAt ?? null,
+      last_activity: e.lastActivity,
+      last_used_at: usageByPath.get(e.path)?.lastStarted ?? null,
     }));
 
   const report: HeartbeatReport = {

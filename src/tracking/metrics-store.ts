@@ -374,6 +374,25 @@ export type BehaviorEventInsert = Omit<
   tool_use_id?: string | null;
 };
 
+/**
+ * One repo-lifecycle row. `action` is the moment, `at` is when it happened, and
+ * `profile` is the unerr-standpoint repo snapshot as JSON text (null on
+ * removed/stopped). The session/agent/turn fields are nullable — only an
+ * agent_attached row carries them.
+ */
+export interface RepoActivityEventInsert {
+  ts: number;
+  ts_iso: string;
+  action: string;
+  at: string;
+  profile?: string | null;
+  session_id?: string | null;
+  native_session_id?: string | null;
+  turn?: number | null;
+  agent?: string | null;
+  tool_use_id?: string | null;
+}
+
 // ── Store ─────────────────────────────────────────────────────────────
 
 const SCHEMA = `
@@ -463,6 +482,24 @@ CREATE INDEX IF NOT EXISTS idx_token_flow_mechanism ON token_flow_events(mechani
 -- idx_token_flow_agent is created after reconcileAdditiveColumns runs so
 -- legacy DBs (pre-agent-column) can ALTER first before the index references
 -- the column.
+
+-- Repo-lifecycle events (added/removed/started/stopped/agent_attached). Drained
+-- to the cloud as repo_activity events. session_id/agent/turn are nullable —
+-- lifecycle moments like 'added'/'removed' are not tied to one agent turn.
+CREATE TABLE IF NOT EXISTS repo_activity_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  ts_iso TEXT NOT NULL,
+  session_id TEXT,
+  native_session_id TEXT,
+  turn INTEGER,
+  agent TEXT,
+  action TEXT NOT NULL,
+  at TEXT NOT NULL,
+  profile TEXT,
+  tool_use_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_repo_activity_ts ON repo_activity_events(ts);
 
 CREATE TABLE IF NOT EXISTS session_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -708,6 +745,7 @@ interface Statements {
   insertFileRead: ReturnType<DatabaseT["prepare"]>;
   insertTokenFlow: ReturnType<DatabaseT["prepare"]>;
   insertBehaviorEvent: ReturnType<DatabaseT["prepare"]>;
+  insertRepoActivity: ReturnType<DatabaseT["prepare"]>;
   upsertSessionHistory: ReturnType<DatabaseT["prepare"]>;
   upsertSessionSummary: ReturnType<DatabaseT["prepare"]>;
   recentCompression: ReturnType<DatabaseT["prepare"]>;
@@ -807,6 +845,13 @@ export class MetricsStore {
         VALUES (@ts, @ts_iso, @session_id, @native_session_id, @pid, @turn,
                 @agent, @type, @tool, @entity_key, @response_bytes,
                 @tool_use_id, @detail)
+      `),
+      insertRepoActivity: this.db.prepare(`
+        INSERT INTO repo_activity_events
+          (ts, ts_iso, session_id, native_session_id, turn, agent, action, at,
+           profile, tool_use_id)
+        VALUES (@ts, @ts_iso, @session_id, @native_session_id, @turn, @agent,
+                @action, @at, @profile, @tool_use_id)
       `),
       upsertSessionHistory: this.db.prepare(`
         INSERT INTO session_history
@@ -1180,6 +1225,28 @@ export class MetricsStore {
       tool_use_id: row.tool_use_id ?? null,
     };
     return Number(this.stmt.insertBehaviorEvent.run(full).lastInsertRowid);
+  }
+
+  /**
+   * Spool one repo-lifecycle row. Drained to the cloud as a repo_activity
+   * event. Coalesces every optional column to null so the named binding is
+   * complete. Returns the new rowid (0 if the store is closed).
+   */
+  insertRepoActivity(row: RepoActivityEventInsert): number {
+    if (!this.stmt) return 0;
+    const full = {
+      ts: row.ts,
+      ts_iso: row.ts_iso,
+      action: row.action,
+      at: row.at,
+      profile: row.profile ?? null,
+      session_id: row.session_id ?? null,
+      native_session_id: row.native_session_id ?? null,
+      turn: row.turn ?? null,
+      agent: row.agent ?? null,
+      tool_use_id: row.tool_use_id ?? null,
+    };
+    return Number(this.stmt.insertRepoActivity.run(full).lastInsertRowid);
   }
 
   upsertSessionHistory(row: SessionHistoryInsert): void {

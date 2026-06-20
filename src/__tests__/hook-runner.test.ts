@@ -328,11 +328,12 @@ describe("runPromptSubmitHook", () => {
     expect(result.hookSpecificOutput.additionalContext).toBe("Use unerr tools");
   });
 
-  // T3.2 — the default prompt-submit handler includes the skill catalog on
-  // the first turn of a session. (Token-tax #7 gates it to once per session,
-  // keyed on the per-repo nudge-state, so this runs in a fresh tmp cwd to get
-  // a clean first-turn state rather than the repo's accumulated flags.)
-  it("default handler emits the Path B 'available skills' catalog", async () => {
+  // T3.2 — the default (claude-code) prompt-submit handler does NOT emit the
+  // static tool roster / skill catalog: both duplicate the cached `CLAUDE.md`
+  // tool-routing section + the installed `.claude/skills/` menu, so they are
+  // suppressed for claude-code. The per-turn ur|act Path A line still rides.
+  // (Runs in a fresh tmp cwd for a clean first-turn nudge-state.)
+  it("default (claude-code) handler suppresses the static roster / catalog but still emits the Path A line", async () => {
     const { runUserPromptSubmitHook } = await import(
       "../hooks/prompt-hooks.js"
     );
@@ -347,10 +348,11 @@ describe("runPromptSubmitHook", () => {
       });
       const result = JSON.parse(runUserPromptSubmitHook(stdin));
       const ctx = result.hookSpecificOutput.additionalContext ?? "";
-      expect(ctx).toContain("available skills");
-      // Post-27→7 consolidation: bug verbs route to unerr-build-and-debug.
+      // Static tail suppressed for claude-code …
+      expect(ctx).not.toContain("available skills");
+      expect(ctx).not.toContain("[unerr] Prefer unerr MCP tools");
+      // … per-turn Path A signal still fires (bug verbs → unerr-build-and-debug).
       expect(ctx).toContain("unerr-build-and-debug");
-      expect(ctx).toContain("using-unerr");
     } finally {
       process.chdir(prevCwd);
       rmSync(dir, { recursive: true, force: true });

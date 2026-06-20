@@ -360,6 +360,11 @@ const QUERY_TIMEOUT_MS = 12_000;
  * still bounding a genuinely wedged operation.
  */
 const WRITE_TIMEOUT_MS = 60_000;
+// Liveness backstop for a whole interactive transaction. Set well above the
+// observed incremental-delta tail (p90 ~2.4s, max ~14.6s) so a normal batch
+// never trips it; a genuine hang aborts the tx and the caller falls back to a
+// full reindex rather than wedging the write chain forever.
+const TRANSACTION_TIMEOUT_MS = 120_000;
 
 export class CozoGraphStore {
   readonly db: CozoDb;
@@ -419,6 +424,80 @@ export class CozoGraphStore {
           )
         ),
       ]);
+    });
+    this.writeChain = op.catch(() => {}); // keep chain alive on failure
+    await op;
+    return result!;
+  }
+
+  /**
+   * Run a multi-statement write as ONE atomic transaction. The callback gets a
+   * db-shaped runner whose every `run`/`write` is buffered into a single
+   * cozo-node `multiTransact`; on success the whole set commits at once, on any
+   * throw it aborts and nothing applies. It is serialized on the same write
+   * chain as `write()`, so it never contends with other writers, and live tool
+   * reads (always `immutable` snapshots via `query()`) see the pre-commit state
+   * until commit — never a half-applied delta. When the db can't open a
+   * transaction (a mock, or a pre-0.7 binding), it degrades to non-atomic
+   * per-statement writes, with the idle full reindex as the correctness backstop.
+   */
+  async transact<T>(
+    fn: (tx: {
+      run: (
+        q: string,
+        p?: Record<string, unknown>
+      ) => Promise<{
+        rows: unknown[][];
+      }>;
+      write: (
+        q: string,
+        p?: Record<string, unknown>
+      ) => Promise<{
+        rows: unknown[][];
+      }>;
+    }) => Promise<T>
+  ): Promise<T> {
+    if (typeof this.db.multiTransact !== "function") {
+      return fn({
+        run: (q, p) => this.db.run(q, p),
+        write: (q, p) => this.write(q, p),
+      });
+    }
+    // Bind here, where the typeof guard has narrowed the optional method, so the
+    // `.then` closure below needs no non-null assertion and `this.db` stays the
+    // receiver.
+    const beginTx = this.db.multiTransact.bind(this.db);
+    let result: T;
+    const op = this.writeChain.then(async () => {
+      const tx = beginTx(true);
+      const runner = {
+        run: (q: string, p?: Record<string, unknown>) => tx.run(q, p),
+        write: (q: string, p?: Record<string, unknown>) => tx.run(q, p),
+      };
+      try {
+        result = await Promise.race([
+          fn(runner),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `CozoDB transaction timeout after ${TRANSACTION_TIMEOUT_MS}ms`
+                  )
+                ),
+              TRANSACTION_TIMEOUT_MS
+            )
+          ),
+        ]);
+        await tx.commit();
+      } catch (e) {
+        try {
+          tx.abort();
+        } catch {
+          /* abort is best-effort — an un-committed tx is discarded anyway */
+        }
+        throw e;
+      }
     });
     this.writeChain = op.catch(() => {}); // keep chain alive on failure
     await op;

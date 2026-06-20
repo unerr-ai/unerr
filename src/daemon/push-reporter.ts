@@ -182,6 +182,27 @@ export class PushReporter {
     return soft;
   }
 
+  /**
+   * Drain one repo's streams immediately, outside the tick loop. Called right
+   * before a repo is deregistered so its final rows — notably the `removed`
+   * repo_activity event — ship before the repo drops out of the rotation and is
+   * never ticked again. No-op when logged out or not entitled (the rows stay
+   * spooled). Never throws. A concurrent main-loop drain of the same repo is
+   * safe: every row's event_id is deterministic, so the server dedups any
+   * overlap.
+   */
+  async drainRepoNow(repoPath: string): Promise<void> {
+    try {
+      if (!this.deps.isEntitled(Date.now())) return;
+      const auth = this.deps.resolveAuth();
+      if (!auth) return;
+      const client = this.deps.makeClient(auth.apiUrl, auth.token);
+      await this.drainOneRepo(repoPath, client);
+    } catch {
+      /* best-effort final drain — never blocks removal */
+    }
+  }
+
   /** Drain one repo's streams; returns true on a soft (retryable) failure. */
   private async drainOneRepo(
     repoPath: string,

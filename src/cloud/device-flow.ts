@@ -4,7 +4,9 @@
  * Implements the CLI side of `unerr login` per unerr-web-service
  * `docs/CLI_API.md`:
  *
- *   1. POST /api/v1/cli/device/authorize  (sends hostname as client_name)
+ *   1. POST /api/v1/cli/device/authorize  (sends hostname as client_name plus a
+ *      stable salted machine_fingerprint + cli_version/os/arch, so the server
+ *      collapses repeated logins from one laptop onto one machine record)
  *   2. print the user code + verification URI, try to open the browser
  *   3. poll POST /api/v1/cli/device/token every `interval` seconds,
  *      honoring slow_down (+5s), authorization_pending, access_denied,
@@ -21,8 +23,10 @@
  */
 
 import { spawn } from "node:child_process";
-import { hostname } from "node:os";
+import { arch, hostname, platform } from "node:os";
+import { UNERR_VERSION } from "../version.js";
 import { CloudClient } from "./client.js";
+import { computeMachineFingerprint } from "./machine-fingerprint.js";
 
 /** Response from the authorize endpoint. */
 interface AuthorizeResponse {
@@ -86,7 +90,13 @@ export async function runDeviceFlow(
   const authRes = await client.request<AuthorizeResponse>(AUTHORIZE_PATH, {
     method: "POST",
     auth: false,
-    body: { client_name: clientName },
+    body: {
+      client_name: clientName,
+      machine_fingerprint: computeMachineFingerprint(),
+      cli_version: UNERR_VERSION,
+      os: platform(),
+      arch: arch(),
+    },
   });
 
   if (!authRes.ok) {

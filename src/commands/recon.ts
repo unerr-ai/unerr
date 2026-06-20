@@ -2,7 +2,7 @@
  * `unerr recon "<prompt>"` — one-shot composite context for a coding turn.
  *
  * Sprint 1 (R1+R2+R3) of the token-overhead work
- * (`.internal/research/tool-call-token-overhead.md`). The research showed the
+ * (`.internal/research/TOKEN_ECONOMICS_AND_SAVINGS.md`). The research showed the
  * dominant unerr-vs-no-unerr cost is round-trip amplification: every separate
  * MCP tool call re-bills the whole accumulated prefix. A "before I edit X" turn
  * normally fans out into search_code → get_references → get_conventions — three

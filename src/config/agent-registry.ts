@@ -99,6 +99,15 @@ export interface AgentDefinition {
     | "antigravity-rule"
     | "windsurf-rule"
     | null;
+  /**
+   * Internal model delegation (Lever C, TOKEN_ECONOMICS §11.2): the agent can run
+   * a delegable task on a cheaper model in the SAME host and have the senior
+   * review the diff. True ONLY for hosts that support model-pinned sub-agents
+   * (claude-code via `.claude/agents/*.md` frontmatter) or a model-override exec
+   * (codex via `codex exec -m <mini>`). Absent/false ⇒ no delegation path; the
+   * `UNERR_DELEGATION` flag is a no-op for that agent.
+   */
+  delegation?: boolean;
 }
 
 /**
@@ -150,6 +159,8 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     description: "Anthropic's CLI coding agent",
     instructionFilePath: "CLAUDE.md",
     instructionFormat: "markdown",
+    // Pins a cheaper model per sub-agent via `.claude/agents/unerr-junior.md`.
+    delegation: true,
   },
   {
     id: "vscode",
@@ -265,6 +276,8 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     description: "OpenAI's CLI coding agent",
     instructionFilePath: "AGENTS.md",
     instructionFormat: "markdown",
+    // Pins a cheaper model for the delegated step via `codex exec -m <mini>`.
+    delegation: true,
   },
   {
     id: "opencode",
@@ -374,6 +387,17 @@ export const DEFAULT_NO_HOOKS: HookCapabilities = {
  */
 export function getHookCapabilities(id: IdeType): HookCapabilities {
   return getAgent(id)?.hooks ?? DEFAULT_NO_HOOKS;
+}
+
+/**
+ * True when an agent supports internal model delegation (Lever C). The
+ * `UNERR_DELEGATION` flag only takes effect for agents that return true here —
+ * claude-code and codex today. Combine with the per-provider sub-keys
+ * (`UNERR_DELEGATION_CLAUDE` / `UNERR_DELEGATION_CODEX`) to gate one host
+ * without the other.
+ */
+export function supportsDelegation(id: IdeType): boolean {
+  return getAgent(id)?.delegation === true;
 }
 
 /**

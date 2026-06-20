@@ -13,13 +13,7 @@ import type { SessionContext } from "./session-context.js";
 export type DecisionLevel = "high" | "medium" | "low";
 
 /** Tools that indicate exploration (low stakes) */
-const EXPLORATION_TOOLS = new Set([
-  "file_outline",
-  "get_project_stats",
-  "get_conventions",
-  "get_critical_nodes",
-  "get_cross_boundary_links",
-]);
+const EXPLORATION_TOOLS = new Set(["file_outline", "get_conventions"]);
 
 /** Tools that indicate understanding phase (medium stakes) */
 const UNDERSTANDING_TOOLS = new Set([
@@ -28,17 +22,10 @@ const UNDERSTANDING_TOOLS = new Set([
   "get_callers",
   "get_callees",
   "search_code",
-  "file_connections",
-  "get_test_coverage",
 ]);
 
 /** Tools that can be pre-edit (high stakes when combined with session history) */
-const PRE_EDIT_TOOLS = new Set([
-  "file_read",
-  "get_entity",
-  "get_function",
-  "get_file",
-]);
+const PRE_EDIT_TOOLS = new Set(["file_read", "get_entity", "get_function"]);
 
 export class DecisionPointDetector {
   /**

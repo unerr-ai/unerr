@@ -34,6 +34,14 @@ export interface McpServerEntry {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  // Claude Code only (v2.1.121+): when true, every tool from this server loads
+  // into the request's `tools` block at session start instead of being deferred
+  // behind ToolSearch. We set it for claude-code so the unerr tools are present
+  // in the cached prefix from turn 1 — loading a deferred tool mid-session
+  // mutates the `tools` block (front of the cache prefix) and invalidates the
+  // entire cached prefix, forcing a full re-write. Upfront load = one stable
+  // prefix, cache reused across turns. Ignored by non-Claude agents.
+  alwaysLoad?: boolean;
 }
 
 export interface McpConfig {
@@ -104,6 +112,11 @@ function createUnerrServerEntry(ide: IdeType): McpServerEntry {
     type: "stdio",
     command: getUnerrCommand(),
     args: buildArgs(ide),
+    // Pin unerr's tools into the upfront `tools` block for Claude Code so a
+    // mid-session ToolSearch load never mutates the cache prefix (see
+    // McpServerEntry.alwaysLoad). Only claude-code consumes this key (.mcp.json);
+    // other agents write formats that ignore it.
+    ...(ide === "claude-code" ? { alwaysLoad: true } : {}),
   };
 }
 
@@ -503,7 +516,7 @@ function removeTomlConfig(configPath: string): boolean {
       unlinkSync(configPath);
       tryRmdir(dirname(configPath));
     } else {
-      writeFileSync(configPath, updated + "\n", "utf-8");
+      writeFileSync(configPath, `${updated}\n`, "utf-8");
     }
     return true;
   } catch {
@@ -547,14 +560,14 @@ function writeTomlFormat(
 
       // Append the section
       const separator = content.endsWith("\n") ? "\n" : "\n\n";
-      writeFileSync(configPath, content + separator + section + "\n", "utf-8");
+      writeFileSync(configPath, `${content}${separator}${section}\n`, "utf-8");
       return { path: configPath, action: "updated" };
     } catch {
       return { path: configPath, action: "skipped" };
     }
   }
 
-  writeFileSync(configPath, section + "\n", "utf-8");
+  writeFileSync(configPath, `${section}\n`, "utf-8");
   return { path: configPath, action: "created" };
 }
 

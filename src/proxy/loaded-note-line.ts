@@ -5,9 +5,6 @@
  * actually pulled from memory for the current prompt. Used by both:
  *
  *   - `context-preface.ts` — proxy-side ambient preface
- *   - `prompt-hooks.ts`    — agent instruction template (mirrors the rules here
- *                            in prose form, see the comment-block at the top
- *                            of buildSurface2Line)
  *
  * Design goal: a first-time user reading the line should understand
  *   (a) what KIND of memory was loaded (rule / warning / decision / …)

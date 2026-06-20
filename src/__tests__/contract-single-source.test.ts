@@ -88,6 +88,45 @@ describe("contract single-source — every drainer row matches its contract", ()
     expect(IngestBatchBody.safeParse({ events: [row] }).success).toBe(true);
   });
 
+  it("repo_activity row (with profile) → IngestEvent + IngestBatchBody", () => {
+    const row = {
+      type: "repo_activity",
+      ...env("events", {
+        action: "started",
+        at: TS,
+        profile: {
+          entity_count: 1200,
+          edge_count: 3400,
+          file_count: 210,
+          languages: ["typescript", "javascript"],
+          convention_count: 14,
+          fact_count: 7,
+          drift_count: 2,
+          top_domains: ["cloud", "intelligence"],
+          indexed_at: TS,
+        },
+      }),
+    };
+    expect(IngestEvent.safeParse(row).success).toBe(true);
+    expect(IngestBatchBody.safeParse({ events: [row] }).success).toBe(true);
+  });
+
+  it("repo_activity removed row (no profile) → IngestEvent", () => {
+    const row = {
+      type: "repo_activity",
+      ...env("events", { action: "removed", at: TS }),
+    };
+    expect(IngestEvent.safeParse(row).success).toBe(true);
+  });
+
+  it("repo_activity rejects an unknown action", () => {
+    const row = {
+      type: "repo_activity",
+      ...env("events", { action: "exploded", at: TS }),
+    };
+    expect(IngestEvent.safeParse(row).success).toBe(false);
+  });
+
   it("envelope carries native_session_id + tool_use_id when supplied", () => {
     const built = buildEnvelope({
       schemaVersion: EVENTS_SCHEMA_VERSION,

@@ -39,6 +39,7 @@ import {
   LOGIN_NUDGE_LINE,
   shouldEmitLoginNudge,
 } from "../hooks/login-nudge.js";
+import { isReviewEnabled } from "../review/feature-flag.js";
 import { reviewStagedChanges } from "../review/git-review.js";
 import {
   loadStandaloneGraph,
@@ -92,6 +93,15 @@ export function registerCheckCommitCommand(program: Command) {
         recordVerdict?: boolean;
       }) => {
         const cwd = process.cwd();
+
+        // ── Master switch (OFF by default while benchmarked) ─────────
+        // Reviewer disabled → never block or fail the commit; skip the
+        // engine and the verdict path entirely. Exit 0 so the git hook
+        // is a no-op.
+        if (!isReviewEnabled(cwd)) {
+          process.exitCode = 0;
+          return;
+        }
 
         // ── Login-blocked passthrough ────────────────────────────────
         // Signed out → never block or fail the git hook. Allow the commit

@@ -77,7 +77,14 @@ export async function unregisterRepo(targetPath: string): Promise<boolean> {
       // Daemon went away mid-request — fall back to the bare registry removal.
     }
   }
-  return removeRepo(targetPath);
+  // Daemon-down path: remove from the registry here, and ship the `removed`
+  // repo_activity event ourselves (the daemon isn't running to do it).
+  const removed = removeRepo(targetPath);
+  if (removed) {
+    const { emitRepoRemoved } = await import("../cloud/repo-removal.js");
+    await emitRepoRemoved(targetPath);
+  }
+  return removed;
 }
 
 export function registerPmCommand(program: Command): void {

@@ -281,6 +281,22 @@ export function updateRepoSettings(
   return entry;
 }
 
+/**
+ * Persist a repo's most-recent-activity timestamp to the registry. Called when
+ * a proxy stops so the last-known activity survives a daemon restart and is
+ * reportable for a stopped repo (the live in-memory value is gone once the
+ * child exits). No-op when the repo isn't registered. Best-effort: a write
+ * failure is swallowed by writeRegistry's caller contract.
+ */
+export function touchRepoActivity(rawPath: string, isoTimestamp: string): void {
+  const absPath = resolve(expandHome(rawPath));
+  const reg = readRegistry();
+  const entry = reg.repos.find((r) => r.path === absPath);
+  if (!entry) return;
+  entry.lastActivity = isoTimestamp;
+  writeRegistry(reg);
+}
+
 // ── Parent / child detection ────────────────────────────────────
 
 /**

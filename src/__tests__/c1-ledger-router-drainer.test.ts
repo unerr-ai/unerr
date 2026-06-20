@@ -57,13 +57,13 @@ function routerCtx(dir: string): { ctx: DrainerContext; pushed: unknown[][] } {
 
 function writeLedger(dir: string, entries: unknown[]): void {
   mkdirSync(join(dir, "ledger"), { recursive: true });
-  const text = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
+  const text = `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`;
   writeFileSync(join(dir, "ledger", "shadow.jsonl"), text, "utf8");
 }
 
 function writeRouter(dir: string, recs: unknown[]): void {
   mkdirSync(join(dir, "router"), { recursive: true });
-  const text = recs.map((r) => JSON.stringify(r)).join("\n") + "\n";
+  const text = `${recs.map((r) => JSON.stringify(r)).join("\n")}\n`;
   writeFileSync(join(dir, "router", "metrics.jsonl"), text, "utf8");
 }
 

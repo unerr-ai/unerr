@@ -48,7 +48,6 @@ export type IntentMarkerType = "intent" | "decision" | "blocker" | "resolution";
  *   - `TestFileAccessed`        session.testFileSeen()
  *   - `FirstFileReadCompleted`  session.filesAccessedCount() ≥ 1
  *   - `EditOrWriteAttempted`    session.editOrWriteAttempted()
- *   - `FileReadTruncated`       session.fileReadTruncatedSeen()
  *   - `IntentMarkerAtLeast`     session.intentMarkerCount(type) ≥ min
  *   - `ToolCallCountAtLeast`    session.toolCallCount(name) ≥ min
  *   - `PriorSessionFactSurfaced` session.priorSessionFactSurfaced()
@@ -67,7 +66,6 @@ export type Condition =
   | { readonly kind: "TestFileAccessed" }
   | { readonly kind: "FirstFileReadCompleted" }
   | { readonly kind: "EditOrWriteAttempted" }
-  | { readonly kind: "FileReadTruncated" }
   | {
       readonly kind: "IntentMarkerAtLeast";
       readonly type: IntentMarkerType;
@@ -99,7 +97,6 @@ export const C = {
   testFile: (): Condition => ({ kind: "TestFileAccessed" }),
   firstRead: (): Condition => ({ kind: "FirstFileReadCompleted" }),
   editOrWrite: (): Condition => ({ kind: "EditOrWriteAttempted" }),
-  readTruncated: (): Condition => ({ kind: "FileReadTruncated" }),
   intent: (type: IntentMarkerType, min = 1): Condition => ({
     kind: "IntentMarkerAtLeast",
     type,
@@ -149,8 +146,6 @@ export function describeCondition(c: Condition): string {
       return "first file read completed";
     case "EditOrWriteAttempted":
       return "edit or write attempted";
-    case "FileReadTruncated":
-      return "file_read truncated on a large file";
     case "IntentMarkerAtLeast":
       return `${c.type} marker count ≥ ${c.min}`;
     case "ToolCallCountAtLeast":

@@ -300,43 +300,89 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     return parsed.hookSpecificOutput?.additionalContext ?? "";
   }
 
-  it("emits the skill catalog on the first CODE turn, then gates it once per session", () => {
+  it("never emits the static tool roster / skill catalog for Claude Code (duplicates cached CLAUDE.md + .claude/skills/)", () => {
+    // A bare `hook_event_name: "UserPromptSubmit"` payload resolves to the
+    // claude-code adapter. For claude-code the roster + 8-skill catalog are pure
+    // duplication: the SAME tool-routing section lives in the cached `CLAUDE.md`
+    // (system prompt) and the skills are installed as `.claude/skills/` files the
+    // agent lists natively. So the static tail is skipped entirely — even on a
+    // code turn — while the per-turn four-moment signals still ride.
     const mk = (msg: string) =>
       JSON.stringify({
         hook_event_name: "UserPromptSubmit",
         user_message: msg,
       });
 
-    // W6 floor: a trivial / non-code prompt does NOT spend the once-per-session
-    // boilerplate. Its injection stays near the fixed floor (§8).
-    const trivial = readContext(
-      runUserPromptSubmitHook(
-        mk("just a quick general question about how this works")
-      )
-    );
-    expect(trivial).not.toContain("available skills");
-    expect(trivial).not.toContain("[unerr] Prefer unerr MCP tools");
-
-    // First CODE turn: static boilerplate (tool roster + skill catalog) present —
-    // the roster was deferred from the trivial turn above, not skipped.
     const first = readContext(
       runUserPromptSubmitHook(
         mk("refactor the proxy boot sequence to add a retry")
       )
     );
-    expect(first).toContain("available skills");
-    // Post-27→7: bug verbs route to unerr-build-and-debug; master is unchanged.
+    // Static tail suppressed for claude-code …
+    expect(first).not.toContain("available skills");
+    expect(first).not.toContain("[unerr] Prefer unerr MCP tools");
+    // … but the non-duplicated per-turn product signals still fire (Path A
+    // verb-cluster 'build' routes this prompt to unerr-build-and-debug).
+    expect(first).toContain("ur|act");
     expect(first).toContain("unerr-build-and-debug");
-    expect(first).toContain("unerr-using-unerr");
 
-    // Token-tax #7: the catalog + roster duplicate the cached CLAUDE.md +
-    // installed skills, so they emit once per session. A later code turn (same
-    // cwd → same nudge-state) must NOT re-inject them.
     const second = readContext(
       runUserPromptSubmitHook(mk("fix the bind retry in the boot sequence"))
     );
     expect(second).not.toContain("available skills");
     expect(second).not.toContain("[unerr] Prefer unerr MCP tools");
+  });
+
+  it("emits the skill catalog once per session for a non-claude agent (Codex), then gates it", () => {
+    // Codex IS a hook consumer whose instruction file is NOT the same cached
+    // system-prompt surface, so it keeps the roster + catalog (emitted once).
+    // Detection: hook_event_name + CODEX_SESSION_ID → codex adapter.
+    const priorCodex = process.env.CODEX_SESSION_ID;
+    process.env.CODEX_SESSION_ID = "codex-test-session";
+    try {
+      const mk = (msg: string) =>
+        JSON.stringify({
+          hook_event_name: "UserPromptSubmit",
+          user_message: msg,
+        });
+
+      // W6 floor: a trivial / non-code prompt does NOT spend the once-per-session
+      // boilerplate. Its injection stays near the fixed floor (§8).
+      const trivial = readContext(
+        runUserPromptSubmitHook(
+          mk("just a quick general question about how this works")
+        )
+      );
+      expect(trivial).not.toContain("available skills");
+      expect(trivial).not.toContain("[unerr] Prefer unerr MCP tools");
+
+      // First CODE turn: static boilerplate present — deferred from the trivial
+      // turn above, not skipped.
+      const first = readContext(
+        runUserPromptSubmitHook(
+          mk("refactor the proxy boot sequence to add a retry")
+        )
+      );
+      expect(first).toContain("available skills");
+      // Post-27→7: bug verbs route to unerr-build-and-debug; master is unchanged.
+      expect(first).toContain("unerr-build-and-debug");
+      expect(first).toContain("unerr-using-unerr");
+
+      // Token-tax #7: the catalog + roster duplicate the cached instruction file
+      // + installed skills, so they emit once per session. A later code turn
+      // (same cwd → same nudge-state) must NOT re-inject them.
+      const second = readContext(
+        runUserPromptSubmitHook(mk("fix the bind retry in the boot sequence"))
+      );
+      expect(second).not.toContain("available skills");
+      expect(second).not.toContain("[unerr] Prefer unerr MCP tools");
+    } finally {
+      if (priorCodex === undefined) {
+        Reflect.deleteProperty(process.env, "CODEX_SESSION_ID");
+      } else {
+        process.env.CODEX_SESSION_ID = priorCodex;
+      }
+    }
   });
 
   it("Path A fires for 'replace X with Y' and routes to safe-modification", () => {
@@ -525,20 +571,6 @@ describe("Nudge payload size cap (Fix G)", () => {
       if (!line.startsWith("ur|act")) continue;
       expect(line.length, line.slice(0, 80)).toBeLessThanOrEqual(800);
     }
-  });
-
-  it("surface2 directive in particular is well under the cap (post Fix B)", () => {
-    const stdin = JSON.stringify({
-      hook_event_name: "UserPromptSubmit",
-      user_message: "fix the dashboard chart legend rendering bug",
-    });
-    const ctx = readContext(runUserPromptSubmitHook(stdin));
-    const surface2 = ctx
-      .split("\n")
-      .find((l) => l.includes("unerr_surface2_line"));
-    expect(surface2).toBeDefined();
-    expect(surface2!.length).toBeLessThanOrEqual(800);
-    expect(surface2!.length).toBeLessThan(600);
   });
 });
 

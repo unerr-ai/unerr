@@ -21,13 +21,7 @@ describe("DecisionPointDetector", () => {
   }
 
   describe("exploration tools → low", () => {
-    const explorationTools = [
-      "file_outline",
-      "get_project_stats",
-      "get_conventions",
-      "get_critical_nodes",
-      "get_cross_boundary_links",
-    ];
+    const explorationTools = ["file_outline", "get_conventions"];
 
     for (const tool of explorationTools) {
       it(`${tool} → low`, () => {
@@ -44,8 +38,6 @@ describe("DecisionPointDetector", () => {
       "get_callers",
       "get_callees",
       "search_code",
-      "file_connections",
-      "get_test_coverage",
     ];
 
     for (const tool of understandingTools) {
@@ -96,15 +88,6 @@ describe("DecisionPointDetector", () => {
         makeSession()
       );
       expect(level).toBe("high");
-    });
-
-    it("get_file without history → medium", () => {
-      const level = detector.detect(
-        "get_file",
-        { name: "src/index.ts" },
-        makeSession()
-      );
-      expect(level).toBe("medium");
     });
   });
 

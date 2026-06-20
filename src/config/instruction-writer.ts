@@ -120,6 +120,7 @@ Every unerr tool is advertised from the start — \`unerr_context\`, \`search_co
 |---|---|---|
 | Find a function, class, or type | \`search_code\` | Grep, Glob |
 | Find callers or callees (REQUIRED before a signature edit) | \`get_references({direction:'callers'})\` | Grep for function name |
+| Rename a symbol — also catch string/config/comment uses the call graph can't see | \`get_references({direction:'callers', include_text_occurrences:true})\` | \`rg -w -F <name>\` |
 | Understand a file | \`file_read\` with \`purpose:'explore'\` | Built-in Read for understanding (full-file code reads are discouraged) |
 | Understand the task (notes + verbatim focus bodies + blast radius + conventions) | \`unerr_context({prompt:"<task>", response_format:'detailed'})\` — one call replaces the discovery fan-out | 3–4 separate reads/searches |
 ${readForEditRow}

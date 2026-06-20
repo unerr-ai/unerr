@@ -60,7 +60,6 @@ import {
   recordRiskWarning,
   recordSignaturePreservation,
   recordToolCall,
-  recordViolation,
   resolveResumableSessionId,
 } from "./session-stats.js";
 import { StartupRenderer } from "./startup-renderer.js";
@@ -986,6 +985,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // runs the whole pipeline; "incremental-if-stale" defers a staleness check to
   // after the MCP handshake and does the minimum work it finds.
   let indexMode: "full" | "incremental-if-stale" = "full";
+  // True when this boot freshly created the repo's graph.db — the repo's
+  // first-ever index. Drives the one-time `added` repo_activity event.
+  let graphWasNew = false;
 
   if ((proxyMode as string) !== "parse") {
     const projectRoot = process.cwd();
@@ -996,6 +998,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       );
       const { db, isNew, dbPath } = await openPersistentDb(projectRoot);
       graphDbPath = dbPath;
+      graphWasNew = isNew;
 
       const { CozoGraphStore } = await import("../intelligence/local-graph.js");
       const graphStart = Date.now();
@@ -1327,7 +1330,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   const { createCompressionQualityMonitor } = await import(
     "./compression-quality-monitor.js"
   );
-  const sessionDedup = createSessionDedup();
+  const sessionDedup = createSessionDedup({ cwd: process.cwd() });
   const compressionMonitor = createCompressionQualityMonitor();
   router.setSessionDedup(sessionDedup);
   router.setCompressionMonitor(compressionMonitor);
@@ -1360,16 +1363,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   if (proxyFactStore) {
     router.setFactStore(proxyFactStore);
   }
-
-  // P3 review_changes: give the on-demand review's memory-drift checker the
-  // same anchored notes the rest of the session sees, by closing over the
-  // proxy's live NotesStore. Null resolution → memory-drift stays silent.
-  router.setNotesResolver(async () => {
-    const store = await getProxyNotesStore(join(process.cwd(), ".unerr"));
-    if (!store) return null;
-    const { reviewNotesFromStore } = await import("../review/git-review.js");
-    return reviewNotesFromStore(store, "review-changes");
-  });
 
   // Sprint 2: Health info wired in deferred init (Task 6.3)
 
@@ -2209,6 +2202,27 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // waiting a full day. Best-effort and non-blocking.
   runLineSurvival();
 
+  // Repo-lifecycle telemetry — spool a `started` repo_activity event (and, on
+  // the repo's first-ever index, an `added`) carrying the unerr-standpoint
+  // profile, so the cloud gets a true timeline of this repo's life with unerr.
+  // Best-effort and non-blocking: the emit never delays boot, and a graph
+  // that's still warming yields a row without a profile rather than an error.
+  void (async () => {
+    if (!localGraph) return;
+    const { emitRepoActivity } = await import("../tracking/repo-activity.js");
+    const store = openMetricsStore(unerrDirForLedger);
+    const context = {
+      agent: initialAgent,
+      sessionId: behaviorEventWriter.sessionId,
+    };
+    if (graphWasNew) {
+      await emitRepoActivity(store, "added", { graph: localGraph, context });
+    }
+    await emitRepoActivity(store, "started", { graph: localGraph, context });
+  })().catch(() => {
+    /* lifecycle telemetry is best-effort — never surface to the user */
+  });
+
   // Persistent memory effectiveness tracker — emits verdict events when
   // fact/convention/resume injections close their observation window.
   const { PersistenceEffectivenessTracker } = await import(
@@ -2243,6 +2257,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   const qualitySignalTracker = new QualitySignalTracker(unerrDirForLedger);
 
   let resumeMetaEmitted = false;
+
+  // Unerr session ids that have already emitted an `agent_attached`
+  // repo_activity event, so a bridge reconnect doesn't double-count one
+  // coding-agent conversation as two attaches.
+  const attachedSessions = new Set<string>();
 
   // ── Layer 4: Behavior Engine (BA-1 + BA-2 + BA-3) ──────────────
 
@@ -2533,6 +2552,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           store: timelineHandle.store,
           branch: branchVal,
           headSha: headShaVal,
+          behaviorWriter: behaviorEventWriter,
         });
       }
     }
@@ -2648,20 +2668,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         unerrDirForLedger,
         shadowLedger.getSessionId(),
         sessionTurnProvider()
-      );
-    }
-
-    // ── Surface 2 renderer: unerr_surface2_line (Fix B) ──
-    if (name === "unerr_surface2_line") {
-      const { handleSurface2LineProxy } = await import(
-        "./surface2-line-handler.js"
-      );
-      return handleSurface2LineProxy(
-        unerrDirForLedger,
-        shadowLedger.getSessionId(),
-        sessionTurnProvider(),
-        dirname(unerrDirForLedger),
-        behaviorEventWriter
       );
     }
 
@@ -2947,19 +2953,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // Track dead code references (fan_in=0 entities)
     if (result._meta.entity_risk?.fan_in === 0) {
       recordDeadCodeReference(stats);
-    }
-
-    // Track convention violations from check_rules results
-    if (name === "check_rules" && result.content != null) {
-      const checkResult = result.content as {
-        violations?: Array<{ ruleKey: string; autoFixed?: boolean }>;
-      };
-      const viols = checkResult.violations;
-      if (viols && viols.length > 0) {
-        for (let i = 0; i < viols.length; i++) {
-          recordViolation(stats);
-        }
-      }
     }
 
     // Track circular dependency detection from import analysis
@@ -3384,6 +3377,25 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         // Shell-compressor exec processes inherit this env to stamp
         // out-of-band compression rows with the right agent id.
         process.env.UNERR_AGENT = resolved;
+      }
+      // Repo-lifecycle telemetry — a coding agent just attached an MCP session
+      // to this repo. Emit one `agent_attached` per unerr session id (a bridge
+      // reconnect re-announces the same id and must not double-count). The
+      // emit is best-effort and never blocks the hello reply.
+      const helloSessionId = helloParams?.session_id ?? null;
+      if (helloSessionId && !attachedSessions.has(helloSessionId)) {
+        attachedSessions.add(helloSessionId);
+        void import("../tracking/repo-activity.js")
+          .then(({ recordRepoActivity }) => {
+            recordRepoActivity(
+              openMetricsStore(unerrDirForLedger),
+              "agent_attached",
+              { sessionId: helloSessionId, agent: resolved ?? initialAgent }
+            );
+          })
+          .catch(() => {
+            /* lifecycle telemetry is best-effort */
+          });
       }
       return { jsonrpc: "2.0" as const };
     }
@@ -4818,6 +4830,14 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       lifecycle.send({ type: "SHUTDOWN" });
       lifecycle.stop();
       logTailer.close();
+
+      // Lever D: flush the cross-session dedup set so the final session's
+      // delivered context survives into the next session (no-op when off).
+      try {
+        sessionDedup.flush();
+      } catch {
+        /* best-effort — a failed flush just means re-injection next session */
+      }
 
       // Layer 4: Fire session-end behaviors
       behaviorDispatcher

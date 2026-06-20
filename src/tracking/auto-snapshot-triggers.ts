@@ -153,11 +153,7 @@ function checkPreCriticalChange(
   result: unknown,
   threshold: number
 ): AutoSnapshotTrigger | null {
-  const modifyTools = [
-    "sync_local_diff",
-    "unerr_revert_entity",
-    "unerr_revert_to_working_state",
-  ];
+  const modifyTools = ["sync_local_diff", "unerr_revert_to_working_state"];
 
   if (!modifyTools.includes(toolName)) return null;
 

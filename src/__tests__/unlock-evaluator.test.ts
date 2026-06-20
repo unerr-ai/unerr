@@ -86,14 +86,6 @@ describe("evaluateCondition: leaf variants", () => {
     expect(evaluateCondition(C.editOrWrite(), s)).toBe(true);
   });
 
-  it("FileReadTruncated — fires only on a truncated response", () => {
-    const s = new SessionState();
-    s.recordCall({ toolName: "file_read", fileReadTruncated: false });
-    expect(evaluateCondition(C.readTruncated(), s)).toBe(false);
-    s.recordCall({ toolName: "file_read", fileReadTruncated: true });
-    expect(evaluateCondition(C.readTruncated(), s)).toBe(true);
-  });
-
   it("IntentMarkerAtLeast — typed bucket counts", () => {
     const s = new SessionState();
     s.recordCall({ toolName: "mark_intent", intentMarker: "intent" });

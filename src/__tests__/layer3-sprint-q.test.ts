@@ -184,10 +184,11 @@ describe("Skills Pack (Q.11-Q.12, post-27→7 consolidation)", () => {
     expect(skill?.whenToUse).toContain("NOT for addressing review comments");
   });
 
-  it("LOCAL_SKILLS has the 8 consolidated skills", () => {
+  it("LOCAL_SKILLS has the 9 consolidated skills", () => {
     // Hard cut: the 22 absorbed legacy skills are gone. Skill 8 (review) —
-    // agent-as-reviewer producer — added 2026-05.
-    expect(LOCAL_SKILLS).toHaveLength(8);
+    // agent-as-reviewer producer — added 2026-05. Skill 9 (delegate) —
+    // Lever C cheaper-model handoff — added 2026-06.
+    expect(LOCAL_SKILLS).toHaveLength(9);
     const ids = LOCAL_SKILLS.map((s) => s.id);
     expect(ids).toEqual([
       "using-unerr",
@@ -198,6 +199,7 @@ describe("Skills Pack (Q.11-Q.12, post-27→7 consolidation)", () => {
       "build-and-debug",
       "test-and-review",
       "review",
+      "delegate",
     ]);
   });
 });

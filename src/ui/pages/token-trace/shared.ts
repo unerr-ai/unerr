@@ -268,8 +268,6 @@ export function mechLabel(mech: string): string {
 /** Internal event types hidden from prevention displays. */
 export const HIDDEN_BEHAVIOR_EVENTS = new Set([
   "user_prompt_received",
-  "surface2_emitted",
-  "surface2_missed",
   "surface4a_emitted",
   "presence_ambient_marker",
   "fact_capture_abandoned",

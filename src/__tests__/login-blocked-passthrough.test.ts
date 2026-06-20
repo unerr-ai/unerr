@@ -32,6 +32,11 @@ vi.mock("../cloud/credentials.js", () => ({
 }));
 
 import { registerCheckCommitCommand } from "../commands/check-commit.js";
+
+// check-commit is part of the reviewer surface (OFF by default). Enable it so
+// the login-blocked passthrough path under test is actually reached rather than
+// short-circuited by the master switch. Forks isolation keeps env file-local.
+process.env.UNERR_REVIEW_ENABLED = "1";
 import { registerCompressOutputCommand } from "../commands/compress-output.js";
 import { runExecMain } from "../commands/exec.js";
 import { registerHookCommand } from "../commands/hook.js";

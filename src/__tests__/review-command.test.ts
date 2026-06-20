@@ -14,6 +14,10 @@ import { join } from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runReview } from "../commands/review.js";
+
+// The reviewer is opt-in (OFF by default); these tests exercise it, so enable
+// it for this file. Forks-pool isolation keeps the env from leaking elsewhere.
+process.env.UNERR_REVIEW_ENABLED = "1";
 import type { ReviewReportView } from "../review/report.js";
 
 /**

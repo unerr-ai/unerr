@@ -69,9 +69,14 @@ function stubFetch(tokenResponses: Response[]): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
     if (u.endsWith(AUTHORIZE)) {
-      // Contract: hostname sent as client_name.
+      // Contract: hostname sent as client_name, plus the stable salted
+      // machine_fingerprint + host facts for server-side login dedup.
       const body = JSON.parse(String(init?.body ?? "{}"));
       expect(body.client_name).toBe("test-host");
+      expect(body.machine_fingerprint).toMatch(/^[0-9a-f]{16}$/);
+      expect(typeof body.cli_version).toBe("string");
+      expect(typeof body.os).toBe("string");
+      expect(typeof body.arch).toBe("string");
       return res(200, authorizeBody);
     }
     if (u.endsWith(TOKEN)) {

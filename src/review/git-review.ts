@@ -196,6 +196,36 @@ export async function collectRangeChangeFiles(
 }
 
 /**
+ * Read every tracked source file in the work tree into review `ChangeFile`s, for
+ * the full-repo reviewer (`unerr review --all`). Each reviewable tracked path is
+ * treated as `added` — its current working-tree content is the `newContent` and
+ * there is no prior blob — so every entity in the repo is reviewed, not just a
+ * git diff slice. The same engine/checkers run; the no-diff scope just feeds the
+ * whole tree through. Returns `[]` on any git error.
+ */
+export async function collectFullRepoChangeFiles(
+  cwd: string
+): Promise<ChangeFile[]> {
+  const { listTrackedFiles } = await import("../utils/git.js");
+  const { readFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const tracked = await listTrackedFiles(cwd);
+  const files: ChangeFile[] = [];
+  for (const path of tracked) {
+    if (!isReviewableFile(path)) continue;
+    let newContent: string | null = null;
+    try {
+      newContent = await readFile(join(cwd, path), "utf-8");
+    } catch {
+      // Unreadable (deleted from disk but still tracked) → skip it.
+      continue;
+    }
+    files.push({ path, kind: "added", oldContent: null, newContent });
+  }
+  return files;
+}
+
+/**
  * Resolve the entities each changed file touches via the graph and pair them
  * with whole-file old/new content. The signature-change primitive is
  * name-scoped, so whole-file content is the correct per-entity input (the same
@@ -258,7 +288,8 @@ export interface GitReviewOutcome {
  */
 export type ReviewScope =
   | { kind: "staged" }
-  | { kind: "range"; from: string; to: string };
+  | { kind: "range"; from: string; to: string }
+  | { kind: "full" };
 
 /** Parse a `A..B` range spec into a {@link ReviewScope}. Returns null when the
  *  spec is not exactly two non-empty refs joined by `..` — the caller surfaces
@@ -337,9 +368,11 @@ export async function reviewStagedChanges(
 /**
  * Review an arbitrary scope (staged index or a `from..to` range) against the
  * full Tier-1 checker set — the on-demand `review_changes` tool + `unerr review`
- * CLI entry point. A range carries `source: "manual"` (an on-demand pass, not a
- * staged-commit one); staged carries `source: "staged"`. A `null` graph (repo
- * not yet indexed) runs file-level checkers only. Always resolves.
+ * CLI entry point. A range or full-repo scope carries `source: "manual"` (an
+ * on-demand pass, not a staged-commit one); staged carries `source: "staged"`.
+ * The `full` scope reviews every tracked source file (not a diff slice). A
+ * `null` graph (repo not yet indexed) runs file-level checkers only. Always
+ * resolves.
  */
 export async function reviewScopedChanges(
   cwd: string,
@@ -348,10 +381,14 @@ export async function reviewScopedChanges(
   deps: GitReviewDeps = {},
   options: GitReviewOptions = {}
 ): Promise<GitReviewOutcome> {
-  const files =
-    scope.kind === "staged"
-      ? await collectStagedChangeFiles(cwd)
-      : await collectRangeChangeFiles(cwd, scope.from, scope.to);
+  let files: ChangeFile[];
+  if (scope.kind === "staged") {
+    files = await collectStagedChangeFiles(cwd);
+  } else if (scope.kind === "range") {
+    files = await collectRangeChangeFiles(cwd, scope.from, scope.to);
+  } else {
+    files = await collectFullRepoChangeFiles(cwd);
+  }
   const source: ChangeSource = scope.kind === "staged" ? "staged" : "manual";
   return runReviewOnChangeFiles(files, graph, source, deps, options);
 }
