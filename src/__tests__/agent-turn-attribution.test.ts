@@ -12,7 +12,7 @@
  *     clientInfo.name > env detect > "unknown" (P2).
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -28,14 +28,21 @@ import {
 import { TurnSegmenter } from "../tracking/turn-segmenter.js";
 
 describe("agent + turn attribution", () => {
+  let root: string;
   let unerrDir: string;
 
   beforeEach(() => {
-    unerrDir = mkdtempSync(join(tmpdir(), "unerr-attrib-"));
+    // MetricsStore writes its JSONL event store to dirname(unerrDir)/.unerr/events.
+    // Nest unerrDir as `<uniqueRoot>/.unerr` so each test's repoRoot — and its
+    // event store — is isolated; a bare tmp dir would collapse repoRoot to the
+    // shared os.tmpdir() and bleed rows across tests.
+    root = mkdtempSync(join(tmpdir(), "unerr-attrib-"));
+    unerrDir = join(root, ".unerr");
+    mkdirSync(unerrDir, { recursive: true });
   });
 
   afterEach(() => {
-    rmSync(unerrDir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
 
   describe("resolveAgentId (P2)", () => {

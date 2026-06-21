@@ -27,6 +27,8 @@ import {
   entitlementsCachePath,
 } from "../cloud/credentials.js";
 import { loginBlocked, loginGateNotice } from "../cloud/login-gate.js";
+import { configureEmit } from "../events/enqueue.js";
+import { PROXY_SEGMENT } from "../events/event-store.js";
 // Static ESM imports, NOT require(): the tsup bundle is pure ESM, where
 // require() hits esbuild's "Dynamic require is not supported" stub — these
 // two are needed in SYNC contexts (runBoundaryValidation, the /commit-context
@@ -806,6 +808,10 @@ function migrateAgentPermissions(cwd: string): void {
 export async function startProxy(opts: ProxyOptions = {}): Promise<{
   shutdown: () => Promise<void>;
   stats: SessionStats;
+  getGraphStats: () => Promise<{
+    entityCount: number | null;
+    edgeCount: number | null;
+  }>;
 }> {
   // Mirror stderr to a rotating .log so crash traces during startup land on
   // disk even when the process is detached (DM-3 auto-spawn).
@@ -2003,6 +2009,21 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // UNERR_TURN is updated per-tool-call below so out-of-band exec output
   // attaches to the live turn instead of falling back to 0.
   process.env.UNERR_AGENT = initialAgent;
+  // Telemetry producer context (rev-3): install the ambient EmitContext so the
+  // global `emit()` every producer calls (shadow ledger, router telemetry,
+  // facts, markers, drift, transcripts) writes a contract-shaped line to this
+  // repo's `.unerr/events/proxy.jsonl`. Stable process-wide fields only —
+  // repoRoot / segment / source / default agent. Per-event session_id,
+  // native_session_id, turn, and tool_use_id ride each emit() call because one
+  // proxy serves many bridge sessions, so there is no single ambient session.
+  // Without this, emit() no-ops and every global-emit producer silently drops.
+  // repo / branch / commit are stamped at drain from the daemon's push context.
+  configureEmit({
+    repoRoot: process.cwd(),
+    segment: PROXY_SEGMENT,
+    source: `unerr-cli@${UNERR_VERSION}`,
+    agent: initialAgent,
+  });
   // RC3 fix: Write session ID to file for exec processes
   try {
     const { writeFileSync } = await import("node:fs");
@@ -5324,7 +5345,34 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     void shutdown().then(() => process.exit(0));
   });
 
-  return { shutdown, stats };
+  // Live graph counts for fleet inventory. Reads from `liveGraph` (the
+  // swap-updated pointer), NOT `localGraph` (stale after an idle rebuild swap).
+  // Guarded: parse-mode stubs lack these methods, and a query can race a swap —
+  // either case yields nulls rather than throwing into the stats path.
+  async function getGraphStats(): Promise<{
+    entityCount: number | null;
+    edgeCount: number | null;
+  }> {
+    const g = liveGraph;
+    if (
+      !g ||
+      typeof g.getEntityCount !== "function" ||
+      typeof g.getEdgeCount !== "function"
+    ) {
+      return { entityCount: null, edgeCount: null };
+    }
+    try {
+      const [entityCount, edgeCount] = await Promise.all([
+        g.getEntityCount(),
+        g.getEdgeCount(),
+      ]);
+      return { entityCount, edgeCount };
+    } catch {
+      return { entityCount: null, edgeCount: null };
+    }
+  }
+
+  return { shutdown, stats, getGraphStats };
 }
 
 // ── Internal Helpers ──────────────────────────────────────────────────

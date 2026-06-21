@@ -94,7 +94,6 @@ describe("fleet inventory", () => {
       statusEntries: [statusEntry()],
       proc: fakeProc,
     });
-    expect(report?.schema_version).toBe(1);
     expect(report?.machine.machine_name).toBe("host");
     expect(report?.repos.length).toBe(1);
     expect(report?.repos[0]).toMatchObject({
@@ -104,7 +103,8 @@ describe("fleet inventory", () => {
       status: "running",
       pid: 100,
       http_port: 51890,
-      memory_bytes: 2048,
+      // status `memory` is MB (2048); the wire field is bytes.
+      memory_bytes: 2048 * 1024 * 1024,
       entity_count: 10,
       edge_count: 20,
       added_at: "2026-06-01T00:00:00Z",
@@ -113,6 +113,8 @@ describe("fleet inventory", () => {
       last_activity: "2026-06-13T00:00:00Z",
       last_used_at: "2026-06-12T00:00:00Z",
     });
+    // `repo` is the salted join key (lowercase-hex sha256), never the path.
+    expect(report?.repos[0]?.repo).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("leaves origin null for a repo with no remote", async () => {
@@ -140,7 +142,6 @@ describe("fleet inventory", () => {
       statusEntries: [statusEntry()],
       proc: fakeProc,
     });
-    expect(beat?.schema_version).toBe(1);
     expect(beat?.daemon.pid).toBe(1);
     expect(beat?.repos[0]).toEqual({
       path: "/repo/a",

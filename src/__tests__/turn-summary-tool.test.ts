@@ -8,7 +8,7 @@
  *   4. Tool is registered in TIER_ENTRIES as tier 1 with the expected schema.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -136,12 +136,18 @@ describe("renderHybridTurnLine", () => {
 });
 
 describe("renderSessionEconomyLineLive", () => {
+  let root: string;
   let unerrDir: string;
   beforeEach(() => {
-    unerrDir = mkdtempSync(join(tmpdir(), "unerr-turn-summary-"));
+    // MetricsStore writes its JSONL store to dirname(unerrDir)/.unerr/events;
+    // nest unerrDir as `<uniqueRoot>/.unerr` so the empty-store assertions are
+    // not polluted by sibling tests sharing os.tmpdir().
+    root = mkdtempSync(join(tmpdir(), "unerr-turn-summary-"));
+    unerrDir = join(root, ".unerr");
+    mkdirSync(unerrDir, { recursive: true });
   });
   afterEach(() => {
-    rmSync(unerrDir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
 
   it("returns honest-zero shape when .unerr/ is empty", () => {
@@ -162,12 +168,15 @@ describe("renderSessionEconomyLineLive", () => {
 });
 
 describe("handleTurnSummaryProxy", () => {
+  let root: string;
   let unerrDir: string;
   beforeEach(() => {
-    unerrDir = mkdtempSync(join(tmpdir(), "unerr-turn-summary-handler-"));
+    root = mkdtempSync(join(tmpdir(), "unerr-turn-summary-handler-"));
+    unerrDir = join(root, ".unerr");
+    mkdirSync(unerrDir, { recursive: true });
   });
   afterEach(() => {
-    rmSync(unerrDir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
 
   it("ships only {ok, line} on the wire — economy counters stay server-side", async () => {

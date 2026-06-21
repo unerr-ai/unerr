@@ -104,8 +104,8 @@ export interface AgentDefinition {
    * a delegable task on a cheaper model in the SAME host and have the senior
    * review the diff. True ONLY for hosts that support model-pinned sub-agents
    * (claude-code via `.claude/agents/*.md` frontmatter) or a model-override exec
-   * (codex via `codex exec -m <mini>`). Absent/false ⇒ no delegation path; the
-   * `UNERR_DELEGATION` flag is a no-op for that agent.
+   * (codex via `codex exec -m <mini>`). Absent/false ⇒ no delegation path, so
+   * `shouldDelegate` never routes a task to that agent.
    */
   delegation?: boolean;
 }
@@ -390,11 +390,9 @@ export function getHookCapabilities(id: IdeType): HookCapabilities {
 }
 
 /**
- * True when an agent supports internal model delegation (Lever C). The
- * `UNERR_DELEGATION` flag only takes effect for agents that return true here —
- * claude-code and codex today. Combine with the per-provider sub-keys
- * (`UNERR_DELEGATION_CLAUDE` / `UNERR_DELEGATION_CODEX`) to gate one host
- * without the other.
+ * True when an agent supports internal model delegation — claude-code and codex
+ * today. `shouldDelegate` only routes a task to a cheaper model for agents that
+ * return true here.
  */
 export function supportsDelegation(id: IdeType): boolean {
   return getAgent(id)?.delegation === true;

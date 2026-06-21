@@ -1,8 +1,9 @@
 /**
- * Tests for the batch-push surface added to src/cloud/client.ts:
+ * Tests for the batch-push surface in src/cloud/client.ts:
  *  - the two exported helpers `parseRetryAfter` + `fullJitter`;
- *  - the eight `CloudClient` ingest/sync methods (right url, POST, gzipped
- *    body, bearer auth);
+ *  - the single unified `CloudClient.ingest` method (right url, POST, gzipped
+ *    `{ events }` body, bearer auth) — rev-3 folded the eight per-type
+ *    ingest/sync methods into this one write;
  *  - the `request()` retry path (429/503 honoring `Retry-After`) and the
  *    terminal statuses that are never retried (400/413).
  *
@@ -149,107 +150,30 @@ describe("CloudClient batch push transport", () => {
     vi.restoreAllMocks();
   });
 
-  /**
-   * Table of the eight methods: how to invoke each, the wire path it must hit,
-   * and the gunzipped body it must produce.
-   */
-  const cases: Array<{
-    name: string;
-    invoke: (c: CloudClient) => Promise<unknown>;
-    path: string;
-    expectedBody: unknown;
-  }> = [
-    {
-      name: "ingestEvents",
-      invoke: (c) => c.ingestEvents([{ a: 1 }]),
-      path: "/api/v1/cli/ingest/events",
-      expectedBody: { events: [{ a: 1 }] },
-    },
-    {
-      name: "ingestTranscripts",
-      invoke: (c) => c.ingestTranscripts([{ t: 1 }]),
-      path: "/api/v1/cli/ingest/transcripts",
-      expectedBody: { transcripts: [{ t: 1 }] },
-    },
-    {
-      name: "ingestLedger",
-      invoke: (c) => c.ingestLedger([{ l: 1 }]),
-      path: "/api/v1/cli/ingest/ledger",
-      expectedBody: { ledger: [{ l: 1 }] },
-    },
-    {
-      name: "ingestRouter",
-      invoke: (c) => c.ingestRouter([{ r: 1 }]),
-      path: "/api/v1/cli/ingest/router",
-      expectedBody: { router: [{ r: 1 }] },
-    },
-    {
-      name: "ingestSession",
-      invoke: (c) => c.ingestSession({ s: 1 }),
-      path: "/api/v1/cli/ingest/sessions",
-      expectedBody: { session: { s: 1 } },
-    },
-    {
-      name: "syncFacts",
-      invoke: (c) => c.syncFacts([{ f: 1 }]),
-      path: "/api/v1/cli/sync/facts",
-      expectedBody: { facts: [{ f: 1 }] },
-    },
-    {
-      name: "syncTimeline",
-      invoke: (c) => c.syncTimeline([{ tl: 1 }]),
-      path: "/api/v1/cli/sync/timeline",
-      expectedBody: { timeline: [{ tl: 1 }] },
-    },
-    {
-      name: "syncState",
-      invoke: (c) => c.syncState("r/x", [1], [2]),
-      path: "/api/v1/cli/sync/state?repo=r%2Fx",
-      expectedBody: { state: [1], drift: [2] },
-    },
-  ];
-
-  for (const tc of cases) {
-    it(`${tc.name} POSTs the right url + gzipped body`, async () => {
-      const fetchMock = vi.fn(async () => makeResponse(200, { accepted: 1 }));
-      vi.stubGlobal("fetch", fetchMock);
-
-      const result = (await tc.invoke(makeClient())) as {
-        ok: boolean;
-        data?: { accepted: number };
-      };
-
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      const { url, init } = fetchCall(fetchMock);
-
-      // Right url (full base + path, repo encoded for syncState) + method.
-      expect(url).toBe(`http://localhost:9999${tc.path}`);
-      expect(init.method).toBe("POST");
-
-      // Bearer auth header present.
-      expect(header(init, "Authorization")).toBe("Bearer unerr_sk_test");
-
-      // Body is gzipped: Content-Encoding header + non-string body that
-      // gunzips back to the expected payload.
-      expect(header(init, "Content-Encoding")).toBe("gzip");
-      expect(gunzipBody(init)).toEqual(tc.expectedBody);
-
-      // 200 { accepted: 1 } → ok result carrying the count.
-      expect(result.ok).toBe(true);
-      expect(result.data?.accepted).toBe(1);
-    });
-  }
-
-  it("encodes the repo id in the /sync/state query param", async () => {
-    const fetchMock = vi.fn(async () => makeResponse(200, { accepted: 0 }));
+  it("ingest POSTs /api/v1/cli/ingest with a gzipped { events } body", async () => {
+    const fetchMock = vi.fn(async () => makeResponse(200, { accepted: 1 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await makeClient().syncState("acme/widgets#1", [], []);
+    const result = await makeClient().ingest([{ a: 1 }]);
 
-    const { url } = fetchCall(fetchMock);
-    expect(url).toContain("?repo=");
-    expect(url).toContain(encodeURIComponent("acme/widgets#1"));
-    expect(url).not.toContain("acme/widgets#1"); // the raw form must not leak
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const { url, init } = fetchCall(fetchMock);
+
+    // Right url (full base + the single unified ingest path) + method.
+    expect(url).toBe("http://localhost:9999/api/v1/cli/ingest");
+    expect(init.method).toBe("POST");
+
+    // Bearer auth header present.
+    expect(header(init, "Authorization")).toBe("Bearer unerr_sk_test");
+
+    // Body is gzipped: Content-Encoding header + non-string body that gunzips
+    // back to the `{ events }` batch envelope.
+    expect(header(init, "Content-Encoding")).toBe("gzip");
+    expect(gunzipBody(init)).toEqual({ events: [{ a: 1 }] });
+
+    // 200 { accepted: 1 } → ok result carrying the count.
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.accepted).toBe(1);
   });
 
   it("retries a 429 honoring Retry-After: 0 then succeeds on the 2nd call", async () => {
@@ -267,7 +191,7 @@ describe("CloudClient batch push transport", () => {
       .mockResolvedValueOnce(makeResponse(200, { accepted: 2 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await makeClient().ingestEvents([{ a: 1 }]);
+    const result = await makeClient().ingest([{ a: 1 }]);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.ok).toBe(true);
@@ -282,7 +206,7 @@ describe("CloudClient batch push transport", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await makeClient().syncFacts([{ f: 1 }]);
+    const result = await makeClient().ingest([{ f: 1 }]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.ok).toBe(false);
@@ -295,7 +219,7 @@ describe("CloudClient batch push transport", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await makeClient().ingestLedger([{ l: 1 }]);
+    const result = await makeClient().ingest([{ l: 1 }]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.ok).toBe(false);

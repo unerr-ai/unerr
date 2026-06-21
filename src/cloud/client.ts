@@ -25,10 +25,6 @@
 
 import { gzipSync } from "node:zlib";
 import type { MachineDisconnectInput } from "@unerr-ai/contracts/account";
-import type {
-  FleetReport,
-  HeartbeatReport,
-} from "../daemon/fleet-inventory.js";
 import { UNERR_VERSION } from "../version.js";
 import { DEFAULT_API_URL } from "./credentials.js";
 
@@ -41,29 +37,17 @@ const BACKOFF_BASE_MS = 300;
 /** Ceiling on one retry backoff sleep; a larger `Retry-After` is clamped here. */
 const RETRY_CAP_MS = 30_000;
 
-/**
- * Fleet ingest endpoint paths. The machine is resolved server-side from the
- * bearer token, so no machine id appears in the path or the body.
- */
-const CHECKIN_PATH = "/api/v1/cli/machine/checkin";
-const INVENTORY_PATH = "/api/v1/cli/machine/inventory";
 /** Logout/disconnect report — closes this machine's open login-history entry. */
 const DISCONNECT_PATH = "/api/v1/cli/machine/disconnect";
 
 /**
- * Batch push endpoints. The ClickHouse `ingest/*` streams take row arrays
- * (`sessions` takes one object); the Postgres `sync/*` streams carry the
- * developer's facts, timeline, and repo-state hashes. Exact bodies + caps are
- * in `docs/CLI_API.md`; the machine is resolved server-side from the token.
+ * The single unified write endpoint (rev-3). Every telemetry / trace /
+ * relational / fleet type rides one `IngestEvent` discriminated-union array
+ * (`IngestBatchBody`); the server routes each row by its `type`. The machine is
+ * resolved server-side from the bearer token — no machine/user id in the body.
+ * Supersedes the per-type `ingest/*` + `sync/*` + `machine/*` paths.
  */
-const INGEST_EVENTS_PATH = "/api/v1/cli/ingest/events";
-const INGEST_TRANSCRIPTS_PATH = "/api/v1/cli/ingest/transcripts";
-const INGEST_LEDGER_PATH = "/api/v1/cli/ingest/ledger";
-const INGEST_ROUTER_PATH = "/api/v1/cli/ingest/router";
-const INGEST_SESSIONS_PATH = "/api/v1/cli/ingest/sessions";
-const SYNC_FACTS_PATH = "/api/v1/cli/sync/facts";
-const SYNC_TIMELINE_PATH = "/api/v1/cli/sync/timeline";
-const SYNC_STATE_PATH = "/api/v1/cli/sync/state";
+const INGEST_PATH = "/api/v1/cli/ingest";
 /**
  * The anti-forgetting (spaced-recall) machine-token surface. `GET` lists the
  * caller's due/unanswered prompts; `POST` answers one. Both are paid-gated and
@@ -94,19 +78,6 @@ const BATCH_RETRY: RetryPolicy = {
   baseMs: BACKOFF_BASE_MS,
   capMs: RETRY_CAP_MS,
 };
-
-/** Server's answer to a heartbeat — steers the next cadence centrally. */
-export interface CheckinResponse {
-  ack: boolean;
-  /** Seconds the CLI should wait before the next checkin (server-driven). */
-  next_checkin_after_seconds?: number;
-}
-
-/** Server's answer to a full inventory push. */
-export interface InventoryAck {
-  accepted: boolean;
-  stored_at?: string;
-}
 
 /**
  * Per-batch result of a push to `/ingest/*` or `/sync/*`. The ClickHouse ingest
@@ -370,32 +341,6 @@ export class CloudClient {
   }
 
   /**
-   * `POST …/checkin` — the lightweight fleet heartbeat. The response may carry
-   * `next_checkin_after_seconds` to steer the next cadence centrally.
-   */
-  async postCheckin(
-    beat: HeartbeatReport
-  ): Promise<CloudResult<CheckinResponse>> {
-    return this.request<CheckinResponse>(CHECKIN_PATH, {
-      method: "POST",
-      auth: true,
-      body: beat,
-    });
-  }
-
-  /**
-   * `PUT …/inventory` — the full fleet snapshot. Idempotent upsert: resending
-   * the same body leaves the same server-side state.
-   */
-  async putInventory(report: FleetReport): Promise<CloudResult<InventoryAck>> {
-    return this.request<InventoryAck>(INVENTORY_PATH, {
-      method: "PUT",
-      auth: true,
-      body: report,
-    });
-  }
-
-  /**
    * `POST …/disconnect` — report a logout so the server closes this machine's
    * open login-history entry instead of leaving it looking online. The machine
    * is resolved from the bearer token; the body just records when + why + the
@@ -413,72 +358,16 @@ export class CloudClient {
   }
 
   /**
-   * `POST …/ingest/events` — a batch of metric events (the five `type`s share
-   * one array, ≤100/push). Each row carries a stable `event_id` so a retried
-   * push de-dups server-side.
+   * `POST …/ingest` — the single unified write (rev-3). One batch of
+   * contract-shaped `IngestEvent`s (every type shares one discriminated-union
+   * array, ≤100/push); the server routes each row by its `type` to ClickHouse or
+   * Postgres. Each row carries a stable `event_id` (retry de-dups server-side)
+   * and its own envelope identity — no machine/user id in the body. Supersedes
+   * `ingestEvents`/`ingestTranscripts`/`ingestLedger`/`ingestRouter`/
+   * `ingestSession` + the `sync/*` pushes.
    */
-  async ingestEvents(events: unknown[]): Promise<CloudResult<BatchAck>> {
-    return this.postBatch(INGEST_EVENTS_PATH, { events });
-  }
-
-  /**
-   * `POST …/ingest/transcripts` — per-turn reasoning prose (≤100/push),
-   * code-stripped client-side before it is ever passed here (HR-2).
-   */
-  async ingestTranscripts(
-    transcripts: unknown[]
-  ): Promise<CloudResult<BatchAck>> {
-    return this.postBatch(INGEST_TRANSCRIPTS_PATH, { transcripts });
-  }
-
-  /**
-   * `POST …/ingest/ledger` — tool-call metadata rows (≤500/push): the tool, a
-   * redacted args shape, status, timing. Never raw arguments.
-   */
-  async ingestLedger(ledger: unknown[]): Promise<CloudResult<BatchAck>> {
-    return this.postBatch(INGEST_LEDGER_PATH, { ledger });
-  }
-
-  /** `POST …/ingest/router` — model-routing telemetry rows (≤200/push). */
-  async ingestRouter(router: unknown[]): Promise<CloudResult<BatchAck>> {
-    return this.postBatch(INGEST_ROUTER_PATH, { router });
-  }
-
-  /**
-   * `POST …/ingest/sessions` — one session metadata object per push (totals
-   * and counts, code-free). Unlike the other ingest streams this is a single
-   * object, not an array.
-   */
-  async ingestSession(session: unknown): Promise<CloudResult<BatchAck>> {
-    return this.postBatch(INGEST_SESSIONS_PATH, { session });
-  }
-
-  /**
-   * `POST …/sync/facts` — upsert the developer's memory notes (≤500/push); a
-   * row with the same id updates in place, never duplicates. Requires a team
-   * scope — a personal token is refused with `400 scope_unsupported` (B6).
-   */
-  async syncFacts(facts: unknown[]): Promise<CloudResult<BatchAck>> {
-    return this.postBatch(SYNC_FACTS_PATH, { facts });
-  }
-
-  /** `POST …/sync/timeline` — turn/intent/marker/signal entries (≤500/push). */
-  async syncTimeline(timeline: unknown[]): Promise<CloudResult<BatchAck>> {
-    return this.postBatch(SYNC_TIMELINE_PATH, { timeline });
-  }
-
-  /**
-   * `POST …/sync/state?repo=<repoId>` — file content-hashes + co-change + drift
-   * (hashes only, never file bodies). The `repo` query param is required; both
-   * arrays are capped at 5000/push.
-   */
-  async syncState(
-    repoId: string,
-    state: unknown[],
-    drift: unknown[]
-  ): Promise<CloudResult<BatchAck>> {
-    const path = `${SYNC_STATE_PATH}?repo=${encodeURIComponent(repoId)}`;
-    return this.postBatch(path, { state, drift });
+  async ingest(events: unknown[]): Promise<CloudResult<BatchAck>> {
+    return this.postBatch(INGEST_PATH, { events });
   }
 
   /**

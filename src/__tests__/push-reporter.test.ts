@@ -29,6 +29,9 @@ const netErr = (): CloudResult<BatchAck> => ({
 
 const auth: PushAuth = { apiUrl: "https://api.test", token: "tok" };
 
+/** Per-test temp dir (set in beforeEach); closed over by makeHarness. */
+let unerrDir: string;
+
 /** A drainer that yields one batch then null, recording each push. */
 function oneShotDrainer(
   key: string,
@@ -63,19 +66,34 @@ function makeHarness(over: Partial<PushReporterDeps> = {}) {
   let timerFn: (() => void) | null = null;
   let onSchedule: (() => void) | null = null;
 
+  // Both the repo and the machine-level fleet store live under the per-test temp
+  // dir, so the (default) event-dir watcher's `ensureEventsDir` touches only the
+  // sandbox. `watchDir` is a no-op handle so no real `fs.watch` is attached.
+  const repoPath = join(unerrDir, "repo-a");
+  const machineRoot = join(unerrDir, "machine");
+
   const defaultBuild: BuildDrainers = async (ctx) => {
     ctxs.push(ctx);
     return { drainers: [] };
   };
+  const { buildDrainers: overBuild, ...restOver } = over;
+  const userBuild = overBuild ?? defaultBuild;
+  // The machine-level fleet drain rides the same loop as a pseudo-repo; tests
+  // here exercise the per-repo path, so neutralize the machine call (and keep it
+  // out of `ctxs`) — its own behaviour is covered by drainMachine assertions.
+  const wrappedBuild: BuildDrainers = async (ctx) =>
+    ctx.repoPath === machineRoot ? { drainers: [] } : userBuild(ctx);
 
   const reporter = new PushReporter({
-    getRepos: () => [{ path: "/repo/a" }],
+    getRepos: () => [{ path: repoPath }],
     resolveAuth: () => auth,
     isEntitled: () => true,
-    buildDrainers: defaultBuild,
+    buildDrainers: wrappedBuild,
     deriveRepoId: async (p) => `id-${p}`,
     unerrDir: (p) => p,
     makeClient: () => ({}) as never,
+    machineEventsRoot: () => machineRoot,
+    watchDir: () => ({ close: () => {} }),
     setTimer: (fn, ms) => {
       timerFn = fn;
       delays.push(ms);
@@ -84,7 +102,7 @@ function makeHarness(over: Partial<PushReporterDeps> = {}) {
     },
     clearTimer: () => {},
     jitter: () => 0,
-    ...over,
+    ...restOver,
   });
 
   /** A promise that resolves when the next cycle finishes (calls setTimer). */
@@ -98,17 +116,16 @@ function makeHarness(over: Partial<PushReporterDeps> = {}) {
   /** Fire the captured timer callback to run the next cycle. */
   const advance = () => timerFn?.();
 
-  return { reporter, ctxs, delays, settled, advance };
+  return { reporter, ctxs, delays, settled, advance, repoPath };
 }
 
 describe("PushReporter", () => {
-  let unerrDir: string;
   beforeEach(async () => {
     unerrDir = await mkdtemp(join(tmpdir(), "unerr-pushrep-"));
   });
 
   it("passes repoId, unerrDir, and source into the drainer context", async () => {
-    const { reporter, ctxs, settled } = makeHarness({
+    const { reporter, ctxs, settled, repoPath } = makeHarness({
       unerrDir: () => unerrDir,
     });
     const done = settled();
@@ -116,9 +133,9 @@ describe("PushReporter", () => {
     await done;
     expect(ctxs).toHaveLength(1);
     expect(ctxs[0]).toMatchObject({
-      repoPath: "/repo/a",
+      repoPath,
       unerrDir,
-      repoId: "id-/repo/a",
+      repoId: `id-${repoPath}`,
     });
     expect(ctxs[0]?.source).toMatch(/^unerr-cli@/);
   });

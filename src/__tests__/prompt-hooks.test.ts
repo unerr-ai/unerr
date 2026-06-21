@@ -661,3 +661,57 @@ describe("TASK_VERBS_* regex constants (Fix A)", () => {
     expect(TASK_VERBS_CODE.test("the tests are failing")).toBe(true);
   });
 });
+
+// Delegation wiring regression. The classifier + gate (shouldDelegate) existed
+// but nothing called the gate at prompt time, so it was a no-op and
+// `shouldDelegate` was tree-shaken out of the bundle. This guard fails if the
+// prompt hook ever stops emitting the delegate routing line.
+describe("prompt hook emits the delegate routing line", () => {
+  let cwd: string;
+  let originalCwd: string;
+  let savedSession: string | undefined;
+
+  const readContext = (out: string): string =>
+    (
+      JSON.parse(out) as {
+        hookSpecificOutput?: { additionalContext?: string };
+      }
+    ).hookSpecificOutput?.additionalContext ?? "";
+  // Bare payload → claude-code adapter (a delegation-capable host).
+  const mk = (msg: string) =>
+    JSON.stringify({ hook_event_name: "UserPromptSubmit", user_message: msg });
+
+  beforeEach(() => {
+    cwd = tmpRepo();
+    originalCwd = process.cwd();
+    savedSession = process.env.UNERR_SESSION_ID;
+    process.env.UNERR_SESSION_ID = `lc-${Date.now()}`;
+    process.chdir(cwd);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (savedSession === undefined)
+      Reflect.deleteProperty(process.env, "UNERR_SESSION_ID");
+    else process.env.UNERR_SESSION_ID = savedSession;
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("delegable task on a delegation-capable host → routes to unerr-delegate (not the lifecycle skill)", () => {
+    const ctx = readContext(
+      runUserPromptSubmitHook(mk("add tests for the query router"))
+    );
+    expect(ctx).toContain("ur|act unerr-delegate");
+    expect(ctx).toContain("delegable class 'tests'");
+    // The delegate line OWNS the routing slot — the normal verb-cluster skill
+    // line must not also fire for the same prompt.
+    expect(ctx).not.toContain("unerr-test-and-review");
+  });
+
+  it("non-delegable task → no delegate line (classifier gate holds)", () => {
+    const ctx = readContext(
+      runUserPromptSubmitHook(mk("refactor the auth flow end to end"))
+    );
+    expect(ctx).not.toContain("unerr-delegate");
+  });
+});

@@ -69,6 +69,15 @@ export interface DrainerContext {
   client: CloudClient;
   /** The `source` envelope field, e.g. `"unerr-cli@0.2.11"`. */
   source: string;
+  /** Repo's current git branch at drain time (OTel vcs.ref.head.name), or
+   *  undefined outside a git repo. Streams whose source rows carry no per-row
+   *  VCS (events/router/timeline) stamp this so every row has `where` context;
+   *  the ledger uses its own per-row branch instead. */
+  branch?: string;
+  /** Repo's current git HEAD sha at drain time (OTel vcs.ref.head.revision), or
+   *  undefined outside a git repo. Drain-time approximation for streams that do
+   *  not record the commit per row. */
+  commit?: string;
   /** Optional structured logger (stderr) for build-time diagnostics. */
   log?: (msg: string) => void;
 }

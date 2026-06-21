@@ -365,13 +365,16 @@ describe("runPromptSubmitHook", () => {
     const { runUserPromptSubmitHook } = await import(
       "../hooks/prompt-hooks.js"
     );
+    // "optimize …" routes to unerr-safe-modification and is NOT a delegable
+    // class, so the Path A line fires (delegation, which is always-on, would
+    // otherwise route a delegable task like "rename …" to unerr-delegate). This
+    // test is about Path A routing, not delegation.
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
-      user_message: "rename QueryRouter to RouterDispatcher across files",
+      user_message: "optimize the QueryRouter dispatch hot path",
     });
     const result = JSON.parse(runUserPromptSubmitHook(stdin));
     const ctx = result.hookSpecificOutput.additionalContext ?? "";
-    // Post-27→7: refactor verbs route to unerr-safe-modification.
     expect(ctx).toContain("ur|act unerr-safe-modification");
   });
 });

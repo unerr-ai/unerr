@@ -164,7 +164,22 @@ describe("assemblePromptTrace — unerr-only half (always present)", () => {
 });
 
 describe("assemblePromptTrace — external transcript half (gated)", () => {
-  it("is off by default: no flag → no token usage, capability still reported", async () => {
+  it("is on by default: no config → flag on, capability reported", async () => {
+    // rev-3: transcript materialization is opt-OUT (default on), so an unset
+    // flag means on. With no real agent JSONL under the temp repoCwd the reader
+    // still finds nothing, so token usage stays null (fail-soft).
+    const trace = await assemblePromptTrace(deps(), SID, TURN);
+    expect(trace.flag_on).toBe(true);
+    expect(trace.transcript_available).toBe(false);
+    expect(trace.tokens_used).toBeNull();
+    expect(trace.capability).toBe("jsonl");
+  });
+
+  it("is off only when explicitly opted out: flag false → no token usage", async () => {
+    writeFileSync(
+      join(unerrDir, "config.json"),
+      JSON.stringify({ read_agent_transcripts: false })
+    );
     const trace = await assemblePromptTrace(deps(), SID, TURN);
     expect(trace.flag_on).toBe(false);
     expect(trace.transcript_available).toBe(false);

@@ -438,11 +438,15 @@ export async function startDaemon(opts: {
     notifyEvent: (r: string) => void;
     stop: () => void;
   } | null = null;
-  let pushReporter: { stop: () => void } | null = null;
+  let pushReporter: { stop: () => void; syncWatchers: () => void } | null =
+    null;
   pm.setEventHandler((event, repo, detail) => {
     log.info(`[${repo.label}] ${event}${detail ? `: ${detail}` : ""}`);
     if (event === "started" || event === "stopped") {
       fleetReporter?.notifyEvent(`proxy-${event}`);
+      // A repo that just came up (or down) gains (or loses) its event-dir
+      // watcher immediately, rather than waiting for the next backstop tick.
+      pushReporter?.syncWatchers();
     }
   });
 

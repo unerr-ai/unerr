@@ -964,6 +964,10 @@ async function daemonChildBoot(cwd: string): Promise<void> {
   let proxyResult: {
     shutdown: () => Promise<void>;
     stats: import("../proxy/session-stats.js").SessionStats;
+    getGraphStats: () => Promise<{
+      entityCount: number | null;
+      edgeCount: number | null;
+    }>;
   } | null = null;
   const stateDir = join(cwd, ".unerr", "state");
   const sockPath = join(stateDir, "proxy.sock");
@@ -1029,11 +1033,21 @@ async function daemonChildBoot(cwd: string): Promise<void> {
     process.send({ type: "ready", sock: sockPath });
   }
 
-  function collectStats(): { entities: number; edges: number; memory: number } {
+  async function collectStats(): Promise<{
+    entities: number;
+    edges: number;
+    memory: number;
+  }> {
     const mem = process.memoryUsage();
+    // Real graph counts from the live (swap-updated) CozoDB store, not a
+    // tool-call tally or a hardcoded 0. Nulls (parse-mode / pre-index) map to 0.
+    const graph = (await proxyResult?.getGraphStats?.()) ?? {
+      entityCount: null,
+      edgeCount: null,
+    };
     return {
-      entities: proxyResult?.stats.toolCallsLocal ?? 0,
-      edges: 0,
+      entities: graph.entityCount ?? 0,
+      edges: graph.edgeCount ?? 0,
       memory: Math.round(mem.rss / 1024 / 1024),
     };
   }
@@ -1041,7 +1055,9 @@ async function daemonChildBoot(cwd: string): Promise<void> {
   // Periodic stats report to parent
   statsTimer = setInterval(() => {
     if (!process.send) return;
-    process.send({ type: "stats", ...collectStats() });
+    void collectStats().then((s) => {
+      if (process.send) process.send({ type: "stats", ...s });
+    });
   }, 60_000);
   statsTimer.unref();
 
@@ -1054,7 +1070,9 @@ async function daemonChildBoot(cwd: string): Promise<void> {
     }
     if (msg.type === "get-stats") {
       if (!process.send) return;
-      process.send({ type: "stats", ...collectStats() });
+      void collectStats().then((s) => {
+        if (process.send) process.send({ type: "stats", ...s });
+      });
     }
   });
 
@@ -1366,6 +1384,7 @@ async function mcpBoot(
       const connectedAt = Date.now();
       const result = await startUdsBridge(discovery.sockPath, bufferForBridge, {
         codingAgent: opts.codingAgent,
+        repoRoot: cwd,
       });
 
       clearInterval(activityInterval);
@@ -1775,6 +1794,24 @@ async function loginThenContinue(): Promise<void> {
 }
 
 program.hook("preAction", async (_thisCmd, actionCmd) => {
+  // Reject stray operands on the bare `unerr` command (e.g. `unerr satus`,
+  // `unerr foo bar`) BEFORE any boot side effect or the login wall below.
+  // Commander routes an operand that matches no subcommand to the root default
+  // action; with no declared arguments there, a leftover operand is a typo or
+  // an unknown command, so error instead of silently booting the proxy. Scoped
+  // to the root command only (`!actionCmd.parent`) — subcommands keep their own
+  // argument rules and passthrough operands (`exec <cmd…>`, `recon "<task>"`,
+  // `install <agent>`). NOTE: do NOT use `program.allowExcessArguments(false)` —
+  // in Commander 12 that setting is inherited by every subcommand and breaks
+  // `exec`'s passthrough args. Unknown options (`--badflag`) already error via
+  // the default `allowUnknownOption(false)`.
+  if (!actionCmd.parent && actionCmd.args.length > 0) {
+    process.stderr.write(
+      `error: unknown command '${actionCmd.args[0]}'\n(use --help for available commands)\n`
+    );
+    process.exit(1);
+  }
+
   // Dev-only: apply `.unerr/dev.json` before ANY login / cloud / proxy code
   // reads an API URL or entitlement. This hook fires ahead of every command
   // (login, pm, the proxy default action, --mcp, --daemon-child), so it is the

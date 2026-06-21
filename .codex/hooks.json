@@ -1,0 +1,57 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook prompt-submit"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook session-start"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-bash"
+          }
+        ]
+      },
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook pre-edit"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-edit"
+          }
+        ]
+      }
+    ]
+  }
+}

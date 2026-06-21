@@ -34,7 +34,9 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { hashEntityKey } from "../cloud/drainers/envelope.js";
 import { loadSettings } from "../config/settings.js";
+import { emit } from "../events/enqueue.js";
 import {
   type ExtractedEntity,
   entityKey,
@@ -730,6 +732,24 @@ async function setFileHash(
     );
   } catch {
     /* best-effort — a miss only costs one redundant re-index next cycle */
+  }
+
+  // L1 — mirror the per-file content-hash observation into the unified event
+  // store so `unerrd` drains it as a `state` event. HR-2: the file path is
+  // HASHED into `file_id` (the sanitizer does NOT auto-strip that key name);
+  // `content_hash` is already a hash, passed through. Co-change membership is
+  // not available at this chokepoint, so the optional cochange_* fields are
+  // omitted. emit() is fire-and-forget (no-op without ambient context).
+  const file_id = hashEntityKey(relPath);
+  if (file_id !== undefined) {
+    emit({
+      type: "state",
+      detail: {
+        file_id,
+        content_hash: hash,
+        observed_at: new Date().toISOString(),
+      },
+    });
   }
 }
 

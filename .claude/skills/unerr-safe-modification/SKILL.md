@@ -3,8 +3,6 @@ name: unerr-safe-modification
 description: "MANDATORY before editing any existing function, class, file, or exported entity — covers fix/modify/change/update/refactor/rename/move/restructure/extract. STEP-1: recall. STEP-2: blast-radius (`get_references`). STEP-3: conventions. STEP-4: drift-check. STEP-5: edit. Do NOT edit without completing STEP-1 through STEP-4. Absorbs the prior understand-before-modify, blast-radius, convention, drift, and dependency-aware-refactor skills."
 ---
 
-# safe-modification
-
 ## Iron Law
 
 <EXTREMELY-IMPORTANT>

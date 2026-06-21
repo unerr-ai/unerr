@@ -13,7 +13,7 @@
  * against the pure renderer in receipt-renderer.test.ts.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -47,13 +47,16 @@ describe("isRecapTurn — turn-cadence recap decision", () => {
 });
 
 describe("end-of-turn report — best-effort + cross-surface parity", () => {
+  let root: string;
   let unerrDir: string;
 
   beforeEach(() => {
-    unerrDir = mkdtempSync(join(tmpdir(), "unerr-report-"));
+    root = mkdtempSync(join(tmpdir(), "unerr-report-"));
+    unerrDir = join(root, ".unerr");
+    mkdirSync(unerrDir, { recursive: true });
   });
   afterEach(() => {
-    rmSync(unerrDir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
 
   it("renders nothing for a session with no unerr value (honest-zero)", () => {

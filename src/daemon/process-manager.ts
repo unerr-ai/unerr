@@ -47,6 +47,7 @@ import {
   readNeedsInput,
   readRegistry,
   touchRepoActivity,
+  touchRepoStarted,
   writeRegistry,
 } from "./registry.js";
 
@@ -332,6 +333,11 @@ export class ProcessManager {
     if (adopted) {
       // A live proxy is serving — any prior fork failures are moot.
       this.startupFailures.delete(key);
+      // Stamp lastStarted here too: adoption means this repo is now in active
+      // use, just like a fresh fork (which stamps it in spawn()). Without this,
+      // fleet `last_used_at` stayed null on every repo a long-lived daemon
+      // adopted rather than forked.
+      touchRepoStarted(key, new Date().toISOString());
       return adopted;
     }
 

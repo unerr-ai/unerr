@@ -8,42 +8,133 @@
  *
  * @sem domain=infrastructure
  */
-import type { CloudResult } from "../cloud/client.js";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
-  type CheckinResponse,
-  CloudClient,
-  type InventoryAck,
-} from "../cloud/client.js";
-import { buildFleetReport, buildHeartbeatReport } from "./fleet-inventory.js";
+  MachineCheckinEvent,
+  MachineInventoryEvent,
+} from "@unerr-ai/contracts/fleet";
+import { validateBody } from "../cloud/drainers/validate.js";
+import { type EmitContext, stampEvent } from "../events/enqueue.js";
+import {
+  FLEET_SEGMENT,
+  type StoredEvent,
+  appendEvent,
+  machineEventsRoot,
+} from "../events/event-store.js";
+import { UNERR_VERSION } from "../version.js";
+import {
+  type InventoryDetail,
+  buildFleetReport,
+  buildHeartbeatReport,
+} from "./fleet-inventory.js";
 import type { RepoStatusEntry } from "./protocol.js";
+import { globalDir } from "./registry.js";
 
-/** Default fast cadence between heartbeats when the server gives no override. */
-export const DEFAULT_CHECKIN_INTERVAL_MS = 5 * 60_000;
-/** Floor/ceiling clamps on a server-driven cadence (defensive). */
-const MIN_CHECKIN_INTERVAL_MS = 30_000;
-const MAX_CHECKIN_INTERVAL_MS = 60 * 60_000;
-/** Send a full inventory in place of a heartbeat every Nth cycle (self-heal). */
-const INVENTORY_EVERY_N_CHECKINS = 6;
+/** The `source` envelope field every stamped fleet event carries. */
+const FLEET_SOURCE = `unerr-cli@${UNERR_VERSION}`;
+
+/** Stamp context for fleet events: machine-level, so they ride the machine
+ *  segment store (`~/.unerr/events/fleet.jsonl`) rather than a per-repo file.
+ *  The daemon drains this segment exactly as it drains each repo; the machine is
+ *  resolved from the token server-side, never the body. */
+const FLEET_CTX: EmitContext = {
+  repoRoot: machineEventsRoot(),
+  segment: FLEET_SEGMENT,
+  source: FLEET_SOURCE,
+};
+
+/** Idle liveness cadence between heartbeats. */
+export const DEFAULT_CHECKIN_INTERVAL_MS = 15 * 60_000;
+/**
+ * Slow keepalive for the full inventory: re-send a complete snapshot at least
+ * this often even when nothing structural changed, so a missed delta self-heals.
+ * Between keepalives, inventory is sent ONLY on a real fingerprint change.
+ */
+export const INVENTORY_KEEPALIVE_MS = 6 * 60 * 60_000;
 /** Coalesce a burst of events into one inventory push. */
-const EVENT_DEBOUNCE_MS = 2_000;
+const EVENT_DEBOUNCE_MS = 10_000;
 /** Backoff ceiling after repeated failures. */
 const MAX_BACKOFF_MS = 15 * 60_000;
+
+/** Persisted across daemon restarts so a re-spawn never re-bursts an
+ *  already-sent inventory (the auth/startup-burst flood source). */
+export interface FleetReporterState {
+  lastInventoryFp: string;
+  lastInventoryAt: number;
+}
+
+function fleetStatePath(): string {
+  return join(globalDir(), "state", "fleet-reporter.json");
+}
+
+/** Read the last-sent inventory fingerprint + timestamp. null on first run /
+ *  missing / corrupt — the reporter then treats inventory as due. */
+function loadFleetState(): FleetReporterState | null {
+  try {
+    const s = JSON.parse(readFileSync(fleetStatePath(), "utf8"));
+    if (
+      typeof s?.lastInventoryFp === "string" &&
+      typeof s?.lastInventoryAt === "number"
+    ) {
+      return {
+        lastInventoryFp: s.lastInventoryFp,
+        lastInventoryAt: s.lastInventoryAt,
+      };
+    }
+  } catch {
+    /* missing / corrupt → fresh start */
+  }
+  return null;
+}
+
+/** Persist the last-sent inventory fingerprint + timestamp. Best-effort. */
+function saveFleetState(state: FleetReporterState): void {
+  try {
+    mkdirSync(join(globalDir(), "state"), { recursive: true });
+    writeFileSync(fleetStatePath(), JSON.stringify(state), "utf8");
+  } catch {
+    /* best-effort — a write failure just means a restart may re-send once */
+  }
+}
+
+/**
+ * Structural fingerprint of an inventory report — the subset whose change is
+ * worth a network push. Excludes pure telemetry that changes every tick
+ * (uptime, rss, per-repo memory, connections, idle, last_activity timestamps),
+ * so idle heartbeat churn and no-op proxy flaps produce an identical hash and
+ * are skipped. Repos are sorted by path so order never perturbs the hash.
+ */
+export function inventoryFingerprint(report: InventoryDetail): string {
+  const structural = {
+    m: {
+      n: report.machine.machine_name,
+      o: report.machine.os,
+      a: report.machine.arch,
+      v: report.machine.cli_version,
+      p: report.machine.daemon?.dashboard_port,
+    },
+    r: report.repos
+      .map((x) => ({
+        p: x.path,
+        repo: x.repo,
+        s: x.status,
+        hp: x.http_port,
+        o: x.origin,
+        ec: x.entity_count,
+        gc: x.edge_count,
+      }))
+      .sort((a, b) => (a.p < b.p ? -1 : a.p > b.p ? 1 : 0)),
+  };
+  return createHash("sha256").update(JSON.stringify(structural)).digest("hex");
+}
 
 /** Resolved auth for one report attempt; null means "not logged in". */
 export interface FleetAuth {
   apiUrl: string;
   token: string;
   machineId: string;
-}
-
-/** Minimal client surface the reporter needs (test seam). */
-export interface FleetClient {
-  postCheckin(
-    beat: Parameters<CloudClient["postCheckin"]>[0]
-  ): Promise<CloudResult<CheckinResponse>>;
-  putInventory(
-    report: Parameters<CloudClient["putInventory"]>[0]
-  ): Promise<CloudResult<InventoryAck>>;
 }
 
 /** Everything the reporter depends on — all injected for testability. */
@@ -56,13 +147,23 @@ export interface FleetReporterDeps {
   dashboardPort: () => number;
   /** Optional structured logger (stderr). */
   log?: (msg: string) => void;
-  /** Build a client for an attempt (defaults to a real CloudClient). */
-  makeClient?: (apiUrl: string, token: string) => FleetClient;
+  /**
+   * Append one stamped fleet event to the machine segment store. Defaults to
+   * `appendEvent(machineEventsRoot(), FLEET_SEGMENT, …)`. Injected so a test
+   * never writes to the real `~/.unerr/events`.
+   */
+  appendFleetEvent?: (event: StoredEvent) => void;
   /** Schedule a callback after a delay; returns a clearable handle. */
   setTimer?: (fn: () => void, ms: number) => NodeJS.Timeout;
   clearTimer?: (handle: NodeJS.Timeout) => void;
   /** Jitter factor in [0,1) (defaults to Math.random; injectable for tests). */
   jitter?: () => number;
+  /** Wall clock in ms (defaults to Date.now; injectable for tests). */
+  now?: () => number;
+  /** Load persisted last-sent inventory state (defaults to a file in ~/.unerr). */
+  loadState?: () => FleetReporterState | null;
+  /** Persist last-sent inventory state (defaults to a file in ~/.unerr). */
+  saveState?: (state: FleetReporterState) => void;
 }
 
 /**
@@ -73,26 +174,48 @@ export interface FleetReporterDeps {
  */
 export class FleetReporter {
   private readonly deps: Required<
-    Pick<FleetReporterDeps, "makeClient" | "setTimer" | "clearTimer" | "jitter">
+    Pick<
+      FleetReporterDeps,
+      | "appendFleetEvent"
+      | "setTimer"
+      | "clearTimer"
+      | "jitter"
+      | "now"
+      | "loadState"
+      | "saveState"
+    >
   > &
     FleetReporterDeps;
   private timer: NodeJS.Timeout | null = null;
   private debounce: NodeJS.Timeout | null = null;
   private running = false;
   private inFlight = false;
-  private checkinCount = 0;
   private failures = 0;
+  /** Fingerprint of the last successfully-sent inventory (dedup key). */
+  private lastInventoryFp = "";
+  /** When the last inventory was successfully sent (ms); drives the keepalive. */
+  private lastInventoryAt = 0;
 
   constructor(deps: FleetReporterDeps) {
     this.deps = {
       ...deps,
-      makeClient:
-        deps.makeClient ??
-        ((apiUrl, token) => new CloudClient({ apiUrl, token })),
+      appendFleetEvent:
+        deps.appendFleetEvent ??
+        ((e) => appendEvent(machineEventsRoot(), FLEET_SEGMENT, e)),
       setTimer: deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms).unref()),
       clearTimer: deps.clearTimer ?? ((h) => clearTimeout(h)),
       jitter: deps.jitter ?? Math.random,
+      now: deps.now ?? (() => Date.now()),
+      loadState: deps.loadState ?? loadFleetState,
+      saveState: deps.saveState ?? saveFleetState,
     };
+    // Seed dedup state from the prior run so a restarted daemon never re-bursts
+    // an inventory it already sent (within the keepalive window).
+    const persisted = this.deps.loadState();
+    if (persisted) {
+      this.lastInventoryFp = persisted.lastInventoryFp;
+      this.lastInventoryAt = persisted.lastInventoryAt;
+    }
   }
 
   /** Begin reporting: push a full inventory now, then loop heartbeats. */
@@ -169,45 +292,59 @@ export class FleetReporter {
       statusEntries: this.deps.getStatusEntries(),
       dashboardPort: this.deps.dashboardPort(),
     };
-    const client = this.deps.makeClient(auth.apiUrl, auth.token);
 
-    this.checkinCount += 1;
-    const sendInventory =
-      forceInventory || this.checkinCount % INVENTORY_EVERY_N_CHECKINS === 0;
-
-    if (sendInventory) {
-      const report = await buildFleetReport(inputs);
-      if (!report) return DEFAULT_CHECKIN_INTERVAL_MS;
-      const res = await client.putInventory(report);
-      if (!res.ok)
-        throw new Error(res.error?.message ?? `inventory ${res.status}`);
-      if (reason) this.deps.log?.(`fleet: inventory pushed (${reason})`);
-      return DEFAULT_CHECKIN_INTERVAL_MS;
+    // Inventory is considered on a fleet-changing event (forceInventory) or when
+    // the slow keepalive elapsed. It is actually SENT only when its structural
+    // fingerprint changed, or the keepalive forces a refresh — so idle ticks and
+    // no-op proxy flaps cost zero requests.
+    const now = this.deps.now();
+    const inventoryDue = now - this.lastInventoryAt >= INVENTORY_KEEPALIVE_MS;
+    if (forceInventory || inventoryDue) {
+      const detail = await buildFleetReport(inputs);
+      if (detail) {
+        const fp = inventoryFingerprint(detail);
+        if (fp !== this.lastInventoryFp || inventoryDue) {
+          const event = stampEvent(FLEET_CTX, {
+            type: "machine_inventory",
+            detail: detail as unknown as Record<string, unknown>,
+          });
+          validateBody(MachineInventoryEvent, event, "fleet:inventory", (m) =>
+            this.deps.log?.(m)
+          );
+          this.deps.appendFleetEvent(event);
+          this.lastInventoryFp = fp;
+          this.lastInventoryAt = now;
+          this.deps.saveState({
+            lastInventoryFp: this.lastInventoryFp,
+            lastInventoryAt: this.lastInventoryAt,
+          });
+          if (reason) this.deps.log?.(`fleet: inventory pushed (${reason})`);
+          return DEFAULT_CHECKIN_INTERVAL_MS;
+        }
+      }
+      // An event-driven cycle with no structural change → nothing to report.
+      // (A scheduled tick falls through to the liveness heartbeat below.)
+      if (forceInventory) return DEFAULT_CHECKIN_INTERVAL_MS;
     }
 
+    // Scheduled tick → liveness heartbeat on the one ingest stream.
     const beat = buildHeartbeatReport(inputs);
     if (!beat) return DEFAULT_CHECKIN_INTERVAL_MS;
-    const res = await client.postCheckin(beat);
-    if (!res.ok) throw new Error(res.error?.message ?? `checkin ${res.status}`);
-    return this.clampInterval(res.data?.next_checkin_after_seconds);
+    const event = stampEvent(FLEET_CTX, {
+      type: "machine_checkin",
+      detail: beat as unknown as Record<string, unknown>,
+    });
+    validateBody(MachineCheckinEvent, event, "fleet:checkin", (m) =>
+      this.deps.log?.(m)
+    );
+    this.deps.appendFleetEvent(event);
+    return DEFAULT_CHECKIN_INTERVAL_MS;
   }
 
   /** Schedule the next cycle (always a heartbeat unless the Nth/forced). */
   private scheduleNext(delayMs: number): void {
     if (this.timer) this.deps.clearTimer(this.timer);
     this.timer = this.deps.setTimer(() => void this.runCycle(false), delayMs);
-  }
-
-  /** Apply a server-driven cadence (seconds), clamped, or the default. */
-  private clampInterval(seconds?: number): number {
-    if (seconds === undefined || !Number.isFinite(seconds)) {
-      return DEFAULT_CHECKIN_INTERVAL_MS;
-    }
-    const ms = seconds * 1000;
-    return Math.min(
-      Math.max(ms, MIN_CHECKIN_INTERVAL_MS),
-      MAX_CHECKIN_INTERVAL_MS
-    );
   }
 
   /** Exponential backoff with ±15% jitter, capped. */

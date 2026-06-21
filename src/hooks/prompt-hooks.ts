@@ -12,7 +12,10 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isEnabled } from "../config/feature-flags.js";
+import {
+  type DelegationDecision,
+  shouldDelegate,
+} from "../intelligence/delegation.js";
 import {
   DEFAULT_RECALL_MAX,
   selectLoadBearing,
@@ -20,6 +23,7 @@ import {
 import { consumeAnyPendingTopicShift } from "../intelligence/topic-shift.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { recordPrefixStability } from "../proxy/prefix-stability.js";
+import type { IdeType } from "../utils/detect.js";
 import {
   type AsyncHookHandler,
   type HookHandler,
@@ -255,7 +259,7 @@ const MOMENT1_RECALL_NUDGE =
 
 /**
  * Byte-stable separator between the cacheable stable head and the per-turn
- * volatile tail of the UserPromptSubmit block (Lever A, UNERR_PREFIX_RELOCATE).
+ * volatile tail of the UserPromptSubmit block.
  * A fixed string, so it sits at the end of the cached prefix and never busts it;
  * it marks where this-prompt-specific context begins.
  */
@@ -321,6 +325,16 @@ function buildImplementationMentionLine(prompt: string): string | null {
  *  names the skill, no hedge verbs. */
 function buildPathALine(match: VerbClusterMatch): string {
   return `ur|act ${match.skill} — Path A matched verb cluster '${match.cluster}'. Invoke Skill('${match.skill}') before drafting code.`;
+}
+
+// ── Delegation emit ──────────────────────────────────────────────────────────
+/** Emit the `ur|act unerr-delegate` routing line for a delegable task. Fires
+ *  ONLY when `shouldDelegate` returned `delegate:true` (host supports delegation
+ *  and the prompt named a delegable class). Names the skill + the class so the
+ *  senior routes to `unerr-delegate` instead of the normal lifecycle skill;
+ *  imperative, no hedge verbs, no deictic pronouns (echoes the class string). */
+function buildDelegateLine(decision: DelegationDecision): string {
+  return `ur|act unerr-delegate — delegable class '${decision.class}'. Invoke Skill('unerr-delegate') to hand the edit to a cheaper model (unerr-junior / codex exec -m <mini>), then review the diff. Do NOT enumerate edit sites by hand — the recon brief carries them.`;
 }
 
 // ── Path B emit (T3.2) ───────────────────────────────────────────────────────
@@ -574,18 +588,38 @@ const promptSubmitHandler: HookHandler = (normalized) => {
     }
   }
 
+  // Delegation — when the task is a delegable class AND the host
+  // supports delegation, route the volatile skill slot to `unerr-delegate`
+  // (hand to a cheaper model) instead of the normal lifecycle skill.
+  // `shouldDelegate` is the gate; this call is the runtime trigger. Fail-open:
+  // any error leaves `delegateLine` null and the normal Path A routing stands.
+  let delegateLine: string | null = null;
+  try {
+    const decision = shouldDelegate({
+      prompt: message,
+      agentId: (normalized.agentName ?? "") as IdeType,
+    });
+    if (decision.delegate) delegateLine = buildDelegateLine(decision);
+  } catch {
+    // never block the hook — fall through to normal routing
+  }
+
   // Path A — verb-cluster fast path. Disjoint from the legacy
   // isCodeTask split below; when Path A fires we still emit the
-  // tool-roster + catalog so Path B has its catalog presence.
+  // tool-roster + catalog so Path B has its catalog presence. When Lever C
+  // delegates, the delegate line OWNS the routing slot — skip Path A so the
+  // agent gets exactly one skill instruction.
   const pathAMatch = classifyVerbCluster(message);
-  const pathALine = pathAMatch ? buildPathALine(pathAMatch) : null;
+  const pathALine =
+    delegateLine || !pathAMatch ? null : buildPathALine(pathAMatch);
 
-  // T3.3 — omni-skill fallback. When Path A misses, point the agent at
-  // the `unerr-using-unerr` master orchestrator so it runs the default
-  // workflow (recall → blast radius → mark_intent → edit → verify).
-  const fallbackLine = pathALine
-    ? null
-    : "ur|act unerr-using-unerr — no verb-cluster match. Invoke Skill('unerr-using-unerr') and run the default workflow before drafting code.";
+  // T3.3 — omni-skill fallback. When Path A misses AND no delegation fired,
+  // point the agent at the `unerr-using-unerr` master orchestrator so it runs
+  // the default workflow (recall → blast radius → mark_intent → edit → verify).
+  const fallbackLine =
+    pathALine || delegateLine
+      ? null
+      : "ur|act unerr-using-unerr — no verb-cluster match. Invoke Skill('unerr-using-unerr') and run the default workflow before drafting code.";
 
   // Topic-shift signal — ur|ctx line, NOT subject to the ur|act cap.
   const topicShiftLine = buildTopicShiftLine();
@@ -630,12 +664,13 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // Gate 1: per-turn cap of 5 ur|act lines. Order = priority high→low.
   // Lines beyond the cap are dropped to prevent context flooding.
   // Path A and fallback are mutually exclusive — only one is non-null.
-  // Each candidate carries a `volatile` flag for Lever A (UNERR_PREFIX_RELOCATE):
+  // Each candidate carries a `volatile` flag for the prefix ordering:
   // the Path A line varies per prompt (verb cluster), so it is volatile; every
   // other line is a fixed nudge template (byte-stable) and belongs in the
   // cacheable head. Order + cap semantics are unchanged from before.
   const actCandidates: Array<{ text: string | null; volatile: boolean }> = [
     { text: moment1Line, volatile: false }, //   Moment 1 (fixed template)
+    { text: delegateLine, volatile: true }, //   Lever C delegation routing (class-specific)
     { text: pathALine, volatile: true }, //      Path A skill match (verb-specific)
     { text: fallbackLine, volatile: false }, //  Master orchestrator fallback (fixed)
     { text: markIntentLine, volatile: false }, // mark_intent one-shot (fixed)
@@ -661,9 +696,6 @@ const promptSubmitHandler: HookHandler = (normalized) => {
           : c.text,
       volatile: c.volatile,
     }));
-  const cappedActLines = cappedActEntries.map((e) => e.text);
-  const actBlock =
-    cappedActLines.length > 0 ? `${cappedActLines.join("\n")}\n` : "";
   // Lever A lanes — the fixed act templates form the stable head; the
   // verb-specific Path A line joins the volatile tail.
   const stableActText = cappedActEntries
@@ -724,40 +756,32 @@ const promptSubmitHandler: HookHandler = (normalized) => {
     }
   }
 
-  // Lever A (UNERR_PREFIX_RELOCATE): emit ONE block ordered stable-head →
-  // boundary → volatile-tail so the cacheable leading bytes stay byte-stable
-  // turn-to-turn. Stable = fixed nudge templates + roster/catalog; volatile =
-  // resume/stitch, topic-shift, the verb-specific Path A line, and (appended by
-  // the async handler) the anchored-note recall bodies. Flag OFF → byte-identical
-  // legacy order below, so this is a pure reordering gated behind the flag.
-  if (isEnabled("UNERR_PREFIX_RELOCATE", process.cwd())) {
-    const stableHead = [stableActText, staticTail]
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-      .join("\n\n");
-    const volatileTail = [stitchPrefix, shiftPrefix, volatileActText]
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-      .join("\n");
-    // prefix_stable now measures the cacheable HEAD (what Lever A protects), not
-    // the volatile recall block the legacy async path records.
-    if (stableHead.length > 0) recordPrefixStability(process.cwd(), stableHead);
-    const ordered =
-      volatileTail.length > 0
-        ? stableHead.length > 0
-          ? `${stableHead}\n\n${PREFIX_VOLATILE_BOUNDARY}\n${volatileTail}`
-          : volatileTail
-        : stableHead;
-    if (ordered.trim().length === 0) return passthrough();
-    return enrich(ordered);
-  }
-
-  const body = `${stitchPrefix}${actBlock}${shiftPrefix}${staticTail}`;
+  // Emit ONE block ordered stable-head → boundary → volatile-tail so the
+  // cacheable leading bytes stay byte-stable turn-to-turn. Stable = fixed nudge
+  // templates + roster/catalog; volatile = resume/stitch, topic-shift, the
+  // verb-specific Path A line, and (appended by the async handler) the
+  // anchored-note recall bodies.
+  const stableHead = [stableActText, staticTail]
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .join("\n\n");
+  const volatileTail = [stitchPrefix, shiftPrefix, volatileActText]
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .join("\n");
+  // prefix_stable measures the cacheable HEAD this ordering protects.
+  if (stableHead.length > 0) recordPrefixStability(process.cwd(), stableHead);
+  const ordered =
+    volatileTail.length > 0
+      ? stableHead.length > 0
+        ? `${stableHead}\n\n${PREFIX_VOLATILE_BOUNDARY}\n${volatileTail}`
+        : volatileTail
+      : stableHead;
   // Nothing prompt-specific to inject (all one-shots spent, no recall/drift/
   // stitch, static boilerplate already emitted) → stay passthrough rather than
   // emit an empty additionalContext.
-  if (body.trim().length === 0) return passthrough();
-  return enrich(body);
+  if (ordered.trim().length === 0) return passthrough();
+  return enrich(ordered);
 };
 
 /**
@@ -827,29 +851,13 @@ const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
       });
       const block = renderRecallBlock(topNotes);
       if (block) {
-        // Lever A (UNERR_PREFIX_RELOCATE): the recall bodies are volatile, so
-        // APPEND them to the tail of the already-ordered block (whose stable head
-        // the sync handler emitted + recorded). The Moment-1 pointer stays in the
-        // stable head — it now reads "notes shown for this prompt", true whether
-        // they sit above or below — so the cacheable head is unchanged turn to
-        // turn. No re-record here: sync already recorded the head.
-        if (isEnabled("UNERR_PREFIX_RELOCATE", process.cwd())) {
-          return enrich(`${base.message}\n${block}`);
-        }
-        // Legacy path: PREPEND the recall block and record its stability. The
-        // recall block is the dynamic context unerr injects at the prompt tail
-        // every coding turn — the content most likely to bust the provider prompt
-        // cache. prefix_stable=1 when the task's top notes held steady.
-        recordPrefixStability(process.cwd(), block);
-        // T7.7 — the injected block IS Moment 1. Drop the STEP-0 recall nudge
-        // from the assembled output so the agent isn't told to re-fetch what it
-        // already has (the double-charge). Stripped ONLY here, where the
-        // replacement is present in the same response — the fallback path below
-        // keeps the nudge verbatim, so no runtime gap.
-        const deduped = base.message
-          .replace(`${MOMENT1_RECALL_NUDGE}\n`, "")
-          .replace(MOMENT1_RECALL_NUDGE, "");
-        return enrich(`${block}\n${deduped}`);
+        // The recall bodies are volatile, so APPEND them to the tail of the
+        // already-ordered block (whose stable head the sync handler emitted +
+        // recorded). The Moment-1 pointer stays in the stable head — it reads
+        // "notes shown for this prompt", true whether they sit above or below —
+        // so the cacheable head is unchanged turn to turn. No re-record here:
+        // sync already recorded the head.
+        return enrich(`${base.message}\n${block}`);
       }
     }
   } catch {

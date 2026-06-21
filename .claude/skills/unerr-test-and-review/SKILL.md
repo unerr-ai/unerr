@@ -1,9 +1,8 @@
 ---
 name: unerr-test-and-review
 description: "MANDATORY when implementing with TDD (Track A) or addressing review comments / PR feedback (Track B). Track A — STEP-1: failing test. STEP-2: minimal implementation to pass. STEP-3: refactor. Track B — STEP-1: classify EVERY review comment as ACCEPT / PUSHBACK / CLARIFY. Do NOT silently drop a comment. Absorbs the prior test-driven-development and receiving-code-review skills."
+user-invocable: false
 ---
-
-# test-and-review
 
 ## Two tracks — pick at Phase 0
 

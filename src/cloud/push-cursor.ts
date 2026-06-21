@@ -109,6 +109,13 @@ export class PushCursor {
     };
   }
 
+  /** Drop a stream's cursor entirely. Used when its per-pid segment is reaped, so
+   *  a future segment that reuses the same pid drains from the head rather than
+   *  being skipped past by a stale offset. */
+  forget(streamKey: string): void {
+    delete this.streams[streamKey];
+  }
+
   /** Record `n` permanently-rejected rows for a stream (B7 dead-letter count). */
   addDeadLetters(streamKey: string, n: number): void {
     if (n <= 0) return;

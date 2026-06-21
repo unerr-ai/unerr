@@ -1,29 +1,19 @@
 /**
- * unerr cloud — the shared wire envelope + the HR-2 detail pre-filter.
+ * unerr cloud — the client-side HR-2 detail firewall.
  *
- * Every events/trace record the C1 drainers push carries the same closed
- * envelope (`schema_version`, `repo`, `agent`, `event_id`, `ts`, `source`,
- * `session_id`, `turn`) plus an open `detail` tail. `buildEnvelope` stamps the
- * envelope; `sanitizeDetail` runs the client-side HR-2 firewall over the detail
- * tail so raw code / paths / secrets can never leave the machine. The server
- * firewall is the backstop, but pre-filtering here means a sloppy detail object
- * doesn't get the whole record rejected.
+ * Envelope stamping now lives at emit (`src/events/enqueue.ts` `stampEvent`),
+ * so this module is only the HR-2 firewall: `sanitizeDetail` strips raw code /
+ * paths / secrets, `hashEntityKey` turns a real entity key into an opaque id
+ * that survives the firewall. Under the sanitize-at-drain model the local
+ * `.unerr/events` JSONL keeps the full detail (command / file / tee_file — what
+ * the dashboard reads), and the unified ingest drainer runs `sanitizeDetail`
+ * over each non-fleet row's detail just before push, so those path-ish keys
+ * never leave the machine. The server firewall is the backstop.
  *
- * See `unerr-web-service/docs/CLI_API.md` (ingest/events + trace streams) for
- * the contract this mirrors.
+ * // @sem domain=cloud role=identity
  */
 
 import { createHash } from "node:crypto";
-import { INGEST_SCHEMA_VERSION } from "@unerr-ai/contracts/events";
-import { TRACE_SCHEMA_VERSION as CONTRACT_TRACE_SCHEMA_VERSION } from "@unerr-ai/contracts/traces";
-
-/** events schema version — sourced from `@unerr-ai/contracts/events`
- *  (`INGEST_SCHEMA_VERSION`, currently `1-0-5`) so the CLI and web-service can
- *  never disagree. The SchemaVer history lives in the contract module. */
-export const EVENTS_SCHEMA_VERSION = INGEST_SCHEMA_VERSION;
-/** trace-stream schema version (ledger/router/transcripts) — sourced from
- *  `@unerr-ai/contracts/traces` (`TRACE_SCHEMA_VERSION`). */
-export const TRACE_SCHEMA_VERSION = CONTRACT_TRACE_SCHEMA_VERSION;
 
 /** Exact, case-insensitive key denylist — a detail key matching one is dropped. */
 const DENYLIST = new Set<string>([
@@ -45,6 +35,7 @@ const DENYLIST = new Set<string>([
   "entity_key",
   "command",
   "cmd",
+  "tee_file",
   "prompt",
   "prompts",
   "text",
@@ -69,78 +60,13 @@ const MAX_STRING_LEN = 512;
 const MAX_KEYS = 64;
 const MAX_DEPTH = 4;
 
-/** The closed envelope fields shared by every events/trace record. */
-export interface Envelope {
-  schema_version: string;
-  repo: string;
-  agent?: string;
-  event_id: string;
-  ts: string;
-  source: string;
-  session_id?: string;
-  native_session_id?: string;
-  turn?: number;
-  tool_use_id?: string;
-  detail: Record<string, unknown>;
-}
-
-/** Inputs to {@link buildEnvelope} — the per-row fields a drainer resolves. */
-export interface EnvelopeInput {
-  schemaVersion: string;
-  repo: string;
-  agent?: string;
-  eventId: string;
-  ts: string;
-  source: string;
-  sessionId?: string;
-  /** The agent's own conversation id (Claude session_id / Cursor
-   *  conversation_id). The PRIMARY grouping key — group by
-   *  coalesce(native_session_id, session_id). Omitted when the agent never
-   *  exposed one. */
-  nativeSessionId?: string | null;
-  turn?: number;
-  /** The agent's id for the single tool call this event belongs to, when known.
-   *  Pins the event to one exact invocation (finer than turn). */
-  toolUseId?: string | null;
-  /** The pre-sanitize detail tail; passed through {@link sanitizeDetail}. */
-  detail: Record<string, unknown>;
-}
-
-/**
- * Build a wire envelope: stamp the closed fields and run the detail tail
- * through {@link sanitizeDetail}. `agent`, `session_id`, and `turn` are omitted
- * when absent (the server treats them as optional). `type` is added by the
- * caller drainer since it is stream-specific.
- *
- * // @sem domain=cloud role=drainer
- */
-export function buildEnvelope(input: EnvelopeInput): Envelope {
-  const env: Envelope = {
-    schema_version: input.schemaVersion,
-    repo: input.repo,
-    event_id: input.eventId,
-    ts: input.ts,
-    source: input.source,
-    detail: sanitizeDetail(input.detail),
-  };
-  if (input.agent !== undefined && input.agent !== "") env.agent = input.agent;
-  if (input.sessionId !== undefined && input.sessionId !== "")
-    env.session_id = input.sessionId;
-  if (input.nativeSessionId != null && input.nativeSessionId !== "")
-    env.native_session_id = input.nativeSessionId;
-  if (input.turn !== undefined) env.turn = input.turn;
-  if (input.toolUseId != null && input.toolUseId !== "")
-    env.tool_use_id = input.toolUseId;
-  return env;
-}
-
 /**
  * The client-side HR-2 firewall for a detail tail: drop denylisted keys
  * (case-insensitive), clip strings to 512 chars, cap the whole object at 64
  * keys and depth 4. Returns a fresh object — the input is never mutated.
  * Non-plain values (functions, symbols) are dropped; numbers/booleans/null pass.
  *
- * // @sem domain=cloud role=drainer
+ * // @sem domain=cloud role=identity
  */
 export function sanitizeDetail(
   obj: Record<string, unknown>

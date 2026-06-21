@@ -1,7 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // emitRepoRemoved does a one-shot cloud drain after spooling. Stub the reporter
@@ -16,7 +15,10 @@ vi.mock("../daemon/push-reporter.js", () => ({
 }));
 
 import { emitRepoRemoved } from "../cloud/repo-removal.js";
-import { openMetricsStore } from "../tracking/metrics-store.js";
+import {
+  type RepoActivityEventRow,
+  openMetricsStore,
+} from "../tracking/metrics-store.js";
 import {
   emitRepoActivity,
   recordRepoActivity,
@@ -121,27 +123,27 @@ describe("buildRepoProfile", () => {
   });
 });
 
-describe("recordRepoActivity / emitRepoActivity (metrics.db round-trip)", () => {
+describe("recordRepoActivity / emitRepoActivity (JSONL round-trip)", () => {
+  let root: string;
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "repo-activity-"));
+    // MetricsStore writes its JSONL store to dirname(dir)/.unerr/events, so the
+    // store dir must be nested as `<uniqueRoot>/.unerr` to keep each test's
+    // repo_activity rows isolated from siblings sharing os.tmpdir().
+    root = mkdtempSync(join(tmpdir(), "repo-activity-"));
+    dir = join(root, ".unerr");
+    mkdirSync(dir, { recursive: true });
   });
 
   afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
 
-  /** Read one row back through a fresh read-only connection (db is private). */
-  function readRow(id: number): Record<string, unknown> {
-    const db = new Database(join(dir, "metrics.db"), { readonly: true });
-    try {
-      return db
-        .prepare("SELECT * FROM repo_activity_events WHERE id = ?")
-        .get(id) as Record<string, unknown>;
-    } finally {
-      db.close();
-    }
+  /** Read the latest repo_activity row back through the JSONL store. */
+  function readRow(): RepoActivityEventRow {
+    const rows = openMetricsStore(dir).recentRepoActivity(1);
+    return rows[0] as RepoActivityEventRow;
   }
 
   it("spools a row and returns a non-zero rowid", () => {
@@ -152,7 +154,7 @@ describe("recordRepoActivity / emitRepoActivity (metrics.db round-trip)", () => 
     });
     expect(id).toBeGreaterThan(0);
 
-    const row = readRow(id);
+    const row = readRow();
     expect(row.action).toBe("removed");
     expect(row.agent).toBe("claude-code");
     expect(row.session_id).toBe("sess_x");
@@ -172,7 +174,7 @@ describe("recordRepoActivity / emitRepoActivity (metrics.db round-trip)", () => 
     });
     expect(id).toBeGreaterThan(0);
 
-    const row = readRow(id);
+    const row = readRow();
     expect(row.action).toBe("started");
     const profile = JSON.parse(row.profile as string);
     expect(profile.entity_count).toBe(42);
@@ -188,7 +190,7 @@ describe("recordRepoActivity / emitRepoActivity (metrics.db round-trip)", () => 
       graph,
       context: { sessionId: "sess_z", agent: "cursor" },
     });
-    const row = readRow(id);
+    const row = readRow();
     expect(row.action).toBe("agent_attached");
     expect(row.profile).toBeNull();
   });
@@ -210,21 +212,13 @@ describe("emitRepoRemoved (spool + final drain)", () => {
     // still be spooled so it ships on the next login / drain.
     await emitRepoRemoved(repoDir);
 
-    const db = new Database(join(repoDir, ".unerr", "metrics.db"), {
-      readonly: true,
-    });
-    try {
-      const row = db
-        .prepare(
-          "SELECT * FROM repo_activity_events WHERE action = 'removed' ORDER BY id DESC LIMIT 1"
-        )
-        .get() as Record<string, unknown> | undefined;
-      expect(row).toBeDefined();
-      expect(row?.action).toBe("removed");
-      expect(row?.profile).toBeNull();
-    } finally {
-      db.close();
-    }
+    const store = openMetricsStore(join(repoDir, ".unerr"));
+    const row = store
+      .recentRepoActivity(10)
+      .find((r) => r.action === "removed");
+    expect(row).toBeDefined();
+    expect(row?.action).toBe("removed");
+    expect(row?.profile).toBeNull();
   });
 
   it("never throws when the repo .unerr is already gone", async () => {

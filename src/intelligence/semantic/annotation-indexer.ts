@@ -20,6 +20,8 @@
  */
 
 import { createHash } from "node:crypto";
+import { hashEntityKey } from "../../cloud/drainers/envelope.js";
+import { emit } from "../../events/enqueue.js";
 import { applyAnnotationGates } from "./annotation-gates.js";
 import type { ParsedDocComment } from "./docstring-extractor.js";
 import {
@@ -298,6 +300,26 @@ export async function upsertAnnotations(
         r.comment_hash !== "" &&
         r.comment_hash === prior.comment_hash &&
         r.content_hash !== prior.content_hash;
+      if (isCommentDrift) {
+        // L1 — mirror the comment-drift detection into the unified event store
+        // so `unerrd` drains it as a `drift` event. HR-2: the entity key is
+        // HASHED into `anchor` (an "e:<entity>" note address; the sanitizer
+        // does NOT auto-strip that key name). `client_drift_id` is stable per
+        // (entity, new content_hash) so re-detecting the same episode is
+        // idempotent. emit() is fire-and-forget (no-op without ambient context).
+        const anchor = hashEntityKey(`e:${r.entity_key}`);
+        if (anchor !== undefined) {
+          emit({
+            type: "drift",
+            detail: {
+              client_drift_id: `comment_drift:${anchor}:${r.content_hash}`,
+              anchor,
+              drift_kind: "comment_drift",
+              detected_at: computedAt,
+            },
+          });
+        }
+      }
       return [
         r.entity_key,
         r.summary,

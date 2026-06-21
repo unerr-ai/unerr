@@ -22,6 +22,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { emit } from "../events/enqueue.js";
 import { redactArgs } from "./redactor.js";
 import { type TurnConfidence, TurnSegmenter } from "./turn-segmenter.js";
 
@@ -314,6 +315,18 @@ export class ShadowLedger {
         `[unerr:ledger] WARN: Failed to append entry: ${err instanceof Error ? err.message : String(err)}\n`
       );
     }
+
+    // L1 — mirror the durable tool-call row into the unified per-repo event
+    // store so `unerrd` drains it to the cloud (restores tool-call telemetry the
+    // deleted per-type ledger drainer used to provide). Metadata only: the tool
+    // NAME, never the redacted arg/result bodies — HR-2 forbids raw paths /
+    // commands / entity names / arg values in `detail`. emit() is a fire-and-
+    // forget no-op when no process context is configured, so it never throws.
+    emit({
+      type: "ledger",
+      detail: { tool: entry.tool },
+      ...(entry.turn_id ? { turn_id: entry.turn_id } : {}),
+    });
   }
 
   /**

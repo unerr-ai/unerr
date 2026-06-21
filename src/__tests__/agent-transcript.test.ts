@@ -79,35 +79,35 @@ describe("readAgentTranscriptsFlag", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("defaults to false when config.json is absent", () => {
-    expect(readAgentTranscriptsFlag(cwd)).toBe(false);
+  it("defaults to true when config.json is absent (opt-out)", () => {
+    expect(readAgentTranscriptsFlag(cwd)).toBe(true);
   });
 
-  it("defaults to false when the flag is unset", () => {
+  it("defaults to true when the flag is unset", () => {
     writeFileSync(
       join(cwd, ".unerr", "config.json"),
       JSON.stringify({ capture_prompts: true })
     );
-    expect(readAgentTranscriptsFlag(cwd)).toBe(false);
+    expect(readAgentTranscriptsFlag(cwd)).toBe(true);
   });
 
-  it("is true only when set to boolean true (not the string 'true')", () => {
+  it("is false only when set to boolean false (not the string 'false')", () => {
     writeFileSync(
       join(cwd, ".unerr", "config.json"),
-      JSON.stringify({ read_agent_transcripts: true })
+      JSON.stringify({ read_agent_transcripts: false })
+    );
+    expect(readAgentTranscriptsFlag(cwd)).toBe(false);
+
+    writeFileSync(
+      join(cwd, ".unerr", "config.json"),
+      JSON.stringify({ read_agent_transcripts: "false" })
     );
     expect(readAgentTranscriptsFlag(cwd)).toBe(true);
-
-    writeFileSync(
-      join(cwd, ".unerr", "config.json"),
-      JSON.stringify({ read_agent_transcripts: "true" })
-    );
-    expect(readAgentTranscriptsFlag(cwd)).toBe(false);
   });
 
-  it("defaults to false on malformed config.json", () => {
+  it("defaults to true on malformed config.json", () => {
     writeFileSync(join(cwd, ".unerr", "config.json"), "{not valid json");
-    expect(readAgentTranscriptsFlag(cwd)).toBe(false);
+    expect(readAgentTranscriptsFlag(cwd)).toBe(true);
   });
 });
 

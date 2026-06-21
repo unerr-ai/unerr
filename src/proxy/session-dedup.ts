@@ -3,21 +3,19 @@
  * delivered and filters out repeats.
  *
  * Two tiers:
- *   - In-session (always on): an in-memory Map, bounded to MAX_TRACKED_KEYS.
- *     Within a session, repeated context has near-zero value.
- *   - Cross-session (Lever D, `UNERR_XSESSION_CACHE`, TOKEN_ECONOMICS §11.4):
- *     the delivered set is seeded from / persisted to
- *     `.unerr/state/xsession-dedup.json`, so context delivered in a prior
- *     session within the warm window is suppressed instead of re-injected.
- *     This is SUPPRESSION ONLY — it never adds a delivery channel (the §11.6
- *     invariant). Entries older than the warm TTL (the cold tier) are dropped
- *     on load, so an anchored note re-surfaces after the window even if it was
- *     seen before. Default OFF → behaves exactly like the in-memory-only tier.
+ *   - In-session: an in-memory Map, bounded to MAX_TRACKED_KEYS. Within a
+ *     session, repeated context has near-zero value.
+ *   - Cross-session: when a repo root (`cwd`) is supplied, the delivered set is
+ *     seeded from / persisted to `.unerr/state/xsession-dedup.json`, so context
+ *     delivered in a prior session within the warm window is suppressed instead
+ *     of re-injected. This is SUPPRESSION ONLY — it never adds a delivery
+ *     channel (the §11.6 invariant). Entries older than the warm TTL (the cold
+ *     tier) are dropped on load, so an anchored note re-surfaces after the
+ *     window even if it was seen before.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { isEnabled } from "../config/feature-flags.js";
 
 const MAX_TRACKED_KEYS = 10_000;
 
@@ -37,8 +35,8 @@ interface PersistedDedupFile {
 
 export interface SessionDedupOptions {
   /**
-   * Repo root. When set AND `UNERR_XSESSION_CACHE` is on, the dedup set is
-   * seeded from and persisted to `.unerr/state/xsession-dedup.json`.
+   * Repo root. When set, the dedup set is seeded from and persisted to
+   * `.unerr/state/xsession-dedup.json` (cross-session suppression).
    */
   cwd?: string;
   /** Clock injection for deterministic tests. Defaults to `Date.now`. */
@@ -111,29 +109,25 @@ function pruneCold(file: PersistedDedupFile, now: number): PersistedDedupFile {
 /**
  * Direct cross-session "was this delivered?" probe for short-lived hook
  * subprocesses that cannot hold the in-memory dedup (e.g. SessionStart).
- * Returns false when `UNERR_XSESSION_CACHE` is off, so callers behave exactly
- * as before when the lever is disabled.
  */
 export function xsessionWasDelivered(
   cwd: string,
   entityKey: string,
   contextKey: string
 ): boolean {
-  if (!isEnabled("UNERR_XSESSION_CACHE", cwd)) return false;
   const file = pruneCold(readPersisted(cwd), Date.now());
   return file.entities[entityKey]?.keys.includes(contextKey) ?? false;
 }
 
 /**
- * Direct cross-session record for short-lived hook subprocesses. No-op when
- * `UNERR_XSESSION_CACHE` is off. Read-modify-write of the per-repo file.
+ * Direct cross-session record for short-lived hook subprocesses.
+ * Read-modify-write of the per-repo file.
  */
 export function xsessionRecordDelivered(
   cwd: string,
   entityKey: string,
   contextKeys: string[]
 ): void {
-  if (!isEnabled("UNERR_XSESSION_CACHE", cwd)) return;
   if (contextKeys.length === 0) return;
   const now = Date.now();
   const file = pruneCold(readPersisted(cwd), now);
@@ -153,8 +147,7 @@ export function createSessionDedup(
 ): SessionDedup {
   const now = opts.now ?? (() => Date.now());
   const cwd = opts.cwd;
-  const persistent =
-    cwd !== undefined && isEnabled("UNERR_XSESSION_CACHE", cwd);
+  const persistent = cwd !== undefined;
 
   const delivered = new Map<string, Set<string>>();
   // Per-entity last-delivery timestamp — tracked only in the persistent tier so

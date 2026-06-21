@@ -180,22 +180,35 @@ export function upsertSessionRecord(
 }
 
 /**
- * The native session id for an unerr per-bridge session id, via the shared
+ * The full session record for an unerr per-bridge session id, via the shared
  * file. Lets a drain-time consumer that only has the unerr `session_id` (the
- * ledger / router streams, whose source rows never learned the native id)
- * attach the PRIMARY grouping key so every stream groups by
- * `coalesce(native_session_id, unerr_session_id)`. Returns null when no record
- * maps that unerr id or the record never captured a native id.
+ * ledger / router streams, whose source rows never learned the native id or
+ * agent) resolve the whole identity block — `native_session_id` (the PRIMARY
+ * grouping key) and `agent` — in one read. Returns null when no record maps
+ * that unerr id.
+ */
+export function recordForUnerrId(
+  unerrDir: string,
+  unerrSessionId: string
+): SessionRecord | null {
+  return (
+    readSessionRecords(unerrDir).find(
+      (r) => r.unerr_session_id === unerrSessionId
+    ) ?? null
+  );
+}
+
+/**
+ * The native session id for an unerr per-bridge session id — a thin convenience
+ * over {@link recordForUnerrId} that returns just the `native_session_id` (the
+ * PRIMARY grouping key, `coalesce(native_session_id, unerr_session_id)`). Null
+ * when no record maps that unerr id or the record never captured a native id.
  */
 export function nativeSessionIdForUnerrId(
   unerrDir: string,
   unerrSessionId: string
 ): string | null {
-  return (
-    readSessionRecords(unerrDir).find(
-      (r) => r.unerr_session_id === unerrSessionId
-    )?.native_session_id ?? null
-  );
+  return recordForUnerrId(unerrDir, unerrSessionId)?.native_session_id ?? null;
 }
 
 /** Find a record by the agent's own native id. */

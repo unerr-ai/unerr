@@ -25,16 +25,22 @@ import {
 const SESSION = "sess-rev";
 
 describe("reversibility surfacing — turn line + dashboard + footprint", () => {
+  let root: string;
   let unerrDir: string;
 
   beforeEach(() => {
-    unerrDir = join(os.tmpdir(), `unerr-rev-${Date.now()}-${Math.random()}`);
+    // MetricsStore writes its JSONL store to dirname(unerrDir)/.unerr/events.
+    // Nest unerrDir as `<uniqueRoot>/.unerr` so each test's repoRoot — and its
+    // event store — is isolated; a bare tmp dir collapses repoRoot to the shared
+    // os.tmpdir() and bleeds compression rows across tests.
+    root = join(os.tmpdir(), `unerr-rev-${Date.now()}-${Math.random()}`);
+    unerrDir = join(root, ".unerr");
     mkdirSync(unerrDir, { recursive: true });
   });
 
   afterEach(() => {
     closeMetricsStore(unerrDir);
-    rmSync(unerrDir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
 
   /** Seed one user-prompt boundary so the per-turn slice resolves by timestamp. */

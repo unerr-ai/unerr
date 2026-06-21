@@ -1,6 +1,7 @@
 /**
  * Spool repo-lifecycle moments (added / removed / started / stopped /
- * agent_attached) into the per-repo metrics.db. The events drainer pushes them
+ * agent_attached) into the per-repo `.unerr/events/` JSONL store. The events
+ * drainer pushes them
  * to the cloud as `repo_activity` events — a true timeline of a repo's life
  * with unerr, including `removed`, which the fleet snapshot can never express.
  *

@@ -53,10 +53,10 @@ describe("token-flow", () => {
   // ── Writer Tests ──────────────────────────────────────────────────
 
   describe("TokenFlowWriter", () => {
-    it("creates metrics.db on first write", () => {
+    it("persists a token-flow event to JSONL on first write", () => {
       const writer = new TokenFlowWriter(unerrDir, "test-session-001");
       writer.record(makeInput());
-      expect(existsSync(dbPath)).toBe(true);
+      expect(readTokenFlowEvents(unerrDir)).toHaveLength(1);
     });
 
     it("writes events with auto-populated fields", () => {

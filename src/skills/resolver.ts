@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { getAgent } from "../config/agent-registry.js";
+import { getAgent, supportsDelegation } from "../config/agent-registry.js";
 import type { Skill } from "../schemas/index.js";
 import type { IdeType } from "../utils/detect.js";
 import { BUNDLED_SKILLS, LOCAL_SKILLS } from "./local-pack.js";
@@ -468,7 +468,15 @@ export function scanSkillDirectory(dir: string): ResolvedSkill[] {
   const skills: ResolvedSkill[] = [];
 
   try {
-    const files = readdirSync(dir).filter((f) => f.endsWith(".md"));
+    // Tier 2 is for USER-authored skills only. The `unerr-` prefix is reserved
+    // for unerr's own skills: an agent whose fallback skill dir IS this Tier-2
+    // dir (codex / cline → `.unerr/skills/` via getSkillDir's default case)
+    // writes `unerr-*.md` here. Re-ingesting those would double-install every
+    // bundled skill AND resurrect host-filtered skills (e.g. `delegate`) on
+    // hosts that exclude them. Skip the reserved namespace.
+    const files = readdirSync(dir).filter(
+      (f) => f.endsWith(".md") && !f.startsWith("unerr-")
+    );
 
     for (const file of files) {
       try {
@@ -533,8 +541,15 @@ export async function resolveAndInstallSkills(opts: {
   // Tier 2: Local directories
   for (const s of loadLocalDirectorySkills(opts.cwd)) byName.set(s.name, s);
 
-  // Install resolved skills into IDE directory
-  const skills = Array.from(byName.values());
+  // Install resolved skills into IDE directory. The `delegate` skill only makes
+  // sense on a delegation-capable host (claude-code / codex) — on any other host
+  // it self-gates to a no-op, so don't install an always-applied rule it can
+  // never act on (avoids a constant context cost on e.g. Cursor).
+  const skills = Array.from(byName.values()).filter(
+    (s) =>
+      s.name.replace(/^unerr-/, "") !== "delegate" ||
+      supportsDelegation(opts.ide)
+  );
   const { dir, ext, dirPerSkill } = getSkillDir(opts.ide, opts.cwd);
   const installed: string[] = [];
   const written: string[] = [];
@@ -578,8 +593,14 @@ export async function ensureSkillsPresent(opts: {
 }): Promise<number> {
   const { dir, ext, dirPerSkill } = getSkillDir(opts.ide, opts.cwd);
   const reserved = getReservedInstructionBasename(opts.ide, opts.cwd);
+  // The host-aware expected set must mirror the install filter: `delegate` is not
+  // installed on a non-delegating host, so it must not be expected here either —
+  // otherwise the self-heal would reinstall on every boot.
+  const expectedSkills = LOCAL_SKILLS.filter(
+    (s) => s.id !== "delegate" || supportsDelegation(opts.ide)
+  );
   const expectedNames = new Set(
-    LOCAL_SKILLS.map((s) => `unerr-${s.id.replace(/^unerr-/, "")}`)
+    expectedSkills.map((s) => `unerr-${s.id.replace(/^unerr-/, "")}`)
   );
 
   if (existsSync(dir)) {
@@ -599,7 +620,7 @@ export async function ensureSkillsPresent(opts: {
           .map((f) => f.replace(ext, ""));
       }
       const hasLegacy = presentNames.some((n) => !expectedNames.has(n));
-      const hasAllExpected = LOCAL_SKILLS.every((s) =>
+      const hasAllExpected = expectedSkills.every((s) =>
         presentNames.includes(`unerr-${s.id.replace(/^unerr-/, "")}`)
       );
       if (hasAllExpected && !hasLegacy) return 0; // Fully current.

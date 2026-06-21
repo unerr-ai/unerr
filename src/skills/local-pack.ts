@@ -26,8 +26,7 @@
  * by src/skills/resolver.ts:formatClaudeCodeSkill.
  *
  * Skill instruction bodies are the single source in `src/content/skills.json`
- * (ids `skill:<id>`); `loadContent` returns the raw text, or the
- * LLMLingua-compressed variant when `UNERR_LLMLINGUA` is on (Lever B, §11.3).
+ * (ids `skill:<id>`); `loadContent` returns the raw text.
  */
 
 import { loadContent } from "../content/loader.js";
@@ -260,18 +259,17 @@ export const REVIEW_SKILL: SkillDefinition = {
 // ────────────────────────────────────────────────────────────────────────────
 // Skill 9 — Delegate (agent-requested). Routes a delegable task (tests / docs /
 // mechanical refactor / lint) to a cheaper model in the SAME host, then reviews
-// the diff. Lever C (TOKEN_ECONOMICS §11.2). Only fires when the host supports
-// delegation (claude-code / codex) AND the `UNERR_DELEGATION` flag is on; on any
-// other host or with the flag off it is a no-op and the normal skill runs.
+// the diff. Only fires when the host supports delegation (claude-code / codex);
+// on any other host it is a no-op and the normal skill runs.
 // ────────────────────────────────────────────────────────────────────────────
 
 export const DELEGATE_SKILL: SkillDefinition = {
   id: "delegate",
   name: "Delegate (cheaper-model handoff)",
   description:
-    "Use when the task is a delegable class — add/improve tests, docstring + @sem maintenance, mechanical refactor (rename/extract/inline/move), or lint/format fixup — AND the host supports delegation (Claude Code / Codex) AND UNERR_DELEGATION is on. Builds a recon brief, hands the edit to a cheaper model (the unerr-junior sub-agent / `codex exec -m <mini>`), then reviews the diff. The senior NEVER enumerates the edit sites — the graph does. If the host can't delegate or the flag is off, skip this skill and run the normal lifecycle skill.",
+    "Use when the task is a delegable class — add/improve tests, docstring + @sem maintenance, mechanical refactor (rename/extract/inline/move), or lint/format fixup — AND the host supports delegation (Claude Code / Codex). Builds a recon brief, hands the edit to a cheaper model (the unerr-junior sub-agent / `codex exec -m <mini>`), then reviews the diff. The senior NEVER enumerates the edit sites — the graph does. If the host can't delegate, skip this skill and run the normal lifecycle skill.",
   whenToUse:
-    "A delegable task on a delegation-capable host with the flag on: add tests, write a unit/integration test, improve test coverage, add/update a docstring or @sem comment, rename/extract/inline/move a symbol, fix lint/format. Also when a hook emits `ur|act unerr-delegate`. Not for design, new features, or bug root-causing — those stay with the senior.",
+    "A delegable task on a delegation-capable host: add tests, write a unit/integration test, improve test coverage, add/update a docstring or @sem comment, rename/extract/inline/move a symbol, fix lint/format. Also when a hook emits `ur|act unerr-delegate`. Not for design, new features, or bug root-causing — those stay with the senior.",
   allowedTools: "*",
   instructions: loadContent("skill:delegate"),
   category: "workflow",

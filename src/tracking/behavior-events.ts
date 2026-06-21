@@ -53,8 +53,8 @@ export type BehaviorEventType =
   | "fact_recalled"
   /** A detected project convention was applied to new code in this turn. */
   | "convention_applied"
-  /** A cache hit served the request (web fetch diff-cache, file outline
-   *  cache, search index cache). */
+  /** A cache hit served the request (file outline cache, search index
+   *  cache). */
   | "cache_hit"
   /** Session-resume reused work from a prior session (facts, conventions,
    *  blockers carried over) instead of re-deriving from scratch. */

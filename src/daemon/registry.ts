@@ -297,6 +297,22 @@ export function touchRepoActivity(rawPath: string, isoTimestamp: string): void {
   writeRegistry(reg);
 }
 
+/**
+ * Stamp a repo's `lastStarted` (the source for fleet `last_used_at`). Call when
+ * a proxy begins serving via ANY path — a fresh fork OR adoption of an
+ * already-live proxy. The adopt path historically skipped this, leaving
+ * `last_used_at` null on every repo a long-lived daemon adopted rather than
+ * forked. No-op when the repo isn't registered.
+ */
+export function touchRepoStarted(rawPath: string, isoTimestamp: string): void {
+  const absPath = resolve(expandHome(rawPath));
+  const reg = readRegistry();
+  const entry = reg.repos.find((r) => r.path === absPath);
+  if (!entry) return;
+  entry.lastStarted = isoTimestamp;
+  writeRegistry(reg);
+}
+
 // ── Parent / child detection ────────────────────────────────────
 
 /**

@@ -19,6 +19,7 @@
  * agents into failed-call retry loops (raised 2026-05).
  */
 
+import { emit } from "../../events/enqueue.js";
 import { parseDelegationIntent } from "../../intelligence/delegation.js";
 import { updateNudgeState } from "../../proxy/nudge-state.js";
 import type { CozoTimelineStore } from "../../timeline/timeline-store.js";
@@ -168,6 +169,28 @@ export async function handleMarkerCall(
     );
     // Continue: ledger row already persisted, miners can still recover from it.
   }
+
+  // L1 — mirror the marker into the unified per-repo event store as one
+  // contract-shaped `timeline` event so `unerrd` drains it to the cloud. The
+  // marker kind is the tool name without its `mark_` prefix (intent/decision/
+  // blocker/resolution), each a valid TIMELINE_KINDS member. Marker prose is the
+  // developer's own words — NOT a path — so `label`/`note_text` are not gated;
+  // `label` is the prose truncated to the contract's 256-char ceiling, and
+  // `note_text` carries the full redacted prose (capped at SYNC_MAX_FACT_TEXT,
+  // already enforced by the 1400-char input cap above). emit() is a fire-and-
+  // forget no-op when no process context is configured, so it never throws.
+  const kind = toolName.slice("mark_".length);
+  emit({
+    type: "timeline",
+    detail: {
+      client_entry_id: entry.id,
+      kind,
+      label:
+        redactedText.length > 256 ? redactedText.slice(0, 256) : redactedText,
+      note_text: redactedText,
+    },
+    ...(entry.turn_id ? { turn_id: entry.turn_id } : {}),
+  });
 
   // Compliance telemetry: pair every successful mark_intent with the
   // required-count tick the prompt hook emits (#109). Best-effort —

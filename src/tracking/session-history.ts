@@ -1,10 +1,10 @@
 /**
- * Session History Persistence — one row per session in
- * `.unerr/metrics.db` (`session_history`).
+ * Session History Persistence — one event per session in the `.unerr/events/`
+ * JSONL store (the `session_history` stream).
  *
- * T.8: Was append-only JSONL at `.unerr/state/session-history.jsonl`;
- * migrated to SQLite for cross-session aggregations used by `unerr stats`.
- * Same wire types — the table is a 1:1 mirror of the old record shape.
+ * Cross-session aggregations used by `unerr stats` read + reduce these events.
+ * Same wire types — the event detail is a 1:1 mirror of the original record
+ * shape.
  */
 
 import { type SessionHistoryRow, openMetricsStore } from "./metrics-store.js";

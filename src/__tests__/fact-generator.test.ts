@@ -86,16 +86,21 @@ function seedSession(unerrDir: string, record: SessionSummaryRecord): void {
 describe("fact-generator", () => {
   let db: CozoDb;
   let store: TemporalFactStore;
+  let root: string;
   let testDir: string;
 
   beforeEach(async () => {
     db = await createTestDb();
     await initFactsSchema(db);
     store = TemporalFactStore.fromDb(db);
-    testDir = join(
+    // Nest the unerr dir under a unique parent so MetricsStore's
+    // `repoRoot = dirname(unerrDir)` resolves to a per-test path, not the
+    // shared os.tmpdir() — otherwise session rows bleed across tests/runs.
+    root = join(
       tmpdir(),
       `unerr-factgen-${Date.now()}-${Math.random().toString(36).slice(2)}`
     );
+    testDir = join(root, ".unerr");
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -104,7 +109,7 @@ describe("fact-generator", () => {
     // singleton doesn't hand a later test a handle to a deleted DB.
     closeMetricsStore(testDir);
     try {
-      rmSync(testDir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
     } catch {
       // best-effort
     }

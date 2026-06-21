@@ -32,6 +32,7 @@ import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 
+import { emit } from "../events/enqueue.js";
 import { countTokens } from "./tool-budget.js";
 
 // ── Record shape ─────────────────────────────────────────────────
@@ -171,6 +172,13 @@ export class RouterTelemetryRecorder {
     } catch (err) {
       onError?.(err);
     }
+
+    // Also emit a contract-shaped `router` event into the unified per-repo
+    // event store so `unerrd` drains routing telemetry to the cloud. Only the
+    // outcome maps to an allowed router key (`reason`, a short coded label);
+    // tokens/latency/unlocks stay in the local file (HR-2: labels + numbers
+    // only, no free text). emit() is non-throwing and a no-op when unconfigured.
+    emit({ type: "router", detail: { reason: record.outcome } });
   }
 
   /**

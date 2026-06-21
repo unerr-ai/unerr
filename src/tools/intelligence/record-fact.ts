@@ -9,6 +9,9 @@
  * It's a single atomic insert — no lock contention risk.
  */
 
+import { hashEntityKey } from "../../cloud/drainers/envelope.js";
+import { canSyncRecall } from "../../cloud/entitlements.js";
+import { emit } from "../../events/enqueue.js";
 import type {
   CreateFactInput,
   TemporalFactStore,
@@ -69,6 +72,31 @@ export async function executeRecordFact(
   };
 
   const { fact_id, deduplicated } = await factStore.createFact(input);
+
+  // L1 — mirror the durable fact write into the unified per-repo event store so
+  // `unerrd` drains it to the cloud. HR-2: never put the raw scope (a path /
+  // entity key) in `detail` — hash it to a 16-hex `anchor`. The full note prose
+  // (`fact_text`) is a paid recall feature, so it ships ONLY when canSyncRecall;
+  // the create/reinforce signal itself is unconditional. emit() is a fire-and-
+  // forget no-op when no process context is configured, so it never throws.
+  const anchor = hashEntityKey(input.scope);
+  // Map the project fact_type onto the note model the cloud facts table uses: a
+  // 'convention' fact is a convention note (kind "cnv"); everything else is a
+  // plain fact (kind "fct"). Polarity: a 'negative' fact is a "don't" (-), all
+  // others neutral (~). Only a create carries kind/polarity; reinforce just bumps.
+  const factKind = input.fact_type === "convention" ? "cnv" : "fct";
+  const factPolarity = input.fact_type === "negative" ? "-" : "~";
+  emit({
+    type: "fact",
+    detail: {
+      op: deduplicated ? "reinforce" : "create",
+      client_fact_id: fact_id,
+      ...(anchor ? { anchor } : {}),
+      ...(deduplicated ? {} : { kind: factKind, polarity: factPolarity }),
+      ...(canSyncRecall() ? { fact_text: input.content } : {}),
+    },
+    ...(sessionId ? { session_id: sessionId } : {}),
+  });
 
   // No echo of the stored content on the wire — the agent already holds
   // `content` in its call args; echoing it back is pure token waste.

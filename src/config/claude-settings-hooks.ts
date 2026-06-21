@@ -68,7 +68,7 @@ function resolveUnerrBinary(): string {
 
 /** Cached resolved binary path (computed once per process). */
 let _resolvedBinary: string | undefined;
-function getUnerrBinary(): string {
+export function getUnerrBinary(): string {
   if (_resolvedBinary === undefined) {
     _resolvedBinary = resolveUnerrBinary();
   }

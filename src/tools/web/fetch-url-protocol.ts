@@ -10,14 +10,6 @@ import { type ChallengeDetection, detectChallenge } from "./anti-bot.js";
 import { rankPassagesByPrompt } from "./bm25-rank.js";
 import { safeCompressionRatio } from "./compression-ratio.js";
 import {
-  bumpCacheHit,
-  hashHtml,
-  lookupFetchCache,
-  storeFetchCache,
-  storeNegativeFetchCache,
-  summarizeMarkdownDiff,
-} from "./diff-cache.js";
-import {
   type ExtractedMeta,
   extractMainContent,
   extractMeta,
@@ -39,13 +31,6 @@ export interface FetchUrlArgs {
   offset?: number;
   limit?: number;
   token_budget?: number;
-  /**
-   * When true, skip the stale-while-revalidate shortcut even if a fresh cache
-   * entry exists. Use this when the caller knows the page changed and wants
-   * an authoritative re-fetch. Negative-cache short-circuit is still honored
-   * (a host that was blocked stays blocked until its negative TTL elapses).
-   */
-  refresh?: boolean;
 }
 
 export interface FetchUrlOk {
@@ -65,7 +50,7 @@ export interface FetchUrlOk {
   og_type: string | null;
   site_name: string | null;
   favicon: string | null;
-  extractor: "defuddle" | "readability" | "raw-body" | "cache";
+  extractor: "defuddle" | "readability" | "raw-body";
   word_count: number;
   raw_bytes: number;
   extracted_bytes: number;
@@ -332,26 +317,8 @@ export async function runFetchUrl(
   // Look up the host rule against the requested URL so behavior overrides
   // (acceptLanguage) can apply on the first request. After the fetch we
   // re-resolve against final_url in case redirects landed elsewhere — the
-  // post-redirect rule wins for extractor + cache + playwright decisions.
+  // post-redirect rule wins for extractor + playwright decisions.
   const initialRule = lookupHostRule(url);
-
-  // Stale-while-revalidate + negative-cache short-circuit. Try the cache
-  // BEFORE the network when the host rule hasn't opted out (`bypassCache`).
-  // A `fresh` row younger than FRESH_TTL_MS replaces the network call
-  // entirely; a `negative` row replays the prior blocked verdict instead of
-  // re-hammering a host we already know is gated.
-  if (!initialRule?.behavior?.bypassCache) {
-    const early = lookupFetchCache(ctx.cwd, url);
-    if (early.hit && early.prior) {
-      if (early.negative) {
-        return makeBlockedResultFromCache(args.url, url, early.prior);
-      }
-      if (early.fresh && !args.refresh) {
-        bumpCacheHit(ctx.cwd, url);
-        return makeFreshHitResult(args, url, early.prior);
-      }
-    }
-  }
 
   let fetched: FetchedHtml;
   try {
@@ -401,59 +368,19 @@ export async function runFetchUrl(
         blocked: initialChallenge.kind,
         batchSize: ctx.batchSize,
       });
-      const blockedTitle = extractTitleFromHtml(fetched.html);
-      storeNegativeFetchCache(
-        ctx.cwd,
-        url,
-        initialChallenge.kind,
-        blockedTitle
-      );
-      if (fetched.finalUrl !== url) {
-        storeNegativeFetchCache(
-          ctx.cwd,
-          fetched.finalUrl,
-          initialChallenge.kind,
-          blockedTitle
-        );
-      }
       return makeBlockedResult(args.url, fetched, initialChallenge);
     }
   }
-
-  const contentHash = hashHtml(fetched.html);
-  const cache = hostRule?.behavior?.bypassCache
-    ? { hit: false, prior: null, fresh: false, negative: false }
-    : lookupFetchCache(ctx.cwd, fetched.finalUrl);
 
   let markdown: string;
   let title: string;
   let extractor: FetchUrlOk["extractor"];
   let wordCount: number;
-  let cacheHit = false;
-  let diff: FetchUrlOk["diff"];
+  const cacheHit = false;
+  const diff: FetchUrlOk["diff"] = undefined;
   let meta: ExtractedMeta;
 
-  if (cache.hit && cache.prior && cache.prior.content_hash === contentHash) {
-    markdown = cache.prior.markdown;
-    title = cache.prior.title;
-    extractor = "cache";
-    wordCount = markdown.trim().split(/\s+/).filter(Boolean).length;
-    cacheHit = true;
-    diff = {
-      unchanged: true,
-      changed_regions: 0,
-      added_lines: 0,
-      removed_lines: 0,
-    };
-    meta = {
-      published_at: cache.prior.published_at,
-      author: cache.prior.author,
-      og_type: cache.prior.og_type,
-      site_name: cache.prior.site_name,
-      favicon: cache.prior.favicon,
-    };
-    bumpCacheHit(ctx.cwd, fetched.finalUrl);
-  } else {
+  {
     let extracted = await extractWithTimeout(
       fetched.html,
       fetched.finalUrl,
@@ -505,30 +432,6 @@ export async function runFetchUrl(
     if (!meta.author && extracted.byline) {
       meta = { ...meta, author: extracted.byline };
     }
-    if (cache.prior) {
-      const summary = summarizeMarkdownDiff(cache.prior.markdown, markdown);
-      diff = {
-        unchanged: summary.unchanged,
-        changed_regions: summary.changedRegions,
-        added_lines: summary.addedLines,
-        removed_lines: summary.removedLines,
-      };
-    }
-    storeFetchCache(ctx.cwd, {
-      url: fetched.finalUrl,
-      content_hash: contentHash,
-      markdown,
-      title,
-      extractor,
-      raw_bytes: Buffer.byteLength(fetched.html, "utf-8"),
-      compressed_bytes: Buffer.byteLength(markdown, "utf-8"),
-      fetched_at: Date.now(),
-      published_at: meta.published_at,
-      author: meta.author,
-      og_type: meta.og_type,
-      site_name: meta.site_name,
-      favicon: meta.favicon,
-    });
   }
 
   const allPassages = splitMarkdownIntoPassages(markdown);
@@ -573,7 +476,7 @@ export async function runFetchUrl(
     rawBytes,
     compressedBytes: deliveredBytes,
     durationMs: Date.now() - started,
-    extractor: extractor === "cache" ? "raw-body" : extractor,
+    extractor,
     cacheHit,
     playwrightRescued,
     bm25Ranked,
@@ -808,7 +711,7 @@ function interleaveBySource(passages: SourcedPassage[]): SourcedPassage[] {
  * Fetch many URLs in one call. See the block comment above for the contract.
  *
  * @param urls    Result URLs to fetch (deduped + capped at maxBatchUrls here).
- * @param shared  prompt/offset/limit/token_budget/refresh applied to the batch.
+ * @param shared  prompt/offset/limit/token_budget applied to the batch.
  * @param ctx     fetch context (cwd + abort); batchSize is set per-page here.
  */
 export async function runFetchUrlBatch(
@@ -834,13 +737,12 @@ export async function runFetchUrlBatch(
   }
 
   // 2. Parallel fetch. Per-page args carry prompt (per-page pre-rank) +
-  //    token_budget + refresh, but NOT offset/limit — pagination is applied
-  //    once, globally, over the merged passages below. batchSize threads into
+  //    token_budget, but NOT offset/limit — pagination is applied once,
+  //    globally, over the merged passages below. batchSize threads into
   //    each page's telemetry row.
   const perPageShared: Omit<FetchUrlArgs, "url"> = {
     prompt: shared.prompt,
     token_budget: shared.token_budget,
-    refresh: shared.refresh,
   };
   const perPageCtx: FetchUrlContext = { ...ctx, batchSize: deduped.length };
   const settled = await runBatchFetches(
@@ -1040,7 +942,6 @@ export async function runFetchUrlRequest(
     offset: args.offset,
     limit: args.limit,
     token_budget: args.token_budget,
-    refresh: args.refresh,
   };
 
   // Bulk mode — `urls:[...]`. Fan out N pages in one roundtrip, BM25-ranked
@@ -1226,93 +1127,6 @@ function makeHttpErrorResult(
     status,
     reason: "http_status",
     suggestion,
-  };
-}
-
-function makeBlockedResultFromCache(
-  requestedUrl: string,
-  finalUrl: string,
-  prior: { title: string; blocked_reason: string | null }
-): FetchUrlBlocked {
-  const kind = (prior.blocked_reason ?? "cloudflare") as
-    | "cloudflare"
-    | "hcaptcha"
-    | "perimeterx";
-  return {
-    result_status: "blocked",
-    url: requestedUrl,
-    final_url: finalUrl,
-    status: 0,
-    reason: "anti_bot_challenge",
-    detected: kind,
-    title: prior.title,
-    suggestion:
-      "host returned a blocked status within the last 30 minutes — retry later or fetch via an authenticated session",
-  };
-}
-
-function makeFreshHitResult(
-  args: FetchUrlArgs,
-  finalUrl: string,
-  prior: {
-    title: string;
-    markdown: string;
-    raw_bytes: number;
-    compressed_bytes: number;
-    published_at: string | null;
-    author: string | null;
-    og_type: string | null;
-    site_name: string | null;
-    favicon: string | null;
-  }
-): FetchUrlOk {
-  const passages = splitMarkdownIntoPassages(prior.markdown).map((p) => ({
-    index: p.index,
-    heading: p.heading,
-    text: p.text,
-    start_line: p.startLine,
-  }));
-  const offset = Math.max(0, args.offset ?? 0);
-  const sliced = offset > 0 ? passages.slice(offset) : passages;
-  const wordCount = prior.markdown.trim().split(/\s+/).filter(Boolean).length;
-  return {
-    result_status: "ok",
-    url: args.url,
-    final_url: finalUrl,
-    status: 200,
-    title: prior.title,
-    published_at: prior.published_at,
-    author: prior.author,
-    og_type: prior.og_type,
-    site_name: prior.site_name,
-    favicon: prior.favicon,
-    extractor: "cache",
-    word_count: wordCount,
-    cache_hit: true,
-    diff: {
-      unchanged: true,
-      changed_regions: 0,
-      added_lines: 0,
-      removed_lines: 0,
-    },
-    raw_bytes: prior.raw_bytes,
-    extracted_bytes: prior.compressed_bytes,
-    // Raw HTML isn't persisted in the cache, so the raw side falls back to the
-    // byte/4 heuristic; the delivered markdown is tokenized for real.
-    raw_tokens: Math.ceil(prior.raw_bytes / 4),
-    extracted_tokens: estimateTokens(prior.markdown),
-    compression_ratio:
-      prior.raw_bytes > 0
-        ? Math.round((1 - prior.compressed_bytes / prior.raw_bytes) * 100) / 100
-        : 0,
-    passages: sliced,
-    total: passages.length,
-    quality: {
-      playwright_rescued: false,
-      bm25_ranked: false,
-      rule_applied: null,
-      inflated: false,
-    },
   };
 }
 

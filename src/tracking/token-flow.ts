@@ -3,8 +3,8 @@
  *
  * Layer 10: Every token that flows through unerr gets attributed to the mechanism
  * that handled it, aggregated across hierarchical scopes (operation → turn →
- * session → lifetime), and persisted to `.unerr/metrics.db` (token_flow_events
- * table).
+ * session → lifetime), and persisted as `.unerr/events/` JSONL (the
+ * `token_flow` event stream).
  *
  * This replaces the fragmented tracking across EfficiencyTracker, ExplorationCost,
  * IntentTokenTracker, SessionStats, CompressionLog, and WeeklyAccumulator with a
@@ -12,7 +12,7 @@
  *
  * Performance contract:
  *   - Token estimation: <0.01ms (delegated to token-estimator.ts)
- *   - SQLite insert: <0.05ms (better-sqlite3, prepared statement, WAL)
+ *   - JSONL append: <0.05ms (single append-only write, no native binary)
  *   - Total hot-path overhead: <0.2ms per tool call
  */
 
@@ -204,7 +204,7 @@ export class TokenFlowWriter {
 
   /**
    * Record a token flow event. Synchronous, <0.1ms.
-   * Inserts into `.unerr/metrics.db` (token_flow_events) and keeps an
+   * Appends to `.unerr/events/` JSONL (the `token_flow` stream) and keeps an
    * in-memory copy for session aggregation + SSE relay.
    */
   record(input: TokenFlowInput): void {
@@ -294,8 +294,8 @@ export class TokenFlowWriter {
 
   /**
    * Ingest an event produced by another process (relayed via the log-tailer's
-   * SQLite poll). Pushes to in-memory buffer for SSE streaming; does NOT
-   * re-insert into the DB (the originating process already did).
+   * JSONL poll). Pushes to in-memory buffer for SSE streaming; does NOT
+   * re-append it (the originating process already wrote the JSONL line).
    */
   ingestExternal(event: TokenFlowEvent): void {
     if (event.pid === process.pid) return;
@@ -320,9 +320,9 @@ export interface TokenFlowFilter {
 }
 
 /**
- * Read token flow events from the SQLite store with optional filtering.
- * Used for CLI status, dashboard, and session summaries.
- * Performance: <1ms for 1000 events (indexed lookup + row mapping).
+ * Read token flow events from the `.unerr/events/` JSONL store with optional
+ * filtering. Used for CLI status, dashboard, and session summaries.
+ * Performance: <1ms for 1000 events (segment scan + row mapping).
  */
 export function readTokenFlowEvents(
   unerrDir: string,

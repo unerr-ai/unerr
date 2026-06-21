@@ -1,5 +1,5 @@
 /**
- * unerr-junior sub-agent — Lever C (TOKEN_ECONOMICS_AND_SAVINGS §11.2 C2/C3).
+ * unerr-junior sub-agent — Lever C (TOKEN_ECONOMICS_AND_SAVINGS §11.2).
  *
  * Writes the model-pinned sub-agent definition the senior delegates a delegable
  * task to. Claude Code reads `.claude/agents/unerr-junior.md`; its `model:`

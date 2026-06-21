@@ -21,6 +21,7 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { renderStopReportLive } from "../proxy/turn-report.js";
 import { readNamedEvents } from "../tracking/named-events.js";
+import { materializeTranscripts } from "../tracking/transcript-materializer.js";
 import {
   type HookHandler,
   enrich,
@@ -45,12 +46,13 @@ const passthroughHandler: HookHandler = () => passthrough();
  */
 export function resolveCurrentSessionTurn(
   unerrDir: string
-): { sessionId: string; currentTurn: number } | null {
+): { sessionId: string; currentTurn: number; agent: string } | null {
   const events = readNamedEvents(unerrDir, {});
   if (events.length === 0) return null;
 
   // Append order ⇒ the last event belongs to the active session.
-  const sessionId = events[events.length - 1]!.session_id;
+  const last = events[events.length - 1]!;
+  const sessionId = last.session_id;
   if (!sessionId) return null;
 
   let currentTurn = 0;
@@ -59,7 +61,7 @@ export function resolveCurrentSessionTurn(
       currentTurn = ev.turn;
     }
   }
-  return { sessionId, currentTurn };
+  return { sessionId, currentTurn, agent: last.agent };
 }
 
 /**
@@ -144,6 +146,18 @@ export async function runStopHookHandlerAsync(
     const resolved = resolveCurrentSessionTurn(unerrDir);
     if (!resolved)
       return runStopHookAsync(stdinJson, async () => passthrough());
+
+    // Turn-end transcript capture — materialize THIS turn now, at the Stop
+    // boundary, so its `transcript` event ships even for the final turn before
+    // an (unpredictable) session end. prompt-capture only fires on the NEXT
+    // prompt, which never arrives for the last turn. Idempotent (last-wins on
+    // session+turn+role) so it's safe to also run here. Fire-and-forget.
+    void materializeTranscripts({
+      unerrDir,
+      repoCwd: process.cwd(),
+      sessionId: resolved.sessionId,
+      agent: resolved.agent,
+    });
 
     const line = renderStopReportLive(
       unerrDir,

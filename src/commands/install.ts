@@ -30,6 +30,7 @@ import {
 } from "../config/agent-registry.js";
 import {
   addDisallowedTools,
+  getUnerrBinary,
   mergePreToolUseBashHook,
 } from "../config/claude-settings-hooks.js";
 import { installClaudeHook } from "../config/hook-installer.js";
@@ -363,6 +364,12 @@ export async function runInstall(
       } else if (ide === "cline") {
         // Cline: hook scripts in .clinerules/hooks/ (when supported)
         hookInstalled = installClineHooks(cwd);
+      } else if (ide === "codex") {
+        // Codex: hook registration in .codex/hooks.json (MCP stays in
+        // .codex/config.toml). UserPromptSubmit carries the per-turn nudge
+        // (incl. delegation); SessionStart the resume strip; Pre/PostToolUse
+        // the Bash/apply_patch guards Codex's tool hooks can actually see.
+        hookInstalled = installCodexHooks(cwd);
       }
     } catch {
       // Non-blocking
@@ -751,6 +758,83 @@ function writeCursorHookScript(
   const scriptPath = join(dir, filename);
   writeFileSync(scriptPath, content, "utf-8");
   chmodSync(scriptPath, 0o755);
+}
+
+/**
+ * Install Codex hook registration in `.codex/hooks.json` (MCP stays in
+ * `.codex/config.toml`). Codex's hooks use the same
+ * `hookSpecificOutput.additionalContext` contract as Claude Code, so the existing
+ * `unerr hook <sub>` handlers — routed through the codex adapter — work unchanged.
+ * We register only events Codex actually surfaces: UserPromptSubmit + SessionStart
+ * (context injection — the delegation nudge and resume strip ride UserPromptSubmit)
+ * and Pre/PostToolUse for Bash + apply_patch (Codex tool hooks do NOT see built-in
+ * read/grep/glob). Idempotent — re-running merges without duplicating a command.
+ */
+export function installCodexHooks(cwd: string): boolean {
+  const hooksJsonPath = join(cwd, ".codex", "hooks.json");
+  const bin = getUnerrBinary();
+
+  // Each event maps to a list of matcher-groups, each carrying a `hooks` array of
+  // command handlers — the same shape as Claude Code's settings.json hooks. An
+  // empty matcher matches every invocation of that event.
+  const unerrHooks: Record<
+    string,
+    Array<{ matcher: string; command: string }>
+  > = {
+    UserPromptSubmit: [{ matcher: "", command: `${bin} hook prompt-submit` }],
+    SessionStart: [{ matcher: "", command: `${bin} hook session-start` }],
+    PreToolUse: [
+      { matcher: "Bash", command: `${bin} hook pre-bash` },
+      { matcher: "apply_patch", command: `${bin} hook pre-edit` },
+    ],
+    PostToolUse: [{ matcher: "apply_patch", command: `${bin} hook post-edit` }],
+  };
+
+  type Handler = { type: "command"; command: string };
+  type MatcherGroup = { matcher?: string; hooks: Handler[] };
+
+  try {
+    mkdirSync(join(cwd, ".codex"), { recursive: true });
+
+    let config: { hooks: Record<string, MatcherGroup[]> } = { hooks: {} };
+    if (existsSync(hooksJsonPath)) {
+      try {
+        const existing = JSON.parse(
+          readFileSync(hooksJsonPath, "utf-8")
+        ) as typeof config;
+        if (existing && typeof existing === "object" && existing.hooks) {
+          config = existing;
+        }
+      } catch {
+        // Corrupt file — overwrite with a fresh config.
+      }
+    }
+
+    // Merge our matcher-groups in, deduping by command so re-running is a no-op
+    // and user-authored hooks pointing at other commands are preserved.
+    for (const [event, entries] of Object.entries(unerrHooks)) {
+      const groups = Array.isArray(config.hooks[event])
+        ? config.hooks[event]
+        : [];
+      for (const entry of entries) {
+        const present = groups.some((g) =>
+          (g.hooks ?? []).some((h) => h.command === entry.command)
+        );
+        if (!present) {
+          groups.push({
+            matcher: entry.matcher,
+            hooks: [{ type: "command", command: entry.command }],
+          });
+        }
+      }
+      config.hooks[event] = groups;
+    }
+
+    writeFileSync(hooksJsonPath, `${JSON.stringify(config, null, 2)}\n`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Windsurf hook scripts — receive Cascade event JSON on stdin and route to

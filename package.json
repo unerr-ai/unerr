@@ -31,8 +31,6 @@
     "typecheck": "tsc --noEmit",
     "test:local-mode": "vitest run src/__tests__/local-mode-offline.test.ts src/__tests__/network-boundary.test.ts",
     "check:tool-budget": "tsx scripts/check-tool-budget.ts",
-    "content:compress": "tsx scripts/compress-content.ts",
-    "features:set": "tsx scripts/features-set.ts",
     "check:native": "node scripts/check-native-modules.mjs",
     "dev:config": "node scripts/dev-config.mjs",
     "dev:entitlement": "node scripts/dev-entitlement.mjs",

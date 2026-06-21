@@ -44,9 +44,13 @@ describe("bridge isolation (DM-0)", () => {
     // proxy can group a conversation's events under one stable id across UDS
     // reconnects (SESSION_ID_CORRELATION). Uses only `node:crypto` — the DM-0
     // import invariants (no intelligence/behaviors/tracking) still pass.
-    // Budget bumped to 330; further growth should be challenged.
+    // Then ~319→~389 for the L6 lifecycle segment: the bridge writes its own
+    // `mcp-<pid>.jsonl` session open/close events via `events/enqueue`
+    // (telemetry leaf — allowed under DM-0; intelligence/behaviors/tracking
+    // still forbidden). Budget bumped to 395; further growth should be
+    // challenged.
     const lines = source.split("\n").length;
-    expect(lines).toBeLessThanOrEqual(330);
+    expect(lines).toBeLessThanOrEqual(395);
   });
 
   it("file is small (sanity: a relay should be a few KB, not megabytes)", () => {

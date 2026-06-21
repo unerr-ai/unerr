@@ -1,5 +1,5 @@
 /**
- * Delegable-task classifier — Lever C (TOKEN_ECONOMICS_AND_SAVINGS §11.2 C1).
+ * Delegable-task classifier — Lever C (TOKEN_ECONOMICS_AND_SAVINGS §11.2).
  *
  * A task is "delegable" when it belongs to a narrow, check-verifiable class that a
  * cheaper model can complete under a recon brief and senior review: test work,

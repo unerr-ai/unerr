@@ -1,9 +1,9 @@
 /**
- * Session Summary Writer — SQLite persistence on session disconnect.
+ * Session Summary Writer — JSONL persistence on session disconnect.
  *
  * Layer 9 PI-3/PI-4: When an --mcp session ends (stdin close / SIGTERM),
- * this module upserts a structured summary into `.unerr/metrics.db`
- * (`session_summaries` table — was JSONL at `.unerr/sessions/{id}.jsonl`).
+ * this module writes a structured summary as a `.unerr/events/` JSONL event
+ * (the `session_summary` stream); reads dedup last-wins per session_id.
  *
  * The daemon's fact generation pipeline (PI-5) reads these summaries to
  * extract facts, detect patterns, and reinforce/contradict existing knowledge.
@@ -55,8 +55,8 @@ export interface SessionWriterContext {
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
- * Upsert a session summary into `.unerr/metrics.db` (session_summaries).
- * Called on graceful shutdown of --mcp mode.
+ * Write a session summary to the `.unerr/events/` JSONL store (session_summary
+ * stream). Called on graceful shutdown of --mcp mode.
  *
  * Returns the written record on success, null on failure (silent degradation).
  */
@@ -116,7 +116,7 @@ export function writeSessionSummary(
       branch: last.branch ?? "unknown",
     };
 
-    // Persist to .unerr/metrics.db (session_summaries) — was JSONL pre-Layer 12.
+    // Persist as a session_summary event in the `.unerr/events/` JSONL store.
     const store = openMetricsStore(unerrDir);
     store.upsertSessionSummary({
       session_id: record.session_id,
@@ -178,7 +178,7 @@ function parseJsonArrayColumn(raw: string): string[] {
 }
 
 /**
- * Map a metrics.db `session_summaries` row to the in-memory record shape.
+ * Map a `session_summaries` JSONL row to the in-memory record shape.
  * The row stores `files_modified`/`entities_touched`/`feature_areas`/
  * `facts_surfaced` as JSON-array strings and `tools_used` as a JSON object;
  * this re-parses them so consumers get real arrays/objects.
@@ -215,8 +215,9 @@ export function rowToSessionSummaryRecord(
 }
 
 /**
- * Load the `limit` most-recent session summaries from `.unerr/metrics.db`
- * (`session_summaries`, ordered newest-first). Single source of truth for
+ * Load the `limit` most-recent session summaries from the `.unerr/events/`
+ * JSONL store (`session_summaries`, ordered newest-first). Single source of
+ * truth for
  * reading recent sessions — replaced the stale per-session
  * `.unerr/sessions/*.jsonl` readers (frozen at the SQLite migration, so they
  * never saw new sessions). Best-effort: an unopenable store yields no rows.

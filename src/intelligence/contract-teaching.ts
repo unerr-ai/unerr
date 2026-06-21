@@ -23,8 +23,7 @@
 import { loadContent } from "../content/loader.js";
 
 // Source-of-truth prose lives in `src/content/instructions.json`
-// (id `contract-teaching-block`); `loadContent` returns the raw text, or the
-// LLMLingua-compressed variant when `UNERR_LLMLINGUA` is on (Lever B, §11.3).
+// (id `contract-teaching-block`); `loadContent` returns the raw text.
 export const CONTRACT_TEACHING_BLOCK = loadContent("contract-teaching-block");
 
 export interface SkillSpec {

@@ -179,7 +179,15 @@ describe("createGuardRoutes /firings", () => {
   });
 
   it("returns an empty feed (not an error) when nothing has fired", async () => {
-    const emptyDir = join(repoCwd, ".unerr-empty");
+    // Nest the empty store under its OWN unique parent so its repoRoot
+    // (dirname of the unerr dir) differs from the seeded store's — otherwise
+    // both resolve to the same <parent>/.unerr/events/ and this feed reads the
+    // seeded firings.
+    const emptyParent = join(
+      tmpdir(),
+      `unerr-guard-empty-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    const emptyDir = join(emptyParent, ".unerr");
     mkdirSync(emptyDir, { recursive: true });
     const app = createGuardRoutes({ unerrDir: emptyDir });
     const res = await app.request("/firings");
@@ -189,5 +197,6 @@ describe("createGuardRoutes /firings", () => {
     expect(body.data.sessions).toEqual([]);
     expect(body.data.totals.total_firings).toBe(0);
     closeMetricsStore(emptyDir);
+    rmSync(emptyParent, { recursive: true, force: true });
   });
 });

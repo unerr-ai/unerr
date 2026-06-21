@@ -18,6 +18,13 @@
 import { randomUUID } from "node:crypto";
 import { type Socket, connect } from "node:net";
 import {
+  type EmitContext,
+  type EmitInput,
+  enqueue,
+} from "../events/enqueue.js";
+import { bridgeSegment } from "../events/event-store.js";
+import { UNERR_VERSION } from "../version.js";
+import {
   BridgeCatalog,
   LOCAL_CATALOG_FALLBACK_MS,
   type PendingLocalRequest,
@@ -57,6 +64,41 @@ export interface BridgeOptions {
    *  tool call from this bridge to the named agent — works even when
    *  two IDEs share one daemon. */
   codingAgent?: string;
+  /** Repo root whose `.unerr/events/mcp-<pid>.jsonl` segment receives this
+   *  bridge's session-lifecycle events (L6). The same `cwd` the bridge hands
+   *  the daemon as the repo identity, so the bridge's segment lands beside the
+   *  proxy's `proxy.jsonl` in one store. Omitted → the bridge writes no events
+   *  (standalone / pre-repo contexts stay silent). */
+  repoRoot?: string;
+}
+
+/**
+ * The bridge's session-lifecycle event. One bridge process spans one whole
+ * coding-agent conversation, so it owns the session's wall-clock window: open
+ * (no `ended_at`) on first connect, close (with `ended_at`) when the IDE
+ * detaches. The proxy adds token/turn counts under the same `session_id`.
+ */
+export function bridgeSessionEvent(
+  startedAt: string,
+  endedAt?: string
+): EmitInput {
+  return {
+    type: "session",
+    detail: {
+      started_at: startedAt,
+      ...(endedAt ? { ended_at: endedAt } : {}),
+    },
+  };
+}
+
+/** First-connect timestamp, set once so a UDS reconnect keeps the original
+ *  start rather than re-opening the session. Module-scoped to match
+ *  {@link BRIDGE_SESSION_ID}'s process lifetime. */
+let bridgeSessionStartedAt: string | null = null;
+
+/** Reset the once-per-process session-open guard. Test-only. */
+export function _resetBridgeSessionForTest(): void {
+  bridgeSessionStartedAt = null;
 }
 
 /**
@@ -139,6 +181,18 @@ export function startUdsBridge(
     let connected = false;
     const preConnectQueue: Buffer[] = [];
     const codingAgent = options?.codingAgent;
+    // Identity for this bridge's own lifecycle events (L6). Its segment is
+    // `mcp-<pid>.jsonl`, keyed by the process pid; null when no repo root was
+    // passed, so the emit calls below no-op in standalone contexts.
+    const bridgeCtx: EmitContext | null = options?.repoRoot
+      ? {
+          repoRoot: options.repoRoot,
+          segment: bridgeSegment(process.pid),
+          source: `unerr-cli@${UNERR_VERSION}`,
+          session_id: BRIDGE_SESSION_ID,
+          ...(codingAgent ? { agent: codingAgent } : {}),
+        }
+      : null;
     const maybeRewrite = (chunk: Buffer): Buffer =>
       codingAgent ? rewriteInitializeFrame(chunk, codingAgent) : chunk;
     const stdinDataHandler = (chunk: Buffer) => {
@@ -177,11 +231,28 @@ export function startUdsBridge(
       if (stdinDataHandler)
         process.stdin.removeListener("data", stdinDataHandler);
       if (stdinEndHandler) process.stdin.removeListener("end", stdinEndHandler);
+      // L6: close the session window only on a terminal stdin EOF (the IDE
+      // detached). socket_closed / daemon_dead are reconnect triggers, not the
+      // end of the conversation, so they leave the session open.
+      if (bridgeCtx && bridgeSessionStartedAt && reason === "stdin_closed") {
+        enqueue(
+          bridgeCtx,
+          bridgeSessionEvent(bridgeSessionStartedAt, new Date().toISOString())
+        );
+      }
       resolve({ reason });
     }
 
     socket.on("connect", () => {
       log.info(`Connected to proxy at ${sockPath}`);
+
+      // L6: record the conversation's start once (a reconnect keeps the
+      // original started_at). The proxy adds token/turn counts under the same
+      // session_id; the server merges the two rows.
+      if (bridgeCtx && !bridgeSessionStartedAt) {
+        bridgeSessionStartedAt = new Date().toISOString();
+        enqueue(bridgeCtx, bridgeSessionEvent(bridgeSessionStartedAt));
+      }
 
       // Announce the coding-agent id to the proxy independently of the IDE's
       // MCP `initialize` handshake. IDEs only send `initialize` once per MCP

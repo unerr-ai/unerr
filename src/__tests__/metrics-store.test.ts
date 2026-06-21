@@ -8,21 +8,30 @@ import {
 } from "../tracking/metrics-store.js";
 
 describe("MetricsStore", () => {
+  let root: string;
   let dir: string;
 
   beforeEach(() => {
-    dir = join(os.tmpdir(), `unerr-metrics-${Date.now()}-${Math.random()}`);
+    // The store derives repoRoot = dirname(unerrDir) and writes its JSONL
+    // event store under `<repoRoot>/.unerr/events`. Pass a `.unerr` dir under a
+    // unique parent so each test's repoRoot — and therefore its event store —
+    // is isolated. (A bare tmpdir path would collapse every test's repoRoot to
+    // os.tmpdir(), sharing one event store and inflating read counts.)
+    root = join(os.tmpdir(), `unerr-metrics-${Date.now()}-${Math.random()}`);
+    dir = join(root, ".unerr");
     mkdirSync(dir, { recursive: true });
   });
 
   afterEach(() => {
     closeMetricsStore(dir);
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
 
-  it("creates metrics.db on first open and is idempotent", () => {
+  it("does not create metrics.db (telemetry is JSONL now) and open is idempotent", () => {
     openMetricsStore(dir);
-    expect(existsSync(join(dir, "metrics.db"))).toBe(true);
+    // rev-3 cutover: telemetry + the transcript cache are JSONL under
+    // .unerr/events/ — opening the store no longer creates a SQLite metrics.db.
+    expect(existsSync(join(dir, "metrics.db"))).toBe(false);
     // Re-opening returns the same instance (no error)
     expect(openMetricsStore(dir)).toBe(openMetricsStore(dir));
   });
@@ -30,8 +39,7 @@ describe("MetricsStore", () => {
   it("upgrades a legacy DB (no `agent` / no `session_id`) without crashing", async () => {
     // Reproduce the failure mode reported by the user twice over:
     //   1. token_flow_events/behavior_events created before the `agent`
-    //      column shipped — the agent index can't be created until
-    //      reconcileAdditiveColumns adds the column.
+    //      column shipped.
     //   2. file_read_events created before session_id shipped — the
     //      idx_file_read_session index references a column that does not
     //      exist on the legacy table. This crashed the proxy at startup

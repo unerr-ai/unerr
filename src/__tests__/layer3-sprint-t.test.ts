@@ -2,7 +2,7 @@
  * Layer 3 Sprint T: Token Accounting & Visibility tests.
  */
 
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -15,13 +15,19 @@ import {
   readSessionHistory,
 } from "../tracking/session-history.js";
 
+let tempRoot: string;
 let tempDir: string;
 beforeEach(() => {
-  tempDir = join(tmpdir(), `unerr-t-${Date.now()}`);
+  // Nest the unerr dir as <uniqueParent>/.unerr so MetricsStore's
+  // repoRoot = dirname(unerrDir) is unique per test. A bare temp dir would
+  // collapse repoRoot to the shared os.tmpdir(), letting "fresh dir" /
+  // "missing history" tests read session rows written by sibling tests.
+  tempRoot = mkdtempSync(join(tmpdir(), "unerr-t-"));
+  tempDir = join(tempRoot, ".unerr");
   mkdirSync(tempDir, { recursive: true });
 });
 afterEach(() => {
-  rmSync(tempDir, { recursive: true, force: true });
+  rmSync(tempRoot, { recursive: true, force: true });
 });
 
 describe("Session History (T.8)", () => {

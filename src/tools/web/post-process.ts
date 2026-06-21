@@ -81,12 +81,6 @@ export interface HostBehaviorRule {
    * geo-redirects to a less-extractable localised page on en-US.
    */
   acceptLanguage?: string;
-  /**
-   * Skip the diff-cache lookup for this host (always refetch). Use for
-   * hosts whose content changes faster than the cache's content-hash check
-   * can sensibly amortise.
-   */
-  bypassCache?: boolean;
 }
 
 const RULES_DIR = (() => {

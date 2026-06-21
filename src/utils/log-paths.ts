@@ -147,14 +147,33 @@ export function cleanupLegacyLogs(dir: string): number {
  *   - `<unerrDir>/state/*.pre-sqlite.bak` — one-shot backups written when a
  *     JSON/JSONL state file was migrated to SQLite. Never read again.
  *   - `<unerrDir>/sessions/` — per-session `*.jsonl` summaries, superseded by
- *     the `session_summaries` table in `metrics.db`. Frozen at the migration
- *     and no longer written or read; the whole directory is removed.
+ *     the session-summary JSONL events. Frozen at the migration and no longer
+ *     written or read; the whole directory is removed.
+ *   - `<unerrDir>/metrics.db` (+ `-wal`/`-shm` sidecars) — the retired SQLite
+ *     telemetry/transcript store. All telemetry is now `.unerr/events/` JSONL and
+ *     the transcript cache is `.unerr/cache/transcripts.jsonl`; the legacy DB is
+ *     never created or read again, so its (often 100+ MB) bulk is reclaimed.
  *
  * Best-effort idempotent boot-time sweep; never throws. Returns the number of
  * filesystem entries removed (files + the sessions dir, if present).
  */
 export function cleanupLegacyStateArtefacts(unerrDir: string): number {
   let removed = 0;
+
+  // Retired SQLite store — only the unerr-owned `metrics.db*` directly under
+  // `<unerrDir>`. We never recurse or touch anything outside `.unerr`.
+  for (const name of ["metrics.db", "metrics.db-wal", "metrics.db-shm"]) {
+    const full = join(unerrDir, name);
+    if (!existsSync(full)) continue;
+    try {
+      if (statSync(full).isFile()) {
+        unlinkSync(full);
+        removed++;
+      }
+    } catch {
+      /* best effort */
+    }
+  }
 
   const stateDir = join(unerrDir, "state");
   if (existsSync(stateDir)) {

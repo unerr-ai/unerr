@@ -225,6 +225,8 @@ function runUninstall(cwd: string, ide: IdeType): UninstallResult {
     hookRemoved = removeWindsurfHooks(cwd);
   } else if (ide === "cline") {
     hookRemoved = removeClineHooks(cwd);
+  } else if (ide === "codex") {
+    hookRemoved = removeCodexHooks(cwd);
   }
 
   // 4. Gitignore — NOT reverted (shared across agents, .unerr/ data preserved)
@@ -420,6 +422,57 @@ function removeCursorHooks(cwd: string): boolean {
     if ((config.hooks as unknown[]).length === 0) {
       unlinkSync(hooksPath);
     } else {
+      writeFileSync(hooksPath, `${JSON.stringify(config, null, 2)}\n`);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remove unerr hook entries from Codex's `.codex/hooks.json`. Strips matcher
+ * groups whose command runs an `unerr hook` subcommand (so user-authored hooks
+ * are preserved), drops any event left empty, and unlinks the file when no hook
+ * remains. `.codex/config.toml` (MCP) is untouched. Symmetric to
+ * `installCodexHooks`.
+ */
+export function removeCodexHooks(cwd: string): boolean {
+  const hooksPath = join(cwd, ".codex", "hooks.json");
+  if (!existsSync(hooksPath)) return false;
+
+  const isUnerrHookCommand = (cmd: string): boolean =>
+    /\bunerr\b/.test(cmd) && /\bhook\b/.test(cmd);
+
+  try {
+    const config = JSON.parse(readFileSync(hooksPath, "utf-8")) as {
+      hooks?: Record<
+        string,
+        Array<{ matcher?: string; hooks?: Array<{ command?: string }> }>
+      >;
+    };
+    const hooks = config.hooks ?? {};
+    let changed = false;
+
+    for (const [event, groups] of Object.entries(hooks)) {
+      if (!Array.isArray(groups)) continue;
+      const filtered = groups.filter(
+        (g) => !(g.hooks ?? []).some((h) => isUnerrHookCommand(h.command ?? ""))
+      );
+      if (filtered.length !== groups.length) changed = true;
+      if (filtered.length === 0) {
+        delete hooks[event];
+      } else {
+        hooks[event] = filtered;
+      }
+    }
+
+    if (!changed) return false;
+
+    if (Object.keys(hooks).length === 0) {
+      unlinkSync(hooksPath);
+    } else {
+      config.hooks = hooks;
       writeFileSync(hooksPath, `${JSON.stringify(config, null, 2)}\n`);
     }
     return true;

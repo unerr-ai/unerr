@@ -585,6 +585,15 @@ export class CozoGraphStore {
   }
 
   /**
+   * Get the edge count without loading full data. Mirrors getEntityCount so
+   * fleet inventory reports the live graph's real edge total, not a hardcoded 0.
+   */
+  async getEdgeCount(): Promise<number> {
+    const result = await this.query("?[count(from_key)] := *edges{from_key}");
+    return (result.rows[0]?.[0] as number) ?? 0;
+  }
+
+  /**
    * Load a deserialized snapshot into CozoDB.
    */
   async loadSnapshot(envelope: SnapshotEnvelope): Promise<void> {

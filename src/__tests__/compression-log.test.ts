@@ -48,9 +48,9 @@ describe("compression-log", () => {
     };
   }
 
-  it("creates metrics.db and inserts compression rows", () => {
+  it("persists compression rows to JSONL and reads them back", () => {
     appendCompressionLog(tmpDir, makeEntry());
-    expect(existsSync(dbPath)).toBe(true);
+    expect(existsSync(join(unerrDir, "events", "proxy.jsonl"))).toBe(true);
     const entries = readRecentCompressionLogs(tmpDir, 10);
     expect(entries).toHaveLength(1);
     expect(entries[0]!.command).toBe("ps aux");
@@ -158,9 +158,9 @@ describe("file-read-log", () => {
     };
   }
 
-  it("creates metrics.db and inserts file-read rows", () => {
+  it("persists file-read rows to JSONL and reads them back", () => {
     appendFileReadLog(tmpDir, makeFileEntry());
-    expect(existsSync(dbPath)).toBe(true);
+    expect(existsSync(join(unerrDir, "events", "proxy.jsonl"))).toBe(true);
     const entries = readRecentFileReadLogs(tmpDir, 10);
     expect(entries).toHaveLength(1);
     expect(entries[0]!.file).toBe("src/main.ts");

@@ -59,11 +59,10 @@ export async function runSessionStartHookAsync(
 
     const block = formatSessionResumeBlock(payload);
 
-    // Lever D (§11.4): suppress a resume block identical to one already
+    // Cross-session dedup: suppress a resume block identical to one already
     // delivered in a prior session within the warm window — re-injecting the
-    // same notes across sessions is the cross-session re-injection this lever
-    // drives to zero. Suppression only; no new delivery channel. No-op when
-    // `UNERR_XSESSION_CACHE` is off (probe returns false → always enrich).
+    // same notes across sessions wastes tokens. Suppression only; no new
+    // delivery channel (the §11.6 invariant).
     const cwd = process.cwd();
     const digest = createHash("sha1").update(block).digest("hex");
     if (xsessionWasDelivered(cwd, RESUME_DEDUP_ENTITY, digest)) {

@@ -3,8 +3,6 @@ name: unerr-using-unerr
 description: "MANDATORY when starting ANY non-trivial coding task (implement / fix / refactor / build / debug / find / test). Dispatches to one of the six sub-skills, runs the default workflow if none match, and enforces token-efficient output + Surface 2/3/4 + the four-moment contract. STEP-1: invoke Skill('unerr-using-unerr') BEFORE drafting code or any other tool call. Do NOT skip on the assumption that the task is small — the orchestrator decides."
 ---
 
-# using-unerr
-
 ## Token-Efficient Output (always on)
 
 These output rules apply to every response the master skill governs. They are baked in here so the budget for separate skills is preserved.
