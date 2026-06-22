@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import {
   BUDGETS,
   ToolBudgetError,
+  budgetCapFor,
   budgetHeadroom,
   countTokens,
   enforceBudget,
@@ -89,17 +90,17 @@ describe("tool-budget: enforceBudget", () => {
 describe("tool-descriptions: tier registry", () => {
   const ALL = listToolNames();
 
-  it("contains exactly 8 tools (the advertised catalog; file_edit is the unerr-owned edit path with edit + whole-file write modes; get_entity merged into search_code({detail:true}))", () => {
-    expect(ALL.length).toBe(8);
+  it("contains exactly 7 tools (the advertised catalog; file_edit is the unerr-owned edit path with edit + whole-file write modes; get_entity + unerr_context merged into search_code)", () => {
+    expect(ALL.length).toBe(7);
   });
 
-  it("partitions tools into exactly 7 / 0 / 1 across tiers 1 / 2 / 3", () => {
-    expect(toolsByTier(1)).toHaveLength(7);
+  it("partitions tools into exactly 6 / 0 / 1 across tiers 1 / 2 / 3", () => {
+    expect(toolsByTier(1)).toHaveLength(6);
     expect(toolsByTier(2)).toHaveLength(0);
     expect(toolsByTier(3)).toHaveLength(1);
   });
 
-  it("places the 7 starter tools in tier 1", () => {
+  it("places the 6 starter tools in tier 1", () => {
     const tier1 = new Set(toolsByTier(1));
     for (const name of [
       "search_code",
@@ -108,7 +109,6 @@ describe("tool-descriptions: tier registry", () => {
       "file_edit",
       "get_references",
       "fetch_url",
-      "unerr_context",
     ]) {
       expect(tier1.has(name)).toBe(true);
     }
@@ -168,7 +168,7 @@ describe("tool-descriptions: budget compliance (the load-bearing invariant)", ()
     for (const name of listToolNames()) {
       for (const { state, budget } of statesToValidate(name)) {
         const description = getDescription(name, state);
-        const h = budgetHeadroom(description, budget);
+        const h = budgetHeadroom(description, budget, name);
         if (h.headroom < 0) {
           violations.push(
             `${name}/${state}: ${h.observed} > ${h.cap} (overruns by ${-h.headroom})`
@@ -179,10 +179,12 @@ describe("tool-descriptions: budget compliance (the load-bearing invariant)", ()
     expect(violations, violations.join("\n")).toHaveLength(0);
   });
 
-  it("tier 1 active descriptions are ≤ tier1Active cap", () => {
+  it("tier 1 active descriptions are ≤ their effective cap (per-tool override honored)", () => {
     for (const name of toolsByTier(1)) {
       const t = countTokens(getDescription(name, "active"));
-      expect(t, `${name} active`).toBeLessThanOrEqual(BUDGETS.tier1Active);
+      expect(t, `${name} active`).toBeLessThanOrEqual(
+        budgetCapFor(name, "tier1Active")
+      );
     }
   });
 
@@ -214,10 +216,12 @@ describe("tool-definitions: outbound MCP composition", () => {
     }
   });
 
-  it("every emitted description fits the tier1Active cap", () => {
+  it("every emitted description fits the tier1Active cap (per-tool override honored)", () => {
     for (const def of TOOL_DEFINITIONS) {
       const t = countTokens(def.description);
-      expect(t, def.name).toBeLessThanOrEqual(BUDGETS.tier1Active);
+      expect(t, def.name).toBeLessThanOrEqual(
+        budgetCapFor(def.name, "tier1Active")
+      );
     }
   });
 

@@ -438,15 +438,13 @@ export async function startDaemon(opts: {
     notifyEvent: (r: string) => void;
     stop: () => void;
   } | null = null;
-  let pushReporter: { stop: () => void; syncWatchers: () => void } | null =
-    null;
+  let pushReporter: { stop: () => void } | null = null;
   pm.setEventHandler((event, repo, detail) => {
     log.info(`[${repo.label}] ${event}${detail ? `: ${detail}` : ""}`);
     if (event === "started" || event === "stopped") {
       fleetReporter?.notifyEvent(`proxy-${event}`);
-      // A repo that just came up (or down) gains (or loses) its event-dir
-      // watcher immediately, rather than waiting for the next backstop tick.
-      pushReporter?.syncWatchers();
+      // A repo that came up/down is picked up by the next ≤10s drain tick, which
+      // re-reads the live repo list — no per-repo watcher to reconcile.
     }
   });
 
@@ -608,6 +606,11 @@ export async function startDaemon(opts: {
   try {
     const { PushReporter } = await import("../daemon/push-reporter.js");
     const { readCredentials } = await import("../cloud/credentials.js");
+    // Wire the transcript materializer here (the composition root) so the daemon
+    // layer never imports `src/tracking/` directly (daemon-isolation guard).
+    const { materializeClaimedTranscripts } = await import(
+      "../tracking/transcript-drainer.js"
+    );
     const reporter = new PushReporter({
       getRepos: () => pm.getStatus().map((r) => ({ path: r.path })),
       resolveAuth: () => {
@@ -615,6 +618,7 @@ export async function startDaemon(opts: {
         if (!creds || creds.machine_id.length === 0) return null;
         return { apiUrl: creds.api_url, token: creds.token };
       },
+      materializeClaims: materializeClaimedTranscripts,
       log: (msg) => log.info(msg),
     });
     reporter.start();

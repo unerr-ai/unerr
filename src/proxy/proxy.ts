@@ -38,6 +38,7 @@ import {
   DEEP_DIVE_TOOL_DEFINITIONS,
   NAVIGATION_TOOL_NAMES,
 } from "../intelligence/deep-dive-tools.js";
+import { classifyQueryShape } from "../intelligence/query-shape.js";
 import { getCommitTrailers } from "../tracking/git-trailers.js";
 import { getPromptsForSession } from "../tracking/prompt-trace.js";
 import { createReconDetector } from "../tracking/turn-telemetry.js";
@@ -2438,6 +2439,35 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       }
       name = translated.name;
       args = translated.args;
+    }
+
+    // ── search_code recon escalation: task-shaped query → unerr_context ──
+    // A bare-symbol query keeps the lean ranked-name search (the cheap default
+    // that protects the E.1 prefix baseline); a natural-language task query
+    // ("where is retry handled", "add a retry to the boot path") re-targets to
+    // the recon composite so the agent gets notes + bodies + callers +
+    // conventions in ONE call instead of a search→read→search fan-out. This is
+    // the adoption fix: the recon path is now reached through the tool the agent
+    // already reaches for, not an opt-in second tool. Any explicit profile flag
+    // (detail/include_body/want) means "resolve ONE entity" — keep that lean.
+    // `scope:'workspace'` keeps the lean federated search (unerr_context does
+    // not fan out to siblings). Re-targeting before boundary validation lets the
+    // unerr_context `prompt` requirement be satisfied by the carried query.
+    if (name === "search_code") {
+      const q = typeof args.query === "string" ? args.query : "";
+      const hasProfileFlag =
+        args.detail === true ||
+        args.include_body === true ||
+        (Array.isArray(args.want) && args.want.length > 0);
+      const federated = args.scope === "workspace";
+      if (
+        !hasProfileFlag &&
+        !federated &&
+        classifyQueryShape(q).shape === "task"
+      ) {
+        name = "unerr_context";
+        args = { ...args, prompt: q };
+      }
     }
 
     // ── Boundary validation: alias normalization + required-field check ──

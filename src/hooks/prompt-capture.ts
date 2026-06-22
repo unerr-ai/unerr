@@ -28,7 +28,7 @@ import {
   resolveExecSessionContext,
   upsertSessionRecord,
 } from "../tracking/session-records.js";
-import { materializeTranscripts } from "../tracking/transcript-materializer.js";
+import { enqueueTranscriptClaim } from "../tracking/transcript-claim.js";
 
 /**
  * Dedupe window for `user_prompt_received` boundary writes. A real user
@@ -199,13 +199,16 @@ export function recordUserPromptReceived(input: PromptCaptureInput): number {
       detail: JSON.stringify(detail),
     });
 
-    // Background transcript materialization — fire-and-forget so the hook
-    // never blocks prompt delivery. Failures are swallowed inside.
-    void materializeTranscripts({
+    // Lightweight transcript claim — the hook records only the session pointer;
+    // the daemon's materializer does the streaming read + push off the hot path.
+    // Best-effort; never throws.
+    enqueueTranscriptClaim({
       unerrDir: input.unerrDir,
       repoCwd: input.cwd,
       sessionId: input.sessionId,
+      nativeSessionId: input.nativeSessionId ?? null,
       agent: input.agent ?? "unknown",
+      turn: liveTurn,
     });
 
     return rowId;

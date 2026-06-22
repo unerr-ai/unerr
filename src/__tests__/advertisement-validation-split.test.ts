@@ -78,19 +78,20 @@ describe("real catalog: advertisement is identical for every agent (caps machine
   // search_code({detail:true}) 2026-06; its executor stays by-name only.
   // file_edit added 2026-06 (tier 1): unerr-owned edit path. file_edit + file_write
   // merged into the single file_edit tool 2026-06 (edit + whole-file write modes).)
-  const ADVERTISED_EIGHT = [
+  // unerr_context merged into search_code 2026-06: a task-shaped search_code
+  // query re-targets to the recon composite; the executor stays by-name only.
+  const ADVERTISED_SEVEN = [
     "fetch_url",
     "file_edit",
     "file_outline",
     "file_read",
     "get_references",
     "search_code",
-    "unerr_context",
     "unerr_track",
   ];
 
-  it("advertisedToolNames returns exactly the eight advertised tools", () => {
-    expect([...advertisedToolNames()].sort()).toEqual(ADVERTISED_EIGHT);
+  it("advertisedToolNames returns exactly the seven advertised tools", () => {
+    expect([...advertisedToolNames()].sort()).toEqual(ADVERTISED_SEVEN);
   });
 
   it("unerr_remember is not advertised and not a catalog member", () => {

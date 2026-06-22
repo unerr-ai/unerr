@@ -21,6 +21,7 @@ export type DelegableClass =
   | "docs"
   | "mechanical_refactor"
   | "lint_format"
+  | "recon"
   | "none";
 
 export interface DelegableVerdict {
@@ -97,6 +98,26 @@ const MECHANICAL_REFACTOR_SIGNALS = [
   "mechanical refactor",
 ];
 
+/**
+ * Read-only recon — "go find out X" investigations that produce a digest, not an
+ * edit. The cheapest delegable class: a worker model reads the graph and returns
+ * only the answer, so a frontier master never spends tokens on the search itself.
+ * Conservative signals — an explicit investigate/trace verb, not any question.
+ */
+const RECON_SIGNALS = [
+  "find out",
+  "figure out how",
+  "figure out where",
+  "investigate",
+  "look into",
+  "trace how",
+  "trace the",
+  "track down",
+  "understand how",
+  "research how",
+  "dig into",
+];
+
 function matches(lower: string, signals: readonly string[]): boolean {
   return signals.some((s) => lower.includes(s));
 }
@@ -135,6 +156,16 @@ export function classifyDelegable(prompt: string): DelegableVerdict {
       delegable: true,
       class: "mechanical_refactor",
       reason: "mechanical refactor (rename/extract/inline/move)",
+    };
+  }
+  // Recon ranks LAST among delegable classes: an explicit edit signal above wins,
+  // so "investigate and fix the bug" stays an edit task with the senior. Only a
+  // pure read-only investigation falls through to here.
+  if (matches(lower, RECON_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "recon",
+      reason: "read-only recon (find out / investigate / trace)",
     };
   }
   return {

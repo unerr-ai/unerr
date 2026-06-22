@@ -1,13 +1,16 @@
 /**
- * CROSS_REPO_INTELLIGENCE Sprint 5.2: cross-repo (workspace) refusal + partial
- * fan-out signal lines.
+ * Cross-repo (workspace) refusal = SILENT yield (Issue 1, confirmed 2026-06-22)
+ * + partial fan-out signal line.
  *
  * When a free-tier account asks for scope:'workspace', the daemon refuses the
- * peer fan-out and query-router stamps `meta.workspace_refused` (the upgrade
- * message). When some peers are unreachable, it stamps `meta.workspace` with
- * `partial:true`. `buildSignalPrefix` renders the first as a `ur|fct` upgrade
- * nudge and the second as a `ur|ctx` incompleteness note. These tests pin the
- * wire shape, the six-rule obedience, and the dedup behavior.
+ * peer fan-out and query-router stamps `meta.workspace_refused` (kept as an
+ * internal/telemetry field). Per the settled design the agent sees NO line at
+ * all — the call already ran home-only, so `buildSignalPrefix` must NOT render
+ * the upgrade message. The wall-hit is measured server-side instead
+ * (`cross_repo_access {refused}` + the Issue 8 `cross_repo_yielded_free`
+ * savings event). When some peers are unreachable, query-router stamps
+ * `meta.workspace` with `partial:true`, which DOES surface as a `ur|ctx`
+ * incompleteness note (a real correctness warning, not an upsell).
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -15,37 +18,21 @@ import { WORKSPACE_PRO_ONLY_MESSAGE } from "../daemon/peers.js";
 import { buildSignalPrefix } from "../proxy/response-envelope.js";
 import { resetSignalDedupSingleton } from "../proxy/signal-dedup.js";
 
-describe("workspace refusal nudge (Sprint 5.2)", () => {
+describe("workspace refusal yields silently (Issue 1)", () => {
   beforeEach(() => {
     resetSignalDedupSingleton();
   });
 
-  it("renders the refusal message verbatim as a ur|fct line", () => {
+  it("emits NO agent-facing line for a refused workspace call", () => {
     const prefix = buildSignalPrefix(
       { workspace_refused: WORKSPACE_PRO_ONLY_MESSAGE },
       undefined,
       null
     );
-    expect(prefix).toContain("ur|fct ");
-    expect(prefix).toContain(WORKSPACE_PRO_ONLY_MESSAGE);
-    // Six-rule obedience: the message names the imperative action, no hedges.
-    expect(prefix).toContain("run `unerr login`");
-    expect(prefix).not.toMatch(/\bconsider\b|\bverify\b|\breview\b|\bcheck\b/i);
-  });
-
-  it("fires once per session — a second identical refusal is suppressed", () => {
-    const first = buildSignalPrefix(
-      { workspace_refused: WORKSPACE_PRO_ONLY_MESSAGE },
-      undefined,
-      null
-    );
-    expect(first).toContain(WORKSPACE_PRO_ONLY_MESSAGE);
-    const second = buildSignalPrefix(
-      { workspace_refused: WORKSPACE_PRO_ONLY_MESSAGE },
-      undefined,
-      null
-    );
-    expect(second).not.toContain(WORKSPACE_PRO_ONLY_MESSAGE);
+    // Silent to the coding agent — no upgrade nudge, no error surface at all.
+    expect(prefix).toBe("");
+    expect(prefix).not.toContain(WORKSPACE_PRO_ONLY_MESSAGE);
+    expect(prefix).not.toContain("unerr login");
   });
 
   it("emits nothing for an empty or absent refusal", () => {

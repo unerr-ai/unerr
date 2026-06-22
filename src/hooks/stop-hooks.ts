@@ -21,7 +21,7 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { renderStopReportLive } from "../proxy/turn-report.js";
 import { readNamedEvents } from "../tracking/named-events.js";
-import { materializeTranscripts } from "../tracking/transcript-materializer.js";
+import { enqueueTranscriptClaim } from "../tracking/transcript-claim.js";
 import {
   type HookHandler,
   enrich,
@@ -147,16 +147,16 @@ export async function runStopHookHandlerAsync(
     if (!resolved)
       return runStopHookAsync(stdinJson, async () => passthrough());
 
-    // Turn-end transcript capture — materialize THIS turn now, at the Stop
-    // boundary, so its `transcript` event ships even for the final turn before
-    // an (unpredictable) session end. prompt-capture only fires on the NEXT
-    // prompt, which never arrives for the last turn. Idempotent (last-wins on
-    // session+turn+role) so it's safe to also run here. Fire-and-forget.
-    void materializeTranscripts({
+    // Turn-end transcript claim — record only a lightweight pointer (session +
+    // turn) to the local queue; the daemon's transcript materializer does the
+    // streaming read + cloud push off the hot path, so the Stop hook never
+    // blocks on a large transcript. Best-effort; never throws.
+    enqueueTranscriptClaim({
       unerrDir,
       repoCwd: process.cwd(),
       sessionId: resolved.sessionId,
       agent: resolved.agent,
+      turn: resolved.currentTurn,
     });
 
     const line = renderStopReportLive(

@@ -17,7 +17,8 @@
  * (The former `notes` family retired with `unerr_remember`'s catalog removal,
  * 2026-06 — Layer B writes now ride hooks: user rules at UserPromptSubmit,
  * agent notes via the `unerr-save:` Stop-hook sentinel; recall is folded into
- * `unerr_context`.)
+ * a task-shaped `search_code` query, which re-targets to the `unerr_context`
+ * recon composite.)
  *
  * All four are always-on (unerr is the *server*; its own tools cannot be masked
  * by intent scoring the way an external-service family can). The registry
@@ -52,7 +53,7 @@ export const UNERR_FAMILIES: Readonly<
   graph: {
     name: "graph",
     label: "Code graph navigation",
-    tools: ["search_code", "get_references", "unerr_context"],
+    tools: ["search_code", "get_references"],
   },
   file: {
     name: "file",

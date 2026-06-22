@@ -66,6 +66,7 @@ const INTENT_CLASSES: ReadonlyArray<Exclude<DelegableClass, "none">> = [
   "lint_format",
   "tests",
   "docs",
+  "recon",
 ];
 
 /**

@@ -159,7 +159,14 @@ export type BehaviorEventType =
   /** A delegable many-site sweep was routed to the cheaper model. Same detail
    *  shape as `delegated_edit`; distinguished so a sweep (which pays the
    *  junior per-site cost) is counted apart from a single-entity edit. */
-  | "delegated_sweep";
+  | "delegated_sweep"
+  /** Consolidated savings-activation event (Issue 8). The specific lever is in
+   *  `detail.kind` (e.g. `bulk_edit_oneshot`, `search_code_context_inlined`,
+   *  `delegated_to_junior`, `grep_redirected_to_search_code`,
+   *  `code_grep_unredirected`) and `detail.category` is one of
+   *  savings|prevention|routing|leak. One type so new levers add a `kind`, not a
+   *  new behavior_event type / table / drainer. See `tracking/savings-events.ts`. */
+  | "savings_event";
 
 export interface BehaviorEvent {
   /** Monotonic counter per-process. */

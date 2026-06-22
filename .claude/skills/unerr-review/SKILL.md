@@ -9,7 +9,7 @@ user-invocable: false
 <EXTREMELY-IMPORTANT>
 Every finding MUST cite graph evidence — a caller list (`get_references`), a convention
 (read via `file_read`, which auto-injects conventions), or a recalled rule (the auto-injected
-anchored notes or `unerr_context`). A finding from reading the diff alone is a guess; drop it.
+anchored notes or `search_code`). A finding from reading the diff alone is a guess; drop it.
 Evidence is what separates this review from a blind diff-into-an-LLM review.
 </EXTREMELY-IMPORTANT>
 
@@ -37,7 +37,7 @@ domain / business correctness. Name what was not checked rather than guessing.
 ## Phases
 
 Phase R1 — Recall.
-  Read the anchored notes the UserPromptSubmit hook injected for the prompt — rules / decisions on touched files ride along. For an explicit recon bundle, call `unerr_context({prompt:'<verbatim user prompt>'})`.
+  Read the anchored notes the UserPromptSubmit hook injected for the prompt — rules / decisions on touched files ride along. For an explicit recon bundle, call `search_code({query:'<verbatim user prompt>'})`.
 
 Phase R2 — Scope the change set.
   Determine what to review: staged diff (`git diff --cached`), this turn's edits, or a branch range.
@@ -49,7 +49,7 @@ Phase R3 — Mark intent.
 Phase R4 — Gather evidence (per changed entity — deterministic, do NOT guess).
   - `get_references({key:'<entity>', direction:'callers'})` — breaking callers / blast radius
   - `file_read({file_path:'<file>', purpose:'explore'})` — convention & boundary rules + drift auto-inject
-  - `unerr_context({prompt:'<task touching f:<file> e:<entity>>'})` — rules / decisions on the entity (the UserPromptSubmit hook also injects them)
+  - `search_code({query:'<task touching f:<file> e:<entity>>'})` — rules / decisions on the entity (the UserPromptSubmit hook also injects them)
   - `search_code({query:'<new-fn-name>'})` — duplicate-logic / hallucinated-API check
 
 Phase R5 — Judge.

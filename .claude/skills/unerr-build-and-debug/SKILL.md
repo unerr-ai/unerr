@@ -23,7 +23,7 @@ Never start coding a new feature without first stating the shape (where it lives
 
 Phase A1 — Recall.
   Read the anchored notes the UserPromptSubmit hook injected for the prompt — prior decisions, abandoned approaches, and constraints ride along.
-  Faster: call `unerr_context({prompt:'<verbatim user prompt>'})` to fold A1 (recall) + A2 (overlap search) + A3 (conventions) into one budget-trimmed bundle (one round-trip, not three). From a Task subagent, run `unerr recon "<verbatim user prompt>"` from Bash for the same bundle. Then proceed to Phase A4.
+  Faster: call `search_code({query:'<verbatim user prompt>'})` to fold A1 (recall) + A2 (overlap search) + A3 (conventions) into one budget-trimmed bundle (one round-trip, not three). From a Task subagent, run `unerr recon "<verbatim user prompt>"` from Bash for the same bundle. Then proceed to Phase A4.
 
 Phase A2 — Survey for overlap.
   Call `search_code` for any existing entity that overlaps the proposed feature. If you find one, ask the user whether to extend or replace it. Do not silently shadow an existing module.
@@ -45,7 +45,7 @@ Phase A5 — Mark intent.
 
 Phase A6 — Build.
   Implement the shape from A4 via `file_edit` — old_string+new_string for an exact replace, or content for a new file / whole-file rewrite — no prior built-in `Read` is needed.
-  Domain comment (Layer 8): when you create an exported entity, write its doc comment block before the next edit — prose ≤2 sentences (what + why, never how), then `@sem domain=<tag>`. Reuse an active domain tag (the `unerr_context` bundle lists active tags); add a new tag only when none fits. Never restate the entity name as the summary.
+  Domain comment (Layer 8): when you create an exported entity, write its doc comment block before the next edit — prose ≤2 sentences (what + why, never how), then `@sem domain=<tag>`. Reuse an active domain tag (the `search_code` bundle lists active tags); add a new tag only when none fits. Never restate the entity name as the summary.
 
 Phase A7 — Verify.
   Run the targeted test for the new surface (not the full suite). Emit `unerr-save: resolution <fix>` in your closing message for any blocker that fired.
@@ -64,7 +64,7 @@ Never patch symptoms. Reproduce the failure first, isolate the failing component
 ### Phases (B)
 
 Phase B1 — Recall.
-  Read the anchored notes the UserPromptSubmit hook injected for the prompt — prior incidents and decisions tied to the failing entity ride along. For an explicit recon bundle, call `unerr_context({prompt:'<verbatim user prompt>'})`.
+  Read the anchored notes the UserPromptSubmit hook injected for the prompt — prior incidents and decisions tied to the failing entity ride along. For an explicit recon bundle, call `search_code({query:'<verbatim user prompt>'})`.
 
 Phase B2 — Reproduce.
   Pin the exact failing input/command/test. If the user pasted a stack trace, locate the top frame via `search_code`. If a test fails, run the SINGLE test file (not the full suite) to confirm deterministic failure.

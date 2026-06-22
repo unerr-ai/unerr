@@ -86,13 +86,12 @@ export interface MechanismEntry {
  */
 export const TOOL_MECHANISM: Readonly<Record<string, MechanismEntry>> = {
   // ── Survivors — interactive reads (need a payload this turn) ────────────
-  unerr_context: {
-    mechanism: "mcp",
-    rationale: "Keystone recon composite; model decides when to run it.",
-  },
+  // unerr_context merged into search_code (2026-06) — the recon composite now
+  // rides a task-shaped search_code query; no separate advertised verdict.
   search_code: {
     mechanism: "mcp",
-    rationale: "Model needs the hits back to pick a target this turn.",
+    rationale:
+      "Model needs the hits back to pick a target this turn; a task-shaped query returns the recon bundle.",
   },
   file_read: {
     mechanism: "mcp",

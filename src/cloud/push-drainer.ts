@@ -12,6 +12,7 @@
  * proxy — see `src/daemon/` for the scheduler that calls `drainRepo` per repo.
  */
 
+import { INGEST_MAX_EVENTS_PER_BATCH } from "@unerr-ai/contracts/events";
 import type { BatchAck, CloudClient, CloudResult } from "./client.js";
 import { type ContractSchema, validateRows } from "./drainers/validate.js";
 import { canPushTelemetry } from "./entitlements.js";
@@ -78,6 +79,10 @@ export interface DrainerContext {
    *  undefined outside a git repo. Drain-time approximation for streams that do
    *  not record the commit per row. */
   commit?: string;
+  /** Salted per-machine fingerprint (a one-way hash, never raw hardware), stamped
+   *  onto every row that omits it so each stream is self-attributing to a machine
+   *  even under a shared token — the machine-global analogue of `repo`. */
+  machineFingerprint?: string;
   /** Optional structured logger (stderr) for build-time diagnostics. */
   log?: (msg: string) => void;
 }
@@ -90,6 +95,13 @@ export interface DrainerContext {
 export interface DrainerSet {
   drainers: StreamDrainer[];
   dispose?: () => void | Promise<void>;
+  /**
+   * Push rows merged across this set's drainers in one request — passed to
+   * {@link drainRepo} as `pushCombined` so a tick coalesces every stream into
+   * the fewest POSTs. Built once per set because all rev-3 drainers push the
+   * same `IngestEvent` union through one endpoint. Absent → per-stream pushes.
+   */
+  pushCombined?: (rows: unknown[]) => Promise<CloudResult<BatchAck>>;
 }
 
 /**
@@ -166,6 +178,18 @@ export interface DrainOptions {
   isEntitled?: (now: number) => boolean;
   /** Optional structured logger (stderr). */
   log?: (msg: string) => void;
+  /**
+   * Coalesced push: send rows merged from MANY streams in one request. When set,
+   * {@link drainRepo} bin-packs whole per-stream batches into combined
+   * `≤INGEST_MAX_EVENTS / ≤256 KB` POSTs and maps the ack back to each stream by
+   * `event_id` — turning N per-stream POSTs into ⌈total/100⌉ (usually one). All
+   * rev-3 segment drainers push the same `IngestEvent` union through one
+   * endpoint, so a single combined push is equivalent to each stream's own.
+   * Omit it (tests with heterogeneous mock pushers) to keep the per-stream path.
+   */
+  pushCombined?: (rows: unknown[]) => Promise<CloudResult<BatchAck>>;
+  /** Max events per combined POST; defaults to {@link INGEST_MAX_EVENTS_PER_BATCH}. */
+  maxEventsPerBatch?: number;
 }
 
 /**
@@ -198,6 +222,13 @@ export async function drainRepo(
   }
 
   const maxBatches = opts.maxBatchesPerStream ?? 20;
+  if (opts.pushCombined) {
+    return drainRepoCoalesced(cursor, drainers, opts.pushCombined, {
+      maxBatches,
+      maxEvents: opts.maxEventsPerBatch ?? INGEST_MAX_EVENTS_PER_BATCH,
+      log: opts.log,
+    });
+  }
   const outcomes: DrainOutcome[] = [];
   for (const drainer of drainers) {
     outcomes.push(await drainStream(cursor, drainer, maxBatches, opts.log));
@@ -357,6 +388,271 @@ async function drainStream(
     deadLettered,
     status,
   };
+}
+
+/** One stream's running outcome + loop flags inside a coalesced drain. */
+interface CoalesceState {
+  pushed: number;
+  parked: number;
+  deadLettered: number;
+  status: DrainStatus;
+  /** Cursor held (retryable failure) — skip this stream for the rest of the tick. */
+  held: boolean;
+  /** Source exhausted (read returned null) — nothing left to read this tick. */
+  exhausted: boolean;
+  /** Pushed at least one batch — promotes a trailing `empty` to `ok`. */
+  sawData: boolean;
+}
+
+/** A per-stream batch awaiting a combined push. */
+interface PendingBatch {
+  state: CoalesceState;
+  key: string;
+  batch: StreamBatch;
+  rows: unknown[];
+  eventIds: string[];
+  bytes: number;
+}
+
+function rowEventId(row: unknown): string | undefined {
+  return (row as { event_id?: string } | null)?.event_id;
+}
+
+/**
+ * Greedy bin-pack whole per-stream batches into combined POSTs that each stay
+ * under both the event-count and byte caps. A single batch is already capped by
+ * the drainer's own read, so it always fits in a fresh post. Whole batches are
+ * never split across posts, so each stream's `batch.next` cursor stays valid.
+ */
+function packBatches(
+  pending: PendingBatch[],
+  maxEvents: number
+): PendingBatch[][] {
+  const posts: PendingBatch[][] = [];
+  let cur: PendingBatch[] = [];
+  let rows = 0;
+  let bytes = 2; // enclosing `[]`
+  for (const p of pending) {
+    const wouldRows = rows + p.rows.length;
+    const wouldBytes = bytes + p.bytes;
+    if (
+      cur.length > 0 &&
+      (wouldRows > maxEvents || wouldBytes > BODY_BYTE_BUDGET)
+    ) {
+      posts.push(cur);
+      cur = [];
+      rows = 0;
+      bytes = 2;
+    }
+    cur.push(p);
+    rows += p.rows.length;
+    bytes += p.bytes;
+  }
+  if (cur.length > 0) posts.push(cur);
+  return posts;
+}
+
+/**
+ * Drain every stream for one repo by COALESCING per-stream batches into the
+ * fewest combined `pushCombined` requests, then mapping each ack back to its
+ * stream by `event_id`. Equivalent outcome to the per-stream {@link drainStream}
+ * path (advance on accept/park, dead-letter poison, hold on retryable), but one
+ * tick now costs ⌈total/maxEvents⌉ POSTs instead of one-per-stream. Best-effort:
+ * a per-stream read/push failure never throws and never blocks another stream.
+ */
+async function drainRepoCoalesced(
+  cursor: PushCursor,
+  drainers: StreamDrainer[],
+  pushCombined: (rows: unknown[]) => Promise<CloudResult<BatchAck>>,
+  opts: { maxBatches: number; maxEvents: number; log?: (msg: string) => void }
+): Promise<DrainOutcome[]> {
+  const { maxBatches, maxEvents, log } = opts;
+  const states = new Map<string, CoalesceState>(
+    drainers.map((d) => [
+      d.key,
+      {
+        pushed: 0,
+        parked: 0,
+        deadLettered: 0,
+        status: "empty" as DrainStatus,
+        held: false,
+        exhausted: false,
+        sawData: false,
+      },
+    ])
+  );
+
+  for (let round = 0; round < maxBatches; round++) {
+    const pending: PendingBatch[] = [];
+
+    for (const drainer of drainers) {
+      const st = states.get(drainer.key);
+      if (!st || st.held || st.exhausted) continue;
+
+      let batch: StreamBatch | null;
+      try {
+        batch = await drainer.read(cursor.position(drainer.key));
+      } catch (err) {
+        log?.(`push: ${drainer.key} read failed: ${errMessage(err)}`);
+        st.status = "server_error";
+        st.held = true;
+        continue;
+      }
+
+      if (!batch || batch.rows.length === 0) {
+        st.exhausted = true;
+        if (st.sawData && st.status !== "dead_lettered") st.status = "ok";
+        continue;
+      }
+      st.sawData = true;
+
+      // Contract gate — drop rows that drift from the wire shape. A fully-invalid
+      // batch is poison: dead-letter and advance so the cursor never hot-loops.
+      const rows = drainer.schema
+        ? validateRows(drainer.schema, batch.rows, drainer.key, log)
+        : batch.rows;
+      if (rows.length === 0) {
+        cursor.addDeadLetters(drainer.key, batch.rows.length);
+        st.deadLettered += batch.rows.length;
+        cursor.advance(drainer.key, batch.next);
+        st.status = "dead_lettered";
+        log?.(
+          `push: ${drainer.key} all ${batch.rows.length} row(s) failed contract validation — dead-lettered`
+        );
+        continue;
+      }
+
+      pending.push({
+        state: st,
+        key: drainer.key,
+        batch,
+        rows,
+        eventIds: rows.map(rowEventId).filter((id): id is string => !!id),
+        bytes: Buffer.byteLength(JSON.stringify(rows), "utf8"),
+      });
+    }
+
+    if (pending.length === 0) break;
+
+    for (const post of packBatches(pending, maxEvents)) {
+      const merged = post.flatMap((p) => p.rows);
+      const res = await pushCombined(merged);
+      applyCombinedAck(cursor, post, res, log);
+    }
+
+    if ([...states.values()].every((s) => s.held || s.exhausted)) break;
+  }
+
+  return drainers.map((d) => {
+    const s = states.get(d.key);
+    return {
+      stream: d.key,
+      pushed: s?.pushed ?? 0,
+      parked: s?.parked ?? 0,
+      deadLettered: s?.deadLettered ?? 0,
+      status: s?.status ?? "empty",
+    };
+  });
+}
+
+/**
+ * Apply one combined POST's result to every stream that contributed to it.
+ * A 2xx maps per-row results back by `event_id`; a non-2xx is classified once
+ * and applied to every member (poison → dead-letter+advance, transient → hold).
+ */
+function applyCombinedAck(
+  cursor: PushCursor,
+  post: PendingBatch[],
+  res: CloudResult<BatchAck>,
+  log?: (msg: string) => void
+): void {
+  if (!res.ok) {
+    let status: DrainStatus = "server_error";
+    let poison = false;
+    if (res.network) status = "network";
+    else if (res.status === 429 || res.status === 503) status = "rate_limited";
+    else if (res.status === 403) status = "skipped_gate";
+    else if (res.status >= 400 && res.status < 500) {
+      status = "dead_lettered";
+      poison = true;
+    }
+    for (const p of post) {
+      if (poison) {
+        // Terminal 4xx: the batch itself is bad — quarantine + advance so the
+        // loop never hot-loops on the same poison rows (B7).
+        cursor.addDeadLetters(p.key, p.rows.length);
+        p.state.deadLettered += p.rows.length;
+        cursor.advance(p.key, p.batch.next);
+        p.state.status = "dead_lettered";
+        log?.(
+          `push: ${p.key} combined batch rejected ${res.status} ${res.error.code} — dead-lettered ${p.rows.length} row(s)`
+        );
+      } else {
+        // Transient: hold the cursor, retry next tick (idempotent on event_id).
+        p.state.status = status;
+      }
+      p.state.held = true;
+    }
+    return;
+  }
+
+  const results = res.data.results ?? [];
+  const byId = new Map(results.map((r) => [r.event_id, r]));
+  const aggregateRejected = res.data.rejected ?? 0;
+  // Pre-1-0-5 server: no per-row results. Can't attribute a rejection to a
+  // stream in a coalesced batch — hold the whole post and retry (dedup-safe).
+  if (results.length === 0 && aggregateRejected > 0) {
+    for (const p of post) {
+      p.state.status = "server_error";
+      p.state.held = true;
+    }
+    return;
+  }
+
+  for (const p of post) {
+    let parked = 0;
+    let permanentRejected = 0;
+    let retryableRejected = 0;
+    const rejectCodes = new Set<string>();
+    for (const id of p.eventIds) {
+      const r = byId.get(id);
+      if (!r || r.status === "accepted") continue;
+      if (r.status === "parked") parked += 1;
+      else if (r.disposition === "retryable") retryableRejected += 1;
+      else {
+        permanentRejected += 1;
+        if (r.code) rejectCodes.add(r.code);
+      }
+    }
+
+    if (retryableRejected > 0) {
+      // Hold the cursor; the whole batch re-sends next tick (server dedups).
+      p.state.status = "server_error";
+      p.state.held = true;
+      log?.(
+        `push: ${p.key} server deferred ${retryableRejected}/${p.rows.length} row(s) (retryable) — cursor held`
+      );
+      continue;
+    }
+    if (permanentRejected > 0) {
+      cursor.addDeadLetters(p.key, permanentRejected);
+      p.state.deadLettered += permanentRejected;
+      log?.(
+        `push: ${p.key} server permanently rejected ${permanentRejected}/${p.rows.length} row(s) — dead-lettered${
+          rejectCodes.size > 0 ? ` [${[...rejectCodes].join(", ")}]` : ""
+        }`
+      );
+    }
+    if (parked > 0) {
+      p.state.parked += parked;
+      log?.(
+        `push: ${p.key} server parked ${parked}/${p.rows.length} row(s) for server-side replay`
+      );
+    }
+    p.state.pushed += p.rows.length - permanentRejected - parked;
+    cursor.advance(p.key, p.batch.next);
+    p.state.status = p.state.deadLettered > 0 ? "dead_lettered" : "ok";
+  }
 }
 
 function errMessage(err: unknown): string {

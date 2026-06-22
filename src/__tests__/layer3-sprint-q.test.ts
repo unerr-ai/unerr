@@ -137,12 +137,15 @@ describe("Compression Quality Monitor (Q.13)", () => {
 });
 
 describe("Skills Pack (Q.11-Q.12, post-27→7 consolidation)", () => {
-  it("token-efficient guidance lives inside the master skill body", () => {
-    // Folded into using-unerr (always-on master).
+  it("output discipline lives inside the orchestrator skill body", () => {
+    // Folded into using-unerr (the one always-on skill). The verbose 2026-05
+    // token-efficiency list was condensed to an "Output discipline" line in the
+    // 2026-06 slim (the rest lives in the instruction file, not duplicated).
     const skill = getSkill("using-unerr");
     expect(skill).not.toBeNull();
     expect(skill?.category).toBe("workflow");
-    expect(skill?.instructions).toContain("bullet points");
+    expect(skill?.instructions).toContain("Output discipline");
+    expect(skill?.instructions).toContain("show diffs, not whole files");
   });
 
   it("graph-first navigation lives inside unerr-exploration", () => {
@@ -155,14 +158,15 @@ describe("Skills Pack (Q.11-Q.12, post-27→7 consolidation)", () => {
     expect(skill?.instructions).toContain("search_code");
   });
 
-  it("getSkillsContext returns always-on skills (post-27→7 consolidation)", () => {
+  it("getSkillsContext returns the single always-on orchestrator (2026-06)", () => {
     const context = getSkillsContext();
     const skills = context["dev.unerr/active_skills"] as Array<{ id: string }>;
-    // The 4 always-on skills in the consolidated 7-skill set.
+    // 9→6 consolidation: using-unerr is the only `trigger:'always'` skill;
+    // safe-modification folded into it; memory + markers removed.
     expect(skills.map((s) => s.id)).toContain("using-unerr");
-    expect(skills.map((s) => s.id)).toContain("safe-modification");
-    expect(skills.map((s) => s.id)).toContain("memory");
-    expect(skills.map((s) => s.id)).toContain("markers");
+    expect(skills.map((s) => s.id)).not.toContain("safe-modification");
+    expect(skills.map((s) => s.id)).not.toContain("memory");
+    expect(skills.map((s) => s.id)).not.toContain("markers");
     expect(skills.length).toBe(
       LOCAL_SKILLS.filter((s) => s.trigger.type === "always").length
     );
@@ -184,18 +188,15 @@ describe("Skills Pack (Q.11-Q.12, post-27→7 consolidation)", () => {
     expect(skill?.whenToUse).toContain("NOT for addressing review comments");
   });
 
-  it("LOCAL_SKILLS has the 9 consolidated skills", () => {
-    // Hard cut: the 22 absorbed legacy skills are gone. Skill 8 (review) —
-    // agent-as-reviewer producer — added 2026-05. Skill 9 (delegate) —
-    // Lever C cheaper-model handoff — added 2026-06.
-    expect(LOCAL_SKILLS).toHaveLength(9);
+  it("LOCAL_SKILLS has the 6 skills (2026-06 usage-driven consolidation)", () => {
+    // 9→6: memory + markers removed (invoked 0× via Skill(); function lives in
+    // hooks + the instruction file); safe-modification folded into using-unerr's
+    // default edit workflow. One always-on orchestrator + five on-demand skills.
+    expect(LOCAL_SKILLS).toHaveLength(6);
     const ids = LOCAL_SKILLS.map((s) => s.id);
     expect(ids).toEqual([
       "using-unerr",
-      "safe-modification",
       "exploration",
-      "memory",
-      "markers",
       "build-and-debug",
       "test-and-review",
       "review",

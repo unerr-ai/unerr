@@ -57,7 +57,9 @@ describe("classifyVerbCluster (T3.1)", () => {
     ["address the review comments on this PR", "review-comments"],
     ["respond to PR feedback", "review-comments"],
     ["who calls handleMarkerCall", "navigation"],
-    ["remember we never use grep", "memory"],
+    // memory cluster removed (2026-06) — "remember/always/never" rules are
+    // hook-captured automatically; no skill to route to.
+    ["remember we never use grep", null],
     ["implement a new dashboard route", "build"],
     ["write tests for the cluster classifier", "test"],
     ["just curious about the architecture", null],
@@ -72,24 +74,21 @@ describe("classifyVerbCluster (T3.1)", () => {
     });
   }
 
-  it("every cluster routes to a consolidated unerr-* skill", () => {
-    // Post-27→7: many-to-one is the new invariant (bug+build → build-and-debug;
-    // fix+refactor → safe-modification; test → test-and-review). Review verbs
-    // split (2026-05): producing a review → unerr-review; addressing review
-    // comments → unerr-test-and-review. What matters is that every cluster
-    // names a real consolidated skill.
-    const consolidated = new Set([
+  it("every cluster routes to a real unerr-* skill", () => {
+    // Post-2026-06 (9→6): bug+build → build-and-debug; fix+refactor → the
+    // orchestrator's default edit workflow (unerr-using-unerr); test → test-and-
+    // review; review split into produce (unerr-review) vs address (test-and-
+    // review). Every cluster must name a skill that still ships.
+    const shipped = new Set([
       "unerr-using-unerr",
-      "unerr-safe-modification",
       "unerr-exploration",
-      "unerr-memory",
-      "unerr-markers",
       "unerr-build-and-debug",
       "unerr-test-and-review",
       "unerr-review",
+      "unerr-delegate",
     ]);
     for (const c of VERB_CLUSTERS) {
-      expect(consolidated.has(c.skill)).toBe(true);
+      expect(shipped.has(c.skill)).toBe(true);
     }
   });
 });
@@ -101,23 +100,21 @@ describe("buildSkillCatalog (T3.2)", () => {
     expect(catalog).toMatch(/^available skills/);
   });
 
-  it("lists all 8 consolidated unerr-* skills", () => {
+  it("lists all 6 unerr-* skills", () => {
     const names = [
       "unerr-using-unerr",
-      "unerr-safe-modification",
       "unerr-exploration",
-      "unerr-memory",
-      "unerr-markers",
       "unerr-build-and-debug",
       "unerr-test-and-review",
       "unerr-review",
+      "unerr-delegate",
     ];
     for (const n of names) expect(catalog).toContain(n);
   });
 
   it("includes a one-line description per skill", () => {
     // 8 skills + 1 header = 9 lines
-    expect(catalog.split("\n")).toHaveLength(9);
+    expect(catalog.split("\n")).toHaveLength(7); // header + 6 skills (9→6, 2026-06)
   });
 });
 
@@ -385,33 +382,47 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     }
   });
 
-  it("Path A fires for 'replace X with Y' and routes to safe-modification", () => {
+  it("Path A fires for 'replace X with Y' and routes to the orchestrator", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "replace the legacy auth flow with the new one",
     });
     const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("ur|act unerr-safe-modification");
+    expect(ctx).toContain("ur|act unerr-using-unerr");
     expect(ctx).toContain("Path A matched verb cluster 'fix'");
   });
 
-  it("Path A fires for 'extract function Z' (refactor → safe-modification)", () => {
+  it("Path A fires for 'extract function Z' (refactor → orchestrator)", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "extract the request parser into its own function",
     });
     const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("ur|act unerr-safe-modification");
+    expect(ctx).toContain("ur|act unerr-using-unerr");
     expect(ctx).toContain("'refactor'");
   });
 
-  it("Path A fires for 'optimize the loop' (fix → safe-modification)", () => {
+  it("Path A fires for 'optimize the loop' (fix → orchestrator)", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "optimize the inner loop in computeDelta",
     });
     const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("ur|act unerr-safe-modification");
+    expect(ctx).toContain("ur|act unerr-using-unerr");
+  });
+
+  it("Path A is GATED off for a non-code prompt that still matches a verb cluster", () => {
+    // "hotspots" matches the navigation verb cluster, but it is NOT in
+    // TASK_VERBS_CODE — so isCodeContext() is false and Path A must stay silent.
+    // This is the misfire the gate fixes: a question/aside that happened to
+    // contain a routing verb should NOT draw a skill-dispatch nudge.
+    const stdin = JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      user_message: "what are the hotspots in this repo",
+    });
+    const ctx = readContext(runUserPromptSubmitHook(stdin));
+    expect(ctx).not.toContain("Path A matched verb cluster");
+    expect(ctx).not.toContain("no verb-cluster match");
   });
 
   it("prepends the cross-session stitch on the first prompt of a new session", () => {

@@ -65,4 +65,22 @@ describe("classifyDelegable (Lever C)", () => {
     expect(classifyDelegable("").class).toBe("none");
     expect(classifyDelegable("   ").class).toBe("none");
   });
+
+  it("classifies read-only recon as the recon class", () => {
+    for (const p of [
+      "find out where the retry lives",
+      "investigate the boot sequence",
+      "trace how the proxy spawns the daemon",
+      "look into why the cache misses",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("recon");
+    }
+  });
+
+  it("an explicit edit signal outranks recon (investigate AND rename stays an edit)", () => {
+    // "rename" is a mechanical_refactor signal; it must win over "investigate".
+    expect(classifyDelegable("investigate then rename the handler").class).toBe(
+      "mechanical_refactor"
+    );
+  });
 });

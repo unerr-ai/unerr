@@ -24,14 +24,21 @@ import {
 } from "../proxy/nudge-state.js";
 
 describe("isDriftCommand — TRUE POSITIVES (must nudge)", () => {
-  it("flags grep on a code path", () => {
+  it("routes a bare identifier hunted repo-wide to code_refs (find-all-uses)", () => {
     const h = isDriftCommand("grep -r 'compressShellOutput' src/proxy/");
-    expect(h?.kind).toBe("code_search");
+    expect(h?.kind).toBe("code_refs");
     expect(h?.arg).toBe("compressShellOutput");
+    expect(h?.suggest).toContain("get_references");
+    expect(h?.suggest).toContain("include_text_occurrences");
+  });
+
+  it("flags a multi-word / regex grep as a text search (code_search)", () => {
+    const h = isDriftCommand("grep -rE 'parse.*token' src/");
+    expect(h?.kind).toBe("code_search");
     expect(h?.suggest).toContain("search_code");
   });
 
-  it("flags rg on a code path", () => {
+  it("flags rg on a code path (no -r → text search, not find-all-uses)", () => {
     const h = isDriftCommand("rg foo src/");
     expect(h?.kind).toBe("code_search");
   });
@@ -54,6 +61,24 @@ describe("isDriftCommand — TRUE POSITIVES (must nudge)", () => {
     expect(h?.kind).toBe("code_read");
   });
 
+  it("flags sed -n '1,50p' on a .ts file (path after the script arg)", () => {
+    const h = isDriftCommand("sed -n '1,50p' src/proxy/proxy.ts");
+    expect(h?.kind).toBe("code_read");
+    expect(h?.suggest).toContain("file_read");
+    expect(h?.suggest).toContain("src/proxy/proxy.ts");
+  });
+
+  it("flags awk reading a code file", () => {
+    const h = isDriftCommand("awk 'NR>=1 && NR<=40' src/commands/exec.ts");
+    expect(h?.kind).toBe("code_read");
+    expect(h?.suggest).toContain("file_read");
+  });
+
+  it("does NOT flag sed on a non-code file", () => {
+    expect(isDriftCommand("sed -n '1,5p' notes.md")).toBeNull();
+    expect(isDriftCommand("sed -i 's/a/b/' config.yaml")).toBeNull();
+  });
+
   it("flags ls -R src/", () => {
     const h = isDriftCommand("ls -R src/");
     expect(h?.kind).toBe("dir_explore");
@@ -62,29 +87,89 @@ describe("isDriftCommand — TRUE POSITIVES (must nudge)", () => {
 
   it("strips leading env vars before classification", () => {
     const h = isDriftCommand("FOO=1 BAR=2 grep -r 'x' src/");
-    expect(h?.kind).toBe("code_search");
+    expect(h?.kind).toBe("code_refs");
   });
 
   it("strips leading sudo / time prefixes", () => {
     const h = isDriftCommand("time grep -r 'x' src/");
-    expect(h?.kind).toBe("code_search");
+    expect(h?.kind).toBe("code_refs");
   });
 
   // Regression: absolute paths like /Users/foo/repo/src/proxy/ must fire too.
   // CODE_PATH_HINT_RE previously required src/lib/etc to be preceded by
   // whitespace/quote/start — slashes were excluded, so abs paths silently
   // bypassed the v2 drift nudge.
-  it("flags grep against an absolute path containing src/", () => {
+  it("flags grep against an absolute path containing src/ (bare id → code_refs)", () => {
     const h = isDriftCommand(
       "grep -rn 'compressShellOutput' /Users/foo/repo/src/proxy/"
     );
-    expect(h?.kind).toBe("code_search");
-    expect(h?.suggest).toContain("search_code");
+    expect(h?.kind).toBe("code_refs");
+    expect(h?.suggest).toContain("get_references");
   });
 
-  it("flags grep against an absolute path containing lib/", () => {
+  it("flags grep against an absolute path containing lib/ (bare id → code_refs)", () => {
     const h = isDriftCommand("grep -rn 'foo' /home/u/code/lib/");
-    expect(h?.kind).toBe("code_search");
+    expect(h?.kind).toBe("code_refs");
+  });
+});
+
+// Lever 1+2 (2026-06-22): the chats→traces rename in session 9bc1ff83 leaked
+// 11 grep/find/cat/sed ops because the bare-identifier grep nudge pointed at
+// search_code (symbol-only, can't see string/route occurrences). These cases
+// lock in the corrected routing: a single identifier hunted repo-wide → the
+// textual-blast-radius tool; an in-place sed/perl rewrite → same; a which /
+// --version env probe → fact memory.
+describe("isDriftCommand — code_refs (rename / find-all-uses)", () => {
+  it("routes an in-place sed substitution on a code file to code_refs", () => {
+    const h = isDriftCommand("sed -i 's/chats/traces/g' src/app/routes.ts");
+    expect(h?.kind).toBe("code_refs");
+    expect(h?.arg).toBe("chats");
+    expect(h?.suggest).toContain("get_references");
+    expect(h?.suggest).toContain("file_edit");
+  });
+
+  it("routes a perl -pi in-place rewrite on a code path to code_refs", () => {
+    const h = isDriftCommand("perl -pi -e 's/chats/traces/g' src/handlers.ts");
+    expect(h?.kind).toBe("code_refs");
+    expect(h?.arg).toBe("chats");
+    expect(h?.suggest).toContain("get_references");
+  });
+
+  it("replays the 9bc1ff83 repo-wide grep for one identifier → code_refs", () => {
+    const h = isDriftCommand("grep -rIn 'chats' src/app/");
+    expect(h?.kind).toBe("code_refs");
+    expect(h?.arg).toBe("chats");
+    expect(h?.suggest).toContain("include_text_occurrences");
+  });
+
+  it("leaves a non-code-path sed -i alone (config.yaml → null)", () => {
+    expect(isDriftCommand("sed -i 's/a/b/' config.yaml")).toBeNull();
+  });
+});
+
+describe("isDriftCommand — env_probe (stable-fact re-discovery)", () => {
+  it("flags `which codex` as an env_probe to save once", () => {
+    const h = isDriftCommand("which codex");
+    expect(h?.kind).toBe("env_probe");
+    expect(h?.arg).toBe("codex");
+    expect(h?.suggest).toContain("unerr-save");
+  });
+
+  it("flags `command -v node` as an env_probe", () => {
+    const h = isDriftCommand("command -v node");
+    expect(h?.kind).toBe("env_probe");
+    expect(h?.arg).toBe("node");
+  });
+
+  it("flags `<tool> --version` as an env_probe", () => {
+    const h = isDriftCommand("codex --version");
+    expect(h?.kind).toBe("env_probe");
+    expect(h?.arg).toBe("codex");
+  });
+
+  it("never echoes a secret value into the save suggestion", () => {
+    const h = isDriftCommand("which aws");
+    expect(h?.suggest).toContain("never save secret values");
   });
 });
 
@@ -157,7 +242,9 @@ describe("formatDriftNudge — output shape", () => {
   it("produces a one-line nudge with the alternative", () => {
     // Post-trim format (table rows #1-4): drops the internal "drift(<kind>):
     // try" preamble. Line starts with "[unerr]" + the paste-ready call.
-    const hint = isDriftCommand("grep -r foo src/")!;
+    // Multi-word pattern → code_search (a bare identifier would route to
+    // code_refs / get_references — see the find-all-uses block above).
+    const hint = isDriftCommand("grep -rE 'foo bar' src/")!;
     const line = formatDriftNudge(hint);
     expect(line).toMatch(/^\[unerr\] search_code\(/);
     expect(line).toContain("search_code");

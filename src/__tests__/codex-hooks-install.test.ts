@@ -221,10 +221,13 @@ describe("delegate skill is gated to delegation-capable hosts", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("registry: only claude-code and codex delegate", () => {
+  it("registry: claude-code, codex, cursor, and github-copilot-cli delegate", () => {
     expect(supportsDelegation("claude-code")).toBe(true);
     expect(supportsDelegation("codex")).toBe(true);
-    expect(supportsDelegation("cursor")).toBe(false);
+    expect(supportsDelegation("cursor")).toBe(true);
+    expect(supportsDelegation("github-copilot-cli")).toBe(true);
+    // A GUI/extension host with no programmatic spawn stays non-delegating.
+    expect(supportsDelegation("vscode")).toBe(false);
   });
 
   it("installs the delegate skill on claude-code", async () => {
@@ -232,19 +235,20 @@ describe("delegate skill is gated to delegation-capable hosts", () => {
     expect(result.installed).toContain("delegate");
   });
 
-  it("does NOT install the delegate skill on cursor", async () => {
+  it("installs the delegate skill on cursor (now a delegation host)", async () => {
     const result = await resolveAndInstallSkills({ ide: "cursor", cwd });
-    expect(result.installed).not.toContain("delegate");
+    expect(result.installed).toContain("delegate");
     expect(
       existsSync(join(cwd, ".cursor", "rules", "unerr-delegate.mdc"))
-    ).toBe(false);
+    ).toBe(true);
   });
 
   // Regression: codex / cline fall through getSkillDir's default case and write
   // unerr's own skills to `.unerr/skills/` — the SAME dir the Tier-2 loader
-  // reads. Re-ingesting `unerr-*.md` would double-install every skill and leak
-  // the host-filtered `delegate` onto cursor. The loader must skip the reserved
-  // `unerr-` namespace.
+  // reads. Re-ingesting `unerr-*.md` would double-install every skill (the
+  // `unerr-`-prefixed copy alongside the genuine pack skill). The loader must
+  // skip the reserved `unerr-` namespace. (cursor legitimately installs the real
+  // `delegate` skill now that it delegates — the guard is the prefixed copies.)
   it("ignores unerr-* files left in the Tier-2 dir (codex/cline contamination)", async () => {
     const tier2 = join(cwd, ".unerr", "skills");
     mkdirSync(tier2, { recursive: true });
@@ -259,14 +263,10 @@ describe("delegate skill is gated to delegation-capable hosts", () => {
 
     const result = await resolveAndInstallSkills({ ide: "cursor", cwd });
 
-    // No delegate leak from the Tier-2 copy.
-    expect(result.installed).not.toContain("delegate");
+    // No `unerr-`-prefixed copy leaks in from the Tier-2 dir — not the delegate,
+    // review, or markers copy. The genuine `delegate` (from the real pack, cursor
+    // being a delegation host) is fine; the contaminating `unerr-delegate` is not.
     expect(result.installed).not.toContain("unerr-delegate");
-    expect(
-      existsSync(join(cwd, ".cursor", "rules", "unerr-delegate.mdc"))
-    ).toBe(false);
-    // No double-install: a genuine user skill IS still picked up, but the
-    // `unerr-` copies are not — so no `unerr-review`/`unerr-markers` duplicates.
     expect(result.installed).not.toContain("unerr-review");
     expect(result.installed).not.toContain("unerr-markers");
   });

@@ -309,3 +309,121 @@ describe("drainRepo", () => {
     expect(cursor.position("events")).toEqual({ lastId: 3 });
   });
 });
+
+/** A drainer that yields one batch then null; its own `push` must NOT be called
+ *  on the coalesced path (the combined pusher owns the request). */
+function readOnceDrainer(
+  key: string,
+  rows: unknown[],
+  next: { lastId: number }
+): StreamDrainer {
+  let done = false;
+  return {
+    key,
+    async read() {
+      if (done) return null;
+      done = true;
+      return { rows, next };
+    },
+    async push() {
+      throw new Error(`coalesced path must not call ${key}.push`);
+    },
+  };
+}
+
+const accepted = (ids: string[]): BatchAck => ({
+  accepted: ids.length,
+  results: ids.map((event_id) => ({ event_id, status: "accepted" as const })),
+});
+
+describe("drainRepo — coalesced", () => {
+  let unerrDir: string;
+  beforeEach(async () => {
+    unerrDir = await mkdtemp(join(tmpdir(), "unerr-coalesce-"));
+  });
+
+  it("merges every stream into ONE combined POST and advances all cursors", async () => {
+    const cursor = await PushCursor.open(unerrDir);
+    const drainers = [
+      readOnceDrainer("events", [{ event_id: "e1" }, { event_id: "e2" }], {
+        lastId: 2,
+      }),
+      readOnceDrainer("ledger", [{ event_id: "l1" }], { lastId: 1 }),
+    ];
+    const calls: unknown[][] = [];
+    const pushCombined = async (rows: unknown[]) => {
+      calls.push(rows);
+      return ok(accepted(["e1", "e2", "l1"]));
+    };
+
+    const outcomes = await drainRepo(cursor, drainers, {
+      isEntitled: allow,
+      pushCombined,
+    });
+
+    expect(calls).toHaveLength(1); // one request for both streams
+    expect(calls[0]).toHaveLength(3);
+    expect(cursor.position("events")).toEqual({ lastId: 2 });
+    expect(cursor.position("ledger")).toEqual({ lastId: 1 });
+    expect(outcomes).toContainEqual(
+      expect.objectContaining({ stream: "events", pushed: 2, status: "ok" })
+    );
+    expect(outcomes).toContainEqual(
+      expect.objectContaining({ stream: "ledger", pushed: 1, status: "ok" })
+    );
+  });
+
+  it("holds only the stream with a retryable reject; others advance", async () => {
+    const cursor = await PushCursor.open(unerrDir);
+    const drainers = [
+      readOnceDrainer("events", [{ event_id: "e1" }], { lastId: 5 }),
+      readOnceDrainer("ledger", [{ event_id: "l1" }], { lastId: 7 }),
+    ];
+    const pushCombined = async () =>
+      ok({
+        accepted: 1,
+        rejected: 1,
+        results: [
+          { event_id: "e1", status: "accepted" as const },
+          {
+            event_id: "l1",
+            status: "rejected" as const,
+            disposition: "retryable" as const,
+          },
+        ],
+      });
+
+    const outcomes = await drainRepo(cursor, drainers, {
+      isEntitled: allow,
+      pushCombined,
+    });
+
+    expect(cursor.position("events")).toEqual({ lastId: 5 }); // advanced
+    expect(cursor.position("ledger")).toEqual({}); // held
+    expect(outcomes).toContainEqual(
+      expect.objectContaining({ stream: "events", pushed: 1, status: "ok" })
+    );
+    expect(outcomes).toContainEqual(
+      expect.objectContaining({ stream: "ledger", status: "server_error" })
+    );
+  });
+
+  it("dead-letters every member on a terminal 400 and advances past it", async () => {
+    const cursor = await PushCursor.open(unerrDir);
+    const drainers = [
+      readOnceDrainer("events", [{ event_id: "e1" }], { lastId: 3 }),
+      readOnceDrainer("ledger", [{ event_id: "l1" }], { lastId: 4 }),
+    ];
+    const pushCombined = async () => httpErr(400, "bad_request");
+
+    const outcomes = await drainRepo(cursor, drainers, {
+      isEntitled: allow,
+      pushCombined,
+    });
+
+    expect(cursor.position("events")).toEqual({ lastId: 3 }); // advanced past poison
+    expect(cursor.position("ledger")).toEqual({ lastId: 4 });
+    expect(outcomes.every((o) => o.status === "dead_lettered")).toBe(true);
+    expect(outcomes.reduce((n, o) => n + o.deadLettered, 0)).toBe(2);
+  });
+});

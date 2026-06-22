@@ -11,16 +11,18 @@ describe("delegation gate", () => {
   const gate = (agentId: string, prompt: string) =>
     shouldDelegate({ agentId: agentId as never, prompt });
 
-  it("only claude-code and codex support delegation", () => {
+  it("claude-code, codex, cursor, and github-copilot-cli support delegation", () => {
     expect(supportsDelegation("claude-code")).toBe(true);
     expect(supportsDelegation("codex")).toBe(true);
-    for (const id of ["cursor", "vscode", "gemini-cli", "windsurf"] as const) {
+    expect(supportsDelegation("cursor")).toBe(true);
+    expect(supportsDelegation("github-copilot-cli")).toBe(true);
+    for (const id of ["vscode", "gemini-cli", "windsurf", "cline"] as const) {
       expect(supportsDelegation(id), id).toBe(false);
     }
   });
 
   it("non-delegating host never delegates even with a delegable task", () => {
-    const d = gate("cursor", "add tests for the router");
+    const d = gate("vscode", "add tests for the router");
     expect(d.delegate).toBe(false);
     expect(d.reason).toContain("no delegation path");
   });

@@ -11,9 +11,11 @@
  */
 
 export type DriftKind =
-  | "code_search" // grep / rg / find -name on code
+  | "code_search" // grep / rg / find -name on code (conceptual / multi-word)
+  | "code_refs" // grep/sed/perl hunting ONE identifier repo-wide (rename / find-all-uses)
   | "code_read" // cat / head / tail / less on a code file
-  | "dir_explore"; // ls -R on a source directory
+  | "dir_explore" // ls -R on a source directory
+  | "env_probe"; // which/--version re-discovery of a STABLE fact unerr could remember
 
 export interface DriftHint {
   kind: DriftKind;
@@ -53,6 +55,33 @@ function looksLikeCodeTarget(tail: string): boolean {
   return false;
 }
 
+/**
+ * A bare identifier — a single symbol name with no regex metacharacters,
+ * spaces, or path separators. Hunting one of these repo-wide is the
+ * find-all-references / rename use case, where get_references with
+ * include_text_occurrences returns the full textual blast radius in one call.
+ * A multi-word or regex pattern is a genuine text search and stays on grep /
+ * search_code (hybrid: lexical, structural, and semantic are distinct tools —
+ * route by intent, per the "grep replacement is three tools" guidance).
+ */
+function isBareIdentifier(pattern: string | undefined): pattern is string {
+  return !!pattern && /^[A-Za-z_$][\w$]*$/.test(pattern);
+}
+
+/** Does the command search the whole tree (-r/-R/--include) rather than one file? */
+function isRepoWideSearch(tail: string): boolean {
+  return /(?:^|\s)-\w*[rR]\w*\b/.test(tail) || /--include\b/.test(tail);
+}
+
+/** Extract the OLD side of an in-place `s/OLD/NEW/` substitution (sed -i / perl -pi). */
+function extractSubstTarget(tail: string): string | undefined {
+  const inPlace = /(?:^|\s)-\w*i\w*\b/.test(tail) || /--in-place\b/.test(tail);
+  if (!inPlace) return undefined;
+  // s/OLD/NEW/  — OLD may contain escaped chars; stop at the first unescaped `/`.
+  const m = tail.match(/\bs\/((?:\\.|[^/\\])+)\//);
+  return m?.[1];
+}
+
 /** Extract the search term from `grep PATTERN paths` / `rg PATTERN paths`. */
 function extractGrepPattern(tail: string): string | undefined {
   // Skip leading flags like -r -n -i -E etc.
@@ -64,12 +93,20 @@ function extractGrepPattern(tail: string): string | undefined {
   return undefined;
 }
 
-/** Extract the file path from `cat PATH` / `head PATH` etc. */
+/**
+ * Extract the file path from a code-read command. Prefers a token that looks
+ * like a code file so `sed -n '1,5p' a.ts` / `awk 'NR<5' a.ts` resolve to the
+ * path, not the inline script; falls back to the first non-flag token.
+ */
 function extractReadPath(tail: string): string | undefined {
-  const parts = tail.match(/\S+/g) ?? [];
+  const parts = tail.match(/(?:"[^"]*"|'[^']*'|\S+)/g) ?? [];
+  for (const p of parts) {
+    const unq = p.replace(/^['"]|['"]$/g, "");
+    if (!unq.startsWith("-") && CODE_EXTENSIONS_RE.test(unq)) return unq;
+  }
   for (const p of parts) {
     if (p.startsWith("-")) continue;
-    return p;
+    return p.replace(/^['"]|['"]$/g, "");
   }
   return undefined;
 }
@@ -82,11 +119,70 @@ export function isDriftCommand(cmd: string): DriftHint | null {
   if (!cmd || !cmd.trim()) return null;
   const { head, tail } = splitFirstCommand(cmd);
 
-  // --- code_search: grep/rg/egrep against code paths ---
-  // TRIM (table row #2): why-leads, drop trailing "— graph-ranked, <5ms" tail.
+  // --- env_probe: re-discovery of a STABLE operational fact ---
+  // `which X` / `command -v X` / `X --version` locate a binary or its version —
+  // facts that don't change between sessions. Agents re-run these every session
+  // because they remember nothing. Route to unerr's fact memory: save once, it
+  // recalls next session (research: storing env facts prevents re-discovery
+  // commands). NEVER save secret values — only the path / version / syntax.
+  if (/^(which|type)$/.test(head) || /^command$/.test(head)) {
+    const tool = (head === "command" ? tail.replace(/^-v\s+/, "") : tail)
+      .trim()
+      .split(/\s+/)[0];
+    if (tool && !tool.startsWith("-")) {
+      return {
+        kind: "env_probe",
+        suggest: `stable env fact — save once with \`unerr-save: fct|p:|+|${tool}: <path>\` so it recalls next session instead of re-probing (never save secret values)`,
+        arg: tool,
+      };
+    }
+  }
+  if (/^--version$|^-V$/.test(tail.trim()) || /\s--version(\s|$)/.test(tail)) {
+    if (head && !head.startsWith("-")) {
+      return {
+        kind: "env_probe",
+        suggest: `stable env fact — save once with \`unerr-save: fct|p:|+|${head} version: <value>\` so it recalls next session instead of re-probing`,
+        arg: head,
+      };
+    }
+  }
+
+  // --- code_refs: in-place bulk substitution (sed -i / perl -pi) on code ---
+  // A blind shell rewrite of an identifier misses callers/imports the graph
+  // sees, mangles string-literal + comment occurrences inconsistently, and
+  // can't be reviewed per-site. Route to the textual blast-radius tool + the
+  // graph-aware edit path. Must run BEFORE the code_read branch (which also
+  // matches `sed`) so an in-place edit isn't mislabeled a read.
+  if (/^(sed|perl)$/.test(head)) {
+    const target = extractSubstTarget(tail);
+    if (target && looksLikeCodeTarget(tail)) {
+      const id = isBareIdentifier(target) ? target : undefined;
+      return {
+        kind: "code_refs",
+        suggest: id
+          ? `get_references({key:${JSON.stringify(id)}, include_text_occurrences:true}) lists every site (callers + strings + comments) in one call; then file_edit each — do not blind-${head} code files`
+          : `get_references({key:"<identifier>", include_text_occurrences:true}) + file_edit per site — do not blind-${head} code files`,
+        arg: id,
+      };
+    }
+    // Not an in-place substitution → fall through (a read-style sed is handled below).
+  }
+
+  // --- grep/rg/egrep against code paths: route by INTENT ---
+  // A BARE IDENTIFIER hunted repo-wide is the find-all-references / rename use
+  // case → get_references(include_text_occurrences) returns callers AND literal
+  // string/comment/route-path occurrences search_code (symbol-only) cannot see.
+  // A multi-word / regex pattern is a real text search → search_code.
   if (/^(grep|rg|egrep|fgrep)$/.test(head)) {
     if (!looksLikeCodeTarget(tail)) return null;
     const pattern = extractGrepPattern(tail);
+    if (isBareIdentifier(pattern) && isRepoWideSearch(tail)) {
+      return {
+        kind: "code_refs",
+        suggest: `get_references({key:${JSON.stringify(pattern)}, include_text_occurrences:true}) — all callers + string/comment/route uses in 1 call (rename/find-all-uses)`,
+        arg: pattern,
+      };
+    }
     return {
       kind: "code_search",
       suggest: pattern
@@ -111,13 +207,13 @@ export function isDriftCommand(cmd: string): DriftHint | null {
 
   // --- code_read: cat/head/tail/less on a code file ---
   // TRIM (table row #1): "auto-loads conventions" before the call template.
-  if (/^(cat|head|tail|less|more|bat)$/.test(head)) {
+  if (/^(cat|head|tail|less|more|bat|sed|awk|nl)$/.test(head)) {
     const path = extractReadPath(tail);
     if (!path) return null;
     if (!CODE_EXTENSIONS_RE.test(path)) return null;
     return {
       kind: "code_read",
-      suggest: `file_read({file_path:${JSON.stringify(path)}}) auto-loads conventions; faster than cat`,
+      suggest: `file_read({file_path:${JSON.stringify(path)}}) — graph-aware code read; do not ${head} code files`,
       arg: path,
     };
   }

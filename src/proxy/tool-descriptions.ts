@@ -49,15 +49,16 @@ export interface TierEntry {
 /**
  * The MCP catalog — the tools the model sees in `tools/list`:
  *   search_code, file_outline, file_read, file_edit,
- *   get_references, fetch_url, unerr_context, unerr_track.
+ *   get_references, fetch_url, unerr_track.
  *
  * Everything else the proxy can dispatch is NOT a catalog member. Those names
- * (get_entity, get_conventions, unerr_recall_notes, unerr_remember, mark_*,
- * record_fact, recall_facts, get_imports,
+ * (get_entity, get_conventions, unerr_recall_notes, unerr_remember, unerr_context,
+ * mark_*, record_fact, recall_facts, get_imports,
  * unerr_turn_summary) stay reachable ONLY by name — the
  * proxy's by-name dispatch switch matches them regardless of catalog
  * membership — because a Claude Code lifecycle hook (UDS `tools/call`), the
- * `unerr_track` op-union, the `unerr_context` recon composite, or an
+ * `unerr_track` op-union, a task-shaped `search_code` (which re-targets to the
+ * `unerr_context` recon composite), or an
  * `unerr exec`/`unerr review` CLI calls them internally. They are absent from
  * `tools/list`, so no agent ever sees them and they cost zero context. Their
  * required-field validation lives where the caller is: `unerr_track` validates
@@ -78,7 +79,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   search_code: {
     tier: 1,
     active:
-      "Search code entities by name — ranked matches, <5ms. detail:true resolves ONE entity (signature, fan-in/out, risk); include_body:true adds source; want:['callers','callees','imports'] attaches refs. If an entity's contract surprises you, emit unerr-save: note fct|e:<entity_key>|~|<one-line> in your closing message.",
+      "Find code by name OR task. A bare symbol ('QueryRouter.dispatch') → ranked matches, <5ms. A task phrase ('where is retry handled') → a recon bundle: notes + focus bodies + callers + conventions in ONE call, skipping the fan-out. detail:true → ONE entity profile; include_body adds source; want:['callers','callees','imports'] attaches refs. Contract surprise? emit unerr-save: note fct|e:<key>|~|<line>.",
     locked: "[tier 1 — always exposed]",
   },
   file_outline: {
@@ -117,12 +118,10 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   // the UserPromptSubmit hook (remember-client.ts), agent notes ride the
   // `unerr-save:` Stop-hook sentinel (sentinel-persist.ts). Both hook clients
   // dispatch it BY NAME over UDS tools/call — see the by-name roster above.
-  unerr_context: {
-    tier: 1,
-    active:
-      "One-shot repo context before you edit: anchored notes + search_code + get_references + get_conventions in ONE call, plus the focus entities' verbatim source inlined with file:line — skip the re-read. Args: prompt:'<task>'; response_format 'detailed'|'concise'; expand:true before a signature change.",
-    locked: "[tier 1 — always exposed]",
-  },
+  // unerr_context merged into search_code (2026-06): a task-shaped search_code
+  // query now returns the recon bundle. The handler (handleUnerrContextProxy)
+  // is retained and dispatched BY NAME over UDS for the recall path and the
+  // `unerr recon` CLI — same de-advertise pattern as get_entity/unerr_remember.
 
   // ── unerr_track — session markers + facts (op-union) ───────────────────
   unerr_track: {

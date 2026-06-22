@@ -26,48 +26,11 @@ import { loadContent } from "../content/loader.js";
 // (id `contract-teaching-block`); `loadContent` returns the raw text.
 export const CONTRACT_TEACHING_BLOCK = loadContent("contract-teaching-block");
 
-export interface SkillSpec {
-  /** Filename written into .claude/skills/ (without .md extension). */
-  slug: string;
-  /** Short label for tool/menu rendering. */
-  title: string;
-  /** Full skill body — markdown with frontmatter. */
-  body: string;
-}
-
-// Post-consolidation (27→7): the prior `unerr-prompt-receipt`,
-// `unerr-anchor-query`, and `unerr-save-at-end` skills are folded into the
-// single `unerr-memory` skill defined in src/skills/local-pack.ts. The
-// canonical skill body ships from `local-pack.ts → MEMORY_SKILL`. This
-// re-export is a slim pointer so consumers that historically iterated
-// NOTES_SKILLS still see a single coherent entry.
-export const NOTES_SKILLS: readonly SkillSpec[] = [
-  {
-    slug: "unerr-memory",
-    title: "unerr: memory (four-moment contract + user-fed capture)",
-    body: `---
-title: unerr: memory (four-moment contract + user-fed capture)
-description: Use on every user prompt (Moment 1 recall) and when the user says remember / always / never. Persist anchored notes at task close.
----
-
-# unerr: memory
-
-The full body ships from \`src/skills/local-pack.ts → MEMORY_SKILL\`.
-See \`.claude/skills/unerr-memory/SKILL.md\` after install.
-
-The four moments:
-
-1. **Prompt receipt** — the UserPromptSubmit hook injects relevant anchored notes into context automatically. Read the injected notes; no recall call.
-2. **Anchor query** — once files/entities are known, call \`unerr_context({prompt: "<what you are about to do>"})\` for the anchored notes + entities + callers + conventions bundle.
-3. **Cite in plan** — cite returned notes by \`kind + anchor\`.
-4. **Save at task end** — emit \`unerr-save: note <DSL wire>\` in your closing message (Stop hook persists; zero round-trip) only if non-obvious + useful next session + anchorable.
-
-User-fed capture: when the user says "remember", "always", "from now on", or
-"never", the UserPromptSubmit hook captures the directive automatically —
-no tool call. Ambiguous captures surface for confirmation on the next turn.
-`,
-  },
-];
+// The former `NOTES_SKILLS` (a single `unerr-memory` skill pointer) was removed
+// in the 2026-06 usage-driven consolidation: the memory skill was invoked 0×
+// across 174 sessions because the four-moment contract runs through the
+// UserPromptSubmit/Stop hooks and ships in CONTRACT_TEACHING_BLOCK + the
+// instruction file — never via a Skill() call. No consumer remained.
 
 export interface ToolDescriptionNudge {
   tool: string;
@@ -78,8 +41,7 @@ export interface ToolDescriptionNudge {
 export const TOOL_DESCRIPTION_NUDGES: readonly ToolDescriptionNudge[] = [
   {
     tool: "search_code",
-    nudge:
-      "If an entity's contract surprises you, emit unerr-save: note fct|e:<entity_key>|~|<one-line> in your closing message.",
+    nudge: "Contract surprise? emit unerr-save: note fct|e:<key>|~|<line>.",
   },
   {
     tool: "file_read",

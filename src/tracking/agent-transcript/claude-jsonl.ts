@@ -21,6 +21,7 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { streamJsonlFrom } from "../../utils/jsonl-stream.js";
 import { startupLog } from "../../utils/startup-log.js";
 import type { TokenUsage, TurnTranscript } from "./types.js";
 
@@ -180,6 +181,31 @@ function extractContent(rec: ClaudeRecord): {
   return { textParts, tools, files };
 }
 
+/** Convert one parsed Claude JSONL record into a ParsedNode, or null when the
+ *  record is not a user/assistant message with a uuid. */
+function recordToNode(rec: ClaudeRecord): ParsedNode | null {
+  const type = rec.type;
+  if (type !== "user" && type !== "assistant") return null;
+  if (typeof rec.uuid !== "string" || rec.uuid.length === 0) return null;
+
+  const { textParts, tools, files } = extractContent(rec);
+  return {
+    uuid: rec.uuid,
+    parentUuid:
+      typeof rec.parentUuid === "string" && rec.parentUuid.length > 0
+        ? rec.parentUuid
+        : null,
+    role: normalizeRole(rec),
+    textParts,
+    tools,
+    files,
+    usage: sumUsage(rec.message?.usage),
+    timestamp: typeof rec.timestamp === "string" ? rec.timestamp : null,
+    model: rec.message?.model ?? rec.model ?? null,
+    sessionId: typeof rec.sessionId === "string" ? rec.sessionId : null,
+  };
+}
+
 /**
  * Stream-parse a single JSONL transcript file into conversation nodes.
  * Skips non-conversation record types and any unparseable line. Bounded by
@@ -211,26 +237,8 @@ async function parseFile(filePath: string): Promise<ParsedNode[]> {
         continue; // partial/garbage line — skip, never fatal
       }
 
-      const type = rec.type;
-      if (type !== "user" && type !== "assistant") continue;
-      if (typeof rec.uuid !== "string" || rec.uuid.length === 0) continue;
-
-      const { textParts, tools, files } = extractContent(rec);
-      nodes.push({
-        uuid: rec.uuid,
-        parentUuid:
-          typeof rec.parentUuid === "string" && rec.parentUuid.length > 0
-            ? rec.parentUuid
-            : null,
-        role: normalizeRole(rec),
-        textParts,
-        tools,
-        files,
-        usage: sumUsage(rec.message?.usage),
-        timestamp: typeof rec.timestamp === "string" ? rec.timestamp : null,
-        model: rec.message?.model ?? rec.model ?? null,
-        sessionId: typeof rec.sessionId === "string" ? rec.sessionId : null,
-      });
+      const node = recordToNode(rec);
+      if (node) nodes.push(node);
     }
   } finally {
     stream.destroy();
@@ -307,6 +315,7 @@ function buildTurns(nodes: ParsedNode[], sessionId: string): TurnTranscript[] {
       model: node.model,
       role: node.role,
       text: node.textParts.join("\n"),
+      node_uuid: node.uuid,
     };
   });
 }
@@ -396,5 +405,52 @@ export async function readClaudeTranscript(
       }`
     );
     return [];
+  }
+}
+
+/** Result of an incremental, offset-based transcript read. */
+export interface IncrementalReadResult {
+  turns: TurnTranscript[];
+  /** Byte offset past the last complete line consumed — persist as the cursor. */
+  nextOffset: number;
+  /** True when the file shrank below the offset and the read restarted at 0. */
+  restarted: boolean;
+}
+
+/** Read only the transcript lines appended after `fromOffset`, streaming the new
+ *  bytes off disk (never the whole file). Returns the new turns plus the advanced
+ *  byte offset to persist. Never throws — yields an empty result on any failure.
+ *
+ * // @sem domain=tracking role=reader */
+export async function readClaudeTranscriptIncremental(opts: {
+  filePath: string;
+  fromOffset: number;
+  caps?: { maxRows?: number; maxBytes?: number };
+}): Promise<IncrementalReadResult> {
+  try {
+    const slice = await streamJsonlFrom(
+      opts.filePath,
+      opts.fromOffset,
+      opts.caps
+    );
+    const nodes: ParsedNode[] = [];
+    for (const row of slice.rows) {
+      const node = recordToNode(row as ClaudeRecord);
+      if (node) nodes.push(node);
+    }
+    const sid = nodes.find((n) => n.sessionId)?.sessionId ?? "";
+    const turns = buildTurns(nodes, sid);
+    return {
+      turns,
+      nextOffset: slice.nextOffset,
+      restarted: slice.restarted,
+    };
+  } catch (err) {
+    startupLog.warn(
+      `agent-transcript: claude incremental reader failed for ${opts.filePath}: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+    return { turns: [], nextOffset: opts.fromOffset, restarted: false };
   }
 }

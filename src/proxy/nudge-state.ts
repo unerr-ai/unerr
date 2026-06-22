@@ -139,6 +139,13 @@ export function pinSessionIdEnv(cwd: string): void {
 }
 
 function statePath(cwd: string): string {
+  // Root-cause fix (Issue 6): pin the session id lazily here, the ONE function
+  // every reader/writer (readNudgeState / writeNudgeState / sweepNudgeFlags)
+  // routes through. Hooks run as fresh PIDs; if a hook reads state before
+  // calling pinSessionIdEnv, the old `pid-<pid>` fallback minted a new empty
+  // flags file every turn and one-shot nudges re-fired. Pinning here means the
+  // session-keyed path is used even when a hook forgot to pin first.
+  if (!process.env.UNERR_SESSION_ID) pinSessionIdEnv(cwd);
   const sessionId = process.env.UNERR_SESSION_ID ?? `pid-${process.pid}`;
   return join(cwd, ".unerr", "state", `nudge-${sessionId}.flags`);
 }

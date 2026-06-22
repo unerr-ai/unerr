@@ -31,7 +31,7 @@ import {
 } from "../hooks/navigation-hooks.js";
 import { runUserPromptSubmitHookAsync } from "../hooks/prompt-hooks.js";
 import { runSessionStartHookAsync } from "../hooks/session-hooks.js";
-import { runPreBashHook } from "../hooks/shell-hooks.js";
+import { runPreBashHook, runPreShellHook } from "../hooks/shell-hooks.js";
 import {
   runStopHookHandlerAsync,
   runStopPersistWorkerAsync,
@@ -141,6 +141,13 @@ export function registerHookCommand(program: Command): void {
     .command("pre-bash")
     .description("Rewrite Bash tool input to pipe through unerr exec")
     .action(safeHookAction(runPreBashHook));
+
+  hook
+    .command("pre-shell")
+    .description(
+      "Drift nudge for shell hooks that can't rewrite to unerr exec (Cursor beforeShellExecution)"
+    )
+    .action(safeHookAction(runPreShellHook));
 
   hook
     .command("pre-read")

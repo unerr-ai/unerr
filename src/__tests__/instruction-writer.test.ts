@@ -38,12 +38,12 @@ describe("instruction-writer", () => {
       expect(content).toContain("get_references");
       expect(content).toContain("search_code");
       expect(content).toContain("fetch_url");
-      expect(content).toContain("Built-in WebFetch");
+      expect(content).toContain("built-in WebFetch");
       // CROSS_REPO_INTELLIGENCE: installed instructions must surface the
       // workspace (Pro) scope so the agent discovers cross-repo search/routing
       // at the prose level, not only from the tool schema.
       expect(content).toContain("scope:'workspace'");
-      expect(content).toContain("Workspace scope (Pro)");
+      expect(content).toContain("Cross-repo (Pro)");
     });
 
     it("appends to existing CLAUDE.md without sentinel", () => {
@@ -282,21 +282,21 @@ describe("instruction-writer", () => {
       expect(content).toContain(MARKER);
     });
 
-    it("includes the 'files changed this turn' receipt note for claude-code", () => {
+    it('includes the "files changed" receipt note for claude-code', () => {
       const result = writeInstructionFile(tmpDir, "claude-code");
       const content = readFileSync(result.path, "utf-8");
       // The deterministic end-of-turn receipt is Stop-hook only (Claude Code).
-      expect(content).toContain("files changed this turn");
-      expect(content).toContain("You do NOT need to echo each edit");
+      expect(content).toContain('"files changed" receipt');
+      expect(content).toContain("You need not echo each edit");
     });
 
     it("omits the receipt note for cursor (no Stop-hook receipt channel)", () => {
       const result = writeInstructionFile(tmpDir, "cursor");
       const content = readFileSync(result.path, "utf-8");
-      expect(content).not.toContain("files changed this turn");
-      expect(content).not.toContain("You do NOT need to echo each edit");
+      expect(content).not.toContain('"files changed" receipt');
+      expect(content).not.toContain("You need not echo each edit");
       // but the file_edit routing section itself is still present.
-      expect(content).toContain("Editing — route through file_edit");
+      expect(content).toContain("file_edit");
     });
 
     it("comments.maintain=false omits the section — claude-code", () => {

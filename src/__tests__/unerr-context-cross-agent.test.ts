@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { BUDGETS, countTokens } from "../proxy/tool-budget.js";
+import { budgetCapFor, countTokens } from "../proxy/tool-budget.js";
 import { TOOL_DEFINITIONS } from "../proxy/tool-definitions.js";
 
 type JsonSchema = {
@@ -27,43 +27,33 @@ type JsonSchema = {
 
 const unerrContext = TOOL_DEFINITIONS.find((d) => d.name === "unerr_context");
 
-describe("unerr_context cross-agent surface (A5)", () => {
-  it("is advertised with a top-level description naming the core levers", () => {
-    expect(unerrContext).toBeDefined();
-    const desc = unerrContext?.description ?? "";
-    // The one-liner every agent sees must name how to drive it.
-    expect(desc).toContain("prompt");
-    expect(desc).toContain("response_format");
-    expect(desc).toContain("expand");
-    // Tier-1 active descriptions are capped — must stay within budget.
-    expect(countTokens(desc)).toBeLessThanOrEqual(BUDGETS.tier1Active);
+describe("unerr_context de-advertised — merged into search_code (A5)", () => {
+  it("is NOT a tools/list member (the recon composite rides a task-shaped search_code query)", () => {
+    // unerr_context left the catalog 2026-06: a task-shaped search_code query
+    // re-targets to handleUnerrContextProxy in dispatchToolCall. The handler is
+    // retained + dispatched by name (recall path + `unerr recon` CLI), so the
+    // schema is intentionally absent from TOOL_DEFINITIONS.
+    expect(unerrContext).toBeUndefined();
+    expect(TOOL_DEFINITIONS.some((d) => d.name === "unerr_context")).toBe(
+      false
+    );
   });
 
-  it("requires only `prompt` — every other lever is optional", () => {
-    const schema = unerrContext?.inputSchema as JsonSchema;
-    expect(schema.required).toEqual(["prompt"]);
-    // The optional levers exist so agents can find them.
-    for (const k of ["budget", "response_format", "digest", "expand"]) {
-      expect(schema.properties?.[k]).toBeDefined();
-    }
-  });
-
-  it("does NOT pin response_format with a schema `default` — it is server-derived from task size", () => {
-    const schema = unerrContext?.inputSchema as JsonSchema;
-    const rf = schema.properties?.response_format as
-      | { description?: string; default?: unknown }
+  it("search_code is advertised and its query field teaches the task-shaped recon path", () => {
+    const searchCode = TOOL_DEFINITIONS.find((d) => d.name === "search_code");
+    expect(searchCode).toBeDefined();
+    const desc = searchCode?.description ?? "";
+    // The tier-1 active description stays within its (per-tool) budget after
+    // absorbing recon — search_code carries a documented 100-token override.
+    expect(countTokens(desc)).toBeLessThanOrEqual(
+      budgetCapFor("search_code", "tier1Active")
+    );
+    const q = (searchCode?.inputSchema as JsonSchema).properties?.query as
+      | { description?: string }
       | undefined;
-    // A schema default here would mislead: the format is chosen server-side and
-    // Gemini would strip the default anyway. The derivation lives in prose.
-    expect(rf && Object.hasOwn(rf, "default")).toBe(false);
-    expect(rf?.description ?? "").toMatch(/default|server/i);
-  });
-
-  it("declares response_format as an explicit string enum", () => {
-    const schema = unerrContext?.inputSchema as JsonSchema;
-    const rf = schema.properties?.response_format as JsonSchema | undefined;
-    expect(rf?.type).toBe("string");
-    expect(rf?.enum).toEqual(["concise", "detailed"]);
+    // The query field must teach BOTH modes: a bare symbol AND a task phrase
+    // that returns the recon bundle.
+    expect(q?.description ?? "").toMatch(/task|recon|bundle/i);
   });
 });
 

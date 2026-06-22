@@ -41,7 +41,7 @@ for (const name of listToolNames()) {
 	if (!entry) continue;
 	for (const { state, budget } of statesToValidate(name)) {
 		const description = getDescription(name, state);
-		const h = budgetHeadroom(description, budget);
+		const h = budgetHeadroom(description, budget, name);
 		rows.push({
 			tool: name,
 			tier: entry.tier,

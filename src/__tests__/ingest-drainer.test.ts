@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { assembleDrainers } from "../cloud/drainers/index.js";
 import {
   buildIngestDrainers,
   parkIfStale,
@@ -130,6 +131,7 @@ describe("drain-context stamping — stampDrainContext", () => {
     repoId: "saltedrepohash",
     branch: "main",
     commit: "abc123",
+    machineFingerprint: "a1b2c3d4e5f60718",
   } as unknown as DrainerContext;
 
   let repo: string;
@@ -145,10 +147,12 @@ describe("drain-context stamping — stampDrainContext", () => {
       repo?: string;
       branch?: string;
       commit?: string;
+      machine_fingerprint?: string;
     };
     expect(stamped.repo).toBe("saltedrepohash");
     expect(stamped.branch).toBe("main");
     expect(stamped.commit).toBe("abc123");
+    expect(stamped.machine_fingerprint).toBe("a1b2c3d4e5f60718");
     // Pure — the original row is never mutated.
     expect((ev("a") as { repo?: string }).repo).toBeUndefined();
   });
@@ -174,6 +178,16 @@ describe("drain-context stamping — stampDrainContext", () => {
     const { drainers } = await buildIngestDrainers(ctxFor(repo));
     const batch = await drainers[0]?.read({});
     expect((batch?.rows[0] as { repo?: string }).repo).toBe("repohash");
+  });
+
+  it("assembleDrainers auto-injects the machine fingerprint onto every row", async () => {
+    appendEvent(repo, PROXY_SEGMENT, ev("a"));
+    const { drainers } = await assembleDrainers(ctxFor(repo));
+    const batch = await drainers[0]?.read({});
+    const fp = (batch?.rows[0] as { machine_fingerprint?: string })
+      .machine_fingerprint;
+    // Real computed fingerprint: a 16-char lowercase hex digest, never empty.
+    expect(fp).toMatch(/^[0-9a-f]{16}$/);
   });
 });
 

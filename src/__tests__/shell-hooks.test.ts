@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { parseExecCommandLine, runExecMain } from "../commands/exec.js";
 import { mergePreToolUseBashHook } from "../config/claude-settings-hooks.js";
-import { runPreBashHook } from "../hooks/shell-hooks.js";
+import { runPreBashHook, runPreShellHook } from "../hooks/shell-hooks.js";
 
 describe("runPreBashHook", () => {
   it("rewrites single-line Bash command to unerr exec -- (Claude Code protocol)", () => {
@@ -52,6 +52,74 @@ describe("runPreBashHook", () => {
       tool_input: { command: "unerr exec -- echo hi" },
     });
     expect(runPreBashHook(stdin)).toBe("{}");
+  });
+});
+
+describe("runPreShellHook (Cursor beforeShellExecution)", () => {
+  // Cursor's shell hook can't rewrite to `unerr exec`; it carries a non-blocking
+  // agent_message. The handler keys rate-limiting off process.cwd() + the session
+  // id, so isolate both: a fresh temp cwd + unique UNERR_SESSION_ID per run.
+  const realCwd = process.cwd();
+  const realSession = process.env.UNERR_SESSION_ID;
+  let tmp: string;
+  beforeAll(() => {
+    tmp = join(tmpdir(), `pre-shell-${Date.now()}-${process.pid}`);
+    mkdirSync(tmp, { recursive: true });
+    process.chdir(tmp);
+    process.env.UNERR_SESSION_ID = `pre-shell-test-${Date.now()}`;
+  });
+  afterAll(() => {
+    process.chdir(realCwd);
+    if (realSession === undefined)
+      Reflect.deleteProperty(process.env, "UNERR_SESSION_ID");
+    else process.env.UNERR_SESSION_ID = realSession;
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("emits a non-blocking agent_message on a code-nav drift command", () => {
+    const out = JSON.parse(
+      runPreShellHook(
+        JSON.stringify({
+          command: "grep -rn handleRequest src/",
+          sandbox: false,
+        })
+      )
+    ) as { permission: string; agent_message?: string };
+    expect(out.permission).toBe("allow");
+    expect(out.agent_message).toContain("[unerr]");
+    expect(out.agent_message).toContain("get_references");
+  });
+
+  it("rate-limits to once per drift kind per session (no second nudge)", () => {
+    // First call above already emitted the code_refs kind; a second code_refs
+    // command in the same session allows silently.
+    const out = JSON.parse(
+      runPreShellHook(
+        JSON.stringify({ command: "grep -rn otherSymbol src/", sandbox: false })
+      )
+    ) as { permission: string; agent_message?: string };
+    expect(out.permission).toBe("allow");
+    expect(out.agent_message).toBeUndefined();
+  });
+
+  it("passes through a non-code command with no message", () => {
+    const out = JSON.parse(
+      runPreShellHook(JSON.stringify({ command: "ls -la", sandbox: false }))
+    ) as { permission: string; agent_message?: string };
+    expect(out.permission).toBe("allow");
+    expect(out.agent_message).toBeUndefined();
+  });
+
+  it("passes through when the command is already unerr exec", () => {
+    expect(
+      runPreShellHook(JSON.stringify({ command: "unerr exec -- grep x src/" }))
+    ).toBe(JSON.stringify({ permission: "allow" }));
+  });
+
+  it("allows on empty or malformed stdin (fail-open)", () => {
+    const allow = JSON.stringify({ permission: "allow" });
+    expect(runPreShellHook("")).toBe(allow);
+    expect(runPreShellHook("not json")).toBe(allow);
   });
 });
 

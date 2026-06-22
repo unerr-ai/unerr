@@ -51,8 +51,8 @@ const EXEC_NUDGES = [
   // #9 TRIM — structural analysis set, advertised tools only
   // (get_critical_nodes / get_test_coverage / get_project_stats left the
   // advertised catalog; test files in a get_references caller list are the
-  // tests for an entity, unerr_context is the one-call task-scoped bundle.)
-  "[unerr] Structure: file_outline (file map) · search_code({detail:true}) (one symbol) · unerr_context({prompt:'<task>'}) (task-scoped recon bundle)",
+  // tests for an entity, a task-shaped search_code query returns the one-call task-scoped bundle.)
+  "[unerr] Structure: file_outline (file map) · search_code({detail:true}) (one symbol) · search_code({query:'<task phrase>'}) (task-scoped recon bundle)",
   // #10 TRIM — narrative markers with when-tags
   "[unerr] Markers (zero round-trip): emit `unerr-save: intent|decision|blocker|resolution <one-line>` in your closing message — the Stop hook persists them to power timeline + resume",
   // #11 — user-fed memory: hook captures user rules; agent notes ride the sentinel
@@ -69,14 +69,11 @@ const EXEC_NUDGES = [
  *   3. Size gate — `nudge.length > 0.1 × output.length` → silent.
  *      Kills the `npm version` case where the nudge is 6.8× the output.
  *
- * When `UNERR_NUDGE_V2=1` is set we additionally:
- *   - Skip the generic rotating nudge entirely.
- *   - Run the drift detector and emit a targeted, content-specific nudge
- *     only when the command matches a known drift pattern AND that
- *     drift kind has not been nudged yet this session.
- *
- * v1 behaviour (the rotating generic nudge) remains the default so we
- * don't regress drift correction rates on existing installs.
+ * Default (N3): run the drift detector and emit a targeted, content-specific
+ * nudge ONLY when the command reads/searches code (cat/sed/awk/grep/find/ls -R
+ * on code) that an unerr tool does better — silent on every other bash command,
+ * rate-limited to once per drift-kind per session. `UNERR_NUDGE_V1=1` restores
+ * the legacy generic rotating nudge as an escape hatch.
  */
 
 const NUDGE_MIN_OUTPUT_BYTES = 200; // ≥ 10× the nudge byte-length
@@ -102,70 +99,73 @@ function shouldEmitV1Nudge(outputBytes: number): boolean {
 }
 
 function appendExecNudge(cmd: string, outputBytes: number): void {
-  // Phase B / N3 — content-specific Tier-1 drift nudge (opt-in flag).
-  // Drift fires regardless of output size; only quiet/zero gates apply.
-  if (process.env.UNERR_NUDGE_V2 === "1") {
-    if (isHardSuppressed(outputBytes)) return;
-    const hint = isDriftCommand(cmd);
-    if (!hint) return; // no drift → no nudge
+  // Escape hatch: UNERR_NUDGE_V1=1 restores the legacy generic rotating nudge.
+  if (process.env.UNERR_NUDGE_V1 === "1") {
+    // v1 — rotating generic nudge, once per session, with the size gate so a
+    // tiny output never gets a nudge bigger than itself.
+    if (!shouldEmitV1Nudge(outputBytes)) return;
     const cwd = process.cwd();
-    const state = readNudgeState(cwd);
-    if (state.tier1_emitted_kinds.includes(hint.kind)) {
-      // Already nudged this drift kind once this session; still bump the
-      // counter for Tier-2 escalation but don't print again.
-      updateNudgeState(cwd, (s) => {
-        s.drift_count++;
-      });
-      return;
+    try {
+      if (readNudgeState(cwd).exec_nudge_emitted) return;
+    } catch {
+      // state unavailable — fall through and emit once (fail toward teaching)
     }
-    process.stdout.write(`\n${formatDriftNudge(hint)}\n`);
-    const post = updateNudgeState(cwd, (s) => {
-      s.drift_count++;
-      if (!s.tier1_emitted_kinds.includes(hint.kind)) {
-        s.tier1_emitted_kinds.push(hint.kind);
-      }
-    });
-    // N5 — Tier 2 escalation: 3+ drifts uncorrected → one stronger reminder
-    if (
-      post.drift_count >= 3 &&
-      !post.tier2_emitted &&
-      !post.last_unerr_tool_at
-    ) {
-      // Table row #4 TRIM — why (cost) leads, tool roster follows, drop preamble.
-      process.stdout.write(
-        `[unerr] ${post.drift_count}× drift this session — search_code/file_read/get_references cut 10-30× tokens for code-nav\n`
-      );
+    const nudge =
+      EXEC_NUDGES[Math.floor(Date.now() / 60000) % EXEC_NUDGES.length];
+    process.stdout.write(`\n${nudge}\n`);
+    try {
       updateNudgeState(cwd, (s) => {
-        s.tier2_emitted = true;
+        s.exec_nudge_emitted = true;
       });
+    } catch {
+      // best-effort persist; a missed write just re-emits next call
     }
     return;
   }
 
-  // v1 default — rotating generic nudge, applies the size gate (the v1
-  // nudge fires on every call, so suppressing it on small outputs prevents
-  // the "nudge bigger than output" UX failure).
-  if (!shouldEmitV1Nudge(outputBytes)) return;
-  // Once per session (#9): the rotating roster duplicates the cached CLAUDE.md
-  // tool table, so re-emitting it on every Bash call was per-operation re-bill.
-  // Emit one line, then rely on the cached instruction file + the prompt-hook
-  // roster (itself now once-per-session). Best-effort state — a missed read/
-  // write just re-emits next call, never crashes the command.
+  // Default (N3) — content-specific drift nudge: fires only when a Bash command
+  // reads or searches CODE (cat/sed/awk/head/tail/grep/rg/find/ls -R on code
+  // paths) that an unerr tool does better. Silent on non-code bash (build, test,
+  // git, package managers), and rate-limited to once per drift-kind per session.
+  // Drift bypasses the size gate — the mistake was the COMMAND choice, not the
+  // output volume — but the quiet/zero-output gates still apply.
+  if (isHardSuppressed(outputBytes)) return;
+  const hint = isDriftCommand(cmd);
+  if (!hint) return; // not a code read/search → no nudge
   const cwd = process.cwd();
-  try {
-    if (readNudgeState(cwd).exec_nudge_emitted) return;
-  } catch {
-    // state unavailable — fall through and emit once (fail toward teaching)
-  }
-  const nudge =
-    EXEC_NUDGES[Math.floor(Date.now() / 60000) % EXEC_NUDGES.length];
-  process.stdout.write(`\n${nudge}\n`);
-  try {
+  const state = readNudgeState(cwd);
+  if (state.tier1_emitted_kinds.includes(hint.kind)) {
+    // Already nudged this drift kind this session; bump the Tier-2 counter only.
     updateNudgeState(cwd, (s) => {
-      s.exec_nudge_emitted = true;
+      s.drift_count++;
     });
-  } catch {
-    // best-effort persist; a missed write just re-emits next call (still correct)
+    return;
+  }
+  process.stdout.write(`\n${formatDriftNudge(hint)}\n`);
+  const post = updateNudgeState(cwd, (s) => {
+    s.drift_count++;
+    if (!s.tier1_emitted_kinds.includes(hint.kind)) {
+      s.tier1_emitted_kinds.push(hint.kind);
+    }
+  });
+  // N5 — Tier 2 escalation: 3+ drifts uncorrected → one stronger reminder.
+  // Rename-aware: if the agent has been grepping/sed-ing one identifier
+  // (code_refs), name the single call that ends the sweep — a repeated rename
+  // grep is the exact case where silence lets the fan-out run unchecked.
+  if (
+    post.drift_count >= 3 &&
+    !post.tier2_emitted &&
+    !post.last_unerr_tool_at
+  ) {
+    const renameSweep = post.tier1_emitted_kinds.includes("code_refs");
+    process.stdout.write(
+      renameSweep
+        ? `[unerr] ${post.drift_count}× code-nav drift — for a rename/find-all-uses call get_references({key:"<id>", include_text_occurrences:true}) ONCE instead of grepping each path, then file_edit each site\n`
+        : `[unerr] ${post.drift_count}× drift this session — search_code/file_read/get_references cut 10-30× tokens for code-nav\n`
+    );
+    updateNudgeState(cwd, (s) => {
+      s.tier2_emitted = true;
+    });
   }
 }
 

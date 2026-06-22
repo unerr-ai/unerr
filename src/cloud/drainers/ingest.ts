@@ -13,7 +13,7 @@
  * // @sem domain=cloud role=drainer
  */
 
-import { unlinkSync } from "node:fs";
+import { truncateSync, unlinkSync } from "node:fs";
 import { basename } from "node:path";
 import { INGEST_MAX_EVENTS_PER_BATCH } from "@unerr-ai/contracts/events";
 import { IngestEvent } from "@unerr-ai/contracts/ingest";
@@ -29,6 +29,7 @@ import type { BatchAck, CloudResult } from "../client.js";
 import type { CursorPos, PushCursor } from "../push-cursor.js";
 import type {
   DrainerContext,
+  DrainerSet,
   StreamBatch,
   StreamDrainer,
 } from "../push-drainer.js";
@@ -118,6 +119,8 @@ export function stampDrainContext(
   if (e.repo === undefined && ctx.repoId) patch.repo = ctx.repoId;
   if (e.branch === undefined && ctx.branch) patch.branch = ctx.branch;
   if (e.commit === undefined && ctx.commit) patch.commit = ctx.commit;
+  if (e.machine_fingerprint === undefined && ctx.machineFingerprint)
+    patch.machine_fingerprint = ctx.machineFingerprint;
   return Object.keys(patch).length > 0
     ? ({ ...e, ...patch } as StoredEvent)
     : event;
@@ -176,11 +179,15 @@ function makeSegmentDrainer(
  */
 export async function buildIngestDrainers(
   ctx: DrainerContext
-): Promise<{ drainers: StreamDrainer[]; dispose?: () => void }> {
+): Promise<DrainerSet> {
   const drainers = listSegments(ctx.repoPath).map((seg) =>
     makeSegmentDrainer(ctx, seg)
   );
-  return { drainers };
+  // Coalesced pusher: identical to each segment drainer's own `push`, hoisted so
+  // `drainRepo` can merge rows from every segment into the fewest combined POSTs.
+  const pushCombined = (rows: unknown[]) =>
+    ctx.client.ingest(rows.map(sanitizeRowForPush));
+  return { drainers, pushCombined };
 }
 
 /**
@@ -232,4 +239,43 @@ export function reapDrainedDeadSegments(
     }
   }
   return reaped;
+}
+
+/**
+ * Empty fully-drained long-lived segments and reset their cursor, so already-sent
+ * telemetry does not linger on disk until age-out. These are the fixed-name
+ * segments with NO owning pid (`proxy`, `transcript`, `fleet`); per-pid segments
+ * are handled by {@link reapDrainedDeadSegments} instead (deleted on writer exit).
+ *
+ * A segment is truncated only when its cursor has reached the file's end — the
+ * writer is caught up — so it fires in the quiet gaps between writes and never
+ * races an active append. The fixed-name files have live writers (the proxy, the
+ * daemon), and a forward-only `O_APPEND` writer is safe across a truncate-to-0:
+ * the only theoretical loss is one best-effort telemetry line written in the
+ * microsecond between the size check and the truncate, which `appendEvent`
+ * already treats as loss-tolerant. Call after `drainRepo`, before `cursor.save()`
+ * (same place as the reap), so the cursor reset is persisted. Returns the count.
+ *
+ * // @sem domain=cloud role=drainer
+ */
+export function truncateDrainedLongLivedSegments(
+  repoPath: string,
+  cursor: PushCursor
+): number {
+  let truncated = 0;
+  for (const seg of listSegments(repoPath)) {
+    if (segmentPidFromPath(seg) !== null) continue; // per-pid → reap handles it
+    const key = segmentCursorKey(seg);
+    const drained = cursor.position(key).lastIndex ?? 0;
+    const size = segmentSize(seg);
+    if (size === 0 || drained < size) continue; // empty, or an un-drained tail
+    try {
+      truncateSync(seg, 0);
+      cursor.forget(key);
+      truncated += 1;
+    } catch {
+      // Best effort — a failed truncate just retries next tick.
+    }
+  }
+  return truncated;
 }

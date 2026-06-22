@@ -104,7 +104,7 @@ export interface AgentDefinition {
    * a delegable task on a cheaper model in the SAME host and have the senior
    * review the diff. True ONLY for hosts that support model-pinned sub-agents
    * (claude-code via `.claude/agents/*.md` frontmatter) or a model-override exec
-   * (codex via `codex exec -m <mini>`). Absent/false ⇒ no delegation path, so
+   * (codex via `codex exec -m gpt-5.4-mini`). Absent/false ⇒ no delegation path, so
    * `shouldDelegate` never routes a task to that agent.
    */
   delegation?: boolean;
@@ -137,6 +137,9 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     instructionFormat: "mdc",
     // Cursor names its conversation id `conversation_id`, not `session_id`.
     sessionIdentity: { idHookField: "conversation_id" },
+    // Delegates via the headless CLI: `cursor-agent -p -m <model> --force` runs the
+    // edit on a cheaper tier (juniorHandoff in junior-agent.ts). No on-disk agent file.
+    delegation: true,
   },
   {
     id: "claude-code",
@@ -276,7 +279,7 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     description: "OpenAI's CLI coding agent",
     instructionFilePath: "AGENTS.md",
     instructionFormat: "markdown",
-    // Pins a cheaper model for the delegated step via `codex exec -m <mini>`.
+    // Pins a cheaper model for the delegated step via `codex exec -m gpt-5.4-mini`.
     delegation: true,
   },
   {
@@ -333,6 +336,10 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     description: "GitHub's CLI AI assistant",
     instructionFilePath: ".github/copilot-instructions.md",
     instructionFormat: "markdown",
+    // Delegates via non-interactive exec: `copilot -p "<task>" --model <model>
+    // --allow-all-tools` runs the edit on a model that doesn't consume premium
+    // requests (juniorHandoff in junior-agent.ts). No on-disk agent file.
+    delegation: true,
   },
   {
     id: "continue",

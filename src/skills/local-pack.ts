@@ -30,6 +30,7 @@
  */
 
 import { loadContent } from "../content/loader.js";
+import { CODEX_JUNIOR_MODEL, CODEX_MIDDLE_MODEL } from "./junior-agent.js";
 
 export type SkillCategory = "behavior" | "navigation" | "quality" | "workflow";
 
@@ -58,52 +59,35 @@ export interface SkillDefinition {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Skill 1 — Master orchestrator (always-on). Folds in token-efficient output
-// guidance because the master is invoked on every coding turn anyway.
+// Skill 1 — Orchestrator (the ONE always-on skill). A thin dispatch table to the
+// five on-demand workflow skills + the default edit workflow (recall →
+// blast-radius → conventions → drift → edit, folded in from the former
+// safe-modification skill). The verbose Surface 2/3/4 telemetry + token rules
+// moved to the instruction file to avoid always-on duplication (2026-06).
 // ────────────────────────────────────────────────────────────────────────────
 
 export const USING_UNERR_SKILL: SkillDefinition = {
   id: "using-unerr",
-  name: "Using unerr (master orchestrator)",
+  name: "Using unerr (orchestrator)",
   description:
-    "MANDATORY when starting ANY non-trivial coding task (implement / fix / refactor / build / debug / find / test). Dispatches to one of the six sub-skills, runs the default workflow if none match, and enforces token-efficient output + Surface 2/3/4 + the four-moment contract. STEP-1: invoke Skill('unerr-using-unerr') BEFORE drafting code or any other tool call. Do NOT skip on the assumption that the task is small — the orchestrator decides.",
+    "MANDATORY when starting ANY non-trivial coding task (implement / fix / refactor / build / debug / find / test). Dispatches to a workflow sub-skill, or runs the default edit workflow when none matches. STEP-1: invoke Skill('unerr-using-unerr') BEFORE drafting code. The orchestrator decides — do NOT skip on the assumption that the task is small.",
   whenToUse:
-    "Before any non-trivial code action — implement, fix, refactor, build, debug, design, add new, modify, change, find, search, test, TDD, callers, references, remember, always, from now on. Also when a hook emits `ur|act unerr-using-unerr`.",
+    "Before any non-trivial code action — implement, fix, refactor, build, debug, design, add new, modify, change, find, search, test, TDD, callers, references. Also when a hook emits `ur|act unerr-using-unerr`.",
   allowedTools: "*",
   instructions: loadContent("skill:using-unerr"),
   category: "workflow",
   trigger: { type: "always" },
-  tools: [
-    "unerr_context",
-    "search_code",
-    "get_references",
-    "file_read",
-    "unerr_track",
-  ],
+  tools: ["search_code", "get_references", "file_read", "unerr_track"],
   version: "2.0.0",
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// Skill 2 — Edit-existing lifecycle (always-on, every modification touches it).
-// Absorbs 9 legacy skills: understand-before-modify, blast-radius-first/-check,
-// convention-aware-generation/-discovery, dependency-aware-refactor,
-// drift-aware-edit, pre-edit-recon, safe-modification-workflow.
+// The edit-existing lifecycle (recall → blast-radius → conventions → drift →
+// edit) is no longer a separate always-on skill: usage data (2026-06) showed it
+// invoked ~6× in 174 sessions while costing ~6 KB always-on. Its discipline is
+// folded into USING_UNERR_SKILL's Default edit workflow; `fix`/`refactor` verbs
+// route to `unerr-using-unerr` (see VERB_CLUSTERS in src/hooks/prompt-hooks.ts).
 // ────────────────────────────────────────────────────────────────────────────
-
-export const SAFE_MODIFICATION_SKILL: SkillDefinition = {
-  id: "safe-modification",
-  name: "Safe Modification (edit-existing lifecycle)",
-  description:
-    "MANDATORY before editing any existing function, class, file, or exported entity — covers fix/modify/change/update/refactor/rename/move/restructure/extract. STEP-1: recall. STEP-2: blast-radius (`get_references`). STEP-3: conventions. STEP-4: drift-check. STEP-5: edit. Do NOT edit without completing STEP-1 through STEP-4. Absorbs the prior understand-before-modify, blast-radius, convention, drift, and dependency-aware-refactor skills.",
-  whenToUse:
-    "Before any edit on existing code — fix, modify, change, update, tweak, replace, optimize, refactor, rename, move, restructure, extract, inline, migrate. Also when a hook emits `ur|act unerr-safe-modification`.",
-  allowedTools: "*",
-  instructions: loadContent("skill:safe-modification"),
-  category: "workflow",
-  trigger: { type: "always" },
-  tools: ["unerr_context", "file_read", "search_code", "get_references"],
-  version: "1.0.0",
-};
 
 // ────────────────────────────────────────────────────────────────────────────
 // Skill 3 — Find/Understand (agent-requested). Absorbs graph-first-navigation,
@@ -126,47 +110,14 @@ export const EXPLORATION_SKILL: SkillDefinition = {
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// Skill 4 — Memory (always-on). Four-moment contract + user-fed memory.
-// Absorbs prompt-receipt, anchor-query, save-at-end, user-fed-memory,
-// session-context-preservation.
+// Memory (four-moment contract) and Markers (unerr-save: sentinels) are no
+// longer skills: usage data (2026-06) showed BOTH invoked 0× via Skill() across
+// 174 sessions — their function runs through the UserPromptSubmit/Stop hooks and
+// the instruction file's contract block, never a Skill() call. Removing them
+// drops ~8 KB of always-on weight. The `remember/always` verb cluster is dropped
+// from VERB_CLUSTERS (capture is automatic); markers ride the closing-message
+// sentinel taught in USING_UNERR_SKILL + the instruction file.
 // ────────────────────────────────────────────────────────────────────────────
-
-export const MEMORY_SKILL: SkillDefinition = {
-  id: "memory",
-  name: "Memory (four-moment contract + user-fed capture)",
-  description:
-    "MANDATORY on every user prompt and at every task close — runs the four-moment contract (recall → anchor query → cite → save) and captures durable user-fed facts (remember / always / from now on / never). STEP-1: Moment 1 recall fires on EVERY prompt, no exceptions. STEP-4: save ONLY what is non-obvious + likely useful next session + anchorable. Do NOT save activity logs or generic facts.",
-  whenToUse:
-    "On every user prompt (Moment 1 recall is required) and whenever the user says remember, always, from now on, never, don't. Also when a hook emits `ur|act unerr-memory` or you finish a non-trivial task (Moment 4 save).",
-  allowedTools: "*",
-  instructions: loadContent("skill:memory"),
-  category: "behavior",
-  trigger: { type: "always" },
-  tools: ["unerr_context", "unerr_track"],
-  version: "1.0.0",
-};
-
-// ────────────────────────────────────────────────────────────────────────────
-// Skill 5 — Markers (always-on). intent / decision / blocker / resolution
-// ride a closing-message `unerr-save:` sentinel scraped by the Stop hook —
-// zero MCP round-trip. + turn-discipline.
-// Absorbs timeline-markers, intent-tracking, turn-discipline.
-// ────────────────────────────────────────────────────────────────────────────
-
-export const MARKERS_SKILL: SkillDefinition = {
-  id: "markers",
-  name: "Session Narrative Markers + Turn Discipline",
-  description:
-    "On every coding turn, record intent/decision/blocker/resolution with ZERO round-trip — emit `unerr-save:` lines in your closing message and the Stop hook persists them. No tool call, only output tokens. Do NOT yield mid-tasklist with a status paragraph; finish the work, then emit the markers at close.",
-  whenToUse:
-    "On every coding task — implement, fix, refactor, build, debug — to record intent, decisions, blockers, and resolutions for the cross-session resume strip. Also when a hook emits `ur|act unerr-markers`.",
-  allowedTools: "*",
-  instructions: loadContent("skill:markers"),
-  category: "behavior",
-  trigger: { type: "always" },
-  tools: ["unerr_track"],
-  version: "2.0.0",
-};
 
 // ────────────────────────────────────────────────────────────────────────────
 // Skill 6 — Build + Debug (agent-requested). Two tracks: new-build greenfield
@@ -185,13 +136,7 @@ export const BUILD_AND_DEBUG_SKILL: SkillDefinition = {
   instructions: loadContent("skill:build-and-debug"),
   category: "workflow",
   trigger: { type: "agent-requested" },
-  tools: [
-    "unerr_context",
-    "search_code",
-    "get_references",
-    "file_read",
-    "unerr_track",
-  ],
+  tools: ["search_code", "get_references", "file_read", "unerr_track"],
   version: "1.0.0",
 };
 
@@ -212,13 +157,7 @@ export const TEST_AND_REVIEW_SKILL: SkillDefinition = {
   instructions: loadContent("skill:test-and-review"),
   category: "workflow",
   trigger: { type: "agent-requested" },
-  tools: [
-    "unerr_context",
-    "search_code",
-    "get_references",
-    "file_read",
-    "unerr_track",
-  ],
+  tools: ["search_code", "get_references", "file_read", "unerr_track"],
   version: "1.0.0",
 };
 
@@ -246,13 +185,7 @@ export const REVIEW_SKILL: SkillDefinition = {
   instructions: loadContent("skill:review"),
   category: "workflow",
   trigger: { type: "agent-requested" },
-  tools: [
-    "unerr_context",
-    "search_code",
-    "get_references",
-    "file_read",
-    "unerr_track",
-  ],
+  tools: ["search_code", "get_references", "file_read", "unerr_track"],
   version: "1.0.0",
 };
 
@@ -267,27 +200,32 @@ export const DELEGATE_SKILL: SkillDefinition = {
   id: "delegate",
   name: "Delegate (cheaper-model handoff)",
   description:
-    "Use when the task is a delegable class — add/improve tests, docstring + @sem maintenance, mechanical refactor (rename/extract/inline/move), or lint/format fixup — AND the host supports delegation (Claude Code / Codex). Builds a recon brief, hands the edit to a cheaper model (the unerr-junior sub-agent / `codex exec -m <mini>`), then reviews the diff. The senior NEVER enumerates the edit sites — the graph does. If the host can't delegate, skip this skill and run the normal lifecycle skill.",
+    "Use when the task is a delegable class — add/improve tests, docstring + @sem maintenance, mechanical refactor (rename/extract/inline/move), lint/format fixup, or read-only recon (find out / trace / investigate X) — AND the host supports delegation (Claude Code / Codex / Cursor / GitHub Copilot CLI). Builds a recon brief, PARTITIONS it into disjoint groups, and spawns one cheaper-model worker per group in parallel, routed by difficulty: tests/mechanical_refactor → MIDDLE model (Claude `unerr-worker` sub-agent / `codex exec -m " +
+    CODEX_MIDDLE_MODEL +
+    "`), lint/docs/recon → WORKER model (Claude `unerr-junior` sub-agent / `codex exec -m " +
+    CODEX_JUNIOR_MODEL +
+    "`). Then reviews each diff. The senior NEVER enumerates the edit sites — the graph does. If the host can't delegate, skip this skill and run the normal lifecycle skill.",
   whenToUse:
-    "A delegable task on a delegation-capable host: add tests, write a unit/integration test, improve test coverage, add/update a docstring or @sem comment, rename/extract/inline/move a symbol, fix lint/format. Also when a hook emits `ur|act unerr-delegate`. Not for design, new features, or bug root-causing — those stay with the senior.",
+    "A delegable task on a delegation-capable host: add tests, write a unit/integration test, improve test coverage, add/update a docstring or @sem comment, rename/extract/inline/move a symbol, fix lint/format, or a read-only investigation (find out / trace / investigate X). Also when a hook emits `ur|act unerr-delegate`. Not for design, new features, or bug root-causing — those stay with the senior.",
   allowedTools: "*",
   instructions: loadContent("skill:delegate"),
   category: "workflow",
   trigger: { type: "agent-requested" },
-  tools: ["unerr_context", "search_code", "get_references", "file_read"],
+  tools: ["search_code", "get_references", "file_read"],
   version: "1.0.0",
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// Export — the 9 consolidated skills.
+// Export — the 6 skills (2026-06 consolidation, usage-driven). ONE always-on
+// orchestrator (using-unerr — dispatch table + default edit workflow) + five
+// on-demand workflow skills. memory + markers + safe-modification were removed:
+// their function lives in the hooks + the instruction file, and Skill()-usage
+// data showed them invoked 0–6× across 174 sessions for ~19 KB of always-on cost.
 // ────────────────────────────────────────────────────────────────────────────
 
 export const LOCAL_SKILLS: SkillDefinition[] = [
   USING_UNERR_SKILL,
-  SAFE_MODIFICATION_SKILL,
   EXPLORATION_SKILL,
-  MEMORY_SKILL,
-  MARKERS_SKILL,
   BUILD_AND_DEBUG_SKILL,
   TEST_AND_REVIEW_SKILL,
   REVIEW_SKILL,
@@ -295,8 +233,10 @@ export const LOCAL_SKILLS: SkillDefinition[] = [
 ];
 
 /**
- * Get always-on skills formatted for session context injection.
- * Only injects skills with trigger.type === "always" to respect token budget.
+ * Always-on + available skills for first-call session-context injection
+ * (query-router injects this once per session). Only `trigger:'always'` skills
+ * inject their full body — post-2026-06 that is just the orchestrator; the five
+ * on-demand skills inject name+description only (progressive disclosure).
  */
 export function getSkillsContext(): Record<string, unknown> {
   const alwaysOn = LOCAL_SKILLS.filter((s) => s.trigger.type === "always");

@@ -1,7 +1,7 @@
 /**
  * L2 — the per-repo telemetry event store (`.unerr/events/`). Verifies the
  * segment-per-writer append, the monotonic seq counter, the forward-only
- * byte-offset reader (partial-line safety, rotation reset), and the 7-day sweep.
+ * byte-offset reader (partial-line safety, rotation reset).
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,7 +9,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-  EVENT_RETENTION_MS,
   PROXY_SEGMENT,
   type StoredEvent,
   appendEvent,
@@ -20,7 +19,6 @@ import {
   readSegmentFrom,
   segmentPath,
   segmentSize,
-  sweepRepoEvents,
 } from "../events/event-store.js";
 
 function ev(id: string, ts: string): StoredEvent {
@@ -102,24 +100,5 @@ describe("L2 event store", () => {
     const beyond = segmentSize(path) + 9999;
     const slice = readSegmentFrom(path, beyond);
     expect(slice.events.map((e) => e.event_id)).toEqual(["a"]);
-  });
-
-  it("sweeps lines older than the 7-day retention, keeps recent + undatable", () => {
-    const now = Date.parse("2026-06-21T12:00:00.000Z");
-    const old = new Date(now - EVENT_RETENTION_MS - 60_000).toISOString();
-    const fresh = new Date(now - 60_000).toISOString();
-    appendEvent(repo, PROXY_SEGMENT, ev("old", old));
-    appendEvent(repo, PROXY_SEGMENT, ev("fresh", fresh));
-    // An undatable line must be kept (never delete what we cannot date).
-    const path = segmentPath(repo, PROXY_SEGMENT);
-    writeFileSync(path, `${readFileSync(path, "utf8")}{"event_id":"nots"}\n`);
-
-    const dropped = sweepRepoEvents(repo, now);
-    expect(dropped).toBe(1);
-    const remaining = readFileSync(path, "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .map((l) => JSON.parse(l).event_id);
-    expect(remaining).toEqual(["fresh", "nots"]);
   });
 });

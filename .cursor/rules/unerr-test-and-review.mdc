@@ -20,7 +20,7 @@ Write the failing test BEFORE the implementation. Confirm RED (test fails as exp
 ### Phases (A)
 
 Phase A1 — Recall.
-  Read the anchored notes the UserPromptSubmit hook injected for the prompt — prior testing conventions and decisions ride along. For an explicit recon bundle, call `unerr_context({prompt:'<verbatim user prompt>'})`.
+  Read the anchored notes the UserPromptSubmit hook injected for the prompt — prior testing conventions and decisions ride along. For an explicit recon bundle, call `search_code({query:'<verbatim user prompt>'})`.
 
 Phase A2 — Conventions.
   Call `file_read({file_path:'<test_file_path>', purpose:'explore'})` — conventions auto-inject. Match the project's test framework, assertion style, fixture pattern.
@@ -54,7 +54,7 @@ Every review comment receives one of three responses: ACCEPT (apply the change),
 ### Phases (B)
 
 Phase B1 — Recall.
-  Read the anchored notes the UserPromptSubmit hook injected for the prompt — prior conventions and decisions tied to the reviewed files ride along. For an explicit recon bundle, call `unerr_context({prompt:'<verbatim user prompt>'})`.
+  Read the anchored notes the UserPromptSubmit hook injected for the prompt — prior conventions and decisions tied to the reviewed files ride along. For an explicit recon bundle, call `search_code({query:'<verbatim user prompt>'})`.
 
 Phase B2 — Parse comments.
   Enumerate every comment in the input. Number them. Do not skip 'nit:' comments — classify and respond.
@@ -69,7 +69,7 @@ Phase B5 — Apply ACCEPTs.
   For each ACCEPT: locate the entity via `search_code`, run blast-radius check (`get_references` if exported), apply the change via `file_edit` (old_string+new_string to edit, or content for a whole file) — no prior built-in `Read` is needed.
 
 Phase B6 — Draft PUSHBACKs.
-  For each PUSHBACK: cite a project convention (read via `file_read`, which auto-injects conventions), a prior decision (the auto-injected anchored notes or `unerr_context`), or a concrete tradeoff. Hedging ('I think', 'maybe') is not pushback.
+  For each PUSHBACK: cite a project convention (read via `file_read`, which auto-injects conventions), a prior decision (the auto-injected anchored notes or `search_code`), or a concrete tradeoff. Hedging ('I think', 'maybe') is not pushback.
 
 Phase B7 — Ask CLARIFYs.
   For each CLARIFY: surface the specific missing context to the user. Do not assume.

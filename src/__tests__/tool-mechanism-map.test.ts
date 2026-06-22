@@ -48,7 +48,7 @@ describe("tool-mechanism-map — partition over TIER_ENTRIES", () => {
 });
 
 describe("tool-mechanism-map — surviving MCP catalog", () => {
-  it("final catalog is exactly the seven interactive reads/edits (file_edit is the merged edit/write tool; get_entity merged into search_code({detail:true}))", () => {
+  it("final catalog is exactly the six interactive reads/edits (file_edit is the merged edit/write tool; get_entity + unerr_context merged into search_code)", () => {
     expect(finalMcpCatalog()).toEqual(
       [
         "fetch_url",
@@ -57,7 +57,6 @@ describe("tool-mechanism-map — surviving MCP catalog", () => {
         "file_read",
         "get_references",
         "search_code",
-        "unerr_context",
       ].sort()
     );
   });

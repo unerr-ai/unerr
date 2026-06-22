@@ -25,20 +25,21 @@ describe("BA-4.1: token-efficient guidance (folded into using-unerr)", () => {
   });
 
   it("includes unified diff rule", () => {
-    expect(USING_UNERR_SKILL.instructions).toContain("unified diff format");
-    expect(USING_UNERR_SKILL.instructions).toContain("---/+++");
+    expect(USING_UNERR_SKILL.instructions).toContain(
+      "show diffs, not whole files"
+    );
   });
 
   it("includes ur|ctx rule", () => {
     expect(USING_UNERR_SKILL.instructions).toContain("ur|ctx");
     expect(USING_UNERR_SKILL.instructions).toContain(
-      "proceed directly to the action"
+      "Re-read any file flagged `ur|ctx` before editing"
     );
   });
 
   it("includes the diff-only rule (no full-file regeneration)", () => {
     expect(USING_UNERR_SKILL.instructions).toContain(
-      "show only the diff, not surrounding unchanged code"
+      "show diffs, not whole files"
     );
   });
 });

@@ -144,17 +144,24 @@ function readOsMachineGuid(): string | null {
   }
 }
 
+/** Process-lifetime cache — the fingerprint is stable, so compute it once. */
+let cachedFingerprint: string | null = null;
+
 /**
- * Compute the salted machine fingerprint to send on login. Mixes the OS GUID
- * (when readable) with the persisted UUID, hashes one-way, and truncates to 16
- * hex chars. Stable across logins on one machine; never exposes the raw GUID.
- * Never throws — returns a UUID-only fingerprint if the OS GUID is unavailable.
+ * Compute the salted machine fingerprint sent on login AND stamped onto every
+ * event envelope at drain. Mixes the OS GUID (when readable) with the persisted
+ * UUID, hashes one-way, and truncates to 16 hex chars. Stable across logins on
+ * one machine; never exposes the raw GUID. Never throws — returns a UUID-only
+ * fingerprint if the OS GUID is unavailable. Memoized for the process lifetime,
+ * so the per-drain-tick call never re-spawns the OS GUID lookup (e.g. ioreg).
  */
 export function computeMachineFingerprint(): string {
+  if (cachedFingerprint !== null) return cachedFingerprint;
   const osGuid = readOsMachineGuid() ?? "";
   const uuid = loadOrCreateMachineUuid();
-  return createHash("sha256")
+  cachedFingerprint = createHash("sha256")
     .update(`machine:${osGuid}:${uuid}`)
     .digest("hex")
     .slice(0, FINGERPRINT_HEX_LEN);
+  return cachedFingerprint;
 }

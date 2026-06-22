@@ -47,6 +47,10 @@ export interface TurnTranscript {
   /** Concatenated visible text for the turn (prompt for user, reply text for
    *  assistant). Tool-call payloads and thinking blocks are excluded. */
   text: string;
+  /** Stable per-message id from the source log (Claude record `uuid`), used as
+   *  the dedup key for the wire event so re-emits collapse regardless of how the
+   *  turn was ordered/indexed. Absent when the source omits a message id. */
+  node_uuid?: string;
 }
 
 /** Which transcript reader an agent supports, or `null` when disabled. */

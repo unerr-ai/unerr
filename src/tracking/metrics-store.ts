@@ -505,7 +505,9 @@ export class MetricsStore {
    *  lost — the cloud copy is the durable record, this cache is only the
    *  logbook's local view. */
   private compactTranscriptCacheIfLarge(): void {
-    if (segmentSize(this.transcriptCachePath) < TRANSCRIPT_CACHE_COMPACT_BYTES) {
+    if (
+      segmentSize(this.transcriptCachePath) < TRANSCRIPT_CACHE_COMPACT_BYTES
+    ) {
       return;
     }
     try {

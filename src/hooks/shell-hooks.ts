@@ -10,6 +10,8 @@
  */
 
 import { getUnerrCommand } from "../config/mcp-config-writer.js";
+import { formatDriftNudge, isDriftCommand } from "../proxy/drift-detector.js";
+import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { normalizeShellCommand } from "../proxy/shell-classifier.js";
 import {
   type HookHandler,
@@ -60,4 +62,66 @@ const preBashHandler: HookHandler = (normalized) => {
  */
 export function runPreBashHook(stdinJson: string): string {
   return runPreToolUseHook(stdinJson, preBashHandler);
+}
+
+/**
+ * Drift nudge for shell hooks that CANNOT rewrite the command to `unerr exec`
+ * (Cursor's `beforeShellExecution`, and by extension any agent whose shell hook
+ * only returns allow/deny + a message). The payload is the flat
+ * `{command, cwd, sandbox}` shape Cursor sends — NOT the PreToolUse
+ * `{tool_name, tool_input}` shape the adapter runner expects — so this handler
+ * parses + emits Cursor's native schema directly instead of going through
+ * runPreToolUseHook. When the command is a code-nav drift (grep/sed/which on
+ * code), it surfaces the unerr-tool redirect as `agent_message`, rate-limited
+ * once per drift kind per session via the SAME nudge-state the exec-path nudge
+ * uses (so a rewrite-capable host never double-nudges). Always allows the
+ * command (fail-open) — the nudge is advisory, never a block.
+ */
+export function runPreShellHook(stdinJson: string): string {
+  const allow = JSON.stringify({ permission: "allow" });
+  let payload: Record<string, unknown> | null = null;
+  try {
+    payload = JSON.parse(stdinJson.trim()) as Record<string, unknown>;
+  } catch {
+    return allow;
+  }
+
+  const cmd =
+    typeof payload?.command === "string"
+      ? payload.command
+      : typeof payload?.shell_command === "string"
+        ? (payload.shell_command as string)
+        : "";
+  const n = normalizeShellCommand(cmd);
+  if (
+    !n ||
+    n.startsWith("unerr exec") ||
+    n.startsWith("npx unerr exec") ||
+    /[/\\]unerr exec/.test(n)
+  ) {
+    return allow;
+  }
+
+  const hint = isDriftCommand(cmd);
+  if (!hint) return allow;
+
+  const cwd = process.cwd();
+  try {
+    if (readNudgeState(cwd).tier1_emitted_kinds.includes(hint.kind)) {
+      return allow;
+    }
+    updateNudgeState(cwd, (s) => {
+      if (!s.tier1_emitted_kinds.includes(hint.kind)) {
+        s.tier1_emitted_kinds.push(hint.kind);
+      }
+      s.drift_count += 1;
+    });
+  } catch {
+    // nudge-state unavailable (read-only fs / first run) — still nudge once.
+  }
+
+  return JSON.stringify({
+    permission: "allow",
+    agent_message: formatDriftNudge(hint),
+  });
 }

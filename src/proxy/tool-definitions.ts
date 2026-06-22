@@ -84,7 +84,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         query: {
           type: "string",
           description:
-            "Entity name, partial name, or exact key (e.g., 'compress', 'handleRequest', 'QueryRouter.dispatch')",
+            "A symbol OR a task. A bare name / partial / exact key ('compress', 'handleRequest', 'QueryRouter.dispatch') returns ranked entity matches. A natural-language task phrase ('where is retry handled', 'add a retry to the boot path') instead returns a recon bundle — anchored notes + the focus entities' verbatim bodies + their callers + conventions — collapsing the search→read→search fan-out into one call.",
         },
         limit: {
           type: "number",
@@ -117,6 +117,17 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           enum: ["function", "class", "type", "variable"],
           description: "Detail mode: optional entity kind filter.",
         },
+        mode: {
+          type: "string",
+          enum: ["literal", "regex"],
+          description:
+            "Content-search mode — use INSTEAD of grep/rg for an exact string ('literal') or a real regex ('regex') across indexed code files. `query` is the string/pattern. Each match returns with a bounded context slice (matched line ± `context` lines), so no follow-up file read is needed. Omit for the default entity/recon search.",
+        },
+        context: {
+          type: "number",
+          description:
+            "Content-search mode only: lines of surrounding context per match (default 2, max 6).",
+        },
         scope: SCOPE_PROP,
         cache_ref: CACHE_REF_PROP,
         token_budget: TOKEN_BUDGET_PROP,
@@ -130,46 +141,12 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
     },
   },
 
-  unerr_context: {
-    inputSchema: {
-      type: "object",
-      properties: {
-        prompt: {
-          type: "string",
-          description:
-            "What you are about to do, verbatim (e.g. 'add a retry to fetchUser'). Drives note recall, entity search, and the focus-entity blast radius.",
-        },
-        budget: {
-          type: "integer",
-          description:
-            "Whole-bundle token budget (default 4000). Sections are kept by priority — focus bodies, callers, notes, conventions — and trimmed to fit.",
-        },
-        response_format: {
-          type: "string",
-          enum: ["concise", "detailed"],
-          description:
-            "'detailed' (before an edit) inlines the 2–4 focus entities' verbatim bodies with file:line, skipping the follow-up file_read; 'concise' (orienting) = names, signatures, callers only. Defaults from task size — set to override.",
-        },
-        digest: {
-          type: "boolean",
-          description:
-            "Force the flat large-sweep digest render (entities grouped by file, callers collapsed to a count). Auto-enabled when the task classifies as a large sweep.",
-        },
-        expand: {
-          type: "boolean",
-          description:
-            "Before a signature change: pre-inlines the top callers' verbatim bodies (the sites to update), skipping the per-caller file_read. Off by default — only when the edit touches callers.",
-        },
-        scope: SCOPE_PROP,
-      },
-      required: ["prompt"],
-    },
-    annotations: {
-      title: "Recon Repo Context",
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
+  // unerr_context merged into search_code (2026-06): a task-shaped search_code
+  // query re-targets to handleUnerrContextProxy in proxy.ts. The handler keeps
+  // its full arg set (prompt/budget/response_format/digest/expand) and stays
+  // callable by name (recall path + `unerr recon` CLI); it is just no longer an
+  // advertised tools/list member. Removing it from SCHEMAS keeps the module-load
+  // assertion (SCHEMAS keys == TIER_ENTRIES keys) satisfied.
 
   fetch_url: {
     inputSchema: {

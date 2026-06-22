@@ -118,7 +118,7 @@ function onceVerbose(key: string, full: string, terse: string): string {
 // A *targeted* Read (offset/limit) is that pre-Edit pattern: one call returns
 // the byte-exact `old_string` window AND satisfies the gate. A *full-file*
 // Read with no offset/limit is almost always exploration — and exploration
-// must route through file_read/unerr_context (graph-backed; conventions, facts,
+// must route through file_read (or a task-shaped search_code query) (graph-backed; conventions, facts,
 // and drift auto-injected). So: allow targeted reads + non-code reads silently;
 // deny-once + redirect full-file CODE reads. Deny only the first attempt per
 // file (then nudge) to avoid the #43189/#47565 double-deny retry loop.
@@ -150,7 +150,7 @@ const preReadHandler: HookHandler = (normalized) => {
   const editClause = isClaudeCode
     ? `\n- About to EDIT "${filePath}"? Call \`file_edit({file_path:"${filePath}", old_string, new_string})\` — the unerr edit path needs no prior Read.`
     : "";
-  const reason = `Read("${filePath}") full-file is wasteful — route code exploration through unerr instead:\n- Understand the file: \`file_read({file_path:"${filePath}"})\` (auto-injects conventions, facts, drift)\n- Task-scoped recon in one call (anchored notes + blast radius + conventions): \`unerr_context({prompt:"<what you are about to do>"})\`\n- File structure first: \`file_outline("${filePath}")\`\n- One symbol's profile/body: \`search_code({query:'<name>', detail:true})\`\n- Genuinely need the ENTIRE file? Re-call Read — this redirect fires once per file.${editClause}`;
+  const reason = `Read("${filePath}") full-file is wasteful — route code exploration through unerr instead:\n- Understand the file: \`file_read({file_path:"${filePath}"})\` (auto-injects conventions, facts, drift)\n- Task-scoped recon in one call (anchored notes + blast radius + conventions): \`search_code({query:"<what you are about to do>"})\` (a task phrase returns the recon bundle)\n- File structure first: \`file_outline("${filePath}")\`\n- One symbol's profile/body: \`search_code({query:'<name>', detail:true})\`\n- Genuinely need the ENTIRE file? Re-call Read — this redirect fires once per file.${editClause}`;
 
   // Deny the first full-file read per file; nudge (collapsing to terse after the
   // first verbose banner) on repeats within the dedup window — so re-issuing the

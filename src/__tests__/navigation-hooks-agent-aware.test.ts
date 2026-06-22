@@ -62,7 +62,7 @@ describe("preReadHook — Claude Code", () => {
     expect(result).toEqual({});
   });
 
-  it("DENIES the first full-file CODE Read, redirecting to file_read + unerr_context", () => {
+  it("DENIES the first full-file CODE Read, redirecting to file_read + a task-shaped search_code", () => {
     const result = JSON.parse(
       runPreReadHook(claudeCodePayload({ file_path: "src/foo.ts" }))
     );
@@ -73,7 +73,7 @@ describe("preReadHook — Claude Code", () => {
     // through file_edit (no prior Read).
     expect(reason).toContain("full-file is wasteful");
     expect(reason).toContain("file_read");
-    expect(reason).toContain("unerr_context");
+    expect(reason).toContain("search_code");
     expect(reason).toContain("file_edit");
     // Never dead-ends a genuine whole-file read: re-calling Read proceeds.
     expect(reason).toContain("Re-call Read");
@@ -110,7 +110,7 @@ describe("preReadHook — Cursor (non-Claude Code)", () => {
     expect(result.permission).toBe("deny");
     const msg = result.agent_message ?? "";
     expect(msg).toContain("file_read");
-    expect(msg).toContain("unerr_context");
+    expect(msg).toContain("search_code");
     // Non-Claude Code agents get no Edit-gate clause (no read-before-edit gate).
     expect(msg).not.toContain("Edit gate");
   });

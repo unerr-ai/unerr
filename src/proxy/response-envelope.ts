@@ -513,15 +513,15 @@ export function buildSignalPrefix(
     }
   }
 
-  // CROSS_REPO_INTELLIGENCE Sprint 5.2: cross-repo (workspace) refusal nudge.
-  // A free-tier account asked for scope:'workspace'; the daemon refused the
-  // peer fan-out and the call ran home-only. Surface the upgrade path as a
-  // `ur|fct` line — the refusal message itself names the imperative action
-  // (`run unerr login`), so push it verbatim. Tag `wsr` keeps its own dedup
-  // scope (fires once per session per message).
-  if (typeof meta?.workspace_refused === "string" && meta.workspace_refused) {
-    tryPush("wsr", "workspace", meta.workspace_refused);
-  }
+  // Cross-repo (workspace) refusal — yield SILENTLY (Issue 1, confirmed
+  // 2026-06-22). A free-tier / refused workspace call already ran home-only and
+  // returns the home result; per the settled design it surfaces NO agent-facing
+  // line at all ("silent to coding agent, no error surface"). The wall-hit is
+  // still measured server-side — the `cross_repo_access {refused:true}`
+  // behavior event + the Issue 8 `cross_repo_yielded_free` savings event — so we
+  // know how often users hit it without spending the agent's context on an
+  // upsell. `meta.workspace_refused` is retained as an internal/telemetry field;
+  // it is deliberately NOT emitted as a `ur|` line.
 
   // CROSS_REPO_INTELLIGENCE Sprint 5.2: partial cross-repo fan-out note. Some
   // peer repos were unreachable, so the merged result is incomplete — warn

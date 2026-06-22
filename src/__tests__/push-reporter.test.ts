@@ -10,6 +10,7 @@ import type {
   StreamDrainer,
 } from "../cloud/push-drainer.js";
 import {
+  DEFAULT_PUSH_INTERVAL_MS,
   type PushAuth,
   PushReporter,
   type PushReporterDeps,
@@ -67,8 +68,8 @@ function makeHarness(over: Partial<PushReporterDeps> = {}) {
   let onSchedule: (() => void) | null = null;
 
   // Both the repo and the machine-level fleet store live under the per-test temp
-  // dir, so the (default) event-dir watcher's `ensureEventsDir` touches only the
-  // sandbox. `watchDir` is a no-op handle so no real `fs.watch` is attached.
+  // dir. The drain is timer-driven (no event-dir watcher), so a hand-fired
+  // `setTimer` is the only trigger the harness needs.
   const repoPath = join(unerrDir, "repo-a");
   const machineRoot = join(unerrDir, "machine");
 
@@ -93,7 +94,6 @@ function makeHarness(over: Partial<PushReporterDeps> = {}) {
     unerrDir: (p) => p,
     makeClient: () => ({}) as never,
     machineEventsRoot: () => machineRoot,
-    watchDir: () => ({ close: () => {} }),
     setTimer: (fn, ms) => {
       timerFn = fn;
       delays.push(ms);
@@ -232,7 +232,7 @@ describe("PushReporter", () => {
     const done3 = settled();
     advance(); // cycle #3: clean → back to default cadence
     await done3;
-    expect(delays.at(-1)).toBe(60_000);
+    expect(delays.at(-1)).toBe(DEFAULT_PUSH_INTERVAL_MS);
   });
 
   it("stop() halts the loop — a fired timer does no work", async () => {

@@ -12,6 +12,7 @@
  * // @sem domain=cloud role=drainer
  */
 
+import { computeMachineFingerprint } from "../machine-fingerprint.js";
 import type { BuildDrainers, DrainerSet } from "../push-drainer.js";
 import { buildIngestDrainers } from "./ingest.js";
 
@@ -25,7 +26,14 @@ import { buildIngestDrainers } from "./ingest.js";
  */
 export const assembleDrainers: BuildDrainers = async (ctx) => {
   try {
-    return await buildIngestDrainers(ctx);
+    // Machine-global: stamp the salted machine fingerprint onto every row at
+    // drain (the machine analogue of repo/branch/commit), so each stream is
+    // self-attributing to a machine even under a shared token. Memoized, so the
+    // per-tick call is free after the first.
+    return await buildIngestDrainers({
+      ...ctx,
+      machineFingerprint: ctx.machineFingerprint ?? computeMachineFingerprint(),
+    });
   } catch (err) {
     ctx.log?.(
       `push: ingest drainer build failed: ${err instanceof Error ? err.message : String(err)}`

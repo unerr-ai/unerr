@@ -15,11 +15,13 @@
  *
  * @sem domain=infrastructure
  */
-import { watch } from "node:fs";
 import { join } from "node:path";
 import { CloudClient } from "../cloud/client.js";
 import { assembleDrainers } from "../cloud/drainers/index.js";
-import { reapDrainedDeadSegments } from "../cloud/drainers/ingest.js";
+import {
+  reapDrainedDeadSegments,
+  truncateDrainedLongLivedSegments,
+} from "../cloud/drainers/ingest.js";
 import { canPushTelemetry } from "../cloud/entitlements.js";
 import { PushCursor } from "../cloud/push-cursor.js";
 import {
@@ -28,27 +30,29 @@ import {
   drainRepo,
 } from "../cloud/push-drainer.js";
 import { deriveRepoId } from "../cloud/repo-identity.js";
-import {
-  ensureEventsDir,
-  eventsDir,
-  machineEventsRoot,
-} from "../events/event-store.js";
+import { machineEventsRoot } from "../events/event-store.js";
 import { getCurrentBranch, getHeadSha } from "../utils/git.js";
 import { UNERR_VERSION } from "../version.js";
 
-/** Default cadence between drain ticks when nothing is failing. */
-export const DEFAULT_PUSH_INTERVAL_MS = 60_000;
+/**
+ * Cadence between drain ticks. The drain is timer-driven only — producers append
+ * events to local disk segments (the queue) and never block on the network; the
+ * daemon coalesces each repo's pending events into the fewest combined POSTs once
+ * per tick. 10s batches keep the cloud near-live without per-event request storms.
+ */
+export const DEFAULT_PUSH_INTERVAL_MS = 10_000;
 /** First retry delay after a soft failure; doubles each repeat up to the cap. */
 const BACKOFF_BASE_MS = 10_000;
 /** Backoff ceiling after repeated machine-wide failures (L4: ~5 min). */
 const MAX_BACKOFF_MS = 5 * 60_000;
+/**
+ * Cadence for the transcript materializer — slower than the 10s drain tick. The
+ * heavy streaming read runs at most this often per repo; the per-file settle
+ * gate (QUIET_MS) does the rest, leaning into the 5–60 min gap between sessions.
+ */
+const TRANSCRIPT_MATERIALIZE_INTERVAL_MS = 60_000;
 /** The `source` envelope field every pushed row carries. */
 const PUSH_SOURCE = `unerr-cli@${UNERR_VERSION}`;
-/** Debounce a burst of segment appends into one push-ASAP drain (L3, ≤1s). */
-export const WATCH_DEBOUNCE_MS = 1_000;
-/** Watcher key for the machine-level fleet store (`~/.unerr/events/`). A real
- *  repo path is absolute, so this sentinel can never collide with one. */
-const MACHINE_KEY = "__machine__";
 
 /** Resolved auth for one drain tick; null means "not logged in". */
 export interface PushAuth {
@@ -79,14 +83,18 @@ export interface PushReporterDeps {
   clearTimer?: (handle: NodeJS.Timeout) => void;
   /** Jitter factor in [0,1) (defaults to Math.random; injectable for tests). */
   jitter?: () => number;
-  /**
-   * Watch one directory for changes; returns a closable handle. Defaults to a
-   * non-persistent `fs.watch` (won't keep the daemon alive). Injected so a test
-   * can fire the change callback synchronously instead of touching the FS.
-   */
-  watchDir?: (dir: string, onChange: () => void) => { close: () => void };
   /** Resolve the machine-level events root (defaults to {@link machineEventsRoot}). */
   machineEventsRoot?: () => string;
+  /** Materialize a repo's claimed transcripts (claim-check consumer) just before
+   *  its drain, returning the number of turns enqueued. Injected so the daemon
+   *  layer never imports `src/tracking/` (daemon-isolation guard). Defaults to a
+   *  no-op; the daemon entrypoint wires the real implementation. */
+  materializeClaims?: (opts: {
+    repoCwd: string;
+    unerrDir: string;
+    now: number;
+    log?: (msg: string) => void;
+  }) => Promise<number>;
 }
 
 /** A status that means the cloud was reachable but pushed back (slow down). */
@@ -117,8 +125,8 @@ export class PushReporter {
       | "setTimer"
       | "clearTimer"
       | "jitter"
-      | "watchDir"
       | "machineEventsRoot"
+      | "materializeClaims"
     >
   > &
     PushReporterDeps;
@@ -126,12 +134,9 @@ export class PushReporter {
   private running = false;
   private inFlight = false;
   private failures = 0;
-  /** Live event-dir watchers, keyed by repo path (+ {@link MACHINE_KEY}). */
-  private readonly watchers = new Map<string, { close: () => void }>();
-  /** Pending per-target debounce timers (a burst → one drain). */
-  private readonly debounceTimers = new Map<string, NodeJS.Timeout>();
-  /** Targets with a wakeup drain in flight — collapses overlapping wakeups. */
-  private readonly drainingNow = new Set<string>();
+  /** Last time the transcript materializer ran for a repo, so it runs on the
+   *  slower {@link TRANSCRIPT_MATERIALIZE_INTERVAL_MS} cadence, not every tick. */
+  private lastTranscriptTickByRepo = new Map<string, number>();
 
   constructor(deps: PushReporterDeps) {
     this.deps = {
@@ -146,47 +151,29 @@ export class PushReporter {
       setTimer: deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms).unref()),
       clearTimer: deps.clearTimer ?? ((h) => clearTimeout(h)),
       jitter: deps.jitter ?? Math.random,
-      watchDir:
-        deps.watchDir ??
-        ((dir, onChange) => {
-          const w = watch(dir, { persistent: false }, () => onChange());
-          return {
-            close: () => {
-              try {
-                w.close();
-              } catch {
-                /* already closed / dir gone */
-              }
-            },
-          };
-        }),
       machineEventsRoot: deps.machineEventsRoot ?? machineEventsRoot,
+      materializeClaims: deps.materializeClaims ?? (async () => 0),
     };
   }
 
   /**
-   * Begin draining: attach event-dir watchers (push-ASAP), run a tick now, then
-   * loop on the slow backstop cadence. The watchers — not the timer — are the
-   * primary drain trigger; the timer only backstops missed events + L4 parking.
+   * Begin draining: run a tick now, then loop on the {@link DEFAULT_PUSH_INTERVAL_MS}
+   * cadence. The timer is the sole drain trigger — producers append to local disk
+   * segments and never push, so a fixed ~10s batch coalesces all pending events.
    */
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.syncWatchers();
     void this.runCycle();
   }
 
-  /** Stop the loop + every watcher. Idempotent. */
+  /** Stop the loop. Idempotent. */
   stop(): void {
     this.running = false;
     if (this.timer) {
       this.deps.clearTimer(this.timer);
       this.timer = null;
     }
-    for (const w of this.watchers.values()) w.close();
-    this.watchers.clear();
-    for (const t of this.debounceTimers.values()) this.deps.clearTimer(t);
-    this.debounceTimers.clear();
   }
 
   /** One drain tick across every repo. Never throws; schedules the next tick. */
@@ -228,10 +215,6 @@ export class PushReporter {
     const auth = this.deps.resolveAuth();
     if (!auth) return false;
 
-    // Reconcile watchers each tick so a repo added/removed without a proxy
-    // start/stop event still gains/loses its watcher within one backstop cycle.
-    this.syncWatchers();
-
     const client = this.deps.makeClient(auth.apiUrl, auth.token);
     let soft = false;
     for (const repo of this.deps.getRepos()) {
@@ -272,6 +255,24 @@ export class PushReporter {
     const unerrDir = this.deps.unerrDir(repoPath);
     let set: Awaited<ReturnType<BuildDrainers>> | null = null;
     try {
+      // Materialize claimed transcripts BEFORE listing segments, so the rows
+      // this enqueues to the `transcript` segment drain in the same tick. Runs
+      // on the slower transcript cadence; the per-file settle gate bounds the
+      // actual heavy read. Never throws (guarded internally).
+      const tnow = Date.now();
+      if (
+        tnow - (this.lastTranscriptTickByRepo.get(repoPath) ?? 0) >=
+        TRANSCRIPT_MATERIALIZE_INTERVAL_MS
+      ) {
+        this.lastTranscriptTickByRepo.set(repoPath, tnow);
+        await this.deps.materializeClaims({
+          repoCwd: repoPath,
+          unerrDir,
+          now: tnow,
+          log: this.deps.log,
+        });
+      }
+
       const repoId = await this.deps.deriveRepoId(repoPath);
       const cursor = await PushCursor.open(unerrDir);
       // Resolve the repo's current branch + HEAD once per tick so every stream
@@ -297,10 +298,15 @@ export class PushReporter {
       const outcomes = await drainRepo(cursor, set.drainers, {
         isEntitled: this.deps.isEntitled,
         log: this.deps.log,
+        // Coalesce every segment stream into the fewest combined POSTs per tick.
+        pushCombined: set.pushCombined,
       });
       // Reap fully-drained per-pid segments of dead processes before saving, so
       // the cursor-forget rides the same write. Bounds the segment-file count.
       reapDrainedDeadSegments(repoPath, cursor);
+      // Empty fully-drained long-lived segments (proxy/transcript) so sent
+      // telemetry does not linger on disk until the 5-day age-out.
+      truncateDrainedLongLivedSegments(repoPath, cursor);
       await cursor.save();
 
       const pushed = outcomes.reduce((n, o) => n + o.pushed, 0);
@@ -320,83 +326,6 @@ export class PushReporter {
       return true;
     } finally {
       await set?.dispose?.();
-    }
-  }
-
-  /**
-   * Attach an event-dir watcher to every live repo plus the machine-level fleet
-   * store, and detach watchers for repos that went away. A segment append wakes
-   * a debounced drain of that one target within {@link WATCH_DEBOUNCE_MS} —
-   * push-ASAP, no busy poll. Idempotent: call on start, on the daemon's proxy
-   * start/stop events, and once per backstop tick. No-op when stopped.
-   */
-  syncWatchers(): void {
-    if (!this.running) return;
-    const desired = new Map<string, string>();
-    for (const repo of this.deps.getRepos()) desired.set(repo.path, repo.path);
-    desired.set(MACHINE_KEY, this.deps.machineEventsRoot());
-
-    for (const [key, root] of desired) {
-      if (this.watchers.has(key)) continue;
-      try {
-        ensureEventsDir(root);
-        const handle = this.deps.watchDir(eventsDir(root), () =>
-          this.onSegmentChange(key)
-        );
-        this.watchers.set(key, handle);
-      } catch (err) {
-        this.deps.log?.(
-          `push: watch ${root} failed: ${err instanceof Error ? err.message : String(err)}`
-        );
-      }
-    }
-    for (const key of [...this.watchers.keys()]) {
-      if (desired.has(key)) continue;
-      this.watchers.get(key)?.close();
-      this.watchers.delete(key);
-      const pending = this.debounceTimers.get(key);
-      if (pending) {
-        this.deps.clearTimer(pending);
-        this.debounceTimers.delete(key);
-      }
-    }
-  }
-
-  /** A segment write fired — debounce, then drain just that target ASAP. */
-  private onSegmentChange(key: string): void {
-    if (!this.running) return;
-    const existing = this.debounceTimers.get(key);
-    if (existing) this.deps.clearTimer(existing);
-    this.debounceTimers.set(
-      key,
-      this.deps.setTimer(() => {
-        this.debounceTimers.delete(key);
-        void this.drainTargetNow(key);
-      }, WATCH_DEBOUNCE_MS)
-    );
-  }
-
-  /**
-   * Drain one woken target — a repo path, or {@link MACHINE_KEY} for the fleet
-   * store — outside the tick loop. A per-target in-flight guard collapses
-   * overlapping wakeups; a concurrent backstop drain of the same target is still
-   * safe (deterministic event_ids → server dedup). Skips silently when logged
-   * out / not entitled. Never throws.
-   */
-  private async drainTargetNow(key: string): Promise<void> {
-    if (this.drainingNow.has(key)) return;
-    this.drainingNow.add(key);
-    try {
-      if (!this.deps.isEntitled(Date.now())) return;
-      const auth = this.deps.resolveAuth();
-      if (!auth) return;
-      const client = this.deps.makeClient(auth.apiUrl, auth.token);
-      if (key === MACHINE_KEY) await this.drainMachine(client);
-      else await this.drainOneRepo(key, client);
-    } catch {
-      /* best-effort — a wakeup drain never blocks the daemon */
-    } finally {
-      this.drainingNow.delete(key);
     }
   }
 
@@ -427,8 +356,12 @@ export class PushReporter {
       const outcomes = await drainRepo(cursor, set.drainers, {
         isEntitled: this.deps.isEntitled,
         log: this.deps.log,
+        // Coalesce every segment stream into the fewest combined POSTs per tick.
+        pushCombined: set.pushCombined,
       });
       reapDrainedDeadSegments(root, cursor);
+      // Empty the fully-drained machine fleet segment so it does not grow forever.
+      truncateDrainedLongLivedSegments(root, cursor);
       await cursor.save();
 
       const pushed = outcomes.reduce((n, o) => n + o.pushed, 0);

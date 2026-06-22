@@ -365,7 +365,8 @@ describe("runPromptSubmitHook", () => {
     const { runUserPromptSubmitHook } = await import(
       "../hooks/prompt-hooks.js"
     );
-    // "optimize …" routes to unerr-safe-modification and is NOT a delegable
+    // "optimize …" routes to unerr-using-unerr (the fix cluster → the
+    // orchestrator's default edit workflow, 2026-06) and is NOT a delegable
     // class, so the Path A line fires (delegation, which is always-on, would
     // otherwise route a delegable task like "rename …" to unerr-delegate). This
     // test is about Path A routing, not delegation.
@@ -375,7 +376,7 @@ describe("runPromptSubmitHook", () => {
     });
     const result = JSON.parse(runUserPromptSubmitHook(stdin));
     const ctx = result.hookSpecificOutput.additionalContext ?? "";
-    expect(ctx).toContain("ur|act unerr-safe-modification");
+    expect(ctx).toContain("ur|act unerr-using-unerr");
   });
 });
 

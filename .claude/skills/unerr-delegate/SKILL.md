@@ -1,41 +1,48 @@
 ---
 name: unerr-delegate
-description: "Use when the task is a delegable class — add/improve tests, docstring + @sem maintenance, mechanical refactor (rename/extract/inline/move), or lint/format fixup — AND the host supports delegation (Claude Code / Codex). Builds a recon brief, hands the edit to a cheaper model (the unerr-junior sub-agent / `codex exec -m <mini>`), then reviews the diff. The senior NEVER enumerates the edit sites — the graph does. If the host can't delegate, skip this skill and run the normal lifecycle skill."
+description: "Use when the task is a delegable class — add/improve tests, docstring + @sem maintenance, mechanical refactor (rename/extract/inline/move), lint/format fixup, or read-only recon (find out / trace / investigate X) — AND the host supports delegation (Claude Code / Codex / Cursor / GitHub Copilot CLI). Builds a recon brief, PARTITIONS it into disjoint groups, and spawns one cheaper-model worker per group in parallel, routed by difficulty: tests/mechanical_refactor → MIDDLE model (Claude `unerr-worker` sub-agent / `codex exec -m gpt-5.4`), lint/docs/recon → WORKER model (Claude `unerr-junior` sub-agent / `codex exec -m gpt-5.4-mini`). Then reviews each diff. The senior NEVER enumerates the edit sites — the graph does. If the host can't delegate, skip this skill and run the normal lifecycle skill."
 user-invocable: false
 ---
 
 ## Iron Law
 
 <EXTREMELY-IMPORTANT>
-On a delegable task on a delegation-capable host, do NOT make the edit yourself. Build the recon brief, spawn the junior with ONLY the digest, then review its diff. You stay flat — the junior pays the per-site token cost on the cheaper tier. NEVER paste the codebase or enumerate edit sites into the junior prompt; the junior's own `get_references` / `unerr_context` calls find them from the digest.
+On a delegable task on a delegation-capable host, do NOT make the edit yourself. Build the recon brief, PARTITION it into disjoint groups, spawn a cheaper-model worker per group with ONLY the digest, then review the diffs. You stay flat — the workers pay the per-site token cost on a 5-15x cheaper tier. NEVER paste the codebase or enumerate edit sites into a worker prompt; the worker's own `get_references` / `search_code` calls find them from the digest.
 </EXTREMELY-IMPORTANT>
 
 ## Phase D1 — Gate.
   Confirm both hold before delegating:
-    1. Task class is delegable: tests, docstring/@sem, mechanical refactor (rename/extract/inline/move), or lint/format. Design, new features, and bug root-causing are NOT delegable — run the normal skill instead.
-    2. Host supports delegation: Claude Code (sub-agent) or Codex (`codex exec -m <mini>`). Any other host → skip this skill.
+    1. Task class is delegable: tests, docstring/@sem, mechanical refactor (rename/extract/inline/move), lint/format, or recon (read-only "find out / trace / investigate X"). Design, new features, and bug root-causing are NOT delegable — run the normal skill instead.
+    2. Host supports delegation: Claude Code (sub-agents), Codex (`codex exec -m`), Cursor (`cursor-agent -p -m`), or GitHub Copilot CLI (`copilot -p --model`). Any other host (Windsurf, Gemini-only, etc.) → skip this skill, do it yourself.
 
 ## Phase D2 — Brief (recon, not enumeration).
-  Run `unerr recon "<verbatim task>"` from Bash (or `unerr_context({prompt:'<task>'})`) to build ONE digest: the focus entities, their callers (blast radius), and conventions. This digest is the entire context the junior gets. You do not list files or call sites — the graph already did.
+  Run `unerr recon "<verbatim task>"` from Bash (or `search_code({query:'<task>'})`) to build ONE digest: the focus entities, their callers (blast radius), and conventions. This digest is the entire context the workers get. You do not list files or call sites — the graph already did.
 
-## Phase D3 — Mark intent + delegate.
-  Emit `unerr-save: intent delegate <class>: <one-line task>` in your closing message — append the word `sweep` (e.g. `delegate tests sweep: …`) when the handoff covers many sites, so the delegation telemetry counts it as a sweep, not a single edit. The class is one of: tests, docs, mechanical_refactor, lint_format.
-  - Claude Code: spawn the sub-agent — `Task({subagent_type:'unerr-junior', description:'<class> task', prompt:'<the recon digest>\n\nTask: <verbatim task>'})`. The sub-agent is model-pinned (Haiku) by its `.claude/agents/unerr-junior.md` frontmatter.
-  - Codex: run the junior step as a separate cheaper-model exec — `codex exec -m <mini-model> "<recon digest>\n\nTask: <verbatim task>"` — and collect its returned diff/digest.
+## Phase D2.5 — Partition (group the work).
+  Split the digest into N INDEPENDENT groups whose blast radii do NOT overlap — typically by file or by disjoint entity cluster. Each group becomes ONE worker spawn that can run in parallel with the others. A single-site task is just N=1. Two groups that touch the same entity must merge into one (a shared edit cannot run twice in parallel).
 
-## Phase D4 — Review the diff.
-  Run `unerr-review` phases R4–R7 over the junior's diff: `get_references({key:'<entity>', direction:'callers'})` for breaking callers, `file_read({file_path:'<file>', purpose:'explore'})` for convention/boundary breaches, `search_code({query:'<new-name>'})` for duplicate/hallucinated APIs. Tag findings critical/high/medium/low.
+## Phase D3 — Pick the tier, then spawn one worker PER group (in parallel).
+  Choose the model tier by class: tests / mechanical_refactor → MIDDLE model; lint_format / docs / recon → WORKER model (cheapest).
+  Emit `unerr-save: intent delegate <class>: <one-line task>` in your closing message — append `sweep` (e.g. `delegate tests sweep: …`) when the handoff covers many sites. The class is one of: tests, docs, mechanical_refactor, lint_format, recon.
+  - Claude Code: spawn the model-pinned sub-agent per group, ALL IN ONE message so they run concurrently — `Task({subagent_type:'unerr-worker', …})` for the MIDDLE tier (Sonnet: tests / mechanical_refactor) or `Task({subagent_type:'unerr-junior', …})` for the WORKER tier (Haiku: lint_format / docs / recon). Prompt = `'<the group's recon digest>\n\nTask: <verbatim task for this group>'`. The tier model is pinned by the sub-agent's `.claude/agents/*.md` frontmatter.
+  - Codex: run each group as a separate cheaper-model exec — `codex exec -m gpt-5.4 "…"` (middle) or `codex exec -m gpt-5.4-mini "…"` (worker) — and collect each returned diff/digest.
+  - Cursor: `cursor-agent -p -m composer-1 --force "…"` per group (one cheap tier), collect each diff.
+  - GitHub Copilot CLI: `copilot -p "…" --model gpt-5 --allow-all-tools` (middle) or `--model gpt-5-mini` (worker) per group, collect each diff.
+
+## Phase D4 — Review every diff.
+  Run `unerr-review` phases R4–R7 over EACH worker's diff: `get_references({key:'<entity>', direction:'callers'})` for breaking callers, `file_read({file_path:'<file>', purpose:'explore'})` for convention/boundary breaches, `search_code({query:'<new-name>'})` for duplicate/hallucinated APIs. Tag findings critical/high/medium/low.
 
 ## Phase D5 — Verify.
-  The junior runs `pnpm run typecheck`, the targeted test file, and `unerr check-commit` on its side (see its definition). Re-run the targeted test yourself to confirm green before close.
+  Each worker runs `pnpm run typecheck`, its targeted test file, and `unerr check-commit` on its side (see its definition). Re-run the targeted tests yourself to confirm green before close.
 
 ## Phase D6 — Escalate (bounded).
-  If the junior's diff fails review or checks after its own ≤2 retries, do NOT loop. Take the task back at the senior tier and apply the fix yourself, carrying forward ONE note of what the junior got wrong (e.g. `junior missed caller src/x.ts:42`). One escalation, then senior owns it.
+  If a worker's diff fails review or checks after its own ≤2 retries, do NOT loop. Take THAT group back at the senior tier and apply the fix yourself, carrying forward ONE note of what the worker got wrong (e.g. `worker missed caller src/x.ts:42`). One escalation per group, then senior owns it.
 
 ## Red Flags
 
-Making the edit yourself on a delegable task on a delegation-capable host → spawn the junior instead.
-Pasting file contents or a list of edit sites into the junior prompt → the junior re-derives them from the digest via the graph; pasting re-bills the context you were trying to save.
-Skipping Phase D4 review because the junior 'probably got it right' → the cheaper tier is exactly why the review is mandatory.
-Looping the junior more than the bounded escalation → after one failed escalation the senior owns the task.
-Delegating a design / new-feature / bug-root-cause task → not a delegable class; run unerr-build-and-debug or unerr-safe-modification.
+Making the edit yourself on a delegable task on a delegation-capable host → spawn the workers instead.
+Spawning workers one-at-a-time when the groups are independent → spawn them in one message so they run in parallel.
+Pasting file contents or a list of edit sites into a worker prompt → the worker re-derives them from the digest via the graph; pasting re-bills the context you were trying to save.
+Skipping Phase D4 review because a worker 'probably got it right' → the cheaper tier is exactly why the review is mandatory.
+Looping a worker more than the bounded escalation → after one failed escalation the senior owns that group.
+Delegating a design / new-feature / bug-root-cause task → not a delegable class; run unerr-build-and-debug or unerr-using-unerr.

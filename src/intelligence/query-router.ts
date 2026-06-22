@@ -42,9 +42,11 @@ import type { DriftTracker } from "../tracking/drift-tracker.js";
 import { revertEntity } from "../tracking/entity-rewind.js";
 import type { PendingViolationStore } from "../tracking/pending-violations.js";
 import type { PersistenceEffectivenessTracker } from "../tracking/persistence-effectiveness.js";
+import { emitSavingsEvent } from "../tracking/savings-events.js";
 import type { TokenFlowWriter } from "../tracking/token-flow.js";
 import { formatUnknownError } from "../utils/format-error.js";
 import type { BackgroundIndexer } from "./background-indexer.js";
+import { scanFilesForPattern } from "./content-search.js";
 import { readEntityBodyLines } from "./entity-source.js";
 import {
   type WorkspacePeerResult,
@@ -3301,6 +3303,10 @@ export class QueryRouter {
         partial: false,
         refused: true,
       });
+      // Issue 1 + 8: free tier / refused fan-out → yielded silently to the home
+      // repo (no agent surface). Record the wall-hit for the savings-origin
+      // rollup so we know how often users hit it.
+      this.emitCrossRepoSavings("cross_repo_yielded_free", toolName, 0);
       return { content: homeContent, _meta: meta };
     }
 
@@ -3323,7 +3329,38 @@ export class QueryRouter {
       partial: fan.partial,
       refused: false,
     });
+    // Issue 8: a successful cross-repo fan-out served the query from the graph
+    // instead of the agent shelling into sibling repos.
+    if (fan.results.length > 0) {
+      this.emitCrossRepoSavings(
+        "cross_repo_routed",
+        toolName,
+        fan.results.length
+      );
+    }
     return { content, _meta: meta };
+  }
+
+  /**
+   * Emit one Issue 8 savings_event for a cross-repo outcome (routed / yielded).
+   * Best-effort and additive to {@link recordCrossRepoAccess}: this row feeds
+   * the consolidated savings-origin rollup; the cross_repo_access row stays the
+   * raw federation telemetry. No-op when there is no writer or session id.
+   */
+  private emitCrossRepoSavings(
+    kind: "cross_repo_routed" | "cross_repo_yielded_free",
+    toolName: string,
+    peers: number
+  ): void {
+    const sid = this.tokenFlow?.sessionId;
+    if (!this.behaviorEvents || !sid) return;
+    emitSavingsEvent(this.behaviorEvents, kind, {
+      session_id: sid,
+      turn: this.sessionContext.getToolCallCount(),
+      tool: toolName,
+      note:
+        kind === "cross_repo_routed" ? `${peers} peer repo(s)` : "home-only",
+    });
   }
 
   /**
@@ -3372,6 +3409,8 @@ export class QueryRouter {
         partial: false,
         refused: true,
       });
+      // Issue 1 + 8: silent home-only yield; record the wall-hit.
+      this.emitCrossRepoSavings("cross_repo_yielded_free", "get_references", 0);
       return finishHome();
     }
 
@@ -3399,6 +3438,13 @@ export class QueryRouter {
       partial: fan.partial,
       refused: false,
     });
+    if (fan.results.length > 0) {
+      this.emitCrossRepoSavings(
+        "cross_repo_routed",
+        "get_references",
+        fan.results.length
+      );
+    }
     return { content, _meta: meta };
   }
 
@@ -3579,6 +3625,81 @@ export class QueryRouter {
       const symbols = lookup.get(base) ?? [];
       return { imported_file: r.imported_file, symbols };
     });
+  }
+
+  /**
+   * Content search across indexed code files (Issue 2). Serves
+   * `search_code({query, mode:'literal'|'regex'})` — the exact-string / regex
+   * match that the entity graph cannot express. Each hit carries a BOUNDED
+   * context slice (matched line ± `context` lines, default 2, max 6); hard caps
+   * keep it from flooding context: at most `limit` matches total (default 30),
+   * 20 per file, and ~12 KB of context bytes. Files come from `file_index`
+   * (indexed code files only), resolved against the project root.
+   */
+  private async searchFileContent(
+    args: Record<string, unknown>
+  ): Promise<unknown> {
+    const clamp = (n: number, lo: number, hi: number) =>
+      Math.max(lo, Math.min(hi, n));
+    const mode = args.mode === "regex" ? "regex" : "literal";
+    const opts = {
+      mode: mode as "literal" | "regex",
+      query: typeof args.query === "string" ? args.query : "",
+      limit: clamp(Number(args.limit) || 30, 1, 100),
+      contextLines: clamp(
+        Number.isFinite(Number(args.context)) ? Number(args.context) : 2,
+        0,
+        6
+      ),
+      maxTotalBytes: 12_000,
+      maxPerFile: 20,
+    };
+
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const cwd = this.projectRoot ?? process.cwd();
+
+    // Distinct indexed files (Datalog head is a set, so file_path is deduped).
+    let relPaths: string[] = [];
+    try {
+      const res = await this.localGraph.db.run("?[fp] := *file_index[fp, _]");
+      relPaths = (res.rows as unknown[][]).map((r) => String(r[0]));
+    } catch {
+      relPaths = [];
+    }
+
+    const files: Array<{ path: string; content: string }> = [];
+    for (const rel of relPaths) {
+      try {
+        files.push({
+          path: rel,
+          content: readFileSync(resolve(cwd, rel), "utf-8"),
+        });
+      } catch {
+        // Unreadable / moved file — skip; the graph may be mid-reindex.
+      }
+    }
+
+    const result = scanFilesForPattern(files, opts);
+
+    // Issue 8: when a content match carried its surrounding context, the agent
+    // does not need a follow-up read of that file — record one savings_event for
+    // the distinct files the matches covered (each would otherwise be a read).
+    if (opts.contextLines > 0 && result.matches.length > 0) {
+      const sid = this.tokenFlow?.sessionId;
+      if (this.behaviorEvents && sid) {
+        const distinctFiles = new Set(result.matches.map((m) => m.file_path));
+        emitSavingsEvent(this.behaviorEvents, "search_code_context_inlined", {
+          session_id: sid,
+          turn: this.sessionContext.getToolCallCount(),
+          tool: "search_code",
+          roundtrips_saved: distinctFiles.size,
+          note: `${opts.mode} match carried ±${opts.contextLines}-line context`,
+        });
+      }
+    }
+
+    return result;
   }
 
   private async executeLocal(
@@ -3877,6 +3998,15 @@ export class QueryRouter {
         return await this.computeFileImports(filePath);
       }
       case "search_code": {
+        // Content-search mode (Issue 2) — `mode:'literal'|'regex'` serves the one
+        // legit reason to grep code (an exact string / real regex across files)
+        // in-tool, so there is no correct reason left to shell out. Returns each
+        // match with a BOUNDED context slice (the matched line ± a few lines,
+        // capped per-match and by total bytes) to kill the follow-up file read
+        // without dumping whole files into context.
+        if (args.mode === "literal" || args.mode === "regex") {
+          return await this.searchFileContent(args);
+        }
         const query = args.query as string;
         const limit = (args.limit as number) ?? 20;
         const rows = await this.localGraph.searchEntities(query, limit);

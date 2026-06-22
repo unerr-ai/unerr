@@ -18,7 +18,7 @@ Phase 1 — Identify the question.
   - 'What does X depend on?'        → Phase 3 (references callees).
   - 'How is this directory wired?'  → Phase 4 (architecture).
   - 'What's the structure of file Y?' → Phase 5 (outline).
-  - 'What touches X / what's the blast radius of X?' → call `unerr_context({prompt:'<task>'})` for the one-shot bundle (entities + callers + conventions); from a Task subagent run `unerr recon "<task>"` from Bash.
+  - 'What touches X / what's the blast radius of X?' → call `search_code({query:'<task>'})` for the one-shot bundle (entities + callers + conventions); from a Task subagent run `unerr recon "<task>"` from Bash.
 
 Phase 2 — Search.
   Call `search_code({query:'<symbol>'})`. Returns ranked entities with file paths and kinds. Use the returned `entity_key` for follow-up queries.

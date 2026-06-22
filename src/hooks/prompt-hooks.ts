@@ -23,6 +23,7 @@ import {
 import { consumeAnyPendingTopicShift } from "../intelligence/topic-shift.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { recordPrefixStability } from "../proxy/prefix-stability.js";
+import { juniorHandoff } from "../skills/junior-agent.js";
 import type { IdeType } from "../utils/detect.js";
 import {
   type AsyncHookHandler,
@@ -32,6 +33,10 @@ import {
   runPromptSubmitHook,
   runPromptSubmitHookAsync,
 } from "./hook-runner.js";
+import {
+  type ActCandidate,
+  assembleInjectionBlock,
+} from "./injection-policy.js";
 import {
   readProxySessionId,
   recordUserPromptReceived,
@@ -67,15 +72,18 @@ export const VERB_CLUSTERS: VerbCluster[] = [
     skill: "unerr-build-and-debug",
     pattern: /\b(build|create|add|implement|design|scaffold)\b/i,
   },
+  // Edit verbs route to the orchestrator, which owns the default edit workflow
+  // (recall → blast-radius → conventions → drift → edit) absorbed from the former
+  // safe-modification skill.
   {
     id: "refactor",
-    skill: "unerr-safe-modification",
+    skill: "unerr-using-unerr",
     pattern:
       /\b(refactor|rename|move|restructure|extract|inline|migrate|cleanup)\b/i,
   },
   {
     id: "fix",
-    skill: "unerr-safe-modification",
+    skill: "unerr-using-unerr",
     pattern: /\b(fix|modify|change|update|tweak|replace|revert|optimize)\b/i,
   },
   // Review verbs split (2026-05): PRODUCING a review of your own changes →
@@ -108,11 +116,9 @@ export const VERB_CLUSTERS: VerbCluster[] = [
     pattern:
       /\b(find|search|where|who[- ]calls|callers|callees|dependencies|import|imports|hotspot|hotspots)\b/i,
   },
-  {
-    id: "memory",
-    skill: "unerr-memory",
-    pattern: /\b(remember|always|from[- ]now[- ]on|never|do[- ]not|don'?t)\b/i,
-  },
+  // No `memory` cluster: "remember / always / from now on / never" rules are
+  // captured automatically by the UserPromptSubmit hook (remember-client.ts) —
+  // there is no `unerr-memory` skill to invoke (removed 2026-06, invoked 0×).
 ];
 
 export interface VerbClusterMatch {
@@ -257,13 +263,9 @@ function buildMarkIntentLine(prompt: string): string | null {
 const MOMENT1_RECALL_NUDGE =
   "ur|act read any `ur|fct`/anchored notes shown for this prompt before drafting — anchored-note recall already ran; no notes shown means none matched.";
 
-/**
- * Byte-stable separator between the cacheable stable head and the per-turn
- * volatile tail of the UserPromptSubmit block.
- * A fixed string, so it sits at the end of the cached prefix and never busts it;
- * it marks where this-prompt-specific context begins.
- */
-const PREFIX_VOLATILE_BOUNDARY = "— unerr: per-turn context —";
+// The stable/volatile boundary, the per-turn line/char caps, and the
+// head→boundary→tail assembly now live in one place — `injection-policy.ts`
+// (Issue 6). `PREFIX_VOLATILE_BOUNDARY` is re-exported there.
 
 function buildMoment1Line(prompt: string): string | null {
   if (!classifyAsTask(prompt)) return null;
@@ -298,27 +300,6 @@ function buildMoment3PlanCiteLine(prompt: string): string | null {
   return "ur|act WHEN drafting a plan or implementation strategy this session: cite every load-bearing anchored note recalled for this prompt inline by kind + anchor (e.g. `per the wrn on src/proxy/bridge.ts`). No citation = the note was not load-bearing.";
 }
 
-/** Lever C — implementation-phase unerr mention. Fires once per session
- *  on the first coding-task prompt. Tells the agent that when narrating
- *  implementation work to the user, attribute concrete unerr findings
- *  in plain English (per CLAUDE.md "Speak plainly when unerr helped"
- *  section). One-shot — re-injection mid-implementation is argue-back
- *  noise. */
-function buildImplementationMentionLine(prompt: string): string | null {
-  if (!classifyAsTask(prompt)) return null;
-  try {
-    const cwd = process.cwd();
-    const state = readNudgeState(cwd);
-    if (state.impl_mention_emitted) return null;
-    updateNudgeState(cwd, (s) => {
-      s.impl_mention_emitted = true;
-    });
-  } catch {
-    return null;
-  }
-  return "ur|act WHEN narrating implementation work to the user this session: attribute concrete unerr findings in plain English (e.g. `unerr found <name> in <file>`, `unerr reminded me you'd asked to <rule>`). Never dump tool JSON. One concrete attribution per finding, not generic claims.";
-}
-
 // ── Path A emit ──────────────────────────────────────────────────────────────
 /** Emit one `ur|act` line for a matched Path A cluster (skill invocation
  *  is an action — skl folded into act on the wire 2026-05-24). Imperative,
@@ -333,8 +314,18 @@ function buildPathALine(match: VerbClusterMatch): string {
  *  and the prompt named a delegable class). Names the skill + the class so the
  *  senior routes to `unerr-delegate` instead of the normal lifecycle skill;
  *  imperative, no hedge verbs, no deictic pronouns (echoes the class string). */
-function buildDelegateLine(decision: DelegationDecision): string {
-  return `ur|act unerr-delegate — delegable class '${decision.class}'. Invoke Skill('unerr-delegate') to hand the edit to a cheaper model (unerr-junior / codex exec -m <mini>), then review the diff. Do NOT enumerate edit sites by hand — the recon brief carries them.`;
+function buildDelegateLine(
+  decision: DelegationDecision,
+  agentId: IdeType
+): string {
+  // Host-specific handoff: each delegation host hands the edit to a cheaper tier
+  // differently — Claude Code via the on-disk `unerr-junior`/`unerr-worker`
+  // sub-agent, Codex / Cursor / Copilot CLI via their own non-interactive exec
+  // with a model flag. The CLASS picks the tier (tests/mechanical_refactor →
+  // middle model, lint_format/docs/recon → worker model). juniorHandoff emits
+  // ONLY the path for THIS host — naming another is noise the agent can't act on.
+  const handoff = juniorHandoff(agentId, decision.class);
+  return `ur|act unerr-delegate — delegable class '${decision.class}'. Invoke Skill('unerr-delegate') to ${handoff}, then review the diff. Do NOT enumerate edit sites by hand — the recon brief carries them.`;
 }
 
 // ── Path B emit (T3.2) ───────────────────────────────────────────────────────
@@ -343,29 +334,19 @@ function buildDelegateLine(decision: DelegationDecision): string {
  *  injector. Each line is one-skill-per-row, two-space indent, with the
  *  description starting at a fixed column for legibility. */
 export function buildSkillCatalog(): string {
-  // Post-consolidation (27→7, +review = 8) — the catalog mirrors the 8
-  // unerr-prefixed skills shipped in .claude/skills/. Order matches the
-  // dispatch table in unerr-using-unerr SKILL.md.
+  // 2026-06 usage-driven consolidation (9→6): safe-modification folded into the
+  // orchestrator's default workflow; memory + markers removed (run via hooks +
+  // the instruction file, invoked 0× via Skill()). The catalog mirrors the 6
+  // unerr-prefixed skills shipped in .claude/skills/. Order matches the dispatch
+  // table in unerr-using-unerr SKILL.md.
   const entries: Array<[string, string]> = [
     [
       "unerr-using-unerr",
-      "master orchestrator — dispatches to sub-skills, runs default workflow when no other skill matches",
-    ],
-    [
-      "unerr-safe-modification",
-      "use before editing existing code — recon → blast radius → conventions → drift → edit",
+      "orchestrator — dispatches to a sub-skill, or runs the default edit workflow (recon → blast radius → conventions → drift → edit) when none matches",
     ],
     [
       "unerr-exploration",
       "use when finding callers, callees, hotspots, or unfamiliar code (graph-first)",
-    ],
-    [
-      "unerr-memory",
-      "use on every prompt (Moment 1 recall) and when the user says remember / always / never",
-    ],
-    [
-      "unerr-markers",
-      "use to mark intent / decisions / blockers / resolutions inline as you work",
     ],
     [
       "unerr-build-and-debug",
@@ -378,6 +359,10 @@ export function buildSkillCatalog(): string {
     [
       "unerr-review",
       "use to produce a review of your own changes before commit — breaking callers, contract drift, duplicate logic (NOT for addressing review comments left by others)",
+    ],
+    [
+      "unerr-delegate",
+      "use for a delegable task (add tests, docstring/@sem, mechanical rename/extract/inline/move, lint) on a delegation-capable host (Claude Code / Codex)",
     ],
   ];
   const header = "available skills — invoke if even 1% relevant:";
@@ -595,29 +580,36 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // any error leaves `delegateLine` null and the normal Path A routing stands.
   let delegateLine: string | null = null;
   try {
-    const decision = shouldDelegate({
-      prompt: message,
-      agentId: (normalized.agentName ?? "") as IdeType,
-    });
-    if (decision.delegate) delegateLine = buildDelegateLine(decision);
+    const agentId = (normalized.agentName ?? "") as IdeType;
+    const decision = shouldDelegate({ prompt: message, agentId });
+    if (decision.delegate) delegateLine = buildDelegateLine(decision, agentId);
   } catch {
     // never block the hook — fall through to normal routing
   }
 
-  // Path A — verb-cluster fast path. Disjoint from the legacy
-  // isCodeTask split below; when Path A fires we still emit the
-  // tool-roster + catalog so Path B has its catalog presence. When Lever C
-  // delegates, the delegate line OWNS the routing slot — skip Path A so the
-  // agent gets exactly one skill instruction.
+  // Code-task gate — computed ONCE here (was duplicated lower for the static
+  // tail). Path A, its fallback, and the static roster all gate on this. A
+  // non-code prompt (a question, a chat aside, "what does X do") must NOT draw
+  // a skill-dispatch nudge — those misfired on loose verb matches ("add",
+  // "find", "fix") in plain questions and trained the agent to ignore the slot.
+  const isCodeTask = isCodeContext(message);
+
+  // Path A — verb-cluster fast path. Gated on isCodeTask: a verb cluster only
+  // routes to a skill on an actual code task. When Lever C delegates, the
+  // delegate line OWNS the routing slot — skip Path A so the agent gets exactly
+  // one skill instruction.
   const pathAMatch = classifyVerbCluster(message);
   const pathALine =
-    delegateLine || !pathAMatch ? null : buildPathALine(pathAMatch);
+    delegateLine || !pathAMatch || !isCodeTask
+      ? null
+      : buildPathALine(pathAMatch);
 
-  // T3.3 — omni-skill fallback. When Path A misses AND no delegation fired,
-  // point the agent at the `unerr-using-unerr` master orchestrator so it runs
-  // the default workflow (recall → blast radius → mark_intent → edit → verify).
+  // T3.3 — omni-skill fallback. When Path A misses AND no delegation fired AND
+  // it is a code task, point the agent at the `unerr-using-unerr` master
+  // orchestrator so it runs the default workflow (recall → blast radius →
+  // mark_intent → edit → verify). Skipped on non-code prompts.
   const fallbackLine =
-    pathALine || delegateLine
+    pathALine || delegateLine || !isCodeTask
       ? null
       : "ur|act unerr-using-unerr — no verb-cluster match. Invoke Skill('unerr-using-unerr') and run the default workflow before drafting code.";
 
@@ -642,9 +634,6 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // Lever C — Moment 3 (cite recalled notes in plan). One-shot per session.
   const moment3Line = buildMoment3PlanCiteLine(message);
 
-  // Lever C — implementation-phase unerr mention. One-shot per session.
-  const implMentionLine = buildImplementationMentionLine(message);
-
   // mark_intent one-shot rides ahead of the tool roster too — the agent needs
   // to know about the contract BEFORE choosing a first tool call. Fires at
   // most once per session (see buildMarkIntentLine).
@@ -668,44 +657,19 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // the Path A line varies per prompt (verb cluster), so it is volatile; every
   // other line is a fixed nudge template (byte-stable) and belongs in the
   // cacheable head. Order + cap semantics are unchanged from before.
-  const actCandidates: Array<{ text: string | null; volatile: boolean }> = [
+  // The per-turn cap (5), per-line char cap (800), the stable/volatile split,
+  // and the head→boundary→tail ordering all live in `injection-policy.ts` now.
+  // Order = priority high→low; Path A and fallback are mutually exclusive (only
+  // one is non-null). `volatile` drives ordering: the Path A line varies per
+  // prompt so it rides the tail; every other line is a fixed template.
+  const actCandidates: ActCandidate[] = [
     { text: moment1Line, volatile: false }, //   Moment 1 (fixed template)
     { text: delegateLine, volatile: true }, //   Lever C delegation routing (class-specific)
     { text: pathALine, volatile: true }, //      Path A skill match (verb-specific)
     { text: fallbackLine, volatile: false }, //  Master orchestrator fallback (fixed)
     { text: markIntentLine, volatile: false }, // mark_intent one-shot (fixed)
     { text: moment3Line, volatile: false }, //   Moment 3 one-shot (fixed)
-    { text: implMentionLine, volatile: false }, // impl-narration one-shot (fixed)
   ];
-  const MAX_ACT_LINES_PER_TURN = 5;
-  // Fix G — per-line char cap. Anything over 800 chars gets truncated
-  // with a `…` suffix. Most agents drop / paraphrase oversize nudge
-  // payloads; the cap forces concision at write time so the directive
-  // reaches the model intact.
-  const MAX_NUDGE_LINE_CHARS = 800;
-  const cappedActEntries = actCandidates
-    .filter(
-      (c): c is { text: string; volatile: boolean } =>
-        typeof c.text === "string" && c.text.length > 0
-    )
-    .slice(0, MAX_ACT_LINES_PER_TURN)
-    .map((c) => ({
-      text:
-        c.text.length > MAX_NUDGE_LINE_CHARS
-          ? `${c.text.slice(0, MAX_NUDGE_LINE_CHARS - 1)}…`
-          : c.text,
-      volatile: c.volatile,
-    }));
-  // Lever A lanes — the fixed act templates form the stable head; the
-  // verb-specific Path A line joins the volatile tail.
-  const stableActText = cappedActEntries
-    .filter((e) => !e.volatile)
-    .map((e) => e.text)
-    .join("\n");
-  const volatileActText = cappedActEntries
-    .filter((e) => e.volatile)
-    .map((e) => e.text)
-    .join("\n");
 
   // Path B — static tool-roster + skill catalog. Both duplicate the cached
   // CLAUDE.md tool-routing section and the installed `.claude/skills/` menu, so
@@ -726,7 +690,7 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // the static boilerplate, so its injection footprint approaches the fixed
   // floor (§8). The roster still fires exactly once — on the first code turn —
   // and the cached instruction file already carries the same routing meanwhile.
-  const isCodeTask = isCodeContext(message);
+  // `isCodeTask` is computed once near the top (gates Path A + fallback too).
   // Claude Code carries the SAME tool-routing section in its cached `CLAUDE.md`
   // (system prompt, always present) and lists the installed `.claude/skills/`
   // menu natively — so the roster + catalog are pure duplication for it. Skip
@@ -757,26 +721,18 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   }
 
   // Emit ONE block ordered stable-head → boundary → volatile-tail so the
-  // cacheable leading bytes stay byte-stable turn-to-turn. Stable = fixed nudge
-  // templates + roster/catalog; volatile = resume/stitch, topic-shift, the
-  // verb-specific Path A line, and (appended by the async handler) the
-  // anchored-note recall bodies.
-  const stableHead = [stableActText, staticTail]
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-    .join("\n\n");
-  const volatileTail = [stitchPrefix, shiftPrefix, volatileActText]
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-    .join("\n");
+  // cacheable leading bytes stay byte-stable turn-to-turn. The cap, the char
+  // cap, the stable/volatile split, and the ordering all live in
+  // `assembleInjectionBlock`. Stable = fixed nudge templates + roster/catalog;
+  // volatile = resume/stitch, topic-shift, the verb-specific Path A line, and
+  // (appended by the async handler) the anchored-note recall bodies.
+  const { stableHead, ordered } = assembleInjectionBlock(
+    actCandidates,
+    staticTail,
+    [stitchPrefix, shiftPrefix]
+  );
   // prefix_stable measures the cacheable HEAD this ordering protects.
   if (stableHead.length > 0) recordPrefixStability(process.cwd(), stableHead);
-  const ordered =
-    volatileTail.length > 0
-      ? stableHead.length > 0
-        ? `${stableHead}\n\n${PREFIX_VOLATILE_BOUNDARY}\n${volatileTail}`
-        : volatileTail
-      : stableHead;
   // Nothing prompt-specific to inject (all one-shots spent, no recall/drift/
   // stitch, static boilerplate already emitted) → stay passthrough rather than
   // emit an empty additionalContext.
@@ -844,7 +800,7 @@ const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
       // the full set each turn re-bills uncacheable tokens for notes the turn
       // won't act on. Rank by load-bearing score (kind/anchor/polarity/prompt
       // overlap) and keep DEFAULT_RECALL_MAX; the rest stay reachable via
-      // unerr_context, which the moment-1 line already points the agent to.
+      // a task-shaped search_code query, which the moment-1 line already points the agent to.
       const topNotes = selectLoadBearing(notes, {
         prompt: message,
         max: DEFAULT_RECALL_MAX,

@@ -29,7 +29,7 @@ import type { IngestEventInput } from "@unerr-ai/contracts/ingest";
 export type StoredEvent = IngestEventInput;
 
 /** How long a line survives in the store before the rolling sweep drops it. */
-export const EVENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+export const EVENT_RETENTION_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
 
 /**
  * Age at which the daemon force-parks a still-un-acked event (L4 spillover):
@@ -38,7 +38,7 @@ export const EVENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
  * day before the rolling 7-day sweep could drop it un-delivered — the never-drop
  * guarantee. Must stay `< EVENT_RETENTION_MS` so park always wins the race.
  */
-export const PARK_AGE_MS = EVENT_RETENTION_MS - 24 * 60 * 60 * 1000; // 6 days
+export const PARK_AGE_MS = EVENT_RETENTION_MS - 24 * 60 * 60 * 1000; // 4 days
 
 /** The per-repo events directory: `<repo>/.unerr/events`. */
 export function eventsDir(repoRoot: string): string {
@@ -262,71 +262,6 @@ export function readSegmentFrom(
     pos = lineEnd;
   }
   return { events, nextOffset: consumed };
-}
-
-/**
- * Drop every line whose envelope `ts` is older than `EVENT_RETENTION_MS` from
- * one segment, rewriting it in place (temp + rename so a crash never leaves a
- * truncated segment). Returns the number of lines dropped. A line with no
- * parseable `ts` is kept (fail-safe: never delete data we cannot date). This is
- * the rolling 7-day retention sweep; the producer's store is a buffer, not the
- * durable queue (that is `unerrd`).
- */
-export function sweepSegment(
-  filePath: string,
-  now: number,
-  retentionMs: number = EVENT_RETENTION_MS
-): number {
-  if (!existsSync(filePath)) return 0;
-
-  let raw: string;
-  try {
-    raw = readFileSync(filePath, "utf8");
-  } catch {
-    return 0;
-  }
-
-  const cutoff = now - retentionMs;
-  const kept: string[] = [];
-  let dropped = 0;
-  for (const line of raw.split("\n")) {
-    if (line.length === 0) continue;
-    let keep = true;
-    try {
-      const ts = (JSON.parse(line) as { ts?: string }).ts;
-      const at = ts ? Date.parse(ts) : Number.NaN;
-      if (Number.isFinite(at) && at < cutoff) keep = false;
-    } catch {
-      keep = true; // un-parseable → keep (never delete what we cannot date)
-    }
-    if (keep) kept.push(line);
-    else dropped += 1;
-  }
-
-  if (dropped === 0) return 0;
-
-  const tmp = `${filePath}.tmp`;
-  const body = kept.length > 0 ? `${kept.join("\n")}\n` : "";
-  try {
-    writeFileSync(tmp, body, "utf8");
-    renameSync(tmp, filePath);
-  } catch {
-    return 0; // leave the segment intact on a failed rewrite
-  }
-  return dropped;
-}
-
-/** Run the 7-day sweep across every segment in a repo. Returns lines dropped. */
-export function sweepRepoEvents(
-  repoRoot: string,
-  now: number,
-  retentionMs: number = EVENT_RETENTION_MS
-): number {
-  let dropped = 0;
-  for (const seg of listSegments(repoRoot)) {
-    dropped += sweepSegment(seg, now, retentionMs);
-  }
-  return dropped;
 }
 
 /** Byte length of one segment — the drain's upper bound for a cursor. */

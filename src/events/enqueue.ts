@@ -34,6 +34,12 @@ export interface EmitContext {
   segment: string;
   /** The `source` envelope field, e.g. `"unerr-cli@0.3.4"`. */
   source: string;
+  /**
+   * Salted per-machine fingerprint (a one-way hash, never raw hardware), set once
+   * at boot from `computeMachineFingerprint()`. Process-global like `source`, so
+   * it is stamped onto every event this producer emits.
+   */
+  machine_fingerprint?: string;
   /** Salted repo id (a hash, never a path), or undefined outside a known repo. */
   repo?: string;
   /** Coding agent that owns the session (claude-code, cursor, …). */
@@ -106,6 +112,8 @@ export function stampEvent(ctx: EmitContext, input: EmitInput): StoredEvent {
     source: ctx.source,
     detail: input.detail,
   };
+  if (ctx.machine_fingerprint)
+    event.machine_fingerprint = ctx.machine_fingerprint;
   if (ctx.repo) event.repo = ctx.repo;
   if (ctx.agent) event.agent = ctx.agent;
   if (session_id) event.session_id = session_id;

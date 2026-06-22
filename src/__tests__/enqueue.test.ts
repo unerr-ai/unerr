@@ -32,6 +32,7 @@ function ctx(repoRoot: string): EmitContext {
     repoRoot,
     segment: PROXY_SEGMENT,
     source: "unerr-cli@test",
+    machine_fingerprint: "a1b2c3d4e5f60718",
     repo: "repohash",
     agent: "claude-code",
     session_id: "sess-1",
@@ -63,6 +64,7 @@ describe("L1 enqueue / emit", () => {
     expect(typeof e.ts).toBe("string");
     expect(Number.isNaN(Date.parse(e.ts))).toBe(false);
     expect(e.source).toBe("unerr-cli@test");
+    expect(e.machine_fingerprint).toBe("a1b2c3d4e5f60718");
     expect(e.repo).toBe("repohash");
     expect(e.agent).toBe("claude-code");
     expect(e.session_id).toBe("sess-1");
@@ -96,6 +98,7 @@ describe("L1 enqueue / emit", () => {
       source: "unerr-cli@test",
     };
     const e = stampEvent(bare, { type: "token_flow", detail: {} });
+    expect("machine_fingerprint" in e).toBe(false);
     expect("repo" in e).toBe(false);
     expect("agent" in e).toBe(false);
     expect("session_id" in e).toBe(false);

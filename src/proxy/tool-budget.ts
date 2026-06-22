@@ -32,6 +32,28 @@ export const BUDGETS = {
 export type BudgetKey = keyof typeof BUDGETS;
 
 /**
+ * Per-tool budget exceptions. A tool that legitimately carries more than its
+ * tier's shared cap gets an explicit, documented entry here — never raise the
+ * shared `BUDGETS` cap for everyone. `search_code` absorbed the `unerr_context`
+ * recon composite (2026-06): its description teaches BOTH a bare-symbol lookup
+ * AND a task-shaped recon bundle in one string, so its active cap is 100.
+ */
+export const PER_TOOL_BUDGET_OVERRIDE: Readonly<
+  Record<string, Partial<Record<BudgetKey, number>>>
+> = {
+  search_code: { tier1Active: 100 },
+};
+
+/**
+ * Effective cap for a tool+state: the per-tool override when present, else the
+ * tier default. The single place that resolves a cap, so enforcement, headroom,
+ * and the CI gate can never disagree.
+ */
+export function budgetCapFor(toolName: string, key: BudgetKey): number {
+  return PER_TOOL_BUDGET_OVERRIDE[toolName]?.[key] ?? BUDGETS[key];
+}
+
+/**
  * Thrown when a description exceeds its budget. Carries enough structured
  * data for the CI gate to format a precise actionable error.
  */
@@ -70,7 +92,7 @@ export function enforceBudget(
   key: BudgetKey
 ): void {
   const observed = countTokens(description);
-  const cap = BUDGETS[key];
+  const cap = budgetCapFor(toolName, key);
   if (observed > cap) {
     throw new ToolBudgetError(toolName, key, observed, cap);
   }
@@ -83,9 +105,10 @@ export function enforceBudget(
  */
 export function budgetHeadroom(
   description: string,
-  key: BudgetKey
+  key: BudgetKey,
+  toolName?: string
 ): { observed: number; cap: number; headroom: number } {
   const observed = countTokens(description);
-  const cap = BUDGETS[key];
+  const cap = toolName ? budgetCapFor(toolName, key) : BUDGETS[key];
   return { observed, cap, headroom: cap - observed };
 }

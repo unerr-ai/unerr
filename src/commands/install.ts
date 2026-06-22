@@ -335,7 +335,7 @@ export async function runInstall(
 
   // 2b. Write the model-pinned delegation sub-agent (Lever C). No-op unless the
   //     host supports an on-disk sub-agent (Claude Code); Codex delegates via
-  //     `codex exec -m <mini>` and needs no file.
+  //     `codex exec -m gpt-5.4-mini` and needs no file.
   try {
     const { writeJuniorSubagent } = await import("../skills/junior-agent.js");
     writeJuniorSubagent(ide, cwd);
@@ -585,7 +585,7 @@ function showSetupInstructions(agentName: string): void {
     w("  \x1b[1mStep 3: Verify\x1b[0m\n");
     w("  \x1b[2m──────────────\x1b[0m\n");
     w("  In a new chat session, verify unerr tools are available.\n");
-    w("  You should see tools like: unerr_context, search_code, file_read,\n");
+    w("  You should see tools like: search_code, file_read, get_references,\n");
     w("  file_outline, get_references.\n\n");
 
     w("  \x1b[1mStep 4: Start a new chat session\x1b[0m\n");
@@ -645,9 +645,10 @@ cat | unerr hook prompt-submit
 const CURSOR_PRE_SHELL_SCRIPT = `#!/bin/bash
 # unerr beforeShellExecution hook for Cursor
 # Installed by: unerr install cursor | Removed by: unerr uninstall cursor
-# For v1, just allow — shell compression routes through PreToolUse/Bash/exec pipeline
-cat > /dev/null
-echo '{"permission":"allow"}'
+# Cursor's shell hook can't rewrite the command to \`unerr exec\` (no updated_input
+# on beforeShellExecution), so unerr hook pre-shell surfaces the code-nav drift
+# redirect (get_references/search_code/file_read) as agent_message and allows.
+cat | unerr hook pre-shell
 `;
 
 /**
@@ -862,7 +863,10 @@ cat | unerr hook prompt-submit
 const WINDSURF_PRE_SHELL_SCRIPT = `#!/bin/bash
 # unerr pre_run_command hook for Windsurf Cascade
 # Installed by: unerr install windsurf | Removed by: unerr uninstall windsurf
-# Shell compression routes through PreToolUse/Bash/exec — passthrough here.
+# Passthrough by design: Windsurf's pre_run_command communicates via EXIT CODE
+# ONLY (0=allow, 2=block) — there is no advisory-message channel, so a non-blocking
+# drift nudge is impossible without hostilely blocking the user's command. Drift
+# coverage for Windsurf is the instruction-file rename row, not a runtime nudge.
 cat > /dev/null
 exit 0
 `;

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   CONTRACT_TEACHING_BLOCK,
-  NOTES_SKILLS,
   TOOL_DESCRIPTION_NUDGES,
 } from "../intelligence/contract-teaching.js";
 import { TIER_ENTRIES } from "../proxy/tool-descriptions.js";
@@ -15,10 +14,11 @@ describe("CONTRACT_TEACHING_BLOCK (D10)", () => {
   });
 
   it("references recall by tool name and save by sentinel (no unerr_remember)", () => {
-    // Recall is the unerr_context composite (notes auto-inject via the
-    // UserPromptSubmit hook); save is the `unerr-save:` Stop-hook sentinel —
-    // unerr_remember left the catalog (2026-06) and must not be taught.
-    expect(CONTRACT_TEACHING_BLOCK).toContain("unerr_context");
+    // Recall is a task-shaped search_code query (the recon composite folded
+    // into search_code 2026-06; notes auto-inject via the UserPromptSubmit
+    // hook); save is the `unerr-save:` Stop-hook sentinel — unerr_remember left
+    // the catalog (2026-06) and must not be taught.
+    expect(CONTRACT_TEACHING_BLOCK).toContain("search_code");
     expect(CONTRACT_TEACHING_BLOCK).toContain("unerr-save: note");
     expect(CONTRACT_TEACHING_BLOCK).not.toContain("unerr_remember");
   });
@@ -56,29 +56,6 @@ describe("CONTRACT_TEACHING_BLOCK (D10)", () => {
   });
 });
 
-describe("NOTES_SKILLS (D10, post-27→7 consolidation)", () => {
-  it("ships the consolidated memory pointer (single slug)", () => {
-    // The prior three slugs (unerr-prompt-receipt, unerr-anchor-query,
-    // unerr-save-at-end) are folded into the single unerr-memory skill
-    // whose canonical body ships from src/skills/local-pack.ts → MEMORY_SKILL.
-    const slugs = NOTES_SKILLS.map((s) => s.slug);
-    expect(slugs).toEqual(["unerr-memory"]);
-  });
-
-  it("the consolidated body has YAML frontmatter and references the contract tools", () => {
-    for (const skill of NOTES_SKILLS) {
-      expect(skill.body.startsWith("---\n")).toBe(true);
-      expect(skill.body).toMatch(/title:.+\n/);
-      expect(skill.body).toMatch(/description:.+\n/);
-      // Memory skill references the recall tool (unerr_context) and the save
-      // sentinel (`unerr-save:`) — unerr_remember left the catalog (2026-06).
-      expect(skill.body).toMatch(/unerr_context/);
-      expect(skill.body).toMatch(/unerr-save: note/);
-      expect(skill.body).not.toMatch(/unerr_remember/);
-    }
-  });
-});
-
 describe("TOOL_DESCRIPTION_NUDGES (D10)", () => {
   it("nudges every existing tool that bridges to the contract", () => {
     const tools = TOOL_DESCRIPTION_NUDGES.map((n) => n.tool);
@@ -91,11 +68,11 @@ describe("TOOL_DESCRIPTION_NUDGES (D10)", () => {
   });
 
   it("each nudge routes to a surviving contract mechanism", () => {
-    // Recall = unerr_context, save = the `unerr-save:` Stop-hook sentinel,
-    // or file_read's own inline rule-note/convention/drift auto-injection.
+    // Recall = a task-shaped search_code, save = the `unerr-save:` Stop-hook
+    // sentinel, or file_read's own inline rule-note/convention/drift injection.
     for (const n of TOOL_DESCRIPTION_NUDGES) {
       expect(n.nudge).toMatch(
-        /unerr_context|unerr-save: note|file_read auto-injects/
+        /search_code|unerr-save: note|file_read auto-injects/
       );
       expect(n.nudge).not.toMatch(/unerr_remember/);
     }
