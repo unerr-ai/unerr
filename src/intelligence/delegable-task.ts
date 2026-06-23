@@ -123,6 +123,128 @@ function matches(lower: string, signals: readonly string[]): boolean {
 }
 
 /**
+ * Interrogative openers — a prompt that LEADS with one (or ends with "?") is a
+ * question, not an imperative delegation command. The trailing space anchors
+ * the word so "document …" never trips "do ".
+ */
+const QUESTION_OPENERS = [
+  "did ",
+  "do ",
+  "does ",
+  "is ",
+  "are ",
+  "was ",
+  "were ",
+  "should ",
+  "can ",
+  "could ",
+  "would ",
+  "will ",
+  "why ",
+  "what ",
+  "which ",
+  "when ",
+  "who ",
+  "how ",
+  "have we",
+  "are we",
+  "is it",
+];
+
+/** A delegable noun under negation ("no unit tests", "without lint"). */
+const NEGATED_SIGNAL =
+  /\b(no|without|not|don't|dont|never|skip)\s+(\w+\s+){0,2}(tests?|lint|format|docstrings?|comments?)\b/;
+
+/** Meta / verification framing — about EXERCISING the code, not writing a unit. */
+const META_SIGNALS = [
+  "verify",
+  "did we",
+  "are working",
+  "getting triggered",
+  "really being",
+  "actually being",
+  "actually getting",
+  "imagine you",
+  "regular user",
+  "test these feature",
+  "test all these",
+];
+
+/**
+ * Speculative / modal mood — design deliberation ("should we add a feature…",
+ * "what if we…"), not an imperative handoff. The negation-and-speculation pair
+ * is the standard non-factual filter in rule-based intent detection.
+ */
+const SPECULATION_SIGNALS = [
+  "should we",
+  "could we",
+  "shall we",
+  "what if",
+  "do you think",
+  "is it worth",
+  "would it make sense",
+  "would it be better",
+  "i wonder if",
+];
+
+/**
+ * Harness narration — a session-continuation summary injected by the agent
+ * runtime, not a user task. These arrive verbatim and must never fire a nudge.
+ */
+const NARRATION_SIGNALS = [
+  "this session is being continued",
+  "session is being continued",
+  "the conversation is summarized",
+  "continue the conversation from where",
+  "summary of the conversation",
+];
+
+/**
+ * True when a prompt only MENTIONS a delegable signal word but is a question, a
+ * negation, a speculation, a meta/verification ask, or harness narration — i.e.
+ * not an imperative handoff. Runs BEFORE class matching to keep the delegate
+ * nudge high-precision: substring matching alone fired it on "did we test all
+ * these?", "no unit tests …", "should we add …", and a pasted session summary,
+ * false positives that trained the agent to ignore the nudge.
+ */
+function isNonTaskMention(lower: string): boolean {
+  const trimmed = lower.trim();
+  if (trimmed.endsWith("?")) return true;
+  if (QUESTION_OPENERS.some((q) => trimmed.startsWith(q))) return true;
+  if (NEGATED_SIGNAL.test(lower)) return true;
+  if (META_SIGNALS.some((m) => lower.includes(m))) return true;
+  if (SPECULATION_SIGNALS.some((m) => lower.includes(m))) return true;
+  if (NARRATION_SIGNALS.some((m) => lower.includes(m))) return true;
+  return false;
+}
+
+/**
+ * Imperative action verbs that turn a test NOUN into a test COMMAND. "test" /
+ * "unit test" / "test coverage" are ordinary English; absent one of these the
+ * mention is descriptive ("the test suite is slow") or QA ("test these by
+ * running prompts"), not a handoff to WRITE a unit. The tests class — unlike
+ * rename/extract/lint, which are already imperative verbs — gates on this.
+ */
+const TEST_IMPERATIVE_VERBS = [
+  "add ",
+  "write ",
+  "create ",
+  "implement ",
+  "increase ",
+  "improve ",
+  "expand ",
+  "extend ",
+  "cover ",
+  "build ",
+  "generate ",
+  "raise ",
+  "boost ",
+  "backfill ",
+  "fill in ",
+  "more ",
+];
+
+/**
  * Classify whether a prompt names a delegable task class. Precedence runs from the
  * highest-confidence, most-verifiable class downward (tests → lint/format → docs →
  * mechanical refactor); the first match wins. No match returns `class:"none"`.
@@ -130,7 +252,21 @@ function matches(lower: string, signals: readonly string[]): boolean {
 export function classifyDelegable(prompt: string): DelegableVerdict {
   const lower = (prompt ?? "").toLowerCase();
 
-  if (matches(lower, TEST_SIGNALS)) {
+  // Precision gate: drop questions / negations / speculation / meta / narration
+  // before any class match so the nudge only fires on an imperative handoff.
+  if (isNonTaskMention(lower)) {
+    return {
+      delegable: false,
+      class: "none",
+      reason:
+        "question / negation / speculation / meta — not a delegation command",
+    };
+  }
+
+  // Tests gates on an imperative action verb: "test" alone is QA or description,
+  // not a request to write a unit. rename/extract/lint are already verbs, so the
+  // other classes below need no such gate.
+  if (matches(lower, TEST_SIGNALS) && matches(lower, TEST_IMPERATIVE_VERBS)) {
     return {
       delegable: true,
       class: "tests",

@@ -84,3 +84,78 @@ export function parseDelegationIntent(text: string): DelegationIntent | null {
   if (!cls) return null;
   return { class: cls, sweep: /\bsweep\b/.test(lower) };
 }
+
+/** Bulk-edit outcome a marker can name (Issue 4a). `oneshot` = one command or
+ *  script covered the whole set; `cheap_loop` = the edit fell to a worker loop
+ *  but still ran off the senior. */
+export type BulkEditMode = "oneshot" | "cheap_loop";
+
+export interface BulkEditIntent {
+  /** Which batching rung the agent landed on. */
+  readonly mode: BulkEditMode;
+  /** Files the bulk edit covered (0 when the marker omits the count). */
+  readonly files: number;
+}
+
+/** First integer in the marker text — the file/target count when present. */
+const FIRST_INT = /(\d+)/;
+
+/**
+ * Parse an Issue-4a bulk-edit signal out of an `unerr-save: intent` marker. The
+ * batch-work skill emits `intent bulk-edit oneshot <N>: <task>` (one command /
+ * script) or `intent bulk-edit cheap-loop <N>: <task>` (worker loop). Returns
+ * null for any non-bulk-edit intent. When neither mode word is present but the
+ * marker is clearly a bulk edit, defaults to `oneshot` (the common best path).
+ * Pure + total — never throws.
+ */
+export function parseBulkEditIntent(text: string): BulkEditIntent | null {
+  const lower = (text ?? "").trim().toLowerCase();
+  if (!/^bulk[-_ ]?edit\b/.test(lower)) return null;
+  const oneshot = /\bone[-_ ]?shot\b/.test(lower);
+  const cheap = /\b(cheap|worker|loop)\b/.test(lower);
+  const mode: BulkEditMode = cheap && !oneshot ? "cheap_loop" : "oneshot";
+  const m = lower.match(FIRST_INT);
+  const files = m?.[1] ? Number.parseInt(m[1], 10) : 0;
+  return { mode, files: Number.isFinite(files) ? files : 0 };
+}
+
+export interface BatchCallIntent {
+  /** Targets fetched in one call (>= 2 — a single target saves nothing). */
+  readonly targets: number;
+}
+
+/**
+ * Parse an Issue-4b batch-call signal out of an `unerr-save: intent` marker. The
+ * batch-work skill emits `intent batch-call <N>: <task>` when N independent
+ * reads/edits were issued as one call (or one parallel message) instead of N
+ * round-trips. Returns null when the marker is not a batch-call or names fewer
+ * than 2 targets (no saving). Pure + total — never throws.
+ */
+export function parseBatchCallIntent(text: string): BatchCallIntent | null {
+  const lower = (text ?? "").trim().toLowerCase();
+  if (!/^batch[-_ ]?call\b/.test(lower)) return null;
+  const m = lower.match(FIRST_INT);
+  const targets = m?.[1] ? Number.parseInt(m[1], 10) : 0;
+  if (!Number.isFinite(targets) || targets < 2) return null;
+  return { targets };
+}
+
+/**
+ * The model tier a delegation runs on, below the senior. `worker` is the
+ * `unerr-worker` sub-agent (Sonnet / gpt-5.4) — work that needs some judgement;
+ * `junior` is the cheapest tier, the `unerr-junior` sub-agent (Haiku /
+ * gpt-5.4-mini) — brainless work. The senior tier never appears here: by
+ * definition a delegation marker means the senior did NOT keep the work.
+ */
+export type DelegationTier = "worker" | "junior";
+
+/**
+ * Route a delegable class to its model tier, matching the unerr-delegate skill's
+ * D3 rule exactly: tests and mechanical_refactor need judgement → worker; docs,
+ * lint/format, and read-only recon are brainless → cheapest junior.
+ */
+export function tierForDelegationClass(
+  cls: Exclude<DelegableClass, "none">
+): DelegationTier {
+  return cls === "tests" || cls === "mechanical_refactor" ? "worker" : "junior";
+}

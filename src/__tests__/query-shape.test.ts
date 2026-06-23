@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type QueryShape,
   classifyQueryShape,
+  shouldEscalateSearchCodeToRecon,
 } from "../intelligence/query-shape.js";
 
 function shape(q: string): QueryShape {
@@ -71,5 +72,54 @@ describe("classifyQueryShape", () => {
     expect(
       classifyQueryShape("add a retry to fetchUser").reason.length
     ).toBeGreaterThan(0);
+  });
+});
+
+describe("shouldEscalateSearchCodeToRecon", () => {
+  it("escalates a bare task-shaped query (no overriding intent)", () => {
+    expect(
+      shouldEscalateSearchCodeToRecon({ query: "where is retry handled" })
+    ).toBe(true);
+  });
+
+  it("does NOT escalate a single-token symbol query", () => {
+    expect(
+      shouldEscalateSearchCodeToRecon({ query: "compressShellOutput" })
+    ).toBe(false);
+  });
+
+  it("does NOT escalate an explicit content search even when task-shaped (the bug)", () => {
+    // Multi-word patterns classify as 'task' but must run as a literal/regex
+    // file scan — never be silently re-targeted to an entity recon bundle.
+    expect(
+      shouldEscalateSearchCodeToRecon({
+        query: "export const MAX",
+        mode: "literal",
+      })
+    ).toBe(false);
+    expect(
+      shouldEscalateSearchCodeToRecon({
+        query: "export async function \\w+",
+        mode: "regex",
+      })
+    ).toBe(false);
+  });
+
+  it("does NOT escalate when a profile flag or workspace scope is set", () => {
+    expect(
+      shouldEscalateSearchCodeToRecon({ query: "where is retry", detail: true })
+    ).toBe(false);
+    expect(
+      shouldEscalateSearchCodeToRecon({
+        query: "where is retry",
+        want: ["callers"],
+      })
+    ).toBe(false);
+    expect(
+      shouldEscalateSearchCodeToRecon({
+        query: "where is retry",
+        scope: "workspace",
+      })
+    ).toBe(false);
   });
 });

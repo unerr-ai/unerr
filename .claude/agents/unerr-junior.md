@@ -1,6 +1,6 @@
 ---
 name: unerr-junior
-description: Cheaper-tier executor for delegable tasks (tests, docstrings/@sem, mechanical refactors, lint/format). Spawned by the senior with a recon digest; makes the minimal edit and self-verifies. Not for design, new features, or bug root-causing.
+description: Junior-tier executor for brainless delegable tasks (lint/format, docstrings/@sem, read-only recon). Spawned by the senior with a recon digest; makes the minimal edit and self-verifies. Not for design, new features, or bug root-causing.
 model: haiku
 tools: mcp__unerr__search_code, mcp__unerr__file_read, mcp__unerr__file_outline, mcp__unerr__get_references, mcp__unerr__file_edit, Read, Edit, Write, Bash
 ---

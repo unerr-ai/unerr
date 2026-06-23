@@ -6,9 +6,13 @@ import { execSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PendingCorrelation } from "../tracking/intent-correlator.js";
 import { encodeIntentAsNote } from "../tracking/intent-encoder.js";
+
+// Git-notes subprocesses run slowly under the forks pool's parallel load; the
+// 5s default times out spuriously while the logic is fine. Raise the ceiling.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 describe("Intent Encoder — Git Notes", () => {
   let repoDir: string;

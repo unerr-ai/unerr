@@ -201,7 +201,8 @@ export type HookHandler = (normalized: NormalizedPayload) => HookResult;
  */
 export function runPreToolUseHook(
   stdinJson: string,
-  handler: HookHandler
+  handler: HookHandler,
+  onResult?: (normalized: NormalizedPayload, result: HookResult) => void
 ): string {
   const payload = parseStdin(stdinJson);
   if (!payload) return "{}";
@@ -209,6 +210,15 @@ export function runPreToolUseHook(
   const adapter = detectAdapter(payload);
   const normalized = normalizeWithAdapter(adapter, payload);
   const result = handler(normalized);
+  // Side-effect seam: let the caller observe the decision (e.g. record a
+  // savings event when a full-file Read is denied). Never blocks formatting.
+  if (onResult) {
+    try {
+      onResult(normalized, result);
+    } catch {
+      /* best effort — a telemetry side effect never breaks the hook */
+    }
+  }
   const augmented = augmentForAmbientPreInjection(normalized, result);
   return adapter.formatPreToolUse(augmented);
 }

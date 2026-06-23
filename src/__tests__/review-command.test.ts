@@ -20,6 +20,10 @@ import { runReview } from "../commands/review.js";
 process.env.UNERR_REVIEW_ENABLED = "1";
 import type { ReviewReportView } from "../review/report.js";
 
+// Git staging subprocesses run slowly under the forks pool's parallel load; the
+// 5s default times out spuriously while the logic is fine. Raise the ceiling.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+
 /**
  * Capture everything the command prints. `runReview` uses two sinks: direct
  * `process.stdout.write` (the JSON path) and the `info`/`section` helpers

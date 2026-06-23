@@ -38,7 +38,7 @@ import {
   DEEP_DIVE_TOOL_DEFINITIONS,
   NAVIGATION_TOOL_NAMES,
 } from "../intelligence/deep-dive-tools.js";
-import { classifyQueryShape } from "../intelligence/query-shape.js";
+import { shouldEscalateSearchCodeToRecon } from "../intelligence/query-shape.js";
 import { getCommitTrailers } from "../tracking/git-trailers.js";
 import { getPromptsForSession } from "../tracking/prompt-trace.js";
 import { createReconDetector } from "../tracking/turn-telemetry.js";
@@ -2453,21 +2453,14 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // `scope:'workspace'` keeps the lean federated search (unerr_context does
     // not fan out to siblings). Re-targeting before boundary validation lets the
     // unerr_context `prompt` requirement be satisfied by the carried query.
-    if (name === "search_code") {
-      const q = typeof args.query === "string" ? args.query : "";
-      const hasProfileFlag =
-        args.detail === true ||
-        args.include_body === true ||
-        (Array.isArray(args.want) && args.want.length > 0);
-      const federated = args.scope === "workspace";
-      if (
-        !hasProfileFlag &&
-        !federated &&
-        classifyQueryShape(q).shape === "task"
-      ) {
-        name = "unerr_context";
-        args = { ...args, prompt: q };
-      }
+    if (name === "search_code" && shouldEscalateSearchCodeToRecon(args)) {
+      // Task-shaped query, no overriding intent → re-target to the recon
+      // composite so the agent gets notes + bodies + callers + conventions in
+      // ONE call. The predicate excludes profile flags, workspace scope, AND
+      // an explicit `mode:'literal'|'regex'` content search (which must run as
+      // a file scan, never silently become an entity recon bundle).
+      name = "unerr_context";
+      args = { ...args, prompt: args.query };
     }
 
     // ── Boundary validation: alias normalization + required-field check ──

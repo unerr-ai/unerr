@@ -6,10 +6,14 @@ import { execSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CommitWatcher } from "../tracking/commit-watcher.js";
 import { IntentCorrelator } from "../tracking/intent-correlator.js";
 import { ShadowLedger } from "../tracking/shadow-ledger.js";
+
+// Git subprocesses run slowly under the forks pool's parallel load; the 5s
+// default times out spuriously while the logic is fine. Raise the ceiling.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 let tempDir: string;
 let unerrDir: string;

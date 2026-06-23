@@ -830,6 +830,58 @@ function walkDir(dir: string, files: string[], projectRoot: string): void {
   }
 }
 
+/**
+ * Async file discovery for content search (Issue 2) — walks the project for
+ * code files using the SAME exclusions + extension set + size cap as the
+ * indexer, but WITHOUT touching the graph DB. Returns project-root-relative
+ * paths. Content search uses this instead of querying `*file_index`, so a
+ * literal/regex search never queues behind a contended CozoDB write — drift
+ * processing and incremental reindex can hold the write lock for up to 60s, and
+ * the old `?[fp] := *file_index[fp,_]` read blocked on it, which is what made a
+ * `mode:'literal'` search appear to hang. The walk is `readdir`/`stat` only (no
+ * content read) and each `await` yields the event loop.
+ *
+ * @sem domain=indexing role=discovery
+ */
+export async function discoverSearchableFiles(
+  projectRoot: string
+): Promise<string[]> {
+  const { readdir, stat } = await import("node:fs/promises");
+  const out: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (EXCLUDED_DIRS.has(entry)) continue;
+      if (entry.startsWith(".") && entry !== ".") continue;
+      const fullPath = join(dir, entry);
+      const relPath = relative(projectRoot, fullPath);
+      if (isExcludedPath(relPath)) continue;
+      let info: Awaited<ReturnType<typeof stat>>;
+      try {
+        info = await stat(fullPath);
+      } catch {
+        continue;
+      }
+      if (info.isDirectory()) {
+        await walk(fullPath);
+      } else if (
+        info.isFile() &&
+        INDEXABLE_EXTENSIONS.has(extname(entry).toLowerCase()) &&
+        info.size <= MAX_FILE_SIZE
+      ) {
+        out.push(relPath);
+      }
+    }
+  }
+  await walk(projectRoot);
+  return out;
+}
+
 // ── Phase 4: Cross-File Edge Resolution ──────────────────────────
 
 /** Build a name → entity key index for cross-file resolution. */

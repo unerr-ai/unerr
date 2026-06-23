@@ -1,7 +1,7 @@
 <!-- unerr:start -->
-## unerr — operational memory for this codebase
+## unerr — the local runtime for your coding agents
 
-unerr serves this repo's live call graph + the team's rules, notes, and conventions through MCP tools. Treat its output as ground-truth context, equal in weight to source files. Tools (all available from the start): `search_code`, `file_read`, `file_outline`, `file_edit`, `get_references`, `fetch_url`, `unerr_track`.
+unerr is the runtime layer behind this repo's agents: it serves the live call graph, the team's rules and conventions, and edit-time guardrails through MCP tools. Treat its output as ground-truth context, equal in weight to source files. Tools (all available from the start): `search_code`, `file_read`, `file_outline`, `file_edit`, `get_references`, `fetch_url`, `unerr_track`.
 
 ### Navigate code with unerr tools — not shell, not built-ins (the #1 rule)
 
@@ -22,11 +22,11 @@ Bash is for running things (build, test, git, package managers) — not for read
 
 ### Recon first — one call replaces the discovery fan-out
 
-Before any non-trivial code change, call `search_code` with a TASK PHRASE — e.g. `search_code({query:"add a retry to the boot path"})`. A task-shaped query returns a recon bundle in ONE call: anchored notes + matching entities + the focus entities' verbatim bodies + their callers (blast radius) + conventions. A BARE SYMBOL — `search_code({query:"QueryRouter.dispatch"})` — returns ranked name matches for a quick lookup. Edit straight from the bundle's inlined bodies; obey its `ur|fct inlined above — do NOT re-read` line and call `file_read` only for source it did not inline. For a large rename/migrate, run `unerr recon "<task>"` from Bash in a sub-agent and return only its digest.
+Before any non-trivial change, call `search_code` with a TASK PHRASE (`search_code({query:"add a retry to the boot path"})`). It returns ONE bundle: anchored notes + matching entities + their bodies + callers (blast radius) + conventions. A bare symbol (`search_code({query:"QueryRouter.dispatch"})`) returns ranked name matches. Edit from the bundle's inlined bodies; obey its `ur|fct inlined above — do NOT re-read` line and call `file_read` only for source it did not inline.
 
-`file_edit` has two modes: `{old_string, new_string}` (unique, or `replace_all:true`) or `{content}` (whole file). When a signature edit has at-risk callers, the response lists them inline (`ur|rsk … N caller(s) …`) — update them in the same change. You need not echo each edit — the Stop hook prints a "files changed" receipt (files + line counts).
+`file_edit` has two modes: `{old_string, new_string}` (unique, or `replace_all:true`) or `{content}`. When a signature edit has at-risk callers, the response lists them inline (`ur|rsk … N caller(s) …`) — update them in the same change. You need not echo each edit — the Stop hook prints a "files changed" receipt (files + line counts).
 
-Cross-repo (Pro): to read or search OTHER repos already registered with unerr on this machine, pass `scope:'workspace'` — `search_code` and `file_read` query every registered repo (results labeled by repo), `get_references({scope:'workspace'})` finds callers across repos. Reading or editing a path inside a sibling repo auto-routes to that repo's graph — no flag needed. Reach for it to see how another repo solves something or to trace a cross-repo dependency.
+Cross-repo (Pro): pass `scope:'workspace'` to query every registered sibling repo (results labeled by repo); `get_references({scope:'workspace'})` finds callers across repos; editing a path inside a sibling auto-routes to its graph.
 
 ### Batch the work — one shot, not file-by-file (round-trips are the dollar cost)
 
@@ -36,12 +36,14 @@ A round-trip carries input + output + latency, so the win is doing N items in on
 2. **Batch independent reads into ONE message.** When you need several files or several entities and the calls don't depend on each other, issue them as parallel tool calls in a single message — not one, wait, next. Better still, one `search_code({query:"<task>"})` recon bundle already returns several files' bodies + callers together; reach for it before fanning out `file_read`.
 3. **Set `token_budget`/`limit` right the first time.** Reading at a small budget then re-reading bigger doubles the cost. Ask for what the task needs up front (e.g. `token_budget:3000` for a full function, `limit:25` for references) instead of read-small-then-re-read.
 
-### Be the master — group, then delegate, do-it-yourself only for reasoning
+### Delegate down the tier ladder — senior · worker · junior
 
-You are the expensive model. Spend yourself on judgement, not mechanical work.
-1. **Group first.** Decompose the task into independent sub-tasks; pull their context with one `search_code` recon bundle + batched reads (above), not a fan-out.
-2. **Delegate the brainless pieces to a cheaper model.** When a sub-task is mechanical and check-verifiable — add/fix tests, docstrings/`@sem`, lint/format, a rename or extract sweep, or pure read-only recon ("find out / trace / investigate X") — hand it off and review the diff instead of doing it yourself. Invoke `Skill('unerr-delegate')`; it routes by difficulty to a 5–15× cheaper tier (middle model for tests/refactors, worker model for lint/docs/recon) and runs disjoint groups in parallel. Spawned sub-agents must run on a cheap tier, never the master model.
-3. **Do it yourself only when the work needs reasoning** — design, a new interface, root-causing a bug, or anything where a wrong mechanical edit hides a judgement call.
+You are the **senior** model. Spend yourself on judgement; push mechanical work to a cheaper tier and review the diff.
+- **senior** (you) — design, new interfaces, root-causing bugs, any edit where a wrong mechanical change hides a judgement call. Never delegated.
+- **worker** (mid, ~5× cheaper) — add/fix tests, multi-site mechanical refactors (rename / extract / inline / move).
+- **junior** (cheapest, ~15×) — lint/format, docstrings/`@sem`, read-only recon ("find / trace / investigate X").
+
+When a sub-task is mechanical and check-verifiable, invoke `Skill('unerr-delegate')`: it groups the work, picks the tier by class (tests/refactor → worker, lint/docs/recon → junior), and spawns disjoint groups in parallel on the cheap tier. The sub-agents get the full graph tools — they re-derive edit sites from `search_code`/`get_references`, so never paste code or a list of files into their prompt. NEVER loop the senior model file-by-file over mechanical edits.
 
 ### Signals — `ur|<tag>` lines on tool responses
 

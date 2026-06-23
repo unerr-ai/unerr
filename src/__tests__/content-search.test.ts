@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_SCAN_FILE_BYTES,
+  type ScanAccumulator,
+  compilePattern,
   escapeRegExp,
+  scanFileInto,
   scanFilesForPattern,
 } from "../intelligence/content-search.js";
 
@@ -132,5 +136,78 @@ describe("scanFilesForPattern (Issue 2 content search)", () => {
 
   it("escapeRegExp neutralizes metacharacters", () => {
     expect(escapeRegExp("a.b(c)")).toBe("a\\.b\\(c\\)");
+  });
+});
+
+describe("streaming scan helpers (latency fix — early-exit)", () => {
+  it("compilePattern returns a regex for valid input, error for invalid/empty", () => {
+    const ok = compilePattern("literal", "a.b");
+    expect("re" in ok && ok.re.test("a.b")).toBe(true);
+    expect(compilePattern("regex", "(unclosed")).toMatchObject({
+      error: expect.stringMatching(/invalid regex/),
+    });
+    expect(compilePattern("literal", "")).toMatchObject({
+      error: expect.stringMatching(/empty query/),
+    });
+  });
+
+  it("scanFileInto returns false at the GLOBAL cap so the caller stops reading", () => {
+    const c = compilePattern("literal", "hit");
+    if (!("re" in c)) throw new Error("expected a compiled regex");
+    const acc: ScanAccumulator = {
+      matches: [],
+      totalBytes: 0,
+      truncated: false,
+    };
+    const opts = {
+      mode: "literal" as const,
+      query: "hit",
+      limit: 2,
+      contextLines: 0,
+      maxTotalBytes: 12_000,
+      maxPerFile: 20,
+    };
+    // First file has 5 hits but limit is 2 → cap hit mid-file → returns false.
+    const cont = scanFileInto(
+      c.re,
+      "a.ts",
+      Array.from({ length: 5 }, () => "hit").join("\n"),
+      opts,
+      acc
+    );
+    expect(cont).toBe(false); // signal: stop the whole scan (no more files read)
+    expect(acc.matches).toHaveLength(2);
+    expect(acc.truncated).toBe(true);
+  });
+
+  it("scanFileInto keeps going (returns true) when only the per-file cap is hit", () => {
+    const c = compilePattern("literal", "hit");
+    if (!("re" in c)) throw new Error("expected a compiled regex");
+    const acc: ScanAccumulator = {
+      matches: [],
+      totalBytes: 0,
+      truncated: false,
+    };
+    const cont = scanFileInto(
+      c.re,
+      "a.ts",
+      Array.from({ length: 5 }, () => "hit").join("\n"),
+      {
+        mode: "literal",
+        query: "hit",
+        limit: 30,
+        contextLines: 0,
+        maxTotalBytes: 12_000,
+        maxPerFile: 2, // per-file cap, NOT a global cap
+      },
+      acc
+    );
+    expect(cont).toBe(true); // per-file cap → still read the next file
+    expect(acc.matches).toHaveLength(2);
+    expect(acc.truncated).toBe(false);
+  });
+
+  it("MAX_SCAN_FILE_BYTES is a sane multi-hundred-KB ceiling", () => {
+    expect(MAX_SCAN_FILE_BYTES).toBeGreaterThan(500_000);
   });
 });

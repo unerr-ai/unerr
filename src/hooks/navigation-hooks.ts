@@ -14,6 +14,7 @@ import type { CascadeWarning } from "../intelligence/edit-impact.js";
 import { splitStableVolatile } from "../proxy/prefix-order.js";
 import { isReviewEnabled } from "../review/feature-flag.js";
 import { formatReviewFindings } from "../review/format.js";
+import { recordFullFileReadDenied } from "../tracking/read-deny-meter.js";
 import { recordEdit } from "../tracking/session-edit-log.js";
 import { initFileLog, startupLog } from "../utils/startup-log.js";
 import { queryBlastRadius } from "./blast-radius-client.js";
@@ -607,7 +608,15 @@ const postEditHandlerAsync: AsyncHookHandler = async (normalized) => {
 // with hook.ts CLI commands.
 
 export function runPreReadHook(stdinJson: string): string {
-  return runPreToolUseHook(stdinJson, preReadHandler);
+  return runPreToolUseHook(stdinJson, preReadHandler, (normalized, result) => {
+    // The Read guard only denies a wasteful full-file CODE read. Record the
+    // prevention so it lands on the activation dashboard alongside the
+    // proxy-side full_read_avoided event. Best-effort; never blocks the hook.
+    if (result.action !== "deny") return;
+    const filePath = extractFilePath(normalized.toolInput);
+    if (!filePath) return;
+    recordFullFileReadDenied(process.cwd(), filePath, normalized.agentName);
+  });
 }
 
 export function runPreGrepHook(stdinJson: string): string {

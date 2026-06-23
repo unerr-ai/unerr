@@ -13,6 +13,7 @@ import { getUnerrCommand } from "../config/mcp-config-writer.js";
 import { formatDriftNudge, isDriftCommand } from "../proxy/drift-detector.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { normalizeShellCommand } from "../proxy/shell-classifier.js";
+import { recordDelegationHandoff } from "../tracking/delegation-handoff.js";
 import {
   type HookHandler,
   passthrough,
@@ -101,6 +102,14 @@ export function runPreShellHook(stdinJson: string): string {
   ) {
     return allow;
   }
+
+  // Cross-agent delegation meter: Cursor / Copilot can't rewrite the command to
+  // `unerr exec`, so a cheaper-model handoff (`cursor-agent -p -m …`,
+  // `copilot … --model …`) surfaces here as the raw command. Record the
+  // delegation savings family before the drift check (a handoff is never a drift
+  // command, so it would otherwise fall straight through). Best-effort, no-op
+  // when the command is not a handoff.
+  recordDelegationHandoff(process.cwd(), cmd);
 
   const hint = isDriftCommand(cmd);
   if (!hint) return allow;

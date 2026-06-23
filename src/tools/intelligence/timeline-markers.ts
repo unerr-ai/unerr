@@ -20,10 +20,20 @@
  */
 
 import { emit } from "../../events/enqueue.js";
-import { parseDelegationIntent } from "../../intelligence/delegation.js";
+import {
+  parseBatchCallIntent,
+  parseBulkEditIntent,
+  parseDelegationIntent,
+  tierForDelegationClass,
+} from "../../intelligence/delegation.js";
 import { updateNudgeState } from "../../proxy/nudge-state.js";
 import type { CozoTimelineStore } from "../../timeline/timeline-store.js";
 import type { BehaviorEventInput } from "../../tracking/behavior-events.js";
+import {
+  emitBatchCallSavings,
+  emitBulkEditSavings,
+  emitDelegationSavings,
+} from "../../tracking/savings-events.js";
 import type { ShadowLedger } from "../../tracking/shadow-ledger.js";
 
 export const MARKER_TOOLS = [
@@ -221,9 +231,46 @@ export async function handleMarkerCall(
             response_bytes: null,
             detail: { class: intent.class, sweep: intent.sweep },
           });
+          // Issue 5 — light up the model-tier savings family so a delegation is
+          // VISIBLE in telemetry, not just inferable. The class routes to a tier
+          // (tests/mechanical_refactor → middle, the rest → cheapest worker);
+          // this writes harness_subagent_model + delegated_to_junior (+
+          // recon_in_cheap_subagent / worker_batch_parallel when they apply),
+          // the dormant kinds the activation audit needs to see delegation fire.
+          emitDelegationSavings(deps.behaviorWriter, {
+            session_id: entry.session_id,
+            delegable_class: intent.class,
+            sweep: intent.sweep,
+            tier: tierForDelegationClass(intent.class),
+          });
         } catch {
           /* best effort */
         }
+      }
+
+      // Issue 4 — batch-work savings. A `bulk-edit` marker (one command/script
+      // or a worker loop replaced an N-file frontier loop) and a `batch-call`
+      // marker (N targets in one call instead of N round-trips) are mutually
+      // exclusive with delegation and with each other; each lights its own
+      // dormant kind so the activation audit sees batching fire.
+      try {
+        const bulk = parseBulkEditIntent(redactedText);
+        if (bulk) {
+          emitBulkEditSavings(deps.behaviorWriter, {
+            session_id: entry.session_id,
+            mode: bulk.mode,
+            files: bulk.files,
+          });
+        }
+        const batch = parseBatchCallIntent(redactedText);
+        if (batch) {
+          emitBatchCallSavings(deps.behaviorWriter, {
+            session_id: entry.session_id,
+            targets: batch.targets,
+          });
+        }
+      } catch {
+        /* best effort */
       }
     }
   }

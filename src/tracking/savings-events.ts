@@ -35,6 +35,7 @@ export type SavingsEventKind =
   | "bulk_edit_oneshot" // Issue 4a: one command/script replaced an N-file loop
   | "bulk_edit_cheap_loop" // Issue 4a: fell to a worker loop (still off the master)
   | "search_code_context_inlined" // Issue 2: match carried context → no follow-up read
+  | "search_code_regex_served" // Issue 2: a literal/regex content search ran in-tool (grep replaced)
   | "delegated_to_junior" // Issue 5: sub-task ran on a cheaper tier
   | "worker_batch_parallel" // Issue 5: N workers spawned for one group
   | "recon_in_cheap_subagent" // Issue 5: read-only recon on a worker model
@@ -61,6 +62,7 @@ export const KIND_CATEGORY: Record<SavingsEventKind, SavingsEventCategory> = {
   bulk_edit_oneshot: "savings",
   bulk_edit_cheap_loop: "savings",
   search_code_context_inlined: "savings",
+  search_code_regex_served: "savings",
   delegated_to_junior: "savings",
   worker_batch_parallel: "savings",
   recon_in_cheap_subagent: "savings",
@@ -89,7 +91,7 @@ export interface SavingsEventPayload {
   readonly files_saved?: number;
   /** The model/tier a delegated or routed step used. */
   readonly model?: string;
-  readonly tier?: "master" | "middle" | "worker";
+  readonly tier?: "senior" | "worker" | "junior";
   /** The tool the event relates to (search_code, file_edit, …). */
   readonly tool?: string;
   /** Free-form extra context (kept small — it is JSON-stringified into detail). */
@@ -130,4 +132,122 @@ export function emitSavingsEvent(
   } catch {
     return false;
   }
+}
+
+/**
+ * Wire the Issue-5 delegation savings family from one parsed `delegate <class>`
+ * marker. A single delegation lights up several dormant kinds at once so the
+ * activation audit can SEE delegation firing instead of inferring it:
+ *   - `harness_subagent_model` (routing) — which tier ran the sub-task.
+ *   - `delegated_to_junior` (savings) — a sub-task ran off the master, on a
+ *     cheaper tier.
+ *   - `recon_in_cheap_subagent` — only for a read-only recon handoff.
+ *   - `worker_batch_parallel` — only when the handoff was a parallel sweep.
+ * Best-effort: each emit is a silent no-op on a null sink. Returns the count of
+ * rows actually emitted. The tier is resolved by the caller (see
+ * `tierForDelegationClass`) so this stays agnostic of the class taxonomy.
+ */
+export function emitDelegationSavings(
+  sink: SavingsEventSink | null | undefined,
+  opts: {
+    session_id: string;
+    turn?: number;
+    delegable_class: string;
+    sweep: boolean;
+    tier: "worker" | "junior";
+    /** The tool/source this delegation came through. Defaults to the
+     *  `mark_intent` marker path (Claude Code); the cross-agent shell-exec
+     *  meter passes `<host> exec` so the dashboard can tell the two apart. */
+    tool?: string;
+  }
+): number {
+  const { session_id, turn, delegable_class, sweep, tier } = opts;
+  const base: { session_id: string; turn?: number; tool: string } = {
+    session_id,
+    tool: opts.tool ?? "mark_intent",
+    ...(turn !== undefined ? { turn } : {}),
+  };
+  let emitted = 0;
+  if (
+    emitSavingsEvent(sink, "harness_subagent_model", {
+      ...base,
+      note: `tier=${tier} class=${delegable_class}`,
+    })
+  )
+    emitted += 1;
+  if (
+    emitSavingsEvent(sink, "delegated_to_junior", {
+      ...base,
+      note: `${delegable_class} → ${tier} tier`,
+    })
+  )
+    emitted += 1;
+  if (
+    delegable_class === "recon" &&
+    emitSavingsEvent(sink, "recon_in_cheap_subagent", {
+      ...base,
+      note: "read-only recon on worker model",
+    })
+  )
+    emitted += 1;
+  if (
+    sweep &&
+    emitSavingsEvent(sink, "worker_batch_parallel", {
+      ...base,
+      note: "parallel workers for one group",
+    })
+  )
+    emitted += 1;
+  return emitted;
+}
+
+/**
+ * Wire the Issue-4a bulk-edit savings from one parsed `bulk-edit` marker. A
+ * `oneshot` rung (one command/script replaced an N-file loop) emits
+ * `bulk_edit_oneshot`; a `cheap_loop` rung (the edit fell to a worker loop, but
+ * stayed off the senior) emits `bulk_edit_cheap_loop`. `files` (when > 0) is
+ * stamped as `files_saved` so the dashboard can sum the N-file work that did NOT
+ * cost N senior round-trips. Best-effort — a null sink is a silent no-op.
+ * Returns true when a row was emitted.
+ */
+export function emitBulkEditSavings(
+  sink: SavingsEventSink | null | undefined,
+  opts: {
+    session_id: string;
+    turn?: number;
+    mode: "oneshot" | "cheap_loop";
+    files: number;
+  }
+): boolean {
+  const kind: SavingsEventKind =
+    opts.mode === "oneshot" ? "bulk_edit_oneshot" : "bulk_edit_cheap_loop";
+  return emitSavingsEvent(sink, kind, {
+    session_id: opts.session_id,
+    ...(opts.turn !== undefined ? { turn: opts.turn } : {}),
+    tool: "mark_intent",
+    ...(opts.files > 0 ? { files_saved: opts.files } : {}),
+    note:
+      opts.mode === "oneshot"
+        ? "one command/script replaced an N-file loop"
+        : "worker loop (still off the senior)",
+  });
+}
+
+/**
+ * Wire the Issue-4b batch-call saving from one parsed `batch-call` marker: N
+ * independent targets fetched in one call (or one parallel message) instead of N
+ * round-trips. `roundtrips_saved` is N−1 (the round-trips that did NOT happen).
+ * Best-effort — a null sink is a silent no-op. Returns true when a row emitted.
+ */
+export function emitBatchCallSavings(
+  sink: SavingsEventSink | null | undefined,
+  opts: { session_id: string; turn?: number; targets: number }
+): boolean {
+  return emitSavingsEvent(sink, "batch_call_saved_roundtrips", {
+    session_id: opts.session_id,
+    ...(opts.turn !== undefined ? { turn: opts.turn } : {}),
+    tool: "mark_intent",
+    roundtrips_saved: Math.max(0, opts.targets - 1),
+    note: `${opts.targets} targets in one call`,
+  });
 }

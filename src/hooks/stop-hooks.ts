@@ -19,8 +19,13 @@
 
 import { spawn } from "node:child_process";
 import { join } from "node:path";
+import { parseDelegationIntent } from "../intelligence/delegation.js";
+import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { renderStopReportLive } from "../proxy/turn-report.js";
+import { BehaviorEventWriter } from "../tracking/behavior-events.js";
 import { readNamedEvents } from "../tracking/named-events.js";
+import { emitSavingsEvent } from "../tracking/savings-events.js";
+import { resolveExecSessionContext } from "../tracking/session-records.js";
 import { enqueueTranscriptClaim } from "../tracking/transcript-claim.js";
 import {
   type HookHandler,
@@ -128,6 +133,69 @@ export async function runStopPersistWorkerAsync(
 }
 
 /**
+ * Issue 5 leak detector — `subtasks_serialized_by_master`. The prompt hook arms
+ * `delegable_nudge_pending` when it routes a delegable task to `unerr-delegate`.
+ * At turn end this checks the close-out: if the agent emitted a `delegate`
+ * marker it acted on the nudge (no leak); if the pending flag is still set and
+ * no delegate marker landed, the master kept the delegable work itself — a leak
+ * the activation dashboard should see. Records one event, then clears the flag
+ * so the same un-acted nudge fires the leak at most once. The closing message is
+ * the one the persist worker already scrapes (sub-millisecond sync read), so
+ * this adds no transcript re-read on the hot path beyond that. Best-effort —
+ * never throws, returns true only when a leak row was emitted.
+ */
+export function detectSerializedByMasterLeak(
+  stdinJson: string,
+  unerrDir: string
+): boolean {
+  try {
+    const cwd = process.cwd();
+    if (!readNudgeState(cwd).delegable_nudge_pending) return false;
+
+    // Did the close-out carry a `delegate <class>` marker?
+    let delegated = false;
+    try {
+      const raw = JSON.parse(stdinJson) as { transcript_path?: unknown };
+      const tp =
+        typeof raw.transcript_path === "string"
+          ? raw.transcript_path
+          : undefined;
+      const closing = tp ? readClosingMessageFromTranscript(tp) : null;
+      if (closing) {
+        delegated = scrapeSentinels(closing).some(
+          (s) =>
+            s.kind === "marker" &&
+            s.op === "intent" &&
+            parseDelegationIntent(s.text) !== null
+        );
+      }
+    } catch {
+      /* treat an unreadable transcript as "no marker" */
+    }
+
+    // The turn is over — disarm the flag regardless of outcome.
+    updateNudgeState(cwd, (s) => {
+      s.delegable_nudge_pending = false;
+    });
+    if (delegated) return false; // acted on — not a leak
+
+    const ctx = resolveExecSessionContext(unerrDir);
+    if (!ctx.session_id) return false;
+    const writer = new BehaviorEventWriter(unerrDir, ctx.session_id, {
+      agent: ctx.agent,
+    });
+    return emitSavingsEvent(writer, "subtasks_serialized_by_master", {
+      session_id: ctx.session_id,
+      ...(ctx.turn > 0 ? { turn: ctx.turn } : {}),
+      tool: "unerr-delegate",
+      note: "delegable nudge fired but the master kept the work",
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Stop hook entry. Scrapes + persists any `unerr-save:` sentinels from the
  * closing message, then computes the close-out line for the active session/turn
  * and returns it as a user-facing systemMessage. On any error — or when there's
@@ -143,6 +211,10 @@ export async function runStopHookHandlerAsync(
     spawnStopPersistWorker(stdinJson);
 
     const unerrDir = join(process.cwd(), ".unerr");
+
+    // Issue 5 leak — a delegable nudge fired this turn but the master kept the
+    // work (no `delegate` marker in the close-out). Best-effort, off the line.
+    detectSerializedByMasterLeak(stdinJson, unerrDir);
     const resolved = resolveCurrentSessionTurn(unerrDir);
     if (!resolved)
       return runStopHookAsync(stdinJson, async () => passthrough());

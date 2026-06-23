@@ -90,6 +90,12 @@ export interface NudgeSessionState {
    *  cached CLAUDE.md tool table, so re-emitting it on every Bash call is
    *  per-operation re-bill; emit once per session, then stay silent. */
   exec_nudge_emitted: boolean;
+  /** Issue 5 leak correlation — set true when the prompt-submit hook emits the
+   *  `unerr-delegate` dispatch line (a delegable task on a delegation host).
+   *  Cleared at Stop: if it is still true and the close-out carries no
+   *  `delegate` marker, the master kept the delegable work itself, which the
+   *  Stop hook records as a `subtasks_serialized_by_master` leak. */
+  delegable_nudge_pending: boolean;
 }
 
 function defaultState(): NudgeSessionState {
@@ -110,6 +116,7 @@ function defaultState(): NudgeSessionState {
     consecutive_receipt_misses: 0,
     static_boilerplate_emitted: false,
     exec_nudge_emitted: false,
+    delegable_nudge_pending: false,
   };
 }
 
@@ -202,6 +209,7 @@ export function readNudgeState(cwd: string): NudgeSessionState {
       // roster emit once after upgrade, then gate. Forward-compatible.
       static_boilerplate_emitted: Boolean(parsed.static_boilerplate_emitted),
       exec_nudge_emitted: Boolean(parsed.exec_nudge_emitted),
+      delegable_nudge_pending: Boolean(parsed.delegable_nudge_pending),
     };
   } catch {
     return defaultState();

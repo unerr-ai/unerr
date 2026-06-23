@@ -30,7 +30,7 @@
  */
 
 import { loadContent } from "../content/loader.js";
-import { CODEX_JUNIOR_MODEL, CODEX_MIDDLE_MODEL } from "./junior-agent.js";
+import { CODEX_JUNIOR_MODEL, CODEX_WORKER_MODEL } from "./junior-agent.js";
 
 export type SkillCategory = "behavior" | "navigation" | "quality" | "workflow";
 
@@ -200,9 +200,9 @@ export const DELEGATE_SKILL: SkillDefinition = {
   id: "delegate",
   name: "Delegate (cheaper-model handoff)",
   description:
-    "Use when the task is a delegable class — add/improve tests, docstring + @sem maintenance, mechanical refactor (rename/extract/inline/move), lint/format fixup, or read-only recon (find out / trace / investigate X) — AND the host supports delegation (Claude Code / Codex / Cursor / GitHub Copilot CLI). Builds a recon brief, PARTITIONS it into disjoint groups, and spawns one cheaper-model worker per group in parallel, routed by difficulty: tests/mechanical_refactor → MIDDLE model (Claude `unerr-worker` sub-agent / `codex exec -m " +
-    CODEX_MIDDLE_MODEL +
-    "`), lint/docs/recon → WORKER model (Claude `unerr-junior` sub-agent / `codex exec -m " +
+    "Use when the task is a delegable class — add/improve tests, docstring + @sem maintenance, mechanical refactor (rename/extract/inline/move), lint/format fixup, or read-only recon (find out / trace / investigate X) — AND the host supports delegation (Claude Code / Codex / Cursor / GitHub Copilot CLI). Builds a recon brief, PARTITIONS it into disjoint groups, and spawns one cheaper-model worker per group in parallel, routed by difficulty: tests/mechanical_refactor → WORKER model (Claude `unerr-worker` sub-agent / `codex exec -m " +
+    CODEX_WORKER_MODEL +
+    "`), lint/docs/recon → JUNIOR model (Claude `unerr-junior` sub-agent / `codex exec -m " +
     CODEX_JUNIOR_MODEL +
     "`). Then reviews each diff. The senior NEVER enumerates the edit sites — the graph does. If the host can't delegate, skip this skill and run the normal lifecycle skill.",
   whenToUse:

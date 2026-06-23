@@ -24,6 +24,10 @@ import { consumeAnyPendingTopicShift } from "../intelligence/topic-shift.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { recordPrefixStability } from "../proxy/prefix-stability.js";
 import { juniorHandoff } from "../skills/junior-agent.js";
+import {
+  recordInjectionTelemetry,
+  recordOneShotEmit,
+} from "../tracking/injection-meter.js";
 import type { IdeType } from "../utils/detect.js";
 import {
   type AsyncHookHandler,
@@ -582,7 +586,19 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   try {
     const agentId = (normalized.agentName ?? "") as IdeType;
     const decision = shouldDelegate({ prompt: message, agentId });
-    if (decision.delegate) delegateLine = buildDelegateLine(decision, agentId);
+    if (decision.delegate) {
+      delegateLine = buildDelegateLine(decision, agentId);
+      // Issue 5 leak correlation — arm the pending flag. The Stop hook clears
+      // it; if no `delegate` marker lands in the close-out, the master kept the
+      // delegable work and the leak fires. Best-effort — never block the hook.
+      try {
+        updateNudgeState(process.cwd(), (s) => {
+          s.delegable_nudge_pending = true;
+        });
+      } catch {
+        /* best effort */
+      }
+    }
   } catch {
     // never block the hook — fall through to normal routing
   }
@@ -718,6 +734,10 @@ const promptSubmitHandler: HookHandler = (normalized) => {
     } catch {
       // Best-effort — a missed write just re-emits next turn (still correct).
     }
+    // Issue 6 leak — the static tail is once-per-session. A durable (session.id-
+    // keyed) stamp catches a re-emit caused by the nudge-state flags-file reset,
+    // recording one_shot_refire_detected. Best-effort, never blocks the hook.
+    recordOneShotEmit(process.cwd(), "static_boilerplate");
   }
 
   // Emit ONE block ordered stable-head → boundary → volatile-tail so the
@@ -733,6 +753,36 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   );
   // prefix_stable measures the cacheable HEAD this ordering protects.
   if (stableHead.length > 0) recordPrefixStability(process.cwd(), stableHead);
+
+  // Issue 6/7 telemetry — record what the injection brain decided this turn:
+  // which route it chose (delegate / Path A / orchestrator fallback) and whether
+  // it withheld the once-per-session static block. Observability only; best-
+  // effort, cache-safe, never blocks the hook.
+  try {
+    const route = delegateLine
+      ? "delegate"
+      : pathALine
+        ? "path-a-skill"
+        : fallbackLine
+          ? "orchestrator-fallback"
+          : undefined;
+    // The static tail is suppressed when it would otherwise be relevant (a code
+    // task) but was already spent this session or is skipped as cached-duplicate
+    // for claude-code. A non-code/trivial turn carries no roster, so it is not a
+    // "withhold" worth recording.
+    const suppressed =
+      isCodeTask && staticTail.length === 0 && (staticEmitted || skipStaticTail)
+        ? skipStaticTail
+          ? "static-roster (cached in CLAUDE.md for claude-code)"
+          : "static-roster (already emitted this session)"
+        : undefined;
+    recordInjectionTelemetry(process.cwd(), {
+      ...(route ? { routed: route } : {}),
+      ...(suppressed ? { suppressed } : {}),
+    });
+  } catch {
+    /* best effort — telemetry never blocks the hook */
+  }
   // Nothing prompt-specific to inject (all one-shots spent, no recall/drift/
   // stitch, static boilerplate already emitted) → stay passthrough rather than
   // emit an empty additionalContext.

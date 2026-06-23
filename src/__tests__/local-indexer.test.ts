@@ -293,3 +293,112 @@ describe("DriftTracker local reindex hook", () => {
     expect(mockReindex).not.toHaveBeenCalled();
   });
 });
+
+describe("discoverSearchableFiles (content-search file walk, DB-free)", () => {
+  it("returns code files and skips excluded dirs + non-code extensions", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "unerr-discover-"));
+    try {
+      mkdirSync(join(dir, "src"), { recursive: true });
+      mkdirSync(join(dir, "node_modules", "pkg"), { recursive: true });
+      mkdirSync(join(dir, "dist"), { recursive: true });
+      writeFileSync(join(dir, "src", "a.ts"), "export const a = 1;");
+      writeFileSync(join(dir, "src", "b.py"), "x = 1");
+      writeFileSync(join(dir, "src", "notes.md"), "# docs"); // non-code → skipped
+      writeFileSync(join(dir, "node_modules", "pkg", "i.js"), "1"); // excluded dir
+      writeFileSync(join(dir, "dist", "out.js"), "1"); // excluded dir
+
+      const { discoverSearchableFiles } = await import(
+        "../intelligence/local-indexer.js"
+      );
+      const files = await discoverSearchableFiles(dir);
+
+      expect(files).toContain("src/a.ts");
+      expect(files).toContain("src/b.py");
+      expect(files).not.toContain("src/notes.md"); // markdown is not code
+      expect(files.some((f) => f.includes("node_modules"))).toBe(false);
+      expect(files.some((f) => f.startsWith("dist/"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns relative paths and never queries a graph DB (no db arg)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "unerr-discover-rel-"));
+    try {
+      mkdirSync(join(dir, "pkg", "deep"), { recursive: true });
+      writeFileSync(join(dir, "pkg", "deep", "z.ts"), "export const z = 1;");
+      const { discoverSearchableFiles } = await import(
+        "../intelligence/local-indexer.js"
+      );
+      const files = await discoverSearchableFiles(dir);
+      // Paths are project-root-relative (what searchFileContent resolves against cwd).
+      expect(files).toEqual(["pkg/deep/z.ts"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("includes a file exactly at the 1MB size limit and skips files over it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "unerr-discover-size-"));
+    // MAX_FILE_SIZE in local-indexer.ts is 1_048_576 (unexported const).
+    const MAX_FILE_SIZE = 1_048_576;
+    try {
+      mkdirSync(join(dir, "src"), { recursive: true });
+      writeFileSync(join(dir, "src", "exactly.ts"), "x".repeat(MAX_FILE_SIZE));
+      writeFileSync(
+        join(dir, "src", "toolarge.ts"),
+        "x".repeat(MAX_FILE_SIZE + 1)
+      );
+
+      const { discoverSearchableFiles } = await import(
+        "../intelligence/local-indexer.js"
+      );
+      const files = await discoverSearchableFiles(dir);
+
+      expect(files).toContain("src/exactly.ts");
+      expect(files).not.toContain("src/toolarge.ts");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips dot-prefixed directories and their contents", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "unerr-discover-dot-"));
+    try {
+      mkdirSync(join(dir, ".git", "objects"), { recursive: true });
+      mkdirSync(join(dir, "src"), { recursive: true });
+      writeFileSync(join(dir, ".git", "objects", "pack.ts"), "1");
+      writeFileSync(join(dir, "src", "visible.ts"), "export const v = 1;");
+
+      const { discoverSearchableFiles } = await import(
+        "../intelligence/local-indexer.js"
+      );
+      const files = await discoverSearchableFiles(dir);
+
+      expect(files).toContain("src/visible.ts");
+      expect(files.some((f) => f.includes(".git"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("discovers a code file nested several levels deep and returns the correct root-relative path", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "unerr-discover-deep-"));
+    try {
+      mkdirSync(join(dir, "a", "b", "c", "d"), { recursive: true });
+      writeFileSync(
+        join(dir, "a", "b", "c", "d", "deep.ts"),
+        "export const deep = true;"
+      );
+
+      const { discoverSearchableFiles } = await import(
+        "../intelligence/local-indexer.js"
+      );
+      const files = await discoverSearchableFiles(dir);
+
+      expect(files).toContain("a/b/c/d/deep.ts");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

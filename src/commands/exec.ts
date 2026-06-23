@@ -26,6 +26,7 @@ import {
   readFreshTestArtifact,
   renderTestArtifactVerdict,
 } from "../proxy/test-artifact.js";
+import { recordDelegationHandoff } from "../tracking/delegation-handoff.js";
 import { getOrCreateSid } from "../utils/log-paths.js";
 import { initFileLog, startupLog } from "../utils/startup-log.js";
 import { discardLiveTee, runStreamingShell } from "./exec-runner.js";
@@ -400,6 +401,13 @@ export async function runExecMain(argv: string[]): Promise<number> {
       `\n[unerr:exec] command received ${run.signal} after ${secs}s — exit ${exitCode}${teeRef}\n`
     );
   }
+
+  // Cross-agent delegation meter: when this exec wrapped a handoff to a cheaper
+  // model (`codex exec -m …` is rewritten to `unerr exec -- codex exec -m …`),
+  // record the delegation savings family. Claude Code delivers this via the
+  // Stop-hook marker; the CLI-delegation hosts route the handoff through
+  // `unerr exec`, so this is their in-process emit. Best-effort, no-op otherwise.
+  recordDelegationHandoff(process.cwd(), cmd);
 
   // Append tool adoption nudge (N4 gates: suppressed in CI, UNERR_QUIET, zero/tiny output)
   appendExecNudge(cmd, combined.length);

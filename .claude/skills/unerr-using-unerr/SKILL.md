@@ -38,6 +38,7 @@ When the same change hits many files (add a header, bump an import, format, rena
 2. **Else one script** — write one small script that walks the files and changes them in a single run.
 3. **Else a cheaper model in a loop** — `Skill('unerr-delegate')` to hand the repetitive per-file edit to a sub-agent on a cheaper model.
 Independent reads follow the same rule: issue them as parallel calls in ONE message, or pull them together with one `search_code({query:'<task>'})` bundle — never one-read-wait-next. Set `token_budget`/`limit` right the first time; read-small-then-re-read doubles the cost.
+After batching, record the saving in your close-out: `unerr-save: intent bulk-edit oneshot <N>: <task>` (one command/script replaced an N-file loop), `bulk-edit cheap-loop <N>: <task>` (a worker loop), or `batch-call <N>: <task>` (N reads/edits issued in one call).
 
 ## Close-out (zero round-trip)
 

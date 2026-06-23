@@ -1,6 +1,6 @@
 ---
 name: unerr-worker
-description: Middle-tier executor for delegable tasks that need some judgement (add/improve tests, multi-site mechanical refactors). Spawned by the senior with a recon digest; makes the minimal edit and self-verifies. Not for design, new features, or bug root-causing.
+description: Worker-tier executor for delegable tasks that need some judgement (add/improve tests, multi-site mechanical refactors). Spawned by the senior with a recon digest; makes the minimal edit and self-verifies. Not for design, new features, or bug root-causing.
 model: sonnet
 tools: mcp__unerr__search_code, mcp__unerr__file_read, mcp__unerr__file_outline, mcp__unerr__get_references, mcp__unerr__file_edit, Read, Edit, Write, Bash
 ---

@@ -46,7 +46,12 @@ import { emitSavingsEvent } from "../tracking/savings-events.js";
 import type { TokenFlowWriter } from "../tracking/token-flow.js";
 import { formatUnknownError } from "../utils/format-error.js";
 import type { BackgroundIndexer } from "./background-indexer.js";
-import { scanFilesForPattern } from "./content-search.js";
+import {
+  MAX_SCAN_FILE_BYTES,
+  type ScanAccumulator,
+  compilePattern,
+  scanFileInto,
+} from "./content-search.js";
 import { readEntityBodyLines } from "./entity-source.js";
 import {
   type WorkspacePeerResult,
@@ -3337,6 +3342,11 @@ export class QueryRouter {
         toolName,
         fan.results.length
       );
+    } else {
+      // Issue 1: workspace scope requested but no registered sibling answered
+      // (daemon knew of zero peers). Yielded to the home repo — record the
+      // wall-hit so the rollup shows how often cross-repo had nothing to serve.
+      this.emitCrossRepoSavings("cross_repo_yielded_unregistered", toolName, 0);
     }
     return { content, _meta: meta };
   }
@@ -3348,18 +3358,26 @@ export class QueryRouter {
    * raw federation telemetry. No-op when there is no writer or session id.
    */
   private emitCrossRepoSavings(
-    kind: "cross_repo_routed" | "cross_repo_yielded_free",
+    kind:
+      | "cross_repo_routed"
+      | "cross_repo_yielded_free"
+      | "cross_repo_yielded_unregistered",
     toolName: string,
     peers: number
   ): void {
     const sid = this.tokenFlow?.sessionId;
     if (!this.behaviorEvents || !sid) return;
+    const note =
+      kind === "cross_repo_routed"
+        ? `${peers} peer repo(s)`
+        : kind === "cross_repo_yielded_unregistered"
+          ? "no registered peer"
+          : "home-only";
     emitSavingsEvent(this.behaviorEvents, kind, {
       session_id: sid,
       turn: this.sessionContext.getToolCallCount(),
       tool: toolName,
-      note:
-        kind === "cross_repo_routed" ? `${peers} peer repo(s)` : "home-only",
+      note,
     });
   }
 
@@ -3633,8 +3651,9 @@ export class QueryRouter {
    * match that the entity graph cannot express. Each hit carries a BOUNDED
    * context slice (matched line ± `context` lines, default 2, max 6); hard caps
    * keep it from flooding context: at most `limit` matches total (default 30),
-   * 20 per file, and ~12 KB of context bytes. Files come from `file_index`
-   * (indexed code files only), resolved against the project root.
+   * 20 per file, and ~12 KB of context bytes. Files come from a filesystem
+   * walk (`discoverSearchableFiles`, code files only) — NOT a graph query — so
+   * the search never blocks on a contended CozoDB write.
    */
   private async searchFileContent(
     args: Record<string, unknown>
@@ -3655,43 +3674,106 @@ export class QueryRouter {
       maxPerFile: 20,
     };
 
-    const { readFileSync } = await import("node:fs");
+    const { readFile, stat } = await import("node:fs/promises");
     const { resolve } = await import("node:path");
     const cwd = this.projectRoot ?? process.cwd();
 
-    // Distinct indexed files (Datalog head is a set, so file_path is deduped).
+    // Compile once, up front — an invalid regex returns a clean error without
+    // touching the disk at all.
+    const compiled = compilePattern(opts.mode, opts.query);
+    if ("error" in compiled) {
+      return {
+        mode: opts.mode,
+        query: opts.query,
+        match_count: 0,
+        files_scanned: 0,
+        matches: [],
+        truncated: false,
+        error: compiled.error,
+      };
+    }
+
+    // Enumerate code files by WALKING THE FILESYSTEM, not by querying the graph.
+    // The old `?[fp] := *file_index[fp,_]` cozo read queued behind any in-flight
+    // CozoDB write — drift processing / incremental reindex can hold the write
+    // lock up to 60s, so a `mode:'literal'` search appeared to hang for that
+    // whole window even though the scan itself is ~80ms. The walk reuses the
+    // indexer's exclusions + extension set + size cap and never touches the DB.
     let relPaths: string[] = [];
     try {
-      const res = await this.localGraph.db.run("?[fp] := *file_index[fp, _]");
-      relPaths = (res.rows as unknown[][]).map((r) => String(r[0]));
+      const { discoverSearchableFiles } = await import("./local-indexer.js");
+      relPaths = await discoverSearchableFiles(cwd);
     } catch {
       relPaths = [];
     }
 
-    const files: Array<{ path: string; content: string }> = [];
+    // STREAM the scan: read + match one file at a time and STOP at the match /
+    // byte cap, instead of materialising every file first. On a big repo (1000+
+    // indexed files, some multi-thousand-line) the old "readFileSync all files,
+    // then scan" path blocked the MCP event loop for seconds on EVERY
+    // literal/regex call — the proxy appeared to hang. Async reads (each `await`
+    // yields the loop), a per-file size skip (`MAX_SCAN_FILE_BYTES` — generated
+    // / minified blobs the agent never means to grep), and early-exit keep it
+    // bounded: a query that matches early reads only a handful of files.
+    const acc: ScanAccumulator = {
+      matches: [],
+      totalBytes: 0,
+      truncated: false,
+    };
+    let filesScanned = 0;
     for (const rel of relPaths) {
+      if (
+        acc.matches.length >= opts.limit ||
+        acc.totalBytes >= opts.maxTotalBytes
+      ) {
+        acc.truncated = true;
+        break;
+      }
+      const abs = resolve(cwd, rel);
+      let content: string;
       try {
-        files.push({
-          path: rel,
-          content: readFileSync(resolve(cwd, rel), "utf-8"),
-        });
+        const info = await stat(abs);
+        if (!info.isFile() || info.size > MAX_SCAN_FILE_BYTES) continue;
+        content = await readFile(abs, "utf-8");
       } catch {
         // Unreadable / moved file — skip; the graph may be mid-reindex.
+        continue;
       }
+      filesScanned++;
+      if (!scanFileInto(compiled.re, rel, content, opts, acc)) break;
     }
 
-    const result = scanFilesForPattern(files, opts);
+    const result = {
+      mode: opts.mode,
+      query: opts.query,
+      match_count: acc.matches.length,
+      files_scanned: filesScanned,
+      matches: acc.matches,
+      truncated: acc.truncated,
+    };
 
-    // Issue 8: when a content match carried its surrounding context, the agent
-    // does not need a follow-up read of that file — record one savings_event for
-    // the distinct files the matches covered (each would otherwise be a read).
-    if (opts.contextLines > 0 && result.matches.length > 0) {
-      const sid = this.tokenFlow?.sessionId;
-      if (this.behaviorEvents && sid) {
+    // Issue 8 telemetry — best-effort, additive.
+    const sid = this.tokenFlow?.sessionId;
+    if (this.behaviorEvents && sid) {
+      const turn = this.sessionContext.getToolCallCount();
+      // Issue 2 adoption: the in-tool literal/regex search ran at all — the
+      // agent chose search_code content mode over a bash grep. One row per
+      // completed search (the error path returned earlier, so this is a real
+      // served search), so the rollup can count grep replacement directly.
+      emitSavingsEvent(this.behaviorEvents, "search_code_regex_served", {
+        session_id: sid,
+        turn,
+        tool: "search_code",
+        note: `${opts.mode} search, ${result.match_count} match(es) in ${filesScanned} file(s)`,
+      });
+      // Issue 8: when a content match carried its surrounding context, the agent
+      // does not need a follow-up read of that file — record one savings_event
+      // for the distinct files the matches covered (each would otherwise be a read).
+      if (opts.contextLines > 0 && result.matches.length > 0) {
         const distinctFiles = new Set(result.matches.map((m) => m.file_path));
         emitSavingsEvent(this.behaviorEvents, "search_code_context_inlined", {
           session_id: sid,
-          turn: this.sessionContext.getToolCallCount(),
+          turn,
           tool: "search_code",
           roundtrips_saved: distinctFiles.size,
           note: `${opts.mode} match carried ±${opts.contextLines}-line context`,

@@ -163,3 +163,31 @@ export function classifyQueryShape(query: string): QueryShapeVerdict {
 
   return { shape: "task", reason: "mixed prose + symbol → task" };
 }
+
+/**
+ * Whether a `search_code` call should escalate from the lean ranked-name search
+ * to the recon composite (`unerr_context`). True ONLY for a task-shaped query
+ * with no overriding intent. Each of these means "do NOT escalate":
+ *   - a profile flag (`detail` / `include_body` / `want`) — resolve ONE entity;
+ *   - `scope:'workspace'` — keep the lean federated search;
+ *   - `mode:'literal'|'regex'` — an explicit content (grep) search, the OPPOSITE
+ *     of recon; a multi-word grep pattern is task-shaped but must run as a file
+ *     scan, not be silently re-targeted to an entity recon bundle.
+ * Pure + side-effect-free so the routing rule is unit-testable apart from the
+ * proxy dispatch.
+ *
+ * @sem domain=search role=classifier
+ */
+export function shouldEscalateSearchCodeToRecon(
+  args: Record<string, unknown>
+): boolean {
+  const hasProfileFlag =
+    args.detail === true ||
+    args.include_body === true ||
+    (Array.isArray(args.want) && args.want.length > 0);
+  if (hasProfileFlag) return false;
+  if (args.scope === "workspace") return false;
+  if (args.mode === "literal" || args.mode === "regex") return false;
+  const q = typeof args.query === "string" ? args.query : "";
+  return classifyQueryShape(q).shape === "task";
+}

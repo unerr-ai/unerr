@@ -49,17 +49,109 @@ export function escapeRegExp(s: string): string {
 }
 
 /**
+ * Files larger than this are skipped by the streaming scan — a >2 MB file in
+ * `file_index` is almost always generated / minified / a data blob, not source
+ * the agent means to grep, and reading it blocks the event loop for no value.
+ */
+export const MAX_SCAN_FILE_BYTES = 2_000_000;
+
+/**
+ * Compile the query into a global RegExp, or return an error string. Literal
+ * mode escapes the query so it matches as a plain substring. Shared by the pure
+ * {@link scanFilesForPattern} and the streaming caller so both interpret a
+ * pattern identically.
+ */
+export function compilePattern(
+  mode: "literal" | "regex",
+  query: string
+): { re: RegExp } | { error: string } {
+  if (!query)
+    return { error: "empty query — pass the string/pattern to match" };
+  try {
+    return {
+      re: new RegExp(mode === "regex" ? query : escapeRegExp(query), "g"),
+    };
+  } catch (e) {
+    return {
+      error: `invalid regex: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+}
+
+/** Running accumulator threaded across a streaming, file-by-file scan. */
+export interface ScanAccumulator {
+  matches: ContentMatch[];
+  totalBytes: number;
+  truncated: boolean;
+}
+
+/**
+ * Scan ONE file's content into `acc`, capped by the global limit + byte budget
+ * and the per-file match cap. Returns `false` when a GLOBAL cap (total matches
+ * or total bytes) is hit — the caller must then stop reading further files (the
+ * early-exit that keeps a literal/regex search from reading the whole repo).
+ * Pure — no I/O.
+ */
+export function scanFileInto(
+  re: RegExp,
+  path: string,
+  content: string,
+  opts: ContentSearchOptions,
+  acc: ScanAccumulator
+): boolean {
+  if (
+    acc.matches.length >= opts.limit ||
+    acc.totalBytes >= opts.maxTotalBytes
+  ) {
+    acc.truncated = true;
+    return false;
+  }
+  const lines = content.split("\n");
+  let perFile = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const lineText = lines[i] ?? "";
+    re.lastIndex = 0;
+    if (!re.test(lineText)) continue;
+    const from = Math.max(0, i - opts.contextLines);
+    const to = Math.min(lines.length - 1, i + opts.contextLines);
+    const ctx = lines.slice(from, to + 1).join("\n");
+    const sz = ctx.length + path.length + 16;
+    if (
+      acc.matches.length >= opts.limit ||
+      acc.totalBytes + sz > opts.maxTotalBytes
+    ) {
+      acc.truncated = true;
+      return false; // global cap hit — stop the whole scan
+    }
+    acc.matches.push({
+      file_path: path,
+      line: i + 1,
+      match: lineText.trim().slice(0, 240),
+      context: ctx,
+    });
+    acc.totalBytes += sz;
+    if (++perFile >= opts.maxPerFile) break; // per-file cap — move to next file
+  }
+  return true;
+}
+
+/**
  * Scan already-read file contents for a literal string or regex, returning each
  * hit with a bounded context slice. Pure — no I/O — so it is unit-testable
  * without a graph or a real repo. Stops collecting at the first cap hit (total
  * matches, total bytes) and marks `truncated`.
+ *
+ * For a real repo the proxy uses the streaming path ({@link compilePattern} +
+ * {@link scanFileInto}) so it reads files lazily and stops at the cap instead of
+ * materialising every file first; this array form stays for tests + small sets.
  */
 export function scanFilesForPattern(
   files: ReadonlyArray<{ path: string; content: string }>,
   opts: ContentSearchOptions
 ): ContentSearchResult {
   const { mode, query } = opts;
-  if (!query) {
+  const compiled = compilePattern(mode, query);
+  if ("error" in compiled) {
     return {
       mode,
       query,
@@ -67,70 +159,30 @@ export function scanFilesForPattern(
       files_scanned: 0,
       matches: [],
       truncated: false,
-      error: "empty query — pass the string/pattern to match",
+      error: compiled.error,
     };
   }
 
-  let re: RegExp;
-  try {
-    re = new RegExp(mode === "regex" ? query : escapeRegExp(query), "g");
-  } catch (e) {
-    return {
-      mode,
-      query,
-      match_count: 0,
-      files_scanned: 0,
-      matches: [],
-      truncated: false,
-      error: `invalid regex: ${e instanceof Error ? e.message : String(e)}`,
-    };
-  }
-
-  const matches: ContentMatch[] = [];
-  let totalBytes = 0;
+  const acc: ScanAccumulator = { matches: [], totalBytes: 0, truncated: false };
   let filesScanned = 0;
-  let truncated = false;
-
   for (const { path, content } of files) {
-    if (matches.length >= opts.limit || totalBytes >= opts.maxTotalBytes) {
-      truncated = true;
+    if (
+      acc.matches.length >= opts.limit ||
+      acc.totalBytes >= opts.maxTotalBytes
+    ) {
+      acc.truncated = true;
       break;
     }
     filesScanned++;
-    const lines = content.split("\n");
-    let perFile = 0;
-    for (let i = 0; i < lines.length; i++) {
-      const lineText = lines[i] ?? "";
-      re.lastIndex = 0;
-      if (!re.test(lineText)) continue;
-      const from = Math.max(0, i - opts.contextLines);
-      const to = Math.min(lines.length - 1, i + opts.contextLines);
-      const ctx = lines.slice(from, to + 1).join("\n");
-      const sz = ctx.length + path.length + 16;
-      if (
-        matches.length >= opts.limit ||
-        totalBytes + sz > opts.maxTotalBytes
-      ) {
-        truncated = true;
-        break;
-      }
-      matches.push({
-        file_path: path,
-        line: i + 1,
-        match: lineText.trim().slice(0, 240),
-        context: ctx,
-      });
-      totalBytes += sz;
-      if (++perFile >= opts.maxPerFile) break;
-    }
+    if (!scanFileInto(compiled.re, path, content, opts, acc)) break;
   }
 
   return {
     mode,
     query,
-    match_count: matches.length,
+    match_count: acc.matches.length,
     files_scanned: filesScanned,
-    matches,
-    truncated,
+    matches: acc.matches,
+    truncated: acc.truncated,
   };
 }

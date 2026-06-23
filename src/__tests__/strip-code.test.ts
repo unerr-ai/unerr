@@ -118,3 +118,108 @@ describe("looksLikeCode", () => {
     );
   });
 });
+
+// Regression guard for the transcript firewall_suspicious drop (#74): the server
+// (unerr-web-service lib/ingest/firewall.ts) permanently REJECTS a transcript row
+// whose trace_text still looks code-like after its own scrub. Before this fix the
+// client left two classes through — an unterminated fence and an inline code-like
+// line — so ~1 row per push batch was dropped. These tests assert the client now
+// neutralizes both, and that client output never trips the server's `suspicious`.
+
+/** Verbatim copy of the server firewall's code-like-line detector. */
+const SERVER_CODE_LINE_RE =
+  /(^[ \t]*(import|export|function|class|const|let|var|return|if|for|while|def|fn|public|private)\b)|([;{}]\s*$)|(=>)|(^\s*[\w$.]+\s*=[^=])|(\)\s*\{)/;
+const SERVER_FENCE_RE = /^[ \t]*(`{3,}|~{3,})/;
+const SERVER_INDENT_RE = /^( {4}|\t)/;
+
+/**
+ * Replicates the server firewall's `suspicious` outcome (firewall.ts cases 1 + 2;
+ * the 512 KB length cap, case 3, is unreachable from the client's 4 KB emit slice).
+ * Returns true when the server would reject the row.
+ */
+function serverWouldReject(text: string): boolean {
+  const lines = text.split("\n");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+    if (SERVER_FENCE_RE.test(line)) {
+      let j = i + 1;
+      let closed = false;
+      while (j < lines.length) {
+        if (SERVER_FENCE_RE.test(lines[j] ?? "")) {
+          closed = true;
+          break;
+        }
+        j += 1;
+      }
+      if (!closed) return true; // unterminated fence → suspicious
+      i = j + 1;
+      continue;
+    }
+    if (SERVER_INDENT_RE.test(line)) {
+      let j = i + 1;
+      while (j < lines.length) {
+        const lj = lines[j] ?? "";
+        if (!(SERVER_INDENT_RE.test(lj) || lj.trim() === "")) break;
+        j += 1;
+      }
+      i = j;
+      continue;
+    }
+    if (line.trim() !== "" && SERVER_CODE_LINE_RE.test(line)) {
+      return true; // inline code-like line → suspicious
+    }
+    i += 1;
+  }
+  return false;
+}
+
+describe("stripCodeFromText — server firewall parity (#74)", () => {
+  it("strips an unterminated fence (formerly leaked → server-rejected)", () => {
+    const input = "Here is the diff:\n```ts\nconst secret = leak();";
+    const out = stripCodeFromText(input);
+    expect(out).toContain("Here is the diff:");
+    expect(out).not.toContain("leak");
+    expect(out).toContain(PLACEHOLDER);
+    expect(serverWouldReject(out)).toBe(false);
+  });
+
+  it("strips an inline code-like line a fence forgot (formerly leaked)", () => {
+    // No fence, no indent, no inline backticks — only the server's CODE_LINE_RE
+    // caught these, which is why they were dropped.
+    for (const codeLine of [
+      "const apiKey = process.env.SECRET;",
+      "return doDangerousThing(x);",
+      "  if (user.isAdmin) {",
+      "result = compute(a, b)",
+      "const f = (x) => x + 1",
+    ]) {
+      const input = `I changed this line:\n${codeLine}\nThat fixed it.`;
+      const out = stripCodeFromText(input);
+      expect(out).toContain("I changed this line:");
+      expect(out).toContain("That fixed it.");
+      expect(out).toContain(PLACEHOLDER);
+      expect(serverWouldReject(out)).toBe(false);
+    }
+  });
+
+  it("never produces output the server would reject, over a code-bearing corpus", () => {
+    const corpus = [
+      "plain reasoning, no code at all.",
+      "```ts\nconst x = 1;\n```\nafter the block",
+      "open fence with no close:\n~~~\nleaked();",
+      "    indented_leak();\n    more_leak();\nprose after",
+      "inline `foo()` and a const x = 5; bare line",
+      "ends in a brace }\nand starts with return value;",
+      "arrow fn a => b on a prose line",
+      `a long blob ${"A1b2C3d4".repeat(15)} mid-sentence`,
+      "assignment: token = secretValue",
+      ") {\n  body();\n}",
+    ];
+    for (const raw of corpus) {
+      const out = stripCodeFromText(raw);
+      expect(serverWouldReject(out)).toBe(false);
+      expect(looksLikeCode(out)).toBe(false);
+    }
+  });
+});
