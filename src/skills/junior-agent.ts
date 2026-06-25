@@ -111,18 +111,23 @@ const DELEGATION_TIERS: Partial<Record<IdeType, HostTierModels>> = {
 
 /**
  * Map a delegable class to the model tier that should run it. junior = brainless
- * (lint/format, docs, recon); worker = mechanical-with-judgement (tests,
- * multi-site refactor); senior = anything left (kept by the senior, not
- * delegated).
+ * (lint/format, docs, recon, verify-runs, shell-command runs); worker = mechanical-with-judgement
+ * (tests, multi-site refactor, caller/import propagation, typecheck/build fixes,
+ * scaffold); senior = anything left (kept by the senior, not delegated).
  */
 export function selectTier(cls: DelegableClass): ModelTier {
   switch (cls) {
     case "lint_format":
     case "docs":
     case "recon":
+    case "verify":
+    case "command_run":
       return "junior";
     case "tests":
     case "mechanical_refactor":
+    case "caller_propagation":
+    case "typecheck_fix":
+    case "scaffold":
       return "worker";
     default:
       return "senior";
@@ -142,8 +147,9 @@ export function tierModel(agentId: IdeType, tier: ModelTier): string | null {
 /**
  * The per-host handoff instruction the senior runs to hand a delegable task to a
  * cheaper tier. The model is chosen by the task's class via {@link selectTier}:
- * a `tests`/`mechanical_refactor` task goes to the WORKER model, a
- * `lint_format`/`docs`/`recon` task to the JUNIOR model. Claude Code uses an
+ * a `tests`/`mechanical_refactor`/`caller_propagation`/`typecheck_fix`/`scaffold`
+ * task goes to the WORKER model, a `lint_format`/`docs`/`recon`/`verify`/`command_run`
+ * task to the JUNIOR model. Claude Code uses an
  * on-disk model-pinned sub-agent (`unerr-worker` for the worker tier,
  * `unerr-junior` for the junior tier); every other host shells out to its CLI's
  * non-interactive mode with a

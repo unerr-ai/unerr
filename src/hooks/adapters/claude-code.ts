@@ -98,6 +98,13 @@ export const claudeCodeAdapter: HookAdapter = {
   formatPostToolUse(result: HookResult): string {
     if (result.action === "passthrough") return "{}";
 
+    // display = user-only channel: top-level systemMessage, never additionalContext.
+    // Mirrors the Stop hook path so the diff is visible in the IDE sidebar
+    // without re-billing on every cached turn.
+    if (result.action === "display" && result.message) {
+      return JSON.stringify({ systemMessage: result.message });
+    }
+
     if (
       (result.action === "enrich" || result.action === "nudge") &&
       result.message

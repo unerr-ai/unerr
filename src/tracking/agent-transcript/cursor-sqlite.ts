@@ -7,9 +7,8 @@
  * stderr) so the next query can retry. We never write to or mutate Cursor's
  * files.
  *
- * Library: `better-sqlite3` (already a dependency; canonical in-repo SQLite
- * pattern, see `src/tracking/metrics-store.ts`). Node's `node:sqlite` is not
- * available on the node20 build target, so better-sqlite3 is the right choice.
+ * Library: Node's built-in `node:sqlite` (DatabaseSync, stable on Node 24+).
+ * Opened read-only via `new DatabaseSync(path, { readOnly: true })`.
  *
  * Stores (docs/logbook-page-redesign.md §9.2):
  *   - IMPLEMENTED: telemetry DB `~/.cursor/ai-tracking/ai-code-tracking.db`
@@ -25,11 +24,12 @@ import { join, normalize } from "node:path";
 import { startupLog } from "../../utils/startup-log.js";
 import type { TokenUsage, TurnTranscript } from "./types.js";
 
-/** better-sqlite3's minimal read surface (typed locally to avoid a static
- *  import of the native binding at module load — the reader is dynamic so the
- *  hot path never pulls in better-sqlite3 transitively through us). */
+/** node:sqlite minimal read surface (typed locally to avoid importing the
+ *  module at module-load time — the reader is dynamic so the hot path never
+ *  pulls in node:sqlite transitively through us). */
 interface RoStatement {
   all(...params: unknown[]): unknown[];
+  get(...params: unknown[]): unknown;
 }
 interface RoDatabase {
   prepare(sql: string): RoStatement;
@@ -66,21 +66,17 @@ export function cursorGlobalVscdbPath(home = homedir()): string {
 async function openReadOnly(path: string): Promise<RoDatabase | null> {
   if (!existsSync(path)) return null;
   try {
-    // Dynamic import keeps the native binding out of any static dependency
-    // graph that the hot path might traverse through this module.
-    const mod = await import("better-sqlite3");
-    const Database = (mod.default ?? mod) as new (
-      filename: string,
-      options?: { readonly?: boolean; fileMustExist?: boolean }
-    ) => RoDatabase & {
-      pragma(source: string, options?: { simple?: boolean }): unknown;
-    };
-    const db = new Database(path, { readonly: true, fileMustExist: true });
+    // Dynamic import keeps the built-in out of any static dependency graph
+    // that the hot path might traverse through this module.
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(path, { readOnly: true }) as RoDatabase;
     // Read-only connections cannot switch journal mode; WAL is read
     // transparently. We set busy_timeout so a concurrent Cursor writer
     // checkpoint doesn't hard-fail our read — it waits briefly instead.
     try {
-      db.pragma("busy_timeout = 250");
+      (db as unknown as { exec(sql: string): void }).exec(
+        "PRAGMA busy_timeout=250"
+      );
     } catch {
       /* pragma is best-effort */
     }

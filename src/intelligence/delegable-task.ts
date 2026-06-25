@@ -22,6 +22,11 @@ export type DelegableClass =
   | "mechanical_refactor"
   | "lint_format"
   | "recon"
+  | "caller_propagation"
+  | "typecheck_fix"
+  | "scaffold"
+  | "verify"
+  | "command_run"
   | "none";
 
 export interface DelegableVerdict {
@@ -116,6 +121,129 @@ const RECON_SIGNALS = [
   "understand how",
   "research how",
   "dig into",
+];
+
+/**
+ * Post-edit caller/import propagation — after the senior changes a signature or
+ * moves a symbol, a worker updates every call site + import to match. Mechanical:
+ * the blast radius is graph-derivable (`get_references`), no design judgement.
+ */
+const CALLER_PROPAGATION_SIGNALS = [
+  "update the caller",
+  "update callers",
+  "update all callers",
+  "update all the caller",
+  "update the call site",
+  "update call sites",
+  "update all the call site",
+  "callers and imports",
+  "fix the callers",
+  "fix all callers",
+  "propagate the signature",
+  "propagate the change",
+  "propagate the rename",
+  "update the imports",
+  "update imports",
+  "fix the imports",
+  "fix broken imports",
+];
+
+/**
+ * Mechanical compiler-error fixups — resolve tsc / build / type errors whose fix
+ * the compiler dictates (missing type, bad import path, arity), not a design
+ * choice. A worker applies the fix and re-runs the check. Plain "fix the bug" is
+ * EXCLUDED — that needs root-cause judgement and stays with the senior.
+ */
+const TYPECHECK_FIX_SIGNALS = [
+  "fix the type error",
+  "fix type errors",
+  "fix the type errors",
+  "fix the build error",
+  "fix build errors",
+  "fix the build errors",
+  "fix the compile error",
+  "fix compile errors",
+  "resolve the type error",
+  "resolve type errors",
+  "fix the tsc error",
+  "fix the typecheck",
+  "fix the failing typecheck",
+  "make it compile",
+  "make it typecheck",
+  "get it to compile",
+];
+
+/**
+ * Scaffold / boilerplate generation — stamp a new file's skeleton from an existing
+ * sibling as the template (a test-file shell, a module/component stub, barrel /
+ * index exports). The main thread fills the real logic. Narrow signals so "build a
+ * new feature" (design) never matches.
+ */
+const SCAFFOLD_SIGNALS = [
+  "scaffold",
+  "boilerplate",
+  "skeleton",
+  "stub out",
+  "stub in",
+  "stub a",
+  "barrel file",
+  "barrel export",
+  "index exports",
+];
+
+/**
+ * Verification run — execute the checks (typecheck, targeted tests, lint, build)
+ * and report the structured failure list. READ-ONLY: the junior runs commands and
+ * returns output, makes no edits. Gates on an explicit RUN phrase, never the word
+ * "verify" (META_SIGNALS vetoes that as meta-narration before class matching).
+ */
+const VERIFY_SIGNALS = [
+  "run the test",
+  "run tests",
+  "run the tests",
+  "run the test suite",
+  "run typecheck",
+  "run the typecheck",
+  "run the type check",
+  "run tsc",
+  "run lint",
+  "run the lint",
+  "run the linter",
+  "run the build",
+  "run the checks",
+  "make sure it compiles",
+  "make sure the tests pass",
+  "make sure it builds",
+  "check it compiles",
+  "check that it builds",
+];
+
+/**
+ * Shell-command runs — execute a sequence of bash commands (build, scripts,
+ * migrations, setup, a batch of one-off commands) and report the output. A junior
+ * runs them off the main thread so command output never floods the senior's
+ * context. Broader than `verify` (which is specifically the check commands).
+ * Gates on an explicit run/execute phrase paired with a command/script noun.
+ */
+const COMMAND_RUN_SIGNALS = [
+  "run these commands",
+  "run the following commands",
+  "run the commands",
+  "run a series of",
+  "run a sequence of",
+  "run these bash",
+  "run the bash",
+  "bash commands",
+  "shell commands",
+  "run the script",
+  "run the scripts",
+  "run the setup",
+  "run the migration",
+  "run the migrations",
+  "execute these commands",
+  "execute the commands",
+  "run each of these",
+  "run all of these commands",
 ];
 
 function matches(lower: string, signals: readonly string[]): boolean {
@@ -280,6 +408,15 @@ export function classifyDelegable(prompt: string): DelegableVerdict {
       reason: "lint/format fixup",
     };
   }
+  // Compiler-error fixups rank above the structural classes: the fix is dictated
+  // by tsc/build output, not a design choice, so a worker can apply it directly.
+  if (matches(lower, TYPECHECK_FIX_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "typecheck_fix",
+      reason: "mechanical typecheck/build-error fix",
+    };
+  }
   if (matches(lower, DOC_SIGNALS)) {
     return {
       delegable: true,
@@ -292,6 +429,41 @@ export function classifyDelegable(prompt: string): DelegableVerdict {
       delegable: true,
       class: "mechanical_refactor",
       reason: "mechanical refactor (rename/extract/inline/move)",
+    };
+  }
+  // Caller/import propagation ranks below an explicit rename (a "rename X and
+  // update callers" prompt is mechanical_refactor's job); this catches the
+  // standalone "update all callers of X" follow-up after a senior signature edit.
+  if (matches(lower, CALLER_PROPAGATION_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "caller_propagation",
+      reason: "caller/import propagation after a signature change",
+    };
+  }
+  if (matches(lower, SCAFFOLD_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "scaffold",
+      reason: "scaffold/boilerplate from an existing pattern",
+    };
+  }
+  // Verify is read-only (run checks, report failures) — it ranks just above recon
+  // and gates on an explicit run phrase so it never eats an edit task.
+  if (matches(lower, VERIFY_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "verify",
+      reason: "verification run (typecheck/tests/lint/build, read-only)",
+    };
+  }
+  // Command runs rank just below verify (verify's specific check phrases win) and
+  // above recon: a general "run these commands / run the script" handoff.
+  if (matches(lower, COMMAND_RUN_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "command_run",
+      reason: "shell-command run (execute a sequence, report output)",
     };
   }
   // Recon ranks LAST among delegable classes: an explicit edit signal above wins,

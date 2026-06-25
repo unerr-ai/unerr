@@ -267,6 +267,187 @@ describe("named-events", () => {
   });
 });
 
+// ── Native-session-id cross-process correlation ───────────────────────
+//
+// The root attribution bug: proxy writes code_edit_applied under session_id=A,
+// UserPromptSubmit hook writes user_prompt_received under session_id=B, but
+// both share native_session_id=N. When gatherReceiptInputs fetches by
+// native_session_id=N, latestPromptBoundaryTs finds the boundary and
+// currentTurnSlice includes ALL edits after it — not just one.
+
+describe("readNamedEvents — native_session_id cross-process correlation", () => {
+  let tmpDir: string;
+  let unerrDir: string;
+
+  beforeEach(() => {
+    tmpDir = join(
+      os.tmpdir(),
+      `unerr-native-id-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    );
+    unerrDir = join(tmpDir, ".unerr");
+    mkdirSync(unerrDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    closeMetricsStore(unerrDir);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("fetches rows from multiple session_ids that share native_session_id", () => {
+    // Proxy-side: code_edit_applied under session_id=proxy-sess
+    const proxyWriter = new BehaviorEventWriter(unerrDir, "proxy-sess");
+    proxyWriter.record({
+      session_id: "proxy-sess",
+      native_session_id: "native-N",
+      turn: 2,
+      type: "code_edit_applied",
+      tool: "file_edit",
+      entity_key: "src/foo.ts",
+      response_bytes: null,
+    });
+
+    // Hook-side: user_prompt_received under session_id=hook-sess (different!)
+    const hookWriter = new BehaviorEventWriter(unerrDir, "hook-sess");
+    hookWriter.record({
+      session_id: "hook-sess",
+      native_session_id: "native-N",
+      turn: 1,
+      type: "user_prompt_received",
+      tool: null,
+      entity_key: null,
+      response_bytes: null,
+    });
+
+    // Filter by native_session_id — must return BOTH rows despite different session_ids
+    const named = readNamedEvents(unerrDir, { native_session_id: "native-N" });
+    expect(named).toHaveLength(2);
+    const types = named.map((e) => e.event_type).sort();
+    expect(types).toEqual(["code_edit_applied", "user_prompt_received"]);
+    // Both rows carry the native id in the projection
+    expect(named.every((e) => e.native_session_id === "native-N")).toBe(true);
+  });
+
+  it("excludes rows whose native_session_id does not match", () => {
+    const wA = new BehaviorEventWriter(unerrDir, "sess-A");
+    wA.record({
+      session_id: "sess-A",
+      native_session_id: "native-N",
+      turn: 1,
+      type: "code_edit_applied",
+      tool: "file_edit",
+      entity_key: "src/bar.ts",
+      response_bytes: null,
+    });
+    const wB = new BehaviorEventWriter(unerrDir, "sess-B");
+    wB.record({
+      session_id: "sess-B",
+      native_session_id: "native-OTHER",
+      turn: 1,
+      type: "fact_recalled",
+      tool: null,
+      entity_key: null,
+      response_bytes: null,
+    });
+
+    const named = readNamedEvents(unerrDir, { native_session_id: "native-N" });
+    expect(named).toHaveLength(1);
+    expect(named[0]!.event_type).toBe("code_edit_applied");
+  });
+
+  it("falls back to session_id filter when native_session_id is not provided", () => {
+    const w = new BehaviorEventWriter(unerrDir, "sess-X");
+    w.record({
+      session_id: "sess-X",
+      native_session_id: "native-N",
+      turn: 1,
+      type: "cache_hit",
+      tool: null,
+      entity_key: null,
+      response_bytes: null,
+    });
+    const wY = new BehaviorEventWriter(unerrDir, "sess-Y");
+    wY.record({
+      session_id: "sess-Y",
+      native_session_id: "native-N",
+      turn: 1,
+      type: "cache_hit",
+      tool: null,
+      entity_key: null,
+      response_bytes: null,
+    });
+
+    // Without native filter: each session_id returns only its own rows
+    const x = readNamedEvents(unerrDir, { session_id: "sess-X" });
+    const y = readNamedEvents(unerrDir, { session_id: "sess-Y" });
+    expect(x).toHaveLength(1);
+    expect(y).toHaveLength(1);
+    expect(x[0]!.session_id).toBe("sess-X");
+    expect(y[0]!.session_id).toBe("sess-Y");
+  });
+
+  it("cross-process: latestPromptBoundaryTs finds boundary written by hook session", () => {
+    // Simulates the actual bug scenario: proxy session wrote edits, hook
+    // session wrote the prompt boundary. When fetched by native_session_id,
+    // latestPromptBoundaryTs should find the boundary.
+    const baseMs = Date.now();
+
+    const hookWriter = new BehaviorEventWriter(unerrDir, "hook-sess");
+    hookWriter.record({
+      session_id: "hook-sess",
+      native_session_id: "native-N",
+      turn: 1,
+      type: "user_prompt_received",
+      tool: null,
+      entity_key: null,
+      response_bytes: null,
+    });
+
+    // Small delay to ensure proxy edits have later timestamps
+    const proxyWriter = new BehaviorEventWriter(unerrDir, "proxy-sess");
+    proxyWriter.record({
+      session_id: "proxy-sess",
+      native_session_id: "native-N",
+      turn: 2,
+      type: "code_edit_applied",
+      tool: "file_edit",
+      entity_key: "src/a.ts",
+      response_bytes: null,
+    });
+    proxyWriter.record({
+      session_id: "proxy-sess",
+      native_session_id: "native-N",
+      turn: 3,
+      type: "code_edit_applied",
+      tool: "file_edit",
+      entity_key: "src/b.ts",
+      response_bytes: null,
+    });
+
+    const named = readNamedEvents(unerrDir, { native_session_id: "native-N" });
+    // Must have all 3 events (1 boundary + 2 edits)
+    expect(named).toHaveLength(3);
+
+    // latestPromptBoundaryTs must find the hook-written boundary
+    const boundary = latestPromptBoundaryTs(named);
+    expect(boundary).not.toBeNull();
+
+    // currentTurnSlice must include BOTH edits (they are after the boundary)
+    // Previously this returned at most 1 because the boundary was never found
+    // when fetched by session_id=proxy-sess alone.
+    const slice = currentTurnSlice(named, /*fallbackTurn*/ 3);
+    const editEvents = slice.filter(
+      (e) => e.event_type === "code_edit_applied"
+    );
+    expect(editEvents).toHaveLength(2);
+    // entity_key paths are promoted to file_path by deriveFilePath; entity_key
+    // becomes null when it equals the derived file_path (see deriveEntityKey).
+    expect(editEvents.map((e) => e.file_path).sort()).toEqual([
+      "src/a.ts",
+      "src/b.ts",
+    ]);
+  });
+});
+
 // ── Conversational-turn windowing (prompt-boundary slice) ────────────
 
 function mkNamed(
@@ -283,6 +464,7 @@ function mkNamed(
     file_path: null,
     entity_key: null,
     session_id: "s1",
+    native_session_id: null,
     turn,
     ts: new Date(ms).toISOString(),
     metadata: {},

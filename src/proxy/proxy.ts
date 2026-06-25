@@ -479,7 +479,7 @@ async function handleRecordFactProxy(
       ""
     );
     return {
-      content: [{ type: "text", text: JSON.stringify(result) }],
+      content: [{ type: "text", text: JSON.stringify({ ok: true }) }],
     };
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -713,13 +713,11 @@ async function handleRecallFactsProxy(
         proxyPendingConfirmations?.isPending(f.fact_id) ?? false;
       const needsConfirmation = isPending || (isUserFed && lowConfidence);
       const base: Record<string, unknown> = {
-        fact_id: f.fact_id,
         type: f.fact_type,
         content: f.content,
         confidence: Math.round(f.effective_confidence * 100) / 100,
         subject: f.subject,
         source: f.source,
-        reinforced: f.reinforcement_count,
       };
       if (needsConfirmation) base.needs_confirmation = true;
       return base;
@@ -735,13 +733,11 @@ async function handleRecallFactsProxy(
         const fed = await federate(scope, factType, minConfidence);
         for (const f of fed.facts) {
           response.push({
-            fact_id: f.fact_id,
             type: f.fact_type,
             content: f.content,
             confidence: Math.round(f.effective_confidence * 100) / 100,
             subject: f.subject,
             source: f.source,
-            reinforced: f.reinforcement_count,
             repo: f.repo,
           });
         }
@@ -753,7 +749,6 @@ async function handleRecallFactsProxy(
     const body: Record<string, unknown> = {
       facts: response,
       total,
-      returned: response.length,
     };
     if (total > response.length) {
       body.more_available = total - response.length;
@@ -884,10 +879,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     `PID ${process.pid} ${startupLog.fmt.muted(`· health localhost:${lockResult.healthPort}`)}`
   );
 
-  // Recommend Node ≥22.5 when running below it. Non-blocking — unerr still runs
-  // on the supported floor (Node ≥20.9). This runtime notice is the durable
-  // channel for the recommendation: it survives npm v12 / pnpm install-script
-  // lockdown (a postinstall notice would not). See utils/node-version.ts.
+  // Warn when running below the Node 24 floor. unerr's only SQLite driver is the
+  // built-in node:sqlite (stable since Node 24), so below 24 the graph/WAL path
+  // cannot open. This runtime notice is the durable channel for the requirement:
+  // it survives npm v12 / pnpm install-script lockdown (a postinstall notice
+  // would not). See utils/node-version.ts.
   const nodeNotice = nodeUpgradeNotice();
   if (nodeNotice) startupLog.warn(nodeNotice);
 

@@ -69,12 +69,20 @@ function rememberedFileCount(events: readonly NamedEvent[]): number {
  * `opts.singleLine` selects the one-line fallback for surfaces without a
  * multi-line channel — the caller resolves it from an agent-registry
  * capability, never from an agent name.
+ *
+ * `opts.nativeSessionId` — when set, named events are fetched by native id
+ * instead of session id. This correlates proxy-written edit events (one
+ * session_id) with hook-written prompt-boundary events (a different
+ * session_id) that share the same native_session_id, so
+ * `latestPromptBoundaryTs` finds the boundary and every edit after it is
+ * included in the receipt. Falls back to session_id when null/undefined
+ * (legacy exec/CLI sessions that pre-date native id stamping).
  */
 export function gatherReceiptInputs(
   unerrDir: string,
   sessionId: string,
   currentTurn: number,
-  opts: { singleLine?: boolean } = {}
+  opts: { singleLine?: boolean; nativeSessionId?: string | null } = {}
 ): ReceiptBlockInputs {
   const data = renderSessionEconomyLineLive(unerrDir, sessionId, currentTurn);
 
@@ -83,7 +91,14 @@ export function gatherReceiptInputs(
   let attribution = extractReceiptAttribution([], currentTurn);
   let storedFiles = 0;
   try {
-    const events = readNamedEvents(unerrDir, { session_id: sessionId });
+    // Prefer native_session_id correlation so proxy-written edits and
+    // hook-written prompt-boundary events (different session_id spaces but
+    // same native_session_id) are gathered into one stream. Falls back to
+    // session_id for legacy rows without a native id.
+    const namedFilter = opts.nativeSessionId
+      ? { native_session_id: opts.nativeSessionId }
+      : { session_id: sessionId };
+    const events = readNamedEvents(unerrDir, namedFilter);
     runtimeJoins = computeRuntimeJoins(events, sessionId, currentTurn);
     attribution = extractReceiptAttribution(events, currentTurn);
     turnEvents = currentTurnSlice(events, currentTurn);
@@ -150,7 +165,7 @@ export function renderTurnReportLines(
   unerrDir: string,
   sessionId: string,
   currentTurn: number,
-  opts: { singleLine?: boolean } = {}
+  opts: { singleLine?: boolean; nativeSessionId?: string | null } = {}
 ): string[] {
   return renderReceiptBlock(
     gatherReceiptInputs(unerrDir, sessionId, currentTurn, opts)
@@ -167,7 +182,7 @@ export function renderStopReportLive(
   unerrDir: string,
   sessionId: string,
   currentTurn: number,
-  opts: { singleLine?: boolean } = {}
+  opts: { singleLine?: boolean; nativeSessionId?: string | null } = {}
 ): string {
   try {
     return renderTurnReportLines(unerrDir, sessionId, currentTurn, opts).join(

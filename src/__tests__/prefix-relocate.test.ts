@@ -44,10 +44,11 @@ describe("prefix ordering", () => {
   });
 
   it("stable Moment-1 nudge leads, boundary present, volatile Path A line trails", () => {
+    // Use a `fix`-cluster prompt (→ the always-on unerr-using-unerr, installed)
+    // that is neither delegable nor build-intent, so it yields a VOLATILE Path A
+    // line. A build/bug prompt now draws the stable build-decompose nudge instead.
     const ctx = readContext(
-      runUserPromptSubmitHook(
-        mk("refactor the proxy boot sequence to add a retry")
-      )
+      runUserPromptSubmitHook(mk("optimize the QueryRouter dispatch hot path"))
     );
 
     expect(ctx).toContain(BOUNDARY);

@@ -1,10 +1,12 @@
 /**
- * Sprint U (surfacing) + S8 — reversibility savings reach the two surfaces:
- *   1. the per-turn `unerr »` economy line (TU.7), fidelity-honest (TU.9),
- *   2. the dashboard `/reversibility` endpoint (TU.1/2/4/5/6).
+ * Sprint U (surfacing) + S8 — reversibility savings reach the per-turn
+ * `unerr »` economy line (TU.7), fidelity-honest (TU.9), with the one-line
+ * mechanism breakdown (TU.8).
  *
- * Plus S8: `transcript_footprint_tokens` accumulates on compress rows and is
- * read back by the route.
+ * Plus S8: `transcript_footprint_tokens` accumulates on compress rows.
+ *
+ * The dashboard `/reversibility` endpoint test was removed when the per-repo
+ * dashboard HTTP server was deleted.
  *
  * All seeding goes through the real MetricsStore on a temp `.unerr` dir, so the
  * tests exercise the exact `compression_events` stream the surfaces read.
@@ -16,7 +18,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { appendCompressionLog } from "../proxy/shell-compression-log.js";
 import { renderSessionEconomyLineLive } from "../proxy/turn-footer.js";
-import { createTokenFlowRoutes } from "../server/routes/token-flow.js";
 import {
   closeMetricsStore,
   openMetricsStore,
@@ -188,45 +189,5 @@ describe("reversibility surfacing — turn line + dashboard + footprint", () => 
       closeMetricsStore(storeDir);
       rmSync(cwd, { recursive: true, force: true });
     }
-  });
-
-  it("/reversibility endpoint returns the new §4 aggregate fields (TU.1)", async () => {
-    const store = openMetricsStore(unerrDir);
-    const boundary = Date.now();
-    seedRetrieve(store, boundary + 1_000, 3_000, 1);
-    seedRetrieve(store, boundary + 2_000, 7_000, 0); // fidelity-failed
-    // A miss (recompute) row.
-    store.insertCompression({
-      ts: boundary + 3_000,
-      ts_iso: new Date(boundary + 3_000).toISOString(),
-      command: "search_code",
-      category: "cache_retrieve",
-      confidence: 1,
-      raw_bytes: 0,
-      compressed_bytes: 0,
-      saved_pct: 0,
-      omni_fallback: 0,
-      tee_file: null,
-      event_kind: "recompute",
-      cache_hit: 0,
-      rerequest_saved_tokens: 0,
-      mechanism: "search_code",
-    });
-
-    const app = createTokenFlowRoutes({
-      unerrDir,
-      getTokenFlowWriter: () => null,
-    });
-    const res = await app.fetch(new Request("http://localhost/reversibility"));
-    expect(res.status).toBe(200);
-    const json = (await res.json()) as { data: Record<string, number> };
-    const d = json.data;
-    // Headline excludes the fidelity-failed row.
-    expect(d.rerequest_saved_tokens).toBe(3_000);
-    expect(d.rerequest_saved_tokens_fidelity_failed).toBe(7_000);
-    expect(d.retrieve_rows).toBe(2);
-    expect(d.recompute_rows).toBe(1);
-    expect(d.cache_hits).toBe(2);
-    expect(d.cache_misses).toBe(1);
   });
 });

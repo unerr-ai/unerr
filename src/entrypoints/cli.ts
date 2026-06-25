@@ -36,6 +36,7 @@ import { registerPmCommand } from "../commands/pm.js";
 import { registerReconCommand } from "../commands/recon.js";
 import { registerReviewCommand } from "../commands/review.js";
 import { registerRouterCommands } from "../commands/router.js";
+import { registerSkillCommand } from "../commands/skill.js";
 import { registerStatusCommand } from "../commands/status.js";
 import { registerUninstallCommand } from "../commands/uninstall.js";
 import { registerWhoamiCommand } from "../commands/whoami.js";
@@ -1678,6 +1679,7 @@ program
 
 registerStatusCommand(program);
 registerInstallCommand(program);
+registerSkillCommand(program);
 registerDoctorCommand(program);
 registerReconCommand(program);
 registerPmCommand(program);

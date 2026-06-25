@@ -10,10 +10,10 @@
  * locks that behaviour in.
  */
 
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   checkpointWal,
@@ -37,10 +37,12 @@ describe("persistent-db WAL journal mode", () => {
     db.close?.();
 
     // Read the persisted journal_mode back through an independent connection.
-    const probe = new Database(dbPath);
+    const probe = new DatabaseSync(dbPath);
     try {
-      const mode = probe.pragma("journal_mode", { simple: true });
-      expect(String(mode).toLowerCase()).toBe("wal");
+      const row = probe.prepare("PRAGMA journal_mode").get() as
+        | { journal_mode?: string }
+        | undefined;
+      expect(String(row?.journal_mode ?? "").toLowerCase()).toBe("wal");
     } finally {
       probe.close();
     }
@@ -51,10 +53,10 @@ describe("persistent-db WAL journal mode", () => {
     // A second connection stays open with autocheckpoint disabled so the
     // inserts accumulate in the -wal sidecar instead of folding on commit —
     // this reproduces the un-checkpointed WAL we see under the live proxy.
-    const writer = new Database(dbPath);
+    const writer = new DatabaseSync(dbPath);
     try {
-      writer.pragma("journal_mode = WAL");
-      writer.pragma("wal_autocheckpoint = 0");
+      writer.exec("PRAGMA journal_mode=WAL");
+      writer.exec("PRAGMA wal_autocheckpoint=0");
       writer.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, blob TEXT)");
       const insert = writer.prepare("INSERT INTO t (blob) VALUES (?)");
       const payload = "x".repeat(4096);
@@ -66,7 +68,10 @@ describe("persistent-db WAL journal mode", () => {
       // Idle writer (no open read txn) → TRUNCATE can fully reset the WAL file.
       await checkpointWal(dbPath);
 
-      expect(statSync(walPath).size).toBe(0);
+      // node:sqlite TRUNCATE checkpoint may either zero the WAL file or delete
+      // it entirely — both mean the WAL has been fully folded into the main db.
+      const walGone = !existsSync(walPath) || statSync(walPath).size === 0;
+      expect(walGone).toBe(true);
       // Data survived the fold into the main db.
       expect(
         (writer.prepare("SELECT count(*) AS n FROM t").get() as { n: number }).n
@@ -78,14 +83,14 @@ describe("persistent-db WAL journal mode", () => {
 
   it("checkpointWal is a no-op (never throws) on a db with no WAL", async () => {
     const dbPath = join(projectRoot, "no-wal.db");
-    const seed = new Database(dbPath);
+    const seed = new DatabaseSync(dbPath);
     seed.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
     seed.close();
     await expect(checkpointWal(dbPath)).resolves.toBeUndefined();
   });
 
   // Regression: the LIVE-session checkpoint must run in a separate PROCESS.
-  // An in-process better-sqlite3 checkpoint on a db cozo also holds is the
+  // An in-process node:sqlite checkpoint on a db cozo also holds is the
   // sqlite.org/howtocorrupt.html §2.3 hazard — its close() cancels cozo's
   // POSIX advisory locks (two separately-linked SQLite copies don't share an
   // in-process lock table), letting WAL truncation run under live readers.
@@ -94,10 +99,10 @@ describe("persistent-db WAL journal mode", () => {
   // SQLite's standard multi-process WAL scenario.
   it("checkpointWalDetached truncates the -wal from a child process", async () => {
     const dbPath = join(projectRoot, "wal-detached.db");
-    const writer = new Database(dbPath);
+    const writer = new DatabaseSync(dbPath);
     try {
-      writer.pragma("journal_mode = WAL");
-      writer.pragma("wal_autocheckpoint = 0");
+      writer.exec("PRAGMA journal_mode=WAL");
+      writer.exec("PRAGMA wal_autocheckpoint=0");
       writer.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, blob TEXT)");
       const insert = writer.prepare("INSERT INTO t (blob) VALUES (?)");
       const payload = "x".repeat(4096);
@@ -111,10 +116,16 @@ describe("persistent-db WAL journal mode", () => {
       // Fire-and-forget child — poll for the truncate (child startup is the
       // dominant cost; well under the deadline in practice).
       const deadline = Date.now() + 15_000;
-      while (Date.now() < deadline && statSync(walPath).size > 0) {
+      while (
+        Date.now() < deadline &&
+        existsSync(walPath) &&
+        statSync(walPath).size > 0
+      ) {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      expect(statSync(walPath).size).toBe(0);
+      // WAL fully checkpointed: file zeroed or deleted.
+      const walGone = !existsSync(walPath) || statSync(walPath).size === 0;
+      expect(walGone).toBe(true);
       expect(
         (writer.prepare("SELECT count(*) AS n FROM t").get() as { n: number }).n
       ).toBe(500);

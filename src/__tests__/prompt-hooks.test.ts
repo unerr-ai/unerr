@@ -22,6 +22,7 @@ import {
   isCodeContext,
   runUserPromptSubmitHook,
 } from "../hooks/prompt-hooks.js";
+import { addOptInSkills } from "../skills/skill-opt-in.js";
 
 // Each test gets a fresh tmp cwd so .unerr/state/nudge-*.flags + the
 // shadow ledger never bleed across runs.
@@ -94,27 +95,39 @@ describe("classifyVerbCluster (T3.1)", () => {
 });
 
 describe("buildSkillCatalog (T3.2)", () => {
-  const catalog = buildSkillCatalog();
+  let cwd: string;
 
-  it("starts with the 'available skills' header", () => {
-    expect(catalog).toMatch(/^available skills/);
+  beforeEach(() => {
+    cwd = tmpRepo();
   });
 
-  it("lists all 6 unerr-* skills", () => {
-    const names = [
-      "unerr-using-unerr",
-      "unerr-exploration",
-      "unerr-build-and-debug",
-      "unerr-test-and-review",
-      "unerr-review",
-      "unerr-delegate",
-    ];
-    for (const n of names) expect(catalog).toContain(n);
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("includes a one-line description per skill", () => {
-    // 8 skills + 1 header = 9 lines
-    expect(catalog.split("\n")).toHaveLength(7); // header + 6 skills (9→6, 2026-06)
+  it("returns empty string by default (no opt-ins)", () => {
+    expect(buildSkillCatalog(cwd)).toBe("");
+  });
+
+  it("starts with the opt-in header after opting in skills", () => {
+    addOptInSkills(cwd, ["review", "delegate"]);
+    const catalog = buildSkillCatalog(cwd);
+    expect(catalog).toMatch(
+      /^opt-in skills you installed — invoke if even 1% relevant:/
+    );
+  });
+
+  it("lists exactly the opted-in unerr-* rows with a non-empty blurb each", () => {
+    addOptInSkills(cwd, ["review", "delegate"]);
+    const catalog = buildSkillCatalog(cwd);
+    expect(catalog).toContain("unerr-review");
+    expect(catalog).toContain("unerr-delegate");
+    expect(catalog).not.toContain("unerr-exploration");
+    // Each row must have a non-empty blurb after the skill name
+    for (const line of catalog.split("\n").slice(1)) {
+      // rows are "  - unerr-<id> — <blurb>"
+      expect(line).toMatch(/^\s+-\s+unerr-\S+\s+—\s+\S/);
+    }
   });
 });
 
@@ -318,10 +331,12 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     // Static tail suppressed for claude-code …
     expect(first).not.toContain("available skills");
     expect(first).not.toContain("[unerr] Prefer unerr MCP tools");
-    // … but the non-duplicated per-turn product signals still fire (Path A
-    // verb-cluster 'build' routes this prompt to unerr-build-and-debug).
+    // … but the non-duplicated per-turn product signals still fire. The 'build'
+    // verb-cluster prompt draws the once-per-session decompose-and-delegate
+    // nudge; unerr-build-and-debug is opt-in (not installed), so it is NOT named.
     expect(first).toContain("ur|act");
-    expect(first).toContain("unerr-build-and-debug");
+    expect(first).toContain("delegate-slices");
+    expect(first).not.toContain("unerr-build-and-debug");
 
     const second = readContext(
       runUserPromptSubmitHook(mk("fix the bind retry in the boot sequence"))
@@ -330,10 +345,12 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     expect(second).not.toContain("[unerr] Prefer unerr MCP tools");
   });
 
-  it("emits the skill catalog once per session for a non-claude agent (Codex), then gates it", () => {
+  it("emits the tool roster once per session for a non-claude agent (Codex), then gates it", () => {
     // Codex IS a hook consumer whose instruction file is NOT the same cached
-    // system-prompt surface, so it keeps the roster + catalog (emitted once).
+    // system-prompt surface, so it keeps the roster (emitted once).
     // Detection: hook_event_name + CODEX_SESSION_ID → codex adapter.
+    // By default no opt-in skills are installed, so the catalog is empty and
+    // only the tool roster appears in the static tail.
     const priorCodex = process.env.CODEX_SESSION_ID;
     process.env.CODEX_SESSION_ID = "codex-test-session";
     try {
@@ -343,6 +360,9 @@ describe("runUserPromptSubmitHook end-to-end", () => {
           user_message: msg,
         });
 
+      // Opt in a skill so the catalog block also appears in the static tail.
+      addOptInSkills(cwd, ["build-and-debug"]);
+
       // W6 floor: a trivial / non-code prompt does NOT spend the once-per-session
       // boilerplate. Its injection stays near the fixed floor (§8).
       const trivial = readContext(
@@ -350,7 +370,7 @@ describe("runUserPromptSubmitHook end-to-end", () => {
           mk("just a quick general question about how this works")
         )
       );
-      expect(trivial).not.toContain("available skills");
+      expect(trivial).not.toContain("opt-in skills you installed");
       expect(trivial).not.toContain("[unerr] Prefer unerr MCP tools");
 
       // First CODE turn: static boilerplate present — deferred from the trivial
@@ -360,18 +380,20 @@ describe("runUserPromptSubmitHook end-to-end", () => {
           mk("refactor the proxy boot sequence to add a retry")
         )
       );
-      expect(first).toContain("available skills");
-      // Post-27→7: bug verbs route to unerr-build-and-debug; master is unchanged.
+      // Tool roster emits on the first code turn.
+      expect(first).toContain("[unerr] Prefer unerr MCP tools");
+      // Opted-in catalog appears alongside the roster.
+      expect(first).toContain("opt-in skills you installed");
       expect(first).toContain("unerr-build-and-debug");
-      expect(first).toContain("unerr-using-unerr");
+      // Path A routes "add a retry" → unerr-build-and-debug (build cluster).
+      expect(first).toContain("unerr-build-and-debug");
 
-      // Token-tax #7: the catalog + roster duplicate the cached instruction file
-      // + installed skills, so they emit once per session. A later code turn
-      // (same cwd → same nudge-state) must NOT re-inject them.
+      // Token-tax #7: the roster + catalog emit once per session. A later code
+      // turn (same cwd → same nudge-state) must NOT re-inject them.
       const second = readContext(
         runUserPromptSubmitHook(mk("fix the bind retry in the boot sequence"))
       );
-      expect(second).not.toContain("available skills");
+      expect(second).not.toContain("opt-in skills you installed");
       expect(second).not.toContain("[unerr] Prefer unerr MCP tools");
     } finally {
       if (priorCodex === undefined) {
@@ -708,12 +730,18 @@ describe("prompt hook emits the delegate routing line", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("delegable task on a delegation-capable host → routes to unerr-delegate (not the lifecycle skill)", () => {
+  it("delegable task on a delegation-capable host → emits delegate routing line (not the lifecycle skill)", () => {
     const ctx = readContext(
       runUserPromptSubmitHook(mk("add tests for the query router"))
     );
-    expect(ctx).toContain("ur|act unerr-delegate");
-    expect(ctx).toContain("delegable class 'tests'");
+    // New delegate line format (no Skill() reference, no 'unerr-delegate' token after ur|act).
+    expect(ctx).toContain("ur|act delegate");
+    expect(ctx).toContain("is delegable");
+    expect(ctx).toContain("for better performance");
+    // claude-code worker handoff for the 'tests' class.
+    expect(ctx).toMatch(/unerr-worker|unerr-junior/);
+    // No legacy Skill('unerr-delegate') token.
+    expect(ctx).not.toContain("Skill('unerr-delegate')");
     // The delegate line OWNS the routing slot — the normal verb-cluster skill
     // line must not also fire for the same prompt.
     expect(ctx).not.toContain("unerr-test-and-review");

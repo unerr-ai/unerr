@@ -8,7 +8,7 @@
  * agent — empty/absent event state yields "{}".
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,7 +16,11 @@ import { claudeCodeAdapter } from "../hooks/adapters/claude-code.js";
 import { clineAdapter } from "../hooks/adapters/cline.js";
 import { cursorAdapter } from "../hooks/adapters/cursor.js";
 import { enrich, passthrough, runStopHookAsync } from "../hooks/hook-runner.js";
-import { runStopHookHandlerAsync } from "../hooks/stop-hooks.js";
+import {
+  runStopHookHandlerAsync,
+  runSubagentStopHookHandlerAsync,
+} from "../hooks/stop-hooks.js";
+import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 
 describe("formatStop — adapter wire shapes", () => {
   it("Claude Code surfaces an enriched line as top-level systemMessage", () => {
@@ -81,5 +85,40 @@ describe("runStopHookHandlerAsync — graceful degradation", () => {
     const stdin = JSON.stringify({ hook_event_name: "Stop", session_id: "s1" });
     const out = await runStopHookHandlerAsync(stdin);
     expect(out).toBe("{}");
+  });
+});
+
+describe("runSubagentStopHookHandlerAsync — graceful degradation", () => {
+  let dir: string;
+  const origCwd = process.cwd();
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "unerr-subagent-stop-"));
+    process.chdir(dir);
+  });
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("never crashes the agent — empty event state yields {}", async () => {
+    const stdin = JSON.stringify({ hook_event_name: "Stop", session_id: "s1" });
+    const out = await runSubagentStopHookHandlerAsync(stdin);
+    expect(out).toBe("{}");
+  });
+
+  it("does NOT wipe delegable_nudge_pending — the master-only leak detector is excluded", async () => {
+    // Arm the master's pending flag in the temp repo dir.
+    mkdirSync(join(dir, ".unerr", "state"), { recursive: true });
+    updateNudgeState(dir, (s) => {
+      s.delegable_nudge_pending = true;
+    });
+
+    const stdin = JSON.stringify({ hook_event_name: "Stop", session_id: "s1" });
+    await runSubagentStopHookHandlerAsync(stdin);
+
+    // Flag must survive — the sub-agent handler must not have called detectSerializedByMasterLeak.
+    expect(readNudgeState(dir).delegable_nudge_pending).toBe(true);
   });
 });

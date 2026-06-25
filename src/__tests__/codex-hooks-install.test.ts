@@ -11,9 +11,10 @@
  * and Codex has no injecting Stop hook — so the registered events are exactly:
  * UserPromptSubmit, SessionStart, PreToolUse[Bash|apply_patch], PostToolUse[apply_patch].
  *
- * Also guards the companion fix: the `delegate` skill is installed only on
- * delegation-capable hosts (claude-code / codex), never on e.g. Cursor where
- * it would be an always-applied rule the host can never act on.
+ * Also guards the companion fix: the `delegate` skill is opt-in and installed
+ * only on delegation-capable hosts (claude-code / codex / cursor /
+ * github-copilot-cli). On non-delegating hosts (e.g. vscode) it is NOT written
+ * even when opted in.
  */
 
 import {
@@ -30,6 +31,7 @@ import { installCodexHooks } from "../commands/install.js";
 import { removeCodexHooks } from "../commands/uninstall.js";
 import { supportsDelegation } from "../config/agent-registry.js";
 import { resolveAndInstallSkills } from "../skills/resolver.js";
+import { addOptInSkills } from "../skills/skill-opt-in.js";
 
 type Handler = { type: string; command: string };
 type MatcherGroup = { matcher?: string; hooks: Handler[] };
@@ -231,16 +233,39 @@ describe("delegate skill is gated to delegation-capable hosts", () => {
   });
 
   it("installs the delegate skill on claude-code", async () => {
-    const result = await resolveAndInstallSkills({ ide: "claude-code", cwd });
-    expect(result.installed).toContain("delegate");
+    // delegate is opt-in: absent by default, present after opt-in.
+    const defaultResult = await resolveAndInstallSkills({
+      ide: "claude-code",
+      cwd,
+    });
+    expect(defaultResult.installed).not.toContain("delegate");
+
+    addOptInSkills(cwd, ["delegate"]);
+    const optedInResult = await resolveAndInstallSkills({
+      ide: "claude-code",
+      cwd,
+    });
+    expect(optedInResult.installed).toContain("delegate");
   });
 
   it("installs the delegate skill on cursor (now a delegation host)", async () => {
-    const result = await resolveAndInstallSkills({ ide: "cursor", cwd });
-    expect(result.installed).toContain("delegate");
+    // delegate is opt-in: absent by default, present after opt-in on a
+    // delegation-capable host.
+    const defaultResult = await resolveAndInstallSkills({ ide: "cursor", cwd });
+    expect(defaultResult.installed).not.toContain("delegate");
+
+    addOptInSkills(cwd, ["delegate"]);
+    const optedInResult = await resolveAndInstallSkills({ ide: "cursor", cwd });
+    expect(optedInResult.installed).toContain("delegate");
     expect(
       existsSync(join(cwd, ".cursor", "rules", "unerr-delegate.mdc"))
     ).toBe(true);
+  });
+
+  it("does NOT install delegate on a non-delegation host even after opt-in", async () => {
+    addOptInSkills(cwd, ["delegate"]);
+    const result = await resolveAndInstallSkills({ ide: "vscode", cwd });
+    expect(result.installed).not.toContain("delegate");
   });
 
   // Regression: codex / cline fall through getSkillDir's default case and write

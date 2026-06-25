@@ -1,7 +1,12 @@
 /**
- * S8: --disallowedTools integration tests.
+ * permissions.deny reconciliation tests.
  *
- * Tests: add/remove permissions.deny entries in .claude/settings.json.
+ * unerr no longer force-denies built-in tools: a `permissions.deny` of
+ * Grep/Glob is a dead-end block that diverts a blocked code search to `Bash`
+ * (grep/rg/find) instead of to `search_code`. The redirecting PreToolUse
+ * pre-grep/pre-glob/pre-read hooks (whose deny-once reason names the unerr
+ * tool) plus the injected instruction do the steering. So install now STRIPS
+ * any legacy unerr-added deny (Read/Grep/Glob) and adds nothing.
  */
 
 import {
@@ -34,45 +39,60 @@ afterEach(() => {
   }
 });
 
-// DISALLOWED_TOOLS was reduced from ["Read", "Grep", "Glob"] to ["Grep", "Glob"].
-// Read is required by the native Edit workflow (Edit refuses to run if Read
-// wasn't called first), so denying it breaks editing across all agents.
-// `addDisallowedTools` also migrates existing settings: if "Read" was previously
-// denied, it gets removed. See src/config/claude-settings-hooks.ts:200-242.
-
-describe("addDisallowedTools", () => {
-  it("creates settings with deny entries when no settings exist", () => {
+describe("addDisallowedTools (reconcile / strip)", () => {
+  it("adds nothing and creates no settings file when none exists", () => {
     const result = addDisallowedTools(testDir);
-    expect(result.added).toBe(2); // Grep + Glob
-
-    const settings = JSON.parse(
-      readFileSync(join(testDir, ".claude", "settings.json"), "utf-8")
-    );
-    expect(settings.permissions.deny).not.toContain("Read"); // intentionally excluded
-    expect(settings.permissions.deny).toContain("Grep");
-    expect(settings.permissions.deny).toContain("Glob");
+    expect(result.added).toBe(0);
+    expect(result.removed).toBe(0);
+    expect(existsSync(join(testDir, ".claude", "settings.json"))).toBe(false);
   });
 
-  it("adds deny entries to existing settings without overwriting", () => {
+  it("strips legacy Grep/Glob/Read force-deny from existing settings", () => {
     const dir = join(testDir, ".claude");
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "settings.json"),
-      JSON.stringify({ someExisting: true }, null, 2)
+      JSON.stringify(
+        { someExisting: true, permissions: { deny: ["Read", "Grep", "Glob"] } },
+        null,
+        2
+      )
     );
 
     const result = addDisallowedTools(testDir);
-    expect(result.added).toBe(2);
+    expect(result.added).toBe(0);
+    expect(result.removed).toBe(3);
 
     const settings = JSON.parse(
       readFileSync(join(dir, "settings.json"), "utf-8")
     );
     expect(settings.someExisting).toBe(true);
-    expect(settings.permissions.deny).toContain("Grep");
-    expect(settings.permissions.deny).toContain("Glob");
+    // deny emptied → permissions object cleaned up entirely
+    expect(settings.permissions).toBeUndefined();
   });
 
-  it("preserves existing non-managed deny entries", () => {
+  it("preserves non-unerr deny entries while stripping the managed ones", () => {
+    const dir = join(testDir, ".claude");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify(
+        { permissions: { deny: ["Grep", "Glob", "SomeOtherTool"] } },
+        null,
+        2
+      )
+    );
+
+    const result = addDisallowedTools(testDir);
+    expect(result.removed).toBe(2);
+
+    const settings = JSON.parse(
+      readFileSync(join(dir, "settings.json"), "utf-8")
+    );
+    expect(settings.permissions.deny).toEqual(["SomeOtherTool"]);
+  });
+
+  it("is a no-op when no managed deny entries are present", () => {
     const dir = join(testDir, ".claude");
     mkdirSync(dir, { recursive: true });
     writeFileSync(
@@ -80,44 +100,45 @@ describe("addDisallowedTools", () => {
       JSON.stringify({ permissions: { deny: ["SomeOtherTool"] } }, null, 2)
     );
 
-    addDisallowedTools(testDir);
+    const result = addDisallowedTools(testDir);
+    expect(result.removed).toBe(0);
 
     const settings = JSON.parse(
       readFileSync(join(dir, "settings.json"), "utf-8")
     );
-    expect(settings.permissions.deny).toContain("SomeOtherTool");
-    expect(settings.permissions.deny).toContain("Grep");
-    expect(settings.permissions.deny).toContain("Glob");
-    expect(settings.permissions.deny).toHaveLength(3); // 1 existing + 2 new
+    expect(settings.permissions.deny).toEqual(["SomeOtherTool"]);
   });
 
-  it("is idempotent — skips already-denied tools", () => {
-    addDisallowedTools(testDir);
-    const result = addDisallowedTools(testDir);
-    expect(result.added).toBe(0);
-
-    const settings = JSON.parse(
-      readFileSync(join(testDir, ".claude", "settings.json"), "utf-8")
+  it("is idempotent — a second reconcile removes nothing", () => {
+    const dir = join(testDir, ".claude");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify({ permissions: { deny: ["Grep", "Glob"] } }, null, 2)
     );
-    // No duplicates — only Grep + Glob
-    expect(settings.permissions.deny).toHaveLength(2);
+    expect(addDisallowedTools(testDir).removed).toBe(2);
+    expect(addDisallowedTools(testDir).removed).toBe(0);
   });
 });
 
 describe("removeDisallowedTools", () => {
-  it("removes deny entries", () => {
-    addDisallowedTools(testDir);
-    const removed = removeDisallowedTools(testDir);
-    expect(removed).toBe(true);
+  it("removes legacy deny entries and cleans up", () => {
+    const dir = join(testDir, ".claude");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify({ permissions: { deny: ["Grep", "Glob"] } }, null, 2)
+    );
+
+    expect(removeDisallowedTools(testDir)).toBe(true);
 
     const settings = JSON.parse(
-      readFileSync(join(testDir, ".claude", "settings.json"), "utf-8")
+      readFileSync(join(dir, "settings.json"), "utf-8")
     );
-    // permissions.deny cleaned up entirely
     expect(settings.permissions).toBeUndefined();
   });
 
-  it("preserves non-unerr deny entries", () => {
+  it("strips Read/Grep/Glob and preserves non-unerr deny entries", () => {
     const dir = join(testDir, ".claude");
     mkdirSync(dir, { recursive: true });
     writeFileSync(
@@ -134,9 +155,7 @@ describe("removeDisallowedTools", () => {
     const settings = JSON.parse(
       readFileSync(join(dir, "settings.json"), "utf-8")
     );
-    // Read is no longer unerr-managed, so it survives a `remove`. Migration
-    // away from Read happens only on `add`.
-    expect(settings.permissions.deny).toEqual(["Read", "SomeOtherTool"]);
+    expect(settings.permissions.deny).toEqual(["SomeOtherTool"]);
   });
 
   it("returns false when no settings file exists", () => {
@@ -161,13 +180,17 @@ describe("removeDisallowedTools", () => {
   });
 });
 
-describe("add + remove roundtrip", () => {
-  it("leaves settings clean after roundtrip", () => {
+describe("reconcile + remove roundtrip", () => {
+  it("leaves settings clean and preserves unrelated keys", () => {
     const dir = join(testDir, ".claude");
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "settings.json"),
-      JSON.stringify({ hooks: { PreToolUse: [] } }, null, 2)
+      JSON.stringify(
+        { hooks: { PreToolUse: [] }, permissions: { deny: ["Grep", "Glob"] } },
+        null,
+        2
+      )
     );
 
     addDisallowedTools(testDir);

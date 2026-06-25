@@ -854,41 +854,10 @@ async function checkNativeModule(): Promise<CheckResult> {
   }
 }
 
-// 7. Telemetry driver (better-sqlite3) — its absence disables dashboard metrics only.
-async function checkMetricsDriver(): Promise<CheckResult> {
-  try {
-    const mod = (await import("better-sqlite3")) as { default?: unknown };
-    if (mod?.default) {
-      return {
-        name: "Telemetry driver (better-sqlite3)",
-        status: "ok",
-        message: "better-sqlite3 loaded",
-      };
-    }
-    return {
-      name: "Telemetry driver (better-sqlite3)",
-      status: "warn",
-      message:
-        "better-sqlite3 loaded but Database export missing — dashboard metrics disabled",
-    };
-  } catch (err) {
-    const missing = isModuleMissing(err);
-    const msg = err instanceof Error ? err.message : String(err);
-    return {
-      name: "Telemetry driver (better-sqlite3)",
-      status: "warn",
-      message: missing
-        ? "better-sqlite3 not installed — dashboard metrics disabled (core graph tools unaffected)"
-        : "better-sqlite3 failed to load — dashboard metrics disabled (core graph tools unaffected)",
-      detail: (missing ? "" : `${msg}\n`) + NATIVE_FIX_HINT,
-    };
-  }
-}
-
 // ── Native-module repair ─────────────────────────────────────
 
-/** Display names of the two native DB checks, so the command can detect failure. */
-const NATIVE_CHECK_NAMES = ["cozo-node", "better-sqlite3"];
+/** Display names of the native DB checks, so the command can detect failure. */
+const NATIVE_CHECK_NAMES = ["cozo-node"];
 
 /** True if either native DB check did not return status:'ok'. */
 function nativeModulesFailed(results: CheckResult[]): boolean {
@@ -924,7 +893,7 @@ function findInstallRoot(): string | null {
  * Rebuild the native DB modules in place. This is the end-user recovery path for
  * the npm v12 / pnpm v10 world, where the package manager skips a dependency's
  * install script by default and the prebuilt `.node` binary never lands —
- * leaving cozo-node / better-sqlite3 unable to load. `npm rebuild` / `pnpm
+ * leaving cozo-node unable to load. `npm rebuild` / `pnpm
  * rebuild` explicitly re-run those build scripts (the user invoking this IS the
  * opt-in the lockdown wants). Best-effort: on any failure it prints the exact
  * manual command. Returns true only when the rebuild command exited cleanly.
@@ -934,14 +903,12 @@ function repairNativeModules(): boolean {
   if (!root) {
     log(
       `  ${W}✗ Could not locate the unerr install directory — rebuild manually:${R}\n` +
-        `    ${C}npm rebuild better-sqlite3 cozo-node${R}\n\n`
+        `    ${C}npm rebuild cozo-node${R}\n\n`
     );
     return false;
   }
   const usesPnpm = existsSync(join(root, "node_modules", ".pnpm"));
-  const cmd = usesPnpm
-    ? "pnpm rebuild better-sqlite3 cozo-node"
-    : "npm rebuild better-sqlite3 cozo-node";
+  const cmd = usesPnpm ? "pnpm rebuild cozo-node" : "npm rebuild cozo-node";
   log(
     `  ${D}Rebuilding native modules: ${cmd}${R}\n  ${D}(in ${root})${R}\n\n`
   );
@@ -998,10 +965,6 @@ export async function runEnvironmentChecks(opts: {
   printCheckResult(native);
   results.push(native);
 
-  const metricsDriver = await checkMetricsDriver();
-  printCheckResult(metricsDriver);
-  results.push(metricsDriver);
-
   const blocking = results.some(
     (r) => r.status === "fail" && r.blocking === true
   );
@@ -1042,7 +1005,7 @@ export function registerDoctorCommand(program: Command): void {
     .description("Check environment (PATH, Node, native modules, port, perms)")
     .option(
       "--fix-native",
-      "Rebuild the native DB modules (cozo-node, better-sqlite3) without prompting if they failed to load"
+      "Rebuild the native DB modules (cozo-node) without prompting if they failed to load"
     )
     .action(async (opts: { fixNative?: boolean }) => {
       const result = await runEnvironmentChecks({ interactive: true });
@@ -1056,7 +1019,7 @@ export function registerDoctorCommand(program: Command): void {
           ? true
           : process.stdin.isTTY
             ? await askYesNo(
-                `\n  ${C}Rebuild native DB modules (cozo-node, better-sqlite3) now? [Y/n] ${R}`
+                `\n  ${C}Rebuild native DB modules (cozo-node) now? [Y/n] ${R}`
               )
             : false;
         if (doFix) repairNativeModules();

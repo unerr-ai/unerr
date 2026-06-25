@@ -1428,7 +1428,6 @@ export class QueryRouter {
             tokens_estimate?: number;
             optimization?: string;
             total_lines?: number;
-            total_chars?: number;
             total_file_tokens?: number;
           };
         };
@@ -1445,12 +1444,10 @@ export class QueryRouter {
               const deliveredTokens = fr._layer6_meta.tokens_estimate ?? 0;
               // Prefer the real BPE count of the full file (set by
               // file-read-protocol.ts via estimateTokens). Fall back to a
-              // char/line heuristic only when it's absent (older meta shapes).
+              // line heuristic only when it's absent (older meta shapes).
               const fullFileTokens =
                 fr._layer6_meta.total_file_tokens ??
-                (fr._layer6_meta.total_chars
-                  ? Math.ceil(fr._layer6_meta.total_chars / 4)
-                  : Math.ceil((fr._layer6_meta.total_lines * 80) / 4));
+                Math.ceil((fr._layer6_meta.total_lines * 80) / 4);
               const fileReadSaved = fullFileTokens - deliveredTokens;
               if (fileReadSaved > 0) {
                 this.tokenFlow.record({
@@ -2010,12 +2007,27 @@ export class QueryRouter {
         // query.
         const isFileNav = toolName === "file_outline";
         const type = isFileNav ? "full_read_avoided" : "graph_query_served";
+        // Normalize the recorded entity_key to a human-readable NAME. The agent
+        // may look up an entity by name OR by the 16-char hex key it carried
+        // forward from a prior result row (search_code / get_references return
+        // `key` = hex). Storing the resolved name keeps end-of-turn receipts
+        // ("looked up callers of classifyShellOutput") and downstream telemetry
+        // consistent regardless of which form was passed.
+        let recordedKey = entityKey;
+        if (entityKey && /^[0-9a-f]{16}$/.test(entityKey)) {
+          try {
+            const resolved = await this.localGraph.getEntity(entityKey);
+            if (resolved?.name) recordedKey = resolved.name;
+          } catch {
+            /* keep the hex key if the graph lookup fails — never block */
+          }
+        }
         this.behaviorEvents?.record({
           session_id: this.behaviorEvents.sessionId,
           turn,
           type,
           tool: toolName,
-          entity_key: entityKey,
+          entity_key: recordedKey,
           response_bytes: responseBytes,
         });
       }
@@ -3683,9 +3695,6 @@ export class QueryRouter {
     const compiled = compilePattern(opts.mode, opts.query);
     if ("error" in compiled) {
       return {
-        mode: opts.mode,
-        query: opts.query,
-        match_count: 0,
         files_scanned: 0,
         matches: [],
         truncated: false,
@@ -3744,9 +3753,6 @@ export class QueryRouter {
     }
 
     const result = {
-      mode: opts.mode,
-      query: opts.query,
-      match_count: acc.matches.length,
       files_scanned: filesScanned,
       matches: acc.matches,
       truncated: acc.truncated,
@@ -3764,7 +3770,7 @@ export class QueryRouter {
         session_id: sid,
         turn,
         tool: "search_code",
-        note: `${opts.mode} search, ${result.match_count} match(es) in ${filesScanned} file(s)`,
+        note: `${opts.mode} search, ${acc.matches.length} match(es) in ${filesScanned} file(s)`,
       });
       // Issue 8: when a content match carried its surrounding context, the agent
       // does not need a follow-up read of that file — record one savings_event
@@ -4726,8 +4732,10 @@ const ENTITY_TOOLS = new Set([
  */
 /** Fields stripped from ALL entity results (arrays and single). */
 const ENTITY_NOISE_FIELDS_ALL = new Set(["community"]);
-/** Fields stripped only from array results (body is empty in list rows but useful in single-entity). */
-const ENTITY_NOISE_FIELDS_ARRAY = new Set(["body", "community"]);
+/** Fields stripped only from array results (body is empty in list rows but useful in single-entity).
+ * `score` is stripped from list rows — results are already relevance-sorted so the raw numeric
+ * value adds nothing actionable on the wire. */
+const ENTITY_NOISE_FIELDS_ARRAY = new Set(["body", "community", "score"]);
 
 /** Tools that return entity arrays (or arrays wrapped in a metadata object)
  * where noise fields and sentinel placeholders should be stripped before

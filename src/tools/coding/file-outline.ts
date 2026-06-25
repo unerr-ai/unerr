@@ -36,7 +36,6 @@ export interface FileOutlineOutput {
   headings?: string[];
   config_keys?: string[];
   token_estimate: number;
-  _hint: string;
 }
 
 function normRisk(rl: string | undefined): FileOutlineEntityRow["risk"] {
@@ -245,8 +244,6 @@ export async function buildFileOutline(params: {
     imports: imports.slice(0, 40),
     exports: exports.slice(0, 40),
     token_estimate,
-    _hint:
-      "Use file_read with offset/limit or entity (symbol name) for targeted content.",
   };
   if (headings?.length) out.headings = headings;
   if (config_keys?.length) out.config_keys = config_keys;

@@ -109,6 +109,18 @@ export interface BatchAck {
      */
     disposition?: "permanent" | "retryable";
     code?: string;
+    /**
+     * Dotted path of the offending field on a parked/rejected row (e.g.
+     * `detail.command`) — the PATH only, never the value (HR-2). Tolerant
+     * reader: an older server omits it, which stays valid. Lets the drainer
+     * name exactly which key tripped a guard in its logs.
+     */
+    field?: string;
+    /**
+     * Human-readable cause (path + magnitude, never the value) for a
+     * parked/rejected row — safe to log. Absent from a pre-`field` server.
+     */
+    message?: string;
   }>;
   [key: string]: unknown;
 }

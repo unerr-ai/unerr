@@ -1,52 +1,53 @@
 ---
 name: unerr-using-unerr
-description: "MANDATORY when starting ANY non-trivial coding task (implement / fix / refactor / build / debug / find / test). Dispatches to a workflow sub-skill, or runs the default edit workflow when none matches. STEP-1: invoke Skill('unerr-using-unerr') BEFORE drafting code. The orchestrator decides — do NOT skip on the assumption that the task is small."
+description: "Always on. For anything that reads, searches, or edits code, reach for unerr's graph tools first (search_code / get_references / file_read / file_edit), and delegate the work to unerr sub-agents by default — the main thread plans, routes, and consolidates while 2-3 sub-agents run the slices. Guidance toward the tools and capabilities, not a workflow — there are no fixed steps to run."
 ---
 
 ---
 name: unerr-using-unerr
-description: "MANDATORY when starting ANY non-trivial coding task (implement / fix / refactor / build / debug / find / test). Dispatches to a workflow sub-skill, or runs the default edit workflow when none matches. STEP-1: invoke Skill('unerr-using-unerr') BEFORE drafting code. The orchestrator decides — do NOT skip on the assumption that the task is small."
+description: "Always on. For anything that reads, searches, or edits code, reach for unerr's graph tools first, and delegate the work to unerr sub-agents by default. This is guidance toward the tools, not a workflow — there are no fixed steps to run."
 ---
 
-## Dispatch first
+## Use unerr's tools, not bash or built-ins
 
-Match the user's prompt to a workflow skill and invoke it via `Skill()` BEFORE drafting code. First match wins. A user-defined skill under `.claude/skills/` (anything NOT starting with `unerr-`) whose description matches takes precedence — invoke it and stop.
+unerr serves a live code graph plus your team's rules through MCP tools. For anything that reads, searches, or edits code, an unerr tool is the ground-truth path — one graph query replaces 5-15 file reads.
 
-  - bug / broken / failing / crash / error / regression / debug          -> `Skill('unerr-build-and-debug')`
-  - build / create / add new / design / implement / scaffold             -> `Skill('unerr-build-and-debug')`
-  - test / write tests / TDD / spec                                      -> `Skill('unerr-test-and-review')`
-  - address review comments / PR feedback                               -> `Skill('unerr-test-and-review')`
-  - review my changes / audit / critique / before commit (PRODUCE a review) -> `Skill('unerr-review')`
-  - find / search / where / who calls / callers / callees / deps         -> `Skill('unerr-exploration')`
-  - delegable task (add tests, docstring/@sem, mechanical rename/extract/inline/move, lint) on a delegation host -> `Skill('unerr-delegate')`
+| To… | Use |
+|---|---|
+| Find code, or pull context for a change | `search_code({query})` — a task phrase returns a recon bundle (matching entities + bodies + callers + conventions in one call); a bare symbol returns ranked matches |
+| Exact string / regex across files | `search_code({query, mode:'literal'\|'regex'})` — match + surrounding lines, no follow-up read |
+| Who calls it / what it calls (before a risky edit) | `get_references({key, direction:'callers'\|'callees'})` |
+| Read a file or one function | `file_read` (`entity:` for one symbol); `file_outline` for structure |
+| Change a file | `file_edit` (`{old_string,new_string}` or `{content}`) — no prior read needed |
+| Fetch a URL or docs | `fetch_url` (bulk: `{urls:[...]}`) |
 
-If nothing matches — a `fix` / `modify` / `change` / `refactor` or any edit to existing code — run the **Default edit workflow** below.
+Pick the tool that fits the moment. There is no required sequence.
 
-## Default edit workflow (recall -> blast-radius -> conventions -> drift -> edit)
+## Keep `@sem` doc comments true in the same edit
 
-1. **Recall.** Read the anchored notes the UserPromptSubmit hook injected for the prompt. For explicit recon, call `search_code({query:'<verbatim user prompt>'})` once — the bundle returns notes + matching entities + the focus entities' verbatim bodies + their callers (blast radius) + conventions in one round-trip. Emit `unerr-save: intent <one sentence, <=80 chars>` in your closing message.
-2. **Blast radius.** Before a signature edit, call `get_references({key:'<entity>', direction:'callers'})`. <=5 callers -> low, proceed; 6-19 -> enumerate every caller to the user first; >=20 or `ur|rsk fan_in=<N>` -> chokepoint, propose a non-breaking change (additive / shim) first. Rename: add `include_text_occurrences:true` and edit every string/config/comment use too.
-3. **Understand + conventions.** `file_read({file_path:'<path>', entity:'<name>', purpose:'explore'})` auto-injects conventions, facts, and drift — read every `ur|<tag>` line before the body.
-4. **Drift.** Re-read any file flagged `ur|ctx` before editing; discard any plan premise that depended on the pre-drift contents.
-5. **Edit.** `file_edit({file_path:'<path>', old_string:'<exact>', new_string:'<replacement>'})` (or `{content:'<whole file>'}`) — no prior built-in `Read`. A signature edit with callers at risk denies the first attempt once: update every caller, then re-attempt. Domain comment (Layer 8): when the edited entity carries an `@sem` doc comment AND the edit changed what it does or why, rewrite the prose summary and `@sem domain=<tag>` line in the SAME Edit call. NEVER delete an `@sem` comment unless the user instructs it.
-6. **Verify + review.** Run the targeted test (not the full suite). For every entity changed this turn: `get_references({key:'<entity>', direction:'callers'})` for breaking-caller cascades and `file_read` for boundary/convention breaches. Fix critical + high before close.
+Domain comment (Layer 8): when you `file_edit` an entity that carries an `@sem` doc comment AND the edit changed what it does or why, rewrite the prose summary and `@sem domain=<tag>` line in the SAME Edit call. NEVER delete an `@sem` comment unless the user instructs it.
 
-## Batch repetitive work — never frontier file-by-file
+## The hooks already do the protective work — don't pay a call to repeat it
 
-When the same change hits many files (add a header, bump an import, format, rename across the tree), climb this ladder and stop at the first rung that works:
-1. **One command for the whole set** — `prettier --write .`, a `sed`/codemod, a formatter, a build flag. Run once, not once per file.
-2. **Else one script** — write one small script that walks the files and changes them in a single run.
-3. **Else a cheaper model in a loop** — `Skill('unerr-delegate')` to hand the repetitive per-file edit to a sub-agent on a cheaper model.
-Independent reads follow the same rule: issue them as parallel calls in ONE message, or pull them together with one `search_code({query:'<task>'})` bundle — never one-read-wait-next. Set `token_budget`/`limit` right the first time; read-small-then-re-read doubles the cost.
-After batching, record the saving in your close-out: `unerr-save: intent bulk-edit oneshot <N>: <task>` (one command/script replaced an N-file loop), `bulk-edit cheap-loop <N>: <task>` (a worker loop), or `batch-call <N>: <task>` (N reads/edits issued in one call).
+Anchored notes (on the prompt), conventions and drift (on read), and the blast-radius gate (on edit) arrive on their own as `ur|<tag>` lines. Read them. Don't spend a `search_code` / `get_references` / `file_read` to re-fetch context you were already handed.
+
+## Delegate by default — the main thread routes and consolidates, sub-agents do the work
+
+Treat sub-agents as the primary way work gets done, not an occasional offload. On any non-trivial turn the main thread is a routing-and-consolidation layer: plan the change, split off its delegable slices, hand each to a sub-agent, then review and integrate the returned diffs. Aim for 2-3 sub-agents running in parallel on a substantive turn. What stays on the main thread is narrow — design, cross-cutting wiring, and bug root-causing; everything else is a slice to delegate:
+- `Task({subagent_type:'unerr-junior', …})` — read-only investigation (find / trace / map X), lint/format, docstrings/@sem, verify-runs (run typecheck + targeted tests + lint, return the failure list — no edits), shell-command runs (run a sequence of build/script/migration/setup commands, report the output).
+- `Task({subagent_type:'unerr-worker', …})` — add/improve tests, multi-site mechanical refactor (rename / extract / inline / move), caller/import propagation (update every call site + import after a signature change), typecheck/build-error fixes (fix tsc/build errors mechanically, re-run until green), scaffold (generate a new file's skeleton from a sibling template).
+
+Consolidate first: group the related work, then spawn ONE sub-agent per independent group, all in a single message so they run in parallel. Give each the task plus a one-line pointer — it re-derives the edit sites from the graph itself; never paste file contents or a list of sites. Review each result before you build on it. (Hosts without sub-agents — anything other than Claude Code / Codex / Cursor / Copilot CLI — do it inline.)
+
+## Batch repetitive work — never a file-by-file loop on the main thread
+
+Same change across many files? One command (`prettier --write .`, a codemod) → else one script → else a sub-agent loop. Independent reads follow the same rule: issue them as parallel calls in ONE message, or pull them together with one `search_code` bundle — never one-read-wait-next. Set `token_budget` / `limit` right the first time.
 
 ## Close-out (zero round-trip)
 
-- Emit session markers as `unerr-save:` lines in your closing message (the Stop hook persists them — no tool call): `intent` (first, required), `decision`, `blocker`, `resolution`. For a non-obvious convention you detected: `unerr-save: note <kind|anchor|polarity|content>`.
-- User rules ("remember / always / from now on / never") are captured automatically by the prompt hook — no skill, no tool call. Confirm an ambiguous capture next turn.
-- When unerr shaped your answer, say so in plain English ("unerr found <name>", "<N> places call <name>"). Never echo `ur|<tag>` or `unerr » ` lines — the Stop hook emits the close-out receipt automatically; write nothing for it.
+Emit `unerr-save:` lines in your closing message — the Stop hook persists them, no tool call: `intent` (first), then `decision` / `blocker` / `resolution`, and `note <kind|anchor|polarity|content>` for a non-obvious convention. User rules ("remember / always / never") are captured automatically. When unerr shaped your answer, say so plainly ("unerr found <name>", "<N> places call <name>") — never echo `ur|<tag>` lines.
 
 ## Output discipline
 
-Lead with the answer; structured summaries over prose; show diffs, not whole files; never repeat context already in the conversation; prefer file paths over re-stating contents.
+Lead with the answer; structured summaries over prose; show diffs, not whole files; never repeat context already in the conversation.
 

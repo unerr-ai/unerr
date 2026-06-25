@@ -16,7 +16,6 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { CozoDb } from "./cozo-schema.js";
 
@@ -127,20 +126,20 @@ async function createSqliteDb(dbPath: string): Promise<CozoDb> {
 }
 
 /**
- * Set `journal_mode = WAL` on the graph.db SQLite file out-of-band, using the
- * better-sqlite3 driver already vendored for metrics.db (see metrics-store.ts).
- * Opened and closed before cozo touches the file, so the two drivers never hold
- * the connection at once. WAL is a persistent file property, so cozo's pooled
- * connections pick it up. Idempotent (re-running on an already-WAL db is a
- * no-op) and best-effort — any failure is logged and swallowed so a missing/
- * locked driver can never block graph startup.
+ * Set `journal_mode = WAL` on the graph.db SQLite file out-of-band, using
+ * Node's built-in `node:sqlite` (DatabaseSync). Opened and closed before cozo
+ * touches the file, so the two drivers never hold the connection at once. WAL
+ * is a persistent file property, so cozo's pooled connections pick it up.
+ * Idempotent (re-running on an already-WAL db is a no-op) and best-effort —
+ * any failure is logged and swallowed so a driver error can never block graph
+ * startup.
  */
 async function enableWalMode(dbPath: string): Promise<void> {
   try {
-    const { default: Database } = await import("better-sqlite3");
-    const sqlite = new Database(dbPath);
+    const { DatabaseSync } = await import("node:sqlite");
+    const sqlite = new DatabaseSync(dbPath);
     try {
-      sqlite.pragma("journal_mode = WAL");
+      sqlite.exec("PRAGMA journal_mode=WAL");
     } finally {
       sqlite.close();
     }
@@ -165,11 +164,11 @@ async function enableWalMode(dbPath: string): Promise<void> {
  * graph.db). `wal_checkpoint(TRUNCATE)` folds all reclaimable frames and resets
  * the WAL file to zero.
  *
- * Called out-of-band on a short-lived better-sqlite3 connection — the same
- * driver and pattern as `enableWalMode`.
+ * Called out-of-band on a short-lived `node:sqlite` DatabaseSync connection —
+ * the same driver and pattern as `enableWalMode`.
  *
  * SAFETY — only call this when cozo does NOT have dbPath open in THIS process.
- * better-sqlite3 and cozo are two separately-linked SQLite copies; each keeps
+ * node:sqlite and cozo are two separately-linked SQLite copies; each keeps
  * its own in-process lock table, so SQLite's posix-lock workaround does not
  * span them. When this function's `sqlite.close()` closes its file descriptor,
  * POSIX semantics drop EVERY advisory lock this process holds on dbPath —
@@ -192,11 +191,11 @@ async function enableWalMode(dbPath: string): Promise<void> {
  */
 export async function checkpointWal(dbPath: string): Promise<void> {
   try {
-    const { default: Database } = await import("better-sqlite3");
-    const sqlite = new Database(dbPath);
+    const { DatabaseSync } = await import("node:sqlite");
+    const sqlite = new DatabaseSync(dbPath);
     try {
-      sqlite.pragma("busy_timeout = 2000");
-      // `wal_checkpoint(TRUNCATE)` returns `[{ busy, log, checkpointed }]`.
+      sqlite.exec("PRAGMA busy_timeout=2000");
+      // `wal_checkpoint(TRUNCATE)` returns `{ busy, log, checkpointed }`.
       // `busy === 1` means a reader held a snapshot, so reclaimable frames were
       // folded into the main db (the PASSIVE part) but the WAL file could NOT be
       // truncated — it stays at its high-water mark. Ignoring this return (the
@@ -205,11 +204,10 @@ export async function checkpointWal(dbPath: string): Promise<void> {
       // backoff to catch a reader-free window; bounded so a checkpoint can never
       // block a reindex/shutdown for long.
       const MAX_ATTEMPTS = 6;
+      const stmt = sqlite.prepare("PRAGMA wal_checkpoint(TRUNCATE)");
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        const res = sqlite.pragma("wal_checkpoint(TRUNCATE)") as Array<{
-          busy?: number;
-        }>;
-        const busy = res?.[0]?.busy ?? 0;
+        const res = stmt.get() as { busy?: number } | undefined;
+        const busy = res?.busy ?? 0;
         if (busy === 0) return; // WAL fully reset to zero
         if (attempt < MAX_ATTEMPTS) {
           // 50, 100, 200, 400, 800 ms — ~1.55s total worst case.
@@ -236,20 +234,20 @@ export async function checkpointWal(dbPath: string): Promise<void> {
  * Mirrors `checkpointWal`'s busy-retry loop (6 attempts, 50ms→800ms backoff,
  * ~1.55s worst case) but synchronously — `Atomics.wait` is a plain blocking
  * sleep, fine in a single-purpose child. argv layout under `-e`:
- * argv[1] = dbPath, argv[2] = resolved better-sqlite3 entry point (the child
- * has no module-resolution context of its own, so the parent resolves it).
- * Everything is best-effort and silent: stdio is ignored and any failure just
- * leaves the WAL for the next boot/shutdown checkpoint.
+ * argv[1] = dbPath. Uses Node's built-in `node:sqlite` (no module resolution
+ * needed). Everything is best-effort and silent: stdio is ignored and any
+ * failure just leaves the WAL for the next boot/shutdown checkpoint.
  */
 const CHECKPOINT_CHILD_SCRIPT = `
 try {
-  const Database = require(process.argv[2]);
-  const sqlite = new Database(process.argv[1]);
+  const { DatabaseSync } = require("node:sqlite");
+  const sqlite = new DatabaseSync(process.argv[1]);
   try {
-    sqlite.pragma("busy_timeout = 2000");
+    sqlite.exec("PRAGMA busy_timeout=2000");
+    const stmt = sqlite.prepare("PRAGMA wal_checkpoint(TRUNCATE)");
     for (let attempt = 1; attempt <= 6; attempt++) {
-      const res = sqlite.pragma("wal_checkpoint(TRUNCATE)");
-      if (((res && res[0] && res[0].busy) || 0) === 0) break;
+      const res = stmt.get();
+      if (((res && res.busy) || 0) === 0) break;
       if (attempt < 6) {
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * 2 ** (attempt - 1));
       }
@@ -264,7 +262,7 @@ try {
  * Fold + truncate the WAL from a SEPARATE process, safe to call while cozo
  * has dbPath open in this one.
  *
- * Why a child process: an in-process better-sqlite3 connection on a db cozo
+ * Why a child process: an in-process `node:sqlite` connection on a db cozo
  * also holds is the sqlite.org/howtocorrupt.html §2.3 hazard — its `close()`
  * cancels cozo's POSIX advisory locks (two separately-linked SQLite copies
  * don't share an in-process lock table), which let a truncating checkpoint
@@ -279,11 +277,9 @@ try {
  */
 export function checkpointWalDetached(dbPath: string): void {
   try {
-    const requireFromHere = createRequire(import.meta.url);
-    const sqliteModulePath = requireFromHere.resolve("better-sqlite3");
     const child = spawn(
       process.execPath,
-      ["-e", CHECKPOINT_CHILD_SCRIPT, dbPath, sqliteModulePath],
+      ["-e", CHECKPOINT_CHILD_SCRIPT, dbPath],
       { detached: true, stdio: "ignore" }
     );
     child.unref();

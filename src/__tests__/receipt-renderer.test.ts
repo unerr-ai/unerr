@@ -31,6 +31,7 @@ function ev(
     file_path: null,
     entity_key: null,
     session_id: "s1",
+    native_session_id: null,
     turn: 1,
     ts: "2026-05-25T12:00:00.000Z",
     metadata,

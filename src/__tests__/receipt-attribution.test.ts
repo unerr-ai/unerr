@@ -13,6 +13,7 @@ function event(
     file_path: partial.file_path ?? null,
     entity_key: partial.entity_key ?? null,
     session_id: partial.session_id ?? "test-session",
+    native_session_id: partial.native_session_id ?? null,
     turn: partial.turn,
     ts: partial.ts ?? "2026-05-25T00:00:00.000Z",
     metadata: partial.metadata ?? {},

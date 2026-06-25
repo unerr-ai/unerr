@@ -35,6 +35,7 @@ import { runPreBashHook, runPreShellHook } from "../hooks/shell-hooks.js";
 import {
   runStopHookHandlerAsync,
   runStopPersistWorkerAsync,
+  runSubagentStopHookHandlerAsync,
 } from "../hooks/stop-hooks.js";
 import {
   runPostWebSearchHook,
@@ -243,6 +244,17 @@ export function registerHookCommand(program: Command): void {
       "Surface the close-out economy line at turn end (no round-trip)"
     )
     .action(safeAsyncHookAction(runStopHookHandlerAsync));
+
+  // ── SubagentStop hook (Claude Code only — sub-agent turn end) ───
+  // Same receipt as the Stop hook but skips the master-only leak detector so a
+  // sub-agent sharing the master's cwd cannot false-fire or wipe the flag.
+
+  hook
+    .command("subagent-stop")
+    .description(
+      "Surface the close-out economy line at sub-agent turn end (no leak-detector)"
+    )
+    .action(safeAsyncHookAction(runSubagentStopHookHandlerAsync));
 
   // ── Stop-persist worker (spawned detached by the Stop hook) ─────
   // Hidden: not a user-facing command. Detached children get no stdin, so the

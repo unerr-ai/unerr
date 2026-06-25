@@ -12,5 +12,5 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "packages", "src/ui"]
+  "exclude": ["node_modules", "dist", "packages", "archive/ui"]
 }

@@ -80,8 +80,13 @@ describe("three-tier model map (Issue 5 / D2)", () => {
     expect(selectTier("lint_format")).toBe("junior");
     expect(selectTier("docs")).toBe("junior");
     expect(selectTier("recon")).toBe("junior");
+    expect(selectTier("verify")).toBe("junior");
+    expect(selectTier("command_run")).toBe("junior");
     expect(selectTier("tests")).toBe("worker");
     expect(selectTier("mechanical_refactor")).toBe("worker");
+    expect(selectTier("caller_propagation")).toBe("worker");
+    expect(selectTier("typecheck_fix")).toBe("worker");
+    expect(selectTier("scaffold")).toBe("worker");
     expect(selectTier("none")).toBe("senior");
   });
 

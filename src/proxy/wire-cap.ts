@@ -435,7 +435,6 @@ export function applyWireCap(
         ...obj,
         [arrayKey]: slice,
         total: trueTotal,
-        returned: slice.length,
         more_available: trueTotal - slice.length,
         truncated: trueTotal > slice.length,
       };

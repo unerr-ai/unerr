@@ -94,8 +94,6 @@ describe("runFetchUrlBatch — bulk fetch_url", () => {
       expect(batch.passages.length).toBeGreaterThan(1);
       const sourceIndexes = new Set(batch.passages.map((p) => p.source_index));
       expect(sourceIndexes.size).toBe(2);
-      expect(batch.compression_ratio).toBeGreaterThanOrEqual(0);
-      expect(batch.compression_ratio).toBeLessThan(1);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -218,7 +216,7 @@ describe("runFetchUrlBatch — bulk fetch_url", () => {
       );
       expect(batch.result_status).toBe("ok");
       if (batch.result_status !== "ok") return;
-      expect(batch.returned).toBe(1);
+      expect(batch.passages.length).toBe(1);
       expect(batch.total).toBeGreaterThan(1);
       expect(batch.truncated).toBe(true);
       expect(batch.more_available).toBe(batch.total - 1);

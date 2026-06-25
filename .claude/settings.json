@@ -151,12 +151,16 @@
           }
         ]
       }
-    ]
-  },
-  "permissions": {
-    "deny": [
-      "Grep",
-      "Glob"
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook subagent-stop"
+          }
+        ]
+      }
     ]
   }
 }

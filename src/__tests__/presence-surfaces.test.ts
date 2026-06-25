@@ -42,6 +42,7 @@ function makeEvent(overrides: Partial<NamedEvent> = {}): NamedEvent {
     file_path: "src/foo.ts",
     entity_key: null,
     session_id: "s1",
+    native_session_id: null,
     turn: 1,
     ts: new Date().toISOString(),
     metadata: {},

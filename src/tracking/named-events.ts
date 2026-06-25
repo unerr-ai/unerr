@@ -50,6 +50,11 @@ export interface NamedEvent {
   entity_key: string | null;
   /** Session ID the event was emitted in. */
   session_id: string;
+  /** The agent's OWN conversation id (Claude `session_id`, Cursor
+   *  `conversation_id`), when the agent exposed it; null otherwise.
+   *  Primary cross-process correlation key: `coalesce(native_session_id,
+   *  session_id)` groups events across the proxy/hook process split. */
+  native_session_id: string | null;
   /** Turn index within the session (1-indexed; 0 for non-turn events). */
   turn: number;
   /** ISO timestamp. */
@@ -59,9 +64,19 @@ export interface NamedEvent {
   metadata: Record<string, unknown>;
 }
 
-/** Narrowing filter for `readNamedEvents`. All fields optional. */
+/** Narrowing filter for `readNamedEvents`. All fields optional.
+ *
+ * When `native_session_id` is provided it takes precedence over `session_id`
+ * for the row-fetch: all rows whose `native_session_id` matches are returned
+ * regardless of their `session_id`. This allows the receipt to correlate
+ * proxy events (one session_id space) with hook events (another session_id
+ * space) that share the same `native_session_id`. Falls back to `session_id`
+ * when `native_session_id` is absent or null. */
 export interface NamedEventFilter {
   session_id?: string;
+  /** The agent's own conversation id. When set, rows are fetched by this
+   *  key instead of `session_id`, enabling cross-process correlation. */
+  native_session_id?: string;
   event_type?: string;
   agent?: string;
   file_path?: string;
@@ -464,6 +479,14 @@ function deriveEntityKey(
  * This function NEVER writes. It reads existing rows from the existing
  * `behavior_events` and `token_flow_events` tables and projects them.
  * The underlying tables and their writers are unaffected.
+ *
+ * When `filter.native_session_id` is set it takes precedence over
+ * `filter.session_id` for the fetch: ALL rows whose `native_session_id`
+ * matches are returned, regardless of which process-local `session_id`
+ * wrote them. This is the key that correlates proxy-written edits with
+ * hook-written prompt-boundary events that share a `native_session_id`
+ * but differ in `session_id`. Falls back to `session_id`-keyed fetch
+ * when `native_session_id` is absent (legacy/exec/CLI rows).
  */
 export function readNamedEvents(
   unerrDir: string,
@@ -472,15 +495,23 @@ export function readNamedEvents(
   const agentOf = buildAgentResolver(unerrDir);
   const out: NamedEvent[] = [];
 
+  // When filtering by native_session_id we must read all rows (different
+  // session_ids can share the same native id) and post-filter. Otherwise
+  // the cheaper session-keyed fetch is used.
+  const nativeFilter = filter.native_session_id ?? null;
+
   // Behavior events → 1:1 mapping
   const behaviorRows = readBehaviorEvents(unerrDir, {
-    session_id: filter.session_id,
+    // Omit session_id when filtering by native so we get all sessions.
+    session_id: nativeFilter ? undefined : filter.session_id,
     type: filter.event_type as BehaviorEventType | undefined,
     from_ts: filter.from_ts,
     to_ts: filter.to_ts,
   });
 
   for (const ev of behaviorRows) {
+    // Native-id post-filter: skip rows that don't match.
+    if (nativeFilter && ev.native_session_id !== nativeFilter) continue;
     const phrasing = phrasingFor(ev.type);
     // Row-level agent is the source of truth (P1 added the column to
     // every event row); the session_history resolver is a legacy fallback
@@ -504,6 +535,7 @@ export function readNamedEvents(
       file_path: filePath,
       entity_key: deriveEntityKey(ev.entity_key, filePath),
       session_id: ev.session_id,
+      native_session_id: ev.native_session_id ?? null,
       turn: ev.turn,
       ts: ev.ts,
       metadata,
@@ -512,12 +544,15 @@ export function readNamedEvents(
 
   // Token flow events → synthetic `tokenflow.<mechanism>` event_type
   const tokenFlowRows = readTokenFlowEvents(unerrDir, {
-    session_id: filter.session_id,
+    // Same: omit session_id when filtering by native.
+    session_id: nativeFilter ? undefined : filter.session_id,
     from_ts: filter.from_ts,
     to_ts: filter.to_ts,
   });
 
   for (const ev of tokenFlowRows) {
+    // Native-id post-filter.
+    if (nativeFilter && ev.native_session_id !== nativeFilter) continue;
     const eventType = `tokenflow.${ev.mechanism}`;
     if (filter.event_type && filter.event_type !== eventType) continue;
     const phrasing = phrasingFor(eventType);
@@ -546,6 +581,7 @@ export function readNamedEvents(
       file_path: filePath,
       entity_key: null,
       session_id: ev.session_id,
+      native_session_id: ev.native_session_id ?? null,
       turn: ev.turn,
       ts: ev.ts,
       metadata,

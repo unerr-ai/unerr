@@ -33,18 +33,13 @@ export interface FetchUrlArgs {
   token_budget?: number;
 }
 
-export interface FetchUrlOk {
+/** Internal shape — includes all fields used by batch aggregation and telemetry. */
+export interface FetchUrlOkInternal {
   result_status: "ok";
   url: string;
   final_url: string;
   status: number;
   title: string;
-  /**
-   * OG / article:* / dc:* metadata pulled from raw HTML. Null when the
-   * source doesn't ship the corresponding tag (most static pages omit
-   * article:published_time; many sites have no og:site_name). Use for
-   * agent-side dating, cross-doc correlation, and provenance display.
-   */
   published_at: string | null;
   author: string | null;
   og_type: string | null;
@@ -54,9 +49,7 @@ export interface FetchUrlOk {
   word_count: number;
   raw_bytes: number;
   extracted_bytes: number;
-  /** Real BPE token count of the raw page (estimateTokens, heuristic >50k chars). */
   raw_tokens: number;
-  /** Real BPE token count of the extracted markdown delivered. */
   extracted_tokens: number;
   compression_ratio: number;
   cache_hit: boolean;
@@ -73,24 +66,44 @@ export interface FetchUrlOk {
     start_line: number;
   }>;
   total: number;
-  /**
-   * Per-call quality signals. The agent inspects this to decide whether a
-   * retry-with-prompt would help (low `word_count` + `playwright_rescued:false`
-   * usually means "page is short, no point retrying") and the dashboard
-   * surfaces aggregate stats. All fields are non-undefined so the schema
-   * is stable across calls.
-   */
   quality: {
     playwright_rescued: boolean;
     bm25_ranked: boolean;
     rule_applied: string | null;
+    inflated: boolean;
+  };
+}
+
+/** Wire shape returned to the agent — diagnostic keys stripped. */
+export interface FetchUrlOk {
+  result_status: "ok";
+  final_url: string;
+  title: string;
+  /**
+   * OG / article:* / dc:* metadata pulled from raw HTML. Null when the
+   * source doesn't ship the corresponding tag. Use for agent-side dating,
+   * cross-doc correlation, and provenance display.
+   */
+  published_at: string | null;
+  author: string | null;
+  site_name: string | null;
+  word_count: number;
+  passages: Array<{
+    index: number;
+    heading: string | null;
+    text: string;
+  }>;
+  total: number;
+  /**
+   * Per-call quality signals. The agent inspects this to decide whether a
+   * retry-with-prompt would help (low `word_count` + `playwright_rescued:false`
+   * usually means "page is short, no point retrying").
+   */
+  quality: {
+    playwright_rescued: boolean;
     /**
-     * True when extracted_bytes ≥ raw_bytes — i.e. extraction recovered
-     * more text than the meaningful-bytes measurement counted. Happens on
-     * SPAs that hydrate content from JSON script tags Defuddle can read but
-     * the byte counter can't tell apart from sidecar payloads. The reported
-     * `compression_ratio` is clamped to 0 in this case so it doesn't mislead;
-     * the flag tells the agent the metric was unreliable for this page.
+     * True when extraction recovered more text than the raw byte counter
+     * counted (SPA hydration). The compression metric was unreliable for this page.
      */
     inflated: boolean;
   };
@@ -124,6 +137,13 @@ export interface FetchUrlHttpError {
   elapsed_ms?: number;
 }
 
+/** Internal result type — includes diagnostic fields used by batch aggregation. */
+export type FetchUrlResultInternal =
+  | FetchUrlOkInternal
+  | FetchUrlBlocked
+  | FetchUrlHttpError;
+
+/** Public wire result type — diagnostic fields stripped. */
 export type FetchUrlResult = FetchUrlOk | FetchUrlBlocked | FetchUrlHttpError;
 
 export interface FetchUrlContext {
@@ -302,7 +322,7 @@ function shouldRank(args: FetchUrlArgs, markdown: string): boolean {
 export async function runFetchUrl(
   args: FetchUrlArgs,
   ctx: FetchUrlContext
-): Promise<FetchUrlResult> {
+): Promise<FetchUrlResultInternal> {
   if (!args.url || typeof args.url !== "string") {
     throw new Error(
       'fetch_url requires a string `url` argument — call again with url:"https://example.com/path"'
@@ -374,10 +394,10 @@ export async function runFetchUrl(
 
   let markdown: string;
   let title: string;
-  let extractor: FetchUrlOk["extractor"];
+  let extractor: FetchUrlOkInternal["extractor"];
   let wordCount: number;
   const cacheHit = false;
-  const diff: FetchUrlOk["diff"] = undefined;
+  const diff: FetchUrlOkInternal["diff"] = undefined;
   let meta: ExtractedMeta;
 
   {
@@ -517,7 +537,7 @@ export async function runFetchUrl(
       rule_applied: hostRule?.host ?? null,
       inflated: rawBytes > 0 && compressedBytes >= rawBytes,
     },
-  };
+  } satisfies FetchUrlOkInternal;
 }
 
 // ── Bulk (multi-URL) fetch ────────────────────────────────────────────
@@ -536,10 +556,7 @@ export interface FetchUrlBatchSource {
   status: number;
   result_status: "ok" | "blocked" | "http_error";
   title: string;
-  extractor?: FetchUrlOk["extractor"];
   word_count?: number;
-  extracted_tokens?: number;
-  cache_hit?: boolean;
   /** Failure reason for blocked / http_error sources; absent on ok. */
   error?: string;
 }
@@ -552,34 +569,24 @@ export interface FetchUrlBatchPassage {
   source_url: string;
   heading: string | null;
   text: string;
-  start_line: number;
 }
 
 export interface FetchUrlBatchOk {
   result_status: "ok";
-  mode: "batch";
-  /** Echoed shared prompt (null when none was passed). */
-  query: string | null;
   sources: FetchUrlBatchSource[];
   /** Globally BM25-ranked across all OK pages (or round-robin by source when
    *  no prompt), then paginated by offset/limit. */
   passages: FetchUrlBatchPassage[];
   total: number;
-  returned: number;
   more_available: number;
   truncated: boolean;
   fetched: number;
   ok: number;
   failed: number;
-  raw_tokens_total: number;
-  extracted_tokens_total: number;
-  compression_ratio: number;
 }
 
 export interface FetchUrlBatchError {
   result_status: "batch_error";
-  mode: "batch";
-  query: string | null;
   /** Every URL's failure row, so the agent sees why each one failed. */
   sources: FetchUrlBatchSource[];
   fetched: number;
@@ -607,9 +614,9 @@ interface BatchFetchFailure {
  *  failure sentinel on timeout instead of rejecting, so one slow host never
  *  sinks the batch. The underlying fetch keeps its own per-attempt timeout. */
 function raceBatchDeadline(
-  p: Promise<FetchUrlResult>,
+  p: Promise<FetchUrlResultInternal>,
   ms: number
-): Promise<FetchUrlResult | BatchFetchFailure> {
+): Promise<FetchUrlResultInternal | BatchFetchFailure> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
@@ -647,9 +654,11 @@ async function runBatchFetches(
   ctx: FetchUrlContext,
   concurrency: number,
   deadlineMs: number
-): Promise<Array<FetchUrlResult | BatchFetchFailure>> {
+): Promise<Array<FetchUrlResultInternal | BatchFetchFailure>> {
   const deadline = Date.now() + deadlineMs;
-  const out = new Array<FetchUrlResult | BatchFetchFailure>(urls.length);
+  const out = new Array<FetchUrlResultInternal | BatchFetchFailure>(
+    urls.length
+  );
   let cursor = 0;
   const worker = async (): Promise<void> => {
     for (;;) {
@@ -757,10 +766,6 @@ export async function runFetchUrlBatch(
   //    with a globally-unique index so cross-page BM25 dedup is correct.
   const sources: FetchUrlBatchSource[] = [];
   const merged: SourcedPassage[] = [];
-  let rawBytesTotal = 0;
-  let extractedBytesTotal = 0;
-  let rawTokensTotal = 0;
-  let extractedTokensTotal = 0;
   let okCount = 0;
   let globalIndex = 0;
 
@@ -768,10 +773,6 @@ export async function runFetchUrlBatch(
     const r = settled[sourceIndex];
     if (r && r.result_status === "ok") {
       okCount++;
-      rawBytesTotal += r.raw_bytes;
-      extractedBytesTotal += r.extracted_bytes;
-      rawTokensTotal += r.raw_tokens;
-      extractedTokensTotal += r.extracted_tokens;
       sources.push({
         source_index: sourceIndex,
         url: r.url,
@@ -779,10 +780,7 @@ export async function runFetchUrlBatch(
         status: r.status,
         result_status: "ok",
         title: r.title,
-        extractor: r.extractor,
         word_count: r.word_count,
-        extracted_tokens: r.extracted_tokens,
-        cache_hit: r.cache_hit,
       });
       for (const p of r.passages) {
         merged.push({
@@ -831,8 +829,6 @@ export async function runFetchUrlBatch(
   if (okCount === 0) {
     return {
       result_status: "batch_error",
-      mode: "batch",
-      query,
       sources,
       fetched: deduped.length,
       ok: 0,
@@ -880,25 +876,18 @@ export async function runFetchUrlBatch(
     source_url: p.sourceUrl,
     heading: p.heading,
     text: p.text,
-    start_line: p.startLine,
   }));
 
   return {
     result_status: "ok",
-    mode: "batch",
-    query,
     sources,
     passages,
     total,
-    returned,
     more_available: moreAvailable,
     truncated: moreAvailable > 0,
     fetched: deduped.length,
     ok: okCount,
     failed: deduped.length - okCount,
-    raw_tokens_total: rawTokensTotal,
-    extracted_tokens_total: extractedTokensTotal,
-    compression_ratio: safeCompressionRatio(rawBytesTotal, extractedBytesTotal),
   };
 }
 
@@ -921,6 +910,34 @@ function invalidFetchRequest(
   suggestion: string
 ): FetchUrlInvalidRequest {
   return { result_status: "invalid_request", error, suggestion };
+}
+
+/**
+ * Strips diagnostic keys from a single-URL ok result before it reaches the
+ * agent. Internal computation (batch aggregation, telemetry) reads the full
+ * FetchUrlOkInternal shape; this helper is applied only at the public
+ * dispatch boundary in runFetchUrlRequest, after all internal use.
+ */
+function stripFetchUrlWireNoise(r: FetchUrlOkInternal): FetchUrlOk {
+  return {
+    result_status: r.result_status,
+    final_url: r.final_url,
+    title: r.title,
+    published_at: r.published_at,
+    author: r.author,
+    site_name: r.site_name,
+    word_count: r.word_count,
+    passages: r.passages.map((p) => ({
+      index: p.index,
+      heading: p.heading,
+      text: p.text,
+    })),
+    total: r.total,
+    quality: {
+      playwright_rescued: r.quality.playwright_rescued,
+      inflated: r.quality.inflated,
+    },
+  };
 }
 
 /**
@@ -980,7 +997,9 @@ export async function runFetchUrlRequest(
       'Pass url:"https://..." for one page, or urls:[...] for several in one roundtrip.'
     );
   }
-  return runFetchUrl({ url: args.url, ...shared }, ctx);
+  const result = await runFetchUrl({ url: args.url, ...shared }, ctx);
+  if (result.result_status === "ok") return stripFetchUrlWireNoise(result);
+  return result;
 }
 
 export { safeCompressionRatio } from "./compression-ratio.js";

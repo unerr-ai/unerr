@@ -16,7 +16,8 @@ type HookEvent =
   | "PostToolUse"
   | "UserPromptSubmit"
   | "SessionStart"
-  | "Stop";
+  | "Stop"
+  | "SubagentStop";
 
 /**
  * Resolve the absolute path to the `unerr` binary.
@@ -156,6 +157,9 @@ function buildGlobalHooks(): { event: HookEvent; command: string }[] {
     // Stop — surface the close-out economy line at turn end (replaces the
     // agent calling unerr_turn_summary and pasting the result).
     { event: "Stop", command: `${bin} hook stop` },
+    // SubagentStop — same receipt as Stop but without the master-only leak
+    // detector, so sub-agents sharing the master's cwd don't false-fire it.
+    { event: "SubagentStop", command: `${bin} hook subagent-stop` },
   ];
 }
 
@@ -219,6 +223,7 @@ export function mergePreToolUseBashHook(cwd: string): MergePreToolResult {
       "UserPromptSubmit",
       "SessionStart",
       "Stop",
+      "SubagentStop",
     ] as HookEvent[]) {
       if (Array.isArray(hooks[eventType])) {
         hooks[eventType] = (hooks[eventType] as unknown[]).filter(
@@ -279,84 +284,88 @@ export function mergePreToolUseBashHook(cwd: string): MergePreToolResult {
  * Returns true if any entries were removed.
  */
 /**
- * S8: Built-in tools to deny when --force-tools is active.
- * These tools have unerr MCP equivalents (file_read, search_code, file_outline).
+ * Built-in tools unerr added to `permissions.deny` in past versions.
+ * `permissions.deny` is a DEAD-END block: Claude Code refuses the tool with a
+ * generic error that names no alternative, so the model falls back to `Bash`
+ * (`grep`/`rg`/`find`) — the deny diverts a blocked code search to bash instead
+ * of to `search_code`. Redirection is handled instead by the PreToolUse
+ * pre-grep/pre-glob/pre-read hooks (their deny-once reason NAMES the unerr tool,
+ * e.g. `search_code(...)`) plus the injected instruction. So unerr now denies
+ * NOTHING at the permission layer and only strips these legacy entries.
  */
-const DISALLOWED_TOOLS = ["Grep", "Glob"];
+const LEGACY_UNERR_DENIES = ["Read", "Grep", "Glob"];
 
 /**
- * S8: Add `permissions.deny` entries to `.claude/settings.json`.
- * Denies Read, Grep, Glob when unerr MCP tools are confirmed available.
+ * Reconcile `.claude/settings.json` `permissions.deny`: strip any legacy
+ * unerr-added entries (Read / Grep / Glob) and add nothing. A force-deny of
+ * Grep/Glob sends blocked searches to bash, not to `search_code`; the
+ * redirecting PreToolUse hooks + instruction do the steering now.
  *
- * Called by default on `unerr install claude-code`. Opt out with `--no-force-tools`.
- * Idempotent — skips tools already denied.
+ * Called by default on `unerr install claude-code`. Idempotent.
+ * @sem domain=agent-instruction
  */
 export function addDisallowedTools(cwd: string): {
   added: number;
+  removed: number;
   path: string;
 } {
   const dir = join(cwd, ".claude");
   const settingsPath = join(dir, "settings.json");
 
   try {
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+    if (!existsSync(settingsPath)) {
+      // Nothing to reconcile — unerr no longer writes a deny list, so a fresh
+      // repo needs no settings.json touch for permissions.
+      return { added: 0, removed: 0, path: settingsPath };
     }
 
     let settings: Record<string, unknown> = {};
-    if (existsSync(settingsPath)) {
-      try {
-        settings = JSON.parse(readFileSync(settingsPath, "utf-8")) as Record<
-          string,
-          unknown
-        >;
-      } catch {
-        settings = {};
-      }
+    try {
+      settings = JSON.parse(readFileSync(settingsPath, "utf-8")) as Record<
+        string,
+        unknown
+      >;
+    } catch {
+      return { added: 0, removed: 0, path: settingsPath };
     }
 
-    const permissions = (settings.permissions as Record<string, unknown>) ?? {};
-    const deny = Array.isArray(permissions.deny)
-      ? [...(permissions.deny as string[])]
-      : [];
-
-    // Migration: remove "Read" if it was previously denied by unerr
-    // (Read is needed for the Edit workflow — deny breaks native editing across all agents)
-    const readIdx = deny.indexOf("Read");
-    if (readIdx >= 0) {
-      deny.splice(readIdx, 1);
+    const permissions = settings.permissions as
+      | Record<string, unknown>
+      | undefined;
+    if (!permissions || !Array.isArray(permissions.deny)) {
+      return { added: 0, removed: 0, path: settingsPath };
     }
 
-    let added = 0;
-    for (const tool of DISALLOWED_TOOLS) {
-      if (!deny.includes(tool)) {
-        deny.push(tool);
-        added++;
-      }
+    const before = (permissions.deny as string[]).length;
+    permissions.deny = (permissions.deny as string[]).filter(
+      (tool: string) => !LEGACY_UNERR_DENIES.includes(tool)
+    );
+    const removed = before - (permissions.deny as string[]).length;
+
+    if (removed === 0) {
+      return { added: 0, removed: 0, path: settingsPath };
     }
 
-    if (added === 0) {
-      return { added: 0, path: settingsPath };
-    }
-
-    permissions.deny = deny;
-    settings.permissions = permissions;
+    // Clean up empty deny array / permissions object so we don't leave noise.
+    if ((permissions.deny as string[]).length === 0)
+      Reflect.deleteProperty(permissions, "deny");
+    if (Object.keys(permissions).length === 0)
+      Reflect.deleteProperty(settings, "permissions");
 
     writeFileSync(
       settingsPath,
       `${JSON.stringify(settings, null, 2)}\n`,
       "utf-8"
     );
-    return { added, path: settingsPath };
+    return { added: 0, removed, path: settingsPath };
   } catch {
-    return { added: 0, path: settingsPath };
+    return { added: 0, removed: 0, path: settingsPath };
   }
 }
 
 /**
- * S8: Remove unerr-added `permissions.deny` entries from `.claude/settings.json`.
- * Removes Read, Grep, Glob from deny list.
- * Returns true if any entries were removed.
+ * Remove any legacy unerr-added `permissions.deny` entries (Read / Grep / Glob)
+ * from `.claude/settings.json`. Returns true if any entries were removed.
  */
 export function removeDisallowedTools(cwd: string): boolean {
   const settingsPath = join(cwd, ".claude", "settings.json");
@@ -374,7 +383,7 @@ export function removeDisallowedTools(cwd: string): boolean {
 
     const before = (permissions.deny as string[]).length;
     permissions.deny = (permissions.deny as string[]).filter(
-      (tool: string) => !DISALLOWED_TOOLS.includes(tool)
+      (tool: string) => !LEGACY_UNERR_DENIES.includes(tool)
     );
     const removed = before - (permissions.deny as string[]).length;
 
@@ -416,6 +425,7 @@ export function removePreToolUseBashHook(cwd: string): boolean {
       "UserPromptSubmit",
       "SessionStart",
       "Stop",
+      "SubagentStop",
     ];
 
     for (const eventType of eventTypes) {

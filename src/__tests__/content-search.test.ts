@@ -35,7 +35,7 @@ describe("scanFilesForPattern (Issue 2 content search)", () => {
       mode: "literal",
       query: "retry",
     });
-    expect(r.match_count).toBe(3); // a.ts:1, a.ts:2, b.ts:2
+    expect(r.matches.length).toBe(3); // a.ts:1, a.ts:2, b.ts:2
     expect(r.files_scanned).toBe(2);
     const first = r.matches[0];
     expect(first).toBeDefined();
@@ -54,7 +54,7 @@ describe("scanFilesForPattern (Issue 2 content search)", () => {
       query: "a.b",
     });
     // Only the literal 'a.b' line matches; 'axb' would match if '.' were a wildcard.
-    expect(r.match_count).toBe(1);
+    expect(r.matches.length).toBe(1);
     expect(r.matches[0]?.line).toBe(1);
   });
 
@@ -66,7 +66,7 @@ describe("scanFilesForPattern (Issue 2 content search)", () => {
       query: "a.b",
     });
     // '.' is a wildcard → both lines match.
-    expect(r.match_count).toBe(2);
+    expect(r.matches.length).toBe(2);
   });
 
   it("returns an honest error for an invalid regex, never throws", () => {
@@ -76,7 +76,7 @@ describe("scanFilesForPattern (Issue 2 content search)", () => {
       query: "(unclosed",
     });
     expect(r.error).toMatch(/invalid regex/);
-    expect(r.match_count).toBe(0);
+    expect(r.matches.length).toBe(0);
   });
 
   it("caps total matches and marks truncated", () => {
@@ -90,7 +90,7 @@ describe("scanFilesForPattern (Issue 2 content search)", () => {
       query: "match",
       limit: 5,
     });
-    expect(r.match_count).toBe(5);
+    expect(r.matches.length).toBe(5);
     expect(r.truncated).toBe(true);
   });
 
@@ -105,7 +105,7 @@ describe("scanFilesForPattern (Issue 2 content search)", () => {
       query: "hit",
       maxPerFile: 3,
     });
-    expect(r.match_count).toBe(3);
+    expect(r.matches.length).toBe(3);
   });
 
   it("caps total context bytes to avoid flooding context", () => {
@@ -121,7 +121,7 @@ describe("scanFilesForPattern (Issue 2 content search)", () => {
     });
     expect(r.truncated).toBe(true);
     // Far fewer than 100 matches because the byte cap stops collection early.
-    expect(r.match_count).toBeLessThan(20);
+    expect(r.matches.length).toBeLessThan(20);
   });
 
   it("empty query returns an error, not a scan", () => {

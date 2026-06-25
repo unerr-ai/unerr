@@ -56,6 +56,16 @@ export interface SkillDefinition {
   whenToUse?: string;
   /** Optional Claude Code `allowed-tools:` frontmatter — tool allow-list */
   allowedTools?: string;
+  /**
+   * When true this is an OPT-IN skill: NOT installed by default and NOT
+   * self-advertised. A user installs it explicitly with `unerr skill install
+   * <id>`; the opt-in set is persisted per-repo (src/skills/skill-opt-in.ts) and
+   * folded into the install + self-heal expected set. The rigid lifecycle skills
+   * (exploration / build-and-debug / test-and-review / review / delegate) are
+   * opt-in — they prescribe a multi-step workflow that suits a guarded
+   * development setup, not the default loose tool-pushing posture.
+   */
+  optIn?: boolean;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -70,9 +80,9 @@ export const USING_UNERR_SKILL: SkillDefinition = {
   id: "using-unerr",
   name: "Using unerr (orchestrator)",
   description:
-    "MANDATORY when starting ANY non-trivial coding task (implement / fix / refactor / build / debug / find / test). Dispatches to a workflow sub-skill, or runs the default edit workflow when none matches. STEP-1: invoke Skill('unerr-using-unerr') BEFORE drafting code. The orchestrator decides — do NOT skip on the assumption that the task is small.",
+    "Always on. For anything that reads, searches, or edits code, reach for unerr's graph tools first (search_code / get_references / file_read / file_edit), and delegate the work to unerr sub-agents by default — the main thread plans, routes, and consolidates while 2-3 sub-agents run the slices. Guidance toward the tools and capabilities, not a workflow — there are no fixed steps to run.",
   whenToUse:
-    "Before any non-trivial code action — implement, fix, refactor, build, debug, design, add new, modify, change, find, search, test, TDD, callers, references. Also when a hook emits `ur|act unerr-using-unerr`.",
+    "Any code action — read, search, edit, find callers/references, or fan the delegable slices out to sub-agents (the default execution mode, not an occasional offload). Reach for unerr's tools first; this skill points at the tools, it does not prescribe a procedure.",
   allowedTools: "*",
   instructions: loadContent("skill:using-unerr"),
   category: "workflow",
@@ -105,6 +115,7 @@ export const EXPLORATION_SKILL: SkillDefinition = {
   instructions: loadContent("skill:exploration"),
   category: "navigation",
   trigger: { type: "agent-requested" },
+  optIn: true,
   tools: ["search_code", "get_references", "file_outline", "file_read"],
   version: "1.0.0",
 };
@@ -136,6 +147,7 @@ export const BUILD_AND_DEBUG_SKILL: SkillDefinition = {
   instructions: loadContent("skill:build-and-debug"),
   category: "workflow",
   trigger: { type: "agent-requested" },
+  optIn: true,
   tools: ["search_code", "get_references", "file_read", "unerr_track"],
   version: "1.0.0",
 };
@@ -157,6 +169,7 @@ export const TEST_AND_REVIEW_SKILL: SkillDefinition = {
   instructions: loadContent("skill:test-and-review"),
   category: "workflow",
   trigger: { type: "agent-requested" },
+  optIn: true,
   tools: ["search_code", "get_references", "file_read", "unerr_track"],
   version: "1.0.0",
 };
@@ -185,6 +198,7 @@ export const REVIEW_SKILL: SkillDefinition = {
   instructions: loadContent("skill:review"),
   category: "workflow",
   trigger: { type: "agent-requested" },
+  optIn: true,
   tools: ["search_code", "get_references", "file_read", "unerr_track"],
   version: "1.0.0",
 };
@@ -200,17 +214,18 @@ export const DELEGATE_SKILL: SkillDefinition = {
   id: "delegate",
   name: "Delegate (cheaper-model handoff)",
   description:
-    "Use when the task is a delegable class — add/improve tests, docstring + @sem maintenance, mechanical refactor (rename/extract/inline/move), lint/format fixup, or read-only recon (find out / trace / investigate X) — AND the host supports delegation (Claude Code / Codex / Cursor / GitHub Copilot CLI). Builds a recon brief, PARTITIONS it into disjoint groups, and spawns one cheaper-model worker per group in parallel, routed by difficulty: tests/mechanical_refactor → WORKER model (Claude `unerr-worker` sub-agent / `codex exec -m " +
+    "Use when the task is a delegable class — add/improve tests, docstring + @sem maintenance, mechanical refactor (rename/extract/inline/move), lint/format fixup, read-only recon (find out / trace / investigate X), caller/import propagation (update every call site + import after a signature change), typecheck/build-error fixes (fix tsc/build errors mechanically, re-run until green), scaffold (generate a new file's skeleton from a sibling template), verify-runs (run typecheck + targeted tests + lint, return the failure list — no edits), or shell-command runs (run a sequence of build/script/migration/setup commands, report the output) — AND the host supports delegation (Claude Code / Codex / Cursor / GitHub Copilot CLI). Builds a recon brief, PARTITIONS it into disjoint groups, and spawns one cheaper-model worker per group in parallel, routed by difficulty: tests/mechanical_refactor/caller_propagation/typecheck_fix/scaffold → WORKER model (Claude `unerr-worker` sub-agent / `codex exec -m " +
     CODEX_WORKER_MODEL +
-    "`), lint/docs/recon → JUNIOR model (Claude `unerr-junior` sub-agent / `codex exec -m " +
+    "`), lint/docs/recon/verify/shell-command → JUNIOR model (Claude `unerr-junior` sub-agent / `codex exec -m " +
     CODEX_JUNIOR_MODEL +
     "`). Then reviews each diff. The senior NEVER enumerates the edit sites — the graph does. If the host can't delegate, skip this skill and run the normal lifecycle skill.",
   whenToUse:
-    "A delegable task on a delegation-capable host: add tests, write a unit/integration test, improve test coverage, add/update a docstring or @sem comment, rename/extract/inline/move a symbol, fix lint/format, or a read-only investigation (find out / trace / investigate X). Also when a hook emits `ur|act unerr-delegate`. Not for design, new features, or bug root-causing — those stay with the senior.",
+    "A delegable task on a delegation-capable host: add tests, write a unit/integration test, improve test coverage, add/update a docstring or @sem comment, rename/extract/inline/move a symbol, fix lint/format, propagate call-site + import changes after a signature edit, fix tsc/build errors, scaffold a new file from a sibling template, run typecheck + tests + lint and return failures (no edits), run a sequence of build/script/migration/setup commands, or a read-only investigation (find out / trace / investigate X). Also when a hook emits `ur|act unerr-delegate`. Not for design, new features, or bug root-causing — those stay with the senior.",
   allowedTools: "*",
   instructions: loadContent("skill:delegate"),
   category: "workflow",
   trigger: { type: "agent-requested" },
+  optIn: true,
   tools: ["search_code", "get_references", "file_read"],
   version: "1.0.0",
 };
@@ -233,27 +248,51 @@ export const LOCAL_SKILLS: SkillDefinition[] = [
 ];
 
 /**
+ * Skills installed by DEFAULT — the loose, always-on tool-pushing skill only.
+ * Everything else is opt-in (see OPT_IN_SKILLS).
+ */
+export const DEFAULT_SKILLS: SkillDefinition[] = LOCAL_SKILLS.filter(
+  (s) => !s.optIn
+);
+
+/**
+ * OPT-IN skills — the rigid lifecycle workflows. NOT installed by default; a user
+ * adds them per-repo with `unerr skill install <id>` (persisted in
+ * src/skills/skill-opt-in.ts). They suit a guarded development setup that wants a
+ * prescribed multi-step procedure, not the default loose posture.
+ */
+export const OPT_IN_SKILLS: SkillDefinition[] = LOCAL_SKILLS.filter(
+  (s) => s.optIn
+);
+
+/** Bare ids (no `unerr-` prefix) of the opt-in skills, for command validation. */
+export const OPT_IN_SKILL_IDS: string[] = OPT_IN_SKILLS.map((s) => s.id);
+
+/** True when `id` (with or without the `unerr-` prefix) names an opt-in skill. */
+export function isOptInSkill(id: string): boolean {
+  const bare = id.replace(/^unerr-/, "");
+  return OPT_IN_SKILLS.some((s) => s.id === bare);
+}
+
+/**
  * Always-on + available skills for first-call session-context injection
  * (query-router injects this once per session). Only `trigger:'always'` skills
  * inject their full body — post-2026-06 that is just the orchestrator; the five
  * on-demand skills inject name+description only (progressive disclosure).
  */
 export function getSkillsContext(): Record<string, unknown> {
-  const alwaysOn = LOCAL_SKILLS.filter((s) => s.trigger.type === "always");
+  const alwaysOn = DEFAULT_SKILLS.filter((s) => s.trigger.type === "always");
   return {
     "dev.unerr/active_skills": alwaysOn.map((s) => ({
       id: s.id,
       name: s.name,
       instructions: s.instructions,
     })),
-    "dev.unerr/available_skills": LOCAL_SKILLS.filter(
-      (s) => s.trigger.type !== "always"
-    ).map((s) => ({
-      id: s.id,
-      name: s.name,
-      description: s.description,
-      trigger: s.trigger.type,
-    })),
+    // Opt-in skills are deliberately NOT advertised here: self-advertising made
+    // the agent auto-invoke their rigid workflows (extra tool calls). Once a user
+    // opts in with `unerr skill install <id>`, the host picks the skill up from
+    // its installed SKILL.md frontmatter — no MCP-injected catalog needed.
+    "dev.unerr/available_skills": [],
   };
 }
 

@@ -31,9 +31,12 @@ describe("BA-4.1: token-efficient guidance (folded into using-unerr)", () => {
   });
 
   it("includes ur|ctx rule", () => {
-    expect(USING_UNERR_SKILL.instructions).toContain("ur|ctx");
+    // New loose body: drift/conventions arrive as ur|<tag> lines — agent must read them.
+    // The old rigid "Re-read any file flagged `ur|ctx`" step is gone; the guidance
+    // now says they "arrive on their own as `ur|<tag>` lines. Read them."
+    expect(USING_UNERR_SKILL.instructions).toContain("ur|<tag>");
     expect(USING_UNERR_SKILL.instructions).toContain(
-      "Re-read any file flagged `ur|ctx` before editing"
+      "arrive on their own as `ur|<tag>` lines. Read them."
     );
   });
 

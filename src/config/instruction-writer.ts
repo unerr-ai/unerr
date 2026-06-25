@@ -100,22 +100,21 @@ Before any non-trivial change, call \`search_code\` with a TASK PHRASE (\`search
 
 Cross-repo (Pro): pass \`scope:'workspace'\` to query every registered sibling repo (results labeled by repo); \`get_references({scope:'workspace'})\` finds callers across repos; editing a path inside a sibling auto-routes to its graph.
 
-### Batch the work — one shot, not file-by-file (round-trips are the dollar cost)
+### Batch the work — one shot, not file-by-file (round-trips are the cost)
 
 A round-trip carries input + output + latency, so the win is doing N items in one pass, not N passes.
 
-1. **Bulk edits — climb this ladder, stop at the first rung that works:** (a) **one command for the whole set** — \`prettier --write .\`, a \`sed\`/codemod, a formatter, a build flag; run it once, not once per file. (b) **else one script** — write one small script that walks the files and makes the change in a single run. (c) **else a cheaper model in a loop** — hand the repetitive per-file edit to a sub-agent on a cheaper model (see below). NEVER do a frontier-model file-by-file loop — that is the most expensive way to do the cheapest work.
+1. **Bulk edits — climb this ladder, stop at the first rung that works:** (a) **one command for the whole set** — \`prettier --write .\`, a \`sed\`/codemod, a formatter, a build flag; run it once, not once per file. (b) **else one script** — write one small script that walks the files and makes the change in a single run. (c) **else a sub-agent loop** — hand the repetitive per-file edit to a sub-agent so it runs off your main thread (see below). NEVER loop your main thread file-by-file over mechanical edits — spawn sub-agents instead.
 2. **Batch independent reads into ONE message.** When you need several files or several entities and the calls don't depend on each other, issue them as parallel tool calls in a single message — not one, wait, next. Better still, one \`search_code({query:"<task>"})\` recon bundle already returns several files' bodies + callers together; reach for it before fanning out \`file_read\`.
 3. **Set \`token_budget\`/\`limit\` right the first time.** Reading at a small budget then re-reading bigger doubles the cost. Ask for what the task needs up front (e.g. \`token_budget:3000\` for a full function, \`limit:25\` for references) instead of read-small-then-re-read.
 
-### Delegate down the tier ladder — senior · worker · junior
+### Delegate by default — the main thread routes and consolidates, sub-agents do the work
 
-You are the **senior** model. Spend yourself on judgement; push mechanical work to a cheaper tier and review the diff.
-- **senior** (you) — design, new interfaces, root-causing bugs, any edit where a wrong mechanical change hides a judgement call. Never delegated.
-- **worker** (mid, ~5× cheaper) — add/fix tests, multi-site mechanical refactors (rename / extract / inline / move).
-- **junior** (cheapest, ~15×) — lint/format, docstrings/\`@sem\`, read-only recon ("find / trace / investigate X").
+Treat sub-agents as the primary way work gets done, not an occasional offload. On any non-trivial turn the main thread is a routing-and-consolidation layer: plan the change, split off its delegable slices, hand each to a sub-agent, then review and integrate the returned diffs. Aim for 2-3 sub-agents running in parallel on a substantive turn. What stays on the main thread is narrow: design, cross-cutting wiring, and bug root-causing — everything else is a slice to delegate:
+- \`Task({subagent_type:'unerr-junior', …})\` — read-only investigation ("find / trace / map X"), lint/format, docstrings/\`@sem\`, verify-runs (run typecheck + targeted tests + lint, return the failure list — no edits), shell-command runs (run a sequence of build/script/migration/setup commands, report the output).
+- \`Task({subagent_type:'unerr-worker', …})\` — add/improve tests, multi-site mechanical refactors (rename / extract / inline / move), caller/import propagation (update every call site + import after a signature change), typecheck/build-error fixes (fix tsc/build errors mechanically, re-run until green), scaffold (generate a new file's skeleton from a sibling template).
 
-When a sub-task is mechanical and check-verifiable, invoke \`Skill('unerr-delegate')\`: it groups the work, picks the tier by class (tests/refactor → worker, lint/docs/recon → junior), and spawns disjoint groups in parallel on the cheap tier. The sub-agents get the full graph tools — they re-derive edit sites from \`search_code\`/\`get_references\`, so never paste code or a list of files into their prompt. NEVER loop the senior model file-by-file over mechanical edits.
+Group related work first, then spawn one sub-agent per independent group in a SINGLE message so they run in parallel. The sub-agents have the full graph tools — they re-derive the edit sites from \`search_code\` / \`get_references\`, so give them the task plus a one-line pointer, never pasted code or a list of files. Review each result before building on it. (Hosts without sub-agents — anything other than Claude Code / Codex / Cursor / Copilot CLI — do it inline.)
 
 ### Signals — \`ur|<tag>\` lines on tool responses
 

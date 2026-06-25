@@ -256,7 +256,7 @@ describe("readCursorTranscript", () => {
   });
 
   it("reads conversation_summaries from a read-only telemetry DB", async () => {
-    const { default: Database } = await import("better-sqlite3");
+    const { DatabaseSync: Database } = await import("node:sqlite");
     const dbPath = join(home, "ai-code-tracking.db");
     // Write the fixture with a normal (writable) connection, then close it so
     // the reader opens its own read-only connection.
@@ -316,7 +316,7 @@ describe("readCursorTranscript", () => {
   });
 
   it("returns [] when the expected table is absent", async () => {
-    const { default: Database } = await import("better-sqlite3");
+    const { DatabaseSync: Database } = await import("node:sqlite");
     const dbPath = join(home, "empty.db");
     const db = new Database(dbPath);
     db.exec("CREATE TABLE unrelated (x INTEGER);");
@@ -352,7 +352,7 @@ describe("readCursorStateVscdb", () => {
       bubbles: Array<{ bubbleId: string; data: Record<string, unknown> }>;
     }>
   ): Promise<void> {
-    const { default: Database } = await import("better-sqlite3");
+    const { DatabaseSync: Database } = await import("node:sqlite");
     const db = new Database(globalDbPath);
     db.exec("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT);");
     const insert = db.prepare(
@@ -555,7 +555,7 @@ describe("readCursorStateVscdb", () => {
   });
 
   it("returns [] when cursorDiskKV table is absent", async () => {
-    const { default: Database } = await import("better-sqlite3");
+    const { DatabaseSync: Database } = await import("node:sqlite");
     const db = new Database(globalDbPath);
     db.exec("CREATE TABLE unrelated (x INTEGER);");
     db.close();

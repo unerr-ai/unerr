@@ -29,7 +29,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { renderInlineBlastRadius } from "../../intelligence/edit-impact.js";
 import { handleBlastRadiusRequest } from "../../proxy/blast-radius-protocol.js";
 import { resolveWithHome } from "../../utils/expand-home.js";
@@ -70,6 +70,86 @@ function emitDiffOutOfBand(cwd: string, diff: string): void {
   }
 }
 
+/** Local-only spool for user-visible diffs. Lives under `.unerr/state/` —
+ *  NOT `.unerr/events/` (which the cloud push-reporter drains). Raw source
+ *  must never leave the machine (HR-2). */
+const EDIT_DISPLAY_SPOOL = "edit-display.jsonl";
+const EDIT_DISPLAY_CAP = 50;
+
+/** Spool an edit diff entry for the post-edit hook to display to the user.
+ *  Appends `{ts, file, diff}` to `.unerr/state/edit-display.jsonl`, capped
+ *  at {@link EDIT_DISPLAY_CAP} entries (oldest dropped). Best-effort: never
+ *  throws into the edit path. Gated off under VITEST like emitDiffOutOfBand. */
+function spoolEditDisplay(cwd: string, file: string, diff: string): void {
+  if (process.env.VITEST) return;
+  try {
+    const stateDir = join(cwd, ".unerr", "state");
+    mkdirSync(stateDir, { recursive: true });
+    const spoolPath = join(stateDir, EDIT_DISPLAY_SPOOL);
+    const entry = JSON.stringify({ ts: new Date().toISOString(), file, diff });
+
+    // Read existing entries, keep last (CAP-1), append new one.
+    let lines: string[] = [];
+    if (existsSync(spoolPath)) {
+      lines = readFileSync(spoolPath, "utf-8")
+        .split("\n")
+        .filter((l) => l.trim().length > 0);
+    }
+    lines.push(entry);
+    if (lines.length > EDIT_DISPLAY_CAP) {
+      lines = lines.slice(lines.length - EDIT_DISPLAY_CAP);
+    }
+    writeFileSync(spoolPath, `${lines.join("\n")}\n`, "utf-8");
+  } catch {
+    /* spool is never load-bearing */
+  }
+}
+
+/** Read and consume (remove) the latest spool entry matching `file`.
+ *  Returns the diff string, or null if no matching entry exists. Best-effort. */
+export function consumeSpooledDiff(cwd: string, file: string): string | null {
+  try {
+    const spoolPath = join(cwd, ".unerr", "state", EDIT_DISPLAY_SPOOL);
+    if (!existsSync(spoolPath)) return null;
+    const lines = readFileSync(spoolPath, "utf-8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0);
+    // Find the last entry matching this file.
+    let matchIdx = -1;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const row = JSON.parse(lines[i] ?? "") as {
+          file?: string;
+          diff?: string;
+        };
+        // Normalize both paths against cwd so relative ("src/foo.ts") and
+        // absolute ("/repo/src/foo.ts") keys match each other.
+        if (
+          typeof row.file === "string" &&
+          resolve(cwd, row.file) === resolve(cwd, file)
+        ) {
+          matchIdx = i;
+          break;
+        }
+      } catch {
+        /* malformed line — skip */
+      }
+    }
+    if (matchIdx === -1) return null;
+    const row = JSON.parse(lines[matchIdx] ?? "") as { diff?: string };
+    // Remove the consumed entry.
+    lines.splice(matchIdx, 1);
+    writeFileSync(
+      join(cwd, ".unerr", "state", EDIT_DISPLAY_SPOOL),
+      lines.length > 0 ? `${lines.join("\n")}\n` : "",
+      "utf-8"
+    );
+    return typeof row.diff === "string" ? row.diff : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Whole-file create/overwrite (content mode). Preserves an existing file's
  * encoding + line ending; a new file gets UTF-8 / LF. Parent dirs are created.
@@ -96,6 +176,16 @@ function writeWholeFile(
 
   const restored = restoreNewlines(content.replace(/\r\n/g, "\n"), lineEnding);
   writeFileSync(filePath, encodeFile(restored, encoding, hadBom));
+
+  // Spool a first-10-lines preview for the post-edit display hook.
+  const previewLines = content.split("\n").slice(0, 10);
+  const previewDiff = [
+    `--- ${filePath}`,
+    `+++ ${filePath}`,
+    `@@ -1,0 +1,${previewLines.length} @@`,
+    ...previewLines.map((l) => `+${l}`),
+  ].join("\n");
+  spoolEditDisplay(cwd, filePath, previewDiff);
 
   const lineCount = content.split("\n").length;
   const rel = toRepoRelative(cwd, filePath);
@@ -169,10 +259,15 @@ function replaceInFile(
     encodeFile(restored, decoded.encoding, decoded.hadBom)
   );
 
-  emitDiffOutOfBand(
-    cwd,
-    renderEditDiff(filePath, normContent, normOld, normNew, result.indices)
+  const renderedDiff = renderEditDiff(
+    filePath,
+    normContent,
+    normOld,
+    normNew,
+    result.indices
   );
+  emitDiffOutOfBand(cwd, renderedDiff);
+  spoolEditDisplay(cwd, filePath, renderedDiff);
 
   // Line deltas + the changed line ranges, both for the end-of-turn receipt.
   const removed = normOld.split("\n").length * result.replaced;
@@ -194,7 +289,6 @@ function replaceInFile(
     metadata: {
       replaced: result.replaced,
       new_hash: newHash,
-      normalized_match: result.normalized,
       edit_summary: {
         file: rel,
         mode: "edit",

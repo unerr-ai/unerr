@@ -155,3 +155,101 @@ describe("classifyDelegable precision gate (real false positives)", () => {
     expect(classifyDelegable("the unit test suite is slow").class).toBe("none");
   });
 });
+
+describe("classifyDelegable — four new delegable classes", () => {
+  it("flags caller/import propagation", () => {
+    for (const p of [
+      "update all callers of fetchUser",
+      "update the imports after the move",
+      "fix the callers to match the new signature",
+      "propagate the change to every call site",
+      "fix broken imports in the handlers",
+      // natural phrasing with "all the" between verb and noun must still match
+      "I changed the signature of readNudgeState — update all the callers and imports to match",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("caller_propagation");
+      expect(classifyDelegable(p).delegable, p).toBe(true);
+    }
+  });
+
+  it("flags typecheck/build error fixes", () => {
+    for (const p of [
+      "fix the type errors in the drainer",
+      "fix the build error after the rename",
+      "make it compile",
+      "fix the tsc error in proxy.ts",
+      "make it typecheck",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("typecheck_fix");
+      expect(classifyDelegable(p).delegable, p).toBe(true);
+    }
+  });
+
+  it("flags scaffold/boilerplate generation", () => {
+    for (const p of [
+      "scaffold a new command file",
+      "add boilerplate for the new handler",
+      "stub out the new drainer module",
+      "create a skeleton for the test file",
+      "add a barrel file for the exports",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("scaffold");
+      expect(classifyDelegable(p).delegable, p).toBe(true);
+    }
+  });
+
+  it("flags verify (run-check) prompts", () => {
+    for (const p of [
+      "run the tests and report failures",
+      "run typecheck and show the errors",
+      "run the build",
+      "run tsc on the project",
+      "make sure it compiles",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("verify");
+      expect(classifyDelegable(p).delegable, p).toBe(true);
+    }
+  });
+
+  it("flags command_run (general shell-command execution)", () => {
+    for (const p of [
+      "run these commands",
+      "run the following commands and report output",
+      "execute these commands",
+      "run the script",
+      "run the migrations",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("command_run");
+      expect(classifyDelegable(p).delegable, p).toBe(true);
+    }
+  });
+
+  it("precedence: verify (check-phrase) wins over command_run ('run the tests' is verify, not command_run)", () => {
+    // "run the tests" matches VERIFY_SIGNALS, not COMMAND_RUN_SIGNALS alone.
+    expect(classifyDelegable("run the tests").class).toBe("verify");
+    expect(classifyDelegable("run the tests and show failures").class).toBe(
+      "verify"
+    );
+  });
+
+  it("precedence: rename wins over caller_propagation ('rename X and update all callers')", () => {
+    // mechanical_refactor signals ('rename') rank above caller_propagation in the classifier.
+    expect(
+      classifyDelegable("rename getUser to fetchUser and update all callers")
+        .class
+    ).toBe("mechanical_refactor");
+  });
+
+  it("precision: 'fix the bug in auth' is none — no type/build/compile noun", () => {
+    // Plain bug-fix needs root-cause judgement; typecheck_fix requires an explicit
+    // type/build/compile noun which this prompt lacks.
+    expect(classifyDelegable("fix the bug in the auth flow").class).toBe(
+      "none"
+    );
+  });
+
+  it("precision: 'verify the build passes' is none — META_SIGNALS vetoes 'verify'", () => {
+    // 'verify' is in META_SIGNALS; isNonTaskMention fires before class matching.
+    expect(classifyDelegable("verify the build passes").class).toBe("none");
+  });
+});

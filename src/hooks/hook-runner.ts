@@ -52,9 +52,10 @@ export type SessionStartMatcher = "startup" | "resume" | "clear" | "compact";
  */
 export interface HookResult {
   /** passthrough = no-op, nudge = advisory message, rewrite = change
-   *  input, enrich = add context, deny = block the tool call outright. */
-  action: "passthrough" | "nudge" | "rewrite" | "enrich" | "deny";
-  /** Advisory, enrichment, or deny reason (used by nudge + enrich + deny). */
+   *  input, enrich = add context, deny = block the tool call outright,
+   *  display = user-only systemMessage (never additionalContext). */
+  action: "passthrough" | "nudge" | "rewrite" | "enrich" | "deny" | "display";
+  /** Advisory, enrichment, or deny reason (used by nudge + enrich + deny + display). */
   message?: string;
   /** Rewritten tool input (used by rewrite). */
   updatedInput?: Record<string, unknown>;
@@ -414,6 +415,13 @@ export function enrich(message: string): HookResult {
  *  strongly-worded nudge. */
 export function deny(reason: string): HookResult {
   return { action: "deny", message: reason };
+}
+
+/** Create a display result — surfaces `message` to the USER ONLY via a
+ *  top-level `systemMessage` (Claude Code PostToolUse). Never enters the
+ *  model's context (no `additionalContext`). Non-claude adapters return "{}". */
+export function display(message: string): HookResult {
+  return { action: "display", message };
 }
 
 // ── Ambient PreToolUse injection (non-Claude-Code agents) ─────────────

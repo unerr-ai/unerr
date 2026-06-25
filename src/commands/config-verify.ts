@@ -82,8 +82,7 @@ export function checkIdeConfig(
     // Legacy: npx @unerr/unerr format (needs migration to direct binary)
     if (
       unerrServer.command === "npx" &&
-      (unerrServer.args?.includes("@unerr/unerr") ||
-        unerrServer.args?.includes("@unerr/unerr-mcp"))
+      unerrServer.args?.includes("@unerr/unerr")
     ) {
       issues.push(
         `${ideName}: using npx with unpublished package — should use direct 'unerr' binary`

@@ -76,6 +76,7 @@ function makeNamedEvent(overrides: Partial<NamedEvent> = {}): NamedEvent {
     file_path: overrides.file_path ?? "src/foo.ts",
     entity_key: overrides.entity_key ?? "src/foo.ts",
     session_id: overrides.session_id ?? "sess-1",
+    native_session_id: overrides.native_session_id ?? null,
     turn: overrides.turn ?? 1,
     ts: overrides.ts ?? "2026-05-21T10:00:00.000Z",
     metadata: overrides.metadata ?? {},

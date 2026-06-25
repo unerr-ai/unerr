@@ -86,13 +86,8 @@ describe("fetch_url pipeline", () => {
       expect(combined).not.toMatch(/<nav>/);
       expect(combined).not.toMatch(/<script/);
       expect(result.title.length).toBeGreaterThan(0);
-      expect(["defuddle", "readability", "raw-body"]).toContain(
-        result.extractor
-      );
       expect(result.word_count).toBeGreaterThan(20);
       expect(result.passages.length).toBeGreaterThan(0);
-      expect(result.compression_ratio).toBeGreaterThanOrEqual(0);
-      expect(result.compression_ratio).toBeLessThan(1);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -209,9 +204,9 @@ describe("fetch_url pipeline", () => {
         0
       );
       expect(fetchEvent?.compressed_bytes).toBe(deliveredBytes);
-      // Delivered is never larger than the full extraction it was sliced from.
+      // Delivered is never larger than what the telemetry row recorded.
       expect(fetchEvent?.compressed_bytes ?? 0).toBeLessThanOrEqual(
-        result.extracted_bytes
+        fetchEvent?.raw_bytes ?? Number.POSITIVE_INFINITY
       );
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -221,27 +216,21 @@ describe("fetch_url pipeline", () => {
   it("flows through applyWireCap with passages array shape", () => {
     const body = {
       result_status: "ok" as const,
-      url: "https://x",
       final_url: "https://x",
-      status: 200,
       title: "t",
-      extractor: "defuddle" as const,
+      published_at: null,
+      author: null,
+      site_name: null,
       word_count: 10,
-      raw_bytes: 1000,
-      extracted_bytes: 200,
-      compression_ratio: 0.8,
-      cache_hit: false,
       passages: Array.from({ length: 100 }, (_, i) => ({
         index: i,
         heading: null,
         text: `passage ${i}`,
-        start_line: i + 1,
       })),
       total: 100,
       quality: {
         playwright_rescued: false,
-        bm25_ranked: false,
-        rule_applied: null,
+        inflated: false,
       },
     };
     const capped = applyWireCap("fetch_url", body, { limit: 5 });
@@ -344,8 +333,6 @@ describe("fetch_url pipeline", () => {
       }
       expect(result.quality).toBeDefined();
       expect(result.quality.playwright_rescued).toBe(false);
-      expect(result.quality.bm25_ranked).toBe(false);
-      expect(result.quality.rule_applied).toBeNull();
       expect(result.quality.inflated).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
@@ -398,9 +385,9 @@ describe("fetch_url pipeline", () => {
       if (result.result_status !== "ok") {
         throw new Error(`expected ok, got ${result.result_status}`);
       }
-      expect(result.raw_bytes).toBeGreaterThan(ssrPayload.length / 4);
-      expect(result.compression_ratio).toBeGreaterThanOrEqual(0);
-      expect(result.compression_ratio).toBeLessThan(1);
+      // SPA page delivers at least some passages (SSR data extracted by Defuddle)
+      expect(result.passages.length).toBeGreaterThan(0);
+      expect(result.quality.inflated).toBeDefined();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
       await new Promise<void>((resolve) => spaServer.close(() => resolve()));
@@ -430,9 +417,9 @@ describe("fetch_url pipeline", () => {
       if (result.result_status !== "ok") {
         throw new Error(`expected ok, got ${result.result_status}`);
       }
-      expect(result.raw_bytes).toBeLessThan(noisyHtml.length / 2);
-      expect(result.compression_ratio).toBeGreaterThanOrEqual(0);
-      expect(result.compression_ratio).toBeLessThan(1);
+      // Noisy page: extractor strips script/style, passages still arrive.
+      expect(result.passages.length).toBeGreaterThan(0);
+      expect(result.word_count).toBeGreaterThan(0);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
       await new Promise<void>((resolve) => noisyServer.close(() => resolve()));

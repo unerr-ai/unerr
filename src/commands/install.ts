@@ -61,8 +61,8 @@ export interface InstallResult {
   gitignoreUpdated: boolean;
   instructionsInjected: boolean;
   instructionPath: string;
-  /** S8: Number of built-in tools denied via --force-tools. */
-  toolsDenied: number;
+  /** Number of legacy unerr `permissions.deny` entries (Read/Grep/Glob) stripped. */
+  legacyDeniesRemoved: number;
   repoRegistered?: boolean;
 }
 
@@ -71,10 +71,6 @@ export function registerInstallCommand(program: Command): void {
     .command("install [agent]")
     .description("Install unerr for a specific AI coding agent")
     .option("--force", "Overwrite existing configuration")
-    .option(
-      "--no-force-tools",
-      "Keep built-in Read/Grep/Glob enabled (Claude Code only, default: denied)"
-    )
     .option("--show-skills", "Print skill content for manual installation")
     .option(
       "--show-instructions [agent]",
@@ -93,7 +89,6 @@ export function registerInstallCommand(program: Command): void {
         agent?: string,
         opts?: {
           force?: boolean;
-          forceTools?: boolean;
           showSkills?: boolean;
           showInstructions?: boolean | string;
           reviewGate?: boolean;
@@ -138,9 +133,7 @@ export function registerInstallCommand(program: Command): void {
 
         let result: InstallResult;
         try {
-          result = await runInstall(cwd, normalizedAgent as any, {
-            forceTools: opts?.forceTools,
-          });
+          result = await runInstall(cwd, normalizedAgent as any);
         } catch (err) {
           if (err instanceof RepoCapError) {
             // Free-tier repo cap hit — print the upgrade/free-slot guidance and
@@ -218,10 +211,12 @@ export function registerInstallCommand(program: Command): void {
           );
         }
 
-        // S8: Disallowed tools (default-on for Claude Code)
-        if (result.toolsDenied > 0) {
+        // Strip legacy force-deny of Grep/Glob/Read (it diverted blocked
+        // searches to bash; the redirecting pre-grep/pre-glob hooks send them
+        // to search_code instead).
+        if (result.legacyDeniesRemoved > 0) {
           process.stderr.write(
-            "  \x1b[38;2;52;211;153m✓\x1b[0m Built-in Read/Grep/Glob denied (use --no-force-tools to keep)\n"
+            "  \x1b[38;2;52;211;153m✓\x1b[0m Cleared legacy Grep/Glob force-deny (searches now route to search_code)\n"
           );
         }
 
@@ -292,8 +287,7 @@ export function registerInstallCommand(program: Command): void {
  */
 export async function runInstall(
   cwd: string,
-  ide: Parameters<typeof writeMcpConfig>[1],
-  opts?: { forceTools?: boolean }
+  ide: Parameters<typeof writeMcpConfig>[1]
 ): Promise<InstallResult> {
   const agentDef = getAgent(ide);
   const agentName = agentDef?.name ?? ide;
@@ -391,14 +385,15 @@ export async function runInstall(
     // Non-blocking
   }
 
-  // 6. S8: Deny built-in tools (Claude Code only, default-on)
-  // --no-force-tools opts out; otherwise always deny Read/Grep/Glob
-  let toolsDenied = 0;
-  const shouldDenyTools = opts?.forceTools !== false && ide === "claude-code";
-  if (shouldDenyTools) {
+  // 6. Reconcile permissions.deny (Claude Code only): strip any legacy
+  // unerr-added Grep/Glob/Read force-deny. unerr no longer denies at the
+  // permission layer — the redirecting pre-grep/pre-glob hooks + instruction
+  // steer to search_code; a blind deny only diverts blocked searches to bash.
+  let legacyDeniesRemoved = 0;
+  if (ide === "claude-code") {
     try {
       const deny = addDisallowedTools(cwd);
-      toolsDenied = deny.added;
+      legacyDeniesRemoved = deny.removed;
     } catch {
       // Non-blocking
     }
@@ -435,7 +430,7 @@ export async function runInstall(
     gitignoreUpdated,
     instructionsInjected,
     instructionPath,
-    toolsDenied,
+    legacyDeniesRemoved,
     repoRegistered,
   };
 }

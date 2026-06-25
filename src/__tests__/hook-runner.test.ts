@@ -333,7 +333,7 @@ describe("runPromptSubmitHook", () => {
   // tool-routing section + the installed `.claude/skills/` menu, so they are
   // suppressed for claude-code. The per-turn ur|act Path A line still rides.
   // (Runs in a fresh tmp cwd for a clean first-turn nudge-state.)
-  it("default (claude-code) handler suppresses the static roster / catalog but still emits the Path A line", async () => {
+  it("default (claude-code) handler suppresses the static roster / catalog and emits the build decompose-and-delegate nudge for a build/bug prompt", async () => {
     const { runUserPromptSubmitHook } = await import(
       "../hooks/prompt-hooks.js"
     );
@@ -351,8 +351,11 @@ describe("runPromptSubmitHook", () => {
       // Static tail suppressed for claude-code …
       expect(ctx).not.toContain("available skills");
       expect(ctx).not.toContain("[unerr] Prefer unerr MCP tools");
-      // … per-turn Path A signal still fires (bug verbs → unerr-build-and-debug).
-      expect(ctx).toContain("unerr-build-and-debug");
+      // … and the build/bug prompt draws the once-per-session decompose-and-
+      // delegate nudge. unerr-build-and-debug is opt-in (not installed by
+      // default), so it is NOT named — the nudge points at sub-agents instead.
+      expect(ctx).toContain("ur|act delegate-slices");
+      expect(ctx).not.toContain("unerr-build-and-debug");
     } finally {
       process.chdir(prevCwd);
       rmSync(dir, { recursive: true, force: true });

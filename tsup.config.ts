@@ -11,10 +11,10 @@ const isProdBuild = process.env.UNERR_PROD_BUILD === "1";
 export default defineConfig({
   entry: ["src/entrypoints/cli.ts"],
   format: ["esm"],
-  target: "node20",
+  target: "node24",
   dts: true,
   splitting: false,
-  external: ["cozo-node", "better-sqlite3"],
+  external: ["cozo-node"],
   // `@unerr-ai/contracts` is `restricted` on GitHub Packages; the CLI ships to
   // PUBLIC npm, so end users could never fetch it as a runtime dep. It MUST be
   // inlined into dist. tsup auto-externalizes `dependencies` (e.g. zod stays

@@ -12,6 +12,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { supportsDelegation } from "../config/agent-registry.js";
 import {
   type DelegationDecision,
   shouldDelegate,
@@ -24,6 +25,8 @@ import { consumeAnyPendingTopicShift } from "../intelligence/topic-shift.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { recordPrefixStability } from "../proxy/prefix-stability.js";
 import { juniorHandoff } from "../skills/junior-agent.js";
+import { OPT_IN_SKILLS, isOptInSkill } from "../skills/local-pack.js";
+import { readOptInSkills } from "../skills/skill-opt-in.js";
 import {
   recordInjectionTelemetry,
   recordOneShotEmit,
@@ -174,6 +177,15 @@ const TASK_VERBS_NARROW_NO_NAV =
 export const TASK_VERBS_CODE =
   /\b(fix|bug|add|implement|refactor|debug|update|change|modify|create|delete|remove|test|find|search|where|who calls|callers|dependencies|import|replace|rename|revert|optimize|cleanup|extract|inline|move|restructure|migrate|tweak|audit|review|broken|failing|crash|error|regression)\b/i;
 
+/** Broader implementation-intent matcher — catches outcome-phrased prompts
+ *  ("build X", "make Y work", "get Z working", "set up W", "new endpoint") that
+ *  the `TASK_VERBS_CODE` word list misses but which are still code tasks. Drives
+ *  both `isCodeContext` (so a bare "build X" gets the unerr tool push) and the
+ *  once-per-session build-decompose nudge. The once-per-session gate keeps a rare
+ *  false positive cheap (one line, not per-turn), so a loose match is acceptable. */
+const BUILD_INTENT_RE =
+  /\b(build|create|implement|scaffold|develop)\b|\b(set|wire)[ -]?up\b|\bmake\b[^.?!]{0,40}\bwork(?:ing)?\b|\bget\b[^.?!]{0,40}\bworking\b|\bnew\s+(feature|endpoint|component|page|service|module|integration)\b/i;
+
 /** Unified classification result. */
 export interface PromptClassification {
   /** True when the prompt warrants `mark_intent` (narrow imperative). */
@@ -187,7 +199,7 @@ export interface PromptClassification {
 /** True when the prompt is "about code" (navigation, debugging, change
  *  requests, or bug reports). Broader than `classifyAsTask`. */
 export function isCodeContext(prompt: string): boolean {
-  return TASK_VERBS_CODE.test(prompt);
+  return TASK_VERBS_CODE.test(prompt) || BUILD_INTENT_RE.test(prompt);
 }
 
 /** Rule-based task classifier — detects whether a prompt is a coding
@@ -313,23 +325,50 @@ function buildPathALine(match: VerbClusterMatch): string {
 }
 
 // ── Delegation emit ──────────────────────────────────────────────────────────
-/** Emit the `ur|act unerr-delegate` routing line for a delegable task. Fires
- *  ONLY when `shouldDelegate` returned `delegate:true` (host supports delegation
- *  and the prompt named a delegable class). Names the skill + the class so the
- *  senior routes to `unerr-delegate` instead of the normal lifecycle skill;
- *  imperative, no hedge verbs, no deictic pronouns (echoes the class string). */
+/** Emit the delegation routing line for a delegable task. Fires ONLY when
+ *  `shouldDelegate` returned `delegate:true` (host supports delegation and the
+ *  prompt named a delegable class). Points straight at the sub-agent handoff —
+ *  the delegate WORKFLOW is now an opt-in skill, so the default nudge names the
+ *  capability (the Task sub-agent / exec) and frames it as performance, not a
+ *  Skill() to invoke; imperative, no hedge verbs, no deictic pronouns. */
 function buildDelegateLine(
   decision: DelegationDecision,
   agentId: IdeType
 ): string {
-  // Host-specific handoff: each delegation host hands the edit to a cheaper tier
+  // Host-specific handoff: each delegation host hands the work to a sub-agent
   // differently — Claude Code via the on-disk `unerr-junior`/`unerr-worker`
   // sub-agent, Codex / Cursor / Copilot CLI via their own non-interactive exec
   // with a model flag. The CLASS picks the tier (tests/mechanical_refactor →
-  // middle model, lint_format/docs/recon → worker model). juniorHandoff emits
-  // ONLY the path for THIS host — naming another is noise the agent can't act on.
+  // worker, lint_format/docs/recon → junior). juniorHandoff emits ONLY the path
+  // for THIS host — naming another is noise the agent can't act on.
   const handoff = juniorHandoff(agentId, decision.class);
-  return `ur|act unerr-delegate — delegable class '${decision.class}'. Invoke Skill('unerr-delegate') to ${handoff}, then review the diff. Do NOT enumerate edit sites by hand — the recon brief carries them.`;
+  return `ur|act delegate — '${decision.class}' is delegable; for better performance, ${handoff}, hand it the recon brief, then review the diff. Do NOT enumerate edit sites by hand — the brief carries them.`;
+}
+
+/** True when the skill a verb cluster points at is actually on disk for this
+ *  repo: default skills always; opt-in skills only when the user installed them
+ *  (`unerr skill install`). Path A must NOT tell the agent to invoke a `Skill()`
+ *  the default install never wrote — when it isn't installed, suppress the line
+ *  and let the always-on `unerr-using-unerr` fallback take the routing slot. */
+function isClusterSkillInstalled(
+  skillName: string,
+  optedIn: Set<string>
+): boolean {
+  const bare = skillName.replace(/^unerr-/, "");
+  return !isOptInSkill(bare) || optedIn.has(bare);
+}
+
+/** Once-per-session decompose-and-delegate nudge for a composite build/debug
+ *  prompt. Real prompts ("build the export flow", "make login work") are
+ *  senior-class, so the delegable-CLASS delegate nudge never fires — yet the
+ *  build implicitly contains delegable slices (tests, lint/format, docstrings,
+ *  recon, caller/import propagation, typecheck/build fixes, scaffold, verify-runs,
+ *  shell-command runs) the agent tends to do itself on the main thread. This
+ *  points the agent at decomposing and handing those slices to sub-agents for
+ *  better performance. Imperative, names the sub-agents, no hedge verbs, no cost
+ *  framing. */
+function buildDecomposeDelegateLine(): string {
+  return "ur|act delegate-slices — delegation is the default execution mode, not a one-off: on every substantive turn, plan the change then fan out 2-3 unerr sub-agents in parallel over its delegable slices — Task subagent_type:'unerr-worker' (tests, multi-site refactor, caller/import propagation, typecheck/build-error fixes, scaffold) / 'unerr-junior' (lint/format, docstrings/@sem, read-only recon, verify-runs, shell-command runs) — keeping design + wiring + root-cause on the main thread, then review and integrate each diff.";
 }
 
 // ── Path B emit (T3.2) ───────────────────────────────────────────────────────
@@ -337,40 +376,32 @@ function buildDelegateLine(
  *  parallel `using-unerr` master skill agent lands the live frontmatter
  *  injector. Each line is one-skill-per-row, two-space indent, with the
  *  description starting at a fixed column for legibility. */
-export function buildSkillCatalog(): string {
-  // 2026-06 usage-driven consolidation (9→6): safe-modification folded into the
-  // orchestrator's default workflow; memory + markers removed (run via hooks +
-  // the instruction file, invoked 0× via Skill()). The catalog mirrors the 6
-  // unerr-prefixed skills shipped in .claude/skills/. Order matches the dispatch
-  // table in unerr-using-unerr SKILL.md.
-  const entries: Array<[string, string]> = [
-    [
-      "unerr-using-unerr",
-      "orchestrator — dispatches to a sub-skill, or runs the default edit workflow (recon → blast radius → conventions → drift → edit) when none matches",
-    ],
-    [
-      "unerr-exploration",
-      "use when finding callers, callees, hotspots, or unfamiliar code (graph-first)",
-    ],
-    [
-      "unerr-build-and-debug",
-      "use when building a new feature (Track A) or chasing a bug / failing test (Track B)",
-    ],
-    [
-      "unerr-test-and-review",
-      "use for TDD (Track A) or addressing review comments / PR feedback (Track B)",
-    ],
-    [
-      "unerr-review",
-      "use to produce a review of your own changes before commit — breaking callers, contract drift, duplicate logic (NOT for addressing review comments left by others)",
-    ],
-    [
-      "unerr-delegate",
-      "use for a delegable task (add tests, docstring/@sem, mechanical rename/extract/inline/move, lint) on a delegation-capable host (Claude Code / Codex)",
-    ],
-  ];
-  const header = "available skills — invoke if even 1% relevant:";
-  const rows = entries.map(([id, desc]) => `  - ${id} — ${desc}`);
+const OPT_IN_SKILL_BLURBS: Record<string, string> = {
+  exploration:
+    "find callers, callees, hotspots, or unfamiliar code (graph-first)",
+  "build-and-debug":
+    "a guarded build (Track A) or bug-forensics (Track B) workflow",
+  "test-and-review":
+    "a guarded TDD (Track A) or review-response (Track B) workflow",
+  review:
+    "produce an evidenced review of your own changes before commit — breaking callers, contract drift, duplicate logic",
+  delegate:
+    "partition a delegable task into disjoint groups and hand each to a sub-agent, then review the diffs",
+};
+
+export function buildSkillCatalog(cwd: string = process.cwd()): string {
+  // The default install ships ONLY the loose always-on skill (its body is already
+  // in context), so there is nothing on-demand to advertise by default. List the
+  // rigid lifecycle skills ONLY when the user opted into them (`unerr skill
+  // install <id>`) — advertising an uninstalled skill produces a Skill() the
+  // agent cannot run. No opt-ins → empty catalog (caller skips it).
+  const optedIn = readOptInSkills(cwd);
+  const installed = OPT_IN_SKILLS.filter((s) => optedIn.has(s.id));
+  if (installed.length === 0) return "";
+  const header = "opt-in skills you installed — invoke if even 1% relevant:";
+  const rows = installed.map(
+    (s) => `  - unerr-${s.id} — ${OPT_IN_SKILL_BLURBS[s.id] ?? s.name}`
+  );
   return [header, ...rows].join("\n");
 }
 
@@ -610,24 +641,84 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // "find", "fix") in plain questions and trained the agent to ignore the slot.
   const isCodeTask = isCodeContext(message);
 
+  // Opt-in awareness: the rigid lifecycle skills are NOT installed by default,
+  // so a Path A line naming Skill('unerr-build-and-debug') etc. would point the
+  // agent at a skill that does not exist. Resolve what is actually on disk once.
+  const optedInSkills = (() => {
+    try {
+      return readOptInSkills(process.cwd());
+    } catch {
+      return new Set<string>();
+    }
+  })();
+
   // Path A — verb-cluster fast path. Gated on isCodeTask: a verb cluster only
   // routes to a skill on an actual code task. When Lever C delegates, the
   // delegate line OWNS the routing slot — skip Path A so the agent gets exactly
   // one skill instruction.
   const pathAMatch = classifyVerbCluster(message);
+
+  // Build-delegate nudge — a composite build/debug prompt is senior-class (the
+  // delegable-CLASS delegate nudge never fires for "build X" / "make Y work"),
+  // yet it implies delegable slices (tests, lint/format, docstrings, recon) the
+  // agent tends to do itself on the main thread. On a delegation-capable host,
+  // when the rigid build skill is NOT opted in, remind the agent EVERY
+  // substantive (code + build/bug) turn to decompose and fan those slices out to
+  // 2-3 sub-agents. Suppressed when the user opted into the rigid build-and-debug
+  // skill (it owns the workflow).
+  let buildDecomposeLine: string | null = null;
+  try {
+    const agentId = (normalized.agentName ?? "") as IdeType;
+    // A build/bug verb cluster, OR outcome-phrased implementation intent
+    // ("make X work", "set up Y") the cluster classifier misses.
+    const isBuildIntent =
+      (!!pathAMatch &&
+        (pathAMatch.cluster === "build" || pathAMatch.cluster === "bug")) ||
+      BUILD_INTENT_RE.test(message);
+    // Suppress only when the user opted into the rigid build-and-debug skill for
+    // a build/bug cluster — that skill then owns the workflow.
+    const rigidBuildOptedIn =
+      !!pathAMatch &&
+      (pathAMatch.cluster === "build" || pathAMatch.cluster === "bug") &&
+      isClusterSkillInstalled(pathAMatch.skill, optedInSkills);
+    if (
+      !delegateLine &&
+      isCodeTask &&
+      isBuildIntent &&
+      !rigidBuildOptedIn &&
+      supportsDelegation(agentId)
+    ) {
+      // Re-arm every substantive turn: delegation is the default execution mode,
+      // so the decompose-and-delegate nudge fires on each build/bug code turn —
+      // not once per session — to keep 2-3 sub-agents fanning out per turn. The
+      // line is tail-appended additionalContext (cache-safe), so per-turn firing
+      // adds no prefix-cache cost.
+      buildDecomposeLine = buildDecomposeDelegateLine();
+    }
+  } catch {
+    // fail-open — no build nudge, normal routing stands
+  }
+
+  // Path A only names a skill that is actually installed. For an uninstalled
+  // opt-in skill the line is suppressed and the always-on `unerr-using-unerr`
+  // fallback below takes the routing slot.
   const pathALine =
-    delegateLine || !pathAMatch || !isCodeTask
+    delegateLine ||
+    buildDecomposeLine ||
+    !pathAMatch ||
+    !isCodeTask ||
+    !isClusterSkillInstalled(pathAMatch.skill, optedInSkills)
       ? null
       : buildPathALine(pathAMatch);
 
-  // T3.3 — omni-skill fallback. When Path A misses AND no delegation fired AND
-  // it is a code task, point the agent at the `unerr-using-unerr` master
-  // orchestrator so it runs the default workflow (recall → blast radius →
-  // mark_intent → edit → verify). Skipped on non-code prompts.
+  // T3.3 — omni-skill fallback. When Path A misses/suppresses AND no delegation
+  // or build-decompose nudge fired AND it is a code task, point the agent at the
+  // always-on `unerr-using-unerr` skill (loose tool guidance). Skipped on
+  // non-code prompts.
   const fallbackLine =
-    pathALine || delegateLine || !isCodeTask
+    pathALine || delegateLine || buildDecomposeLine || !isCodeTask
       ? null
-      : "ur|act unerr-using-unerr — no verb-cluster match. Invoke Skill('unerr-using-unerr') and run the default workflow before drafting code.";
+      : "ur|act unerr-using-unerr — no verb-cluster match. Invoke Skill('unerr-using-unerr') and use unerr's tools before drafting code.";
 
   // Topic-shift signal — ur|ctx line, NOT subject to the ur|act cap.
   const topicShiftLine = buildTopicShiftLine();
@@ -679,12 +770,13 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // one is non-null). `volatile` drives ordering: the Path A line varies per
   // prompt so it rides the tail; every other line is a fixed template.
   const actCandidates: ActCandidate[] = [
-    { text: moment1Line, volatile: false }, //   Moment 1 (fixed template)
-    { text: delegateLine, volatile: true }, //   Lever C delegation routing (class-specific)
-    { text: pathALine, volatile: true }, //      Path A skill match (verb-specific)
-    { text: fallbackLine, volatile: false }, //  Master orchestrator fallback (fixed)
-    { text: markIntentLine, volatile: false }, // mark_intent one-shot (fixed)
-    { text: moment3Line, volatile: false }, //   Moment 3 one-shot (fixed)
+    { text: moment1Line, volatile: false }, //       Moment 1 (fixed template)
+    { text: delegateLine, volatile: true }, //       Lever C delegation routing (class-specific)
+    { text: buildDecomposeLine, volatile: false }, // Build decompose+delegate (once/session, fixed)
+    { text: pathALine, volatile: true }, //          Path A skill match (verb-specific)
+    { text: fallbackLine, volatile: false }, //      Master orchestrator fallback (fixed)
+    { text: markIntentLine, volatile: false }, //    mark_intent one-shot (fixed)
+    { text: moment3Line, volatile: false }, //       Moment 3 one-shot (fixed)
   ];
 
   // Path B — static tool-roster + skill catalog. Both duplicate the cached
@@ -726,7 +818,8 @@ const promptSubmitHandler: HookHandler = (normalized) => {
       "`file_outline` · `search_code({detail:true})` for one symbol's profile. " +
       "Mark progress with zero round-trip — emit `unerr-save: intent|decision|blocker|resolution <one-line>` " +
       "in your closing message; the Stop hook persists them to the cross-session timeline.";
-    staticTail = `${toolRoster}\n\n${buildSkillCatalog()}`;
+    const catalog = buildSkillCatalog(process.cwd());
+    staticTail = catalog ? `${toolRoster}\n\n${catalog}` : toolRoster;
     try {
       updateNudgeState(process.cwd(), (s) => {
         s.static_boilerplate_emitted = true;

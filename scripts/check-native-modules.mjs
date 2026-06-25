@@ -1,37 +1,39 @@
 #!/usr/bin/env node
 /**
- * Fails fast if the native database bindings did not get built/installed.
+ * Fails fast if the SQLite/graph backends are not usable.
  *
- * Both core databases load a compiled `.node` binary through a dependency
- * INSTALL script: cozo-node via @mapbox/node-pre-gyp (downloads a prebuilt
- * tarball from GitHub releases), better-sqlite3 via prebuild-install (downloads
- * a prebuild, falling back to node-gyp). pnpm v10 blocks those install scripts
- * unless the package is in `pnpm.onlyBuiltDependencies` (and npm v12 will do the
- * same by default). When the script is skipped, the binary never lands and the
- * FIRST thing to open a DB throws "Could not locate the bindings file" — which,
- * in the test suite, surfaces as noise across ~170 files instead of one clear
- * cause. This script turns that into a single, loud, early failure.
+ * Two SQLite-backed paths must work:
+ *   - `node:sqlite` (built-in, stable since Node 24) — the ONLY SQLite driver
+ *     now that `better-sqlite3` was removed. It needs no native install, but it
+ *     IS gated on the Node version: on Node < 24 the import throws. Probing it
+ *     here turns "wrong Node version" into one loud failure instead of noise
+ *     across ~170 test files (see persistent-db.ts / cursor-sqlite.ts).
+ *   - `cozo-node` — loads a compiled `.node` binary via @mapbox/node-pre-gyp's
+ *     INSTALL script (downloads a prebuilt tarball). pnpm v10 blocks that script
+ *     unless cozo-node is in `pnpm.onlyBuiltDependencies` (npm v12 will too).
+ *     When skipped, the binary never lands and the first DB open throws
+ *     "Could not locate the bindings file".
  *
- * Run in CI right after `pnpm install`, before lint/typecheck/test. Mirrors how
- * the code actually opens each DB (see persistent-db.ts and metrics-store.ts).
+ * Run in CI right after `pnpm install`, before lint/typecheck/test.
  */
 
 const failures = [];
 
-// better-sqlite3 — exactly how metrics-store.ts opens it: `new Database(path)`.
+// node:sqlite — exactly how persistent-db.ts / cursor-sqlite.ts open it:
+// `new DatabaseSync(path)`. Built in on Node >= 24; import throws below that.
 try {
-  const { default: Database } = await import("better-sqlite3");
-  const db = new Database(":memory:");
-  db.pragma("journal_mode = WAL");
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA journal_mode=WAL");
   db.exec("CREATE TABLE t (x INTEGER)");
   db.prepare("INSERT INTO t (x) VALUES (?)").run(1);
   const row = db.prepare("SELECT x FROM t").get();
   if (!row || row.x !== 1)
-    throw new Error("better-sqlite3 query returned wrong result");
+    throw new Error("node:sqlite query returned wrong result");
   db.close();
-  console.log("ok: better-sqlite3 native binding loaded");
+  console.log(`ok: node:sqlite available (Node ${process.versions.node})`);
 } catch (err) {
-  failures.push(["better-sqlite3", err]);
+  failures.push(["node:sqlite", err]);
 }
 
 // cozo-node — same dynamic-import + constructor shape as persistent-db.ts,
@@ -50,19 +52,20 @@ try {
 }
 
 if (failures.length > 0) {
-  console.error("\n✗ Native database bindings failed to load:\n");
+  console.error("\n✗ SQLite/graph backends failed to load:\n");
   for (const [name, err] of failures) {
     console.error(
       `  - ${name}: ${err instanceof Error ? err.message : String(err)}`
     );
   }
   console.error(
-    "\nThe compiled .node binary is missing. This happens when the dependency's\n" +
-      "install script was skipped (pnpm v10 / npm v12 block them by default).\n" +
-      "Fix: ensure these are listed in package.json `pnpm.onlyBuiltDependencies`,\n" +
-      "then run `pnpm rebuild better-sqlite3 cozo-node` (or reinstall).\n"
+    "\nnode:sqlite failing usually means Node < 24 (it is built in from Node 24;\n" +
+      "engines.node is >=24.0.0). cozo-node failing means its compiled .node\n" +
+      "binary is missing — the dependency's install script was skipped (pnpm v10\n" +
+      "/ npm v12 block them by default). Fix: use Node >= 24, ensure cozo-node is\n" +
+      "in package.json `pnpm.onlyBuiltDependencies`, then `pnpm rebuild cozo-node`.\n"
   );
   process.exit(1);
 }
 
-console.log("\n✓ All native database bindings loaded.");
+console.log("\n✓ node:sqlite + cozo-node both load.");

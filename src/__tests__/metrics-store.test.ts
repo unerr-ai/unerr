@@ -36,16 +36,13 @@ describe("MetricsStore", () => {
     expect(openMetricsStore(dir)).toBe(openMetricsStore(dir));
   });
 
-  it("upgrades a legacy DB (no `agent` / no `session_id`) without crashing", async () => {
-    // Reproduce the failure mode reported by the user twice over:
-    //   1. token_flow_events/behavior_events created before the `agent`
-    //      column shipped.
-    //   2. file_read_events created before session_id shipped — the
-    //      idx_file_read_session index references a column that does not
-    //      exist on the legacy table. This crashed the proxy at startup
-    //      ("no such column: session_id", code=1 loop). Both index
-    //      statements must run AFTER reconcile (POST_RECONCILE_INDEXES).
-    const Database = (await import("better-sqlite3")).default;
+  it("ignores a leftover legacy metrics.db and round-trips via JSONL", async () => {
+    // metrics.db (SQLite) is retired: telemetry is JSONL under .unerr/events.
+    // A stale metrics.db left by an old version must be tolerated — the store
+    // never opens it, and inserts still round-trip through the JSONL path. We
+    // create the legacy file with node:sqlite (the only SQLite driver now) just
+    // to prove its mere presence does not break open / insert / read.
+    const { DatabaseSync: Database } = await import("node:sqlite");
     const dbPath = join(dir, "metrics.db");
     const legacy = new Database(dbPath);
     legacy.exec(`
@@ -91,8 +88,7 @@ describe("MetricsStore", () => {
     `);
     legacy.close();
 
-    // Opening MUST succeed — adds the agent + session_id columns and the
-    // indexes that depend on them.
+    // Opening MUST succeed and ignore the legacy file entirely.
     const s = openMetricsStore(dir);
     s.insertTokenFlow({
       ts: Date.now(),
@@ -111,8 +107,7 @@ describe("MetricsStore", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.agent).toBe("unknown");
 
-    // file_read_events got session_id ALTERed in — an insert carrying it
-    // must round-trip (proves the column + idx_file_read_session exist).
+    // A file-read insert carrying session_id must round-trip through JSONL.
     s.insertFileRead({
       ts: Date.now(),
       ts_iso: new Date().toISOString(),

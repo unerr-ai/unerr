@@ -23,6 +23,7 @@ import type { Skill } from "../schemas/index.js";
 import type { IdeType } from "../utils/detect.js";
 import { BUNDLED_SKILLS, LOCAL_SKILLS } from "./local-pack.js";
 import type { TriggerSpec } from "./local-pack.js";
+import { readOptInSkills } from "./skill-opt-in.js";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -524,6 +525,25 @@ function loadLocalDirectorySkills(cwd: string): ResolvedSkill[] {
 // ── Cascade Resolution ─────────────────────────────────────────────
 
 /**
+ * Bare ids of the bundled skills that should be installed for a repo: the
+ * default (non-opt-in) skills, plus any the user opted into with `unerr skill
+ * install <id>`. `delegate` is additionally gated on a delegation-capable host —
+ * it self-gates to a no-op elsewhere, so an always-applied rule there is pure
+ * context cost. This is the SINGLE source both the installer and the boot
+ * self-heal read, so they never disagree on what belongs on disk.
+ *
+ * @sem domain=skills role=selector
+ */
+function expectedBundledSkillIds(ide: IdeType, cwd: string): Set<string> {
+  const optedIn = readOptInSkills(cwd);
+  return new Set(
+    LOCAL_SKILLS.filter((s) => !s.optIn || optedIn.has(s.id))
+      .filter((s) => s.id !== "delegate" || supportsDelegation(ide))
+      .map((s) => s.id)
+  );
+}
+
+/**
  * Resolve skills from Tier 1 (bundled) and Tier 2 (local directories),
  * then install them into the IDE skill directory.
  *
@@ -541,14 +561,12 @@ export async function resolveAndInstallSkills(opts: {
   // Tier 2: Local directories
   for (const s of loadLocalDirectorySkills(opts.cwd)) byName.set(s.name, s);
 
-  // Install resolved skills into IDE directory. The `delegate` skill only makes
-  // sense on a delegation-capable host (claude-code / codex) — on any other host
-  // it self-gates to a no-op, so don't install an always-applied rule it can
-  // never act on (avoids a constant context cost on e.g. Cursor).
-  const skills = Array.from(byName.values()).filter(
-    (s) =>
-      s.name.replace(/^unerr-/, "") !== "delegate" ||
-      supportsDelegation(opts.ide)
+  // Install resolved skills into IDE directory. Bundled skills are filtered to
+  // the default set plus the user's opt-ins (expectedBundledSkillIds); Tier-2
+  // local-directory skills the user authored are always installed.
+  const wanted = expectedBundledSkillIds(opts.ide, opts.cwd);
+  const skills = Array.from(byName.values()).filter((s) =>
+    s.source === "local" ? true : wanted.has(s.name.replace(/^unerr-/, ""))
   );
   const { dir, ext, dirPerSkill } = getSkillDir(opts.ide, opts.cwd);
   const installed: string[] = [];
@@ -593,12 +611,11 @@ export async function ensureSkillsPresent(opts: {
 }): Promise<number> {
   const { dir, ext, dirPerSkill } = getSkillDir(opts.ide, opts.cwd);
   const reserved = getReservedInstructionBasename(opts.ide, opts.cwd);
-  // The host-aware expected set must mirror the install filter: `delegate` is not
-  // installed on a non-delegating host, so it must not be expected here either —
-  // otherwise the self-heal would reinstall on every boot.
-  const expectedSkills = LOCAL_SKILLS.filter(
-    (s) => s.id !== "delegate" || supportsDelegation(opts.ide)
-  );
+  // The expected set must mirror the install filter exactly (default skills +
+  // the user's opt-ins, delegate gated on host) — otherwise self-heal would wipe
+  // an opted-in skill as "legacy" or reinstall a default-only repo every boot.
+  const wantedIds = expectedBundledSkillIds(opts.ide, opts.cwd);
+  const expectedSkills = LOCAL_SKILLS.filter((s) => wantedIds.has(s.id));
   const expectedNames = new Set(
     expectedSkills.map((s) => `unerr-${s.id.replace(/^unerr-/, "")}`)
   );

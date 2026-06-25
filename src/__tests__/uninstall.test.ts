@@ -104,6 +104,27 @@ describe("uninstall", () => {
       expect(after.hooks?.PreToolUse).toBeUndefined();
     });
 
+    it("mergePreToolUseBashHook writes a SubagentStop entry pointing at hook subagent-stop", () => {
+      mergePreToolUseBashHook(tmpDir);
+      const settingsPath = join(tmpDir, ".claude", "settings.json");
+      const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+      const entries: unknown[] = settings.hooks?.SubagentStop ?? [];
+      expect(entries.length).toBeGreaterThan(0);
+      const cmds = entries.flatMap((e: unknown) => {
+        const entry = e as { hooks?: { command?: string }[] };
+        return (entry.hooks ?? []).map((h) => h.command ?? "");
+      });
+      expect(cmds.some((c) => /hook subagent-stop$/.test(c))).toBe(true);
+    });
+
+    it("removePreToolUseBashHook strips the SubagentStop entry", () => {
+      mergePreToolUseBashHook(tmpDir);
+      removePreToolUseBashHook(tmpDir);
+      const settingsPath = join(tmpDir, ".claude", "settings.json");
+      const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+      expect(settings.hooks?.SubagentStop).toBeUndefined();
+    });
+
     it("preserves other hooks when removing unerr hook", () => {
       const dir = join(tmpDir, ".claude");
       mkdirSync(dir, { recursive: true });

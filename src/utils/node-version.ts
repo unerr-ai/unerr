@@ -2,22 +2,23 @@
  * Node version policy — single source of truth.
  *
  * unerr RUNS on Node >= MIN_NODE_VERSION (the hard floor, mirrored in
- * package.json `engines.node`). It RECOMMENDS Node >= RECOMMENDED_NODE_VERSION
- * for best performance and so the built-in `node:sqlite` path is available.
+ * package.json `engines.node`). The floor is Node 24 because the only SQLite
+ * driver is the built-in `node:sqlite`, stable since Node 24 (the native
+ * `better-sqlite3` dependency was removed). Below 24 the graph/WAL path cannot
+ * open, so the floor is a real requirement, not a recommendation.
  *
- * The two values are intentionally different: `engines` can only express one
- * range, so it stays at the honest floor (Node 20 installs cleanly, no
- * "unsupported" warning). The recommendation is surfaced as a custom,
- * non-blocking notice at runtime (proxy startup) and in `unerr doctor` — a
- * channel that survives npm v12 / pnpm install-script lockdown, unlike a
- * postinstall script.
+ * The recommendation is surfaced as a custom, non-blocking notice at runtime
+ * (proxy startup) and in `unerr doctor` — a channel that survives npm v12 /
+ * pnpm install-script lockdown, unlike a postinstall script.
  */
 
-/** Hard floor — below this unerr will not run. Mirrors package.json engines.node. */
-export const MIN_NODE_VERSION = "20.9.0";
+/** Hard floor — below this unerr will not run. Mirrors package.json engines.node.
+ *  Node 24 is the floor because the only SQLite path is the built-in
+ *  `node:sqlite` (stable since Node 24); `better-sqlite3` was removed. */
+export const MIN_NODE_VERSION = "24.0.0";
 
 /** Recommended floor — at/above this is the supported-best experience. */
-export const RECOMMENDED_NODE_VERSION = "22.5.0";
+export const RECOMMENDED_NODE_VERSION = "24.0.0";
 
 /**
  * Compare two dotted semver-ish strings (e.g. "20.9.0"). Pre-release/build
@@ -61,5 +62,5 @@ export function nodeUpgradeNotice(
   version: string = process.versions.node
 ): string | null {
   if (meetsRecommendedNode(version)) return null;
-  return `Node v${version} detected — unerr runs on Node ≥${MIN_NODE_VERSION}, but Node ≥${RECOMMENDED_NODE_VERSION} is recommended. Upgrade: nvm install 22`;
+  return `Node v${version} detected — unerr requires Node ≥${MIN_NODE_VERSION} (built-in node:sqlite). Upgrade: nvm install 24`;
 }

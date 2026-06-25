@@ -306,9 +306,22 @@ async function drainStream(
       let permanentRejected = 0;
       let retryableRejected = 0;
       for (const r of results) {
-        if (r.status !== "rejected") continue;
-        if (r.disposition === "retryable") retryableRejected += 1;
-        else permanentRejected += 1;
+        if (r.status === "parked") {
+          const parts = [`push: ${drainer.key} [warn] parked`];
+          if (r.code) parts.push(r.code);
+          if (r.field) parts.push(r.field);
+          if (r.message) parts.push(r.message);
+          log?.(parts.join(" · "));
+        } else if (r.status === "rejected") {
+          const disp = r.disposition ?? "permanent";
+          const parts = [`push: ${drainer.key} [error] rejected(${disp})`];
+          if (r.code) parts.push(r.code);
+          if (r.field) parts.push(r.field);
+          if (r.message) parts.push(r.message);
+          log?.(parts.join(" · "));
+          if (r.disposition === "retryable") retryableRejected += 1;
+          else permanentRejected += 1;
+        }
       }
       // Pre-1-0-5 server: no per-row disposition — fall back to the aggregate
       // count and treat every rejection as permanent (preserves prior behavior).
@@ -617,11 +630,29 @@ function applyCombinedAck(
     for (const id of p.eventIds) {
       const r = byId.get(id);
       if (!r || r.status === "accepted") continue;
-      if (r.status === "parked") parked += 1;
-      else if (r.disposition === "retryable") retryableRejected += 1;
-      else {
+      if (r.status === "parked") {
+        parked += 1;
+        const parts = [`push: ${p.key} [warn] parked`];
+        if (r.code) parts.push(r.code);
+        if (r.field) parts.push(r.field);
+        if (r.message) parts.push(r.message);
+        log?.(parts.join(" · "));
+      } else if (r.disposition === "retryable") {
+        retryableRejected += 1;
+        const parts = [`push: ${p.key} [error] rejected(retryable)`];
+        if (r.code) parts.push(r.code);
+        if (r.field) parts.push(r.field);
+        if (r.message) parts.push(r.message);
+        log?.(parts.join(" · "));
+      } else {
         permanentRejected += 1;
         if (r.code) rejectCodes.add(r.code);
+        const disp = r.disposition ?? "permanent";
+        const parts = [`push: ${p.key} [error] rejected(${disp})`];
+        if (r.code) parts.push(r.code);
+        if (r.field) parts.push(r.field);
+        if (r.message) parts.push(r.message);
+        log?.(parts.join(" · "));
       }
     }
 

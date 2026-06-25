@@ -32,6 +32,7 @@ describe("renderHybridTurnLine", () => {
     file_path: null,
     entity_key: null,
     session_id: "s",
+    native_session_id: null,
     turn,
     ts: "2026-05-24T00:00:00.000Z",
     metadata: {},

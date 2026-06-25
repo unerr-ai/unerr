@@ -21,9 +21,6 @@ export interface ContentMatch {
 }
 
 export interface ContentSearchResult {
-  readonly mode: "literal" | "regex";
-  readonly query: string;
-  readonly match_count: number;
   readonly files_scanned: number;
   readonly matches: ContentMatch[];
   readonly truncated: boolean;
@@ -153,9 +150,6 @@ export function scanFilesForPattern(
   const compiled = compilePattern(mode, query);
   if ("error" in compiled) {
     return {
-      mode,
-      query,
-      match_count: 0,
       files_scanned: 0,
       matches: [],
       truncated: false,
@@ -178,9 +172,6 @@ export function scanFilesForPattern(
   }
 
   return {
-    mode,
-    query,
-    match_count: acc.matches.length,
     files_scanned: filesScanned,
     matches: acc.matches,
     truncated: acc.truncated,

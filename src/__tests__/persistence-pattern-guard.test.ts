@@ -166,18 +166,16 @@ describe("persistence-pattern regression guard", () => {
     expect(cli).toContain('stdio: "ignore"');
   });
 
-  it("npm tarball ships the inlined dashboard but excludes test artifacts, loose JS chunks, and screenshot bloat", () => {
+  it("npm tarball ships no dashboard UI (the SPA is archived) and excludes test artifacts", () => {
     const pkg = JSON.parse(
       readFileSync(join(repoRoot, "package.json"), "utf-8")
     ) as { files: string[] };
     expect(pkg.files).toContain("!dist/__tests__/**");
-    // Dashboard ships as a single self-contained HTML (vite-plugin-singlefile):
-    // all JS + CSS inlined, so no standalone minified .js chunks reach the tarball.
-    expect(pkg.files).toContain("dist/ui/index.html");
-    expect(pkg.files).not.toContain("!dist/ui/**");
-    // Loose minified JS chunks + screenshot/marketing assets must never ship —
-    // they bloat the tarball and trip AV/EDR base64 / packaged-binary heuristics.
-    expect(pkg.files).toContain("!dist/ui/assets/**");
-    expect(pkg.files).toContain("!dist/ui/screenshots/**");
+    // The dashboard UI was archived to archive/ui and is no longer built or
+    // shipped: the only HTTP surface is unerrd's GET /api/pm (process info).
+    // No dist/ui entry may reappear in the tarball file list.
+    for (const entry of pkg.files) {
+      expect(entry).not.toContain("dist/ui");
+    }
   });
 });

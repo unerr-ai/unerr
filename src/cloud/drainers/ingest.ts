@@ -14,6 +14,7 @@
  */
 
 import { truncateSync, unlinkSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename } from "node:path";
 import { INGEST_MAX_EVENTS_PER_BATCH } from "@unerr-ai/contracts/events";
 import { IngestEvent } from "@unerr-ai/contracts/ingest";
@@ -72,6 +73,137 @@ function sanitizeRowForPush(row: unknown): unknown {
     clean.trace_text = stripCodeFromText(clean.trace_text);
   }
   return { ...r, detail: clean };
+}
+
+/**
+ * The event types whose local `detail` carries dashboard/log-tailer-only keys
+ * that have no wire home (`pid`, the nested `behavior_detail`/`flow_detail`
+ * blobs, the reversible-compression diagnostics, the session-summary rollups) or
+ * firewall-tripping path keys (`command`, `tee_file`). For these we project the
+ * detail down to the contract-declared keys; every OTHER type keeps the
+ * pass-through path because its undeclared keys are intentional loose extras the
+ * contract expects to ride along (e.g. transcript's `model`/`tools`/`started_at`).
+ */
+export const PROJECTED_TYPES = new Set<string>([
+  "token_flow",
+  "behavior",
+  "compression",
+  "file_read",
+  "session_summary",
+]);
+
+/**
+ * Declared detail keys we send as a repo-relative path/symbol rather than drop —
+ * they name WHICH file/entity an event touched (a read's address, a guardrail's
+ * target), which the cloud renders. `relativizeRef` strips any absolute prefix so
+ * a home-dir path never leaves the machine; symbol names pass unchanged.
+ */
+const PATH_DETAIL_KEYS = new Set<string>([
+  "file",
+  "entity",
+  "entity_key",
+  "target_file",
+  "target_entity",
+]);
+
+/**
+ * The contract-declared `detail` keys per projected type — the wire allowlist,
+ * derived once from `IngestEvent` itself so it can never drift from the contract.
+ * Empty on an introspection miss; `projectRowForWire` then falls back to the
+ * denylist pass-through for that type (fail-safe, never a crash).
+ *
+ * // @sem domain=cloud role=drainer
+ */
+export const WIRE_DETAIL_KEYS: Map<string, Set<string>> = buildWireDetailKeys();
+
+function buildWireDetailKeys(): Map<string, Set<string>> {
+  const m = new Map<string, Set<string>>();
+  try {
+    const def = IngestEvent as unknown as {
+      def?: { options?: unknown[] };
+      _def?: { options?: unknown[] };
+    };
+    const options = def.def?.options ?? def._def?.options ?? [];
+    for (const variant of options) {
+      const v = variant as {
+        shape?: Record<string, unknown>;
+        def?: { shape?: Record<string, unknown> };
+      };
+      const shape = v.shape ?? v.def?.shape ?? {};
+      const typeLit = shape.type as { value?: string } | undefined;
+      const type = typeLit?.value;
+      if (!type || !PROJECTED_TYPES.has(type)) continue;
+      const detail = shape.detail as
+        | {
+            shape?: Record<string, unknown>;
+            def?: { shape?: Record<string, unknown> };
+          }
+        | undefined;
+      const dshape = detail?.shape ?? detail?.def?.shape ?? {};
+      m.set(type, new Set(Object.keys(dshape)));
+    }
+  } catch {
+    /* introspection miss → empty map → per-type fail-safe in projectRowForWire */
+  }
+  return m;
+}
+
+/** Strip any absolute/home prefix from a path-bearing ref so only a repo-relative
+ *  address leaves the machine; non-strings and bare symbol names pass unchanged. */
+function relativizeRef(value: unknown, repoRoot?: string): unknown {
+  if (typeof value !== "string") return value;
+  let s = value;
+  if (repoRoot && s.startsWith(`${repoRoot}/`))
+    s = s.slice(repoRoot.length + 1);
+  const home = homedir();
+  if (home && s.startsWith(`${home}/`)) s = s.slice(home.length + 1);
+  if (s.startsWith("~/")) s = s.slice(2);
+  return s;
+}
+
+/**
+ * Project one stored row to its wire shape just before push. For a projected type
+ * the `detail` is reduced to the contract-declared keys (dropping the local-only
+ * blobs/diagnostics and firewall-tripping `command`/`tee_file`), with path-bearing
+ * refs relativized; the `session_summary` `summary` variant is dropped (returns
+ * null) so it cannot clobber the canonical `history` upsert. Every other type
+ * keeps the `sanitizeRowForPush` denylist pass-through (its loose extras are
+ * intentional). Pure — the stored line is untouched, so the cursor still advances
+ * by the original byte span.
+ *
+ * // @sem domain=cloud role=drainer
+ */
+export function projectRowForWire(
+  row: unknown,
+  repoRoot?: string
+): unknown | null {
+  if (!row || typeof row !== "object") return row;
+  const r = row as Record<string, unknown>;
+  const type = r.type as string;
+  if (FLEET_EVENT_TYPES.has(type)) return row;
+  if (!PROJECTED_TYPES.has(type)) return sanitizeRowForPush(row);
+  const detail = r.detail;
+  if (!detail || typeof detail !== "object") return row;
+  const d = detail as Record<string, unknown>;
+  if (type === "session_summary" && d.kind === "summary") return null;
+  const allow = WIRE_DETAIL_KEYS.get(type);
+  if (!allow || allow.size === 0) return sanitizeRowForPush(row);
+  const out: Record<string, unknown> = {};
+  for (const k of allow) {
+    if (!(k in d)) continue;
+    out[k] = PATH_DETAIL_KEYS.has(k) ? relativizeRef(d[k], repoRoot) : d[k];
+  }
+  return { ...r, detail: out };
+}
+
+/** Map a batch to its wire shape, dropping rows a projection nulled out. */
+function projectBatchForWire(rows: unknown[], repoRoot?: string): unknown[] {
+  const out: unknown[] = [];
+  for (const row of rows) {
+    const projected = projectRowForWire(row, repoRoot);
+    if (projected !== null) out.push(projected);
+  }
+  return out;
 }
 
 /**
@@ -164,7 +296,7 @@ function makeSegmentDrainer(
       return { rows, next: { lastIndex: slice.nextOffset } };
     },
     async push(rows: unknown[]): Promise<CloudResult<BatchAck>> {
-      return ctx.client.ingest(rows.map(sanitizeRowForPush));
+      return ctx.client.ingest(projectBatchForWire(rows, ctx.repoPath));
     },
   };
 }
@@ -186,7 +318,7 @@ export async function buildIngestDrainers(
   // Coalesced pusher: identical to each segment drainer's own `push`, hoisted so
   // `drainRepo` can merge rows from every segment into the fewest combined POSTs.
   const pushCombined = (rows: unknown[]) =>
-    ctx.client.ingest(rows.map(sanitizeRowForPush));
+    ctx.client.ingest(projectBatchForWire(rows, ctx.repoPath));
   return { drainers, pushCombined };
 }
 

@@ -48,10 +48,19 @@ const passthroughHandler: HookHandler = () => passthrough();
  * stream. The most recently appended event names the active session; the
  * current turn is the largest turn index seen for that session. Returns null
  * when there are no events yet (nothing to summarise).
+ *
+ * Also exposes `nativeSessionId` — the agent's own conversation id
+ * (`native_session_id` on the last event). When non-null, callers use it as
+ * the primary correlation key so that proxy-written edits and hook-written
+ * prompt-boundary events (which may carry different `session_id` values but
+ * share the same `native_session_id`) are gathered into one stream.
  */
-export function resolveCurrentSessionTurn(
-  unerrDir: string
-): { sessionId: string; currentTurn: number; agent: string } | null {
+export function resolveCurrentSessionTurn(unerrDir: string): {
+  sessionId: string;
+  nativeSessionId: string | null;
+  currentTurn: number;
+  agent: string;
+} | null {
   const events = readNamedEvents(unerrDir, {});
   if (events.length === 0) return null;
 
@@ -60,13 +69,22 @@ export function resolveCurrentSessionTurn(
   const sessionId = last.session_id;
   if (!sessionId) return null;
 
+  // Use native_session_id as the primary cross-process correlation key.
+  // Null for legacy/exec rows that pre-date native id stamping.
+  const nativeSessionId = last.native_session_id ?? null;
+
+  // Max turn across all events that belong to the same native conversation
+  // (or the same session_id for legacy rows without a native id).
   let currentTurn = 0;
   for (const ev of events) {
-    if (ev.session_id === sessionId && ev.turn > currentTurn) {
+    const sameConversation = nativeSessionId
+      ? ev.native_session_id === nativeSessionId
+      : ev.session_id === sessionId;
+    if (sameConversation && ev.turn > currentTurn) {
       currentTurn = ev.turn;
     }
   }
-  return { sessionId, currentTurn, agent: last.agent };
+  return { sessionId, nativeSessionId, currentTurn, agent: last.agent };
 }
 
 /**
@@ -234,7 +252,56 @@ export async function runStopHookHandlerAsync(
     const line = renderStopReportLive(
       unerrDir,
       resolved.sessionId,
-      resolved.currentTurn
+      resolved.currentTurn,
+      { nativeSessionId: resolved.nativeSessionId }
+    );
+    if (!line || line.trim().length === 0) {
+      return runStopHookAsync(stdinJson, async () => passthrough());
+    }
+
+    return runStopHookAsync(stdinJson, async () => enrich(line));
+  } catch {
+    return runStopHookAsync(stdinJson, async () =>
+      passthroughHandler({} as never)
+    );
+  }
+}
+
+/**
+ * SubagentStop hook entry. Same as `runStopHookHandlerAsync` but OMITS the
+ * master-only `detectSerializedByMasterLeak` call: a sub-agent shares the
+ * master's cwd, so running the leak detector here would false-fire
+ * `subtasks_serialized_by_master` and wipe the master's pending flag mid-turn.
+ * Everything else — sentinel persist worker, transcript claim, and the
+ * close-out economy line — fires identically to the Stop hook.
+ *
+ * @sem domain=agent-hooks
+ */
+export async function runSubagentStopHookHandlerAsync(
+  stdinJson: string
+): Promise<string> {
+  try {
+    spawnStopPersistWorker(stdinJson);
+
+    const unerrDir = join(process.cwd(), ".unerr");
+
+    const resolved = resolveCurrentSessionTurn(unerrDir);
+    if (!resolved)
+      return runStopHookAsync(stdinJson, async () => passthrough());
+
+    enqueueTranscriptClaim({
+      unerrDir,
+      repoCwd: process.cwd(),
+      sessionId: resolved.sessionId,
+      agent: resolved.agent,
+      turn: resolved.currentTurn,
+    });
+
+    const line = renderStopReportLive(
+      unerrDir,
+      resolved.sessionId,
+      resolved.currentTurn,
+      { nativeSessionId: resolved.nativeSessionId }
     );
     if (!line || line.trim().length === 0) {
       return runStopHookAsync(stdinJson, async () => passthrough());

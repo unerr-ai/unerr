@@ -14,6 +14,7 @@ import type { CascadeWarning } from "../intelligence/edit-impact.js";
 import { splitStableVolatile } from "../proxy/prefix-order.js";
 import { isReviewEnabled } from "../review/feature-flag.js";
 import { formatReviewFindings } from "../review/format.js";
+import { consumeSpooledDiff } from "../tools/coding/file-edit.js";
 import { recordFullFileReadDenied } from "../tracking/read-deny-meter.js";
 import { recordEdit } from "../tracking/session-edit-log.js";
 import { initFileLog, startupLog } from "../utils/startup-log.js";
@@ -27,6 +28,7 @@ import {
   type AsyncHookHandler,
   type HookHandler,
   deny,
+  display,
   enrich,
   nudge,
   passthrough,
@@ -540,6 +542,61 @@ const postEditHandler: HookHandler = (normalized) => {
   return enrich(appendCoChangeClause(base, filePath));
 };
 
+// ── ANSI primitives for the diff display (self-contained, no shared import) ──
+const _ESC = "\x1b[";
+const _RESET = `${_ESC}0m`;
+function _green(s: string): string {
+  return `${_ESC}32m${s}${_RESET}`;
+}
+function _diffRed(s: string): string {
+  return `${_ESC}31m${s}${_RESET}`;
+}
+function _diffCyan(s: string): string {
+  return `${_ESC}36m${s}${_RESET}`;
+}
+function _diffDim(s: string): string {
+  return `${_ESC}2m${s}${_RESET}`;
+}
+
+/** Colorize a raw unified-diff string and annotate lines with running line
+ *  numbers derived from the `@@ -L,n +L,n @@` hunk header. Caps output at
+ *  `maxLines` diff lines (not counting the `---`/`+++` header pair). */
+function colorizeAndNumberDiff(raw: string, maxLines = 10): string {
+  const lines = raw.split("\n");
+  const out: string[] = [];
+  let currentLine = 0;
+  let diffLineCount = 0;
+
+  for (const line of lines) {
+    if (line.startsWith("---") || line.startsWith("+++")) {
+      out.push(_diffDim(line));
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      const m = line.match(/\+(\d+)/);
+      currentLine = m?.[1] !== undefined ? Number.parseInt(m[1], 10) : 1;
+      out.push(_diffCyan(line));
+      continue;
+    }
+    if (diffLineCount >= maxLines) continue;
+    if (line.startsWith("+")) {
+      const lineNum = String(currentLine).padStart(4, " ");
+      out.push(_green(`${lineNum} ${line}`));
+      currentLine++;
+      diffLineCount++;
+    } else if (line.startsWith("-")) {
+      out.push(_diffRed(`     ${line}`));
+      diffLineCount++;
+    } else {
+      const lineNum = String(currentLine).padStart(4, " ");
+      out.push(_diffDim(`${lineNum} ${line}`));
+      currentLine++;
+      diffLineCount++;
+    }
+  }
+  return out.join("\n");
+}
+
 /**
  * Async post-edit handler (P1 — Surface A, in-flight review). Records the edit
  * (same as the sync path, so session-end reconcile is unaffected), then asks the
@@ -548,6 +605,12 @@ const postEditHandler: HookHandler = (normalized) => {
  * co-change nudge alone when the proxy is unreachable or the edit reviews clean,
  * so behaviour is never worse than the sync {@link postEditHandler}. Never
  * blocks — review findings are advisory context the agent acts on before close.
+ *
+ * For `mcp__unerr__file_edit` calls: reads the local-only spool under
+ * `.unerr/state/edit-display.jsonl` and surfaces a colorized unified diff to
+ * the USER ONLY via a top-level `systemMessage` (never `additionalContext`,
+ * never enters model context). Native Edit tool calls are unaffected — Claude
+ * Code already renders its own diff for those.
  */
 const postEditHandlerAsync: AsyncHookHandler = async (normalized) => {
   const input = normalized.toolInput;
@@ -565,6 +628,17 @@ const postEditHandlerAsync: AsyncHookHandler = async (normalized) => {
     old_content: oldContent,
     new_content: newContent,
   });
+
+  // For mcp__unerr__file_edit: read the local-only diff spool and surface it
+  // to the user via systemMessage only. Native Edit is handled by Claude Code's
+  // own diff renderer — do not double-display it.
+  if (normalized.toolName === "mcp__unerr__file_edit") {
+    const rawDiff = consumeSpooledDiff(process.cwd(), filePath);
+    if (rawDiff) {
+      return display(colorizeAndNumberDiff(rawDiff, 10));
+    }
+    return passthrough();
+  }
 
   // Query the review engine over UDS — gated by the master reviewer switch
   // (OFF by default while benchmarked). Disabled → skip the round-trip entirely
