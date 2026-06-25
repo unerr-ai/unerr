@@ -146,7 +146,9 @@ export function buildMonikerIndex(
         // A reference into ANOTHER package is a cross-repo importer candidate.
         if (parsed.pkg === ownPackage) continue;
         const name = entityNameFromSymbol(sym.symbol) ?? parsed.descriptor;
-        (refs[norm] ??= []).push({
+        const bucket = refs[norm] ?? [];
+        if (refs[norm] === undefined) refs[norm] = bucket;
+        bucket.push({
           name,
           file: doc.relativePath,
           line: sym.line,

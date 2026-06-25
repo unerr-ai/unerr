@@ -125,7 +125,7 @@ describe("edit-display spool — targeted edit mode", () => {
         diff: `diff-${i}`,
       })
     );
-    writeFileSync(spoolPath, entries.join("\n") + "\n", "utf-8");
+    writeFileSync(spoolPath, `${entries.join("\n")}\n`, "utf-8");
 
     // Now do one real edit to trigger the cap logic.
     const vitestEnv = process.env.VITEST;
@@ -201,7 +201,7 @@ describe("consumeSpooledDiff", () => {
     const f = join(dir, "x.ts");
     writeFileSync(
       spoolPath,
-      JSON.stringify({ ts: "t", file: f, diff: "the-diff" }) + "\n",
+      `${JSON.stringify({ ts: "t", file: f, diff: "the-diff" })}\n`,
       "utf-8"
     );
 
@@ -222,7 +222,7 @@ describe("consumeSpooledDiff", () => {
     const absFile = join(dir, "src", "foo.ts");
     writeFileSync(
       spoolPath,
-      JSON.stringify({ ts: "t", file: absFile, diff: "abs-diff" }) + "\n",
+      `${JSON.stringify({ ts: "t", file: absFile, diff: "abs-diff" })}\n`,
       "utf-8"
     );
 
@@ -241,7 +241,7 @@ describe("consumeSpooledDiff", () => {
     const spoolPath = join(dir, ".unerr", "state", "edit-display.jsonl");
     writeFileSync(
       spoolPath,
-      JSON.stringify({ ts: "t", file: "/other/file.ts", diff: "d" }) + "\n",
+      `${JSON.stringify({ ts: "t", file: "/other/file.ts", diff: "d" })}\n`,
       "utf-8"
     );
     expect(consumeSpooledDiff(dir, join(dir, "x.ts"))).toBeNull();
@@ -257,11 +257,11 @@ describe("postEditHandlerAsync via runPostEditHookAsync", () => {
     const spoolPath = join(dir, ".unerr", "state", "edit-display.jsonl");
     writeFileSync(
       spoolPath,
-      JSON.stringify({
+      `${JSON.stringify({
         ts: "t",
         file: f,
         diff: `--- ${f}\n+++ ${f}\n@@ -1,1 +1,1 @@\n-old\n+new`,
-      }) + "\n",
+      })}\n`,
       "utf-8"
     );
 

@@ -53,8 +53,10 @@ describe("command-strip-guard", () => {
       const projected = projectRowForWire(row, REPO_ROOT);
       expect(projected).not.toBeNull();
 
-      const detail = (projected as Record<string, unknown>)
-        .detail as Record<string, unknown>;
+      const detail = (projected as Record<string, unknown>).detail as Record<
+        string,
+        unknown
+      >;
 
       expect(detail.command).toBeUndefined();
       expect(detail.tee_file).toBeUndefined();
@@ -88,8 +90,10 @@ describe("command-strip-guard", () => {
       const projected = projectRowForWire(row, REPO_ROOT);
       expect(projected).not.toBeNull();
 
-      const detail = (projected as Record<string, unknown>)
-        .detail as Record<string, unknown>;
+      const detail = (projected as Record<string, unknown>).detail as Record<
+        string,
+        unknown
+      >;
 
       expect(detail.command).toBeUndefined();
       expect(detail.tee_file).toBeUndefined();
@@ -121,8 +125,10 @@ describe("command-strip-guard", () => {
       const projected = projectRowForWire(row, REPO_ROOT);
       expect(projected).not.toBeNull();
 
-      const detail = (projected as Record<string, unknown>)
-        .detail as Record<string, unknown>;
+      const detail = (projected as Record<string, unknown>).detail as Record<
+        string,
+        unknown
+      >;
 
       expect(detail.command).toBeUndefined();
       expect(detail.tee_file).toBeUndefined();
@@ -238,8 +244,10 @@ describe("command-strip-guard", () => {
         // session_summary with kind:"history" must not return null
         expect(projected).not.toBeNull();
 
-        const detail = (projected as Record<string, unknown>)
-          .detail as Record<string, unknown>;
+        const detail = (projected as Record<string, unknown>).detail as Record<
+          string,
+          unknown
+        >;
 
         expect(
           detail.command,

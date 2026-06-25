@@ -43,7 +43,11 @@ function makeDrainer(
   key: string,
   batches: StreamBatch[],
   results: Array<CloudResult<BatchAck>>
-): { drainer: StreamDrainer; readCount: () => number; pushCount: () => number } {
+): {
+  drainer: StreamDrainer;
+  readCount: () => number;
+  pushCount: () => number;
+} {
   let readIdx = 0;
   let pushIdx = 0;
   let reads = 0;
