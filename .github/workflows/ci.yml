@@ -278,8 +278,8 @@ jobs:
             runner: macos-14
             os: darwin
             smoke: true
-          - target: darwin-x64     # Intel Mac — last Intel image
-            runner: macos-13
+          - target: darwin-x64     # Intel Mac — macos-13 retired 2025-12-04; macos-15-intel is the x86_64 replacement
+            runner: macos-15-intel
             os: darwin
             smoke: true
           - target: linux-x64      # native runner
