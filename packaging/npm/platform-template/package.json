@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "TEMPLATE — placeholders are filled by packaging/npm/build-npm-packages.mjs.",
+    "Do not publish this file directly.",
+    "Placeholders:",
+    "  __PKG_NAME__    -> @unerr-ai/unerr-<os>-<arch>  (e.g. @unerr-ai/unerr-darwin-arm64)",
+    "  __VERSION__     -> release version string         (e.g. 0.3.5)",
+    "  __OS__          -> npm os value                   (darwin | linux | win32)",
+    "  __CPU__         -> npm cpu value                  (x64 | arm64)",
+    "  __DESCRIPTION__ -> per-platform description string"
+  ],
+  "name": "__PKG_NAME__",
+  "version": "__VERSION__",
+  "description": "__DESCRIPTION__",
+  "os": ["__OS__"],
+  "cpu": ["__CPU__"],
+  "files": [
+    "bin/"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/unerr-ai/unerr-docs.git"
+  }
+}

@@ -1591,11 +1591,8 @@ async function discoverWithRetry(
  * the manager. NEVER writes a launchd plist / systemd unit / scheduled task.
  */
 async function spawnProcessManager(): Promise<void> {
-  const { spawn } = await import("node:child_process");
-  const exec = process.execPath;
-  const entry = process.argv[1];
-  if (!entry) throw new Error("process.argv[1] is undefined — cannot spawn pm");
-  const child = spawn(exec, [entry, "pm", "start", "--detached"], {
+  const { spawnUnerr } = await import("../utils/self-spawn.js");
+  const child = spawnUnerr(["pm", "start", "--detached"], {
     detached: true,
     stdio: "ignore",
     windowsHide: true,
@@ -1857,6 +1854,18 @@ for (const cmd of program.commands) {
     // Commander internal property — commands with _hidden=true are omitted from help
     (cmd as unknown as { _hidden: boolean })._hidden = true;
   }
+}
+
+// Internal re-exec (compiled binary only): a detached WAL checkpoint. The binary
+// has no `node -e`, so checkpointWalDetached re-execs itself with this env set;
+// this runs the single-purpose checkpoint in its own process and exits before
+// any commander dispatch.
+if (process.env.UNERR_WAL_CHECKPOINT) {
+  const { runDetachedWalCheckpoint } = await import(
+    "../intelligence/persistent-db.js"
+  );
+  runDetachedWalCheckpoint(process.env.UNERR_WAL_CHECKPOINT);
+  process.exit(0);
 }
 
 program.parse();

@@ -15,7 +15,18 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Build-time constants. Undefined in the tsup/Node build and in dev (tsx), where
+// the version is read from package.json on disk. `script/build-binary.ts` injects
+// both via `--define` so a compiled binary — which ships no package.json — still
+// reports the right version and the commit it was built from.
+declare const __UNERR_VERSION__: string;
+declare const __UNERR_COMMIT__: string;
+
 function readPackageVersion(): string {
+  // Compiled binary: the version is baked in (no package.json on disk to read).
+  if (typeof __UNERR_VERSION__ !== "undefined" && __UNERR_VERSION__) {
+    return __UNERR_VERSION__;
+  }
   try {
     const here = dirname(fileURLToPath(import.meta.url));
     const pkg = JSON.parse(
@@ -28,3 +39,12 @@ function readPackageVersion(): string {
 }
 
 export const UNERR_VERSION: string = readPackageVersion();
+
+/**
+ * The git commit the build was produced from. Baked into a compiled binary via
+ * `--define`; "unknown" for the npm/Node build (which carries no commit stamp).
+ */
+export const UNERR_COMMIT: string =
+  typeof __UNERR_COMMIT__ !== "undefined" && __UNERR_COMMIT__
+    ? __UNERR_COMMIT__
+    : "unknown";

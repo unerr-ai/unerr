@@ -26,3 +26,6 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Native-binary staging (populated transiently by scripts/build-binary.ts)
+src/intelligence/native/

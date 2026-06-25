@@ -12,6 +12,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { createModuleLogger } from "../utils/logger.js";
 
+// Build-time flag: `true` only in a compiled Bun binary (see native-cozo.ts).
+declare const __UNERR_BINARY__: boolean;
+
 const log = createModuleLogger("native-watcher");
 
 export type WatchEventType = "create" | "update" | "delete";
@@ -112,8 +115,22 @@ export function createNativeWatcher(opts: NativeWatcherOptions): NativeWatcher {
 
     let subscribeFn: typeof import("@parcel/watcher").subscribe;
     try {
-      const mod = await import("@parcel/watcher");
-      subscribeFn = mod.subscribe;
+      if (typeof __UNERR_BINARY__ !== "undefined" && __UNERR_BINARY__) {
+        // Compiled binary: the watcher addon is embedded (pre-`createWrapper`).
+        // wrapper.js is pure JS (picomatch/is-glob) and bundles normally, so we
+        // re-wrap the embedded binding to get the same `subscribe` API.
+        const { watcherBinding } = await import(
+          "../intelligence/embedded-natives.js"
+        );
+        // @ts-expect-error — @parcel/watcher/wrapper.js ships no type declaration
+        const wrapperMod = (await import("@parcel/watcher/wrapper.js")) as {
+          createWrapper: (binding: unknown) => typeof import("@parcel/watcher");
+        };
+        subscribeFn = wrapperMod.createWrapper(watcherBinding).subscribe;
+      } else {
+        const mod = await import("@parcel/watcher");
+        subscribeFn = mod.subscribe;
+      }
     } catch (err) {
       log.warn(
         "@parcel/watcher native bindings unavailable — file watching disabled.",

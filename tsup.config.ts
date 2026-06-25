@@ -24,6 +24,11 @@ export default defineConfig({
   noExternal: ["@unerr-ai/contracts"],
   define: {
     __UNERR_DEV_BUILD__: isProdBuild ? "false" : "true",
+    // The tsup/Node artifact is never a compiled Bun binary, so the native-embed
+    // branches (embedded cozo addon / watcher addon / tree-sitter wasm) fold out
+    // here and the package keeps loading cozo-node / @parcel/watcher normally.
+    // `script/build-binary.ts` passes `--define __UNERR_BINARY__=true` instead.
+    __UNERR_BINARY__: "false",
   },
   // Production only: enable esbuild's syntax-level dead-code pass so the
   // `if (false) { ... applyDevConfig ... }` branch is physically removed (not

@@ -24,7 +24,9 @@ import { type ReleaseKind, classifyUpdate } from "./semver.js";
 import { type UpdatePolicy, updatePolicy } from "./update-config.js";
 import { type UpdateState, readUpdateState } from "./update-state.js";
 
-const REPO_URL = "https://github.com/unerr-ai/unerr-cli";
+// Releases are published to the PUBLIC unerr-docs repo (unerr-cli is private,
+// so its own release pages aren't visible to end users).
+const REPO_URL = "https://github.com/unerr-ai/unerr-docs";
 
 /** GitHub release-notes URL for a version (the `v`-tagged release). */
 export function releaseNotesUrl(version: string): string {

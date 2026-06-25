@@ -15,7 +15,7 @@
  *   child exits → status = "stopped", cleanup
  */
 
-import { type ChildProcess, fork } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -33,6 +33,7 @@ import {
   readUpdateState,
 } from "../update/update-state.js";
 import { repoLog, repoLogsDir } from "../utils/log-paths.js";
+import { forkUnerr } from "../utils/self-spawn.js";
 import { UNERR_VERSION } from "../version.js";
 import type {
   ChildMessage,
@@ -582,8 +583,6 @@ export class ProcessManager {
     };
     this.repos.set(repoPath, repo);
 
-    const unerrBin = process.argv[1]!;
-
     // Child stderr → the repo's own proxy.log (append), NOT inherited. The
     // daemon runs detached with stderr on /dev/null, so an inherited fd 2
     // silently swallows a child's startup crash — exactly how a stale binary
@@ -601,7 +600,7 @@ export class ProcessManager {
       // Can't open the log (perms, race) — inherit so we lose nothing we had.
     }
 
-    const child = fork(unerrBin, ["--daemon-child"], {
+    const child = forkUnerr(["--daemon-child"], {
       cwd: repoPath,
       stdio: ["ignore", "ignore", stderrTarget, "ipc"],
       detached: false,

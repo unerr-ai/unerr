@@ -37,9 +37,10 @@
 </p>
 
 <p align="center">
-  <code>npm install -g @unerr-ai/unerr</code>
+  <code>curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash</code>
+  <br /><sub>or <code>brew install unerr-ai/tap/unerr</code> · <code>npm install -g @unerr-ai/unerr</code> · <a href="./INSTALL.md">all platforms →</a></sub>
   <br /><br />
-  <sub>Install, restart your IDE, and the next prompt already knows your repo. No config, no account, nothing leaves your machine.</sub>
+  <sub>One self-contained binary — no Node to match, nothing to compile. Install, restart your IDE, and the next prompt already knows your repo. No config, no account, nothing leaves your machine.</sub>
 </p>
 
 <p align="center">
@@ -139,11 +140,26 @@ Three steps. Step 1 is once per machine; steps 2–3 are per repo.
 
 ### 1. Install the CLI
 
+unerr ships as a single self-contained binary — the runtime, the graph engine, the watcher, and the parsers are all baked in, so there's no Node version to match and nothing to compile. Pick the line for your platform:
+
 ```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash
+
+# macOS (Homebrew)
+brew install unerr-ai/tap/unerr
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install.ps1 | iex
+
+# Windows (Scoop)
+scoop bucket add unerr https://github.com/unerr-ai/scoop-bucket && scoop install unerr
+
+# Node users / CI (installs the same binary via a thin wrapper; needs Node ≥18)
 npm install -g @unerr-ai/unerr
 ```
 
-Puts the `unerr` binary on your PATH. If your shell can't find it afterward (this happens with nvm, fnm, volta, and pnpm), run `unerr doctor` once — it patches your shell config and won't need to run again.
+Any of these puts the `unerr` binary on your PATH. If your shell can't find it afterward, run `unerr doctor` once — it patches your shell config and won't need to run again. Full per-platform notes (supported architectures, version pinning, uninstall) are in [INSTALL.md](./INSTALL.md).
 
 ### 2. Set it up for your agent (per repo)
 
@@ -373,7 +389,7 @@ The point was never the number. The point is that the agent lands on the right c
 ---
 
 <p align="center">
-  <code>npm install -g @unerr-ai/unerr</code>
+  <code>curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash</code>
   <br /><br />
   <a href="https://www.unerr.dev/"><sub>unerr.dev</sub></a> · <a href="https://www.npmjs.com/package/@unerr-ai/unerr"><sub>npm registry</sub></a> · <a href="https://discord.gg/2BjRftz8kG"><sub>Discord</sub></a> · <a href="https://x.com/unerr_ai"><sub>X</sub></a> · <a href="https://www.linkedin.com/company/unerr"><sub>LinkedIn</sub></a> · <sub>Fully local. No account. No cloud.</sub>
 </p>

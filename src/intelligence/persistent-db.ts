@@ -16,8 +16,11 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
+import { isCompiledBinary } from "../utils/self-spawn.js";
 import type { CozoDb } from "./cozo-schema.js";
+import { getCozoDbCtor } from "./native-cozo.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -112,15 +115,12 @@ async function createSqliteDb(dbPath: string): Promise<CozoDb> {
   // open — we just fall back to the default journal mode.
   await enableWalMode(dbPath);
 
-  const cozoModule = await import("cozo-node");
-  const CozoDbConstructor = (
-    cozoModule as { default?: { CozoDb: unknown }; CozoDb?: unknown }
-  ).default
-    ? (cozoModule as { default: { CozoDb: unknown } }).default.CozoDb
-    : (cozoModule as { CozoDb: unknown }).CozoDb;
+  // Resolves to the `cozo-node` package under Node, or the addon embedded in
+  // the compiled binary — see native-cozo.ts. Either way a CozoDb constructor.
+  const CozoDbConstructor = await getCozoDbCtor();
 
   // CozoDb(engine, path) — 'sqlite' for persistent, file-backed storage
-  const db = new (CozoDbConstructor as any)("sqlite", dbPath) as CozoDb;
+  const db = new CozoDbConstructor("sqlite", dbPath) as CozoDb;
 
   return db;
 }
@@ -259,6 +259,41 @@ try {
 `;
 
 /**
+ * Compiled-binary equivalent of CHECKPOINT_CHILD_SCRIPT. The CLI runs this when
+ * launched with `UNERR_WAL_CHECKPOINT=<db>` set (see checkpointWalDetached),
+ * then exits. Runs in its OWN process, so it carries the same lock-safety
+ * property as the `node -e` child. Synchronous + best-effort; any failure just
+ * leaves the WAL for the next boot/shutdown checkpoint.
+ */
+export function runDetachedWalCheckpoint(dbPath: string): void {
+  try {
+    const req = createRequire(import.meta.url);
+    const { DatabaseSync } = req("node:sqlite") as typeof import("node:sqlite");
+    const sqlite = new DatabaseSync(dbPath);
+    try {
+      sqlite.exec("PRAGMA busy_timeout=2000");
+      const stmt = sqlite.prepare("PRAGMA wal_checkpoint(TRUNCATE)");
+      for (let attempt = 1; attempt <= 6; attempt++) {
+        const res = stmt.get() as { busy?: number } | undefined;
+        if ((res?.busy || 0) === 0) break;
+        if (attempt < 6) {
+          Atomics.wait(
+            new Int32Array(new SharedArrayBuffer(4)),
+            0,
+            0,
+            50 * 2 ** (attempt - 1)
+          );
+        }
+      }
+    } finally {
+      sqlite.close();
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
  * Fold + truncate the WAL from a SEPARATE process, safe to call while cozo
  * has dbPath open in this one.
  *
@@ -277,11 +312,20 @@ try {
  */
 export function checkpointWalDetached(dbPath: string): void {
   try {
-    const child = spawn(
-      process.execPath,
-      ["-e", CHECKPOINT_CHILD_SCRIPT, dbPath],
-      { detached: true, stdio: "ignore" }
-    );
+    // A compiled binary has no `node` to run `-e <script>`; re-exec the binary
+    // with an env flag the CLI intercepts early (runDetachedWalCheckpoint) and
+    // exits. Either way this is a SEPARATE process — the lock-safety property
+    // the comment above depends on holds.
+    const child = isCompiledBinary()
+      ? spawn(process.execPath, [], {
+          detached: true,
+          stdio: "ignore",
+          env: { ...process.env, UNERR_WAL_CHECKPOINT: dbPath },
+        })
+      : spawn(process.execPath, ["-e", CHECKPOINT_CHILD_SCRIPT, dbPath], {
+          detached: true,
+          stdio: "ignore",
+        });
     child.unref();
   } catch (err) {
     process.stderr.write(

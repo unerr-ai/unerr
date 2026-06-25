@@ -17,7 +17,6 @@
  * fallback (the tool stays registered — DEMOTE not delete).
  */
 
-import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { parseDelegationIntent } from "../intelligence/delegation.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
@@ -27,6 +26,7 @@ import { readNamedEvents } from "../tracking/named-events.js";
 import { emitSavingsEvent } from "../tracking/savings-events.js";
 import { resolveExecSessionContext } from "../tracking/session-records.js";
 import { enqueueTranscriptClaim } from "../tracking/transcript-claim.js";
+import { spawnUnerr } from "../utils/self-spawn.js";
 import {
   type HookHandler,
   enrich,
@@ -111,12 +111,8 @@ export function spawnStopPersistWorker(stdinJson: string): boolean {
     const closing = readClosingMessageFromTranscript(transcriptPath);
     if (!closing || scrapeSentinels(closing).length === 0) return false;
 
-    // argv[1] is dist/cli.js (the unerr entrypoint this hook is running as).
-    const cliPath = process.argv[1];
-    if (!cliPath) return false;
-    const child = spawn(
-      process.execPath,
-      [cliPath, "hook", "stop-persist", "--transcript", transcriptPath],
+    const child = spawnUnerr(
+      ["hook", "stop-persist", "--transcript", transcriptPath],
       { detached: true, stdio: "ignore" }
     );
     child.unref();

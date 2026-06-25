@@ -17,6 +17,29 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Build-time flag: `false` in the tsup/Node build (so the embedded-wasm
+// branches below fold away), `true` in a compiled Bun binary.
+declare const __UNERR_BINARY__: boolean;
+
+function isCompiledBinary(): boolean {
+  return typeof __UNERR_BINARY__ !== "undefined" && __UNERR_BINARY__;
+}
+
+// Embedded tree-sitter `.wasm` paths — ONLY present in a compiled Bun binary.
+// Loaded via a dynamic import so the Node/worker build never resolves the
+// `embedded-natives` module (the AST worker runs under `--experimental-strip-
+// types`, which cannot map a static `./embedded-natives.js` specifier to its
+// `.ts` source; a static import here made every worker parse return []). The
+// branch that calls this only runs when isCompiledBinary() is true, where Bun
+// has bundled the module in.
+let _wasmPaths: Record<string, string> | null = null;
+async function embeddedWasmPaths(): Promise<Record<string, string>> {
+  if (_wasmPaths) return _wasmPaths;
+  const mod = await import("./embedded-natives.js");
+  _wasmPaths = mod.WASM_PATHS;
+  return _wasmPaths;
+}
+
 /**
  * Extraction-logic version. Stored alongside the per-file content hashes when a
  * full index runs; the startup staleness planner forces a full reindex whenever
@@ -713,7 +736,14 @@ async function getTSParser(grammar: string): Promise<TSParser | null> {
   try {
     const TreeSitter = (await import("web-tree-sitter")).default;
     if (!tsInitDone) {
-      await TreeSitter.init();
+      // In a compiled binary the runtime `tree-sitter.wasm` is embedded, not on
+      // disk under node_modules — point emscripten's loader at the embedded path.
+      const coreWasm = isCompiledBinary()
+        ? (await embeddedWasmPaths()).__core__
+        : undefined;
+      await TreeSitter.init(
+        coreWasm ? { locateFile: () => coreWasm } : undefined
+      );
       tsInitDone = true;
     }
 
@@ -737,10 +767,15 @@ async function getTSParser(grammar: string): Promise<TSParser | null> {
     ];
 
     let wasmPath: string | null = null;
-    for (const p of possiblePaths) {
-      if (existsSync(p)) {
-        wasmPath = p;
-        break;
+    if (isCompiledBinary()) {
+      // Compiled binary: the grammar `.wasm` is embedded; node_modules is absent.
+      wasmPath = (await embeddedWasmPaths())[grammar] ?? null;
+    } else {
+      for (const p of possiblePaths) {
+        if (existsSync(p)) {
+          wasmPath = p;
+          break;
+        }
       }
     }
 

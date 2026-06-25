@@ -1,0 +1,27 @@
+{
+  "name": "@unerr-ai/unerr",
+  "version": "0.0.0-PLACEHOLDER",
+  "description": "Your AI agent has read your codebase but still can't safely change it. unerr is a local guardrail that hands the agent the call graph and your rules at the moment it edits.",
+  "bin": {
+    "unerr": "bin/unerr.js"
+  },
+  "files": [
+    "bin/unerr.js"
+  ],
+  "optionalDependencies": {
+    "@unerr-ai/unerr-darwin-x64": "0.0.0-PLACEHOLDER",
+    "@unerr-ai/unerr-darwin-arm64": "0.0.0-PLACEHOLDER",
+    "@unerr-ai/unerr-linux-x64": "0.0.0-PLACEHOLDER",
+    "@unerr-ai/unerr-linux-arm64": "0.0.0-PLACEHOLDER",
+    "@unerr-ai/unerr-windows-x64": "0.0.0-PLACEHOLDER"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://unerr.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/unerr-ai/unerr-docs.git"
+  }
+}
