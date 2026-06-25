@@ -402,7 +402,12 @@ jobs:
           cp dist/bin/unerr-${{ matrix.target }} unerr
           tar -czf "$ARCHIVE" unerr
           rm unerr
-          sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+          # macOS runners ship `shasum`, Linux ships `sha256sum` — use whichever exists.
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+          else
+            shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+          fi
 
       - name: Package archive (Windows — zip)
         if: ${{ matrix.os == 'windows' }}
