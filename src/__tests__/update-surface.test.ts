@@ -87,7 +87,7 @@ describe("updateSignal — in-band line", () => {
     expect(sig?.content).toContain("(major;");
   });
 
-  it("minor available + notify_only install → loud with the npm command", () => {
+  it("minor available + notify_only install → loud with the manager's own command", () => {
     const sig = updateSignal({
       policy: "auto",
       current: "0.2.11",
@@ -95,7 +95,8 @@ describe("updateSignal — in-band line", () => {
       classification: NOTIFY_ONLY,
     });
     expect(sig?.tag).toBe("act");
-    expect(sig?.content).toContain("npm install -g @unerr-ai/unerr@0.3.0");
+    // A Homebrew install must be pointed at `brew upgrade`, not `npm install -g`.
+    expect(sig?.content).toContain("brew upgrade unerr");
     expect(sig?.content).toContain("0.3.0 available");
   });
 

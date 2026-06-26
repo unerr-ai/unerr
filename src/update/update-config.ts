@@ -55,6 +55,19 @@ function serverUpdateChannel(): "stable" | "pinned" | undefined {
 }
 
 /**
+ * The configured release channel (`stable` default): `stable` tracks the npm
+ * `latest` dist-tag, `beta` tracks `beta` and makes prereleases eligible. The
+ * single reader, shared by apply, the upgrade flow, and surfacing. Never throws.
+ */
+export function resolveChannel(): "stable" | "beta" {
+  try {
+    return loadSettings().update.channel;
+  } catch {
+    return "stable";
+  }
+}
+
+/**
  * Resolve the effective update policy. A server `pinned` channel forces
  * `notify` (the daemon converges to the pin under U5/U6, never auto-chases
  * npm); an explicit local `off` is never weakened. There is no env opt-out.

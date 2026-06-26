@@ -202,6 +202,19 @@ export class GraphHolder {
       return;
     }
 
+    // Guard the counter/set desync that drove the full-reindex storm: the
+    // change counter can read > 0 while changedFilePaths is empty (a queued
+    // rebuildPending re-fires triggerRebuild after a rebuild already consumed
+    // the captured paths). An empty set means there is nothing to index, so a
+    // full reindex here would re-scan the whole repo for no reason and, under
+    // continued edits, loop every ~22s. Reconcile and bail. proxy.ts is the
+    // only notifier and always passes non-empty paths, so an empty set is never
+    // a legitimate "unknown change" signal.
+    if (this.changedFilePaths.size === 0) {
+      this.fileChangesSinceLastRebuild = 0;
+      return;
+    }
+
     this.rebuilding = true;
     const changesAtStart = this.fileChangesSinceLastRebuild;
     const changedFiles = [...this.changedFilePaths];
@@ -213,7 +226,7 @@ export class GraphHolder {
       changedFiles.length <= this.incrementalFileLimit;
 
     if (!canIncremental) {
-      this.runFullRebuild(changesAtStart, startMs);
+      this.runFullRebuild(changedFiles, changesAtStart, startMs);
       return;
     }
 
@@ -225,7 +238,7 @@ export class GraphHolder {
         `Periodic full reindex (derived-layer refresh after ${n} incremental cycles)`
       );
       this.incrementalCycleCount = 0;
-      this.runFullRebuild(changesAtStart, startMs);
+      this.runFullRebuild(changedFiles, changesAtStart, startMs);
       return;
     }
 
@@ -282,7 +295,7 @@ export class GraphHolder {
             `Orphan sweep did not resolve divergence (${recheck.reason}) after ${this.incrementalCycleCount} cycles — full reindex to repair`
           );
           this.incrementalCycleCount = 0;
-          this.runFullRebuild(changesAtStart, startMs);
+          this.runFullRebuild(changedFiles, changesAtStart, startMs);
         }
       })
       .catch(() => {
@@ -427,7 +440,7 @@ export class GraphHolder {
           `Incremental indexing failed: ${err instanceof Error ? err.message : String(err)}. Falling back to full reindex.`
         );
         // Fallback to full reindex
-        this.runFullRebuild(changesAtStart, startMs);
+        this.runFullRebuild(changedFiles, changesAtStart, startMs);
         return; // runFullRebuild handles its own finally logic via .finally()
       })
       .finally(() => {
@@ -439,7 +452,11 @@ export class GraphHolder {
       });
   }
 
-  private runFullRebuild(changesAtStart: number, startMs: number): void {
+  private runFullRebuild(
+    changedFiles: string[],
+    changesAtStart: number,
+    startMs: number
+  ): void {
     _log.info(
       `Full reindex (${changesAtStart} file changes since last rebuild)...`
     );
@@ -460,8 +477,15 @@ export class GraphHolder {
           }
         }
 
-        // Clear all tracked state — full reindex is authoritative
-        this.changedFilePaths.clear();
+        // Drop only the paths this rebuild captured at start. Paths added by
+        // edits that arrived DURING the ~22s rebuild were never indexed and
+        // must survive to the next cycle. The previous clear() wiped them,
+        // leaving the counter > 0 with an empty set, which collapsed the next
+        // decision to canIncremental=false and re-fired a full reindex over
+        // zero files — a self-sustaining full-reindex storm.
+        for (const fp of changedFiles) {
+          this.changedFilePaths.delete(fp);
+        }
         this.fileChangesSinceLastRebuild = Math.max(
           0,
           this.fileChangesSinceLastRebuild - changesAtStart

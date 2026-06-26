@@ -1,11 +1,11 @@
 /**
  * U2 install-manager classifier — table-tested across every manager fixture.
  *
- * The safety contract: ONLY an npm/pnpm-global layout with a writable root is
- * `self_upgradable`; Homebrew, Volta, asdf, nvm, npx, a non-writable root, and
- * any ambiguous path all degrade to `notify_only`. We only support npm/pnpm
- * upgrades, so every other manager is shown the npm command. All inputs are
- * injected — no real filesystem or install.
+ * Safety contract: ONLY a writable binary install dir or an npm/pnpm-global
+ * layout with a writable root (non-Windows) is `self_upgradable`. Homebrew,
+ * Scoop, Volta, asdf, nvm, npx, a non-writable path, and npm/pnpm on Windows
+ * all degrade to `notify_only`. All inputs are injected — no real filesystem
+ * or install.
  */
 
 import { describe, expect, it } from "vitest";
@@ -20,7 +20,11 @@ const HOME = "/Users/dev";
 /** Classify a fixture path with a writable root unless overridden. */
 function classify(
   path: string,
-  opts: { writable?: boolean; env?: NodeJS.ProcessEnv } = {}
+  opts: {
+    writable?: boolean;
+    env?: NodeJS.ProcessEnv;
+    platform?: NodeJS.Platform;
+  } = {}
 ) {
   return classifyInstall({
     execPath: path,
@@ -28,6 +32,7 @@ function classify(
     homedir: () => HOME,
     env: opts.env ?? {},
     isWritable: () => opts.writable ?? true,
+    platform: opts.platform,
   });
 }
 
@@ -74,9 +79,20 @@ describe("classifyInstall — manager detection", () => {
       manager: "npx",
     },
     {
-      name: "unknown / bundled",
+      name: "scoop (path segment)",
+      path: "C:/Users/dev/scoop/apps/unerr/current/unerr.exe",
+      manager: "scoop",
+    },
+    {
+      name: "binary ~/.unerr/bin",
+      path: `${HOME}/.unerr/bin/unerr`,
+      manager: "binary",
+    },
+    {
+      // Any unrecognised standalone path (curl|bash fallback, /opt/company, etc.)
+      name: "binary bare fallback",
       path: "/opt/company-tools/unerr/cli.js",
-      manager: "unknown",
+      manager: "binary",
     },
   ];
 
@@ -101,6 +117,30 @@ describe("classifyInstall — manager detection", () => {
         env: { PNPM_HOME: "/srv/pnpm" },
       }).manager
     ).toBe("pnpm");
+  });
+
+  it("detects binary via UNERR_INSTALL_DIR env", () => {
+    expect(
+      classify("/custom/bin/unerr", {
+        env: { UNERR_INSTALL_DIR: "/custom/bin" },
+      }).manager
+    ).toBe("binary");
+  });
+
+  it("detects binary via XDG_BIN_HOME env", () => {
+    expect(
+      classify(`${HOME}/.local/bin/unerr`, {
+        env: { XDG_BIN_HOME: `${HOME}/.local/bin` },
+      }).manager
+    ).toBe("binary");
+  });
+
+  it("detects scoop via SCOOP env-var root", () => {
+    expect(
+      classify("D:/Scoop/apps/unerr/unerr.exe", {
+        env: { SCOOP: "D:/Scoop" },
+      }).manager
+    ).toBe("scoop");
   });
 });
 
@@ -136,30 +176,89 @@ describe("classifyInstall — upgrade mode gate", () => {
     ).toBe("notify_only");
   });
 
-  it("unknown / empty path → notify_only", () => {
-    expect(classify("/opt/company-tools/unerr/cli.js").mode).toBe(
-      "notify_only"
+  it("scoop → notify_only", () => {
+    const r = classify("C:/Users/dev/scoop/apps/unerr/current/unerr.exe");
+    expect(r.mode).toBe("notify_only");
+    expect(r.reason).toMatch(/scoop owns this install/);
+  });
+
+  it("binary + writable dir → self_upgradable", () => {
+    const r = classify(`${HOME}/.unerr/bin/unerr`);
+    expect(r.manager).toBe("binary");
+    expect(r.mode).toBe("self_upgradable");
+    expect(r.reason).toBeUndefined();
+  });
+
+  it("binary + non-writable dir → notify_only", () => {
+    const r = classify(`${HOME}/.unerr/bin/unerr`, { writable: false });
+    expect(r.manager).toBe("binary");
+    expect(r.mode).toBe("notify_only");
+    expect(r.reason).toMatch(/not writable/);
+  });
+
+  it("bare binary fallback + writable → self_upgradable", () => {
+    // Anything not matched by a specific channel is treated as a bare binary.
+    const r = classify("/opt/company-tools/unerr/cli.js");
+    expect(r.manager).toBe("binary");
+    expect(r.mode).toBe("self_upgradable");
+  });
+
+  it("npm on Windows → notify_only (EBUSY risk)", () => {
+    const r = classify(
+      "/usr/local/lib/node_modules/@unerr-ai/unerr/dist/cli.js",
+      { platform: "win32" }
     );
-    expect(classifyInstall({ execPath: "", realpath: (p) => p }).mode).toBe(
-      "notify_only"
+    expect(r.mode).toBe("notify_only");
+    expect(r.reason).toMatch(/Windows/);
+  });
+
+  it("pnpm on Windows → notify_only (EBUSY risk)", () => {
+    const r = classify(
+      `${HOME}/Library/pnpm/global/5/node_modules/@unerr-ai/unerr/cli.js`,
+      { platform: "win32" }
     );
+    expect(r.mode).toBe("notify_only");
+    expect(r.reason).toMatch(/Windows/);
+  });
+
+  it("empty path → notify_only (manager unknown)", () => {
+    const r = classifyInstall({ execPath: "", realpath: (p) => p });
+    expect(r.mode).toBe("notify_only");
+    expect(r.manager).toBe("unknown");
   });
 });
 
 describe("upgradeCommand — exact per-manager command", () => {
-  it("npm/pnpm get the global-install form, pinned when version given", () => {
+  it("npm gets the global-install form, pinned when version given", () => {
     expect(upgradeCommand("npm", "0.2.13")).toBe(
       "npm install -g @unerr-ai/unerr@0.2.13"
     );
-    expect(upgradeCommand("pnpm")).toBe("pnpm add -g @unerr-ai/unerr@latest");
+    expect(upgradeCommand("npm")).toBe("npm install -g @unerr-ai/unerr@latest");
   });
 
-  it("every non-pnpm manager falls back to the npm command (npm-only support)", () => {
-    // No native brew/volta/asdf path yet — all notify-only managers are pointed
-    // at the npm command, never `brew upgrade` / `volta install`.
-    expect(upgradeCommand("homebrew")).toBe(
-      "npm install -g @unerr-ai/unerr@latest"
+  it("pnpm gets the add-g form", () => {
+    expect(upgradeCommand("pnpm")).toBe("pnpm add -g @unerr-ai/unerr@latest");
+    expect(upgradeCommand("pnpm", "0.4.0")).toBe(
+      "pnpm add -g @unerr-ai/unerr@0.4.0"
     );
+  });
+
+  it("homebrew → brew upgrade unerr (ignores version spec)", () => {
+    expect(upgradeCommand("homebrew")).toBe("brew upgrade unerr");
+    expect(upgradeCommand("homebrew", "0.4.0")).toBe("brew upgrade unerr");
+  });
+
+  it("scoop → scoop update unerr (ignores version spec)", () => {
+    expect(upgradeCommand("scoop")).toBe("scoop update unerr");
+    expect(upgradeCommand("scoop", "0.4.0")).toBe("scoop update unerr");
+  });
+
+  it("binary → unerr upgrade (ignores version spec)", () => {
+    expect(upgradeCommand("binary")).toBe("unerr upgrade");
+    expect(upgradeCommand("binary", "0.4.0")).toBe("unerr upgrade");
+  });
+
+  it("volta/asdf/nvm/npx/unknown fall back to npm install -g", () => {
     expect(upgradeCommand("volta", "0.2.13")).toBe(
       "npm install -g @unerr-ai/unerr@0.2.13"
     );
@@ -167,6 +266,7 @@ describe("upgradeCommand — exact per-manager command", () => {
       "npm install -g @unerr-ai/unerr@latest"
     );
     expect(upgradeCommand("nvm")).toBe("npm install -g @unerr-ai/unerr@latest");
+    expect(upgradeCommand("npx")).toBe("npm install -g @unerr-ai/unerr@latest");
     expect(upgradeCommand("unknown")).toBe(
       "npm install -g @unerr-ai/unerr@latest"
     );

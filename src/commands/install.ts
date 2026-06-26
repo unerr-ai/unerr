@@ -44,11 +44,16 @@ import {
   writeMcpConfig,
 } from "../config/mcp-config-writer.js";
 import { findRepo, listRepos } from "../daemon/registry.js";
+import {
+  gatherNotices,
+  renderNoticesPlain,
+} from "../notices/status-notices.js";
 import { BUNDLED_SKILLS } from "../skills/local-pack.js";
 import {
   removeInstalledSkills,
   resolveAndInstallSkills,
 } from "../skills/resolver.js";
+import { consolidatedDashboardUrl } from "../utils/deep-link.js";
 
 export interface InstallResult {
   agent: string;
@@ -274,6 +279,13 @@ export function registerInstallCommand(program: Command): void {
         } catch {
           /* disclosure is additive — never block install on it */
         }
+
+        // Dashboard link + login/update notices
+        process.stderr.write(
+          `  \x1b[38;2;139;92;246m◆\x1b[0m Dashboard: ${consolidatedDashboardUrl()}\n`
+        );
+        const notices = renderNoticesPlain(gatherNotices());
+        if (notices) process.stderr.write(`\n${notices}\n`);
 
         // Login is mandatory (2026-06-14): `install` is a gated command, so the
         // `preAction` wall in cli.ts has already enforced a usable login before

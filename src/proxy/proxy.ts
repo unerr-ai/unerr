@@ -979,6 +979,15 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // factories and the shutdown path can checkpoint+truncate its WAL (the
   // `dbPath` destructured below is block-scoped to the open-db try).
   let graphDbPath: string | null = null;
+  // Absolute paths to the two other cozo-managed dbs (facts.db / timeline.db).
+  // cozo-node@0.7.6 exposes no pragma/checkpoint API, so their WAL is truncated
+  // out of band: once at boot (a guaranteed reader gap before cozo opens them)
+  // and periodically while live via a detached TRUNCATE. Without this they are
+  // never checkpointed and their WAL grows unbounded (observed: facts.db-wal at
+  // 24MB). Hoisted so the periodic timer and shutdown can reach them.
+  let factsDbPath: string | null = null;
+  let timelineDbPath: string | null = null;
+  let walCheckpointInterval: ReturnType<typeof setInterval> | null = null;
   let parseIndex: import("./auto-bootstrap.js").ParseModeIndex | null = null;
   // L11: Background indexing flag — hoisted for access after MCP server.connect()
   let needsBackgroundIndex = false;
@@ -1002,6 +1011,50 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const { db, isNew, dbPath } = await openPersistentDb(projectRoot);
       graphDbPath = dbPath;
       graphWasNew = isNew;
+
+      // facts.db / timeline.db are cozo-managed and otherwise never
+      // checkpointed, so their WAL grows unbounded across sessions. Reset any
+      // WAL left by the previous session NOW — cozo's pools for these dbs are
+      // not open yet (the fact store is lazy; the timeline subsystem starts
+      // later), so this is a guaranteed reader gap and TRUNCATE succeeds. Then
+      // a detached TRUNCATE every few minutes bounds within-session growth by
+      // catching live reader gaps. Best-effort: checkpointWal swallows errors
+      // and a not-yet-created db is a no-op.
+      factsDbPath = join(projectRoot, ".unerr", "facts.db");
+      timelineDbPath = join(projectRoot, ".unerr", "timeline.db");
+      const { checkpointWal, checkpointWalDetached } = await import(
+        "../intelligence/persistent-db.js"
+      );
+      await checkpointWal(factsDbPath);
+      await checkpointWal(timelineDbPath);
+      const WAL_CHECKPOINT_INTERVAL_MS = 3 * 60_000;
+      walCheckpointInterval = setInterval(() => {
+        if (factsDbPath) checkpointWalDetached(factsDbPath);
+        if (timelineDbPath) checkpointWalDetached(timelineDbPath);
+        // graph.db also rides the periodic checkpoint, not only the
+        // post-reindex one. A reindex-triggered checkpoint that runs DURING a
+        // cozo write burst returns busy (reader pinned) and leaves the WAL at
+        // its high-water mark; if the repo then goes idle, nothing reclaims it
+        // until the next edit. The periodic detached TRUNCATE catches that
+        // post-burst reader gap so steady-state graph.db-wal stays bounded.
+        if (graphDbPath) checkpointWalDetached(graphDbPath);
+      }, WAL_CHECKPOINT_INTERVAL_MS);
+      walCheckpointInterval.unref?.();
+
+      // Restart-overlap bridge. The pre-cozo boot checkpoint (createSqliteDb)
+      // returns busy when a PREVIOUS proxy for this repo is still exiting and
+      // holding graph.db, so a large WAL from the prior session survives the
+      // boot and then sits until the first periodic tick — up to one full
+      // WAL_CHECKPOINT_INTERVAL_MS where `du` shows the old high-water mark and
+      // a fresh restart looks unfixed. Fire one detached checkpoint ~15s in: by
+      // then the old proxy has exited and this proxy's readers are idle, so the
+      // leftover (already-folded, zero-live-frame) WAL reclaims in seconds.
+      const earlyWalCheckpoint = setTimeout(() => {
+        if (factsDbPath) checkpointWalDetached(factsDbPath);
+        if (timelineDbPath) checkpointWalDetached(timelineDbPath);
+        if (graphDbPath) checkpointWalDetached(graphDbPath);
+      }, 15_000);
+      earlyWalCheckpoint.unref?.();
 
       const { CozoGraphStore } = await import("../intelligence/local-graph.js");
       const graphStart = Date.now();
@@ -1579,9 +1632,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   const { StdioServerTransport } = await import(
     "@modelcontextprotocol/sdk/server/stdio.js"
   );
-  const { ListToolsRequestSchema, CallToolRequestSchema } = await import(
-    "@modelcontextprotocol/sdk/types.js"
-  );
+  const { ListToolsRequestSchema, CallToolRequestSchema, McpError } =
+    await import("@modelcontextprotocol/sdk/types.js");
 
   const server = new Server(
     { name: "unerr-local", version: UNERR_VERSION },
@@ -2351,6 +2403,27 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // turn_summary, surface2, facts, deep-dive) are intercepted here as before.
   // `ctx.clientId` is set only for UDS clients → threads into ledger attribution.
   // ══════════════════════════════════════════════════════════════════
+  // ── Mandatory-login gate (-32004) ────────────────────────────────────
+  // Enforced at the tools/call choke point, NOT at initialize or tools/list —
+  // the agent must connect and receive the catalog so this error reaches it
+  // (and through it, the human). Returns the JSON-RPC error payload when login
+  // is blocked, else null. The verdict is mtime-memoized (loginBlockedCached)
+  // to stay inside the <5ms budget while still unblocking the next call after a
+  // login in another terminal.
+  //
+  // CRITICAL: each transport must surface this as a PROTOCOL-LEVEL JSON-RPC
+  // error (stdio → throw McpError; UDS → a top-level `error` frame), NOT inside
+  // the tool-result body. A result-wrapped `{error:{code,message}}` with
+  // isError:true is a SUCCESSFUL response — Claude Code silently swallows it and
+  // the tool call appears to hang. Only a real `error` frame is surfaced to the
+  // user, the same way a missing `unerr --mcp` binary is.
+  function loginBlockedError(): { code: number; message: string } | null {
+    if (!loginBlockedCached()) return null;
+    const message = loginGateNotice();
+    process.stderr.write(`[unerr] tools/call blocked (-32004): ${message}\n`);
+    return { code: LOGIN_BLOCKED_ERROR_CODE, message };
+  }
+
   async function dispatchToolCall(
     requestedName: string,
     requestedArgs: Record<string, unknown>,
@@ -2361,33 +2434,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     _meta?: unknown;
     _context?: unknown;
   }> {
-    // ── Mandatory-login gate (-32004) ──────────────────────────────────
-    // Enforced HERE, at the tools/call choke point, NOT at initialize or
-    // tools/list — the agent must connect and receive the catalog so this
-    // error text reaches it (and through it, the human). `initialize` and
-    // `tools/list` have their own handlers and never pass through here.
-    // The verdict is mtime-memoized (loginBlockedCached) to stay inside the
-    // <5ms tool budget while still unblocking the next call after a login in
-    // another terminal. The error rides the tool-result body (isError + a
-    // JSON-RPC-shaped {error:{code,message}}), matching how this function
-    // already surfaces validation/translate failures — the SDK and the UDS
-    // handler wrap the return as `result`, so a bare top-level `error` would
-    // not reach the wire from here.
-    if (loginBlockedCached()) {
-      const message = loginGateNotice();
-      process.stderr.write(`[unerr] tools/call blocked (-32004): ${message}\n`);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              error: { code: LOGIN_BLOCKED_ERROR_CODE, message },
-            }),
-          },
-        ],
-        isError: true,
-      };
-    }
+    // The login gate is enforced by each transport handler (loginBlockedError)
+    // BEFORE this dispatch, so it can emit a protocol-level error frame; a
+    // result-wrapped error returned from here cannot reach the wire as one.
 
     // Mutable locals so unerr_track aliasing can re-target the dispatch without
     // reassigning the parameters (noParameterAssign). All code below reads these.
@@ -3304,6 +3353,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (async (request: any) => {
       const { name, arguments: args = {} } = request.params;
+      // Login expired/blocked → throw McpError; the SDK serializes it into a
+      // top-level JSON-RPC `error` the IDE surfaces, not a result-wrapped body
+      // Claude Code silently swallows.
+      const blocked = loginBlockedError();
+      if (blocked) throw new McpError(blocked.code, blocked.message);
       return await dispatchToolCall(
         name,
         (args ?? {}) as Record<string, unknown>,
@@ -3980,6 +4034,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       }
 
       const { name, arguments: toolArgs = {} } = params;
+
+      // Login expired/blocked → top-level JSON-RPC `error` frame (the bridge
+      // forwards it to the IDE verbatim), NOT a result-wrapped body.
+      const blocked = loginBlockedError();
+      if (blocked) {
+        return { jsonrpc: "2.0" as const, error: blocked };
+      }
 
       // Single dispatch path — every UDS (bridged-IDE) tools/call runs the
       // IDENTICAL pipeline as the directly-connected stdio client via the one
@@ -5342,6 +5403,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // ST-5: Stop signal prune interval.
       if (timelineSignalPruneInterval) {
         clearInterval(timelineSignalPruneInterval);
+      }
+      // Stop the periodic facts.db / timeline.db WAL checkpoint timer.
+      if (walCheckpointInterval) {
+        clearInterval(walCheckpointInterval);
       }
       // ST-6: Stop daily ledger-archive interval.
       clearInterval(ledgerArchiveInterval);

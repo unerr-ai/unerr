@@ -39,6 +39,7 @@ import { registerRouterCommands } from "../commands/router.js";
 import { registerSkillCommand } from "../commands/skill.js";
 import { registerStatusCommand } from "../commands/status.js";
 import { registerUninstallCommand } from "../commands/uninstall.js";
+import { registerUpgradeCommand } from "../commands/upgrade.js";
 import { registerWhoamiCommand } from "../commands/whoami.js";
 import { installFileLogger } from "../utils/file-logger.js";
 import {
@@ -1108,17 +1109,16 @@ async function daemonChildBoot(cwd: string): Promise<void> {
 
 // ── MCP boot: retry/reconnect constants ────────────────────────
 const MCP_INITIAL_RETRY_MS = 2_000;
-const MCP_MAX_RETRY_MS = 30_000;
+/** Cap for exponential backoff ceiling (before full-jitter is applied). */
+const MCP_MAX_RETRY_MS = 8_000;
 const MCP_RETRY_BACKOFF = 1.5;
 /**
- * A bridge connection that stayed up at least this long is treated as a real,
- * healthy session: the next drop resets the reconnect backoff so a long-running
- * session that loses its proxy reconnects promptly. Shorter-lived results are
- * counted as consecutive failures and backed off exponentially — this is what
- * stops the hot reconnect loop when discovery keeps handing back a sock that
- * fails to connect (connect_error) faster than the IDE can blink.
+ * A bridge session that connected and lived at least this long counts as a
+ * real session. A later drop resets the backoff so reconnect is prompt.
+ * Sessions shorter than this (including connect_error where the socket never
+ * accepted) escalate the backoff to avoid a hot reconnect loop.
  */
-const MCP_BACKOFF_RESET_MS = 30_000;
+const MCP_MIN_HEALTHY_MS = 1_000;
 
 type DiscoveryResult =
   | {
@@ -1397,14 +1397,16 @@ async function mcpBoot(
 
       if (result.reason === "stdin_closed") return;
 
-      // A session that lived long enough was healthy — reset the backoff so the
-      // reconnect is immediate. A short-lived result (e.g. connect_error from a
-      // sock that won't accept) escalates the backoff to avoid a hot loop.
+      // Distinguish "socket never accepted" (connect_error) from "connected
+      // then dropped". Only connect_error and sub-healthy flaps escalate
+      // backoff. A real session that dropped resets it so reconnect is prompt.
       const livedMs = Date.now() - connectedAt;
-      if (livedMs >= MCP_BACKOFF_RESET_MS) {
-        reconnectFailures = 0;
+      if (result.reason === "connect_error") {
+        reconnectFailures++; // sock never accepted — escalate backoff
+      } else if (livedMs >= MCP_MIN_HEALTHY_MS) {
+        reconnectFailures = 0; // real session that dropped — reconnect promptly
       } else {
-        reconnectFailures++;
+        reconnectFailures++; // established but flapped instantly — escalate
       }
 
       if (reconnectFailures === 0) {
@@ -1412,10 +1414,11 @@ async function mcpBoot(
           `[unerr:mcp] Connection lost (${result.reason}), reconnecting...\n`
         );
       } else {
-        const backoffMs = Math.min(
+        const ceil = Math.min(
           MCP_INITIAL_RETRY_MS * MCP_RETRY_BACKOFF ** (reconnectFailures - 1),
           MCP_MAX_RETRY_MS
         );
+        const backoffMs = Math.random() * ceil;
         process.stderr.write(
           `[unerr:mcp] Connection lost (${result.reason}), retrying in ${Math.round(backoffMs)}ms (attempt ${reconnectFailures})...\n`
         );
@@ -1687,6 +1690,7 @@ registerLogoutCommand(program);
 registerWhoamiCommand(program);
 registerConventionsCommand(program);
 registerDashboardCommand(program);
+registerUpgradeCommand(program);
 
 // ── Hidden Commands (callable but not shown in --help) ──────
 
@@ -1848,6 +1852,7 @@ const visibleCommands = new Set([
   // recon must be discoverable in `--help` — R7's zero-discovery premise is that
   // the agent finds and runs `unerr recon` via Bash with no MCP/ToolSearch hop.
   "recon",
+  "upgrade",
 ]);
 for (const cmd of program.commands) {
   if (!visibleCommands.has(cmd.name())) {

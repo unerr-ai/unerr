@@ -21,6 +21,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join, normalize } from "node:path";
+import { loadNodeSqlite } from "../../utils/node-sqlite.js";
 import { startupLog } from "../../utils/startup-log.js";
 import type { TokenUsage, TurnTranscript } from "./types.js";
 
@@ -68,7 +69,7 @@ async function openReadOnly(path: string): Promise<RoDatabase | null> {
   try {
     // Dynamic import keeps the built-in out of any static dependency graph
     // that the hot path might traverse through this module.
-    const { DatabaseSync } = await import("node:sqlite");
+    const { DatabaseSync } = loadNodeSqlite();
     const db = new DatabaseSync(path, { readOnly: true }) as RoDatabase;
     // Read-only connections cannot switch journal mode; WAL is read
     // transparently. We set busy_timeout so a concurrent Cursor writer

@@ -19,6 +19,7 @@
 
 import { join } from "node:path";
 import { parseDelegationIntent } from "../intelligence/delegation.js";
+import { gatherNotices, renderNoticesRed } from "../notices/status-notices.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { renderStopReportLive } from "../proxy/turn-report.js";
 import { BehaviorEventWriter } from "../tracking/behavior-events.js";
@@ -251,11 +252,15 @@ export async function runStopHookHandlerAsync(
       resolved.currentTurn,
       { nativeSessionId: resolved.nativeSessionId }
     );
-    if (!line || line.trim().length === 0) {
+    const notices = renderNoticesRed(gatherNotices());
+    const combined = [line, notices]
+      .filter((s) => s.trim().length > 0)
+      .join("\n");
+    if (!combined || combined.trim().length === 0) {
       return runStopHookAsync(stdinJson, async () => passthrough());
     }
 
-    return runStopHookAsync(stdinJson, async () => enrich(line));
+    return runStopHookAsync(stdinJson, async () => enrich(combined));
   } catch {
     return runStopHookAsync(stdinJson, async () =>
       passthroughHandler({} as never)
@@ -299,11 +304,15 @@ export async function runSubagentStopHookHandlerAsync(
       resolved.currentTurn,
       { nativeSessionId: resolved.nativeSessionId }
     );
-    if (!line || line.trim().length === 0) {
+    const notices = renderNoticesRed(gatherNotices());
+    const combined = [line, notices]
+      .filter((s) => s.trim().length > 0)
+      .join("\n");
+    if (!combined || combined.trim().length === 0) {
       return runStopHookAsync(stdinJson, async () => passthrough());
     }
 
-    return runStopHookAsync(stdinJson, async () => enrich(line));
+    return runStopHookAsync(stdinJson, async () => enrich(combined));
   } catch {
     return runStopHookAsync(stdinJson, async () =>
       passthroughHandler({} as never)

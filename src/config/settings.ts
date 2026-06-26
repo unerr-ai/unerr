@@ -101,9 +101,12 @@ export type AuthConfig = z.infer<typeof AuthConfigSchema>;
  * auto-apply minor/patch + notify for major), `notify` (detect + notify only),
  * `off` (fully disabled). Default `auto` for friction-free minor/patch upgrades.
  * There is no env opt-out — change the mode here (or via the dashboard) to opt out.
+ * `channel`: `stable` reads the `latest` dist-tag (default); `beta` reads the
+ * `beta` dist-tag but also checks `latest` so a newer stable always supersedes.
  */
 export const UpdateConfigSchema = z.object({
   mode: z.enum(["auto", "notify", "off"]).default("auto"),
+  channel: z.enum(["stable", "beta"]).default("stable"),
 });
 
 export type UpdateConfig = z.infer<typeof UpdateConfigSchema>;
@@ -138,8 +141,11 @@ export const SettingsSchema = z.object({
   })),
   /** Auth-surfacing config (Tier-3 OS notifications). */
   auth: AuthConfigSchema.default(() => ({ notifyGrace: false })),
-  /** Auto-update policy (auto | notify | off). */
-  update: UpdateConfigSchema.default(() => ({ mode: "auto" as const })),
+  /** Auto-update policy (auto | notify | off) and release channel (stable | beta). */
+  update: UpdateConfigSchema.default(() => ({
+    mode: "auto" as const,
+    channel: "stable" as const,
+  })),
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;

@@ -16,12 +16,13 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type { Command } from "commander";
-import { readDashboardState } from "../daemon/dashboard-state.js";
-import {
-  DAEMON_DASHBOARD_PORT,
-  daemonDashboardUrl,
-} from "../daemon/protocol.js";
+import type { RepoStatusEntry } from "../daemon/protocol.js";
 import { listRepos, readNeedsInput, removeRepo } from "../daemon/registry.js";
+import {
+  gatherNotices,
+  renderNoticesPlain,
+} from "../notices/status-notices.js";
+import { consolidatedDashboardUrl } from "../utils/deep-link.js";
 import { runEnvironmentChecks } from "./doctor.js";
 
 const write = (msg: string) => process.stderr.write(msg);
@@ -195,6 +196,9 @@ export function registerPmCommand(program: Command): void {
         );
         process.exitCode = 1;
       }
+
+      const notices = renderNoticesPlain(gatherNotices());
+      if (notices) write(`${notices}\n`);
     });
 
   // ── pm stop ───────────────────────────────────────────
@@ -278,6 +282,9 @@ export function registerPmCommand(program: Command): void {
         );
         process.exitCode = 1;
       }
+
+      const notices = renderNoticesPlain(gatherNotices());
+      if (notices) write(`${notices}\n`);
     });
 
   // ── pm remove <path> ────────────────────────────────────
@@ -320,77 +327,28 @@ export function registerPmCommand(program: Command): void {
         return;
       }
 
-      // Try to get live status from daemon API when daemon is running
-      let liveStatus: Map<
-        string,
-        {
-          status: string;
-          pid: number | null;
-          connections: number;
-          idle: number | null;
-          memory: number | null;
-        }
-      > | null = null;
-      let daemonRunning = false;
-      // Real bound port — slides off the default when 9847 is occupied.
-      let dashboardPort = DAEMON_DASHBOARD_PORT;
+      // Live per-repo state comes from the daemon's UDS control socket
+      // ({cmd:"status"} → StatusOkResponse), NOT an HTTP route. The dashboard UI
+      // is archived, so the daemon serves no per-repo REST endpoint — its only
+      // HTTP surface is `GET /api/pm` (process-level, no repo list). Querying a
+      // REST route here returned `{"error":"not_found"}`, which silently left
+      // every repo rendering as stopped (○). The socket is the daemon's control
+      // channel that `pm stop`/`pm shutdown` already use.
+      let liveStatus: Map<string, RepoStatusEntry> | null = null;
       try {
-        const { daemonSockPath, probeDaemon } = await import(
+        const { daemonSockPath, probeDaemon, getStatus } = await import(
           "../daemon/client.js"
         );
         const sock = daemonSockPath();
         if (await probeDaemon(sock)) {
-          daemonRunning = true;
-          const state = readDashboardState();
-          if (state) dashboardPort = state.port;
-          const { request } = await import("node:http");
-          const body = await new Promise<string>((resolveReq, rejectReq) => {
-            const req = request(
-              {
-                hostname: "127.0.0.1",
-                port: dashboardPort,
-                path: "/api/repos",
-                method: "GET",
-                timeout: 2000,
-              },
-              (res) => {
-                let data = "";
-                res.on("data", (chunk: Buffer) => {
-                  data += chunk.toString();
-                });
-                res.on("end", () => resolveReq(data));
-              }
-            );
-            req.on("error", rejectReq);
-            req.on("timeout", () => {
-              req.destroy();
-              rejectReq(new Error("timeout"));
-            });
-            req.end();
-          });
-          const parsed = JSON.parse(body) as {
-            repos: Array<{
-              path: string;
-              status: string;
-              pid: number | null;
-              connections: number;
-              idle: number | null;
-              memory: number | null;
-            }>;
-          };
+          const { repos: liveRepos } = await getStatus(sock);
           liveStatus = new Map();
-          for (const r of parsed.repos) {
-            liveStatus.set(r.path, {
-              status: r.status,
-              pid: r.pid,
-              connections: r.connections,
-              idle: r.idle,
-              memory: r.memory,
-            });
+          for (const r of liveRepos) {
+            liveStatus.set(r.path, r);
           }
         }
       } catch {
-        // Daemon API unavailable — fall back to file-based display
+        // Daemon unavailable — fall back to the file-based (registry-only) view.
       }
 
       write(
@@ -408,21 +366,7 @@ export function registerPmCommand(program: Command): void {
         // Update surface is additive — skip the line rather than fail status.
       }
 
-      // Surface where the dashboard lives so it's discoverable — only claim
-      // the URL is live when the HTTP API actually answered (liveStatus set).
-      if (liveStatus !== null) {
-        write(
-          `  \x1b[1mDashboard:\x1b[0m ${daemonDashboardUrl(dashboardPort)}\n\n`
-        );
-      } else if (daemonRunning) {
-        write(
-          `  \x1b[1mDashboard:\x1b[0m unavailable (no free port near ${DAEMON_DASHBOARD_PORT})\n\n`
-        );
-      } else {
-        write(
-          `  \x1b[1mDashboard:\x1b[0m offline — starts automatically when an AI coding chat session connects, then serves at ${daemonDashboardUrl()}\n\n`
-        );
-      }
+      write(`  \x1b[1mDashboard:\x1b[0m ${consolidatedDashboardUrl()}\n\n`);
 
       for (const repo of repos) {
         const needsInput = readNeedsInput(repo.path);
@@ -467,6 +411,9 @@ export function registerPmCommand(program: Command): void {
 
         write("\n");
       }
+
+      const notices = renderNoticesPlain(gatherNotices());
+      if (notices) write(`${notices}\n`);
     });
 
   // ── pm logs ──────────────────────────────────────────────

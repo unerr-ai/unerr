@@ -3,7 +3,13 @@
  *
  * §0.7 Constraint #8: "Every terminal display must include a deep link."
  * Used by: startup display, status command, health check, session summary.
+ *
+ * Also exports `consolidatedServiceBaseUrl` / `consolidatedDashboardUrl` —
+ * dev-mode-aware helpers that resolve through the same chain as `unerr login`
+ * so a dev.json `apiUrl` override automatically reaches every URL the CLI prints.
  */
+
+import { DEFAULT_API_URL, resolveApiUrl } from "../cloud/credentials.js";
 
 export type DeepLinkView = "health" | "drift" | "timeline" | "graph";
 
@@ -16,6 +22,39 @@ export interface DeepLinkOptions {
 }
 
 const BASE_URL = "https://app.unerr.dev";
+
+/**
+ * Returns the unerr consolidated service base URL resolved through the same
+ * chain as `unerr login`: `UNERR_API_URL` env > `DEFAULT_API_URL`. Dev mode
+ * (`dev.json apiUrl`) sets `UNERR_API_URL` at boot via `applyDevConfig`, so
+ * this automatically returns the dev URL when a dev profile is active.
+ * Never throws — a bad config falls back to `DEFAULT_API_URL`.
+ *
+ * @sem domain=cloud role=url-resolver
+ */
+export function consolidatedServiceBaseUrl(): string {
+  try {
+    return resolveApiUrl();
+  } catch {
+    return DEFAULT_API_URL;
+  }
+}
+
+/**
+ * Returns the dashboard URL for a given repo, or the base URL when no repo ID
+ * is supplied. Resolves the host through `consolidatedServiceBaseUrl()` so
+ * dev-mode and `UNERR_API_URL` overrides apply automatically.
+ *
+ * @param repoId - Optional repository identifier. When present, appends `/r/<repoId>`.
+ * @returns Full URL string with `utm_source=cli` appended.
+ *
+ * @sem domain=cloud role=url-builder
+ */
+export function consolidatedDashboardUrl(repoId?: string): string {
+  const base = consolidatedServiceBaseUrl();
+  const path = repoId ? `${base}/r/${repoId}` : base;
+  return `${path}?utm_source=cli`;
+}
 
 /**
  * Generate a context-aware deep link to the unerr web dashboard.

@@ -18,6 +18,7 @@ import { runUpdateCycle } from "../update/update-runner.js";
 import { readUpdateState } from "../update/update-state.js";
 import {
   DEFAULT_CHECK_INTERVAL_MS,
+  PACKAGE_NAME,
   checkForUpdate,
 } from "../update/version-check.js";
 
@@ -216,5 +217,105 @@ describe("checkForUpdate — throttle + offline safety", () => {
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+});
+
+describe("checkForUpdate — channel routing", () => {
+  let home: string;
+  let savedHome: string | undefined;
+
+  beforeEach(() => {
+    savedHome = process.env.UNERR_HOME;
+    home = mkdtempSync(join(tmpdir(), "unerr-ch-"));
+    process.env.UNERR_HOME = home;
+  });
+
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+    if (savedHome === undefined)
+      Reflect.deleteProperty(process.env, "UNERR_HOME");
+    else process.env.UNERR_HOME = savedHome;
+  });
+
+  it("stable channel calls fetchLatest with the latest dist-tag", async () => {
+    const fetchLatest = vi.fn().mockResolvedValue("0.3.0");
+    await checkForUpdate({
+      now: () => 1000,
+      currentVersion: "0.2.11",
+      fetchLatest,
+      channel: "stable",
+    });
+    // Exactly one call, using the "latest" dist-tag.
+    expect(fetchLatest).toHaveBeenCalledOnce();
+    expect(fetchLatest).toHaveBeenCalledWith(PACKAGE_NAME, "latest");
+  });
+
+  it("beta channel calls fetchLatest for both beta and latest dist-tags", async () => {
+    const fetchLatest = vi
+      .fn()
+      .mockImplementation(async (_pkg: string, distTag?: string) =>
+        distTag === "beta" ? "0.3.0-beta.1" : "0.2.12"
+      );
+    await checkForUpdate({
+      now: () => 1000,
+      currentVersion: "0.2.11",
+      fetchLatest,
+      channel: "beta",
+    });
+    expect(fetchLatest).toHaveBeenCalledTimes(2);
+    expect(fetchLatest).toHaveBeenCalledWith(PACKAGE_NAME, "beta");
+    expect(fetchLatest).toHaveBeenCalledWith(PACKAGE_NAME, "latest");
+  });
+
+  it("beta channel picks the newer stable over an older-cored beta", async () => {
+    // stable=1.0.0 is ahead of beta=0.9.0-beta.1 in core version, so stable wins.
+    const fetchLatest = vi
+      .fn()
+      .mockImplementation(async (_pkg: string, distTag?: string) =>
+        distTag === "beta" ? "0.9.0-beta.1" : "1.0.0"
+      );
+    const res = await checkForUpdate({
+      now: () => 1000,
+      currentVersion: "0.2.11",
+      fetchLatest,
+      channel: "beta",
+    });
+    expect(res.latest).toBe("1.0.0");
+    expect(res.kind).toBe("major");
+  });
+
+  it("beta channel picks a newer-cored beta over the stable", async () => {
+    // beta=1.0.0-beta.1 has core 1.0.0 > stable 0.9.0 core 0.9.0, so beta wins.
+    const fetchLatest = vi
+      .fn()
+      .mockImplementation(async (_pkg: string, distTag?: string) =>
+        distTag === "beta" ? "1.0.0-beta.1" : "0.9.0"
+      );
+    const res = await checkForUpdate({
+      now: () => 1000,
+      currentVersion: "0.2.11",
+      fetchLatest,
+      channel: "beta",
+    });
+    expect(res.latest).toBe("1.0.0-beta.1");
+    // kind is "none" with current semver.ts (prerelease ignored); becomes "major"
+    // once semver.ts adds { allowPrerelease: boolean } support.
+    expect(["none", "major"]).toContain(res.kind);
+  });
+
+  it("beta channel falls back to stable latest when beta dist-tag is null", async () => {
+    const fetchLatest = vi
+      .fn()
+      .mockImplementation(async (_pkg: string, distTag?: string) =>
+        distTag === "beta" ? null : "0.3.0"
+      );
+    const res = await checkForUpdate({
+      now: () => 1000,
+      currentVersion: "0.2.11",
+      fetchLatest,
+      channel: "beta",
+    });
+    expect(res.latest).toBe("0.3.0");
+    expect(res.kind).toBe("minor");
   });
 });

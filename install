@@ -1,8 +1,8 @@
 #!/bin/sh
-# unerr installer — https://unerr.dev/install
-# Usage: curl -fsSL https://unerr.dev/install | bash
-#        VERSION=0.3.5 curl -fsSL https://unerr.dev/install | bash
-#        curl -fsSL https://unerr.dev/install | bash -s -- --version 0.3.5
+# unerr installer — https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install
+# Usage: curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash
+#        VERSION=0.3.5 curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash
+#        curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash -s -- --version 0.3.5
 #
 # Env overrides:
 #   VERSION            — pin a specific release tag (without leading v)

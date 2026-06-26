@@ -6,9 +6,14 @@
  * make a bad apply impossible (AUTO_UPDATE_STRATEGY.md §4 + §7):
  *
  *   1. semver boundary  — patch/minor only; a major is notify-only, never auto.
+ *                         On the `beta` channel a prerelease candidate is
+ *                         auto-eligible (beta→beta, beta→stable); `stable` never.
  *   2. policy           — config must resolve to `auto` (§6/§8).
- *   3. install manager  — must be `self_upgradable` (npm/pnpm-global, writable);
- *                         anything else is notify-only (§3, the central risk).
+ *   3. install manager  — must be `self_upgradable`: an npm/pnpm-global with a
+ *                         writable root, or a `binary` install (curl|bash native
+ *                         binary, swapped in place via self-replace). Everything
+ *                         else — incl. npm/pnpm on Windows (running-.exe lock) —
+ *                         is notify-only (§3, the central risk).
  *   4. idempotency      — never re-install a version already applied (awaiting
  *                         restart) or one that previously failed its health check.
  *   5. quiet            — no IDE connected (apply in the quiet window, §4).
@@ -34,15 +39,27 @@ import {
 import {
   type InstallClassification,
   classifyInstall,
-  upgradeCommand,
 } from "./install-manager.js";
 import { classifyUpdate } from "./semver.js";
-import { type UpdatePolicy, updatePolicy } from "./update-config.js";
+import {
+  type UpdatePolicy,
+  resolveChannel,
+  updatePolicy,
+} from "./update-config.js";
 import {
   type UpdateState,
   readUpdateState,
   writeUpdateState,
 } from "./update-state.js";
+import {
+  type InstallRunResult,
+  acquireBinary,
+  healthCheckBinary,
+} from "./upgrade-flow.js";
+
+// The install/replace/health-check primitives live once in upgrade-flow.ts and
+// are shared with the manual `unerr upgrade` command (no duplicate upgrade logic).
+export type { InstallRunResult };
 
 export type ApplyOutcome =
   | { status: "skipped"; reason: string }
@@ -50,16 +67,16 @@ export type ApplyOutcome =
   | { status: "rolled_back"; from: string; to: string; restored: boolean }
   | { status: "failed"; reason: string };
 
-export interface InstallRunResult {
-  ok: boolean;
-  output: string;
-}
-
 export interface ApplyDeps {
   /** The running version. Defaults to `UNERR_VERSION`. */
   current?: string;
   /** The candidate version. Defaults to the persisted `latest_version`. */
   latest?: string;
+  /**
+   * Release channel — `beta` makes prerelease candidates auto-eligible (Gate 1).
+   * Defaults to the local `update.channel` setting (else `stable`).
+   */
+  channel?: "stable" | "beta";
   policy?: UpdatePolicy;
   classification?: InstallClassification;
   /** True when no IDE is connected — safe to apply. Defaults to always-quiet. */
@@ -68,52 +85,14 @@ export interface ApplyDeps {
   isBusy?: () => CollisionResult;
   /** Run a `npm/pnpm install -g` command to completion. */
   runInstall?: (cmd: string) => Promise<InstallRunResult>;
+  /** Replace the running native binary in place (the `binary` install path). */
+  selfReplaceImpl?: (version: string) => Promise<InstallRunResult>;
   /** Verify the freshly-installed binary reports `expected`. */
   healthCheck?: (expected: string) => Promise<boolean>;
   readState?: () => UpdateState;
   writeState?: (patch: Partial<UpdateState>) => void;
   /** Timestamp for recorded transitions. Defaults to `Date.now()`. */
   now?: number;
-}
-
-/** Default installer — split the (npm/pnpm) command and spawn it to completion. */
-function defaultRunInstall(cmd: string): Promise<InstallRunResult> {
-  return new Promise((resolve) => {
-    void import("node:child_process").then(({ spawn }) => {
-      const parts = cmd.split(/\s+/).filter(Boolean);
-      const child = spawn(parts[0]!, parts.slice(1), {
-        stdio: ["ignore", "pipe", "pipe"],
-        timeout: 120_000,
-      });
-      let output = "";
-      child.stdout?.on("data", (d) => {
-        output += d;
-      });
-      child.stderr?.on("data", (d) => {
-        output += d;
-      });
-      child.on("error", (e) => resolve({ ok: false, output: String(e) }));
-      child.on("exit", (code) => resolve({ ok: code === 0, output }));
-    });
-  });
-}
-
-/** Default health check — the globally-installed `unerr --version` must report `expected`. */
-function defaultHealthCheck(expected: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    void import("node:child_process").then(({ execFile }) => {
-      execFile(
-        "unerr",
-        ["--version"],
-        { timeout: 15_000, encoding: "utf-8" },
-        (err, stdout) => {
-          resolve(
-            !err && typeof stdout === "string" && stdout.includes(expected)
-          );
-        }
-      );
-    });
-  });
 }
 
 /** First line of `output`, capped — keep failure reasons short for the log/state. */
@@ -132,8 +111,12 @@ export async function applyUpdate(deps: ApplyDeps = {}): Promise<ApplyOutcome> {
   const latest = deps.latest ?? state.latest_version;
   if (!latest) return { status: "skipped", reason: "no latest version known" };
 
-  // Gate 1 — semver boundary.
-  const kind = classifyUpdate(current, latest);
+  // Gate 1 — semver boundary. On the `beta` channel a prerelease candidate is
+  // auto-eligible (beta→beta, beta→stable); on `stable` it never is.
+  const channel = deps.channel ?? resolveChannel();
+  const kind = classifyUpdate(current, latest, {
+    allowPrerelease: channel === "beta",
+  });
   if (kind === "none")
     return { status: "skipped", reason: "already current or newer" };
   if (kind === "major")
@@ -176,14 +159,18 @@ export async function applyUpdate(deps: ApplyDeps = {}): Promise<ApplyOutcome> {
   if (busy.busy)
     return { status: "skipped", reason: busy.reason ?? "package manager busy" };
 
-  const runInstall = deps.runInstall ?? defaultRunInstall;
-  const healthCheck = deps.healthCheck ?? defaultHealthCheck;
+  const acquire = (version: string) =>
+    acquireBinary(cls, version, {
+      runInstall: deps.runInstall,
+      selfReplaceImpl: deps.selfReplaceImpl,
+    });
+  const healthCheck = deps.healthCheck ?? healthCheckBinary;
   const writeState = deps.writeState ?? writeUpdateState;
   const at = deps.now ?? Date.now();
 
   // Stage the apply.
   writeState({ pending_version: latest });
-  const install = await runInstall(upgradeCommand(cls.manager, latest));
+  const install = await acquire(latest);
   if (!install.ok) {
     // Nothing was swapped under us — drop the pending marker, stay on current.
     writeState({ pending_version: undefined });
@@ -208,7 +195,7 @@ export async function applyUpdate(deps: ApplyDeps = {}): Promise<ApplyOutcome> {
   // Health-check failed → roll back to the last-known-good (or the version we
   // were running) and record it so U3 surfaces a loud rollback line.
   const good = state.last_good_version ?? current;
-  const restore = await runInstall(upgradeCommand(cls.manager, good));
+  const restore = await acquire(good);
   writeState({
     last_rollback: { from: good, to: latest, at },
     pending_version: undefined,

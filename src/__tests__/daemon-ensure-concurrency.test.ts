@@ -16,6 +16,7 @@
 
 import { EventEmitter } from "node:events";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { type Server, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,6 +25,16 @@ const forkMock = vi.fn();
 vi.mock("node:child_process", () => ({
   fork: (...args: unknown[]) => forkMock(...args),
 }));
+
+/** Real listening UDS server so tryAdopt's connectability probe succeeds. */
+function listenOnSock(sockPath: string, servers: Server[]): Promise<void> {
+  const server = createServer();
+  servers.push(server);
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(sockPath, () => resolve());
+  });
+}
 
 function makeFakeChild(): EventEmitter & {
   pid: number;
@@ -47,10 +58,14 @@ function makeFakeChild(): EventEmitter & {
 describe("ProcessManager.ensure — concurrent waiters", () => {
   let testDir: string;
   let counter = 0;
+  let servers: Server[];
 
   beforeEach(() => {
+    servers = [];
     counter++;
-    testDir = join(tmpdir(), `ensure-conc-${Date.now()}-${counter}`);
+    // Short dir: a bound UDS socket lives under <repo>/.unerr/state/ and the
+    // macOS sun_path limit is ~104 bytes, so keep the prefix tight.
+    testDir = join(tmpdir(), `ec-${process.pid}-${counter}`);
     mkdirSync(join(testDir, ".unerr"), { recursive: true });
     vi.stubEnv("UNERR_HOME", testDir);
     writeFileSync(
@@ -60,8 +75,11 @@ describe("ProcessManager.ensure — concurrent waiters", () => {
     forkMock.mockReset();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllEnvs();
+    await Promise.all(
+      servers.map((s) => new Promise<void>((res) => s.close(() => res())))
+    );
     try {
       rmSync(testDir, { recursive: true, force: true });
     } catch {
@@ -154,8 +172,8 @@ describe("ProcessManager.ensure — concurrent waiters", () => {
     expect(forkMock).toHaveBeenCalledTimes(1);
 
     // A competing proxy wins the per-repo PID lock between tryAdopt and fork:
-    // a live PID + sock now exist on disk (our own PID is guaranteed alive).
-    writeFileSync(sock, "");
+    // a live PID + a CONNECTABLE sock now exist on disk (our own PID is alive).
+    await listenOnSock(sock, servers);
     writeFileSync(
       join(stateDir, "proxy.pid"),
       JSON.stringify({

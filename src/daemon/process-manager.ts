@@ -15,13 +15,14 @@
  *   child exits → status = "stopped", cleanup
  */
 
-import type { ChildProcess } from "node:child_process";
+import { type ChildProcess, spawnSync } from "node:child_process";
 import {
   closeSync,
   existsSync,
   mkdirSync,
   openSync,
   readFileSync,
+  rmSync,
 } from "node:fs";
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
@@ -226,6 +227,97 @@ function isSockConnectable(
   });
 }
 
+/** Grace period after SIGTERM before a stray proxy is force-killed (ms). */
+const PROXY_KILL_GRACE_MS = 3_000;
+
+/**
+ * SIGTERM a process and BLOCK until it has fully exited, escalating to SIGKILL
+ * if it outlives the grace window. Used before forking a replacement proxy so
+ * the old and new never coexist: while two proxies hold the same repo's
+ * graph.db, every WAL checkpoint sees a pinned reader (busy) and graph.db-wal
+ * sticks at its high-water mark until one dies. Waiting here eliminates that
+ * restart-overlap window.
+ */
+async function killProcessAndWait(
+  pid: number,
+  graceMs = PROXY_KILL_GRACE_MS
+): Promise<void> {
+  if (!isProcessAlive(pid)) return;
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return; // already gone
+  }
+  const deadline = Date.now() + graceMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  // Grace elapsed and it is still up — force it, then confirm it is gone so the
+  // caller can fork knowing the repo's graph.db has no other holder.
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    return;
+  }
+  for (let i = 0; i < 40 && isProcessAlive(pid); i++) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+/** Read the PID a per-repo proxy wrote to its lock file, or null if absent /
+ *  unparseable. The single source of "which process owns this repo's graph.db". */
+function readProxyLockPid(stateDir: string): number | null {
+  const pidFilePath = join(stateDir, "proxy.pid");
+  if (!existsSync(pidFilePath)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(pidFilePath, "utf-8")) as {
+      pid?: number;
+    };
+    return typeof parsed.pid === "number" ? parsed.pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remove a wedged/dead proxy's stale lock + socket files so a fresh fork owns
+ *  them cleanly (the child re-creates both on boot). */
+function clearProxyLockFiles(stateDir: string): void {
+  for (const f of ["proxy.sock", "proxy.pid"]) {
+    try {
+      rmSync(join(stateDir, f), { force: true });
+    } catch {
+      // Best-effort — a fork overwrites them anyway.
+    }
+  }
+}
+
+/**
+ * Confirm a pid read from a proxy lock file is genuinely a unerr per-repo proxy
+ * before force-killing it. A lock file can outlive its process; the OS may have
+ * recycled that pid onto an UNRELATED program, and killing it would take down
+ * someone else's work. We match `--daemon-child` in the argv — the unambiguous
+ * marker every managed proxy carries. A bare "unerr" match is unsafe because the
+ * repo path itself ("unerr-cli") would false-match. Any failure to verify
+ * returns false, so an unconfirmable pid is never killed.
+ */
+function isUnerrProxyProcess(pid: number): boolean {
+  if (process.platform === "win32") {
+    // No portable `ps`; skip the kill rather than risk an unrelated process.
+    return false;
+  }
+  try {
+    const out = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf-8",
+      timeout: 1_000,
+      windowsHide: true,
+    });
+    return out.status === 0 && /--daemon-child/.test(out.stdout ?? "");
+  } catch {
+    return false; // cannot verify → never kill
+  }
+}
+
 /** Canonicalize a repo path to the single absolute key used in the repos map. */
 function canonRepoKey(repoPath: string): string {
   return resolve(expandHome(repoPath));
@@ -330,7 +422,7 @@ export class ProcessManager {
     // race in proxy.ts, exit(0) without sending "ready", and be marked
     // "stopped" — the churn that left the real primary serving but untracked
     // while `pm status` and the dashboard read "stopped".
-    const adopted = this.tryAdopt(key);
+    const adopted = await this.tryAdopt(key);
     if (adopted) {
       // A live proxy is serving — any prior fork failures are moot.
       this.startupFailures.delete(key);
@@ -340,6 +432,20 @@ export class ProcessManager {
       // adopted rather than forked.
       touchRepoStarted(key, new Date().toISOString());
       return adopted;
+    }
+
+    // `await tryAdopt` above yields the event loop, so a CONCURRENT ensure() for
+    // the same cold repo can create the `starting` entry (and fork its child)
+    // while we were suspended. Re-check before forking: join the in-flight
+    // startup as a waiter instead of forking a SECOND duplicate child — without
+    // this, two IDE sessions opening the same repo each fork, and the first
+    // caller's waiter is orphaned on the overwritten entry and hangs.
+    const concurrent = this.repos.get(key);
+    if (concurrent?.status === "starting") {
+      return this.waitForReady(concurrent);
+    }
+    if (concurrent?.status === "running" && concurrent.sock) {
+      return concurrent.sock;
     }
 
     // Startup circuit breaker: if this repo's child has failed to start
@@ -374,7 +480,7 @@ export class ProcessManager {
       // adoptable. Re-probe once so a lost race returns the real proxy's sock
       // instead of surfacing "Child exited during startup" and stranding the
       // bridge in its ensureRepo retry loop.
-      const readopted = this.tryAdopt(key);
+      const readopted = await this.tryAdopt(key);
       if (readopted) {
         this.startupFailures.delete(key);
         return readopted;
@@ -405,22 +511,45 @@ export class ProcessManager {
    * tracks and forwards to the live proxy instead of forking a duplicate.
    * Returns null when no live proxy is present (caller then spawns one).
    */
-  private tryAdopt(repoPath: string): string | null {
+  private async tryAdopt(repoPath: string): Promise<string | null> {
     const stateDir = join(repoPath, ".unerr", "state");
     const sockPath = join(stateDir, "proxy.sock");
-    const pidFilePath = join(stateDir, "proxy.pid");
-    if (!existsSync(sockPath) || !existsSync(pidFilePath)) return null;
+    if (!existsSync(sockPath)) return null;
 
-    let pid: number | null = null;
-    try {
-      const parsed = JSON.parse(readFileSync(pidFilePath, "utf-8")) as {
-        pid?: number;
-      };
-      pid = typeof parsed.pid === "number" ? parsed.pid : null;
-    } catch {
+    const pid = readProxyLockPid(stateDir);
+    if (pid === null || !isProcessAlive(pid)) {
+      // Dead pid behind a leftover lock — clear the stale files so the fresh
+      // fork acquires the lock cleanly instead of racing a ghost entry.
+      clearProxyLockFiles(stateDir);
       return null;
     }
-    if (pid === null || !isProcessAlive(pid)) return null;
+
+    // The pid is alive, but only a CONNECTABLE proxy is actually serving. A
+    // proxy whose pid lives but whose UDS socket refuses a connection is WEDGED
+    // (crashed mid-init, holding the lock, or mid-restart). Adopting it returns
+    // a dead sock — the bridge forwards `initialize` into nothing and the
+    // dashboard/pm-status flap "stopped" — AND it keeps holding graph.db, so no
+    // WAL checkpoint can truncate and graph.db-wal sticks at its high-water
+    // mark. Kill it, wait for a FULL exit, clear its files, then fall through to
+    // fork a fresh SOLE owner. This is what closes the restart-overlap window.
+    // (`isSockConnectable` succeeds the moment the proxy has `listen()`ed, even
+    // while mid-index, so a merely-busy proxy is adopted here, never killed.)
+    if (!(await isSockConnectable(sockPath))) {
+      // Only force-kill a pid we can CONFIRM is a unerr proxy — a stale lock may
+      // point at a recycled, unrelated pid we must never signal. If unconfirmed,
+      // skip the kill but still clear the stale files so the fresh fork owns the
+      // lock cleanly.
+      if (isUnerrProxyProcess(pid)) {
+        this.onEvent?.(
+          "stopped",
+          { path: repoPath, pid } as ManagedRepo,
+          "wedged proxy (alive pid, dead socket) — killing before respawn"
+        );
+        await killProcessAndWait(pid);
+      }
+      clearProxyLockFiles(stateDir);
+      return null;
+    }
 
     const reg = readRegistry();
     const entry = reg.repos.find((r) => r.path === repoPath);
@@ -478,8 +607,14 @@ export class ProcessManager {
     const repo = this.repos.get(canonRepoKey(repoPath));
     if (!repo || repo.status === "stopped") return;
     if (!repo.child) {
-      // Adopted external proxy — no IPC handle; terminate by PID if alive.
-      if (repo.adopted && repo.pid !== null && isProcessAlive(repo.pid)) {
+      // Adopted external proxy — no IPC handle; terminate by PID if alive AND
+      // still a confirmed unerr proxy (never a recycled, unrelated pid).
+      if (
+        repo.adopted &&
+        repo.pid !== null &&
+        isProcessAlive(repo.pid) &&
+        isUnerrProxyProcess(repo.pid)
+      ) {
         try {
           process.kill(repo.pid, "SIGTERM");
         } catch {
@@ -502,11 +637,42 @@ export class ProcessManager {
     this.stopIdleSweep();
 
     const shutdowns: Promise<void>[] = [];
+    const handledPids = new Set<number>();
+
+    // 1. Repos this daemon is tracking. A forked child has an IPC handle, so it
+    //    gets a graceful { type: "shutdown" } (snapshots + WAL checkpoint on the
+    //    way out). An ADOPTED proxy has child === null but a real pid — the old
+    //    code skipped it, so `pm stop` killed the daemon and ORPHANED every
+    //    adopted proxy. Kill those by pid and wait for a full exit.
     for (const repo of this.repos.values()) {
-      if (repo.child && repo.status !== "stopped") {
+      if (repo.status === "stopped") continue;
+      if (repo.child) {
         shutdowns.push(this.shutdownChild(repo));
+        if (repo.pid !== null) handledPids.add(repo.pid);
+      } else if (repo.pid !== null && isUnerrProxyProcess(repo.pid)) {
+        // Adopted proxy (no IPC handle). Kill by pid, but only once confirmed it
+        // is still a unerr proxy — never a recycled, unrelated pid.
+        handledPids.add(repo.pid);
+        shutdowns.push(killProcessAndWait(repo.pid));
       }
     }
+
+    // 2. Sweep the registry for any live per-repo proxy this daemon never
+    //    tracked (an orphan from a prior generation, or a standalone `unerr`).
+    //    `pm stop` must leave ZERO repo proxies behind, so terminate those too
+    //    by their lock pid, then clear the stale lock files.
+    for (const entry of readRegistry().repos) {
+      const stateDir = join(entry.path, ".unerr", "state");
+      const pid = readProxyLockPid(stateDir);
+      if (pid === null || handledPids.has(pid) || !isProcessAlive(pid))
+        continue;
+      if (!isUnerrProxyProcess(pid)) continue; // recycled/unrelated pid — leave it
+      handledPids.add(pid);
+      shutdowns.push(
+        killProcessAndWait(pid).then(() => clearProxyLockFiles(stateDir))
+      );
+    }
+
     await Promise.allSettled(shutdowns);
   }
 

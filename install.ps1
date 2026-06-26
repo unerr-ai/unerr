@@ -1,6 +1,6 @@
-# unerr Windows installer — https://unerr.dev/install.ps1
-# Usage: irm https://unerr.dev/install.ps1 | iex
-#        $env:VERSION="0.3.5"; irm https://unerr.dev/install.ps1 | iex
+# unerr Windows installer — https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install.ps1
+# Usage: irm https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install.ps1 | iex
+#        $env:VERSION="0.3.5"; irm https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install.ps1 | iex
 #
 # Env overrides:
 #   $env:VERSION           — pin a specific release tag (without leading v)

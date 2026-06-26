@@ -21,7 +21,11 @@ import {
   upgradeCommand,
 } from "./install-manager.js";
 import { type ReleaseKind, classifyUpdate } from "./semver.js";
-import { type UpdatePolicy, updatePolicy } from "./update-config.js";
+import {
+  type UpdatePolicy,
+  resolveChannel,
+  updatePolicy,
+} from "./update-config.js";
 import { type UpdateState, readUpdateState } from "./update-state.js";
 
 // Releases are published to the PUBLIC unerr-docs repo (unerr-cli is private,
@@ -67,15 +71,20 @@ export interface UpdateSurfaceDeps {
   state?: UpdateState;
   current?: string;
   policy?: UpdatePolicy;
+  channel?: "stable" | "beta";
   classification?: InstallClassification;
 }
 
 /** Resolve the shared inputs once, honouring injected overrides. */
 function resolve(deps: UpdateSurfaceDeps) {
+  const channel = deps.channel ?? resolveChannel();
   return {
     state: deps.state ?? readUpdateState(),
     current: deps.current ?? UNERR_VERSION,
     policy: deps.policy ?? updatePolicy(),
+    channel,
+    /** On `beta`, a prerelease `latest_version` is a real, surfaceable update. */
+    allowPrerelease: channel === "beta",
   };
 }
 
@@ -88,7 +97,7 @@ function resolve(deps: UpdateSurfaceDeps) {
 export function updateSignal(
   deps: UpdateSurfaceDeps = {}
 ): UpdateSignal | null {
-  const { state, current, policy } = resolve(deps);
+  const { state, current, policy, allowPrerelease } = resolve(deps);
   if (policy === "off") return null;
 
   // 1. Rollback — a release failed its health check and was reverted. Loud.
@@ -106,7 +115,7 @@ export function updateSignal(
   //    policy `notify`) → name the exact command. Loud, actionable.
   const latest = state.latest_version;
   if (latest) {
-    const kind = classifyUpdate(current, latest);
+    const kind = classifyUpdate(current, latest, { allowPrerelease });
     if (kind !== "none") {
       const cls = deps.classification ?? classifyInstall();
       const wouldAutoApply =
@@ -167,10 +176,12 @@ export interface UpdateStatusPanel {
 export function updateStatusPanel(
   deps: UpdateSurfaceDeps = {}
 ): UpdateStatusPanel {
-  const { state, current, policy } = resolve(deps);
+  const { state, current, policy, allowPrerelease } = resolve(deps);
   const cls = deps.classification ?? classifyInstall();
   const latest = state.latest_version ?? null;
-  const kind = latest ? classifyUpdate(current, latest) : "none";
+  const kind = latest
+    ? classifyUpdate(current, latest, { allowPrerelease })
+    : "none";
 
   let status: UpdateStatusKind;
   if (policy === "off") status = "disabled";

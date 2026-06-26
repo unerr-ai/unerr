@@ -494,7 +494,7 @@ describe("Error handling", () => {
 
     // A healthy session resets the counter; a short-lived one escalates and
     // sleeps before re-discovering, so a sock that won't connect can't hot-loop.
-    expect(content).toContain("MCP_BACKOFF_RESET_MS");
+    expect(content).toContain("MCP_MIN_HEALTHY_MS");
     expect(content).toContain("reconnectFailures");
     expect(content).toContain("retrying in");
   });

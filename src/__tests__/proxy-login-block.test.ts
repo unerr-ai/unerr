@@ -1,20 +1,32 @@
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── What this file proves ──────────────────────────────────────────────
 // Sprint 3: MCP tool calls are blocked with -32004 when login is blocked.
 //
 // We test the proxy-local memoized wrapper `loginBlockedCached` directly,
-// NOT `dispatchToolCall`. `dispatchToolCall` is a ~700-line closure defined
-// INSIDE `startProxy` (it captures shadowLedger, the QueryRouter, watchers,
-// etc.), so it is not exportable or callable without standing up the whole
-// proxy + CozoDB. The login block is the FIRST statement of that closure and
-// is a pure function of `loginBlockedCached()` + `loginGateNotice()`, so
-// testing the wrapper + the documented error shape covers the gate logic.
-// The wiring (the `if (loginBlockedCached())` early-return at the top of
-// dispatchToolCall) is verified by reading.
+// NOT the transport handlers. The handlers (stdio CallTool + UDS tools/call)
+// are closures defined INSIDE `startProxy` (they capture shadowLedger, the
+// QueryRouter, watchers, etc.), so they are not exportable or callable without
+// standing up the whole proxy + CozoDB. The gate is a pure function of
+// `loginBlockedCached()` + `loginGateNotice()`, so testing the wrapper covers
+// the verdict logic; the protocol-error WIRING is locked by a source guard
+// (see "login-block wiring is a protocol-level JSON-RPC error" below).
+//
+// The wiring contract: a blocked login must surface as a PROTOCOL-LEVEL
+// JSON-RPC error (stdio → `throw new McpError`; UDS → a top-level `error`
+// frame), NOT a result-wrapped `{content, isError:true}` body — that latter
+// shape is a SUCCESSFUL response Claude Code silently swallows, making the
+// tool call appear to hang. The guard fails if anyone reintroduces it.
 //
 // The wrapper memoizes on the (credentials, entitlement) file mtimes, so we
 // point those paths at real temp files and bump their mtime to force a
@@ -127,5 +139,44 @@ describe("loginBlockedCached", () => {
     // Stable key (0:<ent-mtime>) → second call is memoized.
     expect(loginBlockedCached()).toBe(true);
     expect(loginBlockedImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Source guard for the un-unit-testable closure wiring. A blocked login must
+// reach the wire as a protocol-level JSON-RPC error, NOT a result-wrapped body.
+// Reading the source is the only way to lock this without standing up the proxy.
+describe("login-block wiring is a protocol-level JSON-RPC error", () => {
+  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const proxySrc = readFileSync(
+    join(thisDir, "..", "proxy", "proxy.ts"),
+    "utf-8"
+  );
+
+  it("stdio handler throws McpError for a blocked login", () => {
+    expect(proxySrc).toMatch(
+      /throw new McpError\(blocked\.code, blocked\.message\)/
+    );
+  });
+
+  it("UDS handler returns a top-level JSON-RPC `error` frame for a blocked login", () => {
+    expect(proxySrc).toMatch(
+      /return \{ jsonrpc: "2\.0" as const, error: blocked \}/
+    );
+  });
+
+  it("imports McpError from the MCP SDK types module", () => {
+    expect(proxySrc).toContain("McpError");
+    expect(proxySrc).toMatch(
+      /McpError[\s\S]{0,80}@modelcontextprotocol\/sdk\/types\.js/
+    );
+  });
+
+  it("does NOT reintroduce the result-wrapped isError login refusal (the silent-swallow bug)", () => {
+    // The old shape JSON-stringified {error:{code:LOGIN_BLOCKED_ERROR_CODE}} into
+    // a tool-result text body with isError:true. That exact pairing must be gone.
+    const hasOldShape =
+      /isError:\s*true[\s\S]{0,200}LOGIN_BLOCKED_ERROR_CODE/.test(proxySrc) ||
+      /LOGIN_BLOCKED_ERROR_CODE[\s\S]{0,200}isError:\s*true/.test(proxySrc);
+    expect(hasOldShape).toBe(false);
   });
 });

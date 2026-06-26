@@ -548,13 +548,13 @@ jobs:
             release-assets/SHA256SUMS
 
   # ---------------------------------------------------------------------------
-  # Job 5 — bump the Homebrew tap (unerr-ai/homebrew-tap). Opt-in: runs only
-  # when repo variable ENABLE_HOMEBREW == 'true' AND the tap repo exists.
+  # Job 5 — bump the Homebrew tap (unerr-ai/homebrew-tap). Runs by default on
+  # every stable tag; requires the tap repo to exist.
   # ---------------------------------------------------------------------------
   homebrew:
     needs: release
     # Stable releases only — never bump the tap to a prerelease (tag with `-`).
-    if: ${{ startsWith(github.ref, 'refs/tags/v') && vars.ENABLE_HOMEBREW == 'true' && !contains(github.ref_name, '-') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     steps:
       - name: Mint GitHub App token for the tap
@@ -609,13 +609,13 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Job 6 — bump the Scoop bucket (unerr-ai/scoop-bucket). Opt-in: runs only
-  # when repo variable ENABLE_SCOOP == 'true' AND the bucket repo exists.
+  # Job 6 — bump the Scoop bucket (unerr-ai/scoop-bucket). Runs by default on
+  # every stable tag; requires the bucket repo to exist.
   # ---------------------------------------------------------------------------
   scoop:
     needs: release
     # Stable releases only — never bump the bucket to a prerelease (tag with `-`).
-    if: ${{ startsWith(github.ref, 'refs/tags/v') && vars.ENABLE_SCOOP == 'true' && !contains(github.ref_name, '-') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     steps:
       - name: Mint GitHub App token for the bucket

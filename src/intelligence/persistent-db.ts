@@ -16,8 +16,8 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { createRequire } from "node:module";
 import { join } from "node:path";
+import { loadNodeSqlite } from "../utils/node-sqlite.js";
 import { isCompiledBinary } from "../utils/self-spawn.js";
 import type { CozoDb } from "./cozo-schema.js";
 import { getCozoDbCtor } from "./native-cozo.js";
@@ -115,6 +115,17 @@ async function createSqliteDb(dbPath: string): Promise<CozoDb> {
   // open — we just fall back to the default journal mode.
   await enableWalMode(dbPath);
 
+  // Fold + truncate any WAL the previous session left behind, NOW — the cozo
+  // constructor below is the first cozo touch of this file, so no cozo reader
+  // pool is open yet and this is a guaranteed reader gap where TRUNCATE fully
+  // resets the WAL to zero. Without it, a graph.db-wal that grew large in a
+  // prior session (observed 177MB while node:sqlite checkpointing was broken)
+  // would persist until the next reindex or shutdown — an idle repo, edited by
+  // no one, would never reclaim it. Mirrors the boot truncate facts.db /
+  // timeline.db already get in proxy.ts. Best-effort: an absent WAL is a no-op
+  // and any failure is swallowed so it can never block graph open.
+  await checkpointWal(dbPath);
+
   // Resolves to the `cozo-node` package under Node, or the addon embedded in
   // the compiled binary — see native-cozo.ts. Either way a CozoDb constructor.
   const CozoDbConstructor = await getCozoDbCtor();
@@ -136,9 +147,16 @@ async function createSqliteDb(dbPath: string): Promise<CozoDb> {
  */
 async function enableWalMode(dbPath: string): Promise<void> {
   try {
-    const { DatabaseSync } = await import("node:sqlite");
+    const { DatabaseSync } = loadNodeSqlite();
     const sqlite = new DatabaseSync(dbPath);
     try {
+      // Only journal_mode is set here. It is a PERSISTENT file-header property,
+      // so cozo's own pooled connections inherit WAL when they open the file.
+      // wal_autocheckpoint / synchronous are deliberately NOT set: they are
+      // PER-CONNECTION and cannot persist onto cozo's connection (cozo-node
+      // exposes no pragma API), so setting them on this throwaway handle is a
+      // proven no-op for cozo's actual writer. WAL truncation is handled out of
+      // band by checkpointWal/checkpointWalDetached in reader gaps.
       sqlite.exec("PRAGMA journal_mode=WAL");
     } finally {
       sqlite.close();
@@ -191,7 +209,7 @@ async function enableWalMode(dbPath: string): Promise<void> {
  */
 export async function checkpointWal(dbPath: string): Promise<void> {
   try {
-    const { DatabaseSync } = await import("node:sqlite");
+    const { DatabaseSync } = loadNodeSqlite();
     const sqlite = new DatabaseSync(dbPath);
     try {
       sqlite.exec("PRAGMA busy_timeout=2000");
@@ -267,8 +285,7 @@ try {
  */
 export function runDetachedWalCheckpoint(dbPath: string): void {
   try {
-    const req = createRequire(import.meta.url);
-    const { DatabaseSync } = req("node:sqlite") as typeof import("node:sqlite");
+    const { DatabaseSync } = loadNodeSqlite();
     const sqlite = new DatabaseSync(dbPath);
     try {
       sqlite.exec("PRAGMA busy_timeout=2000");

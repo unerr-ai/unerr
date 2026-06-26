@@ -4,11 +4,12 @@
  * The single biggest auto-update risk (AUTO_UPDATE_STRATEGY.md §3): running
  * `npm i -g` when the user installed via pnpm/Homebrew/Volta will no-op,
  * conflict, or corrupt the install. So auto-apply fires ONLY when we are
- * confident we own the install (npm-global or pnpm-global, with a writable
- * global root). Every other case — Homebrew, Volta, asdf, nvm, npx, a
- * non-writable path, or any ambiguity — degrades to `notify_only` with the
- * EXACT upgrade command for the detected manager. Notify-only is the safe
- * default, not a failure: it adds one copy-paste and never breaks anything.
+ * confident we own the install (npm-global or pnpm-global with a writable
+ * global root on non-Windows, or a native binary with a writable install dir).
+ * Every other case — Homebrew, Scoop, Volta, asdf, nvm, npx, a non-writable
+ * path, or any ambiguity — degrades to `notify_only` with the EXACT upgrade
+ * command for the detected manager. Notify-only is the safe default, not a
+ * failure: it adds one copy-paste and never breaks anything.
  *
  * Pure + fully injectable (path, realpath, env, home, platform, writability),
  * so the decision tree is table-tested across every manager fixture without a
@@ -20,15 +21,17 @@ import { homedir as osHomedir } from "node:os";
 import { dirname } from "node:path";
 import { PACKAGE_NAME } from "./version-check.js";
 
-/** The package manager that owns this install. */
+/** The package manager or install channel that owns this install. */
 export type InstallManager =
   | "npm"
   | "pnpm"
   | "homebrew"
+  | "scoop"
   | "volta"
   | "asdf"
   | "nvm"
   | "npx"
+  | "binary"
   | "unknown";
 
 /** Whether unerr may upgrade itself, or must hand the user a command. */
@@ -71,9 +74,18 @@ function under(p: string, roots: (string | undefined)[]): boolean {
 }
 
 /**
- * Classify the install by path + environment. Order matters: the most specific
- * version-manager roots are tested before the generic npm/pnpm-global case so a
- * Volta/asdf-shimmed npm layout never misreads as a plain npm global.
+ * Classify the install by path + environment. Detection order (most → least
+ * specific):
+ *   1. Homebrew / Linux Homebrew — Cellar and standard prefixes.
+ *   2. Version managers (Volta, asdf, nvm) — own the Node version, never self-upgrade.
+ *   3. npx ephemeral — the npm cache `_npx` tree.
+ *   4. Scoop (Windows package manager) — `SCOOP` env, `~/scoop`, or `/scoop/apps/`.
+ *   5. pnpm global store / home.
+ *   6. npm global — resolved out of a `node_modules` tree.
+ *   7. Named binary install dirs: `UNERR_INSTALL_DIR`, `XDG_BIN_HOME`, `~/.unerr/bin`.
+ *   8. Final fallback: any resolved non-empty path is a bare binary on PATH
+ *      (curl|bash / direct download). "unknown" is never returned from this
+ *      function — it is reserved for the empty/unresolvable case in classifyInstall.
  */
 function classifyManager(
   realPath: string,
@@ -100,6 +112,14 @@ function classifyManager(
   // npx ephemeral runs: the npm cache `_npx` tree.
   if (p.includes("/_npx/")) return "npx";
 
+  // Scoop (Windows): SCOOP env var, ~/scoop default dir, or the scoop/apps path segment.
+  if (
+    under(realPath, [env.SCOOP, `${h}/scoop`]) ||
+    p.includes("/scoop/apps/")
+  ) {
+    return "scoop";
+  }
+
   // pnpm global store / home.
   if (
     under(realPath, [
@@ -116,7 +136,21 @@ function classifyManager(
   // npm global: the package resolved out of a global node_modules tree.
   if (p.includes("/node_modules/")) return "npm";
 
-  return "unknown";
+  // Named binary install dirs: curl|bash writes to $UNERR_INSTALL_DIR or
+  // $XDG_BIN_HOME when set, defaulting to ~/.unerr/bin.
+  if (
+    under(realPath, [
+      env.UNERR_INSTALL_DIR,
+      env.XDG_BIN_HOME,
+      `${h}/.unerr/bin`,
+    ])
+  ) {
+    return "binary";
+  }
+
+  // Final fallback: any resolved, non-empty path is a bare binary on PATH
+  // (curl|bash or direct download). "unknown" is never returned here.
+  return "binary";
 }
 
 /** The directory a reinstall would write into (the `node_modules` root). */
@@ -140,13 +174,14 @@ function defaultIsWritable(dir: string): boolean {
 }
 
 /**
- * Build the exact upgrade command for a manager + target version. We only
- * support npm and pnpm global upgrades right now: an npm install upgrades in
- * place with `npm install -g`, a pnpm install with `pnpm add -g`. Every other
- * detected manager (volta, asdf, nvm, npx, homebrew, unknown) is notify-only
- * (classifyInstall) and is pointed at the npm command — we have no native
- * upgrade path for them yet. `version` omitted → `@latest` (status display);
- * supplied → pinned (apply).
+ * Build the exact upgrade command for a manager + target version.
+ * - "pnpm"    → `pnpm add -g <spec>`
+ * - "homebrew"→ `brew upgrade unerr`
+ * - "scoop"   → `scoop update unerr`
+ * - "binary"  → `unerr upgrade` (resolves latest version itself; ignores spec)
+ * - "npm" and all others (volta, asdf, nvm, npx, unknown) → `npm install -g <spec>`
+ *
+ * `version` omitted → `@latest` (status display); supplied → pinned (apply).
  */
 export function upgradeCommand(
   manager: InstallManager,
@@ -158,6 +193,12 @@ export function upgradeCommand(
   switch (manager) {
     case "pnpm":
       return `pnpm add -g ${spec}`;
+    case "homebrew":
+      return "brew upgrade unerr";
+    case "scoop":
+      return "scoop update unerr";
+    case "binary":
+      return "unerr upgrade";
     default:
       return `npm install -g ${spec}`;
   }
@@ -165,9 +206,15 @@ export function upgradeCommand(
 
 /**
  * Classify the running install and decide whether auto-apply is safe.
- * `self_upgradable` requires (a) an npm/pnpm-global layout AND (b) a writable
- * global root with no sudo. Any other manager, a non-writable root, or an
- * unresolvable path → `notify_only`.
+ *
+ * `self_upgradable` when:
+ *   (a) manager is "binary" AND the binary's directory is writable; or
+ *   (b) manager is "npm"/"pnpm" on non-Windows AND the global install root is
+ *       writable (no sudo).
+ *
+ * `notify_only` in all other cases: Homebrew, Scoop, Volta, asdf, nvm, npx,
+ * unknown, a non-writable path, or npm/pnpm on Windows (in-place global upgrade
+ * can lock the running .exe with EBUSY).
  */
 export function classifyInstall(
   deps: ClassifierDeps = {}
@@ -175,6 +222,7 @@ export function classifyInstall(
   const env = deps.env ?? process.env;
   const home = (deps.homedir ?? osHomedir)();
   const isWritable = deps.isWritable ?? defaultIsWritable;
+  const platform = deps.platform ?? process.platform;
   const rawPath = deps.execPath ?? process.argv[1] ?? "";
 
   if (!rawPath) {
@@ -196,7 +244,33 @@ export function classifyInstall(
 
   const manager = classifyManager(realPath, env, home);
 
-  // Only npm/pnpm global installs are candidates for self-upgrade.
+  // Binary install — the self-replace path handles atomic swaps (including the
+  // Windows rename trick), so we only gate on the install directory being writable.
+  if (manager === "binary") {
+    const dir = dirname(realPath);
+    if (isWritable(dir)) {
+      return { manager, mode: "self_upgradable", path: realPath };
+    }
+    return {
+      manager,
+      mode: "notify_only",
+      path: realPath,
+      reason: `binary install directory is not writable: ${dir}`,
+    };
+  }
+
+  // npm/pnpm on Windows: in-place global upgrade can lock the running .exe (EBUSY).
+  if ((manager === "npm" || manager === "pnpm") && platform === "win32") {
+    return {
+      manager,
+      mode: "notify_only",
+      path: realPath,
+      reason:
+        "Windows: in-place global upgrade can lock the running unerr.exe — run the upgrade manually or use `unerr upgrade`",
+    };
+  }
+
+  // Only npm/pnpm global installs are candidates for self-upgrade on non-Windows.
   if (manager !== "npm" && manager !== "pnpm") {
     return {
       manager,

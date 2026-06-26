@@ -383,8 +383,12 @@ export function isLoggedIn(): boolean {
 /**
  * Resolve the API base URL. `UNERR_API_URL` always wins (preview testing);
  * then the stored value; then the default. Trailing slashes are stripped.
+ *
+ * Exported so URL builders in other modules (e.g. `utils/deep-link.ts`) can
+ * resolve through the same chain — including dev-mode overrides injected via
+ * `applyDevConfig` — without duplicating the logic.
  */
-function resolveApiUrl(stored?: string): string {
+export function resolveApiUrl(stored?: string): string {
   const envUrl = process.env.UNERR_API_URL?.trim();
   const url = envUrl || stored?.trim() || DEFAULT_API_URL;
   return url.replace(/\/+$/, "");

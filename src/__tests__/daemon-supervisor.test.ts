@@ -8,6 +8,7 @@
  *   - Protocol message handling
  */
 
+import { type ChildProcess, spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -15,19 +16,67 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { type Server, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+/** True when `pid` is still alive (signal 0 probe). */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Spawn a long-lived dummy process. `asProxy` puts `--daemon-child` in its argv
+ * so `isUnerrProxyProcess` (which matches that marker via `ps`) classifies it as
+ * a real proxy; without it the process stands in for an UNRELATED program that a
+ * recycled pid might point at. Tracked for teardown.
+ */
+function spawnDummy(asProxy: boolean, kids: ChildProcess[]): ChildProcess {
+  // `--` ends node's own option parsing so `--daemon-child` survives as a user
+  // arg (node rejects it as an unknown option otherwise) and shows up in `ps`.
+  const args = ["-e", "setInterval(() => {}, 1e9)"];
+  if (asProxy) args.push("--", "--daemon-child");
+  const child = spawn(process.execPath, args, { stdio: "ignore" });
+  kids.push(child);
+  return child;
+}
+
+/**
+ * Stand up a real listening UDS server at `sockPath` so `tryAdopt`'s
+ * connectability probe succeeds. Adoption now requires a CONNECTABLE socket (an
+ * empty sock file is treated as a wedged proxy), so an adoptable proxy must
+ * actually accept connections. Tracked servers are closed in `afterEach`.
+ */
+function listenOnSock(sockPath: string, servers: Server[]): Promise<void> {
+  const server = createServer();
+  servers.push(server);
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(sockPath, () => resolve());
+  });
+}
 
 // ── ProcessManager unit tests ──────────────────────────────────────
 
 describe("ProcessManager", () => {
   let testDir: string;
   let testCounter = 0;
+  let servers: Server[];
+  let kids: ChildProcess[];
 
   beforeEach(() => {
+    servers = [];
+    kids = [];
     testCounter++;
-    testDir = join(tmpdir(), `dm2-pm-test-${Date.now()}-${testCounter}`);
+    // Short dir: a bound UDS socket lives at <repo>/.unerr/state/proxy.sock and
+    // the macOS sun_path limit is ~104 bytes, so keep the prefix tight.
+    testDir = join(tmpdir(), `dm2-${process.pid}-${testCounter}`);
     mkdirSync(testDir, { recursive: true });
     // Set up a mock global dir so registry doesn't touch real home
     vi.stubEnv("UNERR_HOME", testDir);
@@ -40,8 +89,18 @@ describe("ProcessManager", () => {
     );
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllEnvs();
+    for (const k of kids) {
+      try {
+        if (k.pid) process.kill(k.pid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }
+    await Promise.all(
+      servers.map((s) => new Promise<void>((res) => s.close(() => res())))
+    );
     try {
       rmSync(testDir, { recursive: true, force: true });
     } catch {
@@ -66,7 +125,8 @@ describe("ProcessManager", () => {
     const stateDir = join(repoDir, ".unerr", "state");
     mkdirSync(stateDir, { recursive: true });
     const sockPath = join(stateDir, "proxy.sock");
-    writeFileSync(sockPath, ""); // existence is all tryAdopt checks
+    // A CONNECTABLE socket — tryAdopt now rejects a non-connectable (wedged) one.
+    await listenOnSock(sockPath, servers);
     writeFileSync(
       join(stateDir, "proxy.pid"),
       JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })
@@ -101,7 +161,7 @@ describe("ProcessManager", () => {
     const stateDir = join(repoDir, ".unerr", "state");
     mkdirSync(stateDir, { recursive: true });
     const sockPath = join(stateDir, "proxy.sock");
-    writeFileSync(sockPath, "");
+    await listenOnSock(sockPath, servers);
     writeFileSync(
       join(stateDir, "proxy.pid"),
       JSON.stringify({ pid: process.pid })
@@ -118,6 +178,55 @@ describe("ProcessManager", () => {
     const sock2 = await pm.ensure(repoDir);
     expect(sock2).toBe(sockPath);
     expect(pm.getManaged(repoDir)?.pid).toBe(process.pid); // refreshed
+  });
+
+  it("shutdownAll kills a verified orphan proxy and clears its lock", async () => {
+    const { ProcessManager } = await import("../daemon/process-manager.js");
+    const { addRepo } = await import("../daemon/registry.js");
+    // An untracked per-repo proxy left behind by a prior daemon generation: a
+    // real, alive process whose argv carries --daemon-child (so it is confirmed
+    // a unerr proxy), recorded only in the registry + its lock file.
+    const repoDir = join(testDir, "orphan-repo");
+    const stateDir = join(repoDir, ".unerr", "state");
+    mkdirSync(stateDir, { recursive: true });
+    const orphan = spawnDummy(true, kids);
+    await new Promise((r) => setTimeout(r, 150)); // let it appear in `ps`
+    writeFileSync(
+      join(stateDir, "proxy.pid"),
+      JSON.stringify({ pid: orphan.pid })
+    );
+    writeFileSync(join(stateDir, "proxy.sock"), "");
+    addRepo(repoDir);
+
+    const pm = new ProcessManager();
+    await pm.shutdownAll();
+
+    // pm stop must leave ZERO repo proxies behind, and clear the stale lock.
+    expect(isAlive(orphan.pid!)).toBe(false);
+    expect(existsSync(join(stateDir, "proxy.pid"))).toBe(false);
+    expect(existsSync(join(stateDir, "proxy.sock"))).toBe(false);
+  });
+
+  it("shutdownAll leaves an unrelated (recycled-pid) process untouched", async () => {
+    const { ProcessManager } = await import("../daemon/process-manager.js");
+    const { addRepo } = await import("../daemon/registry.js");
+    // A lock file naming a pid the OS recycled onto an UNRELATED program (no
+    // --daemon-child). The guard must refuse to kill it.
+    const repoDir = join(testDir, "stranger-repo");
+    const stateDir = join(repoDir, ".unerr", "state");
+    mkdirSync(stateDir, { recursive: true });
+    const stranger = spawnDummy(false, kids);
+    await new Promise((r) => setTimeout(r, 150));
+    writeFileSync(
+      join(stateDir, "proxy.pid"),
+      JSON.stringify({ pid: stranger.pid })
+    );
+    addRepo(repoDir);
+
+    const pm = new ProcessManager();
+    await pm.shutdownAll();
+
+    expect(isAlive(stranger.pid!)).toBe(true); // never signaled
   });
 
   it("getManaged returns undefined for unknown repo", async () => {
