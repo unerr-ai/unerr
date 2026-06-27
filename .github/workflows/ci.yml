@@ -521,7 +521,7 @@ jobs:
           fi
 
       - name: Publish GitHub Release on unerr
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           repository: ${{ github.repository_owner }}/unerr
           token: ${{ steps.docs-token.outputs.token }}
