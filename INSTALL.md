@@ -8,9 +8,9 @@ Pick the line for your platform, run it, then restart your IDE.
 
 | You're on… | Run this |
 |---|---|
-| macOS / Linux | `curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install \| bash` |
+| macOS / Linux | `curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install \| bash` |
 | macOS (Homebrew) | `brew install unerr-ai/tap/unerr` |
-| Windows (PowerShell) | `irm https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install.ps1 \| iex` |
+| Windows (PowerShell) | `irm https://raw.githubusercontent.com/unerr-ai/unerr/main/install.ps1 \| iex` |
 | Windows (Scoop) | `scoop bucket add unerr https://github.com/unerr-ai/scoop-bucket; scoop install unerr` |
 | Any platform with Node ≥18 | `npm install -g @unerr-ai/unerr` |
 
@@ -46,11 +46,11 @@ message on those systems.
 ### curl \| bash (macOS + Linux) — the default
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash
+curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash
 ```
 
 What it does: detects your OS, CPU, and libc; downloads the matching binary from
-[GitHub Releases](https://github.com/unerr-ai/unerr-docs/releases); verifies its
+[GitHub Releases](https://github.com/unerr-ai/unerr/releases); verifies its
 SHA-256 against the release's `SHA256SUMS`; drops `unerr` into your install dir;
 and adds that dir to your PATH if it isn't already.
 
@@ -64,7 +64,7 @@ Knobs (environment variables):
 ```bash
 # Pin a version and a location
 VERSION=0.3.5 UNERR_INSTALL_DIR="$HOME/.local/bin" \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install)"
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install)"
 ```
 
 If `unerr` isn't found after install, open a new shell, or run `unerr doctor`
@@ -83,7 +83,7 @@ moment it ships — there's no waiting on homebrew-core review. Upgrade with
 ### Windows — PowerShell
 
 ```powershell
-irm https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/unerr-ai/unerr/main/install.ps1 | iex
 ```
 
 Downloads the Windows x64 build, verifies its hash, expands it to
@@ -157,7 +157,7 @@ The script stages each target's prebuilt cozo / watcher `.node` addon and the
 tree-sitter `.wasm` grammars, then embeds them into the binary (cozo-node's
 node-pre-gyp loader is bypassed — the addon is `require`d directly so Bun bundles
 it). The `release` job in `.github/workflows/ci.yml` builds all targets, signs
-the macOS binaries, uploads them to the PUBLIC `unerr-ai/unerr-docs` Releases
+the macOS binaries, uploads them to the PUBLIC `unerr-ai/unerr` Releases
 (unerr-cli is private, so its own Release assets aren't anonymously
 downloadable), and syncs `install` / `install.ps1` to that repo's `main` so the
 raw URL resolves. All channels above point at those public artifacts. Design

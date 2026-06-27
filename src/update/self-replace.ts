@@ -1,7 +1,7 @@
 /**
  * Atomic in-place binary self-update for the native unerr binary.
  *
- * Downloads a versioned release archive from the unerr-docs release page,
+ * Downloads a versioned release archive from the unerr release page,
  * verifies the SHA256 checksum, extracts the binary, and atomically swaps
  * it onto process.execPath (or a caller-supplied targetPath). Never throws —
  * all errors are caught and returned as {ok:false, error} so the caller can
@@ -17,10 +17,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// Releases are published to the PUBLIC unerr-docs repo (unerr-cli is private,
+// Releases are published to the PUBLIC unerr repo (unerr-cli is private,
 // so its own release page is not visible to end-users).
 const RELEASES_BASE =
-  "https://github.com/unerr-ai/unerr-docs/releases/download";
+  "https://github.com/unerr-ai/unerr/releases/download";
 
 const PLATFORM_MAP: Partial<Record<NodeJS.Platform, string>> = {
   darwin: "darwin",
@@ -46,7 +46,7 @@ export interface SelfReplaceOptions {
   /** Defaults to process.arch. */
   arch?: string;
   /** Base download URL up to (but not including) the asset filename.
-   *  Defaults to the unerr-docs releases/download base for the given version. */
+   *  Defaults to the unerr releases/download base for the given version. */
   baseUrl?: string;
   /** Fetch implementation. Defaults to global fetch. Injectable for tests. */
   fetchImpl?: typeof fetch;

@@ -5,20 +5,20 @@
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/unerr-ai/unerr-docs/releases/download/v0.3.5/unerr-windows-x64.zip",
+      "url": "https://github.com/unerr-ai/unerr/releases/download/v0.3.5/unerr-windows-x64.zip",
       "hash": "PLACEHOLDER_SHA256_WINDOWS_X64"
     }
   },
   "bin": "unerr.exe",
   "checkver": {
-    "github": "https://github.com/unerr-ai/unerr-docs"
+    "github": "https://github.com/unerr-ai/unerr"
   },
   "autoupdate": {
     "architecture": {
       "64bit": {
-        "url": "https://github.com/unerr-ai/unerr-docs/releases/download/v$version/unerr-windows-x64.zip",
+        "url": "https://github.com/unerr-ai/unerr/releases/download/v$version/unerr-windows-x64.zip",
         "hash": {
-          "url": "https://github.com/unerr-ai/unerr-docs/releases/download/v$version/SHA256SUMS",
+          "url": "https://github.com/unerr-ai/unerr/releases/download/v$version/SHA256SUMS",
           "find": "([a-fA-F0-9]{64})\\s+unerr-windows-x64\\.zip"
         }
       }

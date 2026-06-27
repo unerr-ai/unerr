@@ -61,7 +61,7 @@ function resolveBinary() {
         `  On a supported platform, the matching optional dependency may have\n` +
         `  failed to install. Reinstall: npm install -g @unerr-ai/unerr\n` +
         `  or install the standalone binary:\n` +
-        `    curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash\n` +
+        `    curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash\n` +
         `    brew install unerr-ai/tap/unerr\n`
     );
     process.exit(1);

@@ -59,19 +59,19 @@ describe("assetName", () => {
 describe("releaseAssetUrl", () => {
   it("darwin arm64", () => {
     expect(releaseAssetUrl("0.4.1", "darwin", "arm64")).toBe(
-      "https://github.com/unerr-ai/unerr-docs/releases/download/v0.4.1/unerr-darwin-arm64.tar.gz"
+      "https://github.com/unerr-ai/unerr/releases/download/v0.4.1/unerr-darwin-arm64.tar.gz"
     );
   });
 
   it("linux x64", () => {
     expect(releaseAssetUrl("0.4.1", "linux", "x64")).toBe(
-      "https://github.com/unerr-ai/unerr-docs/releases/download/v0.4.1/unerr-linux-x64.tar.gz"
+      "https://github.com/unerr-ai/unerr/releases/download/v0.4.1/unerr-linux-x64.tar.gz"
     );
   });
 
   it("windows x64", () => {
     expect(releaseAssetUrl("0.4.1", "win32", "x64")).toBe(
-      "https://github.com/unerr-ai/unerr-docs/releases/download/v0.4.1/unerr-windows-x64.zip"
+      "https://github.com/unerr-ai/unerr/releases/download/v0.4.1/unerr-windows-x64.zip"
     );
   });
 });

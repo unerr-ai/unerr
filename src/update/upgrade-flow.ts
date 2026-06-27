@@ -106,7 +106,7 @@ export function runInstallCommand(cmd: string): Promise<InstallRunResult> {
 }
 
 /**
- * Download the release for `version` from the unerr-docs Release and atomically
+ * Download the release for `version` from the unerr Release and atomically
  * swap the running native binary in place (the `binary` install channel).
  */
 export function runSelfReplace(version: string): Promise<InstallRunResult> {

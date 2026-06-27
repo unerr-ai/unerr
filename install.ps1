@@ -1,6 +1,6 @@
-# unerr Windows installer — https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install.ps1
-# Usage: irm https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install.ps1 | iex
-#        $env:VERSION="0.3.5"; irm https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install.ps1 | iex
+# unerr Windows installer — https://raw.githubusercontent.com/unerr-ai/unerr/main/install.ps1
+# Usage: irm https://raw.githubusercontent.com/unerr-ai/unerr/main/install.ps1 | iex
+#        $env:VERSION="0.3.5"; irm https://raw.githubusercontent.com/unerr-ai/unerr/main/install.ps1 | iex
 #
 # Env overrides:
 #   $env:VERSION           — pin a specific release tag (without leading v)
@@ -12,7 +12,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # Public host for binary Releases (unerr-cli is private). See ./install.
-$Repo    = "unerr-ai/unerr-docs"
+$Repo    = "unerr-ai/unerr"
 $Binary  = "unerr.exe"
 $Archive = "unerr-windows-x64.zip"
 

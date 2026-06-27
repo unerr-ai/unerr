@@ -35,7 +35,7 @@ const EMPTY: UpdateState = {};
 describe("releaseNotesUrl", () => {
   it("points at the v-tagged GitHub release", () => {
     expect(releaseNotesUrl("0.2.13")).toBe(
-      "https://github.com/unerr-ai/unerr-docs/releases/tag/v0.2.13"
+      "https://github.com/unerr-ai/unerr/releases/tag/v0.2.13"
     );
   });
 });

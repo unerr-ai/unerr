@@ -15,24 +15,24 @@ class Unerr < Formula
 
   on_macos do
     on_arm do
-      url    "https://github.com/unerr-ai/unerr-docs/releases/download/v#{version}/unerr-darwin-arm64.tar.gz"
+      url    "https://github.com/unerr-ai/unerr/releases/download/v#{version}/unerr-darwin-arm64.tar.gz"
       sha256 "PLACEHOLDER_SHA256_DARWIN_ARM64"
     end
 
     on_intel do
-      url    "https://github.com/unerr-ai/unerr-docs/releases/download/v#{version}/unerr-darwin-x64.tar.gz"
+      url    "https://github.com/unerr-ai/unerr/releases/download/v#{version}/unerr-darwin-x64.tar.gz"
       sha256 "PLACEHOLDER_SHA256_DARWIN_X64"
     end
   end
 
   on_linux do
     on_arm do
-      url    "https://github.com/unerr-ai/unerr-docs/releases/download/v#{version}/unerr-linux-arm64.tar.gz"
+      url    "https://github.com/unerr-ai/unerr/releases/download/v#{version}/unerr-linux-arm64.tar.gz"
       sha256 "PLACEHOLDER_SHA256_LINUX_ARM64"
     end
 
     on_intel do
-      url    "https://github.com/unerr-ai/unerr-docs/releases/download/v#{version}/unerr-linux-x64.tar.gz"
+      url    "https://github.com/unerr-ai/unerr/releases/download/v#{version}/unerr-linux-x64.tar.gz"
       sha256 "PLACEHOLDER_SHA256_LINUX_X64"
     end
   end

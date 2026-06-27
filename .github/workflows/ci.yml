@@ -2,11 +2,11 @@ name: CI / Release
 
 # One flow, triggered by a `v*` tag push:
 #   build-and-test  →  publish (npm pending, gate)  →  promote (npm latest, gate)
-#                   →  build-binaries (5 targets)    →  release (public unerr-docs
+#                   →  build-binaries (5 targets)    →  release (public unerr
 #                      Release + sync install scripts)  →  homebrew / scoop
 # On `main` pushes and PRs only build-and-test runs (the release jobs are
 # gated on `refs/tags/v`). unerr-cli is PRIVATE, so binaries and install
-# scripts are published to the PUBLIC repo unerr-docs.
+# scripts are published to the PUBLIC repo unerr.
 
 on:
   push:
@@ -46,7 +46,7 @@ jobs:
         # this repo (main clone) and unerr-contracts (submodule). The App is
         # installed org-wide on unerr-ai, so no per-repo secret setup is needed.
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.CONTRACTS_APP_ID }}
           private-key: ${{ secrets.CONTRACTS_APP_KEY }}
@@ -55,16 +55,16 @@ jobs:
             unerr-cli
             unerr-contracts
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: true # vendor/contracts (link: target); postinstall builds its dist/
           token: ${{ steps.app-token.outputs.token }}
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
@@ -154,9 +154,9 @@ jobs:
     steps:
       # Only packaging/npm/ + the downloaded binaries are needed here — no
       # contracts submodule, no root build, so a plain checkout is enough.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -184,7 +184,7 @@ jobs:
       - name: Download compiled binaries
         # rawbin-* artifacts each carry one dist/bin/unerr-<target>[.exe];
         # merge-multiple lands them all in dist/bin for the packaging script.
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: rawbin-*
           merge-multiple: true
@@ -232,7 +232,7 @@ jobs:
     environment: npm-promote
 
     steps:
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -303,7 +303,7 @@ jobs:
     steps:
       - name: Mint GitHub App token (contracts submodule access)
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.CONTRACTS_APP_ID }}
           private-key: ${{ secrets.CONTRACTS_APP_KEY }}
@@ -312,7 +312,7 @@ jobs:
             unerr-cli
             unerr-contracts
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
           token: ${{ steps.app-token.outputs.token }}
@@ -320,11 +320,11 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
@@ -422,7 +422,7 @@ jobs:
 
       - name: Upload archive artifact (Unix)
         if: ${{ matrix.os != 'windows' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.target }}
           path: |
@@ -433,7 +433,7 @@ jobs:
 
       - name: Upload archive artifact (Windows)
         if: ${{ matrix.os == 'windows' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.target }}
           path: |
@@ -445,7 +445,7 @@ jobs:
       # Raw (post-codesign) binary — input to the npm wrapper packaging in the
       # `publish` job. Glob covers the bare name and the Windows `.exe`.
       - name: Upload raw binary (npm packaging input)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rawbin-${{ matrix.target }}
           path: dist/bin/unerr-${{ matrix.target }}*
@@ -453,15 +453,15 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Job 4 — publish the binaries to the PUBLIC unerr-docs repo and sync the
+  # Job 4 — publish the binaries to the PUBLIC unerr repo and sync the
   # install scripts there. Gated to run only AFTER the binaries are built AND
   # npm is promoted to `latest`, so nothing reaches users until the maintainer
   # has approved both npm gates above.
   #
   # unerr-cli is private → its own Release assets need auth to download.
-  # unerr-docs is public: its Releases host the tarballs/zip + SHA256SUMS, and
+  # unerr is public: its Releases host the tarballs/zip + SHA256SUMS, and
   # its `main` serves install / install.ps1 at raw.githubusercontent.com.
-  # The commit to unerr-docs touches ONLY those two files (docs rarely change).
+  # The commit to unerr touches ONLY those two files (docs rarely change).
   # ---------------------------------------------------------------------------
   release:
     needs: [build-binaries, promote]
@@ -472,21 +472,21 @@ jobs:
     if: ${{ always() && needs.build-binaries.result == 'success' && (needs.promote.result == 'success' || needs.promote.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
-      - name: Mint GitHub App token for unerr-docs
+      - name: Mint GitHub App token for unerr
         id: docs-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.CONTRACTS_APP_ID }}
           private-key: ${{ secrets.CONTRACTS_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: |
-            unerr-docs
+            unerr
 
       - name: Checkout unerr-cli (install scripts + packaging templates live here)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download all binary artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: binary-*
           merge-multiple: true
@@ -499,14 +499,14 @@ jobs:
           echo "=== SHA256SUMS ==="
           cat SHA256SUMS
 
-      - name: Sync install scripts to unerr-docs main
+      - name: Sync install scripts to unerr main
         # Only install + install.ps1 are pushed, and only when they changed.
         env:
           TAG: ${{ github.ref_name }}
           GH_TOKEN: ${{ steps.docs-token.outputs.token }}
         run: |
           git clone --depth 1 \
-            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository_owner }}/unerr-docs.git" docs-repo
+            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository_owner }}/unerr.git" docs-repo
           cp install     docs-repo/install
           cp install.ps1 docs-repo/install.ps1
           cd docs-repo
@@ -520,23 +520,23 @@ jobs:
             git push origin HEAD:main
           fi
 
-      - name: Publish GitHub Release on unerr-docs
+      - name: Publish GitHub Release on unerr
         uses: softprops/action-gh-release@v2
         with:
-          repository: ${{ github.repository_owner }}/unerr-docs
+          repository: ${{ github.repository_owner }}/unerr
           token: ${{ steps.docs-token.outputs.token }}
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           # Pre-release if the tag carries a pre-release segment (e.g. v1.0.0-rc.1).
           prerelease: ${{ contains(github.ref_name, '-') }}
-          # Notes are generated from unerr-cli, not unerr-docs, so don't
+          # Notes are generated from unerr-cli, not unerr, so don't
           # auto-generate from the docs repo's history.
           generate_release_notes: false
           body: |
             unerr ${{ github.ref_name }} — native binaries.
 
             Install (macOS / Linux):
-            `curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash`
+            `curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash`
 
             All channels: see INSTALL.md in unerr-cli. Verify downloads against `SHA256SUMS` below.
           files: |
@@ -559,7 +559,7 @@ jobs:
     steps:
       - name: Mint GitHub App token for the tap
         id: tap-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.CONTRACTS_APP_ID }}
           private-key: ${{ secrets.CONTRACTS_APP_KEY }}
@@ -568,14 +568,14 @@ jobs:
             homebrew-tap
 
       - name: Checkout unerr-cli (formula template)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Fetch SHA256SUMS from the release
         env:
           TAG: ${{ github.ref_name }}
         run: |
           curl -fsSL -o SHA256SUMS \
-            "https://github.com/${{ github.repository_owner }}/unerr-docs/releases/download/${TAG}/SHA256SUMS"
+            "https://github.com/${{ github.repository_owner }}/unerr/releases/download/${TAG}/SHA256SUMS"
           cat SHA256SUMS
 
       - name: Render + push formula
@@ -620,7 +620,7 @@ jobs:
     steps:
       - name: Mint GitHub App token for the bucket
         id: bucket-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.CONTRACTS_APP_ID }}
           private-key: ${{ secrets.CONTRACTS_APP_KEY }}
@@ -629,14 +629,14 @@ jobs:
             scoop-bucket
 
       - name: Checkout unerr-cli (manifest template)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Fetch SHA256SUMS from the release
         env:
           TAG: ${{ github.ref_name }}
         run: |
           curl -fsSL -o SHA256SUMS \
-            "https://github.com/${{ github.repository_owner }}/unerr-docs/releases/download/${TAG}/SHA256SUMS"
+            "https://github.com/${{ github.repository_owner }}/unerr/releases/download/${TAG}/SHA256SUMS"
 
       - name: Render + push manifest
         env:

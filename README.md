@@ -37,7 +37,7 @@
 </p>
 
 <p align="center">
-  <code>curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash</code>
+  <code>curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash</code>
   <br /><sub>or <code>brew install unerr-ai/tap/unerr</code> · <code>npm install -g @unerr-ai/unerr</code> · <a href="./INSTALL.md">all platforms →</a></sub>
   <br /><br />
   <sub>One self-contained binary — no Node to match, nothing to compile. Install, restart your IDE, and the next prompt already knows your repo. No config, no account, nothing leaves your machine.</sub>
@@ -144,13 +144,13 @@ unerr ships as a single self-contained binary — the runtime, the graph engine,
 
 ```bash
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash
+curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash
 
 # macOS (Homebrew)
 brew install unerr-ai/tap/unerr
 
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/unerr-ai/unerr/main/install.ps1 | iex
 
 # Windows (Scoop)
 scoop bucket add unerr https://github.com/unerr-ai/scoop-bucket && scoop install unerr
@@ -389,7 +389,7 @@ The point was never the number. The point is that the agent lands on the right c
 ---
 
 <p align="center">
-  <code>curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash</code>
+  <code>curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash</code>
   <br /><br />
   <a href="https://www.unerr.dev/"><sub>unerr.dev</sub></a> · <a href="https://www.npmjs.com/package/@unerr-ai/unerr"><sub>npm registry</sub></a> · <a href="https://discord.gg/2BjRftz8kG"><sub>Discord</sub></a> · <a href="https://x.com/unerr_ai"><sub>X</sub></a> · <a href="https://www.linkedin.com/company/unerr"><sub>LinkedIn</sub></a> · <sub>Fully local. No account. No cloud.</sub>
 </p>
