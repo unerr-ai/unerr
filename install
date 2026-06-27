@@ -1,8 +1,8 @@
 #!/bin/sh
-# unerr installer — https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install
-# Usage: curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash
-#        VERSION=0.3.5 curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash
-#        curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr-docs/main/install | bash -s -- --version 0.3.5
+# unerr installer — https://raw.githubusercontent.com/unerr-ai/unerr/main/install
+# Usage: curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash
+#        VERSION=0.3.5 curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash
+#        curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash -s -- --version 0.3.5
 #
 # Env overrides:
 #   VERSION            — pin a specific release tag (without leading v)
@@ -12,8 +12,8 @@ set -eu
 
 # Public host for binary Releases + this script (unerr-cli is private, so its
 # own Release assets aren't anonymously downloadable). Binaries are published as
-# Releases on unerr-docs; this script is served from its raw URL.
-REPO="unerr-ai/unerr-docs"
+# Releases on unerr; this script is served from its raw URL.
+REPO="unerr-ai/unerr"
 BINARY="unerr"
 
 # ---------------------------------------------------------------------------
