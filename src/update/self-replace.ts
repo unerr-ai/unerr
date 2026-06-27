@@ -19,8 +19,7 @@ import path from "node:path";
 
 // Releases are published to the PUBLIC unerr repo (unerr-cli is private,
 // so its own release page is not visible to end-users).
-const RELEASES_BASE =
-  "https://github.com/unerr-ai/unerr/releases/download";
+const RELEASES_BASE = "https://github.com/unerr-ai/unerr/releases/download";
 
 const PLATFORM_MAP: Partial<Record<NodeJS.Platform, string>> = {
   darwin: "darwin",
