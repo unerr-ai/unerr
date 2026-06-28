@@ -1,7 +1,7 @@
 /**
  * unerr auto-update — U2: install-manager classifier.
  *
- * The single biggest auto-update risk (AUTO_UPDATE_STRATEGY.md §3): running
+ * The single biggest auto-update risk (.internal/archive/AUTO_UPDATE_STRATEGY.md §3): running
  * `npm i -g` when the user installed via pnpm/Homebrew/Volta will no-op,
  * conflict, or corrupt the install. So auto-apply fires ONLY when we are
  * confident we own the install (npm-global or pnpm-global with a writable

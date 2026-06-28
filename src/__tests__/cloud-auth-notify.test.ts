@@ -1,7 +1,7 @@
 /**
  * Tests for src/cloud/auth-notify.ts — the Tier-3 transition notifier policy.
  *
- * Pins LOGIN_UX_STRATEGY.md §9 decision 4: `revoked` notifies by default,
+ * Pins .internal/archive/LOGIN_UX_STRATEGY.md §9 decision 4: `revoked` notifies by default,
  * `degraded_free` only when grace notifications are enabled, healthy states
  * reset the latch (so the next degrade re-notifies), `grace_expiring` is a
  * no-op, and a transition is announced exactly once (no re-fire on the next

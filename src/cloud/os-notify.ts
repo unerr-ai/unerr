@@ -4,7 +4,7 @@
  * The reliable auth-surfacing channel is in-band through the agent (Tier 1)
  * and the local UI / `unerr status` (Tier 2). This OS notification is a *bonus*
  * only: DBUS/DISPLAY on Linux and toast availability on Windows make it
- * genuinely unreliable (see `.internal/LOGIN_UX_STRATEGY.md` §5), so it is
+ * genuinely unreliable (see `.internal/archive/LOGIN_UX_STRATEGY.md` §5), so it is
  * fired fire-and-forget and is never the sole signal for any state.
  *
  * Invariants: never throws, never blocks (the child is detached + unref'd, all

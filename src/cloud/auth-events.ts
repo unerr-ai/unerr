@@ -7,7 +7,7 @@
  * `logged_out` (never signed in), nor say WHY a refresh is failing (offline vs
  * the saved login no longer being valid). That distinction is what lets the
  * surfacing layer be loud about a lost plan and quiet about a chosen-free one
- * (see `.internal/LOGIN_UX_STRATEGY.md` §4).
+ * (see `.internal/archive/LOGIN_UX_STRATEGY.md` §4).
  *
  * This file persists exactly those two provenance facts, in one small 0600
  * JSON sibling of `credentials.json`, deliberately OUTSIDE the entitlement

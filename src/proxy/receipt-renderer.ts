@@ -89,10 +89,17 @@ const SHELL_BULLET_MIN_SAVED = 200;
 export interface ReceiptBlockInputs {
   attribution: ReceiptAttribution;
   runtimeJoins: RuntimeJoinCounts;
-  /** Tokens saved during the current turn (token_flow_events sum). */
+  /** MEASURED tokens saved during the current turn (token_flow_events sum,
+   *  modeled mechanisms excluded). This is the only number the headline claims. */
   turnTokensSaved: number;
-  /** Tokens saved across the session so far. */
+  /** MODELED tokens saved this turn (context_bundle round-trip estimates). Kept
+   *  out of the headline; surfaced on its own "(modeled)" bullet + footer note
+   *  so an estimate never reads as a measured saving. 0 → omitted. */
+  turnModeledSaved?: number;
+  /** MEASURED tokens saved across the session so far. */
   sessionTokensSaved: number;
+  /** MODELED tokens saved across the session so far — separate recap row. */
+  sessionModeledSaved?: number;
   /** Compounded turns of headroom the session has banked — surfaced in
    *  the headline so the saved number lands in an emotionally legible unit
    *  ("≈37 turns of chat room kept open"). */
@@ -124,6 +131,9 @@ export interface ReceiptBlockInputs {
   lifetime?: {
     prevented?: number;
     tokensSaved?: number;
+    /** Lifetime MODELED tokens saved — shown as a separate "~Y modeled"
+     *  segment on the All-time line, never folded into `tokensSaved`. */
+    modeledSaved?: number;
     spendUsd?: number;
   };
   /** Render a one-line summary for surfaces without a multi-line channel —
@@ -260,6 +270,52 @@ function shellBullet(turnEvents: readonly NamedEvent[]): Bullet | null {
     text: `compressed \`${cmd}\` to its summary  (+${exact(best.saved)})`,
     priority: PRIORITY.COMMODITY,
     weight: best.saved,
+  };
+}
+
+/** Biggest format-encoding compaction this turn → "compacted the reply".
+ *  MEASURED (a real byte/token delta) — it belongs to the headline total, so
+ *  it carries a `+exact` figure like the other measured savers. Suppressed
+ *  below SHELL_BULLET_MIN_SAVED — a trivial compaction is commodity noise. */
+function formatEncodingBullet(
+  turnEvents: readonly NamedEvent[]
+): Bullet | null {
+  let best = 0;
+  for (const e of turnEvents) {
+    if (e.event_type !== "tokenflow.format_encoding") continue;
+    const saved = numberOf(e.metadata.tokens_saved);
+    if (saved > best) best = saved;
+  }
+  if (best < SHELL_BULLET_MIN_SAVED) return null;
+  return {
+    text: `compacted the reply encoding  (+${exact(best)})`,
+    priority: PRIORITY.COMMODITY,
+    weight: best,
+  };
+}
+
+/** Context-bundle savings this turn → "bundled the discovery fan-out into one
+ *  call". MODELED (round-trip estimate, not a measured delta) — it is NOT in
+ *  the headline total, so it is labeled "(modeled)" and given weight 0 so it
+ *  never out-ranks a measured saver in the same tier. Summed across every
+ *  context_bundle event this turn. */
+function contextBundleBullet(turnEvents: readonly NamedEvent[]): Bullet | null {
+  let saved = 0;
+  let sources = 0;
+  for (const e of turnEvents) {
+    if (e.event_type !== "tokenflow.context_bundle") continue;
+    saved += numberOf(e.metadata.tokens_saved);
+    sources += numberOf(e.metadata.sources_collapsed);
+  }
+  if (saved <= 0) return null;
+  const what =
+    sources > 0
+      ? `bundled ${exact(sources)} ${sources === 1 ? "source" : "sources"} into one call`
+      : "bundled the discovery fan-out into one call";
+  return {
+    text: `${what}  (~${formatTokens(saved)} modeled)`,
+    priority: PRIORITY.COMMODITY,
+    weight: 0,
   };
 }
 
@@ -527,6 +583,14 @@ function recapBlock(inputs: ReceiptBlockInputs): string[] {
       `${RECAP_INDENT}Saved       ${formatTokens(inputs.sessionTokensSaved)} tokens${room}`
     );
   }
+  // Modeled (context-bundle round-trip estimates) on its own labeled row so it
+  // is never read as part of the measured "Saved" figure above.
+  const sessModeled = inputs.sessionModeledSaved ?? 0;
+  if (sessModeled > 0) {
+    rows.push(
+      `${RECAP_INDENT}Modeled     ~${formatTokens(sessModeled)} tokens (round-trips avoided, estimated)`
+    );
+  }
 
   const lt = inputs.lifetime;
   if (lt) {
@@ -542,6 +606,9 @@ function recapBlock(inputs: ReceiptBlockInputs): string[] {
           ? ` (≈ $${Math.round(lt.spendUsd)} of agent spend)`
           : "";
       segs.push(`${formatTokens(lt.tokensSaved)} tokens saved${spend}`);
+    }
+    if (lt.modeledSaved != null && lt.modeledSaved > 0) {
+      segs.push(`~${formatTokens(lt.modeledSaved)} modeled`);
     }
     if (segs.length > 0) {
       rows.push(`${RECAP_INDENT}All-time: ${segs.join(" · ")}.`);
@@ -695,6 +762,10 @@ function renderTurnLines(inputs: ReceiptBlockInputs): string[] {
   if (fr) candidates.push(fr);
   const sh = shellBullet(turnEvents);
   if (sh) candidates.push(sh);
+  const fe = formatEncodingBullet(turnEvents);
+  if (fe) candidates.push(fe);
+  const cb = contextBundleBullet(turnEvents);
+  if (cb) candidates.push(cb);
   const gb = graphBullet(turnEvents);
   if (gb) candidates.push(gb);
 
@@ -725,6 +796,12 @@ function renderTurnLines(inputs: ReceiptBlockInputs): string[] {
   }
   if (sessionTokensSaved > 0) {
     footerParts.push(`${formatTokens(sessionTokensSaved)} saved this session`);
+  }
+  // Modeled savings ride a separate, explicitly-labeled footer segment so an
+  // estimate never sits inside the measured "saved" figure.
+  const turnModeledSaved = inputs.turnModeledSaved ?? 0;
+  if (turnModeledSaved > 0) {
+    footerParts.push(`~${formatTokens(turnModeledSaved)} modeled this turn`);
   }
   if (overflow > 0) footerParts.push(`+${overflow} more`);
   if (footerParts.length > 0) {

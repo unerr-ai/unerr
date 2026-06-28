@@ -7,20 +7,20 @@
 // it to "" here, which is enough for the offline/prefer-offline install.
 //
 // Usage:
-//   node scripts/build-contracts.mjs            # required: fail if submodule absent or build fails
-//   node scripts/build-contracts.mjs --optional # postinstall: skip if absent, never fail the install
+//   node scripts/build-contracts.mjs   # fail if submodule absent or build fails
+//
+// Not wired to a lifecycle hook: it runs only via `pnpm run build:contracts`
+// (directly, or through `pnpm run build`) and in CI before lint/typecheck/test.
+// npm consumers never run this — the published wrapper has no postinstall and
+// the binary already has @unerr-ai/contracts inlined.
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-const optional = process.argv.includes("--optional");
 const contractsSrc = join("vendor", "contracts", "src");
 
 if (!existsSync(contractsSrc)) {
-  // Submodule not checked out. For postinstall that's fine (npm consumers get
-  // the prebuilt dist inlined). For an explicit build it's an error.
-  if (optional) process.exit(0);
   console.error(
     "build:contracts: vendor/contracts/src missing — run `git submodule update --init --recursive`"
   );
@@ -43,4 +43,4 @@ let code = run([
 ]);
 if (code === 0) code = run(["-C", "vendor/contracts", "build"]);
 
-process.exit(optional ? 0 : code);
+process.exit(code);

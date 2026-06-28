@@ -10,7 +10,7 @@
  *   - "probe": Unknown or inconsistent — send a no-op `list_changed`
  *              notification and observe whether the client refetches
  *
- * Source: MCP_GATEWAY_ROUTER_PROXY.md §7, May 2026 profile table.
+ * Source: .internal/archive/MCP_GATEWAY_ROUTER_PROXY.md §7, May 2026 profile table.
  * Updated as new clients adopt `list_changed`.
  */
 

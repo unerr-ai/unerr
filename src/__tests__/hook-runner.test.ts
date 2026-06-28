@@ -364,22 +364,21 @@ describe("runPromptSubmitHook", () => {
 
   // T3.1 — Path A routes the matched cluster to a named skill in the
   // emitted ur|act line.
-  it("default handler emits ur|act Path A line for matched verb clusters", async () => {
+  it("default handler emits the decompose-delegate nudge for a substantive code-work prompt", async () => {
     const { runUserPromptSubmitHook } = await import(
       "../hooks/prompt-hooks.js"
     );
-    // "optimize …" routes to unerr-using-unerr (the fix cluster → the
-    // orchestrator's default edit workflow, 2026-06) and is NOT a delegable
-    // class, so the Path A line fires (delegation, which is always-on, would
-    // otherwise route a delegable task like "rename …" to unerr-delegate). This
-    // test is about Path A routing, not delegation.
+    // "optimize …" is a substantive code-WORK prompt (a `fix`-cluster verb). On
+    // a delegation-capable host the broadened decompose-delegate gate now OWNS
+    // the routing slot for it — the agent is told to fan delegable slices out to
+    // sub-agents rather than just pointed at the orchestrator skill.
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "optimize the QueryRouter dispatch hot path",
     });
     const result = JSON.parse(runUserPromptSubmitHook(stdin));
     const ctx = result.hookSpecificOutput.additionalContext ?? "";
-    expect(ctx).toContain("ur|act unerr-using-unerr");
+    expect(ctx).toContain("delegate-slices");
   });
 });
 

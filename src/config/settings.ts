@@ -53,7 +53,7 @@ export type FetchUrlConfig = z.infer<typeof FetchUrlConfigSchema>;
 
 /**
  * Layer 8 comment-contract config (`comments.*` keys).
- * See .internal/roadmap/LAYER_8_DOMAIN_UNDERSTANDING.md §2.1.1.
+ * See .internal/archive/LAYER_8_DOMAIN_UNDERSTANDING.md §2.1.1.
  */
 export const CommentsConfigSchema = z.object({
   /**
@@ -67,7 +67,7 @@ export const CommentsConfigSchema = z.object({
    * section (the agent maintains `@sem` comments in the same edit). Default
    * on; `comments.maintain false` removes the section on next `install` —
    * harvest, path inference, and propagation still populate the domain graph
-   * read-only. See LAYER_8_DOMAIN_UNDERSTANDING.md §2.4.
+   * read-only. See .internal/archive/LAYER_8_DOMAIN_UNDERSTANDING.md §2.4.
    */
   maintain: z.boolean().default(true),
   /**
@@ -76,7 +76,7 @@ export const CommentsConfigSchema = z.object({
    * collapse to a `…` marker, line numbers preserved). Default OFF — gated on a
    * fidelity benchmark over the frozen corpus before it can default on, since
    * removing comments can cost the agent context. See
-   * LAYER_8_DOMAIN_UNDERSTANDING.md §E.2.
+   * .internal/archive/LAYER_8_DOMAIN_UNDERSTANDING.md §E.2.
    */
   elide: z.boolean().default(false),
 });
@@ -85,7 +85,7 @@ export type CommentsConfig = z.infer<typeof CommentsConfigSchema>;
 
 /**
  * Auth-surfacing config. Tier-3 OS notifications are best-effort and, per
- * LOGIN_UX_STRATEGY.md §9 decision 4, fire only on the high-signal `revoked`
+ * .internal/archive/LOGIN_UX_STRATEGY.md §9 decision 4, fire only on the high-signal `revoked`
  * transition by default. `notifyGrace` opts into a notification on the softer
  * `degraded_free` transition too (off by default to avoid noise on offline
  * work). Overridable per machine via the `UNERR_NOTIFY_GRACE` env var.
@@ -97,7 +97,7 @@ export const AuthConfigSchema = z.object({
 export type AuthConfig = z.infer<typeof AuthConfigSchema>;
 
 /**
- * Auto-update config (AUTO_UPDATE_STRATEGY.md §9). `mode`: `auto` (detect +
+ * Auto-update config (.internal/archive/AUTO_UPDATE_STRATEGY.md §9). `mode`: `auto` (detect +
  * auto-apply minor/patch + notify for major), `notify` (detect + notify only),
  * `off` (fully disabled). Default `auto` for friction-free minor/patch upgrades.
  * There is no env opt-out — change the mode here (or via the dashboard) to opt out.

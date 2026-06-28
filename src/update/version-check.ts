@@ -3,7 +3,7 @@
  *
  * Queries the npm registry for the latest `@unerr-ai/unerr`, classifies it
  * against the running version (patch/minor/major), and persists the result.
- * Design rules from AUTO_UPDATE_STRATEGY.md §5:
+ * Design rules from .internal/archive/AUTO_UPDATE_STRATEGY.md §5:
  *  - **Throttled** (default 24h) via `update-state.last_checked_at`, so the
  *    daemon's 60s idle-sweep can call it every tick but the network is touched
  *    at most once a day. The throttle holds even on failure, so an offline

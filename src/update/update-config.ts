@@ -6,7 +6,7 @@
  *  - `notify` → detect + notify only; never auto-applies.
  *  - `off`    → fully disabled: no detection, no notify, no apply.
  *
- * Precedence (AUTO_UPDATE_STRATEGY.md §7 + §8): a server-side entitlement pin
+ * Precedence (.internal/archive/AUTO_UPDATE_STRATEGY.md §7 + §8): a server-side entitlement pin
  * (enterprise change-control) wins over everything; then the local
  * `update.mode` setting; else the `auto` default. There is no env opt-out —
  * auto-update is on unless the user picks `notify`/`off` in settings or an org

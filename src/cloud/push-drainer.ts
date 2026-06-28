@@ -62,7 +62,7 @@ export interface StreamDrainer {
 export interface DrainerContext {
   /** Absolute path of the repo being drained. */
   repoPath: string;
-  /** The repo's `.unerr` directory — where `metrics.db` / `state` / jsonl live. */
+  /** The repo's `.unerr` directory — where state + jsonl event segments live. */
   unerrDir: string;
   /** Salted repo id for the wire envelope + the `sync/state?repo=` query param. */
   repoId: string;

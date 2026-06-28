@@ -3,7 +3,7 @@
  * cloud client, and assert the whole surfacing chain (state → in-band signal +
  * UI badge + status line) plus the Tier-3 transition notification.
  *
- * Drills (LOGIN_UX_STRATEGY.md §A6):
+ * Drills (.internal/archive/LOGIN_UX_STRATEGY.md §A6):
  *  1. Revoke → next refresh wipes credentials, authState resolves `revoked`,
  *     and it surfaces in chat (ur|act) + UI (attention badge) + status line;
  *     local features keep working; a second tick does NOT re-notify.

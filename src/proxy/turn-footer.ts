@@ -39,7 +39,10 @@ import {
   totalTokensSavedInSession,
 } from "../tracking/session-economy.js";
 import { readSessionRecords } from "../tracking/session-records.js";
-import { readTokenFlowEvents } from "../tracking/token-flow.js";
+import {
+  isModeledMechanism,
+  readTokenFlowEvents,
+} from "../tracking/token-flow.js";
 
 /**
  * Format a token count into a short human string.
@@ -282,6 +285,11 @@ export function renderSessionEconomyLineLive(
   current_turn: number;
   turn_events: number;
   turn_tokens_saved: number;
+  /** MODELED (estimated) round-trip savings this turn — kept separate from the
+   *  measured `turn_tokens_saved` so the headline never counts an estimate. */
+  turn_modeled_saved: number;
+  /** MODELED (estimated) round-trip savings across the session. */
+  total_modeled_saved: number;
   /** Top-N event-type breakdown (count desc) for the SESSION. */
   highlights: Array<{ event_type: string; count: number; phrasing: string }>;
   /** Top-N event-type breakdown (count desc) for the CURRENT TURN only. */
@@ -299,9 +307,21 @@ export function renderSessionEconomyLineLive(
     const sessionName =
       readSessionRecords(unerrDir).find((r) => r.unerr_session_id === sessionId)
         ?.session_name ?? null;
-    const totalTokensSaved = totalTokensSavedInSession(tokenFlow, sessionId);
+    // Split MEASURED savings (real byte/token deltas) from MODELED estimates
+    // (round-trips the unerr_context bundle avoided). The headline, the session
+    // total, and headroom count MEASURED only — a model estimate must never
+    // read as a measured saving; the modeled figure rides its own field and is
+    // surfaced separately, explicitly labeled.
+    const measuredFlow = tokenFlow.filter(
+      (e) => !isModeledMechanism(e.mechanism)
+    );
+    const modeledFlow = tokenFlow.filter((e) =>
+      isModeledMechanism(e.mechanism)
+    );
+    const totalTokensSaved = totalTokensSavedInSession(measuredFlow, sessionId);
+    const totalModeledSaved = totalTokensSavedInSession(modeledFlow, sessionId);
     const headroomCompounded = summarizeSessionEconomy(
-      tokenFlow,
+      measuredFlow,
       sessionId,
       sessionName
     ).headroom_compounded;
@@ -315,9 +335,15 @@ export function renderSessionEconomyLineLive(
     const inCurrentTurn = makeInCurrentTurn(allEvents, currentTurn);
     const turnEvents = allEvents.filter((e) => inCurrentTurn(e.ts, e.turn));
     let turnTokensSaved = 0;
-    for (const e of tokenFlow) {
+    for (const e of measuredFlow) {
       if (e.session_id === sessionId && inCurrentTurn(e.ts, e.turn)) {
         turnTokensSaved += e.tokens_saved;
+      }
+    }
+    let turnModeledSaved = 0;
+    for (const e of modeledFlow) {
+      if (e.session_id === sessionId && inCurrentTurn(e.ts, e.turn)) {
+        turnModeledSaved += e.tokens_saved;
       }
     }
 
@@ -388,6 +414,8 @@ export function renderSessionEconomyLineLive(
       current_turn: currentTurn,
       turn_events: turnEvents.length,
       turn_tokens_saved: turnTokensSaved,
+      turn_modeled_saved: turnModeledSaved,
+      total_modeled_saved: totalModeledSaved,
       highlights: mkHighlights(countNamedEventsByType(allEvents)),
       turn_highlights: mkHighlights(countNamedEventsByType(turnEvents)),
     };
@@ -401,6 +429,8 @@ export function renderSessionEconomyLineLive(
       current_turn: currentTurn,
       turn_events: 0,
       turn_tokens_saved: 0,
+      turn_modeled_saved: 0,
+      total_modeled_saved: 0,
       highlights: [],
       turn_highlights: [],
     };

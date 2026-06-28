@@ -15,7 +15,7 @@ import { encode } from "gpt-tokenizer";
 
 /**
  * Token caps per description-state. Values match the gateway design in
- * .internal/architecture/MCP_GATEWAY_ROUTER_PROXY.md §7.
+ * .internal/archive/MCP_GATEWAY_ROUTER_PROXY.md §7.
  *
  *   tier1Active        — Tier 1 tool advertised in tools/list with full description.
  *   locked             — Placeholder for tier 2/3 tool advertised on clients that

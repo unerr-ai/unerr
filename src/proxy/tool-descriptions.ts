@@ -63,7 +63,7 @@ export interface TierEntry {
  * `tools/list`, so no agent ever sees them and they cost zero context. Their
  * required-field validation lives where the caller is: `unerr_track` validates
  * its own ops (runBoundaryValidation no-ops for any name not in TOOL_DEFINITIONS).
- * Full rationale: `.internal/research/TOKEN_ECONOMICS_AND_SAVINGS.md` §10.
+ * Full rationale: `.internal/archive/TOKEN_ECONOMICS_AND_SAVINGS.md` §10.
  *
  * Tier numbers (1/2/3) remain on each entry for the unlock/description
  * machinery; they no longer track "advertised count".
@@ -79,7 +79,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   search_code: {
     tier: 1,
     active:
-      "Find code by name OR task. A bare symbol ('QueryRouter.dispatch') → ranked matches, <5ms. A task phrase ('where is retry handled') → a recon bundle: notes + focus bodies + callers + conventions in ONE call, skipping the fan-out. detail:true → ONE entity profile; include_body adds source; want:['callers','callees','imports'] attaches refs. Contract surprise? emit unerr-save: note fct|e:<key>|~|<line>.",
+      "Find code by name OR task. A bare symbol ('QueryRouter.dispatch') → ranked matches, <5ms. A task phrase ('where is retry handled') → a recon bundle: focus body + callers + entities + conventions in ONE call, skipping the fan-out. detail:true → ONE entity profile; include_body adds source; want:['callers','callees','imports'] attaches refs. Contract surprise? emit unerr-save: note fct|e:<key>|~|<line>.",
     locked: "[tier 1 — always exposed]",
   },
   file_outline: {
@@ -91,7 +91,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   file_read: {
     tier: 1,
     active:
-      "Read a file by path, or a single function via the entity param. file_read auto-injects rule-notes, conventions, and drift for the file inline — read them before editing.",
+      "Read a file by path, or a single function via the entity param. file_read returns the file or entity body. It does NOT auto-inject notes/conventions/drift.",
     locked: "[tier 1 — always exposed]",
   },
   file_edit: {
@@ -262,7 +262,7 @@ export function advertisedToolNames(): readonly string[] {
 
 /**
  * The demoted tool names — in the catalog, never advertised. After the
- * token-overhead deletion the catalog is exactly the 9 advertised tools, so
+ * token-overhead deletion the catalog is exactly the 7 advertised tools, so
  * this returns `[]`. Kept (rather than inlined to a constant) so the
  * advertisement/validation split stays a single, testable partition: if a
  * future tool is ever marked `hidden`, every consumer already honours it.

@@ -3,7 +3,7 @@
  *
  * Runs ONLY inside `unerrd` (the single per-machine writer, serialized by the
  * spawn-lock) off the idle-sweep tick, and ONLY through a stack of gates that
- * make a bad apply impossible (AUTO_UPDATE_STRATEGY.md §4 + §7):
+ * make a bad apply impossible (.internal/archive/AUTO_UPDATE_STRATEGY.md §4 + §7):
  *
  *   1. semver boundary  — patch/minor only; a major is notify-only, never auto.
  *                         On the `beta` channel a prerelease candidate is

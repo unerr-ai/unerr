@@ -81,10 +81,14 @@ describe("runStopHookHandlerAsync — graceful degradation", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("never crashes the agent — empty event state yields {}", async () => {
+  it("never crashes the agent — empty event state yields a presence line", async () => {
     const stdin = JSON.stringify({ hook_event_name: "Stop", session_id: "s1" });
     const out = await runStopHookHandlerAsync(stdin);
-    expect(out).toBe("{}");
+    // No silent passthrough: even with no tracked events the Stop hook emits a
+    // user-facing presence marker so the agent always knows unerr ran.
+    expect(JSON.parse(out)).toEqual({
+      systemMessage: "unerr » active · no tracked tool calls this turn",
+    });
   });
 });
 
@@ -102,10 +106,13 @@ describe("runSubagentStopHookHandlerAsync — graceful degradation", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("never crashes the agent — empty event state yields {}", async () => {
+  it("never crashes the agent — empty event state yields a presence line", async () => {
     const stdin = JSON.stringify({ hook_event_name: "Stop", session_id: "s1" });
     const out = await runSubagentStopHookHandlerAsync(stdin);
-    expect(out).toBe("{}");
+    // SubagentStop mirrors Stop: a presence marker, never a silent passthrough.
+    expect(JSON.parse(out)).toEqual({
+      systemMessage: "unerr » active · no tracked tool calls this turn",
+    });
   });
 
   it("does NOT wipe delegable_nudge_pending — the master-only leak detector is excluded", async () => {

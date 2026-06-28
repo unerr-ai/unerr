@@ -150,12 +150,25 @@ export function parseBatchCallIntent(text: string): BatchCallIntent | null {
 export type DelegationTier = "worker" | "junior";
 
 /**
- * Route a delegable class to its model tier, matching the unerr-delegate skill's
- * D3 rule exactly: tests and mechanical_refactor need judgement → worker; docs,
- * lint/format, and read-only recon are brainless → cheapest junior.
+ * Route a delegable class to its model tier. Kept consistent with `selectTier`
+ * (the authoritative router in junior-agent.ts): the scoped-write classes that
+ * need a correctness check (tests, mechanical_refactor, codemod, caller_propagation,
+ * typecheck_fix, scaffold) → worker; every read-only / trivially-mechanical class
+ * (recon, research, qa_lookup, inventory_audit, log_triage, repro, docs, lint_format,
+ * verify, command_run) → the cheapest junior tier.
  */
 export function tierForDelegationClass(
   cls: Exclude<DelegableClass, "none">
 ): DelegationTier {
-  return cls === "tests" || cls === "mechanical_refactor" ? "worker" : "junior";
+  switch (cls) {
+    case "tests":
+    case "mechanical_refactor":
+    case "codemod":
+    case "caller_propagation":
+    case "typecheck_fix":
+    case "scaffold":
+      return "worker";
+    default:
+      return "junior";
+  }
 }

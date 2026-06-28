@@ -1,6 +1,6 @@
 /**
  * U6 — the resolved update policy. `updatePolicy()` blends two inputs with a
- * fixed precedence (AUTO_UPDATE_STRATEGY.md §7 + §8):
+ * fixed precedence (.internal/archive/AUTO_UPDATE_STRATEGY.md §7 + §8):
  *   explicit local `off`  >  enterprise `pinned` channel  >  mode
  * An `off` is never weakened; a server pin caps an `auto` down to `notify`;
  * otherwise the local mode passes through. There is no env opt-out. Pure +

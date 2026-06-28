@@ -6,7 +6,7 @@
  * dashboard badge, the revoked OS notification — must agree. They agree
  * because they all read THIS one derivation and nothing else.
  *
- * The hard problem (per `.internal/LOGIN_UX_STRATEGY.md`) is that the gating
+ * The hard problem (per `.internal/archive/LOGIN_UX_STRATEGY.md`) is that the gating
  * primitive `effectiveTier()` only knows "what plan, right now?" — it collapses
  * "never logged in", "chose free", and "team revoked me" all to the same `free`
  * answer, and it can't say WHY a plan lapsed. Surfacing has to draw exactly

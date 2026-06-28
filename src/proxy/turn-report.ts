@@ -111,6 +111,7 @@ export function gatherReceiptInputs(
   // bucketed (Prevented/Remembered/Saved) event. Drives the recap fold-in.
   const turnHasContent =
     data.turn_tokens_saved > 0 ||
+    data.turn_modeled_saved > 0 ||
     data.turn_highlights.some((h) => eventBucket(h.event_type) !== null);
   const recapTurn = isRecapTurn(currentTurn, !turnHasContent);
 
@@ -121,6 +122,7 @@ export function gatherReceiptInputs(
   // `formatStopReport` enforced.
   const sessionHasValue =
     data.total_tokens_saved > 0 ||
+    data.total_modeled_saved > 0 ||
     data.headroom_compounded > 0 ||
     data.highlights.some((h) => eventBucket(h.event_type) !== null);
 
@@ -135,6 +137,7 @@ export function gatherReceiptInputs(
       lifetime = {
         prevented: store.hardPreventionTotal(),
         tokensSaved: store.tokenFlowTotal() + store.reversibleSavedTotal(),
+        modeledSaved: store.modeledSavedTotal(),
       };
     } catch {
       /* best effort — omit the All-time line on a metrics read failure */
@@ -145,7 +148,9 @@ export function gatherReceiptInputs(
     attribution,
     runtimeJoins,
     turnTokensSaved: data.turn_tokens_saved,
+    turnModeledSaved: data.turn_modeled_saved,
     sessionTokensSaved: data.total_tokens_saved,
+    sessionModeledSaved: data.total_modeled_saved,
     sessionHeadroom: data.headroom_compounded,
     turnEvents,
     fallbackLine: sessionHasValue ? data.line : "",

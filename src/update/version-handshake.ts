@@ -5,7 +5,7 @@
  * always runs the on-disk version. The daemon (`unerrd`) is long-lived, so
  * after a manual or auto upgrade it can still be running STALE in-memory code.
  * On connect the daemon reports its running version; this module decides what
- * the bridge does about any skew (AUTO_UPDATE_STRATEGY.md §9 U4):
+ * the bridge does about any skew (.internal/archive/AUTO_UPDATE_STRATEGY.md §9 U4):
  *
  *  - `ok`       → versions match, the daemon is AHEAD, or a version is
  *                 unparseable — do nothing. We never downgrade a daemon from a

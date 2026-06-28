@@ -10,8 +10,7 @@
  *                   turn, or it rides a lifecycle event the model didn't choose)
  *     bulk → CLI   (occasional / large-output / sweep work, off the catalog)
  *
- * This table is the machine-readable form of `.internal/research/
- * TOKEN_ECONOMICS_AND_SAVINGS.md` §10. It is the single source of truth that
+ * This table is the machine-readable form of `.internal/archive/TOKEN_ECONOMICS_AND_SAVINGS.md` §10. It is the single source of truth that
  * Sprints 7–10 implement against:
  *   - Sprint 7 reads `mechanism === "hook"` to know what to lift into hooks.
  *   - Sprint 9 reads `mechanism === "merged"` to know what folds into a survivor.

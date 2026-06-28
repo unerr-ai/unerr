@@ -3,7 +3,7 @@
  *
  * Maps an `AuthState` (the single source of truth) to the one `ur|<tag>` line
  * the per-repo proxy attaches to a tool response, per
- * `.internal/LOGIN_UX_STRATEGY.md` §5. This is the reliable surface — it
+ * `.internal/archive/LOGIN_UX_STRATEGY.md` §5. This is the reliable surface — it
  * reaches the human exactly when they're working, through the agent.
  *
  * Loudness comes from the state, not from this file inventing tone:

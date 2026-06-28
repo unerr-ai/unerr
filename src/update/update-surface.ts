@@ -3,7 +3,7 @@
  *
  * Renders the persisted update state into the same three channels the login
  * doc uses, so an applied/available/rolled-back update is never a silent
- * change (AUTO_UPDATE_STRATEGY.md §6):
+ * change (.internal/archive/AUTO_UPDATE_STRATEGY.md §6):
  *  - `updateSignal()` → the in-band `ur|fct`/`ur|act` line the proxy appends
  *    (deduped once per session per event), naming the EXACT manager command.
  *  - `updateStatusPanel()` → the structured payload for `unerr status` + the

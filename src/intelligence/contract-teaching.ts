@@ -43,11 +43,9 @@ export const TOOL_DESCRIPTION_NUDGES: readonly ToolDescriptionNudge[] = [
     tool: "search_code",
     nudge: "Contract surprise? emit unerr-save: note fct|e:<key>|~|<line>.",
   },
-  {
-    tool: "file_read",
-    nudge:
-      "file_read auto-injects rule-notes, conventions, and drift for the file inline — read them before editing.",
-  },
+  // file_read carries no teaching nudge: it is a plain read that does NOT inject
+  // notes/conventions/drift (anchored notes arrive via prompt injection +
+  // on-demand recall, never inline in a tool response).
   {
     tool: "get_references",
     nudge:

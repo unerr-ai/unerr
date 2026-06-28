@@ -677,3 +677,87 @@ describe("renderReceiptBlock — files changed this turn", () => {
     expect(lines).toEqual(["unerr » nothing this turn"]);
   });
 });
+
+describe("renderReceiptBlock — measured vs modeled split", () => {
+  const contextBundleEvent = ev("tokenflow.context_bundle", {
+    sources_collapsed: 6,
+    round_trips_modeled: 4,
+    tokens_saved: 20000,
+  });
+
+  const formatEncodingEvent = ev("tokenflow.format_encoding", {
+    tokens_saved: 1234,
+  });
+
+  it("keeps a modeled context_bundle out of the headline and labels its bullet", () => {
+    const lines = renderReceiptBlock({
+      attribution: emptyAttribution,
+      runtimeJoins: noJoins,
+      // Headline claims ONLY measured savings — 0 here.
+      turnTokensSaved: 0,
+      turnModeledSaved: 20000,
+      sessionTokensSaved: 0,
+      sessionModeledSaved: 20000,
+      sessionHeadroom: 0,
+      turnEvents: [contextBundleEvent],
+      fallbackLine: "",
+    });
+    // Headline does NOT claim "saved 20,000 tokens" — the estimate is excluded.
+    expect(lines[0]).toBe("unerr » this turn — here's where unerr helped");
+    expect(lines.some((l) => l.includes("saved 20,000 tokens"))).toBe(false);
+    // The modeled saving is surfaced on its own labeled bullet.
+    expect(
+      lines.some(
+        (l) =>
+          l.includes("bundled 6 sources into one call") &&
+          l.includes("~20k modeled")
+      )
+    ).toBe(true);
+    // And on a labeled footer segment, never inside a measured "saved" figure.
+    expect(lines.some((l) => l.includes("~20k modeled this turn"))).toBe(true);
+  });
+
+  it("gives format_encoding a measured (+exact) bullet that counts toward the headline", () => {
+    const lines = renderReceiptBlock({
+      attribution: emptyAttribution,
+      runtimeJoins: noJoins,
+      turnTokensSaved: 1234,
+      sessionTokensSaved: 1234,
+      sessionHeadroom: 0,
+      turnEvents: [formatEncodingEvent],
+      fallbackLine: "",
+    });
+    expect(lines[0]).toBe("unerr » this turn: saved 1,234 tokens");
+    expect(
+      lines.some(
+        (l) =>
+          l.includes("compacted the reply encoding") && l.includes("(+1,234)")
+      )
+    ).toBe(true);
+  });
+
+  it("recap shows Saved (measured) and Modeled on separate rows + All-time modeled segment", () => {
+    const lines = renderReceiptBlock({
+      attribution: emptyAttribution,
+      runtimeJoins: noJoins,
+      turnTokensSaved: 900,
+      turnModeledSaved: 20000,
+      sessionTokensSaved: 5000,
+      sessionModeledSaved: 40000,
+      sessionHeadroom: 2,
+      turnEvents: [],
+      fallbackLine: "",
+      recapTurn: true,
+      sessionHighlights: [],
+      lifetime: { prevented: 3, tokensSaved: 120000, modeledSaved: 250000 },
+    });
+    const text = lines.join("\n");
+    expect(text).toMatch(/Saved\s+5k tokens/);
+    expect(text).toMatch(
+      /Modeled\s+~40k tokens \(round-trips avoided, estimated\)/
+    );
+    // All-time line keeps measured + modeled distinct.
+    expect(text).toContain("120k tokens saved");
+    expect(text).toContain("~250k modeled");
+  });
+});

@@ -43,23 +43,25 @@ describe("prefix ordering", () => {
     else process.env[SESSION] = savedSession;
   });
 
-  it("stable Moment-1 nudge leads, boundary present, volatile Path A line trails", () => {
-    // Use a `fix`-cluster prompt (→ the always-on unerr-using-unerr, installed)
-    // that is neither delegable nor build-intent, so it yields a VOLATILE Path A
-    // line. A build/bug prompt now draws the stable build-decompose nudge instead.
+  it("stable Moment-1 nudge leads, boundary present, volatile delegate line trails", () => {
+    // Use a delegable prompt ("add tests …" → the `tests` class) so the
+    // class-specific delegate line fires — that line is the VOLATILE per-prompt
+    // nudge. (Since the decompose-delegate gate was broadened past build-intent,
+    // a fix/refactor verb-cluster prompt now draws the STABLE decompose nudge,
+    // not a volatile Path A line; the delegate line is the reliable volatile tail.)
     const ctx = readContext(
-      runUserPromptSubmitHook(mk("optimize the QueryRouter dispatch hot path"))
+      runUserPromptSubmitHook(mk("add tests for the QueryRouter dispatch path"))
     );
 
     expect(ctx).toContain(BOUNDARY);
     expect(ctx).toContain(MOMENT1);
-    // The Path A verb-cluster line is the volatile per-prompt nudge.
-    expect(ctx).toContain("Path A matched verb cluster");
+    // The class-specific delegate line is the volatile per-prompt nudge.
+    expect(ctx).toContain("ur|act delegate —");
 
     const headIdx = ctx.indexOf(MOMENT1);
     const boundaryIdx = ctx.indexOf(BOUNDARY);
-    const volatileIdx = ctx.indexOf("Path A matched verb cluster");
-    // stable head before the boundary; volatile Path A line after it.
+    const volatileIdx = ctx.indexOf("ur|act delegate —");
+    // stable head before the boundary; volatile delegate line after it.
     expect(headIdx).toBeGreaterThanOrEqual(0);
     expect(headIdx).toBeLessThan(boundaryIdx);
     expect(volatileIdx).toBeGreaterThan(boundaryIdx);

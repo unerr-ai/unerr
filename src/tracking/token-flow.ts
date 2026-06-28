@@ -36,6 +36,26 @@ export type TokenFlowMechanism =
   // every round-trip it replaces. Distinct from output-compression.
   | "context_bundle";
 
+/**
+ * Mechanisms whose `tokens_saved` is a MODELED estimate (round-trips the
+ * unerr_context bundle avoided — `model.rerequest_saved_tokens` in
+ * proxy.ts:recordBundleSavings), not a measured byte/token delta. These are
+ * kept OUT of the receipt's "saved N tokens" headline and the measured
+ * lifetime counter so an estimate never reads as a measured saving; they are
+ * surfaced separately, explicitly labeled "(modeled)".
+ *
+ * NOTE: metrics-store.ts keeps a local mirror of this set (MODELED_FLOW_MECHANISMS)
+ * to avoid a token-flow ↔ metrics-store import cycle — keep the two in sync.
+ */
+export const MODELED_MECHANISMS: ReadonlySet<TokenFlowMechanism> = new Set([
+  "context_bundle",
+]);
+
+/** True when a mechanism's savings are a model estimate, not a measured delta. */
+export function isModeledMechanism(mechanism: string): boolean {
+  return MODELED_MECHANISMS.has(mechanism as TokenFlowMechanism);
+}
+
 export interface TokenFlowEvent {
   /** Monotonic counter per-process (not UUID — fast, no allocation) */
   id: number;

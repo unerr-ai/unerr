@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runPostGlobHook, runPostGrepHook } from "../hooks/navigation-hooks.js";
 
 /**
- * §11.6 invariant 1 (TOKEN_ECONOMICS_AND_SAVINGS) — no PostToolUse handler may
+ * §11.6 invariant 1 (.internal/archive/TOKEN_ECONOMICS_AND_SAVINGS.md) — no PostToolUse handler may
  * inject a content block on every tool call. Each extra per-call block consumes a
  * slot in Claude Code's content-block cache lookback and forces a prefix re-write
  * (the measured 45–53K cache bust). PostToolUse `enrich` is allowed ONLY behind a

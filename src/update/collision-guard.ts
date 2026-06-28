@@ -1,7 +1,7 @@
 /**
  * unerr auto-update — U5: package-manager collision guard.
  *
- * Hard constraint (AUTO_UPDATE_STRATEGY.md §7, from Tailscale #10400): never run
+ * Hard constraint (.internal/archive/AUTO_UPDATE_STRATEGY.md §7, from Tailscale #10400): never run
  * our global install while the user's OWN package manager is mid-operation —
  * Tailscale's beta updater interrupted `dpkg` and corrupted installs. Before
  * applying, we probe for a running npm/pnpm/yarn/brew install and back off if

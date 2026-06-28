@@ -6,7 +6,7 @@
  * (`.unerr/metrics.db`) onto a per-repo append-only JSONL event store
  * (`.unerr/events/<segment>.jsonl`). The read path now SCANS JSONL and
  * aggregates in JS (SUM / GROUP BY) instead of running an indexed SQL query.
- * `.internal/roadmap/TELEMETRY_AND_EVENTS_ARCHITECTURE.md` §6 calls for a
+ * `.internal/archive/TELEMETRY_AND_EVENTS_ARCHITECTURE.md` §6 calls for a
  * "JSONL-vs-SQLite read benchmark" because "indexed SQLite → file scans" needs
  * to be perf-gated. This file is that gate. It is ADDITIVE — it touches no
  * production source; it only imports the real JSONL primitives to measure them.

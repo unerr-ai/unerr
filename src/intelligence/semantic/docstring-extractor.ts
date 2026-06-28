@@ -8,7 +8,7 @@
  * machine-readable `k=v` line inside the doc comment carrying the entity's
  * domain/role tags. Token is vendor-neutral (`@sem` by default) and
  * configurable via the `comments.sentinel` setting.
- * See .internal/roadmap/LAYER_8_DOMAIN_UNDERSTANDING.md §2.
+ * See .internal/archive/LAYER_8_DOMAIN_UNDERSTANDING.md §2.
  */
 
 export interface DocAnnotation {

@@ -141,4 +141,25 @@ describe("tierForDelegationClass (Issue 5 model-tier routing)", () => {
     expect(tierForDelegationClass("lint_format")).toBe("junior");
     expect(tierForDelegationClass("recon")).toBe("junior");
   });
+
+  it("stays consistent with selectTier's worker set (scoped writes → worker)", () => {
+    for (const c of [
+      "codemod",
+      "caller_propagation",
+      "typecheck_fix",
+      "scaffold",
+    ] as const) {
+      expect(tierForDelegationClass(c)).toBe("worker");
+    }
+    // The new read-only classes are brainless → junior.
+    for (const c of [
+      "research",
+      "qa_lookup",
+      "inventory_audit",
+      "log_triage",
+      "repro",
+    ] as const) {
+      expect(tierForDelegationClass(c)).toBe("junior");
+    }
+  });
 });

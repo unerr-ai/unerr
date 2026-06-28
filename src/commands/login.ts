@@ -11,7 +11,7 @@
  * machine token is never printed.
  *
  * Login is mandatory (2026-06-14, owner decision; see
- * `.internal/LOGIN_UX_STRATEGY.md`). The `preAction` wall in
+ * `.internal/archive/LOGIN_UX_STRATEGY.md`). The `preAction` wall in
  * `src/entrypoints/cli.ts` calls `runLogin()` to drive a blocked command
  * through the device flow, then re-dispatches the original command. For
  * non-interactive use (CI / agents), set `UNERR_TOKEN` or pass `--token`.

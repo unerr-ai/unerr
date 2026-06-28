@@ -2,7 +2,7 @@
  * unerr cloud — the login gate (single enforcement predicate).
  *
  * Login moved from optional to mandatory (2026-06-14, owner decision; see
- * `.internal/LOGIN_UX_STRATEGY.md`). Every surface that must
+ * `.internal/archive/LOGIN_UX_STRATEGY.md`). Every surface that must
  * refuse work when there is no usable login — the `preAction` wall on human
  * commands, the `-32004` block on MCP tools, the passthrough/nudge in hooks —
  * decides with the ONE predicate here, so they can never disagree about "is

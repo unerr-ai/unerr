@@ -70,6 +70,13 @@ describe("unerr-junior sub-agent (Lever C)", () => {
       expect(md).toContain("mcp__unerr__get_references");
       expect(md).not.toContain("Grep, Glob");
     }
+    // Junior owns the read-only research class, so it gets web tools; the worker
+    // (edit-heavy, rarely researches) keeps the no-web set.
+    expect(JUNIOR_AGENT_MD).toContain("WebSearch");
+    expect(JUNIOR_AGENT_MD).toContain("WebFetch");
+    expect(JUNIOR_AGENT_MD).toContain("mcp__unerr__fetch_url");
+    expect(WORKER_AGENT_MD).not.toContain("WebSearch");
+    expect(WORKER_AGENT_MD).not.toContain("mcp__unerr__fetch_url");
     expect(removeJuniorSubagent(cwd)).toBe(true);
     expect(existsSync(workerAgentPath(cwd))).toBe(false);
   });
@@ -82,12 +89,32 @@ describe("three-tier model map (Issue 5 / D2)", () => {
     expect(selectTier("recon")).toBe("junior");
     expect(selectTier("verify")).toBe("junior");
     expect(selectTier("command_run")).toBe("junior");
+    // New read-only junior classes (coverage expansion).
+    expect(selectTier("research")).toBe("junior");
+    expect(selectTier("qa_lookup")).toBe("junior");
+    expect(selectTier("inventory_audit")).toBe("junior");
+    expect(selectTier("log_triage")).toBe("junior");
+    expect(selectTier("repro")).toBe("junior");
     expect(selectTier("tests")).toBe("worker");
     expect(selectTier("mechanical_refactor")).toBe("worker");
     expect(selectTier("caller_propagation")).toBe("worker");
     expect(selectTier("typecheck_fix")).toBe("worker");
     expect(selectTier("scaffold")).toBe("worker");
+    expect(selectTier("codemod")).toBe("worker");
     expect(selectTier("none")).toBe("senior");
+  });
+
+  it("difficulty gate: a cross-cutting worker change escalates to senior", () => {
+    // No size hint → base tier (unchanged behaviour).
+    expect(selectTier("codemod")).toBe("worker");
+    expect(selectTier("mechanical_refactor", { files: 2, loc: 10 })).toBe(
+      "worker"
+    );
+    // Many files or many lines → senior.
+    expect(selectTier("codemod", { files: 4 })).toBe("senior");
+    expect(selectTier("mechanical_refactor", { loc: 60 })).toBe("senior");
+    // A junior class never escalates, however big.
+    expect(selectTier("recon", { files: 20, loc: 500 })).toBe("junior");
   });
 
   it("senior tier resolves to null (session model, no flag); worker/junior pin a model", () => {

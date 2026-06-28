@@ -5,7 +5,7 @@
  *
  * Run with Bun (NOT node/tsx): `bun scripts/build-binary.ts --target <os>-<arch>`.
  *
- * The Phase 0 spike (see .internal/roadmap/NATIVE_BINARY_DISTRIBUTION.md) proved
+ * The Phase 0 spike (see .internal/archive/NATIVE_BINARY_DISTRIBUTION.md) proved
  * the approach: cozo-node and @parcel/watcher load node-pre-gyp-style addons
  * that Bun's bundler won't auto-trace, and tree-sitter reads `.wasm` off disk —
  * none of which survive into a compiled binary on their own. So this script:

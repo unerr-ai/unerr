@@ -258,6 +258,34 @@ describe("MetricsStore", () => {
     expect(s.sessionTokensSaved("missing")).toBe(0);
   });
 
+  it("routes a modeled mechanism (context_bundle) to modeledSavedTotal, not tokenFlowTotal", () => {
+    const s = openMetricsStore(dir);
+    const base = {
+      ts: Date.now(),
+      ts_iso: new Date().toISOString(),
+      session_id: "mod-1",
+      pid: 1,
+      turn: 1,
+      tool: null,
+      tokens_without: 0,
+      tokens_with: 0,
+      detail: null,
+    };
+    // A measured graph_query saving feeds the headline counter.
+    s.insertTokenFlow({ ...base, mechanism: "graph_query", tokens_saved: 900 });
+    // A modeled context_bundle saving feeds ONLY the modeled counter.
+    s.insertTokenFlow({
+      ...base,
+      mechanism: "context_bundle",
+      tokens_saved: 20000,
+    });
+    expect(s.tokenFlowTotal()).toBe(900);
+    expect(s.modeledSavedTotal()).toBe(20000);
+    // The per-session sum (used by the session footer) still includes both —
+    // the split only governs which durable counter the saving lands in.
+    expect(s.sessionTokensSaved("mod-1")).toBe(20900);
+  });
+
   it("upserts session_history (one row per session_id)", () => {
     const s = openMetricsStore(dir);
     s.upsertSessionHistory({

@@ -1,5 +1,5 @@
 /**
- * unerr-junior sub-agent — Lever C (TOKEN_ECONOMICS_AND_SAVINGS §11.2).
+ * unerr-junior sub-agent — Lever C (.internal/archive/TOKEN_ECONOMICS_AND_SAVINGS.md §11.2).
  *
  * Writes the model-pinned sub-agent definition the senior delegates a delegable
  * task to. Claude Code reads `.claude/agents/unerr-junior.md`; its `model:`
@@ -115,23 +115,53 @@ const DELEGATION_TIERS: Partial<Record<IdeType, HostTierModels>> = {
  * (tests, multi-site refactor, caller/import propagation, typecheck/build fixes,
  * scaffold); senior = anything left (kept by the senior, not delegated).
  */
-export function selectTier(cls: DelegableClass): ModelTier {
+/** The tier a class maps to by its KIND alone, before the difficulty gate. */
+function baseTier(cls: DelegableClass): ModelTier {
   switch (cls) {
+    // Read-only (recon, research, Q&A, audit, log triage, repro) + the trivially
+    // mechanical edit classes (lint/format, docstrings) + verify/command runs.
     case "lint_format":
     case "docs":
     case "recon":
     case "verify":
     case "command_run":
+    case "research":
+    case "qa_lookup":
+    case "inventory_audit":
+    case "log_triage":
+    case "repro":
       return "junior";
+    // Scoped writes that need a correctness check.
     case "tests":
     case "mechanical_refactor":
     case "caller_propagation":
     case "typecheck_fix":
     case "scaffold":
+    case "codemod":
       return "worker";
     default:
       return "senior";
   }
+}
+
+/**
+ * Pick the model tier for a delegable class, optionally gated by the change SIZE.
+ * Class alone under-rates a wide-blast-radius edit, so a worker-tier write task
+ * that is actually cross-cutting (`files > 3` or `loc > 50` — the strongest
+ * SWE-bench hardness signals) escalates to the senior. With no `size` hint the
+ * tier is the class's base tier (exactly the prior behaviour — additive).
+ */
+export function selectTier(
+  cls: DelegableClass,
+  size?: { loc?: number; files?: number }
+): ModelTier {
+  const base = baseTier(cls);
+  if (base === "worker" && size) {
+    const files = size.files ?? 0;
+    const loc = size.loc ?? 0;
+    if (files > 3 || loc > 50) return "senior";
+  }
+  return base;
 }
 
 /**
@@ -222,22 +252,39 @@ export function detectDelegationHandoff(
 export const JUNIOR_AGENT_RELPATH = ".claude/agents/unerr-junior.md";
 
 /**
+ * The unerr-graph + local edit tools both delegation sub-agents share. Grep/Glob
+ * are deliberately omitted so the sub-agent navigates via the graph, not a file
+ * sweep.
+ */
+const WORKER_TOOLS =
+  "mcp__unerr__search_code, mcp__unerr__file_read, mcp__unerr__file_outline, mcp__unerr__get_references, mcp__unerr__file_edit, Read, Edit, Write, Bash";
+
+/**
+ * Junior's allow-list adds web tools (`fetch_url`, WebSearch, WebFetch) on top of
+ * the shared set. The junior tier owns the read-only `research` class — web
+ * info-gathering, docs/API/changelog lookup — which is impossible without them.
+ * The worker rarely researches, so it keeps the no-web set.
+ */
+const JUNIOR_TOOLS = `${WORKER_TOOLS}, mcp__unerr__fetch_url, WebSearch, WebFetch`;
+
+/**
  * Build a model-pinned sub-agent definition. Both delegation sub-agents share one
  * operating contract (work from the digest, edit minimally, self-verify, retry ≤2,
- * escalate with one note) and the same unerr-graph tool allow-list; only the name,
- * model tier, description, and one intro sentence differ.
+ * escalate with one note); the name, model tier, description, intro sentence, and
+ * tool allow-list (junior adds web tools) differ.
  */
 function buildSubagentMd(opts: {
   name: string;
   model: string;
   description: string;
   intro: string;
+  tools: string;
 }): string {
   return `---
 name: ${opts.name}
 description: ${opts.description}
 model: ${opts.model}
-tools: mcp__unerr__search_code, mcp__unerr__file_read, mcp__unerr__file_outline, mcp__unerr__get_references, mcp__unerr__file_edit, Read, Edit, Write, Bash
+tools: ${opts.tools}
 ---
 
 You are ${opts.name}. ${opts.intro} Your job is to make the minimal correct edit and prove it passes — nothing more.
@@ -269,9 +316,10 @@ export const JUNIOR_AGENT_MD = buildSubagentMd({
   name: "unerr-junior",
   model: JUNIOR_MODEL,
   description:
-    "Junior-tier executor for brainless delegable tasks (lint/format, docstrings/@sem, read-only recon). Spawned by the senior with a recon digest; makes the minimal edit and self-verifies. Not for design, new features, or bug root-causing.",
+    "Junior-tier executor for brainless delegable tasks (read-only recon, web research, codebase Q&A, audits, lint/format, docstrings/@sem, verify-runs). Spawned by the senior with a recon digest; returns a digest or makes the minimal edit and self-verifies. Not for design, new features, or bug root-causing.",
   intro:
     "The senior delegated a narrow, check-verifiable task to you on a cheaper model.",
+  tools: JUNIOR_TOOLS,
 });
 
 /**
@@ -284,9 +332,10 @@ export const WORKER_AGENT_MD = buildSubagentMd({
   name: "unerr-worker",
   model: CLAUDE_WORKER_MODEL,
   description:
-    "Worker-tier executor for delegable tasks that need some judgement (add/improve tests, multi-site mechanical refactors). Spawned by the senior with a recon digest; makes the minimal edit and self-verifies. Not for design, new features, or bug root-causing.",
+    "Worker-tier executor for delegable tasks that need some judgement (add/improve tests, multi-site mechanical refactors, codemods, caller/import propagation, typecheck/build-error fixes, scaffold). Spawned by the senior with a recon digest; makes the minimal edit and self-verifies. Not for design, new features, or bug root-causing.",
   intro:
     "The senior delegated a check-verifiable task that needs some judgement to you on a mid-tier model.",
+  tools: WORKER_TOOLS,
 });
 
 /** Relative path (from repo root) of the middle-tier sub-agent definition. */

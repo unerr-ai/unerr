@@ -128,10 +128,15 @@ export async function handleUnerrContextProxy(
       "unerr_context requires a `prompt` string — pass what you are about to do (e.g. 'add a retry to fetchUser')"
     );
   }
-  const budget =
-    typeof args.budget === "number" && args.budget > 0
-      ? args.budget
-      : undefined;
+  // Accept the standard `token_budget` param (every other tool uses it); keep
+  // `budget` as a back-compat alias. token_budget wins when both are present.
+  const budgetArg =
+    typeof args.token_budget === "number" && args.token_budget > 0
+      ? args.token_budget
+      : typeof args.budget === "number" && args.budget > 0
+        ? args.budget
+        : undefined;
+  const budget = budgetArg;
   const explicitDigest = args.digest === true;
   const explicitFormat =
     args.response_format === "concise" || args.response_format === "detailed"
@@ -157,11 +162,14 @@ export async function handleUnerrContextProxy(
   const searchLimit =
     preVerdict.size === "large_sweep" ? SWEEP_SEARCH_LIMIT : undefined;
 
-  // Large sweeps orient (concise — no body fetch, flat size); focused edits
-  // front-load the verbatim body (detailed). An explicit arg always wins.
+  // Lean default (concise): composeRecon inlines the SINGLE top focus body for
+  // any targeted edit (a focus entity was locked), so a single-entity edit never
+  // needs a separate file_read drill; only a large sweep renders as a flat index
+  // digest. Full bodies (up to MAX_FOCUS_BODIES) are opt-in via include_body:true.
+  // An explicit response_format always wins.
+  const includeBody = args.include_body === true;
   const responseFormat: "concise" | "detailed" =
-    explicitFormat ??
-    (preVerdict.size === "large_sweep" ? "concise" : "detailed");
+    explicitFormat ?? (includeBody ? "detailed" : "concise");
 
   let bundle: Awaited<ReturnType<typeof composeRecon>>;
   try {
@@ -200,7 +208,14 @@ export async function handleUnerrContextProxy(
   );
   const useDigest =
     explicitDigest || (responseFormat === "concise" && !hasFocusBodies);
-  const text = useDigest ? renderReconDigest(bundle) : renderReconText(bundle);
+  let text = useDigest ? renderReconDigest(bundle) : renderReconText(bundle);
+  // Lean index (no body inlined) → name the drill step so the agent pulls the
+  // one body it will edit instead of re-searching. Only when a focus entity
+  // exists (else the line names no target — a signal without an action is noise).
+  if (useDigest && bundle.focusKey) {
+    const target = bundle.focusName ?? bundle.focusKey;
+    text = `ur|act file_read({entity:'${target}'}) to read ${target} before editing\n\n${text}`;
+  }
 
   recordReconServed(
     {

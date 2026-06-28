@@ -28,12 +28,7 @@ import { emitSavingsEvent } from "../tracking/savings-events.js";
 import { resolveExecSessionContext } from "../tracking/session-records.js";
 import { enqueueTranscriptClaim } from "../tracking/transcript-claim.js";
 import { spawnUnerr } from "../utils/self-spawn.js";
-import {
-  type HookHandler,
-  enrich,
-  passthrough,
-  runStopHookAsync,
-} from "./hook-runner.js";
+import { enrich, runStopHookAsync } from "./hook-runner.js";
 import {
   type PersistOptions,
   STOP_PERSIST_WORKER_TIMEOUT_MS,
@@ -42,7 +37,23 @@ import {
 } from "./sentinel-persist.js";
 import { scrapeSentinels } from "./sentinel-scrape.js";
 
-const passthroughHandler: HookHandler = () => passthrough();
+/**
+ * Minimal one-line presence marker for the Stop / SubagentStop hooks.
+ *
+ * The rich end-of-turn receipt (`renderStopReportLive`) renders "" on an
+ * honest-zero turn — no tokens saved, no headroom banked, no bucketed event —
+ * and the session/turn does not resolve at all on a turn with no tracked tool
+ * calls. Both cases used to emit a silent "{}". Instead the hook emits this line
+ * so every turn confirms unerr is active (no silent passthrough). User-facing
+ * telemetry (`unerr » ` prefix, which agents never echo or act on). Agents with
+ * no Stop output channel (Codex, Cline, Antigravity, Copilot CLI) still drop it
+ * at the adapter; Claude Code (systemMessage) and Windsurf (stderr) surface it.
+ */
+export function stopPresenceLine(currentTurn: number | null): string {
+  return currentTurn && currentTurn > 0
+    ? `unerr » turn ${currentTurn} · active · no tracked changes this turn`
+    : "unerr » active · no tracked tool calls this turn";
+}
 
 /**
  * Resolve the live session id + current (max) turn from the on-disk named-event
@@ -213,9 +224,10 @@ export function detectSerializedByMasterLeak(
 /**
  * Stop hook entry. Scrapes + persists any `unerr-save:` sentinels from the
  * closing message, then computes the close-out line for the active session/turn
- * and returns it as a user-facing systemMessage. On any error — or when there's
- * nothing worth surfacing — returns "{}" so the agent never sees a malformed
- * hook response.
+ * and returns it as a user-facing systemMessage. When the turn has no rich
+ * receipt (honest-zero) or an internal error occurs, it falls back to a one-line
+ * presence marker (`stopPresenceLine`) instead of a silent "{}" — every turn
+ * confirms unerr is active. Only truly unparseable stdin still yields "{}".
  */
 export async function runStopHookHandlerAsync(
   stdinJson: string
@@ -232,7 +244,11 @@ export async function runStopHookHandlerAsync(
     detectSerializedByMasterLeak(stdinJson, unerrDir);
     const resolved = resolveCurrentSessionTurn(unerrDir);
     if (!resolved)
-      return runStopHookAsync(stdinJson, async () => passthrough());
+      // No tracked events this turn — confirm unerr ran instead of a silent
+      // "{}". No silent passthrough remains in this handler.
+      return runStopHookAsync(stdinJson, async () =>
+        enrich(stopPresenceLine(null))
+      );
 
     // Turn-end transcript claim — record only a lightweight pointer (session +
     // turn) to the local queue; the daemon's transcript materializer does the
@@ -256,14 +272,18 @@ export async function runStopHookHandlerAsync(
     const combined = [line, notices]
       .filter((s) => s.trim().length > 0)
       .join("\n");
-    if (!combined || combined.trim().length === 0) {
-      return runStopHookAsync(stdinJson, async () => passthrough());
-    }
+    // Always surface something: when the rich receipt is empty (honest-zero
+    // turn) fall back to the one-line presence marker — never a silent "{}".
+    const message =
+      combined.trim().length > 0
+        ? combined
+        : stopPresenceLine(resolved.currentTurn);
 
-    return runStopHookAsync(stdinJson, async () => enrich(combined));
+    return runStopHookAsync(stdinJson, async () => enrich(message));
   } catch {
+    // Even on an internal error, prefer a presence line over a silent "{}".
     return runStopHookAsync(stdinJson, async () =>
-      passthroughHandler({} as never)
+      enrich(stopPresenceLine(null))
     );
   }
 }
@@ -288,7 +308,11 @@ export async function runSubagentStopHookHandlerAsync(
 
     const resolved = resolveCurrentSessionTurn(unerrDir);
     if (!resolved)
-      return runStopHookAsync(stdinJson, async () => passthrough());
+      // No tracked events this turn — confirm unerr ran instead of a silent
+      // "{}". No silent passthrough remains in this handler.
+      return runStopHookAsync(stdinJson, async () =>
+        enrich(stopPresenceLine(null))
+      );
 
     enqueueTranscriptClaim({
       unerrDir,
@@ -308,14 +332,18 @@ export async function runSubagentStopHookHandlerAsync(
     const combined = [line, notices]
       .filter((s) => s.trim().length > 0)
       .join("\n");
-    if (!combined || combined.trim().length === 0) {
-      return runStopHookAsync(stdinJson, async () => passthrough());
-    }
+    // Always surface something: when the rich receipt is empty (honest-zero
+    // turn) fall back to the one-line presence marker — never a silent "{}".
+    const message =
+      combined.trim().length > 0
+        ? combined
+        : stopPresenceLine(resolved.currentTurn);
 
-    return runStopHookAsync(stdinJson, async () => enrich(combined));
+    return runStopHookAsync(stdinJson, async () => enrich(message));
   } catch {
+    // Even on an internal error, prefer a presence line over a silent "{}".
     return runStopHookAsync(stdinJson, async () =>
-      passthroughHandler({} as never)
+      enrich(stopPresenceLine(null))
     );
   }
 }

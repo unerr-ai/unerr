@@ -1,5 +1,5 @@
 /**
- * Delegable-task classifier — Lever C (TOKEN_ECONOMICS_AND_SAVINGS §11.2).
+ * Delegable-task classifier — Lever C (.internal/archive/TOKEN_ECONOMICS_AND_SAVINGS.md §11.2).
  *
  * A task is "delegable" when it belongs to a narrow, check-verifiable class that a
  * cheaper model can complete under a recon brief and senior review: test work,
@@ -27,6 +27,12 @@ export type DelegableClass =
   | "scaffold"
   | "verify"
   | "command_run"
+  | "research"
+  | "qa_lookup"
+  | "inventory_audit"
+  | "log_triage"
+  | "repro"
+  | "codemod"
   | "none";
 
 export interface DelegableVerdict {
@@ -246,6 +252,133 @@ const COMMAND_RUN_SIGNALS = [
   "run all of these commands",
 ];
 
+/**
+ * Web research / docs lookup — gather information from the web (library docs, an
+ * API reference, a changelog, the latest published version). READ-ONLY and produces
+ * a digest, no edit. A junior fetches and summarizes so the senior never spends its
+ * context window on raw doc pages. Routes to the junior tier (web tools granted).
+ */
+const RESEARCH_SIGNALS = [
+  "look up",
+  "search the web",
+  "search online",
+  "find the docs",
+  "find docs for",
+  "the documentation for",
+  "api reference",
+  "check the changelog",
+  "changelog for",
+  "release notes",
+  "latest version of",
+  "what's the latest",
+  "whats the latest",
+  "how to use the",
+];
+
+/**
+ * Codebase Q&A — a read-only question about where/which/how the code does
+ * something ("where is auth handled", "what calls X", "how does the drainer
+ * batch"). Unlike `recon` (an investigate/trace imperative) these are phrased as
+ * questions; the class-aware gate lets a question TRIGGER this class instead of
+ * vetoing it. A junior reads the graph and returns the answer.
+ */
+const QA_LOOKUP_SIGNALS = [
+  "where is",
+  "where are",
+  "where does",
+  "where do we",
+  "where's the",
+  "which file",
+  "which module",
+  "which function",
+  "what calls",
+  "what uses",
+  "what handles",
+  "how does",
+  "how is",
+];
+
+/**
+ * Inventory / audit — enumerate every site that matches some predicate ("find all
+ * usages of X", "list every place that calls Y", "how many places do Z"). READ-ONLY
+ * enumeration, distinct from `caller_propagation` which then EDITS those sites. A
+ * junior produces the list; the senior decides what to do with it.
+ */
+const INVENTORY_AUDIT_SIGNALS = [
+  "list all",
+  "list every",
+  "find all",
+  "find every",
+  "enumerate",
+  "all usages",
+  "all the usages",
+  "all places that",
+  "everywhere that",
+  "how many places",
+  "audit the",
+  "audit all",
+  "inventory of",
+];
+
+/**
+ * Log / error-output triage — read a log file or captured output and extract the
+ * failure (the stack, the first error, the relevant lines). READ-ONLY. A junior
+ * parses the noise and returns only the signal so it never floods the senior's
+ * context.
+ */
+const LOG_TRIAGE_SIGNALS = [
+  "read the log",
+  "read the logs",
+  "check the log",
+  "check the logs",
+  "look at the logs",
+  "the error in the log",
+  "what's the error in",
+  "whats the error in",
+  "triage the failure",
+  "parse the output of",
+  "tail the log",
+  "grep the logs",
+];
+
+/**
+ * Reproduction — run the repro steps for a reported bug and report whether it still
+ * happens, with the captured output. READ-ONLY (run + observe, no edit). The senior
+ * does the root-cause once the junior confirms the symptom. Plain "fix the bug" is
+ * NOT here — that needs root-cause judgement and stays with the senior.
+ */
+const REPRO_SIGNALS = [
+  "reproduce the",
+  "reproduce this",
+  "repro the",
+  "run the repro",
+  "confirm the bug",
+  "confirm the issue",
+  "see if it still",
+  "check if it still happens",
+  "does it still happen",
+];
+
+/**
+ * Codemod / bulk find-replace — a single mechanical substitution applied across
+ * many files ("replace every X with Y", "sweep all files"). Split out of
+ * `mechanical_refactor` because its blast radius (many files) routes it to the
+ * WORKER tier and the difficulty gate may escalate it to the senior. A single-file
+ * rename stays in `mechanical_refactor`.
+ */
+const CODEMOD_SIGNALS = [
+  "codemod",
+  "find and replace across",
+  "find-and-replace",
+  "replace every",
+  "replace all occurrences",
+  "sweep all files",
+  "sweep every file",
+  "bulk replace",
+  "search and replace across",
+  "across all files",
+];
+
 function matches(lower: string, signals: readonly string[]): boolean {
   return signals.some((s) => lower.includes(s));
 }
@@ -328,22 +461,30 @@ const NARRATION_SIGNALS = [
 ];
 
 /**
- * True when a prompt only MENTIONS a delegable signal word but is a question, a
- * negation, a speculation, a meta/verification ask, or harness narration — i.e.
- * not an imperative handoff. Runs BEFORE class matching to keep the delegate
- * nudge high-precision: substring matching alone fired it on "did we test all
- * these?", "no unit tests …", "should we add …", and a pasted session summary,
- * false positives that trained the agent to ignore the nudge.
+ * Global non-task veto — a negation, a meta/verification ask, design speculation,
+ * or harness narration is never a delegation command, question OR imperative. Runs
+ * BEFORE any class match (read-only or write). Keeps the delegate nudge
+ * high-precision: substring matching alone fired it on "no unit tests …",
+ * "should we add …", "verify these now", and a pasted session summary.
  */
-function isNonTaskMention(lower: string): boolean {
-  const trimmed = lower.trim();
-  if (trimmed.endsWith("?")) return true;
-  if (QUESTION_OPENERS.some((q) => trimmed.startsWith(q))) return true;
+function hasNonTaskVeto(lower: string): boolean {
   if (NEGATED_SIGNAL.test(lower)) return true;
   if (META_SIGNALS.some((m) => lower.includes(m))) return true;
   if (SPECULATION_SIGNALS.some((m) => lower.includes(m))) return true;
   if (NARRATION_SIGNALS.some((m) => lower.includes(m))) return true;
   return false;
+}
+
+/**
+ * A prompt that LEADS with a question word or ends with "?" — an interrogative,
+ * not an imperative edit command. This blocks only the WRITE classes (a question
+ * is never a handoff to change code); the READ-ONLY classes are SAFE on a question
+ * because a question IS their trigger ("where is auth handled?").
+ */
+function isQuestionPrompt(lower: string): boolean {
+  const trimmed = lower.trim();
+  if (trimmed.endsWith("?")) return true;
+  return QUESTION_OPENERS.some((q) => trimmed.startsWith(q));
 }
 
 /**
@@ -377,23 +518,107 @@ const TEST_IMPERATIVE_VERBS = [
  * highest-confidence, most-verifiable class downward (tests → lint/format → docs →
  * mechanical refactor); the first match wins. No match returns `class:"none"`.
  */
+/**
+ * Match the READ-ONLY delegable classes (no edit — run checks, read logs, read the
+ * graph, fetch docs). Ordered most-specific first; `recon` is the catch-all and
+ * ranks last. Safe to call on a question, since a question is these classes'
+ * trigger. Returns null when no read-only signal matches.
+ */
+function matchReadOnly(lower: string): DelegableVerdict | null {
+  // Verify's specific check phrases win over the general command_run.
+  if (matches(lower, VERIFY_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "verify",
+      reason: "verification run (typecheck/tests/lint/build, read-only)",
+    };
+  }
+  if (matches(lower, COMMAND_RUN_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "command_run",
+      reason: "shell-command run (execute a sequence, report output)",
+    };
+  }
+  if (matches(lower, REPRO_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "repro",
+      reason: "reproduce a bug (run the repro steps, report, no edit)",
+    };
+  }
+  if (matches(lower, LOG_TRIAGE_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "log_triage",
+      reason: "log/error-output triage (read logs, extract the failure)",
+    };
+  }
+  if (matches(lower, INVENTORY_AUDIT_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "inventory_audit",
+      reason: "inventory/audit (enumerate usages, read-only)",
+    };
+  }
+  if (matches(lower, QA_LOOKUP_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "qa_lookup",
+      reason: "codebase Q&A (where/which/how, read-only)",
+    };
+  }
+  if (matches(lower, RESEARCH_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "research",
+      reason: "web research / docs lookup (read-only)",
+    };
+  }
+  // Recon ranks LAST among read-only classes: a more specific read-only signal
+  // above wins; only a bare investigate/trace imperative falls through to here.
+  if (matches(lower, RECON_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "recon",
+      reason: "read-only recon (find out / investigate / trace)",
+    };
+  }
+  return null;
+}
+
 export function classifyDelegable(prompt: string): DelegableVerdict {
   const lower = (prompt ?? "").toLowerCase();
 
-  // Precision gate: drop questions / negations / speculation / meta / narration
-  // before any class match so the nudge only fires on an imperative handoff.
-  if (isNonTaskMention(lower)) {
+  // Global veto: negation / speculation / meta / narration is never a task,
+  // question or imperative. Drop it before any class match.
+  if (hasNonTaskVeto(lower)) {
     return {
       delegable: false,
       class: "none",
       reason:
-        "question / negation / speculation / meta — not a delegation command",
+        "negation / speculation / meta / narration — not a delegation command",
     };
   }
 
+  // A question is the TRIGGER for the read-only classes ("where is auth handled?",
+  // "what's the latest zod version?") but NEVER an edit command. On a question, try
+  // only the read-only classes; a question naming none of them is not a handoff.
+  if (isQuestionPrompt(lower)) {
+    return (
+      matchReadOnly(lower) ?? {
+        delegable: false,
+        class: "none",
+        reason: "question — names no read-only delegable class",
+      }
+    );
+  }
+
+  // Imperative path: the WRITE classes rank first so an explicit edit signal wins
+  // ("rename X and trace callers" stays a refactor, not recon), then read-only.
+  //
   // Tests gates on an imperative action verb: "test" alone is QA or description,
-  // not a request to write a unit. rename/extract/lint are already verbs, so the
-  // other classes below need no such gate.
+  // not a request to write a unit. rename/extract/lint are already verbs.
   if (matches(lower, TEST_SIGNALS) && matches(lower, TEST_IMPERATIVE_VERBS)) {
     return {
       delegable: true,
@@ -431,6 +656,15 @@ export function classifyDelegable(prompt: string): DelegableVerdict {
       reason: "mechanical refactor (rename/extract/inline/move)",
     };
   }
+  // Codemod ranks below an explicit rename (a single-symbol rename is
+  // mechanical_refactor) and catches a bulk find-replace across many files.
+  if (matches(lower, CODEMOD_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "codemod",
+      reason: "bulk find-replace across many files",
+    };
+  }
   // Caller/import propagation ranks below an explicit rename (a "rename X and
   // update callers" prompt is mechanical_refactor's job); this catches the
   // standalone "update all callers of X" follow-up after a senior signature edit.
@@ -448,34 +682,11 @@ export function classifyDelegable(prompt: string): DelegableVerdict {
       reason: "scaffold/boilerplate from an existing pattern",
     };
   }
-  // Verify is read-only (run checks, report failures) — it ranks just above recon
-  // and gates on an explicit run phrase so it never eats an edit task.
-  if (matches(lower, VERIFY_SIGNALS)) {
-    return {
-      delegable: true,
-      class: "verify",
-      reason: "verification run (typecheck/tests/lint/build, read-only)",
-    };
-  }
-  // Command runs rank just below verify (verify's specific check phrases win) and
-  // above recon: a general "run these commands / run the script" handoff.
-  if (matches(lower, COMMAND_RUN_SIGNALS)) {
-    return {
-      delegable: true,
-      class: "command_run",
-      reason: "shell-command run (execute a sequence, report output)",
-    };
-  }
-  // Recon ranks LAST among delegable classes: an explicit edit signal above wins,
-  // so "investigate and fix the bug" stays an edit task with the senior. Only a
-  // pure read-only investigation falls through to here.
-  if (matches(lower, RECON_SIGNALS)) {
-    return {
-      delegable: true,
-      class: "recon",
-      reason: "read-only recon (find out / investigate / trace)",
-    };
-  }
+  // Read-only classes rank last on the imperative path: an explicit edit signal
+  // above wins, so "investigate and fix the bug" stays with the senior.
+  const readOnly = matchReadOnly(lower);
+  if (readOnly) return readOnly;
+
   return {
     delegable: false,
     class: "none",

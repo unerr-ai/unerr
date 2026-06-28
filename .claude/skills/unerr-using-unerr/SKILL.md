@@ -1,6 +1,6 @@
 ---
 name: unerr-using-unerr
-description: "Always on. For anything that reads, searches, or edits code, reach for unerr's graph tools first (search_code / get_references / file_read / file_edit), and delegate the work to unerr sub-agents by default — the main thread plans, routes, and consolidates while 2-3 sub-agents run the slices. Guidance toward the tools and capabilities, not a workflow — there are no fixed steps to run."
+description: "Always on. For anything that reads, searches, or edits code, reach for unerr's graph tools first (search_code / get_references / file_read / file_edit), and delegate the work to unerr sub-agents by default — the main thread plans, routes, and consolidates while sub-agents run the slices in parallel (one per independent slice, no fixed cap). Guidance toward the tools and capabilities, not a workflow — there are no fixed steps to run."
 ---
 
 ---
@@ -14,7 +14,7 @@ unerr serves a live code graph plus your team's rules through MCP tools. For any
 
 | To… | Use |
 |---|---|
-| Find code, or pull context for a change | `search_code({query})` — a task phrase returns a recon bundle (matching entities + bodies + callers + conventions in one call); a bare symbol returns ranked matches |
+| Find code, or pull context for a change | `search_code({query})` — a task phrase returns a CODE-STRUCTURE recon bundle: focus entity (+ body for single-entity edits) + callers (blast radius) + top relevant entities + conventions. For additional bodies, use `file_read({entity})` or `search_code({query, include_body:true})` or `cache_ref` (zero recompute). Anchored notes come via prompt injection or on-demand recall, not inline. A bare symbol returns ranked matches. |
 | Exact string / regex across files | `search_code({query, mode:'literal'\|'regex'})` — match + surrounding lines, no follow-up read |
 | Who calls it / what it calls (before a risky edit) | `get_references({key, direction:'callers'\|'callees'})` |
 | Read a file or one function | `file_read` (`entity:` for one symbol); `file_outline` for structure |

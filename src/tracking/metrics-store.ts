@@ -2,7 +2,7 @@
  * Metrics Store — telemetry AND the transcript read-cache are now JSONL; SQLite
  * (`metrics.db`) is fully retired.
  *
- * Engine split (rev-4 full JSONL cutover, TELEMETRY_AND_EVENTS_ARCHITECTURE.md §4/§6):
+ * Engine split (rev-4 full JSONL cutover, .internal/archive/TELEMETRY_AND_EVENTS_ARCHITECTURE.md §4/§6):
  *   - The 5 analytics streams (compression / file_read / token_flow /
  *     behavior / repo_activity) and the 2 session streams (session_history /
  *     session_summaries) are written as contract-shaped events (one JSON line
@@ -37,6 +37,7 @@ import {
 import { dirname, join } from "node:path";
 import { type EmitContext, stampEvent } from "../events/enqueue.js";
 import {
+  EVENT_RETENTION_MS,
   PROXY_SEGMENT,
   type StoredEvent,
   appendEvent,
@@ -47,6 +48,41 @@ import {
   segmentSize,
 } from "../events/event-store.js";
 import { UNERR_VERSION } from "../version.js";
+import {
+  bumpLifetimeCounters,
+  lifetimeCountersPath,
+  readLifetimeCounters,
+  seedLifetimeCountersIfAbsent,
+} from "./lifetime-counters.js";
+import {
+  appendReceiptMirror,
+  receiptMirrorPath,
+  trimReceiptMirror,
+} from "./receipt-mirror.js";
+
+/** Behavior-event kinds that count as a hard prevention (a breakage the
+ *  guardrail stopped). Shared by the live counter bump and the one-time seed
+ *  scan so both agree with the receipt's "breakages prevented" line. */
+const HARD_PREVENTION_KINDS = new Set([
+  "cascade_guard",
+  "stale_edit_prevented",
+  "intervention_halted",
+  "loop_broken",
+]);
+
+/** Token-flow mechanisms whose `tokens_saved` is a MODELED estimate, routed to
+ *  the `modeled_saved_total` counter instead of the measured `tokens_saved_total`
+ *  so an estimate never reads as a measured saving. Local mirror of
+ *  token-flow.ts:MODELED_MECHANISMS — duplicated to avoid a token-flow ↔
+ *  metrics-store import cycle; keep the two in sync. */
+const MODELED_FLOW_MECHANISMS = new Set(["context_bundle"]);
+
+/** Trim the durable receipt mirror every N appends (the trim rewrites the file,
+ *  so it must not run on every write). */
+const MIRROR_TRIM_INTERVAL = 200;
+/** Hard line cap on the receipt mirror — a backstop beneath the age sweep so a
+ *  burst inside the retention window can't grow the file without bound. */
+const MIRROR_MAX_LINES = 50_000;
 
 // ── Row types — wire format used by writers/readers ───────────────────
 //
@@ -421,6 +457,8 @@ export class MetricsStore {
   // Key = combined segment-size signature; invalidated when any segment grows.
   private aggCacheSig = "";
   private readonly aggCache = new Map<string, number>();
+  /** Appends since the last receipt-mirror trim — throttles the rewrite. */
+  private appendsSinceTrim = 0;
 
   constructor(unerrDir: string) {
     this.repoRoot = dirname(unerrDir);
@@ -430,6 +468,65 @@ export class MetricsStore {
       source: `unerr-cli@${UNERR_VERSION}`,
     };
     this.transcriptCachePath = join(unerrDir, "cache", "transcripts.jsonl");
+    // Seed the durable lifetime counters ONCE from the durable receipt mirror
+    // (segment fallback only when the mirror is absent), then keep them current
+    // at append(). They live outside `.unerr/events/`, so the cloud-drain
+    // truncation of proxy.jsonl no longer resets the receipt's all-time totals
+    // to 0. Seeding is idempotent — a second process never overwrites an
+    // accumulated counter.
+    seedLifetimeCountersIfAbsent(this.repoRoot, () =>
+      this.seedCountersFromDurableState()
+    );
+  }
+
+  /** One-time baseline for the lifetime counters. Sums the receipt totals from
+   *  the DURABLE receipt mirror (`.unerr/state/receipt-events.jsonl`) when it
+   *  exists — the mirror is never drained, so it retains the full retained
+   *  history and yields the correct measured/modeled split. Falls back to the
+   *  `.unerr/events/` segments only when the mirror is absent (genuine first
+   *  run, or legacy state predating the mirror). Seeding from the drained
+   *  segments would otherwise rebuild near-zero after a cloud-drain truncation.
+   *  Events trimmed out of the mirror are unrecoverable; counters stay correct
+   *  forward via append-time bumps regardless. */
+  private seedCountersFromDurableState(): {
+    tokens_saved_total: number;
+    hard_prevention_total: number;
+    reversible_saved_total: number;
+    modeled_saved_total: number;
+  } {
+    let tokens = 0;
+    let hard = 0;
+    let reversible = 0;
+    let modeled = 0;
+    const accumulate = (event: StoredEvent): void => {
+      const type = (event as { type?: string }).type;
+      const d = detailOf(event);
+      if (type === "token_flow") {
+        // Route a modeled-mechanism saving to the modeled counter; only a
+        // measured byte/token delta feeds the headline `tokens_saved_total`.
+        if (MODELED_FLOW_MECHANISMS.has(str(d.mechanism) ?? ""))
+          modeled += num(d.tokens_saved);
+        else tokens += num(d.tokens_saved);
+      } else if (type === "behavior") {
+        if (HARD_PREVENTION_KINDS.has(str(d.kind) ?? "")) hard += 1;
+      } else if (type === "compression") {
+        if (d.fidelity_pass !== 0) reversible += num(d.rerequest_saved_tokens);
+      }
+    };
+    const mirror = receiptMirrorPath(this.repoRoot);
+    if (existsSync(mirror)) {
+      for (const s of scanSegment(mirror)) accumulate(s.event);
+    } else {
+      for (const seg of listSegments(this.repoRoot)) {
+        for (const s of scanSegment(seg)) accumulate(s.event);
+      }
+    }
+    return {
+      tokens_saved_total: tokens,
+      hard_prevention_total: hard,
+      reversible_saved_total: reversible,
+      modeled_saved_total: modeled,
+    };
   }
 
   // ── Agent transcripts (local-only JSONL cache) ──────────────────────
@@ -603,7 +700,60 @@ export class MetricsStore {
     // stampEvent's emit-time `ts`, so reads sort by when the work happened.
     if (input.ts_iso) (ev as { ts: string }).ts = input.ts_iso;
     appendEvent(this.repoRoot, PROXY_SEGMENT, ev);
+    // Durable receipt path — independent of the cloud outbox. proxy.jsonl above
+    // is drained and truncated to 0 bytes ~10s after each push, so the receipt
+    // can't read it. The mirror (events the receipt scans) and the counters
+    // (all-time totals) live under `.unerr/state/`, which the drain never touches.
+    appendReceiptMirror(this.repoRoot, ev);
+    this.bumpCountersFor(input.type, input.detail);
+    this.maybeTrimMirror();
     return nextSeq(this.repoRoot);
+  }
+
+  /** Apply one event's contribution to the durable lifetime counters, mirroring
+   *  the sums tokenFlowTotal / hardPreventionTotal / reversibleSavedTotal used to
+   *  compute by scanning. Best-effort (the counter writer swallows I/O errors). */
+  private bumpCountersFor(
+    type: StoredEvent["type"],
+    detail: Record<string, unknown>
+  ): void {
+    if (type === "token_flow") {
+      const saved = num(detail.tokens_saved);
+      if (saved) {
+        // Modeled mechanisms (context_bundle) feed the separate modeled counter;
+        // measured deltas feed the headline tokens_saved_total.
+        if (MODELED_FLOW_MECHANISMS.has(str(detail.mechanism) ?? "")) {
+          bumpLifetimeCounters(this.repoRoot, { modeled_saved_total: saved });
+        } else {
+          bumpLifetimeCounters(this.repoRoot, { tokens_saved_total: saved });
+        }
+      }
+    } else if (type === "behavior") {
+      if (HARD_PREVENTION_KINDS.has(str(detail.kind) ?? "")) {
+        bumpLifetimeCounters(this.repoRoot, { hard_prevention_total: 1 });
+      }
+    } else if (type === "compression") {
+      if (detail.fidelity_pass !== 0) {
+        const reused = num(detail.rerequest_saved_tokens);
+        if (reused) {
+          bumpLifetimeCounters(this.repoRoot, {
+            reversible_saved_total: reused,
+          });
+        }
+      }
+    }
+  }
+
+  /** Trim the receipt mirror on an append cadence so the rewrite cost is
+   *  amortized. Drops events older than the retention window and caps lines. */
+  private maybeTrimMirror(): void {
+    this.appendsSinceTrim += 1;
+    if (this.appendsSinceTrim < MIRROR_TRIM_INTERVAL) return;
+    this.appendsSinceTrim = 0;
+    trimReceiptMirror(this.repoRoot, {
+      retentionMs: EVENT_RETENTION_MS,
+      maxLines: MIRROR_MAX_LINES,
+    });
   }
 
   insertCompression(row: CompressionEventInsert): number {
@@ -825,12 +975,15 @@ export class MetricsStore {
   /** Every event of a given type across all segments, ascending by line order
    *  then segment name. Each row carries a stable `id` (its line-end offset). */
   private scanType(type: string): Array<{ event: StoredEvent; id: number }> {
+    // Reads the durable receipt mirror, NOT the `.unerr/events/` segments. The
+    // mirror holds every event append() wrote (one extra line per event) and is
+    // never drained, so these scans survive the cloud pipeline truncating
+    // proxy.jsonl. `scanProxyTypeSince` (the live poll cursor) still reads the
+    // segment by byte offset; only the full-scan read surface moved here.
     const out: Array<{ event: StoredEvent; id: number }> = [];
-    for (const seg of listSegments(this.repoRoot)) {
-      for (const s of scanSegment(seg)) {
-        if ((s.event as { type?: string }).type === type) {
-          out.push({ event: s.event, id: s.endOffset });
-        }
+    for (const s of scanSegment(receiptMirrorPath(this.repoRoot))) {
+      if ((s.event as { type?: string }).type === type) {
+        out.push({ event: s.event, id: s.endOffset });
       }
     }
     return out;
@@ -1113,22 +1266,15 @@ export class MetricsStore {
    * store, fidelity-honest (excludes `fidelity_pass === 0`).
    */
   reversibleSavedTotal(): number {
-    return this.cachedAgg("reversibleSavedTotal", () => {
-      let total = 0;
-      for (const { event } of this.scanType("compression")) {
-        const d = detailOf(event);
-        if (d.fidelity_pass === 0) continue;
-        total += num(d.rerequest_saved_tokens);
-      }
-      return total;
-    });
+    return readLifetimeCounters(this.repoRoot).reversible_saved_total;
   }
 
-  /** Cached aggregate: re-uses a memo while no segment has grown. */
+  /** Cached aggregate: re-uses a memo while the receipt mirror (the scanType
+   *  data source) has not changed size. Watches the mirror, not the drained
+   *  segments — proxy.jsonl oscillates (append then truncate-to-0), which would
+   *  let a stale memo survive; the mirror only grows or is trimmed. */
   private cachedAgg(key: string, compute: () => number): number {
-    const sig = listSegments(this.repoRoot)
-      .map((s) => `${s}:${segmentSize(s)}`)
-      .join("|");
+    const sig = String(segmentSize(receiptMirrorPath(this.repoRoot)));
     if (sig !== this.aggCacheSig) {
       this.aggCacheSig = sig;
       this.aggCache.clear();
@@ -1144,13 +1290,16 @@ export class MetricsStore {
    * Lifetime tokens saved across every token_flow event in this repo's store.
    */
   tokenFlowTotal(): number {
-    return this.cachedAgg("tokenFlowTotal", () => {
-      let total = 0;
-      for (const { event } of this.scanType("token_flow")) {
-        total += num(detailOf(event).tokens_saved);
-      }
-      return total;
-    });
+    return readLifetimeCounters(this.repoRoot).tokens_saved_total;
+  }
+
+  /**
+   * Lifetime MODELED tokens saved (round-trip estimates from context_bundle).
+   * Kept separate from `tokenFlowTotal` so the receipt's measured headline never
+   * folds in an estimate; surfaced on its own labeled "(modeled)" line.
+   */
+  modeledSavedTotal(): number {
+    return readLifetimeCounters(this.repoRoot).modeled_saved_total;
   }
 
   /**
@@ -1158,19 +1307,7 @@ export class MetricsStore {
    * intervention-halt / loop). Mirrors `isHardPrevention` in named-events.ts.
    */
   hardPreventionTotal(): number {
-    return this.cachedAgg("hardPreventionTotal", () => {
-      const hard = new Set([
-        "cascade_guard",
-        "stale_edit_prevented",
-        "intervention_halted",
-        "loop_broken",
-      ]);
-      let n = 0;
-      for (const { event } of this.scanType("behavior")) {
-        if (hard.has(str(detailOf(event).kind) ?? "")) n += 1;
-      }
-      return n;
-    });
+    return readLifetimeCounters(this.repoRoot).hard_prevention_total;
   }
 
   /**
@@ -1376,8 +1513,19 @@ export class MetricsStore {
     } catch {
       /* best effort */
     }
+    try {
+      rmSync(receiptMirrorPath(this.repoRoot), { force: true });
+    } catch {
+      /* best effort */
+    }
+    try {
+      rmSync(lifetimeCountersPath(this.repoRoot), { force: true });
+    } catch {
+      /* best effort */
+    }
     this.aggCacheSig = "";
     this.aggCache.clear();
+    this.appendsSinceTrim = 0;
   }
 }
 

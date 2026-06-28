@@ -249,7 +249,119 @@ describe("classifyDelegable — four new delegable classes", () => {
   });
 
   it("precision: 'verify the build passes' is none — META_SIGNALS vetoes 'verify'", () => {
-    // 'verify' is in META_SIGNALS; isNonTaskMention fires before class matching.
+    // 'verify' is in META_SIGNALS; the global veto fires before any class match.
     expect(classifyDelegable("verify the build passes").class).toBe("none");
+  });
+});
+
+describe("classifyDelegable — six new delegable classes (coverage expansion)", () => {
+  it("flags web research / docs lookup as the junior research class", () => {
+    for (const p of [
+      "look up the zod 4 migration guide",
+      "find the docs for the parcel watcher api",
+      "check the changelog for cozo-node",
+      "search the web for the latest tree-sitter wasm release",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("research");
+      expect(classifyDelegable(p).delegable, p).toBe(true);
+    }
+  });
+
+  it("flags codebase Q&A as the junior qa_lookup class", () => {
+    for (const p of [
+      "which file defines the QueryRouter",
+      "what calls fetchUser in the proxy",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("qa_lookup");
+    }
+  });
+
+  it("flags inventory/audit as the junior inventory_audit class", () => {
+    for (const p of [
+      "find all usages of readNudgeState",
+      "list every place that calls dispatchToolCall",
+      "enumerate the callers of selectTier",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("inventory_audit");
+    }
+  });
+
+  it("flags log/error-output triage as the junior log_triage class", () => {
+    for (const p of [
+      "read the logs and pull the first error",
+      "tail the log for the boot failure",
+      "parse the output of the failing run",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("log_triage");
+    }
+  });
+
+  it("flags bug reproduction as the junior repro class", () => {
+    for (const p of [
+      "reproduce the timeout on the second session",
+      "run the repro for the stuck-call bug",
+      "see if it still hangs after the rebuild",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("repro");
+    }
+  });
+
+  it("flags bulk find-replace as the worker codemod class", () => {
+    for (const p of [
+      "replace every getUser with fetchUser across all files",
+      "run a codemod to swap the import path repo-wide",
+      "bulk replace the old log prefix everywhere",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("codemod");
+    }
+  });
+
+  it("a single-symbol rename stays mechanical_refactor, not codemod", () => {
+    expect(classifyDelegable("rename getUser to fetchUser").class).toBe(
+      "mechanical_refactor"
+    );
+  });
+});
+
+describe("classifyDelegable — read-only classes fire ON a question (Gap 3 inversion)", () => {
+  it("a question TRIGGERS a read-only class (not vetoed as a question)", () => {
+    expect(classifyDelegable("where is the retry handled?").class).toBe(
+      "qa_lookup"
+    );
+    expect(classifyDelegable("how does the drainer batch events?").class).toBe(
+      "qa_lookup"
+    );
+    expect(
+      classifyDelegable("what's the latest version of vitest?").class
+    ).toBe("research");
+    expect(classifyDelegable("which module owns the spawn lock?").class).toBe(
+      "qa_lookup"
+    );
+  });
+
+  it("a question naming NO read-only class is still none", () => {
+    expect(classifyDelegable("are the new tests passing?").class).toBe("none");
+    expect(classifyDelegable("is the proxy healthy?").class).toBe("none");
+  });
+
+  it("a WRITE class is STILL vetoed when phrased as a question", () => {
+    // The question gate blocks edit commands; only read-only classes pass.
+    expect(classifyDelegable("should I rename getUser?").class).toBe("none");
+    expect(classifyDelegable("can you add tests for the router?").class).toBe(
+      "none"
+    );
+    expect(classifyDelegable("how do I add a docstring here?").class).toBe(
+      "none"
+    );
+  });
+
+  it("global vetoes (negation / meta / speculation) still beat read-only", () => {
+    // 'should we' is speculation; 'did we' is meta — neither becomes qa_lookup.
+    expect(
+      classifyDelegable("should we figure out where the retry lives").class
+    ).toBe("none");
+    expect(classifyDelegable("did we trace how the proxy spawns").class).toBe(
+      "none"
+    );
   });
 });

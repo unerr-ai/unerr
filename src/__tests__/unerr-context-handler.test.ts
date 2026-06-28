@@ -71,21 +71,86 @@ describe("handleUnerrContextProxy", () => {
     expect(blank.isError).toBe(true);
   });
 
-  it("collapses the discovery fan-out into one rendered bundle", async () => {
+  it("lean default: a query with no inlinable body collapses the fan-out into ONE index (digest)", async () => {
     const res = await handleUnerrContextProxy(
       { prompt: "add a retry to fetchUser" },
       baseDeps()
     );
     expect(res.isError).toBeUndefined();
     const text = res.content[0]!.text;
-    // Header + the focus entity + the callers section all in ONE response.
-    expect(text).toContain("unerr recon —");
+    // Lean default renders the index digest (not the verbatim-body bundle) and
+    // names the drill step. Notes/focus/callers/entities still arrive in ONE call.
+    expect(text).toContain("unerr recon digest");
+    expect(text).toContain("ur|act file_read({entity:'fetchUser'})");
     expect(text).toContain("fetchUser");
-    expect(text).toContain("## Callers of");
-    expect(text).toContain("## Entities");
+    expect(text).toContain("Callers of");
+    expect(text.toLowerCase()).toContain("## entities");
   });
 
-  it("includes anchored notes (priority 0) — the warm path's edge over the CLI", async () => {
+  // A focused single-entity edit (≤ FOCUSED_FILE_SPREAD_MAX files) whose bodies
+  // are available: the lean default inlines EXACTLY the top body; the rest stay
+  // index rows. include_body:true opts into the full focus-body set.
+  const twoBodyDefs = [
+    { n: "fetchUser", line: 10, score: 9 },
+    { n: "fetchAccount", line: 30, score: 5 },
+  ];
+  const twoBodyRunner: ReconRunner = async (tool, args) => {
+    if (tool === "search_code") {
+      // Body fetch targets ONE entity by key (query = `e:<name>`, include_body).
+      if (args.include_body === true) {
+        const def =
+          twoBodyDefs.find((d) => args.query === `e:${d.n}`) ?? twoBodyDefs[0]!;
+        return [
+          {
+            key: `e:${def.n}`,
+            name: def.n,
+            kind: "function",
+            file_path: "src/api/user.ts",
+            score: def.score,
+            body: `export function ${def.n}() { /* BODY_${def.n} */ }`,
+            start_line: def.line,
+            end_line: def.line + 5,
+          },
+        ];
+      }
+      // Initial index search — both entities as rows, no body.
+      return twoBodyDefs.map((d) => ({
+        key: `e:${d.n}`,
+        name: d.n,
+        kind: "function",
+        file_path: "src/api/user.ts",
+        score: d.score,
+      }));
+    }
+    if (tool === "get_references") {
+      return { references: [], direction: "callers", total: 0 };
+    }
+    return { naming: [], import_direction: [], structure: [] };
+  };
+
+  it("lean default: a focused single-entity edit inlines exactly ONE body, not the full set", async () => {
+    const res = await handleUnerrContextProxy(
+      { prompt: "add a retry to fetchUser" },
+      baseDeps({ runRaw: twoBodyRunner })
+    );
+    const text = res.content[0]!.text;
+    expect(text).toContain("unerr recon —");
+    expect(text).not.toContain("unerr recon digest");
+    expect(text).toContain("BODY_fetchUser");
+    expect(text).not.toContain("BODY_fetchAccount");
+  });
+
+  it("include_body:true opts into the full focus-body set (detailed tier)", async () => {
+    const res = await handleUnerrContextProxy(
+      { prompt: "add a retry to fetchUser", include_body: true },
+      baseDeps({ runRaw: twoBodyRunner })
+    );
+    const text = res.content[0]!.text;
+    expect(text).toContain("BODY_fetchUser");
+    expect(text).toContain("BODY_fetchAccount");
+  });
+
+  it("anchored notes are NOT in the recon bundle — they arrive via per-turn prompt injection, not composeRecon", async () => {
     const recallNotes = vi.fn(async () => ({
       notes: [
         { kind: "rul", anchor: "f:src/api/user.ts", content: "no raw fetch" },
@@ -95,10 +160,12 @@ describe("handleUnerrContextProxy", () => {
       { prompt: "edit fetchUser in src/api/user.ts" },
       baseDeps({ recallNotes })
     );
-    expect(recallNotes).toHaveBeenCalledOnce();
+    // composeRecon no longer fetches unerr_recall_notes inline — notes arrive via
+    // prompt injection (per-turn hook), not the bundle.
+    expect(recallNotes).not.toHaveBeenCalled();
     const text = res.content[0]!.text;
-    expect(text).toContain("## Anchored notes");
-    expect(text).toContain("no raw fetch");
+    expect(text).not.toContain("## Anchored notes");
+    expect(text).not.toContain("no raw fetch");
   });
 
   it("unwraps the recall {ok,data,hint} envelope so notes are not double-wrapped", async () => {
@@ -110,6 +177,25 @@ describe("handleUnerrContextProxy", () => {
       baseDeps({ recallNotes: async () => ({ notes: [] }) })
     );
     expect(res.content[0]!.text).not.toContain("## Anchored notes");
+  });
+
+  it("token_budget wins over budget when both are present; small token_budget shrinks the bundle", async () => {
+    // token_budget:50 wins — small budget applies even though budget:9999 is wide.
+    const small = await handleUnerrContextProxy(
+      { prompt: "add a retry to fetchUser", token_budget: 50, budget: 9999 },
+      baseDeps()
+    );
+    // token_budget:9999 wins — wide budget applies even though budget:50 would truncate.
+    const large = await handleUnerrContextProxy(
+      { prompt: "add a retry to fetchUser", token_budget: 9999, budget: 50 },
+      baseDeps()
+    );
+    expect(small.isError).toBeUndefined();
+    expect(large.isError).toBeUndefined();
+    // The small-budget run produces a shorter/more-truncated bundle.
+    expect(small.content[0]!.text.length).toBeLessThan(
+      large.content[0]!.text.length
+    );
   });
 
   it("renders the flat digest when digest:true is passed", async () => {
@@ -196,9 +282,9 @@ describe("handleUnerrContextProxy", () => {
     expect(text).not.toContain("## Focus source");
   });
 
-  it("W5: orders the anchored-notes section by load-bearing score (shared with recall)", async () => {
-    // recall returns weak-then-strong; rankLoadBearing must reorder so the
-    // file-anchored rule (load-bearing) renders before the project-wide fact.
+  it("W5: anchored notes are absent from the bundle — composeRecon no longer fetches them", async () => {
+    // composeRecon stopped fetching unerr_recall_notes — notes are delivered via
+    // the per-turn prompt injection hook, never inline in the recon bundle.
     const recallNotes = vi.fn(async () => ({
       notes: [
         { kind: "fct", anchor: "p:", polarity: "~", content: "WEAK_NOTE" },
@@ -215,24 +301,27 @@ describe("handleUnerrContextProxy", () => {
       baseDeps({ recallNotes })
     );
     const text = res.content[0]!.text;
-    expect(text).toContain("STRONG_RULE");
-    expect(text).toContain("WEAK_NOTE");
-    expect(text.indexOf("STRONG_RULE")).toBeLessThan(text.indexOf("WEAK_NOTE"));
+    // Neither note should appear — absent from the bundle.
+    expect(text).not.toContain("STRONG_RULE");
+    expect(text).not.toContain("WEAK_NOTE");
+    expect(recallNotes).not.toHaveBeenCalled();
   });
 
-  it("routes recall_notes to recallNotes and graph tools to runRaw", async () => {
+  it("recallNotes is not called — composeRecon no longer fetches notes inline", async () => {
     const recallNotes = vi.fn(async () => ({ notes: [] }));
     const runRaw = vi.fn(fakeRunRaw());
     await handleUnerrContextProxy(
       { prompt: "inspect fetchUser callers" },
       baseDeps({ recallNotes, runRaw })
     );
-    expect(recallNotes).toHaveBeenCalledOnce();
+    // composeRecon stopped fetching unerr_recall_notes — recallNotes is a no-op dep.
+    expect(recallNotes).not.toHaveBeenCalled();
     const toolsCalled = runRaw.mock.calls.map((c) => c[0]);
     expect(toolsCalled).toContain("search_code");
     expect(toolsCalled).toContain("get_conventions");
     expect(toolsCalled).toContain("get_references");
-    // recall_notes must NOT reach runRaw — it has its own warm path.
+    // recall_notes must NOT reach runRaw — the handler still routes unerr_recall_notes
+    // to recallNotes, so any accidental composeRecon call would not pollute runRaw.
     expect(toolsCalled).not.toContain("unerr_recall_notes");
   });
 

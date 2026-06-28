@@ -84,7 +84,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         query: {
           type: "string",
           description:
-            "A symbol OR a task. A bare name / partial / exact key ('compress', 'handleRequest', 'QueryRouter.dispatch') returns ranked entity matches. A natural-language task phrase ('where is retry handled', 'add a retry to the boot path') instead returns a recon bundle — anchored notes + the focus entities' verbatim bodies + their callers + conventions — collapsing the search→read→search fan-out into one call.",
+            "A symbol OR a task. A bare name / partial / exact key ('compress', 'handleRequest', 'QueryRouter.dispatch') returns ranked entity matches. A task phrase ('add a retry to the boot path', 'where is retry handled') returns a recon bundle — anchored notes + focus entities + callers + conventions. Both return lean index by default (signatures, line ranges, caller counts; no full source). Drill down: use include_body:true to inline bodies, file_read({entity:'<key>'}) to read one entity, or cache_ref to pull a withheld body without recompute.",
         },
         limit: {
           type: "number",
@@ -231,7 +231,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         entity: {
           type: "string",
           description:
-            "Extract a specific function/class by name (avoids reading full file)",
+            "After a lean search_code index, drill down via entity:'<key>' to read the full body of the one entity you will edit.",
         },
         purpose: {
           type: "string",

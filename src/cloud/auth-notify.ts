@@ -8,7 +8,7 @@
  * re-fired on the 12h tick while the machine sits in that state, and surviving
  * daemon restarts.
  *
- * Policy (LOGIN_UX_STRATEGY.md §9 decision 4):
+ * Policy (.internal/archive/LOGIN_UX_STRATEGY.md §9 decision 4):
  *  - `revoked`       → notify by default (the high-signal, definitive loss).
  *  - `degraded_free` → notify only when `notifyGrace` is enabled (off by
  *    default; an offline laptop shouldn't get a toast every grace window).

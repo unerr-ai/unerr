@@ -60,20 +60,21 @@ describe("TOOL_DESCRIPTION_NUDGES (D10)", () => {
   it("nudges every existing tool that bridges to the contract", () => {
     const tools = TOOL_DESCRIPTION_NUDGES.map((n) => n.tool);
     expect(tools).toContain("search_code");
-    expect(tools).toContain("file_read");
     expect(tools).toContain("get_references");
     // get_entity merged into search_code({detail:true}) 2026-06 — its
     // contract-surprise nudge now rides search_code's entry.
     expect(tools).not.toContain("get_entity");
+    // file_read carries no nudge: it is a plain read that does NOT inject
+    // notes/conventions/drift (anchored notes arrive via prompt injection +
+    // on-demand recall, never inline in a tool response).
+    expect(tools).not.toContain("file_read");
   });
 
   it("each nudge routes to a surviving contract mechanism", () => {
-    // Recall = a task-shaped search_code, save = the `unerr-save:` Stop-hook
-    // sentinel, or file_read's own inline rule-note/convention/drift injection.
+    // Recall = a task-shaped search_code; save = the `unerr-save:` Stop-hook
+    // sentinel.
     for (const n of TOOL_DESCRIPTION_NUDGES) {
-      expect(n.nudge).toMatch(
-        /search_code|unerr-save: note|file_read auto-injects/
-      );
+      expect(n.nudge).toMatch(/search_code|unerr-save: note/);
       expect(n.nudge).not.toMatch(/unerr_remember/);
     }
   });

@@ -1,7 +1,7 @@
 /**
  * Recon composite — Sprint 1 (R1 + R2 + R3).
  *
- * The token-overhead research (`.internal/research/TOKEN_ECONOMICS_AND_SAVINGS.md`)
+ * The token-overhead research (`.internal/archive/TOKEN_ECONOMICS_AND_SAVINGS.md`)
  * found that unerr's cost vs no-unerr is dominated by *round-trip amplification*:
  * every separate tool call re-bills the whole accumulated prefix
  * (cache_read ≈ round-trips × prefix). The dominant lever is cutting the number
@@ -186,7 +186,11 @@ export interface ReconOptions {
   };
 }
 
-const DEFAULT_BUDGET = 4000;
+// Lean default ceiling. The slimmed bundle (1 focus body + callers + a trimmed
+// entity list + conventions) lands ~1.2-1.5K; this is a ceiling, not a target —
+// sections only cost what they cost. Callers raise it via token_budget for a
+// detailed (multi-body) pull.
+const DEFAULT_BUDGET = 2000;
 const DEFAULT_MAX_REFERENCES = 15;
 const DEFAULT_SEARCH_LIMIT = 10;
 
@@ -477,6 +481,41 @@ function dedupeSearchAgainstBodies(
 }
 
 /**
+ * Trim the search result for the "Entities" overview: stable-partition test
+ * scaffolding to the end (tests are rarely the edit target and were ~half of an
+ * un-trimmed list) and keep at most `max` rows. Preserves the container shape
+ * (bare array or {entities|results|hits|rows} wrapper).
+ * @sem domain=recon role=trim
+ */
+function trimEntities(search: unknown, max: number): unknown {
+  const rerank = (arr: unknown[]): unknown[] => {
+    const nonTest: unknown[] = [];
+    const test: unknown[] = [];
+    for (const e of arr) {
+      const fp =
+        (e && typeof e === "object"
+          ? ((e as Record<string, unknown>).file_path as string | undefined)
+          : undefined) ?? "";
+      (TEST_PATH_RE.test(fp) ? test : nonTest).push(e);
+    }
+    return [...nonTest, ...test].slice(0, max);
+  };
+  if (Array.isArray(search)) return rerank(search);
+  if (search && typeof search === "object") {
+    const o = search as Record<string, unknown>;
+    for (const field of ["entities", "results", "hits", "rows"]) {
+      if (Array.isArray(o[field])) {
+        return { ...o, [field]: rerank(o[field] as unknown[]) };
+      }
+    }
+  }
+  return search;
+}
+
+/** Max entity rows kept in the non-sweep "Entities" overview. */
+const MAX_ENTITY_ROWS = 6;
+
+/**
  * Greedily shrink list-bearing structured data until it fits `budget` tokens.
  * Repeatedly slices the longest array in the payload in half. Returns the
  * possibly-shrunk data and whether anything was cut. Never mutates the input.
@@ -576,39 +615,6 @@ interface PlannedStep {
   priority: number;
   /** Non-empty section predicate — drop quietly if the runner returned nothing. */
   isEmpty: (data: unknown) => boolean;
-}
-
-function notesEmpty(data: unknown): boolean {
-  if (data == null) return true;
-  if (Array.isArray(data)) return data.length === 0;
-  const o = data as Record<string, unknown>;
-  if (Array.isArray(o.notes)) return o.notes.length === 0;
-  return false;
-}
-
-/**
- * W5: order an anchored-notes section by load-bearing score — the SAME ranking
- * the per-prompt recall hook uses (`note-ranking.ts`), so both note surfaces
- * agree on what matters. Ordering only: `unerr_context` never caps notes (it is
- * the full-set surface the capped per-turn recall injection points back to); but
- * when budget pressure trims the section the weakest notes drop first and the
- * rules that change the plan survive. Shape-preserving — `{notes:[…]}`, a bare
- * array, or anything else passes through untouched but reordered.
- */
-function orderNotesByLoadBearing(data: unknown, prompt: string): unknown {
-  if (Array.isArray(data)) {
-    return rankLoadBearing(data as RankableNote[], prompt);
-  }
-  if (data && typeof data === "object") {
-    const o = data as Record<string, unknown>;
-    if (Array.isArray(o.notes)) {
-      return {
-        ...o,
-        notes: rankLoadBearing(o.notes as RankableNote[], prompt),
-      };
-    }
-  }
-  return data;
 }
 
 function searchEmpty(data: unknown): boolean {
@@ -750,10 +756,6 @@ function domainTagsOf(data: unknown): Array<{ domain: string; count: number }> {
   return out;
 }
 
-function domainTagsEmpty(data: unknown): boolean {
-  return domainTagsOf(data).length === 0;
-}
-
 /**
  * Render the active domain-tag vocabulary as one compact "reuse before invent"
  * line: `auth (12), payments (8), graph-indexing (5)`. Empty → "" (caller skips
@@ -813,11 +815,6 @@ function vocabNudgesOf(data: unknown): {
     });
   }
   return { provisional, merge };
-}
-
-function vocabNudgesEmpty(data: unknown): boolean {
-  const { provisional, merge } = vocabNudgesOf(data);
-  return provisional.length === 0 && merge.length === 0;
 }
 
 /**
@@ -925,14 +922,13 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
     }
   };
 
-  // Phase 1 — independent calls fire together: notes, conventions, and the
-  // entity search. references depends on the search result, so it waits.
-  const notesP = safeRun("unerr_recall_notes", { prompt }, "Anchored notes");
+  // Phase 1 — independent calls fire together: conventions + the entity search.
+  // references depends on the search result, so it waits. Anchored notes, domain
+  // tags, and vocabulary nudges are deliberately NOT fetched here: notes reach
+  // the agent via the per-turn prompt injection and on-demand recall, and
+  // domain/vocab are on-demand only. Carrying them inline duplicated the same
+  // (largely project-wide, query-irrelevant) context into every recon call.
   const conventionsP = safeRun("get_conventions", {}, "Conventions");
-  // Layer 8 §5.4 — the active domain-tag vocabulary ("reuse before invent").
-  const domainTagsP = safeRun("domain_tags", {}, "Active domain tags");
-  // Layer 8 §5.2 / §6.4 — vocabulary nudges (sprawl merge + provisional tags).
-  const vocabNudgesP = safeRun("vocab_nudges", {}, "Vocabulary nudges");
   const searchP =
     terms.length > 0
       ? safeRun(
@@ -942,14 +938,7 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
         )
       : Promise.resolve(undefined);
 
-  const [notes, conventions, domainTags, vocabNudges, search] =
-    await Promise.all([
-      notesP,
-      conventionsP,
-      domainTagsP,
-      vocabNudgesP,
-      searchP,
-    ]);
+  const [conventions, search] = await Promise.all([conventionsP, searchP]);
 
   // Phase 2 — lock onto a focus entity and pull its blast radius (depth-1).
   // Candidates are ranked (prompt-named file first, test scaffolding last)
@@ -983,36 +972,34 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
   // irreducible core — kept right after notes in the budget pass and given the
   // primacy render slot (lost-in-the-middle: Liu et al., TACL 2024). Each body
   // is capped so the set stays ≤ ~50% of the budget and never starves callers.
-  // 'concise' callers (orientation / large sweeps) skip body inlining entirely —
-  // no fetch, no section, no tokens. 'detailed' (default) front-loads the edit.
-  // EXCEPT the thin-bundle floor (D6): when the non-body content is sparse
-  // (new/sparse repo), 'concise' still inlines the single top body so the call
-  // never returns a near-empty bundle. 'detailed' already carries bodies, so the
-  // floor is moot there.
+  // Lean default ('concise'): inline at most the single top body, and only for a
+  // focused edit (≤ FOCUSED_FILE_SPREAD_MAX files) or a sparse repo (D6 thin-
+  // bundle floor) so the call never returns a near-empty bundle; an ambiguous or
+  // wide-spread query gets the index only (no body fetch, no tokens). 'detailed'
+  // (opt-in via include_body:true) front-loads the full focus-body set.
   const nonBodyFloorTokens =
-    (notes !== undefined ? countTokens(notes) : 0) +
     (references !== undefined ? countTokens(references) : 0) +
     (search !== undefined ? countTokens(search) : 0) +
     (conventions !== undefined ? countTokens(conventions) : 0);
   const thinBundle = nonBodyFloorTokens < THIN_BUNDLE_FLOOR_TOKENS;
-  // W4: the prompt-only 'concise' guess that REALIZED as a focused edit (search
-  // entities concentrate in ≤ FOCUSED_FILE_SPREAD_MAX files) is not a sweep —
-  // front-load its bodies exactly like a 'detailed' call so the agent never
-  // re-reads them. A genuine large sweep spans many files → bodies stay out and
-  // the bundle renders as a flat digest.
-  const searchFileCount = search !== undefined ? entityFiles(search).length : 0;
-  const focusedFootprint =
-    searchFileCount > 0 && searchFileCount <= FOCUSED_FILE_SPREAD_MAX;
+  // A large sweep (the caller widened searchLimit to SWEEP_SEARCH_LIMIT) wants
+  // the navigation map, not source — it renders as a flat digest, so no focus
+  // body is fetched.
+  const isSweep = searchLimit >= SWEEP_SEARCH_LIMIT;
   const bodyTargets = (() => {
-    if (responseFormat !== "concise" || focusedFootprint) {
-      // 'detailed', or a 'concise' call that realized as a focused edit.
+    // Explicit detailed (include_body:true / response_format:'detailed') is the
+    // only tier that front-loads the full set of focus bodies.
+    if (responseFormat === "detailed") {
       return focusCandidates.slice(0, MAX_FOCUS_BODIES);
     }
-    // D6 thin-bundle floor: still inline the single top body so a sparse repo
-    // never returns a near-empty bundle.
-    if (thinBundle) return focusCandidates.slice(0, 1);
-    // Genuine large sweep — orient only, no bodies.
-    return focusCandidates.slice(0, 0);
+    // Lean default (concise): inline the SINGLE top focus body for any targeted
+    // edit (a focus candidate exists), regardless of how many files the wider
+    // search spread across. Round-trips are the dominant cost — carrying the one
+    // body the agent is about to edit kills the file_read drill that every
+    // single-entity edit would otherwise need. A large sweep (digest) skips the
+    // body; a sparse repo (D6 thin-bundle floor) still gets one.
+    if (isSweep && !thinBundle) return focusCandidates.slice(0, 0);
+    return focusCandidates.slice(0, 1);
   })();
   let focusBodies: FocusBody[] | undefined;
   if (bodyTargets.length > 0) {
@@ -1079,9 +1066,11 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
     }
   }
 
-  // Assemble candidate sections in priority order. Anchored notes (the user's
-  // own rules) rank first; the focus entity's callers (blast radius — unerr's
-  // core safe-change signal) next; then the raw search list and conventions.
+  // Assemble candidate sections in priority order. The focus entity's body and
+  // its callers (blast radius — unerr's core safe-change signal) rank first;
+  // then the raw search list and conventions. Anchored notes / domain tags /
+  // vocab are NOT assembled here — they are delivered out-of-band (prompt
+  // injection + on-demand recall), never inline in the recon bundle.
   const candidates: Array<PlannedStep & { data: unknown }> = [];
   const add = (
     tool: string,
@@ -1095,17 +1084,10 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
     candidates.push({ tool, title, priority, args: {}, data, isEmpty });
   };
 
-  // Keep-priority (lower = kept first under budget pressure). Notes and focus
-  // bodies are the irreducible core; callers next; the rest fills remaining
-  // room. Note: this is the BUDGET order, NOT the render order — the renderer
-  // re-sorts for the lost-in-the-middle U-curve (bodies first, notes last).
-  add(
-    "unerr_recall_notes",
-    "Anchored notes",
-    0,
-    orderNotesByLoadBearing(notes, prompt),
-    notesEmpty
-  );
+  // Keep-priority (lower = kept first under budget pressure). Focus bodies are
+  // the irreducible core; callers next; the rest fills remaining room. Note:
+  // this is the BUDGET order, NOT the render order — the renderer re-sorts for
+  // the lost-in-the-middle U-curve (bodies first).
   add("focus_bodies", "Focus source", 1, focusBodies, focusBodiesEmpty);
   if (focus) {
     add(
@@ -1118,13 +1100,16 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
   }
   // Precision: an entity already inlined verbatim as a focus body is redundant
   // in the "Entities" overview — drop it so the bundle never double-pays.
-  const dedupedSearch = dedupeSearchAgainstBodies(search, focusBodies);
+  // Drop body-dupes, then keep only the top rows (tests last) for a focused
+  // edit; a large sweep keeps the full map it asked for.
+  const dedupedSearch = trimEntities(
+    dedupeSearchAgainstBodies(search, focusBodies),
+    isSweep ? searchLimit : MAX_ENTITY_ROWS
+  );
   const dedupedSearchEmpty =
     searchEmpty || asEntityArray(dedupedSearch).length === 0;
   add("search_code", "Entities", 3, dedupedSearch, dedupedSearchEmpty);
   add("get_conventions", "Conventions", 4, conventions, conventionsEmpty);
-  add("domain_tags", "Active domain tags", 5, domainTags, domainTagsEmpty);
-  add("vocab_nudges", "Vocabulary nudges", 6, vocabNudges, vocabNudgesEmpty);
   // Speculative expand ring (E2) — lowest local priority (after every code ring,
   // before external want sources), trimmed first under budget pressure.
   add(

@@ -163,19 +163,19 @@ function buildTopicShiftLine(): string | null {
  *  rename/etc.). Excludes the broader navigation/discovery verbs used by
  *  `TASK_VERBS_CODE`. */
 export const TASK_VERBS_NARROW =
-  /\b(implement|fix|add|refactor|build|debug|update|change|modify|create|delete|remove|rewrite|migrate|wire|extract|inline|rename|split|merge|integrate|hook|register|replace|revert|optimize|cleanup|move|restructure|tweak|audit|review)\b/i;
+  /\b(implement|fix|add|refactor|build|debug|update|change|modify|create|delete|remove|rewrite|migrate|wire|extract|inline|rename|split|merge|integrate|hook|register|replace|revert|optimize|cleanup|move|restructure|consolidate|tweak|audit|review)\b/i;
 
 /** Pure-question detector — same imperative set minus the
  *  navigation/build verbs that frequently appear inside a leading
  *  question fragment. */
 const TASK_VERBS_NARROW_NO_NAV =
-  /\b(implement|fix|add|refactor|build|debug|update|change|modify|create|delete|remove|rewrite|migrate|replace|revert|optimize|cleanup|move|restructure|tweak|audit|review)\b/i;
+  /\b(implement|fix|add|refactor|build|debug|update|change|modify|create|delete|remove|rewrite|migrate|replace|revert|optimize|cleanup|move|restructure|consolidate|tweak|audit|review)\b/i;
 
 /** Broader code-context verb set — true when the prompt is "about code"
  *  even if it is a question, a navigation request, or a bug report.
  *  Decides the tool-roster phrasing, not whether `mark_intent` fires. */
 export const TASK_VERBS_CODE =
-  /\b(fix|bug|add|implement|refactor|debug|update|change|modify|create|delete|remove|test|find|search|where|who calls|callers|dependencies|import|replace|rename|revert|optimize|cleanup|extract|inline|move|restructure|migrate|tweak|audit|review|broken|failing|crash|error|regression)\b/i;
+  /\b(fix|bug|add|implement|refactor|debug|update|change|modify|create|delete|remove|test|find|search|where|who calls|callers|dependencies|import|replace|rename|revert|optimize|cleanup|extract|inline|move|restructure|consolidate|migrate|tweak|audit|review|broken|failing|crash|error|regression)\b/i;
 
 /** Broader implementation-intent matcher — catches outcome-phrased prompts
  *  ("build X", "make Y work", "get Z working", "set up W", "new endpoint") that
@@ -329,8 +329,8 @@ function buildPathALine(match: VerbClusterMatch): string {
  *  `shouldDelegate` returned `delegate:true` (host supports delegation and the
  *  prompt named a delegable class). Points straight at the sub-agent handoff —
  *  the delegate WORKFLOW is now an opt-in skill, so the default nudge names the
- *  capability (the Task sub-agent / exec) and frames it as performance, not a
- *  Skill() to invoke; imperative, no hedge verbs, no deictic pronouns. */
+ *  capability (the Task sub-agent / exec) as a direct command, not a Skill() to
+ *  invoke; imperative ("<handoff> now"), no hedge verbs, no deictic pronouns. */
 function buildDelegateLine(
   decision: DelegationDecision,
   agentId: IdeType
@@ -342,7 +342,7 @@ function buildDelegateLine(
   // worker, lint_format/docs/recon → junior). juniorHandoff emits ONLY the path
   // for THIS host — naming another is noise the agent can't act on.
   const handoff = juniorHandoff(agentId, decision.class);
-  return `ur|act delegate — '${decision.class}' is delegable; for better performance, ${handoff}, hand it the recon brief, then review the diff. Do NOT enumerate edit sites by hand — the brief carries them.`;
+  return `ur|act delegate — '${decision.class}' is delegable: ${handoff} now, hand it the recon brief, then review the diff. Do NOT enumerate edit sites by hand — the brief carries them.`;
 }
 
 /** True when the skill a verb cluster points at is actually on disk for this
@@ -368,7 +368,7 @@ function isClusterSkillInstalled(
  *  better performance. Imperative, names the sub-agents, no hedge verbs, no cost
  *  framing. */
 function buildDecomposeDelegateLine(): string {
-  return "ur|act delegate-slices — delegation is the default execution mode, not a one-off: on every substantive turn, plan the change then fan out 2-3 unerr sub-agents in parallel over its delegable slices — Task subagent_type:'unerr-worker' (tests, multi-site refactor, caller/import propagation, typecheck/build-error fixes, scaffold) / 'unerr-junior' (lint/format, docstrings/@sem, read-only recon, verify-runs, shell-command runs) — keeping design + wiring + root-cause on the main thread, then review and integrate each diff.";
+  return "ur|act delegate-slices — delegation is the default execution mode, not a one-off: on every substantive turn, plan the change then fan out one unerr sub-agent per independent slice in parallel — use as many as the work has slices, no fixed cap — Task subagent_type:'unerr-worker' (tests, multi-site refactor, caller/import propagation, typecheck/build-error fixes, scaffold) / 'unerr-junior' (lint/format, docstrings/@sem, read-only recon, verify-runs, shell-command runs) — keeping design + wiring + root-cause on the main thread, then review and integrate each diff.";
 }
 
 // ── Path B emit (T3.2) ───────────────────────────────────────────────────────
@@ -664,7 +664,8 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // agent tends to do itself on the main thread. On a delegation-capable host,
   // when the rigid build skill is NOT opted in, remind the agent EVERY
   // substantive (code + build/bug) turn to decompose and fan those slices out to
-  // 2-3 sub-agents. Suppressed when the user opted into the rigid build-and-debug
+  // sub-agents (one per independent slice, no fixed cap). Suppressed when the
+  // user opted into the rigid build-and-debug
   // skill (it owns the workflow).
   let buildDecomposeLine: string | null = null;
   try {
@@ -675,6 +676,13 @@ const promptSubmitHandler: HookHandler = (normalized) => {
       (!!pathAMatch &&
         (pathAMatch.cluster === "build" || pathAMatch.cluster === "bug")) ||
       BUILD_INTENT_RE.test(message);
+    // Broaden past build-intent: any substantive code-WORK prompt (refactor,
+    // migrate, restructure, consolidate, audit, move) carries delegable slices
+    // too, yet most of those phrasings miss BUILD_INTENT_RE and never drew the
+    // fan-out nudge. classifyAsTask is the narrow imperative-work signal that
+    // ALREADY excludes pure questions / chat / design-discussion, so OR-ing it
+    // in widens coverage to non-build work turns WITHOUT firing on questions.
+    const isSubstantiveTask = isBuildIntent || classifyAsTask(message);
     // Suppress only when the user opted into the rigid build-and-debug skill for
     // a build/bug cluster — that skill then owns the workflow.
     const rigidBuildOptedIn =
@@ -684,13 +692,13 @@ const promptSubmitHandler: HookHandler = (normalized) => {
     if (
       !delegateLine &&
       isCodeTask &&
-      isBuildIntent &&
+      isSubstantiveTask &&
       !rigidBuildOptedIn &&
       supportsDelegation(agentId)
     ) {
       // Re-arm every substantive turn: delegation is the default execution mode,
       // so the decompose-and-delegate nudge fires on each build/bug code turn —
-      // not once per session — to keep 2-3 sub-agents fanning out per turn. The
+      // not once per session — to keep sub-agents fanning out per turn. The
       // line is tail-appended additionalContext (cache-safe), so per-turn firing
       // adds no prefix-cache cost.
       buildDecomposeLine = buildDecomposeDelegateLine();

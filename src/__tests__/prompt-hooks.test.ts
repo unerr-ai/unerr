@@ -404,33 +404,38 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     }
   });
 
-  it("Path A fires for 'replace X with Y' and routes to the orchestrator", () => {
+  // The decompose-delegate gate is broadened past build-intent: any substantive
+  // code-WORK prompt (replace / extract / refactor / optimize) now draws the
+  // fan-out nudge on a delegation-capable host. That nudge OWNS the routing slot,
+  // so the bare Path A skill line and the omni-skill fallback are suppressed for
+  // these prompts (the always-on unerr-using-unerr skill still covers tools).
+  it("substantive work 'replace X with Y' draws the decompose-delegate nudge", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "replace the legacy auth flow with the new one",
     });
     const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("ur|act unerr-using-unerr");
-    expect(ctx).toContain("Path A matched verb cluster 'fix'");
+    expect(ctx).toContain("delegate-slices");
+    expect(ctx).not.toContain("Path A matched verb cluster");
   });
 
-  it("Path A fires for 'extract function Z' (refactor → orchestrator)", () => {
+  it("substantive work 'extract function Z' draws the decompose-delegate nudge", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "extract the request parser into its own function",
     });
     const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("ur|act unerr-using-unerr");
-    expect(ctx).toContain("'refactor'");
+    expect(ctx).toContain("delegate-slices");
+    expect(ctx).not.toContain("Path A matched verb cluster");
   });
 
-  it("Path A fires for 'optimize the loop' (fix → orchestrator)", () => {
+  it("substantive work 'optimize the loop' draws the decompose-delegate nudge", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "optimize the inner loop in computeDelta",
     });
     const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("ur|act unerr-using-unerr");
+    expect(ctx).toContain("delegate-slices");
   });
 
   it("Path A is GATED off for a non-code prompt that still matches a verb cluster", () => {
@@ -737,7 +742,10 @@ describe("prompt hook emits the delegate routing line", () => {
     // New delegate line format (no Skill() reference, no 'unerr-delegate' token after ur|act).
     expect(ctx).toContain("ur|act delegate");
     expect(ctx).toContain("is delegable");
-    expect(ctx).toContain("for better performance");
+    // Imperative wording — the advisory "for better performance" hedge was
+    // removed (it leaked compliance); the line now ends the handoff with "now".
+    expect(ctx).not.toContain("for better performance");
+    expect(ctx).toContain(") now");
     // claude-code worker handoff for the 'tests' class.
     expect(ctx).toMatch(/unerr-worker|unerr-junior/);
     // No legacy Skill('unerr-delegate') token.

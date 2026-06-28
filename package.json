@@ -15,7 +15,6 @@
     ".": "./dist/cli.js"
   },
   "scripts": {
-    "postinstall": "node scripts/build-contracts.mjs --optional",
     "build": "pnpm run build:contracts && pnpm run build:cli",
     "build:contracts": "node scripts/build-contracts.mjs",
     "build:cli": "tsup src/entrypoints/cli.ts --format esm --target node24 --dts --no-splitting --external cozo-node",

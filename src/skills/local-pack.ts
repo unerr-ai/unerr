@@ -80,7 +80,7 @@ export const USING_UNERR_SKILL: SkillDefinition = {
   id: "using-unerr",
   name: "Using unerr (orchestrator)",
   description:
-    "Always on. For anything that reads, searches, or edits code, reach for unerr's graph tools first (search_code / get_references / file_read / file_edit), and delegate the work to unerr sub-agents by default — the main thread plans, routes, and consolidates while 2-3 sub-agents run the slices. Guidance toward the tools and capabilities, not a workflow — there are no fixed steps to run.",
+    "Always on. For anything that reads, searches, or edits code, reach for unerr's graph tools first (search_code / get_references / file_read / file_edit), and delegate the work to unerr sub-agents by default — the main thread plans, routes, and consolidates while sub-agents run the slices in parallel (one per independent slice, no fixed cap). Guidance toward the tools and capabilities, not a workflow — there are no fixed steps to run.",
   whenToUse:
     "Any code action — read, search, edit, find callers/references, or fan the delegable slices out to sub-agents (the default execution mode, not an occasional offload). Reach for unerr's tools first; this skill points at the tools, it does not prescribe a procedure.",
   allowedTools: "*",

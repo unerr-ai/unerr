@@ -1,6 +1,6 @@
 /**
  * Regression guard for the single-source contract policy
- * (.internal/roadmap/CONTRACTS_SINGLE_SOURCE.md), rev-3.
+ * (.internal/archive/CONTRACTS_SINGLE_SOURCE.md), rev-3.
  *
  * Two things this test locks down:
  *
