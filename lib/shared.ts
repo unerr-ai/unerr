@@ -8,6 +8,6 @@ export const docsContentRoute = "/llms.mdx/docs";
 // repo path changes.
 export const gitConfig = {
   user: "unerr-ai",
-  repo: "unerr-docs",
+  repo: "unerr",
   branch: "main",
 };
