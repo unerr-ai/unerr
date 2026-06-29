@@ -47,7 +47,7 @@
         ]
       },
       {
-        "matcher": "Edit",
+        "matcher": "Edit|mcp__unerr__file_edit",
         "hooks": [
           {
             "type": "command",
@@ -94,6 +94,15 @@
         ]
       },
       {
+        "matcher": "WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-websearch"
+          }
+        ]
+      },
+      {
         "matcher": "Write",
         "hooks": [
           {
@@ -103,7 +112,7 @@
         ]
       },
       {
-        "matcher": "Edit",
+        "matcher": "Edit|mcp__unerr__file_edit",
         "hooks": [
           {
             "type": "command",
@@ -142,9 +151,16 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook subagent-stop"
+          }
+        ]
+      }
     ]
-  },
-  "permissions": {
-    "deny": ["Grep", "Glob"]
   }
 }

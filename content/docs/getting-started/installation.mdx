@@ -1,59 +1,116 @@
 ---
 title: Installation
-description: Install the unerr CLI globally, then set it up in each repository.
+description: Install the unerr CLI, then set it up in each repository you want your AI coding agent to understand.
 ---
 
-## Prerequisites
+Installing unerr takes two steps:
 
-- Node.js >= 20.
+1. **Install the CLI** once on your machine.
+2. **Set it up in a repo** so your AI coding agent can use it there.
+
+unerr ships as a single self-contained file — the runtime, the graph engine, the
+file watcher, and the language parsers are all baked into one binary. There is no
+Node version to match and nothing to compile.
 
 ## 1. Install the CLI
 
-Install once, globally:
+Pick the line for your system, run it, then open a new terminal.
 
-```bash
-npm install -g @unerr-ai/unerr
-```
+| You're on… | Run this |
+|---|---|
+| macOS / Linux | `curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install \| bash` |
+| macOS (Homebrew) | `brew install unerr-ai/tap/unerr` |
+| Windows (PowerShell) | `irm https://raw.githubusercontent.com/unerr-ai/unerr/main/install.ps1 \| iex` |
+| Windows (Scoop) | `scoop bucket add unerr https://github.com/unerr-ai/scoop-bucket; scoop install unerr` |
+| Any platform with Node ≥ 24 | `npm install -g @unerr-ai/unerr` |
 
-pnpm or yarn global installs work too.
+<Callout type="info">
+The first four channels install the same compiled binary and need no Node. The
+npm channel uses your own Node (≥ 24) to launch that same binary — use it if you
+prefer to manage unerr with npm or pin it in CI.
+</Callout>
 
-## 2. Verify
+### Confirm the CLI is on your PATH
 
 ```bash
 unerr --version
 ```
 
-Expected output:
+If your shell can't find `unerr`, open a new terminal, then run `unerr doctor`
+— it fixes your PATH and won't need to run twice.
 
-```
-0.3.0
-```
+## 2. Set up a repository
 
-## 3. Set up a repository
-
-unerr is per-repo. Each repository gets its own config and its own graph under `.unerr/`. Run the install inside each repo you want to use it in.
+unerr is per-repo: each repository gets its own config and its own graph under
+`.unerr/`. Run the setup inside every repo you want to use it in.
 
 ```bash
 cd /path/to/your/repo
 unerr install claude-code
 ```
 
-Replace `claude-code` with your agent's id. `unerr install <agent>` writes the MCP config and the agent's instruction file (and for Claude Code, skills and hooks). See [Supported agents](/docs/getting-started/supported-agents) for the full list of ids.
+Replace `claude-code` with your agent's id — for example `cursor`, `windsurf`,
+`gemini-cli`, `github-copilot-cli`, or `antigravity`. `unerr install <agent>`
+writes the MCP config and the agent's instruction file (and, for Claude Code,
+skills and hooks). See [Supported agents](/docs/getting-started/supported-agents)
+for the full list of ids.
 
-## 4. Check the environment
-
-If something is off, run:
-
-```bash
-unerr doctor
-```
-
-It checks PATH, Node, native modules, the port, and permissions.
+Then restart your IDE (or start a new chat). Your agent's next prompt already
+knows your repo.
 
 <Callout type="info">
-unerr never writes global MCP config. Each repo gets its own config file (for example `.mcp.json` for Claude Code) with the resolved absolute path to the `unerr` binary. You normally do not hand-edit it.
+unerr never writes global MCP config. Each repo gets its own config file (for
+example `.mcp.json` for Claude Code) with the absolute path to the `unerr`
+binary. You normally don't hand-edit it.
 </Callout>
+
+## 3. Check everything is working
+
+```bash
+unerr doctor      # checks PATH across your shells; auto-fixes if needed
+unerr status      # in a repo: shows graph and proxy state
+```
+
+`unerr doctor` reports anything that would stop unerr from working and tells you
+how to fix it. `unerr status` confirms the repo is indexed and serving.
+
+## Supported platforms
+
+| OS | x64 | arm64 |
+|---|---|---|
+| macOS | ✓ | ✓ (Apple Silicon) |
+| Linux (glibc) | ✓ | ✓ |
+| Windows | ✓ | not supported |
+
+Alpine / musl Linux and Windows on ARM aren't supported on any channel — there's
+no prebuilt graph engine for them, so every channel (including npm) has no build
+to give you. On those systems the npm wrapper installs but `unerr` exits with a
+"platform not supported" message.
+
+## Pin a version or install location
+
+The `curl | bash` installer reads two environment variables:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `VERSION` | latest release | Install a specific version, e.g. `VERSION=0.3.5` |
+| `UNERR_INSTALL_DIR` | `$XDG_BIN_HOME`, else `$HOME/.unerr/bin` | Where the binary lands |
+
+```bash
+VERSION=0.3.5 UNERR_INSTALL_DIR="$HOME/.local/bin" \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install)"
+```
+
+## Upgrade
+
+The command depends on how you installed it. See [Versioning](/docs/reference/versioning#upgrade)
+for the per-channel upgrade commands.
+
+## Uninstall
+
+To remove unerr from a repo, then remove the binary itself, see
+[uninstall](/docs/cli/uninstall).
 
 ## Next
 
-- [First run](/docs/getting-started/first-run)
+- [First run](/docs/getting-started/first-run) — what happens the first time your agent connects.

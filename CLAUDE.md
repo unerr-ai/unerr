@@ -1,3 +1,151 @@
+<!-- unerr:start -->
+## unerr — the local runtime for your coding agents
+
+unerr is the runtime layer behind this repo's agents: it serves the live call graph, the team's rules and conventions, and edit-time guardrails through MCP tools. Treat its output as ground-truth context, equal in weight to source files. Tools (all available from the start): `search_code`, `file_read`, `file_outline`, `file_edit`, `get_references`, `fetch_url`, `unerr_track`.
+
+### Navigate code with unerr tools — not shell, not built-ins (the #1 rule)
+
+To read, search, or map code, use unerr tools. Do NOT use Bash (`cat`, `head`, `tail`, `sed`, `grep`, `rg`, `find`, `ls -R`) and do NOT use built-in Read / Grep / Glob for code. One graph query replaces 5–15 shell or file reads.
+
+| To… | Use | Not |
+|---|---|---|
+| Find / search code | `search_code({query:"..."})` | `grep`, `rg`, `find`, Grep, Glob |
+| Exact string / real regex across files (the one reason to grep) | `search_code({query:"<string-or-pattern>", mode:"literal"\|"regex"})` — each match returns with surrounding context lines, so no follow-up read | `grep`, `rg`, `rg -e` |
+| Read a file or one function | `file_read({file_path})` (`entity:` for one symbol) | `cat`, `head`, `tail`, `sed`, Read |
+| See a file's structure | `file_outline({file_path})` | `ls -R`, reading the whole file |
+| Find callers/callees (REQUIRED before a signature edit) | `get_references({direction:'callers'})` | `grep` for the name |
+| Rename / find EVERY use of an identifier (callers + strings + config + comments + routes) — ONE call, not a grep per path | `get_references({key:"<id>", include_text_occurrences:true})` then `file_edit` each site | `grep -r` / `rg -w` / `sed -i` / `perl -pi` the name |
+| Change a file | `file_edit({file_path, old_string, new_string})` or `{content}` — no prior read needed | built-in Edit / Write |
+| Fetch a URL or docs (bulk: `{urls:[...]}`) | `fetch_url` | built-in WebFetch |
+
+Bash is for running things (build, test, git, package managers) — not for reading or searching code. (On Claude Code a full-file built-in Read of a code file is denied and redirected here.)
+
+### Recon first — one call replaces the discovery fan-out
+
+Before any non-trivial change, call `search_code` with a TASK PHRASE (`search_code({query:"add a retry to the boot path"})`). It returns a CODE-STRUCTURE recon bundle: the focus entity with its body (for a clear single-entity edit), its callers (blast radius), matching entities, and conventions. Anchored notes arrive automatically via prompt injection or explicitly via recall — they don't travel inside recon. For additional bodies, use `file_read({entity:'<key>'})`, `search_code({query, include_body:true})`, or pass the `cache_ref` from the response's `ur|cache-ref` marker for zero-recompute. A bare symbol (`search_code({query:"QueryRouter.dispatch"})`) returns ranked name matches.
+
+`file_edit` has two modes: `{old_string, new_string}` (unique, or `replace_all:true`) or `{content}`. When a signature edit has at-risk callers, the response lists them inline (`ur|rsk … N caller(s) …`) — update them in the same change. You need not echo each edit — the Stop hook prints a "files changed" receipt (files + line counts).
+
+Cross-repo (Pro): pass `scope:'workspace'` to query every registered sibling repo (results labeled by repo); `get_references({scope:'workspace'})` finds callers across repos; editing a path inside a sibling auto-routes to its graph.
+
+### Batch the work — one shot, not file-by-file (round-trips are the cost)
+
+A round-trip carries input + output + latency, so the win is doing N items in one pass, not N passes.
+
+1. **Bulk edits — climb this ladder, stop at the first rung that works:** (a) **one command for the whole set** — `prettier --write .`, a `sed`/codemod, a formatter, a build flag; run it once, not once per file. (b) **else one script** — write one small script that walks the files and makes the change in a single run. (c) **else a sub-agent loop** — hand the repetitive per-file edit to a sub-agent so it runs off your main thread (see below). NEVER loop your main thread file-by-file over mechanical edits — spawn sub-agents instead.
+2. **Batch independent reads into ONE message.** When you need several files or several entities and the calls don't depend on each other, issue them as parallel tool calls in a single message — not one, wait, next. Better still, one `search_code({query:"<task>"})` recon bundle already returns several files' bodies + callers together; reach for it before fanning out `file_read`.
+3. **Set `token_budget`/`limit` right the first time.** Reading at a small budget then re-reading bigger doubles the cost. Ask for what the task needs up front (e.g. `token_budget:3000` for a full function, `limit:25` for references) instead of read-small-then-re-read.
+
+### Delegate by default — the main thread routes and consolidates, sub-agents do the work
+
+Treat sub-agents as the primary way work gets done, not an occasional offload. On any non-trivial turn the main thread is a routing-and-consolidation layer: plan the change, split off its delegable slices, hand each to a sub-agent, then review and integrate the returned diffs. Run as many sub-agents in parallel as the turn has independent slices — one per slice, no fixed cap. The worker tier (a capable mid-tier model) is the DEFAULT executor — route the majority of scoped coding to it, not just mechanical chores. What stays on the main thread is narrow: architecture / algorithm design, a new public interface, cross-cutting wiring, and bug root-causing — everything else is a slice to delegate:
+- `Task({subagent_type:'unerr-junior', …})` — read-only investigation (find / trace / map X), web research & docs/API/changelog lookup, codebase Q&A (where / which / how), inventory & audit (find-all / list-all usages), log & error-output triage, bug reproduction (run repro, report — no edit), lint/format, docstrings/`@sem`, verify-runs (run typecheck + targeted tests + lint, return the failure list — no edits), shell-command runs (run a sequence of build/script/migration/setup commands, report the output).
+- `Task({subagent_type:'unerr-worker', …})` — scoped feature implementation from a clear spec (add a flag, wire X into Y, implement a handler — the bulk of ordinary coding), add/improve tests, multi-site mechanical refactor (rename / extract / inline / move), codemods (one bulk find-replace across many files), caller/import propagation (update every call site + import after a signature change), typecheck/build-error fixes (fix tsc/build errors mechanically, re-run until green), scaffold (generate a new file's skeleton from a sibling template).
+Tier by reasoning, not by size: scoped execution — even across many files — stays with the worker. Escalate to the senior only when the change needs novel design judgement (a new algorithm, architecture, or public interface) or root-causing a bug; deterministic mechanical breadth (codemods, caller propagation, renames) stays with the worker regardless of file count.
+
+Group related work first, then spawn one sub-agent per independent group in a SINGLE message so they run in parallel. The sub-agents have the full graph tools — they re-derive the edit sites from `search_code` / `get_references`, so give them the task plus a one-line pointer, never pasted code or a list of files. Review each result before building on it. (Hosts without sub-agents — anything other than Claude Code / Codex / Cursor / Copilot CLI — do it inline.)
+
+### Signals — `ur|<tag>` lines on tool responses
+
+Act on these before the rest of the response; the body line is your concrete next step.
+
+| Tag | Meaning | Do |
+|---|---|---|
+| `act` | do something now | The body names the call (halt-and-switch, `Skill('<name>')`, pagination cursor, marker to emit) |
+| `ctx` | state changed | Re-read drifted file/entity; don't re-query context already delivered |
+| `rsk` | caution | High blast radius → `get_references` first; anti-pattern; prior failure on this entity |
+| `fct` | a fact for context | Surfaced project fact, co-change hint, family-routing nudge |
+
+Lines starting `unerr » ` are user-facing telemetry — never echo or act on them. When unerr shaped your answer, say so plainly ("unerr found <name>", "<N> places call <name>") — never dump tool JSON.
+
+### Persisting + markers (zero round-trip)
+
+User rules ("remember", "always", "from now on", "never") are captured automatically by the prompt hook — no tool call. Emit session markers as `unerr-save:` lines in your closing message (the Stop hook persists them):
+
+```
+unerr-save: intent <what this turn does, ≤80 chars>   (REQUIRED first on coding tasks)
+unerr-save: decision <a deliberate choice> · blocker <obstacle> · resolution <fix>
+unerr-save: note <kind|anchor|polarity|content>        (an anchored note — DSL below)
+```
+
+When you need a return value (a blocker's `marker_id`), call `unerr_track({op:'intent'|'decision'|'blocker'|'resolution'|'fact'|'recall', text:'<one-line>'})`.
+
+### Fallback to built-ins / Bash for code — only when
+
+unerr MCP is unavailable (not responding / erroring) · a non-text binary (image, PDF). For any code read, search, or edit there is always an unerr tool — use it, never bash/grep/cat.
+
+### Domain comments — maintain meaning in the same edit
+
+unerr parses a structured doc comment above each exported entity into a parallel domain graph: a 1–2 sentence prose summary (what + why, never how) then one `@sem domain=<tag> role=<tag>` line. The frontier model editing the code is the only thing that can keep that meaning true — maintain it inline, never as a separate pass:
+
+1. WHEN editing an entity that carries an `@sem` comment AND the edit changed what it does or why: rewrite the prose and tags in the SAME Edit call. Purpose unchanged → leave the comment untouched.
+2. WHEN creating an exported entity: write the comment block before the next edit. Prose ≤2 sentences, then `@sem domain=<tag>`. Reuse an active domain tag — a task-shaped `search_code({query:"<task>"})` lists them; add a new tag only when none fits.
+3. NEVER delete an `@sem` comment unless the user instructs it.
+4. NEVER write "how" prose — the code already says how. NEVER restate the entity name as the summary; unerr rejects a name-echo at parse time.
+
+unerr re-anchors these comments when code moves and flags a comment that drifted from its code — the rules above keep that machinery fed.
+
+`@sem` lines are plain comments; your code runs identically without them and without unerr. To remove every sentinel line later (prose summaries kept), run `unerr uninstall --strip-annotations`.
+
+### Active-cognition: four-moment contract (REQUIRED)
+
+unerr's Layer B notes are anchored prose attached to graph nodes. The contract
+runs at four moments, every task. Moments 1–2 arrive as injected context plus
+one composite call; Moments 3–4 are yours to act on.
+
+**Moment 1 — Prompt receipt.** When a user prompt arrives, the UserPromptSubmit
+hook injects the relevant anchored notes into your context automatically. Read
+the injected notes before drafting — no recall call is required.
+
+**Moment 2 — Anchor query.** Once you've identified the files/entities you'll
+touch, call `search_code({query:"<what you are about to do>"})` — the
+composite that bundles the anchored notes for those anchors + matching entities
++ the focus entity's callers + conventions in one call. The bundle returns
+active (non-superseded) notes; topic-shift and co-change groups ride along.
+
+**Moment 3 — Cite in plan.** When you draft a plan, cite returned notes by
+kind + anchor inline. Example: *"Per the wrn on src/proxy/proxy.ts, both
+stdio and UDS sites must mirror."* No citation = the note wasn't load-bearing.
+
+**Moment 4 — Save at task end.** When the task closes and you learned
+something non-obvious + likely useful next session + anchorable, emit it as a
+sentinel line anywhere in your closing message — zero round-trip, the Stop
+hook scrapes and persists it:
+`unerr-save: note <DSL wire>`
+
+### DSL vocabulary
+
+Wire format: `kind|anchor|polarity|content`
+
+| Field | Values | Notes |
+|---|---|---|
+| kind | cnv (convention), rul (rule), wrn (warn), dec (decision), blk (blocker), fct (fact) | Pick the strongest fit. |
+| anchor | f:<path> · e:<entity> · g:<glob> · p: · w: | `p:` is project-wide, `w:` is workspace-wide (every repo in a Pro federation). Both empty-valued; both **discouraged** — they pollute the prompt-receipt query. Prefer file/entity. |
+| polarity | + (do) / - (don't) / ~ (mixed) | `~` for ambiguous; future agent surfaces both sides. |
+| content | single line of prose | May contain `|` — only the first three are field separators. |
+
+Examples:
+- `rul|f:src/proxy/bridge.ts|-|no intelligence imports`
+- `wrn|g:*.test.ts|-|don't mock cozo db`
+- `dec|e:TURN_OPEN_GAP_MS|+|15s avoids RTT misclassification`
+
+### Quality bar (per save)
+
+A save is justified only if all three hold: (a) non-obvious from the code,
+(b) likely useful next session, (c) anchorable. If any miss — don't save.
+
+Session save cap: 15. Over the cap new rows are dropped server-side and
+existing notes are reinforced instead — emit fewer, stronger saves.
+
+### Conflict + supersession
+
+When a saved note opposes an existing one (same kind+anchor, opposite
+polarity), both sides are kept and surface together on next-turn recall —
+cite both in your plan when they appear. Superseded notes flip to inactive
+server-side (kept for audit, excluded from queries).
+
+<!-- unerr:end -->
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -77,234 +225,63 @@ every chat reply and every document written or edited in this repo.
 this repo. It does not change code, comments, or commit messages, which follow the
 conventions elsewhere in this file.
 
+## Documentation standards — applies to EVERY doc you write or edit (IMPORTANT)
+
+These are the user-centric writing standards for this repo, drawn from industry sources:
+[Diátaxis](https://diataxis.fr/), the
+[Google developer documentation style guide](https://developers.google.com/style)
+(incl. [accessibility](https://developers.google.com/style/accessibility)),
+[Write the Docs](https://www.writethedocs.org/guide/writing/beginners-guide-to-docs/),
+John Carroll's minimalism, and the
+[MDN code style guide](https://developer.mozilla.org/en-US/docs/MDN/Writing_guidelines/Code_style_guide).
+They extend the writing rule above — they do not replace it.
+
+**Write for the newcomer.** Assume the reader is meeting unerr for the first time.
+Advanced readers can skim past with good headings; beginners cannot fill in gaps.
+
+- **Know the doc's type and don't mix them (Diátaxis).** Four kinds, kept separate:
+  *tutorial / getting-started* (learning by doing), *how-to* (steps to a goal),
+  *reference* (facts: flags, env vars, tables), *explanation* (concepts, the why).
+  Installation and first-run are tutorials — lead with doing, push flag/option
+  detail into reference and link to it. Don't interleave concept prose into a steps
+  list.
+- **Lead with the goal, then the steps.** Start a section with what the reader is
+  trying to do ("To set up a repo, run…"), not with what the component is.
+- **Time to first success.** Get the reader to a working result in a few
+  copy-pasteable steps. Keep the basic case to a couple of lines; link to the deeper
+  page for the rest instead of inlining every option.
+- **Prerequisites up front.** OS, package manager, and any required version go in a
+  short list/table before the first command — never buried in step 3.
+- **Show, don't describe.** A runnable command beats a sentence about what it does.
+  Put examples before concepts.
+
+**Formatting for scannability and accessibility:**
+
+- **Imperative, numbered steps** — one action per step ("Run `unerr doctor`", not
+  "you may want to run").
+- **One command per code block.** Tag every block with its language (`bash`,
+  `ts`, `json`). Show expected output in a separate untagged (or `text`) block so the
+  reader can compare line by line.
+- **Headings carry the structure.** Descriptive h2/h3 in order (don't skip levels).
+  Link by section title — never "see below/above" (breaks on mobile and screen
+  readers).
+- **Tables for structured data only** (platform → command, flag → effect), with a
+  lead-in sentence. One idea per paragraph; lists for options (bulleted) and steps
+  (numbered).
+- **Every code sample runs as written**, or is clearly marked pseudo-code. Readers
+  copy-paste into real projects.
+
+**Single source of truth.** Document a thing (e.g. how to install the CLI) in one
+canonical page; everywhere else, show the one common command and link to that page.
+Don't duplicate the full detail — duplicates drift.
+
+**Anti-patterns:** mixing Diátaxis types in one section; unexplained jargon/acronyms;
+prerequisites stated after the steps; incomplete code blocks; "below/above" prose;
+dumping every flag into a getting-started page.
+
 ## Research rule — applies to EVERY task (IMPORTANT)
 
 - **Use smart, query-based web searches** (the `WebSearch` tool with focused queries, plus
   `fetch_url` to read a specific page) to get the latest information when you need it.
 - **Never use deep research anywhere in this project.** Do not invoke the `deep-research`
   skill or any multi-source deep-research harness. Keep web lookups to targeted queries.
-
-<!-- unerr:start -->
-## unerr — operational memory for this codebase
-
-unerr remembers what this codebase has been through. The source files
-tell you what the system DOES today. unerr tells you what it has
-LEARNED — who changed each file last, why it drifted, what failed here
-before, the conventions the team accreted, and the rules the user has
-fed it across sessions.
-
-Treat unerr's outputs as ground-truth context, equal in weight to
-source files. Two sources feed every non-trivial change you ship:
-
-  - the codebase  — the system as it IS
-  - unerr         — the system as it has been UNDERSTOOD
-
-unerr's outputs reach you through four channels:
-
-  - body-line signals prefixed `ur|<tag>` on tool responses
-    (risk, drift, halt, hint, fact, history)
-  - anchored notes injected automatically by the UserPromptSubmit hook
-    on every prompt, and bundled into `unerr_context` — rules and
-    decisions tied to specific files or entities, written in prior sessions
-  - persistent facts surfaced as `ur|fct` lines (and on demand via
-    `unerr_track({op:'recall'})`) — what the user said about this pattern before
-  - workflow skills via `Skill()` — the team's agreed sequence
-    for debug, refactor, brainstorm, TDD work
-
-IMPORTANT: Before any non-trivial code action (implement, fix, refactor,
-build, debug), read the anchored notes the UserPromptSubmit hook injected
-for the verbatim user prompt, then call `unerr_context({prompt:"<task>"})`.
-Source files alone are half the brief.
-
-### Recon first — one call replaces the discovery fan-out
-
-On any non-trivial coding turn, call `unerr_context({prompt:"<what you are about to do>"})` as your FIRST move. One call returns the anchored notes + matching entities + the focus entities' **verbatim bodies** + the focus entity's callers (blast radius) + conventions — ranked and trimmed to a 4000-token budget. It runs the whole discovery sequence in-process, so it replaces the 3–4-call fan-out (`search_code` → `get_references` → `file_read` → per-file convention reads). That fan-out is the dominant token cost: each separate tool call re-bills the entire accumulated prefix, so four sequential calls re-pay the prefix four times. `unerr_context` pays it once.
-
-The bundle emits a `ur|fct inlined above — do NOT re-read: <file:line ranges>` line naming the source it already carried verbatim. Obey it: fall back to `file_read`/`search_code` ONLY for source the bundle did not already inline. Re-reading a range the bundle already delivered re-pays the prefix for nothing.
-
-- Trivial / read-only lookup (locate one symbol, read one function): skip `unerr_context` and skip the marker ceremony — call `search_code` or `file_read` directly. The footprint self-selects by task size; do not add ceremony a lookup does not earn.
-- Single-entity edit: call `unerr_context({prompt:"<task>", response_format:'detailed'})` once — `detailed` inlines the 2–4 focus entities' verbatim bodies with `file:line` citations so you edit straight from the bundle — then edit.
-- Orienting only (no edit yet): `unerr_context({prompt:"<task>", response_format:'concise'})` — names + signatures + blast-radius callers, no bodies.
-- Large sweep (rename / migrate / "every place that…"): run `unerr recon "<task>"` from Bash inside a Task subagent — it auto-emits a flat digest that stays the same size as files-scanned grows. Return ONLY the digest to the main thread, so main-thread context stays flat instead of amplifying across 20 hops.
-
-Args:
-- `budget:6000` widens the slice (default `4000`, wide enough to inline the focus entities' source).
-- `response_format:'concise' | 'detailed'` — `concise` = notes + entity names/signatures + blast-radius callers (no bodies); `detailed` = additionally inlines the VERBATIM bodies of the 2–4 focus entities with `file:line` citations. The default is picked server-side from task size, so you need not set it — but pass `response_format:'detailed'` right before an edit and `'concise'` when just orienting.
-- `digest:true` forces the flat summary.
-
-When the MCP transport is unavailable (or from a Task subagent), the same bundle is one Bash call away: `unerr recon "<task>" [--budget N] [--digest] [--json]` — no MCP discovery hop.
-
-### Tool surface — seven tools, always on
-
-Every unerr tool is advertised from the start: `unerr_context`
-(the one-shot recon composite — reach for it first), `search_code`,
-`file_read`, `file_outline`, `get_references`, `fetch_url`,
-`unerr_track`. There is no hidden roster to earn.
-(File imports: `file_outline` returns an `imports` field;
-`search_code({query:'<name>', want:['imports']})` returns them for one entity's file.
-Persistence is NOT a tool call: user-stated rules are captured automatically
-by the prompt hook, and session markers + agent notes ride a `unerr-save:`
-closing-message sentinel — see Session markers below.)
-
-### Core routing (the tools you reach for first)
-
-| Goal | Tool | Replaces |
-|---|---|---|
-| Find a function, class, or type | `search_code` | Grep, Glob |
-| Find callers or callees (REQUIRED before a signature edit) | `get_references({direction:'callers'})` | Grep for function name |
-| Understand a file | `file_read` with `purpose:'explore'` | Built-in Read for understanding (full-file code reads are blocked) |
-| Understand the task (notes + verbatim focus bodies + blast radius + conventions) | `unerr_context({prompt:"<task>", response_format:'detailed'})` — one call replaces the discovery fan-out | 3–4 separate reads/searches |
-| Understand a file before editing | `file_read`/`unerr_context` to understand, then built-in `Read` (offset/limit on the edit window) before Edit | Full-file read (now blocked) |
-| File structure overview | `file_outline` | Reading the whole file |
-| Specific function or class | `search_code` with `detail:true` (add `include_body:true` for full source, `want:['callers','callees','imports']` for references) | Reading entire file |
-| Fetch a web page or docs by URL | `fetch_url` | Built-in WebFetch |
-
-For any URL you already have, call `fetch_url({url:"<url>"})` — never built-in WebFetch. fetch_url returns DOM-extracted, BM25-ranked markdown passages (paginated, content-hash cached) at 5–10× fewer tokens, and routes through unerr's graph-backed proxy. Pass `prompt` to rank passages by relevance. On Claude Code this is enforced: WebFetch is denied and redirected to fetch_url. (WebSearch is a different job — use it to discover URLs, then `fetch_url` the result.)
-
-Editing a function/class signature is gated: when unerr's graph confirms callers at risk, the first `Edit` is DENIED once with the exact caller count — run `get_references({key:'<entity>', direction:'callers'})`, update every caller in the same change, then re-attempt the Edit (it proceeds). The deny only fires when real callers exist, so a leaf-function edit is never blocked.
-
-### IMPORTANT: Read Routing is ENFORCED (Claude Code specific)
-
-**Why this matters:** Claude Code's Edit/Write require built-in `Read` to have run on the file first — a file-level + mtime gate. `file_read` (unerr MCP) does NOT satisfy that gate; only the built-in `Read` tool flips Claude Code's internal read-tracking. But a built-in Read of a whole file misses the conventions, facts, and drift that `file_read` auto-injects, and re-bills the entire file on every hop. The two reads do different jobs, and the PreToolUse hook now ENFORCES the split.
-
-**The rule — built-in Read does exactly ONE job: the pre-Edit gate.**
-
-| Intent | Tool | Enforcement |
-|--------|------|-------------|
-| Read to understand code | `file_read({file_path:"…"})` — or `unerr_context({prompt:"<task>"})` for task-scoped recon | A full-file built-in Read of a **code** file is DENIED and redirected here (deny-once, then nudge — same as WebFetch→fetch_url) |
-| Read immediately before Edit | built-in `Read` with **offset/limit** on the exact edit window | ALLOWED silently — one targeted call returns the byte-exact `old_string` lines AND satisfies the gate |
-| Read a non-code file (md/json/yaml/image) | built-in `Read` | ALLOWED silently — `file_read`'s graph value is code-specific |
-
-**Token-minimal pre-Edit (do this):** if you already understood the file via `file_read`/`unerr_context`, your pre-Edit step is a single built-in `Read({file_path, offset, limit})` scoped to ONLY the lines you will edit — that one cheap call returns the exact `old_string` AND unlocks Edit. Never full-file Read to set up an edit.
-
-**Common failure mode:** using `file_read` to understand, then Edit with no built-in Read → Edit rejects with "File has not been read yet". Always do the targeted offset/limit built-in Read immediately before Edit. (And: a full-file built-in Read of a code file is blocked — route understanding through `file_read`/`unerr_context`.)
-
-### Signal prefix legend — `ur|<tag>`
-
-Four wire tags (consolidated 14→4 in 2026-05). Body line is self-describing — the tag is the priority bucket.
-
-| Tag | Meaning | What to do |
-|---|---|---|
-| `act` | action — do something NOW | Body names the call: halt-and-switch, `Skill('<name>')` invoke, pagination cursor, resume pickup, required marker emission |
-| `ctx` | context — state changed | Body names what changed: file/entity drift (re-read), context already delivered (don't re-query), session health degraded |
-| `rsk` | risk — caution on this path | Body names the risk: high blast radius (`get_references` first), anti-pattern (don't reintroduce), prior failure modes on this entity |
-| `fct` | fact — information for context | Body carries the fact: surfaced project fact (subtype in `[brackets]`), co-change hint, family-routing nudge |
-
-When you see one of these prefixes, act on them before consuming the rest of the response. The body line is your concrete next step; the tag is its priority.
-
-### `unerr » …` lines and the close-out summary
-
-unerr tool responses may contain ambient lines prefixed with `unerr » ` (right-pointing double angle `»` U+00BB, markdown-safe and distinct from the vertical bar in `ur|<tag>`). Treat in-band `unerr » …` ambient lines as user-facing telemetry — do NOT echo, summarize, or translate them into actions. Act ONLY on `ur|<tag> …` lines.
-
-**The close-out summary.** At the end of every coding turn the Stop hook emits the session-cumulative `unerr » …` economy line (savings + headroom) automatically — you do nothing for it. Do NOT echo, re-emit, or paraphrase that line; the hook prints it directly to the user.
-
-### Speak plainly when unerr helped
-
-When unerr's contribution shaped your answer, describe it in plain English. Never dump tool JSON, never use internal jargon.
-
-- `search_code` → "unerr found <name> in <file>"
-- `search_code({detail:true})` / `file_read` → "unerr pulled up <name>" or "I read <file> via unerr"
-- `get_references` → "<N> places call <name> — checked them via unerr"
-- `unerr_track({op:'recall'})` → "unerr reminded me you'd asked to <verbatim rule>"
-- conventions injected by `file_read` / the PostToolUse:Read hook / the `unerr_context` bundle → "unerr says <file> follows <convention>"
-- a new fact or note persisted via the `unerr-save:` sentinel → "added that to unerr for next time"
-- A hook-captured rule surfaced as ambiguous on the next turn → ask the user verbatim: "should I remember: '<quote>'? (yes/no)"
-
-### Persisting what the user said
-
-User-stated rules ("remember this", "from now on", "always X", a project rule) are captured automatically by the prompt hook — no tool call. Ambiguous captures surface for confirmation on your next turn; confirm or correct them then.
-
-When YOU (the agent) detect a convention or anti-pattern from observed code (not user-fed), record it with `unerr_track({op:'fact', target:'<entity-or-file>', text:'<convention>'})`, or emit `unerr-save: note <kind|anchor|polarity|content>` in your closing message for an anchored note.
-
-### Session markers (zero round-trip — emit in your closing message)
-
-Markers power the cross-session resume strip. They return nothing you need this turn, so they do NOT earn a tool call — emit them as `unerr-save:` lines anywhere in your closing message and the Stop hook scrapes + persists them (only output tokens, no round-trip):
-
-```
-unerr-save: intent <what this turn is doing, ≤80 chars>
-unerr-save: decision <a deliberate choice between approaches>
-unerr-save: blocker <an unresolved obstacle>
-unerr-save: resolution <how a prior blocker was fixed>
-```
-
-High-fidelity escape — when you need the return value (e.g. a blocker's `marker_id` to link its resolution) or you are on a hook-less agent: call `unerr_track({op:'intent'|'decision'|'blocker'|'resolution', text:'<one-line>'})`. `op:'blocker'` returns `marker_id`; pass it as `ref` on `op:'resolution'`.
-
-### Fallback to built-in tools — only when
-
-- The unerr MCP server is not responding
-- You need to read a non-code file (images, binaries, PDFs)
-- You need complex regex `search_code` doesn't support
-
-NEVER use built-in Read/Grep/Glob for code navigation — a full-file built-in Read of a code file is DENIED and redirected to file_read/unerr_context. EXCEPTION: built-in Read with offset/limit (only the lines you'll edit) is REQUIRED immediately before Edit (file_read cannot satisfy the Edit gate).
-
-### Domain comments — maintain meaning in the same edit
-
-unerr parses a structured doc comment above each exported entity into a parallel domain graph: a 1–2 sentence prose summary (what + why, never how) then one `@sem domain=<tag> role=<tag>` line. The frontier model editing the code is the only thing that can keep that meaning true — maintain it inline, never as a separate pass:
-
-1. WHEN editing an entity that carries an `@sem` comment AND the edit changed what it does or why: rewrite the prose and tags in the SAME Edit call. Purpose unchanged → leave the comment untouched.
-2. WHEN creating an exported entity: write the comment block before the next edit. Prose ≤2 sentences, then `@sem domain=<tag>`. Reuse an active domain tag — `unerr_context({prompt:"<task>"})` lists them; add a new tag only when none fits.
-3. NEVER delete an `@sem` comment unless the user instructs it.
-4. NEVER write "how" prose — the code already says how. NEVER restate the entity name as the summary; unerr rejects a name-echo at parse time.
-
-unerr re-anchors these comments when code moves and flags a comment that drifted from its code — the rules above keep that machinery fed.
-
-`@sem` lines are plain comments; your code runs identically without them and without unerr. To remove every sentinel line later (prose summaries kept), run `unerr uninstall --strip-annotations`.
-
-### Active-cognition: four-moment contract (REQUIRED)
-
-unerr's Layer B notes are anchored prose attached to graph nodes. The contract
-runs at four moments, every task. Moments 1–2 arrive as injected context plus
-one composite call; Moments 3–4 are yours to act on.
-
-**Moment 1 — Prompt receipt.** When a user prompt arrives, the UserPromptSubmit
-hook injects the relevant anchored notes into your context automatically. Read
-the injected notes before drafting — no recall call is required.
-
-**Moment 2 — Anchor query.** Once you've identified the files/entities you'll
-touch, call `unerr_context({prompt:"<what you are about to do>"})` — the
-composite that bundles the anchored notes for those anchors + matching entities
-+ the focus entity's callers + conventions in one call. The bundle returns
-active (non-superseded) notes; topic-shift and co-change groups ride along.
-
-**Moment 3 — Cite in plan.** When you draft a plan, cite returned notes by
-kind + anchor inline. Example: *"Per the wrn on src/proxy/proxy.ts, both
-stdio and UDS sites must mirror."* No citation = the note wasn't load-bearing.
-
-**Moment 4 — Save at task end.** When the task closes and you learned
-something non-obvious + likely useful next session + anchorable, emit it as a
-sentinel line anywhere in your closing message — zero round-trip, the Stop
-hook scrapes and persists it:
-`unerr-save: note <DSL wire>`
-
-### DSL vocabulary
-
-Wire format: `kind|anchor|polarity|content`
-
-| Field | Values | Notes |
-|---|---|---|
-| kind | cnv (convention), rul (rule), wrn (warn), dec (decision), blk (blocker), fct (fact) | Pick the strongest fit. |
-| anchor | f:<path> · e:<entity> · g:<glob> · p: | `p:` is project-wide. **Discouraged** — pollutes prompt-receipt query. Prefer file/entity. |
-| polarity | + (do) / - (don't) / ~ (mixed) | `~` for ambiguous; future agent surfaces both sides. |
-| content | single line of prose | May contain `|` — only the first three are field separators. |
-
-Examples:
-- `rul|f:src/proxy/bridge.ts|-|no intelligence imports`
-- `wrn|g:*.test.ts|-|don't mock cozo db`
-- `dec|e:TURN_OPEN_GAP_MS|+|15s avoids RTT misclassification`
-
-### Quality bar (per save)
-
-A save is justified only if all three hold: (a) non-obvious from the code,
-(b) likely useful next session, (c) anchorable. If any miss — don't save.
-
-Session save cap: 15. Over the cap new rows are dropped server-side and
-existing notes are reinforced instead — emit fewer, stronger saves.
-
-### Conflict + supersession
-
-When a saved note opposes an existing one (same kind+anchor, opposite
-polarity), both sides are kept and surface together on next-turn recall —
-cite both in your plan when they appear. Superseded notes flip to inactive
-server-side (kept for audit, excluded from queries).
-
-<!-- unerr:end -->

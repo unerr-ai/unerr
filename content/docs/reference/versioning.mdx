@@ -1,12 +1,13 @@
 ---
 title: Versioning
-description: unerr uses semantic versioning; current release 0.3.0, published to npm as @unerr-ai/unerr.
+description: unerr uses semantic versioning; current release 0.3.0, ships as a self-contained binary via several install channels.
 ---
 
 unerr uses [semantic versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`).
 
 - Current release: **0.3.0**
-- npm package: `@unerr-ai/unerr`
+- Ships as a self-contained binary; also published to npm as `@unerr-ai/unerr`.
+- See [Installation](/docs/getting-started/installation) for all install channels.
 
 ## Check your version
 
@@ -16,8 +17,9 @@ unerr --version
 
 ## Upgrade
 
-```bash
-npm install -g @unerr-ai/unerr@latest
-```
-
-Use the matching command for your global package manager (`pnpm add -g` or `yarn global add`) if you didn't install with npm.
+| Install channel | Upgrade command |
+|---|---|
+| curl \| bash | Re-run the install command (it fetches the latest) |
+| Homebrew | `brew upgrade unerr` |
+| Scoop | `scoop update unerr` |
+| npm | `npm install -g @unerr-ai/unerr@latest` |
