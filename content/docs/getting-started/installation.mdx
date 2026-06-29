@@ -14,20 +14,45 @@ Node version to match and nothing to compile.
 
 ## 1. Install the CLI
 
-Pick the line for your system, run it, then open a new terminal.
+Pick your system, run the command, then open a new terminal.
 
-| You're on… | Run this |
-|---|---|
-| macOS / Linux | `curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install \| bash` |
-| macOS (Homebrew) | `brew install unerr-ai/tap/unerr` |
-| Windows (PowerShell) | `irm https://raw.githubusercontent.com/unerr-ai/unerr/main/install.ps1 \| iex` |
-| Windows (Scoop) | `scoop bucket add unerr https://github.com/unerr-ai/scoop-bucket; scoop install unerr` |
-| Any platform with Node ≥ 24 | `npm install -g @unerr-ai/unerr` |
+<Tabs items={["macOS / Linux", "Windows", "npm"]} groupId="install-channel" persist>
+
+<Tab value="macOS / Linux">
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash
+```
+
+Prefer Homebrew? Run `brew install unerr-ai/tap/unerr` instead.
+
+</Tab>
+
+<Tab value="Windows">
+
+```powershell
+irm https://raw.githubusercontent.com/unerr-ai/unerr/main/install.ps1 | iex
+```
+
+Prefer Scoop? Run `scoop bucket add unerr https://github.com/unerr-ai/scoop-bucket`, then `scoop install unerr`.
+
+</Tab>
+
+<Tab value="npm">
+
+```bash
+npm install -g @unerr-ai/unerr
+```
+
+Works on any platform with Node ≥ 24. Use it for CI, or if you'd rather manage unerr with npm.
+
+</Tab>
+
+</Tabs>
 
 <Callout type="info">
-The first four channels install the same compiled binary and need no Node. The
-npm channel uses your own Node (≥ 24) to launch that same binary — use it if you
-prefer to manage unerr with npm or pin it in CI.
+The macOS, Linux, and Windows commands install one self-contained binary — no
+Node needed. The npm channel uses your own Node (≥ 24) to launch that same binary.
 </Callout>
 
 ### Confirm the CLI is on your PATH
