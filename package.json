@@ -10,6 +10,7 @@
   "scripts": {
     "predev": "fumadocs-mdx",
     "dev": "next dev",
+    "prebuild": "fumadocs-mdx",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
