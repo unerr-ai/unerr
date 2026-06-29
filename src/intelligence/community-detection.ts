@@ -19,6 +19,7 @@ import { dirname } from "node:path";
 // instead of the default export. We define the minimal interface we use and cast.
 import GraphNs from "graphology";
 import louvainNs from "graphology-communities-louvain";
+import { createYieldGate, maybeYield } from "../utils/index-yield.js";
 import { isTestFile } from "./indexer/test-detector.js";
 
 interface GraphLike {
@@ -121,11 +122,11 @@ interface EntityEdgeInput {
  * Phase 2: For each macro-community, run scoped Louvain on entity subgraph → sub-communities
  * Phase 3: Validate hierarchical consistency + assign isolates
  */
-export function detectCascadedCommunities(
+export async function detectCascadedCommunities(
   fileEdges: FileEdgeInput[],
   entities: EntityInput[],
   entityEdges: EntityEdgeInput[]
-): CascadedCommunityResult {
+): Promise<CascadedCommunityResult> {
   if (entities.length === 0) {
     return {
       entityAssignments: new Map(),
@@ -402,7 +403,9 @@ export function detectCascadedCommunities(
     toEdges.push({ to: edge.from_key, type: edge.type });
   }
 
+  const subcommGate = createYieldGate();
   for (const [macroCid, entityKeys] of macroEntityGroups) {
+    await maybeYield(subcommGate);
     if (entityKeys.length <= 1) {
       // Single entity — assign directly
       for (const key of entityKeys) {
@@ -495,7 +498,9 @@ export function detectCascadedCommunities(
   // ── Phase 3: Consistency Validation ─────────────────────────────
 
   // Ensure every entity has an assignment
+  const phase3Gate = createYieldGate();
   for (const e of entities) {
+    await maybeYield(phase3Gate);
     if (!entityAssignments.has(e.key)) {
       const macroCid = fileAssignments.get(e.file_path) ?? 0;
       entityAssignments.set(e.key, macroCid * 1000);
@@ -514,12 +519,12 @@ export interface CommunityResult {
 }
 
 /** @deprecated Use detectCascadedCommunities instead */
-export function detectCommunities(
+export async function detectCommunities(
   entities: { key: string; file_path: string }[],
   edges: { from_key: string; to_key: string; type?: string }[]
-): CommunityResult {
+): Promise<CommunityResult> {
   // Delegate to cascaded detection with no file edges (flat fallback)
-  const result = detectCascadedCommunities(
+  const result = await detectCascadedCommunities(
     [],
     entities.map((e) => ({ ...e, kind: "function" })),
     edges.map((e) => ({

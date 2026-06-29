@@ -15,7 +15,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { loadNodeSqlite } from "../utils/node-sqlite.js";
 import { isCompiledBinary } from "../utils/self-spawn.js";
@@ -31,6 +31,12 @@ export interface PersistentDbResult {
   isNew: boolean;
   /** Absolute path to the .db file */
   dbPath: string;
+  /**
+   * True when the existing graph.db failed PRAGMA quick_check and was deleted
+   * and recreated empty. The caller should treat this the same as isNew=true
+   * and force a full cold reindex.
+   */
+  wasRebuilt: boolean;
 }
 
 // ── Constants ────────────────────────────────────────────────────
@@ -57,9 +63,63 @@ export async function openPersistentDb(
   const dbPath = join(unerrDir, GRAPH_DB_FILENAME);
   const isNew = !existsSync(dbPath);
 
+  // ── Boot integrity gate ───────────────────────────────────────────
+  // Run PRAGMA quick_check on a short-lived out-of-band node:sqlite connection
+  // BEFORE cozo opens the file (never hold both drivers at once — same pattern
+  // as enableWalMode / checkpointWal). If the check fails or the file is not a
+  // valid SQLite database, delete graph.db and its -wal/-shm sidecars so the
+  // subsequent createSqliteDb creates a fresh empty DB instead of looping
+  // failed inserts (SQLITE_CORRUPT / error-11 crash-reindex loop).
+  // Best-effort: any infrastructure error is logged and swallowed so a driver
+  // failure can never block boot.
+  let wasRebuilt = false;
+  if (!isNew) {
+    try {
+      const { DatabaseSync } = loadNodeSqlite();
+      let checkOk = false;
+      try {
+        const sqlite = new DatabaseSync(dbPath);
+        try {
+          const row = sqlite.prepare("PRAGMA quick_check").get() as
+            | Record<string, unknown>
+            | undefined;
+          // quick_check returns "ok" as the first column value on success.
+          const result = row ? Object.values(row)[0] : null;
+          checkOk = typeof result === "string" && result.toLowerCase() === "ok";
+        } finally {
+          sqlite.close();
+        }
+      } catch {
+        // DatabaseSync threw — file is not a valid SQLite DB (corrupt, truncated, wrong magic).
+        checkOk = false;
+      }
+
+      if (!checkOk) {
+        process.stderr.write(
+          `[unerr] ⚠ graph.db integrity check failed at ${dbPath} — deleting corrupt file and rebuilding clean DB\n`
+        );
+        // Best-effort delete of the db and its WAL/SHM sidecars.
+        for (const suffix of ["", "-wal", "-shm"]) {
+          try {
+            unlinkSync(dbPath + suffix);
+          } catch {
+            // ignore — sidecar may not exist
+          }
+        }
+        wasRebuilt = true;
+      }
+    } catch (err) {
+      // loadNodeSqlite() failed or some other unexpected infrastructure error —
+      // log and continue with the existing file rather than blocking boot.
+      process.stderr.write(
+        `[unerr] WARN: graph.db integrity check error for ${dbPath} (${err instanceof Error ? err.message : String(err)}); continuing with existing file\n`
+      );
+    }
+  }
+
   const db = await createSqliteDb(dbPath);
 
-  return { db, isNew, dbPath };
+  return { db, isNew, dbPath, wasRebuilt };
 }
 
 /**

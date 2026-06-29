@@ -17,6 +17,7 @@
 
 import { randomUUID } from "node:crypto";
 import { type Socket, connect } from "node:net";
+import { dirname } from "node:path";
 import {
   type EmitContext,
   type EmitInput,
@@ -29,6 +30,7 @@ import {
   LOCAL_CATALOG_FALLBACK_MS,
   type PendingLocalRequest,
 } from "./bridge-catalog.js";
+import { PidLock } from "./pid-lock.js";
 
 /** stderr-only logger. stdout is MCP territory. */
 const log = {
@@ -156,6 +158,10 @@ export function startUdsBridge(
 ): Promise<BridgeResult> {
   return new Promise((resolve) => {
     const socket: Socket = connect(sockPath);
+    // The proxy writes its pid next to this socket (`state/proxy.pid` beside
+    // `proxy.sock`); readPidFile returns null when that file is missing or its
+    // pid is not running. Used to tell a busy-but-alive proxy from a dead one.
+    const stateDir = dirname(sockPath);
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
     let heartbeatTimeoutTimer: ReturnType<typeof setTimeout> | undefined;
     let missedHeartbeats = 0;
@@ -303,8 +309,11 @@ export function startUdsBridge(
       socket.on("data", (data: Buffer) => {
         const { toIde, sawPong, settledByProxy } =
           catalog.ingestFromProxy(data);
+        // Any frame from the proxy proves its event loop ran. Reset the
+        // missed-heartbeat counter unconditionally so a forwarded tool
+        // response prevents a spurious "daemon appears dead" declaration.
+        missedHeartbeats = 0;
         if (sawPong) {
-          missedHeartbeats = 0;
           pendingPing = false;
           if (heartbeatTimeoutTimer) {
             clearTimeout(heartbeatTimeoutTimer);
@@ -333,11 +342,23 @@ export function startUdsBridge(
         if (pendingPing) {
           missedHeartbeats++;
           if (missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
-            log.warn(
-              `${MAX_MISSED_HEARTBEATS} heartbeats missed — daemon appears dead`
+            // Missed pongs alone don't prove death: a real proxy exit closes
+            // its UDS fd immediately, so socket 'close'/'error' already reaped
+            // it. An open socket with stalled pongs means the proxy loop is busy
+            // (long reindex), not dead — confirm with the OS before reaping.
+            if (PidLock.readPidFile(stateDir) === null) {
+              log.warn(
+                `${MAX_MISSED_HEARTBEATS} heartbeats missed and proxy pid gone — daemon dead`
+              );
+              cleanup("daemon_dead");
+              return;
+            }
+            // Busy but alive: keep relaying, reset so the next window re-checks
+            // (~15s cadence). socket 'close'/'error' stay the death detectors.
+            log.info(
+              `${MAX_MISSED_HEARTBEATS} heartbeats missed but proxy pid alive — staying connected (proxy busy)`
             );
-            cleanup("daemon_dead");
-            return;
+            missedHeartbeats = 0;
           }
         }
 

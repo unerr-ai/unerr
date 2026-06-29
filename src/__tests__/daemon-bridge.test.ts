@@ -499,3 +499,85 @@ describe("Error handling", () => {
     expect(content).toContain("retrying in");
   });
 });
+
+// ── Heartbeat reset behavior tests ────────────────────────────────────
+//
+// A forwarded tool response from the proxy proves its event loop ran just as
+// well as a pong frame. The bridge must reset missedHeartbeats on ANY inbound
+// frame so a slow tool call does not trigger a spurious "daemon_dead".
+
+describe("Heartbeat reset on any proxy frame", () => {
+  it("resets missedHeartbeats unconditionally before the sawPong branch", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/proxy/bridge.ts"),
+      "utf-8"
+    );
+
+    // Locate the socket data handler that processes frames from the proxy.
+    const dataHandlerStart = content.indexOf('socket.on("data", ');
+    expect(dataHandlerStart).toBeGreaterThan(-1);
+
+    // Extract a window large enough to see the full reset + sawPong pattern.
+    const window = content.slice(dataHandlerStart, dataHandlerStart + 800);
+
+    const resetIdx = window.indexOf("missedHeartbeats = 0");
+    const sawPongIdx = window.indexOf("if (sawPong)");
+
+    // Both must be present in this handler.
+    expect(resetIdx).toBeGreaterThan(-1);
+    expect(sawPongIdx).toBeGreaterThan(-1);
+
+    // The unconditional reset must precede the pong-specific branch so that
+    // any proxy frame (tool response, notification, pong) resets the counter,
+    // not only explicit pong frames.
+    expect(resetIdx).toBeLessThan(sawPongIdx);
+  });
+});
+
+// ── Option B: pid + socket liveness ────────────────────────────────
+// Missed pongs alone must not reap a busy-but-alive proxy. On a local UDS a
+// real proxy death already fires socket 'close'/'error'; stalled pongs on an
+// open socket mean the proxy's event loop is busy (long reindex), not dead.
+// The bridge confirms with the OS (PidLock.readPidFile) before declaring death.
+
+describe("Bridge pid+socket liveness (Option B)", () => {
+  it("derives the proxy state dir from the socket path", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/proxy/bridge.ts"),
+      "utf-8"
+    );
+    // stateDir = dirname(sockPath) — sibling of proxy.sock holds proxy.pid.
+    expect(content).toMatch(/const stateDir = dirname\(sockPath\)/);
+    expect(content).toMatch(/from\s+["']\.\/pid-lock\.js["']/);
+  });
+
+  it("on max missed heartbeats, only reaps when PidLock reports the pid gone", () => {
+    const content = readFileSync(
+      resolve(process.cwd(), "src/proxy/bridge.ts"),
+      "utf-8"
+    );
+
+    // Find the heartbeat interval's missed-pong branch.
+    const branchStart = content.indexOf(
+      "if (missedHeartbeats >= MAX_MISSED_HEARTBEATS)"
+    );
+    expect(branchStart).toBeGreaterThan(-1);
+    const window = content.slice(branchStart, branchStart + 1400);
+
+    // The death decision is gated on an OS liveness check, not the counter.
+    const pidCheckIdx = window.indexOf(
+      "PidLock.readPidFile(stateDir) === null"
+    );
+    const cleanupIdx = window.indexOf('cleanup("daemon_dead")');
+    expect(pidCheckIdx).toBeGreaterThan(-1);
+    expect(cleanupIdx).toBeGreaterThan(-1);
+    // cleanup must sit inside the pid-gone branch (after the check).
+    expect(pidCheckIdx).toBeLessThan(cleanupIdx);
+
+    // Busy-but-alive path keeps the relay: it resets the counter and does NOT
+    // call cleanup. The "staying connected" log marks that branch.
+    const stayIdx = window.indexOf("staying connected");
+    expect(stayIdx).toBeGreaterThan(-1);
+    expect(stayIdx).toBeGreaterThan(cleanupIdx);
+  });
+});

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyInjectionTier,
   classifyTaskSize,
   prefersReconBundle,
   skipsCeremony,
@@ -145,5 +146,82 @@ describe("footprint helpers", () => {
     expect(prefersReconBundle("single_entity")).toBe(true);
     expect(prefersReconBundle("large_sweep")).toBe(true);
     expect(prefersReconBundle("trivial")).toBe(false);
+  });
+});
+
+describe("classifyInjectionTier", () => {
+  it("continuation phrases → skip with inject:false and noteMax:0", () => {
+    expect(classifyInjectionTier("ok").tier).toBe("skip");
+    expect(classifyInjectionTier("lgtm").tier).toBe("skip");
+    expect(classifyInjectionTier("sounds good").tier).toBe("skip");
+    expect(classifyInjectionTier("ship it").tier).toBe("skip");
+    expect(classifyInjectionTier("go ahead").tier).toBe("skip");
+    expect(classifyInjectionTier("continue").tier).toBe("skip");
+    expect(classifyInjectionTier("yeah").tier).toBe("skip");
+    const d = classifyInjectionTier("yes");
+    expect(d.inject).toBe(false);
+    expect(d.noteMax).toBe(0);
+  });
+
+  it("continuation phrase with trailing punctuation is still skip", () => {
+    expect(classifyInjectionTier("ok.").tier).toBe("skip");
+    expect(classifyInjectionTier("lgtm!").tier).toBe("skip");
+  });
+
+  it("read-only opener + identifier → focused (identifier blocks skip)", () => {
+    // "what" is a read-only opener but "parseHeader" is camelCase → single_entity → focused
+    const d = classifyInjectionTier("what does parseHeader do");
+    expect(d.tier).toBe("focused");
+    expect(d.inject).toBe(true);
+    expect(d.noteMax).toBe(2);
+  });
+
+  it("read-only opener + no identifier → skip", () => {
+    // "explain" is a read-only opener; "auth flow" has no camelCase/snake/dotted identifier
+    const d = classifyInjectionTier("explain the auth flow");
+    expect(d.tier).toBe("skip");
+    expect(d.inject).toBe(false);
+    expect(d.noteMax).toBe(0);
+  });
+
+  it("negation does not produce skip", () => {
+    // "don't" is not a read-only opener; "authService" is a camelCase identifier → single_entity
+    const d = classifyInjectionTier("don't add tests to authService");
+    expect(d.tier).toBe("focused");
+    expect(d.inject).toBe(true);
+  });
+
+  it("multi-intent with action verb and no explicit identifier → inject (not skip)", () => {
+    // "refactor" in SCOPED_ACTION_VERBS + "auth" is not a camelCase identifier → large_sweep → broad
+    const d = classifyInjectionTier("fix typo and refactor auth");
+    expect(d.inject).toBe(true); // critical asymmetric-cost invariant: never skip
+    expect(d.tier).toBe("broad"); // large_sweep (refactor + no identifier) maps to broad
+  });
+
+  it("breadth signal → broad with inject:true and noteMax:4", () => {
+    const d = classifyInjectionTier("rename getUser everywhere");
+    expect(d.tier).toBe("broad");
+    expect(d.inject).toBe(true);
+    expect(d.noteMax).toBe(4);
+  });
+
+  it("suffix-folded read-only opener matches inflected first word → skip", () => {
+    // "listing" → normalizeSuffix → "list" which is in READ_ONLY_OPENERS
+    // no identifier in "listing all active repos" → trivial → skip
+    const d = classifyInjectionTier("listing all active repos");
+    expect(d.tier).toBe("skip");
+  });
+
+  it("inflected SCOPED_ACTION_VERB with breadth signal → broad", () => {
+    // "refactoring" contains "refactor" (substring); "everywhere" is in BREADTH_SIGNALS
+    const d = classifyInjectionTier("refactoring getUser everywhere");
+    expect(d.tier).toBe("broad");
+  });
+
+  it("carries a non-empty reason string", () => {
+    expect(
+      classifyInjectionTier("add error handling to parseHeader").reason.length
+    ).toBeGreaterThan(0);
+    expect(classifyInjectionTier("lgtm").reason).toBe("continuation phrase");
   });
 });

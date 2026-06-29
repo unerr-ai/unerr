@@ -101,18 +101,30 @@ describe("three-tier model map (Issue 5 / D2)", () => {
     expect(selectTier("typecheck_fix")).toBe("worker");
     expect(selectTier("scaffold")).toBe("worker");
     expect(selectTier("codemod")).toBe("worker");
+    // Scoped feature implementation is the default worker class (Lever A).
+    expect(selectTier("feature_impl")).toBe("worker");
     expect(selectTier("none")).toBe("senior");
   });
 
-  it("difficulty gate: a cross-cutting worker change escalates to senior", () => {
+  it("difficulty gate: aggressive per-class escalation to senior", () => {
     // No size hint → base tier (unchanged behaviour).
     expect(selectTier("codemod")).toBe("worker");
     expect(selectTier("mechanical_refactor", { files: 2, loc: 10 })).toBe(
       "worker"
     );
-    // Many files or many lines → senior.
-    expect(selectTier("codemod", { files: 4 })).toBe("senior");
-    expect(selectTier("mechanical_refactor", { loc: 60 })).toBe("senior");
+    // Mechanical breadth stays on the worker far longer — escalates only past
+    // files>12 / loc>300 (deterministic edits, low Opus→Sonnet gap).
+    expect(selectTier("codemod", { files: 8 })).toBe("worker");
+    expect(selectTier("codemod", { files: 13 })).toBe("senior");
+    expect(selectTier("mechanical_refactor", { loc: 60 })).toBe("worker");
+    expect(selectTier("mechanical_refactor", { loc: 301 })).toBe("senior");
+    // feature_impl escalates sooner — files>8 / loc>200 (novel breadth = more risk).
+    expect(selectTier("feature_impl", { files: 5, loc: 120 })).toBe("worker");
+    expect(selectTier("feature_impl", { files: 9 })).toBe("senior");
+    expect(selectTier("feature_impl", { loc: 201 })).toBe("senior");
+    // Other worker classes (tests/typecheck_fix/scaffold) escalate at files>8 / loc>150.
+    expect(selectTier("tests", { loc: 150 })).toBe("worker");
+    expect(selectTier("tests", { loc: 151 })).toBe("senior");
     // A junior class never escalates, however big.
     expect(selectTier("recon", { files: 20, loc: 500 })).toBe("junior");
   });

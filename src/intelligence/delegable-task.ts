@@ -33,6 +33,7 @@ export type DelegableClass =
   | "log_triage"
   | "repro"
   | "codemod"
+  | "feature_impl"
   | "none";
 
 export interface DelegableVerdict {
@@ -379,6 +380,84 @@ const CODEMOD_SIGNALS = [
   "across all files",
 ];
 
+/**
+ * Scoped implementation — constructive edit verbs that name a concrete change
+ * (add a flag, wire X into Y, implement a handler) but match none of the narrow
+ * write-classes above. The bulk of ordinary coding work lands here; it routes to
+ * the WORKER tier, which executes a well-scoped spec at near-frontier quality.
+ * Only constructive verbs — plain "fix the bug" has none, so root-cause debugging
+ * falls through to recon/none and stays with the senior. Ranks LAST on the
+ * imperative path (above read-only) so every narrow class still wins first.
+ */
+const FEATURE_IMPL_SIGNALS = [
+  "add ",
+  "implement ",
+  "wire up",
+  "wire in",
+  "wire the",
+  "hook up",
+  "hook it up",
+  "hook the",
+  "integrate ",
+  "add support",
+  "support for",
+  "build a ",
+  "build the ",
+  "build out",
+  "create a ",
+  "create an ",
+  "create the ",
+  "set up",
+  "set it up",
+  "make the ",
+  "expose ",
+  "emit ",
+  "plumb ",
+  "connect ",
+  "enable ",
+  "disable ",
+  "replace the",
+  "swap the",
+  "switch to",
+  "switch the",
+  "persist ",
+  "render ",
+  "serialize ",
+  "validate the",
+];
+
+/**
+ * Hard-reasoning veto for {@link FEATURE_IMPL_SIGNALS} ONLY — keeps genuine
+ * design / algorithm / architecture / root-cause work on the senior even when the
+ * prompt also carries a constructive verb ("implement a new caching ALGORITHM").
+ * Scoped to feature_impl, not global: a mechanical "rename FooArchitecture" must
+ * still classify as a refactor. The ~9-pt Opus→Sonnet gap concentrates here, so
+ * these stay on the strongest model.
+ */
+const HARD_REASONING_SIGNALS = [
+  "design ",
+  "redesign",
+  "architect",
+  "algorithm",
+  "data structure",
+  "from scratch",
+  "root cause",
+  "root-cause",
+  "diagnose",
+  "debug ",
+  "why is",
+  "why does",
+  "why are",
+  "figure out why",
+  "come up with",
+  "best approach",
+  "optimal ",
+  "concurrency",
+  "race condition",
+  "thread-saf",
+  "rewrite the",
+];
+
 function matches(lower: string, signals: readonly string[]): boolean {
   return signals.some((s) => lower.includes(s));
 }
@@ -680,6 +759,21 @@ export function classifyDelegable(prompt: string): DelegableVerdict {
       delegable: true,
       class: "scaffold",
       reason: "scaffold/boilerplate from an existing pattern",
+    };
+  }
+  // Scoped implementation — constructive edit verbs that name none of the narrow
+  // write-classes above. Routes to the worker (Sonnet). The HARD_REASONING veto
+  // keeps design / algorithm / architecture / root-cause asks on the senior even
+  // when they carry a constructive verb. Ranks above read-only so a real edit
+  // ("add a --json flag") beats a stray investigative phrase.
+  if (
+    matches(lower, FEATURE_IMPL_SIGNALS) &&
+    !matches(lower, HARD_REASONING_SIGNALS)
+  ) {
+    return {
+      delegable: true,
+      class: "feature_impl",
+      reason: "scoped implementation from a clear spec",
     };
   }
   // Read-only classes rank last on the imperative path: an explicit edit signal

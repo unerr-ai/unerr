@@ -17,10 +17,8 @@ import {
   type DelegationDecision,
   shouldDelegate,
 } from "../intelligence/delegation.js";
-import {
-  DEFAULT_RECALL_MAX,
-  selectLoadBearing,
-} from "../intelligence/note-ranking.js";
+import { selectLoadBearing } from "../intelligence/note-ranking.js";
+import { classifyInjectionTier } from "../intelligence/task-size.js";
 import { consumeAnyPendingTopicShift } from "../intelligence/topic-shift.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { recordPrefixStability } from "../proxy/prefix-stability.js";
@@ -617,7 +615,12 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   try {
     const agentId = (normalized.agentName ?? "") as IdeType;
     const decision = shouldDelegate({ prompt: message, agentId });
-    if (decision.delegate) {
+    // feature_impl is the broad scoped-work class — it overlaps the substantive
+    // decompose-and-delegate nudge below, which gives richer fan-out guidance
+    // (one sub-agent per slice) and still routes to the worker tier. Let that
+    // nudge own the routing slot; the single delegate line stays for the narrow
+    // classes (tests / lint / codemod / caller_propagation / typecheck_fix / …).
+    if (decision.delegate && decision.class !== "feature_impl") {
       delegateLine = buildDelegateLine(decision, agentId);
       // Issue 5 leak correlation — arm the pending flag. The Stop hook clears
       // it; if no `delegate` marker lands in the close-out, the master kept the
@@ -940,6 +943,35 @@ const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
     return base;
   }
 
+  // Option A + C — gate trivial turns and scale note count by tier.
+  // classifyInjectionTier classifies this prompt as skip/focused/broad.
+  // inject:false → skip recall entirely (saves uncacheable tokens on turns
+  // where notes add no load-bearing signal). inject:true → proceed with
+  // decision.noteMax notes so focused prompts get a tighter slice.
+  const decision = classifyInjectionTier(message);
+  if (!decision.inject) {
+    try {
+      updateNudgeState(process.cwd(), (s) => {
+        s.injection_skip_count = (s.injection_skip_count ?? 0) + 1;
+      });
+    } catch {
+      // best-effort; never block the hook
+    }
+    await capturePromise;
+    return base;
+  }
+  try {
+    updateNudgeState(process.cwd(), (s) => {
+      if (decision.tier === "focused") {
+        s.injection_focused_count = (s.injection_focused_count ?? 0) + 1;
+      } else {
+        s.injection_broad_count = (s.injection_broad_count ?? 0) + 1;
+      }
+    });
+  } catch {
+    // best-effort; never block the hook
+  }
+
   try {
     const [notes] = await Promise.all([
       queryRecallNotes(message),
@@ -950,11 +982,11 @@ const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
       // matched note. The proxy returns all anchored-note matches; re-injecting
       // the full set each turn re-bills uncacheable tokens for notes the turn
       // won't act on. Rank by load-bearing score (kind/anchor/polarity/prompt
-      // overlap) and keep DEFAULT_RECALL_MAX; the rest stay reachable via
+      // overlap) and keep decision.noteMax; the rest stay reachable via
       // a task-shaped search_code query, which the moment-1 line already points the agent to.
       const topNotes = selectLoadBearing(notes, {
         prompt: message,
-        max: DEFAULT_RECALL_MAX,
+        max: decision.noteMax,
       });
       const block = renderRecallBlock(topNotes);
       if (block) {

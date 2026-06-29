@@ -7,8 +7,10 @@
  */
 
 import { createHash } from "node:crypto";
+import { join } from "node:path";
 import type { Command } from "commander";
 import { nudgeIfLoggedOut } from "../hooks/login-nudge.js";
+import { PidLock } from "../proxy/pid-lock.js";
 import { getRemoteUrl, isGitRepo } from "../utils/git.js";
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -64,6 +66,24 @@ export function registerIndexCommand(program: Command): void {
             }
             process.exit(0);
           }
+        }
+
+        // Guard: refuse if a live proxy is already serving this repo.
+        // Two concurrent SQLite writers on graph.db corrupt the file (code 11).
+        const stateDir = join(projectRoot, ".unerr", "state");
+        const livePid = PidLock.readPidFile(stateDir);
+        if (livePid !== null) {
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({ status: "proxy_running", reindexed: false })
+            );
+            process.stdout.write("\n");
+          } else {
+            process.stderr.write(
+              `[unerr] a proxy is already serving this repo (pid ${livePid.pid}); it reindexes automatically. Stop it with \`unerr pm stop\` or drop \`unerr index\`.\n`
+            );
+          }
+          process.exit(1);
         }
 
         // Open persistent CozoDB (SQLite-backed at .unerr/graph.db)

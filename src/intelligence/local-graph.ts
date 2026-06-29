@@ -724,7 +724,7 @@ export class CozoGraphStore {
     }));
 
     // Run community detection
-    const result = detectCommunities(entities, edges);
+    const result = await detectCommunities(entities, edges);
 
     // Write community assignments back to entities using :update (only changes community column)
     for (const [key, communityId] of result.assignments) {

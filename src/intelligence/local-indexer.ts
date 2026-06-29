@@ -24,6 +24,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
 import { loadSettings } from "../config/settings.js";
 import { formatUnknownError } from "../utils/format-error.js";
+import { createYieldGate, maybeYield } from "../utils/index-yield.js";
 import {
   EXTRACTOR_VERSION,
   type ExtractedEdge,
@@ -338,8 +339,10 @@ export async function indexLocalProject(
     /* settings unreadable — default token list */
   }
   let filesProcessed = 0;
+  const yieldGate = createYieldGate();
 
   for (const absPath of files) {
+    await maybeYield(yieldGate);
     const relPath = relative(projectRoot, absPath);
     progress?.({
       processed: filesProcessed,
@@ -586,7 +589,9 @@ export async function indexLocalProject(
     phase: "communities",
     currentFile: null,
   });
+  await maybeYield(yieldGate);
   const communityCount = await runCommunityDetection(graphStore);
+  await maybeYield(yieldGate);
 
   // Phase 7.5: Layer 8 §6 — domain-graph derivation. Deterministic, zero-LLM:
   // propagate domain labels along communities + call edges, vote each community
@@ -1849,7 +1854,11 @@ export async function runCommunityDetection(
   }));
 
   // Run cascaded community detection
-  const result = detectCascadedCommunities(fileEdges, entities, entityEdges);
+  const result = await detectCascadedCommunities(
+    fileEdges,
+    entities,
+    entityEdges
+  );
 
   // Write entity community assignments (hierarchical IDs) — chunked bulk :update
   // (one commit per chunk, not per entity; see bulkPut / PUT_CHUNK).

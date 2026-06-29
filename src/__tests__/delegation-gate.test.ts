@@ -33,9 +33,16 @@ describe("delegation gate", () => {
     expect(d.class).toBe("tests");
   });
 
-  it("supported host but non-delegable task stays with senior", () => {
-    const d = gate("claude-code", "implement a new cross-session cache");
+  it("supported host but non-delegable task stays with senior (hard-reasoning veto)", () => {
+    // "implement" is a feature_impl verb, but "algorithm" vetoes it to the senior.
+    const d = gate("claude-code", "implement a new cache eviction algorithm");
     expect(d.delegate).toBe(false);
     expect(d.class).toBe("none");
+  });
+
+  it("supported host + scoped feature implementation delegates to the worker", () => {
+    const d = gate("claude-code", "add a --json flag to the status command");
+    expect(d.delegate).toBe(true);
+    expect(d.class).toBe("feature_impl");
   });
 });

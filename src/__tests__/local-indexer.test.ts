@@ -7,6 +7,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// ── index-yield mock (hoisted so vi.mock factory can reference it) ──────────
+const { mockMaybeYield, mockCreateYieldGate } = vi.hoisted(() => ({
+  mockMaybeYield: vi.fn().mockResolvedValue(true),
+  mockCreateYieldGate: vi.fn().mockReturnValue({ last: 0, budgetMs: 50 }),
+}));
+
+vi.mock("../utils/index-yield.js", () => ({
+  DEFAULT_YIELD_BUDGET_MS: 50,
+  createYieldGate: mockCreateYieldGate,
+  maybeYield: mockMaybeYield,
+}));
+
 // ── Fixture project factory ─────────────────────────────────────
 
 function createFixtureProject(): string {
@@ -400,5 +412,92 @@ describe("discoverSearchableFiles (content-search file walk, DB-free)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ── indexLocalProject event-loop yielding ───────────────────────
+// Proves that the yield calls inserted into the per-file loop and around
+// community detection actually fire. Uses a mock for index-yield so the
+// test is deterministic (no timing dependency), and a minimal graphStore
+// stub so the full pipeline can run without a real CozoDB instance.
+
+describe("indexLocalProject event-loop yielding", () => {
+  let projectDir: string;
+
+  beforeEach(() => {
+    projectDir = createFixtureProject();
+    mockMaybeYield.mockClear();
+    mockCreateYieldGate.mockClear();
+  });
+
+  afterEach(() => {
+    rmSync(projectDir, { recursive: true, force: true });
+  });
+
+  it("calls maybeYield at least once per file in the loop", async () => {
+    const { indexLocalProject } = await import(
+      "../intelligence/local-indexer.js"
+    );
+
+    // Minimal graphStore stub: db.run returns empty rows (triggers graceful
+    // early-exits in community detection, orphan removal, etc.) and write/
+    // clearDriftOverlay are no-ops. Any missing method throws and is caught
+    // by the surrounding try/catch blocks in the pipeline.
+    const mockDb = { run: vi.fn().mockResolvedValue({ rows: [] }) };
+    const mockStore = {
+      db: mockDb,
+      write: vi.fn().mockResolvedValue({ rows: [] }),
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      clearDriftOverlay: vi.fn().mockResolvedValue(undefined),
+    } as never;
+
+    await indexLocalProject(projectDir, mockStore, "test-repo");
+
+    // createYieldGate is called once for the parse loop plus once for each
+    // finalize loop that now has a gate (buildSearchIndex entity loop,
+    // computeCommunityDomains community loop, etc.) → total ≥ 2.
+    expect(mockCreateYieldGate.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+    // maybeYield must have been called at least once per file (3 files in
+    // the fixture) plus finalize-loop calls → total ≥ 3.
+    expect(mockMaybeYield).toHaveBeenCalled();
+    expect(mockMaybeYield.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("buildSearchIndex yield gate fires once per entity", async () => {
+    const { buildSearchIndex } = await import(
+      "../intelligence/search-index.js"
+    );
+    mockMaybeYield.mockClear();
+    mockCreateYieldGate.mockClear();
+
+    // Minimal CozoDb mock: returns 4 entities for the `?[key, name]` query,
+    // swallows all :put writes.
+    const mockDb = {
+      async run(query: string) {
+        if (
+          typeof query === "string" &&
+          query.includes("key, name") &&
+          query.includes("*entities")
+        ) {
+          return {
+            rows: [
+              ["e1", "processPayment"],
+              ["e2", "getUserById"],
+              ["e3", "createOrder"],
+              ["e4", "validateUser"],
+            ],
+          };
+        }
+        return { rows: [] };
+      },
+    } as never;
+
+    await buildSearchIndex(mockDb);
+
+    // Gate created once for the tokenization loop
+    expect(mockCreateYieldGate).toHaveBeenCalledOnce();
+    // maybeYield called once per entity (4 entities)
+    expect(mockMaybeYield.mock.calls.length).toBe(4);
   });
 });

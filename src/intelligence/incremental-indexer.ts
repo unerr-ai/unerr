@@ -37,6 +37,7 @@ import { join, relative } from "node:path";
 import { hashEntityKey } from "../cloud/drainers/envelope.js";
 import { loadSettings } from "../config/settings.js";
 import { emit } from "../events/enqueue.js";
+import { createYieldGate, maybeYield } from "../utils/index-yield.js";
 import {
   type ExtractedEntity,
   entityKey,
@@ -152,7 +153,9 @@ export async function indexFilesIncremental(
       return knownIdentifiers;
     };
 
+    const yieldGate = createYieldGate();
     for (const filePath of changedFiles) {
+      await maybeYield(yieldGate);
       const absPath = filePath.startsWith("/")
         ? filePath
         : join(projectRoot, filePath);

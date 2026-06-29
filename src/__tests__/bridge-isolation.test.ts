@@ -49,8 +49,12 @@ describe("bridge isolation (DM-0)", () => {
     // (telemetry leaf — allowed under DM-0; intelligence/behaviors/tracking
     // still forbidden). Budget bumped to 395; further growth should be
     // challenged.
+    // Then ~389→~410 for Option B pid+socket liveness: on missed pongs the
+    // bridge confirms the proxy pid via `PidLock.readPidFile` (proxy/, node
+    // builtins only — DM-0 safe) before declaring death, so a busy-but-alive
+    // proxy (long reindex) is not reaped. Budget bumped to 420.
     const lines = source.split("\n").length;
-    expect(lines).toBeLessThanOrEqual(395);
+    expect(lines).toBeLessThanOrEqual(420);
   });
 
   it("file is small (sanity: a relay should be a few KB, not megabytes)", () => {

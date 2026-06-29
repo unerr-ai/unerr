@@ -504,6 +504,105 @@ describe("search-index", () => {
     });
   });
 
+  // ── yield-gate count invariance ───────────────────────────────
+  describe("buildSearchIndex yield-gate count invariance", () => {
+    it("produces identical token counts regardless of yield gate firing (15-entity fixture)", async () => {
+      const db = createMockDb();
+      // 15 entities with predictable, non-overlapping token splits
+      await seedEntities(db, [
+        {
+          key: "e1",
+          kind: "function",
+          name: "processPayment",
+          file_path: "a.ts",
+        },
+        {
+          key: "e2",
+          kind: "function",
+          name: "processRefund",
+          file_path: "a.ts",
+        },
+        {
+          key: "e3",
+          kind: "function",
+          name: "processOrder",
+          file_path: "b.ts",
+        },
+        { key: "e4", kind: "function", name: "getUserById", file_path: "c.ts" },
+        {
+          key: "e5",
+          kind: "function",
+          name: "getUserByEmail",
+          file_path: "c.ts",
+        },
+        { key: "e6", kind: "function", name: "createOrder", file_path: "d.ts" },
+        {
+          key: "e7",
+          kind: "function",
+          name: "createPayment",
+          file_path: "d.ts",
+        },
+        {
+          key: "e8",
+          kind: "function",
+          name: "validateUser",
+          file_path: "e.ts",
+        },
+        {
+          key: "e9",
+          kind: "function",
+          name: "validateOrder",
+          file_path: "e.ts",
+        },
+        {
+          key: "e10",
+          kind: "function",
+          name: "sendNotification",
+          file_path: "f.ts",
+        },
+        { key: "e11", kind: "function", name: "sendEmail", file_path: "f.ts" },
+        { key: "e12", kind: "function", name: "buildIndex", file_path: "g.ts" },
+        {
+          key: "e13",
+          kind: "function",
+          name: "buildSearchIndex",
+          file_path: "g.ts",
+        },
+        {
+          key: "e14",
+          kind: "function",
+          name: "runMigration",
+          file_path: "h.ts",
+        },
+        {
+          key: "e15",
+          kind: "function",
+          name: "runBackfill",
+          file_path: "h.ts",
+        },
+      ]);
+      await buildSearchIndex(db);
+
+      // Each assertion checks that a known token appears in exactly the expected
+      // entities — any change to the loop logic (including a mis-placed yield
+      // that skips items) would shift these counts.
+      // "process" → e1(processPayment), e2(processRefund), e3(processOrder)
+      expect(await searchLocal(db, "process")).toHaveLength(3);
+      // "user" → e4(getUserById), e5(getUserByEmail), e8(validateUser)
+      expect(await searchLocal(db, "user")).toHaveLength(3);
+      // "payment" → e1(processPayment), e7(createPayment)
+      expect(await searchLocal(db, "payment")).toHaveLength(2);
+      // "order" → e3(processOrder), e6(createOrder), e9(validateOrder)
+      expect(await searchLocal(db, "order")).toHaveLength(3);
+      // "send" → e10(sendNotification), e11(sendEmail)
+      expect(await searchLocal(db, "send")).toHaveLength(2);
+      // "build" → e12(buildIndex), e13(buildSearchIndex)
+      expect(await searchLocal(db, "build")).toHaveLength(2);
+      // "run" → e14(runMigration), e15(runBackfill)
+      expect(await searchLocal(db, "run")).toHaveLength(2);
+    });
+  });
+
   // ── K4 re-rank: flat single-token scores must differentiate ────
   describe("searchLocal K4 re-rank", () => {
     it("single-token query: production entity outranks test scaffolding, scores differ", async () => {

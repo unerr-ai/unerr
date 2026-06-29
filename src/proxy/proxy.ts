@@ -1008,7 +1008,8 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const { openPersistentDb } = await import(
         "../intelligence/persistent-db.js"
       );
-      const { db, isNew, dbPath } = await openPersistentDb(projectRoot);
+      const { db, isNew, dbPath, wasRebuilt } =
+        await openPersistentDb(projectRoot);
       graphDbPath = dbPath;
       graphWasNew = isNew;
 
@@ -1062,7 +1063,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
       const graphOpenMs = Date.now() - graphStart;
 
-      if (!isNew && (await localGraph.isPopulated())) {
+      if (!isNew && !wasRebuilt && (await localGraph.isPopulated())) {
         // ── Persistent DB: graph already fully populated ──────────────
         // All entities, edges, communities, conventions, rules survive across restarts.
         // No snapshot loading, no re-detection — instant availability.

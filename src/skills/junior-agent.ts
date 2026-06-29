@@ -131,13 +131,15 @@ function baseTier(cls: DelegableClass): ModelTier {
     case "log_triage":
     case "repro":
       return "junior";
-    // Scoped writes that need a correctness check.
+    // Scoped writes that need a correctness check — including scoped feature
+    // implementation from a clear spec (the bulk of ordinary coding work).
     case "tests":
     case "mechanical_refactor":
     case "caller_propagation":
     case "typecheck_fix":
     case "scaffold":
     case "codemod":
+    case "feature_impl":
       return "worker";
     default:
       return "senior";
@@ -159,7 +161,18 @@ export function selectTier(
   if (base === "worker" && size) {
     const files = size.files ?? 0;
     const loc = size.loc ?? 0;
-    if (files > 3 || loc > 50) return "senior";
+    // Aggressive routing: the worker (Sonnet) keeps cross-file work far longer
+    // than the old files>3/loc>50 floor, because the Opus→Sonnet gap is small on
+    // execution and large only on novel reasoning. Deterministic mechanical
+    // breadth (codemod / caller propagation / rename) escalates last; scoped
+    // feature_impl escalates sooner since novel breadth carries more risk.
+    const mechanical =
+      cls === "codemod" ||
+      cls === "caller_propagation" ||
+      cls === "mechanical_refactor";
+    const fileCap = mechanical ? 12 : 8;
+    const locCap = cls === "feature_impl" ? 200 : mechanical ? 300 : 150;
+    if (files > fileCap || loc > locCap) return "senior";
   }
   return base;
 }
@@ -177,7 +190,7 @@ export function tierModel(agentId: IdeType, tier: ModelTier): string | null {
 /**
  * The per-host handoff instruction the senior runs to hand a delegable task to a
  * cheaper tier. The model is chosen by the task's class via {@link selectTier}:
- * a `tests`/`mechanical_refactor`/`caller_propagation`/`typecheck_fix`/`scaffold`
+ * a `tests`/`mechanical_refactor`/`caller_propagation`/`typecheck_fix`/`scaffold`/`feature_impl`
  * task goes to the WORKER model, a `lint_format`/`docs`/`recon`/`verify`/`command_run`
  * task to the JUNIOR model. Claude Code uses an
  * on-disk model-pinned sub-agent (`unerr-worker` for the worker tier,
@@ -303,7 +316,7 @@ You are ${opts.name}. ${opts.intro} Your job is to make the minimal correct edit
 
 ## Out of scope — hand back to the senior
 
-If the task turns out to need design judgement, a new public interface, or root-causing a bug (not just the mechanical change described), say so in one line and stop. You are not equipped to make those calls on the cheaper tier — that is the senior's job.
+If the task turns out to need design judgement (architecture, a new public interface, or an algorithm) or root-causing a bug — not just the scoped change the senior described — say so in one line and stop. You are not equipped to make those calls on the cheaper tier — that is the senior's job.
 `;
 }
 
@@ -325,14 +338,15 @@ export const JUNIOR_AGENT_MD = buildSubagentMd({
 /**
  * The full `.claude/agents/unerr-worker.md` content (WORKER tier — Sonnet). Same
  * operating contract as the junior, one model tier up — for delegable work that
- * needs some judgement (tests, multi-site mechanical refactors) but is still
- * check-verifiable. The senior routes `tests`/`mechanical_refactor` classes here.
+ * needs some judgement (tests, multi-site mechanical refactors, scoped feature
+ * implementation) but is still check-verifiable. The senior routes
+ * `tests`/`mechanical_refactor`/`feature_impl` classes here.
  */
 export const WORKER_AGENT_MD = buildSubagentMd({
   name: "unerr-worker",
   model: CLAUDE_WORKER_MODEL,
   description:
-    "Worker-tier executor for delegable tasks that need some judgement (add/improve tests, multi-site mechanical refactors, codemods, caller/import propagation, typecheck/build-error fixes, scaffold). Spawned by the senior with a recon digest; makes the minimal edit and self-verifies. Not for design, new features, or bug root-causing.",
+    "Worker-tier executor for scoped, check-verifiable work — the default executor for ordinary coding: scoped feature implementation from a clear spec, add/improve tests, multi-site mechanical refactors, codemods, caller/import propagation, typecheck/build-error fixes, scaffold. Spawned by the senior with a recon digest; makes the minimal correct edit and self-verifies. Not for architecture/algorithm design, a new public interface, or bug root-causing.",
   intro:
     "The senior delegated a check-verifiable task that needs some judgement to you on a mid-tier model.",
   tools: WORKER_TOOLS,

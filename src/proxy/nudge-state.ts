@@ -96,6 +96,14 @@ export interface NudgeSessionState {
    *  `delegate` marker, the master kept the delegable work itself, which the
    *  Stop hook records as a `subtasks_serialized_by_master` leak. */
   delegable_nudge_pending: boolean;
+  /** Injection-tier counters — per-session telemetry for the
+   *  classifyInjectionTier gate in asyncPromptSubmitHandler.
+   *  injection_skip_count: turns where inject:false skipped recall.
+   *  injection_focused_count: turns where tier was "focused".
+   *  injection_broad_count: turns where tier was "broad". */
+  injection_skip_count: number;
+  injection_focused_count: number;
+  injection_broad_count: number;
 }
 
 function defaultState(): NudgeSessionState {
@@ -117,6 +125,9 @@ function defaultState(): NudgeSessionState {
     static_boilerplate_emitted: false,
     exec_nudge_emitted: false,
     delegable_nudge_pending: false,
+    injection_skip_count: 0,
+    injection_focused_count: 0,
+    injection_broad_count: 0,
   };
 }
 
@@ -210,6 +221,18 @@ export function readNudgeState(cwd: string): NudgeSessionState {
       static_boilerplate_emitted: Boolean(parsed.static_boilerplate_emitted),
       exec_nudge_emitted: Boolean(parsed.exec_nudge_emitted),
       delegable_nudge_pending: Boolean(parsed.delegable_nudge_pending),
+      injection_skip_count:
+        typeof parsed.injection_skip_count === "number"
+          ? parsed.injection_skip_count
+          : 0,
+      injection_focused_count:
+        typeof parsed.injection_focused_count === "number"
+          ? parsed.injection_focused_count
+          : 0,
+      injection_broad_count:
+        typeof parsed.injection_broad_count === "number"
+          ? parsed.injection_broad_count
+          : 0,
     };
   } catch {
     return defaultState();

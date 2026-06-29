@@ -101,12 +101,44 @@ const BREADTH_SIGNALS = [
  */
 const SCOPED_ACTION_VERBS = ["refactor", "rename", "migrate", "audit"];
 
+/**
+ * Short acknowledgement phrases that confirm a prior answer or give a green-light
+ * without introducing a new task. Matched against the trimmed-lowercased prompt.
+ */
+const CONTINUATION_SIGNALS = new Set([
+  "yes",
+  "yeah",
+  "ok",
+  "okay",
+  "go ahead",
+  "continue",
+  "proceed",
+  "do it",
+  "lgtm",
+  "sounds good",
+  "thanks",
+  "ship it",
+]);
+
 const WORD_RE = /[^a-z0-9_]+/;
 
 /** Lowercased first meaningful word of the prompt. */
 function firstWord(prompt: string): string {
   const t = prompt.trim().toLowerCase().split(WORD_RE).filter(Boolean);
   return t[0] ?? "";
+}
+
+/**
+ * Strip common inflection suffixes (ing/ed/es/s) so signal-list comparisons
+ * match inflected verb forms. Guards prevent over-stripping short words.
+ */
+function normalizeSuffix(word: string): string {
+  if (word.length > 5 && word.endsWith("ing")) return word.slice(0, -3);
+  if (word.length > 4 && word.endsWith("ed")) return word.slice(0, -2);
+  if (word.length > 3 && word.endsWith("es")) return word.slice(0, -2);
+  if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss"))
+    return word.slice(0, -1);
+  return word;
 }
 
 function hasSweepSignal(lower: string, prompt: string): boolean {
@@ -125,7 +157,24 @@ function hasSweepSignal(lower: string, prompt: string): boolean {
 }
 
 function isReadOnlyOpener(prompt: string): boolean {
-  return READ_ONLY_OPENERS.includes(firstWord(prompt));
+  const fw = firstWord(prompt);
+  return (
+    READ_ONLY_OPENERS.includes(fw) ||
+    READ_ONLY_OPENERS.includes(normalizeSuffix(fw))
+  );
+}
+
+/** True when the prompt is a short continuation phrase (green-light / acknowledgement). */
+function isContinuation(trimmedLower: string): boolean {
+  if (CONTINUATION_SIGNALS.has(trimmedLower)) return true;
+  for (const signal of CONTINUATION_SIGNALS) {
+    if (trimmedLower.startsWith(signal)) {
+      const rest = trimmedLower.slice(signal.length);
+      // Allow only trailing punctuation / whitespace after the signal
+      if (/^[.,!?;:\s]*$/.test(rest)) return true;
+    }
+  }
+  return false;
 }
 
 /** Does the prompt contain a code-identifier-shaped token (camelCase, snake, path, dotted)? */
@@ -196,4 +245,63 @@ export function skipsCeremony(size: TaskSize): boolean {
 /** True when the task should be routed to a single recon bundle (R5, T3.3). */
 export function prefersReconBundle(size: TaskSize): boolean {
   return size === "single_entity" || size === "large_sweep";
+}
+
+export type InjectionTier = "skip" | "focused" | "broad";
+
+export interface InjectionDecision {
+  readonly tier: InjectionTier;
+  /** false ONLY for "skip" */
+  readonly inject: boolean;
+  /** skip:0, focused:2, broad:4 */
+  readonly noteMax: number;
+  /** Short telemetry string. */
+  readonly reason: string;
+}
+
+/**
+ * Maps a prompt to an injection tier (skip/focused/broad) that controls how
+ * many anchored notes and what injection depth the footprint router applies.
+ * Continuation phrases short-circuit to skip before classifyTaskSize is called,
+ * so green-lights are never misclassified as new tasks.
+ *
+ * @sem domain=intelligence role=classifier
+ */
+export function classifyInjectionTier(prompt: string): InjectionDecision {
+  const trimmedLower = (prompt ?? "").trim().toLowerCase();
+
+  if (isContinuation(trimmedLower)) {
+    return {
+      tier: "skip",
+      inject: false,
+      noteMax: 0,
+      reason: "continuation phrase",
+    };
+  }
+
+  const verdict = classifyTaskSize(prompt);
+
+  switch (verdict.size) {
+    case "trivial":
+      return {
+        tier: "skip",
+        inject: false,
+        noteMax: 0,
+        reason: verdict.reason,
+      };
+    case "single_entity":
+      return {
+        tier: "focused",
+        inject: true,
+        noteMax: 2,
+        reason: verdict.reason,
+      };
+    case "large_sweep":
+      return {
+        tier: "broad",
+        inject: true,
+        noteMax: 4,
+        reason: verdict.reason,
+      };
+  }
 }

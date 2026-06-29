@@ -24,12 +24,20 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Spy on maybeYield while keeping the original behaviour so other tests are
+// unaffected. vi.mock is hoisted, so this runs before any import resolves.
+vi.mock("../utils/index-yield.js", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../utils/index-yield.js")>();
+  return { ...orig, maybeYield: vi.fn().mockImplementation(orig.maybeYield) };
+});
 import type { CozoDb } from "../intelligence/cozo-schema.js";
 import { initSchema } from "../intelligence/cozo-schema.js";
 import { indexFilesIncremental } from "../intelligence/incremental-indexer.js";
 import { CozoGraphStore } from "../intelligence/local-graph.js";
 import { seedFileContentHashes } from "../intelligence/local-indexer.js";
+import { maybeYield } from "../utils/index-yield.js";
 
 const REPO_ID = "testrepo";
 
@@ -437,5 +445,45 @@ describe("FIX D Phase 3 — content-hash early cutoff", () => {
     expect(r.entitiesAdded).toBe(0);
     expect(await countEntities(store, "foo.ts")).toBe(1);
     expect(await keyByName(store, "foo.ts", "bar")).toBeNull();
+  });
+});
+
+describe("Event-loop yield during incremental batch", () => {
+  let tempDir: string;
+  let store: CozoGraphStore;
+
+  beforeEach(async () => {
+    tempDir = join(
+      tmpdir(),
+      `unerr-yield-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    mkdirSync(tempDir, { recursive: true });
+    store = await createStore();
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("calls maybeYield once per file so the event loop can service heartbeat pings", async () => {
+    const FILE_COUNT = 12;
+    const files: string[] = [];
+    for (let i = 0; i < FILE_COUNT; i++) {
+      const name = `file${i}.ts`;
+      writeFileSync(
+        join(tempDir, name),
+        `export function fn${i}(x: number): number { return x + ${i}; }\n`
+      );
+      files.push(name);
+    }
+
+    const spy = vi.mocked(maybeYield);
+    spy.mockClear();
+
+    await indexFilesIncremental(tempDir, files, store, REPO_ID);
+
+    // maybeYield must be called once per file — that is the yield hook contract.
+    // It may return false (budget not yet elapsed) but the call site must exist.
+    expect(spy).toHaveBeenCalledTimes(FILE_COUNT);
   });
 });

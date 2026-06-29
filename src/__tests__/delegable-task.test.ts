@@ -45,14 +45,48 @@ describe("classifyDelegable (Lever C)", () => {
     expect(isDelegable("refactor the auth flow")).toBe(false);
   });
 
-  it("returns none for design/build work", () => {
+  it("returns none for design / root-cause work (the hard-reasoning veto)", () => {
     for (const p of [
-      "implement a new cross-session cache",
       "design the delegation gate",
       "fix the multi-session timeout bug",
+      "implement a new cache eviction algorithm",
+      "rearchitect the proxy boot sequence",
+      "figure out why the daemon hangs and fix it",
     ]) {
       expect(classifyDelegable(p).class, p).toBe("none");
     }
+  });
+
+  it("flags scoped implementation as feature_impl, routed to the worker (Lever A)", () => {
+    for (const p of [
+      "add a --json flag to the status command",
+      "implement the validate() handler",
+      "wire the drainer into the daemon loop",
+      "expose the headroom number on the economy line",
+      "create a metrics endpoint for the dashboard",
+    ]) {
+      const v = classifyDelegable(p);
+      expect(v.class, p).toBe("feature_impl");
+      expect(v.delegable, p).toBe(true);
+    }
+  });
+
+  it("hard-reasoning veto keeps a constructive verb + design word on the senior", () => {
+    // "implement" is a feature_impl signal, but "algorithm" vetoes it to none.
+    expect(classifyDelegable("implement a ranking algorithm").class).toBe(
+      "none"
+    );
+    // The veto is scoped to feature_impl — a mechanical rename still classifies.
+    expect(classifyDelegable("rename ArchitectureMap to GraphMap").class).toBe(
+      "mechanical_refactor"
+    );
+  });
+
+  it("a narrow write-class still outranks feature_impl", () => {
+    // "add tests" is tests, not feature_impl, even though "add " is a feature verb.
+    expect(classifyDelegable("add tests for the router").class).toBe("tests");
+    // "add a docstring" is docs.
+    expect(classifyDelegable("add a docstring to setFlag").class).toBe("docs");
   });
 
   it("test precedence wins over an incidental lint mention", () => {

@@ -21,6 +21,7 @@
  * replaces them with deterministic aggregation.
  */
 
+import { createYieldGate, maybeYield } from "../../utils/index-yield.js";
 import type { AnnotationDb, AnnotationSource } from "./annotation-indexer.js";
 import { upsertAnnotations } from "./annotation-indexer.js";
 
@@ -182,7 +183,9 @@ export async function propagateLabels(db: AnnotationDb): Promise<number> {
   // Phase 1 — within-community seeding. A structural community is a strong
   // prior that members share a domain: every untagged member inherits the
   // community's confidence-weighted dominant tag at the base confidence.
+  const phase1Gate = createYieldGate();
   for (const members of byCommunity.values()) {
+    await maybeYield(phase1Gate);
     const votes = new Map<string, number>();
     for (const key of members) {
       const seed = seeds.get(key);
@@ -208,6 +211,7 @@ export async function propagateLabels(db: AnnotationDb): Promise<number> {
 
   let hop = 1;
   let conf = PROPAGATION_BASE;
+  const bfsGate = createYieldGate();
   while (conf >= PROPAGATION_FLOOR && frontier.length > 0) {
     // Determinism: process the frontier in a stable key order.
     frontier.sort(
@@ -215,6 +219,7 @@ export async function propagateLabels(db: AnnotationDb): Promise<number> {
     );
     const reached = new Map<string, Set<string>>();
     for (const { key, domain } of frontier) {
+      await maybeYield(bfsGate);
       const neighbors = adjacency.get(key);
       if (!neighbors) continue;
       for (const nb of neighbors) {
@@ -240,7 +245,9 @@ export async function propagateLabels(db: AnnotationDb): Promise<number> {
   // Resolve each untagged entity to its single best candidate.
   const propagatedSource: AnnotationSource = "propagated";
   const rows = [];
+  const resolveGate = createYieldGate();
   for (const key of allKeys) {
+    await maybeYield(resolveGate);
     const m = candidates.get(key);
     if (!m) continue;
     let domain = "";
@@ -292,7 +299,9 @@ export async function computeCommunityDomains(
   ]);
 
   const result: CommunityDomainRow[] = [];
+  const communityGate = createYieldGate();
   for (const [community, members] of byCommunity) {
+    await maybeYield(communityGate);
     const votes = new Map<string, number>();
     let tagged = 0;
     for (const key of members) {

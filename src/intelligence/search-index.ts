@@ -8,6 +8,7 @@
  * Pre-computes IDF weights during buildSearchIndex() for O(1) lookup at query time.
  */
 
+import { createYieldGate, maybeYield } from "../utils/index-yield.js";
 import type { CozoDb } from "./cozo-schema.js";
 
 /**
@@ -91,7 +92,9 @@ export async function buildSearchIndex(db: CozoDb): Promise<void> {
   // Collect (token, entity_key) rows for one chunked bulk :put instead of one
   // commit per pair — see bulkPut / PUT_CHUNK above for the WAL-bloat rationale.
   const tokenRows: unknown[][] = [];
+  const yieldGate = createYieldGate();
   for (const row of result.rows) {
+    await maybeYield(yieldGate);
     const [key, name] = row as [string, string];
     const tokens = tokenize(name);
     for (const token of tokens) {
