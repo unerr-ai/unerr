@@ -344,6 +344,102 @@ async function handleUnerrRecallNotesProxy(
   }
 }
 
+// ── Cap A-2: symptom retrieval — trace recall handler ─────────────────────────
+
+/**
+ * Extract file-path and identifier anchor candidates from a raw prompt string.
+ * Used to populate anchorHints for the code-anchor boost in recallTracesBySymptom.
+ */
+function extractAnchorHints(prompt: string): string[] {
+  const hints: string[] = [];
+  // File paths (src/...ts, src/...js, etc.)
+  const fileRe = /(?:^|\s)(src\/[^\s<>'"]+(?:\.ts|\.js|\.mjs))/gm;
+  for (const m of prompt.matchAll(fileRe)) {
+    if (m[1]) hints.push(m[1]);
+  }
+  // CamelCase / PascalCase identifiers (likely entity keys)
+  const identRe = /\b([A-Z][a-z]+(?:[A-Z][a-z]+)+|[a-z]+(?:[A-Z][a-z]+)+)\b/g;
+  for (const m of prompt.matchAll(identRe)) {
+    if (m[1]) hints.push(m[1]);
+  }
+  return hints;
+}
+
+/**
+ * Handle `unerr_recall_traces` tool calls from the hook subprocess (Cap A-2).
+ * Tokenizes the prompt, runs TF-IDF ranked symptom retrieval against the
+ * timeline store, and returns the top traces as plain JSON. Degrades silently
+ * to an empty list when the timeline or fact store is unavailable.
+ */
+async function handleUnerrRecallTracesProxy(
+  args: Record<string, unknown>,
+  unerrDir: string,
+  timelineStore:
+    | import("../timeline/timeline-store.js").CozoTimelineStore
+    | null
+    | undefined,
+  onRecalled?: (count: number) => void
+): Promise<{
+  content: Array<{ type: string; text: string }>;
+  isError?: boolean;
+}> {
+  const empty = {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({ ok: true, data: { traces: [] } }),
+      },
+    ],
+  };
+  if (!timelineStore) return empty;
+
+  const factStore = await getProxyFactStore(unerrDir);
+  if (!factStore) return empty;
+
+  const prompt = typeof args.prompt === "string" ? args.prompt : "";
+  if (!prompt) return empty;
+
+  const rawLimit = args.limit;
+  const limit =
+    typeof rawLimit === "number" ? Math.max(1, Math.min(rawLimit, 5)) : 3;
+
+  try {
+    const { tokenize } = await import("../intelligence/search-index.js");
+    const tokens = tokenize(prompt);
+    const anchorHints = extractAnchorHints(prompt);
+    const traces = await factStore.recallTracesBySymptom(
+      tokens,
+      timelineStore,
+      limit,
+      anchorHints
+    );
+    if (Array.isArray(traces) && traces.length > 0) {
+      try {
+        onRecalled?.(traces.length);
+      } catch {
+        /* best effort — reporting must never fail the recall */
+      }
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ ok: true, data: { traces } }),
+        },
+      ],
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[unerr] unerr_recall_traces failed: ${msg}\n`);
+    return {
+      content: [
+        { type: "text", text: JSON.stringify({ ok: false, error: msg }) },
+      ],
+      isError: true,
+    };
+  }
+}
+
 async function handleUnerrRememberNotePath(
   args: Record<string, unknown>,
   unerrDir: string,
@@ -2524,9 +2620,36 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       process.stderr.write(
         `[unerr] tools/call validation failed for ${name}: ${JSON.stringify(validationFailure)}\n`
       );
+      // Fire post-tool behaviors on the failing call so the loop detector can
+      // count repeated bad-arg failures and emit a redirect at threshold.
+      // Tool calls that execute and return isError:true already reach
+      // firePostToolUse at ~line 3280 — validation failures returned before
+      // that point, so this fires exactly once per failure (no double-count).
+      const valErrText = JSON.stringify(validationFailure);
+      const valPostCtx = {
+        toolName: name,
+        args,
+        sessionId: shadowLedger.getSessionId(),
+        entityKey: (args.key as string) ?? (args.entity as string) ?? undefined,
+        filePath:
+          (args.path as string) ??
+          (args.file_path as string) ??
+          (args.file as string) ??
+          undefined,
+        result: {
+          isError: true,
+          content: [{ type: "text", text: valErrText }],
+        },
+      };
+      const valPostOutput =
+        await behaviorDispatcher.firePostToolUse(valPostCtx);
       return {
-        content: [{ type: "text", text: JSON.stringify(validationFailure) }],
+        content: [{ type: "text", text: valErrText }],
         isError: true,
+        ...(valPostOutput?._context
+          ? { _context: valPostOutput._context }
+          : {}),
+        ...(valPostOutput?._meta ? { _meta: valPostOutput._meta } : {}),
       };
     }
 
@@ -2655,6 +2778,29 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         behaviorEventWriter,
         sessionTurnProvider(),
         federateRecall
+      );
+    }
+
+    // ── Cap A-2: symptom retrieval (trace recall) ──
+    if (name === "unerr_recall_traces") {
+      return handleUnerrRecallTracesProxy(
+        args,
+        unerrDirForLedger,
+        timelineHandle?.store,
+        // Cap A reporting: record one `trace_recalled` per recall that surfaced
+        // ≥1 past incident, so the receipt's Remembered recap credits the reuse.
+        (count: number) => {
+          behaviorEventWriter.record({
+            session_id: sessionIdentity.sessionId,
+            native_session_id: sessionIdentity.nativeSessionId,
+            turn: stats.toolCallsLocal + 1,
+            type: "trace_recalled",
+            tool: "unerr_recall_traces",
+            entity_key: null,
+            response_bytes: null,
+            detail: { count },
+          });
+        }
       );
     }
 
@@ -3192,6 +3338,33 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         contextPayload = { ...contextPayload, ...preOutput._context };
       }
       if (preOutput._meta) Object.assign(meta, preOutput._meta);
+      // Cap B reporting: the loop-breaker's pre-trip redirect (halt:false) is
+      // the only non-halting preOutput that carries a circuit_breaker block.
+      // Record it as a `loop_redirect` behavior event so the receipt's
+      // Flagged/Prevented recap surfaces the soft nudge — distinct from the
+      // hard `loop_broken` the circuit trip records in QueryRouter.
+      const cb = (preOutput._meta as Record<string, unknown> | undefined)
+        ?.circuit_breaker as
+        | { entity?: string; attempts?: number; message?: string }
+        | undefined;
+      if (preOutput.behaviorId === "loop_circuit_breaker" && cb) {
+        behaviorEventWriter.record({
+          session_id: sessionIdentity.sessionId,
+          native_session_id: sessionIdentity.nativeSessionId,
+          turn: stats.toolCallsLocal + 1,
+          type: "loop_redirect",
+          tool: name,
+          entity_key: cb.entity ?? behaviorCtx.entityKey ?? null,
+          response_bytes: null,
+          detail: {
+            policy: "loop_breaker",
+            action: "redirected",
+            attempts: cb.attempts ?? 0,
+            ...(cb.entity ? { target_entity: cb.entity } : {}),
+            ...(typeof cb.message === "string" ? { reason: cb.message } : {}),
+          },
+        });
+      }
     }
     if (postOutput?._context) {
       contextPayload = { ...contextPayload, ...postOutput._context };

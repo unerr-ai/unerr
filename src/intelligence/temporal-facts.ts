@@ -18,6 +18,10 @@
  */
 
 import { randomUUID } from "node:crypto";
+import type {
+  CozoTimelineStore,
+  TraceRow,
+} from "../timeline/timeline-store.js";
 import type { CozoDb } from "./cozo-schema.js";
 import { initFactsSchema, openFactsDb } from "./facts-schema.js";
 
@@ -1045,5 +1049,74 @@ export class TemporalFactStore {
       }
     }
     return { source_quote: quote, applies_to: [...targets] };
+  }
+
+  /**
+   * Recall trajectory traces ranked by TF-IDF token overlap against the query
+   * tokens, with an optional code-anchor boost when the prompt's target files or
+   * entities match a trace's anchor field. Drops weak matches below a relevance
+   * floor so only load-bearing past incidents reach the injection budget.
+   * @sem domain=intelligence
+   */
+  async recallTracesBySymptom(
+    tokens: string[],
+    timelineStore: CozoTimelineStore,
+    limit = 3,
+    anchorHints?: string[]
+  ): Promise<TraceRow[]> {
+    if (tokens.length === 0) return [];
+
+    // IDF denominator: total trace count
+    const N = await timelineStore.countTraces();
+    if (N === 0) return [];
+
+    // Per-token: look up matching trace IDs, compute idf, accumulate score.
+    // score(d) = Σ_t idf(t)  for each query token t present in trace d.
+    // idf(t)   = log((N+1) / (df(t)+1))  — Laplace smoothing avoids log(0).
+    const scores = new Map<string, number>(); // trace_id → accumulated score
+    for (const token of tokens) {
+      const matchingIds = await timelineStore.getTracesForToken(token);
+      if (matchingIds.length === 0) continue;
+      const df = matchingIds.length;
+      const idf = Math.log((N + 1) / (df + 1));
+      for (const traceId of matchingIds) {
+        scores.set(traceId, (scores.get(traceId) ?? 0) + idf);
+      }
+    }
+    if (scores.size === 0) return [];
+
+    // Fetch trace rows for all candidates in one batch
+    const byId = await timelineStore.getTracesByIds([...scores.keys()]);
+
+    // Anchor boost + relevance floor
+    const RELEVANCE_FLOOR = 0.1;
+    const ANCHOR_BOOST = 0.5;
+    const hintSet = new Set(anchorHints ?? []);
+
+    const scored: Array<{ trace: TraceRow; score: number }> = [];
+    for (const [traceId, baseScore] of scores) {
+      if (baseScore < RELEVANCE_FLOOR) continue;
+      const trace = byId.get(traceId);
+      if (!trace) continue;
+      let score = baseScore;
+      // Boost when any prompt anchor hint overlaps the trace's anchor field
+      if (hintSet.size > 0 && trace.anchor) {
+        for (const hint of hintSet) {
+          if (
+            trace.anchor === hint ||
+            trace.anchor.includes(hint) ||
+            hint.includes(trace.anchor)
+          ) {
+            score += ANCHOR_BOOST;
+            break;
+          }
+        }
+      }
+      scored.push({ trace, score });
+    }
+
+    // Descending by score, top-K
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit).map((s) => s.trace);
   }
 }

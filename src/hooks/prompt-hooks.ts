@@ -20,7 +20,11 @@ import {
 import { selectLoadBearing } from "../intelligence/note-ranking.js";
 import { classifyInjectionTier } from "../intelligence/task-size.js";
 import { consumeAnyPendingTopicShift } from "../intelligence/topic-shift.js";
-import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
+import {
+  readNudgeState,
+  resetOneShotsOnNewConversation,
+  updateNudgeState,
+} from "../proxy/nudge-state.js";
 import { recordPrefixStability } from "../proxy/prefix-stability.js";
 import { juniorHandoff } from "../skills/junior-agent.js";
 import { OPT_IN_SKILLS, isOptInSkill } from "../skills/local-pack.js";
@@ -46,7 +50,12 @@ import {
   readProxySessionId,
   recordUserPromptReceived,
 } from "./prompt-capture.js";
-import { queryRecallNotes, renderRecallBlock } from "./recall-client.js";
+import {
+  type RecalledTrace,
+  queryRecallNotes,
+  queryRecallTraces,
+  renderRecallBlock,
+} from "./recall-client.js";
 import { captureUserRule, detectUserRule } from "./remember-client.js";
 
 // ── Path A: keyword fast path — verb clusters → named sub-skills ─────────────
@@ -183,6 +192,28 @@ export const TASK_VERBS_CODE =
  *  false positive cheap (one line, not per-turn), so a loose match is acceptable. */
 const BUILD_INTENT_RE =
   /\b(build|create|implement|scaffold|develop)\b|\b(set|wire)[ -]?up\b|\bmake\b[^.?!]{0,40}\bwork(?:ing)?\b|\bget\b[^.?!]{0,40}\bworking\b|\bnew\s+(feature|endpoint|component|page|service|module|integration)\b/i;
+
+/** Coarse "this prompt implies multiple independent slices" signal — gates the
+ *  stronger plan-into-tracker nudge so a single-slice fix never draws a
+ *  5-task-tracker demand (the over-fire that trains ignore-behavior). Fires on
+ *  broad-scope verbs (refactor/migrate/audit/rewrite/restructure/consolidate/
+ *  overhaul), breadth phrasing (across the codebase / every / all callers /
+ *  all these / these changes|tasks|files), or an explicit enumerated list. */
+export const MULTI_SLICE_RE =
+  /\b(refactor|migrate|audit|rewrite|restructure|consolidate|overhaul)\b|\b(across|throughout)\b[^.?!]{0,30}\b(codebase|repo|project|files?)\b|\b(every|all)\b[^.?!]{0,20}\b(callers?|files?|usages?|sites?|modules?)\b|\ball\s+(these|the|of\s+these)\b|\bthese\s+(changes|tasks|files|slices|edits)\b/i;
+
+/** True when the prompt looks like it decomposes into several independent
+ *  slices — a build/create/implement intent OR a multi-slice signal OR an
+ *  enumerated list (2+ newline bullets or "1. ... 2. ..." markers). */
+export function isMultiSlice(prompt: string): boolean {
+  const t = prompt.trim();
+  if (t.length < 20) return false;
+  if (MULTI_SLICE_RE.test(t) || BUILD_INTENT_RE.test(t)) return true;
+  // Enumerated list: 2+ "- " / "* " bullets, or "1." "2." ordinal markers.
+  const bullets = (t.match(/^\s*[-*]\s+/gm) ?? []).length;
+  const ordinals = (t.match(/(?:^|\s)\d+[.)]\s+/g) ?? []).length;
+  return bullets >= 2 || ordinals >= 2;
+}
 
 /** Unified classification result. */
 export interface PromptClassification {
@@ -364,8 +395,22 @@ function isClusterSkillInstalled(
  *  shell-command runs) the agent tends to do itself on the main thread. This
  *  points the agent at decomposing and handing those slices to sub-agents for
  *  better performance. Imperative, names the sub-agents, no hedge verbs, no cost
- *  framing. */
-function buildDecomposeDelegateLine(): string {
+ *  framing.
+ *
+ *  Planner mode: on a MULTI-SLICE turn on a task-tracker-capable host
+ *  (claude-code), returns the stronger plan-into-tracker command — externalize
+ *  the plan into the built-in task tracker (TaskCreate one task per slice)
+ *  BEFORE fanning out, then complete/clear the tracker at turn end. The tracker
+ *  is the forcing function that turns an in-head plan into concrete, assignable,
+ *  closeable slices; without it delegation stays a one-off. Single-slice work or
+ *  a host with no tracker keeps the lighter fan-out line. */
+function buildDecomposeDelegateLine(opts: {
+  multiSlice: boolean;
+  trackerCapable: boolean;
+}): string {
+  if (opts.multiSlice && opts.trackerCapable) {
+    return "ur|act plan-then-track — multi-slice task: before editing, (1) split the work into independent slices, (2) TaskCreate one task per slice, (3) TaskUpdate each to in_progress+owner and launch one Task subagent_type:'unerr-worker'/'unerr-junior' per slice in ONE message (parallel, disjoint files) — keep design/wiring/root-cause on the main thread, (4) review each diff, TaskUpdate completed, then clear the tracker at turn end.";
+  }
   return "ur|act delegate-slices — delegation is the default execution mode, not a one-off: on every substantive turn, plan the change then fan out one unerr sub-agent per independent slice in parallel — use as many as the work has slices, no fixed cap — Task subagent_type:'unerr-worker' (tests, multi-site refactor, caller/import propagation, typecheck/build-error fixes, scaffold) / 'unerr-junior' (lint/format, docstrings/@sem, read-only recon, verify-runs, shell-command runs) — keeping design + wiring + root-cause on the main thread, then review and integrate each diff.";
 }
 
@@ -556,6 +601,22 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // Skip for very short messages (likely confirmations like "yes", "ok", "continue")
   if (message.length < 10) return passthrough();
 
+  // Re-arm conversation-scoped one-shot nudges when the agent starts a NEW
+  // conversation. The nudge flags file is keyed on the long-lived proxy session
+  // id (one proxy serves many conversations), so without this every "once per
+  // session" reminder — including the mark_intent line that drives `unerr-save:`
+  // emission — fires once per proxy lifetime and then goes silent for every
+  // later conversation. Idempotent within a conversation (no-op when the native
+  // id is unchanged). Never blocks the hook.
+  try {
+    resetOneShotsOnNewConversation(
+      process.cwd(),
+      normalized.nativeSessionId ?? null
+    );
+  } catch {
+    /* never block the hook */
+  }
+
   // Fix J — verbatim prompt capture against {session_id, turn}. Best-effort,
   // never blocks. Honours `capture_prompts` flag in `.unerr/config.json`
   // (default false): operational metadata always written, verbatim content
@@ -704,7 +765,30 @@ const promptSubmitHandler: HookHandler = (normalized) => {
       // not once per session — to keep sub-agents fanning out per turn. The
       // line is tail-appended additionalContext (cache-safe), so per-turn firing
       // adds no prefix-cache cost.
-      buildDecomposeLine = buildDecomposeDelegateLine();
+      // Planner mode: a multi-slice turn on a task-tracker-capable host
+      // (claude-code) gets the stronger plan-into-tracker command; single-slice
+      // work or a host with no tracker keeps the lighter fan-out line.
+      const trackerCapable = normalized.agentName === "claude-code";
+      const multiSlice = isMultiSlice(message);
+      buildDecomposeLine = buildDecomposeDelegateLine({
+        multiSlice,
+        trackerCapable,
+      });
+      // Arm the planner-mode leak/telemetry flags only when the tracker variant
+      // fired — the Stop hook reads tracker_open_pending to emit the
+      // complete/clear-the-tracker close-out reminder once per opening.
+      // Best-effort, mirrors the delegable_nudge_pending arming above; never
+      // blocks the hook.
+      if (multiSlice && trackerCapable) {
+        try {
+          updateNudgeState(process.cwd(), (s) => {
+            s.tracker_open_pending = true;
+            s.tracker_nudge_emitted_count += 1;
+          });
+        } catch {
+          /* best effort */
+        }
+      }
     }
   } catch {
     // fail-open — no build nudge, normal routing stands
@@ -902,6 +986,46 @@ export function runUserPromptSubmitHook(stdinJson: string): string {
   return runPromptSubmitHook(stdinJson, promptSubmitHandler);
 }
 
+// ── Cap A-2: trace injection helpers ─────────────────────────────────────────
+
+const MAX_SITUATION_LEN = 60;
+const MAX_UNLOCK_LEN = 60;
+
+/**
+ * Format one recalled trace as a single ur|fct advisory line per the nudge
+ * rules: imperative prefix, named anchor, real values, truncated long fields.
+ */
+function formatTraceLine(t: RecalledTrace): string {
+  const situation =
+    t.situation.length > MAX_SITUATION_LEN
+      ? `${t.situation.slice(0, MAX_SITUATION_LEN - 1)}…`
+      : t.situation;
+
+  let deadEndsPart = "";
+  if (t.dead_ends) {
+    try {
+      const arr = JSON.parse(t.dead_ends) as string[];
+      const parts = arr
+        .slice(0, 2)
+        .map((d) => d.split("/").pop() ?? d)
+        .filter(Boolean);
+      if (parts.length > 0) deadEndsPart = ` · dead ends: ${parts.join(", ")}`;
+    } catch {
+      const trimmed = t.dead_ends.slice(0, 40);
+      deadEndsPart = ` · dead ends: ${trimmed}`;
+    }
+  }
+
+  const unlock =
+    t.unlock.length > MAX_UNLOCK_LEN
+      ? `${t.unlock.slice(0, MAX_UNLOCK_LEN - 1)}…`
+      : t.unlock;
+
+  const anchorPart = t.anchor ? ` (e:${t.anchor})` : "";
+
+  return `ur|fct past incident — symptom: ${situation}${deadEndsPart} · fix: ${unlock}${anchorPart}`;
+}
+
 /**
  * Recall-injecting prompt-submit handler (Phase-2 Sprint 7).
  *
@@ -972,32 +1096,46 @@ const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
     // best-effort; never block the hook
   }
 
+  // Cap A-2 trace budget: skip→0, focused→1, broad→up-to-3.
+  // ur|fct lines are advisory and do NOT count toward the 5-line act cap.
+  const traceMax = !decision.inject ? 0 : decision.tier === "focused" ? 1 : 3;
+
   try {
-    const [notes] = await Promise.all([
+    const [notes, , traces] = await Promise.all([
       queryRecallNotes(message),
       capturePromise,
+      (traceMax > 0
+        ? queryRecallTraces(message, traceMax)
+        : Promise.resolve(null)
+      ).catch(() => null),
     ]);
-    if (notes && notes.length > 0) {
-      // W2/W5 — inject only the load-bearing top slice per turn, not every
-      // matched note. The proxy returns all anchored-note matches; re-injecting
-      // the full set each turn re-bills uncacheable tokens for notes the turn
-      // won't act on. Rank by load-bearing score (kind/anchor/polarity/prompt
-      // overlap) and keep decision.noteMax; the rest stay reachable via
-      // a task-shaped search_code query, which the moment-1 line already points the agent to.
-      const topNotes = selectLoadBearing(notes, {
-        prompt: message,
-        max: decision.noteMax,
-      });
-      const block = renderRecallBlock(topNotes);
-      if (block) {
-        // The recall bodies are volatile, so APPEND them to the tail of the
-        // already-ordered block (whose stable head the sync handler emitted +
-        // recorded). The Moment-1 pointer stays in the stable head — it reads
-        // "notes shown for this prompt", true whether they sit above or below —
-        // so the cacheable head is unchanged turn to turn. No re-record here:
-        // sync already recorded the head.
-        return enrich(`${base.message}\n${block}`);
-      }
+
+    // W2/W5 — inject only the load-bearing top slice per turn, not every
+    // matched note. The proxy returns all anchored-note matches; re-injecting
+    // the full set each turn re-bills uncacheable tokens for notes the turn
+    // won't act on. Rank by load-bearing score (kind/anchor/polarity/prompt
+    // overlap) and keep decision.noteMax; the rest stay reachable via
+    // a task-shaped search_code query, which the moment-1 line already points the agent to.
+    const topNotes =
+      notes && notes.length > 0
+        ? selectLoadBearing(notes, { prompt: message, max: decision.noteMax })
+        : [];
+    // The recall bodies are volatile, so APPEND them to the tail of the
+    // already-ordered block (whose stable head the sync handler emitted +
+    // recorded). The Moment-1 pointer stays in the stable head — it reads
+    // "notes shown for this prompt", true whether they sit above or below —
+    // so the cacheable head is unchanged turn to turn.
+    const notesBlock = renderRecallBlock(topNotes);
+    const traceLines =
+      traces && traces.length > 0
+        ? traces.map(formatTraceLine).join("\n")
+        : null;
+
+    if (notesBlock || traceLines) {
+      const parts: string[] = [base.message];
+      if (notesBlock) parts.push(notesBlock);
+      if (traceLines) parts.push(traceLines);
+      return enrich(parts.join("\n"));
     }
   } catch {
     // recall-client never throws, but stay defensive — fall back to the nudge.

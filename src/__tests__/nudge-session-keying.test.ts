@@ -18,7 +18,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { pinSessionIdEnv, updateNudgeState } from "../proxy/nudge-state.js";
+import {
+  pinSessionIdEnv,
+  readNudgeState,
+  resetOneShotsOnNewConversation,
+  updateNudgeState,
+} from "../proxy/nudge-state.js";
 
 describe("nudge-state session keying — pinSessionIdEnv", () => {
   // Variable-key delete (not `delete process.env.X`) per the repo lint
@@ -97,5 +102,76 @@ describe("nudge-state session keying — pinSessionIdEnv", () => {
       s.exec_nudge_emitted = true;
     });
     expect(flagsFiles()).toEqual([`nudge-pid-${process.pid}.flags`]);
+  });
+});
+
+describe("nudge-state conversation reset — resetOneShotsOnNewConversation", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "unerr-nudge-conv-"));
+    mkdirSync(join(dir, ".unerr", "state"), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("re-arms conversation-scoped one-shots when the native session id changes", () => {
+    // Conversation A fires its one-shots.
+    resetOneShotsOnNewConversation(dir, "conv-A");
+    updateNudgeState(dir, (s) => {
+      s.mark_intent_emitted = true;
+      s.tier0_emitted = true;
+      s.exec_nudge_emitted = true;
+    });
+    expect(readNudgeState(dir).mark_intent_emitted).toBe(true);
+
+    // Conversation B (different native id) re-arms them.
+    resetOneShotsOnNewConversation(dir, "conv-B");
+    const after = readNudgeState(dir);
+    expect(after.mark_intent_emitted).toBe(false);
+    expect(after.tier0_emitted).toBe(false);
+    expect(after.exec_nudge_emitted).toBe(false);
+    expect(after.last_native_session_id).toBe("conv-B");
+  });
+
+  it("does NOT reset one-shots when the same native session id repeats", () => {
+    resetOneShotsOnNewConversation(dir, "conv-A");
+    updateNudgeState(dir, (s) => {
+      s.mark_intent_emitted = true;
+    });
+
+    // Same conversation again — one-shots stay fired (no re-reminder spam).
+    resetOneShotsOnNewConversation(dir, "conv-A");
+    expect(readNudgeState(dir).mark_intent_emitted).toBe(true);
+  });
+
+  it("never resets the persistent telemetry counters", () => {
+    resetOneShotsOnNewConversation(dir, "conv-A");
+    updateNudgeState(dir, (s) => {
+      s.mark_intent_required_count = 51;
+      s.mark_intent_compliant_count = 95;
+      s.mark_intent_emitted = true;
+    });
+
+    resetOneShotsOnNewConversation(dir, "conv-B");
+    const after = readNudgeState(dir);
+    expect(after.mark_intent_emitted).toBe(false); // one-shot re-armed
+    expect(after.mark_intent_required_count).toBe(51); // counter preserved
+    expect(after.mark_intent_compliant_count).toBe(95); // counter preserved
+  });
+
+  it("is a no-op when nativeSessionId is null or undefined", () => {
+    resetOneShotsOnNewConversation(dir, "conv-A");
+    updateNudgeState(dir, (s) => {
+      s.mark_intent_emitted = true;
+    });
+
+    resetOneShotsOnNewConversation(dir, null);
+    resetOneShotsOnNewConversation(dir, undefined);
+    const after = readNudgeState(dir);
+    expect(after.mark_intent_emitted).toBe(true);
+    expect(after.last_native_session_id).toBe("conv-A");
   });
 });

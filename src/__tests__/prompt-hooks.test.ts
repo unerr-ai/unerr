@@ -20,6 +20,7 @@ import {
   classifyVerbCluster,
   computeCrossSessionStitch,
   isCodeContext,
+  isMultiSlice,
   runUserPromptSubmitHook,
   runUserPromptSubmitHookAsync,
 } from "../hooks/prompt-hooks.js";
@@ -36,6 +37,7 @@ vi.mock("../intelligence/task-size.js", async (importOriginal) => {
 // recall-client.js: mock the UDS network calls
 vi.mock("../hooks/recall-client.js", () => ({
   queryRecallNotes: vi.fn(),
+  queryRecallTraces: vi.fn(() => Promise.resolve([])),
   renderRecallBlock: vi.fn((notes: { length: number }) =>
     notes.length > 0 ? `<!-- recall:${notes.length} -->` : ""
   ),
@@ -353,11 +355,13 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     // Static tail suppressed for claude-code …
     expect(first).not.toContain("available skills");
     expect(first).not.toContain("[unerr] Prefer unerr MCP tools");
-    // … but the non-duplicated per-turn product signals still fire. The 'build'
-    // verb-cluster prompt draws the once-per-session decompose-and-delegate
-    // nudge; unerr-build-and-debug is opt-in (not installed), so it is NOT named.
+    // … but the non-duplicated per-turn product signals still fire. "refactor …"
+    // is a MULTI-SLICE prompt on claude-code (a tracker-capable host), so planner
+    // mode draws the stronger plan-into-tracker variant (not the plain
+    // delegate-slices line); unerr-build-and-debug is opt-in (not installed), so
+    // it is NOT named.
     expect(first).toContain("ur|act");
-    expect(first).toContain("delegate-slices");
+    expect(first).toContain("plan-then-track");
     expect(first).not.toContain("unerr-build-and-debug");
 
     const second = readContext(
@@ -898,5 +902,51 @@ describe("asyncPromptSubmitHandler — injection tier gating", () => {
     );
     expect(readCtx(out)).not.toContain("recall:");
     expect(mockedTier()).not.toHaveBeenCalled();
+  });
+});
+
+// ── Planner mode — isMultiSlice heuristic ────────────────────────────────────
+// Gates the stronger plan-into-tracker nudge (buildDecomposeDelegateLine) so a
+// single-slice fix never draws a tracker demand. buildDecomposeDelegateLine
+// itself is module-private (not exported) — its "plan-then-track" vs
+// "delegate-slices" branch is exercised indirectly via isMultiSlice, the
+// signal it's gated on.
+describe("isMultiSlice — multi-slice task detection", () => {
+  it("true: broad-scope verb + codebase-wide phrasing", () => {
+    expect(
+      isMultiSlice("refactor the auth module across the codebase")
+    ).toBe(true);
+  });
+
+  it("true: 'migrate all' breadth phrasing", () => {
+    expect(isMultiSlice("migrate all callers to the new API")).toBe(true);
+  });
+
+  it("true: 'audit every' breadth phrasing", () => {
+    expect(isMultiSlice("audit every usage of the logger")).toBe(true);
+  });
+
+  it("true: 2+ enumerated bullets", () => {
+    expect(
+      isMultiSlice(
+        "please handle the following:\n- fix module a\n- fix module b"
+      )
+    ).toBe(true);
+  });
+
+  it("true: build/create intent", () => {
+    expect(isMultiSlice("build a new export feature")).toBe(true);
+  });
+
+  it("false: narrow single-line fix", () => {
+    expect(isMultiSlice("fix the typo on line 12")).toBe(false);
+  });
+
+  it("false: empty prompt", () => {
+    expect(isMultiSlice("")).toBe(false);
+  });
+
+  it("false: short single-slice question", () => {
+    expect(isMultiSlice("why does this fail?")).toBe(false);
   });
 });

@@ -22,6 +22,37 @@ import { reviewNotesFromStore } from "./git-review.js";
 import type { ReviewNotes } from "./types.js";
 
 /**
+ * Exit a standalone review CLI (`check-commit` / `unerr review`) promptly once
+ * its work is done.
+ *
+ * These leaf commands load the CozoDB graph + facts store, and cozo-node's
+ * native runtime keeps the Node event loop alive for ~60s AFTER the command has
+ * finished its synchronous work — closing the CozoDb JS handle does NOT release
+ * the native thread pool in time (measured: ~66s to exit either way, ~4s with
+ * an explicit exit). There is no JS `unref` for that native handle, so a leaf
+ * command whose entire job is to print a verdict and set an exit code must exit
+ * itself rather than wait out the keepalive.
+ *
+ * Flushes stdout then stderr before exiting so the findings output is never
+ * truncated on a pipe (the git pre-commit hook reads this on a pipe, not a TTY).
+ *
+ * @sem domain=infrastructure role=policy
+ */
+export function exitStandaloneReview(code: number): void {
+  // Under vitest the command action is driven through Commander in-process; a
+  // real `process.exit` would tear down the test worker. The native-keepalive
+  // it defeats only exists in a standalone CLI process, so skip the exit here
+  // and let the test own its own lifecycle (the exit code is already set).
+  if (process.env.VITEST) return;
+  const finish = (): never => process.exit(code);
+  // `write("", cb)` fires cb after the stream's queued output has drained to the
+  // OS; chaining stdout → stderr → exit guarantees both buffers flush first.
+  process.stdout.write("", () => {
+    process.stderr.write("", finish);
+  });
+}
+
+/**
  * Load the CozoDB graph for a standalone review (proxy may not be running).
  * Confirms the repo is unerr-indexed via `.unerr/config.json`'s `repoId`, then
  * loads the canonical on-disk snapshot. Returns `null` (review degrades to

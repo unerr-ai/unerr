@@ -48,6 +48,12 @@ export interface MarkerSave {
   kind: "marker";
   op: "intent" | "decision" | "blocker" | "resolution";
   text: string;
+  /**
+   * Resolution-only: agent-refined dead-ends that override the auto-derived
+   * list. Parsed from `| dead_ends:<comma-csv>` suffix on a resolution line.
+   * Absent means use the auto-derived value from the ledger span.
+   */
+  refinedDeadEnds?: string[];
 }
 
 export type SentinelSave = NoteSave | MarkerSave;
@@ -91,10 +97,29 @@ export function parseSentinelBody(body: string): SentinelSave | null {
   if (head === "note") return rest.length > 0 ? parseNoteWire(rest) : null;
 
   // Marker form: "<op> <free text>".
+  // For `resolution`, an optional ` | dead_ends:<csv>` suffix lets the agent
+  // refine the auto-derived dead-ends list (default = ledger-span derivation).
   if (MARKER_OPS.has(head)) {
-    return rest.length > 0
-      ? { kind: "marker", op: head as MarkerSave["op"], text: rest }
-      : null;
+    if (rest.length === 0) return null;
+    if (head === "resolution") {
+      const DEAD_ENDS_MARK = " | dead_ends:";
+      const pipeIdx = rest.indexOf(DEAD_ENDS_MARK);
+      if (pipeIdx !== -1) {
+        const unlockText = rest.slice(0, pipeIdx).trim();
+        const deadEndsStr = rest.slice(pipeIdx + DEAD_ENDS_MARK.length).trim();
+        const refinedDeadEnds = deadEndsStr
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        return {
+          kind: "marker",
+          op: "resolution",
+          text: unlockText.length > 0 ? unlockText : rest,
+          ...(refinedDeadEnds.length > 0 ? { refinedDeadEnds } : {}),
+        };
+      }
+    }
+    return { kind: "marker", op: head as MarkerSave["op"], text: rest };
   }
 
   // Bare note wire — the documented DSL emit shape `kind|anchor|polarity|content`

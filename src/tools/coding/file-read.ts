@@ -29,6 +29,11 @@ export const fileReadTool: Tool = {
         description:
           "Entity/symbol name — returns that definition ±5 lines context when found",
       },
+      force: {
+        type: "boolean",
+        description:
+          "When true, bypass body dedup and re-read the file even if its content was recently delivered. Use when context was lost to harness compaction.",
+      },
     },
     required: ["file_path"],
   },

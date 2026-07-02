@@ -19,6 +19,7 @@
  * agents into failed-call retry loops (raised 2026-05).
  */
 
+import { randomUUID } from "node:crypto";
 import { emit } from "../../events/enqueue.js";
 import {
   parseBatchCallIntent,
@@ -26,6 +27,7 @@ import {
   parseDelegationIntent,
   tierForDelegationClass,
 } from "../../intelligence/delegation.js";
+import { tokenize } from "../../intelligence/search-index.js";
 import { updateNudgeState } from "../../proxy/nudge-state.js";
 import type { CozoTimelineStore } from "../../timeline/timeline-store.js";
 import type { BehaviorEventInput } from "../../tracking/behavior-events.js";
@@ -180,6 +182,33 @@ export async function handleMarkerCall(
     // Continue: ledger row already persisted, miners can still recover from it.
   }
 
+  // Cap A-1: synthesize a trajectory trace when a blocker is resolved.
+  // Fire-and-forget; a failure here never fails the marker call.
+  // Use the validated raw `blockerRef` (not `redactedBlockerRef`) because
+  // the blocker_ref is a system-generated 12-hex marker ID, not user content.
+  // The ledger args_summary roundtrip is intentional for `text`/`file_path`
+  // (which can contain secrets), but running a marker ID through the redactor
+  // creates an invisible failure mode: if a future regex ever matches a hex
+  // string, redactedBlockerRef would differ from the stored marker_id,
+  // getMarkerById would return null, and synthesizeTrace would exit silently
+  // with no WARN and no trace row — exactly the live symptom observed.
+  if (toolName === "mark_resolution" && blockerRef.length > 0) {
+    synthesizeTrace(
+      blockerRef,
+      redactedText,
+      entry.id,
+      entry.session_id,
+      Date.parse(entry.ts),
+      deps.ledger,
+      deps.store,
+      deps.behaviorWriter
+    ).catch((err: unknown) => {
+      process.stderr.write(
+        `[unerr:trace] WARN: synthesizeTrace failed: ${err instanceof Error ? err.message : String(err)}\n`
+      );
+    });
+  }
+
   // L1 — mirror the marker into the unified per-repo event store as one
   // contract-shaped `timeline` event so `unerrd` drains it to the cloud. The
   // marker kind is the tool name without its `mark_` prefix (intent/decision/
@@ -298,4 +327,93 @@ function errorResult(msg: string): MarkerCallResult {
       },
     ],
   };
+}
+
+/**
+ * Synthesize and persist a trajectory trace when a blocker is resolved. Derives
+ * dead_ends from the ledger span between the blocker and resolution entries so
+ * the agent pays zero extra cost — the data is already recorded.
+ * @sem domain=intelligence
+ */
+async function synthesizeTrace(
+  blockerRef: string,
+  unlockText: string,
+  resolutionEntryId: string,
+  sessionId: string,
+  resolvedAt: number,
+  ledger: ShadowLedger,
+  store: CozoTimelineStore,
+  behaviorWriter?: { record(input: BehaviorEventInput): void }
+): Promise<void> {
+  // Look up the blocker marker for situation text + code anchor.
+  const blockerMarker = await store.getMarkerById(blockerRef);
+  if (!blockerMarker) {
+    // Observability (Fix A3): this stop used to be silent, which made a capture
+    // regression look identical to "no past incidents". Log the skipped trace so
+    // a future getMarkerById miss is caught immediately instead of hours later.
+    process.stderr.write(
+      `[unerr:trace] WARN: blocker ${blockerRef} not found — trace skipped\n`
+    );
+    return;
+  }
+
+  const situation = blockerMarker.text;
+  const anchor = blockerMarker.file_path;
+
+  // Extract dead_ends from ledger entries between blocker and resolution.
+  // Use the in-memory buffer (last 100 entries) — sufficient for normal spans.
+  const allEntries = ledger.getRecentEntries(100);
+  const blockerIdx = allEntries.findIndex((e) => e.id === blockerRef);
+  const spanEntries = blockerIdx === -1 ? [] : allEntries.slice(blockerIdx + 1);
+
+  const touched = new Set<string>();
+  for (const e of spanEntries) {
+    if (e.id === resolutionEntryId) continue; // exclude the resolution itself
+    const summary = e.args_summary as Record<string, unknown>;
+    const fp = summary?.file_path;
+    if (typeof fp === "string" && fp.length > 0) touched.add(fp);
+    const ek = summary?.entity ?? summary?.key;
+    if (typeof ek === "string" && ek.length > 0) touched.add(ek);
+  }
+  // The anchor is the resolved location — not a dead end.
+  if (anchor.length > 0) touched.delete(anchor);
+  const deadEnds = [...touched];
+
+  // Tokenize the situation for symptom-match retrieval.
+  // Reuses search-index tokenize (the same function that builds search_tokens).
+  const tokens = tokenize(situation);
+
+  // Persist trace + inverted token index.
+  const traceId = randomUUID();
+  await store.insertTrace({
+    trace_id: traceId,
+    situation,
+    dead_ends: JSON.stringify(deadEnds),
+    unlock: unlockText,
+    anchor,
+    session_id: sessionId,
+    resolved_at: resolvedAt,
+  });
+  await store.insertTraceTokens(traceId, tokens);
+
+  // Cap A reporting: surface the capture so the receipt's Remembered recap
+  // shows a trajectory trace was stored this session. Best-effort — a writer
+  // failure never fails trace persistence.
+  try {
+    behaviorWriter?.record({
+      session_id: sessionId,
+      native_session_id: null,
+      tool_use_id: null,
+      type: "trace_captured",
+      tool: "mark_resolution",
+      entity_key: anchor.length > 0 ? anchor : null,
+      response_bytes: null,
+      detail: {
+        dead_ends: deadEnds.length,
+        ...(anchor.length > 0 ? { anchor } : {}),
+      },
+    });
+  } catch {
+    /* best effort */
+  }
 }

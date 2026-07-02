@@ -222,6 +222,26 @@ export function detectSerializedByMasterLeak(
 }
 
 /**
+ * Planner-mode close-out — when the prompt hook opened the task tracker this
+ * turn (tracker_open_pending set), return a reminder to mark finished tasks
+ * completed and clear stale ones, then disarm the flag so it fires at most once
+ * per opening. Master-only (a sub-agent shares cwd and would false-clear it).
+ * Best-effort — returns "" on any error.
+ */
+export function buildTrackerCloseReminder(cwd: string): string {
+  try {
+    if (!readNudgeState(cwd).tracker_open_pending) return "";
+    updateNudgeState(cwd, (s) => {
+      s.tracker_open_pending = false;
+      s.tracker_close_reminder_count += 1;
+    });
+    return "ur|act close the tracker — you opened tracker tasks this turn: TaskUpdate every finished task to completed, and delete or complete any stale task, so the list is clean before the turn ends.";
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Stop hook entry. Scrapes + persists any `unerr-save:` sentinels from the
  * closing message, then computes the close-out line for the active session/turn
  * and returns it as a user-facing systemMessage. When the turn has no rich
@@ -242,13 +262,17 @@ export async function runStopHookHandlerAsync(
     // Issue 5 leak — a delegable nudge fired this turn but the master kept the
     // work (no `delegate` marker in the close-out). Best-effort, off the line.
     detectSerializedByMasterLeak(stdinJson, unerrDir);
+    const trackerCloseLine = buildTrackerCloseReminder(process.cwd());
     const resolved = resolveCurrentSessionTurn(unerrDir);
-    if (!resolved)
+    if (!resolved) {
       // No tracked events this turn — confirm unerr ran instead of a silent
       // "{}". No silent passthrough remains in this handler.
-      return runStopHookAsync(stdinJson, async () =>
-        enrich(stopPresenceLine(null))
-      );
+      const presence = stopPresenceLine(null);
+      const presenceMessage = trackerCloseLine
+        ? `${presence}\n${trackerCloseLine}`
+        : presence;
+      return runStopHookAsync(stdinJson, async () => enrich(presenceMessage));
+    }
 
     // Turn-end transcript claim — record only a lightweight pointer (session +
     // turn) to the local queue; the daemon's transcript materializer does the
@@ -279,7 +303,11 @@ export async function runStopHookHandlerAsync(
         ? combined
         : stopPresenceLine(resolved.currentTurn);
 
-    return runStopHookAsync(stdinJson, async () => enrich(message));
+    const finalMessage = trackerCloseLine
+      ? `${message}\n${trackerCloseLine}`
+      : message;
+
+    return runStopHookAsync(stdinJson, async () => enrich(finalMessage));
   } catch {
     // Even on an internal error, prefer a presence line over a silent "{}".
     return runStopHookAsync(stdinJson, async () =>

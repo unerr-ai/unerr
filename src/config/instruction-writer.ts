@@ -100,6 +100,10 @@ Before any non-trivial change, call \`search_code\` with a TASK PHRASE (\`search
 
 Cross-repo (Pro): pass \`scope:'workspace'\` to query every registered sibling repo (results labeled by repo); \`get_references({scope:'workspace'})\` finds callers across repos; editing a path inside a sibling auto-routes to its graph.
 
+### Use the semantic fields — not just the graph
+
+**Use the semantic fields on every returned row, not just the graph.** Each search_code/file_read/callers entity carries \`summary\` (what it does), \`domain\` (code tier), \`role\` (responsibility) next to \`fan_in\`/callers. Read \`summary\` before pulling a body — skip the body read if it answers you. Triage callers by \`domain\`/\`role\`, not raw count — a \`domain:routing\` caller outranks a \`domain:testing\` one. Treat high \`fan_in\` + \`role:entry-point\` as a chokepoint → \`get_references\` before editing.
+
 ### Batch the work — one shot, not file-by-file (round-trips are the cost)
 
 A round-trip carries input + output + latency, so the win is doing N items in one pass, not N passes.
@@ -114,6 +118,8 @@ Treat sub-agents as the primary way work gets done, not an occasional offload. O
 - \`Task({subagent_type:'unerr-junior', …})\` — read-only investigation (find / trace / map X), web research & docs/API/changelog lookup, codebase Q&A (where / which / how), inventory & audit (find-all / list-all usages), log & error-output triage, bug reproduction (run repro, report — no edit), lint/format, docstrings/\`@sem\`, verify-runs (run typecheck + targeted tests + lint, return the failure list — no edits), shell-command runs (run a sequence of build/script/migration/setup commands, report the output).
 - \`Task({subagent_type:'unerr-worker', …})\` — scoped feature implementation from a clear spec (add a flag, wire X into Y, implement a handler — the bulk of ordinary coding), add/improve tests, multi-site mechanical refactor (rename / extract / inline / move), codemods (one bulk find-replace across many files), caller/import propagation (update every call site + import after a signature change), typecheck/build-error fixes (fix tsc/build errors mechanically, re-run until green), scaffold (generate a new file's skeleton from a sibling template).
 Tier by reasoning, not by size: scoped execution — even across many files — stays with the worker. Escalate to the senior only when the change needs novel design judgement (a new algorithm, architecture, or public interface) or root-causing a bug; deterministic mechanical breadth (codemods, caller propagation, renames) stays with the worker regardless of file count.
+
+On a multi-slice task (a build, a broad refactor/migrate/audit, or an enumerated list), plan the work into the built-in task tracker (one task per slice), fan out one \`unerr-worker\`/\`unerr-junior\` sub-agent per slice in parallel via \`Task\`, then complete or clear the tracker at turn end.
 
 Group related work first, then spawn one sub-agent per independent group in a SINGLE message so they run in parallel. The sub-agents have the full graph tools — they re-derive the edit sites from \`search_code\` / \`get_references\`, so give them the task plus a one-line pointer, never pasted code or a list of files. Review each result before building on it. (Hosts without sub-agents — anything other than Claude Code / Codex / Cursor / Copilot CLI — do it inline.)
 

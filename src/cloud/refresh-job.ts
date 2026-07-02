@@ -53,6 +53,13 @@ export interface RefreshJobDeps {
    * the refresh has settled credentials/cache/provenance.
    */
   notifyTransition?: () => void;
+  /**
+   * Called after each scheduled refresh tick settles the entitlement cache, so
+   * the daemon can react to a plan change (e.g. Pro→free) without waiting for
+   * the next idle sweep — used to run the free-tier single-active reconcile.
+   * Never receives the token; must not throw.
+   */
+  onSettled?: () => void;
 }
 
 /**
@@ -206,6 +213,14 @@ export function startEntitlementRefresh(
       result = { status: "done" };
     }
     if (stopped) return;
+    // Cache is settled — let the daemon react to a plan change (Pro→free) now,
+    // before the next idle sweep. Runs on every outcome, revoked included
+    // (revoked drops to free). Never throws into the timer chain.
+    try {
+      deps.onSettled?.();
+    } catch {
+      /* best-effort — a reconcile hook must never break the refresh timer */
+    }
     if (result.status === "revoked") {
       stop();
       return;

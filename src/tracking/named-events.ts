@@ -24,11 +24,53 @@
  */
 
 import {
+  type CatalogedEventKey,
+  EVENT_CATALOG,
+  type EventCatalogEntry,
+} from "@unerr-ai/contracts/events";
+import {
   type BehaviorEventType,
   readBehaviorEvents,
 } from "./behavior-events.js";
 import { openMetricsStore } from "./metrics-store.js";
-import { readTokenFlowEvents } from "./token-flow.js";
+import type { SavingsEventKind } from "./savings-events.js";
+import { type TokenFlowMechanism, readTokenFlowEvents } from "./token-flow.js";
+
+// ── Compile-time drift guards ─────────────────────────────────────────────
+//
+// Each assertion fails with a tsc error if a union member is added to a source
+// type without a corresponding entry in EVENT_CATALOG.
+//
+// Pattern: `Exclude<Union, CatalogedEventKey> extends never ? true : never`
+// evaluates to `never` when any member of Union is absent from the catalog,
+// making the `= true` assignment a type error.
+
+/** @internal */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _assertBehaviorCoverage: Exclude<
+  BehaviorEventType,
+  CatalogedEventKey
+> extends never
+  ? true
+  : never = true;
+
+/** @internal */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _assertMechanismCoverage: Exclude<
+  TokenFlowMechanism,
+  CatalogedEventKey
+> extends never
+  ? true
+  : never = true;
+
+/** @internal */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _assertSavingsCoverage: Exclude<
+  SavingsEventKind,
+  CatalogedEventKey
+> extends never
+  ? true
+  : never = true;
 
 /** Uniform shape consumed by every Surface 1–4 renderer. */
 export interface NamedEvent {
@@ -113,202 +155,44 @@ interface PhrasingRow {
   plural?: string;
 }
 
-const PHRASING: Record<string, PhrasingRow> = {
-  // Existing BehaviorEventType entries — plain-English, low-token nouns.
-  // The renderer composes them as "N <object>" / "N <plural>", so every
-  // phrase here must read naturally in that frame.
-  graph_query_served: {
-    verb: "served",
-    object: "code lookup",
-    plural: "code lookups",
-  },
-  full_read_avoided: {
-    verb: "kept compact",
-    object: "compact file read",
-    plural: "compact file reads",
-  },
-  loop_broken: {
-    verb: "broke",
-    object: "repeated mistake",
-    plural: "repeated mistakes",
-  },
-  cascade_guard: {
-    verb: "guarded",
-    object: "risky cascading edit",
-    plural: "risky cascading edits",
-  },
-  drift_consumed: {
-    verb: "applied",
-    object: "stale-code warning",
-    plural: "stale-code warnings",
-  },
-  intervention_halted: {
-    verb: "blocked",
-    object: "blocked tool call",
-    plural: "blocked tool calls",
-  },
-  intervention_warned: {
-    verb: "warned about",
-    object: "warned tool call",
-    plural: "warned tool calls",
-  },
-  defuddle_selector_skipped: {
-    verb: "fell back to",
-    object: "web-parser fallback",
-    plural: "web-parser fallbacks",
-  },
+// ── Derivation from EVENT_CATALOG ────────────────────────────────────────
+//
+// Both maps are built once at module load from the catalog. Adding a new
+// display entry only requires a catalog row with surface:"display" and
+// verb/object/plural set — no change here.
+//
+// Behaviour family → PHRASING (keyed by BehaviorEventType literal).
+// Mechanism family → TOKEN_FLOW_PHRASING (keyed by TokenFlowMechanism literal).
 
-  // Phase 1 additions
-  caller_check_enforced: {
-    verb: "checked",
-    object: "pre-edit caller check",
-    plural: "pre-edit caller checks",
-  },
-  stale_edit_prevented: {
-    verb: "caught",
-    object: "stale code edit",
-    plural: "stale code edits",
-  },
-  fact_recalled: {
-    verb: "loaded",
-    object: "remembered note",
-    plural: "remembered notes",
-  },
-  convention_applied: {
-    verb: "applied",
-    object: "project convention",
-    plural: "project conventions",
-  },
-  cache_hit: {
-    verb: "served",
-    object: "cached answer",
-    plural: "cached answers",
-  },
-  cross_session_resume: {
-    verb: "resumed",
-    object: "earlier session",
-    plural: "earlier sessions",
-  },
-  fact_stored_user_fed: {
-    verb: "saved",
-    object: "note from you",
-    plural: "notes from you",
-  },
-  fact_stored_auto: {
-    verb: "saved",
-    object: "noticed pattern",
-    plural: "noticed patterns",
-  },
-  cascade_warning_consumed: {
-    verb: "applied",
-    object: "cascading-edit warning",
-    plural: "cascading-edit warnings",
-  },
+// Cast to the declared interface type so the derived maps can read optional fields
+// without fighting the literal-type inference that `satisfies` preserves.
+const _catalog = EVENT_CATALOG as Record<string, EventCatalogEntry>;
 
-  // Phase 2 additions
-  fact_capture_abandoned: {
-    verb: "skipped",
-    object: "unclear note",
-    plural: "unclear notes",
-  },
-  confirmation_expired: {
-    verb: "let expire",
-    object: "unanswered question",
-    plural: "unanswered questions",
-  },
-
-  // Phase 3 additions
-  presence_ambient_marker: {
-    verb: "showed",
-    object: "quiet-mode notice",
-    plural: "quiet-mode notices",
-  },
-
-  // Fix K — resume strip carried over open blockers.
-  resume_blockers_surfaced: {
-    verb: "resumed",
-    object: "open blocker",
-    plural: "open blockers",
-  },
-
-  // Reviewer — in-flight post-edit review findings.
-  review_finding_surfaced: {
-    verb: "flagged",
-    object: "review finding",
-    plural: "review findings",
-  },
-
-  // OWN_EDIT_TOOL — file_edit applied (drives the "files changed this turn"
-  // receipt section; eventBucket returns null so it stays out of the recap).
-  code_edit_applied: {
-    verb: "changed",
-    object: "edited file",
-    plural: "edited files",
-  },
-
-  // Lever C — internal model delegation (eventBucket returns null; aggregated
-  // at write, not surfaced in the per-turn recap).
-  delegated_edit: {
-    verb: "delegated",
-    object: "delegated edit",
-    plural: "delegated edits",
-  },
-  delegated_sweep: {
-    verb: "delegated",
-    object: "delegated sweep",
-    plural: "delegated sweeps",
-  },
-};
+const PHRASING: Record<string, PhrasingRow> = Object.fromEntries(
+  Object.entries(_catalog)
+    .filter(
+      ([, e]) =>
+        e.family === "behavior" && e.surface === "display" && e.verb != null
+    )
+    .map(([k, e]) => [
+      k,
+      { verb: e.verb!, object: e.object!, plural: e.plural },
+    ])
+);
 
 /** Phrasing for `tokenflow.<mechanism>` synthetic event types. Mirrors
  *  `TokenFlowMechanism` literals from `token-flow.ts`. */
-const TOKEN_FLOW_PHRASING: Record<string, PhrasingRow> = {
-  graph_query: {
-    verb: "served",
-    object: "code lookup",
-    plural: "code lookups",
-  },
-  session_dedup: {
-    verb: "skipped",
-    object: "duplicate context",
-    plural: "duplicate contexts",
-  },
-  shell_compression: {
-    verb: "trimmed",
-    object: "trimmed shell output",
-    plural: "trimmed shell outputs",
-  },
-  format_encoding: {
-    verb: "compacted",
-    object: "compact reply",
-    plural: "compact replies",
-  },
-  smart_truncation: {
-    verb: "trimmed",
-    object: "trimmed boilerplate",
-    plural: "trimmed boilerplate",
-  },
-  file_read: {
-    verb: "trimmed",
-    object: "trimmed file read",
-    plural: "trimmed file reads",
-  },
-  fetch_url: {
-    verb: "cached",
-    object: "cached web page",
-    plural: "cached web pages",
-  },
-  behavior_automation: {
-    verb: "automated",
-    object: "automated step",
-    plural: "automated steps",
-  },
-  persistent_memory: {
-    verb: "recalled",
-    object: "recalled note",
-    plural: "recalled notes",
-  },
-};
+const TOKEN_FLOW_PHRASING: Record<string, PhrasingRow> = Object.fromEntries(
+  Object.entries(_catalog)
+    .filter(
+      ([, e]) =>
+        e.family === "mechanism" && e.surface === "display" && e.verb != null
+    )
+    .map(([k, e]) => [
+      k,
+      { verb: e.verb!, object: e.object!, plural: e.plural },
+    ])
+);
 
 const DEFAULT_PHRASING: PhrasingRow = {
   verb: "recorded",
@@ -345,6 +229,7 @@ const EVENT_BUCKET: Record<string, ReportBucket> = {
   intervention_halted: "prevented",
   intervention_warned: "prevented",
   loop_broken: "prevented",
+  loop_redirect: "prevented",
   caller_check_enforced: "prevented",
   review_finding_surfaced: "prevented",
   drift_consumed: "prevented",
@@ -356,6 +241,8 @@ const EVENT_BUCKET: Record<string, ReportBucket> = {
   convention_applied: "remembered",
   cross_session_resume: "remembered",
   resume_blockers_surfaced: "remembered",
+  trace_captured: "remembered",
+  trace_recalled: "remembered",
   // Saved — tokens/context trimmed or served cheaply.
   graph_query_served: "saved",
   full_read_avoided: "saved",
@@ -373,6 +260,7 @@ const TOKEN_FLOW_BUCKET: Record<string, ReportBucket> = {
   file_read: "saved",
   fetch_url: "saved",
   behavior_automation: "saved",
+  body_dedup: "saved",
   persistent_memory: "remembered",
 };
 

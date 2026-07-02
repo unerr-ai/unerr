@@ -31,7 +31,12 @@ import {
   compressOutput,
 } from "../proxy/output-compressor.js";
 import type { RouterGateway } from "../proxy/router-gateway.js";
-import type { SessionDedup } from "../proxy/session-dedup.js";
+import {
+  BODY_DEDUP_ENABLED,
+  type BodyDedupStore,
+  type SessionDedup,
+  createBodyDedup,
+} from "../proxy/session-dedup.js";
 import { createSessionLegendTracker } from "../proxy/session-legend.js";
 import type { SessionEvents } from "../proxy/session-stats.js";
 import { getSharedReversibleCache } from "../proxy/shared-cache.js";
@@ -692,6 +697,15 @@ export class QueryRouter {
 
   /** S1: Session-level context deduplication. */
   private sessionDedup: SessionDedup | null = null;
+
+  /**
+   * Cap C: Short-recency body dedup — skips file IO for recently delivered
+   * unchanged files. Separate from enrichment dedup (different TTL + key
+   * scheme). Disabled by UNERR_BODY_DEDUP=0.
+   */
+  private readonly bodyDedup: BodyDedupStore | null = BODY_DEDUP_ENABLED
+    ? createBodyDedup()
+    : null;
 
   /** S1: Compression quality feedback loop. */
   private compressionMonitor: CompressionQualityMonitor | null = null;
@@ -4180,13 +4194,86 @@ export class QueryRouter {
         return outline;
       }
       case "file_read": {
+        const cwd = this.projectRoot ?? process.cwd();
+        const filePathArg = args.file_path as string | undefined;
+        const forceRead = args.force === true;
+
+        // Cap C body dedup: if this file was recently delivered and is
+        // unchanged, return a pointer instead of re-reading. Skipped on
+        // force:true (explicit agent override of the dedup).
+        if (!forceRead && filePathArg && this.bodyDedup) {
+          try {
+            const { statSync: _statSync } = await import("node:fs");
+            const { resolve: _resolve } = await import("node:path");
+            const abs = _resolve(cwd, filePathArg);
+            const currentMtime = _statSync(abs).mtimeMs;
+            const currentTurn = this.sessionContext.getToolCallCount();
+            const hit = this.bodyDedup.check(abs, currentMtime, currentTurn);
+            if (hit) {
+              // Pointer: imperative, names the tool, interpolates real values.
+              const pointerPath = filePathArg.replace(/\\/g, "/");
+              const pointerContent = `ur|ctx file ${pointerPath} already delivered turn ${hit.deliveredTurn}, unchanged — reuse prior content; call file_read({file_path:'${pointerPath}', force:true}) if no longer in context`;
+              // Record body_dedup savings. The agent avoids re-receiving the
+              // body delivered at hit.deliveredTurn (hit.tokens) and instead
+              // gets only the short pointer — so tokens_saved is measured, not
+              // modeled: the exact body it would otherwise have re-read.
+              if (this.tokenFlow) {
+                const tokensWith = estimateTokens(pointerContent);
+                const tokensWithout = hit.tokens;
+                this.tokenFlow.record({
+                  session_id: this.tokenFlow.sessionId,
+                  turn: currentTurn,
+                  mechanism: "body_dedup",
+                  tool: "file_read",
+                  tokens_without: tokensWithout,
+                  tokens_with: tokensWith,
+                  tokens_saved: Math.max(0, tokensWithout - tokensWith),
+                  detail: {
+                    file_path: filePathArg,
+                    delivered_turn: hit.deliveredTurn,
+                  },
+                });
+              }
+              return {
+                content: pointerContent,
+              };
+            }
+          } catch {
+            // statSync failed (not found, permission) — fall through to normal read.
+          }
+        }
+
         const { runFileReadForRouter } = await import(
           "../tools/coding/file-read-protocol.js"
         );
-        return runFileReadForRouter(args, {
-          cwd: this.projectRoot ?? process.cwd(),
+        const fr = await runFileReadForRouter(args, {
+          cwd,
           graph: this.localGraph,
         });
+
+        // After a successful string-body read, record delivery for future dedup.
+        if (
+          this.bodyDedup &&
+          filePathArg &&
+          !forceRead &&
+          fr.content &&
+          typeof fr.content === "string"
+        ) {
+          try {
+            const { statSync: _statSync2 } = await import("node:fs");
+            const { resolve: _resolve2 } = await import("node:path");
+            const abs = _resolve2(cwd, filePathArg);
+            const mtime = _statSync2(abs).mtimeMs;
+            const turn = this.sessionContext.getToolCallCount();
+            // Store the delivered body's token estimate so a later skip can
+            // report the exact saving (the tokens not re-sent).
+            this.bodyDedup.record(abs, mtime, turn, estimateTokens(fr.content));
+          } catch {
+            // Best effort — failure just means no dedup on next read.
+          }
+        }
+
+        return fr;
       }
       case "fetch_url": {
         // One entry point handles BOTH modes: single `url` and bulk `urls:[...]`.

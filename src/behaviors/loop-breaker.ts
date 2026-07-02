@@ -52,6 +52,7 @@ interface EntityCircuitState {
 const RING_BUFFER_SIZE = 20;
 const DEFAULT_MAX_FAILURES = 4;
 const DEFAULT_COOLDOWN_MS = 60_000;
+const DEFAULT_REDIRECT_THRESHOLD = 3;
 const AVG_TOKENS_PER_FAILED_ATTEMPT = 8_000;
 const EXPECTED_REMAINING_MULTIPLIER = 10;
 const TEST_FILE_PATTERNS = [
@@ -66,6 +67,8 @@ export interface LoopBreakerConfig {
   enabled: boolean;
   level: AssertLevel;
   maxAttemptsPerEntity: number;
+  /** Consecutive failures at which a non-halting ur|act redirect is emitted. Must be < maxAttemptsPerEntity to take effect. Default: 3. */
+  redirectThreshold: number;
   cooldownMs: number;
 }
 
@@ -85,6 +88,7 @@ export class LoopCircuitBreaker extends Behavior {
       enabled: true,
       level: "enforcement",
       maxAttemptsPerEntity: DEFAULT_MAX_FAILURES,
+      redirectThreshold: DEFAULT_REDIRECT_THRESHOLD,
       cooldownMs: DEFAULT_COOLDOWN_MS,
       ...config,
     };
@@ -95,7 +99,7 @@ export class LoopCircuitBreaker extends Behavior {
    * If HALF_OPEN, allow one retry and watch the result.
    */
   async onPreToolUse(ctx: ToolCallContext): Promise<BehaviorOutput | null> {
-    const entityKey = ctx.entityKey;
+    const entityKey = ctx.entityKey ?? ctx.filePath;
     if (!entityKey) return null;
 
     if (isTestFile(ctx.filePath)) return null;
@@ -138,7 +142,7 @@ export class LoopCircuitBreaker extends Behavior {
    * PostToolUse: record attempt outcome, detect patterns, trip breaker.
    */
   async onPostToolUse(ctx: ToolCallContext): Promise<BehaviorOutput | null> {
-    const entityKey = ctx.entityKey;
+    const entityKey = ctx.entityKey ?? ctx.filePath;
     if (!entityKey) return null;
 
     if (isTestFile(ctx.filePath)) return null;
@@ -182,6 +186,40 @@ export class LoopCircuitBreaker extends Behavior {
     }
 
     if (circuit.state !== "closed") return null;
+
+    // Redirect: on the first trip at redirectThreshold consecutive failures,
+    // emit a non-halting ur|act redirect naming the concrete alternative tool.
+    // Only fires once (exact equality check) and only when threshold < halt threshold.
+    const consecutiveNow = this.getConsecutiveFailures(circuit.attempts);
+    const redirectAt = this.breakerConfig.redirectThreshold;
+    if (
+      consecutiveNow.length === redirectAt &&
+      redirectAt < this.breakerConfig.maxAttemptsPerEntity
+    ) {
+      const redirectMsg = buildLoopRedirectMessage(
+        entityKey,
+        redirectAt,
+        attempt.toolName
+      );
+      return {
+        behaviorId: this.id,
+        level: "suggestion",
+        halt: false,
+        _meta: {
+          behavior: this.id,
+          circuit_breaker: {
+            entity: entityKey,
+            attempts: redirectAt,
+            message: redirectMsg,
+          },
+        },
+        _context: {
+          halt: false,
+          reason: `${redirectAt} consecutive failures on ${entityKey} — redirect before circuit trips`,
+          redirect: redirectMsg,
+        },
+      };
+    }
 
     const detection = this.detectStuckPattern(circuit);
     if (!detection) return null;
@@ -397,4 +435,22 @@ function fingerprint(obj?: Record<string, unknown>): string {
     return `${k}:${typeof v}`;
   });
   return significant.join("|");
+}
+
+/**
+ * Builds the body of a ur|act redirect signal emitted at redirectThreshold consecutive failures.
+ * Obeys nudge rules: imperative verb, named tool, entity name embedded, count as number, no hedge words.
+ */
+function buildLoopRedirectMessage(
+  entityKey: string,
+  failCount: number,
+  toolName: string
+): string {
+  // Pick the most useful alternative based on what the agent was already calling.
+  // Agents calling search/read need caller graph; agents editing need entity body.
+  const altTool =
+    toolName === "search_code" || toolName === "file_read"
+      ? `get_references({key:'${entityKey}', direction:'callers'})`
+      : `search_code({query:'${entityKey}', detail:true, include_body:true})`;
+  return `loop — ${toolName} on ${entityKey} failed ${failCount}×; call ${altTool} instead`;
 }

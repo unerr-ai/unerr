@@ -42,7 +42,10 @@ function makeSuccessResult(): Record<string, unknown> {
 describe("Loop Circuit Breaker (BA-1.1)", () => {
   describe("Pattern Detection", () => {
     it("detects repetitive failure after 4 consecutive errors on same entity", async () => {
-      const breaker = new LoopCircuitBreaker({ maxAttemptsPerEntity: 4 });
+      const breaker = new LoopCircuitBreaker({
+        maxAttemptsPerEntity: 4,
+        redirectThreshold: 4,
+      });
 
       for (let i = 0; i < 3; i++) {
         const ctx = makeCtx({
@@ -67,7 +70,10 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
     });
 
     it("detects context poisoning when all results are identical", async () => {
-      const breaker = new LoopCircuitBreaker({ maxAttemptsPerEntity: 4 });
+      const breaker = new LoopCircuitBreaker({
+        maxAttemptsPerEntity: 4,
+        redirectThreshold: 4,
+      });
       const identicalResult = {
         error: true,
         content: [{ type: "text", text: "The exact same error every time" }],
@@ -338,7 +344,10 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
     });
 
     it("resets failure count on success between errors", async () => {
-      const breaker = new LoopCircuitBreaker({ maxAttemptsPerEntity: 4 });
+      const breaker = new LoopCircuitBreaker({
+        maxAttemptsPerEntity: 4,
+        redirectThreshold: 4,
+      });
 
       for (let i = 0; i < 3; i++) {
         await breaker.onPostToolUse(makeCtx({ result: makeErrorResult() }));
@@ -351,6 +360,109 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
           makeCtx({ result: makeErrorResult() })
         );
         expect(output).toBeNull();
+      }
+    });
+  });
+
+  // Cap B — Loop Redirect: a non-halting ur|act redirect fires at redirectThreshold
+  // consecutive failures, before the hard halt at maxAttemptsPerEntity.
+  describe("Loop Redirect (Cap B)", () => {
+    it("emits a non-halting redirect at redirectThreshold before halting at maxAttemptsPerEntity", async () => {
+      const breaker = new LoopCircuitBreaker({
+        maxAttemptsPerEntity: 5,
+        redirectThreshold: 3,
+      });
+
+      // First two failures: silence
+      for (let i = 0; i < 2; i++) {
+        const out = await breaker.onPostToolUse(
+          makeCtx({ result: makeErrorResult() })
+        );
+        expect(out).toBeNull();
+      }
+
+      // Third failure: redirect fires (no halt, circuit stays closed)
+      const redirectOut = await breaker.onPostToolUse(
+        makeCtx({ result: makeErrorResult() })
+      );
+      expect(redirectOut).not.toBeNull();
+      expect(redirectOut?.halt).toBe(false);
+      expect(breaker.getCircuitState("src/payment.ts::processPayment")).toBe(
+        "closed"
+      );
+
+      // Redirect message obeys nudge rules: imperative "call", named tool, entity name, count as number
+      const redirectMsg =
+        (redirectOut?._meta as { circuit_breaker?: { message?: string } })
+          ?.circuit_breaker?.message ?? "";
+      expect(redirectMsg).toMatch(/^loop — /);
+      expect(redirectMsg).toContain("src/payment.ts::processPayment");
+      expect(redirectMsg).toContain("failed 3×");
+      expect(redirectMsg).toContain("call ");
+      expect(redirectMsg).toMatch(/instead$/);
+
+      // Fourth and fifth failures: still closed (redirect already fired, halt not yet reached)
+      for (let i = 0; i < 2; i++) {
+        await breaker.onPostToolUse(makeCtx({ result: makeErrorResult() }));
+      }
+
+      // Fifth failure should have tripped the halt
+      expect(breaker.getCircuitState("src/payment.ts::processPayment")).toBe(
+        "open"
+      );
+    });
+
+    it("redirect names get_references when tool is search_code", async () => {
+      const breaker = new LoopCircuitBreaker({
+        maxAttemptsPerEntity: 5,
+        redirectThreshold: 3,
+      });
+
+      for (let i = 0; i < 3; i++) {
+        await breaker.onPostToolUse(
+          makeCtx({ toolName: "search_code", result: makeErrorResult() })
+        );
+      }
+
+      const out = await breaker.onPostToolUse(
+        makeCtx({ toolName: "search_code", result: makeErrorResult() })
+      );
+      // 4th failure: redirect already fired at 3rd, 4th should be null (between redirect and halt)
+      expect(out).toBeNull();
+    });
+
+    it("redirect names search_code when tool is edit_file", async () => {
+      const breaker = new LoopCircuitBreaker({
+        maxAttemptsPerEntity: 5,
+        redirectThreshold: 3,
+      });
+
+      for (let i = 0; i < 2; i++) {
+        await breaker.onPostToolUse(makeCtx({ result: makeErrorResult() }));
+      }
+
+      const out = await breaker.onPostToolUse(
+        makeCtx({ result: makeErrorResult() })
+      );
+      expect(out).not.toBeNull();
+      const msg =
+        (out?._meta as { circuit_breaker?: { message?: string } })
+          ?.circuit_breaker?.message ?? "";
+      expect(msg).toContain("search_code(");
+    });
+
+    it("redirect does not fire when redirectThreshold >= maxAttemptsPerEntity", async () => {
+      // redirectThreshold === maxAttemptsPerEntity disables redirect (< check fails)
+      const breaker = new LoopCircuitBreaker({
+        maxAttemptsPerEntity: 4,
+        redirectThreshold: 4,
+      });
+
+      for (let i = 0; i < 3; i++) {
+        const out = await breaker.onPostToolUse(
+          makeCtx({ result: makeErrorResult() })
+        );
+        expect(out).toBeNull();
       }
     });
   });

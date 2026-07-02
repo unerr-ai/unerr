@@ -42,6 +42,7 @@ import {
   runPreWebFetchHook,
 } from "../hooks/web-hooks.js";
 import { pinSessionIdEnv } from "../proxy/nudge-state.js";
+import { resolveRepoRoot } from "../utils/repo-root.js";
 
 /**
  * Login-blocked passthrough for any hook event. When the machine is signed out
@@ -95,6 +96,25 @@ function ensureSessionIdEnv(stdin: string): void {
 }
 
 /**
+ * Pin the process working directory to the repo root before any handler runs.
+ * Claude Code spawns each hook at the agent's cwd, which may be a subfolder
+ * (the agent `cd`'d into it). Every handler resolves its `.unerr` state from
+ * process.cwd(), so without this a fresh `.unerr` scratch tree gets scattered
+ * into that subfolder every turn. Hooks never execute the user's command
+ * (pre-bash only rewrites it) and tool `file_path` values are absolute, so a
+ * chdir here is safe and also repairs post-edit review / blast-radius /
+ * co-change, which all read `.unerr` from process.cwd(). Best-effort.
+ */
+function pinCwdToRepoRoot(): void {
+  try {
+    const root = resolveRepoRoot(process.cwd());
+    if (root !== process.cwd()) process.chdir(root);
+  } catch {
+    /* best-effort — never break the hook on a chdir failure */
+  }
+}
+
+/**
  * Safe hook action wrapper. Reads stdin, runs the handler, writes stdout.
  * On ANY failure (EAGAIN on stdin, handler throw, etc.) outputs valid JSON "{}"
  * so Claude Code never sees a crash/invalid output and reports "hook error".
@@ -102,6 +122,7 @@ function ensureSessionIdEnv(stdin: string): void {
  */
 function safeHookAction(handler: (stdin: string) => string): () => void {
   return () => {
+    pinCwdToRepoRoot();
     if (handledByLoginGate()) return;
     try {
       const stdin = readFileSync(0, "utf-8");
@@ -119,6 +140,7 @@ function safeAsyncHookAction(
   handler: (stdin: string) => Promise<string>
 ): () => Promise<void> {
   return async () => {
+    pinCwdToRepoRoot();
     if (handledByLoginGate()) return;
     try {
       const stdin = readFileSync(0, "utf-8");
@@ -267,6 +289,7 @@ export function registerHookCommand(program: Command): void {
     )
     .requiredOption("--transcript <path>", "Claude Code transcript JSONL path")
     .action(async (opts: { transcript: string }) => {
+      pinCwdToRepoRoot();
       try {
         await runStopPersistWorkerAsync(opts.transcript);
       } catch (e) {

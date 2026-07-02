@@ -525,6 +525,13 @@ export async function startDaemon(opts: {
   const reg = readRegistry();
   pm.startIdleSweep();
 
+  // Free-tier single-active convergence at boot: if this daemon adopts a set of
+  // proxies left alive under a now-lapsed Pro plan, bring the running set down to
+  // the one free slot. No-op on Pro/Team or an empty running set.
+  void pm.reconcileFreeTier().catch(() => {
+    /* best-effort — never block daemon startup */
+  });
+
   // Start the dashboard HTTP API (non-critical — daemon works without it)
   try {
     const { startDaemonApi } = await import("../daemon/api.js");
@@ -565,6 +572,13 @@ export async function startDaemon(opts: {
     const { startEntitlementRefresh } = await import("../cloud/refresh-job.js");
     const job = startEntitlementRefresh({
       log: (msg) => log.info(msg),
+      // On a plan change (Pro→free), converge the running set to the single
+      // free slot immediately instead of waiting for the next idle sweep.
+      onSettled: () => {
+        void pm.reconcileFreeTier().catch(() => {
+          /* best-effort — never break the refresh timer */
+        });
+      },
     });
     stopEntitlementRefresh = job.stop;
   } catch (err) {

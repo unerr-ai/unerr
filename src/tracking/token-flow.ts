@@ -34,7 +34,10 @@ export type TokenFlowMechanism =
   // E4: the understanding-tier origin — one unerr_context bundle collapsing the
   // discovery fan-out into a single call, saving the re-paid context prefix of
   // every round-trip it replaces. Distinct from output-compression.
-  | "context_bundle";
+  | "context_bundle"
+  // Cap C: body/file content dedup — file re-read skipped because content
+  // was already delivered this session and is unchanged (mtime gate).
+  | "body_dedup";
 
 /**
  * Mechanisms whose `tokens_saved` is a MODELED estimate (round-trips the

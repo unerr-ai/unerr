@@ -17,6 +17,22 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+// ── Body / file content dedup ─────────────────────────────────────────────
+
+/**
+ * Recency window for body dedup: turns within this count are considered
+ * "recent enough" to skip a re-send. Conservative to guard against harness
+ * compaction evicting the previously delivered content from the agent window.
+ */
+const BODY_DEDUP_MAX_TURNS = 5;
+
+/**
+ * Whether body/file content dedup is active. Defaults on; set
+ * UNERR_BODY_DEDUP=0 to disable for a session without a rebuild.
+ * @sem domain=proxy role=dedup
+ */
+export const BODY_DEDUP_ENABLED = process.env.UNERR_BODY_DEDUP !== "0";
+
 const MAX_TRACKED_KEYS = 10_000;
 
 /** Warm window: context delivered within this span is suppressed; older = cold. */
@@ -270,5 +286,73 @@ export function createSessionDedup(
     getDeliveredCount,
     reset,
     flush,
+  };
+}
+
+// ── Body / file content dedup — short recency window ─────────────────────
+
+interface BodyDedupEntry {
+  /** File mtime at delivery (ms) — freshness gate. */
+  mtime: number;
+  /** Session tool-call count when delivered — recency gate. */
+  turn: number;
+  /** Estimated token count of the body delivered last time. Reported as the
+   *  measured saving when a re-read is skipped (the agent avoids re-receiving
+   *  exactly these tokens). */
+  tokens: number;
+}
+
+/**
+ * Tracks file body deliveries for short-recency dedup within a session.
+ * Keyed on absolute file path. Uses BODY_DEDUP_MAX_TURNS recency window
+ * so dedup never fires after likely harness compaction. Distinct from
+ * enrichment dedup (which uses a 7-day TTL and different keys).
+ * @sem domain=proxy role=dedup
+ */
+export interface BodyDedupStore {
+  /**
+   * Returns { deliveredTurn } when dedup applies — file is unchanged and
+   * the prior delivery is within the recency window.
+   * Returns null when the full body must be re-sent.
+   */
+  check(
+    absPath: string,
+    currentMtime: number,
+    currentTurn: number
+  ): { deliveredTurn: number; tokens: number } | null;
+  /** Record a successfully delivered file body for future dedup. `tokens` is
+   *  the estimated token count of the delivered body — reported as the saving
+   *  on a later skip. */
+  record(absPath: string, mtime: number, turn: number, tokens: number): void;
+}
+
+/**
+ * Creates a per-session short-recency body dedup store. One instance
+ * per QueryRouter session. Not persisted across sessions (body content
+ * must be re-read on session restart).
+ * @sem domain=proxy role=dedup
+ */
+export function createBodyDedup(): BodyDedupStore {
+  const entries = new Map<string, BodyDedupEntry>();
+
+  return {
+    check(absPath, currentMtime, currentTurn) {
+      const entry = entries.get(absPath);
+      if (!entry) return null;
+      // Freshness: mtime changed → file was edited → re-send in full
+      if (entry.mtime !== currentMtime) {
+        entries.delete(absPath);
+        return null;
+      }
+      // Recency: outside window → compaction risk → re-send in full
+      if (currentTurn - entry.turn > BODY_DEDUP_MAX_TURNS) {
+        entries.delete(absPath);
+        return null;
+      }
+      return { deliveredTurn: entry.turn, tokens: entry.tokens };
+    },
+    record(absPath, mtime, turn, tokens) {
+      entries.set(absPath, { mtime, turn, tokens });
+    },
   };
 }

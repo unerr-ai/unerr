@@ -71,7 +71,11 @@ export function runStreamingShell(
     let exitTimer: NodeJS.Timeout | null = null;
     let settled = false;
 
-    const teeDir = join(cwd, ".unerr", "tee");
+    // Tee logs pin to the repo root (process.cwd() after the caller's exec
+    // chdir — see runExecMain in exec.ts), while the child above still spawns
+    // with the `cwd` param (the agent's real working directory) so relative
+    // commands keep working.
+    const teeDir = join(process.cwd(), ".unerr", "tee");
 
     // Tee is best-effort recovery data — a failed write must never break the
     // command, so the first failure disables it for the rest of the run.

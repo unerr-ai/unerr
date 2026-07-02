@@ -363,6 +363,53 @@ export class ProcessManager {
   }
 
   /**
+   * Free-tier single-active reconciler. The admission check in `ensure` only
+   * blocks NEW foreign starts — it never stops proxies already running (a set
+   * admitted while the account was Pro, then lapsed to free, keeps running).
+   * When the resolved repo limit is 1, bring the running set down to that one
+   * slot: keep the repo with the most connections, then the most recent
+   * activity (ties by newest start), and stop every other live proxy — forked
+   * or adopted. No-op when the limit is unlimited (Pro/Team) or ≤1 proxy runs.
+   * Returns the count stopped. Never throws — a failed stop retries next call.
+   *
+   * @sem domain=billing role=policy
+   */
+  async reconcileFreeTier(): Promise<number> {
+    if (this.stopped) return 0;
+    if (repoLimit(tierFromCache()) !== 1) return 0;
+
+    const live = [...this.repos.values()].filter(
+      (r) => r.status === "running" || r.status === "starting"
+    );
+    if (live.length <= 1) return 0;
+
+    // Keep the repo the user is most likely inside: most connections first, then
+    // most-recently-active, then newest start. Every other live proxy is stopped.
+    const keep = live.reduce((best, r) => {
+      if (r.connections !== best.connections) {
+        return r.connections > best.connections ? r : best;
+      }
+      if (r.lastActivity !== best.lastActivity) {
+        return r.lastActivity > best.lastActivity ? r : best;
+      }
+      return (r.startedAt ?? 0) > (best.startedAt ?? 0) ? r : best;
+    });
+
+    let stopped = 0;
+    for (const repo of live) {
+      if (repo === keep) continue;
+      this.onEvent?.("stopped", repo, "free-tier single-active reconcile");
+      try {
+        await this.stop(repo.path);
+        stopped++;
+      } catch {
+        /* best-effort — a failed stop is retried on the next reconcile */
+      }
+    }
+    return stopped;
+  }
+
+  /**
    * Ensure a repo process is running. If already running, returns the sock path.
    * If stopped, spawns it and waits for the "ready" IPC message.
    *
@@ -1046,5 +1093,12 @@ export class ProcessManager {
         });
       }
     }
+
+    // Free-tier single-active convergence: down-scale a running set that was
+    // admitted under Pro and then lapsed to free (ensure only blocks NEW
+    // starts). Fire-and-forget — a stop failure retries on the next sweep.
+    void this.reconcileFreeTier().catch(() => {
+      /* best-effort — reconcile never breaks the sweep */
+    });
   }
 }

@@ -17,6 +17,7 @@ import { clineAdapter } from "../hooks/adapters/cline.js";
 import { cursorAdapter } from "../hooks/adapters/cursor.js";
 import { enrich, passthrough, runStopHookAsync } from "../hooks/hook-runner.js";
 import {
+  buildTrackerCloseReminder,
   runStopHookHandlerAsync,
   runSubagentStopHookHandlerAsync,
 } from "../hooks/stop-hooks.js";
@@ -127,5 +128,45 @@ describe("runSubagentStopHookHandlerAsync — graceful degradation", () => {
 
     // Flag must survive — the sub-agent handler must not have called detectSerializedByMasterLeak.
     expect(readNudgeState(dir).delegable_nudge_pending).toBe(true);
+  });
+});
+
+describe("buildTrackerCloseReminder — planner-mode close-out", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "unerr-tracker-close-"));
+    mkdirSync(join(dir, ".unerr", "state"), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns the close-out line and disarms tracker_open_pending when set", () => {
+    updateNudgeState(dir, (s) => {
+      s.tracker_open_pending = true;
+    });
+
+    const line = buildTrackerCloseReminder(dir);
+    expect(line).not.toBe("");
+    expect(line).toContain("tracker");
+
+    // Disarmed — the flag must not survive the call.
+    expect(readNudgeState(dir).tracker_open_pending).toBe(false);
+    expect(readNudgeState(dir).tracker_close_reminder_count).toBe(1);
+  });
+
+  it("returns \"\" on a second call — fires at most once per opening", () => {
+    updateNudgeState(dir, (s) => {
+      s.tracker_open_pending = true;
+    });
+
+    expect(buildTrackerCloseReminder(dir)).not.toBe("");
+    expect(buildTrackerCloseReminder(dir)).toBe("");
+  });
+
+  it("returns \"\" when tracker_open_pending was never set", () => {
+    expect(buildTrackerCloseReminder(dir)).toBe("");
   });
 });

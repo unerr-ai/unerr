@@ -25,6 +25,22 @@ export type BehaviorEventType =
   | "full_read_avoided"
   /** Circuit breaker halted a retry loop on the same entity. */
   | "loop_broken"
+  /** Cap B: a soft `ur|act` redirect fired before the circuit tripped —
+   *  the agent was nudged to a different tool after `redirectThreshold`
+   *  consecutive failures on the same entity. Protective but non-halting,
+   *  so it is bucketed `prevented` yet excluded from HARD_PREVENTION. One
+   *  row per redirect trip — `detail.attempts` carries the failure count,
+   *  `detail.target_entity` the looping entity. */
+  | "loop_redirect"
+  /** Cap A: a resolved blocker was distilled into a reusable trajectory
+   *  trace (symptom → dead ends → fix → anchor) at mark_resolution. One
+   *  row per trace persisted — `detail.dead_ends` carries the count of
+   *  dead-end paths captured, `detail.anchor` the resolved location. */
+  | "trace_captured"
+  /** Cap A: a past resolved incident matching the current prompt's symptom
+   *  was surfaced into context via `unerr_recall_traces`. One row per recall
+   *  that returned ≥1 trace — `detail.count` carries the surfaced population. */
+  | "trace_recalled"
   /** Cascade-guard fired before a high-fan-in edit (caller-aware edit). */
   | "cascade_guard"
   /** `ur|ctx` (drift) signal was consumed (agent re-read after a drift signal). */

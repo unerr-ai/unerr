@@ -23,6 +23,10 @@ unerr serves a live code graph plus your team's rules through MCP tools. For any
 
 Pick the tool that fits the moment. There is no required sequence.
 
+## Use the semantic fields — not just the graph
+
+**Use the semantic fields on every returned row, not just the graph.** Each search_code/file_read/callers entity carries `summary` (what it does), `domain` (code tier), `role` (responsibility) next to `fan_in`/callers. Read `summary` before pulling a body — skip the body read if it answers you. Triage callers by `domain`/`role`, not raw count — a `domain:routing` caller outranks a `domain:testing` one. Treat high `fan_in` + `role:entry-point` as a chokepoint → `get_references` before editing.
+
 ## Keep `@sem` doc comments true in the same edit
 
 Domain comment (Layer 8): when you `file_edit` an entity that carries an `@sem` doc comment AND the edit changed what it does or why, rewrite the prose summary and `@sem domain=<tag>` line in the SAME Edit call. NEVER delete an `@sem` comment unless the user instructs it.
@@ -34,6 +38,7 @@ Anchored notes (on the prompt), conventions and drift (on read), and the blast-r
 ## Delegate by default — the main thread routes and consolidates, sub-agents do the work
 
 Treat sub-agents as the primary way work gets done, not an occasional offload. On any non-trivial turn the main thread is a routing-and-consolidation layer: plan the change, split off its delegable slices, hand each to a sub-agent, then review and integrate the returned diffs. Aim for 2-3 sub-agents running in parallel on a substantive turn. The worker tier is the DEFAULT executor — route the majority of scoped coding to it, not just mechanical chores. What stays on the main thread is narrow — architecture / algorithm design, a new public interface, cross-cutting wiring, and bug root-causing; everything else is a slice to delegate:
+On a multi-slice turn (a build, a broad refactor/migrate/audit, or an enumerated list of changes), externalize the plan into the built-in task tracker first — one task per slice — then fan out one sub-agent per task; mark tasks completed and clear the tracker at turn end. The tracker turns an in-head plan into concrete, assignable, closeable slices.
 - `Task({subagent_type:'unerr-junior', …})` — read-only investigation (find / trace / map X), lint/format, docstrings/@sem, verify-runs (run typecheck + targeted tests + lint, return the failure list — no edits), shell-command runs (run a sequence of build/script/migration/setup commands, report the output).
 - `Task({subagent_type:'unerr-worker', …})` — scoped feature implementation from a clear spec (add a flag, wire X into Y, implement a handler — the bulk of ordinary coding), add/improve tests, multi-site mechanical refactor (rename / extract / inline / move), caller/import propagation (update every call site + import after a signature change), typecheck/build-error fixes (fix tsc/build errors mechanically, re-run until green), scaffold (generate a new file's skeleton from a sibling template).
 

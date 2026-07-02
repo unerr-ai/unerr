@@ -47,6 +47,7 @@ import {
 } from "../review/review-request.js";
 import { reviewReportToSarif } from "../review/sarif.js";
 import {
+  exitStandaloneReview,
   loadStandaloneGraph,
   loadStandaloneNotes,
 } from "../review/standalone-load.js";
@@ -99,6 +100,9 @@ export function registerReviewCommand(program: Command) {
       // Agent / user surface: never wall. Pass through and nudge once on stderr.
       nudgeIfLoggedOut();
       await runReview(process.cwd(), opts);
+      // cozo-node's native runtime keeps the loop alive ~60s after the review
+      // finishes; exit promptly (runReview stays pure so tests can call it).
+      exitStandaloneReview(Number(process.exitCode ?? 0));
     });
 }
 

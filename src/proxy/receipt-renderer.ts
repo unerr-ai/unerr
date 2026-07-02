@@ -408,6 +408,8 @@ const PREVENTION_SEVERITY: Record<string, number> = {
   cascade_guard: 2,
   loop_broken: 3,
   intervention_warned: 4,
+  // Softest prevention: a pre-trip nudge that never halted a call. Ranks last.
+  loop_redirect: 5,
 };
 
 function preventionText(e: NamedEvent): string {
@@ -430,6 +432,12 @@ function preventionText(e: NamedEvent): string {
     }
     case "intervention_warned":
       return `flagged a risky edit${where} before you ran it  (flagged)`;
+    case "loop_redirect": {
+      const attempts = numberOf(e.metadata.attempts);
+      const on = target ? ` on ${target}` : "";
+      const count = attempts > 0 ? ` (${attempts} attempts)` : "";
+      return `redirected a stuck retry${on}${count} to a different tool  (redirected)`;
+    }
     default:
       return "";
   }

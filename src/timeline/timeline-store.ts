@@ -8,6 +8,8 @@
  *   - markers               : agent-emitted mark_* rows (ST-2)
  *   - derived_signals       : mined patterns (hot files, loops, co-changes) (ST-3+)
  *   - signal_reinforcement  : append-only reinforcement events per signal (ST-5)
+ *   - traces                : blocker→resolution trajectories (Cap A-1)
+ *   - trace_tokens          : inverted index on situation tokens (Cap A-1)
  *
  * Schema rules (per CLAUDE.md):
  *   - Named Datalog syntax for any relation with 4+ columns.
@@ -187,6 +189,32 @@ export async function initTimelineSchema(db: CozoDb): Promise<void> {
       }
     `);
   }
+
+  // Cap A-1: trajectory/incident traces synthesized from blocker→resolution pairs.
+  if (!existing.has("traces")) {
+    await db.run(`
+      :create traces {
+        trace_id: String
+        =>
+        situation: String,
+        dead_ends: String,
+        unlock: String,
+        anchor: String,
+        session_id: String,
+        resolved_at: Float
+      }
+    `);
+  }
+
+  // Cap A-1: inverted index mapping situation tokens → trace_id for recall.
+  if (!existing.has("trace_tokens")) {
+    await db.run(`
+      :create trace_tokens {
+        token: String,
+        trace_id: String
+      }
+    `);
+  }
 }
 
 // ── Row types ────────────────────────────────────────────────────────────────
@@ -248,6 +276,28 @@ export interface SignalReinforcementRow {
   ts: number;
   delta: number;
   source: string;
+}
+
+/**
+ * One trajectory trace synthesized when an agent resolves a blocker. Captures
+ * the blocking situation, what paths were tried (dead_ends), and the fix
+ * (unlock) anchored to the code location so symptom-match retrieval can surface
+ * it on a future similar task.
+ * @sem domain=intelligence
+ */
+export interface TraceRow {
+  trace_id: string;
+  /** Blocker marker text — the symptom description. */
+  situation: string;
+  /** JSON-encoded string[] of file paths / entity keys tried between blocker and resolution. */
+  dead_ends: string;
+  /** Resolution text — what broke the blocker. */
+  unlock: string;
+  /** Entity key or file path where the fix landed (graph retrieval key). */
+  anchor: string;
+  session_id: string;
+  /** ms epoch when the resolution was recorded. */
+  resolved_at: number;
 }
 
 // ── Store facade ─────────────────────────────────────────────────────────────
@@ -571,6 +621,135 @@ export class CozoTimelineStore {
     return result.rows.map(rowToMarker);
   }
 
+  /** Look up a single marker by id. Returns null when not found. */
+  async getMarkerById(markerId: string): Promise<MarkerRow | null> {
+    const result = await this.db.run(
+      `?[marker_id, type, text, session_id, turn_id, ts, blocker_ref, file_path] :=
+        *markers{
+          marker_id, type, text, session_id, turn_id, ts, blocker_ref, file_path
+        },
+        marker_id = $marker_id`,
+      { marker_id: markerId }
+    );
+    const row = result.rows[0];
+    return row ? rowToMarker(row) : null;
+  }
+
+  /**
+   * Insert a trajectory trace synthesized from a blocker→resolution pair.
+   * @sem domain=intelligence
+   */
+  async insertTrace(trace: TraceRow): Promise<void> {
+    await this.db.run(
+      `?[trace_id, situation, dead_ends, unlock, anchor, session_id, resolved_at] <-
+        [[$trace_id, $situation, $dead_ends, $unlock, $anchor, $session_id, $resolved_at]]
+       :put traces {
+         trace_id
+         =>
+         situation, dead_ends, unlock, anchor, session_id, resolved_at
+       }`,
+      trace as unknown as Record<string, unknown>
+    );
+  }
+
+  /**
+   * Insert situation tokens into the inverted trace_tokens index.
+   * One row per token — idempotent via :put.
+   * @sem domain=intelligence
+   */
+  async insertTraceTokens(traceId: string, tokens: string[]): Promise<void> {
+    if (tokens.length === 0) return;
+    for (const token of tokens) {
+      await this.db.run(
+        `?[token, trace_id] <- [[$token, $trace_id]]
+         :put trace_tokens { token, trace_id }`,
+        { token, trace_id: traceId }
+      );
+    }
+  }
+
+  /**
+   * Recall traces matching any of the supplied tokens from the inverted index.
+   * Returns up to `limit` distinct traces, de-duplicated by trace_id. The next
+   * sprint will add TF-IDF ranking on top of this set.
+   * @sem domain=intelligence
+   */
+  async recallTracesByTokens(
+    tokens: string[],
+    limit = 10
+  ): Promise<TraceRow[]> {
+    if (tokens.length === 0) return [];
+    const matchedIds = new Set<string>();
+    for (const token of tokens) {
+      const r = await this.db.run(
+        "?[trace_id] := *trace_tokens[token, trace_id], token = $token",
+        { token }
+      );
+      for (const row of r.rows) {
+        matchedIds.add(row[0] as string);
+      }
+    }
+    if (matchedIds.size === 0) return [];
+    const traces: TraceRow[] = [];
+    for (const traceId of [...matchedIds].slice(0, limit)) {
+      const r = await this.db.run(
+        `?[trace_id, situation, dead_ends, unlock, anchor, session_id, resolved_at] :=
+          *traces{
+            trace_id, situation, dead_ends, unlock, anchor, session_id, resolved_at
+          },
+          trace_id = $trace_id`,
+        { trace_id: traceId }
+      );
+      const row = r.rows[0];
+      if (row) traces.push(rowToTrace(row));
+    }
+    return traces;
+  }
+
+  /**
+   * Return the total number of stored traces — used as the IDF denominator
+   * when ranking candidates in recallTracesBySymptom.
+   * @sem domain=intelligence
+   */
+  async countTraces(): Promise<number> {
+    const result = await this.db.run("?[count(trace_id)] := *traces{trace_id}");
+    const row = result.rows[0];
+    return row ? Number(row[0] as number) : 0;
+  }
+
+  /**
+   * Return all trace IDs that contain the supplied token in the inverted index.
+   * Called once per query token during TF-IDF scoring in recallTracesBySymptom.
+   * @sem domain=intelligence
+   */
+  async getTracesForToken(token: string): Promise<string[]> {
+    const r = await this.db.run(
+      "?[trace_id] := *trace_tokens[token, trace_id], token = $token",
+      { token }
+    );
+    return r.rows.map((row) => row[0] as string);
+  }
+
+  /**
+   * Fetch trace rows by their IDs. Returns a Map keyed by trace_id for O(1)
+   * lookup during score annotation in recallTracesBySymptom.
+   * @sem domain=intelligence
+   */
+  async getTracesByIds(ids: string[]): Promise<Map<string, TraceRow>> {
+    const result = new Map<string, TraceRow>();
+    for (const traceId of ids) {
+      const r = await this.db.run(
+        `?[trace_id, situation, dead_ends, unlock, anchor, session_id, resolved_at] :=
+          *traces{trace_id, situation, dead_ends, unlock, anchor, session_id, resolved_at},
+          trace_id = $trace_id`,
+        { trace_id: traceId }
+      );
+      const row = r.rows[0];
+      if (row) result.set(traceId, rowToTrace(row));
+    }
+    return result;
+  }
+
   /**
    * Record distinct file touches for a session. Called by the bootstrap on
    * each turn-close so the intent stitcher (ST-4) has a file set to match on.
@@ -819,6 +998,18 @@ function rowToMarker(row: unknown[]): MarkerRow {
     ts: row[5] as number,
     blocker_ref: row[6] as string,
     file_path: row[7] as string,
+  };
+}
+
+function rowToTrace(row: unknown[]): TraceRow {
+  return {
+    trace_id: row[0] as string,
+    situation: row[1] as string,
+    dead_ends: row[2] as string,
+    unlock: row[3] as string,
+    anchor: row[4] as string,
+    session_id: row[5] as string,
+    resolved_at: row[6] as number,
   };
 }
 

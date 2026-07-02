@@ -28,6 +28,7 @@ import {
 } from "../proxy/test-artifact.js";
 import { recordDelegationHandoff } from "../tracking/delegation-handoff.js";
 import { getOrCreateSid } from "../utils/log-paths.js";
+import { resolveRepoRoot } from "../utils/repo-root.js";
 import { initFileLog, startupLog } from "../utils/startup-log.js";
 import { discardLiveTee, runStreamingShell } from "./exec-runner.js";
 
@@ -257,6 +258,19 @@ export async function runExecMain(argv: string[]): Promise<number> {
     return 1;
   }
 
+  // Pin all `.unerr` state/telemetry writes (nudge state, receipts, tee logs,
+  // session id, file log, delegation) to the repo root, while the command
+  // itself still runs in the agent's real working directory (runCwd below).
+  // Without this, an agent working in a subfolder scatters a fresh `.unerr`
+  // scratch tree there instead of reusing the one at the repo root.
+  const runCwd = process.cwd();
+  try {
+    const root = resolveRepoRoot(runCwd);
+    if (root !== runCwd) process.chdir(root);
+  } catch {
+    // best-effort — resolution/chdir failure just leaves state writes on runCwd
+  }
+
   // Key this fresh `unerr exec` process's nudge-state on the stable proxy
   // session id (not pid-<pid>), so the once-per-session exec nav-nudge actually
   // fires once per session instead of on every Bash call. Must run before any
@@ -271,7 +285,7 @@ export async function runExecMain(argv: string[]): Promise<number> {
   // Streaming runner: captures output incrementally, tees it to disk as it
   // arrives, and survives SIGTERM/SIGINT/SIGHUP — a signal-killed run keeps
   // everything captured up to the kill instead of dying with an empty buffer.
-  const run = await runStreamingShell(shell, cmd, process.cwd());
+  const run = await runStreamingShell(shell, cmd, runCwd);
   const exitCode = run.exitCode;
   const stdoutTrimmed = run.stdout.trim();
   const stderrTrimmed = run.stderr.trim();

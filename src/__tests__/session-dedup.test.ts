@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSessionDedup } from "../proxy/session-dedup.js";
+import { createBodyDedup, createSessionDedup } from "../proxy/session-dedup.js";
 
 describe("createSessionDedup", () => {
   it("passes all context on first call for an entity", () => {
@@ -93,5 +93,76 @@ describe("createSessionDedup", () => {
 
     expect(dedup.getDeliveredCount()).toBeLessThanOrEqual(10_000);
     expect(dedup.hasDelivered("entity-0", "key-0")).toBe(false);
+  });
+});
+
+describe("createBodyDedup", () => {
+  const ABS = "/repo/src/foo.ts";
+  const MTIME = 1_700_000_000_000;
+  const TOKENS = 100;
+
+  it("returns null when file has never been delivered", () => {
+    const dedup = createBodyDedup();
+    expect(dedup.check(ABS, MTIME, 3)).toBeNull();
+  });
+
+  it("returns deliveredTurn when file is unchanged and within recency window", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS);
+    const result = dedup.check(ABS, MTIME, 3); // delta = 2 ≤ 5
+    expect(result).toEqual({ deliveredTurn: 1, tokens: TOKENS });
+  });
+
+  it("returns null when mtime changed (file edited since delivery)", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS);
+    const newMtime = MTIME + 1000;
+    expect(dedup.check(ABS, newMtime, 2)).toBeNull();
+  });
+
+  it("evicts and re-checks correctly after mtime change", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS);
+    dedup.check(ABS, MTIME + 1, 2); // evicts stale entry
+    // After eviction, a re-record with new mtime should work
+    dedup.record(ABS, MTIME + 1, 2, TOKENS);
+    expect(dedup.check(ABS, MTIME + 1, 3)).toEqual({ deliveredTurn: 2, tokens: TOKENS });
+  });
+
+  it("returns null when outside recency window (delta > 5 turns)", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS);
+    expect(dedup.check(ABS, MTIME, 7)).toBeNull(); // delta = 6 > 5
+  });
+
+  it("returns hit when exactly at recency boundary (delta = 5)", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS);
+    expect(dedup.check(ABS, MTIME, 6)).toEqual({ deliveredTurn: 1, tokens: TOKENS }); // delta = 5 = boundary
+  });
+
+  it("evicts entry after recency window miss", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS);
+    dedup.check(ABS, MTIME, 7); // misses; evicts
+    // Entry gone — same mtime same path returns null
+    expect(dedup.check(ABS, MTIME, 8)).toBeNull();
+  });
+
+  it("tracks different files independently", () => {
+    const dedup = createBodyDedup();
+    const ABS2 = "/repo/src/bar.ts";
+    dedup.record(ABS, MTIME, 1, TOKENS);
+    expect(dedup.check(ABS2, MTIME, 2)).toBeNull();
+    expect(dedup.check(ABS, MTIME, 2)).toEqual({ deliveredTurn: 1, tokens: TOKENS });
+  });
+
+  it("force:true bypass is the caller's responsibility — check still returns hit", () => {
+    // force:true is handled upstream in executeLocal; BodyDedupStore.check
+    // itself always returns the hit when conditions are met. The router skips
+    // calling check when force:true.
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS);
+    expect(dedup.check(ABS, MTIME, 2)).toEqual({ deliveredTurn: 1, tokens: TOKENS });
   });
 });

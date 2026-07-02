@@ -42,6 +42,7 @@ import {
 import { isReviewEnabled } from "../review/feature-flag.js";
 import { reviewStagedChanges } from "../review/git-review.js";
 import {
+  exitStandaloneReview,
   loadStandaloneGraph,
   loadStandaloneNotes,
 } from "../review/standalone-load.js";
@@ -86,167 +87,179 @@ export function registerCheckCommitCommand(program: Command) {
       "--record-verdict",
       "Post-commit: attach the pending review verdict to HEAD as a git note"
     )
-    .action(
-      async (opts: {
-        blocking?: boolean;
-        verbose?: boolean;
-        recordVerdict?: boolean;
-      }) => {
-        const cwd = process.cwd();
+    .action(async (opts: CheckCommitOpts) => {
+      await runCheckCommit(opts);
+      // cozo-node's native runtime keeps the event loop alive ~60s after the
+      // gate finishes its synchronous work; exit promptly instead of waiting it
+      // out (a git pre-commit hook would otherwise stall the whole commit).
+      exitStandaloneReview(Number(process.exitCode ?? 0));
+    });
+}
 
-        // ── Master switch (OFF by default while benchmarked) ─────────
-        // Reviewer disabled → never block or fail the commit; skip the
-        // engine and the verdict path entirely. Exit 0 so the git hook
-        // is a no-op.
-        if (!isReviewEnabled(cwd)) {
-          process.exitCode = 0;
-          return;
-        }
+interface CheckCommitOpts {
+  blocking?: boolean;
+  verbose?: boolean;
+  recordVerdict?: boolean;
+}
 
-        // ── Login-blocked passthrough ────────────────────────────────
-        // Signed out → never block or fail the git hook. Allow the commit
-        // (exit 0), skip the review engine entirely, emit at most one
-        // throttled login nudge. Covers both the pre-commit gate and the
-        // post-commit --record-verdict path (nothing to attach when signed out).
-        if (loginBlocked()) {
-          try {
-            if (shouldEmitLoginNudge(cwd)) {
-              process.stderr.write(`${LOGIN_NUDGE_LINE}\n`);
-            }
-          } catch {
-            // Nudge is best-effort — never break the commit.
-          }
-          process.exitCode = 0;
-          return;
-        }
+/**
+ * Run the commit-gate review over the staged index and set `process.exitCode`.
+ * Free of process lifecycle (never calls `process.exit`) so it stays
+ * unit-testable; the command action calls {@link exitStandaloneReview} once this
+ * returns to defeat the cozo-node native keepalive.
+ */
+async function runCheckCommit(opts: CheckCommitOpts): Promise<void> {
+  const cwd = process.cwd();
 
-        // ── Post-commit path: attach the pending verdict to the new commit ──
-        if (opts.recordVerdict) {
-          await recordPendingVerdict(cwd);
-          return;
-        }
+  // ── Master switch (OFF by default while benchmarked) ─────────
+  // Reviewer disabled → never block or fail the commit; skip the
+  // engine and the verdict path entirely. Exit 0 so the git hook
+  // is a no-op.
+  if (!isReviewEnabled(cwd)) {
+    process.exitCode = 0;
+    return;
+  }
 
-        // ── Blocking mode detection ──────────────────────────────────
-        let blockingMode = opts.blocking ?? false;
-        const settingsPath = join(cwd, ".unerr", "settings.json");
-        if (!blockingMode && existsSync(settingsPath)) {
-          try {
-            const settings = JSON.parse(
-              readFileSync(settingsPath, "utf-8")
-            ) as {
-              hooks?: { precommit?: { blocking?: boolean } };
-            };
-            blockingMode = settings.hooks?.precommit?.blocking ?? false;
-          } catch {
-            /* ignore malformed settings */
-          }
-        }
-
-        logInfo("check-commit invoked", { blocking: blockingMode });
-
-        // ── Config gating ────────────────────────────────────────────
-        const configPath = join(cwd, ".unerr", "config.json");
-        if (!existsSync(configPath)) {
-          logInfo("check-commit: no .unerr/config.json, skipping");
-          return;
-        }
-
-        try {
-          const config = JSON.parse(readFileSync(configPath, "utf-8")) as {
-            repoId?: string;
-          };
-          if (!config.repoId) {
-            logInfo("check-commit: no repoId in config, skipping");
-            return;
-          }
-        } catch {
-          logInfo("check-commit: invalid config.json, skipping");
-          return;
-        }
-
-        // ── Staged-set early-out ─────────────────────────────────────
-        const stagedFiles = await getStagedFiles(cwd);
-        if (stagedFiles.length === 0) {
-          logInfo("check-commit: no staged files");
-          return;
-        }
-
-        // ── Load graph ───────────────────────────────────────────────
-        const localGraph = await loadStandaloneGraph(cwd);
-        if (!localGraph) {
-          if (opts.verbose) {
-            section("unerr review — commit gate");
-            detail("No local graph available — skipping review");
-          }
-          logInfo("check-commit: no graph available, skipping");
-          return;
-        }
-
-        // ── Run the engine over the staged diff ──────────────────────
-        const notes = await loadStandaloneNotes(cwd, "review-gate");
-        const { report, filesReviewed } = await reviewStagedChanges(
-          cwd,
-          localGraph,
-          { notes },
-          { minSeverity: DISPLAY_FLOOR }
-        );
-
-        const blockingRank = SEVERITY_RANK[DEFAULT_BLOCKING_SEVERITY];
-        const blockingFindings = report.findings.filter(
-          (f) => SEVERITY_RANK[f.severity] >= blockingRank
-        );
-
-        // ── Display ──────────────────────────────────────────────────
-        section("unerr review — commit gate");
-
-        if (report.findings.length === 0) {
-          success(
-            `${filesReviewed} file${filesReviewed !== 1 ? "s" : ""} reviewed, ${report.checkersRun.length} checks — all clear`
-          );
-          persistVerdict(cwd, report, blockingFindings.length, "pass");
-          process.exitCode = 0;
-          return;
-        }
-
-        for (const f of report.findings) {
-          renderFinding(f, opts.verbose ?? false);
-        }
-
-        const summary = `${report.findings.length} finding${
-          report.findings.length !== 1 ? "s" : ""
-        }${
-          blockingFindings.length > 0
-            ? ` (${blockingFindings.length} at/above ${DEFAULT_BLOCKING_SEVERITY})`
-            : ""
-        }${report.suppressed > 0 ? ` · ${report.suppressed} below ${DISPLAY_FLOOR}` : ""}`;
-        warn(summary);
-
-        const willBlock = blockingMode && blockingFindings.length > 0;
-        // `blocked` records that a blocking-severity finding existed even when
-        // non-blocking mode let the commit through; `warn` = findings, none blocking.
-        persistVerdict(
-          cwd,
-          report,
-          blockingFindings.length,
-          blockingFindings.length > 0 ? "blocked" : "warn"
-        );
-
-        if (willBlock) {
-          fail(
-            "Commit blocked — fix the findings above or re-run `git commit --no-verify` to bypass"
-          );
-          process.exitCode = 1;
-        } else {
-          if (blockingFindings.length > 0) {
-            detail("Non-blocking mode — commit will proceed despite findings");
-            detail(
-              "Enable blocking: set hooks.precommit.blocking=true in .unerr/settings.json"
-            );
-          }
-          process.exitCode = 0;
-        }
+  // ── Login-blocked passthrough ────────────────────────────────
+  // Signed out → never block or fail the git hook. Allow the commit
+  // (exit 0), skip the review engine entirely, emit at most one
+  // throttled login nudge. Covers both the pre-commit gate and the
+  // post-commit --record-verdict path (nothing to attach when signed out).
+  if (loginBlocked()) {
+    try {
+      if (shouldEmitLoginNudge(cwd)) {
+        process.stderr.write(`${LOGIN_NUDGE_LINE}\n`);
       }
+    } catch {
+      // Nudge is best-effort — never break the commit.
+    }
+    process.exitCode = 0;
+    return;
+  }
+
+  // ── Post-commit path: attach the pending verdict to the new commit ──
+  if (opts.recordVerdict) {
+    await recordPendingVerdict(cwd);
+    return;
+  }
+
+  // ── Blocking mode detection ──────────────────────────────────
+  let blockingMode = opts.blocking ?? false;
+  const settingsPath = join(cwd, ".unerr", "settings.json");
+  if (!blockingMode && existsSync(settingsPath)) {
+    try {
+      const settings = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
+        hooks?: { precommit?: { blocking?: boolean } };
+      };
+      blockingMode = settings.hooks?.precommit?.blocking ?? false;
+    } catch {
+      /* ignore malformed settings */
+    }
+  }
+
+  logInfo("check-commit invoked", { blocking: blockingMode });
+
+  // ── Config gating ────────────────────────────────────────────
+  const configPath = join(cwd, ".unerr", "config.json");
+  if (!existsSync(configPath)) {
+    logInfo("check-commit: no .unerr/config.json, skipping");
+    return;
+  }
+
+  try {
+    const config = JSON.parse(readFileSync(configPath, "utf-8")) as {
+      repoId?: string;
+    };
+    if (!config.repoId) {
+      logInfo("check-commit: no repoId in config, skipping");
+      return;
+    }
+  } catch {
+    logInfo("check-commit: invalid config.json, skipping");
+    return;
+  }
+
+  // ── Staged-set early-out ─────────────────────────────────────
+  const stagedFiles = await getStagedFiles(cwd);
+  if (stagedFiles.length === 0) {
+    logInfo("check-commit: no staged files");
+    return;
+  }
+
+  // ── Load graph ───────────────────────────────────────────────
+  const localGraph = await loadStandaloneGraph(cwd);
+  if (!localGraph) {
+    if (opts.verbose) {
+      section("unerr review — commit gate");
+      detail("No local graph available — skipping review");
+    }
+    logInfo("check-commit: no graph available, skipping");
+    return;
+  }
+
+  // ── Run the engine over the staged diff ──────────────────────
+  const notes = await loadStandaloneNotes(cwd, "review-gate");
+  const { report, filesReviewed } = await reviewStagedChanges(
+    cwd,
+    localGraph,
+    { notes },
+    { minSeverity: DISPLAY_FLOOR }
+  );
+
+  const blockingRank = SEVERITY_RANK[DEFAULT_BLOCKING_SEVERITY];
+  const blockingFindings = report.findings.filter(
+    (f) => SEVERITY_RANK[f.severity] >= blockingRank
+  );
+
+  // ── Display ──────────────────────────────────────────────────
+  section("unerr review — commit gate");
+
+  if (report.findings.length === 0) {
+    success(
+      `${filesReviewed} file${filesReviewed !== 1 ? "s" : ""} reviewed, ${report.checkersRun.length} checks — all clear`
     );
+    persistVerdict(cwd, report, blockingFindings.length, "pass");
+    process.exitCode = 0;
+    return;
+  }
+
+  for (const f of report.findings) {
+    renderFinding(f, opts.verbose ?? false);
+  }
+
+  const summary = `${report.findings.length} finding${
+    report.findings.length !== 1 ? "s" : ""
+  }${
+    blockingFindings.length > 0
+      ? ` (${blockingFindings.length} at/above ${DEFAULT_BLOCKING_SEVERITY})`
+      : ""
+  }${report.suppressed > 0 ? ` · ${report.suppressed} below ${DISPLAY_FLOOR}` : ""}`;
+  warn(summary);
+
+  const willBlock = blockingMode && blockingFindings.length > 0;
+  // `blocked` records that a blocking-severity finding existed even when
+  // non-blocking mode let the commit through; `warn` = findings, none blocking.
+  persistVerdict(
+    cwd,
+    report,
+    blockingFindings.length,
+    blockingFindings.length > 0 ? "blocked" : "warn"
+  );
+
+  if (willBlock) {
+    fail(
+      "Commit blocked — fix the findings above or re-run `git commit --no-verify` to bypass"
+    );
+    process.exitCode = 1;
+  } else {
+    if (blockingFindings.length > 0) {
+      detail("Non-blocking mode — commit will proceed despite findings");
+      detail(
+        "Enable blocking: set hooks.precommit.blocking=true in .unerr/settings.json"
+      );
+    }
+    process.exitCode = 0;
+  }
 }
 
 // ── Finding rendering ─────────────────────────────────────────────────────

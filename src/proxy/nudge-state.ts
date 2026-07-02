@@ -104,6 +104,27 @@ export interface NudgeSessionState {
   injection_skip_count: number;
   injection_focused_count: number;
   injection_broad_count: number;
+  /** Planner-mode leak correlation — set true when the prompt-submit hook emits
+   *  the plan-into-tracker line (a multi-slice task on a tracker-capable host,
+   *  e.g. claude-code). Cleared at Stop: while it is set the Stop hook emits the
+   *  "mark tracker tasks completed / clear stale tasks" close-out reminder, then
+   *  disarms so the reminder fires at most once per opening. */
+  tracker_open_pending: boolean;
+  /** Planner-mode telemetry — turns where the prompt-submit hook injected the
+   *  plan-into-tracker line. Pairs with `tracker_close_reminder_count` for an
+   *  opened-vs-closed adoption ratio on the activation dashboard. */
+  tracker_nudge_emitted_count: number;
+  /** Planner-mode telemetry — turns where the Stop hook injected the
+   *  complete/clear-the-tracker close-out reminder. */
+  tracker_close_reminder_count: number;
+  /** The agent's own conversation id (native session id) that last wrote this
+   *  flags file. The filename is keyed on the long-lived PROXY session id and
+   *  one proxy serves many conversations, so every "once per session" one-shot
+   *  above would otherwise fire once per PROXY lifetime and stay silent for
+   *  every later conversation. `resetOneShotsOnNewConversation` compares this
+   *  against the live native id and re-arms the conversation-scoped one-shots
+   *  when the agent starts a new conversation. */
+  last_native_session_id?: string;
 }
 
 function defaultState(): NudgeSessionState {
@@ -128,6 +149,9 @@ function defaultState(): NudgeSessionState {
     injection_skip_count: 0,
     injection_focused_count: 0,
     injection_broad_count: 0,
+    tracker_open_pending: false,
+    tracker_nudge_emitted_count: 0,
+    tracker_close_reminder_count: 0,
   };
 }
 
@@ -233,10 +257,63 @@ export function readNudgeState(cwd: string): NudgeSessionState {
         typeof parsed.injection_broad_count === "number"
           ? parsed.injection_broad_count
           : 0,
+      last_native_session_id:
+        typeof parsed.last_native_session_id === "string"
+          ? parsed.last_native_session_id
+          : undefined,
+      tracker_open_pending: Boolean(parsed.tracker_open_pending),
+      tracker_nudge_emitted_count:
+        typeof parsed.tracker_nudge_emitted_count === "number"
+          ? parsed.tracker_nudge_emitted_count
+          : 0,
+      tracker_close_reminder_count:
+        typeof parsed.tracker_close_reminder_count === "number"
+          ? parsed.tracker_close_reminder_count
+          : 0,
     };
   } catch {
     return defaultState();
   }
+}
+
+/**
+ * Re-arm conversation-scoped one-shot nudges when the agent starts a NEW
+ * conversation.
+ *
+ * The flags file is keyed on the long-lived proxy session id
+ * (`.unerr/state/session.id`), which spans every agent conversation the proxy
+ * serves. Without this reset, "once per session" one-shots (the `mark_intent`
+ * reminder, tool roster, Moment lines, cross-session stitch) fire once per
+ * PROXY lifetime and then stay silent for every later conversation until the
+ * proxy restarts — so the agent stops being reminded to emit `unerr-save:`
+ * intents/notes across every subsequent session. This compares the agent's own
+ * conversation id against the last one that wrote the file and, on a change,
+ * resets the one-shot FLAGS (never the telemetry counters) so each new
+ * conversation gets every reminder once.
+ *
+ * No-op when `nativeSessionId` is absent (no boundary to detect) or unchanged
+ * (same conversation → preserve the one-shots already fired).
+ */
+export function resetOneShotsOnNewConversation(
+  cwd: string,
+  nativeSessionId: string | null | undefined
+): void {
+  if (!nativeSessionId) return;
+  const state = readNudgeState(cwd);
+  if (state.last_native_session_id === nativeSessionId) return;
+  updateNudgeState(cwd, (s) => {
+    s.last_native_session_id = nativeSessionId;
+    // Conversation-scoped one-shots — re-fire once per conversation.
+    s.tier0_emitted = false;
+    s.tier1_emitted_kinds = [];
+    s.tier2_emitted = false;
+    s.mark_intent_emitted = false;
+    s.cross_session_stitch_emitted = false;
+    s.moment3_emitted = false;
+    s.impl_mention_emitted = false;
+    s.static_boilerplate_emitted = false;
+    s.exec_nudge_emitted = false;
+  });
 }
 
 export function writeNudgeState(cwd: string, state: NudgeSessionState): void {
