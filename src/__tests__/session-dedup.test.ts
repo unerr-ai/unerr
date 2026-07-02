@@ -126,7 +126,10 @@ describe("createBodyDedup", () => {
     dedup.check(ABS, MTIME + 1, 2); // evicts stale entry
     // After eviction, a re-record with new mtime should work
     dedup.record(ABS, MTIME + 1, 2, TOKENS);
-    expect(dedup.check(ABS, MTIME + 1, 3)).toEqual({ deliveredTurn: 2, tokens: TOKENS });
+    expect(dedup.check(ABS, MTIME + 1, 3)).toEqual({
+      deliveredTurn: 2,
+      tokens: TOKENS,
+    });
   });
 
   it("returns null when outside recency window (delta > 5 turns)", () => {
@@ -138,7 +141,10 @@ describe("createBodyDedup", () => {
   it("returns hit when exactly at recency boundary (delta = 5)", () => {
     const dedup = createBodyDedup();
     dedup.record(ABS, MTIME, 1, TOKENS);
-    expect(dedup.check(ABS, MTIME, 6)).toEqual({ deliveredTurn: 1, tokens: TOKENS }); // delta = 5 = boundary
+    expect(dedup.check(ABS, MTIME, 6)).toEqual({
+      deliveredTurn: 1,
+      tokens: TOKENS,
+    }); // delta = 5 = boundary
   });
 
   it("evicts entry after recency window miss", () => {
@@ -154,7 +160,10 @@ describe("createBodyDedup", () => {
     const ABS2 = "/repo/src/bar.ts";
     dedup.record(ABS, MTIME, 1, TOKENS);
     expect(dedup.check(ABS2, MTIME, 2)).toBeNull();
-    expect(dedup.check(ABS, MTIME, 2)).toEqual({ deliveredTurn: 1, tokens: TOKENS });
+    expect(dedup.check(ABS, MTIME, 2)).toEqual({
+      deliveredTurn: 1,
+      tokens: TOKENS,
+    });
   });
 
   it("force:true bypass is the caller's responsibility — check still returns hit", () => {
@@ -163,6 +172,9 @@ describe("createBodyDedup", () => {
     // calling check when force:true.
     const dedup = createBodyDedup();
     dedup.record(ABS, MTIME, 1, TOKENS);
-    expect(dedup.check(ABS, MTIME, 2)).toEqual({ deliveredTurn: 1, tokens: TOKENS });
+    expect(dedup.check(ABS, MTIME, 2)).toEqual({
+      deliveredTurn: 1,
+      tokens: TOKENS,
+    });
   });
 });

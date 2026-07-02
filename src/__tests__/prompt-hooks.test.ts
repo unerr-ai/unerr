@@ -913,9 +913,9 @@ describe("asyncPromptSubmitHandler — injection tier gating", () => {
 // signal it's gated on.
 describe("isMultiSlice — multi-slice task detection", () => {
   it("true: broad-scope verb + codebase-wide phrasing", () => {
-    expect(
-      isMultiSlice("refactor the auth module across the codebase")
-    ).toBe(true);
+    expect(isMultiSlice("refactor the auth module across the codebase")).toBe(
+      true
+    );
   });
 
   it("true: 'migrate all' breadth phrasing", () => {

@@ -157,7 +157,7 @@ describe("buildTrackerCloseReminder — planner-mode close-out", () => {
     expect(readNudgeState(dir).tracker_close_reminder_count).toBe(1);
   });
 
-  it("returns \"\" on a second call — fires at most once per opening", () => {
+  it('returns "" on a second call — fires at most once per opening', () => {
     updateNudgeState(dir, (s) => {
       s.tracker_open_pending = true;
     });
@@ -166,7 +166,7 @@ describe("buildTrackerCloseReminder — planner-mode close-out", () => {
     expect(buildTrackerCloseReminder(dir)).toBe("");
   });
 
-  it("returns \"\" when tracker_open_pending was never set", () => {
+  it('returns "" when tracker_open_pending was never set', () => {
     expect(buildTrackerCloseReminder(dir)).toBe("");
   });
 });
