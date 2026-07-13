@@ -1530,3 +1530,117 @@ describe("modelBundleSavings (A4)", () => {
     expect(m.original_tokens).toBe(100);
   });
 });
+
+// ── Relaxed per-term retry: a joined multi-term search that matches nothing
+// falls back to one search per term (max RELAXED_RETRY_MAX_TERMS), merged by
+// entity key, best score first, and labeled so the agent knows the phrase
+// itself missed.
+describe("recon relaxed per-term retry", () => {
+  it("retries per term and merges/dedupes by key, score-desc, when the joined query returns nothing", async () => {
+    const prompt = "lookupWidget validateGizmo";
+    const perTerm: Record<string, unknown> = {
+      lookupWidget: [
+        {
+          key: "wid1",
+          name: "lookupWidget",
+          file_path: "src/widget.ts",
+          score: 5,
+        },
+        {
+          key: "shared1",
+          name: "sharedThing",
+          file_path: "src/shared.ts",
+          score: 1,
+        },
+      ],
+      validateGizmo: [
+        {
+          key: "giz1",
+          name: "validateGizmo",
+          file_path: "src/gizmo.ts",
+          score: 9,
+        },
+        {
+          key: "shared1",
+          name: "sharedThing",
+          file_path: "src/shared.ts",
+          score: 1,
+        },
+      ],
+    };
+    const runner: ReconRunner = vi.fn(
+      async (tool: string, args: Record<string, unknown>) => {
+        if (tool === "get_conventions")
+          return { naming: [], import_direction: [], structure: [] };
+        if (tool === "get_references") return { references: [] };
+        if (tool === "search_code") {
+          const query = args.query as string;
+          if (query === prompt) return []; // joined phrase: no hits
+          if (query in perTerm) return perTerm[query];
+          return []; // e.g. a focus-body detail fetch for a merged key
+        }
+        return undefined;
+      }
+    );
+
+    const bundle = await composeRecon({ prompt, runner, budget: 5000 });
+
+    const searchSection = bundle.sections.find((s) => s.tool === "search_code");
+    expect(searchSection?.title).toBe("Entities (relaxed term match)");
+    const rows = (
+      searchSection?.data as { entities: Array<Record<string, unknown>> }
+    ).entities;
+    // deduped by key (shared1 kept once, first occurrence) and sorted
+    // score-desc: giz1=9, wid1=5, shared1=1.
+    expect(rows.map((r) => r.key)).toEqual(["giz1", "wid1", "shared1"]);
+  });
+
+  it("does not retry when the joined query already returns entities", async () => {
+    const prompt = "lookupWidget validateGizmo";
+    const runner: ReconRunner = vi.fn(
+      async (tool: string, args: Record<string, unknown>) => {
+        if (tool === "get_conventions")
+          return { naming: [], import_direction: [], structure: [] };
+        if (tool === "get_references") return { references: [] };
+        if (tool === "search_code") {
+          const query = args.query as string;
+          if (query === prompt) return SEARCH_HIT;
+          return []; // e.g. a focus-body detail fetch, must not be a retry
+        }
+        return undefined;
+      }
+    );
+
+    const bundle = await composeRecon({ prompt, runner, budget: 5000 });
+
+    const searchSection = bundle.sections.find((s) => s.tool === "search_code");
+    expect(searchSection?.title).toBe("Entities");
+    // No per-term retry: exactly one LIST-mode search_code call (the joined
+    // one) — a focus-body detail fetch (`detail:true`) is a separate call and
+    // excluded from this count.
+    const listCalls = (runner as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) =>
+        c[0] === "search_code" && !(c[1] as Record<string, unknown>)?.detail
+    );
+    expect(listCalls.length).toBe(1);
+  });
+
+  it("does not retry a single-term prompt even when the result is empty", async () => {
+    const prompt = "lookupWidget"; // exactly one salient term
+    const runner: ReconRunner = vi.fn(async (tool: string) => {
+      if (tool === "get_conventions")
+        return { naming: [], import_direction: [], structure: [] };
+      if (tool === "get_references") return { references: [] };
+      if (tool === "search_code") return [];
+      return undefined;
+    });
+
+    const bundle = await composeRecon({ prompt, runner, budget: 5000 });
+
+    expect(bundle.sections.map((s) => s.tool)).not.toContain("search_code");
+    const searchCalls = (runner as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => c[0] === "search_code"
+    );
+    expect(searchCalls.length).toBe(1);
+  });
+});

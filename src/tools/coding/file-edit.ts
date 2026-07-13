@@ -49,6 +49,12 @@ import {
 
 let _logInit = false;
 
+/** Max wait for the post-edit blast-radius graph read. The edit is already on
+ *  disk before this runs; blast radius is never load-bearing, so if the graph
+ *  is write-locked (reindex/drift) we drop the `ur|rsk` line rather than let a
+ *  stalled read hold up file_edit. Healthy reads return in <5ms. */
+const BLAST_RADIUS_BUDGET_MS = 500;
+
 /** Path shown to the user — relative to the project root, never absolute or
  *  `$HOME`-expanded. Falls back to the given path if it sits outside cwd. */
 function toRepoRelative(cwd: string, filePath: string): string {
@@ -316,16 +322,31 @@ async function augmentWithBlastRadius(
 ): Promise<ToolOutput> {
   if (result.isError || !ctx.graph) return result;
   try {
-    const { warnings } = await handleBlastRadiusRequest(
-      ctx.graph,
-      {
-        file_path: filePath,
-        old_content: oldString,
-        new_content: newString,
-      },
-      ctx.cwd
-    );
-    const line = renderInlineBlastRadius(warnings);
+    // The edit is already written to disk; this blast-radius pass is a GRAPH
+    // READ. Under CozoDB write-lock contention (a reindex or drift write holding
+    // the lock) that read can block for tens of seconds — which would make the
+    // whole file_edit hang long after the write succeeded, the exact "edits take
+    // too long" symptom. Cap it: if the graph can't answer within the budget,
+    // return the edit WITHOUT the `ur|rsk` line rather than stall. Blast radius
+    // is explicitly never load-bearing — get_references gives the full picture
+    // on demand. The abandoned read is a harmless immutable query (no write lock
+    // held); cozo can't cancel it, so we just stop waiting.
+    const blast = await Promise.race([
+      handleBlastRadiusRequest(
+        ctx.graph,
+        {
+          file_path: filePath,
+          old_content: oldString,
+          new_content: newString,
+        },
+        ctx.cwd
+      ),
+      new Promise<null>((res) =>
+        setTimeout(() => res(null), BLAST_RADIUS_BUDGET_MS)
+      ),
+    ]);
+    if (!blast) return result; // graph busy — skip the line, never the edit
+    const line = renderInlineBlastRadius(blast.warnings);
     if (!line) return result;
     return { ...result, content: `${result.content}\n${line}` };
   } catch {

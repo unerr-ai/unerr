@@ -16,6 +16,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { type Server, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -32,16 +33,18 @@ function isAlive(pid: number): boolean {
 }
 
 /**
- * Spawn a long-lived dummy process. `asProxy` puts `--daemon-child` in its argv
- * so `isUnerrProxyProcess` (which matches that marker via `ps`) classifies it as
- * a real proxy; without it the process stands in for an UNRELATED program that a
- * recycled pid might point at. Tracked for teardown.
+ * Spawn a long-lived dummy process. `asProxy` puts `cli.js --daemon-child` in
+ * its argv so `isUnerrProxyProcess` (which runs `isUnerrProxyCommand` over
+ * `ps`) classifies it as a real proxy — `cli.js` stands in for unerr's CLI
+ * entry point, satisfying the argv anchor a bare `--daemon-child` no longer
+ * would; without either token the process stands in for an UNRELATED program
+ * that a recycled pid might point at. Tracked for teardown.
  */
 function spawnDummy(asProxy: boolean, kids: ChildProcess[]): ChildProcess {
-  // `--` ends node's own option parsing so `--daemon-child` survives as a user
-  // arg (node rejects it as an unknown option otherwise) and shows up in `ps`.
+  // `--` ends node's own option parsing so the trailing args survive as user
+  // args (node rejects them as unknown options otherwise) and show up in `ps`.
   const args = ["-e", "setInterval(() => {}, 1e9)"];
-  if (asProxy) args.push("--", "--daemon-child");
+  if (asProxy) args.push("--", "cli.js", "--daemon-child");
   const child = spawn(process.execPath, args, { stdio: "ignore" });
   kids.push(child);
   return child;
@@ -605,6 +608,172 @@ describe("ProxyOptions daemonChild", () => {
 
     expect(content).toContain("daemonChild?: boolean");
     expect(content).toContain("opts.daemonChild");
+  });
+});
+
+// ── Double-writer prevention: health-ping + duplicate-child reaper ─
+
+describe("pingHealth — /health retry gate (tryAdopt's wedged-proxy check)", () => {
+  let servers: Server[];
+
+  beforeEach(() => {
+    servers = [];
+  });
+
+  afterEach(async () => {
+    await Promise.all(
+      servers.map((s) => new Promise<void>((res) => s.close(() => res())))
+    );
+  });
+
+  /** Start a real HTTP server on an ephemeral port that answers every request
+   *  with `status`. Tracked for teardown. */
+  function listenHttp(status: number): Promise<number> {
+    return new Promise((resolve) => {
+      const server = createHttpServer((_req, res) => {
+        res.writeHead(status);
+        res.end();
+      });
+      servers.push(server);
+      server.listen(0, "127.0.0.1", () => {
+        const addr = server.address();
+        resolve(typeof addr === "object" && addr ? addr.port : 0);
+      });
+    });
+  }
+
+  it("returns true on first attempt when /health answers 200", async () => {
+    const { pingHealth } = await import("../daemon/process-manager.js");
+    const port = await listenHttp(200);
+    expect(await pingHealth(port)).toBe(true);
+  });
+
+  it("returns false when /health answers a non-2xx status on every retry", async () => {
+    const { pingHealth } = await import("../daemon/process-manager.js");
+    const port = await listenHttp(500);
+    expect(await pingHealth(port)).toBe(false);
+  });
+
+  it("returns false when nothing is listening on the port (wedged proxy)", async () => {
+    const { pingHealth } = await import("../daemon/process-manager.js");
+    // An ephemeral port nothing is bound to — connection refused on every
+    // attempt, exactly the "socket connects, health never answers" case
+    // tryAdopt now kills before respawn.
+    expect(await pingHealth(1)).toBe(false);
+  });
+});
+
+describe("selectDuplicateChildrenToKill — reaper's kill-list decision", () => {
+  it("a single live child is never a duplicate — kills none", async () => {
+    const { selectDuplicateChildrenToKill } = await import(
+      "../daemon/process-manager.js"
+    );
+    expect(
+      selectDuplicateChildrenToKill([{ pid: 100, startedAt: 1 }], 100)
+    ).toEqual([]);
+  });
+
+  it("two children, one holds the repo's PID lock — kills the other", async () => {
+    const { selectDuplicateChildrenToKill } = await import(
+      "../daemon/process-manager.js"
+    );
+    const kill = selectDuplicateChildrenToKill(
+      [
+        { pid: 100, startedAt: 1 },
+        { pid: 200, startedAt: 2 },
+      ],
+      100
+    );
+    expect(kill).toEqual([200]);
+  });
+
+  it("two children, neither holds the lock — keeps the newest-started, kills the rest", async () => {
+    const { selectDuplicateChildrenToKill } = await import(
+      "../daemon/process-manager.js"
+    );
+    // No live pid matches the (stale/missing) lock file — killing everyone
+    // would leave the repo with zero proxies, so the newest survives.
+    const kill = selectDuplicateChildrenToKill(
+      [
+        { pid: 100, startedAt: 1_000 },
+        { pid: 200, startedAt: 2_000 },
+      ],
+      null
+    );
+    expect(kill).toEqual([100]);
+  });
+
+  it("lock holder pid not among the live children — falls back to newest-started", async () => {
+    const { selectDuplicateChildrenToKill } = await import(
+      "../daemon/process-manager.js"
+    );
+    const kill = selectDuplicateChildrenToKill(
+      [
+        { pid: 100, startedAt: 1_000 },
+        { pid: 200, startedAt: 2_000 },
+      ],
+      999 // lock names a pid that isn't in the live set
+    );
+    expect(kill).toEqual([100]);
+  });
+});
+
+describe("isUnerrProxyCommand — argv classifier (process-manager.ts copy)", () => {
+  it("classifies a managed proxy (cli.js --daemon-child) as a proxy", async () => {
+    const { isUnerrProxyCommand } = await import(
+      "../daemon/process-manager.js"
+    );
+    expect(
+      isUnerrProxyCommand("node /x/unerr-cli/dist/cli.js --daemon-child")
+    ).toBe(true);
+  });
+
+  it("classifies a standalone proxy (bare cli.js, no subcommand) as a proxy", async () => {
+    const { isUnerrProxyCommand } = await import(
+      "../daemon/process-manager.js"
+    );
+    expect(isUnerrProxyCommand("node /x/unerr-cli/dist/cli.js")).toBe(true);
+  });
+
+  it("classifies the compiled binary form as a proxy", async () => {
+    const { isUnerrProxyCommand } = await import(
+      "../daemon/process-manager.js"
+    );
+    expect(isUnerrProxyCommand("/usr/local/bin/unerr")).toBe(true);
+  });
+
+  it("excludes the --mcp bridge", async () => {
+    const { isUnerrProxyCommand } = await import(
+      "../daemon/process-manager.js"
+    );
+    expect(
+      isUnerrProxyCommand(
+        "node /x/unerr-cli/dist/cli.js --mcp --coding-agent=claude"
+      )
+    ).toBe(false);
+  });
+
+  it("excludes the exec runner", async () => {
+    const { isUnerrProxyCommand } = await import(
+      "../daemon/process-manager.js"
+    );
+    expect(
+      isUnerrProxyCommand("node /x/unerr-cli/dist/cli.js exec --b64 abc")
+    ).toBe(false);
+  });
+
+  it("excludes the process manager (unerrd)", async () => {
+    const { isUnerrProxyCommand } = await import(
+      "../daemon/process-manager.js"
+    );
+    expect(isUnerrProxyCommand("unerrd")).toBe(false);
+  });
+
+  it("excludes an unrelated program", async () => {
+    const { isUnerrProxyCommand } = await import(
+      "../daemon/process-manager.js"
+    );
+    expect(isUnerrProxyCommand("node /x/some-other/app.js")).toBe(false);
   });
 });
 

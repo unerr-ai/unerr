@@ -44,6 +44,13 @@ export interface PersistentDbResult {
 const GRAPH_DB_FILENAME = "graph.db";
 const UNERR_DIR = ".unerr";
 
+// Bound on how long we wait for the cozo db worker to open graph.db + arm its
+// message loop before falling back to an in-process db. Generous because the
+// worker also folds a large WAL on open (the same work the in-process path does,
+// just in a thread) — exceeding it only means we do that work on the main thread
+// this once; runtime request isolation is the worker's real job, not boot.
+const WORKER_SPAWN_TIMEOUT_MS = 30_000;
+
 // ── Public API ─────────────────────��─────────────────────────────
 
 /**
@@ -54,8 +61,18 @@ const UNERR_DIR = ".unerr";
  *
  * The caller is responsible for calling `db.close()` on shutdown.
  */
+/** Options threaded through to the DB worker client (worker path only —
+ *  ignored under UNERR_NO_DB_WORKER=1 / vitest where the db is in-process). */
+export interface GraphDbOptions {
+  /** Fired ONCE when the worker's circuit breaker sees sustained consecutive
+   *  request timeouts — the data plane is wedged while /health still answers.
+   *  The proxy wires this to a clean self-recycle (see cozo-worker-client.ts). */
+  onPersistentDegradation?: (consecutiveTimeouts: number) => void;
+}
+
 export async function openPersistentDb(
-  projectRoot: string
+  projectRoot: string,
+  opts?: GraphDbOptions
 ): Promise<PersistentDbResult> {
   const unerrDir = join(projectRoot, UNERR_DIR);
   mkdirSync(unerrDir, { recursive: true });
@@ -117,7 +134,7 @@ export async function openPersistentDb(
     }
   }
 
-  const db = await createSqliteDb(dbPath);
+  const db = await createGraphDb(dbPath, opts);
 
   return { db, isNew, dbPath, wasRebuilt };
 }
@@ -197,6 +214,66 @@ async function createSqliteDb(dbPath: string): Promise<CozoDb> {
 }
 
 /**
+ * Open graph.db behind a dedicated worker thread so a slow/wedged cozo write can
+ * never freeze the proxy's MCP + /health event loop (see cozo-worker-client.ts).
+ * Falls back to the in-process db on ANY worker failure — a build where the
+ * worker can't load, a spawn error, or a slow open past WORKER_SPAWN_TIMEOUT_MS
+ * — so the worst case is today's behavior, never worse. Force in-process with
+ * UNERR_NO_DB_WORKER=1.
+ */
+async function createGraphDb(
+  dbPath: string,
+  opts?: GraphDbOptions
+): Promise<CozoDb> {
+  // In-process when forced (UNERR_NO_DB_WORKER=1) or under vitest — the suite
+  // opens graphs in hundreds of files and a worker thread per open would be slow
+  // and flaky under the forks pool. The worker path has its own dedicated tests
+  // (cozo-worker-client.test.ts). Production (the proxy) always uses the worker.
+  if (process.env.UNERR_NO_DB_WORKER === "1" || process.env.VITEST) {
+    return createSqliteDb(dbPath);
+  }
+  let client: import("./cozo-worker-client.js").CozoWorkerClient | undefined;
+  try {
+    const { CozoWorkerClient } = await import("./cozo-worker-client.js");
+    client = new CozoWorkerClient({
+      dbPath,
+      onFatal: (err) => {
+        process.stderr.write(`[unerr] ⚠ cozo db worker died: ${err.message}\n`);
+      },
+      onPersistentDegradation: opts?.onPersistentDegradation,
+    });
+    // The worker sets WAL + folds the WAL + opens cozo, then signals ready.
+    await Promise.race([
+      client.ready(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `cozo db worker did not open within ${WORKER_SPAWN_TIMEOUT_MS}ms`
+              )
+            ),
+          WORKER_SPAWN_TIMEOUT_MS
+        )
+      ),
+    ]);
+    return client as unknown as CozoDb;
+  } catch (err) {
+    // Tear the half-started worker down before opening in-process so the two
+    // never hold graph.db at once, then degrade to the in-process db.
+    try {
+      await client?.close();
+    } catch {
+      /* best-effort */
+    }
+    process.stderr.write(
+      `[unerr] cozo db worker unavailable (${err instanceof Error ? err.message : String(err)}); using in-process db\n`
+    );
+    return createSqliteDb(dbPath);
+  }
+}
+
+/**
  * Set `journal_mode = WAL` on the graph.db SQLite file out-of-band, using
  * Node's built-in `node:sqlite` (DatabaseSync). Opened and closed before cozo
  * touches the file, so the two drivers never hold the connection at once. WAL
@@ -205,7 +282,7 @@ async function createSqliteDb(dbPath: string): Promise<CozoDb> {
  * any failure is logged and swallowed so a driver error can never block graph
  * startup.
  */
-async function enableWalMode(dbPath: string): Promise<void> {
+export async function enableWalMode(dbPath: string): Promise<void> {
   try {
     const { DatabaseSync } = loadNodeSqlite();
     const sqlite = new DatabaseSync(dbPath);

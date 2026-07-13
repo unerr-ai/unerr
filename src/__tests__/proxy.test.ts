@@ -6,6 +6,7 @@
  * focused unit tests for the core proxy subsystems.
  */
 
+import { type ChildProcess, spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -13,10 +14,11 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PidLock } from "../proxy/pid-lock.js";
+import { PidLock, isUnerrProxyCommand } from "../proxy/pid-lock.js";
 import {
   computePercentiles,
   createSessionStats,
@@ -44,6 +46,39 @@ afterEach(() => {
     /* ignore */
   }
 });
+
+/**
+ * Spawn a long-lived dummy process. `asProxy` puts `cli.js --daemon-child` in
+ * its argv so `isUnerrProxyPid` (which runs `isUnerrProxyCommand` over `ps`,
+ * mirroring `isUnerrProxyProcess` in src/daemon/process-manager.ts)
+ * classifies it as a real unerr proxy — `cli.js` stands in for unerr's CLI
+ * entry point, satisfying the argv anchor a bare `--daemon-child` no longer
+ * would; without either token the process stands in for an UNRELATED program
+ * that a recycled pid might point at. Tracked for teardown.
+ */
+function spawnDummy(asProxy: boolean, kids: ChildProcess[]): ChildProcess {
+  // `--` ends node's own option parsing so the trailing args survive as user
+  // args (node rejects them as unknown options otherwise) and show up in `ps`.
+  const args = ["-e", "setInterval(() => {}, 1e9)"];
+  if (asProxy) args.push("--", "cli.js", "--daemon-child");
+  const child = spawn(process.execPath, args, { stdio: "ignore" });
+  kids.push(child);
+  return child;
+}
+
+/** Bind an ephemeral port, then release it — a port nothing is listening on,
+ * so a health-check fetch against it fails fast with ECONNREFUSED. */
+function unusedPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.once("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      srv.close(() => resolve(port));
+    });
+  });
+}
 
 // ── PID Lock Tests ────────────────────────────────────────────────
 
@@ -183,6 +218,102 @@ describe("PidLock", () => {
     expect(data?.healthPort).toBeGreaterThan(0);
 
     lock.release();
+  });
+
+  it("returns wedged (not stale_recovered) when an alive unerr proxy fails health after retries", async () => {
+    const kids: ChildProcess[] = [];
+    try {
+      const proxy = spawnDummy(true, kids);
+      await new Promise((r) => setTimeout(r, 150)); // let it appear in `ps`
+
+      const deadPort = await unusedPort();
+      writeFileSync(
+        join(tempDir, "proxy.pid"),
+        JSON.stringify({
+          pid: proxy.pid,
+          startedAt: new Date().toISOString(),
+          healthPort: deadPort,
+        }),
+        "utf-8"
+      );
+
+      const lock = new PidLock(tempDir);
+      const result = await lock.acquire();
+      expect(result.acquired).toBe(false);
+      expect(result.outcome).toBe("wedged");
+      expect(result.existingPid).toBe(proxy.pid);
+      // Lock file must be left untouched — a wedged proxy still owns it.
+      expect(existsSync(join(tempDir, "proxy.pid"))).toBe(true);
+    } finally {
+      for (const k of kids) k.kill("SIGKILL");
+    }
+  }, 15_000);
+
+  it("still reclaims (stale_recovered) when the alive pid is not a unerr process", async () => {
+    const kids: ChildProcess[] = [];
+    try {
+      const stranger = spawnDummy(false, kids);
+      await new Promise((r) => setTimeout(r, 150));
+
+      const deadPort = await unusedPort();
+      writeFileSync(
+        join(tempDir, "proxy.pid"),
+        JSON.stringify({
+          pid: stranger.pid,
+          startedAt: new Date().toISOString(),
+          healthPort: deadPort,
+        }),
+        "utf-8"
+      );
+
+      const lock = new PidLock(tempDir);
+      const result = await lock.acquire();
+      expect(result.acquired).toBe(true);
+      expect(result.outcome).toBe("stale_recovered");
+      lock.release();
+    } finally {
+      for (const k of kids) k.kill("SIGKILL");
+    }
+  }, 15_000);
+});
+
+// ── isUnerrProxyCommand argv classifier ─────────────────────────────
+
+describe("isUnerrProxyCommand", () => {
+  it("classifies a managed proxy (cli.js --daemon-child) as a proxy", () => {
+    expect(
+      isUnerrProxyCommand("node /x/unerr-cli/dist/cli.js --daemon-child")
+    ).toBe(true);
+  });
+
+  it("classifies a standalone proxy (bare cli.js, no subcommand) as a proxy", () => {
+    expect(isUnerrProxyCommand("node /x/unerr-cli/dist/cli.js")).toBe(true);
+  });
+
+  it("classifies the compiled binary form as a proxy", () => {
+    expect(isUnerrProxyCommand("/usr/local/bin/unerr")).toBe(true);
+  });
+
+  it("excludes the --mcp bridge", () => {
+    expect(
+      isUnerrProxyCommand(
+        "node /x/unerr-cli/dist/cli.js --mcp --coding-agent=claude"
+      )
+    ).toBe(false);
+  });
+
+  it("excludes the exec runner", () => {
+    expect(
+      isUnerrProxyCommand("node /x/unerr-cli/dist/cli.js exec --b64 abc")
+    ).toBe(false);
+  });
+
+  it("excludes the process manager (unerrd)", () => {
+    expect(isUnerrProxyCommand("unerrd")).toBe(false);
+  });
+
+  it("excludes an unrelated program", () => {
+    expect(isUnerrProxyCommand("node /x/some-other/app.js")).toBe(false);
   });
 });
 

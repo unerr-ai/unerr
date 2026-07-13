@@ -231,6 +231,19 @@ export function isCodeContext(prompt: string): boolean {
   return TASK_VERBS_CODE.test(prompt) || BUILD_INTENT_RE.test(prompt);
 }
 
+/** True when `prompt` ends in "?" with no imperative/narrow verb before the
+ *  mark — a pure Q&A turn ("where is X enforced?") rather than an actionable
+ *  request. Shared by `classifyAsTask` and the decompose-delegate gate in
+ *  `promptSubmitHandler` so both apply the exact same Q&A exclusion instead
+ *  of two drifting rules. */
+function isPureQuestionPrompt(prompt: string): boolean {
+  const trimmed = prompt.trim();
+  return (
+    trimmed.endsWith("?") &&
+    !TASK_VERBS_NARROW_NO_NAV.test(trimmed.split("?")[0] ?? "")
+  );
+}
+
 /** Rule-based task classifier — detects whether a prompt is a coding
  *  task that warrants `mark_intent`. Coding-task verbs win; pure
  *  questions (ending in `?` without an imperative verb) opt out. */
@@ -239,10 +252,7 @@ function classifyAsTask(prompt: string): boolean {
   if (trimmed.length < 10) return false;
   if (!TASK_VERBS_NARROW.test(trimmed)) return false;
   // Pure question with no imperative — let it slide as a question.
-  const isPureQuestion =
-    trimmed.endsWith("?") &&
-    !TASK_VERBS_NARROW_NO_NAV.test(trimmed.split("?")[0] ?? "");
-  return !isPureQuestion;
+  return !isPureQuestionPrompt(prompt);
 }
 
 /** Unified classifier — combines verb-cluster routing, task detection,
@@ -673,9 +683,16 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // `shouldDelegate` is the gate; this call is the runtime trigger. Fail-open:
   // any error leaves `delegateLine` null and the normal Path A routing stands.
   let delegateLine: string | null = null;
+  // feature_impl never draws the single delegate line (the decompose nudge
+  // below owns it) — hoisted so the decompose gate can still fire on
+  // feature_impl prompts whose wording misses isCodeContext's word list
+  // ("add a --json flag", "make X configurable").
+  let delegableFeatureImpl = false;
   try {
     const agentId = (normalized.agentName ?? "") as IdeType;
     const decision = shouldDelegate({ prompt: message, agentId });
+    delegableFeatureImpl =
+      decision.delegate && decision.class === "feature_impl";
     // feature_impl is the broad scoped-work class — it overlaps the substantive
     // decompose-and-delegate nudge below, which gives richer fan-out guidance
     // (one sub-agent per slice) and still routes to the worker tier. Let that
@@ -746,7 +763,18 @@ const promptSubmitHandler: HookHandler = (normalized) => {
     // fan-out nudge. classifyAsTask is the narrow imperative-work signal that
     // ALREADY excludes pure questions / chat / design-discussion, so OR-ing it
     // in widens coverage to non-build work turns WITHOUT firing on questions.
-    const isSubstantiveTask = isBuildIntent || classifyAsTask(message);
+    // Widened further: `isCodeTask` (below) already excludes non-code chatter,
+    // so any code-task prompt that is NOT a pure question also qualifies — this
+    // catches ordinary scoped requests and bug reports ("the retry delay is
+    // broken for long sessions") that miss both BUILD_INTENT_RE and
+    // classifyAsTask's narrow-verb list. `isPureQuestionPrompt` reuses
+    // classifyAsTask's own Q&A rule, so a real question ("where is the idle
+    // timeout enforced?") still skips the build nudge and routes to the
+    // junior/recon path instead.
+    const isSubstantiveTask =
+      isBuildIntent ||
+      classifyAsTask(message) ||
+      !isPureQuestionPrompt(message);
     // Suppress only when the user opted into the rigid build-and-debug skill for
     // a build/bug cluster — that skill then owns the workflow.
     const rigidBuildOptedIn =
@@ -755,7 +783,7 @@ const promptSubmitHandler: HookHandler = (normalized) => {
       isClusterSkillInstalled(pathAMatch.skill, optedInSkills);
     if (
       !delegateLine &&
-      isCodeTask &&
+      (isCodeTask || delegableFeatureImpl) &&
       isSubstantiveTask &&
       !rigidBuildOptedIn &&
       supportsDelegation(agentId)

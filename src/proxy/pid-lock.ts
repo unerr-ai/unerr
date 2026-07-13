@@ -6,6 +6,7 @@
  * Heartbeat every 10s. Backward-compatible with plain PID format.
  */
 
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -19,6 +20,11 @@ import { join } from "node:path";
 const HEARTBEAT_INTERVAL_MS = 10_000;
 const PID_FILENAME = "proxy.pid";
 const HEALTH_CHECK_TIMEOUT_MS = 500;
+/** Growing per-attempt timeout for `checkHealthWithRetry` — a proxy pegged on
+ * a synchronous CozoDB op (WAL checkpoint, index burst) can miss one 500ms
+ * check without being wedged. */
+const HEALTH_RETRY_TIMEOUTS_MS = [500, 1000, 1500];
+const HEALTH_RETRY_GAP_MS = 200;
 
 export interface PidFileData {
   pid: number;
@@ -26,7 +32,11 @@ export interface PidFileData {
   healthPort: number;
 }
 
-export type PidLockOutcome = "primary" | "secondary" | "stale_recovered";
+export type PidLockOutcome =
+  | "primary"
+  | "secondary"
+  | "stale_recovered"
+  | "wedged";
 
 export interface PidLockResult {
   acquired: boolean;
@@ -92,7 +102,7 @@ export class PidLock {
         if (pidData && isProcessAlive(pidData.pid)) {
           // Process is alive — verify it's really unerr via health check
           if (pidData.healthPort) {
-            const healthy = await checkHealth(pidData.healthPort);
+            const healthy = await checkHealthWithRetry(pidData.healthPort);
             if (healthy) {
               return {
                 acquired: false,
@@ -101,7 +111,20 @@ export class PidLock {
                 existingHealthPort: pidData.healthPort,
               };
             }
-            // Health check failed but process exists → likely recycled PID → stale
+            // Health check failed after retries. Two very different causes:
+            // the pid was recycled onto an unrelated process (genuinely
+            // stale — safe to reclaim), or it's still a real unerr proxy
+            // that's wedged (busy/pegged, event loop blocked) and still
+            // holds graph.db — becoming a second writer here is the WAL-bloat
+            // incident. Disambiguate by process identity before deciding.
+            if (isUnerrProxyPid(pidData.pid)) {
+              return {
+                acquired: false,
+                outcome: "wedged",
+                existingPid: pidData.pid,
+                existingHealthPort: pidData.healthPort,
+              };
+            }
             unlinkSync(this.pidPath);
             return await this.becomePrimary("stale_recovered");
           }
@@ -328,12 +351,75 @@ function isProcessAlive(pid: number): boolean {
 /**
  * Check if a health endpoint is responding (used for stale PID verification).
  */
-async function checkHealth(port: number): Promise<boolean> {
+async function checkHealth(
+  port: number,
+  timeoutMs = HEALTH_CHECK_TIMEOUT_MS
+): Promise<boolean> {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/health`, {
-      signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Retry the health check with growing per-attempt timeouts before concluding
+ * a proxy is unresponsive. A single 500ms check can miss a proxy that is
+ * briefly busy (a WAL checkpoint or index burst) without being wedged —
+ * retrying avoids misclassifying it as dead.
+ */
+async function checkHealthWithRetry(port: number): Promise<boolean> {
+  for (let i = 0; i < HEALTH_RETRY_TIMEOUTS_MS.length; i++) {
+    if (await checkHealth(port, HEALTH_RETRY_TIMEOUTS_MS[i])) return true;
+    if (i < HEALTH_RETRY_TIMEOUTS_MS.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, HEALTH_RETRY_GAP_MS));
+    }
+  }
+  return false;
+}
+
+/**
+ * Classify a `ps … -o command=` string as a unerr per-repo proxy — either
+ * managed (`--daemon-child`) or standalone (bare `unerr` / `node cli.js` with
+ * no subcommand). Anchored on the CLI entry (`cli.js`) or the compiled binary
+ * basename (`/unerr`) rather than a bare `unerr` substring, because the repo's
+ * own path (`…/unerr-cli/…`) would false-match that. Excludes the process
+ * manager (`unerrd`), the `--mcp` bridge, and the `exec` runner — none of
+ * which ever open `graph.db` — so a bridge can never be misclassified as a
+ * reapable proxy and killed. Mirrors `isUnerrProxyCommand` in
+ * src/daemon/process-manager.ts; pid-lock.ts is a low-level proxy module and
+ * must not import from src/daemon, so the check is duplicated here rather
+ * than shared.
+ */
+export function isUnerrProxyCommand(cmd: string): boolean {
+  if (!/cli\.js(\s|$)/.test(cmd) && !/\/unerr(\s|$)/.test(cmd)) return false;
+  if (/\bunerrd\b/.test(cmd)) return false;
+  if (/(^|\s)--mcp(\s|$)/.test(cmd)) return false;
+  if (/(^|\s)exec(\s|$)/.test(cmd)) return false;
+  return true;
+}
+
+/**
+ * Confirm a pid read from the proxy lock file is genuinely a unerr proxy
+ * (managed or standalone) before treating a failed health check as "wedged,
+ * don't reclaim" rather than "recycled, safe to reclaim". Any failure to
+ * verify returns false (treated as recycled, not wedged).
+ */
+function isUnerrProxyPid(pid: number): boolean {
+  if (process.platform === "win32") {
+    // No portable `ps`; fall back to today's recycled-pid behavior.
+    return false;
+  }
+  try {
+    const out = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf-8",
+      timeout: 1_000,
+      windowsHide: true,
+    });
+    return out.status === 0 && isUnerrProxyCommand(out.stdout ?? "");
   } catch {
     return false;
   }

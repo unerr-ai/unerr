@@ -15,13 +15,19 @@
  *   child exits → status = "stopped", cleanup
  */
 
-import { type ChildProcess, spawnSync } from "node:child_process";
+import {
+  type ChildProcess,
+  type SpawnSyncReturns,
+  spawnSync,
+} from "node:child_process";
 import {
   closeSync,
   existsSync,
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
+  readlinkSync,
   rmSync,
 } from "node:fs";
 import { createConnection } from "node:net";
@@ -114,6 +120,12 @@ export interface ManagedRepo {
    * so liveness is probed by PID and shutdown is signalled by PID.
    */
   adopted?: boolean;
+  /**
+   * Consecutive failed liveness probes (see {@link ProcessManager.probeLiveness}).
+   * Reset to 0 on any successful /health ping; at LIVENESS_MAX_STRIKES the proxy
+   * is treated as wedged and recycled.
+   */
+  livenessFailures?: number;
 }
 
 export type ProcessEventHandler = (
@@ -265,19 +277,37 @@ async function killProcessAndWait(
   }
 }
 
-/** Read the PID a per-repo proxy wrote to its lock file, or null if absent /
- *  unparseable. The single source of "which process owns this repo's graph.db". */
-function readProxyLockPid(stateDir: string): number | null {
+/** Parsed contents of a per-repo `proxy.pid` lock file (JSON `{pid, startedAt,
+ *  healthPort}` — see `src/proxy/pid-lock.ts`). `healthPort` is absent on a
+ *  legacy plain-number lock. */
+interface ProxyLockData {
+  pid: number;
+  healthPort?: number;
+}
+
+/** Read + parse a per-repo proxy's lock file, or null if absent / unparseable.
+ *  The single source of "which process owns this repo's graph.db" (and, when
+ *  `healthPort` is present, where to health-ping it). */
+function readProxyLockFile(stateDir: string): ProxyLockData | null {
   const pidFilePath = join(stateDir, "proxy.pid");
   if (!existsSync(pidFilePath)) return null;
   try {
     const parsed = JSON.parse(readFileSync(pidFilePath, "utf-8")) as {
       pid?: number;
+      healthPort?: number;
     };
-    return typeof parsed.pid === "number" ? parsed.pid : null;
+    return typeof parsed.pid === "number"
+      ? { pid: parsed.pid, healthPort: parsed.healthPort }
+      : null;
   } catch {
     return null;
   }
+}
+
+/** Read just the PID a per-repo proxy wrote to its lock file, or null if
+ *  absent / unparseable. */
+function readProxyLockPid(stateDir: string): number | null {
+  return readProxyLockFile(stateDir)?.pid ?? null;
 }
 
 /** Remove a wedged/dead proxy's stale lock + socket files so a fresh fork owns
@@ -293,12 +323,30 @@ function clearProxyLockFiles(stateDir: string): void {
 }
 
 /**
+ * Classify a `ps … -o command=` string as a unerr per-repo proxy — either
+ * managed (`--daemon-child`) or standalone (bare `unerr` / `node cli.js` with
+ * no subcommand). Anchored on the CLI entry (`cli.js`) or the compiled binary
+ * basename (`/unerr`) rather than a bare `unerr` substring, because the repo's
+ * own path (`…/unerr-cli/…`) would false-match that. Excludes the process
+ * manager (`unerrd`), the `--mcp` bridge, and the `exec` runner — none of
+ * which ever open `graph.db` — so a bridge can never be misclassified as a
+ * reapable proxy and killed. Mirrors `isUnerrProxyCommand` in
+ * src/proxy/pid-lock.ts; that module must not import from src/daemon, so the
+ * check is duplicated here rather than shared.
+ */
+export function isUnerrProxyCommand(cmd: string): boolean {
+  if (!/cli\.js(\s|$)/.test(cmd) && !/\/unerr(\s|$)/.test(cmd)) return false;
+  if (/\bunerrd\b/.test(cmd)) return false;
+  if (/(^|\s)--mcp(\s|$)/.test(cmd)) return false;
+  if (/(^|\s)exec(\s|$)/.test(cmd)) return false;
+  return true;
+}
+
+/**
  * Confirm a pid read from a proxy lock file is genuinely a unerr per-repo proxy
- * before force-killing it. A lock file can outlive its process; the OS may have
- * recycled that pid onto an UNRELATED program, and killing it would take down
- * someone else's work. We match `--daemon-child` in the argv — the unambiguous
- * marker every managed proxy carries. A bare "unerr" match is unsafe because the
- * repo path itself ("unerr-cli") would false-match. Any failure to verify
+ * (managed or standalone) before force-killing it. A lock file can outlive its
+ * process; the OS may have recycled that pid onto an UNRELATED program, and
+ * killing it would take down someone else's work. Any failure to verify
  * returns false, so an unconfirmable pid is never killed.
  */
 function isUnerrProxyProcess(pid: number): boolean {
@@ -312,7 +360,7 @@ function isUnerrProxyProcess(pid: number): boolean {
       timeout: 1_000,
       windowsHide: true,
     });
-    return out.status === 0 && /--daemon-child/.test(out.stdout ?? "");
+    return out.status === 0 && isUnerrProxyCommand(out.stdout ?? "");
   } catch {
     return false; // cannot verify → never kill
   }
@@ -321,6 +369,194 @@ function isUnerrProxyProcess(pid: number): boolean {
 /** Canonicalize a repo path to the single absolute key used in the repos map. */
 function canonRepoKey(repoPath: string): string {
   return resolve(expandHome(repoPath));
+}
+
+/** Growing per-attempt timeout budget for {@link pingHealth} (ms). */
+const HEALTH_PING_TIMEOUTS_MS = [500, 1_000, 1_500];
+
+/** Skip the liveness probe for this long after a proxy spawns — its health
+ *  server may not be listening yet during first-run index. */
+const LIVENESS_PROBE_GRACE_MS = 30_000;
+
+/** Recycle a running proxy only after this many CONSECUTIVE failed liveness
+ *  probes, so a single transient hiccup never kills a live session. */
+const LIVENESS_MAX_STRIKES = 2;
+
+/**
+ * Pure liveness state transition. A successful /health ping resets the strike
+ * count to 0; a failure increments it and recycles the proxy once it reaches
+ * {@link LIVENESS_MAX_STRIKES}. Extracted so the strike/reset logic is unit
+ * tested without a real thread, network, or child process.
+ */
+export function nextLivenessState(
+  currentFailures: number,
+  pingAlive: boolean
+): { failures: number; recycle: boolean } {
+  if (pingAlive) return { failures: 0, recycle: false };
+  const failures = currentFailures + 1;
+  return { failures, recycle: failures >= LIVENESS_MAX_STRIKES };
+}
+
+/**
+ * Best-effort HTTP GET against a proxy's `/health` endpoint (the port the
+ * `proxy.pid` lock file names), retried with a growing timeout so a proxy
+ * that is merely busy for a few hundred ms isn't misclassified as wedged.
+ * Returns false only after every attempt fails (connection refused, timeout,
+ * non-2xx) — never throws.
+ */
+export async function pingHealth(healthPort: number): Promise<boolean> {
+  for (const timeoutMs of HEALTH_PING_TIMEOUTS_MS) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${healthPort}/health`, {
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (res.ok) return true;
+    } catch {
+      // connection refused / timed out — try again with a longer budget
+    }
+  }
+  return false;
+}
+
+/** Parse `ps`'s `etime` column (`[[dd-]hh:]mm:ss`) into elapsed seconds. */
+function parseEtimeToSeconds(etime: string): number {
+  let days = 0;
+  let rest = etime;
+  const dashIdx = rest.indexOf("-");
+  if (dashIdx !== -1) {
+    days = Number.parseInt(rest.slice(0, dashIdx), 10) || 0;
+    rest = rest.slice(dashIdx + 1);
+  }
+  const parts = rest.split(":").map((p) => Number.parseInt(p, 10) || 0);
+  let seconds = 0;
+  if (parts.length === 3) {
+    seconds = (parts[0] ?? 0) * 3_600 + (parts[1] ?? 0) * 60 + (parts[2] ?? 0);
+  } else if (parts.length === 2) {
+    seconds = (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
+  } else if (parts.length === 1) {
+    seconds = parts[0] ?? 0;
+  }
+  return days * 86_400 + seconds;
+}
+
+/**
+ * Every live pid holding an open file handle on `<repoPath>/.unerr/graph.db`
+ * — the definitive proof a process is a per-repo proxy WRITER for that repo.
+ * A `--mcp` bridge or `exec` runner never opens `graph.db`, so this gate can
+ * never catch one of those (unlike the old `--daemon-child` argv scan, which
+ * was blind to a STANDALONE duplicate proxy — no `--daemon-child` flag — and
+ * let exactly that double-writer incident through). Linux resolves via
+ * `/proc/<pid>/fd` symlinks (falls back to `lsof` if that yields nothing —
+ * e.g. `/proc` unreadable for another uid); macOS/BSD uses `lsof -t` directly.
+ * Best-effort: any failure (`lsof`/`ps` missing, permission denied, an
+ * unsupported platform) yields an empty list rather than throwing.
+ */
+function pidsHoldingRepoGraphDb(
+  repoPath: string
+): { pid: number; startedAt: number }[] {
+  if (process.platform === "win32") return [];
+  const graphDbPath = join(repoPath, ".unerr", "graph.db");
+  let pids: number[];
+  try {
+    pids =
+      process.platform === "linux"
+        ? listGraphDbHolderPidsViaProc(graphDbPath)
+        : [];
+    if (pids.length === 0) pids = listGraphDbHolderPidsViaLsof(graphDbPath);
+  } catch {
+    return [];
+  }
+
+  const now = Date.now();
+  const result: { pid: number; startedAt: number }[] = [];
+  for (const pid of pids) {
+    try {
+      const out = spawnSync("ps", ["-p", String(pid), "-o", "etime="], {
+        encoding: "utf-8",
+        timeout: 1_000,
+        windowsHide: true,
+      });
+      if (out.status !== 0 || !out.stdout?.trim()) continue;
+      const elapsedS = parseEtimeToSeconds(out.stdout.trim());
+      result.push({ pid, startedAt: now - elapsedS * 1_000 });
+    } catch {
+      // pid exited mid-probe — skip it, don't let one bad pid break the rest
+    }
+  }
+  return result;
+}
+
+/** `lsof -t` against a single file path → the pids with it open. Works on
+ *  macOS/BSD and as the Linux fallback when `/proc` scanning finds nothing. */
+function listGraphDbHolderPidsViaLsof(filePath: string): number[] {
+  try {
+    const out: SpawnSyncReturns<string> = spawnSync(
+      "lsof",
+      ["-t", "--", filePath],
+      { encoding: "utf-8", timeout: 2_000, windowsHide: true }
+    );
+    if (out.status !== 0 || !out.stdout) return [];
+    return out.stdout
+      .split("\n")
+      .map((l) => Number.parseInt(l.trim(), 10))
+      .filter((n) => !Number.isNaN(n));
+  } catch {
+    return [];
+  }
+}
+
+/** Linux-only: scan every live pid's `/proc/<pid>/fd` symlinks for one
+ *  resolving to `filePath`. Avoids a dependency on `lsof` being installed. */
+function listGraphDbHolderPidsViaProc(filePath: string): number[] {
+  let pidDirs: string[];
+  try {
+    pidDirs = readdirSync("/proc").filter((d) => /^\d+$/.test(d));
+  } catch {
+    return [];
+  }
+  const found: number[] = [];
+  for (const pidStr of pidDirs) {
+    const fdDir = `/proc/${pidStr}/fd`;
+    let fds: string[];
+    try {
+      fds = readdirSync(fdDir);
+    } catch {
+      continue; // permission denied (different uid) or pid exited — skip
+    }
+    for (const fd of fds) {
+      try {
+        if (readlinkSync(`${fdDir}/${fd}`) === filePath) {
+          found.push(Number.parseInt(pidStr, 10));
+          break;
+        }
+      } catch {
+        // fd closed mid-probe — skip
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Pure decision for the reaper: given every live `--daemon-child` for ONE
+ * repo and which pid (if any) currently holds that repo's PID lock, return
+ * the pids to kill so at most one survives. The lock holder — the process
+ * `graph.db`'s writers are supposed to converge on — is always kept when it's
+ * among the live set. When none of the live children holds the lock (stale,
+ * missing, or unreadable lock file), killing every one of them would leave
+ * the repo with ZERO proxies, which is worse than a leaked duplicate — so the
+ * most-recently-started child is kept instead and every older one is killed.
+ */
+export function selectDuplicateChildrenToKill(
+  children: { pid: number; startedAt: number }[],
+  lockHolderPid: number | null
+): number[] {
+  if (children.length <= 1) return [];
+  if (lockHolderPid !== null && children.some((c) => c.pid === lockHolderPid)) {
+    return children.filter((c) => c.pid !== lockHolderPid).map((c) => c.pid);
+  }
+  const newest = children.reduce((a, b) => (b.startedAt > a.startedAt ? b : a));
+  return children.filter((c) => c.pid !== newest.pid).map((c) => c.pid);
 }
 
 export class ProcessManager {
@@ -347,11 +583,71 @@ export class ProcessManager {
   /** Start the idle sweep timer. */
   startIdleSweep(): void {
     if (this.sweepTimer) return;
+    // Catch a double-writer left by a PRIOR unerrd generation as soon as this
+    // one comes up, rather than waiting up to 60s for the first sweep tick.
+    void this.reapDuplicateChildren().catch(() => {
+      /* best-effort — never block startup */
+    });
     this.sweepTimer = setInterval(
       () => this.runIdleSweep(),
       IDLE_SWEEP_INTERVAL_MS
     );
     this.sweepTimer.unref();
+  }
+
+  /**
+   * Enforce at most one live writer per repo's `graph.db` — a backstop beyond
+   * `tryAdopt`'s health-ping for the case something still slips through (a
+   * leftover child from a prior unerrd generation, a double-fork race, or a
+   * STANDALONE proxy started outside unerrd entirely). Two processes writing
+   * one repo's `graph.db` is the exact WAL-growth incident this guards
+   * against: neither's `wal_checkpoint(TRUNCATE)` can ever succeed while the
+   * other holds a read/write handle, so the WAL grows unbounded. For every
+   * registered repo, finds every live pid actually holding that repo's
+   * `graph.db` open ({@link pidsHoldingRepoGraphDb} — ground truth; a
+   * `--mcp` bridge or `exec` runner can never appear here, so this can never
+   * kill one) and, when 2+ hold it, kills every pid except the one
+   * {@link selectDuplicateChildrenToKill} decides to keep. Best-effort and
+   * conservative: `ps`/`lsof`/`/proc` failures or an unconfirmed pid make
+   * this a no-op for that pid — a missed duplicate is far safer than a
+   * wrongful kill.
+   *
+   * @sem domain=daemon-lifecycle role=safety-net
+   */
+  async reapDuplicateChildren(): Promise<void> {
+    if (this.stopped) return;
+
+    let repos: RepoEntry[];
+    try {
+      repos = readRegistry().repos;
+    } catch {
+      return; // best-effort — never break the caller
+    }
+
+    for (const repo of repos) {
+      const repoKey = canonRepoKey(repo.path);
+      let holders: { pid: number; startedAt: number }[];
+      try {
+        holders = pidsHoldingRepoGraphDb(repoKey);
+      } catch {
+        continue; // best-effort — one repo's failure never blocks the rest
+      }
+      if (holders.length < 2) continue;
+
+      const stateDir = join(repoKey, ".unerr", "state");
+      const lockHolderPid = readProxyLockPid(stateDir);
+      const toKill = selectDuplicateChildrenToKill(holders, lockHolderPid);
+      for (const pid of toKill) {
+        // Belt-and-suspenders re-confirm — holding graph.db is already proof.
+        if (!isUnerrProxyProcess(pid)) continue;
+        this.onEvent?.(
+          "stopped",
+          { path: repoKey, pid } as ManagedRepo,
+          `duplicate graph.db writer for ${repoKey} — killing extra PID ${pid}`
+        );
+        await killProcessAndWait(pid);
+      }
+    }
   }
 
   /** Stop the idle sweep timer. */
@@ -552,11 +848,14 @@ export class ProcessManager {
   }
 
   /**
-   * Adopt a per-repo proxy that is already alive on disk — PID lock present and
-   * the named process running, with its UDS socket in place. Registers a
-   * managed entry (with no child handle) and returns the socket, so unerrd
-   * tracks and forwards to the live proxy instead of forking a duplicate.
-   * Returns null when no live proxy is present (caller then spawns one).
+   * Adopt a per-repo proxy that is already alive on disk — PID lock present,
+   * the named process running, its UDS socket connectable, AND its `/health`
+   * endpoint responsive. Registers a managed entry (with no child handle) and
+   * returns the socket, so unerrd tracks and forwards to the live proxy
+   * instead of forking a duplicate. Returns null when no live, healthy proxy
+   * is present (caller then spawns one) — including when the pid/socket look
+   * alive but `/health` never answers, which kills the wedged holder first so
+   * the fresh fork is the sole writer of the repo's `graph.db`.
    */
   private async tryAdopt(repoPath: string): Promise<string | null> {
     const stateDir = join(repoPath, ".unerr", "state");
@@ -591,6 +890,29 @@ export class ProcessManager {
           "stopped",
           { path: repoPath, pid } as ManagedRepo,
           "wedged proxy (alive pid, dead socket) — killing before respawn"
+        );
+        await killProcessAndWait(pid);
+      }
+      clearProxyLockFiles(stateDir);
+      return null;
+    }
+
+    // A connectable socket only proves the proxy called `listen()` — not that
+    // its event loop is unblocked. This is the exact gap the WAL-growth
+    // incident exploited: a proxy pegged on a CozoDB op still accepts TCP/UDS
+    // connections, so `isSockConnectable` alone adopted it as healthy while it
+    // sat wedged holding graph.db open, and a second fork/adoption became a
+    // second writer. Health-ping `/health` (from the lock file's healthPort,
+    // absent on legacy locks) with retries; only after every attempt fails do
+    // we treat it as wedged and kill it exactly like the dead-socket case
+    // above.
+    const lockData = readProxyLockFile(stateDir);
+    if (lockData?.healthPort && !(await pingHealth(lockData.healthPort))) {
+      if (isUnerrProxyProcess(pid)) {
+        this.onEvent?.(
+          "stopped",
+          { path: repoPath, pid } as ManagedRepo,
+          "wedged proxy (socket connects, /health unresponsive) — killing before respawn"
         );
         await killProcessAndWait(pid);
       }
@@ -1035,6 +1357,56 @@ export class ProcessManager {
 
   // ── Internal: idle sweep ────────────────────────────────────
 
+  /**
+   * Liveness probe for forked RUNNING proxies. `tryAdopt` only health-checks a
+   * proxy the moment something adopts it; a proxy that wedges mid-serve (a cozo
+   * op that froze its event loop, the class of freeze the worker-thread db
+   * isolation prevents — see cozo-worker-client.ts) keeps its IPC handle AND its
+   * bridge connections, so the idle sweep, which skips connected proxies, never
+   * touches it and it stays frozen (the pid-47377 case). This /health-pings each
+   * such proxy and recycles one that fails {@link LIVENESS_MAX_STRIKES}
+   * consecutive probes so its next bridge frame respawns a clean proxy. Pings run
+   * in parallel so a wedged proxy's ~3s ping budget never serializes the rest.
+   */
+  private async probeLiveness(): Promise<void> {
+    if (this.stopped) return;
+    const now = Date.now();
+    const candidates: Array<{ repo: ManagedRepo; healthPort: number }> = [];
+    for (const repo of this.repos.values()) {
+      if (repo.status !== "running") continue;
+      // Adopted proxies run their own lifecycle (no IPC handle to shutdownChild).
+      if (repo.adopted || !repo.child) continue;
+      // A freshly-spawned proxy may not have its health server up yet.
+      if (repo.startedAt && now - repo.startedAt < LIVENESS_PROBE_GRACE_MS) {
+        continue;
+      }
+      const lock = readProxyLockFile(join(repo.path, ".unerr", "state"));
+      if (typeof lock?.healthPort !== "number") continue;
+      candidates.push({ repo, healthPort: lock.healthPort });
+    }
+
+    await Promise.all(
+      candidates.map(async ({ repo, healthPort }) => {
+        const alive = await pingHealth(healthPort);
+        const { failures, recycle } = nextLivenessState(
+          repo.livenessFailures ?? 0,
+          alive
+        );
+        repo.livenessFailures = failures;
+        if (!recycle) return;
+        this.onEvent?.(
+          "stopped",
+          repo,
+          `wedged proxy failed ${failures} liveness probes — recycling`
+        );
+        repo.livenessFailures = 0;
+        await this.shutdownChild(repo).catch(() => {
+          /* best-effort — probe never breaks the sweep */
+        });
+      })
+    );
+  }
+
   private runIdleSweep(): void {
     if (this.stopped) return;
 
@@ -1099,6 +1471,20 @@ export class ProcessManager {
     // starts). Fire-and-forget — a stop failure retries on the next sweep.
     void this.reconcileFreeTier().catch(() => {
       /* best-effort — reconcile never breaks the sweep */
+    });
+
+    // Double-writer backstop: clean up any duplicate `--daemon-child` that
+    // appeared since the last sweep (a leftover from a prior generation, a
+    // double-fork race) within one minute of it surfacing.
+    void this.reapDuplicateChildren().catch(() => {
+      /* best-effort — reaper never breaks the sweep */
+    });
+
+    // Mid-serve wedge backstop: recycle a forked proxy that stopped answering
+    // /health (an event-loop freeze the idle path can't see because the proxy is
+    // still "connected"). Fire-and-forget — a failure retries next sweep.
+    void this.probeLiveness().catch(() => {
+      /* best-effort — liveness probe never breaks the sweep */
     });
   }
 }

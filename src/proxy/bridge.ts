@@ -237,6 +237,27 @@ export function startUdsBridge(
       if (stdinDataHandler)
         process.stdin.removeListener("data", stdinDataHandler);
       if (stdinEndHandler) process.stdin.removeListener("end", stdinEndHandler);
+      // Any request already forwarded to the proxy (tools/call, search_code,
+      // …) that never got a response is otherwise lost when the connection
+      // drops — the IDE waits on that request id forever. Every reason except
+      // "stdin_closed" (the IDE itself detached — nobody left to answer) means
+      // the proxy side died mid-call, so answer each outstanding id with a
+      // typed error instead of hanging. Skipped on stdin_closed: no point
+      // answering a request whose asker is already gone.
+      if (reason !== "stdin_closed") {
+        for (const id of catalog.drainInflight()) {
+          const frame = {
+            jsonrpc: "2.0",
+            id,
+            error: {
+              code: -32000,
+              message:
+                "unerr: proxy connection lost mid-call — the proxy is restarting; retry the same tool call",
+            },
+          };
+          process.stdout.write(`${JSON.stringify(frame)}\n`);
+        }
+      }
       // L6: close the session window only on a terminal stdin EOF (the IDE
       // detached). socket_closed / daemon_dead are reconnect triggers, not the
       // end of the conversation, so they leave the session open.

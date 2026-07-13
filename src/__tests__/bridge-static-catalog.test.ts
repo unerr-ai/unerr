@@ -332,6 +332,73 @@ describe("BridgeCatalog (post-connect timeout-fallback)", () => {
   });
 });
 
+describe("BridgeCatalog (in-flight tracking — connection-drop fallback)", () => {
+  it("tracks a forwarded tools/call id as in-flight, cleared by the proxy's response", () => {
+    const catalog = new BridgeCatalog();
+    catalog.ingestFromIde(
+      encodeFrame({
+        jsonrpc: "2.0",
+        id: 7,
+        method: "tools/call",
+        params: { name: "search_code" },
+      })
+    );
+    catalog.ingestFromProxy(
+      encodeFrame({ jsonrpc: "2.0", id: 7, result: { ok: true } })
+    );
+    expect(catalog.drainInflight()).toEqual([]);
+  });
+
+  it("drainInflight returns only ids still unanswered, with original types, and clears", () => {
+    const catalog = new BridgeCatalog();
+    catalog.ingestFromIde(
+      encodeFrame({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {} })
+    );
+    catalog.ingestFromIde(
+      encodeFrame({
+        jsonrpc: "2.0",
+        id: "call-2",
+        method: "tools/call",
+        params: {},
+      })
+    );
+    // Only id 1 gets answered before the connection drops.
+    catalog.ingestFromProxy(encodeFrame({ jsonrpc: "2.0", id: 1, result: {} }));
+    const drained = catalog.drainInflight();
+    expect(drained).toEqual(["call-2"]);
+    // Draining clears the set — a second drain call finds nothing left.
+    expect(catalog.drainInflight()).toEqual([]);
+  });
+
+  it("preserves numeric ids (not stringified) through drainInflight", () => {
+    const catalog = new BridgeCatalog();
+    catalog.ingestFromIde(
+      encodeFrame({ jsonrpc: "2.0", id: 42, method: "tools/call", params: {} })
+    );
+    const drained = catalog.drainInflight();
+    expect(drained).toEqual([42]);
+    expect(typeof drained[0]).toBe("number");
+  });
+
+  it("never tracks a notification (no id) as in-flight", () => {
+    const catalog = new BridgeCatalog();
+    catalog.ingestFromIde(
+      encodeFrame({ jsonrpc: "2.0", method: "notifications/initialized" })
+    );
+    expect(catalog.drainInflight()).toEqual([]);
+  });
+
+  it("fireFallback removes the locally-answered id from in-flight", () => {
+    const catalog = new BridgeCatalog();
+    catalog.ingestFromIde(
+      encodeFrame({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    );
+    const reply = catalog.fireFallback({ id: 1, method: "initialize" });
+    expect(reply).not.toBeNull();
+    expect(catalog.drainInflight()).toEqual([]);
+  });
+});
+
 describe("buildInitializeResult / buildToolsListResult", () => {
   it("buildInitializeResult shape matches the runtime path", () => {
     const obj = buildInitializeResult(42) as {

@@ -315,7 +315,8 @@ describe("warm-start config", () => {
   it("loadWarmStartConfig returns defaults when no config exists", async () => {
     const { loadWarmStartConfig } = await import("../daemon/warm-start.js");
     const config = loadWarmStartConfig();
-    expect(config.warmStartBudget).toBe(3);
+    // Off by default — the daemon spawns nothing proactively on boot (lazy manager).
+    expect(config.warmStartBudget).toBe(0);
     expect(config.warmStartIdleDays).toBe(14);
     expect(config.warmStartDelayMs).toBe(30_000);
   });

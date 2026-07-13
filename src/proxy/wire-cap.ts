@@ -643,14 +643,46 @@ function enforceTokenCap(
   if (entityArg) {
     oversize.entity = entityArg;
   }
+
+  // Head delivery — spend the budget the caller already paid for. A naked
+  // too_large body costs ~50 tokens of a 2048-token budget and forces a second
+  // round-trip for content this process has already computed (measured live:
+  // 16% of search_code calls ended in a too_large rejection + retry). Fill the
+  // envelope with the head of the payload up to the cap; the cache marker then
+  // points the follow-up retrieval at the REMAINDER offset, so worst case the
+  // agent pays one cheap cache_ref pull instead of a full recompute. Skipped
+  // when the cap leaves no useful room for content.
+  const OVERSIZE_HEAD_MIN_TOKENS = 200;
+  const OVERSIZE_HINT_TOKENS = 48; // the ur|pg + cache-ref marker lines
+  let headChars = 0;
+  let headTokensDelivered = 0;
+  const envelopeTokens =
+    estimateTokenCount(JSON.stringify(oversize)) + OVERSIZE_HINT_TOKENS;
+  const headBudgetTokens = tokenCap - envelopeTokens;
+  if (headBudgetTokens >= OVERSIZE_HEAD_MIN_TOKENS) {
+    const charsPerToken = serialized.length / Math.max(1, tokens);
+    headChars = Math.min(
+      serialized.length,
+      Math.floor(headBudgetTokens * charsPerToken)
+    );
+    if (headChars > 0) {
+      oversize.head = serialized.slice(0, headChars);
+      oversize.head_chars = headChars;
+      headTokensDelivered = Math.round(headChars / charsPerToken);
+    }
+  }
+
   // Cache-ref marker: the reversible-retrieval next-action (concrete numbers,
   // named tool, imperative — obeys the nudge-writing rules; buildCacheMarker
   // owns the wording so it stays byte-stable for identical input).
   const cacheMarker = buildCacheMarker({
     hash: cacheRef,
-    droppedBytes: serialized.length,
+    droppedBytes: serialized.length - headChars,
+    ...(headChars > 0 ? { retrieveOffset: headChars } : {}),
   });
-  const overHint = `ur|${toWireTag("pg")} ${toolName} ${tokens}tok>${tokenCap}tok — ${hintTail}\n${cacheMarker}`;
+  const overHint = `ur|${toWireTag("pg")} ${toolName} ${tokens}tok>${tokenCap}tok — ${
+    headChars > 0 ? `head ${headTokensDelivered}tok delivered inline; ` : ""
+  }${hintTail}\n${cacheMarker}`;
   // The cached original is the whole payload; the slice the agent retrieves is
   // what it actually pays for on the follow-up. Record this as a `compress`
   // event carrying the cache_ref so a later `retrieve` row pairs back to it.

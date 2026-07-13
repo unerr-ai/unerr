@@ -249,6 +249,6 @@ export async function computeIndexPlan(
     deleted,
     totalFiles: absFiles.length,
     storedHashCount: stored.size,
-    reason: `${changeCount} files changed (> incremental cap ${INCREMENTAL_MAX_FILES}) — full reindex`,
+    reason: `${changed.length} changed + ${deleted.length} deleted (> incremental cap ${INCREMENTAL_MAX_FILES}) — full reindex`,
   };
 }

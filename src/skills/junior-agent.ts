@@ -68,6 +68,16 @@ export type ModelTier = "senior" | "worker" | "junior";
 
 /** Claude Code worker tier — Sonnet (between Opus senior and Haiku junior). */
 export const CLAUDE_WORKER_MODEL = "sonnet";
+/**
+ * The two USER-INVOKED Claude Code sub-agents. Unlike junior/worker these are NOT
+ * part of the automatic delegation routing (`selectTier` / `DELEGATION_TIERS` /
+ * `juniorHandoff`) — nothing spawns them on its own. They exist on disk only so the
+ * user can explicitly run a scoped task on a specific model via
+ * `Task subagent_type:'unerr-opus'` / `'unerr-fable'`. Same subagent shape and
+ * operating contract as junior/worker, pinned to Opus and Fable respectively.
+ */
+export const OPUS_MODEL = "opus";
+export const FABLE_MODEL = "fable";
 /** Codex worker tier — gpt-5.4 (between gpt-5.5 senior and gpt-5.4-mini junior). */
 export const CODEX_WORKER_MODEL = "gpt-5.4";
 /** Copilot CLI worker tier — gpt-5 (between gpt-5.5 senior and gpt-5-mini junior). */
@@ -119,7 +129,8 @@ const DELEGATION_TIERS: Partial<Record<IdeType, HostTierModels>> = {
 function baseTier(cls: DelegableClass): ModelTier {
   switch (cls) {
     // Read-only (recon, research, Q&A, audit, log triage, repro) + the trivially
-    // mechanical edit classes (lint/format, docstrings) + verify/command runs.
+    // mechanical edit classes (lint/format, docstrings) + verify/command runs +
+    // the read-only post-edit checks (review, security, git prep, benchmarking).
     case "lint_format":
     case "docs":
     case "recon":
@@ -130,9 +141,14 @@ function baseTier(cls: DelegableClass): ModelTier {
     case "inventory_audit":
     case "log_triage":
     case "repro":
+    case "code_review":
+    case "security_audit":
+    case "git_ops":
+    case "benchmark_run":
       return "junior";
     // Scoped writes that need a correctness check — including scoped feature
-    // implementation from a clear spec (the bulk of ordinary coding work).
+    // implementation from a clear spec (the bulk of ordinary coding work) and
+    // the other mechanical write classes (dependency bumps, migration scripts).
     case "tests":
     case "mechanical_refactor":
     case "caller_propagation":
@@ -140,6 +156,8 @@ function baseTier(cls: DelegableClass): ModelTier {
     case "scaffold":
     case "codemod":
     case "feature_impl":
+    case "dependency_upgrade":
+    case "migration_script":
       return "worker";
     default:
       return "senior";
@@ -281,28 +299,46 @@ const WORKER_TOOLS =
 const JUNIOR_TOOLS = `${WORKER_TOOLS}, mcp__unerr__fetch_url, WebSearch, WebFetch`;
 
 /**
- * Build a model-pinned sub-agent definition. Both delegation sub-agents share one
- * operating contract (work from the digest, edit minimally, self-verify, retry ≤2,
- * escalate with one note); the name, model tier, description, intro sentence, and
- * tool allow-list (junior adds web tools) differ.
+ * The reviewer's read-only allow-list — no `mcp__unerr__file_edit`, `Edit`, or
+ * `Write`. It reports findings; it never touches a file.
  */
-function buildSubagentMd(opts: {
-  name: string;
-  model: string;
-  description: string;
-  intro: string;
-  tools: string;
-}): string {
-  return `---
-name: ${opts.name}
-description: ${opts.description}
-model: ${opts.model}
-tools: ${opts.tools}
----
+const REVIEWER_TOOLS =
+  "mcp__unerr__search_code, mcp__unerr__file_read, mcp__unerr__file_outline, mcp__unerr__get_references, Read, Bash";
 
-You are ${opts.name}. ${opts.intro} Your job is to make the minimal correct edit and prove it passes — nothing more.
+/**
+ * Wrap `text` into lines indented by `indent`, each capped at `width` chars, for
+ * a YAML folded block scalar (`>-`). Folding re-joins the lines with spaces at
+ * parse time, so this only affects the readability of the source file — never
+ * the parsed description value.
+ */
+function wrapFoldedScalar(text: string, indent = "  ", width = 96): string {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (current && next.length > width) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.map((line) => `${indent}${line}`).join("\n");
+}
 
-## Operating contract
+/** The edit-and-verify job sentence every editing sub-agent shares. */
+const DEFAULT_JOB =
+  "Your job is to make the minimal correct edit and prove it passes — nothing more.";
+
+/**
+ * The shared "Operating contract" + "Out of scope" body every editing sub-agent
+ * (junior/worker/opus/fable) carries. `tierNote` is how the out-of-scope clause
+ * refers to the sub-agent's position — see {@link buildSubagentMd}.
+ */
+function defaultContract(tierNote: string): string {
+  return `## Operating contract
 
 1. **Work from the digest.** The senior's prompt contains a recon digest: the focus entities, their callers (blast radius), and conventions. Treat it as ground truth. Do NOT re-explore the whole codebase. When you need a caller list or a definition the digest didn't include, use the unerr MCP tools (\`get_references\`, \`search_code\`, \`file_read\`) — one graph query, not a file sweep.
 2. **Edit minimally.** Make only the change the task names. No speculative refactors, no extra features, no drive-by edits. Match the conventions in the digest (naming, import order, error handling, async style).
@@ -316,8 +352,65 @@ You are ${opts.name}. ${opts.intro} Your job is to make the minimal correct edit
 
 ## Out of scope — hand back to the senior
 
-If the task turns out to need design judgement (architecture, a new public interface, or an algorithm) or root-causing a bug — not just the scoped change the senior described — say so in one line and stop. You are not equipped to make those calls on the cheaper tier — that is the senior's job.
+If the task turns out to need design judgement (architecture, a new public interface, or an algorithm) or root-causing a bug — not just the scoped change the senior described — say so in one line and stop. You are not equipped to make those calls ${tierNote} — that is the senior's job.
 `;
+}
+
+/**
+ * The reviewer's "Review contract" body — no editing, no self-verify-by-running,
+ * no bounded retry. It scopes the diff, checks blast radius + conventions, and
+ * returns ranked findings instead of a fix.
+ */
+const REVIEWER_CONTRACT = `## Review contract
+
+1. **Scope the diff.** Run \`git diff\` (working tree) and \`git diff --staged\` (staged changes) to find every file the turn touched. Review only what changed — do not audit the whole codebase.
+2. **Check blast radius.** For each changed exported entity, call \`get_references({direction:'callers'})\` and confirm every caller still matches the new signature or behavior.
+3. **Check conventions.** Call \`search_code({query:"<what changed>"})\` and compare the diff against the codebase's existing conventions (naming, error handling, import order, async style) — flag deviations.
+4. **Check \`@sem\` comments.** Flag any edited entity whose \`@sem\` doc comment no longer matches its new behavior, or whose comment was deleted instead of updated.
+5. **Return findings, not fixes.** Report a ranked list, most severe first, each with \`file:line\` and a one-line reason. You have no Edit, Write, or file_edit tool — you cannot make a fix. Route confirmed findings back to \`unerr-worker\`.
+`;
+
+/**
+ * Build a model-pinned sub-agent definition. Every sub-agent shares one
+ * frontmatter shape (name/description/model/tools) and a body of intro + job +
+ * contract; the editing sub-agents (junior/worker/opus/fable) share one
+ * edit-and-verify contract via the defaults, while the read-only reviewer
+ * overrides `job` and `contract` with review-specific text. `description` is
+ * emitted as a YAML folded block scalar (`description: >-`) so it can safely
+ * contain colons and `<example>` blocks without breaking frontmatter parsing.
+ */
+function buildSubagentMd(opts: {
+  name: string;
+  model: string;
+  description: string;
+  intro: string;
+  tools: string;
+  /**
+   * How the out-of-scope clause refers to this sub-agent's position. Defaults to
+   * "on the cheaper tier" (true for junior/worker). The user-invoked opus/fable
+   * agents pass a neutral phrase since they are not a cheaper tier. Ignored when
+   * `contract` is set.
+   */
+  tierNote?: string;
+  /** Override the shared job sentence right after the intro. */
+  job?: string;
+  /** Override the shared "Operating contract" + "Out of scope" body. */
+  contract?: string;
+}): string {
+  const tierNote = opts.tierNote ?? "on the cheaper tier";
+  const job = opts.job ?? DEFAULT_JOB;
+  const contract = opts.contract ?? defaultContract(tierNote);
+  return `---
+name: ${opts.name}
+description: >-
+${wrapFoldedScalar(opts.description)}
+model: ${opts.model}
+tools: ${opts.tools}
+---
+
+You are ${opts.name}. ${opts.intro} ${job}
+
+${contract}`;
 }
 
 /**
@@ -329,7 +422,7 @@ export const JUNIOR_AGENT_MD = buildSubagentMd({
   name: "unerr-junior",
   model: JUNIOR_MODEL,
   description:
-    "Junior-tier executor for brainless delegable tasks (read-only recon, web research, codebase Q&A, audits, lint/format, docstrings/@sem, verify-runs). Spawned by the senior with a recon digest; returns a digest or makes the minimal edit and self-verifies. Not for design, new features, or bug root-causing.",
+    "Use PROACTIVELY for every read-only or mechanical side task instead of doing it in the main thread — codebase investigation (find/trace/map/where/how questions), inventory and audits (find-all usages), web research and docs/API/changelog lookups, log and error triage, bug reproduction (run and report, no edit), lint/format runs, docstrings/@sem upkeep, verify-runs (typecheck + targeted tests + lint), post-edit code review, security audits, benchmark/profiling runs, git operations (branch/PR prep), and shell-command sequences. MUST BE USED whenever the deliverable is a digest or report rather than a design decision. <example>Context: user asks 'where is the idle timeout enforced?' assistant: 'Spawning the unerr-junior agent to trace idle-timeout handling and report back.' <commentary>Codebase Q&A is read-only recon — delegate it instead of searching in the main thread.</commentary></example> <example>Context: edits just landed and need verification. assistant: 'Spawning unerr-junior to run typecheck, targeted tests, and lint, and return the failure list.' <commentary>Verify-runs are junior work; the main thread only reads the digest.</commentary></example> Not for design, new features, or bug root-causing.",
   intro:
     "The senior delegated a narrow, check-verifiable task to you on a cheaper model.",
   tools: JUNIOR_TOOLS,
@@ -346,7 +439,7 @@ export const WORKER_AGENT_MD = buildSubagentMd({
   name: "unerr-worker",
   model: CLAUDE_WORKER_MODEL,
   description:
-    "Worker-tier executor for scoped, check-verifiable work — the default executor for ordinary coding: scoped feature implementation from a clear spec, add/improve tests, multi-site mechanical refactors, codemods, caller/import propagation, typecheck/build-error fixes, scaffold. Spawned by the senior with a recon digest; makes the minimal correct edit and self-verifies. Not for architecture/algorithm design, a new public interface, or bug root-causing.",
+    "Use PROACTIVELY as the DEFAULT executor for ordinary coding — spawn it for any scoped, check-verifiable change instead of editing in the main thread: feature implementation from a clear spec (add a flag, wire X into Y, implement a handler), adding/improving tests, multi-site mechanical refactors (rename/extract/inline/move), codemods, caller/import propagation after a signature change, typecheck/build-error fixes, dependency upgrades, migration scripts, and scaffolding new files from a sibling template. MUST BE USED when the change is specified and verifiable, even when it spans many files. <example>Context: user says 'add a --json flag to unerr status'. assistant: 'Spawning the unerr-worker agent to implement the flag and self-verify.' <commentary>Scoped feature work from a clear spec is worker-tier — the main thread only reviews the diff.</commentary></example> <example>Context: a function signature changed and 14 callers need updating. assistant: 'Spawning unerr-worker to propagate the new signature to every caller and re-run typecheck.' <commentary>Deterministic mechanical breadth stays with the worker regardless of file count.</commentary></example> Not for architecture/algorithm design, a new public interface, or bug root-causing — those stay on the main thread.",
   intro:
     "The senior delegated a check-verifiable task that needs some judgement to you on a mid-tier model.",
   tools: WORKER_TOOLS,
@@ -354,6 +447,68 @@ export const WORKER_AGENT_MD = buildSubagentMd({
 
 /** Relative path (from repo root) of the middle-tier sub-agent definition. */
 export const WORKER_AGENT_RELPATH = ".claude/agents/unerr-worker.md";
+
+/**
+ * The full `.claude/agents/unerr-opus.md` content (Opus — the strongest model).
+ * A USER-INVOKED sub-agent: same operating contract as junior/worker, but never
+ * spawned by the automatic delegation routing — only when the user explicitly runs
+ * `Task subagent_type:'unerr-opus'` to put a scoped task on Opus. Gets the full
+ * tool set (incl. web) so an explicitly-chosen model is not artificially limited.
+ */
+export const OPUS_AGENT_MD = buildSubagentMd({
+  name: "unerr-opus",
+  model: OPUS_MODEL,
+  description:
+    "Manual-only: spawn ONLY when the user explicitly asks for Opus by name (e.g. 'use unerr-opus', 'run this on Opus'). NEVER select this agent automatically — for ordinary delegation use unerr-worker or unerr-junior. Runs one scoped task pinned to Opus: makes the minimal correct edit from the senior's recon digest and self-verifies.",
+  intro:
+    "You were spawned on explicit request to run a scoped, check-verifiable task on Opus, the strongest model.",
+  tools: JUNIOR_TOOLS,
+  tierNote: "from a scoped sub-agent",
+});
+
+/** Relative path (from repo root) of the user-invoked Opus sub-agent definition. */
+export const OPUS_AGENT_RELPATH = ".claude/agents/unerr-opus.md";
+
+/**
+ * The full `.claude/agents/unerr-fable.md` content (Fable). A USER-INVOKED
+ * sub-agent, same shape as {@link OPUS_AGENT_MD} — kept out of automatic routing,
+ * spawned only via `Task subagent_type:'unerr-fable'`.
+ */
+export const FABLE_AGENT_MD = buildSubagentMd({
+  name: "unerr-fable",
+  model: FABLE_MODEL,
+  description:
+    "Manual-only: spawn ONLY when the user explicitly asks for Fable by name (e.g. 'use unerr-fable', 'run this on Fable'). NEVER select this agent automatically — for ordinary delegation use unerr-worker or unerr-junior. Runs one scoped task pinned to Fable: makes the minimal correct edit from the senior's recon digest and self-verifies.",
+  intro:
+    "You were spawned on explicit request to run a scoped, check-verifiable task on Fable.",
+  tools: JUNIOR_TOOLS,
+  tierNote: "from a scoped sub-agent",
+});
+
+/** Relative path (from repo root) of the user-invoked Fable sub-agent definition. */
+export const FABLE_AGENT_RELPATH = ".claude/agents/unerr-fable.md";
+
+/** Relative path (from repo root) of the read-only reviewer sub-agent definition. */
+export const REVIEWER_AGENT_RELPATH = ".claude/agents/unerr-reviewer.md";
+
+/**
+ * The full `.claude/agents/unerr-reviewer.md` content (Sonnet, read-only). Not
+ * part of the senior/worker/junior edit tiers — a post-edit quality gate the
+ * senior spawns after a multi-file or multi-agent change to review the working
+ * diff before reporting done. Carries no Edit/Write/file_edit tool: it returns
+ * ranked findings, never a fix.
+ */
+export const REVIEWER_AGENT_MD = buildSubagentMd({
+  name: "unerr-reviewer",
+  model: CLAUDE_WORKER_MODEL,
+  description:
+    "Use PROACTIVELY after completing any multi-file change and before committing — reviews the working diff for correctness bugs, missed callers (get_references blast radius), convention violations, and stale @sem comments; returns a ranked findings list and makes NO edits. MUST BE USED as the final step of a multi-slice or multi-agent turn, before reporting completion to the user. <example>Context: three worker agents just landed edits across five files. assistant: 'Spawning unerr-reviewer to review the combined diff before I report done.' <commentary>Post-edit review is a read-only quality gate — the main thread only weighs the findings.</commentary></example> Not for writing fixes — route confirmed findings back to unerr-worker.",
+  intro:
+    "You review a completed change before it is reported done — a read-only quality gate, not an editor.",
+  tools: REVIEWER_TOOLS,
+  job: "Your job is to review the diff and return ranked findings — you make no edits.",
+  contract: REVIEWER_CONTRACT,
+});
 
 /** Absolute path of the junior agent file for a repo. */
 export function juniorAgentPath(cwd: string): string {
@@ -363,6 +518,21 @@ export function juniorAgentPath(cwd: string): string {
 /** Absolute path of the middle-tier (`unerr-worker`) sub-agent file for a repo. */
 export function workerAgentPath(cwd: string): string {
   return join(cwd, WORKER_AGENT_RELPATH);
+}
+
+/** Absolute path of the user-invoked `unerr-opus` sub-agent file for a repo. */
+export function opusAgentPath(cwd: string): string {
+  return join(cwd, OPUS_AGENT_RELPATH);
+}
+
+/** Absolute path of the user-invoked `unerr-fable` sub-agent file for a repo. */
+export function fableAgentPath(cwd: string): string {
+  return join(cwd, FABLE_AGENT_RELPATH);
+}
+
+/** Absolute path of the read-only `unerr-reviewer` sub-agent file for a repo. */
+export function reviewerAgentPath(cwd: string): string {
+  return join(cwd, REVIEWER_AGENT_RELPATH);
 }
 
 /** Write one sub-agent file idempotently; returns true when it created/updated. */
@@ -380,27 +550,47 @@ function writeOneSubagent(filePath: string, content: string): boolean {
 }
 
 /**
- * Write the delegation sub-agent PAIR (`unerr-junior` worker tier + `unerr-worker`
- * middle tier) for a delegation-capable host. No-op for any host without on-disk
- * sub-agents (Codex delegates via `codex exec -m`, the rest don't delegate).
- * Idempotent: skips a write when on-disk content already matches. Returns true
- * when EITHER file was created or updated.
+ * Write the five Claude Code sub-agent files: the auto-routed delegation pair
+ * (`unerr-junior` + `unerr-worker`), the two user-invoked model-pinned agents
+ * (`unerr-opus` + `unerr-fable`), and the read-only post-edit reviewer
+ * (`unerr-reviewer`). No-op for any host without on-disk sub-agents
+ * (Codex delegates via `codex exec -m`, the rest don't delegate). Idempotent: skips
+ * a write when on-disk content already matches. Returns true when ANY file was
+ * created or updated. The opus/fable/reviewer files only sit on disk so the user
+ * (or the senior, for the reviewer) can spawn them explicitly — they are not
+ * referenced by the automatic routing.
  */
 export function writeJuniorSubagent(ide: IdeType, cwd: string): boolean {
   // Only Claude Code uses on-disk model-pinned sub-agent files.
   if (ide !== "claude-code" || !supportsDelegation(ide)) return false;
-  const wroteJunior = writeOneSubagent(juniorAgentPath(cwd), JUNIOR_AGENT_MD);
-  const wroteWorker = writeOneSubagent(workerAgentPath(cwd), WORKER_AGENT_MD);
-  return wroteJunior || wroteWorker;
+  const writes: Array<[string, string]> = [
+    [juniorAgentPath(cwd), JUNIOR_AGENT_MD],
+    [workerAgentPath(cwd), WORKER_AGENT_MD],
+    [opusAgentPath(cwd), OPUS_AGENT_MD],
+    [fableAgentPath(cwd), FABLE_AGENT_MD],
+    [reviewerAgentPath(cwd), REVIEWER_AGENT_MD],
+  ];
+  let wrote = false;
+  for (const [filePath, content] of writes) {
+    if (writeOneSubagent(filePath, content)) wrote = true;
+  }
+  return wrote;
 }
 
 /**
- * Remove the delegation sub-agent pair. Returns true when EITHER file was removed.
- * Backs `unerr uninstall` for Claude Code.
+ * Remove all five Claude Code sub-agent files (junior/worker + opus/fable +
+ * reviewer). Returns true when ANY file was removed. Backs `unerr uninstall` for
+ * Claude Code.
  */
 export function removeJuniorSubagent(cwd: string): boolean {
   let removed = false;
-  for (const filePath of [juniorAgentPath(cwd), workerAgentPath(cwd)]) {
+  for (const filePath of [
+    juniorAgentPath(cwd),
+    workerAgentPath(cwd),
+    opusAgentPath(cwd),
+    fableAgentPath(cwd),
+    reviewerAgentPath(cwd),
+  ]) {
     if (!existsSync(filePath)) continue;
     try {
       rmSync(filePath, { force: true });

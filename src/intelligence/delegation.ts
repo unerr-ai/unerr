@@ -153,9 +153,10 @@ export type DelegationTier = "worker" | "junior";
  * Route a delegable class to its model tier. Kept consistent with `selectTier`
  * (the authoritative router in junior-agent.ts): the scoped-write classes that
  * need a correctness check (tests, mechanical_refactor, codemod, caller_propagation,
- * typecheck_fix, scaffold) → worker; every read-only / trivially-mechanical class
- * (recon, research, qa_lookup, inventory_audit, log_triage, repro, docs, lint_format,
- * verify, command_run) → the cheapest junior tier.
+ * typecheck_fix, scaffold, feature_impl, dependency_upgrade, migration_script) →
+ * worker; every read-only / trivially-mechanical class (recon, research, qa_lookup,
+ * inventory_audit, log_triage, repro, docs, lint_format, verify, command_run,
+ * code_review, security_audit, git_ops, benchmark_run) → the cheapest junior tier.
  */
 export function tierForDelegationClass(
   cls: Exclude<DelegableClass, "none">
@@ -167,6 +168,9 @@ export function tierForDelegationClass(
     case "caller_propagation":
     case "typecheck_fix":
     case "scaffold":
+    case "feature_impl":
+    case "dependency_upgrade":
+    case "migration_script":
       return "worker";
     default:
       return "junior";

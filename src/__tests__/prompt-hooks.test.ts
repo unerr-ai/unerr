@@ -478,6 +478,62 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     expect(ctx).not.toContain("no verb-cluster match");
   });
 
+  // The gate is widened past classifyAsTask/BUILD_INTENT_RE: an ordinary
+  // scoped coding prompt with no narrow imperative verb and no build phrasing
+  // still draws the nudge, as long as it is a code-task prompt (isCodeContext)
+  // and not a pure question. "make the retry delay configurable across all its
+  // callers" carries neither a TASK_VERBS_NARROW verb ("make"/"configurable"
+  // are not in the list) nor a build/bug verb cluster — it only qualifies via
+  // the navigation word "callers", which used to route to isCodeContext alone
+  // and never drew the fan-out nudge before this change. The "callers" +
+  // "all" breadth phrasing also trips isMultiSlice, so claude-code (a
+  // tracker-capable host) gets the stronger plan-into-tracker variant, which
+  // must name TaskCreate/TaskUpdate as the actual tracker calls.
+  it("plain scoped coding prompt with no build verbs draws the decompose-delegate/plan-then-track nudge on claude-code", () => {
+    const stdin = JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      user_message: "make the retry delay configurable across all its callers",
+    });
+    const ctx = readContext(runUserPromptSubmitHook(stdin));
+    expect(ctx).toContain("plan-then-track");
+    expect(ctx).toContain("TaskCreate");
+    expect(ctx).toContain("TaskUpdate");
+    expect(ctx).not.toContain("Path A matched verb cluster");
+  });
+
+  // A pure question ("where is X enforced?") must still route to the
+  // junior/recon path, never the build-decompose nudge — even though "where"
+  // makes it a code-task prompt (isCodeContext), the widened gate excludes it
+  // via the same pure-question rule classifyAsTask already applies.
+  it("pure question prompt does NOT draw the decompose-delegate nudge", () => {
+    const stdin = JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      user_message: "where is the idle timeout enforced?",
+    });
+    const ctx = readContext(runUserPromptSubmitHook(stdin));
+    expect(ctx).not.toContain("delegate-slices");
+    expect(ctx).not.toContain("plan-then-track");
+  });
+
+  // Non-delegation hosts are unaffected by the widened gate: `windsurf` has no
+  // `delegation: true` entry in agent-registry.ts, so `supportsDelegation`
+  // blocks `buildDecomposeLine` regardless of how permissive `isSubstantiveTask`
+  // becomes. Uses the SAME widened-gate-triggering prompt as the claude-code
+  // test above to prove the host gate — not the classifier — is what changed.
+  it("non-delegation host (windsurf) never draws the decompose-delegate nudge, widened gate or not", () => {
+    const stdin = JSON.stringify({
+      event_type: "pre_user_prompt",
+      user_message: "make the retry delay configurable across all its callers",
+    });
+    const out = JSON.parse(runUserPromptSubmitHook(stdin)) as Record<
+      string,
+      unknown
+    >;
+    const stderrMsg = (out._windsurf_stderr as string | undefined) ?? "";
+    expect(stderrMsg).not.toContain("delegate-slices");
+    expect(stderrMsg).not.toContain("plan-then-track");
+  });
+
   it("prepends the cross-session stitch on the first prompt of a new session", () => {
     writeLedger(cwd, [
       {

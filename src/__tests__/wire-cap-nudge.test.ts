@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { estimateTokenCount } from "../intelligence/token-estimator.js";
 import { applyWireCap } from "../proxy/wire-cap.js";
 
 // Realistic code-like text, NOT "x".repeat — the wire cap counts real BPE
@@ -216,5 +217,48 @@ describe("wire-cap suggested_token_budget clears the cap on retry (no undershoot
     } else {
       expect(retryObj.status).not.toBe("too_large");
     }
+  });
+});
+
+describe("wire-cap head delivery — spend the budget already paid for", () => {
+  it("includes a head prefix and head_chars, staying roughly within the cap", () => {
+    const oversized = bigString(20_000);
+    const { body } = applyWireCap("file_read", oversized, {});
+    const obj = body as Record<string, unknown>;
+    expect(obj.status).toBe("too_large");
+    expect(typeof obj.head).toBe("string");
+    expect(typeof obj.head_chars).toBe("number");
+    expect(obj.head_chars as number).toBeGreaterThan(0);
+    expect(oversized.startsWith(obj.head as string)).toBe(true);
+    // Total delivered body stays close to cap_tokens — a small slack for the
+    // heuristic charsPerToken conversion used to size the head slice.
+    const bodyTokens = estimateTokenCount(JSON.stringify(obj));
+    expect(bodyTokens).toBeLessThanOrEqual((obj.cap_tokens as number) + 100);
+  });
+
+  it("pageHint names the head delivery and the cache marker retrieves past it", () => {
+    const oversized = bigString(20_000);
+    const { body, pageHint } = applyWireCap("file_read", oversized, {});
+    const obj = body as Record<string, unknown>;
+    const headChars = obj.head_chars as number;
+    expect(pageHint).toContain("head");
+    expect(pageHint).toMatch(/\d+tok delivered inline/);
+    expect(pageHint).toContain(`offset:${headChars}`);
+  });
+
+  it("omits head when the cap leaves under 200 tokens of room after the envelope", () => {
+    const oversized = bigString(20_000);
+    // A huge `entity` echoes into the too_large envelope itself (oversize.entity),
+    // consuming nearly the whole cap before any head slice is considered.
+    const hugeEntity = bigString(8_000);
+    const { body, pageHint } = applyWireCap("file_read", oversized, {
+      entity: hugeEntity,
+    });
+    const obj = body as Record<string, unknown>;
+    expect(obj.status).toBe("too_large");
+    expect(obj.head).toBeUndefined();
+    expect(obj.head_chars).toBeUndefined();
+    expect(pageHint).not.toMatch(/delivered inline/);
+    expect(pageHint).toContain("offset:0");
   });
 });

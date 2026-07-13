@@ -53,8 +53,14 @@ describe("bridge isolation (DM-0)", () => {
     // bridge confirms the proxy pid via `PidLock.readPidFile` (proxy/, node
     // builtins only — DM-0 safe) before declaring death, so a busy-but-alive
     // proxy (long reindex) is not reaped. Budget bumped to 420.
+    // Then ~410→~432 for the in-flight request drain: `cleanup()` now answers
+    // any request the bridge already forwarded to the proxy (tracked in
+    // `BridgeCatalog.inflight`, `bridge-catalog.ts`) with a `-32000` error when
+    // the connection drops for any reason but `stdin_closed`, so an in-flight
+    // `tools/call` never leaves the IDE hanging on a response that will never
+    // arrive. No new imports — still DM-0 safe. Budget bumped to 432.
     const lines = source.split("\n").length;
-    expect(lines).toBeLessThanOrEqual(420);
+    expect(lines).toBeLessThanOrEqual(432);
   });
 
   it("file is small (sanity: a relay should be a few KB, not megabytes)", () => {

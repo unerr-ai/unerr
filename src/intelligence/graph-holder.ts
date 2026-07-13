@@ -72,6 +72,26 @@ export interface GraphHolderConfig {
 
 const DEFAULT_IDLE_THRESHOLD_MS = 5_000;
 
+/**
+ * How long to wait before retrying incremental indexing after an
+ * infrastructure-level failure (DB worker timeout, lock contention). Long
+ * enough to let the worker/lock holder recover without adding write
+ * pressure via a full reindex in the meantime.
+ */
+const INFRA_RETRY_DELAY_MS = 60_000;
+
+/**
+ * Whether an indexing failure message indicates an infrastructure fault
+ * (DB worker timeout, lock contention) rather than a data/logic error. This
+ * must never fall back to a full reindex — the resulting write burst is
+ * what turns a transient timeout into a permanent WAL death spiral.
+ */
+function isInfraError(message: string): boolean {
+  return /timeout|timed out|database is locked|locked \(code 5\)|SQLITE_BUSY|worker (is )?degraded/i.test(
+    message
+  );
+}
+
 const _log = {
   info: (msg: string) => process.stderr.write(`▸ [graph-holder] ${msg}\n`),
   warn: (msg: string) => process.stderr.write(`⚠ [graph-holder] ${msg}\n`),
@@ -93,6 +113,7 @@ export class GraphHolder {
   private lastRebuildTimestamp = 0;
   private changedFilePaths: Set<string> = new Set();
   private incrementalCycleCount = 0;
+  private infraRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(initialGraph: CozoGraphStore, config?: GraphHolderConfig) {
     this.current = initialGraph;
@@ -176,6 +197,10 @@ export class GraphHolder {
     if (this.idleTimer) {
       clearTimeout(this.idleTimer);
       this.idleTimer = null;
+    }
+    if (this.infraRetryTimer) {
+      clearTimeout(this.infraRetryTimer);
+      this.infraRetryTimer = null;
     }
   }
 
@@ -436,8 +461,31 @@ export class GraphHolder {
         }
       })
       .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+
+        if (isInfraError(msg)) {
+          _log.warn(
+            `Incremental indexing hit an infrastructure error (${msg}) — retrying incrementally in ${INFRA_RETRY_DELAY_MS / 1000}s (no full reindex).`
+          );
+          // Re-track the failed files so they aren't lost. The success path
+          // above is what drains changedFilePaths/fileChangesSinceLastRebuild,
+          // so on this failure path both are still intact — re-add anyway so
+          // recovery holds even if the drain point ever moves earlier.
+          for (const fp of changedFiles) {
+            this.changedFilePaths.add(fp);
+          }
+          if (this.infraRetryTimer) {
+            clearTimeout(this.infraRetryTimer);
+          }
+          this.infraRetryTimer = setTimeout(() => {
+            this.infraRetryTimer = null;
+            this.triggerRebuild();
+          }, INFRA_RETRY_DELAY_MS).unref();
+          return;
+        }
+
         _log.warn(
-          `Incremental indexing failed: ${err instanceof Error ? err.message : String(err)}. Falling back to full reindex.`
+          `Incremental indexing failed: ${msg}. Falling back to full reindex.`
         );
         // Fallback to full reindex
         this.runFullRebuild(changedFiles, changesAtStart, startMs);

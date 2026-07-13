@@ -15,10 +15,12 @@ import {
   existsSync,
   constants as fsConstants,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
+  rmSync,
 } from "node:fs";
 import { createServer } from "node:net";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, normalize } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -816,8 +818,14 @@ const NATIVE_FIX_HINT =
 // 6. Graph engine (cozo-node) — its absence drops unerr to PARSE mode, not a crash.
 async function checkNativeModule(): Promise<CheckResult> {
   try {
-    const cozo = (await import("cozo-node")) as { CozoDb?: unknown };
-    if (cozo?.CozoDb) {
+    // Load through native-cozo's getCozoDbCtor — the SAME path the proxy uses —
+    // so the check is truthful in every build: node_modules cozo-node under the
+    // tsup/Node build, the extracted embedded addon under the compiled binary.
+    // A bare `import("cozo-node")` reported "not installed" inside every
+    // compiled binary even though the binary embeds and loads cozo fine.
+    const { getCozoDbCtor } = await import("../intelligence/native-cozo.js");
+    const ctor = await getCozoDbCtor();
+    if (ctor) {
       return {
         name: "Graph engine (cozo-node)",
         status: "ok",
@@ -851,6 +859,83 @@ async function checkNativeModule(): Promise<CheckResult> {
         "cozo-node failed to load — unerr runs in PARSE mode (regex graph, reduced accuracy)",
       detail: `${msg}\nThe native binary is likely built for a different Node ABI or platform.\nReinstall under the node you intend to use: \`npm i -g @unerr-ai/unerr\`.`,
     };
+  }
+}
+
+// 7. Graph DB worker — the worker thread that owns graph.db so a slow cozo
+// write can never freeze the proxy's MCP event loop (cozo-worker-client.ts).
+// If this fails the proxy still runs — createGraphDb falls back to the
+// in-process db — but the freeze isolation is inert: one wedged write blocks
+// every MCP tool again. Exercises the REAL path end-to-end (worker module
+// resolution → native cozo load inside the thread → one query round-trip), so
+// a build that didn't bundle dist/cozo-worker.js, or a compiled binary that
+// can't load the native addon inside a worker, surfaces here instead of as a
+// silent production stall.
+const DB_WORKER_CHECK_TIMEOUT_MS = 15_000;
+
+async function checkDbWorker(): Promise<CheckResult> {
+  const name = "Graph DB worker (freeze isolation)";
+  let tmp: string | undefined;
+  let client:
+    | InstanceType<
+        typeof import("../intelligence/cozo-worker-client.js").CozoWorkerClient
+      >
+    | undefined;
+  try {
+    tmp = mkdtempSync(join(tmpdir(), "unerr-doctor-db-"));
+    const { CozoWorkerClient } = await import(
+      "../intelligence/cozo-worker-client.js"
+    );
+    client = new CozoWorkerClient({ dbPath: join(tmp, "graph.db") });
+    await Promise.race([
+      client.ready(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `worker did not open within ${DB_WORKER_CHECK_TIMEOUT_MS}ms`
+              )
+            ),
+          DB_WORKER_CHECK_TIMEOUT_MS
+        )
+      ),
+    ]);
+    const res = await client.run("?[ok] <- [[1]]");
+    if (res.rows.length === 0) {
+      return {
+        name,
+        status: "warn",
+        message:
+          "db worker spawned but the probe query returned no rows — proxy will fall back to the in-process db",
+      };
+    }
+    return {
+      name,
+      status: "ok",
+      message: "worker thread spawned, cozo answered inside it",
+    };
+  } catch (err) {
+    return {
+      name,
+      status: "warn",
+      message:
+        "db worker unavailable — proxy falls back to the in-process db (a slow graph write can stall MCP tools)",
+      detail: `${err instanceof Error ? err.message : String(err)}\nThe per-repo proxy still works, but without worker isolation a wedged CozoDB write blocks the event loop.\nIf the graph engine check above also failed, run \`unerr doctor --fix-native\` first.`,
+    };
+  } finally {
+    try {
+      await client?.close();
+    } catch {
+      /* best-effort */
+    }
+    if (tmp) {
+      try {
+        rmSync(tmp, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
   }
 }
 
@@ -934,36 +1019,39 @@ function repairNativeModules(): boolean {
  * - `ok`       — every check returned status:'ok'
  * - `blocking` — caller should abort (a blocking failure was hit)
  */
+// Run one check, print its result, and — under --verbose — the wall-clock
+// time it took (sub-ms precision). Both sync and async checks are supported.
+async function runTimedCheck(
+  run: () => CheckResult | Promise<CheckResult>,
+  results: CheckResult[],
+  verbose: boolean
+): Promise<void> {
+  const start = performance.now();
+  const result = await run();
+  const elapsedMs = performance.now() - start;
+  printCheckResult(result);
+  if (verbose) {
+    log(`     ${D}took ${elapsedMs.toFixed(1)}ms${R}\n`);
+  }
+  results.push(result);
+}
+
 export async function runEnvironmentChecks(opts: {
   interactive: boolean;
+  verbose?: boolean;
 }): Promise<{ ok: boolean; blocking: boolean; results: CheckResult[] }> {
   log(`\n  ${B}unerr environment checks${R}\n\n`);
 
   const results: CheckResult[] = [];
+  const verbose = opts.verbose === true;
 
-  const path = await checkPath(opts);
-  printCheckResult(path);
-  results.push(path);
-
-  const nodeVer = checkNodeVersion();
-  printCheckResult(nodeVer);
-  results.push(nodeVer);
-
-  const multiNode = await checkMultiNode();
-  printCheckResult(multiNode);
-  results.push(multiNode);
-
-  const fsAccess = checkUnerrDirAccess();
-  printCheckResult(fsAccess);
-  results.push(fsAccess);
-
-  const port = await checkDashboardPort();
-  printCheckResult(port);
-  results.push(port);
-
-  const native = await checkNativeModule();
-  printCheckResult(native);
-  results.push(native);
+  await runTimedCheck(() => checkPath(opts), results, verbose);
+  await runTimedCheck(() => checkNodeVersion(), results, verbose);
+  await runTimedCheck(() => checkMultiNode(), results, verbose);
+  await runTimedCheck(() => checkUnerrDirAccess(), results, verbose);
+  await runTimedCheck(() => checkDashboardPort(), results, verbose);
+  await runTimedCheck(() => checkNativeModule(), results, verbose);
+  await runTimedCheck(() => checkDbWorker(), results, verbose);
 
   const blocking = results.some(
     (r) => r.status === "fail" && r.blocking === true
@@ -1007,8 +1095,12 @@ export function registerDoctorCommand(program: Command): void {
       "--fix-native",
       "Rebuild the native DB modules (cozo-node) without prompting if they failed to load"
     )
-    .action(async (opts: { fixNative?: boolean }) => {
-      const result = await runEnvironmentChecks({ interactive: true });
+    .option("--verbose", "Print how long each check took, in milliseconds")
+    .action(async (opts: { fixNative?: boolean; verbose?: boolean }) => {
+      const result = await runEnvironmentChecks({
+        interactive: true,
+        verbose: opts.verbose === true,
+      });
 
       // Offer to rebuild native DB bindings when they failed to load. Under
       // pnpm v10 / npm v12 the package manager skips the dependency install

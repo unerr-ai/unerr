@@ -140,7 +140,15 @@ const INDEXABLE_EXTENSIONS = new Set([
   ".hpp",
 ]);
 
-/** Directories to skip during walk. */
+/**
+ * Directories to skip during walk. `.venv`/`.tox` are already covered by the
+ * dot-prefix skip in walkDir — `venv`/`virtualenv`/`site-packages` catch the
+ * common non-dot Python virtualenv layouts, which otherwise dump tens of
+ * thousands of vendored `.py` files into the index (real incident: a
+ * benchmark harness's `arena-django-*` venvs seeded 25k stale
+ * file_content_hashes rows that outlived the venv dirs). Bare "env" is
+ * deliberately excluded — too collision-prone with user-named dirs.
+ */
 const EXCLUDED_DIRS = new Set([
   "node_modules",
   "dist",
@@ -162,6 +170,9 @@ const EXCLUDED_DIRS = new Set([
   ".cache",
   ".turbo",
   ".parcel-cache",
+  "venv",
+  "virtualenv",
+  "site-packages",
 ]);
 
 /**
@@ -543,6 +554,16 @@ export async function indexLocalProject(
   // incremental cycle re-extracts even byte-identical files (the cutoff never
   // hits because there is no stored hash to compare against).
   await seedFileContentHashes(graphStore, fileContentHashes);
+  // Prune hash rows for files no longer on disk (walked list, not the hash
+  // map — a walked file that failed to read must keep its old row since it
+  // still exists). Closes the boot-loop gap: a full reindex never removed
+  // vanished files' rows before, so a since-deleted vendored tree (e.g. a
+  // benchmark harness's Python venv) kept forcing "changed" counts over the
+  // incremental cap on every boot, forever.
+  await pruneStaleFileContentHashes(
+    graphStore,
+    new Set(files.map((f) => relative(projectRoot, f)))
+  );
 
   // Stamp the extractor-logic version this full pass was built with. The
   // startup staleness planner forces a full reindex when this differs, so a
@@ -688,6 +709,49 @@ export async function seedFileContentHashes(
       );
     } catch {
       /* best-effort — a missing hash only costs one redundant re-index */
+    }
+  }
+}
+
+/**
+ * Remove file_content_hashes rows for files no longer walked by a full index,
+ * so a full reindex closes the same loop the incremental indexer's per-file
+ * removeFileHash does. Without this, hash rows for deleted files (e.g. a
+ * vendored Python venv tree that existed for one index pass) persist forever
+ * and the boot planner counts them as "deleted" every time, forcing a full
+ * reindex on every boot once the stale count exceeds the incremental cap.
+ * Batched :rm (chunked), best-effort per chunk.
+ *
+ * @sem domain=indexing role=staleness-cleanup
+ */
+export async function pruneStaleFileContentHashes(
+  graphStore: CozoGraphStore,
+  keepRelPaths: Set<string>
+): Promise<void> {
+  const stored = await graphStore.db.run(
+    "?[file_path] := *file_content_hashes{file_path}"
+  );
+  const staleKeys: string[] = [];
+  for (const row of stored.rows) {
+    const fp = row[0] as string;
+    if (!keepRelPaths.has(fp)) staleKeys.push(fp);
+  }
+  if (staleKeys.length === 0) return;
+
+  const rows = staleKeys.map((fp) => {
+    const efp = fp.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    return `["${efp}"]`;
+  });
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    try {
+      await graphStore.write(
+        `?[file_path] <- [${chunk.join(", ")}]
+         :rm file_content_hashes { file_path }`
+      );
+    } catch {
+      /* best-effort — a stale row only costs one redundant "deleted" count */
     }
   }
 }
@@ -2037,7 +2101,11 @@ async function removeFileEntities(
  * the loop yield points between chunks. On any batch failure we fall back to the
  * per-key loop for that chunk so correctness is preserved.
  */
-const ORPHAN_BATCH_SIZE = 1000;
+// Deliberately small: the RocksDB compaction stall that blocks reads happens
+// INSIDE each `:rm` call and scales with the delete size, so a large batch = one
+// long write-lock hold that starves get_references/search_code. 250 keeps each
+// `:rm` short enough that reads (immutable snapshots) interleave between chunks.
+const ORPHAN_BATCH_SIZE = 250;
 
 export async function removeOrphanedEntities(
   graphStore: CozoGraphStore,
@@ -2094,6 +2162,10 @@ export async function removeOrphanedEntities(
       );
       await removeOrphansPerKey(db, chunk);
     }
+    // Yield to the event loop between chunks so a large orphan set can't hold
+    // the write path for one uninterrupted span — pending tool reads and the
+    // heartbeat get a turn before the next `:rm` acquires the lock again.
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
 }
 

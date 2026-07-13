@@ -115,6 +115,32 @@ function mtimeOrZero(path: string): number {
 }
 
 /**
+ * SIGKILL a wedged proxy pid (already identity-verified by `PidLock.acquire`
+ * as a real unerr proxy, never on the plain "secondary" path) and wait for it
+ * to fully exit, bounded ~3s. SIGKILL is terminal, so there is nothing to
+ * escalate to — this just polls the signal-0 probe until it throws.
+ */
+async function killAndWaitForExit(
+  pid: number,
+  timeoutMs = 3_000
+): Promise<void> {
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    return; // already gone
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return; // exited
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+/**
  * Memoized `loginBlocked()` for the per-call tool path. Recomputes only when
  * the credentials or entitlement file mtime changes, so the steady-state cost
  * is two `statSync` calls (no JSON parse, no auth-state recompute) and a
@@ -133,6 +159,26 @@ export function loginBlockedCached(now: number = Date.now()): boolean {
 export function __resetLoginGateCache(): void {
   loginGateCacheKey = null;
   loginGateCacheBlocked = false;
+}
+
+/** Drift-write duration (ms) above which a `processFiles` call counts as slow. */
+export const DRIFT_SLOW_WRITE_MS = 5_000;
+
+/** Cooldown (ms) after a slow drift write before the next drain runs. */
+export const DRIFT_COOLDOWN_MS = 30_000;
+
+/**
+ * True when the last drift `processFiles` write was slow (> `DRIFT_SLOW_WRITE_MS`)
+ * and `now` is still inside its cooldown window. On a large graph (150MB+,
+ * 40k+ entities) a single drift write can exceed 60s and stall the shared cozo
+ * write path — this backs a drain off instead of piling another write behind it.
+ */
+export function shouldThrottleDrift(
+  lastWriteMs: number,
+  cooldownUntil: number,
+  now: number = Date.now()
+): boolean {
+  return lastWriteMs > DRIFT_SLOW_WRITE_MS && now < cooldownUntil;
 }
 
 export interface ProxyOptions {
@@ -948,7 +994,18 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     mkdirSync(stateDir, { recursive: true });
   }
   const pidLock = new PidLock(stateDir);
-  const lockResult = await pidLock.acquire();
+  let lockResult = await pidLock.acquire();
+
+  if (!lockResult.acquired && lockResult.outcome === "wedged") {
+    const wedgedPid = lockResult.existingPid;
+    log.warn(
+      `Wedged proxy PID ${wedgedPid} holds the lock but fails health; killing it before taking over`
+    );
+    if (wedgedPid !== undefined) {
+      await killAndWaitForExit(wedgedPid);
+    }
+    lockResult = await pidLock.acquire();
+  }
 
   if (!lockResult.acquired) {
     log.info(
@@ -1104,8 +1161,24 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const { openPersistentDb } = await import(
         "../intelligence/persistent-db.js"
       );
-      const { db, isNew, dbPath, wasRebuilt } =
-        await openPersistentDb(projectRoot);
+      const { db, isNew, dbPath, wasRebuilt } = await openPersistentDb(
+        projectRoot,
+        {
+          // Data-plane wedge backstop: the DB worker's circuit breaker saw
+          // sustained consecutive request timeouts — every graph read/write is
+          // dead while /health still answers, so the daemon's liveness probe
+          // can never catch it. Recycle cleanly via the existing SIGTERM path
+          // (handlers are installed below, long before the breaker can trip);
+          // the daemon respawns the proxy on the next MCP frame and boot's
+          // checkpointWal folds whatever WAL the wedge left behind.
+          onPersistentDegradation: (consecutiveTimeouts) => {
+            process.stderr.write(
+              `[unerr] ✗ graph db data plane wedged (${consecutiveTimeouts} consecutive worker timeouts) — recycling proxy so the daemon respawns it fresh\n`
+            );
+            process.kill(process.pid, "SIGTERM");
+          },
+        }
+      );
       graphDbPath = dbPath;
       graphWasNew = isNew;
 
@@ -4396,14 +4469,50 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // `processFiles` call instead of N racing ones.
       let driftBusy = false;
       const pendingDriftPaths = new Set<string>();
+      // Throttle state for the large-graph write-stall mitigation below:
+      // track how long the last `processFiles` write took, and — once it's
+      // slow — back drains off for DRIFT_COOLDOWN_MS instead of piling
+      // another slow write behind the same cozo writeChain.
+      let driftLastWriteMs = 0;
+      let driftCooldownUntil = 0;
+      let driftCooldownTimer: NodeJS.Timeout | null = null;
       const drainDrift = async (): Promise<void> => {
         if (driftBusy || !_driftTracker) return;
         if (graphHolder.isRebuilding) return;
+        // Defer drift while an incremental reindex is pending. Drift and the
+        // reindex share ONE CozoDB writeChain (local-graph.ts writeChain), so
+        // running both during an edit burst stacks slow writes (RocksDB
+        // compaction stalls) until the 60s write timeout fires — and reads
+        // (get_references / search_code) queue behind the held lock and hit
+        // their own timeouts. pendingChanges > 0 means the idle timer is
+        // still counting toward a reindex: let the reindex run and swap first.
+        // onSwap() re-invokes drainDrift() once pendingChanges resets to 0, so
+        // drift writes land AFTER the reindex instead of racing it.
+        if (graphHolder.pendingChanges > 0) return;
         if (pendingDriftPaths.size === 0) return;
+        // Large-graph write-stall mitigation: a single `processFiles` write
+        // on a very large graph (150MB+, 40k+ entities) can exceed 60s and
+        // stall the shared write path. If the last write was slow, skip this
+        // drain and re-schedule after the cooldown — paths stay queued in
+        // pendingDriftPaths and drain once the cooldown lapses.
+        if (shouldThrottleDrift(driftLastWriteMs, driftCooldownUntil)) {
+          process.stderr.write(
+            `⚠ [watcher] drift throttled (last write ${driftLastWriteMs}ms, cooling down)\n`
+          );
+          if (!driftCooldownTimer) {
+            const delay = Math.max(0, driftCooldownUntil - Date.now());
+            driftCooldownTimer = setTimeout(() => {
+              driftCooldownTimer = null;
+              void drainDrift();
+            }, delay);
+          }
+          return;
+        }
         driftBusy = true;
         const batch = [...pendingDriftPaths];
         pendingDriftPaths.clear();
         const headSha = branchContext?.headSha ?? "unknown";
+        const driftWriteStartedAt = Date.now();
         try {
           await _driftTracker.processFiles(batch, headSha);
         } catch (err: unknown) {
@@ -4411,6 +4520,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             `⚠ [watcher] Drift processing failed: ${formatUnknownError(err)}\n`
           );
         } finally {
+          driftLastWriteMs = Date.now() - driftWriteStartedAt;
+          if (driftLastWriteMs > DRIFT_SLOW_WRITE_MS) {
+            driftCooldownUntil = Date.now() + DRIFT_COOLDOWN_MS;
+          }
           driftBusy = false;
           if (pendingDriftPaths.size > 0) {
             void drainDrift();

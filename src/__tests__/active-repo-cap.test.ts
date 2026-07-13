@@ -139,7 +139,17 @@ describe("free-tier runtime single-active cap", () => {
       JSON.stringify({ version: 1, repos })
     );
 
-    const { runWarmStart } = await import("../daemon/warm-start.js");
+    const { runWarmStart, loadWarmStartConfig, saveWarmStartConfig } =
+      await import("../daemon/warm-start.js");
+
+    // warmStartBudget defaults to 0 (lazy manager — no proactive spawn on
+    // boot). This test targets the MRU *selection* logic under an opted-in
+    // budget, so enable it for the real ~/.unerr/config.json for the
+    // duration of this test and restore the prior value after — the same
+    // real-config convention `saveWarmStartConfig persists values` above
+    // already accepts.
+    const priorConfig = loadWarmStartConfig();
+    saveWarmStartConfig({ warmStartBudget: 1 });
 
     // Stub the ProcessManager.ensure so we observe which repos warm-start picks.
     const ensured: string[] = [];
@@ -150,10 +160,14 @@ describe("free-tier runtime single-active cap", () => {
       }),
     } as unknown as import("../daemon/process-manager.js").ProcessManager;
 
-    const result = await runWarmStart(pm);
+    try {
+      const result = await runWarmStart(pm);
 
-    expect(ensured).toEqual([repoB]);
-    expect(result.started.length).toBe(1);
+      expect(ensured).toEqual([repoB]);
+      expect(result.started.length).toBe(1);
+    } finally {
+      saveWarmStartConfig(priorConfig);
+    }
   });
 
   it("refuses a 2nd concurrent ensure for a DIFFERENT repo with already_active", async () => {

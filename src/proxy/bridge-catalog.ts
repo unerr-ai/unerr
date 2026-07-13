@@ -230,6 +230,17 @@ export class BridgeCatalog {
   private pending = new Set<string>();
   /** Ids answered locally after timeout — suppress the proxy's late dup. */
   private answeredLocally = new Set<string>();
+  /**
+   * Every forwarded request id still awaiting an answer, keyed by
+   * `String(id)` with the original `string | number` id as the value (a
+   * JSON-RPC response must echo the request id's exact type). Covers ALL
+   * forwarded requests, not just the two locally-answerable methods — this
+   * is what lets the bridge answer a `tools/call` with a `-32000` error if
+   * the proxy connection drops mid-call instead of leaving the IDE hung.
+   * An id leaves this map when the proxy answers it (`ingestFromProxy`) or
+   * when `fireFallback` answers it locally.
+   */
+  private inflight = new Map<string, string | number>();
 
   /** Process raw bytes arriving from the IDE (stdin). */
   ingestFromIde(chunk: Buffer): IdeIngestOutcome {
@@ -251,12 +262,29 @@ export class BridgeCatalog {
         this.pending.add(key);
         arm.push(req);
       }
+      const fwdReq = classifyForwardedRequest(rawLine);
+      if (fwdReq) {
+        this.inflight.set(String(fwdReq.id), fwdReq.id);
+      }
       // Always forward — the proxy needs the frame (attribution, enriched
       // answer) even for methods we can answer locally as a fallback.
       forward.push(Buffer.from(`${rawLine}\n`, "utf8"));
     }
 
     return { forward, arm };
+  }
+
+  /**
+   * Return every request id still awaiting an answer (proxy connection lost
+   * mid-call) and clear the tracking set. Called when the bridge tears down
+   * its proxy connection for a reason other than the IDE detaching, so the
+   * bridge can answer each with a `-32000` error instead of leaving the IDE
+   * waiting on a response that will never come.
+   */
+  drainInflight(): (string | number)[] {
+    const ids = [...this.inflight.values()];
+    this.inflight.clear();
+    return ids;
   }
 
   /** Process raw bytes arriving from the proxy (UDS). */
@@ -281,6 +309,7 @@ export class BridgeCatalog {
       const respId = classifyResponseId(rawLine);
       if (respId !== null) {
         const key = String(respId);
+        this.inflight.delete(key);
         if (this.answeredLocally.has(key)) {
           // Already answered from the static catalog after timeout. The proxy's
           // late response carries a duplicate id — drop it.
@@ -309,6 +338,7 @@ export class BridgeCatalog {
     if (!this.pending.has(key)) return null; // proxy won the race
     this.pending.delete(key);
     this.answeredLocally.add(key);
+    this.inflight.delete(key); // answered locally — no longer in-flight
     const obj =
       req.method === "initialize"
         ? buildInitializeResult(req.id)
@@ -337,6 +367,27 @@ function classifyAnswerableRequest(line: string): PendingLocalRequest | null {
     id: msg.id,
     method: msg.method as "initialize" | "tools/list",
   };
+}
+
+/**
+ * Classify an IDE→proxy line as a forwarded JSON-RPC *request* — any method,
+ * as long as it carries a non-null id. Notifications (no id) return null so
+ * they're never tracked as in-flight; there's no response to wait for.
+ */
+function classifyForwardedRequest(
+  line: string
+): { id: string | number } | null {
+  let msg: JsonRpcMessage;
+  try {
+    const parsed = JSON.parse(line) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    msg = parsed as JsonRpcMessage;
+  } catch {
+    return null;
+  }
+  if (!msg.method) return null;
+  if (msg.id === undefined || msg.id === null) return null;
+  return { id: msg.id };
 }
 
 /**

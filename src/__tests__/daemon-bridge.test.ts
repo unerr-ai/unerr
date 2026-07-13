@@ -14,10 +14,13 @@
  *   - Module isolation (bridge imports nothing from intelligence/)
  */
 
+import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { type Server, type Socket, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { startUdsBridge } from "../proxy/bridge.js";
 
 // ── Client module tests ────────────────────────────────────────────
 
@@ -579,5 +582,111 @@ describe("Bridge pid+socket liveness (Option B)", () => {
     const stayIdx = window.indexOf("staying connected");
     expect(stayIdx).toBeGreaterThan(-1);
     expect(stayIdx).toBeGreaterThan(cleanupIdx);
+  });
+});
+
+// ── Live wiring: in-flight request drain on connection loss ─────────
+
+/** Minimal fake stdin: an EventEmitter with the no-op `resume()` the bridge calls. */
+class FakeStdin extends EventEmitter {
+  resume(): void {
+    /* no-op */
+  }
+}
+
+function shortBridgeSockPath(): string {
+  // Keep the path short — macOS sun_path is capped at ~104 bytes.
+  return join(
+    tmpdir(),
+    `ur-b-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+  );
+}
+
+describe("startUdsBridge — in-flight request drain on connection loss", () => {
+  let server: Server | undefined;
+  let sockPath: string | undefined;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    server?.close();
+    server = undefined;
+    if (sockPath && existsSync(sockPath)) rmSync(sockPath, { force: true });
+    sockPath = undefined;
+  });
+
+  it("answers an in-flight tools/call with a -32000 error when the proxy connection drops mid-call", async () => {
+    sockPath = shortBridgeSockPath();
+    let serverSocket: Socket | undefined;
+    let resolveHello: () => void;
+    const helloReceived = new Promise<void>((resolve) => {
+      resolveHello = resolve;
+    });
+    server = createServer((socket) => {
+      serverSocket = socket;
+      let buf = "";
+      socket.on("data", (d) => {
+        buf += d.toString();
+        if (buf.includes('"unerr/hello"')) resolveHello();
+      });
+    });
+    await new Promise<void>((resolve) => server?.listen(sockPath, resolve));
+
+    const fakeStdin = new FakeStdin();
+    const prevStdin = Object.getOwnPropertyDescriptor(process, "stdin");
+    Object.defineProperty(process, "stdin", {
+      value: fakeStdin,
+      configurable: true,
+    });
+
+    const written: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      written.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+
+    try {
+      const bridgePromise = startUdsBridge(sockPath);
+      await helloReceived;
+
+      // The IDE forwards a tools/call the proxy never gets to answer.
+      fakeStdin.emit(
+        "data",
+        Buffer.from(
+          `${JSON.stringify({
+            jsonrpc: "2.0",
+            id: 99,
+            method: "tools/call",
+            params: { name: "search_code" },
+          })}\n`,
+          "utf8"
+        )
+      );
+
+      // Simulate the proxy crashing: its side of the socket closes.
+      serverSocket?.destroy();
+
+      const result = await bridgePromise;
+      expect(result.reason).toBe("socket_closed");
+
+      const frames = written
+        .join("")
+        .split("\n")
+        .filter(Boolean)
+        .map(
+          (l) =>
+            JSON.parse(l) as {
+              id?: unknown;
+              error?: { code?: number; message?: string };
+            }
+        );
+      const errorFrame = frames.find((f) => f.id === 99);
+      expect(errorFrame).toBeDefined();
+      expect(errorFrame?.error?.code).toBe(-32000);
+      expect(errorFrame?.error?.message).toContain(
+        "proxy connection lost mid-call"
+      );
+    } finally {
+      if (prevStdin) Object.defineProperty(process, "stdin", prevStdin);
+    }
   });
 });

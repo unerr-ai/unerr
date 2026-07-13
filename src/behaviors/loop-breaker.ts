@@ -147,6 +147,12 @@ export class LoopCircuitBreaker extends Behavior {
 
     if (isTestFile(ctx.filePath)) return null;
 
+    // Infrastructure failures (DB stalls, write timeouts) are neither agent
+    // progress nor an agent loop — skip recording the attempt entirely so a
+    // burst of transient timeouts can neither inflate nor reset the
+    // consecutive-failure count that trips the breaker.
+    if (isInfraError(ctx.result)) return null;
+
     const attempt: EntityAttempt = {
       toolName: ctx.toolName,
       filePath: ctx.filePath ?? "",
@@ -398,6 +404,36 @@ export class LoopCircuitBreaker extends Behavior {
 function isTestFile(filePath?: string): boolean {
   if (!filePath) return false;
   return TEST_FILE_PATTERNS.some((p) => p.test(filePath));
+}
+
+const INFRA_ERROR_PATTERNS = [
+  /tool_timeout/i,
+  /database is locked/i,
+  /cozodb write timeout/i,
+  /write timeout after/i,
+  /exceeded \d+ms/i,
+];
+
+/**
+ * Classifies a tool result as an infrastructure failure (DB lock, write
+ * timeout) rather than a semantic/agent failure. Infra failures must not
+ * count toward the consecutive-failure total that trips the loop breaker.
+ */
+function isInfraError(result?: Record<string, unknown>): boolean {
+  if (!result) return false;
+  const texts: string[] = [];
+  if (typeof result.error === "string") texts.push(result.error);
+  else if (result.error) texts.push(String(result.error));
+  if (typeof result.content === "string") texts.push(result.content);
+  if (Array.isArray(result.content)) {
+    for (const item of result.content) {
+      if (typeof item === "object" && item !== null && "text" in item) {
+        const text = (item as { text: unknown }).text;
+        if (typeof text === "string") texts.push(text);
+      }
+    }
+  }
+  return texts.some((t) => INFRA_ERROR_PATTERNS.some((p) => p.test(t)));
 }
 
 function detectError(result?: Record<string, unknown>): boolean {

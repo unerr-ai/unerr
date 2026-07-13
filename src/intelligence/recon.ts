@@ -193,6 +193,9 @@ export interface ReconOptions {
 const DEFAULT_BUDGET = 2000;
 const DEFAULT_MAX_REFERENCES = 15;
 const DEFAULT_SEARCH_LIMIT = 10;
+/** Max individual terms re-tried when the joined task-phrase search matches
+ *  nothing. Bounded so the relaxed pass stays a small parallel fan-out. */
+const RELAXED_RETRY_MAX_TERMS = 4;
 
 /** Max focus entities whose verbatim bodies are inlined (Phase 1). */
 const MAX_FOCUS_BODIES = 4;
@@ -938,7 +941,51 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
         )
       : Promise.resolve(undefined);
 
-  const [conventions, search] = await Promise.all([conventionsP, searchP]);
+  const [conventions, searchJoined] = await Promise.all([
+    conventionsP,
+    searchP,
+  ]);
+
+  // Relaxed retry — a multi-word task phrase that matches nothing AS A WHOLE
+  // usually still names one real symbol among its terms. Session-transcript
+  // analysis measured 40% of live search_code calls returning zero matches,
+  // each followed by a hand-written reformulation (a full extra round-trip).
+  // Retrying per-term INSIDE this call collapses that loop: each term runs
+  // alone in parallel, results merge by entity key, best score first, and the
+  // section is labeled relaxed so the agent knows the phrase itself missed.
+  let search = searchJoined;
+  let searchRelaxed = false;
+  if (terms.length > 1 && searchEmpty(search)) {
+    const perTerm = await Promise.all(
+      terms
+        .slice(0, RELAXED_RETRY_MAX_TERMS)
+        .map((t) =>
+          safeRun("search_code", { query: t, limit: searchLimit }, "Entities")
+        )
+    );
+    const mergedByKey = new Map<string, unknown>();
+    for (const result of perTerm) {
+      for (const e of asEntityArray(result)) {
+        const row = e as Record<string, unknown>;
+        const key =
+          typeof row.key === "string" && row.key.length > 0
+            ? row.key
+            : `${row.file_path ?? ""}:${row.name ?? ""}`;
+        if (!mergedByKey.has(key)) mergedByKey.set(key, e);
+      }
+    }
+    if (mergedByKey.size > 0) {
+      const scoreOf = (e: unknown): number => {
+        const s = (e as Record<string, unknown>).score;
+        return typeof s === "number" ? s : 0;
+      };
+      const rows = [...mergedByKey.values()]
+        .sort((a, b) => scoreOf(b) - scoreOf(a))
+        .slice(0, searchLimit);
+      search = { entities: rows };
+      searchRelaxed = true;
+    }
+  }
 
   // Phase 2 — lock onto a focus entity and pull its blast radius (depth-1).
   // Candidates are ranked (prompt-named file first, test scaffolding last)
@@ -1108,7 +1155,13 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
   );
   const dedupedSearchEmpty =
     searchEmpty || asEntityArray(dedupedSearch).length === 0;
-  add("search_code", "Entities", 3, dedupedSearch, dedupedSearchEmpty);
+  add(
+    "search_code",
+    searchRelaxed ? "Entities (relaxed term match)" : "Entities",
+    3,
+    dedupedSearch,
+    dedupedSearchEmpty
+  );
   add("get_conventions", "Conventions", 4, conventions, conventionsEmpty);
   // Speculative expand ring (E2) — lowest local priority (after every code ring,
   // before external want sources), trimmed first under budget pressure.

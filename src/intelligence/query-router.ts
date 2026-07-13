@@ -1398,15 +1398,30 @@ export class QueryRouter {
 
     try {
       // Phase 1: Tool-level timeout prevents stuck MCP calls from CozoDB contention.
-      // Content-heavy tools (file_read, file_outline, search_code) hit CozoDB hard and
-      // can legitimately exceed 3s under indexer contention, so they get a higher tier.
+      // Content-heavy tools (file_read, file_outline, search_code) AND graph-read
+      // tools (get_references) hit CozoDB hard and can legitimately exceed 3s under
+      // indexer contention, so they get a higher tier.
       //
       // Network tools (fetch_url) own their own retry + deadline machinery
       // (FETCH_PROTOCOL_LIMITS.totalDeadlineMs = 120_000ms). The outer race must NOT
       // pre-empt that or the typed `deadline_exceeded` http_error never wins —
       // agents see a generic `tool_timeout` instead. 130_000ms = 120_000 + 10_000
       // buffer so the inner deadline fires first.
-      const HEAVY_TOOLS = new Set(["file_read", "file_outline", "search_code"]);
+      //
+      // NOTE: this Promise.race abandons the caller on timeout — it does NOT cancel
+      // the underlying CozoDB query. cozo-node's `db.run()` (see
+      // CozoGraphStore.query in local-graph.ts) has no AbortSignal / cancellation
+      // API, so a timed-out query keeps running and keeps holding its read/write
+      // lock until it finishes on its own. Raising this tier's budget only reduces
+      // false-timeout noise; it does not fix lock contention. The real mitigation
+      // is shortening drift/reindex write-lock hold time so reads (immutable=true
+      // transactions) don't queue behind them.
+      const HEAVY_TOOLS = new Set([
+        "file_read",
+        "file_outline",
+        "search_code",
+        "get_references",
+      ]);
       const NETWORK_TOOLS = new Set(["fetch_url"]);
       const TOOL_TIMEOUT_MS = NETWORK_TOOLS.has(toolName)
         ? 130_000
@@ -4208,7 +4223,14 @@ export class QueryRouter {
             const abs = _resolve(cwd, filePathArg);
             const currentMtime = _statSync(abs).mtimeMs;
             const currentTurn = this.sessionContext.getToolCallCount();
-            const hit = this.bodyDedup.check(abs, currentMtime, currentTurn);
+            const hit = this.bodyDedup.check(
+              abs,
+              currentMtime,
+              currentTurn,
+              args.offset as number | undefined,
+              args.limit as number | undefined,
+              args.token_budget as number | undefined
+            );
             if (hit) {
               // Pointer: imperative, names the tool, interpolates real values.
               const pointerPath = filePathArg.replace(/\\/g, "/");
@@ -4267,7 +4289,15 @@ export class QueryRouter {
             const turn = this.sessionContext.getToolCallCount();
             // Store the delivered body's token estimate so a later skip can
             // report the exact saving (the tokens not re-sent).
-            this.bodyDedup.record(abs, mtime, turn, estimateTokens(fr.content));
+            this.bodyDedup.record(
+              abs,
+              mtime,
+              turn,
+              estimateTokens(fr.content),
+              args.offset as number | undefined,
+              args.limit as number | undefined,
+              args.token_budget as number | undefined
+            );
           } catch {
             // Best effort — failure just means no dedup on next read.
           }

@@ -177,4 +177,49 @@ describe("createBodyDedup", () => {
       tokens: TOKENS,
     });
   });
+
+  it("hits when the same span is re-read within the window", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS, 500, 90, 2200);
+    expect(dedup.check(ABS, MTIME, 2, 500, 90, 2200)).toEqual({
+      deliveredTurn: 1,
+      tokens: TOKENS,
+    });
+  });
+
+  it("misses when a different slice of the same file is requested", () => {
+    // Regression: a path-only key returned a "reuse prior content" pointer for
+    // a slice the agent was never sent, so it fell back to shell reads.
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS, 500, 90, 2200);
+    expect(dedup.check(ABS, MTIME, 2, 200, 90, 2200)).toBeNull(); // diff offset
+    expect(dedup.check(ABS, MTIME, 2, 500, 40, 2200)).toBeNull(); // diff limit
+  });
+
+  it("misses when only the token_budget differs (may deliver more content)", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS, 500, 90, 2200);
+    expect(dedup.check(ABS, MTIME, 2, 500, 90, 8000)).toBeNull();
+  });
+
+  it("keeps a whole-file read and a sliced read of the same file distinct", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS); // whole-file (no span)
+    // A later slice of the same file must not match the whole-file entry.
+    expect(dedup.check(ABS, MTIME, 2, 500, 90)).toBeNull();
+    // The whole-file read still dedups against itself.
+    expect(dedup.check(ABS, MTIME, 2)).toEqual({
+      deliveredTurn: 1,
+      tokens: TOKENS,
+    });
+  });
+
+  it("does not let one delivered slice suppress every later slice (loop guard)", () => {
+    // Mirrors the observed failure: read lines 620-910, then ask for 380-460,
+    // then 300-380 — each distinct span must be delivered, not deduped.
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS, 620, 290);
+    expect(dedup.check(ABS, MTIME, 2, 380, 80)).toBeNull();
+    expect(dedup.check(ABS, MTIME, 3, 300, 80)).toBeNull();
+  });
 });

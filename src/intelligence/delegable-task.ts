@@ -34,6 +34,12 @@ export type DelegableClass =
   | "repro"
   | "codemod"
   | "feature_impl"
+  | "code_review"
+  | "security_audit"
+  | "dependency_upgrade"
+  | "git_ops"
+  | "benchmark_run"
+  | "migration_script"
   | "none";
 
 export interface DelegableVerdict {
@@ -124,10 +130,15 @@ const RECON_SIGNALS = [
   "look into",
   "trace how",
   "trace the",
+  "trace what",
+  "trace through",
+  "trace this",
   "track down",
   "understand how",
   "research how",
   "dig into",
+  "map out",
+  "walk me through",
 ];
 
 /**
@@ -178,6 +189,11 @@ const TYPECHECK_FIX_SIGNALS = [
   "make it compile",
   "make it typecheck",
   "get it to compile",
+  "build is red",
+  "the build is red",
+  "tsc errors",
+  "tsc is red",
+  "typecheck is red",
 ];
 
 /**
@@ -254,6 +270,69 @@ const COMMAND_RUN_SIGNALS = [
 ];
 
 /**
+ * Code review — inspect a diff/PR/change set and report findings. READ-ONLY: no
+ * edit, a junior reads the changes and returns the feedback for the senior to
+ * act on. Gates on an explicit "review"/"look over"/"check" phrase paired with
+ * a diff/PR/change noun, not the bare word "review" (too broad on its own).
+ */
+const CODE_REVIEW_SIGNALS = [
+  "review the diff",
+  "review this diff",
+  "review the pr",
+  "review this pr",
+  "review my pr",
+  "review my changes",
+  "review the changes",
+  "review this change",
+  "check my changes",
+  "look over my changes",
+  "look over the diff",
+  "look over the pr",
+  "code review",
+];
+
+/**
+ * Security audit — scan for vulnerabilities, exposed secrets, or known CVEs.
+ * READ-ONLY: a junior reads the code and reports findings, no edit. "injection"
+ * is intentionally NOT a bare signal — it would false-positive on "dependency
+ * injection"; the narrower "sql injection" / "code injection" phrases are used
+ * instead.
+ */
+const SECURITY_AUDIT_SIGNALS = [
+  "security audit",
+  "security review",
+  "vulnerab",
+  "owasp",
+  "cve",
+  "sql injection",
+  "code injection",
+  "secrets scan",
+  "scan for secrets",
+  "leaked secrets",
+  "secret scanning",
+];
+
+/**
+ * Benchmark / profiling run — execute a benchmark or profiler and report the
+ * measured numbers. READ-ONLY (run + observe, no edit), the same shape as
+ * `verify`/`command_run` but scoped to performance measurement.
+ */
+const BENCHMARK_RUN_SIGNALS = [
+  "run the benchmark",
+  "run a benchmark",
+  "run benchmarks",
+  "benchmark the",
+  "run the profiler",
+  "profile the",
+  "perf run",
+  "run perf",
+  "measure the latency",
+  "measure latency",
+  "measure the throughput",
+  "measure throughput",
+];
+
+/**
  * Web research / docs lookup — gather information from the web (library docs, an
  * API reference, a changelog, the latest published version). READ-ONLY and produces
  * a digest, no edit. A junior fetches and summarizes so the senior never spends its
@@ -274,6 +353,11 @@ const RESEARCH_SIGNALS = [
   "what's the latest",
   "whats the latest",
   "how to use the",
+  "what does the doc say",
+  "what does the docs say",
+  "what do the docs say",
+  "what does the documentation say",
+  "check the docs for",
 ];
 
 /**
@@ -378,6 +462,82 @@ const CODEMOD_SIGNALS = [
   "bulk replace",
   "search and replace across",
   "across all files",
+];
+
+/**
+ * Dependency / package version bump — bump a package, dependency, or lockfile
+ * version. Mechanical: the fix is an install + a test/build run, no design
+ * choice. Ordered with the other narrow write-classes, above `feature_impl`.
+ */
+const DEPENDENCY_UPGRADE_SIGNALS = [
+  "bump the dependency",
+  "bump dependencies",
+  "bump the version",
+  "bump packages",
+  "bump npm package",
+  "upgrade the dependency",
+  "upgrade dependencies",
+  "upgrade the package",
+  "upgrade packages",
+  "update the dependency",
+  "update dependencies",
+  "update the package version",
+  "outdated dependencies",
+  "outdated deps",
+  "outdated packages",
+  "renovate",
+];
+
+/**
+ * Migration / backfill script — write or run a schema migration or data
+ * backfill. Ranked ABOVE `feature_impl`: "create a migration" / "write a
+ * migration" would otherwise fall into feature_impl's generic "create a "
+ * catch-all. Deliberately excludes the bare "run the migration(s)" phrasing —
+ * that stays `command_run`'s job (see COMMAND_RUN_SIGNALS); this class only
+ * claims the more specific migration/schema/backfill/script phrasing.
+ */
+const MIGRATION_SCRIPT_SIGNALS = [
+  "write a migration",
+  "write the migration",
+  "write migration script",
+  "create a migration",
+  "create the migration",
+  "migration script",
+  "schema migration",
+  "data migration",
+  "data backfill",
+  "backfill script",
+  "run the migration script",
+  "run a data migration",
+  "run the data migration",
+];
+
+/**
+ * Git operations — branch/PR/rebase/cherry-pick/changelog mechanics around a
+ * change, not the change itself. Ranked ABOVE `feature_impl`: "create a
+ * branch" would otherwise fall into feature_impl's generic "create a "
+ * catch-all.
+ */
+const GIT_OPS_SIGNALS = [
+  "create a branch",
+  "create branch",
+  "new branch for",
+  "open a pr",
+  "open the pr",
+  "prepare a pr",
+  "prepare the pr",
+  "prep the pr",
+  "rebase onto",
+  "rebase the branch",
+  "cherry-pick",
+  "cherry pick",
+  "stage the commit",
+  "stage these changes for commit",
+  "commit prep",
+  "prep the commit",
+  "changelog from the commits",
+  "changelog from commits",
+  "generate the changelog",
 ];
 
 /**
@@ -612,11 +772,32 @@ function matchReadOnly(lower: string): DelegableVerdict | null {
       reason: "verification run (typecheck/tests/lint/build, read-only)",
     };
   }
+  if (matches(lower, BENCHMARK_RUN_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "benchmark_run",
+      reason: "benchmark/profile run (measure and report, read-only)",
+    };
+  }
   if (matches(lower, COMMAND_RUN_SIGNALS)) {
     return {
       delegable: true,
       class: "command_run",
       reason: "shell-command run (execute a sequence, report output)",
+    };
+  }
+  if (matches(lower, CODE_REVIEW_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "code_review",
+      reason: "code review (inspect a diff/PR, report findings, read-only)",
+    };
+  }
+  if (matches(lower, SECURITY_AUDIT_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "security_audit",
+      reason: "security audit (scan for vulnerabilities/secrets, read-only)",
     };
   }
   if (matches(lower, REPRO_SIGNALS)) {
@@ -744,6 +925,14 @@ export function classifyDelegable(prompt: string): DelegableVerdict {
       reason: "bulk find-replace across many files",
     };
   }
+  // Dependency bump ranks above feature_impl so its own narrow signals win.
+  if (matches(lower, DEPENDENCY_UPGRADE_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "dependency_upgrade",
+      reason: "package/dependency version bump",
+    };
+  }
   // Caller/import propagation ranks below an explicit rename (a "rename X and
   // update callers" prompt is mechanical_refactor's job); this catches the
   // standalone "update all callers of X" follow-up after a senior signature edit.
@@ -759,6 +948,23 @@ export function classifyDelegable(prompt: string): DelegableVerdict {
       delegable: true,
       class: "scaffold",
       reason: "scaffold/boilerplate from an existing pattern",
+    };
+  }
+  // Migration/backfill scripts and git ops both rank above feature_impl: their
+  // "create a migration" / "create a branch" phrasing would otherwise fall into
+  // feature_impl's generic "create a " catch-all.
+  if (matches(lower, MIGRATION_SCRIPT_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "migration_script",
+      reason: "write/run a schema migration or data backfill",
+    };
+  }
+  if (matches(lower, GIT_OPS_SIGNALS)) {
+    return {
+      delegable: true,
+      class: "git_ops",
+      reason: "git mechanics (branch/PR/rebase/cherry-pick/changelog)",
     };
   }
   // Scoped implementation — constructive edit verbs that name none of the narrow

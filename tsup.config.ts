@@ -9,7 +9,13 @@ import { defineConfig } from "tsup";
 const isProdBuild = process.env.UNERR_PROD_BUILD === "1";
 
 export default defineConfig({
-  entry: ["src/entrypoints/cli.ts"],
+  // Object form (not an array) so output names are pinned: `dist/cli.js` stays
+  // at the root (the `bin` target) and `dist/cozo-worker.js` sits beside it.
+  // An array of both entries would shift the common base to `src/` and emit
+  // `dist/entrypoints/cli.js`, breaking the bin path. cozo-worker is the DB
+  // worker-thread entry — `new URL("./cozo-worker.js", import.meta.url)` in
+  // cozo-worker-client.ts resolves to it next to cli.js.
+  entry: { cli: "src/entrypoints/cli.ts", "cozo-worker": "src/intelligence/cozo-worker.ts" },
   format: ["esm"],
   target: "node24",
   dts: true,

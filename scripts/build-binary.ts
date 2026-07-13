@@ -47,6 +47,21 @@ const EMBEDDED_TS = join(
   "embedded-natives.ts"
 );
 const ENTRY = join(REPO_ROOT, "src", "entrypoints", "cli.ts");
+// The cozo db worker. Bun's static analysis does NOT follow the spawn URL from
+// the deep dynamic-import chain, so the worker module must be listed as an
+// explicit entrypoint to be embedded in the standalone binary. RUNTIME PATH
+// CONTRACT (Bun.build API form — the CLI form lays out differently): EVERY
+// entrypoint, main included, embeds at /$bunfs/root/<path-from-common-base>
+// with a `.js` name. With cli.ts + this file the common base is `src/`, so the
+// main module runs as `/$bunfs/root/entrypoints/cli.js` and the worker lands
+// at `/$bunfs/root/intelligence/cozo-worker.js` — which is exactly the
+// `../intelligence/cozo-worker.js` URL defaultWorker in
+// src/intelligence/cozo-worker-client.ts uses in its `__UNERR_BINARY__`
+// branch. Adding an entrypoint outside src/ shifts the common base and
+// silently breaks that URL — keep all entrypoints under src/, and re-run
+// `unerr doctor` (Graph DB worker check) inside a fresh binary after any
+// entrypoint change.
+const WORKER_ENTRY = join(REPO_ROOT, "src", "intelligence", "cozo-worker.ts");
 const OUT_DIR = join(REPO_ROOT, "dist", "bin");
 
 /** os-arch → everything that differs per target. */
@@ -347,7 +362,7 @@ async function runCompile(
   const outFile = join(OUT_DIR, `unerr-${osArch}${spec.exe ? ".exe" : ""}`);
   log(`bun build --compile --target=${spec.bunTarget} → ${outFile}`);
   const result = await Bun.build({
-    entrypoints: [ENTRY],
+    entrypoints: [ENTRY, WORKER_ENTRY],
     target: "bun",
     minify: true,
     sourcemap: "none",

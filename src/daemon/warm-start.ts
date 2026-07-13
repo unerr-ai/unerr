@@ -1,7 +1,12 @@
 /**
- * Warm-start scheduler — pre-spawn MRU repos after daemon boot.
+ * Warm-start scheduler — optional pre-spawn of MRU repos after daemon boot.
  *
- * Reads repos from the registry, sorts by lastActivity (MRU first),
+ * OFF by default (`warmStartBudget: 0`) — the daemon is a lazy process manager and
+ * spawns nothing proactively on boot; per-repo proxies come up on demand on the
+ * first forwarded MCP frame. This module only does work when a user opts in by
+ * setting `warmStartBudget` > 0 in ~/.unerr/config.json.
+ *
+ * When enabled: reads repos from the registry, sorts by lastActivity (MRU first),
  * respects per-repo autostart policy and global budget. Spawns
  * sequentially at low priority. Aborts if load jumps too high or
  * system is on battery.
@@ -31,7 +36,14 @@ export interface WarmStartConfig {
 }
 
 const DEFAULT_CONFIG: WarmStartConfig = {
-  warmStartBudget: 3,
+  // Disabled by default (0). unerrd is a lazy process manager: on boot it spawns
+  // NO per-repo proxy proactively — a proxy is spawned only on demand, when an IDE
+  // bridge forwards the first MCP frame for that repo (`pm.ensure`). This keeps
+  // repos the user isn't actively driving from running after a daemon restart.
+  // Opt back in to MRU pre-warming by setting `warmStartBudget` > 0 in
+  // ~/.unerr/config.json; the `warmStartBudget <= 0` gate in runWarmStart then
+  // no longer short-circuits.
+  warmStartBudget: 0,
   warmStartIdleDays: 14,
   warmStartDelayMs: 30_000,
 };

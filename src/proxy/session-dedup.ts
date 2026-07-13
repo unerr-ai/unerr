@@ -318,41 +318,75 @@ export interface BodyDedupStore {
   check(
     absPath: string,
     currentMtime: number,
-    currentTurn: number
+    currentTurn: number,
+    offset?: number,
+    limit?: number,
+    tokenBudget?: number
   ): { deliveredTurn: number; tokens: number } | null;
   /** Record a successfully delivered file body for future dedup. `tokens` is
    *  the estimated token count of the delivered body — reported as the saving
-   *  on a later skip. */
-  record(absPath: string, mtime: number, turn: number, tokens: number): void;
+   *  on a later skip. The (offset, limit, tokenBudget) span keys the entry, so
+   *  a later read of a different slice of the same file is a miss, not a hit. */
+  record(
+    absPath: string,
+    mtime: number,
+    turn: number,
+    tokens: number,
+    offset?: number,
+    limit?: number,
+    tokenBudget?: number
+  ): void;
 }
 
 /**
  * Creates a per-session short-recency body dedup store. One instance
  * per QueryRouter session. Not persisted across sessions (body content
  * must be re-read on session restart).
+ *
+ * Keyed on the full read *request* — path plus the (offset, limit,
+ * tokenBudget) span — NOT the path alone. Two reads collide only when they
+ * would deliver byte-identical content, so a read of a different slice of an
+ * already-delivered file is a cache miss and the agent never receives a
+ * "reuse prior content" pointer for a span it was never sent. (A path-only
+ * key collapsed every sliced re-read onto the first delivery; the agent then
+ * escaped to shell reads to get the lines it had actually asked for.)
  * @sem domain=proxy role=dedup
  */
 export function createBodyDedup(): BodyDedupStore {
   const entries = new Map<string, BodyDedupEntry>();
 
+  // The dedup key is the whole read request. The mtime gate already covers
+  // "file changed"; the span covers "different part of the same file".
+  const keyFor = (
+    absPath: string,
+    offset?: number,
+    limit?: number,
+    tokenBudget?: number
+  ): string => `${absPath}#${offset ?? ""}:${limit ?? ""}:${tokenBudget ?? ""}`;
+
   return {
-    check(absPath, currentMtime, currentTurn) {
-      const entry = entries.get(absPath);
+    check(absPath, currentMtime, currentTurn, offset, limit, tokenBudget) {
+      const mapKey = keyFor(absPath, offset, limit, tokenBudget);
+      const entry = entries.get(mapKey);
       if (!entry) return null;
       // Freshness: mtime changed → file was edited → re-send in full
       if (entry.mtime !== currentMtime) {
-        entries.delete(absPath);
+        entries.delete(mapKey);
         return null;
       }
       // Recency: outside window → compaction risk → re-send in full
       if (currentTurn - entry.turn > BODY_DEDUP_MAX_TURNS) {
-        entries.delete(absPath);
+        entries.delete(mapKey);
         return null;
       }
       return { deliveredTurn: entry.turn, tokens: entry.tokens };
     },
-    record(absPath, mtime, turn, tokens) {
-      entries.set(absPath, { mtime, turn, tokens });
+    record(absPath, mtime, turn, tokens, offset, limit, tokenBudget) {
+      entries.set(keyFor(absPath, offset, limit, tokenBudget), {
+        mtime,
+        turn,
+        tokens,
+      });
     },
   };
 }

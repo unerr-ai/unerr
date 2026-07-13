@@ -298,6 +298,53 @@ describe("fileEditTool.execute — inline blast radius", () => {
     expect(out.metadata?.new_hash).toBeTruthy();
   });
 
+  it("returns fast without the ur|rsk line when the graph read stalls (write-locked)", async () => {
+    const cwd = tmpRepo();
+    mkdirpFor(cwd, "src/pay.ts");
+    const file = join(cwd, "src/pay.ts");
+    writeFileSync(file, "export function pay(a) { return a; }\n");
+
+    // A graph whose caller read hangs far past the blast-radius budget — models
+    // a CozoDB write-lock stalling the post-edit read. file_edit must NOT wait
+    // on it: the edit already landed on disk.
+    const pay = entity({
+      name: "pay",
+      key: "paykey0000000000",
+      file_path: "src/pay.ts",
+      signature: "function pay(a)",
+    });
+    const stallGraph = {
+      async getEntitiesByFile(fp: string) {
+        return fp === "src/pay.ts" ? [pay] : [];
+      },
+      getCallersOf(): Promise<LocalEntity[]> {
+        return new Promise((resolve) => setTimeout(() => resolve([]), 5000));
+      },
+    } as unknown as ToolContext["graph"];
+
+    const ctx: ToolContext = { cwd, graph: stallGraph };
+
+    const started = Date.now();
+    const out = await fileEditTool.execute(
+      {
+        file_path: "src/pay.ts",
+        old_string: "export function pay(a)",
+        new_string: "export function pay(a, b)",
+      },
+      ctx
+    );
+    const elapsed = Date.now() - started;
+
+    expect(out.isError).toBeFalsy();
+    // Returned on the blast-radius budget, not the 5s stall.
+    expect(elapsed).toBeLessThan(2000);
+    // No callers line, because the read was abandoned.
+    expect(out.content).not.toContain("ur|rsk");
+    // The edit still landed on disk.
+    expect(readFileSync(file, "utf8")).toContain("pay(a, b)");
+    expect(out.metadata?.new_hash).toBeTruthy();
+  });
+
   it("adds no line for a signature edit with only 1 caller (zero false positives)", async () => {
     const cwd = tmpRepo();
     mkdirpFor(cwd, "src/pay.ts");

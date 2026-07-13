@@ -33,7 +33,7 @@ export function appendReceiptMirror(repoRoot: string, ev: unknown): void {
   try {
     const path = receiptMirrorPath(repoRoot);
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, JSON.stringify(ev) + "\n");
+    appendFileSync(path, `${JSON.stringify(ev)}\n`);
   } catch {
     // telemetry must never throw into the write path
   }
@@ -76,8 +76,8 @@ export function trimReceiptMirror(
     }
 
     // Nothing was dropped — still rewrite for simplicity, but skip empty files.
-    const tmp = path + ".tmp";
-    writeFileSync(tmp, kept.map((l) => l + "\n").join(""));
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, kept.map((l) => `${l}\n`).join(""));
     renameSync(tmp, path);
   } catch {
     // swallow all errors

@@ -364,6 +364,87 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
     });
   });
 
+  describe("Infrastructure Failures", () => {
+    it("does not trip the breaker on 4 consecutive infra timeouts", async () => {
+      const breaker = new LoopCircuitBreaker({
+        maxAttemptsPerEntity: 4,
+        redirectThreshold: 4,
+      });
+
+      const infraMessages = [
+        "tool_timeout waiting for graph lock",
+        "database is locked by another process",
+        "CozoDB write timeout on entities relation",
+        "write timeout after 30000ms",
+      ];
+
+      for (const text of infraMessages) {
+        const output = await breaker.onPostToolUse(
+          makeCtx({
+            result: { error: true, content: [{ type: "text", text }] },
+          })
+        );
+        expect(output).toBeNull();
+      }
+
+      expect(
+        breaker.getCircuitState("src/payment.ts::processPayment")
+      ).toBeNull();
+    });
+
+    it("still trips the breaker on 4 consecutive genuine semantic errors", async () => {
+      const breaker = new LoopCircuitBreaker({
+        maxAttemptsPerEntity: 4,
+        redirectThreshold: 4,
+      });
+
+      for (let i = 0; i < 3; i++) {
+        const output = await breaker.onPostToolUse(
+          makeCtx({ result: makeErrorResult() })
+        );
+        expect(output).toBeNull();
+      }
+
+      const output = await breaker.onPostToolUse(
+        makeCtx({ result: makeErrorResult() })
+      );
+      expect(output).not.toBeNull();
+      expect(output?.halt).toBe(true);
+      expect(output?._context?.pattern).toBeDefined();
+    });
+
+    it("an infra timeout does not reset a genuine consecutive-failure streak", async () => {
+      const breaker = new LoopCircuitBreaker({
+        maxAttemptsPerEntity: 4,
+        redirectThreshold: 4,
+      });
+
+      for (let i = 0; i < 3; i++) {
+        const output = await breaker.onPostToolUse(
+          makeCtx({ result: makeErrorResult() })
+        );
+        expect(output).toBeNull();
+      }
+
+      // A transient infra timeout in between must not reset the streak.
+      const infraOutput = await breaker.onPostToolUse(
+        makeCtx({
+          result: {
+            error: true,
+            content: [{ type: "text", text: "database is locked" }],
+          },
+        })
+      );
+      expect(infraOutput).toBeNull();
+
+      const output = await breaker.onPostToolUse(
+        makeCtx({ result: makeErrorResult() })
+      );
+      expect(output).not.toBeNull();
+      expect(output?.halt).toBe(true);
+    });
+  });
+
   // Cap B — Loop Redirect: a non-halting ur|act redirect fires at redirectThreshold
   // consecutive failures, before the hard halt at maxAttemptsPerEntity.
   describe("Loop Redirect (Cap B)", () => {

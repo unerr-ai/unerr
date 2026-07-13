@@ -399,3 +399,140 @@ describe("classifyDelegable — read-only classes fire ON a question (Gap 3 inve
     );
   });
 });
+
+describe("classifyDelegable — six more delegable classes (code_review/security_audit/dependency_upgrade/git_ops/benchmark_run/migration_script)", () => {
+  it("flags code_review", () => {
+    for (const p of [
+      "review the diff before merging",
+      "check my changes and let me know if anything's off",
+      "look over the PR before I merge it",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("code_review");
+      expect(classifyDelegable(p).delegable, p).toBe(true);
+    }
+    // Descriptive mention, no review/check/look-over trigger — not a handoff.
+    expect(classifyDelegable("the review comments are helpful").class).toBe(
+      "none"
+    );
+  });
+
+  it("flags security_audit", () => {
+    for (const p of [
+      "run a security audit on the auth module",
+      "check for owasp top 10 issues in the api",
+      "scan for secrets in the repo before we ship",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("security_audit");
+      expect(classifyDelegable(p).delegable, p).toBe(true);
+    }
+    // "injection" alone is intentionally NOT a trigger — avoids the
+    // "dependency injection" false positive.
+    expect(
+      classifyDelegable("use dependency injection for the service layer").class
+    ).toBe("none");
+  });
+
+  it("flags dependency_upgrade", () => {
+    for (const p of [
+      "bump the dependency version for lodash to the latest",
+      "upgrade the package to fix the security warning",
+      "there are several outdated deps that need updating",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("dependency_upgrade");
+      expect(classifyDelegable(p).delegable, p).toBe(true);
+    }
+    // Generic "update" with no package/dependency noun — not a version bump.
+    expect(
+      classifyDelegable("update the retry logic for the http client").class
+    ).toBe("none");
+  });
+
+  it("flags git_ops", () => {
+    for (const p of [
+      "create a branch for the hotfix and push it",
+      "open a PR for this fix and add the reviewers",
+      "cherry-pick commit abc123 onto the release branch",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("git_ops");
+      expect(classifyDelegable(p).delegable, p).toBe(true);
+    }
+    // A generic "create a X" with no git noun stays feature_impl, not git_ops.
+    expect(
+      classifyDelegable("create a new dashboard widget for the metrics page")
+        .class
+    ).toBe("feature_impl");
+  });
+
+  it("flags benchmark_run", () => {
+    for (const p of [
+      "run the benchmark suite for the query router",
+      "profile the indexer to find the slow path",
+      "measure the latency of the search endpoint under load",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("benchmark_run");
+      expect(classifyDelegable(p).delegable, p).toBe(true);
+    }
+    // A question about latency, naming no benchmark trigger — root-cause ask.
+    expect(
+      classifyDelegable("why is latency so high on the search endpoint").class
+    ).toBe("none");
+  });
+
+  it("flags migration_script", () => {
+    for (const p of [
+      "write a migration for the new users table",
+      "run the migration script and confirm the schema updated",
+      "we need a data backfill script for the legacy orders",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("migration_script");
+      expect(classifyDelegable(p).delegable, p).toBe(true);
+    }
+    // Bare "run the migrations" (no script/schema/data qualifier) stays
+    // command_run — migration_script only claims the more specific phrasing.
+    expect(
+      classifyDelegable("run the migrations before you deploy").class
+    ).toBe("command_run");
+  });
+});
+
+describe("classifyDelegable — broadened vocabulary on existing classes", () => {
+  it("recon broadens to 'map out' / 'walk me through' / 'trace what'", () => {
+    for (const p of [
+      "map out the retry logic across the proxy and daemon",
+      "walk me through how the session dedup works",
+      "trace what happens when the proxy socket drops",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("recon");
+    }
+  });
+
+  it("research broadens to 'what does the docs say'", () => {
+    expect(
+      classifyDelegable("what does the docs say about the retry backoff").class
+    ).toBe("research");
+  });
+
+  it("typecheck_fix broadens to 'build is red' / 'tsc errors'", () => {
+    expect(classifyDelegable("the build is red after the merge").class).toBe(
+      "typecheck_fix"
+    );
+    expect(
+      classifyDelegable("there are a bunch of tsc errors after the refactor")
+        .class
+    ).toBe("typecheck_fix");
+  });
+});
+
+describe("classifyDelegable — design/root-cause phrases never match a delegable class", () => {
+  it("vetoes design / architect / root-cause / why-is-it-broken phrasings", () => {
+    for (const p of [
+      "design the new rate limiter for the api",
+      "architect a new plugin system for the cli",
+      "root cause the flaky test failures in ci",
+      "why is the deploy pipeline broken",
+    ]) {
+      expect(classifyDelegable(p).class, p).toBe("none");
+      expect(classifyDelegable(p).delegable, p).toBe(false);
+    }
+  });
+});
