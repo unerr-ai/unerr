@@ -488,6 +488,18 @@ export const FABLE_AGENT_MD = buildSubagentMd({
 /** Relative path (from repo root) of the user-invoked Fable sub-agent definition. */
 export const FABLE_AGENT_RELPATH = ".claude/agents/unerr-fable.md";
 
+/**
+ * Master switch for the read-only `unerr-reviewer` sub-agent. OFF for the time
+ * being: `unerr install` does NOT write `.claude/agents/unerr-reviewer.md`, and
+ * an existing copy is removed on install. The template + tools + contract below
+ * stay intact so re-enabling is a one-line flip.
+ *
+ * To re-enable: set this to `true`, then re-add the reviewer routing bullet to
+ * `src/content/skills.json` (`skill:using-unerr`) — that surface is static text
+ * and cannot read this flag (instruction-writer.ts and writeJuniorSubagent do).
+ */
+export const REVIEWER_AGENT_ENABLED = false;
+
 /** Relative path (from repo root) of the read-only reviewer sub-agent definition. */
 export const REVIEWER_AGENT_RELPATH = ".claude/agents/unerr-reviewer.md";
 
@@ -550,15 +562,16 @@ function writeOneSubagent(filePath: string, content: string): boolean {
 }
 
 /**
- * Write the five Claude Code sub-agent files: the auto-routed delegation pair
- * (`unerr-junior` + `unerr-worker`), the two user-invoked model-pinned agents
- * (`unerr-opus` + `unerr-fable`), and the read-only post-edit reviewer
- * (`unerr-reviewer`). No-op for any host without on-disk sub-agents
- * (Codex delegates via `codex exec -m`, the rest don't delegate). Idempotent: skips
- * a write when on-disk content already matches. Returns true when ANY file was
- * created or updated. The opus/fable/reviewer files only sit on disk so the user
- * (or the senior, for the reviewer) can spawn them explicitly — they are not
- * referenced by the automatic routing.
+ * Write the Claude Code sub-agent files: the auto-routed delegation pair
+ * (`unerr-junior` + `unerr-worker`) and the two user-invoked model-pinned agents
+ * (`unerr-opus` + `unerr-fable`). The read-only `unerr-reviewer` is written only
+ * when {@link REVIEWER_AGENT_ENABLED} is on (OFF by default); when off, a copy
+ * left by a prior install is removed here. No-op for any host without on-disk
+ * sub-agents (Codex delegates via `codex exec -m`, the rest don't delegate).
+ * Idempotent: skips a write when on-disk content already matches. Returns true
+ * when ANY file was created, updated, or swept. The opus/fable files only sit on
+ * disk so the user can spawn them explicitly — they are not referenced by the
+ * automatic routing.
  */
 export function writeJuniorSubagent(ide: IdeType, cwd: string): boolean {
   // Only Claude Code uses on-disk model-pinned sub-agent files.
@@ -568,19 +581,31 @@ export function writeJuniorSubagent(ide: IdeType, cwd: string): boolean {
     [workerAgentPath(cwd), WORKER_AGENT_MD],
     [opusAgentPath(cwd), OPUS_AGENT_MD],
     [fableAgentPath(cwd), FABLE_AGENT_MD],
-    [reviewerAgentPath(cwd), REVIEWER_AGENT_MD],
   ];
+  if (REVIEWER_AGENT_ENABLED) {
+    writes.push([reviewerAgentPath(cwd), REVIEWER_AGENT_MD]);
+  }
   let wrote = false;
   for (const [filePath, content] of writes) {
     if (writeOneSubagent(filePath, content)) wrote = true;
+  }
+  // Reviewer disabled by default — sweep a copy left by a prior install so the
+  // agent Claude Code auto-discovers matches the current switch.
+  if (!REVIEWER_AGENT_ENABLED && existsSync(reviewerAgentPath(cwd))) {
+    try {
+      rmSync(reviewerAgentPath(cwd), { force: true });
+      wrote = true;
+    } catch {
+      // best-effort
+    }
   }
   return wrote;
 }
 
 /**
- * Remove all five Claude Code sub-agent files (junior/worker + opus/fable +
- * reviewer). Returns true when ANY file was removed. Backs `unerr uninstall` for
- * Claude Code.
+ * Remove the Claude Code sub-agent files (junior/worker + opus/fable, plus the
+ * reviewer if a copy is on disk). Returns true when ANY file was removed. Backs
+ * `unerr uninstall` for Claude Code.
  */
 export function removeJuniorSubagent(cwd: string): boolean {
   let removed = false;

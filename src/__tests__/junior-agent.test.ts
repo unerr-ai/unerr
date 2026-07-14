@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -136,20 +136,31 @@ describe("unerr-junior sub-agent (Lever C)", () => {
       // Not a cheaper tier — the out-of-scope clause uses the neutral phrasing.
       expect(md).not.toContain("on the cheaper tier");
     }
-    // uninstall removes all five (junior/worker/opus/fable/reviewer).
+    // uninstall removes the installed set (junior/worker/opus/fable; the
+    // reviewer is off by default so it is not installed to begin with).
     expect(removeJuniorSubagent(cwd)).toBe(true);
     expect(existsSync(opusAgentPath(cwd))).toBe(false);
     expect(existsSync(fableAgentPath(cwd))).toBe(false);
   });
 
-  it("also writes the read-only reviewer sub-agent (claude-code, removed together)", () => {
+  it("does NOT install the reviewer by default and sweeps a stale copy (claude-code)", () => {
     const cwd = fresh();
+    // Reviewer is OFF by default (REVIEWER_AGENT_ENABLED=false) — never written.
     expect(writeJuniorSubagent("claude-code", cwd)).toBe(true);
+    expect(existsSync(reviewerAgentPath(cwd))).toBe(false);
+
+    // A copy left by a prior install is swept on the next install. The first
+    // call created .claude/agents/, so the path's parent already exists.
+    writeFileSync(reviewerAgentPath(cwd), REVIEWER_AGENT_MD);
     expect(existsSync(reviewerAgentPath(cwd))).toBe(true);
-    expect(readFileSync(reviewerAgentPath(cwd), "utf-8")).toBe(
-      REVIEWER_AGENT_MD
-    );
-    expect(reviewerAgentPath(cwd).endsWith(REVIEWER_AGENT_RELPATH)).toBe(true);
+    expect(writeJuniorSubagent("claude-code", cwd)).toBe(true);
+    expect(existsSync(reviewerAgentPath(cwd))).toBe(false);
+  });
+
+  it("keeps the reviewer template well-formed and read-only for re-enable", () => {
+    // The constant + path helper survive so flipping REVIEWER_AGENT_ENABLED back
+    // on needs no other change to the definition.
+    expect(reviewerAgentPath("/x").endsWith(REVIEWER_AGENT_RELPATH)).toBe(true);
     expect(REVIEWER_AGENT_MD).toContain("name: unerr-reviewer");
     expect(REVIEWER_AGENT_MD).toContain(`model: ${CLAUDE_WORKER_MODEL}`);
     expect(foldedDescription(REVIEWER_AGENT_MD)).toContain("Use PROACTIVELY");
@@ -160,8 +171,6 @@ describe("unerr-junior sub-agent (Lever C)", () => {
     expect(reviewerTools).not.toContain("mcp__unerr__file_edit");
     expect(reviewerTools).not.toContain("Edit");
     expect(reviewerTools).not.toContain("Write");
-    expect(removeJuniorSubagent(cwd)).toBe(true);
-    expect(existsSync(reviewerAgentPath(cwd))).toBe(false);
   });
 
   it("junior/worker/reviewer descriptions signal auto-delegation; opus/fable are manual-only", () => {

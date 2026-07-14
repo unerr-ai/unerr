@@ -19,6 +19,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { CONTRACT_TEACHING_BLOCK } from "../intelligence/contract-teaching.js";
+import { REVIEWER_AGENT_ENABLED } from "../skills/junior-agent.js";
 import type { IdeType } from "../utils/detect.js";
 import { getAgent } from "./agent-registry.js";
 import { loadSettings } from "./settings.js";
@@ -75,9 +76,10 @@ unerr re-anchors these comments when code moves and flags a comment that drifted
   // equivalent registered) — gate the routing bullet and the built-in task
   // tracker's tool names (TaskCreate/TaskUpdate) to Claude Code; other hosts get
   // the generic "built-in task tracker" phrasing already used pre-existing.
-  const reviewerBullet = isClaudeCode
-    ? "\n- `Task({subagent_type:'unerr-reviewer', …})` — post-edit read-only review of the working diff: correctness, missed callers via blast radius, convention violations; spawn after a multi-file or multi-agent change, before reporting done."
-    : "";
+  const reviewerBullet =
+    isClaudeCode && REVIEWER_AGENT_ENABLED
+      ? "\n- `Task({subagent_type:'unerr-reviewer', …})` — post-edit read-only review of the working diff: correctness, missed callers via blast radius, convention violations; spawn after a multi-file or multi-agent change, before reporting done."
+      : "";
   const trackerNote = isClaudeCode
     ? "On any task with 2+ independent slices, call `TaskCreate` for each slice before the first edit — unprompted, never wait to be asked — then call `TaskUpdate` to mark each slice completed as it lands. Fan out one `unerr-worker`/`unerr-junior` sub-agent per slice in parallel via `Task`."
     : "On a multi-slice task (a build, a broad refactor/migrate/audit, or an enumerated list), plan the work into the built-in task tracker (one task per slice) before the first edit, unprompted, then fan out one `unerr-worker`/`unerr-junior` sub-agent per slice in parallel via `Task`, and complete or clear the tracker at turn end.";
