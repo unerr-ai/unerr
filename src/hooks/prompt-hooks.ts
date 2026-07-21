@@ -1053,10 +1053,17 @@ const MAX_SITUATION_LEN = 60;
 const MAX_UNLOCK_LEN = 60;
 
 /**
- * Format one recalled trace as a single ur|fct advisory line per the nudge
- * rules: imperative prefix, named anchor, real values, truncated long fields.
+ * Format one recalled trace as a single ur|fct JOURNAL line per the nudge
+ * rules: named anchor, real values, truncated long fields. Date-stamped and
+ * past-tense by design — the line reports a dated journal entry ("what
+ * happened then"), never asserts present truth; the agent re-verifies against
+ * today's code before acting on it.
  */
 function formatTraceLine(t: RecalledTrace): string {
+  const dateStamp =
+    t.resolved_at > 0
+      ? `resolved ${new Date(t.resolved_at).toISOString().slice(0, 10)}`
+      : "undated";
   const situation =
     t.situation.length > MAX_SITUATION_LEN
       ? `${t.situation.slice(0, MAX_SITUATION_LEN - 1)}…`
@@ -1084,7 +1091,7 @@ function formatTraceLine(t: RecalledTrace): string {
 
   const anchorPart = t.anchor ? ` (e:${t.anchor})` : "";
 
-  return `ur|fct past incident — symptom: ${situation}${deadEndsPart} · fix: ${unlock}${anchorPart}`;
+  return `ur|fct past incident (${dateStamp}) — symptom then: ${situation}${deadEndsPart} · fix then: ${unlock}${anchorPart}`;
 }
 
 /**

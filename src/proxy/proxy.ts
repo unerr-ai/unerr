@@ -419,11 +419,11 @@ function extractAnchorHints(prompt: string): string[] {
  */
 async function handleUnerrRecallTracesProxy(
   args: Record<string, unknown>,
-  unerrDir: string,
   timelineStore:
     | import("../timeline/timeline-store.js").CozoTimelineStore
     | null
     | undefined,
+  anchorExists?: (anchor: string) => Promise<boolean>,
   onRecalled?: (count: number) => void
 ): Promise<{
   content: Array<{ type: string; text: string }>;
@@ -439,9 +439,6 @@ async function handleUnerrRecallTracesProxy(
   };
   if (!timelineStore) return empty;
 
-  const factStore = await getProxyFactStore(unerrDir);
-  if (!factStore) return empty;
-
   const prompt = typeof args.prompt === "string" ? args.prompt : "";
   if (!prompt) return empty;
 
@@ -451,13 +448,17 @@ async function handleUnerrRecallTracesProxy(
 
   try {
     const { tokenize } = await import("../intelligence/search-index.js");
+    const { recallTracesBySymptom } = await import(
+      "../timeline/trace-recall.js"
+    );
     const tokens = tokenize(prompt);
     const anchorHints = extractAnchorHints(prompt);
-    const traces = await factStore.recallTracesBySymptom(
-      tokens,
+    const traces = await recallTracesBySymptom(
       timelineStore,
+      tokens,
       limit,
-      anchorHints
+      anchorHints,
+      anchorExists
     );
     if (Array.isArray(traces) && traces.length > 0) {
       try {
@@ -2858,8 +2859,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     if (name === "unerr_recall_traces") {
       return handleUnerrRecallTracesProxy(
         args,
-        unerrDirForLedger,
         timelineHandle?.store,
+        // Staleness gate: a past incident whose anchor no longer resolves in
+        // this repo's graph is history about deleted code — not injected.
+        (anchor: string) => router.anchorExists(anchor),
         // Cap A reporting: record one `trace_recalled` per recall that surfaced
         // ≥1 past incident, so the receipt's Remembered recap credits the reuse.
         (count: number) => {

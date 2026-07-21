@@ -1,23 +1,24 @@
 /**
- * Cap A-2: recallTracesBySymptom — TF-IDF ranking + anchor boost + relevance floor.
+ * Cap A-2: recallTracesBySymptom — TF-IDF ranking + anchor boost + relevance
+ * floor + the anchor-existence staleness gate.
  *
  * Seeds the timeline store directly (insertTrace + insertTraceTokens) to control
  * token distribution, then calls recallTracesBySymptom and asserts:
  *   1. The trace with the most overlapping query tokens ranks first.
  *   2. Adding an anchorHint for a tied candidate lifts it above the other.
  *   3. A prompt whose tokens match nothing returns an empty array (relevance floor).
+ *   4. A trace whose anchor no longer exists is dropped; checker errors fail open.
  */
 
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { TemporalFactStore } from "../intelligence/temporal-facts.js";
 import { CozoTimelineStore } from "../timeline/timeline-store.js";
+import { recallTracesBySymptom } from "../timeline/trace-recall.js";
 
 let tempDir: string;
 let timelineStore: CozoTimelineStore;
-let factStore: TemporalFactStore;
 
 const NOW = Date.now();
 
@@ -51,7 +52,6 @@ beforeEach(async () => {
   );
   mkdirSync(join(tempDir, ".unerr"), { recursive: true });
   timelineStore = await CozoTimelineStore.create(tempDir);
-  factStore = await TemporalFactStore.create(tempDir);
 });
 
 afterEach(() => {
@@ -94,9 +94,9 @@ describe("recallTracesBySymptom — TF-IDF ranking", () => {
       tokens: ["async", "error", "build", "pipeline"],
     });
 
-    const results = await factStore.recallTracesBySymptom(
-      ["typescript", "async", "error", "auth"],
+    const results = await recallTracesBySymptom(
       timelineStore,
+      ["typescript", "async", "error", "auth"],
       3
     );
 
@@ -133,18 +133,18 @@ describe("recallTracesBySymptom — TF-IDF ranking", () => {
     });
 
     // Without anchor hint: both trace-auth and trace-config score equally
-    const withoutBoost = await factStore.recallTracesBySymptom(
-      ["typescript", "async", "error"],
+    const withoutBoost = await recallTracesBySymptom(
       timelineStore,
+      ["typescript", "async", "error"],
       3
     );
     expect(withoutBoost.map((r) => r.trace_id)).toContain("trace-auth");
     expect(withoutBoost.map((r) => r.trace_id)).toContain("trace-config");
 
     // With anchor hint for src/auth/token.ts: trace-auth gets +0.5 → ranks first
-    const withBoost = await factStore.recallTracesBySymptom(
-      ["typescript", "async", "error"],
+    const withBoost = await recallTracesBySymptom(
       timelineStore,
+      ["typescript", "async", "error"],
       3,
       ["src/auth/token.ts"]
     );
@@ -162,16 +162,16 @@ describe("recallTracesBySymptom — TF-IDF ranking", () => {
     });
 
     // Tokens that do not appear in any trace
-    const results = await factStore.recallTracesBySymptom(
-      ["zzz", "xyz", "qwerty"],
+    const results = await recallTracesBySymptom(
       timelineStore,
+      ["zzz", "xyz", "qwerty"],
       3
     );
     expect(results).toHaveLength(0);
   });
 
   it("returns empty for empty token list", async () => {
-    const results = await factStore.recallTracesBySymptom([], timelineStore, 3);
+    const results = await recallTracesBySymptom(timelineStore, [], 3);
     expect(results).toHaveLength(0);
   });
 
@@ -187,11 +187,95 @@ describe("recallTracesBySymptom — TF-IDF ranking", () => {
       });
     }
 
-    const results = await factStore.recallTracesBySymptom(
-      ["shared"],
-      timelineStore,
-      2 // limit=2
-    );
+    const results = await recallTracesBySymptom(timelineStore, ["shared"], 2);
     expect(results.length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("recallTracesBySymptom — anchor-existence staleness gate", () => {
+  beforeEach(async () => {
+    // Two relevant traces: one live anchor, one deleted anchor.
+    await seedTrace(timelineStore, {
+      id: "trace-live",
+      situation: "Worker pool leak in indexer",
+      unlock: "Bound the pool size",
+      anchor: "src/live/indexer.ts",
+      tokens: ["worker", "pool", "leak"],
+    });
+    await seedTrace(timelineStore, {
+      id: "trace-stale",
+      situation: "Worker pool leak in old runner",
+      unlock: "Bound the pool size",
+      anchor: "src/deleted/runner.ts",
+      tokens: ["worker", "pool", "leak"],
+    });
+    // Disjoint-token trace keeps df < N — a token present in EVERY trace has
+    // idf = log(1) = 0 and would drop all candidates below the relevance floor.
+    await seedTrace(timelineStore, {
+      id: "trace-unrelated",
+      situation: "Snapshot checksum mismatch",
+      unlock: "Regenerate the snapshot",
+      anchor: "src/snapshots/verify.ts",
+      tokens: ["snapshot", "checksum", "mismatch"],
+    });
+  });
+
+  it("drops a trace whose anchor no longer exists", async () => {
+    const results = await recallTracesBySymptom(
+      timelineStore,
+      ["worker", "pool", "leak"],
+      3,
+      undefined,
+      async (anchor) => anchor !== "src/deleted/runner.ts"
+    );
+    expect(results.map((r) => r.trace_id)).toContain("trace-live");
+    expect(results.map((r) => r.trace_id)).not.toContain("trace-stale");
+  });
+
+  it("keeps all traces when no checker is provided", async () => {
+    const results = await recallTracesBySymptom(
+      timelineStore,
+      ["worker", "pool", "leak"],
+      3
+    );
+    expect(results.map((r) => r.trace_id)).toContain("trace-live");
+    expect(results.map((r) => r.trace_id)).toContain("trace-stale");
+  });
+
+  it("fails open when the checker throws", async () => {
+    const results = await recallTracesBySymptom(
+      timelineStore,
+      ["worker", "pool", "leak"],
+      3,
+      undefined,
+      async () => {
+        throw new Error("graph rebuilding");
+      }
+    );
+    expect(results.map((r) => r.trace_id)).toContain("trace-live");
+    expect(results.map((r) => r.trace_id)).toContain("trace-stale");
+  });
+
+  it("keeps anchor-less traces without consulting the checker", async () => {
+    await seedTrace(timelineStore, {
+      id: "trace-noanchor",
+      situation: "Worker pool leak somewhere",
+      unlock: "Bound the pool size",
+      anchor: "",
+      tokens: ["worker", "pool", "leak"],
+    });
+    const checkedAnchors: string[] = [];
+    const results = await recallTracesBySymptom(
+      timelineStore,
+      ["worker", "pool", "leak"],
+      5,
+      undefined,
+      async (anchor) => {
+        checkedAnchors.push(anchor);
+        return true;
+      }
+    );
+    expect(results.map((r) => r.trace_id)).toContain("trace-noanchor");
+    expect(checkedAnchors).not.toContain("");
   });
 });

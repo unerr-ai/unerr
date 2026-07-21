@@ -145,6 +145,9 @@ export interface RecalledTrace {
   dead_ends: string;
   unlock: string;
   anchor: string;
+  /** ms epoch when the resolution was recorded; 0 when the row predates it.
+   *  Drives the journal date-stamp on the injected line. */
+  resolved_at: number;
 }
 
 /**
@@ -237,6 +240,10 @@ export function parseRecallTracesReply(line: string): RecalledTrace[] | null {
         dead_ends: String(t.dead_ends ?? ""),
         unlock: String(t.unlock ?? ""),
         anchor: String(t.anchor ?? ""),
+        resolved_at:
+          typeof t.resolved_at === "number" && Number.isFinite(t.resolved_at)
+            ? t.resolved_at
+            : 0,
       }));
   } catch {
     return null;

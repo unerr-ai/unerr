@@ -936,6 +936,47 @@ export class QueryRouter {
   }
 
   /**
+   * True when a journal anchor (entity key, entity name, or repo-relative
+   * file path) still resolves in the current graph or working tree. The
+   * staleness gate for trace recall: a past incident whose anchor no longer
+   * exists is history about deleted code and must not be injected. Fails
+   * open (true) on any query error so a cold or rebuilding graph never
+   * suppresses recall.
+   * @sem domain=intelligence
+   */
+  async anchorExists(anchor: string): Promise<boolean> {
+    const a = anchor.trim();
+    if (!a) return true;
+    try {
+      const looksLikePath = a.includes("/") || /\.[a-z]{1,5}$/i.test(a);
+      if (looksLikePath) {
+        const { existsSync } = await import("node:fs");
+        const { resolve } = await import("node:path");
+        const root = this.projectRoot ?? process.cwd();
+        if (existsSync(resolve(root, a))) return true;
+        const r = await this.localGraph.query(
+          "?[ek] := *file_index[$fp, ek] :limit 1",
+          { fp: a }
+        );
+        return r.rows.length > 0;
+      }
+      // Entity key first (exact primary-key hit), then exact-name fallback
+      // via the by_name index relation explicitly — the *entities{name:$const,
+      // +col} base-relation form silently returns [] (planner defect, see
+      // entity-name-resolution.test.ts).
+      const byKey = await this.localGraph.getEntity(a);
+      if (byKey !== null) return true;
+      const byName = await this.localGraph.query(
+        "?[k] := *entities:by_name{name: $n, key: k} :limit 1",
+        { n: a }
+      );
+      return byName.rows.length > 0;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
    * Inject the cross-repo federation coordinator (CROSS_REPO_INTELLIGENCE
    * Sprint 3). The proxy wires one over the daemon client + peer transport on
    * pro/enterprise; on free tier the coordinator itself refuses, so this can be
