@@ -1,7 +1,7 @@
 /**
  * Multi-session concurrency contract for SignalShowStore.
  *
- * Two stores against the same facts.db with different session IDs simulate
+ * Two stores against the same timeline.db with different session IDs simulate
  * two parallel `unerr --mcp` instances (e.g. Cursor + Claude Code in the same
  * repo). Verified properties:
  *
@@ -19,8 +19,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { initFactsSchema, openFactsDb } from "../intelligence/facts-schema.js";
 import { SignalShowStore } from "../intelligence/signal-show-store.js";
+import {
+  initTimelineSchema,
+  openTimelineDb,
+} from "../timeline/timeline-store.js";
 
 describe("SignalShowStore — multi-session contract", () => {
   let projectRoot: string;
@@ -31,11 +34,11 @@ describe("SignalShowStore — multi-session contract", () => {
     projectRoot = mkdtempSync(join(tmpdir(), "unerr-show-store-"));
     // Two distinct CozoDB handles pointing at the same SQLite file —
     // simulates two `unerr --mcp` processes in the same repo.
-    const aR = await openFactsDb(projectRoot);
-    await initFactsSchema(aR.db);
+    const aR = await openTimelineDb(projectRoot);
+    await initTimelineSchema(aR.db);
     dbA = aR.db;
-    const bR = await openFactsDb(projectRoot);
-    await initFactsSchema(bR.db);
+    const bR = await openTimelineDb(projectRoot);
+    await initTimelineSchema(bR.db);
     dbB = bR.db;
   });
 

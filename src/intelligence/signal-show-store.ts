@@ -2,7 +2,7 @@
  * SignalShowStore — persistent, cross-session rotation state for `ur|act`,
  * `ur|ctx`, `ur|rsk`, `ur|fct`, conventions, and any other deduplicated signal.
  *
- * Backed by `signal_shows` relation in facts.db (per-session rows, no write
+ * Backed by `signal_shows` relation in timeline.db (per-session rows, no write
  * contention across parallel `unerr --mcp` instances). Each session writes
  * only its own (signal_id, session_id) row; aggregate state is SUM/MAX over
  * all rows for the signal_id.
@@ -130,7 +130,7 @@ export class SignalShowStore {
     await this.refreshOthersSnapshot();
   }
 
-  /** Write this session's dirty entries to facts.db. */
+  /** Write this session's dirty entries to timeline.db. */
   async flush(): Promise<void> {
     if (this.dirty.size === 0) return;
     const ids = Array.from(this.dirty);

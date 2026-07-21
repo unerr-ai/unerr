@@ -164,6 +164,25 @@ export async function initTimelineSchema(db: CozoDb): Promise<void> {
     `);
   }
 
+  if (!existing.has("signal_shows")) {
+    // Rotation persistence: how many times each signal/fact has been surfaced.
+    // KEY (signal_id, session_id) — each session writes only its own row, so
+    // parallel `unerr --mcp` instances in the same repo never contend on writes.
+    // Aggregate count = SUM(count) over all sessions; recency = MAX(last_shown_ms).
+    // Re-homed here from facts.db (active-memory strip Phase 1) — facts.db is
+    // being deleted, but rotation state must survive.
+    await db.run(`
+      :create signal_shows {
+        signal_id: String,
+        session_id: String
+        =>
+        scope: String,
+        count: Int,
+        last_shown_ms: Float
+      }
+    `);
+  }
+
   if (!existing.has("session_files")) {
     // (session_id, file_path) — records distinct file touches per session for
     // intent stitching (ST-4). Populated by the bootstrap when a turn closes.

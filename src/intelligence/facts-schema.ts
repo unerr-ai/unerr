@@ -87,23 +87,6 @@ export async function initFactsSchema(db: CozoDb): Promise<void> {
     `);
   }
 
-  if (!existing.has("signal_shows")) {
-    // Rotation persistence: how many times each signal/fact has been surfaced.
-    // KEY (signal_id, session_id) — each session writes only its own row, so
-    // parallel `unerr --mcp` instances in the same repo never contend on writes.
-    // Aggregate count = SUM(count) over all sessions; recency = MAX(last_shown_ms).
-    await db.run(`
-      :create signal_shows {
-        signal_id: String,
-        session_id: String
-        =>
-        scope: String,
-        count: Int,
-        last_shown_ms: Float
-      }
-    `);
-  }
-
   if (!existing.has("notes")) {
     // Active-cognition Layer B store. Anchored prose the agent writes/reads
     // via the four-moment contract. Each row is one DSL note:

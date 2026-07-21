@@ -2172,16 +2172,16 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     }
   }
 
-  // Persistent rotation store — facts.db `signal_shows` relation. Survives
+  // Persistent rotation store — timeline.db `signal_shows` relation. Survives
   // restart and coordinates show-counts across parallel `unerr --mcp` sessions
   // in the same repo (per-session rows so writes never contend).
-  if (proxyFactStore) {
+  if (timelineHandle) {
     try {
       const { SignalShowStore } = await import(
         "../intelligence/signal-show-store.js"
       );
       proxyShowStore = new SignalShowStore(
-        proxyFactStore.getDb(),
+        timelineHandle.store.getDb(),
         shadowLedger.getSessionId()
       );
       await proxyShowStore.start();
