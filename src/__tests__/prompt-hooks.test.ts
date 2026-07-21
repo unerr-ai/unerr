@@ -1005,4 +1005,50 @@ describe("isMultiSlice — multi-slice task detection", () => {
   it("false: short single-slice question", () => {
     expect(isMultiSlice("why does this fail?")).toBe(false);
   });
+
+  it("true: sequential 'first … then' phrasing", () => {
+    expect(
+      isMultiSlice("first update the parser, then wire it into the boot path")
+    ).toBe(true);
+  });
+
+  it("true: explicit numbered step markers", () => {
+    expect(
+      isMultiSlice("step 1 create the schema and step 2 add the migration")
+    ).toBe(true);
+  });
+
+  it("true: 'and then' sequence connector", () => {
+    expect(
+      isMultiSlice("add the retry flag and then propagate it to every caller")
+    ).toBe(true);
+  });
+
+  it("true: 2+ distinct actions joined by a coordinator", () => {
+    expect(isMultiSlice("fix the login bug and add a regression test")).toBe(
+      true
+    );
+  });
+
+  it("true: a chained meta-task the code-verb list alone misses", () => {
+    expect(
+      isMultiSlice(
+        "broaden the multi-step nudge and verify the review command, then disable it"
+      )
+    ).toBe(true);
+  });
+
+  it("false: single action across two objects (no second verb)", () => {
+    expect(isMultiSlice("update the readme and the changelog")).toBe(false);
+  });
+
+  it("false: single action verb, no multi-step signal", () => {
+    expect(isMultiSlice("rename the getUser helper")).toBe(false);
+  });
+
+  it("false: two distinct verbs but no coordinator joining them", () => {
+    // "verify" + "review" are both actions, but with no and/then/;/coordinator
+    // between them the prompt reads as one ask, not a multi-step plan.
+    expect(isMultiSlice("verify the review engine")).toBe(false);
+  });
 });

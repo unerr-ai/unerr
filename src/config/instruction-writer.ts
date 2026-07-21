@@ -81,8 +81,8 @@ unerr re-anchors these comments when code moves and flags a comment that drifted
       ? "\n- `Task({subagent_type:'unerr-reviewer', …})` — post-edit read-only review of the working diff: correctness, missed callers via blast radius, convention violations; spawn after a multi-file or multi-agent change, before reporting done."
       : "";
   const trackerNote = isClaudeCode
-    ? "On any task with 2+ independent slices, call `TaskCreate` for each slice before the first edit — unprompted, never wait to be asked — then call `TaskUpdate` to mark each slice completed as it lands. Fan out one `unerr-worker`/`unerr-junior` sub-agent per slice in parallel via `Task`."
-    : "On a multi-slice task (a build, a broad refactor/migrate/audit, or an enumerated list), plan the work into the built-in task tracker (one task per slice) before the first edit, unprompted, then fan out one `unerr-worker`/`unerr-junior` sub-agent per slice in parallel via `Task`, and complete or clear the tracker at turn end.";
+    ? "On any long or multi-step task — 2+ steps, whether the steps run in parallel or one after another — call `TaskCreate` for each step before the first edit, unprompted, never wait to be asked; mark a step `in_progress` when you start it and `TaskUpdate` it completed as it lands, so the tracker mirrors live progress. When steps are independent slices, fan out one `unerr-worker`/`unerr-junior` sub-agent per slice in parallel via `Task`; sequential steps stay tracked the same way. Clear or complete the tracker at turn end."
+    : "On any long or multi-step task — 2+ steps, parallel or sequential (a build, a broad refactor/migrate/audit, an enumerated list, or a multi-step fix) — plan the work into the built-in task tracker (one task per step) before the first edit, unprompted, and keep it updated as each step lands (in-progress → done). When steps are independent slices, fan out one `unerr-worker`/`unerr-junior` sub-agent per slice in parallel via `Task`. Complete or clear the tracker at turn end.";
 
   return `## unerr — the local runtime for your coding agents
 

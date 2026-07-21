@@ -202,17 +202,50 @@ const BUILD_INTENT_RE =
 export const MULTI_SLICE_RE =
   /\b(refactor|migrate|audit|rewrite|restructure|consolidate|overhaul)\b|\b(across|throughout)\b[^.?!]{0,30}\b(codebase|repo|project|files?)\b|\b(every|all)\b[^.?!]{0,20}\b(callers?|files?|usages?|sites?|modules?)\b|\ball\s+(these|the|of\s+these)\b|\bthese\s+(changes|tasks|files|slices|edits)\b/i;
 
-/** True when the prompt looks like it decomposes into several independent
- *  slices — a build/create/implement intent OR a multi-slice signal OR an
- *  enumerated list (2+ newline bullets or "1. ... 2. ..." markers). */
+/** Explicit sequential-step phrasing — the prompt spells out an ordered plan
+ *  the parallel-slice signals miss: "first … then …", "step 1 … step 2",
+ *  "and then", "after that", "once X, Y", "finally". A long SEQUENTIAL task
+ *  (dependent steps, not independent slices) that the user still wants
+ *  externalized into the tracker. */
+export const SEQUENTIAL_STEPS_RE =
+  /\b(step|phase|stage)\s*\d+\b|\bstep\s+(one|two|three|four|five|first|second|third)\b|\bfirst\b[^.?!]{0,90}\b(then|next|second|after(?:wards?)?|finally|lastly|and\s+then)\b|\b(and\s+then|then\s+(also|next|we|you|i)\b|after\s+that|afterwards?\b|once\s+(that|it|you|done|complete|finished)\b|followed\s+by|finally,|lastly\b)/i;
+
+/** Action verbs counted ONLY to size the multi-step signal — broader than
+ *  `TASK_VERBS_CODE` so a real chained prompt ("broaden X and verify Y then
+ *  disable Z") registers each step. Not a code-context gate: over-inclusion
+ *  here only upgrades the delegate nudge to its tracker variant, never gates
+ *  whether the nudge fires. Global so `match` returns every occurrence. */
+const STEP_ACTION_RE =
+  /\b(add|fix|implement|build|create|update|change|modify|remove|delete|refactor|rename|move|extract|inline|replace|revert|wire|gate|broaden|narrow|verify|confirm|ensure|disable|enable|check|test|review|audit|investigate|trace|document|configure|install|uninstall|run|migrate|optimize|handle|support|integrate|set\s?up|clean\s?up)\b/gi;
+
+/** A coordinator token that joins two actions into a sequence or list. */
+const STEP_COORDINATOR_RE = /\b(and|then|also|plus|next|after|afterwards)\b|;/i;
+
+/** True when the prompt looks like a long or multi-step task — worth a
+ *  plan-into-tracker nudge. Fires on: a build/create/implement intent, a
+ *  broad-scope/breadth signal, an enumerated list (2+ bullets or ordinals),
+ *  explicit sequential-step phrasing, OR 2+ distinct action verbs joined by a
+ *  coordinator ("fix X and add Y"). Covers SEQUENTIAL multi-step work, not only
+ *  independent parallel slices. */
 export function isMultiSlice(prompt: string): boolean {
   const t = prompt.trim();
   if (t.length < 20) return false;
   if (MULTI_SLICE_RE.test(t) || BUILD_INTENT_RE.test(t)) return true;
+  if (SEQUENTIAL_STEPS_RE.test(t)) return true;
   // Enumerated list: 2+ "- " / "* " bullets, or "1." "2." ordinal markers.
   const bullets = (t.match(/^\s*[-*]\s+/gm) ?? []).length;
   const ordinals = (t.match(/(?:^|\s)\d+[.)]\s+/g) ?? []).length;
-  return bullets >= 2 || ordinals >= 2;
+  if (bullets >= 2 || ordinals >= 2) return true;
+  // 2+ distinct action verbs joined by a coordinator → a task with multiple
+  // steps ("fix the bug and add a test", "broaden A then verify B").
+  const actions = t.match(STEP_ACTION_RE);
+  if (actions) {
+    const distinct = new Set(
+      actions.map((a) => a.toLowerCase().replace(/\s+/g, ""))
+    );
+    if (distinct.size >= 2 && STEP_COORDINATOR_RE.test(t)) return true;
+  }
+  return false;
 }
 
 /** Unified classification result. */
@@ -419,7 +452,7 @@ function buildDecomposeDelegateLine(opts: {
   trackerCapable: boolean;
 }): string {
   if (opts.multiSlice && opts.trackerCapable) {
-    return "ur|act plan-then-track — multi-slice task: before editing, (1) split the work into independent slices, (2) TaskCreate one task per slice, (3) TaskUpdate each to in_progress+owner and launch one Task subagent_type:'unerr-worker'/'unerr-junior' per slice in ONE message (parallel, disjoint files) — keep design/wiring/root-cause on the main thread, (4) review each diff, TaskUpdate completed, then clear the tracker at turn end.";
+    return "ur|act plan-then-track — multi-step task: before editing, (1) TaskCreate one task per step, (2) TaskUpdate each to in_progress+owner when you start it and completed as it lands, (3) for independent steps launch one Task subagent_type:'unerr-worker'/'unerr-junior' per step in ONE message (parallel, disjoint files); run dependent steps in order — keep design/wiring/root-cause on the main thread, (4) review each diff, then clear the tracker at turn end.";
   }
   return "ur|act delegate-slices — delegation is the default execution mode, not a one-off: on every substantive turn, plan the change then fan out one unerr sub-agent per independent slice in parallel — use as many as the work has slices, no fixed cap — Task subagent_type:'unerr-worker' (tests, multi-site refactor, caller/import propagation, typecheck/build-error fixes, scaffold) / 'unerr-junior' (lint/format, docstrings/@sem, read-only recon, verify-runs, shell-command runs) — keeping design + wiring + root-cause on the main thread, then review and integrate each diff.";
 }
