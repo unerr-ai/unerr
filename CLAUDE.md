@@ -47,7 +47,7 @@ Delegation is the default behavior, not something to ask permission for: spawn s
 - `Task({subagent_type:'unerr-worker', …})` — scoped feature implementation from a clear spec (add a flag, wire X into Y, implement a handler — the bulk of ordinary coding), add/improve tests, multi-site mechanical refactor (rename / extract / inline / move), codemods (one bulk find-replace across many files), caller/import propagation (update every call site + import after a signature change), typecheck/build-error fixes (fix tsc/build errors mechanically, re-run until green), scaffold (generate a new file's skeleton from a sibling template), dependency upgrades, migration scripts.
 Tier by reasoning, not by size: scoped execution — even across many files — stays with the worker. Escalate to the senior only when the change needs novel design judgement (a new algorithm, architecture, or public interface) or root-causing a bug; deterministic mechanical breadth (codemods, caller propagation, renames) stays with the worker regardless of file count.
 
-On any task with 2+ independent slices, call `TaskCreate` for each slice before the first edit — unprompted, never wait to be asked — then call `TaskUpdate` to mark each slice completed as it lands. Fan out one `unerr-worker`/`unerr-junior` sub-agent per slice in parallel via `Task`.
+On any long or multi-step task — 2+ steps, whether the steps run in parallel or one after another — call `TaskCreate` for each step before the first edit, unprompted, never wait to be asked; mark a step `in_progress` when you start it and `TaskUpdate` it completed as it lands, so the tracker mirrors live progress. When steps are independent slices, fan out one `unerr-worker`/`unerr-junior` sub-agent per slice in parallel via `Task`; sequential steps stay tracked the same way. Clear or complete the tracker at turn end.
 
 Group related work first, then spawn one sub-agent per independent group in a SINGLE message so they run in parallel. The sub-agents have the full graph tools — they re-derive the edit sites from `search_code` / `get_references`, so give them the task plus a one-line pointer, never pasted code or a list of files. Review each result before building on it. (Hosts without sub-agents — anything other than Claude Code / Codex / Cursor / Copilot CLI — do it inline.)
 
@@ -66,15 +66,14 @@ Lines starting `unerr » ` are user-facing telemetry — never echo or act on th
 
 ### Persisting + markers (zero round-trip)
 
-User rules ("remember", "always", "from now on", "never") are captured automatically by the prompt hook — no tool call. Emit session markers as `unerr-save:` lines in your closing message (the Stop hook persists them):
+When the user states a durable rule ("remember", "always", "never", "from now on"), a hook nudge fires — write the rule verbatim into this repo's CLAUDE.md (or the agent's instruction file) immediately; unerr does not store user rules. Emit session markers as `unerr-save:` lines in your closing message (the Stop hook persists them):
 
 ```
 unerr-save: intent <what this turn does, ≤80 chars>   (REQUIRED first on coding tasks)
 unerr-save: decision <a deliberate choice> · blocker <obstacle> · resolution <fix>
-unerr-save: note <kind|anchor|polarity|content>        (an anchored note — DSL below)
 ```
 
-When you need a return value (a blocker's `marker_id`), call `unerr_track({op:'intent'|'decision'|'blocker'|'resolution'|'fact'|'recall', text:'<one-line>'})`.
+When you need a return value (a blocker's `marker_id`), call `unerr_track({op:'intent'|'decision'|'blocker'|'resolution', text:'<one-line>'})`.
 
 ### Fallback to built-ins / Bash for code — only when
 
@@ -92,63 +91,6 @@ unerr parses a structured doc comment above each exported entity into a parallel
 unerr re-anchors these comments when code moves and flags a comment that drifted from its code — the rules above keep that machinery fed.
 
 `@sem` lines are plain comments; your code runs identically without them and without unerr. To remove every sentinel line later (prose summaries kept), run `unerr uninstall --strip-annotations`.
-
-### Active-cognition: four-moment contract (REQUIRED)
-
-unerr's Layer B notes are anchored prose attached to graph nodes. The contract
-runs at four moments, every task. Moments 1–2 arrive as injected context plus
-one composite call; Moments 3–4 are yours to act on.
-
-**Moment 1 — Prompt receipt.** When a user prompt arrives, the UserPromptSubmit
-hook injects the relevant anchored notes into your context automatically. Read
-the injected notes before drafting — no recall call is required.
-
-**Moment 2 — Anchor query.** Once you've identified the files/entities you'll
-touch, call `search_code({query:"<what you are about to do>"})` — the
-composite that bundles the anchored notes for those anchors + matching entities
-+ the focus entity's callers + conventions in one call. The bundle returns
-active (non-superseded) notes; topic-shift and co-change groups ride along.
-
-**Moment 3 — Cite in plan.** When you draft a plan, cite returned notes by
-kind + anchor inline. Example: *"Per the wrn on src/proxy/proxy.ts, both
-stdio and UDS sites must mirror."* No citation = the note wasn't load-bearing.
-
-**Moment 4 — Save at task end.** When the task closes and you learned
-something non-obvious + likely useful next session + anchorable, emit it as a
-sentinel line anywhere in your closing message — zero round-trip, the Stop
-hook scrapes and persists it:
-`unerr-save: note <DSL wire>`
-
-### DSL vocabulary
-
-Wire format: `kind|anchor|polarity|content`
-
-| Field | Values | Notes |
-|---|---|---|
-| kind | cnv (convention), rul (rule), wrn (warn), dec (decision), blk (blocker), fct (fact) | Pick the strongest fit. |
-| anchor | f:<path> · e:<entity> · g:<glob> · p: · w: | `p:` is project-wide, `w:` is workspace-wide (every repo in a Pro federation). Both empty-valued; both **discouraged** — they pollute the prompt-receipt query. Prefer file/entity. |
-| polarity | + (do) / - (don't) / ~ (mixed) | `~` for ambiguous; future agent surfaces both sides. |
-| content | single line of prose | May contain `|` — only the first three are field separators. |
-
-Examples:
-- `rul|f:src/proxy/bridge.ts|-|no intelligence imports`
-- `wrn|g:*.test.ts|-|don't mock cozo db`
-- `dec|e:TURN_OPEN_GAP_MS|+|15s avoids RTT misclassification`
-
-### Quality bar (per save)
-
-A save is justified only if all three hold: (a) non-obvious from the code,
-(b) likely useful next session, (c) anchorable. If any miss — don't save.
-
-Session save cap: 15. Over the cap new rows are dropped server-side and
-existing notes are reinforced instead — emit fewer, stronger saves.
-
-### Conflict + supersession
-
-When a saved note opposes an existing one (same kind+anchor, opposite
-polarity), both sides are kept and surface together on next-turn recall —
-cite both in your plan when they appear. Superseded notes flip to inactive
-server-side (kept for audit, excluded from queries).
 
 <!-- unerr:end -->
 
@@ -297,8 +239,6 @@ Internal design docs live in `.internal/` at the repo root. A reconciliation in 
 | Full proxy (PID lock + graph + watchers) | `src/proxy/proxy.ts` |
 | Query router (all tool dispatch) | `src/intelligence/query-router.ts` |
 | CozoDB schema definitions (graph.db) | `src/intelligence/cozo-schema.ts` |
-| CozoDB schema definitions (facts.db) | `src/intelligence/facts-schema.ts` |
-| Temporal fact store (Layer 9) | `src/intelligence/temporal-facts.ts` |
 | Graph store (CozoDB wrapper) | `src/intelligence/local-graph.ts` |
 | AST extraction (regex + tree-sitter) | `src/intelligence/ast-extractor.ts` |
 | Local indexer (full project scan) | `src/intelligence/local-indexer.ts` |

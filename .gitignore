@@ -29,3 +29,6 @@ Thumbs.db
 
 # Native-binary staging (populated transiently by scripts/build-binary.ts)
 src/intelligence/native/
+
+# unerr: personal Claude Code permission grant
+.claude/settings.local.json
