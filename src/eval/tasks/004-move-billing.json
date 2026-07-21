@@ -3,6 +3,5 @@
   "title": "Move billing logic from utils/ to billing/",
   "repo": "react",
   "prompt": "Move all billing-related code from src/utils/ into a new src/billing/ module. Update imports across the codebase.",
-  "exercises": ["anchor_query", "save_at_task_end"],
   "assertions": []
 }

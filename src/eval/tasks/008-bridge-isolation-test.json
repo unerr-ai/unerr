@@ -3,6 +3,5 @@
   "title": "Why is the bridge isolation test failing?",
   "repo": "self",
   "prompt": "src/__tests__/bridge-isolation.test.ts is failing on CI. Find the root cause and fix it. If the fix requires architectural changes, flag a blocker and stop.",
-  "exercises": ["prompt_receipt_query", "anchor_query", "save_at_task_end"],
   "assertions": []
 }

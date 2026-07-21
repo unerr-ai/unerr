@@ -6,10 +6,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ALL_CONFIGS, getConfig } from "../eval/configs.js";
 import {
   type ProxyEvent,
-  classifyToolCall,
-  computeMomentDetail,
-  countNotesSaved,
-  detectCiteInPlan,
   listToolsCalled,
   parseEventsJsonl,
 } from "../eval/metrics.js";
@@ -34,7 +30,6 @@ describe("eval/tasks loader", () => {
     const task = loadTask(TASK_ID);
     expect(task.id).toBe(TASK_ID);
     expect(task.repo).toBe("self");
-    expect(task.exercises).toContain("save_at_task_end");
   });
 });
 
@@ -49,94 +44,6 @@ describe("eval/metrics — pure extractors", () => {
     const evs = parseEventsJsonl(raw);
     expect(evs).toHaveLength(1);
     expect(evs[0]?.tool).toBe("x");
-  });
-
-  it("classifyToolCall maps action-dispatched calls to moments", () => {
-    const promptQ: ProxyEvent = {
-      ts: 1,
-      kind: "tool_call",
-      tool: "unerr_recall_notes",
-      payload: { action: "for_prompt" },
-    };
-    const anchorQ: ProxyEvent = {
-      ts: 2,
-      kind: "tool_call",
-      tool: "unerr_recall_notes",
-      payload: { action: "for_anchors" },
-    };
-    const save: ProxyEvent = {
-      ts: 3,
-      kind: "tool_call",
-      tool: "unerr_remember",
-      payload: { type: "note" },
-    };
-    const other: ProxyEvent = {
-      ts: 4,
-      kind: "tool_call",
-      tool: "file_read",
-    };
-    expect(classifyToolCall(promptQ)).toBe("prompt_receipt_query");
-    expect(classifyToolCall(anchorQ)).toBe("anchor_query");
-    expect(classifyToolCall(save)).toBe("save_at_task_end");
-    expect(classifyToolCall(other)).toBeNull();
-  });
-
-  it("detectCiteInPlan finds rule-name + .ts(x) within range", () => {
-    const plan = "Per the rul on src/proxy/bridge.ts, no intelligence imports.";
-    expect(detectCiteInPlan(plan)).toBe(true);
-    expect(detectCiteInPlan("nothing here")).toBe(false);
-  });
-
-  it("computeMomentDetail rolls up events + transcript", () => {
-    const events: ProxyEvent[] = [
-      {
-        ts: 1,
-        kind: "tool_call",
-        tool: "unerr_recall_notes",
-        payload: { action: "for_prompt" },
-      },
-      {
-        ts: 2,
-        kind: "tool_call",
-        tool: "unerr_remember",
-        payload: { type: "note" },
-      },
-    ];
-    const transcript =
-      "I'll follow the wrn at src/proxy/proxy.ts when editing.";
-    const { moment_detail, moments_hit } = computeMomentDetail(
-      events,
-      transcript
-    );
-    expect(moment_detail.prompt_receipt_query).toBe(true);
-    expect(moment_detail.cite_in_plan).toBe(true);
-    expect(moment_detail.save_at_task_end).toBe(true);
-    expect(moment_detail.anchor_query).toBe(false);
-    expect(moments_hit).toBe(3);
-  });
-
-  it("countNotesSaved counts only unerr_remember type=note", () => {
-    const events: ProxyEvent[] = [
-      {
-        ts: 1,
-        kind: "tool_call",
-        tool: "unerr_remember",
-        payload: { type: "note" },
-      },
-      {
-        ts: 2,
-        kind: "tool_call",
-        tool: "unerr_remember",
-        payload: { type: "cochange" },
-      },
-      {
-        ts: 3,
-        kind: "tool_call",
-        tool: "unerr_remember",
-        payload: { type: "note" },
-      },
-    ];
-    expect(countNotesSaved(events)).toBe(2);
   });
 
   it("listToolsCalled returns a sorted dedup", () => {
@@ -160,14 +67,12 @@ describe("eval/runner — end-to-end against no-op agent", () => {
     if (scratch) await rm(scratch, { recursive: true, force: true });
   });
 
-  it("config A produces a valid RunSummary with no moments hit", async () => {
+  it("config A produces a valid RunSummary", async () => {
     const summary = await runOne(TASK_ID, "a-naive", {
       workspaceRoot: scratch,
     });
     expect(summary.task_id).toBe(TASK_ID);
     expect(summary.config_id).toBe("a-naive");
-    expect(summary.moments_hit).toBe(0);
-    expect(summary.notes_saved).toBe(0);
     expect(summary.assertions_passed).toBe(true);
     expect(summary.notes).toContain(
       "noop agent — no transcript or events captured"

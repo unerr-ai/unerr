@@ -3,6 +3,5 @@
   "title": "Investigate the slow query in feed loader",
   "repo": "react",
   "prompt": "src/feed/loadFeed.ts takes ~3s on the production dataset. Investigate the cause and propose a fix; do not implement.",
-  "exercises": ["cite_in_plan", "save_at_task_end"],
   "assertions": []
 }

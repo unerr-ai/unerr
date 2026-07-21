@@ -3,6 +3,5 @@
   "title": "Add a /health endpoint",
   "repo": "self",
   "prompt": "Add a /health endpoint to the proxy HTTP server that returns {ok: true, version: <package.json version>}. Include a vitest test.",
-  "exercises": ["prompt_receipt_query", "save_at_task_end"],
   "assertions": []
 }

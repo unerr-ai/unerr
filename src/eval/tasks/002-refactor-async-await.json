@@ -3,6 +3,5 @@
   "title": "Refactor user.ts to use async/await",
   "repo": "api",
   "prompt": "Refactor src/user.ts to use async/await instead of .then() chains. Preserve all existing behavior. Update tests.",
-  "exercises": ["anchor_query", "cite_in_plan", "save_at_task_end"],
   "assertions": []
 }

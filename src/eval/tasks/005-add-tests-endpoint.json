@@ -3,6 +3,5 @@
   "title": "Add tests for the new endpoint",
   "repo": "api",
   "prompt": "Add unit + integration tests for the /health endpoint added in task 001. Follow existing test conventions in the repo.",
-  "exercises": ["anchor_query", "save_at_task_end"],
   "assertions": []
 }

@@ -6,12 +6,6 @@
  * eval (Sprint D) build on top without changing the contract.
  */
 
-export type ContractMoment =
-  | "prompt_receipt_query"
-  | "anchor_query"
-  | "cite_in_plan"
-  | "save_at_task_end";
-
 export interface TaskDef {
   /** Stable id used in artifact paths and assertions. */
   id: string;
@@ -21,8 +15,6 @@ export interface TaskDef {
   repo: string;
   /** The prompt handed to the agent verbatim. */
   prompt: string;
-  /** Which contract moments this task is designed to exercise. */
-  exercises: ContractMoment[];
   /** Deterministic checks computed against the post-run repo state. Optional in smoke. */
   assertions?: TaskAssertion[];
 }
@@ -58,12 +50,6 @@ export interface RunSummary {
   config_id: string;
   /** Wall-clock duration of the agent phase. */
   duration_ms: number;
-  /** How many of the four contract moments fired. 0-4. */
-  moments_hit: number;
-  /** Per-moment boolean breakdown. */
-  moment_detail: Record<ContractMoment, boolean>;
-  /** Number of notes the agent saved this run. */
-  notes_saved: number;
   /** Tools the agent called this run (deduplicated). */
   tools_called: string[];
   /** Token usage (input + output) — null when the agent CLI doesn't report it. */

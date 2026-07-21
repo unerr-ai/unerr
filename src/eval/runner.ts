@@ -22,12 +22,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getConfig } from "./configs.js";
-import {
-  computeMomentDetail,
-  countNotesSaved,
-  listToolsCalled,
-  parseEventsJsonl,
-} from "./metrics.js";
+import { listToolsCalled, parseEventsJsonl } from "./metrics.js";
 import type {
   AgentConfig,
   RunArtifacts,
@@ -140,13 +135,7 @@ function summarize(
   artifacts: RunArtifacts,
   durationMs: number
 ): RunSummary {
-  const transcript = readFileSync(artifacts.transcript_path, "utf8");
   const events = parseEventsJsonl(readFileSync(artifacts.events_path, "utf8"));
-  const { moment_detail, moments_hit } = computeMomentDetail(
-    events,
-    transcript
-  );
-  const notes_saved = countNotesSaved(events);
   const tools_called = listToolsCalled(events);
   const assertions_passed = (task.assertions ?? []).length === 0; // smoke: empty assertions always pass
   const notes: string[] = [];
@@ -157,9 +146,6 @@ function summarize(
     task_id: task.id,
     config_id: config.id,
     duration_ms: durationMs,
-    moments_hit,
-    moment_detail,
-    notes_saved,
     tools_called,
     tokens_used: null,
     turns: null,

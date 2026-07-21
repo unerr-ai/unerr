@@ -27,12 +27,6 @@ const TASKS_DIR = join(EVAL_DIR, "tasks");
 export interface MatrixReport {
   total_cells: number;
   cells: RunSummary[];
-  /** Per-config rollup: how many cells hit at least one contract moment. */
-  cells_with_any_moment_by_config: Record<string, number>;
-  /** Per-config rollup: sum of moments_hit across all cells. */
-  total_moments_by_config: Record<string, number>;
-  /** Per-config rollup: sum of notes_saved across all cells. */
-  total_notes_saved_by_config: Record<string, number>;
 }
 
 /** Enumerate every task JSON in eval/tasks/. Order-stable by filename. */
@@ -49,7 +43,7 @@ export interface RunMatrixInput {
   run_options?: RunOptions;
 }
 
-/** Run the full matrix. Returns a MatrixReport with per-config rollups. */
+/** Run the full matrix. Returns a MatrixReport with all cells. */
 export async function runMatrix(
   input: RunMatrixInput = {}
 ): Promise<MatrixReport> {
@@ -70,24 +64,9 @@ export async function runMatrix(
 
 /** Pure rollup from a flat list of run summaries. */
 export function summarizeMatrix(cells: readonly RunSummary[]): MatrixReport {
-  const cells_with_any_moment_by_config: Record<string, number> = {};
-  const total_moments_by_config: Record<string, number> = {};
-  const total_notes_saved_by_config: Record<string, number> = {};
-  for (const cell of cells) {
-    cells_with_any_moment_by_config[cell.config_id] =
-      (cells_with_any_moment_by_config[cell.config_id] ?? 0) +
-      (cell.moments_hit > 0 ? 1 : 0);
-    total_moments_by_config[cell.config_id] =
-      (total_moments_by_config[cell.config_id] ?? 0) + cell.moments_hit;
-    total_notes_saved_by_config[cell.config_id] =
-      (total_notes_saved_by_config[cell.config_id] ?? 0) + cell.notes_saved;
-  }
   return {
     total_cells: cells.length,
     cells: [...cells],
-    cells_with_any_moment_by_config,
-    total_moments_by_config,
-    total_notes_saved_by_config,
   };
 }
 

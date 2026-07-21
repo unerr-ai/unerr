@@ -3,6 +3,5 @@
   "title": "Update CLAUDE.md with a new rule we discussed",
   "repo": "self",
   "prompt": "Add a new rule to CLAUDE.md under 'Critical Rules': 'Never use process.env directly in tool handlers — read config from src/config/'. Use unerr to persist it as a project note too.",
-  "exercises": ["save_at_task_end"],
   "assertions": []
 }

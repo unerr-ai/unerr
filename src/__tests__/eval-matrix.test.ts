@@ -26,14 +26,6 @@ describe("eval/matrix summarizeMatrix (C-eval)", () => {
       task_id: "t1",
       config_id: "a-naive",
       duration_ms: 0,
-      moments_hit: 0,
-      moment_detail: {
-        prompt_receipt_query: false,
-        anchor_query: false,
-        cite_in_plan: false,
-        save_at_task_end: false,
-      },
-      notes_saved: 0,
       tools_called: [],
       tokens_used: null,
       turns: null,
@@ -43,26 +35,19 @@ describe("eval/matrix summarizeMatrix (C-eval)", () => {
     };
   }
 
-  it("rolls per-config moment, note, and any-hit counts", () => {
+  it("rolls cells into a flat report", () => {
     const report = summarizeMatrix([
-      cell({ config_id: "a-naive", moments_hit: 0, notes_saved: 0 }),
-      cell({ config_id: "a-naive", moments_hit: 1, notes_saved: 1 }),
-      cell({ config_id: "b-instructed", moments_hit: 3, notes_saved: 2 }),
-      cell({ config_id: "b-instructed", moments_hit: 4, notes_saved: 5 }),
+      cell({ config_id: "a-naive" }),
+      cell({ config_id: "b-instructed" }),
     ]);
-    expect(report.total_cells).toBe(4);
-    expect(report.total_moments_by_config["a-naive"]).toBe(1);
-    expect(report.total_moments_by_config["b-instructed"]).toBe(7);
-    expect(report.total_notes_saved_by_config["a-naive"]).toBe(1);
-    expect(report.total_notes_saved_by_config["b-instructed"]).toBe(7);
-    expect(report.cells_with_any_moment_by_config["a-naive"]).toBe(1);
-    expect(report.cells_with_any_moment_by_config["b-instructed"]).toBe(2);
+    expect(report.total_cells).toBe(2);
+    expect(report.cells).toHaveLength(2);
   });
 
-  it("handles empty input without divide-by-zero", () => {
+  it("handles empty input", () => {
     const report = summarizeMatrix([]);
     expect(report.total_cells).toBe(0);
-    expect(Object.keys(report.total_moments_by_config).length).toBe(0);
+    expect(report.cells).toEqual([]);
   });
 });
 
@@ -80,9 +65,6 @@ describe("eval/matrix runMatrix (C-eval)", () => {
   it("runs the full 10 × 2 grid under the no-op contract", async () => {
     const report = await runMatrix({ run_options: { workspaceRoot: scratch } });
     expect(report.total_cells).toBe(20);
-    // No-op agent ⇒ zero moments across the grid.
-    expect(report.total_moments_by_config["a-naive"]).toBe(0);
-    expect(report.total_moments_by_config["b-instructed"]).toBe(0);
   });
 
   it("accepts a narrowing task_ids filter", async () => {
