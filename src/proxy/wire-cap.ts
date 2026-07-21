@@ -67,16 +67,6 @@ interface ToolCap {
 }
 
 const PER_TOOL_CAPS: Record<string, ToolCap> = {
-  recall_facts: {
-    arrayKey: "facts",
-    defaultLimit: 5,
-    maxLimit: 25,
-    cursorArg: "limit",
-    // Concrete enum the agent can paste verbatim. Narrows to anti-patterns,
-    // which is the most common reason to re-call recall_facts after a
-    // generic recall returns mixed types.
-    filterHint: "fact_type:negative|convention|procedural|semantic",
-  },
   get_references: {
     arrayKey: "references",
     defaultLimit: 10,
@@ -177,12 +167,9 @@ function resolveLimit(cap: ToolCap, argsLimit: unknown): number {
 /**
  * Internal tool names that left the MCP catalog → the agent-callable surface
  * that reaches them. A pagination hint naming a tool the agent cannot call is
- * noise it can't act on (hint rule: pasteable verbatim). `recall_facts` is
- * reached via `unerr_track({op:'recall'})`, which forwards `limit`.
+ * noise it can't act on (hint rule: pasteable verbatim).
  */
-const HINT_SURFACE: Readonly<Record<string, string>> = {
-  recall_facts: "unerr_track op:'recall'",
-};
+const HINT_SURFACE: Readonly<Record<string, string>> = {};
 
 function buildPageHint(
   toolName: string,

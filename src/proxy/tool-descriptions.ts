@@ -52,8 +52,7 @@ export interface TierEntry {
  *   get_references, fetch_url, unerr_track.
  *
  * Everything else the proxy can dispatch is NOT a catalog member. Those names
- * (get_entity, get_conventions, unerr_recall_notes, unerr_remember, unerr_context,
- * mark_*, record_fact, recall_facts, get_imports,
+ * (get_entity, get_conventions, unerr_context, mark_*, get_imports,
  * unerr_turn_summary) stay reachable ONLY by name — the
  * proxy's by-name dispatch switch matches them regardless of catalog
  * membership — because a Claude Code lifecycle hook (UDS `tools/call`), the
@@ -79,7 +78,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   search_code: {
     tier: 1,
     active:
-      "Find code by name OR task. A bare symbol ('QueryRouter.dispatch') → ranked matches, <5ms. A task phrase ('where is retry handled') → a recon bundle: focus body + callers + entities + conventions in ONE call, skipping the fan-out. detail:true → ONE entity profile; include_body adds source; want:['callers','callees','imports'] attaches refs. Contract surprise? emit unerr-save: note fct|e:<key>|~|<line>.",
+      "Find code by name OR task. A bare symbol ('QueryRouter.dispatch') → ranked matches, <5ms. A task phrase ('where is retry handled') → a recon bundle: focus body + callers (blast radius) + entities + conventions in ONE call, skipping the fan-out. detail:true → ONE entity profile; include_body adds source; want:['callers','callees','imports'] attaches refs.",
     locked: "[tier 1 — always exposed]",
   },
   file_outline: {
@@ -105,7 +104,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   get_references: {
     tier: 1,
     active:
-      "Find callers or callees of an entity across the codebase. Pass direction:'callers' (default) or 'callees'. Catches indirect refs grep misses. If fan_in≥10, emit unerr-save: note wrn|e:<entity_key>|-|<chokepoint reason> in your closing message.",
+      "Find callers or callees of an entity across the codebase. Pass direction:'callers' (default) or 'callees'. Catches indirect refs grep misses.",
     locked: "[tier 1 — always exposed]",
   },
   fetch_url: {
@@ -123,15 +122,15 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   // is retained and dispatched BY NAME over UDS for the recall path and the
   // `unerr recon` CLI — same de-advertise pattern as get_entity/unerr_remember.
 
-  // ── unerr_track — session markers + facts (op-union) ───────────────────
+  // ── unerr_track — session markers (op-union) ───────────────────────────
   unerr_track: {
     tier: 3,
     active:
-      "Track session markers + facts in one call. op:'intent' REQUIRED first on coding tasks. op ∈ intent/decision/blocker/resolution/fact/recall. Powers resume strip + cross-session timeline.",
+      "Track a dated journal entry for this session in one call. op:'intent' REQUIRED first on coding tasks. op ∈ intent/decision/blocker/resolution. Powers resume strip + cross-session timeline.",
     locked:
-      "[locked, unlock: first non-trivial action] Track markers + facts: op:'intent' first on coding tasks.",
+      "[locked, unlock: first non-trivial action] Track a session marker: op:'intent' first on coding tasks.",
     unlocked:
-      "Track session markers + facts. op:'intent'|'decision'|'blocker'|'resolution'|'fact'|'recall'. intent REQUIRED first on coding tasks; blocker returns marker_id for op:'resolution'.",
+      "Track a dated journal entry. op:'intent'|'decision'|'blocker'|'resolution'. intent REQUIRED first on coding tasks; blocker returns marker_id for op:'resolution'.",
   },
 };
 

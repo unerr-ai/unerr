@@ -5,9 +5,8 @@
  * are the single source of truth so a finding is identical wherever it fires.
  *
  * Design notes:
- *  - The engine depends on NARROW structural surfaces (`ReviewGraph`,
- *    `ReviewNotes`, `ReviewDrift`), not the concrete `CozoGraphStore` /
- *    notes / drift modules. `CozoGraphStore` satisfies `ReviewGraph`
+ *  - The engine depends on a NARROW structural surface (`ReviewGraph`), not
+ *    the concrete `CozoGraphStore`. `CozoGraphStore` satisfies `ReviewGraph`
  *    structurally, so production passes the real store while tests pass a
  *    fake — the same pattern proven by `EditImpactGraph` in
  *    `intelligence/edit-impact.ts`. This keeps the engine process-agnostic
@@ -102,19 +101,6 @@ export interface ReviewGraph {
   ): Promise<{ id: number; label: string } | null>;
 }
 
-/** Anchored note as stored by unerr's notes layer (note DSL: kind|anchor|polarity|content). */
-export interface ReviewNote {
-  kind: string; // cnv | rul | wrn | dec | blk | fct
-  anchor: string; // wire format: f:<path> | e:<entity> | g:<glob> | p:
-  polarity: string; // + | - | ~
-  content: string;
-}
-
-/** Minimal notes surface: fetch active notes for a set of wire-format anchors. */
-export interface ReviewNotes {
-  forAnchors(anchors: string[]): Promise<ReviewNote[]>;
-}
-
 /** Minimal drift surface: which entity keys have drifted from their recorded state. */
 export interface ReviewDrift {
   driftedEntityKeys: ReadonlySet<string>;
@@ -183,14 +169,13 @@ export const DEFAULT_REVIEW_CONFIG: ReviewConfig = {
 // ── Checker invocation context (L1) ────────────────────────────────────────────
 
 /**
- * Everything a checker is handed for one pass. Notes / drift are nullable — a
- * checker that needs them must degrade gracefully when they are absent (e.g.
- * an in-flight pass with no drift snapshot yet).
+ * Everything a checker is handed for one pass. Drift is nullable — a checker
+ * that needs it must degrade gracefully when it is absent (e.g. an in-flight
+ * pass with no drift snapshot yet).
  */
 export interface ReviewContext {
   changeSet: ChangeSet;
   graph: ReviewGraph;
-  notes: ReviewNotes | null;
   drift: ReviewDrift | null;
   /** Project-rule evaluator (convention checker). `null` when no rule store is wired. */
   rules: ReviewRules | null;

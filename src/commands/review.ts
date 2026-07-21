@@ -13,8 +13,8 @@
  *   unerr review --json           emit the ReviewReportView as JSON
  *
  * Shares the engine wiring with the commit gate via `reviewScopedChanges` and
- * the standalone graph/notes loaders, so a finding is byte-identical to the
- * one the gate (or the in-flight hook) would produce. Exits 0 regardless of
+ * the standalone graph loader, so a finding is byte-identical to the one the
+ * gate (or the in-flight hook) would produce. Exits 0 regardless of
  * findings — reviewing is not gating.
  */
 
@@ -49,7 +49,6 @@ import { reviewReportToSarif } from "../review/sarif.js";
 import {
   exitStandaloneReview,
   loadStandaloneGraph,
-  loadStandaloneNotes,
 } from "../review/standalone-load.js";
 import { SEVERITY_RANK, type Severity } from "../review/types.js";
 import { getCurrentBranch, getHeadSha, isGitRepo } from "../utils/git.js";
@@ -172,7 +171,7 @@ export async function runReview(cwd: string, opts: ReviewOpts): Promise<void> {
     return;
   }
 
-  // ── Load standalone context (graph + notes degrade to null) ──────────
+  // ── Load standalone context (graph degrades to null) ──────────────────
   const graph = await loadStandaloneGraph(cwd);
   const scopeLabel =
     scope.kind === "staged"
@@ -195,14 +194,12 @@ export async function runReview(cwd: string, opts: ReviewOpts): Promise<void> {
     }
   }
 
-  const notes = graph ? await loadStandaloneNotes(cwd, "review") : null;
-
   // ── Run the engine (a null graph runs file-level checkers only) ──────
   const { report, filesReviewed } = await reviewScopedChanges(
     cwd,
     scope,
     graph,
-    { notes },
+    {},
     { minSeverity: minSeverity as Severity }
   );
 

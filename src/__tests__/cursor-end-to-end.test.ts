@@ -3,9 +3,7 @@
  * fires for Cursor-shaped payloads:
  *   - deny path emits `{permission:"deny", agent_message:...}`
  *   - nudge path emits `{permission:"allow", agent_message:...}`
- *   - ambient injection (mark_intent) rides on the first PreToolUse and the
- *     message lands in `agent_message`; a pending topic-shift never
- *     overrides a `deny` decision
+ *   - ambient injection (mark_intent) rides on the first PreToolUse
  *
  * Spawning a real Cursor IDE in CI isn't practical; the contract is
  * the stdin/stdout JSON shape that Cursor's hook runner consumes. We
@@ -25,10 +23,6 @@ import {
   passthrough,
   runPreToolUseHook,
 } from "../hooks/hook-runner.js";
-import {
-  consumeAnyPendingTopicShift,
-  setPendingTopicShift,
-} from "../intelligence/topic-shift.js";
 import { _resetNudgeState } from "../proxy/nudge-state.js";
 
 function cursorPayload(toolName: string, toolInput: Record<string, unknown>) {
@@ -49,10 +43,6 @@ describe("Cursor end-to-end PreToolUse", () => {
     tmpDir = mkdtempSync(join(tmpdir(), "unerr-cursor-e2e-"));
     process.chdir(tmpDir);
     _resetNudgeState(tmpDir);
-    // Drain any pending topic-shift signal left over from a prior test.
-    while (consumeAnyPendingTopicShift()) {
-      /* drain */
-    }
   });
 
   afterEach(() => {
@@ -121,18 +111,5 @@ describe("Cursor end-to-end PreToolUse", () => {
     const parsed2 = JSON.parse(out2);
     // Second call should NOT re-emit the one-shot reminder.
     expect(parsed2.agent_message).toBeUndefined();
-  });
-
-  it("preserves deny when topic-shift is pending (deny outranks ambient)", () => {
-    setPendingTopicShift("__session_test__", { flag: true, overlap: 0.1 });
-    const handler: HookHandler = () => deny("use search_code instead");
-    const out = runPreToolUseHook(
-      cursorPayload("Grep", { pattern: "fooBar" }),
-      handler
-    );
-    const parsed = JSON.parse(out);
-    expect(parsed.permission).toBe("deny");
-    // Deny carries its own reason — ambient prefix doesn't override it.
-    expect(parsed.agent_message).toContain("search_code");
   });
 });

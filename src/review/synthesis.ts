@@ -34,7 +34,7 @@ export function selectTier2Findings(
   return findings.filter((f) => f.needsModel);
 }
 
-/** Wire anchor (`f:path:line` / `e:key`) for one finding — matches the note-dsl anchor form. */
+/** Wire anchor (`f:path:line` / `e:key`) for one finding. */
 function anchorLabel(finding: ReviewFinding): string {
   const { kind, value, line } = finding.anchor;
   return line ? `${kind}:${value}:${line}` : `${kind}:${value}`;

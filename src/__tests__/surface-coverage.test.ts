@@ -7,8 +7,7 @@
  *   1. Every renderer produces an `unerr » ...` body line that buildUserBlock
  *      wraps verbatim — i.e., agents that pass `content[].text` through
  *      unmodified will see the surface unmodified. (Surface 2 preface,
- *      Surface 3 receipt rendered by `unerr_turn_summary`, fact-steering
- *      preface — formerly Surface 4d.)
+ *      Surface 3 receipt rendered by `unerr_turn_summary`.)
  *
  *   2. Agents with an `instructionFilePath` get the L3 (instruction-file)
  *      reinforcement; agents without one (Zed, Kiro, Opencode,
@@ -19,10 +18,6 @@
  *      Windsurf, GitHub Copilot CLI) match the §14 matrix's
  *      "L1 reinforcement" column.
  *
- *   4. The `unerr_remember` tool is wire-level the same for every agent —
- *      its presence is asserted via the executeUnerrRemember tool function
- *      call returning the same shape across the registry.
- *
  * §10.7 — Surface 4a (inline attribution) was merged into the Surface 3
  * receipt; its agent-neutrality coverage moves to receipt-renderer.test.ts.
  */
@@ -32,9 +27,7 @@ import {
   AGENT_REGISTRY,
   type AgentDefinition,
 } from "../config/agent-registry.js";
-import type { TemporalFact } from "../intelligence/temporal-facts.js";
 import { renderContextPreface } from "../proxy/context-preface.js";
-import { renderEnforcedFactPrefix } from "../proxy/enforcement-loop.js";
 import {
   USER_BLOCK_PREFIX,
   buildUserBlock,
@@ -80,23 +73,6 @@ function makeNamedEvent(overrides: Partial<NamedEvent> = {}): NamedEvent {
     turn: overrides.turn ?? 1,
     ts: overrides.ts ?? "2026-05-21T10:00:00.000Z",
     metadata: overrides.metadata ?? {},
-  };
-}
-
-function makeFact(overrides: Partial<TemporalFact> = {}): TemporalFact {
-  return {
-    fact_id: overrides.fact_id ?? "f-1",
-    fact_type: overrides.fact_type ?? "convention",
-    scope: overrides.scope ?? "project",
-    subject: overrides.subject ?? "naming",
-    content: overrides.content ?? "always use cozo-node ≥ 0.7.6",
-    base_confidence: overrides.base_confidence ?? 0.95,
-    effective_confidence: overrides.effective_confidence ?? 0.95,
-    reinforcement_count: overrides.reinforcement_count ?? 0,
-    created_at: overrides.created_at ?? Date.now(),
-    last_reinforced_at: overrides.last_reinforced_at ?? Date.now(),
-    last_contradicted_at: overrides.last_contradicted_at ?? 0,
-    source: overrides.source ?? "user_fed",
   };
 }
 
@@ -200,20 +176,6 @@ describe("Phase 4 Sprint 14 — surface coverage matrix", () => {
     // single-line / no-markdown body-channel coverage live in
     // receipt-renderer.test.ts. §10.7 — S4a inline attribution was merged
     // into that same Surface 3 receipt.
-
-    it("fact-steering preface renders a `ur|fct` body line for the agent", () => {
-      const line = renderEnforcedFactPrefix(
-        makeFact({
-          fact_type: "negative",
-          content: "never console.log from proxy",
-        })
-      );
-      expect(line).toMatch(/^ur\|fct \[negative\] avoid:/);
-      // The `ur|fct` line is the *signal* channel, but it goes through
-      // the same body-content path as buildUserBlock. Verify it's not
-      // accidentally wrapped in markdown.
-      expect(line).not.toMatch(/[*_`]/);
-    });
 
     it("profile lookup is deterministic and exposes L1-L3 booleans", () => {
       expect(profile.l2_skills).toBe(true);

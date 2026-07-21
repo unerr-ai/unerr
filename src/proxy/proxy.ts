@@ -198,196 +198,10 @@ export interface ProxyOptions {
   codingAgent?: string;
 }
 
-// ── Layer 9: Fact tool handlers for long-lived proxy ────────────────
-
-type FactStoreType = import(
-  "../intelligence/temporal-facts.js"
-).TemporalFactStore;
 type SignalShowStoreType = import(
   "../intelligence/signal-show-store.js"
 ).SignalShowStore;
-let proxyFactStore: FactStoreType | null | undefined = undefined; // undefined = not yet initialized
 let proxyShowStore: SignalShowStoreType | null = null;
-let proxyPendingConfirmations:
-  | import(
-      "../intelligence/pending-confirmations.js"
-    ).PendingConfirmationRegistry
-  | null = null;
-
-async function getProxyFactStore(
-  unerrDir: string
-): Promise<FactStoreType | null> {
-  if (proxyFactStore !== undefined) return proxyFactStore;
-  try {
-    const { TemporalFactStore } = await import(
-      "../intelligence/temporal-facts.js"
-    );
-    const cwd = join(unerrDir, "..");
-    proxyFactStore = await TemporalFactStore.create(cwd);
-    return proxyFactStore;
-  } catch {
-    proxyFactStore = null;
-    return null;
-  }
-}
-
-// ── Active-cognition Layer B: NotesStore (shares facts.db with TemporalFactStore) ──
-type NotesStoreType = import("../intelligence/notes-store.js").NotesStore;
-let proxyNotesStore: NotesStoreType | null | undefined = undefined;
-
-async function getProxyNotesStore(
-  unerrDir: string
-): Promise<NotesStoreType | null> {
-  if (proxyNotesStore !== undefined) return proxyNotesStore;
-  const factStore = await getProxyFactStore(unerrDir);
-  if (!factStore) {
-    proxyNotesStore = null;
-    return null;
-  }
-  try {
-    const { NotesStore } = await import("../intelligence/notes-store.js");
-    proxyNotesStore = new NotesStore(factStore.getDb());
-    return proxyNotesStore;
-  } catch (err: unknown) {
-    process.stderr.write(
-      `[unerr] notes-store init failed: ${err instanceof Error ? err.message : String(err)}\n`
-    );
-    proxyNotesStore = null;
-    return null;
-  }
-}
-
-async function handleUnerrRecallNotesProxy(
-  args: Record<string, unknown>,
-  unerrDir: string,
-  behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter,
-  currentTurn?: number,
-  // CROSS_REPO_INTELLIGENCE Sprint 7.1: optional federation hook. When provided
-  // (home proxy, Pro tier) it returns workspace-relevant notes held by peer
-  // repos for the prompt; they are merged after the home notes. Omitted on free
-  // tier / standalone proxy → home-only recall, unchanged.
-  federate?: (
-    prompt: string
-  ) => Promise<
-    import(
-      "../intelligence/federation/cross-repo-recall.js"
-    ).FederatedRecallResult
-  >
-): Promise<{
-  content: Array<{ type: string; text: string }>;
-  isError?: boolean;
-}> {
-  const store = await getProxyNotesStore(unerrDir);
-  if (!store) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            error: "notes store not available. Ensure .unerr/ exists.",
-          }),
-        },
-      ],
-      isError: true,
-    };
-  }
-  try {
-    const { recallNotes } = await import("../tools/intelligence/notes-mcp.js");
-    // session_id drives topic-shift telemetry but the agent doesn't carry one —
-    // inject the live session when omitted so the signal fires without it.
-    const callerSession = (args as { session_id?: unknown }).session_id;
-    const recallArgs =
-      (typeof callerSession === "string" && callerSession.length > 0) ||
-      !behaviorEvents?.sessionId
-        ? args
-        : { ...args, session_id: behaviorEvents.sessionId };
-    const result = await recallNotes(
-      store,
-      recallArgs as Parameters<typeof recallNotes>[1]
-    );
-    // CROSS_REPO_INTELLIGENCE Sprint 7.1: federate. Append workspace-relevant
-    // notes held by peer repos (anchor-matched cross-repo references + their `w:`
-    // notes) after the home notes, labeled by repo. No-op on free tier / no
-    // coordinator (federate omitted) or when the call carries no prompt.
-    if (
-      federate &&
-      result.ok &&
-      result.data &&
-      typeof args.prompt === "string"
-    ) {
-      try {
-        const fed = await federate(args.prompt);
-        if (fed.notes.length > 0) {
-          const data = result.data as { notes?: unknown[] };
-          data.notes = [...(data.notes ?? []), ...fed.notes];
-        }
-      } catch {
-        /* federation is advisory — a fault never blocks the home recall */
-      }
-    }
-    // Emit a fact_recalled behavior event carrying rich DSL fields from the
-    // top returned note. The named-event feeds the generic "N facts recalled"
-    // count in the Surface 2 preface (`context-preface.ts`); the rich
-    // kind/anchor/polarity fields are recorded for other event consumers.
-    if (behaviorEvents && result.ok && result.data) {
-      const data = result.data as {
-        notes?: Array<{
-          kind: string;
-          anchor_type: string;
-          anchor_value: string;
-          polarity: string;
-          content: string;
-          created_at: number;
-          reinforcement_count: number;
-          anchor_missing: boolean;
-          conflict_group_id: string;
-        }>;
-      };
-      const notes = data.notes ?? [];
-      if (notes.length > 0) {
-        const top = notes[0];
-        if (top) {
-          behaviorEvents.record({
-            session_id: behaviorEvents.sessionId,
-            turn: currentTurn ?? 0,
-            type: "fact_recalled",
-            tool: "unerr_recall_notes",
-            entity_key: top.anchor_value || null,
-            response_bytes: null,
-            detail: {
-              count: notes.length,
-              top_content: top.content,
-              top_created_at: top.created_at,
-              top_kind: top.kind,
-              top_anchor_type: top.anchor_type,
-              top_anchor_value: top.anchor_value,
-              top_polarity: top.polarity,
-              top_reinforcement_count: top.reinforcement_count,
-              top_anchor_missing: top.anchor_missing,
-              top_conflict_group_id: top.conflict_group_id,
-              retrieved: notes.map((n) => ({
-                kind: n.kind,
-                ...(n.anchor_value ? { anchor: n.anchor_value } : {}),
-              })),
-              returned_count: notes.length,
-            },
-          });
-        }
-      }
-    }
-    return {
-      content: [{ type: "text", text: JSON.stringify(result) }],
-      ...(result.ok ? {} : { isError: true }),
-    };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[unerr] unerr_recall_notes failed: ${msg}\n`);
-    return {
-      content: [{ type: "text", text: JSON.stringify({ error: msg }) }],
-      isError: true,
-    };
-  }
-}
 
 // ── Cap A-2: symptom retrieval — trace recall handler ─────────────────────────
 
@@ -480,435 +294,6 @@ async function handleUnerrRecallTracesProxy(
     return {
       content: [
         { type: "text", text: JSON.stringify({ ok: false, error: msg }) },
-      ],
-      isError: true,
-    };
-  }
-}
-
-async function handleUnerrRememberNotePath(
-  args: Record<string, unknown>,
-  unerrDir: string,
-  sessionId: string
-): Promise<{
-  content: Array<{ type: string; text: string }>;
-  isError?: boolean;
-}> {
-  const store = await getProxyNotesStore(unerrDir);
-  if (!store) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            error: "notes store not available. Ensure .unerr/ exists.",
-          }),
-        },
-      ],
-      isError: true,
-    };
-  }
-  try {
-    const { remember } = await import("../tools/intelligence/notes-mcp.js");
-    // session_id is a server-side concern the agent doesn't carry in its
-    // context — inject the live ledger session when the caller omits it, so
-    // unerr_remember({type:'note', ...}) succeeds without an explicit id.
-    const callerSession = (args as { session_id?: unknown }).session_id;
-    const argsWithSession =
-      typeof callerSession === "string" && callerSession.length > 0
-        ? args
-        : { ...args, session_id: sessionId };
-    const result = await remember(
-      store,
-      argsWithSession as Parameters<typeof remember>[1]
-    );
-    return {
-      content: [{ type: "text", text: JSON.stringify(result) }],
-      ...(result.ok ? {} : { isError: true }),
-    };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[unerr] unerr_remember (note) failed: ${msg}\n`);
-    return {
-      content: [{ type: "text", text: JSON.stringify({ error: msg }) }],
-      isError: true,
-    };
-  }
-}
-
-/** Discriminator: presence of `type` field routes to the new Layer B note path. */
-function isActiveCognitionRemember(args: Record<string, unknown>): boolean {
-  const t = args.type;
-  return (
-    t === "note" ||
-    t === "cochange" ||
-    t === "move_anchor" ||
-    t === "promote_to_claude_md"
-  );
-}
-
-async function handleRecordFactProxy(
-  args: Record<string, unknown>,
-  unerrDir: string,
-  shadowLedger: import("../tracking/shadow-ledger.js").ShadowLedger,
-  effectiveness?: {
-    tracker: import(
-      "../tracking/persistence-effectiveness.js"
-    ).PersistenceEffectivenessTracker;
-    turn: number;
-  },
-  behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter
-): Promise<{
-  content: Array<{ type: string; text: string }>;
-  _meta?: unknown;
-  /** MCP CallToolResult flag — when true, clients surface the response as a failed tool call. */
-  isError?: boolean;
-}> {
-  const factStore = await getProxyFactStore(unerrDir);
-  if (!factStore) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            error: "Fact store not available. Ensure .unerr/ directory exists.",
-          }),
-        },
-      ],
-    };
-  }
-  try {
-    const { executeRecordFact } = await import(
-      "../tools/intelligence/record-fact.js"
-    );
-    const result = await executeRecordFact(
-      args as {
-        content: string;
-        fact_type: "procedural" | "semantic" | "negative" | "convention";
-        scope: string;
-        subject: string;
-      },
-      factStore,
-      shadowLedger.getSessionId()
-    );
-    if (effectiveness) {
-      effectiveness.tracker.recordSignalFired({
-        kind: "fact_recorded",
-        signal_id: result.fact_id,
-        entity_key: (args.subject as string | undefined) ?? null,
-        turn: effectiveness.turn,
-      });
-    }
-    behaviorEvents?.record({
-      session_id: shadowLedger.getSessionId(),
-      turn: effectiveness?.turn ?? 0,
-      type: "fact_stored_auto",
-      tool: "record_fact",
-      entity_key: (args.subject as string | undefined) ?? null,
-      response_bytes: null,
-      detail: {
-        fact_id: result.fact_id,
-        fact_type: args.fact_type,
-        scope: args.scope,
-        content: args.content,
-      },
-    });
-    shadowLedger.record(
-      "record_fact",
-      args,
-      { fact_id: result.fact_id },
-      "unknown",
-      ""
-    );
-    return {
-      content: [{ type: "text", text: JSON.stringify({ ok: true }) }],
-    };
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    // isError:true is the only channel MCP clients (Claude Code, Cursor)
-    // surface as a failed tool call in the agent's conversation. Without
-    // it, an error body looks like a normal successful response and the
-    // agent reads it as data.
-    process.stderr.write(`[unerr] record_fact failed: ${errMsg}\n`);
-    return {
-      content: [{ type: "text", text: JSON.stringify({ error: errMsg }) }],
-      isError: true,
-    };
-  }
-}
-
-async function ensurePendingConfirmations(
-  behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter
-): Promise<
-  | import(
-      "../intelligence/pending-confirmations.js"
-    ).PendingConfirmationRegistry
-  | null
-> {
-  if (proxyPendingConfirmations) return proxyPendingConfirmations;
-  if (!behaviorEvents) return null;
-  const { PendingConfirmationRegistry } = await import(
-    "../intelligence/pending-confirmations.js"
-  );
-  proxyPendingConfirmations = new PendingConfirmationRegistry(behaviorEvents);
-  proxyPendingConfirmations.start();
-  return proxyPendingConfirmations;
-}
-
-async function handleUnerrRememberProxy(
-  args: Record<string, unknown>,
-  unerrDir: string,
-  shadowLedger: import("../tracking/shadow-ledger.js").ShadowLedger,
-  behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter,
-  effectiveness?: {
-    tracker: import(
-      "../tracking/persistence-effectiveness.js"
-    ).PersistenceEffectivenessTracker;
-    turn: number;
-  }
-): Promise<{
-  content: Array<{ type: string; text: string }>;
-  _meta?: unknown;
-  isError?: boolean;
-}> {
-  const factStore = await getProxyFactStore(unerrDir);
-  if (!factStore) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            error: "Fact store not available. Ensure .unerr/ directory exists.",
-          }),
-        },
-      ],
-    };
-  }
-  try {
-    const { executeUnerrRemember } = await import(
-      "../tools/intelligence/unerr-remember.js"
-    );
-    const turn = effectiveness?.turn ?? 0;
-    const pending = await ensurePendingConfirmations(behaviorEvents);
-    const result = await executeUnerrRemember(
-      args as unknown as Parameters<typeof executeUnerrRemember>[0],
-      factStore,
-      shadowLedger.getSessionId(),
-      turn,
-      behaviorEvents,
-      pending ?? undefined
-    );
-    if (result.stored && effectiveness) {
-      effectiveness.tracker.recordSignalFired({
-        kind: "fact_recorded",
-        signal_id: result.fact_id,
-        entity_key: (args.subject as string | undefined) ?? null,
-        turn: effectiveness.turn,
-      });
-    }
-    shadowLedger.record(
-      "unerr_remember",
-      args,
-      result.stored ? { fact_id: result.fact_id } : { stored: false },
-      "unknown",
-      ""
-    );
-    return {
-      content: [{ type: "text", text: JSON.stringify(result) }],
-    };
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[unerr] unerr_remember failed: ${errMsg}\n`);
-    return {
-      content: [{ type: "text", text: JSON.stringify({ error: errMsg }) }],
-      isError: true,
-    };
-  }
-}
-
-async function handleRecallFactsProxy(
-  args: Record<string, unknown>,
-  unerrDir: string,
-  effectiveness?: {
-    tracker: import(
-      "../tracking/persistence-effectiveness.js"
-    ).PersistenceEffectivenessTracker;
-    turn: number;
-  },
-  behaviorEvents?: import("../tracking/behavior-events.js").BehaviorEventWriter,
-  // CROSS_REPO_INTELLIGENCE Sprint 7.4: optional federation hook. When provided
-  // (home proxy, Pro tier) it returns workspace-relevant facts held by peer
-  // repos for the scope; they are merged after the home facts, labeled by repo.
-  // Omitted on free tier / standalone proxy → home-only recall, unchanged.
-  federate?: (
-    scope: string,
-    factType: string,
-    minConfidence: number
-  ) => Promise<
-    import(
-      "../intelligence/federation/cross-repo-fact-recall.js"
-    ).FederatedFactRecallResult
-  >
-): Promise<{
-  content: Array<{ type: string; text: string }>;
-  _meta?: unknown;
-  /** MCP CallToolResult flag — when true, clients surface the response as a failed tool call. */
-  isError?: boolean;
-}> {
-  const factStore = await getProxyFactStore(unerrDir);
-  if (!factStore) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            facts: [],
-            message: "Fact store not available",
-          }),
-        },
-      ],
-    };
-  }
-  try {
-    const scope = args.scope as string;
-    const factType = (args.fact_type as string) ?? "all";
-    const minConfidence = (args.min_confidence as number) ?? 0.3;
-    const rotationMode =
-      (args.rotation as "decay" | "fifo" | "none" | undefined) ?? "decay";
-    const { applyDiversityQuota, rankFactsWithRotation, resolveFactLimit } =
-      await import("./fact-ranking.js");
-    const requestedLimit = resolveFactLimit(args.limit);
-
-    let facts: Awaited<ReturnType<typeof factStore.recallNegative>>;
-    if (factType === "negative") {
-      facts = await factStore.recallNegative(minConfidence);
-    } else {
-      facts = await factStore.recallByScope(scope, minConfidence);
-      if (factType !== "all") {
-        facts = facts.filter((f) => f.fact_type === factType);
-      }
-    }
-
-    const useRotation = rotationMode !== "none" && proxyShowStore !== null;
-    const ranked = rankFactsWithRotation(facts, {
-      getShowCount: useRotation
-        ? (id) => proxyShowStore?.getEffectiveShowCount(id) ?? 0
-        : undefined,
-      getLastShownMs: useRotation
-        ? (id) => proxyShowStore?.getLastShownMs(id) ?? 0
-        : undefined,
-    });
-    const total = ranked.length;
-    const sliced = applyDiversityQuota(ranked, requestedLimit);
-
-    // (Removed: rotation-impact counter only used by the dropped ur|rot prefix.)
-
-    if (proxyShowStore) {
-      for (const f of sliced) {
-        proxyShowStore.recordShown(f.fact_id, scope ?? "");
-      }
-    }
-    if (effectiveness) {
-      for (const f of sliced) {
-        effectiveness.tracker.recordSignalFired({
-          kind:
-            f.fact_type === "negative" ? "negative_warned" : "fact_recalled",
-          signal_id: f.fact_id,
-          entity_key: f.subject ?? null,
-          turn: effectiveness.turn,
-        });
-      }
-    }
-    if (behaviorEvents && sliced.length > 0) {
-      // The first sliced fact rides in the event detail so Surface 2 can
-      // name it verbatim ("loaded: \"<content>\" (you set <age>)") without
-      // a second NotesStore round-trip on the hot prompt-receipt path.
-      const top = sliced[0];
-      behaviorEvents.record({
-        session_id: behaviorEvents.sessionId,
-        turn: effectiveness?.turn ?? 0,
-        type: "fact_recalled",
-        tool: "recall_facts",
-        entity_key: scope ?? null,
-        response_bytes: null,
-        detail: {
-          count: sliced.length,
-          fact_types: Array.from(new Set(sliced.map((f) => f.fact_type))),
-          top_content: top?.content ?? null,
-          top_created_at: top?.created_at ?? null,
-          retrieved: sliced.map((f) => ({
-            kind: "fact",
-            ...(f.subject ? { anchor: f.subject } : {}),
-          })),
-          returned_count: sliced.length,
-        },
-      });
-    }
-
-    const { REMEMBER_AMBIGUITY_THRESHOLD: RAT } = await import(
-      "../tools/intelligence/unerr-remember.js"
-    );
-    const response = sliced.map((f) => {
-      const isUserFed = f.source === "user_fed";
-      const lowConfidence = f.effective_confidence < RAT;
-      const isPending =
-        proxyPendingConfirmations?.isPending(f.fact_id) ?? false;
-      const needsConfirmation = isPending || (isUserFed && lowConfidence);
-      const base: Record<string, unknown> = {
-        type: f.fact_type,
-        content: f.content,
-        confidence: Math.round(f.effective_confidence * 100) / 100,
-        subject: f.subject,
-        source: f.source,
-      };
-      if (needsConfirmation) base.needs_confirmation = true;
-      return base;
-    });
-
-    // CROSS_REPO_INTELLIGENCE Sprint 7.4: federate. Append workspace-relevant
-    // facts held by peer repos for this scope (entity/file-scoped facts; the
-    // peer's `project`-scoped facts are dropped peer-side) after the home facts,
-    // each labeled by repo. No-op on free tier / no coordinator (federate
-    // omitted) or when the call carries no scope.
-    if (federate && typeof scope === "string" && scope.length > 0) {
-      try {
-        const fed = await federate(scope, factType, minConfidence);
-        for (const f of fed.facts) {
-          response.push({
-            type: f.fact_type,
-            content: f.content,
-            confidence: Math.round(f.effective_confidence * 100) / 100,
-            subject: f.subject,
-            source: f.source,
-            repo: f.repo,
-          });
-        }
-      } catch {
-        /* federation is advisory — a fault never blocks the home recall */
-      }
-    }
-
-    const body: Record<string, unknown> = {
-      facts: response,
-      total,
-    };
-    if (total > response.length) {
-      body.more_available = total - response.length;
-    }
-
-    // Table row #23 CUT-FLUFF — `ur|rot` was pure internal debug
-    // ("N facts deprioritized — rotation surfaced fresh picks"). The agent
-    // could not act on it; rotation is a server-side concept. Body already
-    // contains the rotated picks; no prefix needed.
-    return {
-      content: [{ type: "text", text: JSON.stringify(body) }],
-    };
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[unerr] recall_facts failed: ${errMsg}\n`);
-    return {
-      content: [
-        { type: "text", text: JSON.stringify({ facts: [], error: errMsg }) },
       ],
       isError: true,
     };
@@ -1337,45 +722,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             `Migrated snapshot to persistent graph ${startupLog.fmt.muted(`→ ${dbPath}`)}`
           );
 
-          // Layer 9: Generate temporal facts from conventions after snapshot migration
-          try {
-            const migrationUnerrDir = join(process.cwd(), ".unerr");
-            const factStoreForMigration =
-              await getProxyFactStore(migrationUnerrDir);
-            if (factStoreForMigration) {
-              const { detectLocalConventions } = await import(
-                "../intelligence/local-convention-detector.js"
-              );
-              const { generateFromConventions, runFactGenerationPipeline } =
-                await import("../intelligence/fact-generator.js");
-              const detection = await detectLocalConventions(localGraph.db);
-              if (detection.conventions.length > 0) {
-                const convResult = await generateFromConventions(
-                  factStoreForMigration,
-                  detection.conventions
-                );
-                if (convResult.created > 0 || convResult.reinforced > 0) {
-                  log.info(
-                    `Fact generator: ${convResult.created} convention facts created, ${convResult.reinforced} reinforced`
-                  );
-                }
-              }
-              const pipelineResults = await runFactGenerationPipeline(
-                factStoreForMigration,
-                migrationUnerrDir
-              );
-              for (const r of pipelineResults) {
-                if (r.created > 0 || r.reinforced > 0) {
-                  log.info(
-                    `Fact generator [${r.source}]: ${r.created} created, ${r.reinforced} reinforced`
-                  );
-                }
-              }
-            }
-          } catch {
-            // Non-critical — fact generation failure doesn't block startup
-          }
-
           // Snapshot migration populates from stale data — schedule background
           // reindex so the graph reflects current files, orphans are pruned,
           // and the drift overlay is cleared (Phase 6.3 of indexLocalProject).
@@ -1499,38 +845,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     router.setFederationCoordinator(federationCoordinator);
   }
 
-  // CROSS_REPO_INTELLIGENCE Sprint 7.1: federated recall hook passed to the
-  // recall handler. Fans the prompt out to peers and returns their
-  // workspace-relevant notes (anchor-matched + `w:`). The coordinator enforces
-  // the Pro-tier gate (free → refusal → empty), so this is wired unconditionally;
-  // a standalone proxy with a null coordinator returns empty too.
-  const federateRecall = async (prompt: string) => {
-    const { federateRecallNotes } = await import(
-      "../intelligence/federation/cross-repo-recall.js"
-    );
-    return federateRecallNotes({
-      prompt,
-      coordinator: federationCoordinatorRef,
-      homeRepo: process.cwd(),
-    });
-  };
-  const federateFacts = async (
-    scope: string,
-    factType: string,
-    minConfidence: number
-  ) => {
-    const { federateRecallFacts } = await import(
-      "../intelligence/federation/cross-repo-fact-recall.js"
-    );
-    return federateRecallFacts({
-      scope,
-      factType,
-      minConfidence,
-      coordinator: federationCoordinatorRef,
-      homeRepo: process.cwd(),
-    });
-  };
-
   // CROSS_REPO_INTELLIGENCE Sprint 4: load this repo's SCIP moniker index so
   // cross-repo `get_references` can name the focus entity across a repo
   // boundary and answer peers' `xref_by_moniker` lookups. Refreshed on every
@@ -1583,8 +897,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   let efficiencyTracker = createEfficiencyTracker();
   router.setTokenCounter(tokenCounter);
   router.setEfficiencyTracker(efficiencyTracker);
-
-  const proxyFactStore = await getProxyFactStore(join(process.cwd(), ".unerr"));
 
   // Sprint 2: Health info wired in deferred init (Task 6.3)
 
@@ -2150,24 +1462,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     /* best-effort on boot */
   }
 
-  // Sprint 4: Initialize narrative capture (daemon mode)
-  let narrativeCapture:
-    | import("../intelligence/session-narrative.js").SessionNarrativeCapture
-    | null = null;
-  if (proxyFactStore) {
-    try {
-      const { SessionNarrativeCapture } = await import(
-        "../intelligence/session-narrative.js"
-      );
-      narrativeCapture = new SessionNarrativeCapture(
-        proxyFactStore,
-        shadowLedger
-      );
-    } catch {
-      // Non-critical
-    }
-  }
-
   // Persistent rotation store — timeline.db `signal_shows` relation. Survives
   // restart and coordinates show-counts across parallel `unerr --mcp` sessions
   // in the same repo (per-session rows so writes never contend).
@@ -2191,9 +1485,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       );
     }
   }
-
-  // Sprint 5: Pattern analysis call counter (periodic trigger every 20 calls)
-  let patternAnalysisCallCount = 0;
 
   // ── Layer 10: Token Flow Writer — unified savings attribution ────
   const { TokenFlowWriter } = await import("../tracking/token-flow.js");
@@ -2632,7 +1923,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // ── Sprint 8: unerr_track op-union → legacy (name, args) ──
     // Translate FIRST so the legacy tool's boundary validation + dispatch run
     // unchanged (single execution path, no behavioural fork). The legacy
-    // marker/fact names stay dispatchable by name for UDS hooks + hook-less
+    // marker names stay dispatchable by name for UDS hooks + hook-less
     // agents (DEMOTE not delete).
     if (name === "unerr_track") {
       const translated = translateUnerrTrack(args);
@@ -2836,17 +2127,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       }
     }
 
-    // ── Active-cognition Layer B: unerr_recall_notes ──
-    if (name === "unerr_recall_notes") {
-      return handleUnerrRecallNotesProxy(
-        args,
-        unerrDirForLedger,
-        behaviorEventWriter,
-        sessionTurnProvider(),
-        federateRecall
-      );
-    }
-
     // ── Cap A-2: symptom retrieval (trace recall) ──
     if (name === "unerr_recall_traces") {
       return handleUnerrRecallTracesProxy(
@@ -2956,118 +2236,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       );
     }
 
-    // ── Layer 9: record_fact + recall_facts + unerr_remember ──
-    if (
-      name === "record_fact" ||
-      name === "recall_facts" ||
-      name === "unerr_remember"
-    ) {
-      // Active-cognition dispatch: when `unerr_remember` carries a `type`
-      // field (note/cochange/move_anchor/promote_to_claude_md), route to
-      // the new NotesStore path; otherwise stay on the TemporalFactStore.
-      if (name === "unerr_remember" && isActiveCognitionRemember(args)) {
-        return handleUnerrRememberNotePath(
-          args,
-          unerrDirForLedger,
-          shadowLedger.getSessionId()
-        );
-      }
-      const factResult =
-        name === "record_fact"
-          ? await handleRecordFactProxy(
-              args,
-              unerrDirForLedger,
-              shadowLedger,
-              {
-                tracker: effectivenessTracker,
-                turn: router.sessionContext.getToolCallCount(),
-              },
-              behaviorEventWriter
-            )
-          : name === "unerr_remember"
-            ? await handleUnerrRememberProxy(
-                args,
-                unerrDirForLedger,
-                shadowLedger,
-                behaviorEventWriter,
-                {
-                  tracker: effectivenessTracker,
-                  turn: router.sessionContext.getToolCallCount(),
-                }
-              )
-            : await handleRecallFactsProxy(
-                args,
-                unerrDirForLedger,
-                {
-                  tracker: effectivenessTracker,
-                  turn: router.sessionContext.getToolCallCount(),
-                },
-                behaviorEventWriter,
-                federateFacts
-              );
-      const { applyWireCap: applyWireCapFact } = await import("./wire-cap.js");
-      const rawText = factResult.content?.[0]?.text;
-      let parsed: unknown = null;
-      if (rawText) {
-        try {
-          parsed = JSON.parse(rawText);
-        } catch {
-          /* non-JSON, skip cap */
-        }
-      }
-      if (parsed) {
-        const {
-          body: cappedBody,
-          pageHint,
-          metrics: factCapMetrics,
-        } = applyWireCapFact(name, parsed, args);
-        // §4: record the wire-cap event (reversible too_large cache, ordering)
-        // on the existing compression_events stream. Best-effort.
-        if (factCapMetrics) {
-          try {
-            const { appendCompressionLog } = await import(
-              "./shell-compression-log.js"
-            );
-            appendCompressionLog(process.cwd(), {
-              ts: new Date().toISOString(),
-              command: name,
-              category: "wire_cap",
-              confidence: 1,
-              rawBytes: factCapMetrics.original_tokens ?? 0,
-              compressedBytes: factCapMetrics.delivered_tokens ?? 0,
-              savedPct:
-                factCapMetrics.original_tokens &&
-                factCapMetrics.original_tokens > 0
-                  ? Math.max(
-                      0,
-                      1 -
-                        (factCapMetrics.delivered_tokens ?? 0) /
-                          factCapMetrics.original_tokens
-                    )
-                  : 0,
-              omniFallback: false,
-              reversible: factCapMetrics,
-            });
-          } catch {
-            /* best effort — metrics never block the wire */
-          }
-        }
-        const pageBlock = pageHint ? `${pageHint}\n\n` : "";
-        // Forward isError so error responses from the fact handler reach
-        // the agent as failed tool calls, not as opaque JSON bodies.
-        return {
-          content: [
-            {
-              type: "text",
-              text: pageBlock + stringifyMcpToolJson(cappedBody),
-            },
-          ],
-          ...(factResult.isError ? { isError: true } : {}),
-        };
-      }
-      return factResult;
-    }
-
     // Sprint 11: Deep Dive MCP tools — handle locally
     if (localGraph) {
       const { handleDeepDiveTool } = await import(
@@ -3139,16 +2307,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         branch,
         headSha
       );
-      if (narrativeCapture && out.isError !== true) {
-        const recentEntries = shadowLedger.getRecentEntries(10);
-        const lastEntry = recentEntries[recentEntries.length - 1];
-        if (lastEntry) {
-          setImmediate(() =>
-            narrativeCapture?.captureEditNarrative(lastEntry).catch(() => {})
-          );
-        }
-      }
-
       // Record the edit so the deterministic end-of-turn "files changed" receipt
       // can list every file touched this turn with its line numbers — host-emitted
       // (Stop hook), so it never depends on the model echoing the change. The tool
@@ -3278,44 +2436,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       resultSummary.client = ctx.clientId;
     }
     shadowLedger.record(name, args, resultSummary, branch, headSha);
-
-    // Sprint 4: Capture edit narratives as episodic facts
-    const NARRATIVE_EDIT_TOOLS = new Set([
-      "write_file",
-      "edit_file",
-      "str_replace_editor",
-      "Write",
-      "Edit",
-    ]);
-    if (narrativeCapture && NARRATIVE_EDIT_TOOLS.has(name)) {
-      const recentEntries = shadowLedger.getRecentEntries(10);
-      const lastEntry = recentEntries[recentEntries.length - 1];
-      if (lastEntry) {
-        setImmediate(() =>
-          narrativeCapture?.captureEditNarrative(lastEntry).catch(() => {})
-        );
-      }
-    }
-
-    // Sprint 5: Periodic pattern analysis (every 20 tool calls)
-    patternAnalysisCallCount++;
-    if (patternAnalysisCallCount % 20 === 0 && proxyFactStore && shadowLedger) {
-      setImmediate(async () => {
-        try {
-          const { analyzeSessionPatterns } = await import(
-            "../intelligence/session-pattern-analyzer.js"
-          );
-          const entries = shadowLedger?.getRecentEntries(20);
-          await analyzeSessionPatterns({
-            ledgerEntries: entries,
-            factStore: proxyFactStore!,
-            sessionId: shadowLedger?.getSessionId(),
-          });
-        } catch {
-          /* non-critical */
-        }
-      });
-    }
 
     // S7.1: Auto-snapshot trigger evaluation (post-tool-call)
     try {
@@ -3539,7 +2659,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       filePath:
         ((args as Record<string, unknown>).file_path as string | undefined) ??
         entityKey,
-      pendingConfirmations: proxyPendingConfirmations ?? undefined,
       isResumedSession: stats.isResumedSession,
       timelineStore: timelineHandle?.store,
       behaviorEvents: behaviorEventWriter,
@@ -3991,104 +3110,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           };
         }
       }
-      // CROSS_REPO_INTELLIGENCE Sprint 7.1: peer-side recall executor. The home
-      // proxy fans a prompt out here; this peer recalls its own anchored notes
-      // for the prompt — its prompt-matched own-entity/file notes PLUS its `w:`
-      // (workspace-wide) notes — and returns them. The home drops this peer's
-      // `p:` (project-scoped) notes; only workspace-relevant notes cross. Not an
-      // MCP tool, so it can't ride `executeRaw`.
-      const { RECALL_NOTES_PEER_METHOD } = await import(
-        "../intelligence/federation/cross-repo-recall.js"
-      );
-      if (fedName === RECALL_NOTES_PEER_METHOD) {
-        try {
-          const recallPrompt = (
-            fedParams?.arguments as { prompt?: unknown } | undefined
-          )?.prompt;
-          if (typeof recallPrompt !== "string" || recallPrompt.length === 0) {
-            return {
-              jsonrpc: "2.0" as const,
-              id: message.id,
-              result: { content: { notes: [] } },
-            };
-          }
-          const peerStore = await getProxyNotesStore(unerrDirForLedger);
-          if (!peerStore) {
-            return {
-              jsonrpc: "2.0" as const,
-              id: message.id,
-              result: { content: { notes: [] } },
-            };
-          }
-          const recalled = await peerStore.recallByPrompt({
-            prompt: recallPrompt,
-          });
-          return {
-            jsonrpc: "2.0" as const,
-            id: message.id,
-            result: { content: { notes: recalled.notes } },
-          };
-        } catch {
-          return {
-            jsonrpc: "2.0" as const,
-            id: message.id,
-            result: { content: { notes: [] } },
-          };
-        }
-      }
-      // CROSS_REPO_INTELLIGENCE Sprint 7.4: peer-side fact-recall executor. The
-      // home proxy fans a scope out here; this peer recalls its own temporal
-      // facts for the scope and returns them. The home drops this peer's
-      // `project`-scoped facts; only entity/file-scoped facts cross. Not an MCP
-      // tool, so it can't ride `executeRaw`.
-      const { RECALL_FACTS_PEER_METHOD } = await import(
-        "../intelligence/federation/cross-repo-fact-recall.js"
-      );
-      if (fedName === RECALL_FACTS_PEER_METHOD) {
-        try {
-          const fa = fedParams?.arguments as
-            | { scope?: unknown; fact_type?: unknown; min_confidence?: unknown }
-            | undefined;
-          const factScope = fa?.scope;
-          if (typeof factScope !== "string" || factScope.length === 0) {
-            return {
-              jsonrpc: "2.0" as const,
-              id: message.id,
-              result: { content: { facts: [] } },
-            };
-          }
-          const peerFactStore = await getProxyFactStore(unerrDirForLedger);
-          if (!peerFactStore) {
-            return {
-              jsonrpc: "2.0" as const,
-              id: message.id,
-              result: { content: { facts: [] } },
-            };
-          }
-          const minConf =
-            typeof fa?.min_confidence === "number" ? fa.min_confidence : 0.3;
-          const wantType =
-            typeof fa?.fact_type === "string" ? fa.fact_type : "all";
-          let peerFacts =
-            wantType === "negative"
-              ? await peerFactStore.recallNegative(minConf)
-              : await peerFactStore.recallByScope(factScope, minConf);
-          if (wantType !== "all" && wantType !== "negative") {
-            peerFacts = peerFacts.filter((f) => f.fact_type === wantType);
-          }
-          return {
-            jsonrpc: "2.0" as const,
-            id: message.id,
-            result: { content: { facts: peerFacts } },
-          };
-        } catch {
-          return {
-            jsonrpc: "2.0" as const,
-            id: message.id,
-            result: { content: { facts: [] } },
-          };
-        }
-      }
       // CROSS_REPO_INTELLIGENCE Sprint 8.1: peer-side convention attach for a
       // foreign-path file read/outline. The home routes the read here; this peer
       // serves the content AND attaches its own conventions for the file (the
@@ -4235,7 +3256,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // these tools are NOT in the LOCAL_TOOLS set.
     //
     // Tools that need interception (not in QueryRouter.LOCAL_TOOLS):
-    //   - record_fact, recall_facts  (Layer 9: temporal fact store)
     //   - unerr_mark_working         (Shadow ledger: working snapshots)
     //   - unerr_revert_to_working_state  (Shadow ledger: revert)
     //   - unerr_get_timeline         (Shadow ledger: timeline view)
@@ -4510,54 +3530,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         projectRoot: cwd,
         debounceMs: 100,
         onEvents: (events) => {
-          // Active-cognition: when an indexed source file is deleted,
-          // run the three-tier anchor migration (agent-driven move →
-          // git rename detection → silent decay). Fire-and-forget; the
-          // notes store guards its own writes.
-          const deletedSourcePaths: string[] = [];
-          for (const evt of events) {
-            if (evt.type !== "delete") continue;
-            const ext = evt.path.slice(evt.path.lastIndexOf(".")).toLowerCase();
-            // Match the same indexable extensions used by filterIndexableEvents.
-            if (
-              ext === ".ts" ||
-              ext === ".tsx" ||
-              ext === ".js" ||
-              ext === ".jsx" ||
-              ext === ".mjs" ||
-              ext === ".cjs" ||
-              ext === ".mts" ||
-              ext === ".cts" ||
-              ext === ".py" ||
-              ext === ".go"
-            ) {
-              deletedSourcePaths.push(evt.path);
-            }
-          }
-          if (deletedSourcePaths.length > 0) {
-            void (async () => {
-              try {
-                const store = await getProxyNotesStore(
-                  join(process.cwd(), ".unerr")
-                );
-                if (!store) return;
-                const { handleFileDeletion } = await import(
-                  "../intelligence/anchor-migration.js"
-                );
-                for (const deleted of deletedSourcePaths) {
-                  await handleFileDeletion(store, {
-                    deleted_path: deleted,
-                    repo_dir: process.cwd(),
-                  });
-                }
-              } catch (err: unknown) {
-                process.stderr.write(
-                  `[unerr] anchor-migration on delete failed: ${err instanceof Error ? err.message : String(err)}\n`
-                );
-              }
-            })();
-          }
-
           const indexable = filterIndexableEvents(events);
           if (indexable.length === 0) return;
           // Notify GraphHolder of file change (resets idle timer, tracks paths for incremental)
@@ -4685,47 +3657,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         );
       });
 
-      // Layer 9: Generate temporal facts from detected conventions
-      try {
-        const factStoreForGen = await getProxyFactStore(unerrDirForLedger);
-        if (factStoreForGen) {
-          const { detectLocalConventions } = await import(
-            "../intelligence/local-convention-detector.js"
-          );
-          const { generateFromConventions } = await import(
-            "../intelligence/fact-generator.js"
-          );
-          const detection = await detectLocalConventions(graph.db);
-          if (detection.conventions.length > 0) {
-            const convResult = await generateFromConventions(
-              factStoreForGen,
-              detection.conventions
-            );
-            if (convResult.created > 0 || convResult.reinforced > 0) {
-              log.info(
-                `Fact generator: ${convResult.created} convention facts created, ${convResult.reinforced} reinforced`
-              );
-            }
-          }
-          // Also run session analysis pipeline
-          const { runFactGenerationPipeline } = await import(
-            "../intelligence/fact-generator.js"
-          );
-          const pipelineResults = await runFactGenerationPipeline(
-            factStoreForGen,
-            unerrDirForLedger
-          );
-          for (const r of pipelineResults) {
-            if (r.created > 0 || r.reinforced > 0) {
-              log.info(
-                `Fact generator [${r.source}]: ${r.created} created, ${r.reinforced} reinforced`
-              );
-            }
-          }
-        }
-      } catch {
-        // Non-critical — fact generation failure doesn't block operation
-      }
     };
 
     // Full reindex: the BackgroundIndexer + ora spinner path (L11.1/L11.3).
@@ -5453,49 +4384,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         );
       }
 
-      // Sprint 4: Capture session narrative summary (works in both modes)
-      if (narrativeCapture) {
-        const sessionId = shadowLedger.getSessionId();
-        narrativeCapture
-          .captureSessionSummary(sessionId)
-          .then((result) => {
-            if (result.filesModified.length > 0) {
-              process.stderr.write(
-                `[unerr] Session narrative: ${result.narratives.length} edits across ${result.filesModified.length} file(s)\n`
-              );
-            }
-          })
-          .catch(() => {});
-      }
-
-      // Sprint 5: Run session pattern analyzer at shutdown
-      if (proxyFactStore && ledgerStats.totalEntries > 0) {
-        try {
-          const { analyzeSessionPatterns } = await import(
-            "../intelligence/session-pattern-analyzer.js"
-          );
-          const entries = shadowLedger.getRecentEntries(100);
-          analyzeSessionPatterns({
-            ledgerEntries: entries,
-            factStore: proxyFactStore,
-            sessionId: shadowLedger.getSessionId(),
-          })
-            .then((analysisResult) => {
-              if (
-                analysisResult.factsCreated > 0 ||
-                analysisResult.factsReinforced > 0
-              ) {
-                process.stderr.write(
-                  `[unerr] Session analysis: ${analysisResult.factsCreated} facts learned, ${analysisResult.factsReinforced} reinforced\n`
-                );
-              }
-            })
-            .catch(() => {});
-        } catch {
-          // Pattern analysis is non-critical
-        }
-      }
-
       // Leapfrog Sprint B: Run correction detector on this session's ledger entries
       if (localGraph && ledgerStats.totalEntries > 0) {
         try {
@@ -5531,64 +4419,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             process.stderr.write(
               `[unerr] Learned ${patterns.length} correction pattern${patterns.length !== 1 ? "s" : ""} from this session\n`
             );
-
-            // Layer 9: Generate negative knowledge facts from corrections
-            try {
-              const factStoreForShutdown =
-                await getProxyFactStore(unerrDirForLedger);
-              if (factStoreForShutdown) {
-                const { generateFromNegativeKnowledge } = await import(
-                  "../intelligence/fact-generator.js"
-                );
-                const corrections = patterns.map((p, i) => ({
-                  id: `correction-${shadowLedger.getSessionId()}-${i}`,
-                  entityKey: p.entity_key,
-                  pattern: p.error_type,
-                  reason: p.correction_summary,
-                  detectedAt: p.last_seen,
-                  rewindEntryId: shadowLedger.getSessionId(),
-                  confidence: p.confidence,
-                }));
-                const negResult = await generateFromNegativeKnowledge(
-                  factStoreForShutdown,
-                  corrections
-                );
-                if (negResult.created > 0) {
-                  process.stderr.write(
-                    `[unerr] Fact generator: ${negResult.created} negative knowledge facts created\n`
-                  );
-                }
-              }
-            } catch {
-              // Non-critical — fact generation doesn't block shutdown
-            }
           }
         } catch {
           // Correction detection is non-critical — don't block shutdown
         }
-      }
-
-      // Layer 9: Run session analysis fact generation on shutdown
-      try {
-        const factStoreForSession = await getProxyFactStore(unerrDirForLedger);
-        if (factStoreForSession) {
-          const { runFactGenerationPipeline } = await import(
-            "../intelligence/fact-generator.js"
-          );
-          const pipelineResults = await runFactGenerationPipeline(
-            factStoreForSession,
-            unerrDirForLedger
-          );
-          for (const r of pipelineResults) {
-            if (r.created > 0 || r.reinforced > 0) {
-              process.stderr.write(
-                `[unerr] Fact generator [${r.source}]: ${r.created} created, ${r.reinforced} reinforced\n`
-              );
-            }
-          }
-        }
-      } catch {
-        // Non-critical — fact generation doesn't block shutdown
       }
 
       // Record orphaned intents (pending correlations that never got committed)

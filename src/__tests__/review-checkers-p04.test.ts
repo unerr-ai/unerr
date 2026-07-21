@@ -3,7 +3,6 @@ import type { LocalEntity } from "../intelligence/local-graph.js";
 import { ArchitectureBoundaryChecker } from "../review/checkers/architecture-boundary.js";
 import { ConventionRuleChecker } from "../review/checkers/convention-rule.js";
 import { IncompleteRefactorChecker } from "../review/checkers/incomplete-refactor.js";
-import { MemoryDriftChecker } from "../review/checkers/memory-drift.js";
 import { UntestedExportChecker } from "../review/checkers/untested-export.js";
 import {
   type ChangeEntity,
@@ -11,8 +10,6 @@ import {
   DEFAULT_REVIEW_CONFIG,
   type ReviewContext,
   type ReviewGraph,
-  type ReviewNote,
-  type ReviewNotes,
   type ReviewRuleViolation,
   type ReviewRules,
 } from "../review/types.js";
@@ -84,19 +81,11 @@ function ctx(
       source: "manual",
     },
     graph,
-    notes: over.notes ?? null,
     drift: over.drift ?? null,
     rules: over.rules ?? null,
     search: over.search ?? null,
     intent: over.intent ?? null,
     config: over.config ?? DEFAULT_REVIEW_CONFIG,
-  };
-}
-
-function fakeNotes(notes: ReviewNote[]): ReviewNotes {
-  return {
-    forAnchors: async (anchors) =>
-      notes.filter((n) => anchors.includes(n.anchor)),
   };
 }
 
@@ -271,65 +260,6 @@ describe("IncompleteRefactorChecker", () => {
             newContent: "function foo(a, b) {}",
           }),
         ],
-      })
-    );
-    expect(findings).toEqual([]);
-  });
-});
-
-// ── memory_drift ──────────────────────────────────────────────────────────────
-
-describe("MemoryDriftChecker", () => {
-  const decNote: ReviewNote = {
-    kind: "dec",
-    anchor: "e:k_foo",
-    polarity: "+",
-    content: "foo must stay synchronous for the hot path",
-  };
-
-  it("flags a changed entity governed by a dec note", async () => {
-    const findings = await new MemoryDriftChecker().check(
-      ctx(fakeGraph({}), {
-        entities: [changeEntity({ name: "foo", entityKey: "k_foo" })],
-        notes: fakeNotes([decNote]),
-      })
-    );
-    expect(findings).toHaveLength(1);
-    expect(findings[0]?.severity).toBe("medium");
-    expect(findings[0]?.checkerId).toBe("memory_drift");
-    expect(findings[0]?.title).toContain("dec");
-    expect(findings[0]?.evidence[0]).toContain(
-      "foo must stay synchronous for the hot path"
-    );
-  });
-
-  it("ignores non-governing note kinds (fct)", async () => {
-    const findings = await new MemoryDriftChecker().check(
-      ctx(fakeGraph({}), {
-        entities: [changeEntity({ name: "foo", entityKey: "k_foo" })],
-        notes: fakeNotes([{ ...decNote, kind: "fct" }]),
-      })
-    );
-    expect(findings).toEqual([]);
-  });
-
-  it("ignores added entities (no pre-existing decision to violate)", async () => {
-    const findings = await new MemoryDriftChecker().check(
-      ctx(fakeGraph({}), {
-        entities: [
-          changeEntity({ name: "foo", entityKey: "k_foo", kind: "added" }),
-        ],
-        notes: fakeNotes([decNote]),
-      })
-    );
-    expect(findings).toEqual([]);
-  });
-
-  it("stays silent when no notes layer is wired", async () => {
-    const findings = await new MemoryDriftChecker().check(
-      ctx(fakeGraph({}), {
-        entities: [changeEntity({ name: "foo", entityKey: "k_foo" })],
-        notes: null,
       })
     );
     expect(findings).toEqual([]);

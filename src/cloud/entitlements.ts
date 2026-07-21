@@ -368,8 +368,7 @@ export function effectiveTier(now: number = Date.now()): EffectiveTier {
  * (`resolveAuth()` in the drain loop), so this can return `true` for a
  * logged-out machine and the missing token still stops the push. The CLI-side
  * mirror of the server's `canPushTelemetry` (unerr-web-service
- * `lib/cli/entitlements.ts`), which likewise no longer gates on plan. Recall
- * (the paid differentiator) is gated separately by {@link canSyncRecall}.
+ * `lib/cli/entitlements.ts`), which likewise no longer gates on plan.
  *
  * @sem domain=cloud role=entitlement
  */
@@ -385,36 +384,14 @@ export function canPushTelemetry(now: number = Date.now()): boolean {
 }
 
 /**
- * May this machine sync recall (the anti-forgetting round-trip: surface,
- * dismiss, fetch, weekly recap) right now? Recall is the paid differentiator,
- * so unlike {@link canPushTelemetry} this DOES gate on plan: any paid plan may,
- * a free or logged-out machine may not, and `cloud_ingest: false` force-disables
- * it. This is the B5 pre-check that keeps a free user from a request the server
- * would answer `403`; the server's `requireRecall` stays the authoritative gate.
- *
- * @sem domain=cloud role=entitlement
- */
-export function canSyncRecall(now: number = Date.now()): boolean {
-  const tier = effectiveTier(now);
-  if (tier.plan === "free") return false;
-  // The verified claims carry the features map only while fresh or in grace;
-  // outside that window `tier.plan` is already "free", handled above.
-  const features =
-    tier.source === "fresh" || tier.source === "grace"
-      ? (readEntitlementCache()?.claims?.features ?? {})
-      : {};
-  return features.cloud_ingest !== false;
-}
-
-/**
  * May this machine view the cloud-served review prevention framing right now?
  * The deterministic `unerr review` engine always runs locally — this gates ONLY
  * the paid prevention recap (what was prevented + tokens_prevented) and the
- * cloud-served review surfaces, not the local report. Identical semantics to
- * {@link canSyncRecall}: any paid plan may, a free or logged-out machine may not,
- * and `cloud_ingest: false` force-disables it. The CLI-side mirror of the
- * server's `canViewReview` (unerr-web-service `lib/cli/entitlements.ts`); the
- * server's review-read endpoints stay the authoritative gate.
+ * cloud-served review surfaces, not the local report: any paid plan may, a
+ * free or logged-out machine may not, and `cloud_ingest: false` force-disables
+ * it. The CLI-side mirror of the server's `canViewReview` (unerr-web-service
+ * `lib/cli/entitlements.ts`); the server's review-read endpoints stay the
+ * authoritative gate.
  *
  * @sem domain=cloud role=entitlement
  */

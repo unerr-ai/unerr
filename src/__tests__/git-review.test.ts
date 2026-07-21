@@ -16,7 +16,6 @@ import type {
   CozoGraphStore,
   LocalEntity,
 } from "../intelligence/local-graph.js";
-import type { NotesStore } from "../intelligence/notes-store.js";
 import { defaultCheckers } from "../review/checkers/index.js";
 import { ReviewEngine } from "../review/engine.js";
 import {
@@ -25,7 +24,6 @@ import {
   collectStagedChangeFiles,
   isReviewableFile,
   parseRangeScope,
-  reviewNotesFromStore,
   reviewRulesFromGraph,
   reviewScopedChanges,
   reviewSearchFromGraph,
@@ -180,48 +178,6 @@ describe("reviewRulesFromGraph", () => {
   });
 });
 
-describe("reviewNotesFromStore", () => {
-  it("returns [] for an empty anchor list without touching the store", async () => {
-    let called = false;
-    const store = {
-      recallByAnchors: async () => {
-        called = true;
-        return { notes: [], anchors_queried: [] };
-      },
-    } as unknown as NotesStore;
-    expect(await reviewNotesFromStore(store).forAnchors([])).toEqual([]);
-    expect(called).toBe(false);
-  });
-
-  it("re-serialises stored notes to the wire-format anchor", async () => {
-    const store = {
-      recallByAnchors: async () => ({
-        notes: [
-          {
-            note_id: "n1",
-            kind: "rul",
-            anchor_type: "f",
-            anchor_value: "src/a.ts",
-            polarity: "-",
-            content: "no direct db access",
-          },
-        ],
-        anchors_queried: ["f:src/a.ts"],
-      }),
-    } as unknown as NotesStore;
-
-    const out = await reviewNotesFromStore(store).forAnchors(["f:src/a.ts"]);
-    expect(out).toEqual([
-      {
-        kind: "rul",
-        anchor: "f:src/a.ts",
-        polarity: "-",
-        content: "no direct db access",
-      },
-    ]);
-  });
-});
-
 describe("collectStagedChangeFiles (real git)", () => {
   let repo: string;
 
@@ -295,7 +251,6 @@ describe("collectStagedChangeFiles (real git)", () => {
       {
         changeSet,
         graph,
-        notes: null,
         drift: null,
         rules: null,
         search: null,

@@ -4,8 +4,7 @@
  * The Stop hook scrapes `unerr-save:` sentinels from the agent's closing message
  * (which it reads from the transcript the IDE points it at) and persists each
  * over the per-repo proxy socket — a subprocess→daemon hop, invisible to the
- * model's token budget. Notes route to `unerr_remember({type:"note"})`; the four
- * markers route to the matching `mark_*` tool.
+ * model's token budget. The four markers route to the matching `mark_*` tool.
  *
  * Same hard contract as the other UDS clients: NEVER throws, NEVER stalls. Every
  * failure (no socket, proxy down, bad reply) drops that save silently — it is
@@ -37,12 +36,6 @@ function toToolCall(save: SentinelSave): {
   name: string;
   arguments: Record<string, unknown>;
 } {
-  if (save.kind === "note") {
-    return {
-      name: "unerr_remember",
-      arguments: { type: "note", note: save.wire },
-    };
-  }
   const toolByOp: Record<string, string> = {
     intent: "mark_intent",
     decision: "mark_decision",

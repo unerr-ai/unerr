@@ -43,7 +43,6 @@ const AGENT_FACING_EMITTERS = [
   "src/commands/exec.ts",
   "src/hooks/navigation-hooks.ts",
   "src/review/checkers/untested-export.ts",
-  "src/intelligence/session-pattern-analyzer.ts",
   "src/proxy/tool-definitions.ts",
 ] as const;
 

@@ -25,7 +25,6 @@ import {
   DEFAULT_REVIEW_CONFIG,
   type ReviewFinding,
   type ReviewGraph,
-  type ReviewNotes,
   type ReviewRules,
   type ReviewSearch,
   type Severity,
@@ -69,7 +68,6 @@ export interface ReviewEditResult {
 
 /** Dependencies the proxy injects; all optional so the wire path degrades gracefully. */
 export interface ReviewEditDeps {
-  notes?: ReviewNotes | null;
   rules?: ReviewRules | null;
   search?: ReviewSearch | null;
   intent?: string | null;
@@ -160,7 +158,6 @@ export async function handleReviewEditRequest(
         source: "in_flight",
       },
       graph: reviewGraph,
-      notes: deps.notes ?? null,
       drift: null,
       rules: deps.rules ?? null,
       search: deps.search ?? null,

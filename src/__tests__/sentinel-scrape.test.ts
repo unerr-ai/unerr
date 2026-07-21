@@ -2,10 +2,9 @@
  * `unerr-save:` sentinel scrape guard (Phase-2 Sprint 7, T7.9).
  *
  * The Stop hook scrapes these from the agent's closing message and persists
- * them fire-and-forget — replacing the round-trip a Moment-4 `unerr_remember` /
- * `mark_*` tool call would cost. Locks: (1) only well-formed sentinels parse;
- * (2) note wires validate kind/anchor/polarity; (3) content may contain `|`;
- * (4) markers carry free text; (5) persist + transcript-read degrade safely.
+ * them fire-and-forget — replacing the round-trip a Moment-4 `mark_*` tool
+ * call would cost. Locks: (1) only well-formed sentinels parse; (2) markers
+ * carry free text; (3) persist + transcript-read degrade safely.
  */
 
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -20,45 +19,6 @@ import {
   parseSentinelBody,
   scrapeSentinels,
 } from "../hooks/sentinel-scrape.js";
-
-describe("scrapeSentinels — note form", () => {
-  it("parses a well-formed note wire", () => {
-    const msg = [
-      "Done. Here's what I changed.",
-      "unerr-save: note rul|f:src/proxy/bridge.ts|-|no intelligence imports",
-      "Cheers.",
-    ].join("\n");
-    expect(scrapeSentinels(msg)).toEqual([
-      {
-        kind: "note",
-        wire: "rul|f:src/proxy/bridge.ts|-|no intelligence imports",
-      },
-    ]);
-  });
-
-  it("keeps `|` inside content (only first 3 bars are separators)", () => {
-    const save = parseSentinelBody("note fct|e:dispatch|~|routes a|b|c by op");
-    expect(save).toEqual({
-      kind: "note",
-      wire: "fct|e:dispatch|~|routes a|b|c by op",
-    });
-  });
-
-  it("survives a leading list marker", () => {
-    const msg = "- unerr-save: dec|e:TURN_GAP|+|15s avoids RTT misclass";
-    expect(scrapeSentinels(msg)).toHaveLength(1);
-  });
-
-  it.each([
-    "note bad|f:x.ts|-|content", // invalid kind
-    "note rul|x.ts|-|content", //   anchor missing sigil
-    "note rul|f:x.ts|?|content", //  invalid polarity
-    "note rul|f:x.ts|-|", //         empty content
-    "note rul|f:x.ts", //            too few fields
-  ])("drops malformed note: %s", (body) => {
-    expect(parseSentinelBody(body)).toBeNull();
-  });
-});
 
 describe("scrapeSentinels — marker forms", () => {
   it("parses each of the four markers", () => {
@@ -154,9 +114,9 @@ describe("scrape→persist end-to-end shape (proxy-down)", () => {
   it("a closing message with mixed saves yields the parsed set", () => {
     const closing = [
       "Summary of work.",
-      "unerr-save: note wrn|g:*.test.ts|-|don't mock cozo db",
       "unerr-save: decision demote writes to hooks",
-      "garbage unerr-save: note bad", // dropped
+      "unerr-save: blocker proxy busy indexing during test",
+      "garbage unerr-save: ponder something", // dropped
     ].join("\n");
     const saves = scrapeSentinels(closing);
     expect(saves).toHaveLength(2);

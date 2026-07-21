@@ -68,7 +68,6 @@ function ctx(graph: ReviewGraph, entities: ChangeEntity[]): ReviewContext {
       source: "manual",
     },
     graph,
-    notes: null,
     drift: null,
     rules: null,
     search: null,

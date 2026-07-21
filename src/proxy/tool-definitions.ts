@@ -84,7 +84,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         query: {
           type: "string",
           description:
-            "A symbol OR a task. A bare name / partial / exact key ('compress', 'handleRequest', 'QueryRouter.dispatch') returns ranked entity matches. A task phrase ('add a retry to the boot path', 'where is retry handled') returns a recon bundle — anchored notes + focus entities + callers + conventions. Both return lean index by default (signatures, line ranges, caller counts; no full source). Drill down: use include_body:true to inline bodies, file_read({entity:'<key>'}) to read one entity, or cache_ref to pull a withheld body without recompute.",
+            "A symbol OR a task. A bare name / partial / exact key ('compress', 'handleRequest', 'QueryRouter.dispatch') returns ranked entity matches. A task phrase ('add a retry to the boot path', 'where is retry handled') returns a recon bundle — focus entities + callers (blast radius) + conventions. Both return lean index by default (signatures, line ranges, caller counts; no full source). Drill down: use include_body:true to inline bodies, file_read({entity:'<key>'}) to read one entity, or cache_ref to pull a withheld body without recompute.",
         },
         limit: {
           type: "number",
@@ -340,48 +340,30 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
     },
   },
 
-  // ── unerr_track — session markers + facts (op-union) ───────────────────
+  // ── unerr_track — session markers (op-union) ───────────────────────────
   unerr_track: {
     inputSchema: {
       type: "object",
       properties: {
         op: {
           type: "string",
-          enum: [
-            "intent",
-            "decision",
-            "blocker",
-            "resolution",
-            "fact",
-            "recall",
-          ],
+          enum: ["intent", "decision", "blocker", "resolution"],
           description:
-            "What to track. intent=task start (REQUIRED first on coding tasks); decision=deliberate choice; blocker=obstacle (returns marker_id); resolution=fix for a blocker; fact=record a project fact; recall=read stored facts for a scope.",
+            "What to track. intent=task start (REQUIRED first on coding tasks); decision=deliberate choice; blocker=obstacle (returns marker_id); resolution=fix for a blocker.",
         },
         text: {
           type: "string",
           description:
-            "Body for intent/decision/blocker, the fix for resolution, or the fact content for fact. ≤1400 chars.",
+            "Body for intent/decision/blocker, or the fix for resolution. ≤1400 chars.",
         },
         blocker_ref: {
           type: "string",
           description:
             "resolution only — the marker_id returned by the prior op:'blocker'.",
         },
-        scope: {
-          type: "string",
-          description: "fact/recall — file path, entity key, or 'project'.",
-        },
         target: {
           type: "string",
-          description:
-            "fact — the subject/entity the fact is about. blocker — optional file path where it surfaced.",
-        },
-        fact_type: {
-          type: "string",
-          enum: ["procedural", "semantic", "negative", "convention", "all"],
-          description:
-            "fact = procedural/semantic/negative/convention. recall = filter (or 'all').",
+          description: "blocker only — optional file path where it surfaced.",
         },
         alternatives: {
           type: "array",
@@ -393,19 +375,13 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
       required: ["op"],
     },
     annotations: {
-      title: "Track session markers + facts",
+      title: "Track session markers",
       readOnlyHint: false,
       openWorldHint: false,
     },
   },
 
-  // unerr_remember has no schema entry (removed 2026-06): it left the catalog
-  // when its two write paths moved to hooks — user rules are captured at
-  // UserPromptSubmit (remember-client.ts), agent notes ride the `unerr-save:`
-  // Stop-hook sentinel (sentinel-persist.ts). Both clients dispatch it BY NAME
-  // over UDS `tools/call`; the proxy's by-name switch matches it regardless of
-  // catalog membership, and its payload union was always enforced at handler
-  // dispatch, never by this schema table.
+  // unerr_remember has no schema entry: removed.
 };
 
 /**

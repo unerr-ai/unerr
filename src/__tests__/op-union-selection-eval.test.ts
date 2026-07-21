@@ -9,8 +9,8 @@
  *  1. Parity — the schema's advertised `op` enum equals the routable op set
  *     exactly. An op the model can pick but the translator can't route (or a
  *     routable op the model can't see) is a selection bug.
- *  2. Coverage — the six ops form a bijection onto exactly the six demoted
- *     legacy write tools. No legacy write is unreachable; no op is a dead end.
+ *  2. Coverage — the four ops form a bijection onto exactly the four demoted
+ *     legacy marker tools. No legacy write is unreachable; no op is a dead end.
  *  3. Mapping — a labeled corpus of realistic save phrasings, each with the op a
  *     well-prompted agent should pick, routes to the intended legacy tool. This
  *     is the spot-eval record: if a phrasing's intended op ever changes, this
@@ -27,7 +27,7 @@ import {
 import { TRACK_OPS, translateUnerrTrack } from "../proxy/unerr-track.js";
 
 /**
- * The six legacy write tools the union folds in. After the token-overhead
+ * The four legacy marker tools the union folds in. After the token-overhead
  * deletion these were physically REMOVED from the catalog (TIER_ENTRIES) —
  * they are no longer present-but-hidden, they are simply absent. They stay
  * reachable ONLY via the unerr_track op-union translation (and the hook UDS
@@ -38,21 +38,17 @@ const LEGACY_WRITE_TOOLS = [
   "mark_decision",
   "mark_blocker",
   "mark_resolution",
-  "record_fact",
-  "recall_facts",
 ] as const;
 
 function routedTool(op: string): string | null {
   // Supply a superset of every op's required fields so a valid op never
-  // returns {error} for a missing field — the fact op needs fact_type+target
-  // on top of text+scope, recall needs scope, resolution needs blocker_ref.
+  // returns {error} for a missing field — resolution needs blocker_ref,
+  // blocker's target doubles as file_path.
   const out = translateUnerrTrack({
     op,
     text: "x",
     blocker_ref: "m_1",
-    scope: "project",
     target: "src/x.ts",
-    fact_type: "convention",
   });
   return "name" in out ? out.name : null;
 }
@@ -84,13 +80,13 @@ describe("op-union selection — schema/translation parity (T8.5)", () => {
 });
 
 describe("op-union selection — coverage (bijection onto legacy writes)", () => {
-  it("the six ops map onto exactly the six demoted legacy write tools", () => {
+  it("the four ops map onto exactly the four demoted legacy marker tools", () => {
     const routed = new Set(TRACK_OPS.map((op) => routedTool(op)));
     expect([...routed].sort()).toEqual([...LEGACY_WRITE_TOOLS].sort());
   });
 
   it("each legacy write target is itself demoted (advertised only via unerr_track)", () => {
-    // The six legacy writes are NOT catalog members — they were physically
+    // The four legacy writes are NOT catalog members — they were physically
     // removed from TIER_ENTRIES, so they appear in neither the advertised set
     // nor the full catalog. They remain valid translation targets (above), so
     // the only reach is the op-union (and the hook UDS path).
@@ -131,17 +127,6 @@ describe("op-union selection — mapping corpus (the spot-eval record)", () => {
       op: "resolution",
       tool: "mark_resolution",
     },
-    {
-      scenario:
-        "this project routes all CozoDB access through await — never sync",
-      op: "fact",
-      tool: "record_fact",
-    },
-    {
-      scenario: "what do we already know about the bridge isolation invariant?",
-      op: "recall",
-      tool: "recall_facts",
-    },
   ];
 
   it("covers every op at least once (corpus is exhaustive over the surface)", () => {
@@ -153,9 +138,7 @@ describe("op-union selection — mapping corpus (the spot-eval record)", () => {
       op,
       text: "body",
       blocker_ref: "m_1",
-      scope: "project",
       target: "src/x.ts",
-      fact_type: "convention",
     });
     expect("name" in out && out.name).toBe(tool);
   });

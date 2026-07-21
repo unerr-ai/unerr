@@ -3,12 +3,10 @@
  *
  * The commit gate (`check-commit`) and the on-demand command (`unerr review`)
  * both run in short-lived CLI processes with no warm proxy attached, so they
- * must load the CozoDB graph + anchored-notes store themselves. This is the
- * single place that does it, so both surfaces degrade identically:
- *   - no `.unerr/config.json` repoId, or no snapshot → graph `null`
- *     (entity-bound checkers stay silent; file-level checkers still run)
- *   - no `.unerr/facts.db` → notes `null` (memory-drift stays silent; never
- *     creates facts.db just to read)
+ * must load the CozoDB graph themselves. This is the single place that does
+ * it, so both surfaces degrade identically: no `.unerr/config.json` repoId,
+ * or no snapshot → graph `null` (entity-bound checkers stay silent; file-level
+ * checkers still run).
  *
  * Never throws — a missing or corrupt store yields `null`, per the §9
  * false-positive discipline (a missing store produces silence, not a guess).
@@ -18,8 +16,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CozoGraphStore } from "../intelligence/local-graph.js";
 import { loadLocalSnapshot } from "../intelligence/local-snapshot.js";
-import { reviewNotesFromStore } from "./git-review.js";
-import type { ReviewNotes } from "./types.js";
 
 /**
  * Exit a standalone review CLI (`check-commit` / `unerr review`) promptly once
@@ -101,29 +97,6 @@ export async function loadStandaloneGraph(
 
     const loaded = await loadLocalSnapshot(cwd, graph);
     return loaded ? graph : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Open the anchored-notes store from `.unerr/facts.db` (the memory-drift
- * checker's evidence) when it already exists. Returns `null` (checker silent)
- * when facts.db is absent or unreadable — never creates facts.db to read it.
- */
-export async function loadStandaloneNotes(
-  cwd: string,
-  sessionId = "review"
-): Promise<ReviewNotes | null> {
-  const factsDbPath = join(cwd, ".unerr", "facts.db");
-  if (!existsSync(factsDbPath)) return null;
-  try {
-    const { TemporalFactStore } = await import(
-      "../intelligence/temporal-facts.js"
-    );
-    const { NotesStore } = await import("../intelligence/notes-store.js");
-    const factStore = await TemporalFactStore.create(cwd);
-    return reviewNotesFromStore(new NotesStore(factStore.getDb()), sessionId);
   } catch {
     return null;
   }

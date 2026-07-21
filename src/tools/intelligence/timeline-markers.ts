@@ -7,10 +7,8 @@
  *   2. Mirrors a row into `timeline.db.markers` for indexed lookup
  *      (open-threads, intent rail, future miners).
  *
- * Layer 9 modules (`session-narrative`, `session-pattern-analyzer`,
- * `fact-generator`, `temporal-facts`) are NOT touched. They remain agnostic to
- * markers — if Layer 9 wants to prefer marker `text` over its scraped 30 s
- * window later, that's a separate change owned by Layer 9.
+ * `temporal-facts` (the surviving Layer 9 store) is not touched by markers —
+ * this module only writes the ledger + timeline.db, agnostic to facts.
  *
  * Text cap: all four markers accept ≤ 1400 chars (~2-3 sentences). The cap is
  * a generous storage ceiling, not a style guide — agents should still write

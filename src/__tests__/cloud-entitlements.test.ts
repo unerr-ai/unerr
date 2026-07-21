@@ -300,7 +300,7 @@ describe("cloud entitlements", () => {
     });
   });
 
-  // ── canViewReview (mirrors canSyncRecall: paid-only, force-disable) ──
+  // ── canViewReview (paid-only, force-disable) ──
   describe("canViewReview", () => {
     const writeFor = (claims: EntitlementClaims, maxServerTimeMs: number) => {
       writeEntitlementCache({

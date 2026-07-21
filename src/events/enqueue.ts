@@ -10,8 +10,8 @@
  * per-repo proxy and the bridge — it pulls only node builtins, the L2 store, and
  * the contract's schema-version constant (no intelligence/tracking/cloud imports,
  * so `bridge-isolation.test.ts` stays green). Policy that is NOT envelope-stamping
- * — the `canSyncRecall` gate on full fact bodies, HR-2 anchor hashing — lives at
- * the producer call site, not here, to keep this module a leaf.
+ * — HR-2 anchor hashing — lives at the producer call site, not here, to keep
+ * this module a leaf.
  *
  * // @sem domain=telemetry role=producer
  */

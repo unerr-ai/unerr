@@ -78,7 +78,6 @@ function ctx(
       source: "manual",
     },
     graph,
-    notes: null,
     drift: null,
     rules: null,
     search: over.search ?? null,

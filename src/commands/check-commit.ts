@@ -44,7 +44,6 @@ import { reviewStagedChanges } from "../review/git-review.js";
 import {
   exitStandaloneReview,
   loadStandaloneGraph,
-  loadStandaloneNotes,
 } from "../review/standalone-load.js";
 import {
   type ReviewFinding,
@@ -198,11 +197,10 @@ async function runCheckCommit(opts: CheckCommitOpts): Promise<void> {
   }
 
   // ── Run the engine over the staged diff ──────────────────────
-  const notes = await loadStandaloneNotes(cwd, "review-gate");
   const { report, filesReviewed } = await reviewStagedChanges(
     cwd,
     localGraph,
-    { notes },
+    {},
     { minSeverity: DISPLAY_FLOOR }
   );
 

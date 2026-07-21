@@ -1,7 +1,7 @@
 /**
  * `unerr_track` op-union translation guard (Phase-2 Sprint 8).
  *
- * The union multiplexes 6 legacy write tools through one `op` param. This locks
+ * The union multiplexes 4 marker-write tools through one `op` param. This locks
  * the translation contract: each op maps to the right legacy (name, args), the
  * flat union surface maps onto the legacy shapes, and a bad op is rejected
  * (everything else defers to legacy boundary validation).
@@ -70,54 +70,6 @@ describe("translateUnerrTrack — op routing", () => {
     });
   });
 
-  it("fact → record_fact, text→content + target→subject", () => {
-    expect(
-      translateUnerrTrack({
-        op: "fact",
-        text: "all cozo access is async",
-        fact_type: "convention",
-        scope: "src/intelligence/local-graph.ts",
-        target: "CozoGraphStore",
-      })
-    ).toEqual({
-      name: "record_fact",
-      args: {
-        content: "all cozo access is async",
-        fact_type: "convention",
-        scope: "src/intelligence/local-graph.ts",
-        subject: "CozoGraphStore",
-      },
-    });
-  });
-
-  it("recall → recall_facts({scope, fact_type?})", () => {
-    expect(
-      translateUnerrTrack({ op: "recall", scope: "project", fact_type: "all" })
-    ).toEqual({
-      name: "recall_facts",
-      args: { scope: "project", fact_type: "all" },
-    });
-    expect(translateUnerrTrack({ op: "recall", scope: "project" })).toEqual({
-      name: "recall_facts",
-      args: { scope: "project" },
-    });
-  });
-
-  it("recall forwards limit (the wire-cap pagination hint names it)", () => {
-    expect(
-      translateUnerrTrack({ op: "recall", scope: "project", limit: 10 })
-    ).toEqual({
-      name: "recall_facts",
-      args: { scope: "project", limit: 10 },
-    });
-    // non-numeric / non-positive limit is dropped, not forwarded
-    expect(
-      translateUnerrTrack({ op: "recall", scope: "project", limit: "10" })
-    ).toEqual({ name: "recall_facts", args: { scope: "project" } });
-    expect(
-      translateUnerrTrack({ op: "recall", scope: "project", limit: 0 })
-    ).toEqual({ name: "recall_facts", args: { scope: "project" } });
-  });
 });
 
 describe("translateUnerrTrack — invalid op", () => {

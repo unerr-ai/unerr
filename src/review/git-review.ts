@@ -4,11 +4,11 @@
  *
  * The review ENGINE is process-agnostic and depends only on the narrow
  * structural surfaces in `types.ts`. THIS module is the orchestrator that
- * bridges the concrete stores (`CozoGraphStore`, `NotesStore`) into those
- * narrow surfaces and assembles a `ChangeSet` from a git state (the staged
- * index, today; an arbitrary range, for Surface C). It is the single wiring
- * point both the commit gate (`check-commit`) and the on-demand command reuse,
- * so a finding is byte-identical whichever surface produced it.
+ * bridges the concrete store (`CozoGraphStore`) into those narrow surfaces
+ * and assembles a `ChangeSet` from a git state (the staged index, today; an
+ * arbitrary range, for Surface C). It is the single wiring point both the
+ * commit gate (`check-commit`) and the on-demand command reuse, so a finding
+ * is byte-identical whichever surface produced it.
  *
  * Standalone-safe: the commit gate runs in a short-lived CLI process with no
  * proxy attached, so every dependency degrades to `null` (the matching checker
@@ -18,7 +18,6 @@
 
 import { extname } from "node:path";
 import type { CozoGraphStore } from "../intelligence/local-graph.js";
-import type { NotesStore } from "../intelligence/notes-store.js";
 import { defaultCheckers } from "./checkers/index.js";
 import { ReviewEngine } from "./engine.js";
 import {
@@ -29,8 +28,6 @@ import {
   DEFAULT_REVIEW_CONFIG,
   type ReviewConfig,
   type ReviewGraph,
-  type ReviewNote,
-  type ReviewNotes,
   type ReviewReport,
   type ReviewRules,
   type ReviewSearch,
@@ -108,35 +105,6 @@ export function reviewSearchFromGraph(graph: CozoGraphStore): ReviewSearch {
         });
       }
       return out;
-    },
-  };
-}
-
-/**
- * `ReviewNotes` over the anchored-notes store. `forAnchors` reads active
- * (non-superseded) notes for the wire-format anchors and re-serialises each to
- * the DSL anchor the memory-drift checker matches on. A synthetic `session_id`
- * keeps the store's per-session counter honest without a live agent session.
- */
-export function reviewNotesFromStore(
-  store: NotesStore,
-  sessionId = "review-gate"
-): ReviewNotes {
-  return {
-    async forAnchors(anchors) {
-      if (anchors.length === 0) return [];
-      const result = await store.recallByAnchors({
-        anchors,
-        session_id: sessionId,
-      });
-      return result.notes.map(
-        (n): ReviewNote => ({
-          kind: n.kind,
-          anchor: `${n.anchor_type}:${n.anchor_value}`,
-          polarity: n.polarity,
-          content: n.content,
-        })
-      );
     },
   };
 }
@@ -262,8 +230,6 @@ export async function buildChangeSet(
 // ── Orchestration ───────────────────────────────────────────────────────────
 
 export interface GitReviewDeps {
-  /** Anchored-notes surface (memory-drift checker). `null` → checker silent. */
-  notes?: ReviewNotes | null;
   /** Session intent, used as Tier-2 evidence. */
   intent?: string | null;
 }
@@ -315,10 +281,10 @@ const EMPTY_REVIEW_GRAPH: ReviewGraph = {
  * Run the full Tier-1 checker set over an already-collected set of changed
  * files. The single engine-wiring point both the staged and range scopes (and
  * the commit gate) share: when a graph is present it powers the entity-bound
- * checkers and (via adapters) the rule + search surfaces; `deps.notes` powers
- * memory-drift. A `null` graph degrades the whole graph-backed layer to silence
- * (§9 false-positive discipline) while file-level checkers still fire. Always
- * resolves — an empty file set yields a clean report.
+ * checkers and (via adapters) the rule + search surfaces. A `null` graph
+ * degrades the whole graph-backed layer to silence (§9 false-positive
+ * discipline) while file-level checkers still fire. Always resolves — an
+ * empty file set yields a clean report.
  */
 async function runReviewOnChangeFiles(
   files: ChangeFile[],
@@ -337,7 +303,6 @@ async function runReviewOnChangeFiles(
     {
       changeSet,
       graph: reviewGraph,
-      notes: deps.notes ?? null,
       drift: null,
       rules: graph ? reviewRulesFromGraph(graph) : null,
       search: graph ? reviewSearchFromGraph(graph) : null,

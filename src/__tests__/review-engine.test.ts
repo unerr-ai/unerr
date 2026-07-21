@@ -34,7 +34,6 @@ function ctx(config: Partial<ReviewConfig> = {}): ReviewContext {
   return {
     changeSet: emptyChangeSet,
     graph: emptyGraph,
-    notes: null,
     drift: null,
     rules: null,
     search: null,

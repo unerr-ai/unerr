@@ -19,7 +19,6 @@
  * be broken by this layer.
  */
 
-import type { PendingConfirmationRegistry } from "../intelligence/pending-confirmations.js";
 import type { BehaviorEventWriter } from "../tracking/behavior-events.js";
 import { noteTurnContent, shouldUseAmbientMarker } from "./ambient-marker.js";
 import { renderContextPrefaceLive } from "./context-preface.js";
@@ -39,11 +38,6 @@ export interface UserBlockContext {
   toolCallCount: number;
   /** Repo-relative or absolute path the call touched; null when N/A. */
   filePath: string | null;
-  /** Optional pending-confirmation registry. When set, any pending entry
-   *  for this session is surfaced as a "please confirm" line in the
-   *  preface so the user sees the question instead of the agent silently
-   *  carrying an ambiguous note. */
-  pendingConfirmations?: PendingConfirmationRegistry;
   /** True when the proxy was resumed from a prior session. The resume
    *  strip is spliced onto userBlock.head on the FIRST call of the
    *  session — once per process. Pulled from `stats.isResumedSession`. */

@@ -3,7 +3,7 @@
  *
  * `defaultCheckers()` is the canonical Tier-1 set the engine registers. Phases
  * append here: P0.3 breaking_callers + blast_radius; P0.4 wraps existing logic
- * (architecture_boundary, convention_rule, incomplete_refactor, memory_drift,
+ * (architecture_boundary, convention_rule, incomplete_refactor,
  * untested_export); P0.5 adds duplicate_logic, secret_scan, dead_code.
  */
 
@@ -15,7 +15,6 @@ import { ConventionRuleChecker } from "./convention-rule.js";
 import { DeadCodeChecker } from "./dead-code.js";
 import { DuplicateLogicChecker } from "./duplicate-logic.js";
 import { IncompleteRefactorChecker } from "./incomplete-refactor.js";
-import { MemoryDriftChecker } from "./memory-drift.js";
 import { SecretScanChecker } from "./secret-scan.js";
 import { UntestedExportChecker } from "./untested-export.js";
 
@@ -26,7 +25,6 @@ export { ConventionRuleChecker } from "./convention-rule.js";
 export { DeadCodeChecker } from "./dead-code.js";
 export { DuplicateLogicChecker } from "./duplicate-logic.js";
 export { IncompleteRefactorChecker } from "./incomplete-refactor.js";
-export { MemoryDriftChecker } from "./memory-drift.js";
 export { SecretScanChecker } from "./secret-scan.js";
 export {
   bodyTokens,
@@ -45,7 +43,6 @@ export function defaultCheckers(): ReviewChecker[] {
     new ArchitectureBoundaryChecker(),
     new BlastRadiusChecker(),
     new ConventionRuleChecker(),
-    new MemoryDriftChecker(),
     new DuplicateLogicChecker(),
     new UntestedExportChecker(),
     new DeadCodeChecker(),

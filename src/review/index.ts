@@ -17,7 +17,6 @@ export {
   DuplicateLogicChecker,
   IncompleteRefactorChecker,
   jaccardSimilarity,
-  MemoryDriftChecker,
   resolveChangedEntity,
   SecretScanChecker,
   UntestedExportChecker,
@@ -37,7 +36,6 @@ export {
   type GitReviewOutcome,
   isReviewableFile,
   parseRangeScope,
-  reviewNotesFromStore,
   reviewRulesFromGraph,
   reviewScopedChanges,
   reviewSearchFromGraph,
@@ -59,10 +57,7 @@ export {
   type ReviewReportView,
   summarizeReviewReport,
 } from "./report.js";
-export {
-  loadStandaloneGraph,
-  loadStandaloneNotes,
-} from "./standalone-load.js";
+export { loadStandaloneGraph } from "./standalone-load.js";
 export {
   buildSynthesisBlock,
   formatEvidenceContext,
@@ -85,8 +80,6 @@ export {
   type ReviewDrift,
   type ReviewFinding,
   type ReviewGraph,
-  type ReviewNote,
-  type ReviewNotes,
   type ReviewReport,
   type ReviewRules,
   type ReviewRuleViolation,
