@@ -107,44 +107,74 @@ export function registerIndexCommand(program: Command): void {
           "../intelligence/local-indexer.js"
         );
 
-        const result = await indexLocalProject(
-          projectRoot,
-          graphStore,
-          repoId,
-          {
-            verbose: opts.verbose,
+        // The cozo db runs in a Worker thread (createGraphDb → CozoWorkerClient),
+        // which keeps this process's event loop alive until it is terminated.
+        // `unerr index` is a one-shot command, so on EVERY exit path we close the
+        // db (graceful cozo close + worker.terminate via close()) and exit
+        // explicitly — otherwise the process hangs on the live worker after
+        // indexing finishes until an external `timeout` SIGKILLs it (observed
+        // ~407s of dead wait per invocation in the benchmark harness, on top of
+        // ~193s of real work). The `await closeDb()` before each exit also lets
+        // stdout flush the --json line first, so process.exit() can't truncate it.
+        const closeDb = async (): Promise<void> => {
+          try {
+            await (db as { close?: () => Promise<void> }).close?.();
+          } catch {
+            /* best-effort — worker may already be gone */
           }
-        );
+        };
 
-        // Output results
-        if (opts.json) {
-          process.stdout.write(
-            JSON.stringify({
-              status: "indexed",
-              reindexed: true,
-              fileCount: result.fileCount,
-              entityCount: result.entityCount,
-              edgeCount: result.edgeCount,
-              communityCount: result.communityCount,
-              patternCount: result.patternCount,
-              ruleCount: result.ruleCount,
-              elapsedMs: result.elapsedMs,
-            })
+        try {
+          const result = await indexLocalProject(
+            projectRoot,
+            graphStore,
+            repoId,
+            {
+              verbose: opts.verbose,
+            }
           );
-          process.stdout.write("\n");
-        } else {
-          process.stderr.write(`\n[unerr] Indexed ${result.fileCount} files\n`);
-          process.stderr.write(`  Entities:    ${result.entityCount}\n`);
-          process.stderr.write(`  Edges:       ${result.edgeCount}\n`);
-          process.stderr.write(`  Communities: ${result.communityCount}\n`);
+
+          // Output results
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({
+                status: "indexed",
+                reindexed: true,
+                fileCount: result.fileCount,
+                entityCount: result.entityCount,
+                edgeCount: result.edgeCount,
+                communityCount: result.communityCount,
+                patternCount: result.patternCount,
+                ruleCount: result.ruleCount,
+                elapsedMs: result.elapsedMs,
+              })
+            );
+            process.stdout.write("\n");
+          } else {
+            process.stderr.write(
+              `\n[unerr] Indexed ${result.fileCount} files\n`
+            );
+            process.stderr.write(`  Entities:    ${result.entityCount}\n`);
+            process.stderr.write(`  Edges:       ${result.edgeCount}\n`);
+            process.stderr.write(`  Communities: ${result.communityCount}\n`);
+            process.stderr.write(
+              `  Conventions: ${result.patternCount} patterns, ${result.ruleCount} rules\n`
+            );
+            process.stderr.write(`  Time:        ${result.elapsedMs}ms\n`);
+            process.stderr.write(
+              "\n[unerr] Graph persisted to .unerr/graph.db — available instantly on next boot.\n"
+            );
+          }
+        } catch (err) {
+          await closeDb();
           process.stderr.write(
-            `  Conventions: ${result.patternCount} patterns, ${result.ruleCount} rules\n`
+            `[unerr] index failed: ${err instanceof Error ? err.message : String(err)}\n`
           );
-          process.stderr.write(`  Time:        ${result.elapsedMs}ms\n`);
-          process.stderr.write(
-            "\n[unerr] Graph persisted to .unerr/graph.db — available instantly on next boot.\n"
-          );
+          process.exit(1);
         }
+
+        await closeDb();
+        process.exit(0);
       }
     );
 }
