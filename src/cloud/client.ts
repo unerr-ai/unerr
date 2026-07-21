@@ -49,12 +49,6 @@ const DISCONNECT_PATH = "/api/v1/cli/machine/disconnect";
  */
 const INGEST_PATH = "/api/v1/cli/ingest";
 /**
- * The anti-forgetting (spaced-recall) machine-token surface. `GET` lists the
- * caller's due/unanswered prompts; `POST` answers one. Both are paid-gated and
- * self-scoped server-side (the cookie routes `/api/recall/*` stay web-only).
- */
-const SYNC_RECALL_PATH = "/api/v1/cli/sync/recall";
-/**
  * Server-model review request (P8 — built, DORMANT). The CLI POSTs a change set
  * + intent; the server runs unerr's server-side review models and returns
  * findings. unerr has no server review model wired today, so the endpoint is a
@@ -204,52 +198,6 @@ export interface Entitlements {
   [key: string]: unknown;
 }
 
-/**
- * One unanswered recall prompt from `GET /api/v1/cli/sync/recall`. The
- * anti-forgetting loop (C5) renders these as "3 weeks ago you chose X — still
- * remember why?". `due_at` may be `null`. `decision_ref` ties the prompt back
- * to a server-side decision record. Self-scoped to the token's user.
- */
-export interface RecallPrompt {
-  id: string;
-  prompt: string;
-  decision_ref: string | null;
-  due_at: string | null;
-  created_at: string;
-  [key: string]: unknown;
-}
-
-/** Body of `GET /api/v1/cli/sync/recall` — `{ prompts: [...] }`. */
-export interface RecallPromptList {
-  prompts: RecallPrompt[];
-}
-
-/**
- * The server's answer to `POST /api/v1/cli/sync/recall` — `{ answer_id,
- * prompt_id, remembered }`. `answer_id` is the server's id for the stored
- * answer; the CLI's idempotency key (`client_answer_id`) is what we SEND, not
- * what comes back.
- */
-export interface RecallAnswerAck {
-  answer_id: string;
-  prompt_id: string;
-  remembered: boolean;
-  [key: string]: unknown;
-}
-
-/**
- * The POST body for a recall answer. `client_answer_id` is a CLI-stable
- * UUIDv5 (never random) so a retried / spool-redrained answer upserts and
- * writes ONCE (B4-client). `note` is optional, ≤2048 chars, code-stripped
- * client-side (HR-2) — never raw code.
- */
-export interface RecallAnswerInput {
-  prompt_id: string;
-  remembered: boolean;
-  note?: string;
-  client_answer_id: string;
-}
-
 export interface CloudClientOptions {
   /** Base URL, e.g. `https://app.unerr.dev`. Trailing slash trimmed. */
   apiUrl: string;
@@ -380,38 +328,6 @@ export class CloudClient {
    */
   async ingest(events: unknown[]): Promise<CloudResult<BatchAck>> {
     return this.postBatch(INGEST_PATH, { events });
-  }
-
-  /**
-   * `GET /api/v1/cli/sync/recall` — the caller's unanswered recall prompts,
-   * due/oldest first, self-scoped to the token's user. Paid-gated server-side;
-   * the caller pre-checks `canSyncRecall()` so a free machine never reaches
-   * here. `due_at` may be `null`. Drives the anti-forgetting loop (C5).
-   */
-  async getRecallPrompts(): Promise<CloudResult<RecallPromptList>> {
-    return this.request<RecallPromptList>(SYNC_RECALL_PATH, {
-      method: "GET",
-      auth: true,
-    });
-  }
-
-  /**
-   * `POST /api/v1/cli/sync/recall` — answer one recall prompt. The body's
-   * `client_answer_id` is a CLI-stable UUIDv5 (never random): the server
-   * UPSERTS on it, so a retried / spool-redrained answer writes ONCE
-   * (B4-client; idempotent against the P0/S3 upsert). An unknown / foreign
-   * `prompt_id` → `404`. `note` (when present) is already code-stripped (HR-2).
-   * Retries `429`/`503` via `BATCH_RETRY`; `404`/`403` stay terminal.
-   */
-  async postRecallAnswer(
-    answer: RecallAnswerInput
-  ): Promise<CloudResult<RecallAnswerAck>> {
-    return this.request<RecallAnswerAck>(SYNC_RECALL_PATH, {
-      method: "POST",
-      auth: true,
-      body: answer,
-      retry: BATCH_RETRY,
-    });
   }
 
   /**
