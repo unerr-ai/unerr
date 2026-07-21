@@ -18,7 +18,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { CONTRACT_TEACHING_BLOCK } from "../intelligence/contract-teaching.js";
 import { REVIEWER_AGENT_ENABLED } from "../skills/junior-agent.js";
 import type { IdeType } from "../utils/detect.js";
 import { getAgent } from "./agent-registry.js";
@@ -151,21 +150,19 @@ Lines starting \`unerr » \` are user-facing telemetry — never echo or act on 
 
 ### Persisting + markers (zero round-trip)
 
-User rules ("remember", "always", "from now on", "never") are captured automatically by the prompt hook — no tool call. Emit session markers as \`unerr-save:\` lines in your closing message (the Stop hook persists them):
+When the user states a durable rule ("remember", "always", "never", "from now on"), a hook nudge fires — write the rule verbatim into this repo's CLAUDE.md (or the agent's instruction file) immediately; unerr does not store user rules. Emit session markers as \`unerr-save:\` lines in your closing message (the Stop hook persists them):
 
 \`\`\`
 unerr-save: intent <what this turn does, ≤80 chars>   (REQUIRED first on coding tasks)
 unerr-save: decision <a deliberate choice> · blocker <obstacle> · resolution <fix>
-unerr-save: note <kind|anchor|polarity|content>        (an anchored note — DSL below)
 \`\`\`
 
-When you need a return value (a blocker's \`marker_id\`), call \`unerr_track({op:'intent'|'decision'|'blocker'|'resolution'|'fact'|'recall', text:'<one-line>'})\`.
+When you need a return value (a blocker's \`marker_id\`), call \`unerr_track({op:'intent'|'decision'|'blocker'|'resolution', text:'<one-line>'})\`.
 
 ### Fallback to built-ins / Bash for code — only when
 
 unerr MCP is unavailable (not responding / erroring) · a non-text binary (image, PDF). For any code read, search, or edit there is always an unerr tool — use it, never bash/grep/cat.
-${maintenanceSection}
-${CONTRACT_TEACHING_BLOCK}`;
+${maintenanceSection}`;
 }
 
 /**

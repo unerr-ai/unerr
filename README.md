@@ -216,16 +216,16 @@ Every turn opens with one line naming what unerr brought in and closes with one 
 </p>
 
 <p align="center">
-  <img src="https://unerr.dev/open-cli/screenshots/project-memory.png" alt="unerr project memory — anchored notes and facts unerr kept for this repo across sessions" width="400" />
+  <img src="https://unerr.dev/open-cli/screenshots/project-memory.png" alt="unerr session journal — dated activity markers and conventions detected for this repo" width="400" />
   <img src="https://unerr.dev/open-cli/screenshots/activity.png" alt="unerr activity feed — what unerr caught and surfaced live as the agent worked" width="400" />
-  <br/><sub><strong>Memory & activity</strong> · what unerr remembered for this repo across sessions, and a live feed of what it caught and surfaced as the agent worked.</sub>
+  <br/><sub><strong>Session journal & activity</strong> · the dated record of what happened in this repo across sessions, and a live feed of what it caught and surfaced as the agent worked.</sub>
 </p>
 
 ---
 
 ## You today, your team soon
 
-Today unerr is the local runtime behind the agents **you** run: the code map, the seven MCP tools, all the in-loop behaviors, memory, and the dashboard — local, no account needed, across your tools and your repos.
+Today unerr is the local runtime behind the agents **you** run: the code map, the seven MCP tools, all the in-loop behaviors, the dated session journal, and the dashboard — local, no account needed, across your tools and your repos.
 
 The same runtime extends to your whole team — one shared view across every engineer's agents — and that's **arriving soon.** Your individual setup carries straight over; there's nothing to redo when it lands. For platform and engineering leads, that's Datadog-style visibility and control across every agent your team runs: what they cost, what they changed, and whether the team is building capability or dependency — in one place, and without code or prompts ever leaving your engineers' machines.
 
@@ -233,9 +233,9 @@ The same runtime extends to your whole team — one shared view across every eng
 |---|---|---|
 | Code map, the 7 MCP tools, all in-loop behaviors | ✓ | ✓ |
 | Output trimming + savings receipts, hooks, skills, every agent | ✓ | ✓ |
-| Memory, conventions, dashboard for your own work | ✓ | ✓ |
+| Session journal, conventions, dashboard for your own work | ✓ | ✓ |
 | One continuous thread across the agents and repos you run | ✓ | ✓ |
-| Conventions and memory **shared** across the team | | ✓ soon |
+| Conventions and the session journal **shared** across the team | | ✓ soon |
 | Edit-time behaviors **enforceable** org-wide (block / approve) | | ✓ soon |
 | One rolled-up view of what the whole team's agents spend and catch | | ✓ soon |
 
@@ -245,7 +245,7 @@ The individual product works with no account and no network, forever. Follow [un
 
 ## Logging in (optional)
 
-Logging in is optional and the bare runtime — code map, memory, the guards — works fully without it. Today it connects this machine to your account and tells the CLI which plan you're on; it's also the identity your team's shared view is built on.
+Logging in is optional and the bare runtime — code map, session journal, the guards — works fully without it. Today it connects this machine to your account and tells the CLI which plan you're on; it's also the identity your team's shared view is built on.
 
 ```bash
 unerr login      # connect this machine — opens your browser to approve
@@ -281,7 +281,7 @@ One local process per repo. You don't have to think about any of this to use it 
 | The piece | What's in it | What it gives the agent |
 |---|---|---|
 | **A live map of your code** | CozoDB · tree-sitter · SCIP-verified call data · 18+ languages · sub-5ms lookups | Before any file read, the agent gets the 50 lines that matter and the list of what depends on them — not 3,000 lines and a guess. |
-| **Memory tied to the code** | typed facts · conventions auto-detected once a pattern holds ≥70% of the time · confidence that decays over time | Every saved fact is pinned to a real file or function. When that code moves, the fact flags itself instead of quietly going wrong. |
+| **Dated session journal + conventions detected from source** | intent / decision / blocker / resolution markers, date-stamped · conventions auto-detected once a pattern holds ≥70% of the time | Every marker is a past-tense, date-stamped record — it never asserts a present truth that can go stale. Conventions re-derive from source on every reindex, so they can't drift out of date. |
 | **The right slice, delivered automatically** | shell-output trimming (645+ command types) · web pages fetched at 5–10× less bulk · function-targeted file reads | The relevant piece shows up the moment the agent reads — it never has to remember which tool to reach for. |
 | **The behaviors that catch problems** | breaking-change guard · convention-slip guard · retry-loop breaker · session continuity · auto-doc · change narrative · architecture guard | Each fires on a combination of the three above, *at the moment of the edit* — not as a tool the agent picked, not as a review after the fact. |
 
@@ -301,7 +301,7 @@ AI Agent (Claude Code / Cursor / Windsurf / any MCP client)
     │                                       │
     │                                       └── per-repo unerr process(es)
     │                                              ├── CozoDB graph     (in-process, <5ms)
-    │                                              ├── Fact store       (cross-session memory)
+    │                                              ├── Session journal  (dated markers + traces)
     │                                              ├── Timeline + ledger (every tool call)
     │                                              ├── File watcher     (incremental reindex)
     │                                              ├── Convention engine
@@ -344,10 +344,10 @@ No lock-in: any `@sem` domain comments unerr's agent adds are plain comments —
 
 Grouped by what the agent gets, not by file:
 
-- **Reads (6)** — `search_code` (ranked entity search; `detail:true` resolves one entity — signature plus callers / callees / imports in the same call), `file_outline` (structure without body), `file_read` (context-aware, auto-injects conventions, facts, and drift), `get_references` (callers or callees — catches indirect refs grep misses), `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache — replaces built-in WebFetch), and `unerr_context` (one call that folds anchored notes + search + references + conventions for what you're about to edit).
-- **Memory & session (1)** — `unerr_track` (one op-union call for intent / decision / blocker / resolution / fact / recall — powers turn titles and the cross-session resume strip).
+- **Reads (6)** — `search_code` (ranked entity search; `detail:true` resolves one entity — signature plus callers / callees / imports in the same call), `file_outline` (structure without body), `file_read` (context-aware, auto-injects conventions and drift), `get_references` (callers or callees — catches indirect refs grep misses), `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache — replaces built-in WebFetch), and `unerr_context` (one call that folds search + references + conventions for what you're about to edit).
+- **Session journal (1)** — `unerr_track` (one op-union call for intent / decision / blocker / resolution — powers turn titles and the dated session journal).
 
-Persistence costs zero tool calls: a UserPromptSubmit hook captures user-stated rules ("remember this", "always X") automatically, and agent notes + session markers ride a `unerr-save:` sentinel in the closing message that a Stop hook scrapes and persists. On Claude Code the rest of the always-on ceremony runs automatically: the prompt hook injects recalled notes, a PostToolUse hook injects detected conventions on the first file read, and the Stop hook prints the turn close-out — all at zero extra round-trip.
+Persistence costs zero tool calls: a UserPromptSubmit hook fires when the user states a durable rule ("remember this", "always X") — the agent writes it straight into the instruction file, unerr itself stores nothing — and agent notes + session markers ride a `unerr-save:` sentinel in the closing message that a Stop hook scrapes and persists. On Claude Code the rest of the always-on ceremony runs automatically: a PostToolUse hook injects detected conventions on the first file read, and the Stop hook prints the turn close-out — all at zero extra round-trip.
 
 Every response carries inline `ur|<tag>` signals for high-priority guidance — drift, breaking-change warnings, loop-breaker halts — so the agent acts on what it just learned without burning a turn.
 
