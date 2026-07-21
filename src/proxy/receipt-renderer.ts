@@ -17,7 +17,7 @@
  * Bullets are ranked by DIFFERENTIATION, not raw token count (the headline
  * already carries the token number). Priority tiers, highest first:
  * prevention/interjection (blocked a call, caught a stale edit, broke a loop)
- * → 3-way join → recalled/captured rules → drift → large file-read gated →
+ * → recalled/captured rules → drift → large file-read gated →
  * commodity compressions (shell, graph lookups). Within a tier, the largest
  * saver leads. Trivial shell compressions (< SHELL_BULLET_MIN_SAVED) are
  * suppressed entirely. Capped at 3 with a `+N more` overflow tail.
@@ -58,7 +58,6 @@ const MAX_CMD_CHARS = 48;
  *   PREVENTION — unerr actively stopped a mistake (blocked/warned a call,
  *                caught a stale edit, guarded a cascade, broke a retry loop).
  *                Rarest + highest stakes; nothing else does this.
- *   JOIN       — 3-way cross-tier join (journal → graph → drift). Very rare.
  *   JOURNAL    — a dated past incident resurfaced (trace recall) + session
  *                markers. Core unerr value.
  *   DRIFT      — stale-code drift caught and applied.
@@ -70,7 +69,6 @@ const MAX_CMD_CHARS = 48;
  */
 const PRIORITY = {
   PREVENTION: 0,
-  JOIN: 1,
   JOURNAL: 2,
   DRIFT: 3,
   FILE_READ: 4,
@@ -298,19 +296,6 @@ function contextBundleBullet(turnEvents: readonly NamedEvent[]): Bullet | null {
   return {
     text: `${what}  (~${formatTokens(saved)} modeled)`,
     priority: PRIORITY.COMMODITY,
-    weight: 0,
-  };
-}
-
-/** Three-way cross-tier join (journal + graph + drift on one entity) — the
- *  rarest, most differentiated signal. Named entity required. */
-function joinBullet(joins: RuntimeJoinCounts): Bullet | null {
-  if (joins.three_way <= 0) return null;
-  const entity = joins.entities.find((e) => e.length > 0);
-  if (!entity) return null;
-  return {
-    text: `connected your journal → the graph → live drift on ${baseName(entity)}  (3-way join)`,
-    priority: PRIORITY.JOIN,
     weight: 0,
   };
 }
@@ -712,7 +697,6 @@ function renderFilesChanged(turnEvents: readonly NamedEvent[]): string[] {
 function renderTurnLines(inputs: ReceiptBlockInputs): string[] {
   const {
     attribution,
-    runtimeJoins,
     turnTokensSaved,
     sessionTokensSaved,
     sessionHeadroom,
@@ -722,14 +706,12 @@ function renderTurnLines(inputs: ReceiptBlockInputs): string[] {
   const preventions = collectPreventions(turnEvents);
 
   // Collect every candidate bullet, each tagged with its priority tier. The
-  // differentiated signals (prevention/interjection, join, memory, drift) rank
+  // differentiated signals (prevention/interjection, journal, drift) rank
   // ABOVE commodity compressions (shell, graph) — the headline already carries
   // the raw token number, so the bullets lead with what only unerr does. A
   // single (priority asc, weight desc) sort then picks the scarce slots.
   const candidates: Bullet[] = [];
   candidates.push(...preventionBullets(turnEvents));
-  const jb = joinBullet(runtimeJoins);
-  if (jb) candidates.push(jb);
   const rb = recallBullet(attribution.recalls[0]);
   if (rb) candidates.push(rb);
   for (const d of attribution.drift) candidates.push(driftBullet(d));
@@ -793,14 +775,6 @@ function renderSingleLine(inputs: ReceiptBlockInputs): string[] {
   const sess = bucketizeSession(inputs.sessionHighlights ?? []);
   const segs: string[] = [];
   if (sess.prevented.total > 0) segs.push(`prevented ${sess.prevented.total}`);
-  // "recalled" counts only fact_recalled events — NOT the whole Remembered
-  // bucket (which also holds stored notes, resumed sessions, applied
-  // conventions). Summing those under "recalled" overstates and mislabels
-  // stored/resumed work as recall.
-  const recalled = (inputs.sessionHighlights ?? [])
-    .filter((h) => h.event_type === "fact_recalled")
-    .reduce((n, h) => n + h.count, 0);
-  if (recalled > 0) segs.push(`recalled ${recalled}`);
   if (inputs.sessionTokensSaved > 0) {
     const room =
       inputs.sessionHeadroom > 0

@@ -10,9 +10,7 @@ const emptyAttribution: ReceiptAttribution = {
 };
 
 const noJoins: RuntimeJoinCounts = {
-  memory_to_graph: 0,
   graph_to_drift: 0,
-  three_way: 0,
   entities: [],
 };
 
@@ -185,31 +183,6 @@ describe("renderReceiptBlock — narrative redesign", () => {
     expect(lines).toContain(
       "  ◆ looked up callers of compressShellOutput (+1 more)  (graph)"
     );
-  });
-
-  it("surfaces a 3-way join as the lead qualitative bullet, naming the entity", () => {
-    const lines = renderReceiptBlock({
-      attribution: {
-        recalls: [{ count: 2 }],
-        drift: [],
-      },
-      runtimeJoins: {
-        memory_to_graph: 1,
-        graph_to_drift: 1,
-        three_way: 1,
-        entities: ["src/proxy/shell-compressor.ts"],
-      },
-      turnTokensSaved: 0,
-      sessionTokensSaved: 0,
-      sessionHeadroom: 0,
-      turnEvents: [],
-      fallbackLine: "",
-    });
-    // join bullet outranks the recall bullet.
-    expect(lines[1]).toBe(
-      "  ◆ connected your journal → the graph → live drift on shell-compressor.ts  (3-way join)"
-    );
-    expect(lines[2]).toContain("resurfaced");
   });
 
   it("caps bullets at 3 and reports the rest as +N more in the footer", () => {
@@ -418,12 +391,6 @@ describe("renderReceiptBlock — State 3 session recap fold-in", () => {
       count: 1,
       phrasing: "stale code edit",
     },
-    { event_type: "fact_recalled", count: 12, phrasing: "remembered notes" },
-    {
-      event_type: "fact_stored_user_fed",
-      count: 2,
-      phrasing: "notes from you",
-    },
     {
       event_type: "convention_applied",
       count: 3,
@@ -449,9 +416,7 @@ describe("renderReceiptBlock — State 3 session recap fold-in", () => {
     expect(text).toContain(
       "Prevented   5 likely breakages — 4 risky cascading edits, 1 stale code edit"
     );
-    expect(text).toContain(
-      "Journal     12 remembered notes · 2 notes from you · 3 project conventions"
-    );
+    expect(text).toContain("Journal     3 project conventions");
     expect(text).toContain("Saved       48k tokens  (~9 turns of extra room)");
   });
 
@@ -501,7 +466,11 @@ describe("renderReceiptBlock — State 3 session recap fold-in", () => {
       fallbackLine: "unerr » session: 5k saved",
       recapTurn: true,
       sessionHighlights: [
-        { event_type: "fact_recalled", count: 3, phrasing: "remembered notes" },
+        {
+          event_type: "convention_applied",
+          count: 3,
+          phrasing: "conventions applied",
+        },
       ],
     });
     expect(lines[0]).toBe(
@@ -528,16 +497,11 @@ describe("renderReceiptBlock — single-line fallback", () => {
           count: 6,
           phrasing: "risky cascading edits",
         },
-        {
-          event_type: "fact_recalled",
-          count: 12,
-          phrasing: "remembered notes",
-        },
       ],
     });
     expect(lines).toHaveLength(1);
     expect(lines[0]).toBe(
-      "unerr » session: prevented 6 · recalled 12 · saved 48k tokens (~9 turns)"
+      "unerr » session: prevented 6 · saved 48k tokens (~9 turns)"
     );
   });
 });

@@ -10,10 +10,9 @@
  *
  * This module is the pure ordering contract those guarantees rest on. It is the
  * canonical encoding of the total order documented in
- * `.internal/roadmap/S2_PREFIX_AUDIT.md` (§3). A later integration agent (T2.3,
- * T2.4) calls these from `recall-client.ts` (notes), `conventions-client.ts`
- * (conventions), and `response-envelope.ts` (`ur|<tag>` lines). This wave only
- * fixes and tests the contract — nothing live is wired yet.
+ * `.internal/roadmap/S2_PREFIX_AUDIT.md` (§3). Wired live from
+ * `conventions-client.ts` (conventions) and `response-envelope.ts`
+ * (`ur|<tag>` lines).
  *
  * HARD CONTRACT (enforced by `prefix-order.test.ts`):
  *   - Pure: no I/O, no clock (`Date`/`Date.now`), no `Math.random`, no module
@@ -23,15 +22,6 @@
  *     final tiebreaker), so a shuffled input yields the one canonical order.
  *   - No float, clock, or random field is ever used as an order key.
  */
-
-/** A recalled / anchored note, ordered by anchor → kind → id|content. */
-export interface OrderableNote {
-  anchor: string;
-  kind: string;
-  /** Stable note id when present; ordering falls back to `content` without it. */
-  id?: string;
-  content: string;
-}
 
 /** A `ur|<tag>` signal line, ordered by fixed priority bucket then body text. */
 export interface OrderableTag {
@@ -106,26 +96,6 @@ function cmpStr(a: string, b: string): number {
 }
 
 /**
- * Deterministic total order for recalled / anchored notes: anchor → kind →
- * id (or content when no id). Non-mutating; returns a new array. The *set* of
- * notes stays per-prompt, but for a fixed set the byte order is now fixed.
- */
-export function orderNotes<T extends OrderableNote>(notes: readonly T[]): T[] {
-  return [...notes].sort((a, b) => {
-    const byAnchor = cmpStr(a.anchor, b.anchor);
-    if (byAnchor !== 0) return byAnchor;
-    const byKind = cmpStr(a.kind, b.kind);
-    if (byKind !== 0) return byKind;
-    const aTie = a.id ?? a.content;
-    const bTie = b.id ?? b.content;
-    const byTie = cmpStr(aTie, bTie);
-    if (byTie !== 0) return byTie;
-    // Final fallback so the order is total even when id and content collide.
-    return cmpStr(a.content, b.content);
-  });
-}
-
-/**
  * Deterministic total order for `ur|<tag>` lines: fixed priority bucket
  * (act → ctx → rsk → fct → generic) then body text. Putting the highest
  * priority first makes the downstream `MAX_SIGNAL_LINES` cap keep the same
@@ -182,7 +152,7 @@ function isVolatileBlock(block: PrefixBlock): boolean {
  * Partition injected blocks into the stable (cacheable, emitted first) region
  * and the volatile (per-turn, append-only) region. Returns stable-first; each
  * side preserves the caller's relative order (the within-side canonical order
- * is the job of `orderNotes`/`orderTags`/`orderConventions`). Pure: no clock,
+ * is the job of `orderTags`/`orderConventions`). Pure: no clock,
  * no I/O, no mutation of the input.
  *
  * Invariant the test pins: no block carrying a clock/run/count field (or marked

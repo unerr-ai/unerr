@@ -5,7 +5,7 @@
  * summarizing what context was loaded into the agent's working memory
  * for this turn:
  *
- *   - facts loaded  (temporal-facts auto-injected this session)
+ *   - facts loaded  (conventions/session-resume events recorded this session)
  *   - supplements   (drift overlays, outlines, recalls)
  *   - steering      (active `ur|<tag>` translated to user prose)
  *
@@ -17,8 +17,8 @@
  *
  * Phase 1 contract — additive only. This module:
  *   - reads named events via the Sprint 1 projection (`readNamedEvents`);
- *   - reads nothing else (no temporal-facts write, no drift-tracker
- *     write, no signal-queue mutation);
+ *   - reads nothing else (no drift-tracker write, no signal-queue
+ *     mutation);
  *   - never modifies any existing row, writer, or reader.
  *
  * Anatomy of the preface (1–3 lines, ≤80 tokens):
@@ -87,12 +87,10 @@ function approxTokens(s: string): number {
 }
 
 /**
- * Named-event types that count as "facts loaded into context this turn"
- * for preface purposes. Includes recall hits and stored facts that were
- * applied during preamble.
+ * Named-event types that count as "context loaded this turn" for preface
+ * purposes: conventions applied during preamble and cross-session resume.
  */
-const FACT_LOADED_TYPES: ReadonlySet<string> = new Set([
-  "fact_recalled",
+const CONTEXT_LOADED_TYPES: ReadonlySet<string> = new Set([
   "convention_applied",
   "cross_session_resume",
 ]);
@@ -112,10 +110,10 @@ const SUPPLEMENT_TYPES: ReadonlySet<string> = new Set([
 
 /**
  * Summarize a slice of NamedEvents (already filtered to one bucket —
- * facts or supplements) into a comma-separated phrase. Empty events →
- * empty string.
+ * context-loaded or supplements) into a comma-separated phrase. Empty
+ * events → empty string.
  *
- *   [fact_recalled, fact_recalled] → "2 facts recalled"
+ *   [convention_applied, convention_applied] → "2 project conventions"
  *   [full_read_avoided, cascade_warning_consumed]
  *     → "1 file read, 1 cascade warning"
  */
@@ -151,7 +149,9 @@ export function summarizePrefaceEvents(events: NamedEvent[]): string {
 export function renderContextPreface(inputs: ContextPrefaceInputs): string[] {
   const { turnIndex, events, steering = "", isFreshSession, topFile } = inputs;
 
-  const factEvents = events.filter((e) => FACT_LOADED_TYPES.has(e.event_type));
+  const factEvents = events.filter((e) =>
+    CONTEXT_LOADED_TYPES.has(e.event_type)
+  );
   const supplementEvents = events.filter((e) =>
     SUPPLEMENT_TYPES.has(e.event_type)
   );

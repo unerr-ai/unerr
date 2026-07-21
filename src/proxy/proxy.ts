@@ -517,13 +517,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // factories and the shutdown path can checkpoint+truncate its WAL (the
   // `dbPath` destructured below is block-scoped to the open-db try).
   let graphDbPath: string | null = null;
-  // Absolute paths to the two other cozo-managed dbs (facts.db / timeline.db).
-  // cozo-node@0.7.6 exposes no pragma/checkpoint API, so their WAL is truncated
-  // out of band: once at boot (a guaranteed reader gap before cozo opens them)
-  // and periodically while live via a detached TRUNCATE. Without this they are
-  // never checkpointed and their WAL grows unbounded (observed: facts.db-wal at
-  // 24MB). Hoisted so the periodic timer and shutdown can reach them.
-  let factsDbPath: string | null = null;
+  // Absolute path to the other cozo-managed db (timeline.db).
+  // cozo-node@0.7.6 exposes no pragma/checkpoint API, so its WAL is truncated
+  // out of band: once at boot (a guaranteed reader gap before cozo opens it)
+  // and periodically while live via a detached TRUNCATE. Without this it is
+  // never checkpointed and its WAL grows unbounded. Hoisted so the periodic
+  // timer and shutdown can reach it.
   let timelineDbPath: string | null = null;
   let walCheckpointInterval: ReturnType<typeof setInterval> | null = null;
   let parseIndex: import("./auto-bootstrap.js").ParseModeIndex | null = null;
@@ -567,24 +566,21 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       graphDbPath = dbPath;
       graphWasNew = isNew;
 
-      // facts.db / timeline.db are cozo-managed and otherwise never
-      // checkpointed, so their WAL grows unbounded across sessions. Reset any
-      // WAL left by the previous session NOW — cozo's pools for these dbs are
-      // not open yet (the fact store is lazy; the timeline subsystem starts
-      // later), so this is a guaranteed reader gap and TRUNCATE succeeds. Then
-      // a detached TRUNCATE every few minutes bounds within-session growth by
-      // catching live reader gaps. Best-effort: checkpointWal swallows errors
-      // and a not-yet-created db is a no-op.
-      factsDbPath = join(projectRoot, ".unerr", "facts.db");
+      // timeline.db is cozo-managed and otherwise never checkpointed, so its
+      // WAL grows unbounded across sessions. Reset any WAL left by the
+      // previous session NOW — cozo's pool for this db is not open yet (the
+      // timeline subsystem starts later), so this is a guaranteed reader gap
+      // and TRUNCATE succeeds. Then a detached TRUNCATE every few minutes
+      // bounds within-session growth by catching live reader gaps.
+      // Best-effort: checkpointWal swallows errors and a not-yet-created db
+      // is a no-op.
       timelineDbPath = join(projectRoot, ".unerr", "timeline.db");
       const { checkpointWal, checkpointWalDetached } = await import(
         "../intelligence/persistent-db.js"
       );
-      await checkpointWal(factsDbPath);
       await checkpointWal(timelineDbPath);
       const WAL_CHECKPOINT_INTERVAL_MS = 3 * 60_000;
       walCheckpointInterval = setInterval(() => {
-        if (factsDbPath) checkpointWalDetached(factsDbPath);
         if (timelineDbPath) checkpointWalDetached(timelineDbPath);
         // graph.db also rides the periodic checkpoint, not only the
         // post-reindex one. A reindex-triggered checkpoint that runs DURING a
@@ -605,7 +601,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // then the old proxy has exited and this proxy's readers are idle, so the
       // leftover (already-folded, zero-live-frame) WAL reclaims in seconds.
       const earlyWalCheckpoint = setTimeout(() => {
-        if (factsDbPath) checkpointWalDetached(factsDbPath);
         if (timelineDbPath) checkpointWalDetached(timelineDbPath);
         if (graphDbPath) checkpointWalDetached(graphDbPath);
       }, 15_000);
@@ -1640,7 +1635,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
   // Emit a single cross_session_resume event at boot when this proxy run
   // is resuming a prior session. Drives Surface 1 attribution + footer
-  // ("loaded earlier session") and the engagement-telemetry resume bucket.
+  // ("loaded earlier session").
   if (stats.isResumedSession && stats.previousSession) {
     behaviorEventWriter.record({
       session_id: behaviorEventWriter.sessionId,
@@ -3656,7 +3651,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           `Post-index DriftTracker init failed: ${err instanceof Error ? err.message : String(err)}`
         );
       });
-
     };
 
     // Full reindex: the BackgroundIndexer + ora spinner path (L11.1/L11.3).
@@ -4500,7 +4494,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       if (timelineSignalPruneInterval) {
         clearInterval(timelineSignalPruneInterval);
       }
-      // Stop the periodic facts.db / timeline.db WAL checkpoint timer.
+      // Stop the periodic timeline.db WAL checkpoint timer.
       if (walCheckpointInterval) {
         clearInterval(walCheckpointInterval);
       }

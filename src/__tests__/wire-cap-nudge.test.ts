@@ -88,7 +88,6 @@ describe("wire-cap pagination hint — concrete next cursor", () => {
     expect(pageHint).toMatch(/:\d+/);
     expect(pageHint).not.toMatch(/:N(\s|\/|$)/);
   });
-
 });
 
 describe("wire-cap fetch_url too_large hint", () => {

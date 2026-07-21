@@ -6,11 +6,7 @@ import {
   recordCacheRetrieve,
   resolveCacheRef,
 } from "../proxy/cache-retrieve.js";
-import {
-  orderConventions,
-  orderNotes,
-  orderTags,
-} from "../proxy/prefix-order.js";
+import { orderConventions, orderTags } from "../proxy/prefix-order.js";
 import { buildSignalPrefix } from "../proxy/response-envelope.js";
 import {
   getSharedReversibleCache,
@@ -117,19 +113,6 @@ describe("prefix ordering helpers produce stable bytes across two calls", () => 
     expect(a).toBe(b);
     // act (bucket 0) must precede fct (bucket 3).
     expect(a.indexOf("act")).toBeLessThan(a.indexOf("fct"));
-  });
-
-  it("orderNotes: same set in any input order → identical serialization", () => {
-    const notes = [
-      { anchor: "f:b.ts", kind: "rul", content: "two" },
-      { anchor: "f:a.ts", kind: "cnv", content: "one" },
-      { anchor: "f:a.ts", kind: "cnv", content: "alpha" },
-    ];
-    const ser = (ns: typeof notes) =>
-      orderNotes(ns)
-        .map((n) => `${n.anchor}|${n.kind}|${n.content}`)
-        .join("\n");
-    expect(ser(notes)).toBe(ser([...notes].reverse()));
   });
 
   it("orderConventions: order is by name, NOT by a drifting float", () => {

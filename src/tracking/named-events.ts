@@ -219,9 +219,9 @@ function phrasingFor(eventType: string): PhrasingRow {
 export type ReportBucket = "prevented" | "remembered" | "saved";
 
 /** event_type → bucket for non-tokenflow events. Events absent here carry no
- *  user-facing value (neutral/skipped markers such as fact_capture_abandoned,
- *  confirmation_expired, presence_ambient_marker, defuddle_selector_skipped)
- *  and are excluded from the report. */
+ *  user-facing value (neutral/skipped markers such as confirmation_expired,
+ *  presence_ambient_marker, defuddle_selector_skipped) and are excluded from
+ *  the report. */
 const EVENT_BUCKET: Record<string, ReportBucket> = {
   // Prevented — a guardrail acted on a likely failure.
   cascade_guard: "prevented",
@@ -235,9 +235,6 @@ const EVENT_BUCKET: Record<string, ReportBucket> = {
   drift_consumed: "prevented",
   cascade_warning_consumed: "prevented",
   // Remembered — knowledge recalled or stored.
-  fact_recalled: "remembered",
-  fact_stored_user_fed: "remembered",
-  fact_stored_auto: "remembered",
   convention_applied: "remembered",
   cross_session_resume: "remembered",
   resume_blockers_surfaced: "remembered",

@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   type OrderableConvention,
-  type OrderableNote,
   type OrderableTag,
   type PrefixBlock,
   orderConventions,
-  orderNotes,
   orderTags,
   splitStableVolatile,
 } from "../proxy/prefix-order.js";
@@ -26,50 +24,6 @@ function shuffle<T>(input: readonly T[], seed: number): T[] {
   }
   return arr;
 }
-
-describe("orderNotes", () => {
-  const notes: OrderableNote[] = [
-    { anchor: "f:src/b.ts", kind: "rul", id: "n3", content: "z rule" },
-    { anchor: "f:src/a.ts", kind: "wrn", id: "n2", content: "a warn" },
-    { anchor: "f:src/a.ts", kind: "cnv", id: "n1", content: "a conv" },
-    { anchor: "e:Foo", kind: "dec", id: "n0", content: "foo decision" },
-    { anchor: "f:src/a.ts", kind: "cnv", id: "n4", content: "a conv 2" },
-  ];
-
-  it("orders by anchor → kind → id", () => {
-    const out = orderNotes(notes).map((n) => n.id);
-    // e:Foo < f:src/a.ts < f:src/b.ts (byte-wise). Within f:src/a.ts: cnv < wrn,
-    // and the two cnv break by id n1 < n4.
-    expect(out).toEqual(["n0", "n1", "n4", "n2", "n3"]);
-  });
-
-  it("is deterministic: same input twice → identical order", () => {
-    expect(orderNotes(notes)).toEqual(orderNotes(notes));
-  });
-
-  it("is canonical: any shuffle → the same order", () => {
-    const canonical = orderNotes(notes).map((n) => n.id);
-    for (let seed = 1; seed <= 20; seed++) {
-      expect(orderNotes(shuffle(notes, seed)).map((n) => n.id)).toEqual(
-        canonical
-      );
-    }
-  });
-
-  it("falls back to content when id is absent", () => {
-    const noId: OrderableNote[] = [
-      { anchor: "f:x.ts", kind: "fct", content: "zebra" },
-      { anchor: "f:x.ts", kind: "fct", content: "apple" },
-    ];
-    expect(orderNotes(noId).map((n) => n.content)).toEqual(["apple", "zebra"]);
-  });
-
-  it("does not mutate the input array", () => {
-    const copy = [...notes];
-    orderNotes(notes);
-    expect(notes).toEqual(copy);
-  });
-});
 
 describe("orderTags", () => {
   const tags: OrderableTag[] = [

@@ -169,11 +169,11 @@ describe("context-preface", () => {
   describe("summarizePrefaceEvents", () => {
     it("groups by type with count + naive plural", () => {
       const out = summarizePrefaceEvents([
-        makeEvent({ event_type: "fact_recalled" }),
-        makeEvent({ event_type: "fact_recalled" }),
         makeEvent({ event_type: "convention_applied" }),
+        makeEvent({ event_type: "convention_applied" }),
+        makeEvent({ event_type: "full_read_avoided" }),
       ]);
-      expect(out).toBe("2 remembered notes, 1 project convention");
+      expect(out).toBe("2 project conventions, 1 compact file read");
     });
 
     it("returns empty string for empty input", () => {
@@ -198,34 +198,34 @@ describe("context-preface", () => {
       expect(lines).toEqual(["starting fresh — nothing loaded yet"]);
     });
 
-    it("describes facts loaded when fact_recalled events are present", () => {
+    it("describes context loaded when convention events are present", () => {
       const lines = renderContextPreface({
         turnIndex: 1,
         events: [
-          makeEvent({ event_type: "fact_recalled" }),
-          makeEvent({ event_type: "fact_recalled" }),
+          makeEvent({ event_type: "convention_applied" }),
+          makeEvent({ event_type: "convention_applied" }),
         ],
       });
-      expect(lines[0]).toBe("loaded for this turn: 2 remembered notes");
+      expect(lines[0]).toBe("loaded for this turn: 2 project conventions");
     });
 
     it("appends a supplements line when supplement events are present", () => {
       const lines = renderContextPreface({
         turnIndex: 1,
         events: [
-          makeEvent({ event_type: "fact_recalled" }),
+          makeEvent({ event_type: "convention_applied" }),
           makeEvent({ event_type: "full_read_avoided" }),
         ],
       });
       expect(lines).toHaveLength(2);
-      expect(lines[0]).toBe("loaded for this turn: 1 remembered note");
+      expect(lines[0]).toBe("loaded for this turn: 1 project convention");
       expect(lines[1]).toBe("also added: 1 compact file read");
     });
 
     it("appends a steering line when steering is non-empty", () => {
       const lines = renderContextPreface({
         turnIndex: 1,
-        events: [makeEvent({ event_type: "fact_recalled" })],
+        events: [makeEvent({ event_type: "convention_applied" })],
         steering: "call get_references({direction:'callers'}) before edit",
       });
       expect(lines).toHaveLength(2);
@@ -235,7 +235,7 @@ describe("context-preface", () => {
     it("ignores empty steering strings", () => {
       const lines = renderContextPreface({
         turnIndex: 1,
-        events: [makeEvent({ event_type: "fact_recalled" })],
+        events: [makeEvent({ event_type: "convention_applied" })],
         steering: "   ",
       });
       expect(lines).toHaveLength(1);

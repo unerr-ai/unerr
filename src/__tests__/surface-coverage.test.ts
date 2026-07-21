@@ -152,7 +152,7 @@ describe("Phase 4 Sprint 14 — surface coverage matrix", () => {
       const lines = renderContextPreface({
         turnIndex: 0,
         events: [
-          makeNamedEvent({ event_type: "fact_recalled", file_path: null }),
+          makeNamedEvent({ event_type: "convention_applied", file_path: null }),
         ],
       });
       // Bare lines (no `unerr » ` prefix yet) — buildUserBlock adds it.
@@ -200,7 +200,7 @@ describe("Phase 4 Sprint 14 — surface coverage matrix", () => {
       const inputs = {
         turnIndex: 1,
         events: [
-          makeNamedEvent({ event_type: "fact_recalled", file_path: null }),
+          makeNamedEvent({ event_type: "convention_applied", file_path: null }),
         ],
       };
       const reference = renderContextPreface(inputs);
