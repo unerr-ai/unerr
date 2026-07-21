@@ -29,6 +29,7 @@ import {
   normalizeAgentName,
 } from "../config/agent-registry.js";
 import {
+  addAgentToolAllows,
   addDisallowedTools,
   getUnerrBinary,
   mergePreToolUseBashHook,
@@ -68,6 +69,9 @@ export interface InstallResult {
   instructionPath: string;
   /** Number of legacy unerr `permissions.deny` entries (Read/Grep/Glob) stripped. */
   legacyDeniesRemoved: number;
+  /** Number of unerr sub-agent tool grants added to `permissions.allow`
+   *  (`.claude/settings.local.json`) so worker/junior sub-agents run unprompted. */
+  agentToolAllowsAdded: number;
   repoRegistered?: boolean;
 }
 
@@ -222,6 +226,13 @@ export function registerInstallCommand(program: Command): void {
         if (result.legacyDeniesRemoved > 0) {
           process.stderr.write(
             "  \x1b[38;2;52;211;153m✓\x1b[0m Cleared legacy Grep/Glob force-deny (searches now route to search_code)\n"
+          );
+        }
+
+        // Sub-agent tools pre-approved so worker/junior delegation runs unprompted.
+        if (result.agentToolAllowsAdded > 0) {
+          process.stderr.write(
+            "  \x1b[38;2;52;211;153m✓\x1b[0m Sub-agent tools pre-approved → .claude/settings.local.json (worker/junior run without permission prompts)\n"
           );
         }
 
@@ -411,6 +422,19 @@ export async function runInstall(
     }
   }
 
+  // 6b. Pre-approve unerr's sub-agent tool set (Claude Code only) in
+  // `.claude/settings.local.json` so `unerr-worker` / `unerr-junior` sub-agents
+  // don't prompt on every Bash/Read/Write/MCP call. The allow-list is inherited
+  // by Task sub-agents; `--dangerously-skip-permissions` is not. On by default.
+  let agentToolAllowsAdded = 0;
+  if (ide === "claude-code") {
+    try {
+      agentToolAllowsAdded = addAgentToolAllows(cwd).added;
+    } catch {
+      // Non-blocking
+    }
+  }
+
   // 7. Best-effort, silent pre-warm: if the process manager is already running,
   //    register the repo and ask it to spin up the per-repo process so the next
   //    IDE connect is instant. If the manager isn't running, do nothing — the
@@ -443,6 +467,7 @@ export async function runInstall(
     instructionsInjected,
     instructionPath,
     legacyDeniesRemoved,
+    agentToolAllowsAdded,
     repoRegistered,
   };
 }

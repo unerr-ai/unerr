@@ -7,7 +7,13 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 
 /** Hook event type. */
@@ -394,6 +400,195 @@ export function removeDisallowedTools(cwd: string): boolean {
       Reflect.deleteProperty(permissions, "deny");
     if (Object.keys(permissions).length === 0)
       Reflect.deleteProperty(settings, "permissions");
+
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify(settings, null, 2)}\n`,
+      "utf-8"
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Tools unerr's Claude Code sub-agents (`unerr-worker` / `unerr-junior`) call.
+ * Pre-approving them in `permissions.allow` stops each sub-agent tool call from
+ * prompting — the allow-list IS inherited by Task sub-agents, whereas
+ * `--dangerously-skip-permissions` is not. `mcp__unerr` covers unerr's own
+ * guardrailed MCP tools (search_code / file_read / file_edit / get_references /
+ * fetch_url / unerr_track); the rest are the standard tools a worker/junior
+ * needs to do real work. Added by default on `unerr install claude-code`;
+ * stripped on uninstall.
+ */
+export const UNERR_AGENT_ALLOWS = [
+  "mcp__unerr",
+  "Read",
+  "Edit",
+  "Write",
+  "Bash",
+  "WebSearch",
+  "WebFetch",
+];
+
+/** `.gitignore` entry for the personal Claude Code settings file. */
+const LOCAL_SETTINGS_IGNORE = ".claude/settings.local.json";
+
+/**
+ * Ensure `.claude/settings.local.json` is gitignored so the personal permission
+ * grant unerr writes there (including an unprompted `Bash` allow) never reaches
+ * a shared commit. Appends to an existing `.gitignore`, or creates one when
+ * absent — unerr may write settings.local.json before Claude Code does, so we
+ * can't rely on Claude Code's own ignore entry existing yet. Best-effort; a
+ * `.claude/` or `.claude` blanket ignore already covers it.
+ */
+function ensureLocalSettingsIgnored(cwd: string): void {
+  try {
+    const gitignorePath = join(cwd, ".gitignore");
+    if (existsSync(gitignorePath)) {
+      const content = readFileSync(gitignorePath, "utf-8");
+      const already = content.split("\n").some((line) => {
+        const t = line.trim();
+        return (
+          t === LOCAL_SETTINGS_IGNORE ||
+          t === `/${LOCAL_SETTINGS_IGNORE}` ||
+          t === ".claude/" ||
+          t === ".claude"
+        );
+      });
+      if (already) return;
+      const newline = content.endsWith("\n") ? "" : "\n";
+      writeFileSync(
+        gitignorePath,
+        `${content}${newline}\n# unerr: personal Claude Code permission grant\n${LOCAL_SETTINGS_IGNORE}\n`,
+        "utf-8"
+      );
+    } else {
+      writeFileSync(
+        gitignorePath,
+        `# unerr: personal Claude Code permission grant\n${LOCAL_SETTINGS_IGNORE}\n`,
+        "utf-8"
+      );
+    }
+  } catch {
+    // Best-effort — a failure here must not break install.
+  }
+}
+
+/**
+ * Pre-approve unerr's sub-agent tool set in `.claude/settings.local.json`
+ * `permissions.allow` (personal + gitignored; inherited by Task sub-agents).
+ * Without it every worker/junior tool call hits Claude Code's permission
+ * resolver and prompts — delegation stalls. Idempotent: merges into any
+ * existing allow list without duplicating or dropping the user's own entries;
+ * creates the file when absent; never clobbers a malformed personal settings
+ * file. Called by default on `unerr install claude-code`.
+ * @sem domain=agent-instruction
+ */
+export function addAgentToolAllows(cwd: string): {
+  added: number;
+  path: string;
+} {
+  const dir = join(cwd, ".claude");
+  const settingsPath = join(dir, "settings.local.json");
+
+  try {
+    let settings: Record<string, unknown> = {};
+    if (existsSync(settingsPath)) {
+      try {
+        settings = JSON.parse(readFileSync(settingsPath, "utf-8")) as Record<
+          string,
+          unknown
+        >;
+      } catch {
+        // Malformed personal settings — don't clobber the user's file.
+        return { added: 0, path: settingsPath };
+      }
+    }
+
+    let permissions = settings.permissions as
+      | Record<string, unknown>
+      | undefined;
+    if (
+      !permissions ||
+      typeof permissions !== "object" ||
+      Array.isArray(permissions)
+    ) {
+      permissions = {};
+      settings.permissions = permissions;
+    }
+
+    const allow = Array.isArray(permissions.allow)
+      ? (permissions.allow as string[])
+      : [];
+    const have = new Set(allow);
+    let added = 0;
+    for (const tool of UNERR_AGENT_ALLOWS) {
+      if (!have.has(tool)) {
+        allow.push(tool);
+        have.add(tool);
+        added += 1;
+      }
+    }
+
+    if (added === 0) return { added: 0, path: settingsPath };
+    permissions.allow = allow;
+
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify(settings, null, 2)}\n`,
+      "utf-8"
+    );
+    // The file we just wrote carries an unprompted Bash/Write grant — keep it
+    // out of any shared commit.
+    ensureLocalSettingsIgnored(cwd);
+    return { added, path: settingsPath };
+  } catch {
+    return { added: 0, path: settingsPath };
+  }
+}
+
+/**
+ * Remove the unerr sub-agent tool grants ({@link UNERR_AGENT_ALLOWS}) from
+ * `.claude/settings.local.json` `permissions.allow` — revokes the unprompted
+ * shell + write grant on uninstall. Strips exactly the tokens unerr adds; a
+ * user who wants any of them independently re-adds it. Deletes the file if it
+ * becomes empty. Returns true if any entry was removed.
+ */
+export function removeAgentToolAllows(cwd: string): boolean {
+  const settingsPath = join(cwd, ".claude", "settings.local.json");
+  if (!existsSync(settingsPath)) return false;
+
+  try {
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    const permissions = settings.permissions as
+      | Record<string, unknown>
+      | undefined;
+    if (!permissions || !Array.isArray(permissions.allow)) return false;
+
+    const before = (permissions.allow as string[]).length;
+    permissions.allow = (permissions.allow as string[]).filter(
+      (tool: string) => !UNERR_AGENT_ALLOWS.includes(tool)
+    );
+    const removed = before - (permissions.allow as string[]).length;
+    if (removed === 0) return false;
+
+    // Clean up empty allow array / permissions object so we leave no noise.
+    if ((permissions.allow as string[]).length === 0)
+      Reflect.deleteProperty(permissions, "allow");
+    if (Object.keys(permissions).length === 0)
+      Reflect.deleteProperty(settings, "permissions");
+
+    // If unerr created this file solely for the grant, remove it entirely.
+    if (Object.keys(settings).length === 0) {
+      rmSync(settingsPath, { force: true });
+      return true;
+    }
 
     writeFileSync(
       settingsPath,

@@ -20,7 +20,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  UNERR_AGENT_ALLOWS,
+  addAgentToolAllows,
   addDisallowedTools,
+  removeAgentToolAllows,
   removeDisallowedTools,
 } from "../config/claude-settings-hooks.js";
 
@@ -201,5 +204,157 @@ describe("reconcile + remove roundtrip", () => {
     );
     expect(settings.hooks).toBeDefined(); // preserved
     expect(settings.permissions).toBeUndefined(); // cleaned up
+  });
+});
+
+describe("addAgentToolAllows (pre-approve sub-agent tools)", () => {
+  const localPath = () => join(testDir, ".claude", "settings.local.json");
+
+  it("creates settings.local.json with the full allow set when none exists", () => {
+    const result = addAgentToolAllows(testDir);
+    expect(result.added).toBe(UNERR_AGENT_ALLOWS.length);
+    expect(existsSync(localPath())).toBe(true);
+
+    const settings = JSON.parse(readFileSync(localPath(), "utf-8"));
+    expect(settings.permissions.allow).toEqual(
+      expect.arrayContaining(UNERR_AGENT_ALLOWS)
+    );
+    // The unerr MCP server + the exec tools sub-agents need.
+    expect(settings.permissions.allow).toContain("mcp__unerr");
+    expect(settings.permissions.allow).toContain("Bash");
+  });
+
+  it("is idempotent — a second call adds nothing", () => {
+    addAgentToolAllows(testDir);
+    const second = addAgentToolAllows(testDir);
+    expect(second.added).toBe(0);
+
+    const settings = JSON.parse(readFileSync(localPath(), "utf-8"));
+    // No duplicate mcp__unerr entry.
+    const count = (settings.permissions.allow as string[]).filter(
+      (t) => t === "mcp__unerr"
+    ).length;
+    expect(count).toBe(1);
+  });
+
+  it("merges into an existing allow list without dropping the user's entries", () => {
+    const dir = join(testDir, ".claude");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      localPath(),
+      JSON.stringify(
+        {
+          model: "opus",
+          permissions: { allow: ["Bash", "mcp__other-server"] },
+        },
+        null,
+        2
+      )
+    );
+
+    const result = addAgentToolAllows(testDir);
+    // "Bash" already present → not re-added.
+    expect(result.added).toBe(UNERR_AGENT_ALLOWS.length - 1);
+
+    const settings = JSON.parse(readFileSync(localPath(), "utf-8"));
+    expect(settings.model).toBe("opus"); // unrelated key preserved
+    expect(settings.permissions.allow).toContain("mcp__other-server"); // user entry preserved
+    expect(settings.permissions.allow).toContain("mcp__unerr"); // ours added
+    // "Bash" appears exactly once (no duplicate).
+    expect(
+      (settings.permissions.allow as string[]).filter((t) => t === "Bash")
+        .length
+    ).toBe(1);
+  });
+
+  it("does not clobber a malformed settings.local.json", () => {
+    const dir = join(testDir, ".claude");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(localPath(), "{ not valid json");
+
+    const result = addAgentToolAllows(testDir);
+    expect(result.added).toBe(0);
+    // File is left exactly as-is (not overwritten).
+    expect(readFileSync(localPath(), "utf-8")).toBe("{ not valid json");
+  });
+
+  it("gitignores settings.local.json — appends to an existing .gitignore", () => {
+    writeFileSync(join(testDir, ".gitignore"), "node_modules\n");
+    addAgentToolAllows(testDir);
+    const gi = readFileSync(join(testDir, ".gitignore"), "utf-8");
+    expect(gi).toContain(".claude/settings.local.json");
+    expect(gi).toContain("node_modules"); // existing entry preserved
+  });
+
+  it("gitignores settings.local.json — creates a .gitignore when none exists", () => {
+    addAgentToolAllows(testDir);
+    const giPath = join(testDir, ".gitignore");
+    expect(existsSync(giPath)).toBe(true);
+    expect(readFileSync(giPath, "utf-8")).toContain(
+      ".claude/settings.local.json"
+    );
+  });
+
+  it("does not duplicate the ignore entry when already present", () => {
+    writeFileSync(join(testDir, ".gitignore"), ".claude/settings.local.json\n");
+    addAgentToolAllows(testDir);
+    const gi = readFileSync(join(testDir, ".gitignore"), "utf-8");
+    const count = gi
+      .split("\n")
+      .filter((l) => l.trim() === ".claude/settings.local.json").length;
+    expect(count).toBe(1);
+  });
+});
+
+describe("removeAgentToolAllows (revoke on uninstall)", () => {
+  const localPath = () => join(testDir, ".claude", "settings.local.json");
+
+  it("returns false when no settings.local.json exists", () => {
+    expect(removeAgentToolAllows(testDir)).toBe(false);
+  });
+
+  it("strips exactly the unerr grants and preserves the user's own entries", () => {
+    const dir = join(testDir, ".claude");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      localPath(),
+      JSON.stringify(
+        {
+          model: "opus",
+          permissions: { allow: [...UNERR_AGENT_ALLOWS, "mcp__other-server"] },
+        },
+        null,
+        2
+      )
+    );
+
+    expect(removeAgentToolAllows(testDir)).toBe(true);
+
+    const settings = JSON.parse(readFileSync(localPath(), "utf-8"));
+    expect(settings.model).toBe("opus"); // unrelated key preserved
+    expect(settings.permissions.allow).toEqual(["mcp__other-server"]); // only user entry left
+  });
+
+  it("deletes the file when unerr created it solely for the grant", () => {
+    addAgentToolAllows(testDir); // creates the file with only our allow list
+    expect(existsSync(localPath())).toBe(true);
+
+    expect(removeAgentToolAllows(testDir)).toBe(true);
+    expect(existsSync(localPath())).toBe(false);
+  });
+
+  it("round-trips: add then remove leaves no unerr grants", () => {
+    const dir = join(testDir, ".claude");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      localPath(),
+      JSON.stringify({ permissions: { allow: ["WebSearch"] } }, null, 2)
+    );
+    addAgentToolAllows(testDir);
+    removeAgentToolAllows(testDir);
+
+    // "WebSearch" was in UNERR_AGENT_ALLOWS, so the round-trip removes it too;
+    // the file is deleted because nothing user-specific remained.
+    expect(existsSync(localPath())).toBe(false);
   });
 });

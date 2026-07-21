@@ -26,6 +26,7 @@ import {
   normalizeAgentName,
 } from "../config/agent-registry.js";
 import {
+  removeAgentToolAllows,
   removeDisallowedTools,
   removePreToolUseBashHook,
 } from "../config/claude-settings-hooks.js";
@@ -48,6 +49,9 @@ interface UninstallResult {
   instructionsRemoved: boolean;
   /** S8: Whether disallowed tool entries were removed. */
   disallowedToolsRemoved: boolean;
+  /** Whether unerr's sub-agent tool grants were stripped from
+   *  `.claude/settings.local.json` `permissions.allow`. */
+  agentToolAllowsRemoved: boolean;
 }
 
 export function registerUninstallCommand(program: Command): void {
@@ -249,6 +253,17 @@ function runUninstall(cwd: string, ide: IdeType): UninstallResult {
     }
   }
 
+  // 6b: Strip unerr's sub-agent tool grants from settings.local.json (Claude
+  // Code only) — revokes the unprompted shell + write grant install added.
+  let agentToolAllowsRemoved = false;
+  if (ide === "claude-code") {
+    try {
+      agentToolAllowsRemoved = removeAgentToolAllows(cwd);
+    } catch {
+      // Non-blocking
+    }
+  }
+
   // 7. Prune now-empty agent directories the install created. `rmdirSync`
   // refuses to remove non-empty dirs, so user-authored files are safe.
   pruneAgentDirs(cwd, ide);
@@ -260,6 +275,7 @@ function runUninstall(cwd: string, ide: IdeType): UninstallResult {
     settingsHookRemoved,
     instructionsRemoved,
     disallowedToolsRemoved,
+    agentToolAllowsRemoved,
   };
 }
 
@@ -318,7 +334,8 @@ function displayUninstallResult(
     !result.hookRemoved &&
     !result.settingsHookRemoved &&
     !result.instructionsRemoved &&
-    !result.disallowedToolsRemoved;
+    !result.disallowedToolsRemoved &&
+    !result.agentToolAllowsRemoved;
 
   if (nothingRemoved) {
     process.stderr.write(
@@ -353,6 +370,11 @@ function displayUninstallResult(
     if (result.disallowedToolsRemoved) {
       process.stderr.write(
         "  \x1b[38;2;52;211;153m✓\x1b[0m Disallowed tools restored\n"
+      );
+    }
+    if (result.agentToolAllowsRemoved) {
+      process.stderr.write(
+        "  \x1b[38;2;52;211;153m✓\x1b[0m Sub-agent tool grants removed from settings.local.json\n"
       );
     }
   }
