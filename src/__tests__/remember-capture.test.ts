@@ -1,20 +1,29 @@
 /**
- * User-rule capture guard (Phase-2 Sprint 7, T7.8).
+ * User-rule directive detection + CLAUDE.md-redirect nudge (Phase-2 Sprint 7,
+ * T7.8; Phase 3 active-memory strip).
  *
- * The prompt-submit hook persists user-stated rules ("remember…", "from now
- * on…", "always make sure…") fire-and-forget over UDS, replacing the model
- * round-trip an `unerr_remember` tool call would cost. Locks: (1) the directive
- * detector is TIGHT — it fires on explicit remember-intent, NOT on every
- * imperative "don't"/"always" buried in a coding request; (2) reply parsing is
- * shape-tolerant; (3) capture degrades to false with no proxy.
+ * unerr no longer captures a user-stated rule over UDS — the UserPromptSubmit
+ * hook detects the directive and injects a `ur|act` line telling the agent to
+ * write the rule into the repo's instruction file itself. Locks: (1) the
+ * directive detector is TIGHT — it fires on explicit remember-intent, NOT on
+ * every imperative "don't"/"always" buried in a coding request; (2) the
+ * redirect nudge fires on EVERY detection (no one-shot gate) and upgrades a
+ * passthrough result to an enriching one so it is never dropped; (3) nothing
+ * is written over UDS — the rule's only durable home is the instruction file.
  */
 
-import { describe, expect, it } from "vitest";
-import {
-  captureUserRule,
-  detectUserRule,
-  parseCaptureReply,
-} from "../hooks/remember-client.js";
+import { mkdtempSync } from "node:fs";
+import { connect } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { runUserPromptSubmitHookAsync } from "../hooks/prompt-hooks.js";
+import { detectUserRule } from "../hooks/remember-client.js";
+
+vi.mock("node:net", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:net")>();
+  return { ...actual, connect: vi.fn(actual.connect) };
+});
 
 describe("detectUserRule — fires on explicit memory directives", () => {
   it.each([
@@ -48,50 +57,86 @@ describe("detectUserRule — does NOT fire on bare imperatives", () => {
   });
 });
 
-describe("parseCaptureReply", () => {
-  it("returns true when the envelope reports a store", () => {
-    const reply = JSON.stringify({
-      result: {
-        content: [
-          { text: JSON.stringify({ ok: true, data: { stored: true } }) },
-        ],
-      },
-    });
-    expect(parseCaptureReply(reply)).toBe(true);
+describe("CLAUDE.md-redirect nudge — replaces UDS capture", () => {
+  let cwd: string;
+  let originalCwd: string;
+  let originalSessionId: string | undefined;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    originalCwd = process.cwd();
+    cwd = mkdtempSync(join(tmpdir(), "unerr-remember-redirect-"));
+    process.chdir(cwd);
+    originalSessionId = process.env.UNERR_SESSION_ID;
+    process.env.UNERR_SESSION_ID = `remember-${Date.now()}`;
   });
 
-  it("returns false when the store was rejected", () => {
-    const reply = JSON.stringify({
-      result: {
-        content: [
-          { text: JSON.stringify({ data: { stored: false, reason: "x" } }) },
-        ],
-      },
-    });
-    expect(parseCaptureReply(reply)).toBe(false);
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (originalSessionId === undefined) {
+      Reflect.deleteProperty(process.env, "UNERR_SESSION_ID");
+    } else {
+      process.env.UNERR_SESSION_ID = originalSessionId;
+    }
   });
 
-  it("returns false on a JSON-RPC error reply", () => {
-    expect(parseCaptureReply(JSON.stringify({ error: { code: -1 } }))).toBe(
-      false
+  function readContext(out: string): string {
+    const parsed = JSON.parse(out) as {
+      hookSpecificOutput?: { additionalContext?: string };
+    };
+    return parsed.hookSpecificOutput?.additionalContext ?? "";
+  }
+
+  it("injects the write-into-CLAUDE.md line for a durable-rule prompt", async () => {
+    const stdin = JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      user_message:
+        "from now on, always run the full test suite before committing",
+    });
+    const ctx = readContext(await runUserPromptSubmitHookAsync(stdin));
+    expect(ctx).toContain("ur|act write this rule into CLAUDE.md now");
+    expect(ctx).toContain(
+      "from now on, always run the full test suite before committing"
     );
+    expect(ctx).toContain("unerr does not store user rules");
   });
 
-  it("returns false on malformed JSON", () => {
-    expect(parseCaptureReply("{nope")).toBe(false);
-  });
-});
-
-describe("captureUserRule — degradation", () => {
-  it("returns false when the proxy socket is absent", async () => {
-    const out = await captureUserRule("from now on, always use tabs", {
-      sockPath: "/tmp/unerr-no-such.sock",
-      timeoutMs: 50,
+  it("upgrades a passthrough-shaped prompt (< 10 chars) to enrich so the nudge is never dropped", async () => {
+    const stdin = JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      // 8 chars — the sync handler alone returns passthrough (message.length < 10).
+      user_message: "remember",
     });
-    expect(out).toBe(false);
+    const ctx = readContext(await runUserPromptSubmitHookAsync(stdin));
+    expect(ctx).toContain("write this rule into CLAUDE.md");
   });
 
-  it("returns false on an empty quote", async () => {
-    expect(await captureUserRule("")).toBe(false);
+  it("fires on every detection — no one-shot gate", async () => {
+    const stdin = JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      user_message: "please never push directly to main",
+    });
+    const first = readContext(await runUserPromptSubmitHookAsync(stdin));
+    const second = readContext(await runUserPromptSubmitHookAsync(stdin));
+    expect(first).toContain("write this rule into CLAUDE.md");
+    expect(second).toContain("write this rule into CLAUDE.md");
+  });
+
+  it("writes nothing over UDS", async () => {
+    const stdin = JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      user_message: "from now on, never commit directly to main",
+    });
+    await runUserPromptSubmitHookAsync(stdin);
+    expect(vi.mocked(connect)).not.toHaveBeenCalled();
+  });
+
+  it("does not fire on a plain coding request with no rule directive", async () => {
+    const stdin = JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      user_message: "refactor the proxy to add a retry",
+    });
+    const ctx = readContext(await runUserPromptSubmitHookAsync(stdin));
+    expect(ctx).not.toContain("write this rule into CLAUDE.md");
   });
 });

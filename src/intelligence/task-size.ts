@@ -253,15 +253,13 @@ export interface InjectionDecision {
   readonly tier: InjectionTier;
   /** false ONLY for "skip" */
   readonly inject: boolean;
-  /** skip:0, focused:2, broad:4 */
-  readonly noteMax: number;
   /** Short telemetry string. */
   readonly reason: string;
 }
 
 /**
- * Maps a prompt to an injection tier (skip/focused/broad) that controls how
- * many anchored notes and what injection depth the footprint router applies.
+ * Maps a prompt to an injection tier (skip/focused/broad) that gates
+ * trace-recall injection and its depth (Cap A-2: focused→1, broad→3).
  * Continuation phrases short-circuit to skip before classifyTaskSize is called,
  * so green-lights are never misclassified as new tasks.
  *
@@ -274,7 +272,6 @@ export function classifyInjectionTier(prompt: string): InjectionDecision {
     return {
       tier: "skip",
       inject: false,
-      noteMax: 0,
       reason: "continuation phrase",
     };
   }
@@ -286,21 +283,18 @@ export function classifyInjectionTier(prompt: string): InjectionDecision {
       return {
         tier: "skip",
         inject: false,
-        noteMax: 0,
         reason: verdict.reason,
       };
     case "single_entity":
       return {
         tier: "focused",
         inject: true,
-        noteMax: 2,
         reason: verdict.reason,
       };
     case "large_sweep":
       return {
         tier: "broad",
         inject: true,
-        noteMax: 4,
         reason: verdict.reason,
       };
   }

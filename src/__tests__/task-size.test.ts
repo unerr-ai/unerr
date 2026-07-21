@@ -150,7 +150,7 @@ describe("footprint helpers", () => {
 });
 
 describe("classifyInjectionTier", () => {
-  it("continuation phrases → skip with inject:false and noteMax:0", () => {
+  it("continuation phrases → skip with inject:false", () => {
     expect(classifyInjectionTier("ok").tier).toBe("skip");
     expect(classifyInjectionTier("lgtm").tier).toBe("skip");
     expect(classifyInjectionTier("sounds good").tier).toBe("skip");
@@ -160,7 +160,6 @@ describe("classifyInjectionTier", () => {
     expect(classifyInjectionTier("yeah").tier).toBe("skip");
     const d = classifyInjectionTier("yes");
     expect(d.inject).toBe(false);
-    expect(d.noteMax).toBe(0);
   });
 
   it("continuation phrase with trailing punctuation is still skip", () => {
@@ -173,7 +172,6 @@ describe("classifyInjectionTier", () => {
     const d = classifyInjectionTier("what does parseHeader do");
     expect(d.tier).toBe("focused");
     expect(d.inject).toBe(true);
-    expect(d.noteMax).toBe(2);
   });
 
   it("read-only opener + no identifier → skip", () => {
@@ -181,7 +179,6 @@ describe("classifyInjectionTier", () => {
     const d = classifyInjectionTier("explain the auth flow");
     expect(d.tier).toBe("skip");
     expect(d.inject).toBe(false);
-    expect(d.noteMax).toBe(0);
   });
 
   it("negation does not produce skip", () => {
@@ -198,11 +195,10 @@ describe("classifyInjectionTier", () => {
     expect(d.tier).toBe("broad"); // large_sweep (refactor + no identifier) maps to broad
   });
 
-  it("breadth signal → broad with inject:true and noteMax:4", () => {
+  it("breadth signal → broad with inject:true", () => {
     const d = classifyInjectionTier("rename getUser everywhere");
     expect(d.tier).toBe("broad");
     expect(d.inject).toBe(true);
-    expect(d.noteMax).toBe(4);
   });
 
   it("suffix-folded read-only opener matches inflected first word → skip", () => {

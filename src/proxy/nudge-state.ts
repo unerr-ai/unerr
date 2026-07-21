@@ -49,15 +49,11 @@ export interface NudgeSessionState {
    *  prior session's ledger) for this session. Fires AT MOST once per
    *  UNERR_SESSION_ID. */
   cross_session_stitch_emitted: boolean;
-  /** Lever C — number of times the prompt-submit hook injected the
-   *  Moment 1 (`unerr_recall_notes`) directive this session. Fires every
-   *  coding-task prompt (not one-shot) — the four-moment contract requires
-   *  Moment 1 on every prompt receipt. */
-  moment1_emitted_count: number;
-  /** Moment 3 plan-cite directive — one-shot per session. Once the agent
-   *  has been told to cite recalled notes by note_id in its plan,
-   *  re-injecting is argue-back noise. */
-  moment3_emitted: boolean;
+  /** Phase 3 (active-memory strip) — running count of times the
+   *  prompt-submit hook injected the CLAUDE.md-redirect nudge (a detected
+   *  user-rule directive) this session. Fires on EVERY detection, not
+   *  one-shot — telemetry only, never gates emission. */
+  claude_md_redirect_count: number;
   /** Implementation-phase "speak plainly" directive — one-shot per
    *  session. Fires the first turn where the agent has demonstrably leaned
    *  on unerr tools (≥2 MCP calls) so the reminder lands when it's
@@ -137,8 +133,7 @@ function defaultState(): NudgeSessionState {
     mark_intent_compliant_count: 0,
     mark_intent_required_count: 0,
     cross_session_stitch_emitted: false,
-    moment1_emitted_count: 0,
-    moment3_emitted: false,
+    claude_md_redirect_count: 0,
     impl_mention_emitted: false,
     turn_summary_required_count: 0,
     turn_summary_emitted_count: 0,
@@ -222,11 +217,10 @@ export function readNudgeState(cwd: string): NudgeSessionState {
       cross_session_stitch_emitted: Boolean(
         parsed.cross_session_stitch_emitted
       ),
-      moment1_emitted_count:
-        typeof parsed.moment1_emitted_count === "number"
-          ? parsed.moment1_emitted_count
+      claude_md_redirect_count:
+        typeof parsed.claude_md_redirect_count === "number"
+          ? parsed.claude_md_redirect_count
           : 0,
-      moment3_emitted: Boolean(parsed.moment3_emitted),
       impl_mention_emitted: Boolean(parsed.impl_mention_emitted),
       turn_summary_required_count:
         typeof parsed.turn_summary_required_count === "number"
@@ -309,7 +303,6 @@ export function resetOneShotsOnNewConversation(
     s.tier2_emitted = false;
     s.mark_intent_emitted = false;
     s.cross_session_stitch_emitted = false;
-    s.moment3_emitted = false;
     s.impl_mention_emitted = false;
     s.static_boilerplate_emitted = false;
     s.exec_nudge_emitted = false;

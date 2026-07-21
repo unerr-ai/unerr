@@ -24,7 +24,7 @@ import {
   runUserPromptSubmitHook,
   runUserPromptSubmitHookAsync,
 } from "../hooks/prompt-hooks.js";
-import { queryRecallNotes, renderRecallBlock } from "../hooks/recall-client.js";
+import { queryRecallTraces } from "../hooks/recall-client.js";
 import { classifyInjectionTier } from "../intelligence/task-size.js";
 import { addOptInSkills } from "../skills/skill-opt-in.js";
 
@@ -34,18 +34,13 @@ vi.mock("../intelligence/task-size.js", async (importOriginal) => {
   const orig = await importOriginal<object>();
   return { ...orig, classifyInjectionTier: vi.fn() };
 });
-// recall-client.js: mock the UDS network calls
+// recall-client.js: mock the UDS network call for trace recall
 vi.mock("../hooks/recall-client.js", () => ({
-  queryRecallNotes: vi.fn(),
   queryRecallTraces: vi.fn(() => Promise.resolve([])),
-  renderRecallBlock: vi.fn((notes: { length: number }) =>
-    notes.length > 0 ? `<!-- recall:${notes.length} -->` : ""
-  ),
 }));
 // remember-client.js: keep calls sync-safe in tests
 vi.mock("../hooks/remember-client.js", () => ({
   detectUserRule: vi.fn(() => null),
-  captureUserRule: vi.fn(() => Promise.resolve(false)),
 }));
 
 // Each test gets a fresh tmp cwd so .unerr/state/nudge-*.flags + the
@@ -740,22 +735,6 @@ describe("RFC 2119 imperative phrasing (Fix C)", () => {
     expect(ctx).not.toContain("mark_intent(");
   });
 
-  it("Moment 1 recall nudge is injection-aware (Sprint 7 T7.7): names auto-recall, no STEP-0 imperative", () => {
-    const stdin = JSON.stringify({
-      hook_event_name: "UserPromptSubmit",
-      user_message: "refactor the proxy handler to use the new bridge",
-    });
-    const ctx = readContext(runUserPromptSubmitHook(stdin));
-    // Sprint 7 (T7.3/T7.7): recall fires server-side via this hook, and the MCP
-    // tool is hidden for prompt-context-injecting agents — so the nudge states
-    // recall already ran + directs a READ, and never names unerr_recall_notes
-    // (a call target the agent can no longer see) nor a STEP-0 imperative.
-    expect(ctx).toContain("anchored-note recall already ran");
-    expect(ctx).not.toContain("unerr_recall_notes");
-    expect(ctx).not.toContain("STEP-0");
-    expect(ctx).not.toContain("Do NOT defer");
-  });
-
   it("turn_summary nudge is gone — the Stop hook delivers the close-out (T7.7)", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
@@ -846,15 +825,18 @@ describe("prompt hook emits the delegate routing line", () => {
 });
 
 // ── asyncPromptSubmitHandler recall-injection tier gating ───────────────────
-// Tests for the classifyInjectionTier gate (Option A) + noteMax scaling (Option C).
-// Mirrors the async recall path: queryRecallNotes is mocked to return 5 fake
-// notes; renderRecallBlock emits `<!-- recall:N -->` so note count is verifiable.
-const FAKE_NOTES = Array.from({ length: 5 }, (_, i) => ({
-  kind: "fct",
-  anchor: "p:",
-  polarity: "+",
-  content: `fake note ${i + 1}`,
-}));
+// Tests for the classifyInjectionTier gate (Option A) and the trace budget it
+// drives (Cap A-2: skip→0, focused→1, broad→3). Mirrors the async trace-recall
+// path: queryRecallTraces is mocked to return fake past-incident rows.
+const FAKE_TRACES = [
+  {
+    situation: "retry storm on reconnect",
+    dead_ends: JSON.stringify(["src/proxy/bridge.ts"]),
+    unlock: "added exponential backoff",
+    anchor: "e:reconnect",
+    resolved_at: Date.parse("2026-05-01"),
+  },
+];
 
 describe("asyncPromptSubmitHandler — injection tier gating", () => {
   let cwd: string;
@@ -872,8 +854,7 @@ describe("asyncPromptSubmitHandler — injection tier gating", () => {
     JSON.stringify({ hook_event_name: "UserPromptSubmit", user_message: msg });
 
   const mockedTier = () => vi.mocked(classifyInjectionTier);
-  const mockedQuery = () => vi.mocked(queryRecallNotes);
-  const mockedRender = () => vi.mocked(renderRecallBlock);
+  const mockedTraces = () => vi.mocked(queryRecallTraces);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -882,20 +863,14 @@ describe("asyncPromptSubmitHandler — injection tier gating", () => {
     savedSession = process.env.UNERR_SESSION_ID;
     process.env.UNERR_SESSION_ID = `tier-gate-${Date.now()}`;
     process.chdir(cwd);
-    // Default: 5 notes available from the proxy
-    mockedQuery().mockResolvedValue(FAKE_NOTES);
+    // Default: traces available from the proxy
+    mockedTraces().mockResolvedValue(FAKE_TRACES);
     // Default: broad inject
     mockedTier().mockReturnValue({
       tier: "broad",
       inject: true,
-      noteMax: 4,
       reason: "default broad",
     });
-    mockedRender().mockImplementation((notes) =>
-      (notes as { length: number }).length > 0
-        ? `<!-- recall:${(notes as { length: number }).length} -->`
-        : ""
-    );
   });
 
   afterEach(() => {
@@ -908,55 +883,54 @@ describe("asyncPromptSubmitHandler — injection tier gating", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("inject:false — skips recall block and does not call queryRecallNotes", async () => {
+  it("inject:false — skips trace recall and does not call queryRecallTraces", async () => {
     mockedTier().mockReturnValue({
       tier: "skip",
       inject: false,
-      noteMax: 0,
       reason: "trivial continuation",
     });
     const out = await runUserPromptSubmitHookAsync(
       mk("fix the retry in handleConnection")
     );
-    // No recall block in output
-    expect(readCtx(out)).not.toContain("recall:");
+    // No trace block in output
+    expect(readCtx(out)).not.toContain("past incident");
     // Short-circuit before the network call
-    expect(mockedQuery()).not.toHaveBeenCalled();
+    expect(mockedTraces()).not.toHaveBeenCalled();
   });
 
-  it("focused tier: noteMax:2 — renderRecallBlock receives ≤2 notes", async () => {
+  it("focused tier: requests at most 1 trace", async () => {
     mockedTier().mockReturnValue({
       tier: "focused",
       inject: true,
-      noteMax: 2,
       reason: "focused edit",
     });
     const out = await runUserPromptSubmitHookAsync(
       mk("refactor the proxy boot sequence to add a retry")
     );
-    expect(readCtx(out)).toContain("recall:2");
+    expect(mockedTraces()).toHaveBeenCalledWith(expect.any(String), 1);
+    expect(readCtx(out)).toContain("past incident");
   });
 
-  it("broad tier: noteMax:4 — renderRecallBlock receives ≤4 notes", async () => {
+  it("broad tier: requests up to 3 traces", async () => {
     mockedTier().mockReturnValue({
       tier: "broad",
       inject: true,
-      noteMax: 4,
       reason: "sweep task",
     });
     const out = await runUserPromptSubmitHookAsync(
       mk("rename every call to parseRequest across the codebase")
     );
-    expect(readCtx(out)).toContain("recall:4");
+    expect(mockedTraces()).toHaveBeenCalledWith(expect.any(String), 3);
+    expect(readCtx(out)).toContain("past incident");
   });
 
   it("non-code prompt: isCodeContext guard fires before classifyInjectionTier", async () => {
-    // Tier set to inject:true — if classifyInjectionTier were called, a recall
+    // Tier set to inject:true — if classifyInjectionTier were called, a trace
     // block would appear in output. No block = gate fired first.
     const out = await runUserPromptSubmitHookAsync(
       mk("good morning, what do you think about the weather today?")
     );
-    expect(readCtx(out)).not.toContain("recall:");
+    expect(readCtx(out)).not.toContain("past incident");
     expect(mockedTier()).not.toHaveBeenCalled();
   });
 });

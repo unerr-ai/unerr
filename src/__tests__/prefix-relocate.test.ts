@@ -16,7 +16,9 @@ const SESSION = "UNERR_SESSION_ID";
 
 describe("prefix ordering", () => {
   const BOUNDARY = "— unerr: per-turn context —";
-  const MOMENT1 = "anchored-note recall already ran";
+  // Stable head line: the mark-intent one-shot (the Moment-1 recall nudge it
+  // used to be died with the active-memory strip).
+  const STABLE_HEAD = "record this turn's intent";
   let prevCwd: string;
   let savedSession: string | undefined;
 
@@ -43,7 +45,7 @@ describe("prefix ordering", () => {
     else process.env[SESSION] = savedSession;
   });
 
-  it("stable Moment-1 nudge leads, boundary present, volatile delegate line trails", () => {
+  it("stable mark-intent nudge leads, boundary present, volatile delegate line trails", () => {
     // Use a delegable prompt ("add tests …" → the `tests` class) so the
     // class-specific delegate line fires — that line is the VOLATILE per-prompt
     // nudge. (Since the decompose-delegate gate was broadened past build-intent,
@@ -54,11 +56,11 @@ describe("prefix ordering", () => {
     );
 
     expect(ctx).toContain(BOUNDARY);
-    expect(ctx).toContain(MOMENT1);
+    expect(ctx).toContain(STABLE_HEAD);
     // The class-specific delegate line is the volatile per-prompt nudge.
     expect(ctx).toContain("ur|act delegate —");
 
-    const headIdx = ctx.indexOf(MOMENT1);
+    const headIdx = ctx.indexOf(STABLE_HEAD);
     const boundaryIdx = ctx.indexOf(BOUNDARY);
     const volatileIdx = ctx.indexOf("ur|act delegate —");
     // stable head before the boundary; volatile delegate line after it.

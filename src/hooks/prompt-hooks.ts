@@ -17,9 +17,7 @@ import {
   type DelegationDecision,
   shouldDelegate,
 } from "../intelligence/delegation.js";
-import { selectLoadBearing } from "../intelligence/note-ranking.js";
 import { classifyInjectionTier } from "../intelligence/task-size.js";
-import { consumeAnyPendingTopicShift } from "../intelligence/topic-shift.js";
 import {
   readNudgeState,
   resetOneShotsOnNewConversation,
@@ -37,6 +35,7 @@ import type { IdeType } from "../utils/detect.js";
 import {
   type AsyncHookHandler,
   type HookHandler,
+  type HookResult,
   enrich,
   passthrough,
   runPromptSubmitHook,
@@ -50,13 +49,8 @@ import {
   readProxySessionId,
   recordUserPromptReceived,
 } from "./prompt-capture.js";
-import {
-  type RecalledTrace,
-  queryRecallNotes,
-  queryRecallTraces,
-  renderRecallBlock,
-} from "./recall-client.js";
-import { captureUserRule, detectUserRule } from "./remember-client.js";
+import { type RecalledTrace, queryRecallTraces } from "./recall-client.js";
+import { detectUserRule } from "./remember-client.js";
 
 // ── Path A: keyword fast path — verb clusters → named sub-skills ─────────────
 // Mirrors docs/identity-impact-redesign.md §3 Path A table. Each cluster
@@ -151,18 +145,6 @@ export function classifyVerbCluster(prompt: string): VerbClusterMatch | null {
     if (c.pattern.test(trimmed)) return { cluster: c.id, skill: c.skill };
   }
   return null;
-}
-
-/** Drain any pending topic-shift signal and return a `ur|fct` line, or
- *  null when no shift is pending. */
-function buildTopicShiftLine(): string | null {
-  const shift = consumeAnyPendingTopicShift();
-  if (!shift || !shift.flag) return null;
-  const pct = Math.round(shift.overlap * 100);
-  // hnt → fct on the wire (14→4 consolidation 2026-05-24). Sprint 7 (T7.3):
-  // recall reran for this prompt via the hook — point at the injected notes,
-  // not the (now-hidden) unerr_recall_notes call.
-  return `ur|fct topic-shift detected (overlap ${pct}%) — anchored-note recall reran for this prompt; read the fresh \`ur|fct\` notes injected above before drafting`;
 }
 
 /** Narrow imperative-verb set — matches when the prompt clearly asks
@@ -330,63 +312,9 @@ function buildMarkIntentLine(prompt: string): string | null {
 // survives in nudge-state for the MCP-fallback path (turn-summary-handler.ts
 // still resets it when a hook-less agent calls the tool) and the dashboard.
 
-/** Lever C — Moment 1 (prompt-receipt recall) reminder. Fires on every
- *  coding-task prompt — the four-moment contract REQUIRES recall on every
- *  prompt receipt, not once per session. Token-cheap: a single line that
- *  names the tool + arg shape. The agent fills in `<verbatim>` from the
- *  prompt that just arrived. */
-/** The STEP-0 recall nudge text. Exported as a constant so the async
- *  recall-injecting handler can STRIP it from the assembled output on turns
- *  where the warm proxy already injected the notes — emitting both the notes
- *  AND "call unerr_recall_notes BEFORE any other tool" forces the exact
- *  round-trip the injection eliminated (the T7.7 double-charge). The nudge
- *  survives verbatim only when injection did not happen (proxy down / empty /
- *  non-code), so removal never opens a runtime gap. */
-// Sprint 7 (T7.3/T7.7): on agents that accept prompt-time context (the only
-// agents whose AGENT sees this hook's output — Cursor's beforeSubmitPrompt can
-// only reach the user) anchored-note recall already ran server-side and is
-// injected above. The nudge no longer instructs calling unerr_recall_notes —
-// that tool is hidden for these agents (advertisement is agent-aware) and the
-// call would be redundant. Phrased as state + a read action, not a tool call.
-const MOMENT1_RECALL_NUDGE =
-  "ur|act read any `ur|fct`/anchored notes shown for this prompt before drafting — anchored-note recall already ran; no notes shown means none matched.";
-
 // The stable/volatile boundary, the per-turn line/char caps, and the
 // head→boundary→tail assembly now live in one place — `injection-policy.ts`
 // (Issue 6). `PREFIX_VOLATILE_BOUNDARY` is re-exported there.
-
-function buildMoment1Line(prompt: string): string | null {
-  if (!classifyAsTask(prompt)) return null;
-  try {
-    updateNudgeState(process.cwd(), (s) => {
-      s.moment1_emitted_count += 1;
-    });
-  } catch {
-    /* best effort — emission still proceeds */
-  }
-  return MOMENT1_RECALL_NUDGE;
-}
-
-/** Lever C — Moment 3 (cite recalled notes in the plan). Fires once per
- *  session on the first coding-task prompt. Reminds the agent that when
- *  drafting a plan or implementation strategy, any anchored notes
- *  returned from `unerr_recall_notes` must be cited inline by kind +
- *  anchor — no citation means the note was not load-bearing. One-shot
- *  to avoid argue-back noise on long-running tasks (#47565). */
-function buildMoment3PlanCiteLine(prompt: string): string | null {
-  if (!classifyAsTask(prompt)) return null;
-  try {
-    const cwd = process.cwd();
-    const state = readNudgeState(cwd);
-    if (state.moment3_emitted) return null;
-    updateNudgeState(cwd, (s) => {
-      s.moment3_emitted = true;
-    });
-  } catch {
-    return null;
-  }
-  return "ur|act WHEN drafting a plan or implementation strategy this session: cite every load-bearing anchored note recalled for this prompt inline by kind + anchor (e.g. `per the wrn on src/proxy/bridge.ts`). No citation = the note was not load-bearing.";
-}
 
 // ── Path A emit ──────────────────────────────────────────────────────────────
 /** Emit one `ur|act` line for a matched Path A cluster (skill invocation
@@ -876,10 +804,6 @@ const promptSubmitHandler: HookHandler = (normalized) => {
       ? null
       : "ur|act unerr-using-unerr — no verb-cluster match. Invoke Skill('unerr-using-unerr') and use unerr's tools before drafting code.";
 
-  // Topic-shift signal — ur|ctx line, NOT subject to the ur|act cap.
-  const topicShiftLine = buildTopicShiftLine();
-  const shiftPrefix = topicShiftLine ? `${topicShiftLine}\n` : "";
-
   // T3.4 — cross-session stitch (one-shot per session). Not ur|act.
   let stitchPrefix = "";
   try {
@@ -888,14 +812,6 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   } catch {
     // fail-open
   }
-
-  // Lever C — Moment 1 (recall_notes on prompt receipt). Fires EVERY
-  // coding-task prompt. Must lead so the agent calls recall before any
-  // other tool. The four-moment contract depends on this firing per-turn.
-  const moment1Line = buildMoment1Line(message);
-
-  // Lever C — Moment 3 (cite recalled notes in plan). One-shot per session.
-  const moment3Line = buildMoment3PlanCiteLine(message);
 
   // mark_intent one-shot rides ahead of the tool roster too — the agent needs
   // to know about the contract BEFORE choosing a first tool call. Fires at
@@ -926,13 +842,11 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // one is non-null). `volatile` drives ordering: the Path A line varies per
   // prompt so it rides the tail; every other line is a fixed template.
   const actCandidates: ActCandidate[] = [
-    { text: moment1Line, volatile: false }, //       Moment 1 (fixed template)
     { text: delegateLine, volatile: true }, //       Lever C delegation routing (class-specific)
     { text: buildDecomposeLine, volatile: false }, // Build decompose+delegate (once/session, fixed)
     { text: pathALine, volatile: true }, //          Path A skill match (verb-specific)
     { text: fallbackLine, volatile: false }, //      Master orchestrator fallback (fixed)
     { text: markIntentLine, volatile: false }, //    mark_intent one-shot (fixed)
-    { text: moment3Line, volatile: false }, //       Moment 3 one-shot (fixed)
   ];
 
   // Path B — static tool-roster + skill catalog. Both duplicate the cached
@@ -940,8 +854,8 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // re-injecting them on every turn is pure uncacheable re-bill (token-tax #7).
   // Emit once per session (first enrich turn); later turns rely on the cached
   // instruction file + the per-turn Path A skill-dispatch line. The
-  // prompt-specific signal (stitch, ur|act four-moment lines, topic-shift, and
-  // the recall block the async handler prepends) still rides every turn.
+  // prompt-specific signal (stitch, ur|act lines, and the trace-recall lines
+  // the async handler appends) still rides every turn.
   let staticEmitted = false;
   try {
     staticEmitted = readNudgeState(process.cwd()).static_boilerplate_emitted;
@@ -993,12 +907,12 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // cacheable leading bytes stay byte-stable turn-to-turn. The cap, the char
   // cap, the stable/volatile split, and the ordering all live in
   // `assembleInjectionBlock`. Stable = fixed nudge templates + roster/catalog;
-  // volatile = resume/stitch, topic-shift, the verb-specific Path A line, and
-  // (appended by the async handler) the anchored-note recall bodies.
+  // volatile = resume/stitch, the verb-specific Path A line, and (appended by
+  // the async handler) the trace-recall lines.
   const { stableHead, ordered } = assembleInjectionBlock(
     actCandidates,
     staticTail,
-    [stitchPrefix, shiftPrefix]
+    [stitchPrefix]
   );
   // prefix_stable measures the cacheable HEAD this ordering protects.
   if (stableHead.length > 0) recordPrefixStability(process.cwd(), stableHead);
@@ -1094,18 +1008,49 @@ function formatTraceLine(t: RecalledTrace): string {
   return `ur|fct past incident (${dateStamp}) — symptom then: ${situation}${deadEndsPart} · fix then: ${unlock}${anchorPart}`;
 }
 
+/** Cap on the quoted rule text in the CLAUDE.md-redirect nudge. */
+const MAX_RULE_QUOTE_CHARS = 140;
+
 /**
- * Recall-injecting prompt-submit handler (Phase-2 Sprint 7).
+ * Phase 3 (active-memory strip) — on a detected user-rule directive, inject a
+ * `ur|act` line telling the agent to write the rule verbatim into the repo's
+ * own instruction file (CLAUDE.md / AGENTS.md), rather than persisting it to a
+ * separate store. Fires on EVERY detection (no one-shot gate) and upgrades a
+ * passthrough result to an enriching one so the nudge is never dropped.
+ */
+function injectClaudeMdRedirect(base: HookResult, rule: string): HookResult {
+  const quoted =
+    rule.length > MAX_RULE_QUOTE_CHARS
+      ? `${rule.slice(0, MAX_RULE_QUOTE_CHARS - 1)}…`
+      : rule;
+  const line = `ur|act write this rule into CLAUDE.md now — the user stated a durable rule; add it verbatim to this repo's CLAUDE.md (or AGENTS.md) before continuing: "${quoted}". unerr does not store user rules — the instruction file is the only durable home.`;
+  try {
+    updateNudgeState(process.cwd(), (s) => {
+      s.claude_md_redirect_count = (s.claude_md_redirect_count ?? 0) + 1;
+    });
+  } catch {
+    /* best effort — emission still proceeds */
+  }
+  if (base.action === "enrich" && base.message) {
+    return enrich(`${line}\n${base.message}`);
+  }
+  return enrich(line);
+}
+
+/**
+ * Recall-injecting prompt-submit handler (Phase-2 Sprint 7; Phase 3
+ * active-memory strip).
  *
- * Runs the same synchronous assembly as {@link promptSubmitHandler}, then — on
- * coding-task prompts — fetches the matching anchored notes from the warm proxy
- * over UDS and PREPENDS them as real context. This replaces the model
- * round-trip the `ur|act STEP-0 … call unerr_recall_notes` nudge used to force:
- * the notes arrive injected, zero round-trip.
+ * Runs the same synchronous assembly as {@link promptSubmitHandler}, then two
+ * additional things: (1) on a detected user-rule directive, injects the
+ * CLAUDE.md-redirect nudge ({@link injectClaudeMdRedirect}) regardless of
+ * whether the turn is code-context; (2) on coding-task prompts, fetches
+ * matching trace-recall (past-incident journal) rows from the warm proxy over
+ * UDS and appends them as `ur|fct` lines (Cap A-2).
  *
  * Strictly additive + degrade-safe: if the proxy is unreachable, the prompt is
- * non-code, or recall is empty, the result is byte-identical to the sync path
- * (the static nudge still leads). The UDS query never throws (recall-client
+ * non-code, or recall is empty, the result carries only the redirect nudge (if
+ * any) plus the sync assembly. The UDS query never throws (recall-client
  * contract) and is time-boxed, so it can't stall the turn.
  */
 const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
@@ -1114,32 +1059,26 @@ const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
   const raw = normalized.raw;
   const message = (raw.user_message ?? raw.prompt ?? "") as string;
 
-  // T7.8 — user-rule capture (fire-and-forget). Runs on EVERY turn, even
-  // passthrough ones (a one-line "from now on, always X" must be captured even
-  // though it warrants no nudge). We MUST await: the hook is a short-lived
-  // subprocess that exits after writing stdout, so an un-awaited write may never
-  // flush. It is time-boxed (≤400ms) and degrades to false, so it can't stall.
+  // Phase 3 — CLAUDE.md redirect. Fires on EVERY detection, even on a
+  // passthrough turn (a one-line "from now on, always X" must still surface
+  // the nudge even though it otherwise warrants no injection).
   const rule = detectUserRule(message);
-  const capturePromise: Promise<boolean> = rule
-    ? captureUserRule(rule)
-    : Promise.resolve(false);
+  const withRedirect = rule ? injectClaudeMdRedirect(base, rule) : base;
 
-  // Only enrich an enrich — passthrough turns (short / one-shot-spent prompts)
-  // stay passthrough. Recall injection rides only code-context enrich turns.
-  if (base.action !== "enrich" || !base.message) {
-    await capturePromise; // let the capture flush before the subprocess exits
-    return base;
+  // Only enrich an enrich — passthrough turns (short / one-shot-spent prompts,
+  // net of the redirect above) stay passthrough. Trace recall rides only
+  // code-context enrich turns.
+  if (withRedirect.action !== "enrich" || !withRedirect.message) {
+    return withRedirect;
   }
   if (!message || !isCodeContext(message)) {
-    await capturePromise;
-    return base;
+    return withRedirect;
   }
 
-  // Option A + C — gate trivial turns and scale note count by tier.
+  // Option A — gate trivial turns; the tier still scales the trace budget.
   // classifyInjectionTier classifies this prompt as skip/focused/broad.
-  // inject:false → skip recall entirely (saves uncacheable tokens on turns
-  // where notes add no load-bearing signal). inject:true → proceed with
-  // decision.noteMax notes so focused prompts get a tighter slice.
+  // inject:false → skip trace recall entirely (saves uncacheable tokens on
+  // turns where a past incident adds no load-bearing signal).
   const decision = classifyInjectionTier(message);
   if (!decision.inject) {
     try {
@@ -1149,8 +1088,7 @@ const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
     } catch {
       // best-effort; never block the hook
     }
-    await capturePromise;
-    return base;
+    return withRedirect;
   }
   try {
     updateNudgeState(process.cwd(), (s) => {
@@ -1164,51 +1102,25 @@ const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
     // best-effort; never block the hook
   }
 
-  // Cap A-2 trace budget: skip→0, focused→1, broad→up-to-3.
-  // ur|fct lines are advisory and do NOT count toward the 5-line act cap.
-  const traceMax = !decision.inject ? 0 : decision.tier === "focused" ? 1 : 3;
+  // Cap A-2 trace budget: focused→1, broad→up-to-3. decision.inject is true
+  // here, so only those two tiers reach this line. ur|fct lines are advisory
+  // and do NOT count toward the 5-line act cap.
+  const traceMax = decision.tier === "focused" ? 1 : 3;
 
   try {
-    const [notes, , traces] = await Promise.all([
-      queryRecallNotes(message),
-      capturePromise,
-      (traceMax > 0
-        ? queryRecallTraces(message, traceMax)
-        : Promise.resolve(null)
-      ).catch(() => null),
-    ]);
-
-    // W2/W5 — inject only the load-bearing top slice per turn, not every
-    // matched note. The proxy returns all anchored-note matches; re-injecting
-    // the full set each turn re-bills uncacheable tokens for notes the turn
-    // won't act on. Rank by load-bearing score (kind/anchor/polarity/prompt
-    // overlap) and keep decision.noteMax; the rest stay reachable via
-    // a task-shaped search_code query, which the moment-1 line already points the agent to.
-    const topNotes =
-      notes && notes.length > 0
-        ? selectLoadBearing(notes, { prompt: message, max: decision.noteMax })
-        : [];
-    // The recall bodies are volatile, so APPEND them to the tail of the
-    // already-ordered block (whose stable head the sync handler emitted +
-    // recorded). The Moment-1 pointer stays in the stable head — it reads
-    // "notes shown for this prompt", true whether they sit above or below —
-    // so the cacheable head is unchanged turn to turn.
-    const notesBlock = renderRecallBlock(topNotes);
+    const traces = await queryRecallTraces(message, traceMax).catch(() => null);
     const traceLines =
       traces && traces.length > 0
         ? traces.map(formatTraceLine).join("\n")
         : null;
 
-    if (notesBlock || traceLines) {
-      const parts: string[] = [base.message];
-      if (notesBlock) parts.push(notesBlock);
-      if (traceLines) parts.push(traceLines);
-      return enrich(parts.join("\n"));
+    if (traceLines) {
+      return enrich(`${withRedirect.message}\n${traceLines}`);
     }
   } catch {
     // recall-client never throws, but stay defensive — fall back to the nudge.
   }
-  return base;
+  return withRedirect;
 };
 
 /**

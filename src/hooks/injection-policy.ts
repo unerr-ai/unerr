@@ -50,7 +50,7 @@ export interface ActCandidate {
 export interface AssembledInjection {
   /** Cacheable leading bytes: fixed act templates + static roster/catalog. */
   readonly stableHead: string;
-  /** Per-turn tail: resume/stitch, topic-shift, the verb-specific act lines. */
+  /** Per-turn tail: resume/stitch, the verb-specific act lines. */
   readonly volatileTail: string;
   /** Final block, ordered head → boundary → tail. Empty when nothing to emit. */
   readonly ordered: string;
@@ -98,7 +98,7 @@ function capAndSplit(candidates: ReadonlyArray<ActCandidate>): {
  * @param actCandidates  the per-turn `ur|act` lines, in priority order
  * @param staticTail     once-per-session roster/catalog (or "" when spent/skipped)
  * @param volatilePrefixes  per-turn volatile lines that precede the act tail
- *                          (e.g. cross-session stitch, topic-shift), in order
+ *                          (e.g. cross-session stitch), in order
  */
 export function assembleInjectionBlock(
   actCandidates: ReadonlyArray<ActCandidate>,

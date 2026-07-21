@@ -19,10 +19,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveSessionIdentity } from "../config/agent-registry.js";
-import {
-  consumeAnyPendingTopicShift,
-  setPendingTopicShift,
-} from "../intelligence/topic-shift.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import type { IdeType } from "../utils/detect.js";
 import { antigravityAdapter } from "./adapters/antigravity.js";
@@ -426,13 +422,12 @@ export function display(message: string): HookResult {
 
 // ── Ambient PreToolUse injection (non-Claude-Code agents) ─────────────
 //
-// Claude Code receives the topic-shift signal + mark_intent reminder
-// via UserPromptSubmit `additionalContext` (see prompt-hooks.ts). Cursor
-// and Cline have no UserPromptSubmit injection channel — their only
-// ambient surface is `agent_message` / `context` on PreToolUse. To keep
-// the topic-shift + mark_intent contract working across all clients, we
-// drain those signals into the FIRST PreToolUse result of the session
-// for non-Claude-Code agents.
+// Claude Code receives the mark_intent reminder via UserPromptSubmit
+// `additionalContext` (see prompt-hooks.ts). Cursor and Cline have no
+// UserPromptSubmit injection channel — their only ambient surface is
+// `agent_message` / `context` on PreToolUse. To keep the mark_intent
+// contract working across all clients, we drain that reminder into the
+// FIRST PreToolUse result of the session for non-Claude-Code agents.
 
 /** Build the ambient prefix for non-Claude-Code agents. Returns an
  *  empty string when nothing is pending. */
@@ -459,19 +454,6 @@ function buildAmbientPreInjection(): string {
     /* nudge-state unavailable — skip */
   }
 
-  // Topic-shift reminder — drains any pending signal stashed by the
-  // last recall_notes call.
-  try {
-    const shift = consumeAnyPendingTopicShift();
-    if (shift?.flag) {
-      const pct = Math.round(shift.overlap * 100);
-      lines.push(
-        `ur|fct topic-shift detected (overlap ${pct}%) — call unerr_recall_notes({prompt:"<recent user prompt>"}) before continuing to load fresh anchors`
-      );
-    }
-  } catch {
-    /* topic-shift module unavailable — skip */
-  }
   return lines.join("\n");
 }
 
@@ -486,27 +468,17 @@ function augmentForAmbientPreInjection(
   const prefix = buildAmbientPreInjection();
   if (prefix.length === 0) return result;
 
-  // Don't override a deny — that decision is load-bearing. Topic-shift
-  // can ride on the next PreToolUse after the deny is acknowledged.
+  // Don't override a deny — that decision is load-bearing.
   if (result.action === "deny") return result;
 
   if (result.action === "passthrough") {
     return { action: "nudge", message: prefix };
   }
   if (result.action === "rewrite") {
-    // Rewrites don't carry a message — a separate nudge frame is not
-    // possible. Re-queue the prefix by re-stashing the topic-shift so
-    // the next PreToolUse gets it. Best-effort with a sentinel session
-    // id; precision lost is acceptable — the signal still surfaces on
-    // the next call.
-    try {
-      setPendingTopicShift("__ambient_requeue__", {
-        flag: true,
-        overlap: 0,
-      });
-    } catch {
-      /* ignore */
-    }
+    // Rewrites carry no message channel, so the ambient prefix (mark_intent
+    // one-shot only) is dropped on this turn. mark_intent re-arms on the next
+    // new conversation, so this is a rare, low-stakes miss rather than a
+    // permanent silence.
     return result;
   }
   const existing = result.message ?? "";

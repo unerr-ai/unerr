@@ -3,8 +3,9 @@
  * fires for Cursor-shaped payloads:
  *   - deny path emits `{permission:"deny", agent_message:...}`
  *   - nudge path emits `{permission:"allow", agent_message:...}`
- *   - ambient injection (topic-shift + mark_intent) rides on the first
- *     PreToolUse and the message lands in `agent_message`
+ *   - ambient injection (mark_intent) rides on the first PreToolUse and the
+ *     message lands in `agent_message`; a pending topic-shift never
+ *     overrides a `deny` decision
  *
  * Spawning a real Cursor IDE in CI isn't practical; the contract is
  * the stdin/stdout JSON shape that Cursor's hook runner consumes. We
@@ -99,25 +100,6 @@ describe("Cursor end-to-end PreToolUse", () => {
     const parsed = JSON.parse(out);
     expect(parsed.permission).toBe("allow");
     expect(parsed.agent_message).toContain("prefer file_read");
-  });
-
-  it("injects topic-shift signal as agent_message on first PreToolUse", () => {
-    // Drain mark_intent one-shot first.
-    runPreToolUseHook(cursorPayload("Read", { file_path: "warm.ts" }), () =>
-      passthrough()
-    );
-
-    setPendingTopicShift("__session_test__", { flag: true, overlap: 0.12 });
-
-    const handler: HookHandler = () => passthrough();
-    const out = runPreToolUseHook(
-      cursorPayload("Read", { file_path: "x.ts" }),
-      handler
-    );
-    const parsed = JSON.parse(out);
-    expect(parsed.permission).toBe("allow");
-    expect(parsed.agent_message).toContain("topic-shift detected");
-    expect(parsed.agent_message).toContain("12%");
   });
 
   it("injects the intent reminder (unerr-save sentinel) once per session", () => {
