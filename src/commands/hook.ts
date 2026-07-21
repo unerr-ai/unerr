@@ -245,7 +245,7 @@ export function registerHookCommand(program: Command): void {
   hook
     .command("prompt-submit")
     .description(
-      "Inject warm recall (notes) + unerr tool reminder on each user prompt"
+      "Inject dated trace recall + unerr tool reminder on each user prompt"
     )
     .action(safeAsyncHookAction(runUserPromptSubmitHookAsync));
 

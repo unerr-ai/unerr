@@ -43,10 +43,10 @@ const EXEC_NUDGES = [
   "[unerr] Code nav (<5ms, graph-backed): search_code · get_references · file_read",
   // #6 TRIM — read protocol set
   "[unerr] Read code: file_read · Change files: file_edit (edit or whole-file write, no built-in Read needed) · Search: search_code (not grep) · Structure: file_outline",
-  // #7 TRIM — entity / convention / fact set
+  // #7 TRIM — entity / convention set
   // (get_conventions left the advertised catalog — file_read with
   // purpose:'explore' auto-injects the same conventions.)
-  "[unerr] Entity details: search_code({query:'<name>', detail:true}) · Before writing: file_read({purpose:'explore'}) auto-injects conventions · For prior facts: unerr_track({op:'recall'})",
+  "[unerr] Entity details: search_code({query:'<name>', detail:true}) · Before writing: file_read({purpose:'explore'}) auto-injects conventions",
   // #8 — pre-edit nudge (get_critical_nodes left the advertised catalog;
   // the same chokepoint signal is the fan_in column on get_references rows)
   "[unerr] Before editing: get_references({direction:'callers'}) to check callers — a long caller list marks a chokepoint.",
@@ -57,8 +57,8 @@ const EXEC_NUDGES = [
   "[unerr] Structure: file_outline (file map) · search_code({detail:true}) (one symbol) · search_code({query:'<task phrase>'}) (task-scoped recon bundle)",
   // #10 TRIM — narrative markers with when-tags
   "[unerr] Markers (zero round-trip): emit `unerr-save: intent|decision|blocker|resolution <one-line>` in your closing message — the Stop hook persists them to power timeline + resume",
-  // #11 — user-fed memory: hook captures user rules; agent notes ride the sentinel
-  '[unerr] User said "remember" / "always" / "from now on"? The prompt hook captured it — no tool call. Agent-detected note: emit `unerr-save: note kind|anchor|polarity|content` in your closing message.',
+  // #11 — user rules: the hook nudges the agent to write them into CLAUDE.md
+  '[unerr] User said "remember" / "always" / "from now on"? Write the rule verbatim into CLAUDE.md (or the agent instruction file) — unerr does not store user rules.',
 ];
 
 /**
