@@ -1,6 +1,6 @@
 /**
- * Content loader — the single read path for static prose surfaces (the
- * contract-teaching block and the bundled skill bodies). Raw prose lives in
+ * Content loader — the single read path for static prose surfaces (agent
+ * instruction text and the bundled skill bodies). Raw prose lives in
  * `instructions.json` / `skills.json`, merged here and bundled into
  * `dist/cli.js`, so loading never touches the filesystem.
  *

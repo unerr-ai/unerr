@@ -121,7 +121,7 @@ function onceVerbose(key: string, full: string, terse: string): string {
 // A *targeted* Read (offset/limit) is that pre-Edit pattern: one call returns
 // the byte-exact `old_string` window AND satisfies the gate. A *full-file*
 // Read with no offset/limit is almost always exploration — and exploration
-// must route through file_read (or a task-shaped search_code query) (graph-backed; conventions, facts,
+// must route through file_read (or a task-shaped search_code query) (graph-backed; conventions
 // and drift auto-injected). So: allow targeted reads + non-code reads silently;
 // deny-once + redirect full-file CODE reads. Deny only the first attempt per
 // file (then nudge) to avoid the #43189/#47565 double-deny retry loop.
@@ -153,7 +153,7 @@ const preReadHandler: HookHandler = (normalized) => {
   const editClause = isClaudeCode
     ? `\n- About to EDIT "${filePath}"? Call \`file_edit({file_path:"${filePath}", old_string, new_string})\` — the unerr edit path needs no prior Read.`
     : "";
-  const reason = `Read("${filePath}") full-file is wasteful — route code exploration through unerr instead:\n- Understand the file: \`file_read({file_path:"${filePath}"})\` (auto-injects conventions, facts, drift)\n- Task-scoped recon in one call (anchored notes + blast radius + conventions): \`search_code({query:"<what you are about to do>"})\` (a task phrase returns the recon bundle)\n- File structure first: \`file_outline("${filePath}")\`\n- One symbol's profile/body: \`search_code({query:'<name>', detail:true})\`\n- Genuinely need the ENTIRE file? Re-call Read — this redirect fires once per file.${editClause}`;
+  const reason = `Read("${filePath}") full-file is wasteful — route code exploration through unerr instead:\n- Understand the file: \`file_read({file_path:"${filePath}"})\` (auto-injects conventions and drift)\n- Task-scoped recon in one call (blast radius + conventions): \`search_code({query:"<what you are about to do>"})\` (a task phrase returns the recon bundle)\n- File structure first: \`file_outline("${filePath}")\`\n- One symbol's profile/body: \`search_code({query:'<name>', detail:true})\`\n- Genuinely need the ENTIRE file? Re-call Read — this redirect fires once per file.${editClause}`;
 
   // Deny the first full-file read per file; nudge (collapsing to terse after the
   // first verbose banner) on repeats within the dedup window — so re-issuing the
@@ -400,11 +400,11 @@ const postReadHandler: HookHandler = (normalized) => {
   const isClaudeCode = normalized.agentName === "claude-code";
   if (isClaudeCode) {
     return enrich(
-      "ur|fct To change this file call file_edit (no built-in Read needed); to understand it use `file_read` (auto-injects facts/drift)."
+      "ur|fct To change this file call file_edit (no built-in Read needed); to understand it use `file_read` (auto-injects conventions and drift)."
     );
   }
   return enrich(
-    "ur|fct Prefer `file_read` over built-in Read — it auto-injects conventions, facts, drift."
+    "ur|fct Prefer `file_read` over built-in Read — it auto-injects conventions and drift."
   );
 };
 
@@ -445,8 +445,8 @@ const postReadHandlerAsync: AsyncHookHandler = async (normalized) => {
   if (shouldEmitOnce("read-pref:session", VERBOSE_BANNER_TTL_MS)) {
     nudgeLine =
       normalized.agentName === "claude-code"
-        ? "ur|fct To change this file call file_edit (no built-in Read needed); to understand it use `file_read` (auto-injects facts/drift)."
-        : "ur|fct Prefer `file_read` over built-in Read — it auto-injects conventions, facts, drift.";
+        ? "ur|fct To change this file call file_edit (no built-in Read needed); to understand it use `file_read` (auto-injects conventions and drift)."
+        : "ur|fct Prefer `file_read` over built-in Read — it auto-injects conventions and drift.";
   }
 
   // T2.4 — keep the STABLE region (conventions: legend-like, slow-changing)

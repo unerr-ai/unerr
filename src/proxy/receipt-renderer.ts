@@ -37,7 +37,6 @@ import {
 } from "../tracking/named-events.js";
 import type { RuntimeJoinCounts } from "../tracking/runtime-joins.js";
 import type {
-  AttributionCapture,
   AttributionDrift,
   AttributionRecall,
   ReceiptAttribution,
@@ -48,7 +47,6 @@ const BULLET = "◆";
  *  when the agent pastes the line) and aligns under the headline. */
 const BULLET_INDENT = "  ";
 const MAX_BULLETS = 3;
-const MAX_QUOTE_CHARS = 60;
 const MAX_CMD_CHARS = 48;
 
 /**
@@ -60,8 +58,9 @@ const MAX_CMD_CHARS = 48;
  *   PREVENTION — unerr actively stopped a mistake (blocked/warned a call,
  *                caught a stale edit, guarded a cascade, broke a retry loop).
  *                Rarest + highest stakes; nothing else does this.
- *   JOIN       — 3-way cross-tier join (memory → graph → drift). Very rare.
- *   MEMORY     — your recalled / captured rules. Core unerr value.
+ *   JOIN       — 3-way cross-tier join (journal → graph → drift). Very rare.
+ *   JOURNAL    — a dated past incident resurfaced (trace recall) + session
+ *                markers. Core unerr value.
  *   DRIFT      — stale-code drift caught and applied.
  *   FILE_READ  — gated a large file read. A real saver and a concrete
  *                surprise ("skipped 4,311 lines"), so it outranks commodity.
@@ -72,7 +71,7 @@ const MAX_CMD_CHARS = 48;
 const PRIORITY = {
   PREVENTION: 0,
   JOIN: 1,
-  MEMORY: 2,
+  JOURNAL: 2,
   DRIFT: 3,
   FILE_READ: 4,
   COMMODITY: 5,
@@ -123,9 +122,6 @@ export interface ReceiptBlockInputs {
   /** Whole-session event tally (count desc) — source of the recap buckets.
    *  Ignored when `recapTurn` is false. */
   sessionHighlights?: readonly ReportHighlight[];
-  /** Distinct files the session's saved notes (`fact_stored_*`) landed in —
-   *  surfaced as "(across N files)" on the Remembered recap row. 0 → omitted. */
-  rememberedFileCount?: number;
   /** Lifetime (cross-session, per-repo) anchors. When present, the recap shows
    *  an All-time line; omitted → no All-time line (honest-zero). */
   lifetime?: {
@@ -174,19 +170,6 @@ function baseName(p: string): string {
   const clean = p.replace(/[\\/]+$/, "");
   const slash = clean.lastIndexOf("/");
   return slash >= 0 ? clean.slice(slash + 1) : clean;
-}
-
-function truncateQuote(s: string): string {
-  const trimmed = s.trim();
-  if (trimmed.length <= MAX_QUOTE_CHARS) return trimmed;
-  return `${trimmed.slice(0, MAX_QUOTE_CHARS - 1).trimEnd()}…`;
-}
-
-function pickQuote(row: AttributionRecall | AttributionCapture): string {
-  if (row.source_quote && row.source_quote.length <= MAX_QUOTE_CHARS) {
-    return row.source_quote.trim();
-  }
-  return truncateQuote(row.content);
 }
 
 function formatTokens(n: number): string {
@@ -319,39 +302,27 @@ function contextBundleBullet(turnEvents: readonly NamedEvent[]): Bullet | null {
   };
 }
 
-/** Three-way cross-tier join (memory + graph + drift on one entity) — the
+/** Three-way cross-tier join (journal + graph + drift on one entity) — the
  *  rarest, most differentiated signal. Named entity required. */
 function joinBullet(joins: RuntimeJoinCounts): Bullet | null {
   if (joins.three_way <= 0) return null;
   const entity = joins.entities.find((e) => e.length > 0);
   if (!entity) return null;
   return {
-    text: `connected your memory → the graph → live drift on ${baseName(entity)}  (3-way join)`,
+    text: `connected your journal → the graph → live drift on ${baseName(entity)}  (3-way join)`,
     priority: PRIORITY.JOIN,
     weight: 0,
   };
 }
 
-/** First recalled rule this turn → 'reminded you: "…"'. */
+/** A trace_recalled event this turn → "resurfaced N dated incidents" — the
+ *  session journal resurfacing a past resolved incident, not a stored rule. */
 function recallBullet(recall: AttributionRecall | undefined): Bullet | null {
-  if (!recall) return null;
-  const quote = pickQuote(recall);
-  const where =
-    recall.scope && recall.scope !== "project"
-      ? ` at ${baseName(recall.scope)}`
-      : "";
+  if (!recall || recall.count <= 0) return null;
+  const noun = recall.count === 1 ? "incident" : "incidents";
   return {
-    text: `reminded you: "${quote}"${where}  (recall)`,
-    priority: PRIORITY.MEMORY,
-    weight: 0,
-  };
-}
-
-/** A rule captured this turn → 'remembered "…"'. */
-function captureBullet(capture: AttributionCapture): Bullet {
-  return {
-    text: `remembered "${pickQuote(capture)}"  (capture)`,
-    priority: PRIORITY.MEMORY,
+    text: `resurfaced ${exact(recall.count)} dated ${noun}  (recall)`,
+    priority: PRIORITY.JOURNAL,
     weight: 0,
   };
 }
@@ -575,11 +546,8 @@ function recapBlock(inputs: ReceiptBlockInputs): string[] {
     );
   }
   if (sess.remembered.total > 0) {
-    const fc = inputs.rememberedFileCount ?? 0;
-    const across =
-      fc > 0 ? ` (across ${fc} ${fc === 1 ? "file" : "files"})` : "";
     rows.push(
-      `${RECAP_INDENT}Remembered  ${sess.remembered.parts.join(" · ")}${across}`
+      `${RECAP_INDENT}Journal     ${sess.remembered.parts.join(" · ")}`
     );
   }
   if (inputs.sessionTokensSaved > 0 || inputs.sessionHeadroom > 0) {
@@ -764,7 +732,6 @@ function renderTurnLines(inputs: ReceiptBlockInputs): string[] {
   if (jb) candidates.push(jb);
   const rb = recallBullet(attribution.recalls[0]);
   if (rb) candidates.push(rb);
-  for (const c of attribution.captures) candidates.push(captureBullet(c));
   for (const d of attribution.drift) candidates.push(driftBullet(d));
   const fr = fileReadBullet(turnEvents);
   if (fr) candidates.push(fr);

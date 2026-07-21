@@ -9,7 +9,6 @@
  *   - readNamedEvents vs readBehaviorEvents (verb/object/agent/file_path)
  *   - Logbook story-paragraph counts vs Dashboard counter aggregates
  *   - Session Economy turn-headroom vs Token Trace tokens-saved
- *   - Sidekick Memory fact list vs existing fact-listing endpoint
  *
  * No IO — the tests own the IO and pass results in.
  */
@@ -102,25 +101,6 @@ export function sessionEconomyTokenFlowParity(
       report,
       `tokens saved mismatch: session-economy=${economyTokens} token-flow=${tokenFlowTokens}`
     );
-  }
-  return report;
-}
-
-/**
- * Parity 4 — Sidekick Memory fact list must contain every fact the
- * existing `/api/facts` endpoint returns for the same scope filter. The
- * Sidekick list may contain MORE (disabled facts, lower-confidence
- * filter floor) but the intersection must match identically.
- */
-export function sidekickFactsParity(
-  sidekickIds: Set<string>,
-  existingIds: Set<string>
-): ParityReport {
-  const report = emptyReport();
-  for (const id of existingIds) {
-    if (!sidekickIds.has(id)) {
-      fail(report, `existing fact ${id} missing from sidekick list`);
-    }
   }
   return report;
 }

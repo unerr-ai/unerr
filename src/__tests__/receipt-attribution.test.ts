@@ -23,94 +23,31 @@ function event(
 describe("extractReceiptAttribution", () => {
   it("returns empty payload when no events fired this turn", () => {
     const result = extractReceiptAttribution([], 1);
-    expect(result).toEqual({ recalls: [], captures: [], drift: [] });
+    expect(result).toEqual({ recalls: [], drift: [] });
   });
 
   it("filters events to the requested turn only", () => {
     const events: NamedEvent[] = [
-      event({
-        event_type: "fact_recalled",
-        turn: 1,
-        metadata: { content: "rule A" },
-      }),
-      event({
-        event_type: "fact_recalled",
-        turn: 2,
-        metadata: { content: "rule B" },
-      }),
+      event({ event_type: "trace_recalled", turn: 1, metadata: { count: 3 } }),
+      event({ event_type: "trace_recalled", turn: 2, metadata: { count: 7 } }),
     ];
     const result = extractReceiptAttribution(events, 2);
-    expect(result.recalls).toEqual([{ content: "rule B" }]);
+    expect(result.recalls).toEqual([{ count: 7 }]);
   });
 
-  it("recall reads metadata.top_content when content is absent", () => {
+  it("trace_recalled carries the surfaced population from metadata.count", () => {
     const events: NamedEvent[] = [
       event({
-        event_type: "fact_recalled",
+        event_type: "trace_recalled",
         turn: 1,
-        metadata: {
-          top_content: "no console.log in production",
-          top_anchor_value: "src/index.ts",
-        },
+        metadata: { count: 2 },
       }),
     ];
     const result = extractReceiptAttribution(events, 1);
-    expect(result.recalls).toEqual([
-      { content: "no console.log in production", scope: "src/index.ts" },
-    ]);
+    expect(result.recalls).toEqual([{ count: 2 }]);
   });
 
-  it("recall falls back through content → top_content → fact_content priority", () => {
-    const events: NamedEvent[] = [
-      event({
-        event_type: "fact_recalled",
-        turn: 1,
-        metadata: { fact_content: "legacy alias" },
-      }),
-    ];
-    expect(extractReceiptAttribution(events, 1).recalls).toEqual([
-      { content: "legacy alias" },
-    ]);
-  });
-
-  it("capture (user_fed) carries source_quote when present", () => {
-    const events: NamedEvent[] = [
-      event({
-        event_type: "fact_stored_user_fed",
-        turn: 1,
-        metadata: {
-          content: "tests live next to code",
-          source_quote: "remember tests live next to code",
-          scope: "project",
-        },
-      }),
-    ];
-    const result = extractReceiptAttribution(events, 1);
-    expect(result.captures).toEqual([
-      {
-        content: "tests live next to code",
-        source_quote: "remember tests live next to code",
-        scope: "project",
-      },
-    ]);
-  });
-
-  it("capture (agent_explicit) routes through capture extraction with file_path scope fallback", () => {
-    const events: NamedEvent[] = [
-      event({
-        event_type: "fact_stored_auto",
-        turn: 1,
-        file_path: "src/proxy/proxy.ts",
-        metadata: { content: "agent observed convention" },
-      }),
-    ];
-    const result = extractReceiptAttribution(events, 1);
-    expect(result.captures).toEqual([
-      { content: "agent observed convention", scope: "src/proxy/proxy.ts" },
-    ]);
-  });
-
-  it("convention_applied is classified as a recall", () => {
+  it("convention_applied is no longer classified as a recall", () => {
     const events: NamedEvent[] = [
       event({
         event_type: "convention_applied",
@@ -119,8 +56,7 @@ describe("extractReceiptAttribution", () => {
       }),
     ];
     const result = extractReceiptAttribution(events, 1);
-    expect(result.recalls).toEqual([{ content: "use _ for unused args" }]);
-    expect(result.captures).toEqual([]);
+    expect(result.recalls).toEqual([]);
   });
 
   it("drift_consumed deduplicates by file_path", () => {
@@ -148,27 +84,20 @@ describe("extractReceiptAttribution", () => {
     ]);
   });
 
-  it("skips events with no content (defensive — writer didn't stamp text)", () => {
+  it("skips a trace_recalled event with no positive count (defensive — writer didn't stamp one)", () => {
     const events: NamedEvent[] = [
-      event({ event_type: "fact_recalled", turn: 1, metadata: {} }),
-      event({ event_type: "fact_stored_user_fed", turn: 1, metadata: {} }),
+      event({ event_type: "trace_recalled", turn: 1, metadata: {} }),
     ];
     const result = extractReceiptAttribution(events, 1);
     expect(result.recalls).toEqual([]);
-    expect(result.captures).toEqual([]);
   });
 
-  it("classifies mixed-event turn into all three buckets", () => {
+  it("classifies a mixed-event turn into recall + drift", () => {
     const events: NamedEvent[] = [
       event({
-        event_type: "fact_recalled",
+        event_type: "trace_recalled",
         turn: 5,
-        metadata: { top_content: "rule A" },
-      }),
-      event({
-        event_type: "fact_stored_user_fed",
-        turn: 5,
-        metadata: { content: "use Foo for Bar", source_quote: "always Foo" },
+        metadata: { count: 4 },
       }),
       event({
         event_type: "drift_consumed",
@@ -182,10 +111,7 @@ describe("extractReceiptAttribution", () => {
       }),
     ];
     const result = extractReceiptAttribution(events, 5);
-    expect(result.recalls).toEqual([{ content: "rule A" }]);
-    expect(result.captures).toEqual([
-      { content: "use Foo for Bar", source_quote: "always Foo" },
-    ]);
+    expect(result.recalls).toEqual([{ count: 4 }]);
     expect(result.drift).toEqual([{ file_path: "src/x.ts" }]);
   });
 });

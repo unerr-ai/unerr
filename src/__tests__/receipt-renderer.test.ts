@@ -6,7 +6,6 @@ import type { RuntimeJoinCounts } from "../tracking/runtime-joins.js";
 
 const emptyAttribution: ReceiptAttribution = {
   recalls: [],
-  captures: [],
   drift: [],
 };
 
@@ -127,11 +126,10 @@ describe("renderReceiptBlock — narrative redesign", () => {
     );
   });
 
-  it("recalled rule (differentiated) outranks a larger file-read saver", () => {
+  it("trace recall (differentiated) outranks a larger file-read saver", () => {
     const lines = renderReceiptBlock({
       attribution: {
-        recalls: [{ content: "run web research first before building" }],
-        captures: [],
+        recalls: [{ count: 3 }],
         drift: [],
       },
       runtimeJoins: noJoins,
@@ -143,19 +141,14 @@ describe("renderReceiptBlock — narrative redesign", () => {
     });
     // The headline already carries the 38,566 number; the recall is the
     // differentiated signal, so it leads — the file-read saver follows.
-    expect(lines[1]).toBe(
-      '  ◆ reminded you: "run web research first before building"  (recall)'
-    );
+    expect(lines[1]).toBe("  ◆ resurfaced 3 dated incidents  (recall)");
     expect(lines[2]).toContain("skipped reading proxy.ts");
   });
 
-  it("appends the recall scope when it is a real file/entity (not 'project')", () => {
+  it("uses singular 'incident' when exactly one was resurfaced", () => {
     const lines = renderReceiptBlock({
       attribution: {
-        recalls: [
-          { content: "no intelligence imports", scope: "src/proxy/bridge.ts" },
-        ],
-        captures: [],
+        recalls: [{ count: 1 }],
         drift: [],
       },
       runtimeJoins: noJoins,
@@ -165,9 +158,7 @@ describe("renderReceiptBlock — narrative redesign", () => {
       turnEvents: [],
       fallbackLine: "",
     });
-    expect(lines).toContain(
-      '  ◆ reminded you: "no intelligence imports" at bridge.ts  (recall)'
-    );
+    expect(lines).toContain("  ◆ resurfaced 1 dated incident  (recall)");
   });
 
   it("names the entity behind code lookups, with a +N more tail", () => {
@@ -199,8 +190,7 @@ describe("renderReceiptBlock — narrative redesign", () => {
   it("surfaces a 3-way join as the lead qualitative bullet, naming the entity", () => {
     const lines = renderReceiptBlock({
       attribution: {
-        recalls: [{ content: "some rule" }],
-        captures: [],
+        recalls: [{ count: 2 }],
         drift: [],
       },
       runtimeJoins: {
@@ -217,16 +207,15 @@ describe("renderReceiptBlock — narrative redesign", () => {
     });
     // join bullet outranks the recall bullet.
     expect(lines[1]).toBe(
-      "  ◆ connected your memory → the graph → live drift on shell-compressor.ts  (3-way join)"
+      "  ◆ connected your journal → the graph → live drift on shell-compressor.ts  (3-way join)"
     );
-    expect(lines[2]).toContain("reminded you");
+    expect(lines[2]).toContain("resurfaced");
   });
 
   it("caps bullets at 3 and reports the rest as +N more in the footer", () => {
     const lines = renderReceiptBlock({
       attribution: {
-        recalls: [{ content: "rule one" }],
-        captures: [{ content: "captured X" }],
+        recalls: [{ count: 4 }],
         drift: [{ file_path: "f.ts" }],
       },
       runtimeJoins: noJoins,
@@ -236,21 +225,20 @@ describe("renderReceiptBlock — narrative redesign", () => {
       turnEvents: [fileReadEvent, shellEvent],
       fallbackLine: "",
     });
-    // Differentiated signals win the 3 slots: recall, capture, drift shown;
-    // the file_read + shell savers overflow = 2.
+    // Differentiated signals win the first 2 slots: recall, drift; the
+    // file-read saver takes the 3rd slot; the shell saver overflows = 1.
     expect(lines).toHaveLength(5); // headline + 3 bullets + footer
-    expect(lines[1]).toContain("reminded you");
-    expect(lines[2]).toContain("remembered");
-    expect(lines[3]).toContain("caught drift");
+    expect(lines[1]).toContain("resurfaced");
+    expect(lines[2]).toContain("caught drift");
+    expect(lines[3]).toContain("skipped reading");
     const footer = lines[lines.length - 1];
-    expect(footer).toContain("+2 more");
+    expect(footer).toContain("+1 more");
   });
 
   it("uses the no-savings headline when only qualitative help fired", () => {
     const lines = renderReceiptBlock({
       attribution: {
-        recalls: [{ content: "tests live next to code" }],
-        captures: [],
+        recalls: [{ count: 5 }],
         drift: [],
       },
       runtimeJoins: noJoins,
@@ -261,51 +249,8 @@ describe("renderReceiptBlock — narrative redesign", () => {
       fallbackLine: "",
     });
     expect(lines[0]).toBe("unerr » this turn — here's where unerr helped");
-    expect(lines[1]).toBe(
-      '  ◆ reminded you: "tests live next to code"  (recall)'
-    );
+    expect(lines[1]).toBe("  ◆ resurfaced 5 dated incidents  (recall)");
     expect(lines[lines.length - 1]).toBe("  · 2.1k saved this session");
-  });
-
-  it("prefers source_quote over content when it fits (≤60 chars)", () => {
-    const lines = renderReceiptBlock({
-      attribution: {
-        recalls: [],
-        captures: [
-          {
-            content: "tests live next to code",
-            source_quote: "always put tests next to the code they cover",
-          },
-        ],
-        drift: [],
-      },
-      runtimeJoins: noJoins,
-      turnTokensSaved: 0,
-      sessionTokensSaved: 0,
-      sessionHeadroom: 0,
-      turnEvents: [],
-      fallbackLine: "",
-    });
-    expect(lines).toContain(
-      '  ◆ remembered "always put tests next to the code they cover"  (capture)'
-    );
-  });
-
-  it("truncates an over-long quote to ≤60 chars with an ellipsis", () => {
-    const lines = renderReceiptBlock({
-      attribution: {
-        recalls: [{ content: "a".repeat(80) }],
-        captures: [],
-        drift: [],
-      },
-      runtimeJoins: noJoins,
-      turnTokensSaved: 0,
-      sessionTokensSaved: 0,
-      sessionHeadroom: 0,
-      turnEvents: [],
-      fallbackLine: "",
-    });
-    expect(lines[1]).toMatch(/reminded you: "a+…" {2}\(recall\)/);
   });
 
   it("prevention bullet leads over a much larger file-read saver", () => {
@@ -376,8 +321,7 @@ describe("renderReceiptBlock — narrative redesign", () => {
   it("keeps a substantial shell compression (≥ floor) but ranks it last", () => {
     const lines = renderReceiptBlock({
       attribution: {
-        recalls: [{ content: "a recalled rule" }],
-        captures: [],
+        recalls: [{ count: 1 }],
         drift: [],
       },
       runtimeJoins: noJoins,
@@ -387,7 +331,7 @@ describe("renderReceiptBlock — narrative redesign", () => {
       turnEvents: [shellEvent],
       fallbackLine: "",
     });
-    expect(lines[1]).toContain("reminded you");
+    expect(lines[1]).toContain("resurfaced");
     expect(lines[2]).toContain("compressed `git");
   });
 
@@ -498,7 +442,6 @@ describe("renderReceiptBlock — State 3 session recap fold-in", () => {
       fallbackLine: "",
       recapTurn: true,
       sessionHighlights,
-      rememberedFileCount: 5,
     }).join("\n");
     expect(text).toContain(
       "unerr » this session, unerr kept your agent on track:"
@@ -507,7 +450,7 @@ describe("renderReceiptBlock — State 3 session recap fold-in", () => {
       "Prevented   5 likely breakages — 4 risky cascading edits, 1 stale code edit"
     );
     expect(text).toContain(
-      "Remembered  12 remembered notes · 2 notes from you · 3 project conventions (across 5 files)"
+      "Journal     12 remembered notes · 2 notes from you · 3 project conventions"
     );
     expect(text).toContain("Saved       48k tokens  (~9 turns of extra room)");
   });

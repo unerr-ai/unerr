@@ -10,12 +10,6 @@
  *                                pre-edit-recon, safe-modification-workflow)
  *   - unerr-exploration        — find/understand (absorbs graph-first-navigation,
  *                                architecture-exploration, file-read-protocol)
- *   - unerr-memory             — four-moment contract + user-fed memory (absorbs
- *                                prompt-receipt, anchor-query, save-at-end,
- *                                user-fed-memory, session-context-preservation)
- *   - unerr-markers            — intent / decision / blocker / resolution via the
- *                                `unerr-save:` closing-message sentinel (zero round-trip;
- *                                absorbs timeline-markers, intent-tracking, turn-discipline)
  *   - unerr-build-and-debug    — new-code + bug-forensics lifecycles (absorbs
  *                                brainstorming-before-build, systematic-debugging)
  *   - unerr-test-and-review    — TDD + receiving-code-review (absorbs

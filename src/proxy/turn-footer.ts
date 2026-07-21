@@ -10,9 +10,8 @@
  *   - `renderHybridTurnLine` — pure renderer for that line.
  *
  * This module also owns the small formatting helpers reused by the
- * Surface-2 opening line (`context-preface.ts`, `loaded-note-line.ts`,
- * `surface2-line-handler.ts`): `formatTokenCount`, `formatRelativeAge`,
- * `topFileFromEvents`, `topHighlightsPhrase`.
+ * Surface-2 opening line (`context-preface.ts`): `formatTokenCount`,
+ * `formatRelativeAge`, `topFileFromEvents`, `topHighlightsPhrase`.
  *
  * The legacy per-response footer (`renderTurnFooter` / `renderTurnFooterLive`
  * / `renderSessionEconomyLine`) was removed when the agent-pull

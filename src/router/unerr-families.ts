@@ -32,7 +32,7 @@
  * reject them.
  *
  * Invariant: every tool name in TIER_ENTRIES must appear in exactly one
- * family below. The contract-teaching / unerr-families test
+ * family below. The unerr-families test
  * (src/__tests__/unerr-families.test.ts) enforces this at module-load time.
  */
 

@@ -21,7 +21,6 @@
 
 import { openMetricsStore } from "../tracking/metrics-store.js";
 import {
-  type NamedEvent,
   currentTurnSlice,
   eventBucket,
   readNamedEvents,
@@ -46,19 +45,6 @@ export const RECAP_EVERY_N_TURNS = 3;
 export function isRecapTurn(currentTurn: number, quietTurn: boolean): boolean {
   if (quietTurn) return true;
   return currentTurn > 0 && currentTurn % RECAP_EVERY_N_TURNS === 0;
-}
-
-/** Distinct files the session's saved notes (`fact_stored_*`) landed in —
- *  drives the "(across N files)" anchor on the Remembered recap row. Counts
- *  only events that carry a concrete `file_path`; a project/workspace-anchored
- *  note (no file) is not double-counted as a file. */
-function rememberedFileCount(events: readonly NamedEvent[]): number {
-  const files = new Set<string>();
-  for (const e of events) {
-    if (!e.event_type.startsWith("fact_stored")) continue;
-    if (e.file_path) files.add(e.file_path);
-  }
-  return files.size;
 }
 
 /**
@@ -89,7 +75,6 @@ export function gatherReceiptInputs(
   let turnEvents: ReturnType<typeof currentTurnSlice> = [];
   let runtimeJoins = computeRuntimeJoins([], sessionId, currentTurn);
   let attribution = extractReceiptAttribution([], currentTurn);
-  let storedFiles = 0;
   try {
     // Prefer native_session_id correlation so proxy-written edits and
     // hook-written prompt-boundary events (different session_id spaces but
@@ -102,7 +87,6 @@ export function gatherReceiptInputs(
     runtimeJoins = computeRuntimeJoins(events, sessionId, currentTurn);
     attribution = extractReceiptAttribution(events, currentTurn);
     turnEvents = currentTurnSlice(events, currentTurn);
-    storedFiles = rememberedFileCount(events);
   } catch {
     /* best effort — receipt falls through to the legacy single-liner */
   }
@@ -156,7 +140,6 @@ export function gatherReceiptInputs(
     fallbackLine: sessionHasValue ? data.line : "",
     recapTurn,
     sessionHighlights: data.highlights,
-    rememberedFileCount: storedFiles,
     lifetime,
     singleLine: opts.singleLine,
   };

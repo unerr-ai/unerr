@@ -45,7 +45,7 @@ export class SessionContext {
    * Key: stable signal id (sha256(content).slice(0,16) or fact_id).
    *
    * In-memory fallback used when no SignalShowStore has been attached
-   * (tests, --mcp during facts.db boot). When the store is present its
+   * (tests, --mcp during timeline.db boot). When the store is present its
    * effective count is preferred so rotation survives restarts and is
    * coordinated across parallel sessions in the same repo.
    */
@@ -71,7 +71,7 @@ export class SessionContext {
   /**
    * Attach the persistent rotation store. Once attached, getSignalShowCount
    * returns the time-decayed cross-session count and recordSignalShown writes
-   * through to facts.db on the next flush tick.
+   * through to timeline.db on the next flush tick.
    */
   setSignalShowStore(store: SignalShowStore | null): void {
     this.showStore = store;
