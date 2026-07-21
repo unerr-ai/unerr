@@ -76,14 +76,21 @@ export async function runScipIndexer(
         );
         return { success: true, outputPath, durationMs, error: null };
       }
-      log.warn(
-        `SCIP indexer failed (exit ${result.exitCode}): ${result.stderr.slice(0, 500)}`
-      );
+      // exit 143 = 128 + SIGTERM: tinyexec SIGTERMs the child when it exceeds
+      // `timeout`, so a 143 with no output almost always means the indexer ran
+      // out of time before flushing (scip-python on a large repo is the common
+      // case). Report that explicitly — an empty stderr slice on a SIGTERM tells
+      // the user nothing.
+      const timedOut = result.exitCode === 143;
+      const error = timedOut
+        ? `${language} SCIP indexer timed out after ${timeoutMs}ms (SIGTERM) before producing output — raise UNERR_SCIP_TIMEOUT_MS or install a faster indexer`
+        : result.stderr.slice(0, 500);
+      log.warn(`SCIP indexer failed (exit ${result.exitCode}): ${error}`);
       return {
         success: false,
         outputPath: null,
         durationMs,
-        error: result.stderr.slice(0, 500),
+        error,
       };
     }
 

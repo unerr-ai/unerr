@@ -63,6 +63,9 @@ export interface ScipEnrichmentResult {
   decodeResult: ScipDecodeResult | null;
   mergeResult: MergeResult | null;
   enrichedEdges: EnrichedEdge[];
+  /** Call edges newly materialized from SCIP references (across all languages),
+   *  which the caller must persist — these are NOT in the tree-sitter edge set. */
+  newEdges: EnrichedEdge[];
   skipped: boolean;
   skipReason: string | null;
 }
@@ -78,6 +81,25 @@ export interface ScipEnrichmentResult {
  */
 export type ScipEnrichmentOptions = Record<string, never>;
 
+/**
+ * SCIP indexer timeout (ms) for a language.
+ *
+ * TypeScript keeps the historical 30s inline budget — no regression for the
+ * common path. Slower indexers (scip-python et al.) only ever run when the
+ * binary is genuinely available (bundled or on PATH); when they do run we want
+ * them to finish rather than be SIGTERM-truncated at 30s into a partial .scip,
+ * so their budget scales by file count (~150ms/file) with a 60s floor and a
+ * 300s cap (kept inside the `unerr index` overall budget so SCIP can't dominate
+ * a run). `UNERR_SCIP_TIMEOUT_MS` overrides the computed value for both
+ * (harness speed runs / CI / full-fidelity runs).
+ */
+function scipTimeoutForLanguage(language: string, fileCount: number): number {
+  const override = Number(process.env.UNERR_SCIP_TIMEOUT_MS);
+  if (Number.isFinite(override) && override > 0) return override;
+  if (language === "typescript") return 30_000;
+  return Math.min(300_000, Math.max(60_000, fileCount * 150));
+}
+
 export async function enrichWithScip(
   files: string[],
   projectRoot: string,
@@ -92,6 +114,8 @@ export async function enrichWithScip(
   }
 
   let currentEdges: EnrichedEdge[] = markAsStructural(existingEdges);
+  // Call edges materialized from SCIP references, accumulated across languages.
+  const allNewEdges: EnrichedEdge[] = [];
   let lastRunResult: ScipRunResult | null = null;
   let lastDecodeResult: ScipDecodeResult | null = null;
   let lastMergeResult: MergeResult | null = null;
@@ -189,13 +213,15 @@ export async function enrichWithScip(
       `SCIP enrichment: ${language} (${binaryInfo.bundled ? "bundled" : "external"}: ${binaryInfo.binaryName})`
     );
 
+    const timeoutMs = scipTimeoutForLanguage(language, fileCount);
+
     const runResult =
       language === "java" && javaPlan
         ? await runJavaScipWithCascade({
             binaryPath,
             projectRoot,
             outputDir,
-            timeoutMs: 30_000,
+            timeoutMs,
             plan: javaPlan,
           })
         : await runScipIndexer({
@@ -203,7 +229,7 @@ export async function enrichWithScip(
             binaryPath,
             projectRoot,
             outputDir,
-            timeoutMs: 30_000,
+            timeoutMs,
             extraArgs,
           });
 
@@ -227,12 +253,13 @@ export async function enrichWithScip(
       file_path: e.file_path,
       line: e.line,
     }));
-    const { edges: enrichedEdges, result: mergeResult } = mergeScipResults(
-      indexedEdges,
-      decodeResult,
-      entities
-    );
+    const {
+      edges: enrichedEdges,
+      newEdges: scipNewEdges,
+      result: mergeResult,
+    } = mergeScipResults(indexedEdges, decodeResult, entities);
     currentEdges = enrichedEdges;
+    allNewEdges.push(...scipNewEdges);
     lastMergeResult = mergeResult;
     anySucceeded = true;
     processedLanguages.push(language);
@@ -297,6 +324,7 @@ export async function enrichWithScip(
     decodeResult: lastDecodeResult,
     mergeResult: lastMergeResult,
     enrichedEdges: currentEdges,
+    newEdges: allNewEdges,
     skipped: false,
     skipReason: null,
   };
@@ -782,6 +810,7 @@ function skipResult(
     decodeResult: null,
     mergeResult: null,
     enrichedEdges: markAsStructural(existingEdges),
+    newEdges: [],
     skipped: true,
     skipReason: reason,
   };

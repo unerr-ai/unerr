@@ -476,11 +476,29 @@ export async function indexLocalProject(
       key: e.key,
       name: e.name,
       file_path: e.file_path,
+      start_line: e.start_line,
+      end_line: e.end_line,
     }))
   );
   if (scipResult.mergeResult) {
     log.info(
       `SCIP: ${scipResult.mergeResult.edgesUpgraded} edges verified, ${scipResult.mergeResult.newEdgesFromScip} new edges added (${scipResult.language})`
+    );
+  }
+  // Persist the call edges SCIP materialized from references (edges tree-sitter
+  // missed — the dominant case for languages with weak structural extraction
+  // like Python). The merger already deduped these against the tree-sitter
+  // edges, so append directly; they flow into computeDerivedFields + CozoDB.
+  if (scipResult.newEdges.length > 0) {
+    for (const e of scipResult.newEdges) {
+      resolvedEdges.push({
+        from_key: e.from_key,
+        to_key: e.to_key,
+        type: e.type,
+      });
+    }
+    log.info(
+      `SCIP: ${scipResult.newEdges.length} call edges materialized from references (${scipResult.language})`
     );
   }
 

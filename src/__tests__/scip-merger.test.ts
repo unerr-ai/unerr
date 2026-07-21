@@ -105,6 +105,179 @@ describe("SCIP Merger (L2.4)", () => {
     expect(edges).toHaveLength(0);
     expect(result.edgesUpgraded).toBe(0);
   });
+
+  it("materializes a call edge from a SCIP reference tree-sitter missed", () => {
+    // Python case: tree-sitter produced NO call edges, but scip decoded the
+    // cross-file call `inc() -> add()` as a reference occurrence. The merger
+    // must recover the edge via symbol resolution + enclosing-entity containment.
+    const scipResult: ScipDecodeResult = {
+      documents: [
+        {
+          relativePath: "mod_a.py",
+          symbols: [
+            {
+              symbol: "scip-python python . 0 mod_a/add().",
+              filePath: "mod_a.py",
+              line: 0, // def add (0-based)
+              isDefinition: true,
+            },
+          ],
+        },
+        {
+          relativePath: "mod_b.py",
+          symbols: [
+            {
+              symbol: "scip-python python . 0 mod_b/inc().",
+              filePath: "mod_b.py",
+              line: 2, // def inc (0-based)
+              isDefinition: true,
+            },
+            {
+              symbol: "scip-python python . 0 mod_a/add().",
+              filePath: "mod_b.py",
+              line: 3, // call add(n,1) inside inc's body (0-based) → 1-based 4
+              isDefinition: false,
+            },
+          ],
+        },
+      ],
+      symbolCount: 3,
+      definitionCount: 2,
+      referenceCount: 1,
+      durationMs: 0,
+    };
+
+    const entities = [
+      {
+        key: "add",
+        name: "add",
+        file_path: "mod_a.py",
+        start_line: 1,
+        end_line: 2,
+      },
+      {
+        key: "inc",
+        name: "inc",
+        file_path: "mod_b.py",
+        start_line: 3,
+        end_line: 4,
+      },
+    ];
+
+    // No tree-sitter edges at all (the Python case).
+    const { newEdges, result } = mergeScipResults([], scipResult, entities);
+
+    expect(result.newEdgesFromScip).toBe(1);
+    expect(newEdges).toHaveLength(1);
+    expect(newEdges[0]).toMatchObject({
+      from_key: "inc",
+      to_key: "add",
+      type: "calls",
+      confidence: "compiler-verified",
+      scipVerified: true,
+    });
+  });
+
+  it("does not duplicate an edge tree-sitter already produced", () => {
+    const existing: IndexedEdge[] = [
+      {
+        from_key: "inc",
+        to_key: "add",
+        type: "calls",
+        file_path: "mod_b.py",
+        line: 4,
+      },
+    ];
+    const scipResult: ScipDecodeResult = {
+      documents: [
+        {
+          relativePath: "mod_a.py",
+          symbols: [
+            {
+              symbol: "scip-python python . 0 mod_a/add().",
+              filePath: "mod_a.py",
+              line: 0,
+              isDefinition: true,
+            },
+          ],
+        },
+        {
+          relativePath: "mod_b.py",
+          symbols: [
+            {
+              symbol: "scip-python python . 0 mod_a/add().",
+              filePath: "mod_b.py",
+              line: 3,
+              isDefinition: false,
+            },
+          ],
+        },
+      ],
+      symbolCount: 2,
+      definitionCount: 1,
+      referenceCount: 1,
+      durationMs: 0,
+    };
+    const entities = [
+      {
+        key: "add",
+        name: "add",
+        file_path: "mod_a.py",
+        start_line: 1,
+        end_line: 2,
+      },
+      {
+        key: "inc",
+        name: "inc",
+        file_path: "mod_b.py",
+        start_line: 3,
+        end_line: 4,
+      },
+    ];
+    const { newEdges } = mergeScipResults(existing, scipResult, entities);
+    expect(newEdges).toHaveLength(0);
+  });
+
+  it("stays upgrade-only when entities lack line ranges", () => {
+    const scipResult: ScipDecodeResult = {
+      documents: [
+        {
+          relativePath: "mod_a.py",
+          symbols: [
+            {
+              symbol: "scip-python python . 0 mod_a/add().",
+              filePath: "mod_a.py",
+              line: 0,
+              isDefinition: true,
+            },
+          ],
+        },
+        {
+          relativePath: "mod_b.py",
+          symbols: [
+            {
+              symbol: "scip-python python . 0 mod_a/add().",
+              filePath: "mod_b.py",
+              line: 3,
+              isDefinition: false,
+            },
+          ],
+        },
+      ],
+      symbolCount: 2,
+      definitionCount: 1,
+      referenceCount: 1,
+      durationMs: 0,
+    };
+    // Entities WITHOUT start_line/end_line → containment impossible → no new edges.
+    const entities = [
+      { key: "add", name: "add", file_path: "mod_a.py" },
+      { key: "inc", name: "inc", file_path: "mod_b.py" },
+    ];
+    const { newEdges, result } = mergeScipResults([], scipResult, entities);
+    expect(result.newEdgesFromScip).toBe(0);
+    expect(newEdges).toHaveLength(0);
+  });
 });
 
 describe("SCIP Fallback (L2.9)", () => {

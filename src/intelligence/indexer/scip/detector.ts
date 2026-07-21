@@ -68,6 +68,20 @@ function resolveBundledBinary(binName: string): string | null {
 }
 
 /**
+ * Resolve a binary of the given name on the current PATH via `which`.
+ * Returns its absolute path, or null when it is not on PATH.
+ */
+async function resolveBinaryOnPath(binName: string): Promise<string | null> {
+  try {
+    const r = await exec("which", [binName]);
+    if (r.exitCode === 0) return r.stdout.trim() || null;
+  } catch {
+    /* `which` missing or errored — treat as not found */
+  }
+  return null;
+}
+
+/**
  * Detect SCIP binary for a language.
  *
  * Resolution order:
@@ -93,12 +107,29 @@ export async function detectScipBinary(
         path: binPath,
       };
     }
-    // Fallback: try npx (in case node_modules resolution fails)
+    // node_modules resolution failed — the compiled native binary and global
+    // installs have no local node_modules/.bin. Fall back to a PATH-installed
+    // binary of the same name (a container can `pip install`/`npm i -g` it)
+    // before giving up. NEVER claim availability with a bare `npx <bin>`: the
+    // runner execs args[0] verbatim, so a "npx scip-python" path spawns a
+    // single-token command → ENOENT, and the language is silently dropped.
+    // Honest availability lets the orchestrator skip with a clear, fast reason.
+    const onPath = await resolveBinaryOnPath(bundled.bin);
+    if (onPath) {
+      return {
+        language,
+        binaryName: bundled.bin,
+        available: true,
+        bundled: false,
+        version: null,
+        path: onPath,
+      };
+    }
     return {
       language,
-      binaryName: `npx ${bundled.bin}`,
-      available: true,
-      bundled: true,
+      binaryName: bundled.bin,
+      available: false,
+      bundled: false,
       version: null,
       path: null,
     };
