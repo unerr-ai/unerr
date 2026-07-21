@@ -326,10 +326,9 @@ async function handleUnerrRecallNotesProxy(
       }
     }
     // Emit a fact_recalled behavior event carrying rich DSL fields from the
-    // top returned note. Surface 2 reads these via
-    // `renderContextPrefaceLive` → `renderLoadedNoteLine` so the preface can
-    // name the note's kind/anchor/polarity without a second NotesStore
-    // round-trip on the hot prompt-receipt path.
+    // top returned note. The named-event feeds the generic "N facts recalled"
+    // count in the Surface 2 preface (`context-preface.ts`); the rich
+    // kind/anchor/polarity fields are recorded for other event consumers.
     if (behaviorEvents && result.ok && result.data) {
       const data = result.data as {
         notes?: Array<{
@@ -1585,11 +1584,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   router.setTokenCounter(tokenCounter);
   router.setEfficiencyTracker(efficiencyTracker);
 
-  // Sprint 1.2: Wire fact store for _context injection
   const proxyFactStore = await getProxyFactStore(join(process.cwd(), ".unerr"));
-  if (proxyFactStore) {
-    router.setFactStore(proxyFactStore);
-  }
 
   // Sprint 2: Health info wired in deferred init (Task 6.3)
 
@@ -2379,14 +2374,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // Best-effort and non-blocking — boot does not wait on this.
     (async () => {
       try {
-        const [{ writeSessionStateForAllAgents }, sharedFactStore] =
-          await Promise.all([
-            import("./session-state-writer.js"),
-            getProxyFactStore(unerrDirForLedger),
-          ]);
+        const { writeSessionStateForAllAgents } = await import(
+          "./session-state-writer.js"
+        );
         await writeSessionStateForAllAgents(process.cwd(), {
           unerrDir: unerrDirForLedger,
-          factStore: sharedFactStore ?? undefined,
         });
       } catch {
         /* best-effort — instruction-only agents fall back to file-mod heuristics */
@@ -2882,33 +2874,14 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
     // ── Warm recon composite: unerr_context (Sprint 1b) ──
     // Mirrors `unerr recon` in-process: one call collapses the discovery
-    // fan-out (notes + search + references + conventions). Notes come warm via
-    // the proxy notes store; graph shapes come raw via router.executeRaw.
+    // fan-out (search + references + conventions). Graph shapes come raw via
+    // router.executeRaw.
     if (name === "unerr_context") {
       const { handleUnerrContextProxy } = await import(
         "./unerr-context-handler.js"
       );
       return handleUnerrContextProxy(args as Record<string, unknown>, {
         runRaw: (tool, toolArgs) => router.executeRaw(tool, toolArgs),
-        recallNotes: async (prompt) => {
-          const res = await handleUnerrRecallNotesProxy(
-            { prompt },
-            unerrDirForLedger,
-            behaviorEventWriter,
-            sessionTurnProvider(),
-            federateRecall
-          );
-          const txt = res.content?.[0]?.text;
-          if (!txt) return undefined;
-          try {
-            // Unwrap the recall handler's {ok,data,hint} envelope to the bare
-            // {notes:[…]} payload composeRecon's notesEmpty/render expect.
-            const parsed = JSON.parse(txt) as Record<string, unknown>;
-            return parsed.data ?? parsed;
-          } catch {
-            return undefined;
-          }
-        },
         repoCwd: dirname(unerrDirForLedger),
         // E4 Layer A sink: surface the modeled round-trip savings as the
         // SavingsOriginSplit "context bundling" origin (token_flow_event, sync)
@@ -3566,7 +3539,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       filePath:
         ((args as Record<string, unknown>).file_path as string | undefined) ??
         entityKey,
-      factStore: proxyFactStore ?? undefined,
       pendingConfirmations: proxyPendingConfirmations ?? undefined,
       isResumedSession: stats.isResumedSession,
       timelineStore: timelineHandle?.store,

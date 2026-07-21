@@ -20,25 +20,10 @@ function createMockGraph(
   };
 }
 
-function createMockFactStore(
-  facts: Array<{
-    fact_id: string;
-    fact_type: string;
-    content: string;
-    effective_confidence: number;
-    source: string;
-  }> = []
-) {
-  return {
-    recallByScope: vi.fn(() => Promise.resolve(facts)),
-  };
-}
-
 describe("SessionBriefBuilder", () => {
   describe("build", () => {
     it("returns greeting with health grade when stats available", async () => {
       const builder = new SessionBriefBuilder(
-        null,
         null,
         { entities: 100, edges: 200, rules: 10 },
         "A"
@@ -49,13 +34,13 @@ describe("SessionBriefBuilder", () => {
     });
 
     it("returns fallback greeting when no stats", async () => {
-      const builder = new SessionBriefBuilder(null, null, null, null);
+      const builder = new SessionBriefBuilder(null, null, null);
       const brief = await builder.build();
       expect(brief.greeting).toContain("proxy ready");
     });
 
     it("includes inter_session_changes from resume context", async () => {
-      const builder = new SessionBriefBuilder(null, null, null, null);
+      const builder = new SessionBriefBuilder(null, null, null);
       const brief = await builder.build({
         summary: "Last session: 10 tool calls",
         filesModified: ["src/a.ts", "src/b.ts"],
@@ -65,7 +50,7 @@ describe("SessionBriefBuilder", () => {
     });
 
     it("includes unfinished_work from resume context", async () => {
-      const builder = new SessionBriefBuilder(null, null, null, null);
+      const builder = new SessionBriefBuilder(null, null, null);
       const brief = await builder.build({
         summary: "Last session",
         filesModified: [],
@@ -75,7 +60,7 @@ describe("SessionBriefBuilder", () => {
     });
 
     it("omits inter_session_changes when empty", async () => {
-      const builder = new SessionBriefBuilder(null, null, null, null);
+      const builder = new SessionBriefBuilder(null, null, null);
       const brief = await builder.build({
         summary: "Last session",
         filesModified: [],
@@ -83,75 +68,6 @@ describe("SessionBriefBuilder", () => {
       });
       expect(brief.inter_session_changes).toBeUndefined();
       expect(brief.unfinished_work).toBeUndefined();
-    });
-
-    it("includes key_facts from fact store", async () => {
-      const factStore = createMockFactStore([
-        {
-          fact_id: "1",
-          fact_type: "semantic",
-          content: "Important fact",
-          effective_confidence: 0.9,
-          source: "auto",
-        },
-        {
-          fact_id: "2",
-          fact_type: "semantic",
-          content: "Another fact",
-          effective_confidence: 0.7,
-          source: "auto",
-        },
-      ]);
-      const builder = new SessionBriefBuilder(
-        null,
-        factStore as any,
-        null,
-        null
-      );
-      const brief = await builder.build();
-      expect(brief.key_facts).toHaveLength(2);
-      expect(brief.key_facts[0]).toBe("Important fact");
-    });
-
-    it("caps key_facts at 3", async () => {
-      const factStore = createMockFactStore([
-        {
-          fact_id: "1",
-          fact_type: "semantic",
-          content: "Fact 1",
-          effective_confidence: 0.9,
-          source: "auto",
-        },
-        {
-          fact_id: "2",
-          fact_type: "semantic",
-          content: "Fact 2",
-          effective_confidence: 0.8,
-          source: "auto",
-        },
-        {
-          fact_id: "3",
-          fact_type: "semantic",
-          content: "Fact 3",
-          effective_confidence: 0.7,
-          source: "auto",
-        },
-        {
-          fact_id: "4",
-          fact_type: "semantic",
-          content: "Fact 4",
-          effective_confidence: 0.6,
-          source: "auto",
-        },
-      ]);
-      const builder = new SessionBriefBuilder(
-        null,
-        factStore as any,
-        null,
-        null
-      );
-      const brief = await builder.build();
-      expect(brief.key_facts).toHaveLength(3);
     });
 
     it("includes convention_summary from graph", async () => {
@@ -171,22 +87,13 @@ describe("SessionBriefBuilder", () => {
           adherence_rate: 80,
         },
       ]);
-      const builder = new SessionBriefBuilder(graph as any, null, null, null);
+      const builder = new SessionBriefBuilder(graph as any, null, null);
       const brief = await builder.build();
       expect(brief.convention_summary).toContain("2 conventions");
       expect(brief.convention_summary).toContain("85%");
     });
 
-    it("includes intelligence_health with entity count and facts", async () => {
-      const factStore = createMockFactStore([
-        {
-          fact_id: "1",
-          fact_type: "semantic",
-          content: "Fact",
-          effective_confidence: 0.9,
-          source: "auto",
-        },
-      ]);
+    it("includes intelligence_health with entity count and conventions", async () => {
       const graph = createMockGraph([
         {
           name: "camelCase",
@@ -198,18 +105,16 @@ describe("SessionBriefBuilder", () => {
       ]);
       const builder = new SessionBriefBuilder(
         graph as any,
-        factStore as any,
         { entities: 42, edges: 100, rules: 5 },
         "B"
       );
       const brief = await builder.build();
       expect(brief.intelligence_health).toContain("42 entities");
-      expect(brief.intelligence_health).toContain("1 facts");
       expect(brief.intelligence_health).toContain("1 conventions");
     });
 
     it("handles null resume context gracefully", async () => {
-      const builder = new SessionBriefBuilder(null, null, null, null);
+      const builder = new SessionBriefBuilder(null, null, null);
       const brief = await builder.build(null);
       expect(brief.greeting).toBeDefined();
       expect(brief.inter_session_changes).toBeUndefined();
@@ -221,7 +126,6 @@ describe("SessionBriefBuilder", () => {
     it("grade B includes 'could improve'", async () => {
       const builder = new SessionBriefBuilder(
         null,
-        null,
         { entities: 50, edges: 80, rules: 5 },
         "B"
       );
@@ -232,7 +136,6 @@ describe("SessionBriefBuilder", () => {
     it("grade C includes 'structural issues'", async () => {
       const builder = new SessionBriefBuilder(
         null,
-        null,
         { entities: 50, edges: 80, rules: 5 },
         "C"
       );
@@ -242,7 +145,6 @@ describe("SessionBriefBuilder", () => {
 
     it("grade D includes 'Warning'", async () => {
       const builder = new SessionBriefBuilder(
-        null,
         null,
         { entities: 50, edges: 80, rules: 5 },
         "D"

@@ -4,7 +4,8 @@
  *
  * Replaces flat session_greeting + session_resume with a structured
  * SessionBrief that includes inter-session changes, unfinished work,
- * key facts, convention summary, and intelligence health.
+ * convention summary, and intelligence health. Graph-only — sourced
+ * entirely from `CozoGraphStore`, no fact-store dependency.
  *
  * Part of Layer B of the Three-Layer Experience System.
  */
@@ -19,11 +20,9 @@ export interface SessionBrief {
   inter_session_changes?: string[];
   /** Entities with uncommitted changes from last session */
   unfinished_work?: string[];
-  /** Top 3 most relevant facts for current project */
-  key_facts?: string[];
   /** Convention overview: "12 conventions detected, 94% avg adherence" */
   convention_summary?: string;
-  /** Intelligence health: "42 facts, 12 conventions, 5 sessions" */
+  /** Intelligence health: "42 entities, 12 conventions" */
   intelligence_health?: string;
 }
 
@@ -37,20 +36,6 @@ export interface SessionResumeData {
 export class SessionBriefBuilder {
   constructor(
     private localGraph: CozoGraphStore | null,
-    private factStore: {
-      recallByScope(
-        scope: string,
-        minConfidence?: number
-      ): Promise<
-        Array<{
-          fact_id: string;
-          fact_type: string;
-          content: string;
-          effective_confidence: number;
-          source: string;
-        }>
-      >;
-    } | null,
     private graphStats: {
       entities: number;
       edges: number;
@@ -84,21 +69,12 @@ export class SessionBriefBuilder {
       brief.unfinished_work = resumeContext.incompleteEntities.slice(0, 5);
     }
 
-    // Gather async data in parallel
-    const [keyFacts, conventionSummary] = await Promise.all([
-      this.getKeyFacts(),
-      this.getConventionSummary(),
-    ]);
-
-    if (keyFacts.length > 0) {
-      brief.key_facts = keyFacts;
-    }
-
+    const conventionSummary = await this.getConventionSummary();
     if (conventionSummary) {
       brief.convention_summary = conventionSummary;
     }
 
-    // Intelligence health from graph stats + fact count
+    // Intelligence health from graph stats
     const health = await this.getIntelligenceHealth();
     if (health) {
       brief.intelligence_health = health;
@@ -131,23 +107,6 @@ export class SessionBriefBuilder {
   }
 
   /**
-   * Get top 3 most relevant project-scope facts.
-   */
-  private async getKeyFacts(): Promise<string[]> {
-    if (!this.factStore) return [];
-
-    try {
-      const facts = await this.factStore.recallByScope("project", 0.4);
-      return facts
-        .sort((a, b) => b.effective_confidence - a.effective_confidence)
-        .slice(0, 3)
-        .map((f) => f.content);
-    } catch {
-      return [];
-    }
-  }
-
-  /**
    * Get convention summary from graph store.
    */
   private async getConventionSummary(): Promise<string | null> {
@@ -175,17 +134,6 @@ export class SessionBriefBuilder {
 
     if (this.graphStats) {
       parts.push(`${this.graphStats.entities} entities`);
-    }
-
-    if (this.factStore) {
-      try {
-        const facts = await this.factStore.recallByScope("project", 0.0);
-        if (facts.length > 0) {
-          parts.push(`${facts.length} facts`);
-        }
-      } catch {
-        // Non-critical
-      }
     }
 
     if (this.localGraph) {
@@ -239,12 +187,6 @@ export function formatBriefAsVisibleBlock(
     lines.push(`▸ Incomplete from last session: ${incomplete}.`);
   }
 
-  if (brief.key_facts && brief.key_facts.length > 0) {
-    for (const fact of brief.key_facts.slice(0, 3)) {
-      lines.push(`▸ ${fact}`);
-    }
-  }
-
   if (lines.length === 0) return "";
   return `${lines.join("\n")}\n`;
 }
@@ -263,21 +205,15 @@ let instance: SessionBriefBuilder | null = null;
 
 /**
  * Get or create the SessionBriefBuilder singleton.
- * Must be re-created if graph/facts change (call resetSessionBriefBuilder).
+ * Must be re-created if the graph changes (call resetSessionBriefBuilder).
  */
 export function getSessionBriefBuilder(
   localGraph: CozoGraphStore | null,
-  factStore: SessionBriefBuilder["factStore"],
   graphStats: { entities: number; edges: number; rules: number } | null,
   healthGrade: string | null
 ): SessionBriefBuilder {
   if (!instance) {
-    instance = new SessionBriefBuilder(
-      localGraph,
-      factStore,
-      graphStats,
-      healthGrade
-    );
+    instance = new SessionBriefBuilder(localGraph, graphStats, healthGrade);
   }
   return instance;
 }

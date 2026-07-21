@@ -56,7 +56,6 @@ function fakeRunRaw(opts?: {
 
 const baseDeps = (over?: Partial<UnerrContextDeps>): UnerrContextDeps => ({
   runRaw: fakeRunRaw(),
-  recallNotes: async () => ({ notes: [] }),
   repoCwd: "/tmp/does-not-matter-vitest-guarded",
   ...over,
 });
@@ -148,35 +147,6 @@ describe("handleUnerrContextProxy", () => {
     const text = res.content[0]!.text;
     expect(text).toContain("BODY_fetchUser");
     expect(text).toContain("BODY_fetchAccount");
-  });
-
-  it("anchored notes are NOT in the recon bundle — they arrive via per-turn prompt injection, not composeRecon", async () => {
-    const recallNotes = vi.fn(async () => ({
-      notes: [
-        { kind: "rul", anchor: "f:src/api/user.ts", content: "no raw fetch" },
-      ],
-    }));
-    const res = await handleUnerrContextProxy(
-      { prompt: "edit fetchUser in src/api/user.ts" },
-      baseDeps({ recallNotes })
-    );
-    // composeRecon no longer fetches unerr_recall_notes inline — notes arrive via
-    // prompt injection (per-turn hook), not the bundle.
-    expect(recallNotes).not.toHaveBeenCalled();
-    const text = res.content[0]!.text;
-    expect(text).not.toContain("## Anchored notes");
-    expect(text).not.toContain("no raw fetch");
-  });
-
-  it("unwraps the recall {ok,data,hint} envelope so notes are not double-wrapped", async () => {
-    // The proxy passes the recall handler's `.data` through; a non-{notes}
-    // shape (e.g. the full envelope) would make composeRecon treat it as a
-    // non-empty opaque section. Verify the bare {notes:[]} path stays empty.
-    const res = await handleUnerrContextProxy(
-      { prompt: "touch fetchUser" },
-      baseDeps({ recallNotes: async () => ({ notes: [] }) })
-    );
-    expect(res.content[0]!.text).not.toContain("## Anchored notes");
   });
 
   it("token_budget wins over budget when both are present; small token_budget shrinks the bundle", async () => {
@@ -280,49 +250,6 @@ describe("handleUnerrContextProxy", () => {
     const text = res.content[0]!.text;
     expect(text).toContain("unerr recon digest");
     expect(text).not.toContain("## Focus source");
-  });
-
-  it("W5: anchored notes are absent from the bundle — composeRecon no longer fetches them", async () => {
-    // composeRecon stopped fetching unerr_recall_notes — notes are delivered via
-    // the per-turn prompt injection hook, never inline in the recon bundle.
-    const recallNotes = vi.fn(async () => ({
-      notes: [
-        { kind: "fct", anchor: "p:", polarity: "~", content: "WEAK_NOTE" },
-        {
-          kind: "rul",
-          anchor: "f:src/api/user.ts",
-          polarity: "-",
-          content: "STRONG_RULE",
-        },
-      ],
-    }));
-    const res = await handleUnerrContextProxy(
-      { prompt: "edit fetchUser in src/api/user.ts" },
-      baseDeps({ recallNotes })
-    );
-    const text = res.content[0]!.text;
-    // Neither note should appear — absent from the bundle.
-    expect(text).not.toContain("STRONG_RULE");
-    expect(text).not.toContain("WEAK_NOTE");
-    expect(recallNotes).not.toHaveBeenCalled();
-  });
-
-  it("recallNotes is not called — composeRecon no longer fetches notes inline", async () => {
-    const recallNotes = vi.fn(async () => ({ notes: [] }));
-    const runRaw = vi.fn(fakeRunRaw());
-    await handleUnerrContextProxy(
-      { prompt: "inspect fetchUser callers" },
-      baseDeps({ recallNotes, runRaw })
-    );
-    // composeRecon stopped fetching unerr_recall_notes — recallNotes is a no-op dep.
-    expect(recallNotes).not.toHaveBeenCalled();
-    const toolsCalled = runRaw.mock.calls.map((c) => c[0]);
-    expect(toolsCalled).toContain("search_code");
-    expect(toolsCalled).toContain("get_conventions");
-    expect(toolsCalled).toContain("get_references");
-    // recall_notes must NOT reach runRaw — the handler still routes unerr_recall_notes
-    // to recallNotes, so any accidental composeRecon call would not pollute runRaw.
-    expect(toolsCalled).not.toContain("unerr_recall_notes");
   });
 
   it("hands the E4 Layer-A model (with the Layer-B manifest) to recordBundleSavings", async () => {

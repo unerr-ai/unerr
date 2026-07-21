@@ -205,21 +205,20 @@ function writeSharedMarkdownAgent(
 /**
  * Render the resume payload + write the strip to every supported
  * instruction-only agent. Pass a precomputed payload if the caller
- * already has one (avoids double-querying facts.db); otherwise the
- * writer fetches it itself.
+ * already has one (avoids double-querying session-summary state);
+ * otherwise the writer fetches it itself.
  */
 export async function writeSessionStateForAllAgents(
   cwd: string,
   options: {
     unerrDir: string;
-    factStore?: Parameters<typeof generateSessionResumePayload>[1];
     payload?: SessionResumePayload | null;
   }
 ): Promise<WriteResult[]> {
   const payload =
     options.payload !== undefined
       ? options.payload
-      : await generateSessionResumePayload(options.unerrDir, options.factStore);
+      : await generateSessionResumePayload(options.unerrDir);
   const block = formatSessionResumeBlock(payload);
 
   const results: WriteResult[] = [];

@@ -28,23 +28,6 @@ function makePayload(
       incomplete_hint: "Continuing work on src/auth.ts, src/api.ts",
       staleness: "fresh",
     },
-    recalled_facts: [
-      {
-        fact_id: "f1",
-        type: "negative",
-        content: "Never store passwords in plain text",
-        confidence: 0.95,
-        source: "negative_knowledge",
-      },
-      {
-        fact_id: "f2",
-        type: "semantic",
-        content: "Auth uses bcrypt for hashing",
-        confidence: 0.8,
-        source: "agent_explicit",
-      },
-    ],
-    decayed_since_last_session: [],
     open_blockers: [],
     last_intents: [],
     ...overrides,
@@ -52,43 +35,26 @@ function makePayload(
 }
 
 describe("formatSessionResumeBlock", () => {
-  it("formats a complete resume block with elapsed time and facts", () => {
+  it("formats a complete resume block with elapsed time and hot files", () => {
     const block = formatSessionResumeBlock(makePayload());
     expect(block).toContain("[unerr:session-resume]");
     expect(block).toContain("2h ago");
     expect(block).toContain("src/auth.ts");
-    expect(block).toContain("Never store passwords in plain text");
-    expect(block).toContain("95%");
   });
 
   it("returns empty string for null payload", () => {
     expect(formatSessionResumeBlock(null)).toBe("");
   });
 
-  it("filters out low-confidence facts", () => {
-    const payload = makePayload({
-      recalled_facts: [
-        {
-          fact_id: "f1",
-          type: "semantic",
-          content: "Low confidence fact",
-          confidence: 0.3,
-          source: "session_analysis",
-        },
-      ],
-    });
-    const block = formatSessionResumeBlock(payload);
-    expect(block).not.toContain("Low confidence fact");
-  });
-
   it("truncates to 500 chars max", () => {
     const payload = makePayload({
-      recalled_facts: Array.from({ length: 20 }, (_, i) => ({
-        fact_id: `f${i}`,
-        type: "semantic",
-        content: `Very long fact number ${i} with lots of extra detail that pads the content significantly`,
-        confidence: 0.95,
-        source: "agent_explicit",
+      broken_callers: Array.from({ length: 3 }, (_, i) => ({
+        entity: `fn${i}`,
+        callers: Array.from(
+          { length: 3 },
+          (_, j) =>
+            `src/very-long-descriptive-path-${i}-${j}.ts:someLongCallerName${j}`
+        ),
       })),
     });
     const block = formatSessionResumeBlock(payload);
@@ -239,8 +205,6 @@ describe("formatSessionResumeBlock", () => {
 
   it("caps broken-callers entities at 3 and per-entity caller list at 3", () => {
     const payload = makePayload({
-      // Strip facts so the long broken-caller lines are not truncated away.
-      recalled_facts: [],
       broken_callers: Array.from({ length: 5 }, (_, i) => ({
         entity: `fn${i}`,
         callers: Array.from({ length: 5 }, (_, j) => `src/c${j}.ts:caller${j}`),

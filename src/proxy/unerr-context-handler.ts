@@ -3,22 +3,19 @@
  * (Sprint 1b).
  *
  * `unerr recon` (src/commands/recon.ts) collapses the discovery fan-out
- * (recall_notes → search_code → get_references → get_conventions) into ONE
- * subprocess so the agent pays one round-trip instead of five. But shelling out
- * has its own cost — a fresh process, a fresh CozoDB open. `unerr_context` runs
- * the SAME `composeRecon` orchestration in-process against the already-loaded
- * graph, so the agent gets the bundle over the live MCP transport with zero
- * spawn cost.
+ * (search_code → get_references → get_conventions) into ONE subprocess so the
+ * agent pays one round-trip instead of several. But shelling out has its own
+ * cost — a fresh process, a fresh CozoDB open. `unerr_context` runs the SAME
+ * `composeRecon` orchestration in-process against the already-loaded graph, so
+ * the agent gets the bundle over the live MCP transport with zero spawn cost.
  *
- * Crucially, the warm path is strictly RICHER than the cold CLI: it can pull
- * anchored notes (priority-0, the user's own rules) via the proxy notes store,
- * which the cold CLI runner skips (it has no warm notes store). Everything else
- * routes through `QueryRouter.executeRaw` so `composeRecon` receives the raw
- * structured shapes — not the columnar/json wire strings `execute()` emits.
+ * Everything routes through `QueryRouter.executeRaw` so `composeRecon` receives
+ * the raw structured shapes — not the columnar/json wire strings `execute()`
+ * emits.
  *
- * This module is deliberately decoupled from the proxy wiring: the caller injects
- * `runRaw` (QueryRouter.executeRaw) and `recallNotes` (the notes-store reader),
- * so the orchestration is unit-testable with fakes.
+ * This module is deliberately decoupled from the proxy wiring: the caller
+ * injects `runRaw` (QueryRouter.executeRaw), so the orchestration is
+ * unit-testable with fakes.
  */
 
 import {
@@ -47,12 +44,6 @@ export interface UnerrContextDeps {
    * shapes for search_code / get_references / get_conventions, NOT wire strings.
    */
   runRaw: ReconRunner;
-  /**
-   * Anchored-notes recall for a verbatim prompt. Returns the parsed
-   * `{notes:[…]}` payload (or undefined when the store is unavailable). The
-   * caller unwraps the recall handler's `{ok,data,hint}` envelope to `data`.
-   */
-  recallNotes: (prompt: string) => Promise<unknown>;
   /** Repo cwd — used to init the telemetry log before the lever emit. */
   repoCwd: string;
   /**
@@ -146,14 +137,7 @@ export async function handleUnerrContextProxy(
   // only worth the tokens when the edit actually touches callers.
   const expand = args.expand === true;
 
-  // The composer needs notes warm + graph shapes raw. recall_notes routes to
-  // the proxy notes store; every other tool routes to QueryRouter.executeRaw.
-  const runner: ReconRunner = async (tool, runnerArgs) => {
-    if (tool === "unerr_recall_notes") {
-      return deps.recallNotes(String(runnerArgs.prompt ?? prompt));
-    }
-    return deps.runRaw(tool, runnerArgs);
-  };
+  const runner: ReconRunner = deps.runRaw;
 
   // Size-gate exactly as the CLI does: classify from the prompt to pick search
   // width, then re-classify with the realized entity count so the verdict (and

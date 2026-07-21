@@ -117,50 +117,6 @@ describe("session-persistence", () => {
       expect(payload!.continuity.hot_files).toContain("src/a.ts");
     });
 
-    it("recalls facts when factStore is provided", async () => {
-      const record = makeSessionRecord();
-      writeLastSession(testDir, record);
-
-      const mockFactStore = {
-        async recallByScope(scope: string) {
-          if (scope === "src/auth.ts") {
-            return [
-              {
-                fact_id: "f1",
-                fact_type: "semantic" as const,
-                scope: "src/auth.ts",
-                subject: "auth",
-                content: "Auth uses JWT",
-                base_confidence: 0.9,
-                effective_confidence: 0.85,
-                reinforcement_count: 3,
-                created_at: Date.now(),
-                last_reinforced_at: Date.now(),
-                last_contradicted_at: 0,
-                source: "agent_explicit" as const,
-              },
-            ];
-          }
-          return [];
-        },
-      };
-
-      const payload = await generateSessionResumePayload(
-        testDir,
-        mockFactStore
-      );
-      expect(payload!.recalled_facts.length).toBeGreaterThan(0);
-      expect(payload!.recalled_facts[0]!.content).toBe("Auth uses JWT");
-    });
-
-    it("returns empty recalled_facts when factStore is null", async () => {
-      const record = makeSessionRecord();
-      writeLastSession(testDir, record);
-
-      const payload = await generateSessionResumePayload(testDir, null);
-      expect(payload!.recalled_facts).toEqual([]);
-    });
-
     // ── Fix K — timelineStore plumbing ──────────────────────────────
 
     it("populates open_blockers from timelineStore when provided", async () => {
@@ -213,7 +169,6 @@ describe("session-persistence", () => {
 
       const payload = await generateSessionResumePayload(
         testDir,
-        null,
         mockTimelineStore
       );
       expect(payload!.open_blockers).toBeDefined();
@@ -255,7 +210,6 @@ describe("session-persistence", () => {
 
       const payload = await generateSessionResumePayload(
         testDir,
-        null,
         mockTimelineStore
       );
       expect(payload!.last_intents).toBeDefined();
@@ -286,7 +240,6 @@ describe("session-persistence", () => {
 
       const payload = await generateSessionResumePayload(
         testDir,
-        null,
         mockTimelineStore
       );
       // Resume payload still returned; new fields just empty.

@@ -18,10 +18,6 @@ import {
   type ContextPrefaceInputs,
   renderContextPreface,
 } from "../proxy/context-preface.js";
-import {
-  type LoadedNoteFields,
-  renderLoadedNoteLine,
-} from "../proxy/loaded-note-line.js";
 import { USER_BLOCK_PREFIX } from "../proxy/response-envelope.js";
 
 /** Tokens that must never appear in a user-facing line. */
@@ -50,52 +46,8 @@ function assertClean(line: string): void {
 
 const NOW = 1_700_000_000_000;
 
-function baseNote(over: Partial<LoadedNoteFields> = {}): LoadedNoteFields {
-  return {
-    kind: "rul",
-    anchor_type: "f",
-    anchor_value: "src/proxy/bridge.ts",
-    polarity: "+",
-    content: "the bridge imports nothing from src/intelligence",
-    created_at: NOW - 86_400_000,
-    reinforcement_count: 3,
-    anchor_missing: false,
-    conflict_group_id: "",
-    ...over,
-  };
-}
-
 describe("renderContextPreface — every branch is jargon-free", () => {
   const branches: Array<{ name: string; inputs: ContextPrefaceInputs }> = [
-    {
-      name: "topic shift",
-      inputs: {
-        turnIndex: 2,
-        events: [],
-        topicShift: { flag: true, overlap: 0.25 },
-        nowMs: NOW,
-      },
-    },
-    {
-      name: "rich recalled note",
-      inputs: {
-        turnIndex: 1,
-        events: [],
-        topNote: baseNote(),
-        topFile: "src/proxy/proxy.ts",
-        nowMs: NOW,
-      },
-    },
-    {
-      name: "legacy content note",
-      inputs: {
-        turnIndex: 1,
-        events: [],
-        topNoteContent: "always await CozoDB calls",
-        topNoteCreatedAt: NOW - 3_600_000,
-        nowMs: NOW,
-      },
-    },
     {
       name: "fresh session",
       inputs: { turnIndex: 0, events: [], isFreshSession: true, nowMs: NOW },
@@ -119,48 +71,6 @@ describe("renderContextPreface — every branch is jargon-free", () => {
     const lines = renderContextPreface(inputs);
     expect(lines.length).toBeGreaterThan(0);
     for (const line of lines) assertClean(line);
-  });
-});
-
-describe("renderLoadedNoteLine — every kind/state is jargon-free", () => {
-  const KINDS: LoadedNoteFields["kind"][] = [
-    "rul",
-    "cnv",
-    "wrn",
-    "dec",
-    "blk",
-    "fct",
-  ];
-
-  it.each(KINDS)("kind=%s", (kind) => {
-    const line = renderLoadedNoteLine({ note: baseNote({ kind }), nowMs: NOW });
-    expect(line).not.toBeNull();
-    assertClean(line!);
-  });
-
-  it("conflict marker line is clean", () => {
-    const line = renderLoadedNoteLine({
-      note: baseNote({ conflict_group_id: "cg_1" }),
-      nowMs: NOW,
-    });
-    assertClean(line!);
-  });
-
-  it("anchor-missing line is clean", () => {
-    const line = renderLoadedNoteLine({
-      note: baseNote({ anchor_missing: true }),
-      nowMs: NOW,
-    });
-    assertClean(line!);
-  });
-
-  it("primed-file-only line is clean", () => {
-    const line = renderLoadedNoteLine({
-      note: null,
-      topFile: "src/intelligence/query-router.ts",
-      nowMs: NOW,
-    });
-    assertClean(line!);
   });
 });
 

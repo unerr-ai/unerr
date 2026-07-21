@@ -4,16 +4,14 @@
  * Layer 9 PI-4: On reconnect, loads the previous session's summary and
  * generates a targeted resume context that includes:
  *   - What was in progress (hot files, incomplete entities)
- *   - Relevant facts from facts.db for those hot files
+ *   - Carried-over blockers + last intent from timeline.db markers
  *   - Session metrics (duration, tools used, revert count)
  *
  * Staleness rule: sessions older than 24h are considered too stale.
- * The agent gets fresh fact recall but no session continuity context.
  *
  * Graceful degradation: if any step fails, returns null (no crash).
  */
 
-import type { TemporalFact } from "../intelligence/temporal-facts.js";
 import type { MarkerRow } from "../timeline/timeline-store.js";
 import type { SessionSummaryRecord } from "../tracking/session-summary-writer.js";
 
@@ -40,19 +38,6 @@ export interface SessionResumePayload {
     incomplete_hint: string;
     staleness: "fresh" | "warm";
   };
-  recalled_facts: Array<{
-    fact_id: string;
-    type: string;
-    content: string;
-    confidence: number;
-    source: string;
-  }>;
-  decayed_since_last_session: Array<{
-    fact_id: string;
-    type: string;
-    content: string;
-    confidence: number;
-  }>;
   /** Fix K — top-3 still-open blockers carried over from prior sessions.
    *  Surfaced in the resume block as the "5-minute first win" — user opens
    *  chat next morning and sees what they were stuck on. Optional because
@@ -91,7 +76,6 @@ const WARM_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 /**
  * Generate a session resume payload from the last session's summary.
- * Integrates with facts.db if a fact store is available.
  *
  * Returns null if:
  *   - No prior session exists
@@ -100,10 +84,6 @@ const WARM_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
  */
 export async function generateSessionResumePayload(
   unerrDir: string,
-  factStore?: {
-    recallByScope(scope: string, minConf?: number): Promise<TemporalFact[]>;
-    recallDecaying?(minConf: number, maxConf: number): Promise<TemporalFact[]>;
-  } | null,
   timelineStore?: {
     listMarkers(opts: {
       sessionId?: string;
@@ -129,29 +109,6 @@ export async function generateSessionResumePayload(
 
     const hotFiles = computeHotFiles(lastSession);
     const incompleteHint = generateIncompleteHint(lastSession);
-
-    const recalledFacts = await recallFactsForSession(lastSession, factStore);
-
-    // Query facts that recently decayed below recall threshold
-    let decayedFacts: Array<{
-      fact_id: string;
-      type: string;
-      content: string;
-      confidence: number;
-    }> = [];
-    if (factStore?.recallDecaying) {
-      try {
-        const decaying = await factStore.recallDecaying(0.05, 0.2);
-        decayedFacts = decaying.slice(0, 5).map((f) => ({
-          fact_id: f.fact_id,
-          type: f.fact_type,
-          content: f.content,
-          confidence: Math.round(f.effective_confidence * 100) / 100,
-        }));
-      } catch {
-        // Non-critical
-      }
-    }
 
     // Fix K — open-blocker + last-intent injection. Both queries are
     // best-effort and silently no-op when the timelineStore handle is
@@ -226,8 +183,6 @@ export async function generateSessionResumePayload(
         incomplete_hint: incompleteHint,
         staleness,
       },
-      recalled_facts: recalledFacts,
-      decayed_since_last_session: decayedFacts,
       open_blockers: openBlockers,
       last_intents: lastIntents,
       broken_callers: brokenCallers,
@@ -279,63 +234,6 @@ function generateIncompleteHint(session: SessionSummaryRecord): string {
   }
 
   return parts.join(". ");
-}
-
-/**
- * Recall facts relevant to the previous session's hot files.
- * Returns up to 5 facts with highest effective confidence.
- */
-async function recallFactsForSession(
-  session: SessionSummaryRecord,
-  factStore?: {
-    recallByScope(scope: string, minConf?: number): Promise<TemporalFact[]>;
-  } | null
-): Promise<
-  Array<{
-    fact_id: string;
-    type: string;
-    content: string;
-    confidence: number;
-    source: string;
-  }>
-> {
-  if (!factStore) return [];
-
-  try {
-    const allFacts: TemporalFact[] = [];
-
-    for (const file of session.files_modified.slice(0, 5)) {
-      const facts = await factStore.recallByScope(file);
-      for (const f of facts) {
-        if (!allFacts.some((existing) => existing.fact_id === f.fact_id)) {
-          allFacts.push(f);
-        }
-      }
-    }
-
-    const projectFacts = await factStore.recallByScope("project");
-    for (const f of projectFacts) {
-      if (
-        f.fact_type === "negative" &&
-        !allFacts.some((existing) => existing.fact_id === f.fact_id)
-      ) {
-        allFacts.push(f);
-      }
-    }
-
-    return allFacts
-      .sort((a, b) => b.effective_confidence - a.effective_confidence)
-      .slice(0, 5)
-      .map((f) => ({
-        fact_id: f.fact_id,
-        type: f.fact_type,
-        content: f.content,
-        confidence: Math.round(f.effective_confidence * 100) / 100,
-        source: f.source,
-      }));
-  } catch {
-    return [];
-  }
 }
 
 // ── Visible Resume Block ────────────────────────────────────────────
@@ -395,26 +293,6 @@ export function formatSessionResumeBlock(
         `▸ unfinished: changed ${bc.entity}, callers not updated: ${sites}${more}. call get_references({direction:'callers'}) on ${bc.entity}`
       );
     }
-  }
-
-  // High-confidence recalled facts
-  const importantFacts = payload.recalled_facts
-    .filter((f) => f.confidence >= 0.5)
-    .slice(0, 3);
-  for (const f of importantFacts) {
-    const pct = Math.round(f.confidence * 100);
-    parts.push(`▸ ${f.content} (${pct}%).`);
-  }
-
-  // Decayed facts warning
-  if (payload.decayed_since_last_session.length > 0) {
-    const n = payload.decayed_since_last_session.length;
-    const subjects = payload.decayed_since_last_session
-      .slice(0, 2)
-      .map((f) => `"${f.content.slice(0, 40)}"`);
-    parts.push(
-      `⚠ ${n} fact(s) expired since last session: ${subjects.join(", ")}. Call unerr_track({op:'fact'}) to re-record if still relevant.`
-    );
   }
 
   // Incomplete hint if meaningful

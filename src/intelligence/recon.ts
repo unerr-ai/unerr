@@ -23,7 +23,6 @@
  */
 
 import { byImportanceDesc } from "./importance.js";
-import { type RankableNote, rankLoadBearing } from "./note-ranking.js";
 import {
   DEFAULT_MCP_SOURCE_TIMEOUT_MS,
   type GatewayRunner,
@@ -128,7 +127,7 @@ export interface ReconOptions {
    * Whole-bundle token budget. Default 4000 — wide enough to inline the focus
    * entities' verbatim bodies (Phase 1) so the agent edits without a read
    * fan-out, still small enough that one recon beats 5 separate round-trips.
-   * Bodies are capped to ~50% of this so callers/notes are never starved.
+   * Bodies are capped to ~50% of this so callers are never starved.
    */
   readonly budget?: number;
   /** Token estimator. Default: JSON byte length / 4. */
@@ -209,8 +208,8 @@ const EXPAND_MAX_CALLERS = 3;
 /** Per-caller body token cap for the expand ring — tighter than focus bodies. */
 const EXPAND_BODY_TOKENS = 400;
 /**
- * Thin-bundle value floor (decision D6). When the non-body content (notes +
- * callers + entities + conventions) would total under this many tokens — the
+ * Thin-bundle value floor (decision D6). When the non-body content (callers +
+ * entities + conventions) would total under this many tokens — the
  * new/sparse-repo case the audit saw return ~60 tokens — recon force-inlines
  * the top focus body even in 'concise' mode, so the tool never hands back a
  * near-empty bundle that teaches the agent it's useless.
@@ -926,11 +925,10 @@ export async function composeRecon(opts: ReconOptions): Promise<ReconBundle> {
   };
 
   // Phase 1 — independent calls fire together: conventions + the entity search.
-  // references depends on the search result, so it waits. Anchored notes, domain
-  // tags, and vocabulary nudges are deliberately NOT fetched here: notes reach
-  // the agent via the per-turn prompt injection and on-demand recall, and
-  // domain/vocab are on-demand only. Carrying them inline duplicated the same
-  // (largely project-wide, query-irrelevant) context into every recon call.
+  // references depends on the search result, so it waits. Domain tags and
+  // vocabulary nudges are deliberately NOT fetched here — on-demand only.
+  // Carrying them inline duplicated the same (largely project-wide,
+  // query-irrelevant) context into every recon call.
   const conventionsP = safeRun("get_conventions", {}, "Conventions");
   const searchP =
     terms.length > 0
@@ -1315,9 +1313,9 @@ function buildReadManifest(bundle: ReconBundle): string {
 
 /**
  * Display order for the lost-in-the-middle U-curve (Liu et al., TACL 2024):
- * focus bodies take the primacy slot, load-bearing notes the recency slot, and
- * low-salience material is buried in the middle. Decoupled from the budget
- * keep-priority (which keeps notes + bodies first). Lower = earlier.
+ * focus bodies take the primacy slot and low-salience material is buried in
+ * the middle. Decoupled from the budget keep-priority on `bundle.sections`.
+ * Lower = earlier.
  */
 const RENDER_RANK: Readonly<Record<string, number>> = {
   focus_bodies: 0,
@@ -1327,7 +1325,6 @@ const RENDER_RANK: Readonly<Record<string, number>> = {
   get_conventions: 3,
   domain_tags: 5,
   vocab_nudges: 6,
-  unerr_recall_notes: 7,
 };
 /** Render position for a section tool; unknown (e.g. MCP sources) → mid-bundle. */
 function renderRank(tool: string): number {
@@ -1337,8 +1334,8 @@ function renderRank(tool: string): number {
 /**
  * Render a recon bundle as compact, agent-readable text for the CLI stdout or
  * the MCP wire. Sections are emitted in salience order (focus bodies first,
- * anchored notes + the read-suppression manifest last) per the lost-in-the-
- * middle U-curve — distinct from the budget keep-priority on `bundle.sections`.
+ * the read-suppression manifest last) per the lost-in-the-middle U-curve —
+ * distinct from the budget keep-priority on `bundle.sections`.
  */
 export function renderReconText(bundle: ReconBundle): string {
   const lines: string[] = [];

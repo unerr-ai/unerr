@@ -81,10 +81,8 @@ export function parseReconArgs(argv: string[]): {
 /**
  * Build a runner backed by the on-disk graph. Returns the raw structured shapes
  * `composeRecon` expects — the same shapes `QueryRouter.executeLocal` returns
- * for these tools. Notes (`unerr_recall_notes`) need the warm notes store, so
- * the cold CLI path returns `undefined` for them; `composeRecon` skips a
- * `undefined` section cleanly. The agent's own Moment-1 recall_notes call
- * already covers anchored notes.
+ * for these tools. Any non-graph tool returns `undefined`; `composeRecon`
+ * skips a `undefined` section cleanly.
  */
 function buildGraphRunner(graph: {
   db: AnnotationDb;
@@ -205,7 +203,7 @@ function buildGraphRunner(graph: {
         };
       }
       default:
-        // Notes and any non-graph tool are skipped in the cold CLI path.
+        // Any non-graph tool is skipped in the cold CLI path.
         return undefined;
     }
   };

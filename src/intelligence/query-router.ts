@@ -838,46 +838,6 @@ export class QueryRouter {
   /** Layer 7: Event bus for dashboard SSE — emits on every tool call. */
   private eventBus: { emit(type: string, data: unknown): void } | null = null;
 
-  /** Sprint 1.2: Temporal fact store — facts attached to internal `context.signals`, drained to `ur|fct` prefix lines. */
-  private factStore: {
-    recallForFile(
-      filePath: string,
-      entityKeys?: string[]
-    ): Promise<
-      Array<{
-        fact_id: string;
-        fact_type: string;
-        content: string;
-        effective_confidence: number;
-        source: string;
-      }>
-    >;
-    recallByScope(
-      scope: string,
-      minConfidence?: number
-    ): Promise<
-      Array<{
-        fact_id: string;
-        fact_type: string;
-        content: string;
-        effective_confidence: number;
-        source: string;
-      }>
-    >;
-    recallNegative(minConfidence?: number): Promise<
-      Array<{
-        fact_id: string;
-        fact_type: string;
-        content: string;
-        effective_confidence: number;
-        source: string;
-      }>
-    >;
-  } | null = null;
-
-  /** Sprint 1.2: Fact IDs surfaced this session — for session summary tracking. */
-  private factsSurfaced: string[] = [];
-
   /** Sprint 9.3: Signal delivery stats — tracked for intelligence health UI. */
   private signalDeliveryStats = {
     total_delivered: 0,
@@ -1128,13 +1088,6 @@ export class QueryRouter {
   }
 
   /**
-   * Sprint 1.2: Wire temporal fact store for _context injection.
-   */
-  setFactStore(store: typeof this.factStore): void {
-    this.factStore = store;
-  }
-
-  /**
    * Wire the persistent rotation store so signal show counts survive restart
    * and are coordinated across parallel sessions in the same repo.
    */
@@ -1142,11 +1095,6 @@ export class QueryRouter {
     store: import("./signal-show-store.js").SignalShowStore | null
   ): void {
     this.sessionContext.setSignalShowStore(store);
-  }
-
-  /** Sprint 1.2: Get fact IDs surfaced this session (for session summary). */
-  getFactsSurfaced(): string[] {
-    return this.factsSurfaced;
   }
 
   /** Sprint 9.3: Get signal delivery stats for intelligence health UI. */
@@ -2166,7 +2114,6 @@ export class QueryRouter {
         );
         const briefBuilder = new SessionBriefBuilder(
           this.localGraph,
-          this.factStore as any,
           this.graphStats,
           this.healthGrade
         );
@@ -2619,154 +2566,12 @@ export class QueryRouter {
       }
     }
 
-    // ── Sprint 1.2: Fact injection into _context (visible to agents) ──
-    if (this.factStore) {
-      const filePath =
-        (args.file_path as string) ??
-        (args.path as string) ??
-        (args.key as string)?.split("::")[0] ??
-        null;
-      if (filePath) {
-        try {
-          let merged: Array<{
-            fact_id: string;
-            fact_type: string;
-            content: string;
-            effective_confidence: number;
-            source: string;
-          }>;
-
-          if (toolName === "file_read") {
-            const entityKeys = await this.getEntityKeysForFile(filePath);
-            merged = await this.factStore.recallForFile(filePath, entityKeys);
-          } else {
-            const [fileFacts, negativeFacts] = await Promise.all([
-              this.factStore.recallByScope(filePath),
-              this.factStore.recallNegative(0.2),
-            ]);
-            const seen = new Set<string>();
-            merged = [];
-            for (const f of fileFacts) {
-              if (!seen.has(f.fact_id)) {
-                seen.add(f.fact_id);
-                merged.push(f);
-              }
-            }
-            for (const f of negativeFacts) {
-              if (!seen.has(f.fact_id)) {
-                seen.add(f.fact_id);
-                merged.push(f);
-              }
-            }
-          }
-
-          // Dedup: only inject facts not yet delivered this session
-          const newFacts = merged.filter((f) =>
-            this.sessionContext.shouldInjectFact(f.fact_id)
-          );
-          if (newFacts.length > 0) {
-            const top = newFacts.slice(0, 5);
-            for (const f of top) this.factsSurfaced.push(f.fact_id);
-            this.sessionContext.recordFacts(top.map((f) => f.fact_id));
-            // Table rows #16/17/18 CUT-FLUFF — drop "(confidence:…, source:…)"
-            // telemetry suffix from fact emissions. The dashboard reads
-            // confidence/source via the structured /api/facts route; the
-            // agent's context window does not benefit from these fields.
-            context.relevant_facts = top.map((f) => {
-              return `[${f.fact_type}] ${f.content}`;
-            });
-            hasContext = true;
-            if (this.effectivenessTracker) {
-              const turn = this.sessionContext.getToolCallCount();
-              const entityKey =
-                ((args as Record<string, unknown>).key as string | undefined) ??
-                ((args as Record<string, unknown>).name as
-                  | string
-                  | undefined) ??
-                null;
-              for (const f of top) {
-                this.effectivenessTracker.recordSignalFired({
-                  kind:
-                    f.fact_type === "negative"
-                      ? "negative_warned"
-                      : "fact_injected",
-                  signal_id: f.fact_id,
-                  entity_key: entityKey,
-                  turn,
-                  // L2: thread the fact text so persistent_memory events name
-                  // the actual note in the Logbook, not "a remembered signal".
-                  content: f.content,
-                });
-              }
-            }
-          }
-        } catch {
-          // Fact recall failure is non-critical
-        }
-      }
-    }
-
     // ── Task 2.7: Value Counter (every 3rd caught event) ─────────
     if (this.sessionEvents) {
       const counter = this.sessionContext.getValueCounter(this.sessionEvents);
       if (counter) {
         context.value_counter = counter;
         hasContext = true;
-      }
-    }
-
-    // ── Sprint 3.2: Co-change prediction (GraphTemporalJoiner) ──
-    if (this.localGraph && ENRICHABLE_TOOLS.has(toolName)) {
-      const filePath =
-        (args.file_path as string) ??
-        (args.path as string) ??
-        (args.name as string);
-      if (filePath && typeof filePath === "string" && filePath.includes("/")) {
-        try {
-          const { GraphTemporalJoiner } = await import(
-            "./graph-temporal-joiner.js"
-          );
-          const joiner = new GraphTemporalJoiner(
-            this.localGraph,
-            this.factStore ? (this.factStore as any) : null
-          );
-          const coChanges = await joiner.predictCoChanges(filePath);
-          const topCoChange = coChanges[0];
-          if (
-            coChanges.length > 0 &&
-            topCoChange &&
-            topCoChange.combined_score > 0.3
-          ) {
-            const topFiles = coChanges
-              .slice(0, 3)
-              .map((c) => c.file_b)
-              .join(", ");
-            // Table row #15 TRIM — "co-changes (N edges): files" is tighter
-            // than "Often changed together: files (N shared edges)".
-            context.co_changes = `co-changes (${topCoChange.evidence}): ${topFiles}`;
-            hasContext = true;
-          }
-
-          // ── Sprint 6: Hidden coupling detection ──
-          const hidden = await joiner.detectHiddenCouplings();
-          const topHidden = hidden.filter(
-            (h: { file_a: string; file_b: string }) =>
-              h.file_a === filePath || h.file_b === filePath
-          );
-          if (topHidden.length > 0) {
-            const hiddenFile = topHidden[0];
-            if (hiddenFile) {
-              const otherFile =
-                hiddenFile.file_a === filePath
-                  ? hiddenFile.file_b
-                  : hiddenFile.file_a;
-              context.co_changes = `${context.co_changes ? `${context.co_changes}. ` : ""}Hidden dependency: ${otherFile} (${hiddenFile.evidence})`;
-              hasContext = true;
-            }
-          }
-        } catch {
-          // Co-change prediction is non-critical
-        }
       }
     }
 

@@ -6,10 +6,9 @@
  * every tool response. Returns two pre-rendered strings the caller
  * splices into the final body text:
  *
- *   - `head`: preface + fact-steering preface (Surface 2 + the inline
- *     enforcement line for facts that apply to the current file),
- *     prepended ABOVE the tool body so the user reads it while the
- *     response is still streaming.
+ *   - `head`: the Surface 2 context preface (plus the resume strip on a
+ *     resumed session's first turn), prepended ABOVE the tool body so
+ *     the user reads it while the response is still streaming.
  *   - `tail`: end-of-turn placeholder; the Surface 3 receipt itself is
  *     rendered by `unerr_turn_summary` and pasted by the agent, not
  *     spliced here. (§10.7: Surface 4 inline attribution rows were
@@ -20,18 +19,10 @@
  * be broken by this layer.
  */
 
-import { isAbsolute } from "node:path";
-
 import type { PendingConfirmationRegistry } from "../intelligence/pending-confirmations.js";
-import type { TemporalFactStore } from "../intelligence/temporal-facts.js";
 import type { BehaviorEventWriter } from "../tracking/behavior-events.js";
 import { noteTurnContent, shouldUseAmbientMarker } from "./ambient-marker.js";
 import { renderContextPrefaceLive } from "./context-preface.js";
-import {
-  type EnforcementCandidate,
-  appliesToFor,
-  factsApplyingTo,
-} from "./enforcement-loop.js";
 import { USER_BLOCK_AMBIENT, buildUserBlock } from "./response-envelope.js";
 import {
   formatSessionResumeBlock,
@@ -48,9 +39,6 @@ export interface UserBlockContext {
   toolCallCount: number;
   /** Repo-relative or absolute path the call touched; null when N/A. */
   filePath: string | null;
-  /** Optional fact-store for the fact-steering preface (formerly Surface 4d).
-   *  Skipped when undefined. */
-  factStore?: TemporalFactStore;
   /** Optional pending-confirmation registry. When set, any pending entry
    *  for this session is surfaced as a "please confirm" line in the
    *  preface so the user sees the question instead of the agent silently
@@ -64,7 +52,7 @@ export interface UserBlockContext {
    *  pulls top-3 open blockers and top-3 most-recent mark_intent rows
    *  from the prior session. When undefined, the resume block renders
    *  without those lines (graceful degradation). */
-  timelineStore?: Parameters<typeof generateSessionResumePayload>[2];
+  timelineStore?: Parameters<typeof generateSessionResumePayload>[1];
   /** Fix K — optional behavior-event writer. When set and the resume
    *  strip emits ≥1 carried-over blocker, a `resume_blockers_surfaced`
    *  event is recorded for the dashboard compliance ribbon. */
@@ -78,97 +66,6 @@ export interface UserBlockEmission {
   head: string;
   /** Block to splice between page-hint and signal footer. Includes leading newline. */
   tail: string;
-}
-
-/**
- * Lift a TemporalFact list into the EnforcementCandidate shape the
- * `factsApplyingTo` filter wants. The `applies_to` array on each
- * candidate is the union of `applies_to` targets across all evidence
- * entries on the fact, computed by `appliesToFor()`.
- */
-function liftCandidates(
-  facts: ReadonlyArray<Record<string, unknown> & { fact_id: string }>
-): EnforcementCandidate[] {
-  const out: EnforcementCandidate[] = [];
-  for (const f of facts) {
-    const evidence = Array.isArray(f.evidence) ? f.evidence : [];
-    // TemporalFact's evidence field is structurally the EvidenceEntry list
-    // appliesToFor expects; the cast is safe at the runtime contract.
-    const targets = appliesToFor(
-      evidence as Parameters<typeof appliesToFor>[0]
-    );
-    if (targets.length === 0) continue;
-    out.push({
-      fact: f as unknown as EnforcementCandidate["fact"],
-      applies_to: targets,
-    });
-  }
-  return out;
-}
-
-/**
- * Format one TemporalFact as the user-prose `steering` line that gets
- * appended to the Surface 2 preface. Plain text — no `ur|<tag>` prefix
- * (the agent-facing `ur|fct` line is a separate fact-steering emission
- * that rides `buildSignalPrefix()` and is not produced here).
- */
-function steeringTextFor(fact: {
-  fact_type?: string;
-  content: string;
-}): string {
-  const verb = fact.fact_type === "negative" ? "avoid" : "follow";
-  return `${verb}: ${fact.content}`;
-}
-
-async function computeSteering(ctx: UserBlockContext): Promise<string> {
-  if (!ctx.factStore || !ctx.filePath) return "";
-  // Use only repo-relative paths for fact lookup — absolute paths blow
-  // past the scope-hierarchy that recallForFile / appliesToFor expect.
-  const relPath = isAbsolute(ctx.filePath)
-    ? ctx.filePath.replace(/^.*?\.unerr\/?/, "")
-    : ctx.filePath;
-  try {
-    const facts = await ctx.factStore.recallForFile(relPath, []);
-    if (facts.length === 0) return "";
-    const candidates = liftCandidates(
-      facts as unknown as ReadonlyArray<
-        Record<string, unknown> & { fact_id: string }
-      >
-    );
-    if (candidates.length === 0) return "";
-    const hits = factsApplyingTo(relPath, candidates);
-    const top = hits[0];
-    if (!top) return "";
-    // Cap one fact per preface — fact-steering "over-surfacing" risk mitigation.
-    return steeringTextFor(top);
-  } catch {
-    return "";
-  }
-}
-
-/**
- * Render zero-or-more "please confirm" lines for unanswered captures.
- * Each pending entry becomes one prose line so the user can pattern-match
- * the verbatim preview against their original statement and reply
- * yes/no. Returns the empty array when there is no registry or no
- * pending entry for this session — the preface block is unaffected.
- */
-function renderPendingConfirmations(ctx: UserBlockContext): string[] {
-  if (!ctx.pendingConfirmations) return [];
-  let entries: ReturnType<typeof ctx.pendingConfirmations.list>;
-  try {
-    entries = ctx.pendingConfirmations.list(ctx.sessionId);
-  } catch {
-    return [];
-  }
-  if (entries.length === 0) return [];
-  // Cap at 2 per turn — three or more pending captures are vanishingly
-  // rare and would push the preface past its token budget.
-  const capped = entries.slice(0, 2);
-  return capped.map(
-    (e) =>
-      `please confirm — should I remember: "${e.content_preview}"? (yes/no)`
-  );
 }
 
 /**
@@ -192,7 +89,6 @@ async function buildResumeStrip(ctx: UserBlockContext): Promise<string> {
   try {
     const payload = await generateSessionResumePayload(
       ctx.unerrDir,
-      ctx.factStore as Parameters<typeof generateSessionResumePayload>[1],
       ctx.timelineStore
     );
     if (!payload) {
@@ -291,22 +187,17 @@ export async function buildUserBlockForResponse(
   let headHadContent = false;
   if (isTurnOpen) {
     try {
-      const steering = await computeSteering(ctx);
       const prefaceLines = renderContextPrefaceLive(
         ctx.unerrDir,
         ctx.sessionId,
         ctx.toolCallCount,
-        steering,
+        "",
         isFirstCall
       );
-      const pendingLines = renderPendingConfirmations(ctx);
       // §10.7 — inline attribution removed; all provenance now consolidated
       // into the end-of-turn Surface 3 receipt rendered by
-      // `unerr_turn_summary`. Pending-confirmation prompts stay inline
-      // because they're a USER-FACING question that has to unblock the
-      // next turn.
-      const allLines = [...pendingLines, ...prefaceLines];
-      const baseHead = buildUserBlock(allLines);
+      // `unerr_turn_summary`.
+      const baseHead = buildUserBlock(prefaceLines);
       // Resume strip: prepend ABOVE everything else on the first response
       // of a resumed session. It is its own self-formatted block (already
       // includes `[unerr:session-resume]` prefix and bullets) — keep it
@@ -315,9 +206,7 @@ export async function buildUserBlockForResponse(
       const resumeBlock = resumeStrip ? `${resumeStrip}\n\n` : "";
       head = resumeBlock + baseHead;
       headHadContent =
-        resumeStrip.length > 0 ||
-        pendingLines.length > 0 ||
-        prefaceHasContent(prefaceLines);
+        resumeStrip.length > 0 || prefaceHasContent(prefaceLines);
     } catch {
       head = "";
     }
