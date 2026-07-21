@@ -78,8 +78,8 @@ export interface NudgeSessionState {
    *  the static tool-roster + skill catalog this session. Both duplicate the
    *  cached CLAUDE.md tool-routing section and the installed `.claude/skills/`
    *  menu, so re-injecting them every turn is uncacheable re-bill. Emit once
-   *  per session; later turns carry only prompt-specific signal (recall,
-   *  drift, stitch, the four-moment ur|act lines, Path A skill dispatch). */
+   *  per session; later turns carry only prompt-specific signal (trace
+   *  recall, drift, stitch, Path A skill dispatch). */
   static_boilerplate_emitted: boolean;
   /** Token-tax fix (#9) — whether the `unerr exec` rotating tool-adoption
    *  nudge has already been emitted this session. The roster duplicates the
@@ -277,10 +277,10 @@ export function readNudgeState(cwd: string): NudgeSessionState {
  * The flags file is keyed on the long-lived proxy session id
  * (`.unerr/state/session.id`), which spans every agent conversation the proxy
  * serves. Without this reset, "once per session" one-shots (the `mark_intent`
- * reminder, tool roster, Moment lines, cross-session stitch) fire once per
- * PROXY lifetime and then stay silent for every later conversation until the
- * proxy restarts — so the agent stops being reminded to emit `unerr-save:`
- * intents/notes across every subsequent session. This compares the agent's own
+ * reminder, tool roster, cross-session stitch) fire once per PROXY lifetime
+ * and then stay silent for every later conversation until the proxy
+ * restarts — so the agent stops being reminded to emit `unerr-save:` intents
+ * across every subsequent session. This compares the agent's own
  * conversation id against the last one that wrote the file and, on a change,
  * resets the one-shot FLAGS (never the telemetry counters) so each new
  * conversation gets every reminder once.

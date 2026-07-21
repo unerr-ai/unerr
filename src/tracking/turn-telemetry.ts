@@ -19,12 +19,11 @@
 
 /**
  * Canonical recon chain (normalized tool names) that `unerr recon` replaces:
- * recall → search → outline → read → entity. Order matters — the detector
- * scores the longest in-order match, so a shuffled set scores lower than the
- * real recon walk.
+ * search → outline → read → entity. Order matters — the detector scores
+ * the longest in-order match, so a shuffled set scores lower than the real
+ * recon walk.
  */
 export const RECON_SEQUENCE: readonly string[] = [
-  "recall_notes",
   "search_code",
   "file_outline",
   "file_read",

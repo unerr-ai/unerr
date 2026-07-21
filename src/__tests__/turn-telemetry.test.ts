@@ -34,14 +34,14 @@ describe("toolCallHistogram", () => {
 
 describe("longestOrderedSubsequence", () => {
   it("counts in-order recon steps, tolerating interleaved tools", () => {
-    const seq = ["recall_notes", "Bash", "search_code", "Read", "file_outline"];
-    expect(longestOrderedSubsequence(seq, RECON_SEQUENCE)).toBe(3);
+    const seq = ["Bash", "search_code", "Read", "file_outline"];
+    expect(longestOrderedSubsequence(seq, RECON_SEQUENCE)).toBe(2);
   });
 
   it("does not reward out-of-order calls beyond the longest chain", () => {
-    // entity before recall: only get_entity OR the recall→search chain counts
-    const seq = ["get_entity", "recall_notes", "search_code"];
-    expect(longestOrderedSubsequence(seq, RECON_SEQUENCE)).toBe(2);
+    // entity before search: order conflicts with the pattern, so only one call counts
+    const seq = ["get_entity", "search_code"];
+    expect(longestOrderedSubsequence(seq, RECON_SEQUENCE)).toBe(1);
   });
 
   it("counts the full chain when present in order", () => {
@@ -57,7 +57,7 @@ describe("longestOrderedSubsequence", () => {
 
 describe("detectReconPattern", () => {
   it("flags a hit at or above the threshold", () => {
-    const r = detectReconPattern(["recall_notes", "search_code", "file_read"]);
+    const r = detectReconPattern(["search_code", "file_outline", "file_read"]);
     expect(r.hit).toBe(true);
     expect(r.matched).toBe(3);
   });
@@ -72,10 +72,10 @@ describe("detectReconPattern", () => {
 describe("buildTurnTelemetry", () => {
   it("assembles count + histogram + recon verdict", () => {
     const t = buildTurnTelemetry([
-      "recall_notes",
       "search_code",
       "file_outline",
       "file_read",
+      "get_entity",
     ]);
     expect(t.totalCalls).toBe(4);
     expect(t.reconMatched).toBe(4);
@@ -87,8 +87,8 @@ describe("buildTurnTelemetry", () => {
 describe("createReconDetector", () => {
   it("emits exactly once per episode", () => {
     const d = createReconDetector();
-    expect(d.note("recall_notes")).toBeNull();
     expect(d.note("search_code")).toBeNull();
+    expect(d.note("file_outline")).toBeNull();
     const ev = d.note("file_read"); // crosses threshold of 3
     expect(ev).not.toBeNull();
     expect(ev?.matched).toBe(3);
@@ -99,24 +99,24 @@ describe("createReconDetector", () => {
 
   it("re-arms after the window rolls clear of the pattern", () => {
     const d = createReconDetector({ threshold: 3, windowSize: 4 });
-    expect(d.note("recall_notes")).toBeNull();
     expect(d.note("search_code")).toBeNull();
-    expect(d.note("file_read")).not.toBeNull(); // episode 1
+    expect(d.note("file_outline")).toBeNull();
+    expect(d.note("get_entity")).not.toBeNull(); // episode 1
     // flood unrelated tools to push the recon calls out of the 4-wide window
     d.note("Bash");
     d.note("Bash");
     d.note("Bash");
     d.note("Bash");
     // new recon episode
-    expect(d.note("recall_notes")).toBeNull();
     expect(d.note("search_code")).toBeNull();
-    expect(d.note("file_outline")).not.toBeNull(); // episode 2
+    expect(d.note("file_outline")).toBeNull();
+    expect(d.note("file_read")).not.toBeNull(); // episode 2
   });
 
   it("reset() clears state", () => {
     const d = createReconDetector();
-    d.note("recall_notes");
     d.note("search_code");
+    d.note("file_outline");
     d.reset();
     expect(d.note("file_read")).toBeNull(); // only 1 in window after reset
   });

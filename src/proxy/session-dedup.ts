@@ -10,7 +10,7 @@
  *     delivered in a prior session within the warm window is suppressed instead
  *     of re-injected. This is SUPPRESSION ONLY — it never adds a delivery
  *     channel (the §11.6 invariant). Entries older than the warm TTL (the cold
- *     tier) are dropped on load, so an anchored note re-surfaces after the
+ *     tier) are dropped on load, so filtered context re-surfaces after the
  *     window even if it was seen before.
  */
 
@@ -107,7 +107,7 @@ function writePersisted(cwd: string, file: PersistedDedupFile): void {
   }
 }
 
-/** Drop cold (aged-out) entities so stale notes re-surface after the window. */
+/** Drop cold (aged-out) entities so stale entries re-surface after the window. */
 function pruneCold(file: PersistedDedupFile, now: number): PersistedDedupFile {
   const cutoff = now - WARM_TTL_MS;
   const entities: PersistedDedupFile["entities"] = {};
