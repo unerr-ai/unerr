@@ -21,9 +21,8 @@
  *                       (which returns an `imports` array).
  *   - intentMarker      set when toolName is a `mark_*` tool, derived
  *                       from the suffix.
- *   - priorSessionFactSurfaced — true when the tool surfaced a stored
- *                       fact (recall_facts with non-empty result, or any
- *                       tool whose body begins with a `ur|fct` prefix).
+ *   - priorSessionFactSurfaced — true when the tool response body carries
+ *                       a `ur|fct` or `ur|hst` tag.
  *   - urTags            the `ur|<tag>` tags present on the body (when
  *                       content is or contains a text payload).
  *
@@ -116,7 +115,7 @@ export function extractSignals(
   const fileImports = countImports(toolName, content);
   const entityFanIn = meta?.entity_risk?.fan_in;
   const intentMarker = MARK_TOOL_TO_TYPE.get(toolName);
-  const priorSessionFactSurfaced = derivePriorFact(toolName, content, urTags);
+  const priorSessionFactSurfaced = derivePriorFact(urTags);
 
   return {
     toolName,
@@ -320,15 +319,6 @@ function mergeTagSources(
   return out;
 }
 
-function derivePriorFact(
-  toolName: string,
-  content: unknown,
-  urTags: readonly UrTag[]
-): boolean {
-  if (urTags.includes("fct") || urTags.includes("hst")) return true;
-  if (toolName !== "recall_facts") return false;
-  if (!content || typeof content !== "object") return false;
-  const obj = content as Record<string, unknown>;
-  const facts = obj.facts ?? obj.results ?? obj.rows;
-  return Array.isArray(facts) && facts.length > 0;
+function derivePriorFact(urTags: readonly UrTag[]): boolean {
+  return urTags.includes("fct") || urTags.includes("hst");
 }

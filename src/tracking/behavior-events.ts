@@ -64,9 +64,6 @@ export type BehaviorEventType =
   /** A stale-edit attempt was caught — agent re-read after `ur|ctx` (drift) and
    *  avoided overwriting changed content. */
   | "stale_edit_prevented"
-  /** A stored fact surfaced into context this turn via auto-injection
-   *  or explicit `recall_facts`. */
-  | "fact_recalled"
   /** A detected project convention was applied to new code in this turn. */
   | "convention_applied"
   /** A cache hit served the request (file outline cache, search index
@@ -75,18 +72,11 @@ export type BehaviorEventType =
   /** Session-resume reused work from a prior session (facts, conventions,
    *  blockers carried over) instead of re-deriving from scratch. */
   | "cross_session_resume"
-  /** User-asserted fact captured via the `unerr_remember` tool. */
-  | "fact_stored_user_fed"
-  /** Auto-detected fact captured via `record_fact` or behavior auto-doc. */
-  | "fact_stored_auto"
   /** Cascade-guard warning was consumed by the agent (read + acted on
    *  before edit). Pair to `cascade_guard` which only fires; this one
    *  measures whether the agent actually adjusted. */
   | "cascade_warning_consumed"
   // ── Phase 2 additions
-  /** `unerr_remember` was called but confidence fell below the floor
-   *  (0.5). Tool returned `{ stored: false }` instead of writing. */
-  | "fact_capture_abandoned"
   /** A pending capture / retrieval confirmation expired without a
    *  resolution turn (Sprint 6 ambiguity-gated path). */
   | "confirmation_expired"

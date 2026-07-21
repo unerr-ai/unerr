@@ -153,6 +153,9 @@ export function cleanupLegacyLogs(dir: string): number {
  *     telemetry/transcript store. All telemetry is now `.unerr/events/` JSONL and
  *     the transcript cache is `.unerr/cache/transcripts.jsonl`; the legacy DB is
  *     never created or read again, so its (often 100+ MB) bulk is reclaimed.
+ *   - `<unerrDir>/facts.db` (+ `-wal`/`-shm` sidecars) — the retired Layer 9
+ *     temporal-fact CozoDB store (active-memory strip). No code opens it
+ *     anymore; a leftover from a build predating the strip is reclaimed.
  *
  * Best-effort idempotent boot-time sweep; never throws. Returns the number of
  * filesystem entries removed (files + the sessions dir, if present).
@@ -160,9 +163,16 @@ export function cleanupLegacyLogs(dir: string): number {
 export function cleanupLegacyStateArtefacts(unerrDir: string): number {
   let removed = 0;
 
-  // Retired SQLite store — only the unerr-owned `metrics.db*` directly under
+  // Retired SQLite/CozoDB stores — only unerr-owned files directly under
   // `<unerrDir>`. We never recurse or touch anything outside `.unerr`.
-  for (const name of ["metrics.db", "metrics.db-wal", "metrics.db-shm"]) {
+  for (const name of [
+    "metrics.db",
+    "metrics.db-wal",
+    "metrics.db-shm",
+    "facts.db",
+    "facts.db-wal",
+    "facts.db-shm",
+  ]) {
     const full = join(unerrDir, name);
     if (!existsSync(full)) continue;
     try {

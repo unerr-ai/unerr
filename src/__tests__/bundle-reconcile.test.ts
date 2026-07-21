@@ -254,7 +254,7 @@ describe("codeTouchesFromEvents", () => {
       [
         bev({ type: "cascade_guard", entity_key: "fetchUser" }),
         bev({ type: "caller_check_enforced", entity_key: "src/api/user.ts" }),
-        bev({ type: "fact_recalled", entity_key: "ignored" }), // not an edit signal
+        bev({ type: "convention_applied", entity_key: "ignored" }), // not an edit signal
       ]
     );
     expect(t).toHaveLength(2);

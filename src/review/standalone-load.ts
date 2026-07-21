@@ -21,8 +21,8 @@ import { loadLocalSnapshot } from "../intelligence/local-snapshot.js";
  * Exit a standalone review CLI (`check-commit` / `unerr review`) promptly once
  * its work is done.
  *
- * These leaf commands load the CozoDB graph + facts store, and cozo-node's
- * native runtime keeps the Node event loop alive for ~60s AFTER the command has
+ * These leaf commands load the CozoDB graph, and cozo-node's native runtime
+ * keeps the Node event loop alive for ~60s AFTER the command has
  * finished its synchronous work — closing the CozoDb JS handle does NOT release
  * the native thread pool in time (measured: ~66s to exit either way, ~4s with
  * an explicit exit). There is no JS `unref` for that native handle, so a leaf

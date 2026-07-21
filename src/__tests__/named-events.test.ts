@@ -160,7 +160,7 @@ describe("named-events", () => {
       bw.record({
         session_id: "sess-1",
         turn: 1,
-        type: "fact_recalled",
+        type: "convention_applied",
         tool: null,
         entity_key: null,
         response_bytes: null,
@@ -247,7 +247,7 @@ describe("named-events", () => {
       bw.record({
         session_id: "sess-1",
         turn: 1,
-        type: "fact_recalled",
+        type: "convention_applied",
         tool: null,
         entity_key: null,
         response_bytes: null,
@@ -256,7 +256,7 @@ describe("named-events", () => {
       const named = readNamedEvents(unerrDir, { session_id: "sess-1" });
       const counts = countNamedEventsByType(named);
       expect(counts.stale_edit_prevented).toBe(2);
-      expect(counts.fact_recalled).toBe(1);
+      expect(counts.convention_applied).toBe(1);
       expect(totalNamedEvents(named)).toBe(3);
     });
 
@@ -343,7 +343,7 @@ describe("readNamedEvents — native_session_id cross-process correlation", () =
       session_id: "sess-B",
       native_session_id: "native-OTHER",
       turn: 1,
-      type: "fact_recalled",
+      type: "convention_applied",
       tool: null,
       entity_key: null,
       response_bytes: null,

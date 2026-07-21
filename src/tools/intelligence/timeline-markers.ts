@@ -7,8 +7,8 @@
  *   2. Mirrors a row into `timeline.db.markers` for indexed lookup
  *      (open-threads, intent rail, future miners).
  *
- * `temporal-facts` (the surviving Layer 9 store) is not touched by markers —
- * this module only writes the ledger + timeline.db, agnostic to facts.
+ * The Layer 9 temporal-fact store was removed in the active-memory strip —
+ * this module only writes the ledger + timeline.db and never depended on it.
  *
  * Text cap: all four markers accept ≤ 1400 chars (~2-3 sentences). The cap is
  * a generous storage ceiling, not a style guide — agents should still write

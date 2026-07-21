@@ -183,17 +183,6 @@ describe("ledger-chains", () => {
       expect(s1!.tools_used.get_function).toBe(1);
     });
 
-    it("counts facts recorded", () => {
-      const entries = [
-        makeEntry({ session_id: "s1", tool: "record_fact" }),
-        makeEntry({ session_id: "s1", tool: "record_fact" }),
-        makeEntry({ session_id: "s1", tool: "get_function" }),
-      ];
-
-      const timeline = getSessionTimeline(entries);
-      expect(timeline[0]!.facts_recorded).toBe(2);
-    });
-
     it("respects count limit", () => {
       const entries = Array.from({ length: 30 }, (_, i) =>
         makeEntry({ session_id: `s${i}` })

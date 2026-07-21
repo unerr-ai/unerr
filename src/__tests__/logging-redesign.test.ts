@@ -211,6 +211,26 @@ describe("log-paths", () => {
         0
       );
     });
+
+    it("removes a leftover facts.db (+ -wal/-shm siblings)", async () => {
+      const unerrDir = join(tmpDir, ".unerr");
+      mkdirSync(unerrDir, { recursive: true });
+      writeFileSync(join(unerrDir, "facts.db"), "x");
+      writeFileSync(join(unerrDir, "facts.db-wal"), "y");
+      writeFileSync(join(unerrDir, "facts.db-shm"), "z");
+      writeFileSync(join(unerrDir, "graph.db"), "keep"); // canonical — keep
+
+      const { cleanupLegacyStateArtefacts } = await import(
+        "../utils/log-paths.js"
+      );
+      const removed = cleanupLegacyStateArtefacts(unerrDir);
+
+      expect(removed).toBe(3);
+      expect(existsSync(join(unerrDir, "facts.db"))).toBe(false);
+      expect(existsSync(join(unerrDir, "facts.db-wal"))).toBe(false);
+      expect(existsSync(join(unerrDir, "facts.db-shm"))).toBe(false);
+      expect(existsSync(join(unerrDir, "graph.db"))).toBe(true);
+    });
   });
 
   describe("sweepStaleScipIntermediates", () => {

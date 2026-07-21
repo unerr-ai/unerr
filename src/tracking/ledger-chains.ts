@@ -231,13 +231,10 @@ export function getSessionTimeline(
     const entities = new Set<string>();
     const toolCounts: Record<string, number> = {};
     const featureAreas = new Set<string>();
-    let factsRecorded = 0;
     let revertCount = 0;
 
     for (const entry of sorted) {
       toolCounts[entry.tool] = (toolCounts[entry.tool] ?? 0) + 1;
-
-      if (entry.tool === "record_fact") factsRecorded++;
 
       const filePath = extractFilePath(entry);
       if (filePath) files.add(filePath);
@@ -263,7 +260,10 @@ export function getSessionTimeline(
       entities_touched: [...entities],
       tools_used: toolCounts,
       feature_areas: [...featureAreas],
-      facts_recorded: factsRecorded,
+      // `record_fact` was removed in the active-memory strip — no tool call
+      // increments this anymore. Kept as a schema field for downstream
+      // (metrics-store, session-persistence) consumers.
+      facts_recorded: 0,
       revert_count: revertCount,
     });
   }

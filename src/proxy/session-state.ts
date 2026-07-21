@@ -96,10 +96,9 @@ export interface CallSignals {
    */
   readonly intentMarker?: IntentMarkerType;
   /**
-   * True when a prior-session fact was surfaced (ur|fct on
-   * file_read / recall_facts). Distinct from `urTags` because the
-   * condition is independent of whether the tag actually got emitted
-   * in the prefix (a recall_facts row count > 0 also counts).
+   * True when a prior-session fact was surfaced (a `ur|fct` or `ur|hst`
+   * tag on the tool response body). Distinct from `urTags` — a stable
+   * derived flag rather than the raw tag list.
    */
   readonly priorSessionFactSurfaced?: boolean;
 }
