@@ -1,13 +1,15 @@
 /**
- * Stop-persist detached worker (Phase 3 of the unerr_remember removal).
+ * Stop-persist detached worker.
  *
  * Three contracts under test:
  *   1. The Stop hook DELEGATES persistence — `spawnStopPersistWorker` spawns a
  *      detached `unerr hook stop-persist --transcript <path>` child (no stdin;
  *      the path rides argv) and the economy-line path never awaits UDS writes.
- *   2. The worker body re-reads the transcript, scrapes sentinels, and persists
- *      each over UDS BY TOOL NAME — proving `unerr_remember` stays dispatchable
- *      by name after leaving the advertised catalog (2026-06).
+ *   2. The worker body re-reads the transcript, scrapes MARKER sentinels
+ *      (intent/decision/blocker/resolution), and persists each over UDS by
+ *      tool name. `unerr-save: note` lines are NOT scraped — the anchored-note
+ *      system was removed (2026-07 active-memory strip); a leftover note line
+ *      in a closing message is silently ignored.
  *   3. Both sides degrade silently: no transcript / no sentinels / no proxy
  *      socket → no spawn, zero persisted, never a throw.
  */
@@ -128,7 +130,7 @@ describe("runStopPersistWorkerAsync", () => {
     server = undefined;
   });
 
-  it("persists scraped sentinels over UDS by tool name (unerr_remember stays dispatchable by name)", async () => {
+  it("persists marker sentinels over UDS and ignores leftover note lines", async () => {
     const transcript = writeTranscript(dir, CLOSING_WITH_SAVES);
     const sockPath = shortSockPath();
     const calls: Array<{ name: string; arguments: Record<string, unknown> }> =
@@ -157,15 +159,11 @@ describe("runStopPersistWorkerAsync", () => {
       timeoutMs: 500,
     });
 
-    expect(persisted).toBe(2);
-    expect(calls.map((c) => c.name)).toEqual(["unerr_remember", "mark_intent"]);
-    // The note rides the executor's by-name payload union — removed from the
-    // catalog, still a full dispatch citizen.
-    expect(calls[0]!.arguments).toEqual({
-      type: "note",
-      note: "rul|f:src/x.ts|-|no intelligence imports",
-    });
-    expect(calls[1]!.arguments).toEqual({ text: "migrate the y module" });
+    // The fixture carries a note line AND an intent line — only the marker
+    // persists; the note sentinel is dead vocabulary and must not dispatch.
+    expect(persisted).toBe(1);
+    expect(calls.map((c) => c.name)).toEqual(["mark_intent"]);
+    expect(calls[0]!.arguments).toEqual({ text: "migrate the y module" });
   });
 
   it("returns 0 when the proxy socket is absent (saves dropped, never thrown)", async () => {
