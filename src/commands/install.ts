@@ -541,22 +541,33 @@ export async function runInstall(
   //    register the repo and ask it to spin up the per-repo process so the next
   //    IDE connect is instant. If the manager isn't running, do nothing — the
   //    bridge auto-spawns it on first MCP connection via the spawn-lock.
+  //
+  //    Skipped when `autonomous === true` — that argument only ever comes from
+  //    `unerr install claude-code --autonomous`, whose action runs
+  //    `bootAutonomousBackend` immediately after this returns. That boot indexes
+  //    to completion FIRST and starts the proxy SECOND. Pre-warming here would
+  //    invert the order: the proxy would already own the graph, `runIndex` would
+  //    report `proxy_running` and skip, and the two spawn paths would race (we
+  //    observed a duplicate orphan proxy from exactly this). A programmatic
+  //    re-install (`autonomous === undefined`) still pre-warms as before.
   let repoRegistered = false;
-  try {
-    const { daemonSockPath, probeDaemon, ensureRepo } = await import(
-      "../daemon/client.js"
-    );
-    const { addRepo } = await import("../daemon/registry.js");
-    const sock = daemonSockPath();
-    if (await probeDaemon(sock)) {
-      if (!findRepo(cwd)) {
-        addRepo(cwd, {}, { repoLimit: currentRepoLimit() });
-        repoRegistered = true;
+  if (autonomous !== true) {
+    try {
+      const { daemonSockPath, probeDaemon, ensureRepo } = await import(
+        "../daemon/client.js"
+      );
+      const { addRepo } = await import("../daemon/registry.js");
+      const sock = daemonSockPath();
+      if (await probeDaemon(sock)) {
+        if (!findRepo(cwd)) {
+          addRepo(cwd, {}, { repoLimit: currentRepoLimit() });
+          repoRegistered = true;
+        }
+        await ensureRepo(sock, cwd).catch(() => {});
       }
-      await ensureRepo(sock, cwd).catch(() => {});
+    } catch {
+      // Non-blocking — IDE connection will register on demand.
     }
-  } catch {
-    // Non-blocking — IDE connection will register on demand.
   }
 
   return {

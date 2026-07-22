@@ -20,6 +20,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readAutonomousMode } from "../config/autonomous-mode.js";
 import { VERIFIER_AGENT_RELPATH } from "../skills/junior-agent.js";
 
+// runInstall dynamic-imports "../daemon/client.js" inside its step-7 pre-warm
+// block, and the tests below dynamic-import "../commands/install.js" — so the
+// mock must be declared at module scope (vi.mock is hoisted above both) with
+// vi.hoisted() backing the spies referenced inside it and later in the tests.
+// This simulates a LIVE daemon (probeDaemon → true) purely to prove the
+// autonomous===true guard skips the pre-warm call entirely; it never opens a
+// real socket.
+const { ensureRepoMock, probeDaemonMock } = vi.hoisted(() => ({
+  ensureRepoMock: vi.fn().mockResolvedValue({ sock: "/tmp/fake-repo.sock" }),
+  probeDaemonMock: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock("../daemon/client.js", () => ({
+  daemonSockPath: () => "/tmp/fake-unerrd.sock",
+  probeDaemon: probeDaemonMock,
+  ensureRepo: ensureRepoMock,
+}));
+
 describe("autonomous install", () => {
   let homeDir: string;
   let cwd: string;
@@ -31,6 +49,8 @@ describe("autonomous install", () => {
     mkdirSync(homeDir, { recursive: true });
     mkdirSync(cwd, { recursive: true });
     vi.stubEnv("UNERR_HOME", homeDir);
+    ensureRepoMock.mockClear();
+    probeDaemonMock.mockClear();
   });
 
   afterEach(() => {
@@ -157,5 +177,22 @@ describe("autonomous install", () => {
 
     expect(readConfig().autonomous).toBeUndefined();
     expect(existsSync(join(cwd, VERIFIER_AGENT_RELPATH))).toBe(false);
+  });
+
+  it("--autonomous install skips the step-7 pre-warm (no ensureRepo call)", async () => {
+    const { runInstall } = await import("../commands/install.js");
+
+    await runInstall(cwd, "claude-code" as any, true);
+
+    expect(ensureRepoMock).not.toHaveBeenCalled();
+  });
+
+  it("a plain install (no autonomous argument) reaches the step-7 pre-warm path", async () => {
+    const { runInstall } = await import("../commands/install.js");
+
+    await runInstall(cwd, "claude-code" as any, undefined);
+
+    expect(probeDaemonMock).toHaveBeenCalled();
+    expect(ensureRepoMock).toHaveBeenCalled();
   });
 });
