@@ -666,7 +666,12 @@ describe("startUdsBridge — in-flight request drain on connection loss", () => 
       serverSocket?.destroy();
 
       const result = await bridgePromise;
-      expect(result.reason).toBe("socket_closed");
+      // Peer RST (Linux) surfaces as socket 'error'/ECONNRESET → daemon_dead
+      // (bridge.ts:416) before 'close' → socket_closed; a clean FIN (macOS)
+      // fires 'close' first. Both are valid connection-loss reasons that drain
+      // the in-flight call (see the "reconnects on daemon_dead or socket_closed"
+      // case above) — accept either so the assertion isn't platform-fragile.
+      expect(["socket_closed", "daemon_dead"]).toContain(result.reason);
 
       const frames = written
         .join("")
