@@ -49,9 +49,19 @@ export type SessionStartMatcher = "startup" | "resume" | "clear" | "compact";
 export interface HookResult {
   /** passthrough = no-op, nudge = advisory message, rewrite = change
    *  input, enrich = add context, deny = block the tool call outright,
-   *  display = user-only systemMessage (never additionalContext). */
-  action: "passthrough" | "nudge" | "rewrite" | "enrich" | "deny" | "display";
-  /** Advisory, enrichment, or deny reason (used by nudge + enrich + deny + display). */
+   *  display = user-only systemMessage (never additionalContext), block =
+   *  a blocking Stop decision (forces the agent to continue instead of
+   *  ending its turn) — ONLY the capped autonomous-mode verify gate in
+   *  stop-hooks.ts emits this; every other Stop path stays non-blocking. */
+  action:
+    | "passthrough"
+    | "nudge"
+    | "rewrite"
+    | "enrich"
+    | "deny"
+    | "display"
+    | "block";
+  /** Advisory, enrichment, deny, or block reason (used by nudge + enrich + deny + display + block). */
   message?: string;
   /** Rewritten tool input (used by rewrite). */
   updatedInput?: Record<string, unknown>;
@@ -411,6 +421,15 @@ export function enrich(message: string): HookResult {
  *  strongly-worded nudge. */
 export function deny(reason: string): HookResult {
   return { action: "deny", message: reason };
+}
+
+/** Create a block result — a blocking Stop decision that forces the agent to
+ *  keep going instead of ending its turn. Reserved for the capped
+ *  autonomous-mode verify gate (stop-hooks.ts); every other Stop path must
+ *  stay non-blocking. Adapters without a true Stop-block channel degrade to
+ *  their existing non-blocking shape. */
+export function block(reason: string): HookResult {
+  return { action: "block", message: reason };
 }
 
 /** Create a display result — surfaces `message` to the USER ONLY via a

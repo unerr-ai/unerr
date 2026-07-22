@@ -9,15 +9,19 @@
  * with multi-line commands, nested quotes, and special characters.
  */
 
+import { readAutonomousMode } from "../config/autonomous-mode.js";
 import { getUnerrCommand } from "../config/mcp-config-writer.js";
 import { formatDriftNudge, isDriftCommand } from "../proxy/drift-detector.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { normalizeShellCommand } from "../proxy/shell-classifier.js";
 import { recordDelegationHandoff } from "../tracking/delegation-handoff.js";
+import { classifyCheckCommand, classifyWeakVerify } from "./check-tracker.js";
 import {
   type HookHandler,
+  nudge,
   passthrough,
   rewrite,
+  runPostToolUseHook,
   runPreToolUseHook,
 } from "./hook-runner.js";
 
@@ -63,6 +67,78 @@ const preBashHandler: HookHandler = (normalized) => {
  */
 export function runPreBashHook(stdinJson: string): string {
   return runPreToolUseHook(stdinJson, preBashHandler);
+}
+
+// ── Verification awareness (W4) — PostToolUse(Bash) ───────────────────────
+
+/** Just-in-time nudge text for a weak-verify shape (`classifyWeakVerify`). */
+const WEAK_VERIFY_NUDGE_TEXT: Record<
+  "existence-only" | "no-comparison",
+  string
+> = {
+  "existence-only":
+    "That check only proves something exists or has the right shape — it never compares a value. Recompute the expected result independently and diff against it, or run the project's real check (test / typecheck / build).",
+  "no-comparison":
+    "That command only proves exit-0 — it asserts nothing about correctness. Run a check that compares actual output or behavior against an expected value.",
+};
+
+/**
+ * Agent-agnostic PostToolUse(Bash) handler for verification awareness (W4). A
+ * command classified as a real check/test/build/typecheck runner
+ * (`classifyCheckCommand`) stamps `check_cmd_last_ts` in nudge-state so the
+ * Stop hook can tell whether this turn's edits were verified. In autonomous
+ * mode only, a command classified as a WEAK verify shape
+ * (`classifyWeakVerify`) earns a one-shot-per-reason-per-session nudge toward
+ * a real comparison. Never throws — any failure degrades to passthrough.
+ *
+ * @sem domain=agent-hooks role=verify-gate
+ */
+const postBashHandler: HookHandler = (normalized) => {
+  try {
+    const input = normalized.toolInput;
+    const cmd =
+      typeof input.command === "string"
+        ? input.command
+        : typeof input.shell_command === "string"
+          ? (input.shell_command as string)
+          : "";
+    if (!cmd.trim()) return passthrough();
+
+    const cwd = process.cwd();
+
+    if (classifyCheckCommand(cmd)) {
+      updateNudgeState(cwd, (s) => {
+        s.check_cmd_count += 1;
+        s.check_cmd_last_ts = Date.now();
+      });
+      return passthrough();
+    }
+
+    if (!readAutonomousMode(cwd)) return passthrough();
+
+    const reason = classifyWeakVerify(cmd);
+    if (!reason) return passthrough();
+
+    if (readNudgeState(cwd).weak_verify_nudged.includes(reason)) {
+      return passthrough();
+    }
+    updateNudgeState(cwd, (s) => {
+      if (!s.weak_verify_nudged.includes(reason)) {
+        s.weak_verify_nudged.push(reason);
+      }
+    });
+    return nudge(WEAK_VERIFY_NUDGE_TEXT[reason]);
+  } catch {
+    return passthrough();
+  }
+};
+
+/**
+ * Read hook JSON from stdin, classify the Bash command that just ran, and
+ * record/nudge per {@link postBashHandler}. Returns JSON string for stdout.
+ */
+export function runPostBashHook(stdinJson: string): string {
+  return runPostToolUseHook(stdinJson, postBashHandler);
 }
 
 /**

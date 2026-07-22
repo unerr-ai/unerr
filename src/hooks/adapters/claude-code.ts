@@ -154,9 +154,15 @@ export const claudeCodeAdapter: HookAdapter = {
     if (result.action === "passthrough") return "{}";
 
     // Stop has no additionalContext channel — the close-out line is for the
-    // user, so it rides top-level `systemMessage`. Never emit decision:"block"
-    // here: that would force the agent to keep going, which the economy line
-    // must never do.
+    // user, so it rides top-level `systemMessage`. The economy line itself
+    // must NEVER block: only the capped autonomous-mode verify gate in
+    // stop-hooks.ts (action:"block", at most 2 per session, then it degrades
+    // to a soft line) may force continuation here — every other Stop path on
+    // this adapter stays a plain systemMessage.
+    if (result.action === "block" && result.message) {
+      return JSON.stringify({ decision: "block", reason: result.message });
+    }
+
     if (
       (result.action === "enrich" || result.action === "nudge") &&
       result.message

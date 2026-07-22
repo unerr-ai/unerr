@@ -121,6 +121,27 @@ export interface NudgeSessionState {
    *  against the live native id and re-arms the conversation-scoped one-shots
    *  when the agent starts a new conversation. */
   last_native_session_id?: string;
+  /** Verification awareness (W4) — running count of Bash commands classified
+   *  as a check/test/build/typecheck runner (`classifyCheckCommand`) this
+   *  session. Telemetry only; gating reads `check_cmd_last_ts`. */
+  check_cmd_count: number;
+  /** Verification awareness (W4) — epoch-ms of the last classified check
+   *  command. The Stop hook compares this against the current turn's last
+   *  edit timestamp to decide whether the turn's edits were verified. 0 means
+   *  no check command has run yet this session. */
+  check_cmd_last_ts: number;
+  /** Verification awareness (W4) — count of soft advisory lines the Stop hook
+   *  has appended to the systemMessage for unchecked edits this session.
+   *  Capped at 2; the gate goes silent past the cap. */
+  verify_soft_count: number;
+  /** Verification awareness (W4) — count of blocking Stop decisions the
+   *  autonomous-mode verify gate has emitted this session. Capped at 2; past
+   *  the cap the gate degrades to the soft advisory line instead. */
+  verify_block_count: number;
+  /** Verification awareness (W4) — weak-verify reasons (`"existence-only"` /
+   *  `"no-comparison"`) already nudged this session, so the just-in-time
+   *  weak-verify nudge fires at most once per reason per session. */
+  weak_verify_nudged: string[];
 }
 
 function defaultState(): NudgeSessionState {
@@ -147,6 +168,11 @@ function defaultState(): NudgeSessionState {
     tracker_open_pending: false,
     tracker_nudge_emitted_count: 0,
     tracker_close_reminder_count: 0,
+    check_cmd_count: 0,
+    check_cmd_last_ts: 0,
+    verify_soft_count: 0,
+    verify_block_count: 0,
+    weak_verify_nudged: [],
   };
 }
 
@@ -264,6 +290,23 @@ export function readNudgeState(cwd: string): NudgeSessionState {
         typeof parsed.tracker_close_reminder_count === "number"
           ? parsed.tracker_close_reminder_count
           : 0,
+      check_cmd_count:
+        typeof parsed.check_cmd_count === "number" ? parsed.check_cmd_count : 0,
+      check_cmd_last_ts:
+        typeof parsed.check_cmd_last_ts === "number"
+          ? parsed.check_cmd_last_ts
+          : 0,
+      verify_soft_count:
+        typeof parsed.verify_soft_count === "number"
+          ? parsed.verify_soft_count
+          : 0,
+      verify_block_count:
+        typeof parsed.verify_block_count === "number"
+          ? parsed.verify_block_count
+          : 0,
+      weak_verify_nudged: Array.isArray(parsed.weak_verify_nudged)
+        ? parsed.weak_verify_nudged.filter((s) => typeof s === "string")
+        : [],
     };
   } catch {
     return defaultState();

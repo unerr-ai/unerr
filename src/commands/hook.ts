@@ -31,7 +31,11 @@ import {
 } from "../hooks/navigation-hooks.js";
 import { runUserPromptSubmitHookAsync } from "../hooks/prompt-hooks.js";
 import { runSessionStartHookAsync } from "../hooks/session-hooks.js";
-import { runPreBashHook, runPreShellHook } from "../hooks/shell-hooks.js";
+import {
+  runPostBashHook,
+  runPreBashHook,
+  runPreShellHook,
+} from "../hooks/shell-hooks.js";
 import {
   runStopHookHandlerAsync,
   runStopPersistWorkerAsync,
@@ -229,6 +233,13 @@ export function registerHookCommand(program: Command): void {
       "Nudge bulk fetch_url({urls:[...]}) to read all search results in one roundtrip"
     )
     .action(safeHookAction(runPostWebSearchHook));
+
+  hook
+    .command("post-bash")
+    .description(
+      "Verification awareness: record check-command runs, nudge weak verify shapes (autonomous mode)"
+    )
+    .action(safeHookAction(runPostBashHook));
 
   hook
     .command("post-write")

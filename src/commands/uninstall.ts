@@ -25,6 +25,7 @@ import {
   getAgent,
   normalizeAgentName,
 } from "../config/agent-registry.js";
+import { writeAutonomousMode } from "../config/autonomous-mode.js";
 import {
   removeAgentToolAllows,
   removeDisallowedTools,
@@ -36,7 +37,10 @@ import { removeMcpConfig } from "../config/mcp-config-writer.js";
 import { loadSettings } from "../config/settings.js";
 import { DEFAULT_SENTINEL_TOKENS } from "../intelligence/semantic/docstring-extractor.js";
 import { stripAnnotationsFromRepo } from "../intelligence/semantic/strip-annotations.js";
-import { removeJuniorSubagent } from "../skills/junior-agent.js";
+import {
+  VERIFIER_AGENT_RELPATH,
+  removeJuniorSubagent,
+} from "../skills/junior-agent.js";
 import { removeInstalledSkills } from "../skills/resolver.js";
 import { uninstallReviewGateHooks } from "../tracking/review-gate-hooks.js";
 import type { IdeType } from "../utils/detect.js";
@@ -208,10 +212,25 @@ function runUninstall(cwd: string, ide: IdeType): UninstallResult {
     // Non-blocking
   }
 
-  // 2b. Remove the delegation sub-agent file (Lever C, Claude Code only).
+  // 2b. Remove the delegation sub-agent files (Lever C, Claude Code only),
+  //     the manual-only verifier agent, and clear the persisted autonomous
+  //     flag — a plain uninstall always returns the repo to interactive mode.
   if (ide === "claude-code") {
     try {
       removeJuniorSubagent(cwd);
+    } catch {
+      // Non-blocking
+    }
+    try {
+      const verifierPath = join(cwd, VERIFIER_AGENT_RELPATH);
+      if (existsSync(verifierPath)) {
+        rmSync(verifierPath, { force: true });
+      }
+    } catch {
+      // Non-blocking
+    }
+    try {
+      writeAutonomousMode(cwd, false);
     } catch {
       // Non-blocking
     }

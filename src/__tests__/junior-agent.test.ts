@@ -6,14 +6,18 @@ import {
   CLAUDE_WORKER_MODEL,
   CODEX_WORKER_MODEL,
   FABLE_AGENT_MD,
+  FABLE_AGENT_MD_AUTONOMOUS,
   FABLE_MODEL,
   JUNIOR_AGENT_MD,
   JUNIOR_AGENT_RELPATH,
   JUNIOR_MODEL,
   OPUS_AGENT_MD,
+  OPUS_AGENT_MD_AUTONOMOUS,
   OPUS_MODEL,
   REVIEWER_AGENT_MD,
   REVIEWER_AGENT_RELPATH,
+  VERIFIER_AGENT_MD,
+  VERIFIER_AGENT_RELPATH,
   WORKER_AGENT_MD,
   fableAgentPath,
   juniorAgentPath,
@@ -23,6 +27,7 @@ import {
   reviewerAgentPath,
   selectTier,
   tierModel,
+  verifierAgentPath,
   workerAgentPath,
   writeJuniorSubagent,
 } from "../skills/junior-agent.js";
@@ -215,6 +220,68 @@ describe("unerr-junior sub-agent (Lever C)", () => {
       expect(sawIndentedLine).toBe(true);
       expect(lines[i]).toMatch(/^model: /);
     }
+  });
+
+  it("autonomous install writes all 5 agent files (junior/worker/opus/fable/verifier)", () => {
+    const cwd = fresh();
+    expect(writeJuniorSubagent("claude-code", cwd, { autonomous: true })).toBe(
+      true
+    );
+    expect(existsSync(juniorAgentPath(cwd))).toBe(true);
+    expect(existsSync(workerAgentPath(cwd))).toBe(true);
+    expect(existsSync(opusAgentPath(cwd))).toBe(true);
+    expect(existsSync(fableAgentPath(cwd))).toBe(true);
+    expect(existsSync(verifierAgentPath(cwd))).toBe(true);
+    expect(readFileSync(opusAgentPath(cwd), "utf-8")).toBe(
+      OPUS_AGENT_MD_AUTONOMOUS
+    );
+    expect(readFileSync(fableAgentPath(cwd), "utf-8")).toBe(
+      FABLE_AGENT_MD_AUTONOMOUS
+    );
+    expect(readFileSync(verifierAgentPath(cwd), "utf-8")).toBe(
+      VERIFIER_AGENT_MD
+    );
+  });
+
+  it("autonomous opus/fable auto-spawn on evidence; manual variants stay manual-only", () => {
+    for (const md of [OPUS_AGENT_MD_AUTONOMOUS, FABLE_AGENT_MD_AUTONOMOUS]) {
+      const desc = foldedDescription(md);
+      expect(desc).toContain("AUTOMATICALLY");
+      expect(desc).not.toContain("Manual-only");
+    }
+    // The manual, user-invoked variants are untouched by the autonomous work.
+    for (const md of [OPUS_AGENT_MD, FABLE_AGENT_MD]) {
+      expect(foldedDescription(md)).toContain("Manual-only");
+    }
+  });
+
+  it("unerr-verifier is read-only and Opus-pinned — no edit tools", () => {
+    expect(VERIFIER_AGENT_MD).toContain("name: unerr-verifier");
+    expect(VERIFIER_AGENT_MD).toContain(`model: ${OPUS_MODEL}`);
+    expect(verifierAgentPath("/x").endsWith(VERIFIER_AGENT_RELPATH)).toBe(true);
+    const verifierTools = toolsOf(VERIFIER_AGENT_MD);
+    expect(verifierTools).toContain("mcp__unerr__search_code");
+    expect(verifierTools).toContain("mcp__unerr__get_references");
+    expect(verifierTools).not.toContain("mcp__unerr__file_edit");
+    expect(verifierTools).not.toContain("Edit");
+    expect(verifierTools).not.toContain("Write");
+  });
+
+  it("interactive install keeps manual-only opus/fable and sweeps a stale verifier", () => {
+    const cwd = fresh();
+    // Simulate a prior autonomous install leaving a verifier file behind.
+    writeJuniorSubagent("claude-code", cwd, { autonomous: true });
+    expect(existsSync(verifierAgentPath(cwd))).toBe(true);
+
+    // Switching back to an interactive (non-autonomous) install sweeps the
+    // stale verifier and restores the manual-only opus/fable variants.
+    expect(writeJuniorSubagent("claude-code", cwd)).toBe(true);
+    expect(existsSync(verifierAgentPath(cwd))).toBe(false);
+    expect(readFileSync(opusAgentPath(cwd), "utf-8")).toBe(OPUS_AGENT_MD);
+    expect(readFileSync(fableAgentPath(cwd), "utf-8")).toBe(FABLE_AGENT_MD);
+    expect(
+      foldedDescription(readFileSync(opusAgentPath(cwd), "utf-8"))
+    ).toContain("Manual-only");
   });
 });
 

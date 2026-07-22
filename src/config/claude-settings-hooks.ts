@@ -2,7 +2,8 @@
  * Merge unerr hooks into `.claude/settings.json`.
  *
  * PreToolUse hooks: Bash (rewrite), Read (nudge), Grep (nudge), Glob (nudge).
- * PostToolUse hooks: Read (enrich), Grep (enrich), Glob (enrich).
+ * PostToolUse hooks: Read (enrich), Grep (enrich), Glob (enrich), Bash
+ * (verify-awareness record + weak-verify nudge).
  * All hooks are installed on `unerr install claude-code` and removed on `unerr uninstall`.
  */
 
@@ -127,6 +128,10 @@ function buildMatcherHooks(): {
     { event: "PostToolUse", matcher: "Read", command: `${bin} hook post-read` },
     { event: "PostToolUse", matcher: "Grep", command: `${bin} hook post-grep` },
     { event: "PostToolUse", matcher: "Glob", command: `${bin} hook post-glob` },
+    // PostToolUse — verification awareness (W4): records a classified check
+    // command's timestamp for the Stop-hook verify gate, and (autonomous mode
+    // only) nudges a just-in-time correction for a weak verify shape.
+    { event: "PostToolUse", matcher: "Bash", command: `${bin} hook post-bash` },
     // PostToolUse — after a web search returns result URLs, nudge one bulk
     // fetch_url({urls:[...]}) to read them all in a single roundtrip instead of
     // one fetch_url per page. Additive enrich only; WebSearch is never denied.

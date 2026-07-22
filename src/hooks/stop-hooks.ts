@@ -18,17 +18,22 @@
  */
 
 import { join } from "node:path";
+import { readAutonomousMode } from "../config/autonomous-mode.js";
 import { parseDelegationIntent } from "../intelligence/delegation.js";
 import { gatherNotices, renderNoticesRed } from "../notices/status-notices.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { renderStopReportLive } from "../proxy/turn-report.js";
 import { BehaviorEventWriter } from "../tracking/behavior-events.js";
-import { readNamedEvents } from "../tracking/named-events.js";
+import {
+  currentTurnSlice,
+  latestPromptBoundaryTs,
+  readNamedEvents,
+} from "../tracking/named-events.js";
 import { emitSavingsEvent } from "../tracking/savings-events.js";
 import { resolveExecSessionContext } from "../tracking/session-records.js";
 import { enqueueTranscriptClaim } from "../tracking/transcript-claim.js";
 import { spawnUnerr } from "../utils/self-spawn.js";
-import { enrich, runStopHookAsync } from "./hook-runner.js";
+import { block, enrich, runStopHookAsync } from "./hook-runner.js";
 import {
   type PersistOptions,
   STOP_PERSIST_WORKER_TIMEOUT_MS,
@@ -242,12 +247,107 @@ export function buildTrackerCloseReminder(cwd: string): string {
 }
 
 /**
+ * Verification-awareness (W4) result of {@link evaluateVerifyGate}: either a
+ * blocking Stop decision (autonomous mode) or a soft line to append to the
+ * existing systemMessage (interactive mode, or autonomous past its block cap).
+ */
+type VerifyGateResult =
+  | { kind: "block"; message: string }
+  | { kind: "soft"; line: string };
+
+const VERIFY_BLOCK_MESSAGE =
+  "Edits landed this turn with no check run. Run the project's check that proves the change (test / build / typecheck) and read its result, or spawn unerr-verifier (Task subagent_type:'unerr-verifier') with the acceptance criteria and what changed. Then finish.";
+
+const VERIFY_SOFT_LINE =
+  "unerr » edits landed with no check run this turn — delegate a verify-run (typecheck + targeted tests) to unerr-junior before building on it";
+
+/**
+ * Whether this turn had file edits (`code_edit_applied` events in the
+ * current-turn slice) and, if so, whether a check command ran after the last
+ * one. Reuses the same event stream + turn-slicing the files-changed receipt
+ * resolves (`readNamedEvents` + `currentTurnSlice`) so the two never disagree
+ * about what counts as "this turn". Falls back to the turn's start
+ * (`latestPromptBoundaryTs`) when an edit's own timestamp is unusable.
+ */
+function turnVerifyStatus(
+  unerrDir: string,
+  currentTurn: number,
+  checkCmdLastTs: number
+): { hadEdits: boolean; checkRanAfterEdit: boolean } {
+  const events = readNamedEvents(unerrDir, {});
+  const turnEvents = currentTurnSlice(events, currentTurn);
+  const edits = turnEvents.filter((e) => e.event_type === "code_edit_applied");
+  if (edits.length === 0) return { hadEdits: false, checkRanAfterEdit: true };
+
+  const editTimestamps = edits
+    .map((e) => Date.parse(e.ts))
+    .filter((t) => Number.isFinite(t));
+  const referenceTs =
+    editTimestamps.length > 0
+      ? Math.max(...editTimestamps)
+      : (latestPromptBoundaryTs(events) ?? 0);
+
+  return {
+    hadEdits: true,
+    checkRanAfterEdit: checkCmdLastTs > 0 && checkCmdLastTs >= referenceTs,
+  };
+}
+
+/**
+ * Verification-awareness (W4) Stop gate. When this turn's edits have no check
+ * run after them: in autonomous mode ({@link readAutonomousMode}), return a
+ * blocking decision (capped at 2 per session, `verify_block_count`); once that
+ * cap is spent — or always, in interactive mode — return a soft advisory line
+ * to append to the systemMessage (capped at 2 per session,
+ * `verify_soft_count`). Returns null once there is nothing to say: no edits
+ * this turn, a check ran after the last edit, or both caps are spent.
+ * Best-effort — any internal error degrades to null (unchanged Stop behavior).
+ *
+ * @sem domain=agent-hooks role=verify-gate
+ */
+export function evaluateVerifyGate(
+  unerrDir: string,
+  repoRoot: string,
+  currentTurn: number
+): VerifyGateResult | null {
+  try {
+    const state = readNudgeState(repoRoot);
+    const status = turnVerifyStatus(
+      unerrDir,
+      currentTurn,
+      state.check_cmd_last_ts
+    );
+    if (!status.hadEdits || status.checkRanAfterEdit) return null;
+
+    if (readAutonomousMode(repoRoot) && state.verify_block_count < 2) {
+      updateNudgeState(repoRoot, (s) => {
+        s.verify_block_count += 1;
+      });
+      return { kind: "block", message: VERIFY_BLOCK_MESSAGE };
+    }
+    if (state.verify_soft_count < 2) {
+      updateNudgeState(repoRoot, (s) => {
+        s.verify_soft_count += 1;
+      });
+      return { kind: "soft", line: VERIFY_SOFT_LINE };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Stop hook entry. Scrapes + persists any session-journal sentinels from the
  * closing message, then computes the close-out line for the active session/turn
  * and returns it as a user-facing systemMessage. When the turn has no rich
  * receipt (honest-zero) or an internal error occurs, it falls back to a one-line
  * presence marker (`stopPresenceLine`) instead of a silent "{}" — every turn
  * confirms unerr is active. Only truly unparseable stdin still yields "{}".
+ * Verification awareness (W4): when this turn had edits and no check command
+ * ran since, `evaluateVerifyGate` either blocks the turn (autonomous mode,
+ * capped) or appends a soft advisory line to the systemMessage (capped);
+ * unaffected turns keep the prior message unchanged.
  */
 export async function runStopHookHandlerAsync(
   stdinJson: string
@@ -303,9 +403,23 @@ export async function runStopHookHandlerAsync(
         ? combined
         : stopPresenceLine(resolved.currentTurn);
 
+    // Verification awareness (W4) — unchecked edits either block the turn
+    // (autonomous mode, capped) or earn a soft advisory line (capped);
+    // everything else about this turn's message is untouched.
+    const verifyGate = evaluateVerifyGate(
+      unerrDir,
+      process.cwd(),
+      resolved.currentTurn
+    );
+    if (verifyGate?.kind === "block") {
+      return runStopHookAsync(stdinJson, async () => block(verifyGate.message));
+    }
+    const messageWithVerify =
+      verifyGate?.kind === "soft" ? `${message}\n${verifyGate.line}` : message;
+
     const finalMessage = trackerCloseLine
-      ? `${message}\n${trackerCloseLine}`
-      : message;
+      ? `${messageWithVerify}\n${trackerCloseLine}`
+      : messageWithVerify;
 
     return runStopHookAsync(stdinJson, async () => enrich(finalMessage));
   } catch {

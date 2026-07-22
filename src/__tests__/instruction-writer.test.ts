@@ -370,4 +370,62 @@ describe("instruction-writer", () => {
       expect(content).toContain("unerr uninstall --strip-annotations");
     });
   });
+
+  describe("autonomous session discipline (autonomous flag)", () => {
+    const MARKER = "Autonomous session discipline";
+
+    it("includes the section when autonomous:true — claude-code", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code", {
+        autonomous: true,
+      });
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain(MARKER);
+      expect(content).toContain("unerr-verifier");
+      expect(content).toContain("unerr journal - decided");
+    });
+
+    it("omits the section by default (autonomous unset) — claude-code", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).not.toContain(MARKER);
+    });
+
+    it("omits the section for cursor even with autonomous:true", () => {
+      const result = writeInstructionFile(tmpDir, "cursor", {
+        autonomous: true,
+      });
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).not.toContain(MARKER);
+    });
+
+    it("toggling the flag off rewrites the section away (idempotent sentinel update)", () => {
+      const first = writeInstructionFile(tmpDir, "claude-code", {
+        autonomous: true,
+      });
+      expect(first.action).toBe("created");
+      expect(readFileSync(first.path, "utf-8")).toContain(MARKER);
+
+      const second = writeInstructionFile(tmpDir, "claude-code", {
+        autonomous: false,
+      });
+      expect(second.action).toBe("updated");
+      expect(readFileSync(second.path, "utf-8")).not.toContain(MARKER);
+    });
+  });
+
+  describe("delegation tiering wording — hardest-part rule", () => {
+    it("uses the 'Tier by the hardest part' wording for claude-code", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain("Tier by the hardest part, not the average");
+      expect(content).not.toContain("Tier by reasoning, not by size");
+    });
+
+    it("uses the 'Tier by the hardest part' wording for codex", () => {
+      const result = writeInstructionFile(tmpDir, "codex");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain("Tier by the hardest part, not the average");
+      expect(content).not.toContain("Tier by reasoning, not by size");
+    });
+  });
 });

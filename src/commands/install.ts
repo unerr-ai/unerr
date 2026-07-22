@@ -28,6 +28,7 @@ import {
   getAgent,
   normalizeAgentName,
 } from "../config/agent-registry.js";
+import { writeAutonomousMode } from "../config/autonomous-mode.js";
 import {
   addAgentToolAllows,
   addDisallowedTools,
@@ -98,6 +99,10 @@ export function registerInstallCommand(program: Command): void {
       "--token <token>",
       "Connect non-interactively with a machine token (CI / headless)"
     )
+    .option(
+      "--autonomous",
+      "non-interactive setup: strict verification, auto-escalation sub-agents, warm backend (claude-code only)"
+    )
     .action(
       async (
         agent?: string,
@@ -107,6 +112,7 @@ export function registerInstallCommand(program: Command): void {
           showInstructions?: boolean | string;
           reviewGate?: boolean;
           token?: string;
+          autonomous?: boolean;
         }
       ) => {
         const cwd = process.cwd();
@@ -147,11 +153,23 @@ export function registerInstallCommand(program: Command): void {
 
         let result: InstallResult;
         try {
-          result = await runInstall(cwd, normalizedAgent as any);
+          result = await runInstall(
+            cwd,
+            normalizedAgent as any,
+            opts?.autonomous === true
+          );
         } catch (err) {
           if (err instanceof RepoCapError) {
             // Free-tier repo cap hit — print the upgrade/free-slot guidance and
             // exit non-zero. No config was written (the check runs first).
+            process.stderr.write(`\n  \x1b[31m✗\x1b[0m ${err.message}\n`);
+            process.exitCode = 1;
+            return;
+          }
+          if (err instanceof AutonomousModeUnsupportedError) {
+            // --autonomous requested for a non-claude-code agent — refuse the
+            // same way the repo cap does: message + non-zero exit, no config
+            // written (runInstall throws before any write).
             process.stderr.write(`\n  \x1b[31m✗\x1b[0m ${err.message}\n`);
             process.exitCode = 1;
             return;
@@ -314,19 +332,54 @@ export function registerInstallCommand(program: Command): void {
         // Login is mandatory (2026-06-14): `install` is a gated command, so the
         // `preAction` wall in cli.ts has already enforced a usable login before
         // this action runs. No separate install-time login offer.
+
+        // Autonomous mode: warm the backend (graph indexed + proxy running)
+        // so the very first MCP tool call in a non-interactive session hits a
+        // live graph instead of a cold boot. Kept out of runInstall so unit
+        // tests of runInstall never spawn a process. The agent-mismatch
+        // refusal above already guarantees normalizedAgent is claude-code
+        // whenever opts.autonomous is set and we got this far.
+        if (opts?.autonomous && normalizedAgent === "claude-code") {
+          const { bootAutonomousBackend } = await import(
+            "./autonomous-boot.js"
+          );
+          const warm = await bootAutonomousBackend(cwd);
+          if (!warm) {
+            process.exitCode = 1;
+          }
+        }
       }
     );
 }
+
+/**
+ * Thrown by {@link runInstall} when `--autonomous` is requested for an agent
+ * other than claude-code. Caught alongside {@link RepoCapError} in the
+ * install action — message printed, non-zero exit, no config written.
+ *
+ * @sem domain=configuration role=validation
+ */
+export class AutonomousModeUnsupportedError extends Error {}
 
 /**
  * Core install logic — writes MCP config + skills for a single agent.
  */
 export async function runInstall(
   cwd: string,
-  ide: Parameters<typeof writeMcpConfig>[1]
+  ide: Parameters<typeof writeMcpConfig>[1],
+  autonomous?: boolean
 ): Promise<InstallResult> {
   const agentDef = getAgent(ide);
   const agentName = agentDef?.name ?? ide;
+
+  // --autonomous is claude-code only (verifier sub-agent, strict-mode
+  // instructions, and the warm-backend boot path all assume Claude Code's
+  // on-disk sub-agent + hook surface). Refuse before any write.
+  if (autonomous && ide !== "claude-code") {
+    throw new AutonomousModeUnsupportedError(
+      "Autonomous mode currently supports claude-code only — run `unerr install claude-code --autonomous`."
+    );
+  }
 
   // 0. Free-tier repo cap — refuse a brand-new 2nd repo BEFORE writing any
   //    config, so a capped repo never gets a half-written .mcp.json. Adding
@@ -346,6 +399,13 @@ export async function runInstall(
   //     that pre-warm still spawns a daemon child that exits 1 for lack of
   //     config. This is what makes a headless install bootable at all.
   const { created: configBootstrapped } = await ensureRepoConfig(cwd);
+
+  // 0c. Autonomous-mode flag (claude-code only). A plain install (no
+  //     --autonomous) clears it — the authoritative way back to interactive
+  //     mode, so a stale flag never survives a reinstall.
+  if (ide === "claude-code") {
+    writeAutonomousMode(cwd, autonomous === true);
+  }
 
   // 1. Write MCP config (project-level)
   const mcpConfig = writeMcpConfig(cwd, ide);
@@ -374,7 +434,7 @@ export async function runInstall(
   //     `codex exec -m gpt-5.4-mini` and needs no file.
   try {
     const { writeJuniorSubagent } = await import("../skills/junior-agent.js");
-    writeJuniorSubagent(ide, cwd);
+    writeJuniorSubagent(ide, cwd, { autonomous });
   } catch {
     // Non-blocking
   }
@@ -419,7 +479,7 @@ export async function runInstall(
   let instructionsInjected = false;
   let instructionPath = "";
   try {
-    const instrResult = writeInstructionFile(cwd, ide);
+    const instrResult = writeInstructionFile(cwd, ide, { autonomous });
     instructionsInjected =
       instrResult.action === "created" || instrResult.action === "updated";
     instructionPath = instrResult.path;

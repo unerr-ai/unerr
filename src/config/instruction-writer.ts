@@ -32,7 +32,7 @@ const SENTINEL_END = "<!-- unerr:end -->";
  */
 function getInstructionContent(
   ide?: IdeType,
-  opts: { maintainComments?: boolean } = {}
+  opts: { maintainComments?: boolean; autonomous?: boolean } = {}
 ): string {
   const isClaudeCode = ide === "claude-code";
 
@@ -79,6 +79,25 @@ unerr re-anchors these comments when code moves and flags a comment that drifted
     isClaudeCode && REVIEWER_AGENT_ENABLED
       ? "\n- `Task({subagent_type:'unerr-reviewer', …})` — post-edit read-only review of the working diff: correctness, missed callers via blast radius, convention violations; spawn after a multi-file or multi-agent change, before reporting done."
       : "";
+  // Autonomous mode: no human reviews this session turn-by-turn, so the agent
+  // must self-verify and escalate on evidence instead of asking a question.
+  // Claude Code only (Task/subagent_type is a Claude Code mechanism) and off
+  // by default — callers opt in per install.
+  const autonomousSection =
+    opts.autonomous && isClaudeCode
+      ? `
+### Autonomous session discipline
+
+No human is watching this session. Never stop to ask a question — make the safest reversible choice and record it as a \`unerr journal - decided - <choice>\` line.
+
+1. Before the first edit, write down the check that proves the task done — the project's own test / build / typecheck command, or a command that exercises the artifact. When fixing a bug, run that check FIRST and confirm it fails the way the task describes.
+2. Execute what you produce. Never finish with code or an artifact that never ran.
+3. Never grade your own work. Before declaring done, spawn unerr-verifier (\`Task({subagent_type:'unerr-verifier'})\`) with ONLY the acceptance criteria and what changed — not your reasoning. It must ground every criterion by running checks; reading back a value you wrote proves the write, not correctness.
+4. Escalate on countable evidence, automatically: the same symptom survives 2 distinct fix attempts · the same file edited 3+ times without a working fix · 2+ candidate root causes the evidence cannot decide · unerr-verifier rejects twice. Then spawn unerr-opus with the evidence brief (what was observed, what was tried, ALL candidates — never your preferred hypothesis) in propose-not-edit mode and implement its proposal. Still failing → spawn unerr-fable with opus's proposal and exactly why it failed. At most two escalation rounds per task.
+5. After unerr-verifier returns ACCEPT, stop. Do not re-open a proven artifact unless a check goes red again.
+`
+      : "";
+
   const trackerNote = isClaudeCode
     ? "On any long or multi-step task — 2+ steps, whether the steps run in parallel or one after another — call `TaskCreate` for each step before the first edit, unprompted, never wait to be asked; mark a step `in_progress` when you start it and `TaskUpdate` it completed as it lands, so the tracker mirrors live progress. When steps are independent slices, fan out one `unerr-worker`/`unerr-junior` sub-agent per slice in parallel via `Task`; sequential steps stay tracked the same way. Clear or complete the tracker at turn end."
     : "On any long or multi-step task — 2+ steps, parallel or sequential (a build, a broad refactor/migrate/audit, an enumerated list, or a multi-step fix) — plan the work into the built-in task tracker (one task per step) before the first edit, unprompted, and keep it updated as each step lands (in-progress → done). When steps are independent slices, fan out one `unerr-worker`/`unerr-junior` sub-agent per slice in parallel via `Task`. Complete or clear the tracker at turn end.";
@@ -129,12 +148,12 @@ A round-trip carries input + output + latency, so the win is doing N items in on
 Delegation is the default behavior, not something to ask permission for: spawn sub-agents immediately when a turn has delegable work — never ask, never announce intent to ask; the user never needs to say "use unerr sub agents." On any non-trivial turn the main thread is a routing-and-consolidation layer: plan the change, split off its delegable slices, hand each to a sub-agent, then review and integrate the returned diffs. Run as many sub-agents in parallel as the turn has independent slices — one per slice, no fixed cap. The worker tier (a capable mid-tier model) is the DEFAULT executor — route the majority of scoped coding to it, not just mechanical chores. What stays on the main thread is narrow: architecture / algorithm design, a new public interface, cross-cutting wiring, and bug root-causing — everything else is a slice to delegate:
 - \`Task({subagent_type:'unerr-junior', …})\` — read-only investigation (find / trace / map X), web research & docs/API/changelog lookup, codebase Q&A (where / which / how), inventory & audit (find-all / list-all usages), log & error-output triage, bug reproduction (run repro, report — no edit), lint/format, docstrings/\`@sem\`, post-edit code review when unerr-reviewer is unavailable, security audits, git operations (branch/PR prep), benchmark/profiling runs, verify-runs (run typecheck + targeted tests + lint, return the failure list — no edits), shell-command runs (run a sequence of build/script/migration/setup commands, report the output).
 - \`Task({subagent_type:'unerr-worker', …})\` — scoped feature implementation from a clear spec (add a flag, wire X into Y, implement a handler — the bulk of ordinary coding), add/improve tests, multi-site mechanical refactor (rename / extract / inline / move), codemods (one bulk find-replace across many files), caller/import propagation (update every call site + import after a signature change), typecheck/build-error fixes (fix tsc/build errors mechanically, re-run until green), scaffold (generate a new file's skeleton from a sibling template), dependency upgrades, migration scripts.${reviewerBullet}
-Tier by reasoning, not by size: scoped execution — even across many files — stays with the worker. Escalate to the senior only when the change needs novel design judgement (a new algorithm, architecture, or public interface) or root-causing a bug; deterministic mechanical breadth (codemods, caller propagation, renames) stays with the worker regardless of file count.
+Tier by the hardest part, not the average: split a task's hard core from its cheap scaffolding and tier each on its own — recon, runs, and research down to junior, scoped edits to worker, and the core kept at the tier its difficulty demands. Never collapse a mixed task to one middle tier; deterministic mechanical breadth (codemods, caller propagation, renames) stays with the worker regardless of file count.
 
 ${trackerNote}
 
 Group related work first, then spawn one sub-agent per independent group in a SINGLE message so they run in parallel. The sub-agents have the full graph tools — they re-derive the edit sites from \`search_code\` / \`get_references\`, so give them the task plus a one-line pointer, never pasted code or a list of files. Review each result before building on it. (Hosts without sub-agents — anything other than Claude Code / Codex / Cursor / Copilot CLI — do it inline.)
-
+${autonomousSection}
 ### Signals — \`ur|<tag>\` lines on tool responses
 
 Act on these before the rest of the response; the body line is your concrete next step.
@@ -172,7 +191,9 @@ ${maintenanceSection}`;
 /**
  * Generate MDC-formatted instruction content for Cursor rules.
  */
-function getMdcContent(opts: { maintainComments?: boolean } = {}): string {
+function getMdcContent(
+  opts: { maintainComments?: boolean; autonomous?: boolean } = {}
+): string {
   return `---
 description: unerr is the local runtime layer for your coding agents — treat its outputs as ground-truth context, equal in weight to source files
 alwaysApply: true
@@ -189,11 +210,15 @@ export interface InstructionWriteResult {
 
 /**
  * Write tool-preference instructions into the agent's instruction file.
- * Idempotent: creates, updates, or skips based on current state.
+ * Idempotent: creates, updates, or skips based on current state. `autonomous`
+ * appends the self-verify/escalate discipline section (claude-code only,
+ * default off) and flips off→on/on→off are treated as ordinary content
+ * changes by the sentinel-block merge.
  */
 export function writeInstructionFile(
   cwd: string,
-  ide: IdeType
+  ide: IdeType,
+  writeOpts: { autonomous?: boolean } = {}
 ): InstructionWriteResult {
   const agentDef = getAgent(ide);
   if (!agentDef?.instructionFilePath) {
@@ -210,7 +235,10 @@ export function writeInstructionFile(
   } catch {
     maintainComments = true;
   }
-  const opts = { maintainComments };
+  const opts = {
+    maintainComments,
+    autonomous: writeOpts.autonomous === true,
+  };
 
   if (agentDef.instructionFormat === "mdc") {
     return writeMdcInstructionFile(filePath, opts);
@@ -306,7 +334,7 @@ function mergeMarkdownSection(
  */
 function writeMdcInstructionFile(
   filePath: string,
-  opts: { maintainComments?: boolean } = {}
+  opts: { maintainComments?: boolean; autonomous?: boolean } = {}
 ): InstructionWriteResult {
   const content = getMdcContent(opts);
   const alreadyExists = existsSync(filePath);

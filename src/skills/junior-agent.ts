@@ -12,6 +12,14 @@
  * `cursor-agent -p -m`, Copilot CLI `copilot -p --model`. So this writer is
  * claude-code-only; the rest are driven by `juniorHandoff()`.
  *
+ * Autonomous installs (`unerr install claude-code --autonomous`) switch the
+ * opus/fable pair to an AUTO-SPAWN variant that fires on a hard-tail signal
+ * without being asked — `description` text is the only auto-delegation signal
+ * Claude Code reads — and add a read-only `unerr-verifier` sub-agent for
+ * independent post-change verification. Interactive installs keep both
+ * agents manual-only (spawned only on explicit request) and write no
+ * verifier.
+ *
  * @sem domain=delegation role=subagent-installer
  */
 
@@ -489,6 +497,117 @@ export const FABLE_AGENT_MD = buildSubagentMd({
 export const FABLE_AGENT_RELPATH = ".claude/agents/unerr-fable.md";
 
 /**
+ * Shared Modes + Method + Return-discipline body for the AUTOMATIC opus/fable
+ * escalation variants (autonomous installs only). `secondMode` is the one
+ * section that differs between the two rungs — opus may be told to IMPLEMENT
+ * a proposal, fable REVIEWs a diff opus already proposed that is still failing.
+ */
+function escalationContract(secondMode: string): string {
+  return `## Modes
+
+**PROPOSE (default).** Do NOT edit any file. Return exactly:
+1. One-line root cause naming the defining site (\`file:line\`).
+2. The exact minimal patch as a unified diff.
+3. The concrete check that fails before this patch and passes after — the exact command and the values it checks.
+4. The alternative candidates you rejected, each with the observed fact that rules it out.
+
+${secondMode}
+
+## Method (both modes)
+
+1. **Enumerate-then-choose.** List EVERY candidate defect site — definition sites, sibling classes/renderers of the same construct, API variants — before committing to one. Use \`get_references\`/\`search_code\` to make the list exhaustive, then choose with reasons.
+2. **Fix at the definition site.** Change the definition of the entity whose behavior is wrong — never a coercion or compensation at a site where its values merely flow through.
+3. **The task statement is the spec.** The user's stated requirement — concrete expected values, error messages, output strings — outranks any existing test that contradicts it. Never bend a fix to keep a bug-encoding test green.
+4. **Typed witnesses only.** Proof is typed equality on API-level values, not a print-and-eyeball or a rendered-substring check.
+5. **Maintain \`@sem\` comments.** If your edit changes what an entity does, rewrite its prose + \`@sem\` line in the same edit. Never delete one.
+
+## Return discipline
+
+Be short and decisive. The main agent must be able to act on your return without re-deriving it: cause, patch, check, rejected alternatives — nothing else.
+`;
+}
+
+const OPUS_SECOND_MODE =
+  "**IMPLEMENT (only when the brief explicitly says to edit).** Make the minimal fix, then verify red-to-green: reproduce the failure, apply the fix, re-run the failing check and the targeted test(s) tied to the change. At most 2 retries, then stop and report.";
+
+const FABLE_SECOND_MODE =
+  "**REVIEW (when unerr-opus's proposal has already been implemented and is still failing).** Judge the diff against the task statement's stated expectations, not against its author's reasoning. Answer plainly: does this patch produce the exact values/messages the task requires, at the root-most layer, for every face of the problem? Name precisely what it misses and the minimal correction.";
+
+/**
+ * The AUTO-SPAWN `unerr-opus` variant written only in autonomous installs
+ * (`writeJuniorSubagent(ide, cwd, { autonomous: true })`). Autonomous Claude
+ * Code sessions have no human to ask, so the description is written to fire
+ * as an automatic escalation the moment a hard-tail signal is observed —
+ * description text is the only auto-delegation signal Claude Code reads.
+ */
+export const OPUS_AGENT_MD_AUTONOMOUS = buildSubagentMd({
+  name: "unerr-opus",
+  model: OPUS_MODEL,
+  description:
+    "Deepest reasoner on the team — the automatic escalation rung for autonomous sessions. Spawn AUTOMATICALLY, without being asked, the moment a hard-tail signal fires: the same symptom survives 2 distinct fix attempts, the same file has been edited 3+ times without a working fix, 2+ candidate root causes and the evidence cannot decide between them, a check that once passed keeps failing, or unerr-verifier has rejected the work twice. Hand it the evidence brief (task text, what was observed, what was tried, ALL candidates) but never a preferred hypothesis. Default mode is investigate-and-propose: root cause + exact minimal patch, no edits.",
+  intro:
+    "You are the deepest reasoner on the team, automatically escalated to the moment the main agent's own account of a stuck problem can no longer be trusted.",
+  job: "Your value is an independent, evidence-grounded read: re-derive the root cause from the raw evidence (task statement, what was observed, what was tried) — never from the main agent's framing. If the brief leaks a preferred hypothesis, set it aside until your own account is complete.",
+  tools: JUNIOR_TOOLS,
+  contract: escalationContract(OPUS_SECOND_MODE),
+});
+
+/**
+ * The AUTO-SPAWN `unerr-fable` variant written only in autonomous installs —
+ * same auto-delegation contract as {@link OPUS_AGENT_MD_AUTONOMOUS}: fires on
+ * description text alone, this time when opus's proposal was implemented and
+ * the problem persists.
+ */
+export const FABLE_AGENT_MD_AUTONOMOUS = buildSubagentMd({
+  name: "unerr-fable",
+  model: FABLE_MODEL,
+  description:
+    "Independent oracle at the highest tier — the second automatic escalation rung for autonomous sessions. Spawn AUTOMATICALLY when unerr-opus's proposal has been implemented and the problem is STILL present (include opus's proposal and exactly why it failed), or in parallel with unerr-opus when two uncorrelated reads are worth the cost. Forms its account from raw evidence alone and never adopts a prior framing. Default mode is investigate-and-propose, no edits.",
+  intro:
+    "You are the independent oracle at the highest tier — your entire value is that your read is UNCORRELATED with everyone else's.",
+  job: "Form your complete account of the problem from the raw evidence (task statement, what was observed, code) BEFORE reading any proposed fix in the brief — the main agent's first causal story may be wrong, and a second draw only helps if it is genuinely independent.",
+  tools: JUNIOR_TOOLS,
+  contract: escalationContract(FABLE_SECOND_MODE),
+});
+
+/**
+ * The read-only `unerr-verifier` sub-agent's Verification contract — decompose
+ * the acceptance criteria into a rubric, ground every item by running the
+ * project's real checks (never by reading code and judging it plausible), and
+ * return a precision-first ACCEPT/REJECT verdict. No editing, no bounded
+ * retry — a REJECT routes straight back to whoever built the change.
+ */
+const VERIFIER_CONTRACT = `## Verification contract
+
+1. **Build the rubric.** Decompose the given acceptance criteria into atomic yes/no items. Always include one item: "no over-scoped edits beyond what the task needed."
+2. **Ground every item by running it.** Discover the project's real check commands (package.json scripts, Makefile, CI config) and RUN them, or exercise the artifact directly. An item with no runnable evidence is answered by exercising the artifact — never by reading the source and judging it plausible.
+3. **Recompute, don't just read back.** Reading back a value the author wrote proves the write happened, not that it is correct. Recompute the expected value independently and compare.
+4. **Precision-first verdict.** ACCEPT only when every grounded item passes. When uncertain, REJECT and list exactly what is missing — a false ACCEPT is the dominant harm, worse than an over-cautious REJECT.
+5. **Never edit any file.** Return the rubric with per-item PASS/FAIL and the observed evidence, then the verdict (ACCEPT or REJECT).
+`;
+
+/**
+ * The full `.claude/agents/unerr-verifier.md` content — a read-only,
+ * Opus-pinned sub-agent written only in autonomous installs. It receives the
+ * acceptance criteria and a diff summary (never the author's reasoning) and
+ * grounds its verdict by running checks itself, never by reading code.
+ */
+export const VERIFIER_AGENT_MD = buildSubagentMd({
+  name: "unerr-verifier",
+  model: OPUS_MODEL,
+  description:
+    "Independent verifier — spawn BEFORE declaring any non-trivial change done; in autonomous sessions this is mandatory. Give it ONLY the acceptance criteria and what changed — never the reasoning behind the change, so its read stays independent. It turns the criteria into a checklist of atomic yes/no items (including 'no over-scoped or unnecessary edits'), grounds every item by actually running the project's checks (typecheck, targeted tests, build) or exercising the artifact — never by reading code and judging it plausible — and stays adversarial: its job is to find why the work is WRONG. Returns ACCEPT or REJECT plus the exact failing items.",
+  intro:
+    "You independently verify a change against its acceptance criteria before it is declared done — adversarial by design, never the author reviewing their own work.",
+  tools: REVIEWER_TOOLS,
+  job: "Your job is to turn the criteria into a checklist, ground every item in a run you execute yourself, and return ACCEPT or REJECT — you make no edits.",
+  contract: VERIFIER_CONTRACT,
+});
+
+/** Relative path (from repo root) of the autonomous-mode verifier sub-agent definition. */
+export const VERIFIER_AGENT_RELPATH = ".claude/agents/unerr-verifier.md";
+
+/**
  * Master switch for the read-only `unerr-reviewer` sub-agent. OFF for the time
  * being: `unerr install` does NOT write `.claude/agents/unerr-reviewer.md`, and
  * an existing copy is removed on install. The template + tools + contract below
@@ -547,6 +666,11 @@ export function reviewerAgentPath(cwd: string): string {
   return join(cwd, REVIEWER_AGENT_RELPATH);
 }
 
+/** Absolute path of the read-only `unerr-verifier` sub-agent file for a repo. */
+export function verifierAgentPath(cwd: string): string {
+  return join(cwd, VERIFIER_AGENT_RELPATH);
+}
+
 /** Write one sub-agent file idempotently; returns true when it created/updated. */
 function writeOneSubagent(filePath: string, content: string): boolean {
   if (existsSync(filePath)) {
@@ -563,25 +687,41 @@ function writeOneSubagent(filePath: string, content: string): boolean {
 
 /**
  * Write the Claude Code sub-agent files: the auto-routed delegation pair
- * (`unerr-junior` + `unerr-worker`) and the two user-invoked model-pinned agents
- * (`unerr-opus` + `unerr-fable`). The read-only `unerr-reviewer` is written only
- * when {@link REVIEWER_AGENT_ENABLED} is on (OFF by default); when off, a copy
- * left by a prior install is removed here. No-op for any host without on-disk
- * sub-agents (Codex delegates via `codex exec -m`, the rest don't delegate).
- * Idempotent: skips a write when on-disk content already matches. Returns true
- * when ANY file was created, updated, or swept. The opus/fable files only sit on
- * disk so the user can spawn them explicitly — they are not referenced by the
- * automatic routing.
+ * (`unerr-junior` + `unerr-worker`) and the opus/fable escalation pair.
+ * Manual installs (`opts.autonomous` absent/false) write the user-invoked,
+ * manual-only `unerr-opus`/`unerr-fable` (spawned only on explicit request)
+ * and no verifier; a stale `unerr-verifier.md` left by a prior autonomous
+ * install is swept so switching back is clean. Autonomous installs
+ * (`opts.autonomous: true`) write the AUTO-SPAWN opus/fable variants instead
+ * — description text is the only auto-delegation signal Claude Code reads,
+ * since it has no `disable-model-invocation` field — plus the read-only
+ * `unerr-verifier`. The read-only `unerr-reviewer` is written only when
+ * {@link REVIEWER_AGENT_ENABLED} is on (OFF by default); when off, a copy
+ * left by a prior install is removed here. No-op for any host without
+ * on-disk sub-agents (Codex delegates via `codex exec -m`, the rest don't
+ * delegate). Idempotent: skips a write when on-disk content already matches.
+ * Returns true when ANY file was created, updated, or swept.
  */
-export function writeJuniorSubagent(ide: IdeType, cwd: string): boolean {
+export function writeJuniorSubagent(
+  ide: IdeType,
+  cwd: string,
+  opts?: { autonomous?: boolean }
+): boolean {
   // Only Claude Code uses on-disk model-pinned sub-agent files.
   if (ide !== "claude-code" || !supportsDelegation(ide)) return false;
+  const autonomous = opts?.autonomous ?? false;
   const writes: Array<[string, string]> = [
     [juniorAgentPath(cwd), JUNIOR_AGENT_MD],
     [workerAgentPath(cwd), WORKER_AGENT_MD],
-    [opusAgentPath(cwd), OPUS_AGENT_MD],
-    [fableAgentPath(cwd), FABLE_AGENT_MD],
+    [opusAgentPath(cwd), autonomous ? OPUS_AGENT_MD_AUTONOMOUS : OPUS_AGENT_MD],
+    [
+      fableAgentPath(cwd),
+      autonomous ? FABLE_AGENT_MD_AUTONOMOUS : FABLE_AGENT_MD,
+    ],
   ];
+  if (autonomous) {
+    writes.push([verifierAgentPath(cwd), VERIFIER_AGENT_MD]);
+  }
   if (REVIEWER_AGENT_ENABLED) {
     writes.push([reviewerAgentPath(cwd), REVIEWER_AGENT_MD]);
   }
@@ -599,13 +739,24 @@ export function writeJuniorSubagent(ide: IdeType, cwd: string): boolean {
       // best-effort
     }
   }
+  // Interactive installs keep manual-only opus/fable and no verifier — sweep
+  // a stale unerr-verifier.md left by a prior autonomous install so switching
+  // back to interactive is clean.
+  if (!autonomous && existsSync(verifierAgentPath(cwd))) {
+    try {
+      rmSync(verifierAgentPath(cwd), { force: true });
+      wrote = true;
+    } catch {
+      // best-effort
+    }
+  }
   return wrote;
 }
 
 /**
  * Remove the Claude Code sub-agent files (junior/worker + opus/fable, plus the
- * reviewer if a copy is on disk). Returns true when ANY file was removed. Backs
- * `unerr uninstall` for Claude Code.
+ * reviewer and verifier if a copy is on disk). Returns true when ANY file was
+ * removed. Backs `unerr uninstall` for Claude Code.
  */
 export function removeJuniorSubagent(cwd: string): boolean {
   let removed = false;
@@ -615,6 +766,7 @@ export function removeJuniorSubagent(cwd: string): boolean {
     opusAgentPath(cwd),
     fableAgentPath(cwd),
     reviewerAgentPath(cwd),
+    verifierAgentPath(cwd),
   ]) {
     if (!existsSync(filePath)) continue;
     try {
