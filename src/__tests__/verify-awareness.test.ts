@@ -22,6 +22,7 @@ import { runStopHookHandlerAsync } from "../hooks/stop-hooks.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { BehaviorEventWriter } from "../tracking/behavior-events.js";
 import { closeMetricsStore } from "../tracking/metrics-store.js";
+import { recordEdit } from "../tracking/session-edit-log.js";
 
 // ── classifyCheckCommand ────────────────────────────────────────────────
 
@@ -172,6 +173,50 @@ describe("Stop hook — verification-awareness gate", () => {
     });
   }
 
+  /** Records only the turn's prompt boundary (no `code_edit_applied` event)
+   *  and returns its approximate epoch-ms timestamp, so a test can place a
+   *  session-edits.jsonl ledger row deterministically before/after it. */
+  function seedPromptOnly(): number {
+    const writer = new BehaviorEventWriter(unerrDir, "s1");
+    const promptTs = Date.now();
+    writer.record({
+      session_id: "s1",
+      native_session_id: null,
+      turn: 1,
+      type: "user_prompt_received",
+      tool: null,
+      entity_key: null,
+      response_bytes: null,
+    });
+    return promptTs;
+  }
+
+  /** Records a named event that is neither `user_prompt_received` nor
+   *  `code_edit_applied`, so the turn resolves (non-empty event stream) but
+   *  has no prompt boundary — used to test that ledger rows never count
+   *  without one. */
+  function seedNoPromptBoundary(): void {
+    const writer = new BehaviorEventWriter(unerrDir, "s1");
+    writer.record({
+      session_id: "s1",
+      native_session_id: null,
+      turn: 1,
+      type: "graph_query_served",
+      tool: "search_code",
+      entity_key: null,
+      response_bytes: null,
+    });
+  }
+
+  function seedNativeLedgerEdit(ts: number): void {
+    recordEdit(unerrDir, {
+      ts: new Date(ts).toISOString(),
+      file_path: "src/native.ts",
+      old_content: "old",
+      new_content: "new",
+    });
+  }
+
   it("appends the soft advisory line when edits landed with no check (interactive mode)", async () => {
     seedTurnWithEdit();
     const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
@@ -240,6 +285,54 @@ describe("Stop hook — verification-awareness gate", () => {
     seedTurnWithEdit();
     writeFileSync(join(unerrDir, "config.json"), "{not json", "utf8");
     await expect(runStopHookHandlerAsync(stopStdin)).resolves.not.toThrow();
+  });
+
+  // ── session-edits.jsonl ledger — native Write/Edit awareness ────────────
+
+  it("blocks in autonomous mode on a native-edit-only turn (ledger row, no named event)", async () => {
+    const promptTs = seedPromptOnly();
+    seedNativeLedgerEdit(promptTs + 1000);
+    writeAutonomousMode(dir, true);
+
+    const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
+    expect(out).toEqual({
+      decision: "block",
+      reason: expect.stringContaining("Run the project's check"),
+    });
+  });
+
+  it("does not count a ledger row recorded before the prompt boundary", async () => {
+    const promptTs = seedPromptOnly();
+    seedNativeLedgerEdit(promptTs - 60_000);
+    writeAutonomousMode(dir, true);
+
+    const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
+    expect(out.decision).toBeUndefined();
+    expect(out.systemMessage ?? "").not.toContain("verify-run");
+  });
+
+  it("does not count ledger rows when there is no prompt boundary this turn", async () => {
+    seedNoPromptBoundary();
+    seedNativeLedgerEdit(Date.now());
+    writeAutonomousMode(dir, true);
+
+    const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
+    expect(out.decision).toBeUndefined();
+    expect(out.systemMessage ?? "").not.toContain("verify-run");
+  });
+
+  it("clears the gate when a check command ran after a native ledger edit", async () => {
+    const promptTs = seedPromptOnly();
+    const editTs = promptTs + 1000;
+    seedNativeLedgerEdit(editTs);
+    updateNudgeState(dir, (s) => {
+      s.check_cmd_last_ts = editTs + 60_000;
+    });
+    writeAutonomousMode(dir, true);
+
+    const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
+    expect(out.decision).toBeUndefined();
+    expect(out.systemMessage ?? "").not.toContain("verify-run");
   });
 });
 

@@ -30,6 +30,7 @@ import {
   readNamedEvents,
 } from "../tracking/named-events.js";
 import { emitSavingsEvent } from "../tracking/savings-events.js";
+import { readEditLogSince } from "../tracking/session-edit-log.js";
 import { resolveExecSessionContext } from "../tracking/session-records.js";
 import { enqueueTranscriptClaim } from "../tracking/transcript-claim.js";
 import { spawnUnerr } from "../utils/self-spawn.js";
@@ -262,12 +263,17 @@ const VERIFY_SOFT_LINE =
   "unerr » edits landed with no check run this turn — delegate a verify-run (typecheck + targeted tests) to unerr-junior before building on it";
 
 /**
- * Whether this turn had file edits (`code_edit_applied` events in the
- * current-turn slice) and, if so, whether a check command ran after the last
- * one. Reuses the same event stream + turn-slicing the files-changed receipt
- * resolves (`readNamedEvents` + `currentTurnSlice`) so the two never disagree
- * about what counts as "this turn". Falls back to the turn's start
- * (`latestPromptBoundaryTs`) when an edit's own timestamp is unusable.
+ * Whether this turn had file edits and, if so, whether a check command ran
+ * after the last one. Merges two independent edit sources so a native
+ * Write/Edit — which never emits a `code_edit_applied` named event — is not
+ * invisible to the gate: (1) `code_edit_applied` events in the current-turn
+ * slice (`readNamedEvents` + `currentTurnSlice`, unchanged), and (2)
+ * `session-edits.jsonl` ledger rows ({@link readEditLogSince}) at or after
+ * this turn's prompt boundary (`latestPromptBoundaryTs`). The ledger persists
+ * across turns/sessions, so with no prompt boundary its rows never count —
+ * counting a stale cross-turn row risks trapping the agent in a block loop.
+ * `referenceTs`, the timestamp a check must beat, is the max across whichever
+ * source(s) contributed.
  */
 function turnVerifyStatus(
   unerrDir: string,
@@ -276,16 +282,40 @@ function turnVerifyStatus(
 ): { hadEdits: boolean; checkRanAfterEdit: boolean } {
   const events = readNamedEvents(unerrDir, {});
   const turnEvents = currentTurnSlice(events, currentTurn);
-  const edits = turnEvents.filter((e) => e.event_type === "code_edit_applied");
-  if (edits.length === 0) return { hadEdits: false, checkRanAfterEdit: true };
+  const namedEdits = turnEvents.filter(
+    (e) => e.event_type === "code_edit_applied"
+  );
+  const promptBoundaryTs = latestPromptBoundaryTs(events);
 
-  const editTimestamps = edits
+  const ledgerEdits =
+    promptBoundaryTs !== null
+      ? readEditLogSince(unerrDir, promptBoundaryTs)
+      : [];
+
+  if (namedEdits.length === 0 && ledgerEdits.length === 0) {
+    return { hadEdits: false, checkRanAfterEdit: true };
+  }
+
+  const namedTimestamps = namedEdits
     .map((e) => Date.parse(e.ts))
     .filter((t) => Number.isFinite(t));
-  const referenceTs =
-    editTimestamps.length > 0
-      ? Math.max(...editTimestamps)
-      : (latestPromptBoundaryTs(events) ?? 0);
+  const namedRef =
+    namedEdits.length > 0
+      ? namedTimestamps.length > 0
+        ? Math.max(...namedTimestamps)
+        : (promptBoundaryTs ?? 0)
+      : null;
+
+  const ledgerTimestamps = ledgerEdits
+    .map((e) => Date.parse(e.ts))
+    .filter((t) => Number.isFinite(t));
+  const ledgerRef =
+    ledgerTimestamps.length > 0 ? Math.max(...ledgerTimestamps) : null;
+
+  const contributions = [namedRef, ledgerRef].filter(
+    (t): t is number => t !== null
+  );
+  const referenceTs = contributions.length > 0 ? Math.max(...contributions) : 0;
 
   return {
     hadEdits: true,
