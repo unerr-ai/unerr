@@ -17,6 +17,7 @@ import { join } from "node:path";
 import type { Command } from "commander";
 import React from "react";
 import type { StatusData } from "../components/StatusDashboard.js";
+import { PidLock } from "../proxy/pid-lock.js";
 import { getRemoteUrl } from "../utils/git.js";
 
 /**
@@ -123,18 +124,21 @@ export function registerStatusCommand(program: Command): void {
       }
 
       // ── Proxy Status ───────────────────────────────────────────
+      // The lock file is JSON (`{pid, startedAt, healthPort}`), not a bare
+      // integer — PidLock.readPidFile is the shared reader that handles both
+      // that shape and the legacy plain-number one, and confirms the pid is
+      // still alive (see src/proxy/pid-lock.ts).
 
       let proxyStatus = "Not running";
       let proxyRunning = false;
-      const pidPath = join(unerrDir, "state", "proxy.pid");
+      const stateDir = join(unerrDir, "state");
+      const pidPath = join(stateDir, "proxy.pid");
       if (existsSync(pidPath)) {
-        try {
-          const pidStr = readFileSync(pidPath, "utf-8").trim();
-          const pid = Number.parseInt(pidStr, 10);
-          process.kill(pid, 0);
-          proxyStatus = `Running (PID ${pid})`;
+        const pidData = PidLock.readPidFile(stateDir);
+        if (pidData) {
+          proxyStatus = `Running (PID ${pidData.pid})`;
           proxyRunning = true;
-        } catch {
+        } else {
           proxyStatus = "Not running (stale PID)";
         }
       }

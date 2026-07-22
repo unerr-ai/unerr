@@ -220,6 +220,40 @@ describe("PidLock", () => {
     lock.release();
   });
 
+  // Regression: `unerr status` used to `Number.parseInt` the raw pid file
+  // instead of parsing its JSON shape, so a live proxy was always reported as
+  // a stale PID. `unerr status` now delegates to PidLock.readPidFile — these
+  // cover the two outcomes it must distinguish for a JSON-shaped lock file.
+  it("readPidFile returns data for a JSON pid file pointing at a live pid", () => {
+    writeFileSync(
+      join(tempDir, "proxy.pid"),
+      JSON.stringify({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        healthPort: 53886,
+      }),
+      "utf-8"
+    );
+
+    const data = PidLock.readPidFile(tempDir);
+    expect(data).not.toBeNull();
+    expect(data?.pid).toBe(process.pid);
+  });
+
+  it("readPidFile returns null for a JSON pid file pointing at a dead pid", () => {
+    writeFileSync(
+      join(tempDir, "proxy.pid"),
+      JSON.stringify({
+        pid: 9999999,
+        startedAt: new Date().toISOString(),
+        healthPort: 53886,
+      }),
+      "utf-8"
+    );
+
+    expect(PidLock.readPidFile(tempDir)).toBeNull();
+  });
+
   it("returns wedged (not stale_recovered) when an alive unerr proxy fails health after retries", async () => {
     const kids: ChildProcess[] = [];
     try {
