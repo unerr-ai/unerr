@@ -100,7 +100,7 @@ export function resolveCurrentSessionTurn(unerrDir: string): {
 }
 
 /**
- * T7.9 — persist `unerr-save:` sentinels WITHOUT blocking the economy line.
+ * T7.9 — persist session-journal sentinels WITHOUT blocking the economy line.
  *
  * The Stop hook used to await the UDS writes (sequential, ≤400ms each — ~1.6s
  * worst case for 4 markers) before the close-out line could render. Now it
@@ -242,7 +242,7 @@ export function buildTrackerCloseReminder(cwd: string): string {
 }
 
 /**
- * Stop hook entry. Scrapes + persists any `unerr-save:` sentinels from the
+ * Stop hook entry. Scrapes + persists any session-journal sentinels from the
  * closing message, then computes the close-out line for the active session/turn
  * and returns it as a user-facing systemMessage. When the turn has no rich
  * receipt (honest-zero) or an internal error occurs, it falls back to a one-line

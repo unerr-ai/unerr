@@ -719,7 +719,7 @@ describe("RFC 2119 imperative phrasing (Fix C)", () => {
     return parsed.hookSpecificOutput?.additionalContext ?? "";
   }
 
-  it("intent nudge points at the unerr-save sentinel (zero round-trip), not a mark_intent call", () => {
+  it("intent nudge points at the session-journal sentinel (zero round-trip), not a mark_intent call", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "implement the new dashboard route handler",
@@ -729,7 +729,7 @@ describe("RFC 2119 imperative phrasing (Fix C)", () => {
     // mechanical "STEP-1:" prefix (CLAUDE.md nudge-rule #1).
     expect(ctx).toContain("record this turn's intent");
     expect(ctx).not.toContain("STEP-1");
-    expect(ctx).toContain("unerr-save: intent");
+    expect(ctx).toContain("unerr journal - goal -");
     expect(ctx).toContain("closing message");
     // The demoted MCP tool must NOT be named as a call target.
     expect(ctx).not.toContain("mark_intent(");

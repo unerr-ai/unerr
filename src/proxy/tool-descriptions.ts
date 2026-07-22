@@ -115,7 +115,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   },
   // unerr_remember left the catalog (2026-06): user-fed rules are captured by
   // the UserPromptSubmit hook (remember-client.ts), agent notes ride the
-  // `unerr-save:` Stop-hook sentinel (sentinel-persist.ts). Both hook clients
+  // `unerr journal -` Stop-hook sentinel (sentinel-persist.ts). Both hook clients
   // dispatch it BY NAME over UDS tools/call — see the by-name roster above.
   // unerr_context merged into search_code (2026-06): a task-shaped search_code
   // query now returns the recon bundle. The handler (handleUnerrContextProxy)

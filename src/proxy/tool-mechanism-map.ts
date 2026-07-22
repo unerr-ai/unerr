@@ -120,7 +120,7 @@ export const TOOL_MECHANISM: Readonly<Record<string, MechanismEntry>> = {
   // ── Writes → hooks (fire-and-forget; needed next turn, not this one) ─────
   // unerr_remember left the catalog (2026-06) and carries no verdict: user
   // rules are captured at UserPromptSubmit (remember-client.ts), agent notes
-  // ride the `unerr-save:` Stop-hook sentinel (sentinel-persist.ts). Both
+  // ride the `unerr journal -` Stop-hook sentinel (sentinel-persist.ts). Both
   // clients dispatch it by name over UDS, like the other by-name-only tools.
   unerr_track: {
     mechanism: "hook",

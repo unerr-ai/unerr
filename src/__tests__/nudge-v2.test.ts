@@ -147,29 +147,20 @@ describe("isDriftCommand — code_refs (rename / find-all-uses)", () => {
   });
 });
 
-describe("isDriftCommand — env_probe (stable-fact re-discovery)", () => {
-  it("flags `which codex` as an env_probe to save once", () => {
-    const h = isDriftCommand("which codex");
-    expect(h?.kind).toBe("env_probe");
-    expect(h?.arg).toBe("codex");
-    expect(h?.suggest).toContain("unerr-save");
+describe("isDriftCommand — env_probe removed (fact-save nudge is dead)", () => {
+  // The active-memory strip removed fact save/recall; `which`/`--version`
+  // probes no longer have an unerr equivalent to route to, so these are
+  // plain no-drift commands now.
+  it("leaves `which codex` alone", () => {
+    expect(isDriftCommand("which codex")).toBeNull();
   });
 
-  it("flags `command -v node` as an env_probe", () => {
-    const h = isDriftCommand("command -v node");
-    expect(h?.kind).toBe("env_probe");
-    expect(h?.arg).toBe("node");
+  it("leaves `command -v node` alone", () => {
+    expect(isDriftCommand("command -v node")).toBeNull();
   });
 
-  it("flags `<tool> --version` as an env_probe", () => {
-    const h = isDriftCommand("codex --version");
-    expect(h?.kind).toBe("env_probe");
-    expect(h?.arg).toBe("codex");
-  });
-
-  it("never echoes a secret value into the save suggestion", () => {
-    const h = isDriftCommand("which aws");
-    expect(h?.suggest).toContain("never save secret values");
+  it("leaves `<tool> --version` alone", () => {
+    expect(isDriftCommand("codex --version")).toBeNull();
   });
 });
 

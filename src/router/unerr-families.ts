@@ -16,7 +16,7 @@
  *
  * (The former `notes` family retired with `unerr_remember`'s catalog removal,
  * 2026-06 — Layer B writes now ride hooks: user rules at UserPromptSubmit,
- * agent notes via the `unerr-save:` Stop-hook sentinel; recall is folded into
+ * agent notes via the `unerr journal -` Stop-hook sentinel; recall is folded into
  * a task-shaped `search_code` query, which re-targets to the `unerr_context`
  * recon composite.)
  *

@@ -72,7 +72,7 @@ describe("SignalScorer", () => {
       expect(signals[0].actionability).toBe(0.7);
       // Episodic fact action names the zero-round-trip sentinel (Sprint 11
       // 6-write demotion) so divergence is captured without an MCP call.
-      expect(signals[0].action).toContain("unerr-save: decision");
+      expect(signals[0].action).toContain("unerr journal - decided -");
     });
 
     it("converts relevant_facts with negative prefix to warning signal", () => {

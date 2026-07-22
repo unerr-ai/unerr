@@ -285,7 +285,7 @@ export function registerHookCommand(program: Command): void {
   hook
     .command("stop-persist", { hidden: true })
     .description(
-      "Background worker: persist unerr-save sentinels from a transcript"
+      "Background worker: persist session-journal sentinels from a transcript"
     )
     .requiredOption("--transcript <path>", "Claude Code transcript JSONL path")
     .action(async (opts: { transcript: string }) => {

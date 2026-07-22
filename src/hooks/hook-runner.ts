@@ -437,7 +437,7 @@ function buildAmbientPreInjection(): string {
   // Intent one-shot reminder. Fires AT MOST once per session (the
   // `mark_intent_emitted` flag gates re-emission) so we don't argue
   // with the agent across every tool call. Demoted (Sprint 11): the marker
-  // rides a closing-message `unerr-save:` sentinel scraped by the Stop hook,
+  // rides a closing-message `unerr journal -` sentinel scraped by the Stop hook,
   // not an MCP round-trip.
   try {
     const cwd = process.cwd();
@@ -447,7 +447,7 @@ function buildAmbientPreInjection(): string {
         s.mark_intent_emitted = true;
       });
       lines.push(
-        "ur|act if this turn is a coding task (implement/fix/refactor/build), emit `unerr-save: intent <one-sentence summary>` in your closing message so the resume strip records it (no tool call). Skip for pure read-only questions."
+        "ur|act if this turn is a coding task (implement/fix/refactor/build), emit `unerr journal - goal - <one-sentence summary>` in your closing message so the resume strip records it (no tool call). Skip for pure read-only questions."
       );
     }
   } catch {

@@ -92,7 +92,7 @@ describe("Cursor end-to-end PreToolUse", () => {
     expect(parsed.agent_message).toContain("prefer file_read");
   });
 
-  it("injects the intent reminder (unerr-save sentinel) once per session", () => {
+  it("injects the intent reminder (session-journal sentinel) once per session", () => {
     const handler: HookHandler = () => passthrough();
     const out1 = runPreToolUseHook(
       cursorPayload("Read", { file_path: "a.ts" }),
@@ -101,7 +101,7 @@ describe("Cursor end-to-end PreToolUse", () => {
     const parsed1 = JSON.parse(out1);
     // Demoted (Sprint 11): the reminder points at the closing-message sentinel,
     // not a mark_intent MCP call.
-    expect(parsed1.agent_message).toContain("unerr-save: intent");
+    expect(parsed1.agent_message).toContain("unerr journal - goal -");
     expect(parsed1.agent_message).not.toContain("mark_intent(");
 
     const out2 = runPreToolUseHook(

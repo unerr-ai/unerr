@@ -301,7 +301,7 @@ function buildMarkIntentLine(prompt: string): string | null {
   } catch {
     return null;
   }
-  return "ur|act record this turn's intent with zero round-trip — emit `unerr-save: intent <one-sentence summary, ≤80 chars>` anywhere in your closing message (the Stop hook persists it; no tool call). Required on every coding task (implement/fix/refactor/build/debug); skip only for a pure read-only question.";
+  return "ur|act record this turn's intent with zero round-trip — emit `unerr journal - goal - <one-sentence summary, ≤80 chars>` anywhere in your closing message (the Stop hook persists it; no tool call). Required on every coding task (implement/fix/refactor/build/debug); skip only for a pure read-only question.";
 }
 
 // Sprint 7 (T7.7): buildTurnSummaryLine + buildReceiptEscalationLine removed.
@@ -575,8 +575,8 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // Re-arm conversation-scoped one-shot nudges when the agent starts a NEW
   // conversation. The nudge flags file is keyed on the long-lived proxy session
   // id (one proxy serves many conversations), so without this every "once per
-  // session" reminder — including the mark_intent line that drives `unerr-save:`
-  // emission — fires once per proxy lifetime and then goes silent for every
+  // session" reminder — including the mark_intent line that drives the
+  // `unerr journal -` sentinel — fires once per proxy lifetime and then goes silent for every
   // later conversation. Idempotent within a conversation (no-op when the native
   // id is unchanged). Never blocks the hook.
   try {
@@ -886,7 +886,7 @@ const promptSubmitHandler: HookHandler = (normalized) => {
       "`search_code` (NOT grep/glob) · `get_references` (NOT grep for fn names) · " +
       "`file_read` (NOT built-in Read for understanding) · `file_edit` to change files — old_string+new_string to edit, or content for a whole file (no built-in Read needed) · " +
       "`file_outline` · `search_code({detail:true})` for one symbol's profile. " +
-      "Mark progress with zero round-trip — emit `unerr-save: intent|decision|blocker|resolution <one-line>` " +
+      "Mark progress with zero round-trip — emit `unerr journal - goal|decided|stuck|fixed - <one-line>` " +
       "in your closing message; the Stop hook persists them to the cross-session timeline.";
     const catalog = buildSkillCatalog(process.cwd());
     staticTail = catalog ? `${toolRoster}\n\n${catalog}` : toolRoster;

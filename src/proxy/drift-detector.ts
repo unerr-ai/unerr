@@ -14,8 +14,7 @@ export type DriftKind =
   | "code_search" // grep / rg / find -name on code (conceptual / multi-word)
   | "code_refs" // grep/sed/perl hunting ONE identifier repo-wide (rename / find-all-uses)
   | "code_read" // cat / head / tail / less on a code file
-  | "dir_explore" // ls -R on a source directory
-  | "env_probe"; // which/--version re-discovery of a STABLE fact unerr could remember
+  | "dir_explore"; // ls -R on a source directory
 
 export interface DriftHint {
   kind: DriftKind;
@@ -118,34 +117,6 @@ function extractReadPath(tail: string): string | undefined {
 export function isDriftCommand(cmd: string): DriftHint | null {
   if (!cmd || !cmd.trim()) return null;
   const { head, tail } = splitFirstCommand(cmd);
-
-  // --- env_probe: re-discovery of a STABLE operational fact ---
-  // `which X` / `command -v X` / `X --version` locate a binary or its version —
-  // facts that don't change between sessions. Agents re-run these every session
-  // because they remember nothing. Route to unerr's fact memory: save once, it
-  // recalls next session (research: storing env facts prevents re-discovery
-  // commands). NEVER save secret values — only the path / version / syntax.
-  if (/^(which|type)$/.test(head) || /^command$/.test(head)) {
-    const tool = (head === "command" ? tail.replace(/^-v\s+/, "") : tail)
-      .trim()
-      .split(/\s+/)[0];
-    if (tool && !tool.startsWith("-")) {
-      return {
-        kind: "env_probe",
-        suggest: `stable env fact — save once with \`unerr-save: fct|p:|+|${tool}: <path>\` so it recalls next session instead of re-probing (never save secret values)`,
-        arg: tool,
-      };
-    }
-  }
-  if (/^--version$|^-V$/.test(tail.trim()) || /\s--version(\s|$)/.test(tail)) {
-    if (head && !head.startsWith("-")) {
-      return {
-        kind: "env_probe",
-        suggest: `stable env fact — save once with \`unerr-save: fct|p:|+|${head} version: <value>\` so it recalls next session instead of re-probing`,
-        arg: head,
-      };
-    }
-  }
 
   // --- code_refs: in-place bulk substitution (sed -i / perl -pi) on code ---
   // A blind shell rewrite of an identifier misses callers/imports the graph

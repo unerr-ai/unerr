@@ -279,7 +279,7 @@ export function readNudgeState(cwd: string): NudgeSessionState {
  * serves. Without this reset, "once per session" one-shots (the `mark_intent`
  * reminder, tool roster, cross-session stitch) fire once per PROXY lifetime
  * and then stay silent for every later conversation until the proxy
- * restarts — so the agent stops being reminded to emit `unerr-save:` intents
+ * restarts — so the agent stops being reminded to emit `unerr journal - goal -` intents
  * across every subsequent session. This compares the agent's own
  * conversation id against the last one that wrote the file and, on a change,
  * resets the one-shot FLAGS (never the telemetry counters) so each new

@@ -50,7 +50,7 @@ Same change across many files? One command (`prettier --write .`, a codemod) →
 
 ## Close-out (zero round-trip)
 
-Emit `unerr-save:` lines in your closing message — the Stop hook persists them, no tool call: `intent` (first), then `decision` / `blocker` / `resolution`. When the user states a durable rule ("remember", "always", "never", "from now on"), a hook nudge fires — write the rule verbatim into this repo's CLAUDE.md (or the agent's instruction file) immediately; unerr does not store user rules. When unerr shaped your answer, say so plainly ("unerr found <name>", "<N> places call <name>") — never echo `ur|<tag>` lines.
+Emit `unerr journal - <label> -` lines in your closing message — the Stop hook persists them, no tool call: `goal` (first), then `decided` / `stuck` / `fixed`. When the user states a durable rule ("remember", "always", "never", "from now on"), a hook nudge fires — write the rule verbatim into this repo's CLAUDE.md (or the agent's instruction file) immediately; unerr does not store user rules. When unerr shaped your answer, say so plainly ("unerr found <name>", "<N> places call <name>") — never echo `ur|<tag>` lines.
 
 ## Output discipline
 

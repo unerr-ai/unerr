@@ -115,7 +115,7 @@ export const EXPLORATION_SKILL: SkillDefinition = {
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// Memory (four-moment contract) and Markers (unerr-save: sentinels) are no
+// Memory (four-moment contract) and the session journal (unerr journal - <label> - sentinels) are no
 // longer skills: usage data (2026-06) showed BOTH invoked 0× via Skill() across
 // 174 sessions — their function runs through the UserPromptSubmit/Stop hooks and
 // the instruction file's contract block, never a Skill() call. Removing them

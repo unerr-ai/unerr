@@ -596,7 +596,7 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
       expect(prefix).toContain("loop broken");
       // Sprint 11 6-write demotion: the halt nudge points at the zero-round-trip
       // sentinel, not the hidden mark_blocker MCP tool.
-      expect(prefix).toContain("unerr-save: blocker");
+      expect(prefix).toContain("unerr journal - stuck -");
     });
   });
 });

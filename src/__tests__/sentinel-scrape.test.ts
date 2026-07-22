@@ -1,5 +1,8 @@
 /**
- * `unerr-save:` sentinel scrape guard (Phase-2 Sprint 7, T7.9).
+ * Session-journal sentinel scrape guard (Phase-2 Sprint 7, T7.9).
+ *
+ * Covers the visible `unerr journal - <label> - <text>` grammar (label maps to
+ * the frozen contract op) plus the still-accepted legacy `unerr-save:` form.
  *
  * The Stop hook scrapes these from the agent's closing message and persists
  * them fire-and-forget — replacing the round-trip a Moment-4 `mark_*` tool
@@ -55,6 +58,82 @@ describe("scrapeSentinels — marker forms", () => {
   it("returns [] for a message with no sentinels", () => {
     expect(scrapeSentinels("just a normal closing message")).toEqual([]);
     expect(scrapeSentinels("")).toEqual([]);
+  });
+});
+
+describe("scrapeSentinels — journal forms (new visible grammar)", () => {
+  it("maps each plain label to its frozen contract op", () => {
+    const msg = [
+      "unerr journal - goal - reduce per-turn round-trips",
+      "unerr journal - decided - UDS tools/call over a new control method",
+      "unerr journal - stuck - proxy busy indexing during test",
+      "unerr journal - fixed - pinned vitest pool to forks",
+    ].join("\n");
+    expect(scrapeSentinels(msg)).toEqual([
+      { kind: "marker", op: "intent", text: "reduce per-turn round-trips" },
+      {
+        kind: "marker",
+        op: "decision",
+        text: "UDS tools/call over a new control method",
+      },
+      {
+        kind: "marker",
+        op: "blocker",
+        text: "proxy busy indexing during test",
+      },
+      { kind: "marker", op: "resolution", text: "pinned vitest pool to forks" },
+    ]);
+  });
+
+  it("keeps dashes inside the free text (greedy trailing capture)", () => {
+    expect(
+      scrapeSentinels("unerr journal - fixed - set key - at repo level")
+    ).toEqual([
+      { kind: "marker", op: "resolution", text: "set key - at repo level" },
+    ]);
+  });
+
+  it("honors the resolution dead_ends suffix on the fixed label", () => {
+    expect(
+      scrapeSentinels(
+        "unerr journal - fixed - pinned pool | dead_ends:threads pool,SIGURG"
+      )
+    ).toEqual([
+      {
+        kind: "marker",
+        op: "resolution",
+        text: "pinned pool",
+        refinedDeadEnds: ["threads pool", "SIGURG"],
+      },
+    ]);
+  });
+
+  it("allows a leading list marker before the journal line", () => {
+    expect(scrapeSentinels("- unerr journal - goal - ship it")).toEqual([
+      { kind: "marker", op: "intent", text: "ship it" },
+    ]);
+  });
+
+  it("drops an unknown label and an empty text", () => {
+    expect(scrapeSentinels("unerr journal - ponder - something")).toEqual([]);
+    expect(scrapeSentinels("unerr journal - goal - ")).toEqual([]);
+  });
+
+  it("does not scrape prose that merely mentions the phrase", () => {
+    expect(
+      scrapeSentinels("The unerr journal is a dated audit trail, not memory.")
+    ).toEqual([]);
+  });
+
+  it("accepts the legacy unerr-save: form alongside the new form", () => {
+    const msg = [
+      "unerr journal - goal - new form",
+      "unerr-save: blocker legacy form still parses",
+    ].join("\n");
+    expect(scrapeSentinels(msg)).toEqual([
+      { kind: "marker", op: "intent", text: "new form" },
+      { kind: "marker", op: "blocker", text: "legacy form still parses" },
+    ]);
   });
 });
 

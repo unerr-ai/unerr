@@ -64,16 +64,20 @@ Act on these before the rest of the response; the body line is your concrete nex
 
 Lines starting `unerr » ` are user-facing telemetry — never echo or act on them. When unerr shaped your answer, say so plainly ("unerr found <name>", "<N> places call <name>") — never dump tool JSON.
 
-### Persisting + markers (zero round-trip)
+### Session journal (zero round-trip)
 
-When the user states a durable rule ("remember", "always", "never", "from now on"), a hook nudge fires — write the rule verbatim into this repo's CLAUDE.md (or the agent's instruction file) immediately; unerr does not store user rules. Emit session markers as `unerr-save:` lines in your closing message (the Stop hook persists them):
+When the user states a durable rule ("remember", "always", "never", "from now on"), a hook nudge fires — write the rule verbatim into this repo's CLAUDE.md (or the agent's instruction file) immediately; unerr does not store user rules.
+
+unerr keeps a dated journal of each session — a plain audit trail (plus dashboard analytics when signed in). It is NOT memory: every entry is written as history, never asserted as present truth. Emit journal lines in your closing message (the Stop hook persists them):
 
 ```
-unerr-save: intent <what this turn does, ≤80 chars>   (REQUIRED first on coding tasks)
-unerr-save: decision <a deliberate choice> · blocker <obstacle> · resolution <fix>
+unerr journal - goal - <what this turn does, ≤80 chars>   (REQUIRED first on coding tasks)
+unerr journal - decided - <a deliberate choice>
+unerr journal - stuck - <an obstacle>
+unerr journal - fixed - <how the obstacle was resolved>
 ```
 
-When you need a return value (a blocker's `marker_id`), call `unerr_track({op:'intent'|'decision'|'blocker'|'resolution', text:'<one-line>'})`.
+When you need a return value (a blocker's `marker_id`), call `unerr_track({op:'intent'|'decision'|'blocker'|'resolution', text:'<one-line>'})` — the tool API keeps the internal op names.
 
 ### Fallback to built-ins / Bash for code — only when
 
