@@ -9,7 +9,10 @@
  * (no proxy → no conventions block, but the static read nudge still fires).
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   type DetectedConvention,
@@ -19,6 +22,7 @@ import {
 } from "../hooks/conventions-client.js";
 import { resetHookDedup } from "../hooks/hook-dedup.js";
 import { runPostReadHookAsync } from "../hooks/navigation-hooks.js";
+import { MIN_USEFUL_ENTITIES } from "../intelligence/graph-readiness.js";
 
 function rpcReply(payload: unknown): string {
   return JSON.stringify({
@@ -161,8 +165,37 @@ describe("runPostReadHookAsync degradation (no proxy)", () => {
   // The static read nudge is gated once-per-session on a shared on-disk dedup
   // file; reset it so each test starts with the session key unspent (other test
   // files in the suite share the same .unerr/state/hook-recent.json on disk).
+  //
+  // runPostReadHookAsync's enrichment only fires when readGraphReadiness(cwd)
+  // is ready, so chdir into a fresh graph-ready fixture per test.
+  let tmpDir: string;
+  let prevCwd: string;
+
   beforeEach(() => {
     resetHookDedup();
+    prevCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "unerr-conventions-injection-")
+    );
+    const unerrDir = path.join(tmpDir, ".unerr");
+    fs.mkdirSync(path.join(unerrDir, "state"), { recursive: true });
+    fs.writeFileSync(path.join(unerrDir, "config.json"), "{}");
+    fs.writeFileSync(path.join(unerrDir, "graph.db"), "");
+    fs.writeFileSync(
+      path.join(unerrDir, "state", "graph-stats.json"),
+      JSON.stringify({
+        entities: MIN_USEFUL_ENTITIES + 500,
+        edges: 10,
+        rules: 1,
+        indexedAt: new Date().toISOString(),
+      })
+    );
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   const codePayload = (file: string) =>

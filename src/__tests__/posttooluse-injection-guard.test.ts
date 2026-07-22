@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runPostGlobHook, runPostGrepHook } from "../hooks/navigation-hooks.js";
+import { MIN_USEFUL_ENTITIES } from "../intelligence/graph-readiness.js";
 
 /**
  * §11.6 invariant 1 (.internal/archive/TOKEN_ECONOMICS_AND_SAVINGS.md) — no PostToolUse handler may
@@ -62,7 +63,24 @@ describe("PostToolUse per-tool injection guard (§11.6)", () => {
 
     beforeEach(() => {
       prevCwd = process.cwd();
-      process.chdir(mkdtempSync(join(tmpdir(), "unerr-ptu-guard-")));
+      // runPostGrepHook/runPostGlobHook's enrichment only fires when
+      // readGraphReadiness(cwd) is ready, so seed the fresh temp dir with a
+      // graph-ready fixture before chdir'ing into it.
+      const dir = mkdtempSync(join(tmpdir(), "unerr-ptu-guard-"));
+      const unerrDir = join(dir, ".unerr");
+      mkdirSync(join(unerrDir, "state"), { recursive: true });
+      writeFileSync(join(unerrDir, "config.json"), "{}");
+      writeFileSync(join(unerrDir, "graph.db"), "");
+      writeFileSync(
+        join(unerrDir, "state", "graph-stats.json"),
+        JSON.stringify({
+          entities: MIN_USEFUL_ENTITIES + 500,
+          edges: 10,
+          rules: 1,
+          indexedAt: new Date().toISOString(),
+        })
+      );
+      process.chdir(dir);
       savedSession = process.env[SESSION];
       process.env[SESSION] = "ptu-guard-session";
     });

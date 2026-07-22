@@ -946,12 +946,29 @@ async function daemonChildBoot(cwd: string): Promise<void> {
   // Dev config (`.unerr/dev.json`) is applied centrally in the `preAction` wall
   // before this boot path runs — see applyDevConfigOnce.
 
-  const config = readLocalConfig(cwd);
+  let config = readLocalConfig(cwd);
   if (!config) {
-    process.stderr.write(
-      "[unerr:child] No .unerr/config.json — run `unerr` interactively first.\n"
-    );
-    process.exit(1);
+    // Defense-in-depth self-heal: a headless entry point (`unerr install
+    // <agent>` on an older build, or a hand-written `.mcp.json`) can spawn
+    // this daemon child against a repo with no `.unerr/config.json`. Rather
+    // than exit(1) and leave the MCP server permanently unbootable, bootstrap
+    // the config here and continue — same shape the interactive wizard writes.
+    try {
+      const { ensureRepoConfig } = await import("../config/repo-bootstrap.js");
+      const { repoId } = await ensureRepoConfig(cwd);
+      process.stderr.write(
+        `[unerr:child] No .unerr/config.json — bootstrapped one (repoId=${repoId}).\n`
+      );
+      config = { repoId };
+    } catch (err) {
+      // `.unerr` is unwritable (read-only mount, permissions). Nothing this
+      // process can serve without it — exit with a message a user can act on
+      // rather than an unhandled rejection.
+      process.stderr.write(
+        `[unerr:child] Cannot write .unerr/config.json (${err instanceof Error ? err.message : String(err)}) — run \`unerr\` interactively from a writable checkout.\n`
+      );
+      process.exit(1);
+    }
   }
 
   const originalPpid = process.ppid;

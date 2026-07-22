@@ -8,13 +8,14 @@
  *     back to the co-change nudge and emits valid JSON (exit 0) — proving a
  *     down/absent proxy never makes editing worse.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { type Server, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runPostEditHookAsync } from "../hooks/navigation-hooks.js";
 import { queryReviewEdit } from "../hooks/review-client.js";
+import { MIN_USEFUL_ENTITIES } from "../intelligence/graph-readiness.js";
 import { REVIEW_EDIT_METHOD } from "../proxy/review-protocol.js";
 
 function shortSockPath(): string {
@@ -136,6 +137,22 @@ describe("runPostEditHookAsync degradation (no proxy in cwd)", () => {
 
   it("falls back to the co-change nudge and emits valid JSON when no proxy socket exists", async () => {
     tmp = mkdtempSync(join(tmpdir(), "ur-rev-nodir-"));
+    // runPostEditHookAsync's co-change enrichment only fires when
+    // readGraphReadiness(cwd) is ready, so seed the temp dir with a
+    // graph-ready fixture before chdir'ing into it.
+    const unerrDir = join(tmp, ".unerr");
+    mkdirSync(join(unerrDir, "state"), { recursive: true });
+    writeFileSync(join(unerrDir, "config.json"), "{}");
+    writeFileSync(join(unerrDir, "graph.db"), "");
+    writeFileSync(
+      join(unerrDir, "state", "graph-stats.json"),
+      JSON.stringify({
+        entities: MIN_USEFUL_ENTITIES + 500,
+        edges: 10,
+        rules: 1,
+        indexedAt: new Date().toISOString(),
+      })
+    );
     process.chdir(tmp);
 
     const stdin = JSON.stringify({

@@ -1,17 +1,60 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetHookDedup } from "../hooks/hook-dedup.js";
 import {
   runPostReadHook,
   runPreEditHook,
   runPreReadHook,
 } from "../hooks/navigation-hooks.js";
+import { MIN_USEFUL_ENTITIES } from "../intelligence/graph-readiness.js";
+import { updateNudgeState } from "../proxy/nudge-state.js";
 
 // R4 (Sprint 2): the big instructional banners now emit in full ONCE per
 // session (file-backed gate), terse thereafter. Reset the gate before every
 // test so each case independently exercises the first-emission (full) text;
 // the once-then-terse behavior has its own dedicated test below.
+//
+// The pre-Read/post-Read redirects under test only fire when
+// `readGraphReadiness(process.cwd())` reports ready, so every test here runs
+// inside a fresh graph-ready fixture (mirrors
+// navigation-hooks-graph-readiness.test.ts).
+let tmpDir: string;
+let prevCwd: string;
+
 beforeEach(() => {
   resetHookDedup();
+  prevCwd = process.cwd();
+  tmpDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "unerr-nav-hooks-agent-aware-")
+  );
+  const unerrDir = path.join(tmpDir, ".unerr");
+  fs.mkdirSync(path.join(unerrDir, "state"), { recursive: true });
+  fs.writeFileSync(path.join(unerrDir, "config.json"), "{}");
+  fs.writeFileSync(path.join(unerrDir, "graph.db"), "");
+  fs.writeFileSync(
+    path.join(unerrDir, "state", "graph-stats.json"),
+    JSON.stringify({
+      entities: MIN_USEFUL_ENTITIES + 500,
+      edges: 10,
+      rules: 1,
+      indexedAt: new Date().toISOString(),
+    })
+  );
+  // Pre-spend the ambient "mark_intent" one-shot (non-Claude-Code agents get
+  // it drained into their first PreToolUse result — src/hooks/hook-runner.ts
+  // buildAmbientPreInjection) so this fresh fixture doesn't pick up an
+  // unrelated nudge the fixture didn't exist to trigger before.
+  updateNudgeState(tmpDir, (s) => {
+    s.mark_intent_emitted = true;
+  });
+  process.chdir(tmpDir);
+});
+
+afterEach(() => {
+  process.chdir(prevCwd);
+  fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
 /**

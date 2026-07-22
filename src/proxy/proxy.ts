@@ -38,6 +38,7 @@ import {
   DEEP_DIVE_TOOL_DEFINITIONS,
   NAVIGATION_TOOL_NAMES,
 } from "../intelligence/deep-dive-tools.js";
+import { publishGraphStats } from "../intelligence/graph-readiness.js";
 import { shouldEscalateSearchCodeToRecon } from "../intelligence/query-shape.js";
 import { getCommitTrailers } from "../tracking/git-trailers.js";
 import { getPromptsForSession } from "../tracking/prompt-trace.js";
@@ -2155,68 +2156,78 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       const { handleUnerrContextProxy } = await import(
         "./unerr-context-handler.js"
       );
-      return handleUnerrContextProxy(args as Record<string, unknown>, {
-        runRaw: (tool, toolArgs) => router.executeRaw(tool, toolArgs),
-        repoCwd: dirname(unerrDirForLedger),
-        // E4 Layer A sink: surface the modeled round-trip savings as the
-        // SavingsOriginSplit "context bundling" origin (token_flow_event, sync)
-        // and as the §4 accounting row (compression_event, event_kind
-        // 'context_bundle'). The token_flow detail carries the Layer-B manifest
-        // (delivered/expand keys) for the post-hoc reconciliation route.
-        recordBundleSavings: (model) => {
-          tokenFlowWriter.record({
-            session_id: sessionIdentity.sessionId,
-            native_session_id: sessionIdentity.nativeSessionId,
-            mechanism: "context_bundle",
-            tool: "unerr_context",
-            tokens_without: model.original_tokens,
-            tokens_with: model.delivered_tokens,
-            tokens_saved: model.rerequest_saved_tokens,
-            detail: {
-              sources_collapsed: model.sources_collapsed,
-              round_trips_modeled: model.round_trips_modeled,
-              expand_items: model.expand_items,
-              manifest_items: model.manifest_items,
-              delivered_entity_keys: model.delivered_entity_keys,
-              delivered_files: model.delivered_files,
-              expand_keys: model.expand_keys,
-            },
-          });
-          // Fire-and-forget: the compression-log import is async; a throw is
-          // swallowed (telemetry is never load-bearing).
-          void (async () => {
-            try {
-              const { appendCompressionLog } = await import(
-                "./shell-compression-log.js"
-              );
-              appendCompressionLog(dirname(unerrDirForLedger), {
-                ts: new Date().toISOString(),
-                command: "unerr_context",
-                category: "context_bundle",
-                confidence: 1,
-                rawBytes: model.original_tokens,
-                compressedBytes: model.delivered_tokens,
-                savedPct:
-                  model.original_tokens > 0
-                    ? Math.max(
-                        0,
-                        model.rerequest_saved_tokens / model.original_tokens
-                      )
-                    : 0,
-                omniFallback: false,
-                reversible: {
-                  original_tokens: model.original_tokens,
-                  delivered_tokens: model.delivered_tokens,
-                  mechanism: "context_bundle",
-                  event_kind: "context_bundle",
-                },
-              });
-            } catch {
-              /* telemetry never load-bearing */
-            }
-          })();
-        },
-      });
+      const contextResult = await handleUnerrContextProxy(
+        args as Record<string, unknown>,
+        {
+          runRaw: (tool, toolArgs) => router.executeRaw(tool, toolArgs),
+          repoCwd: dirname(unerrDirForLedger),
+          // E4 Layer A sink: surface the modeled round-trip savings as the
+          // SavingsOriginSplit "context bundling" origin (token_flow_event, sync)
+          // and as the §4 accounting row (compression_event, event_kind
+          // 'context_bundle'). The token_flow detail carries the Layer-B manifest
+          // (delivered/expand keys) for the post-hoc reconciliation route.
+          recordBundleSavings: (model) => {
+            tokenFlowWriter.record({
+              session_id: sessionIdentity.sessionId,
+              native_session_id: sessionIdentity.nativeSessionId,
+              mechanism: "context_bundle",
+              tool: "unerr_context",
+              tokens_without: model.original_tokens,
+              tokens_with: model.delivered_tokens,
+              tokens_saved: model.rerequest_saved_tokens,
+              detail: {
+                sources_collapsed: model.sources_collapsed,
+                round_trips_modeled: model.round_trips_modeled,
+                expand_items: model.expand_items,
+                manifest_items: model.manifest_items,
+                delivered_entity_keys: model.delivered_entity_keys,
+                delivered_files: model.delivered_files,
+                expand_keys: model.expand_keys,
+              },
+            });
+            // Fire-and-forget: the compression-log import is async; a throw is
+            // swallowed (telemetry is never load-bearing).
+            void (async () => {
+              try {
+                const { appendCompressionLog } = await import(
+                  "./shell-compression-log.js"
+                );
+                appendCompressionLog(dirname(unerrDirForLedger), {
+                  ts: new Date().toISOString(),
+                  command: "unerr_context",
+                  category: "context_bundle",
+                  confidence: 1,
+                  rawBytes: model.original_tokens,
+                  compressedBytes: model.delivered_tokens,
+                  savedPct:
+                    model.original_tokens > 0
+                      ? Math.max(
+                          0,
+                          model.rerequest_saved_tokens / model.original_tokens
+                        )
+                      : 0,
+                  omniFallback: false,
+                  reversible: {
+                    original_tokens: model.original_tokens,
+                    delivered_tokens: model.delivered_tokens,
+                    mechanism: "context_bundle",
+                    event_kind: "context_bundle",
+                  },
+                });
+              } catch {
+                /* telemetry never load-bearing */
+              }
+            })();
+          },
+        }
+      );
+      // No-graph escape hatch: recon composes search_code + get_references
+      // under the hood, so an absent or below-threshold graph makes this call
+      // as worthless as calling search_code directly — same signal, same gate.
+      const { applyNoGraphEscapeHatch } = await import(
+        "../intelligence/query-router.js"
+      );
+      return applyNoGraphEscapeHatch(contextResult, dirname(unerrDirForLedger));
     }
 
     // ── Close-out summary: unerr_turn_summary ──
@@ -3430,6 +3441,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       graphHolder.onSwap(() => {
         void refreshMonikerIndex();
       });
+      // Publish counts for navigation hooks (short-lived CLI processes that
+      // cannot open CozoDB) — fires on every idle-triggered swap so readers
+      // see the post-rebuild counts, not the pre-rebuild ones.
+      graphHolder.onSwap((newGraph) => {
+        void publishLiveGraphStats(newGraph, cwd);
+      });
 
       // NOTE: DriftTracker → GraphHolder notification intentionally NOT wired.
       // The NativeWatcher below directly notifies GraphHolder with file paths,
@@ -3628,6 +3645,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
           `Health grade failed: ${err instanceof Error ? err.message : String(err)}`
         );
       }
+
+      // Publish counts for navigation hooks (short-lived CLI processes that
+      // cannot open CozoDB) — covers full reindex, incremental reindex, and
+      // the no-op staleness skip, since finalizeIndexing runs on all three.
+      await publishLiveGraphStats(graph, process.cwd());
 
       // Show MCP connection card with config snippet for manual agent setup
       try {
@@ -3892,6 +3914,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         `Health grade failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }
+
+    // Publish counts for navigation hooks — this is the resume path where
+    // the graph was already current at boot, so no reindex ever runs and
+    // this is the only completion point for the run.
+    await publishLiveGraphStats(localGraph, process.cwd());
 
     // Show MCP connection card on resume (matches first-run path)
     try {
@@ -4636,4 +4663,31 @@ async function createParseGraphStub(
       overlayExpired: 0,
     }),
   } as unknown as import("../intelligence/local-graph.js").CozoGraphStore;
+}
+
+/**
+ * Publish live entity/edge/rule counts to `.unerr/state/graph-stats.json` for
+ * `graph-readiness.ts`'s cheap readers (navigation hooks are short-lived CLI
+ * processes that cannot open CozoDB). Call after every point the graph
+ * becomes current: initial index, background reindex, and each GraphHolder
+ * swap. Best-effort — any failure here must never block or fail boot, so
+ * every error is swallowed after a stderr warning.
+ */
+async function publishLiveGraphStats(
+  graph: import("../intelligence/local-graph.js").CozoGraphStore,
+  cwd: string
+): Promise<void> {
+  try {
+    const [entities, edges, hasRules] = await Promise.all([
+      graph.getEntityCount(),
+      graph.getEdgeCount(),
+      graph.hasRules(),
+    ]);
+    const rules = hasRules ? (await graph.getRules()).length : 0;
+    publishGraphStats(cwd, { entities, edges, rules });
+  } catch (err: unknown) {
+    log.warn(
+      `Publishing graph stats failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
 }

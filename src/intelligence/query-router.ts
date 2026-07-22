@@ -62,6 +62,7 @@ import {
   type WorkspacePeerResult,
   mergeWorkspaceResults,
 } from "./federation/merge.js";
+import { readGraphReadiness } from "./graph-readiness.js";
 import type {
   CozoGraphStore,
   DriftEntity,
@@ -165,6 +166,19 @@ const WORKSPACE_FANOUT_TOOLS = new Set(["search_code"]);
  * resolves outside the home repo is served by the sibling repo that owns it.
  */
 const PATH_ROUTED_TOOLS = new Set(["file_read", "file_outline"]);
+
+/**
+ * Graph-backed navigation tools whose answer is worthless against an absent
+ * or below-threshold graph (measured: steering an agent at that state cost
+ * +54.5% with zero graph-tool calls made). Gates the no-graph escape hatch —
+ * `file_read`, `get_conventions`, and `fetch_url` still answer usefully off
+ * other state, so they're excluded.
+ */
+const GRAPH_BACKED_NAV_TOOLS = new Set([
+  "search_code",
+  "get_references",
+  "file_outline",
+]);
 
 export interface EntityRiskMeta {
   fan_in: number;
@@ -638,6 +652,44 @@ function prependAnnounceToBody(
     { type: "text", text: announceText },
     { type: "text", text: JSON.stringify(content) },
   ];
+}
+
+/**
+ * No-graph escape hatch line (Sprint: graph-readiness plumbing). A benchmark
+ * of an agent installed against a repo whose proxy never booted a graph cost
+ * +54.5% versus no unerr at all, with zero graph-tool calls made — the agent
+ * kept retrying tools that had nothing to answer with. One `ur|act` line,
+ * named tools only, no hedge verbs — same contract as `formatUnlockAnnounce`.
+ * Absent/below-threshold graph → tell the agent to stop for the session; a
+ * transient first-index window → tell it to fall back FOR NOW and retry, since
+ * the graph is seconds-to-minutes from being useful and a "stop for the
+ * session" line would wrongly strand the agent on built-ins after it lands.
+ */
+const NO_GRAPH_ESCAPE_LINE =
+  "ur|act no code graph indexed — read files with Read, search with Grep/Glob; stop calling search_code, get_references, and file_outline for the rest of the session\n";
+const INDEXING_ESCAPE_LINE =
+  "ur|act graph is still indexing — read files with Read, search with Grep/Glob for now, and re-call search_code in a minute once the graph is ready\n";
+
+/**
+ * Apply the no-graph escape hatch to a graph-backed tool result: prepends an
+ * action line to `result.content` when `cwd`'s graph is not ready (per
+ * `readGraphReadiness`), otherwise returns `result` unchanged. The line differs
+ * by reason — `INDEXING_ESCAPE_LINE` (retry) while a first index is in flight,
+ * `NO_GRAPH_ESCAPE_LINE` (stop for the session) when the graph is genuinely
+ * absent or below `MIN_USEFUL_ENTITIES`. Shared by `QueryRouter.execute()`
+ * (search_code, get_references, file_outline) and the `unerr_context` recon
+ * composite (proxy.ts), which answers from the same three tools under the hood.
+ */
+export function applyNoGraphEscapeHatch<T extends { content: unknown }>(
+  result: T,
+  cwd: string
+): T {
+  const { ready, reason } = readGraphReadiness(cwd);
+  if (ready) return result;
+  const line =
+    reason === "indexing" ? INDEXING_ESCAPE_LINE : NO_GRAPH_ESCAPE_LINE;
+  result.content = prependAnnounceToBody(result.content, line);
+  return result;
 }
 
 export class QueryRouter {
@@ -1757,6 +1809,12 @@ export class QueryRouter {
             session_efficiency: sessionEff,
           });
         }
+      }
+
+      // No-graph escape hatch: fires once per response, only for the tools
+      // whose answer is worthless without a real graph.
+      if (GRAPH_BACKED_NAV_TOOLS.has(toolName)) {
+        applyNoGraphEscapeHatch(toolResult, this.projectRoot ?? process.cwd());
       }
 
       return toolResult;

@@ -44,6 +44,7 @@ import {
   isConfigured,
   writeMcpConfig,
 } from "../config/mcp-config-writer.js";
+import { ensureRepoConfig } from "../config/repo-bootstrap.js";
 import { findRepo, listRepos } from "../daemon/registry.js";
 import {
   gatherNotices,
@@ -73,6 +74,10 @@ export interface InstallResult {
    *  (`.claude/settings.local.json`) so worker/junior sub-agents run unprompted. */
   agentToolAllowsAdded: number;
   repoRegistered?: boolean;
+  /** True when `.unerr/config.json` did not exist yet and this install
+   *  created it (headless installs used to leave the repo unbootable —
+   *  see ensureRepoConfig). False when a valid config already existed. */
+  configBootstrapped: boolean;
 }
 
 export function registerInstallCommand(program: Command): void {
@@ -160,6 +165,14 @@ export function registerInstallCommand(program: Command): void {
           `  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1munerr → ${agentDef.name}\x1b[0m\n`
         );
         process.stderr.write("\n");
+
+        // Repo config bootstrap (must precede MCP config in output too — it's
+        // what makes the daemon-spawned MCP server bootable at all).
+        if (result.configBootstrapped) {
+          process.stderr.write(
+            "  \x1b[38;2;52;211;153m✓\x1b[0m .unerr/config.json created (repo now bootable headlessly)\n"
+          );
+        }
 
         // MCP config
         if (result.mcpConfig.action === "created") {
@@ -328,6 +341,12 @@ export async function runInstall(
     }
   }
 
+  // 0b. Ensure `.unerr/config.json` + `.unerr/settings.json` exist. Must run
+  //     before the step-7 pre-warm block below (`ensureRepo`) — otherwise
+  //     that pre-warm still spawns a daemon child that exits 1 for lack of
+  //     config. This is what makes a headless install bootable at all.
+  const { created: configBootstrapped } = await ensureRepoConfig(cwd);
+
   // 1. Write MCP config (project-level)
   const mcpConfig = writeMcpConfig(cwd, ide);
 
@@ -469,6 +488,7 @@ export async function runInstall(
     legacyDeniesRemoved,
     agentToolAllowsAdded,
     repoRegistered,
+    configBootstrapped,
   };
 }
 

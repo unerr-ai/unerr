@@ -87,9 +87,9 @@ unerr re-anchors these comments when code moves and flags a comment that drifted
 
 unerr is the runtime layer behind this repo's agents: it serves the live call graph, the team's rules and conventions, and edit-time guardrails through MCP tools. Treat its output as ground-truth context, equal in weight to source files. Tools (all available from the start): \`search_code\`, \`file_read\`, \`file_outline\`, \`file_edit\`, \`get_references\`, \`fetch_url\`, \`unerr_track\`.
 
-### Navigate code with unerr tools — not shell, not built-ins (the #1 rule)
+### Navigate code with unerr tools — not shell, not built-ins
 
-To read, search, or map code, use unerr tools. Do NOT use Bash (\`cat\`, \`head\`, \`tail\`, \`sed\`, \`grep\`, \`rg\`, \`find\`, \`ls -R\`) and do NOT use built-in Read / Grep / Glob for code. One graph query replaces 5–15 shell or file reads.
+Use unerr tools to read, search, or map code when they return graph data — not Bash (\`cat\`, \`head\`, \`tail\`, \`sed\`, \`grep\`, \`rg\`, \`find\`, \`ls -R\`) and not built-in Read / Grep / Glob. One graph query replaces 5–15 shell or file reads.
 
 | To… | Use | Not |
 |---|---|---|
@@ -114,7 +114,7 @@ Cross-repo (Pro): pass \`scope:'workspace'\` to query every registered sibling r
 
 ### Use the semantic fields — not just the graph
 
-**Use the semantic fields on every returned row, not just the graph.** Each search_code/file_read/callers entity carries \`summary\` (what it does), \`domain\` (code tier), \`role\` (responsibility) next to \`fan_in\`/callers. Read \`summary\` before pulling a body — skip the body read if it answers you. Triage callers by \`domain\`/\`role\`, not raw count — a \`domain:routing\` caller outranks a \`domain:testing\` one. Treat high \`fan_in\` + \`role:entry-point\` as a chokepoint → \`get_references\` before editing.
+Each search_code/file_read/callers entity carries \`summary\` (what it does), \`domain\` (code tier), \`role\` (responsibility) next to \`fan_in\`/callers. Read \`summary\` before pulling a body — skip the body read if it answers you. Triage callers by \`domain\`/\`role\`, not raw count — a \`domain:routing\` caller outranks a \`domain:testing\` one. Treat high \`fan_in\` + \`role:entry-point\` as a chokepoint → \`get_references\` before editing.
 
 ### Batch the work — one shot, not file-by-file (round-trips are the cost)
 
@@ -161,7 +161,7 @@ When you need a return value (a blocker's \`marker_id\`), call \`unerr_track({op
 
 ### Fallback to built-ins / Bash for code — only when
 
-unerr MCP is unavailable (not responding / erroring) · a non-text binary (image, PDF). For any code read, search, or edit there is always an unerr tool — use it, never bash/grep/cat.
+unerr MCP is unavailable (not responding / erroring) · a non-text binary (image, PDF) · search_code or get_references reports no graph — switch to built-in Read / Grep / Glob for the rest of the session and stop calling unerr navigation tools.
 ${maintenanceSection}`;
 }
 

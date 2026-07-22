@@ -8,11 +8,10 @@
  * Cursor, etc.) provides the LLM.
  */
 
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
-import { getRemoteUrl } from "../utils/git.js";
+import { generateRepoId } from "../config/repo-bootstrap.js";
 
 export type WizardResult =
   | { action: "setup"; repoId: string }
@@ -134,13 +133,4 @@ export async function runSetup(cwd?: string): Promise<WizardResult> {
   clack.outro("🚀 Starting intelligence engine...");
 
   return { action: "setup", repoId };
-}
-
-// ── Internal Helpers ─────────────────────────────────────────
-
-async function generateRepoId(cwd: string): Promise<string> {
-  let repoIdentifier = cwd;
-  const remote = await getRemoteUrl(cwd);
-  if (remote) repoIdentifier = remote;
-  return createHash("sha256").update(repoIdentifier).digest("hex").slice(0, 12);
 }

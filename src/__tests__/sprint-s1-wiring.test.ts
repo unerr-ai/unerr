@@ -9,11 +9,44 @@
  *   - Retry detection feeds into quality monitor
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MIN_USEFUL_ENTITIES } from "../intelligence/graph-readiness.js";
 import type { CozoGraphStore } from "../intelligence/local-graph.js";
 import { QueryRouter } from "../intelligence/query-router.js";
 import { createCompressionQualityMonitor } from "../proxy/compression-quality-monitor.js";
 import { createSessionDedup } from "../proxy/session-dedup.js";
+
+// These tests exercise output compression through `search_code`, a graph-backed
+// nav tool. The no-graph escape hatch decorates such results when the repo has
+// no published graph — orthogonal noise for a compression assertion — so run in
+// a graph-ready fixture (config + graph.db + stats above the entity floor) to
+// keep the escape line silent and the compression behavior under test in isolation.
+let prevCwd: string;
+let readyDir: string;
+beforeEach(() => {
+  prevCwd = process.cwd();
+  readyDir = mkdtempSync(join(tmpdir(), "s1-wiring-"));
+  const unerr = join(readyDir, ".unerr");
+  mkdirSync(join(unerr, "state"), { recursive: true });
+  writeFileSync(join(unerr, "config.json"), "{}");
+  writeFileSync(join(unerr, "graph.db"), "");
+  writeFileSync(
+    join(unerr, "state", "graph-stats.json"),
+    JSON.stringify({
+      entities: MIN_USEFUL_ENTITIES + 500,
+      edges: 1000,
+      rules: 0,
+    })
+  );
+  process.chdir(readyDir);
+});
+afterEach(() => {
+  process.chdir(prevCwd);
+  rmSync(readyDir, { recursive: true, force: true });
+});
 
 function createMockGraph(
   overrides: Record<string, unknown> = {}

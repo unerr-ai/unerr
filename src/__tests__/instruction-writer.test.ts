@@ -258,6 +258,26 @@ describe("instruction-writer", () => {
     });
   });
 
+  describe("fallback rule — no-graph escape hatch", () => {
+    it("states the conditional graph-tools framing, not an absolute rule", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain(
+        "Use unerr tools to read, search, or map code when they return graph data"
+      );
+      expect(content).not.toContain("(the #1 rule)");
+      expect(content).not.toContain("there is always an unerr tool");
+    });
+
+    it("names the escape hatch: switch to built-ins the moment a tool reports no graph", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain(
+        "search_code or get_references reports no graph — switch to built-in Read / Grep / Glob for the rest of the session and stop calling unerr navigation tools."
+      );
+    });
+  });
+
   describe("Layer 8 §2.4 — maintenance-contract section (comments.maintain)", () => {
     const MARKER = "Domain comments — maintain meaning in the same edit";
 

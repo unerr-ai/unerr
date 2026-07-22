@@ -11,6 +11,7 @@ import { join } from "node:path";
 import type { BoundaryViolation } from "../intelligence/boundary-check.js";
 import { lookupCoChangePartners } from "../intelligence/cochange-index.js";
 import type { CascadeWarning } from "../intelligence/edit-impact.js";
+import { isGraphReady } from "../intelligence/graph-readiness.js";
 import { splitStableVolatile } from "../proxy/prefix-order.js";
 import { isReviewEnabled } from "../review/feature-flag.js";
 import { formatReviewFindings } from "../review/format.js";
@@ -77,6 +78,24 @@ function isCodeFile(filePath: string): boolean {
   );
 }
 
+/**
+ * Gate for every Read/Grep/Glob steer in this file: true only when the repo's
+ * graph carries enough entities to be worth redirecting an agent toward
+ * (`readGraphReadiness`). An absent or empty graph makes the redirect strictly
+ * negative — the agent reaches for a tool that returns nothing, then falls
+ * back to the built-in it would have used anyway (measured +54.5% cost, zero
+ * graph-tool calls, on a repo whose proxy never booted). Never throws: hooks
+ * are short-lived CLI processes that must degrade to passthrough, not an
+ * exception, on any readiness-check failure.
+ */
+function isNavigationGraphReady(): boolean {
+  try {
+    return isGraphReady(process.cwd());
+  } catch {
+    return false;
+  }
+}
+
 // R4 (Sprint 2 — token-overhead): the big instructional banners teach the
 // toolset, but only the FIRST time matter. Re-emitting the full multi-line text
 // on every hook firing was ~1.4k tok/turn of pure re-read-amplified ceremony
@@ -126,6 +145,7 @@ function onceVerbose(key: string, full: string, terse: string): string {
 // deny-once + redirect full-file CODE reads. Deny only the first attempt per
 // file (then nudge) to avoid the #43189/#47565 double-deny retry loop.
 const preReadHandler: HookHandler = (normalized) => {
+  if (!isNavigationGraphReady()) return passthrough();
   const input = normalized.toolInput;
   const filePath = extractFilePath(input);
   if (!filePath) return passthrough();
@@ -171,6 +191,7 @@ const preReadHandler: HookHandler = (normalized) => {
 };
 
 const preGrepHandler: HookHandler = (normalized) => {
+  if (!isNavigationGraphReady()) return passthrough();
   const input = normalized.toolInput;
   const pattern = (input.pattern ?? input.regex ?? input.query) as
     | string
@@ -204,6 +225,7 @@ const preGrepHandler: HookHandler = (normalized) => {
 };
 
 const preGlobHandler: HookHandler = (normalized) => {
+  if (!isNavigationGraphReady()) return passthrough();
   const input = normalized.toolInput;
   const pattern = (input.pattern ?? input.glob ?? input.path) as
     | string
@@ -387,6 +409,7 @@ const preEditHandlerAsync: AsyncHookHandler = async (normalized) => {
 // ── PostToolUse Handlers (agent-agnostic) ────────────────────────────
 
 const postReadHandler: HookHandler = (normalized) => {
+  if (!isNavigationGraphReady()) return passthrough();
   const input = normalized.toolInput;
   const filePath = extractFilePath(input);
   if (!filePath || !isCodeFile(filePath)) return passthrough();
@@ -424,6 +447,7 @@ const CONVENTIONS_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
  * down/slow proxy yields no conventions block and the nudge still fires.
  */
 const postReadHandlerAsync: AsyncHookHandler = async (normalized) => {
+  if (!isNavigationGraphReady()) return passthrough();
   const filePath = extractFilePath(normalized.toolInput);
   if (!filePath || !isCodeFile(filePath)) return passthrough();
 
@@ -469,6 +493,7 @@ const postReadHandlerAsync: AsyncHookHandler = async (normalized) => {
 };
 
 const postGrepHandler: HookHandler = (normalized) => {
+  if (!isNavigationGraphReady()) return passthrough();
   const input = normalized.toolInput;
   const pattern = (input.pattern ?? input.regex ?? input.query) as
     | string
@@ -501,6 +526,7 @@ const postGrepHandler: HookHandler = (normalized) => {
 };
 
 const postGlobHandler: HookHandler = () => {
+  if (!isNavigationGraphReady()) return passthrough();
   // §11.6 invariant 1 — once per session, not per glob (generic guidance, so a
   // per-call content block would be pure cache tax).
   if (!shouldEmitOnce("glob-pref:session", VERBOSE_BANNER_TTL_MS))
@@ -513,6 +539,7 @@ const postGlobHandler: HookHandler = () => {
 };
 
 const postWriteHandler: HookHandler = (normalized) => {
+  if (!isNavigationGraphReady()) return passthrough();
   const filePath = extractFilePath(normalized.toolInput);
   if (!filePath || !isCodeFile(filePath)) return passthrough();
   if (!shouldEmitOnce(`Write:${filePath}`)) return passthrough();
@@ -536,6 +563,7 @@ const postEditHandler: HookHandler = (normalized) => {
     new_content: (input.new_string as string | undefined) ?? null,
   });
 
+  if (!isNavigationGraphReady()) return passthrough();
   if (!shouldEmitOnce(`Edit:${filePath}`)) return passthrough();
 
   const base = `ur|fct Edited ${filePath} — get_references to check callers of changed entities`;
@@ -662,12 +690,15 @@ const postEditHandlerAsync: AsyncHookHandler = async (normalized) => {
   const evidenceBlock = review?.evidenceBlock ?? "";
 
   // Co-change fact: deduped per file like the sync path (one per file per window).
-  const base = shouldEmitOnce(`Edit:${filePath}`)
-    ? appendCoChangeClause(
-        `ur|fct Edited ${filePath} — get_references to check callers of changed entities`,
-        filePath
-      )
-    : "";
+  // Suppressed when the graph isn't ready — get_references has nothing to
+  // resolve against, so the nudge would send the agent at an empty tool.
+  const base =
+    isNavigationGraphReady() && shouldEmitOnce(`Edit:${filePath}`)
+      ? appendCoChangeClause(
+          `ur|fct Edited ${filePath} — get_references to check callers of changed entities`,
+          filePath
+        )
+      : "";
 
   // Tier-1 verdicts lead; the Tier-2 evidence block follows; the co-change fact last.
   const sections = [reviewBlock, evidenceBlock, base].filter(
