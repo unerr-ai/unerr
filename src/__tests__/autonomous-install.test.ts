@@ -17,6 +17,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readAutonomousMode } from "../config/autonomous-mode.js";
+import { VERIFIER_AGENT_RELPATH } from "../skills/junior-agent.js";
 
 describe("autonomous install", () => {
   let homeDir: string;
@@ -92,5 +94,68 @@ describe("autonomous install", () => {
     }
 
     expect(readConfig().autonomous).toBeUndefined();
+  });
+
+  it("runInstall with no autonomous argument preserves autonomous mode", async () => {
+    const { runInstall } = await import("../commands/install.js");
+
+    await runInstall(cwd, "claude-code" as any, true);
+    expect(readConfig().autonomous).toBe(true);
+    expect(existsSync(join(cwd, VERIFIER_AGENT_RELPATH))).toBe(true);
+
+    await runInstall(cwd, "claude-code" as any);
+
+    expect(readAutonomousMode(cwd)).toBe(true);
+    expect(existsSync(join(cwd, VERIFIER_AGENT_RELPATH))).toBe(true);
+  });
+
+  it("runInstall with no autonomous argument preserves interactive mode", async () => {
+    const { runInstall } = await import("../commands/install.js");
+
+    await runInstall(cwd, "claude-code" as any, false);
+    expect(readConfig().autonomous).toBeUndefined();
+    expect(existsSync(join(cwd, VERIFIER_AGENT_RELPATH))).toBe(false);
+
+    await runInstall(cwd, "claude-code" as any);
+
+    expect(readAutonomousMode(cwd)).toBe(false);
+    expect(readConfig().autonomous).toBeUndefined();
+    expect(existsSync(join(cwd, VERIFIER_AGENT_RELPATH))).toBe(false);
+  });
+
+  it("a version-upgrade refresh preserves autonomous mode", async () => {
+    const { runInstall } = await import("../commands/install.js");
+
+    await runInstall(cwd, "claude-code" as any, true);
+    expect(readConfig().autonomous).toBe(true);
+    expect(existsSync(join(cwd, VERIFIER_AGENT_RELPATH))).toBe(true);
+
+    // No `.unerr/state/agent-install.json` marker exists yet at this point —
+    // runInstall never writes it, only refreshAgentInstallsIfUpgraded does —
+    // so the very first call below reads a null stored version, which never
+    // equals the running UNERR_VERSION, and the refresh fires for real: it
+    // re-runs `runInstall(cwd, "claude-code")` with no third argument, the
+    // exact call shape the bug broke.
+    const { refreshAgentInstallsIfUpgraded } = await import(
+      "../config/agent-reinstall.js"
+    );
+    const result = await refreshAgentInstallsIfUpgraded(cwd);
+
+    expect(result?.refreshed).toContain("claude-code");
+    expect(readAutonomousMode(cwd)).toBe(true);
+    expect(existsSync(join(cwd, VERIFIER_AGENT_RELPATH))).toBe(true);
+  });
+
+  it("explicit false still clears an autonomous repo", async () => {
+    const { runInstall } = await import("../commands/install.js");
+
+    await runInstall(cwd, "claude-code" as any, true);
+    expect(readConfig().autonomous).toBe(true);
+    expect(existsSync(join(cwd, VERIFIER_AGENT_RELPATH))).toBe(true);
+
+    await runInstall(cwd, "claude-code" as any, false);
+
+    expect(readConfig().autonomous).toBeUndefined();
+    expect(existsSync(join(cwd, VERIFIER_AGENT_RELPATH))).toBe(false);
   });
 });

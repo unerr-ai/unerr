@@ -28,7 +28,10 @@ import {
   getAgent,
   normalizeAgentName,
 } from "../config/agent-registry.js";
-import { writeAutonomousMode } from "../config/autonomous-mode.js";
+import {
+  readAutonomousMode,
+  writeAutonomousMode,
+} from "../config/autonomous-mode.js";
 import {
   addAgentToolAllows,
   addDisallowedTools,
@@ -363,6 +366,12 @@ export class AutonomousModeUnsupportedError extends Error {}
 
 /**
  * Core install logic — writes MCP config + skills for a single agent.
+ *
+ * `autonomous` is tri-state: `true`/`false` set or clear the repo's
+ * autonomous mode, and `undefined` preserves whatever it already runs — the
+ * state every programmatic re-install (e.g.
+ * {@link refreshAgentInstallsIfUpgraded}) must use so a refresh never
+ * downgrades an autonomous repo to interactive behind the user's back.
  */
 export async function runInstall(
   cwd: string,
@@ -374,8 +383,10 @@ export async function runInstall(
 
   // --autonomous is claude-code only (verifier sub-agent, strict-mode
   // instructions, and the warm-backend boot path all assume Claude Code's
-  // on-disk sub-agent + hook surface). Refuse before any write.
-  if (autonomous && ide !== "claude-code") {
+  // on-disk sub-agent + hook surface). Refuse before any write. Keyed on the
+  // EXPLICIT argument: a programmatic re-install of a cursor repo must never
+  // throw just because some other agent in the repo runs autonomous.
+  if (autonomous === true && ide !== "claude-code") {
     throw new AutonomousModeUnsupportedError(
       "Autonomous mode currently supports claude-code only — run `unerr install claude-code --autonomous`."
     );
@@ -400,11 +411,21 @@ export async function runInstall(
   //     config. This is what makes a headless install bootable at all.
   const { created: configBootstrapped } = await ensureRepoConfig(cwd);
 
-  // 0c. Autonomous-mode flag (claude-code only). A plain install (no
-  //     --autonomous) clears it — the authoritative way back to interactive
-  //     mode, so a stale flag never survives a reinstall.
+  // 0c. Autonomous-mode flag (claude-code only). TRI-STATE by design:
+  //     `true`/`false` come from the CLI (an explicit `--autonomous`, or a
+  //     plain `unerr install claude-code` — the authoritative way back to
+  //     interactive), while `undefined` means PRESERVE whatever the repo
+  //     already runs. That third state is load-bearing: the version-upgrade
+  //     refresh (`refreshAgentInstallsIfUpgraded`) re-runs `runInstall` for
+  //     every configured agent with no mode argument, and it fires from proxy
+  //     boot — which the autonomous install itself triggers. Treating
+  //     `undefined` as "clear" silently reverted a just-installed autonomous
+  //     repo to interactive (flag dropped, `unerr-verifier.md` deleted)
+  //     moments after the install printed success.
+  const effectiveAutonomous =
+    autonomous === undefined ? readAutonomousMode(cwd) : autonomous;
   if (ide === "claude-code") {
-    writeAutonomousMode(cwd, autonomous === true);
+    writeAutonomousMode(cwd, effectiveAutonomous);
   }
 
   // 1. Write MCP config (project-level)
@@ -434,7 +455,7 @@ export async function runInstall(
   //     `codex exec -m gpt-5.4-mini` and needs no file.
   try {
     const { writeJuniorSubagent } = await import("../skills/junior-agent.js");
-    writeJuniorSubagent(ide, cwd, { autonomous });
+    writeJuniorSubagent(ide, cwd, { autonomous: effectiveAutonomous });
   } catch {
     // Non-blocking
   }
@@ -479,7 +500,9 @@ export async function runInstall(
   let instructionsInjected = false;
   let instructionPath = "";
   try {
-    const instrResult = writeInstructionFile(cwd, ide, { autonomous });
+    const instrResult = writeInstructionFile(cwd, ide, {
+      autonomous: effectiveAutonomous,
+    });
     instructionsInjected =
       instrResult.action === "created" || instrResult.action === "updated";
     instructionPath = instrResult.path;
