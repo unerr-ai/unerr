@@ -1,6 +1,6 @@
 {
   "name": "@unerr-ai/unerr",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "mcpName": "io.github.unerr-ai/unerr",
   "description": "Your AI agent has read your codebase but still can't safely change it. unerr is a local guardrail that hands the agent the call graph and your rules at the moment it edits.",
   "repository": {
