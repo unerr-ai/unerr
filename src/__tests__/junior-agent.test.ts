@@ -255,6 +255,28 @@ describe("unerr-junior sub-agent (Lever C)", () => {
     }
   });
 
+  it("autonomous descriptions carry the blocked/stalled/wrong-subgoal triggers; manual variants don't", () => {
+    // Opus is the FIRST escalation rung: the non-retry triggers spawn it
+    // directly, so its description must state each one as a spawn condition.
+    const opusDesc = foldedDescription(OPUS_AGENT_MD_AUTONOMOUS);
+    expect(opusDesc).toContain("BLOCKED");
+    expect(opusDesc).toContain("STALLED");
+    expect(opusDesc).toContain("WRONG-SUBGOAL");
+    // Fable is the SECOND rung — it fires when opus's proposal failed, never
+    // directly on a trigger (that would double-spawn the two most expensive
+    // tiers on a mere stall). Its description references the trigger classes
+    // only via the after-opus clause.
+    const fableDesc = foldedDescription(FABLE_AGENT_MD_AUTONOMOUS);
+    expect(fableDesc).toContain("BLOCKED/STALLED/WRONG-SUBGOAL");
+    expect(fableDesc).not.toMatch(/directly when the session is BLOCKED/);
+    for (const md of [OPUS_AGENT_MD, FABLE_AGENT_MD]) {
+      const desc = foldedDescription(md);
+      expect(desc).not.toContain("BLOCKED");
+      expect(desc).not.toContain("STALLED");
+      expect(desc).not.toContain("WRONG-SUBGOAL");
+    }
+  });
+
   it("unerr-verifier is read-only and Opus-pinned — no edit tools", () => {
     expect(VERIFIER_AGENT_MD).toContain("name: unerr-verifier");
     expect(VERIFIER_AGENT_MD).toContain(`model: ${OPUS_MODEL}`);

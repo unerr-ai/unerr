@@ -398,6 +398,27 @@ describe("instruction-writer", () => {
       expect(content).not.toContain(MARKER);
     });
 
+    it("carries the blocked/stalled/wrong-subgoal escalation triggers and the long-running-work sub-block", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code", {
+        autonomous: true,
+      });
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain("BLOCKED");
+      expect(content).toContain("STALLED");
+      expect(content).toContain("WRONG-SUBGOAL");
+      expect(content).toContain("Long-running work");
+      expect(content).toContain("Background-first");
+    });
+
+    it("interactive (autonomous unset) content has none of the autonomous-only triggers or sub-block", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).not.toContain("BLOCKED");
+      expect(content).not.toContain("STALLED");
+      expect(content).not.toContain("WRONG-SUBGOAL");
+      expect(content).not.toContain("Long-running work");
+    });
+
     it("toggling the flag off rewrites the section away (idempotent sentinel update)", () => {
       const first = writeInstructionFile(tmpDir, "claude-code", {
         autonomous: true,
@@ -426,6 +447,26 @@ describe("instruction-writer", () => {
       const content = readFileSync(result.path, "utf-8");
       expect(content).toContain("Tier by the hardest part, not the average");
       expect(content).not.toContain("Tier by reasoning, not by size");
+    });
+  });
+
+  describe("background-first line — shared batching section (all agents)", () => {
+    it("includes the background-first line for claude-code (interactive)", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain("Background-first for long commands");
+    });
+
+    it("includes the background-first line for codex (AGENTS.md)", () => {
+      const result = writeInstructionFile(tmpDir, "codex");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain("Background-first for long commands");
+    });
+
+    it("includes the background-first line for cursor (mdc)", () => {
+      const result = writeInstructionFile(tmpDir, "cursor");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain("Background-first for long commands");
     });
   });
 });

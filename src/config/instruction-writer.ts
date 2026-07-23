@@ -93,8 +93,17 @@ No human is watching this session. Never stop to ask a question — make the saf
 1. Before the first edit, write down the check that proves the task done — the project's own test / build / typecheck command, or a command that exercises the artifact. When fixing a bug, run that check FIRST and confirm it fails the way the task describes.
 2. Execute what you produce. Never finish with code or an artifact that never ran.
 3. Never grade your own work. Before declaring done, spawn unerr-verifier (\`Task({subagent_type:'unerr-verifier'})\`) with ONLY the acceptance criteria and what changed — not your reasoning. It must ground every criterion by running checks; reading back a value you wrote proves the write, not correctness.
-4. Escalate on countable evidence, automatically: the same symptom survives 2 distinct fix attempts · the same file edited 3+ times without a working fix · 2+ candidate root causes the evidence cannot decide · unerr-verifier rejects twice. Then spawn unerr-opus with the evidence brief (what was observed, what was tried, ALL candidates — never your preferred hypothesis) in propose-not-edit mode and implement its proposal. Still failing → spawn unerr-fable with opus's proposal and exactly why it failed. At most two escalation rounds per task.
+4. Escalate on countable evidence, automatically: the same symptom survives 2 distinct fix attempts · the same file edited 3+ times without a working fix · 2+ candidate root causes the evidence cannot decide · unerr-verifier rejects twice · BLOCKED: no forward path after one bounded investigation · STALLED: 2 work cycles with no new evidence or artifact progress · WRONG-SUBGOAL: evidence shows the current subgoal no longer serves the task's actual goal. Then spawn unerr-opus with the evidence brief (what was observed, what was tried, ALL candidates — never your preferred hypothesis) in propose-not-edit mode and implement its proposal. Still failing → spawn unerr-fable with opus's proposal and exactly why it failed. At most two escalation rounds per task.
 5. After unerr-verifier returns ACCEPT, stop. Do not re-open a proven artifact unless a check goes red again.
+
+### Long-running work
+
+1. Background-first: a command that can exceed ~2 minutes runs in the background with output redirected to a log file; poll the log or artifact — never block the session on a foreground wait, never pipe a long runner through grep/tail as the wait mechanism.
+2. Never \`sleep\` longer than 120 seconds as a wait; poll with a bounded loop and a stated expected-completion estimate instead.
+3. Artifact-first: write intermediate results to files as they are produced, so partial work survives an interruption; when a time/budget limit is visible, reserve its final slice to package what already exists instead of starting anything new.
+4. Use the named technique: when the task names a specific method/tool/algorithm, implement with it before inventing an alternative; never let an unbounded search (parameter sweep, brute force, uncapped retry loop) be the final action of a session.
+5. Environment-first for heavy compute: check available memory/CPU limits before a large build or data job, pin numeric-library threads to the cores actually available, and benchmark one unit before launching a batch.
+6. Process hygiene: stop every server/watcher/background process the session started before finishing.
 `
       : "";
 
@@ -142,6 +151,7 @@ A round-trip carries input + output + latency, so the win is doing N items in on
 1. **Bulk edits — climb this ladder, stop at the first rung that works:** (a) **one command for the whole set** — \`prettier --write .\`, a \`sed\`/codemod, a formatter, a build flag; run it once, not once per file. (b) **else one script** — write one small script that walks the files and makes the change in a single run. (c) **else a sub-agent loop** — hand the repetitive per-file edit to a sub-agent so it runs off your main thread (see below). NEVER loop your main thread file-by-file over mechanical edits — spawn sub-agents instead.
 2. **Batch independent reads into ONE message.** When you need several files or several entities and the calls don't depend on each other, issue them as parallel tool calls in a single message — not one, wait, next. Better still, one \`search_code({query:"<task>"})\` recon bundle already returns several files' bodies + callers together; reach for it before fanning out \`file_read\`.
 3. **Set \`token_budget\`/\`limit\` right the first time.** Reading at a small budget then re-reading bigger doubles the cost. Ask for what the task needs up front (e.g. \`token_budget:3000\` for a full function, \`limit:25\` for references) instead of read-small-then-re-read.
+4. **Background-first for long commands.** A command that can run more than 2 minutes goes to the background with output redirected to a log file; poll the log — never block the turn on a foreground wait.
 
 ### Delegate by default — the main thread routes and consolidates, sub-agents do the work
 
