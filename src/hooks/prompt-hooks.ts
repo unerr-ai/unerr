@@ -588,6 +588,19 @@ const promptSubmitHandler: HookHandler = (normalized) => {
     /* never block the hook */
   }
 
+  // Session-history anchor for the self-referential / tampered-check
+  // weak-verify shapes (Port B): stamp the turn boundary so `postBashHandler`
+  // can scope `readEditLogSince` to just this turn's own edits instead of the
+  // whole session. `asyncPromptSubmitHandler` calls this sync handler first,
+  // so stamping here covers both entry points. Never blocks the hook.
+  try {
+    updateNudgeState(process.cwd(), (s) => {
+      s.turn_started_ts = Date.now();
+    });
+  } catch {
+    /* never block the hook */
+  }
+
   // Fix J — verbatim prompt capture against {session_id, turn}. Best-effort,
   // never blocks. Honours `capture_prompts` flag in `.unerr/config.json`
   // (default false): operational metadata always written, verbatim content

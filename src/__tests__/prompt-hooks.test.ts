@@ -26,6 +26,7 @@ import {
 } from "../hooks/prompt-hooks.js";
 import { queryRecallTraces } from "../hooks/recall-client.js";
 import { classifyInjectionTier } from "../intelligence/task-size.js";
+import { readNudgeState } from "../proxy/nudge-state.js";
 import { addOptInSkills } from "../skills/skill-opt-in.js";
 
 // ── Recall-injection tier gating mocks ───────────────────────────────────────
@@ -364,6 +365,16 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     );
     expect(second).not.toContain("available skills");
     expect(second).not.toContain("[unerr] Prefer unerr MCP tools");
+  });
+
+  it("stamps turn_started_ts on the sync entry point (Port B session-history anchor)", () => {
+    runUserPromptSubmitHook(
+      JSON.stringify({
+        hook_event_name: "UserPromptSubmit",
+        user_message: "fix the bind retry in the boot sequence",
+      })
+    );
+    expect(readNudgeState(cwd).turn_started_ts).toBeGreaterThan(0);
   });
 
   it("emits the tool roster once per session for a non-claude agent (Codex), then gates it", () => {
@@ -881,6 +892,13 @@ describe("asyncPromptSubmitHandler — injection tier gating", () => {
       process.env.UNERR_SESSION_ID = savedSession;
     }
     rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("stamps turn_started_ts on the async entry point too (delegates to the sync handler first)", async () => {
+    await runUserPromptSubmitHookAsync(
+      mk("fix the bind retry in the boot sequence")
+    );
+    expect(readNudgeState(cwd).turn_started_ts).toBeGreaterThan(0);
   });
 
   it("inject:false — skips trace recall and does not call queryRecallTraces", async () => {

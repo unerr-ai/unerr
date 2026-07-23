@@ -66,6 +66,39 @@ describe("classifyWeakVerify", () => {
   it('returns null for "vitest run" — a real check is never weak', () => {
     expect(classifyWeakVerify("vitest run")).toBeNull();
   });
+
+  it('classifies "cat src/foo.ts" as self-referential when src/foo.ts was just edited', () => {
+    expect(
+      classifyWeakVerify("cat src/foo.ts", { editedFiles: ["src/foo.ts"] })
+    ).toBe("self-referential");
+  });
+
+  it("returns null for cat of a NON-edited file", () => {
+    expect(
+      classifyWeakVerify("cat other.txt", { editedFiles: ["src/foo.ts"] })
+    ).toBeNull();
+  });
+
+  it('classifies "vitest -u" (snapshot-update flag) as tampered-check', () => {
+    expect(classifyWeakVerify("vitest -u")).toBe("tampered-check");
+  });
+
+  it("classifies a check naming an edited fixture path as tampered-check", () => {
+    expect(
+      classifyWeakVerify(
+        "pnpm run test:run src/__tests__/fixtures/golden.snap",
+        { editedFiles: ["src/__tests__/fixtures/golden.snap"] }
+      )
+    ).toBe("tampered-check");
+  });
+
+  it("does NOT flag a plain test run after editing the test file itself", () => {
+    expect(
+      classifyWeakVerify("pnpm vitest run x.test.ts", {
+        editedFiles: ["x.test.ts"],
+      })
+    ).toBeNull();
+  });
 });
 
 // ── runPostBashHook — record + weak-verify nudge ────────────────────────
@@ -124,6 +157,41 @@ describe("runPostBashHook", () => {
   it("never throws on an empty command or unparseable stdin", () => {
     expect(() => runPostBashHook(bashStdin(""))).not.toThrow();
     expect(() => runPostBashHook("not json")).not.toThrow();
+  });
+
+  it("nudges self-referential when the turn's edit log names the read-back file (autonomous mode)", () => {
+    writeAutonomousMode(dir, true);
+    updateNudgeState(dir, (s) => {
+      s.turn_started_ts = Date.now() - 1000;
+    });
+    recordEdit(join(dir, ".unerr"), {
+      ts: new Date().toISOString(),
+      file_path: "src/foo.ts",
+      old_content: "old",
+      new_content: "new",
+    });
+
+    const out = JSON.parse(runPostBashHook(bashStdin("cat src/foo.ts")));
+    expect(out.hookSpecificOutput.additionalContext).toContain(
+      "Reading back the file you just wrote"
+    );
+    expect(readNudgeState(dir).weak_verify_nudged).toEqual([
+      "self-referential",
+    ]);
+  });
+
+  it("skips the new shapes entirely when turn_started_ts is unset (never guesses)", () => {
+    writeAutonomousMode(dir, true);
+    recordEdit(join(dir, ".unerr"), {
+      ts: new Date().toISOString(),
+      file_path: "src/foo.ts",
+      old_content: "old",
+      new_content: "new",
+    });
+
+    const out = runPostBashHook(bashStdin("cat src/foo.ts"));
+    expect(out).toBe("{}");
+    expect(readNudgeState(dir).weak_verify_nudged).toEqual([]);
   });
 });
 
@@ -327,6 +395,63 @@ describe("Stop hook — verification-awareness gate", () => {
     seedNativeLedgerEdit(editTs);
     updateNudgeState(dir, (s) => {
       s.check_cmd_last_ts = editTs + 60_000;
+    });
+    writeAutonomousMode(dir, true);
+
+    const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
+    expect(out.decision).toBeUndefined();
+    expect(out.systemMessage ?? "").not.toContain("verify-run");
+  });
+
+  // ── Exit-code-aware verify gate (Port A) ────────────────────────────────
+
+  it("blocks with the red-specific message when a check ran and FAILED after the edit", async () => {
+    seedTurnWithEdit();
+    updateNudgeState(dir, (s) => {
+      s.check_red_last_ts = Date.now() + 60_000;
+    });
+    writeAutonomousMode(dir, true);
+
+    const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
+    expect(out).toEqual({
+      decision: "block",
+      reason: expect.stringContaining("The check ran and FAILED"),
+    });
+  });
+
+  it("stays silent when a check ran and PASSED after the edit (green)", async () => {
+    seedTurnWithEdit();
+    updateNudgeState(dir, (s) => {
+      s.check_green_last_ts = Date.now() + 60_000;
+    });
+    writeAutonomousMode(dir, true);
+
+    const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
+    expect(out.decision).toBeUndefined();
+    expect(out.systemMessage ?? "").not.toContain("verify-run");
+    expect(out.systemMessage ?? "").not.toContain("FAILED");
+  });
+
+  it("fails open when a check ran after the edit but its exit code is unknown (unwrapped env)", async () => {
+    seedTurnWithEdit();
+    updateNudgeState(dir, (s) => {
+      // Only the ran-only stamp — no green/red — the shape an env that
+      // bypassed `unerr exec` leaves behind.
+      s.check_cmd_last_ts = Date.now() + 60_000;
+    });
+    writeAutonomousMode(dir, true);
+
+    const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
+    expect(out.decision).toBeUndefined();
+    expect(out.systemMessage ?? "").not.toContain("verify-run");
+  });
+
+  it("a later green supersedes an earlier red — stays silent", async () => {
+    seedTurnWithEdit();
+    const base = Date.now();
+    updateNudgeState(dir, (s) => {
+      s.check_red_last_ts = base + 30_000;
+      s.check_green_last_ts = base + 60_000;
     });
     writeAutonomousMode(dir, true);
 

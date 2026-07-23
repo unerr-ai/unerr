@@ -11,6 +11,7 @@
 
 import type { Command } from "commander";
 import { loginBlocked } from "../cloud/login-gate.js";
+import { classifyCheckCommand } from "../hooks/check-tracker.js";
 import {
   LOGIN_NUDGE_LINE,
   shouldEmitLoginNudge,
@@ -287,6 +288,30 @@ export async function runExecMain(argv: string[]): Promise<number> {
   // everything captured up to the kill instead of dying with an empty buffer.
   const run = await runStreamingShell(shell, cmd, runCwd);
   const exitCode = run.exitCode;
+
+  // Exit-code-aware verify gate (Port A) — the Stop hook's `check_cmd_last_ts`
+  // only knew a check RAN, not whether it passed, so a failed check still
+  // cleared the gate. `unerr exec` is the ground truth for exit code: stamp
+  // green/red separately so the Stop gate can tell PASSED from FAILED. Every
+  // Bash command in an installed repo is rewritten to run through here, so
+  // this is the primary source; `postBashHandler` (shell-hooks.ts) keeps
+  // stamping `check_cmd_last_ts` alone as the fallback for an unwrapped env.
+  // Best-effort — exec must never fail because of this stamp.
+  try {
+    if (classifyCheckCommand(cmd)) {
+      updateNudgeState(process.cwd(), (s) => {
+        s.check_cmd_last_ts = Date.now();
+        if (exitCode === 0) {
+          s.check_green_last_ts = Date.now();
+        } else {
+          s.check_red_last_ts = Date.now();
+        }
+      });
+    }
+  } catch {
+    // best-effort — never fail exec because of the stamp
+  }
+
   const stdoutTrimmed = run.stdout.trim();
   const stderrTrimmed = run.stderr.trim();
   const combined =

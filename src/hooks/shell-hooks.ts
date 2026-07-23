@@ -9,12 +9,14 @@
  * with multi-line commands, nested quotes, and special characters.
  */
 
+import { join } from "node:path";
 import { readAutonomousMode } from "../config/autonomous-mode.js";
 import { getUnerrCommand } from "../config/mcp-config-writer.js";
 import { formatDriftNudge, isDriftCommand } from "../proxy/drift-detector.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { normalizeShellCommand } from "../proxy/shell-classifier.js";
 import { recordDelegationHandoff } from "../tracking/delegation-handoff.js";
+import { readEditLogSince } from "../tracking/session-edit-log.js";
 import { classifyCheckCommand, classifyWeakVerify } from "./check-tracker.js";
 import {
   type HookHandler,
@@ -73,13 +75,17 @@ export function runPreBashHook(stdinJson: string): string {
 
 /** Just-in-time nudge text for a weak-verify shape (`classifyWeakVerify`). */
 const WEAK_VERIFY_NUDGE_TEXT: Record<
-  "existence-only" | "no-comparison",
+  "existence-only" | "no-comparison" | "self-referential" | "tampered-check",
   string
 > = {
   "existence-only":
     "That check only proves something exists or has the right shape — it never compares a value. Recompute the expected result independently and diff against it, or run the project's real check (test / typecheck / build).",
   "no-comparison":
     "That command only proves exit-0 — it asserts nothing about correctness. Run a check that compares actual output or behavior against an expected value.",
+  "self-referential":
+    "Reading back the file you just wrote proves the write, not the behavior — run the project's real check (test / typecheck / build) against it.",
+  "tampered-check":
+    "The check was changed to match the output — justify the fixture/snapshot change, or verify against a check you did not modify.",
 };
 
 /**
@@ -89,7 +95,11 @@ const WEAK_VERIFY_NUDGE_TEXT: Record<
  * Stop hook can tell whether this turn's edits were verified. In autonomous
  * mode only, a command classified as a WEAK verify shape
  * (`classifyWeakVerify`) earns a one-shot-per-reason-per-session nudge toward
- * a real comparison. Never throws — any failure degrades to passthrough.
+ * a real comparison — the self-referential / tampered-check shapes are scoped
+ * to this turn's own edits (`readEditLogSince` from `turn_started_ts`, stamped
+ * by the prompt-submit hook; absent/0 skips those two shapes entirely rather
+ * than guessing against a stale turn). Never throws — any failure degrades to
+ * passthrough.
  *
  * @sem domain=agent-hooks role=verify-gate
  */
@@ -106,20 +116,30 @@ const postBashHandler: HookHandler = (normalized) => {
 
     const cwd = process.cwd();
 
+    // Stamped regardless of tamper status below — the command DID run; the
+    // tampered-check shape (a check command that ran but whose result is
+    // suspect) is a separate, additive nudge, not a reason to un-stamp "ran".
     if (classifyCheckCommand(cmd)) {
       updateNudgeState(cwd, (s) => {
         s.check_cmd_count += 1;
         s.check_cmd_last_ts = Date.now();
       });
-      return passthrough();
     }
 
     if (!readAutonomousMode(cwd)) return passthrough();
 
-    const reason = classifyWeakVerify(cmd);
+    const state = readNudgeState(cwd);
+    const editedFiles =
+      state.turn_started_ts > 0
+        ? readEditLogSince(join(cwd, ".unerr"), state.turn_started_ts).map(
+            (e) => e.file_path
+          )
+        : [];
+
+    const reason = classifyWeakVerify(cmd, { editedFiles });
     if (!reason) return passthrough();
 
-    if (readNudgeState(cwd).weak_verify_nudged.includes(reason)) {
+    if (state.weak_verify_nudged.includes(reason)) {
       return passthrough();
     }
     updateNudgeState(cwd, (s) => {

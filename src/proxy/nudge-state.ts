@@ -126,10 +126,23 @@ export interface NudgeSessionState {
    *  session. Telemetry only; gating reads `check_cmd_last_ts`. */
   check_cmd_count: number;
   /** Verification awareness (W4) — epoch-ms of the last classified check
-   *  command. The Stop hook compares this against the current turn's last
-   *  edit timestamp to decide whether the turn's edits were verified. 0 means
-   *  no check command has run yet this session. */
+   *  command REGARDLESS of exit code. The Stop gate uses this only as a
+   *  fail-open fallback when the exit code is unknown (a command that ran
+   *  outside `unerr exec`, e.g. hooks partially installed) — a green/red
+   *  check always stamps this too. 0 means no check command has run yet this
+   *  session. */
   check_cmd_last_ts: number;
+  /** Exit-code-aware verify gate — epoch-ms of the last check command that
+   *  exited 0, stamped by `runExecMain`. The Stop gate treats this as proof
+   *  the turn's edits were verified, distinct from merely "a check ran"
+   *  (`check_cmd_last_ts`), which a FAILED check also stamps. 0 means no
+   *  check has passed yet this session. */
+  check_green_last_ts: number;
+  /** Exit-code-aware verify gate — epoch-ms of the last check command that
+   *  exited non-zero, stamped by `runExecMain`. The Stop gate blocks on this
+   *  (a real check ran and FAILED) rather than reading "a check ran" as
+   *  clean. 0 means no check has failed yet this session. */
+  check_red_last_ts: number;
   /** Verification awareness (W4) — count of soft advisory lines the Stop hook
    *  has appended to the systemMessage for unchecked edits this session.
    *  Capped at 2; the gate goes silent past the cap. */
@@ -139,9 +152,16 @@ export interface NudgeSessionState {
    *  the cap the gate degrades to the soft advisory line instead. */
   verify_block_count: number;
   /** Verification awareness (W4) — weak-verify reasons (`"existence-only"` /
-   *  `"no-comparison"`) already nudged this session, so the just-in-time
-   *  weak-verify nudge fires at most once per reason per session. */
+   *  `"no-comparison"` / `"self-referential"` / `"tampered-check"`) already
+   *  nudged this session, so the just-in-time weak-verify nudge fires at most
+   *  once per reason per session. */
   weak_verify_nudged: string[];
+  /** Session-history anchor for the self-referential / tampered-check
+   *  weak-verify shapes — epoch-ms when the current turn's prompt-submit hook
+   *  last fired. `postBashHandler` scopes `readEditLogSince` to this turn's
+   *  own edits. 0 means no turn boundary has been stamped yet — the new
+   *  shapes are skipped entirely rather than guessed against a stale turn. */
+  turn_started_ts: number;
 }
 
 function defaultState(): NudgeSessionState {
@@ -170,9 +190,12 @@ function defaultState(): NudgeSessionState {
     tracker_close_reminder_count: 0,
     check_cmd_count: 0,
     check_cmd_last_ts: 0,
+    check_green_last_ts: 0,
+    check_red_last_ts: 0,
     verify_soft_count: 0,
     verify_block_count: 0,
     weak_verify_nudged: [],
+    turn_started_ts: 0,
   };
 }
 
@@ -296,6 +319,14 @@ export function readNudgeState(cwd: string): NudgeSessionState {
         typeof parsed.check_cmd_last_ts === "number"
           ? parsed.check_cmd_last_ts
           : 0,
+      check_green_last_ts:
+        typeof parsed.check_green_last_ts === "number"
+          ? parsed.check_green_last_ts
+          : 0,
+      check_red_last_ts:
+        typeof parsed.check_red_last_ts === "number"
+          ? parsed.check_red_last_ts
+          : 0,
       verify_soft_count:
         typeof parsed.verify_soft_count === "number"
           ? parsed.verify_soft_count
@@ -307,6 +338,8 @@ export function readNudgeState(cwd: string): NudgeSessionState {
       weak_verify_nudged: Array.isArray(parsed.weak_verify_nudged)
         ? parsed.weak_verify_nudged.filter((s) => typeof s === "string")
         : [],
+      turn_started_ts:
+        typeof parsed.turn_started_ts === "number" ? parsed.turn_started_ts : 0,
     };
   } catch {
     return defaultState();

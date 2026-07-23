@@ -256,30 +256,50 @@ type VerifyGateResult =
   | { kind: "block"; message: string }
   | { kind: "soft"; line: string };
 
+/**
+ * Exit-code-aware outcome of the last check command relative to a turn's last
+ * edit: "green" (passed at/after the edit — verified), "red" (a real check
+ * ran at/after the edit and FAILED, with no later green superseding it),
+ * "unknown" (a check ran at/after the edit through an env that only stamps
+ * `check_cmd_last_ts`, not the exit code — e.g. hooks partially installed),
+ * or "none" (no recognized check ran after the edit).
+ */
+type CheckOutcome = "green" | "red" | "unknown" | "none";
+
 const VERIFY_BLOCK_MESSAGE =
   "Edits landed this turn with no check run. Run the project's check that proves the change (test / build / typecheck) and read its result, or spawn unerr-verifier (Task subagent_type:'unerr-verifier') with the acceptance criteria and what changed. Then finish.";
+
+const VERIFY_RED_BLOCK_MESSAGE =
+  "The check ran and FAILED. Fix the failure it reported and rerun until green, or spawn unerr-opus (Task subagent_type:'unerr-opus') with the failing output as the evidence brief. Do not stop on a red check.";
 
 const VERIFY_SOFT_LINE =
   "unerr » edits landed with no check run this turn — delegate a verify-run (typecheck + targeted tests) to unerr-junior before building on it";
 
+const VERIFY_SOFT_LINE_RED =
+  "unerr » the check run after this turn's edits FAILED — fix the failure and rerun until green before building on it";
+
 /**
- * Whether this turn had file edits and, if so, whether a check command ran
- * after the last one. Merges two independent edit sources so a native
- * Write/Edit — which never emits a `code_edit_applied` named event — is not
- * invisible to the gate: (1) `code_edit_applied` events in the current-turn
- * slice (`readNamedEvents` + `currentTurnSlice`, unchanged), and (2)
- * `session-edits.jsonl` ledger rows ({@link readEditLogSince}) at or after
- * this turn's prompt boundary (`latestPromptBoundaryTs`). The ledger persists
- * across turns/sessions, so with no prompt boundary its rows never count —
- * counting a stale cross-turn row risks trapping the agent in a block loop.
- * `referenceTs`, the timestamp a check must beat, is the max across whichever
- * source(s) contributed.
+ * Whether this turn had file edits and, if so, the exit-code-aware outcome
+ * (`checkGreenLastTs` / `checkRedLastTs` / `checkCmdLastTs`, from
+ * `runExecMain`'s exit-code stamp and `postBashHandler`'s ran-only fallback)
+ * of the last check relative to the last edit — see {@link CheckOutcome}.
+ * Merges two independent edit sources so a native Write/Edit — which never
+ * emits a `code_edit_applied` named event — is not invisible to the gate: (1)
+ * `code_edit_applied` events in the current-turn slice (`readNamedEvents` +
+ * `currentTurnSlice`, unchanged), and (2) `session-edits.jsonl` ledger rows
+ * ({@link readEditLogSince}) at or after this turn's prompt boundary
+ * (`latestPromptBoundaryTs`). The ledger persists across turns/sessions, so
+ * with no prompt boundary its rows never count — counting a stale cross-turn
+ * row risks trapping the agent in a block loop. `referenceTs`, the timestamp
+ * a check must beat, is the max across whichever source(s) contributed.
  */
 function turnVerifyStatus(
   unerrDir: string,
   currentTurn: number,
-  checkCmdLastTs: number
-): { hadEdits: boolean; checkRanAfterEdit: boolean } {
+  checkCmdLastTs: number,
+  checkGreenLastTs: number,
+  checkRedLastTs: number
+): { hadEdits: boolean; outcome: CheckOutcome } {
   const events = readNamedEvents(unerrDir, {});
   const turnEvents = currentTurnSlice(events, currentTurn);
   const namedEdits = turnEvents.filter(
@@ -293,7 +313,7 @@ function turnVerifyStatus(
       : [];
 
   if (namedEdits.length === 0 && ledgerEdits.length === 0) {
-    return { hadEdits: false, checkRanAfterEdit: true };
+    return { hadEdits: false, outcome: "none" };
   }
 
   const namedTimestamps = namedEdits
@@ -317,20 +337,36 @@ function turnVerifyStatus(
   );
   const referenceTs = contributions.length > 0 ? Math.max(...contributions) : 0;
 
-  return {
-    hadEdits: true,
-    checkRanAfterEdit: checkCmdLastTs > 0 && checkCmdLastTs >= referenceTs,
-  };
+  // Priority order: a later GREEN always wins (verified) even over an earlier
+  // red; else a red that beats the edit blocks; else a check ran but its exit
+  // code is invisible (unwrapped env) — fail OPEN rather than trap the agent;
+  // else no recognized check ran at all.
+  const outcome: CheckOutcome =
+    checkGreenLastTs > 0 && checkGreenLastTs >= referenceTs
+      ? "green"
+      : checkRedLastTs > 0 && checkRedLastTs >= referenceTs
+        ? "red"
+        : checkCmdLastTs > 0 && checkCmdLastTs >= referenceTs
+          ? "unknown"
+          : "none";
+
+  return { hadEdits: true, outcome };
 }
 
 /**
- * Verification-awareness (W4) Stop gate. When this turn's edits have no check
- * run after them: in autonomous mode ({@link readAutonomousMode}), return a
- * blocking decision (capped at 2 per session, `verify_block_count`); once that
- * cap is spent — or always, in interactive mode — return a soft advisory line
- * to append to the systemMessage (capped at 2 per session,
- * `verify_soft_count`). Returns null once there is nothing to say: no edits
- * this turn, a check ran after the last edit, or both caps are spent.
+ * Verification-awareness (W4) Stop gate, exit-code aware. When this turn's
+ * edits have no GREEN check after them: green ({@link CheckOutcome}) stays
+ * silent (verified); "unknown" (a check ran but its exit code is invisible —
+ * an unwrapped env) also stays silent — fail OPEN rather than trap the agent
+ * on lost visibility; "red" (a real check ran and FAILED) or "none" (no
+ * check ran) escalate identically — in autonomous mode
+ * ({@link readAutonomousMode}), a blocking decision (capped at 2 per session,
+ * `verify_block_count`); once that cap is spent — or always, in interactive
+ * mode — a soft advisory line appended to the systemMessage (capped at 2 per
+ * session, `verify_soft_count`). "red" uses the red-specific message/line
+ * (`VERIFY_RED_BLOCK_MESSAGE`/`VERIFY_SOFT_LINE_RED`) so the agent is told the
+ * check FAILED, not merely that none ran. Returns null once there is nothing
+ * to say: no edits this turn, green/unknown outcome, or both caps are spent.
  * Best-effort — any internal error degrades to null (unchanged Stop behavior).
  *
  * @sem domain=agent-hooks role=verify-gate
@@ -345,21 +381,32 @@ export function evaluateVerifyGate(
     const status = turnVerifyStatus(
       unerrDir,
       currentTurn,
-      state.check_cmd_last_ts
+      state.check_cmd_last_ts,
+      state.check_green_last_ts,
+      state.check_red_last_ts
     );
-    if (!status.hadEdits || status.checkRanAfterEdit) return null;
+    if (!status.hadEdits) return null;
+    if (status.outcome === "green" || status.outcome === "unknown") {
+      return null;
+    }
+
+    const isRed = status.outcome === "red";
+    const blockMessage = isRed
+      ? VERIFY_RED_BLOCK_MESSAGE
+      : VERIFY_BLOCK_MESSAGE;
+    const softLine = isRed ? VERIFY_SOFT_LINE_RED : VERIFY_SOFT_LINE;
 
     if (readAutonomousMode(repoRoot) && state.verify_block_count < 2) {
       updateNudgeState(repoRoot, (s) => {
         s.verify_block_count += 1;
       });
-      return { kind: "block", message: VERIFY_BLOCK_MESSAGE };
+      return { kind: "block", message: blockMessage };
     }
     if (state.verify_soft_count < 2) {
       updateNudgeState(repoRoot, (s) => {
         s.verify_soft_count += 1;
       });
-      return { kind: "soft", line: VERIFY_SOFT_LINE };
+      return { kind: "soft", line: softLine };
     }
     return null;
   } catch {
@@ -374,10 +421,10 @@ export function evaluateVerifyGate(
  * receipt (honest-zero) or an internal error occurs, it falls back to a one-line
  * presence marker (`stopPresenceLine`) instead of a silent "{}" — every turn
  * confirms unerr is active. Only truly unparseable stdin still yields "{}".
- * Verification awareness (W4): when this turn had edits and no check command
- * ran since, `evaluateVerifyGate` either blocks the turn (autonomous mode,
- * capped) or appends a soft advisory line to the systemMessage (capped);
- * unaffected turns keep the prior message unchanged.
+ * Verification awareness (W4): when this turn had edits with no GREEN check
+ * since (none ran, or one ran and FAILED), `evaluateVerifyGate` either blocks
+ * the turn (autonomous mode, capped) or appends a soft advisory line to the
+ * systemMessage (capped); unaffected turns keep the prior message unchanged.
  */
 export async function runStopHookHandlerAsync(
   stdinJson: string
