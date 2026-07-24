@@ -2,7 +2,7 @@
  * Sprint 4 — login-blocked passthrough for the non-interactive surfaces.
  *
  * The IDE hooks (PreToolUse/PostToolUse) and git pre-commit/post-commit shell
- * out to `unerr hook …` / `exec` / `compress-output` / `check-commit`. When the
+ * out to `unerr hook …` / `exec` / `compress-output`. When the
  * machine is signed out (`loginBlocked()`), every one of these MUST pass through
  * unchanged: no graph-aware work, no deny, no throw, no non-zero exit, no
  * browser — and at most ONE throttled `ur|act` login nudge per repo per window.
@@ -31,12 +31,6 @@ vi.mock("../cloud/credentials.js", () => ({
   readCredentialMetadata: () => credentialMetaMock(),
 }));
 
-import { registerCheckCommitCommand } from "../commands/check-commit.js";
-
-// check-commit is part of the reviewer surface (OFF by default). Enable it so
-// the login-blocked passthrough path under test is actually reached rather than
-// short-circuited by the master switch. Forks isolation keeps env file-local.
-process.env.UNERR_REVIEW_ENABLED = "1";
 import { registerCompressOutputCommand } from "../commands/compress-output.js";
 import { runExecMain } from "../commands/exec.js";
 import { registerHookCommand } from "../commands/hook.js";
@@ -210,33 +204,6 @@ describe("compress-output — login blocked", () => {
   it("does not throw when blocked", async () => {
     blocked();
     await expect(runCompressOutput("anything")).resolves.toBeUndefined();
-  });
-});
-
-// ── check-commit ─────────────────────────────────────────────────────────────
-
-async function runCheckCommit(args: string[] = []): Promise<void> {
-  const program = new Command();
-  registerCheckCommitCommand(program);
-  await program.parseAsync(["node", "unerr", "check-commit", ...args]);
-}
-
-describe("check-commit — login blocked", () => {
-  it("allows the commit (exit 0), runs no engine, nudges once", async () => {
-    blocked();
-    process.exitCode = undefined;
-    await runCheckCommit();
-    expect(process.exitCode).toBe(0);
-    expect(stderr()).toContain(LOGIN_NUDGE_LINE);
-    process.exitCode = undefined;
-  });
-
-  it("does not block even in --blocking mode when signed out", async () => {
-    blocked();
-    process.exitCode = undefined;
-    await expect(runCheckCommit(["--blocking"])).resolves.toBeUndefined();
-    expect(process.exitCode).toBe(0);
-    process.exitCode = undefined;
   });
 });
 

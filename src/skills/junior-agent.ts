@@ -5,20 +5,16 @@
  * task to. Claude Code reads `.claude/agents/unerr-junior.md`; its `model:`
  * frontmatter is the documented, supported way to pin a cheaper tier (Haiku) for
  * just the delegated step. The junior receives only the senior's recon digest,
- * makes the minimal edit, and self-verifies (typecheck / targeted test /
- * check-commit) with a bounded retry before returning a short digest. The other
+ * makes the minimal edit, and self-verifies (typecheck / targeted test) with a
+ * bounded retry before returning a short digest. The other
  * delegation hosts have no on-disk agent file — they shell out to their own CLI's
  * non-interactive mode with a cheaper-model flag: Codex `codex exec -m`, Cursor
  * `cursor-agent -p -m`, Copilot CLI `copilot -p --model`. So this writer is
  * claude-code-only; the rest are driven by `juniorHandoff()`.
  *
- * Autonomous installs (`unerr install claude-code --autonomous`) switch the
- * opus/fable pair to an AUTO-SPAWN variant that fires on a hard-tail signal
- * without being asked — `description` text is the only auto-delegation signal
- * Claude Code reads — and add a read-only `unerr-verifier` sub-agent for
- * independent post-change verification. Interactive installs keep both
- * agents manual-only (spawned only on explicit request) and write no
- * verifier.
+ * Also writes `unerr-opus` (auto-selectable by description for complex or
+ * large-context work, also runnable on explicit request) and `unerr-fable`
+ * (manual-only, spawned only on explicit request).
  *
  * @sem domain=delegation role=subagent-installer
  */
@@ -77,12 +73,15 @@ export type ModelTier = "senior" | "worker" | "junior";
 /** Claude Code worker tier — Sonnet (between Opus senior and Haiku junior). */
 export const CLAUDE_WORKER_MODEL = "sonnet";
 /**
- * The two USER-INVOKED Claude Code sub-agents. Unlike junior/worker these are NOT
- * part of the automatic delegation routing (`selectTier` / `DELEGATION_TIERS` /
- * `juniorHandoff`) — nothing spawns them on its own. They exist on disk only so the
- * user can explicitly run a scoped task on a specific model via
- * `Task subagent_type:'unerr-opus'` / `'unerr-fable'`. Same subagent shape and
- * operating contract as junior/worker, pinned to Opus and Fable respectively.
+ * The two Claude Code sub-agents pinned to the strongest models. Neither is part
+ * of the multi-host tier routing (`selectTier` / `DELEGATION_TIERS` /
+ * `juniorHandoff` resolve only to `worker`/`junior`) — Claude Code's own
+ * Task-tool picker reads `description` text alone to decide auto-selection.
+ * `unerr-opus`'s description now invites auto-spawn for complex work
+ * (design/architecture/root-causing) and large-context work, so the host may
+ * pick it without being asked; `unerr-fable` stays manual-only, spawned only via
+ * `Task subagent_type:'unerr-fable'` on explicit request. Same subagent shape
+ * and operating contract as junior/worker, pinned to Opus and Fable respectively.
  */
 export const OPUS_MODEL = "opus";
 export const FABLE_MODEL = "fable";
@@ -296,7 +295,7 @@ export const JUNIOR_AGENT_RELPATH = ".claude/agents/unerr-junior.md";
  * sweep.
  */
 const WORKER_TOOLS =
-  "mcp__unerr__search_code, mcp__unerr__file_read, mcp__unerr__file_outline, mcp__unerr__get_references, mcp__unerr__file_edit, Read, Edit, Write, Bash";
+  "mcp__unerr__search_code, mcp__unerr__file_read, mcp__unerr__get_references, mcp__unerr__file_edit, Read, Edit, Write, Bash";
 
 /**
  * Junior's allow-list adds web tools (`fetch_url`, WebSearch, WebFetch) on top of
@@ -305,13 +304,6 @@ const WORKER_TOOLS =
  * The worker rarely researches, so it keeps the no-web set.
  */
 const JUNIOR_TOOLS = `${WORKER_TOOLS}, mcp__unerr__fetch_url, WebSearch, WebFetch`;
-
-/**
- * The reviewer's read-only allow-list — no `mcp__unerr__file_edit`, `Edit`, or
- * `Write`. It reports findings; it never touches a file.
- */
-const REVIEWER_TOOLS =
-  "mcp__unerr__search_code, mcp__unerr__file_read, mcp__unerr__file_outline, mcp__unerr__get_references, Read, Bash";
 
 /**
  * Wrap `text` into lines indented by `indent`, each capped at `width` chars, for
@@ -354,7 +346,6 @@ function defaultContract(tierNote: string): string {
 4. **Self-verify before returning.** Run, in order:
    - \`pnpm run typecheck\`
    - the targeted test file for what you changed (\`pnpm run test:run <path>\`), not the full suite
-   - \`unerr check-commit\` if available
 5. **Bounded retry.** If a check fails, fix and re-run — at most **2** retries. If it still fails after the second retry, STOP. Do not loop.
 6. **Return a short digest, not a narration.** Your final message is the result the senior reads: list the files + line ranges you changed, the check results (pass/fail with the failing output if any), and — if you stopped after retries — one line naming exactly what blocked you (e.g. "typecheck fails: caller src/x.ts:42 passes 2 args, signature now takes 3"). The senior reviews your diff and escalates from that one note.
 
@@ -365,27 +356,18 @@ If the task turns out to need design judgement (architecture, a new public inter
 }
 
 /**
- * The reviewer's "Review contract" body — no editing, no self-verify-by-running,
- * no bounded retry. It scopes the diff, checks blast radius + conventions, and
- * returns ranked findings instead of a fix.
- */
-const REVIEWER_CONTRACT = `## Review contract
-
-1. **Scope the diff.** Run \`git diff\` (working tree) and \`git diff --staged\` (staged changes) to find every file the turn touched. Review only what changed — do not audit the whole codebase.
-2. **Check blast radius.** For each changed exported entity, call \`get_references({direction:'callers'})\` and confirm every caller still matches the new signature or behavior.
-3. **Check conventions.** Call \`search_code({query:"<what changed>"})\` and compare the diff against the codebase's existing conventions (naming, error handling, import order, async style) — flag deviations.
-4. **Check \`@sem\` comments.** Flag any edited entity whose \`@sem\` doc comment no longer matches its new behavior, or whose comment was deleted instead of updated.
-5. **Return findings, not fixes.** Report a ranked list, most severe first, each with \`file:line\` and a one-line reason. You have no Edit, Write, or file_edit tool — you cannot make a fix. Route confirmed findings back to \`unerr-worker\`.
-`;
-
-/**
  * Build a model-pinned sub-agent definition. Every sub-agent shares one
  * frontmatter shape (name/description/model/tools) and a body of intro + job +
  * contract; the editing sub-agents (junior/worker/opus/fable) share one
- * edit-and-verify contract via the defaults, while the read-only reviewer
- * overrides `job` and `contract` with review-specific text. `description` is
+ * edit-and-verify contract via the defaults, while the read-only verifier
+ * overrides `job` and `contract` with verification-specific text. `description` is
  * emitted as a YAML folded block scalar (`description: >-`) so it can safely
- * contain colons and `<example>` blocks without breaking frontmatter parsing.
+ * contain colons without breaking frontmatter parsing. `description` loads
+ * into every session as the auto-delegation signal Claude Code reads before
+ * any tool call, so it carries only the trigger phrases (PROACTIVELY/MUST BE
+ * USED cues, the task-noun list, the not-for closer) — no `<example>` blocks;
+ * those move to the body's `examples` section instead, which loads only when
+ * the sub-agent is actually spawned.
  */
 function buildSubagentMd(opts: {
   name: string;
@@ -404,10 +386,18 @@ function buildSubagentMd(opts: {
   job?: string;
   /** Override the shared "Operating contract" + "Out of scope" body. */
   contract?: string;
+  /**
+   * Optional "## Examples" markdown appended after the contract — the
+   * illustrative spawn scenarios that used to live as `<example>` blocks
+   * inside `description`. Body-only content, so it costs nothing on every
+   * session; it's read once, when the sub-agent is spawned.
+   */
+  examples?: string;
 }): string {
   const tierNote = opts.tierNote ?? "on the cheaper tier";
   const job = opts.job ?? DEFAULT_JOB;
   const contract = opts.contract ?? defaultContract(tierNote);
+  const examplesBlock = opts.examples ? `\n${opts.examples}` : "";
   return `---
 name: ${opts.name}
 description: >-
@@ -418,7 +408,7 @@ tools: ${opts.tools}
 
 You are ${opts.name}. ${opts.intro} ${job}
 
-${contract}`;
+${contract}${examplesBlock}`;
 }
 
 /**
@@ -430,10 +420,14 @@ export const JUNIOR_AGENT_MD = buildSubagentMd({
   name: "unerr-junior",
   model: JUNIOR_MODEL,
   description:
-    "Use PROACTIVELY for every read-only or mechanical side task instead of doing it in the main thread — codebase investigation (find/trace/map/where/how questions), inventory and audits (find-all usages), web research and docs/API/changelog lookups, log and error triage, bug reproduction (run and report, no edit), lint/format runs, docstrings/@sem upkeep, verify-runs (typecheck + targeted tests + lint), post-edit code review, security audits, benchmark/profiling runs, git operations (branch/PR prep), and shell-command sequences. MUST BE USED whenever the deliverable is a digest or report rather than a design decision. <example>Context: user asks 'where is the idle timeout enforced?' assistant: 'Spawning the unerr-junior agent to trace idle-timeout handling and report back.' <commentary>Codebase Q&A is read-only recon — delegate it instead of searching in the main thread.</commentary></example> <example>Context: edits just landed and need verification. assistant: 'Spawning unerr-junior to run typecheck, targeted tests, and lint, and return the failure list.' <commentary>Verify-runs are junior work; the main thread only reads the digest.</commentary></example> Not for design, new features, or bug root-causing.",
+    "Use PROACTIVELY for every read-only or mechanical side task instead of doing it in the main thread — codebase investigation, inventory/audits, web research and docs lookups, log/error triage, bug reproduction without edits, lint/format, @sem upkeep, verify-runs, post-edit review, security audits, benchmark runs, git/PR prep, and shell-command runs. MUST BE USED whenever the deliverable is a digest or report rather than a design decision. Not for design, new features, or bug root-causing.",
   intro:
     "The senior delegated a narrow, check-verifiable task to you on a cheaper model.",
   tools: JUNIOR_TOOLS,
+  examples: `## Examples
+
+- User asks "where is the idle timeout enforced?" — a senior spawns unerr-junior to trace idle-timeout handling and report back. Codebase Q&A is read-only recon, delegated instead of searched in the main thread.
+- Edits just landed and need verification — a senior spawns unerr-junior to run typecheck, targeted tests, and lint, and return the failure list. Verify-runs are junior work; the main thread only reads the digest.`,
 });
 
 /**
@@ -447,10 +441,14 @@ export const WORKER_AGENT_MD = buildSubagentMd({
   name: "unerr-worker",
   model: CLAUDE_WORKER_MODEL,
   description:
-    "Use PROACTIVELY as the DEFAULT executor for ordinary coding — spawn it for any scoped, check-verifiable change instead of editing in the main thread: feature implementation from a clear spec (add a flag, wire X into Y, implement a handler), adding/improving tests, multi-site mechanical refactors (rename/extract/inline/move), codemods, caller/import propagation after a signature change, typecheck/build-error fixes, dependency upgrades, migration scripts, and scaffolding new files from a sibling template. MUST BE USED when the change is specified and verifiable, even when it spans many files. <example>Context: user says 'add a --json flag to unerr status'. assistant: 'Spawning the unerr-worker agent to implement the flag and self-verify.' <commentary>Scoped feature work from a clear spec is worker-tier — the main thread only reviews the diff.</commentary></example> <example>Context: a function signature changed and 14 callers need updating. assistant: 'Spawning unerr-worker to propagate the new signature to every caller and re-run typecheck.' <commentary>Deterministic mechanical breadth stays with the worker regardless of file count.</commentary></example> Not for architecture/algorithm design, a new public interface, or bug root-causing — those stay on the main thread.",
+    "Use PROACTIVELY as the DEFAULT executor for ordinary coding — spawn it for any scoped, check-verifiable change instead of editing in the main thread: feature implementation, adding/improving tests, multi-site mechanical refactors, codemods, caller/import propagation, typecheck/build-error fixes, dependency upgrades, migration scripts, and scaffolding from a sibling template. MUST BE USED when the change is specified and verifiable, even when it spans many files. Not for architecture/algorithm design, a new public interface, or bug root-causing — those stay on the main thread.",
   intro:
     "The senior delegated a check-verifiable task that needs some judgement to you on a mid-tier model.",
   tools: WORKER_TOOLS,
+  examples: `## Examples
+
+- User says "add a --json flag to unerr status" — a senior spawns unerr-worker to implement the flag and self-verify. Scoped feature work from a clear spec is worker-tier; the main thread only reviews the diff.
+- A function signature changed and 14 callers need updating — a senior spawns unerr-worker to propagate the new signature to every caller and re-run typecheck. Deterministic mechanical breadth stays with the worker regardless of file count.`,
 });
 
 /** Relative path (from repo root) of the middle-tier sub-agent definition. */
@@ -458,20 +456,26 @@ export const WORKER_AGENT_RELPATH = ".claude/agents/unerr-worker.md";
 
 /**
  * The full `.claude/agents/unerr-opus.md` content (Opus — the strongest model).
- * A USER-INVOKED sub-agent: same operating contract as junior/worker, but never
- * spawned by the automatic delegation routing — only when the user explicitly runs
- * `Task subagent_type:'unerr-opus'` to put a scoped task on Opus. Gets the full
- * tool set (incl. web) so an explicitly-chosen model is not artificially limited.
+ * Auto-selectable by Claude Code's own Task-tool picker for COMPLEX work (novel
+ * design, algorithm/architecture, a new public interface, bug root-causing) and
+ * LARGE-CONTEXT work (recon/reading that would otherwise bloat the main thread —
+ * a fresh sub-agent context isolates it); also runs on explicit request via
+ * `Task subagent_type:'unerr-opus'`. Gets the full tool set (incl. web) so the
+ * strongest model is not artificially limited.
  */
 export const OPUS_AGENT_MD = buildSubagentMd({
   name: "unerr-opus",
   model: OPUS_MODEL,
   description:
-    "Manual-only: spawn ONLY when the user explicitly asks for Opus by name (e.g. 'use unerr-opus', 'run this on Opus'). NEVER select this agent automatically — for ordinary delegation use unerr-worker or unerr-junior. Runs one scoped task pinned to Opus: makes the minimal correct edit from the senior's recon digest and self-verifies.",
+    "Use PROACTIVELY as the auto-selected default for COMPLEX work (novel design, algorithm or architecture decisions, a new public interface) and bug root-causing, and for LARGE-CONTEXT work — spawning isolates that recon in a fresh sub-agent instead of growing the main thread. MUST BE USED once a task needs design judgement rather than scoped execution. Also runs on explicit request ('use unerr-opus', 'run this on Opus'). Not for scoped, check-verifiable execution — that stays with unerr-worker.",
   intro:
-    "You were spawned on explicit request to run a scoped, check-verifiable task on Opus, the strongest model.",
+    "The senior delegated a complex or large-context task to you, the strongest model on the team.",
   tools: JUNIOR_TOOLS,
   tierNote: "from a scoped sub-agent",
+  examples: `## Examples
+
+- A new caching layer needs its interface designed before any code is written — a senior spawns unerr-opus to design the interface and propose the approach. Architecture and interface design is Opus-tier judgement, not scoped execution.
+- A bug's root cause spans a wide, unfamiliar part of the call graph — a senior spawns unerr-opus to root-cause it; the investigation would otherwise bloat the main thread.`,
 });
 
 /** Relative path (from repo root) of the user-invoked Opus sub-agent definition. */
@@ -486,7 +490,7 @@ export const FABLE_AGENT_MD = buildSubagentMd({
   name: "unerr-fable",
   model: FABLE_MODEL,
   description:
-    "Manual-only: spawn ONLY when the user explicitly asks for Fable by name (e.g. 'use unerr-fable', 'run this on Fable'). NEVER select this agent automatically — for ordinary delegation use unerr-worker or unerr-junior. Runs one scoped task pinned to Fable: makes the minimal correct edit from the senior's recon digest and self-verifies.",
+    "Manual-only: spawn ONLY when the user explicitly asks for Fable by name ('use unerr-fable', 'run this on Fable') — NEVER select this agent automatically; for ordinary delegation use unerr-worker or unerr-junior. Runs one scoped task pinned to Fable: makes the minimal correct edit from the senior's recon digest and self-verifies.",
   intro:
     "You were spawned on explicit request to run a scoped, check-verifiable task on Fable.",
   tools: JUNIOR_TOOLS,
@@ -495,151 +499,6 @@ export const FABLE_AGENT_MD = buildSubagentMd({
 
 /** Relative path (from repo root) of the user-invoked Fable sub-agent definition. */
 export const FABLE_AGENT_RELPATH = ".claude/agents/unerr-fable.md";
-
-/**
- * Shared Modes + Method + Return-discipline body for the AUTOMATIC opus/fable
- * escalation variants (autonomous installs only). `secondMode` is the one
- * section that differs between the two rungs — opus may be told to IMPLEMENT
- * a proposal, fable REVIEWs a diff opus already proposed that is still failing.
- */
-function escalationContract(secondMode: string): string {
-  return `## Modes
-
-**PROPOSE (default).** Do NOT edit any file. Return exactly:
-1. One-line root cause naming the defining site (\`file:line\`).
-2. The exact minimal patch as a unified diff.
-3. The concrete check that fails before this patch and passes after — the exact command and the values it checks.
-4. The alternative candidates you rejected, each with the observed fact that rules it out.
-
-${secondMode}
-
-## Method (both modes)
-
-1. **Enumerate-then-choose.** List EVERY candidate defect site — definition sites, sibling classes/renderers of the same construct, API variants — before committing to one. Use \`get_references\`/\`search_code\` to make the list exhaustive, then choose with reasons.
-2. **Fix at the definition site.** Change the definition of the entity whose behavior is wrong — never a coercion or compensation at a site where its values merely flow through.
-3. **The task statement is the spec.** The user's stated requirement — concrete expected values, error messages, output strings — outranks any existing test that contradicts it. Never bend a fix to keep a bug-encoding test green.
-4. **Typed witnesses only.** Proof is typed equality on API-level values, not a print-and-eyeball or a rendered-substring check.
-5. **Maintain \`@sem\` comments.** If your edit changes what an entity does, rewrite its prose + \`@sem\` line in the same edit. Never delete one.
-
-## Return discipline
-
-Be short and decisive. The main agent must be able to act on your return without re-deriving it: cause, patch, check, rejected alternatives — nothing else.
-`;
-}
-
-const OPUS_SECOND_MODE =
-  "**IMPLEMENT (only when the brief explicitly says to edit).** Make the minimal fix, then verify red-to-green: reproduce the failure, apply the fix, re-run the failing check and the targeted test(s) tied to the change. At most 2 retries, then stop and report.";
-
-const FABLE_SECOND_MODE =
-  "**REVIEW (when unerr-opus's proposal has already been implemented and is still failing).** Judge the diff against the task statement's stated expectations, not against its author's reasoning. Answer plainly: does this patch produce the exact values/messages the task requires, at the root-most layer, for every face of the problem? Name precisely what it misses and the minimal correction.";
-
-/**
- * The AUTO-SPAWN `unerr-opus` variant written only in autonomous installs
- * (`writeJuniorSubagent(ide, cwd, { autonomous: true })`). Autonomous Claude
- * Code sessions have no human to ask, so the description is written to fire
- * as an automatic escalation the moment a hard-tail signal is observed —
- * description text is the only auto-delegation signal Claude Code reads.
- */
-export const OPUS_AGENT_MD_AUTONOMOUS = buildSubagentMd({
-  name: "unerr-opus",
-  model: OPUS_MODEL,
-  description:
-    "Deepest reasoner on the team — the automatic escalation rung for autonomous sessions. Spawn AUTOMATICALLY, without being asked, the moment a hard-tail signal fires: the same symptom survives 2 distinct fix attempts, the same file has been edited 3+ times without a working fix, 2+ candidate root causes and the evidence cannot decide between them, a check that once passed keeps failing, unerr-verifier has rejected the work twice, the session is BLOCKED with no forward path after one bounded investigation (a missing dependency, credential, or capability the environment does not provide), STALLED with two consecutive work cycles producing no new evidence and no artifact progress, or pursuing the WRONG-SUBGOAL once accumulated evidence shows it no longer serves the task's actual goal. Hand it the evidence brief (task text, what was observed, what was tried, ALL candidates) but never a preferred hypothesis. Default mode is investigate-and-propose: root cause + exact minimal patch, no edits.",
-  intro:
-    "You are the deepest reasoner on the team, automatically escalated to the moment the main agent's own account of a stuck problem can no longer be trusted.",
-  job: "Your value is an independent, evidence-grounded read: re-derive the root cause from the raw evidence (task statement, what was observed, what was tried) — never from the main agent's framing. If the brief leaks a preferred hypothesis, set it aside until your own account is complete.",
-  tools: JUNIOR_TOOLS,
-  contract: escalationContract(OPUS_SECOND_MODE),
-});
-
-/**
- * The AUTO-SPAWN `unerr-fable` variant written only in autonomous installs —
- * same auto-delegation contract as {@link OPUS_AGENT_MD_AUTONOMOUS}: fires on
- * description text alone, this time when opus's proposal was implemented and
- * the problem persists.
- */
-export const FABLE_AGENT_MD_AUTONOMOUS = buildSubagentMd({
-  name: "unerr-fable",
-  model: FABLE_MODEL,
-  description:
-    "Independent oracle at the highest tier — the second automatic escalation rung for autonomous sessions. Spawn AUTOMATICALLY when unerr-opus's proposal has been implemented and the problem is STILL present (include opus's proposal and exactly why it failed — this covers every trigger class opus was spawned for, including BLOCKED/STALLED/WRONG-SUBGOAL), or in parallel with unerr-opus when two uncorrelated reads are worth the cost. Forms its account from raw evidence alone and never adopts a prior framing. Default mode is investigate-and-propose, no edits.",
-  intro:
-    "You are the independent oracle at the highest tier — your entire value is that your read is UNCORRELATED with everyone else's.",
-  job: "Form your complete account of the problem from the raw evidence (task statement, what was observed, code) BEFORE reading any proposed fix in the brief — the main agent's first causal story may be wrong, and a second draw only helps if it is genuinely independent.",
-  tools: JUNIOR_TOOLS,
-  contract: escalationContract(FABLE_SECOND_MODE),
-});
-
-/**
- * The read-only `unerr-verifier` sub-agent's Verification contract — decompose
- * the acceptance criteria into a rubric, ground every item by running the
- * project's real checks (never by reading code and judging it plausible), and
- * return a precision-first ACCEPT/REJECT verdict. No editing, no bounded
- * retry — a REJECT routes straight back to whoever built the change.
- */
-const VERIFIER_CONTRACT = `## Verification contract
-
-1. **Build the rubric.** Decompose the given acceptance criteria into atomic yes/no items. Always include one item: "no over-scoped edits beyond what the task needed."
-2. **Ground every item by running it.** Discover the project's real check commands (package.json scripts, Makefile, CI config) and RUN them, or exercise the artifact directly. An item with no runnable evidence is answered by exercising the artifact — never by reading the source and judging it plausible.
-3. **Recompute, don't just read back.** Reading back a value the author wrote proves the write happened, not that it is correct. Recompute the expected value independently and compare.
-4. **Precision-first verdict.** ACCEPT only when every grounded item passes. When uncertain, REJECT and list exactly what is missing — a false ACCEPT is the dominant harm, worse than an over-cautious REJECT.
-5. **Never edit any file.** Return the rubric with per-item PASS/FAIL and the observed evidence, then the verdict (ACCEPT or REJECT).
-`;
-
-/**
- * The full `.claude/agents/unerr-verifier.md` content — a read-only,
- * Opus-pinned sub-agent written only in autonomous installs. It receives the
- * acceptance criteria and a diff summary (never the author's reasoning) and
- * grounds its verdict by running checks itself, never by reading code.
- */
-export const VERIFIER_AGENT_MD = buildSubagentMd({
-  name: "unerr-verifier",
-  model: OPUS_MODEL,
-  description:
-    "Independent verifier — spawn BEFORE declaring any non-trivial change done; in autonomous sessions this is mandatory. Give it ONLY the acceptance criteria and what changed — never the reasoning behind the change, so its read stays independent. It turns the criteria into a checklist of atomic yes/no items (including 'no over-scoped or unnecessary edits'), grounds every item by actually running the project's checks (typecheck, targeted tests, build) or exercising the artifact — never by reading code and judging it plausible — and stays adversarial: its job is to find why the work is WRONG. Returns ACCEPT or REJECT plus the exact failing items.",
-  intro:
-    "You independently verify a change against its acceptance criteria before it is declared done — adversarial by design, never the author reviewing their own work.",
-  tools: REVIEWER_TOOLS,
-  job: "Your job is to turn the criteria into a checklist, ground every item in a run you execute yourself, and return ACCEPT or REJECT — you make no edits.",
-  contract: VERIFIER_CONTRACT,
-});
-
-/** Relative path (from repo root) of the autonomous-mode verifier sub-agent definition. */
-export const VERIFIER_AGENT_RELPATH = ".claude/agents/unerr-verifier.md";
-
-/**
- * Master switch for the read-only `unerr-reviewer` sub-agent. OFF for the time
- * being: `unerr install` does NOT write `.claude/agents/unerr-reviewer.md`, and
- * an existing copy is removed on install. The template + tools + contract below
- * stay intact so re-enabling is a one-line flip.
- *
- * To re-enable: set this to `true`, then re-add the reviewer routing bullet to
- * `src/content/skills.json` (`skill:using-unerr`) — that surface is static text
- * and cannot read this flag (instruction-writer.ts and writeJuniorSubagent do).
- */
-export const REVIEWER_AGENT_ENABLED = false;
-
-/** Relative path (from repo root) of the read-only reviewer sub-agent definition. */
-export const REVIEWER_AGENT_RELPATH = ".claude/agents/unerr-reviewer.md";
-
-/**
- * The full `.claude/agents/unerr-reviewer.md` content (Sonnet, read-only). Not
- * part of the senior/worker/junior edit tiers — a post-edit quality gate the
- * senior spawns after a multi-file or multi-agent change to review the working
- * diff before reporting done. Carries no Edit/Write/file_edit tool: it returns
- * ranked findings, never a fix.
- */
-export const REVIEWER_AGENT_MD = buildSubagentMd({
-  name: "unerr-reviewer",
-  model: CLAUDE_WORKER_MODEL,
-  description:
-    "Use PROACTIVELY after completing any multi-file change and before committing — reviews the working diff for correctness bugs, missed callers (get_references blast radius), convention violations, and stale @sem comments; returns a ranked findings list and makes NO edits. MUST BE USED as the final step of a multi-slice or multi-agent turn, before reporting completion to the user. <example>Context: three worker agents just landed edits across five files. assistant: 'Spawning unerr-reviewer to review the combined diff before I report done.' <commentary>Post-edit review is a read-only quality gate — the main thread only weighs the findings.</commentary></example> Not for writing fixes — route confirmed findings back to unerr-worker.",
-  intro:
-    "You review a completed change before it is reported done — a read-only quality gate, not an editor.",
-  tools: REVIEWER_TOOLS,
-  job: "Your job is to review the diff and return ranked findings — you make no edits.",
-  contract: REVIEWER_CONTRACT,
-});
 
 /** Absolute path of the junior agent file for a repo. */
 export function juniorAgentPath(cwd: string): string {
@@ -661,16 +520,6 @@ export function fableAgentPath(cwd: string): string {
   return join(cwd, FABLE_AGENT_RELPATH);
 }
 
-/** Absolute path of the read-only `unerr-reviewer` sub-agent file for a repo. */
-export function reviewerAgentPath(cwd: string): string {
-  return join(cwd, REVIEWER_AGENT_RELPATH);
-}
-
-/** Absolute path of the read-only `unerr-verifier` sub-agent file for a repo. */
-export function verifierAgentPath(cwd: string): string {
-  return join(cwd, VERIFIER_AGENT_RELPATH);
-}
-
 /** Write one sub-agent file idempotently; returns true when it created/updated. */
 function writeOneSubagent(filePath: string, content: string): boolean {
   if (existsSync(filePath)) {
@@ -687,76 +536,32 @@ function writeOneSubagent(filePath: string, content: string): boolean {
 
 /**
  * Write the Claude Code sub-agent files: the auto-routed delegation pair
- * (`unerr-junior` + `unerr-worker`) and the opus/fable escalation pair.
- * Manual installs (`opts.autonomous` absent/false) write the user-invoked,
- * manual-only `unerr-opus`/`unerr-fable` (spawned only on explicit request)
- * and no verifier; a stale `unerr-verifier.md` left by a prior autonomous
- * install is swept so switching back is clean. Autonomous installs
- * (`opts.autonomous: true`) write the AUTO-SPAWN opus/fable variants instead
- * — description text is the only auto-delegation signal Claude Code reads,
- * since it has no `disable-model-invocation` field — plus the read-only
- * `unerr-verifier`. The read-only `unerr-reviewer` is written only when
- * {@link REVIEWER_AGENT_ENABLED} is on (OFF by default); when off, a copy
- * left by a prior install is removed here. No-op for any host without
- * on-disk sub-agents (Codex delegates via `codex exec -m`, the rest don't
- * delegate). Idempotent: skips a write when on-disk content already matches.
- * Returns true when ANY file was created, updated, or swept.
+ * (`unerr-junior` + `unerr-worker`), the auto-selectable `unerr-opus`
+ * (complex/large-context work, also runnable on explicit request), and the
+ * manual-only `unerr-fable` (spawned only on explicit request). No-op for
+ * any host without on-disk sub-agents (Codex delegates via `codex exec -m`,
+ * the rest don't delegate). Idempotent: skips a write when on-disk content
+ * already matches. Returns true when ANY file was created or updated.
  */
-export function writeJuniorSubagent(
-  ide: IdeType,
-  cwd: string,
-  opts?: { autonomous?: boolean }
-): boolean {
+export function writeJuniorSubagent(ide: IdeType, cwd: string): boolean {
   // Only Claude Code uses on-disk model-pinned sub-agent files.
   if (ide !== "claude-code" || !supportsDelegation(ide)) return false;
-  const autonomous = opts?.autonomous ?? false;
   const writes: Array<[string, string]> = [
     [juniorAgentPath(cwd), JUNIOR_AGENT_MD],
     [workerAgentPath(cwd), WORKER_AGENT_MD],
-    [opusAgentPath(cwd), autonomous ? OPUS_AGENT_MD_AUTONOMOUS : OPUS_AGENT_MD],
-    [
-      fableAgentPath(cwd),
-      autonomous ? FABLE_AGENT_MD_AUTONOMOUS : FABLE_AGENT_MD,
-    ],
+    [opusAgentPath(cwd), OPUS_AGENT_MD],
+    [fableAgentPath(cwd), FABLE_AGENT_MD],
   ];
-  if (autonomous) {
-    writes.push([verifierAgentPath(cwd), VERIFIER_AGENT_MD]);
-  }
-  if (REVIEWER_AGENT_ENABLED) {
-    writes.push([reviewerAgentPath(cwd), REVIEWER_AGENT_MD]);
-  }
   let wrote = false;
   for (const [filePath, content] of writes) {
     if (writeOneSubagent(filePath, content)) wrote = true;
-  }
-  // Reviewer disabled by default — sweep a copy left by a prior install so the
-  // agent Claude Code auto-discovers matches the current switch.
-  if (!REVIEWER_AGENT_ENABLED && existsSync(reviewerAgentPath(cwd))) {
-    try {
-      rmSync(reviewerAgentPath(cwd), { force: true });
-      wrote = true;
-    } catch {
-      // best-effort
-    }
-  }
-  // Interactive installs keep manual-only opus/fable and no verifier — sweep
-  // a stale unerr-verifier.md left by a prior autonomous install so switching
-  // back to interactive is clean.
-  if (!autonomous && existsSync(verifierAgentPath(cwd))) {
-    try {
-      rmSync(verifierAgentPath(cwd), { force: true });
-      wrote = true;
-    } catch {
-      // best-effort
-    }
   }
   return wrote;
 }
 
 /**
- * Remove the Claude Code sub-agent files (junior/worker + opus/fable, plus the
- * reviewer and verifier if a copy is on disk). Returns true when ANY file was
- * removed. Backs `unerr uninstall` for Claude Code.
+ * Remove the Claude Code sub-agent files (junior/worker + opus/fable).
+ * Returns true when ANY file was removed. Backs `unerr uninstall` for Claude Code.
  */
 export function removeJuniorSubagent(cwd: string): boolean {
   let removed = false;
@@ -765,8 +570,6 @@ export function removeJuniorSubagent(cwd: string): boolean {
     workerAgentPath(cwd),
     opusAgentPath(cwd),
     fableAgentPath(cwd),
-    reviewerAgentPath(cwd),
-    verifierAgentPath(cwd),
   ]) {
     if (!existsSync(filePath)) continue;
     try {

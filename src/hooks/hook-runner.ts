@@ -19,7 +19,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveSessionIdentity } from "../config/agent-registry.js";
-import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import type { IdeType } from "../utils/detect.js";
 import { antigravityAdapter } from "./adapters/antigravity.js";
 import { claudeCodeAdapter } from "./adapters/claude-code.js";
@@ -226,8 +225,7 @@ export function runPreToolUseHook(
       /* best effort — a telemetry side effect never breaks the hook */
     }
   }
-  const augmented = augmentForAmbientPreInjection(normalized, result);
-  return adapter.formatPreToolUse(augmented);
+  return adapter.formatPreToolUse(result);
 }
 
 /**
@@ -240,7 +238,7 @@ export type AsyncHookHandler = (
 
 /**
  * Async variant of {@link runPreToolUseHook}. Identical pipeline (parse →
- * detect → normalize → handle → ambient augment → format) but awaits an
+ * detect → normalize → handle → format) but awaits an
  * async handler. Used by the pre-edit hook, which queries the proxy over UDS.
  */
 export async function runPreToolUseHookAsync(
@@ -253,8 +251,7 @@ export async function runPreToolUseHookAsync(
   const adapter = detectAdapter(payload);
   const normalized = normalizeWithAdapter(adapter, payload);
   const result = await handler(normalized);
-  const augmented = augmentForAmbientPreInjection(normalized, result);
-  return adapter.formatPreToolUse(augmented);
+  return adapter.formatPreToolUse(result);
 }
 
 /**
@@ -437,72 +434,4 @@ export function block(reason: string): HookResult {
  *  model's context (no `additionalContext`). Non-claude adapters return "{}". */
 export function display(message: string): HookResult {
   return { action: "display", message };
-}
-
-// ── Ambient PreToolUse injection (non-Claude-Code agents) ─────────────
-//
-// Claude Code receives the mark_intent reminder via UserPromptSubmit
-// `additionalContext` (see prompt-hooks.ts). Cursor and Cline have no
-// UserPromptSubmit injection channel — their only ambient surface is
-// `agent_message` / `context` on PreToolUse. To keep the mark_intent
-// contract working across all clients, we drain that reminder into the
-// FIRST PreToolUse result of the session for non-Claude-Code agents.
-
-/** Build the ambient prefix for non-Claude-Code agents. Returns an
- *  empty string when nothing is pending. */
-function buildAmbientPreInjection(): string {
-  const lines: string[] = [];
-
-  // Intent one-shot reminder. Fires AT MOST once per session (the
-  // `mark_intent_emitted` flag gates re-emission) so we don't argue
-  // with the agent across every tool call. Demoted (Sprint 11): the marker
-  // rides a closing-message `unerr journal -` sentinel scraped by the Stop hook,
-  // not an MCP round-trip.
-  try {
-    const cwd = process.cwd();
-    const state = readNudgeState(cwd);
-    if (!state.mark_intent_emitted) {
-      updateNudgeState(cwd, (s) => {
-        s.mark_intent_emitted = true;
-      });
-      lines.push(
-        "ur|act if this turn is a coding task (implement/fix/refactor/build), emit `unerr journal - goal - <one-sentence summary>` in your closing message so the resume strip records it (no tool call). Skip for pure read-only questions."
-      );
-    }
-  } catch {
-    /* nudge-state unavailable — skip */
-  }
-
-  return lines.join("\n");
-}
-
-/** Splice the ambient prefix into a PreToolUse HookResult. Used only
- *  for non-Claude-Code agents (Cursor, Cline). Promotes passthrough →
- *  nudge when there's content to deliver. */
-function augmentForAmbientPreInjection(
-  normalized: NormalizedPayload,
-  result: HookResult
-): HookResult {
-  if (normalized.agentName === "claude-code") return result;
-  const prefix = buildAmbientPreInjection();
-  if (prefix.length === 0) return result;
-
-  // Don't override a deny — that decision is load-bearing.
-  if (result.action === "deny") return result;
-
-  if (result.action === "passthrough") {
-    return { action: "nudge", message: prefix };
-  }
-  if (result.action === "rewrite") {
-    // Rewrites carry no message channel, so the ambient prefix (mark_intent
-    // one-shot only) is dropped on this turn. mark_intent re-arms on the next
-    // new conversation, so this is a rare, low-stakes miss rather than a
-    // permanent silence.
-    return result;
-  }
-  const existing = result.message ?? "";
-  return {
-    ...result,
-    message: existing.length > 0 ? `${prefix}\n${existing}` : prefix,
-  };
 }

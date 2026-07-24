@@ -787,15 +787,29 @@ export class CozoGraphStore {
    * Get all entities that call the given entity.
    * Merges base edges with drift_edges (Task 6.4).
    */
-  async getCallersOf(key: string): Promise<LocalEntity[]> {
+  async getCallersOf(
+    key: string,
+    opts: { includeDrift?: boolean } = {}
+  ): Promise<LocalEntity[]> {
     // Defensive kind filter: only callable kinds (function, method, class) can be
     // callers. Pre-fix drift_edges may contain variable/interface/type rows from
     // the historical extractor bug that scanned full-file content per-entity.
-    const result = await this.query(
-      `base[k, kind, name, fp, sl, el, sig, body, fi, fo, rl, comm] := *edges{from_key, to_key: $key, type: "calls"},
+    //
+    // `includeDrift:false` returns CONFIRMED callers only (the `base` *edges*
+    // join), skipping the drift_edges union. The cascade guard passes this so an
+    // "update these callers" warning never cites a same-file cohabitant that the
+    // polluted drift_edges falsely links — it must name only calls the confirmed
+    // graph actually has. Default true keeps the fresh-edge union for callers
+    // that want not-yet-reindexed edges (e.g. drift/overlay surfaces).
+    const includeDrift = opts.includeDrift ?? true;
+    const baseRule = `base[k, kind, name, fp, sl, el, sig, body, fi, fo, rl, comm] := *edges{from_key, to_key: $key, type: "calls"},
         *entities{key: from_key, kind, name, file_path: fp, start_line: sl, end_line: el, signature: sig, body, fan_in: fi, fan_out: fo, risk_level: rl, community: comm},
         kind != "variable", kind != "interface", kind != "type", kind != "enum", kind != "namespace",
-        k = from_key
+        k = from_key`;
+    const confirmedOnly = `${baseRule}
+       ?[k, kind, name, fp, sl, el, sig, body, fi, fo, rl, comm] :=
+        base[k, kind, name, fp, sl, el, sig, body, fi, fo, rl, comm]`;
+    const withDrift = `${baseRule}
        drift[k] := *drift_edges[k, $key, "calls", ds, _], ds != "removed"
        drift_entity[k, kind, name, fp, sl, el, sig, body, fi, fo, rl, comm] :=
         drift[k], *entities{key: k, kind, name, file_path: fp, start_line: sl, end_line: el, signature: sig, body, fan_in: fi, fan_out: fo, risk_level: rl, community: comm},
@@ -812,9 +826,10 @@ export class CozoGraphStore {
        ?[k, kind, name, fp, sl, el, sig, body, fi, fo, rl, comm] :=
         drift_overlay_entity[k, kind, name, fp, sl, el, sig, body, fi, fo, rl, comm],
         not base[k, _, _, _, _, _, _, _, _, _, _, _],
-        not drift_entity[k, _, _, _, _, _, _, _, _, _, _, _]`,
-      { key }
-    );
+        not drift_entity[k, _, _, _, _, _, _, _, _, _, _, _]`;
+    const result = await this.query(includeDrift ? withDrift : confirmedOnly, {
+      key,
+    });
     return result.rows.map((row) => {
       const [k, kind, name, fp, sl, el, sig, body, fi, fo, rl, comm] = row as [
         string,

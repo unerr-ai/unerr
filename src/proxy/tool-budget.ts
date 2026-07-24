@@ -6,12 +6,27 @@
  * caps and for counting description tokens. Every other component that needs
  * to validate a description routes through here.
  *
- * Counts are BPE-accurate via `gpt-tokenizer` (cl100k_base). The same library
- * is used at CI gate time (scripts/check-tool-budget.ts) and at runtime when
- * the description provider is asked for a state that has not been validated.
+ * Counts are BPE-accurate via `gpt-tokenizer` (cl100k_base), loaded lazily —
+ * `gpt-tokenizer` is a heavy dependency that must not load on every `unerr`
+ * invocation, only when a token count is actually needed. Call
+ * `await warmTokenizer()` once (proxy startup, the CI gate in
+ * scripts/check-tool-budget.ts, or a test's `beforeAll`) before any
+ * synchronous `countTokens`/`enforceBudget`/`budgetHeadroom` call.
  */
 
-import { encode } from "gpt-tokenizer";
+/** Cached BPE encoder — populated by {@link warmTokenizer}, undefined until then. */
+let _encode: ((text: string) => number[]) | undefined;
+
+/**
+ * Load and cache the real BPE encoder. Idempotent — safe to call repeatedly
+ * or from multiple call sites; only the first call pays the `gpt-tokenizer`
+ * import cost. Must resolve before any synchronous counting call below.
+ */
+export async function warmTokenizer(): Promise<void> {
+  if (!_encode) {
+    _encode = (await import("gpt-tokenizer")).encode;
+  }
+}
 
 /**
  * Token caps per description-state. Values match the gateway design in
@@ -76,9 +91,17 @@ export class ToolBudgetError extends Error {
  * is within ±5% of Claude's tokenizer across natural-language inputs of this
  * length. The CI gate and runtime validator must use this single function so
  * caps and observations are always computed identically.
+ *
+ * Throws if {@link warmTokenizer} has not resolved yet — a loud failure so a
+ * stray un-warmed caller is caught immediately rather than silently miscounting.
  */
 export function countTokens(text: string): number {
-  return encode(text).length;
+  if (!_encode) {
+    throw new Error(
+      "countTokens() called before warmTokenizer() resolved — await warmTokenizer() (or await validateAllToolDescriptions()) first."
+    );
+  }
+  return _encode(text).length;
 }
 
 /**

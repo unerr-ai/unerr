@@ -94,6 +94,15 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jaswanth/Library/pnpm/unerr hook post-bash"
+          }
+        ]
+      },
+      {
         "matcher": "WebSearch",
         "hooks": [
           {

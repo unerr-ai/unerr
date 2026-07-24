@@ -15,12 +15,11 @@ import {
 // ── Cluster Definitions ──────────────────────────────────────────────
 
 describe("TOOL_CLUSTERS", () => {
-  it("has 4 semantic clusters", () => {
-    // After the token-overhead deletion the catalog is 9 tools; the survivors
-    // cluster into navigation, file-access, persistence, web. The old
-    // quality / structural / session-narrative / recovery clusters are gone
-    // (their tools were removed from the advertised catalog).
-    expect(TOOL_CLUSTERS).toHaveLength(4);
+  it("has 3 semantic clusters", () => {
+    // The persistence cluster retired with unerr_track (the journal MCP
+    // path was removed entirely — journaling rides the Stop-hook text
+    // lines only). Survivors: navigation, file-access, web.
+    expect(TOOL_CLUSTERS).toHaveLength(3);
   });
 
   it("clusters have unique IDs", () => {
@@ -73,24 +72,17 @@ describe("getToolCluster", () => {
     expect(getToolCluster("file_read")).toBe("file-access");
   });
 
-  it("maps unerr_track to persistence", () => {
-    // unerr_remember left the catalog (2026-06): user rules are hook-captured,
-    // agent notes ride the `unerr-save:` sentinel. unerr_track({op:'fact'|
-    // 'recall'}) is the advertised persistence surface the cluster boosts.
-    expect(getToolCluster("unerr_track")).toBe("persistence");
-    expect(getToolCluster("unerr_remember")).toBeUndefined();
-  });
-
   it("maps fetch_url to web", () => {
     expect(getToolCluster("fetch_url")).toBe("web");
   });
 
   it("returns undefined for removed (non-catalog) tools", () => {
-    // record_fact / recall_facts / get_test_coverage were dropped from the
-    // advertised catalog; they belong to no cluster.
+    // record_fact / recall_facts / get_test_coverage / unerr_track were
+    // dropped from the advertised catalog; they belong to no cluster.
     expect(getToolCluster("record_fact")).toBeUndefined();
     expect(getToolCluster("recall_facts")).toBeUndefined();
     expect(getToolCluster("get_test_coverage")).toBeUndefined();
+    expect(getToolCluster("unerr_track")).toBeUndefined();
   });
 
   it("returns undefined for unknown tool", () => {

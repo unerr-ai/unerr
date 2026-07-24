@@ -34,10 +34,8 @@ export type FileReadLayer6Meta = {
 };
 
 const LINE_GATE = 200;
-const ENTITY_CONTEXT = 5;
 const LOG_TAIL_LINES = 200;
 const MAX_READ_LINES = 10_000;
-const HARD_GATE_CEILING = 10_000;
 const CHARS_PER_TOKEN = 4;
 const AVG_CHARS_PER_LINE = 80;
 const GRAPH_TIMEOUT_MS = 100;
@@ -301,18 +299,92 @@ export async function runFileReadForRouter(
   const filePathArg = args.file_path as string;
   if (!filePathArg) throw new Error("file_read requires file_path");
 
+  // ─── Outline mode ─────────────────────────────────────────────────────────
+  // `file_read({file_path, outline:true})` returns the structural view —
+  // absorbed from the now-demoted file_outline tool. It calls buildFileOutline
+  // internally, then STRIPS the result to a lean shape: entities as
+  // {name, kind, lines} only (no risk/callers/drift/exported), plus language,
+  // total_lines, exports, and headings/config_keys for md/json. Per-entity graph
+  // metadata, token_estimate, and the imports list are dropped — file_read
+  // entity mode already covers the deep read.
+  if (args.outline === true || args.outline === "true") {
+    try {
+      const outline = await buildFileOutline({
+        cwd: ctx.cwd,
+        filePathArg,
+        graph: ctx.graph,
+      });
+      const lean: {
+        file_path: string;
+        total_lines: number;
+        language: string;
+        entities: Array<{
+          name: string;
+          kind: string;
+          lines: [number, number];
+        }>;
+        exports: string[];
+        headings?: string[];
+        config_keys?: string[];
+      } = {
+        file_path: outline.file_path,
+        total_lines: outline.total_lines,
+        language: outline.language,
+        entities: outline.entities.map((e) => ({
+          name: e.name,
+          kind: e.kind,
+          lines: e.lines,
+        })),
+        exports: outline.exports,
+      };
+      if (outline.headings?.length) lean.headings = outline.headings;
+      if (outline.config_keys?.length) lean.config_keys = outline.config_keys;
+      logFileRead(
+        ctx.cwd,
+        outline.file_path,
+        "outline",
+        outline.total_lines,
+        outline.entities.length,
+        undefined,
+        estimateTokens(lean)
+      );
+      return {
+        content: lean,
+        _layer6_meta: {
+          format: "json",
+          total_lines: outline.total_lines,
+          tokens_estimate: estimateTokens(lean),
+          optimization: `file_read outline → ${outline.entities.length} entities`,
+        },
+      };
+    } catch (err) {
+      return {
+        content: {
+          error: err instanceof Error ? err.message : "outline failed",
+        },
+        _layer6_meta: { format: "json" as const },
+      };
+    }
+  }
+
   const rawPurpose = (args.purpose as string | undefined)?.trim() || "explore";
   // purpose:'edit' and force_full are removed — treat as 'explore' if passed
   const purpose = rawPurpose === "edit" ? "explore" : rawPurpose;
   const entityName = (args.entity as string | undefined)?.trim();
   let entityWindowApplied = false;
   let entityMatchInfo: EntitySearchInfo | undefined;
+  let resolvedEntityKey: string | undefined;
+  let logTailApplied = false;
   let offset =
     args.offset != null ? Math.max(1, Number(args.offset)) : undefined;
   let limit =
     args.limit != null
       ? Math.min(MAX_READ_LINES, Math.max(1, Number(args.limit)))
       : undefined;
+  // Captured BEFORE entity resolution / log-tail mutate offset+limit — the
+  // only reliable way to tell "mode 2: caller passed offset/limit" apart from
+  // "mode 1: full file, auto-truncated to budget" further down.
+  const explicitRange = offset !== undefined || limit !== undefined;
 
   // Token budget — adaptive gating and output sizing
   const defaultBudget = purpose === "reference" ? 1000 : 2000;
@@ -351,54 +423,6 @@ export async function runFileReadForRouter(
   const lines = text.split("\n");
   const totalLines = lines.length;
 
-  // Adaptive gating: use budget-derived threshold but respect hard ceiling
-  const effectiveGate = Math.max(
-    LINE_GATE,
-    Math.min(HARD_GATE_CEILING, budgetLines)
-  );
-
-  if (
-    totalLines > effectiveGate &&
-    totalLines > LINE_GATE &&
-    offset === undefined &&
-    !entityName &&
-    !entityName
-  ) {
-    const outline = await buildFileOutline({
-      cwd: ctx.cwd,
-      filePathArg,
-      graph: isOutOfProject ? null : ctx.graph,
-    });
-    logFileRead(
-      ctx.cwd,
-      rel,
-      "gated",
-      totalLines,
-      outline.entities.length,
-      undefined,
-      outline.token_estimate
-    );
-    return {
-      content: {
-        ...outline,
-        gated: true,
-        _gate_reason: `File has ${totalLines} lines (> ${effectiveGate}). Structure shown — call file_read again with entity or offset/limit for targeted access.`,
-      },
-      _layer6_meta: {
-        format: "outline",
-        gated: true,
-        total_lines: totalLines,
-        total_file_tokens: estimateTokens(text),
-        // outline.token_estimate is computed from the FULL FILE content
-        // (file-outline.ts:228). For the gated path we want the size of what
-        // we ACTUALLY delivered (the outline JSON), not the file we replaced
-        // it with. Count the serialized outline body.
-        tokens_estimate: estimateTokens(outline),
-        optimization: `file_read gated → outline (${totalLines} lines)`,
-      },
-    };
-  }
-
   // ─── Entity Resolution (with fallback chain) ─────────────────────────────
   if (entityName) {
     try {
@@ -421,16 +445,21 @@ export async function runFileReadForRouter(
           if (ranked.length > 0 && topRanked && topRanked.score >= 70) {
             const match = topRanked.entity;
             if (match.start_line >= 1 && match.start_line <= totalLines) {
-              const start = Math.max(1, match.start_line - ENTITY_CONTEXT);
+              const start = match.start_line;
               const endLine =
                 (match.end_line ?? 0) > match.start_line
                   ? match.end_line!
                   : match.start_line + match.body.split("\n").length - 1;
-              const end = Math.min(totalLines, endLine + ENTITY_CONTEXT);
+              const end = Math.min(totalLines, endLine);
               offset = start;
               limit = Math.min(MAX_READ_LINES, end - start + 1);
               resolvedFromGraph = true;
               entityWindowApplied = true;
+              // `entities` came from ctx.graph.getEntitiesByFile, which returns
+              // LocalEntity[] (has `key`) — EntityMatchable only declares the
+              // fields rankEntityMatches needs, but the runtime object (same
+              // reference, not cloned) carries `key` too.
+              resolvedEntityKey = (match as unknown as { key?: string }).key;
               entityMatchInfo = {
                 matched: true,
                 name: match.name,
@@ -467,10 +496,10 @@ export async function runFileReadForRouter(
         if (topAstRank && topAstRank.score >= 70 && topAstRank.entity) {
           const match = topAstRank.entity;
           if (match.start_line >= 1 && match.start_line <= totalLines) {
-            const start = Math.max(1, match.start_line - ENTITY_CONTEXT);
+            const start = match.start_line;
             const endLine =
               match.start_line + match.body.split("\n").length - 1;
-            const end = Math.min(totalLines, endLine + ENTITY_CONTEXT);
+            const end = Math.min(totalLines, endLine);
             offset = start;
             limit = Math.min(MAX_READ_LINES, end - start + 1);
             entityWindowApplied = true;
@@ -530,8 +559,8 @@ export async function runFileReadForRouter(
         entity_search: { ...search, suggestions },
         entities_total: outline.entities.length,
         _gate_reason: suggestions.length
-          ? `Entity "${entityName}" not found in ${rel}. Call file_read({file_path:'${rel}', entity:'${suggestions[0]}'}) (or another suggestions entry), pass offset+limit, or call file_outline({file_path:'${rel}'}) for the full structure. To change this file, call file_edit (no built-in Read needed).`
-          : `Entity "${entityName}" not found in ${rel}. Call file_outline({file_path:'${rel}'}) to list the ${outline.entities.length} entities, then retry file_read with an exact name or offset+limit. To change this file, call file_edit (no built-in Read needed).`,
+          ? `Entity "${entityName}" not found in ${rel}. Call file_read({file_path:'${rel}', entity:'${suggestions[0]}'}) (or another suggestions entry), pass offset+limit, or call file_read({file_path:'${rel}', outline:true}) for the full structure. To change this file, call file_edit (no built-in Read needed).`
+          : `Entity "${entityName}" not found in ${rel}. Call file_read({file_path:'${rel}', outline:true}) to list the ${outline.entities.length} entities, then retry file_read with an exact name or offset+limit. To change this file, call file_edit (no built-in Read needed).`,
       };
       logFileRead(
         ctx.cwd,
@@ -565,6 +594,7 @@ export async function runFileReadForRouter(
   ) {
     offset = Math.max(1, totalLines - LOG_TAIL_LINES + 1);
     limit = LOG_TAIL_LINES;
+    logTailApplied = true;
   }
 
   // ─── Apply budget-capped limit ────────────────────────────────────────────
@@ -658,10 +688,21 @@ export async function runFileReadForRouter(
     };
   }
 
-  let body =
-    effOffset > 1 || sliced.length < totalLines || entityWindowApplied
-      ? `${numbered}\n\n(Showing lines ${effOffset}-${effOffset + sliced.length - 1} of ${totalLines} total)`
-      : numbered;
+  // Mode 3 (entity): exact span, no footer — the callers block below is the
+  // only thing appended. Mode 1 (full file, auto-truncated to budget): a
+  // plain pointer footer, no JSON outline. Mode 2 (explicit offset/limit) and
+  // the log-tail optimization: keep the existing "Showing lines" footer.
+  const truncatedByBudget = sliced.length < totalLines;
+  let body: string;
+  if (entityWindowApplied) {
+    body = numbered;
+  } else if (!explicitRange && !logTailApplied && truncatedByBudget) {
+    body = `${numbered}\n\n(file has ${totalLines} lines; use offset/limit for more, outline:true for structure)`;
+  } else if (effOffset > 1 || truncatedByBudget) {
+    body = `${numbered}\n\n(Showing lines ${effOffset}-${effOffset + sliced.length - 1} of ${totalLines} total)`;
+  } else {
+    body = numbered;
+  }
 
   // Never return empty content for a valid file
   if (body.trim().length === 0 && totalLines > 0) {
@@ -680,6 +721,27 @@ export async function runFileReadForRouter(
     body = `${warnings.join("\n")}\n\n${body}`;
   }
 
+  // Mode 3 (entity): append the minimal caller list — file_path + name only,
+  // ordered by fan_in desc, capped at 10 rows. Only possible when the entity
+  // resolved against the graph (resolvedEntityKey set); the AST-fallback path
+  // has no key to look callers up with.
+  if (entityWindowApplied && resolvedEntityKey && ctx.graph) {
+    try {
+      const callers = await ctx.graph.getCallersOf(resolvedEntityKey);
+      const ranked = [...callers].sort((a, b) => b.fan_in - a.fan_in);
+      const shown = ranked.slice(0, 10);
+      const rows = shown.map((c) => `  ${c.file_path}  ${c.name}`);
+      if (ranked.length > shown.length) {
+        rows.push(
+          `  … +${ranked.length - shown.length} more (get_references for all)`
+        );
+      }
+      body = `${body}\n\ncallers (${ranked.length}):${rows.length ? `\n${rows.join("\n")}` : ""}`;
+    } catch {
+      // Caller lookup failed — omit the block rather than surface an error on file_read.
+    }
+  }
+
   const meta: FileReadLayer6Meta = {
     format: "json",
     tokens_estimate: estimateTokens(body),
@@ -688,12 +750,6 @@ export async function runFileReadForRouter(
   };
   if (effOffset > 1 || sliced.length < totalLines || entityWindowApplied) {
     meta.optimization = `file_read window lines ${effOffset}-${effOffset + sliced.length - 1}`;
-  }
-  if (entityWindowApplied) {
-    meta.optimization = `${meta.optimization ?? "file_read"} · entity`;
-    if (entityMatchInfo?.matchType && entityMatchInfo.matchType !== "exact") {
-      meta.optimization += ` (${entityMatchInfo.matchType})`;
-    }
   }
   if (commentsElided > 0) {
     meta.optimization = `${meta.optimization ?? "file_read"} · ${commentsElided} comment lines elided`;

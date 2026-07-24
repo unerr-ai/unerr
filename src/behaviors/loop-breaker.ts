@@ -130,7 +130,7 @@ export class LoopCircuitBreaker extends Behavior {
           pattern: circuit.detectedPattern,
           cooldown_remaining_s: Math.ceil(remainingMs / 1000),
           suggestion:
-            "Wait for cooldown or try a fundamentally different approach on a different entity.",
+            "Wait for the cooldown, or switch to a different entity with a different approach.",
         },
       };
     }
@@ -268,7 +268,7 @@ export class LoopCircuitBreaker extends Behavior {
         circuit_breaker: {
           entity: entityKey,
           attempts: failCount,
-          message: `loop broken on ${entityKey}: ${failCount} consecutive failed attempts (${detection.pattern}) — stop retrying, emit \`unerr journal - stuck - <obstacle>\` and switch approach`,
+          message: `loop broken on ${entityKey}: ${failCount} consecutive failed attempts (${detection.pattern}) — stop retrying and switch approach`,
         },
       },
       _context: {
@@ -352,7 +352,7 @@ export class LoopCircuitBreaker extends Behavior {
       return {
         type: "repetitive_failure",
         hint: "Repeated failures on the same entity.",
-        suggestion: "Step back and analyze the root cause before retrying.",
+        suggestion: "Analyze the root cause before retrying.",
       };
     }
 
@@ -365,7 +365,7 @@ export class LoopCircuitBreaker extends Behavior {
         type: "repetitive_failure",
         hint: `All ${failures.length} attempts use similar arguments — the approach isn't changing meaningfully between retries.`,
         suggestion:
-          "Stop retrying the same approach. Examine the error output from attempt 1 and identify the root cause before acting.",
+          "Stop retrying. Examine attempt 1's error output to find the root cause.",
       };
     }
 
@@ -376,7 +376,7 @@ export class LoopCircuitBreaker extends Behavior {
         type: "context_poisoning",
         hint: "Every attempt produces the exact same error — a wrong assumption is poisoning all reasoning.",
         suggestion:
-          "Discard your current hypothesis entirely. Re-read the original error message and the surrounding code with fresh eyes.",
+          "Discard the current hypothesis. Re-read the original error and the surrounding code.",
       };
     }
 
@@ -388,7 +388,7 @@ export class LoopCircuitBreaker extends Behavior {
         type: "over_planning",
         hint: "Long gaps between attempts suggest extensive reasoning without convergence.",
         suggestion:
-          "Take the simplest possible action to test your hypothesis. Write a minimal reproduction first.",
+          "Write a minimal reproduction first to test the hypothesis.",
       };
     }
 
@@ -396,7 +396,7 @@ export class LoopCircuitBreaker extends Behavior {
       type: "repetitive_failure",
       hint: `${failures.length} failed attempts with varied approaches — none resolved the underlying issue.`,
       suggestion:
-        "Step back. The issue may be in a dependency, mock, or configuration rather than in this entity.",
+        "The issue may be in a dependency, mock, or configuration — not the edited code.",
     };
   }
 }

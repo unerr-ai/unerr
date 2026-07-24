@@ -810,7 +810,13 @@ export class DriftTracker {
     filePath: string,
     localByKey: Map<
       string,
-      { name: string; kind: string; content_hash: string }
+      {
+        name: string;
+        kind: string;
+        content_hash: string;
+        line_start: number;
+        line_end: number;
+      }
     >,
     now: string
   ): Promise<number> {
@@ -842,14 +848,23 @@ export class DriftTracker {
 
     // Extract function call edges within entities in this file.
     // Only callable kinds can emit "calls" edges — variables, interfaces, types
-    // are not call sites, and scanning the full file body for them would attribute
-    // unrelated calls in the same file to non-callable entities (false positives in
-    // get_references). Class is included because class bodies can contain static
-    // initializers and field initializers that perform calls.
+    // are not call sites. Each entity is scanned over its own line range only
+    // (below), so a call is attributed to the entity that actually makes it,
+    // not to every callable cohabitant of the file. Class is included because
+    // class bodies can contain static initializers and field initializers
+    // that perform calls.
     const CALLABLE_KINDS = new Set(["function", "method", "class"]);
     for (const [callerKey, entity] of localByKey) {
       if (!CALLABLE_KINDS.has(entity.kind)) continue;
-      const callEdges = extractCallEdges(content, entity.name, callerKey);
+      // Scan only the entity's own body span — not the whole file — so a
+      // called-name match is attributed to the entity that actually calls
+      // it, not to every callable cohabitant of the file.
+      const entityBody = extractBodyLines(
+        content,
+        entity.line_start,
+        entity.line_end
+      );
+      const callEdges = extractCallEdges(entityBody, callerKey);
       for (const call of callEdges) {
         // Find target entity by name in any file
         const targetKey = await this.resolveCallTarget(call.calledName);
@@ -1061,11 +1076,7 @@ function resolveImportPath(
  * Extract function call edges from within an entity's body.
  * Simple regex: matches `name(` patterns that look like function calls.
  */
-function extractCallEdges(
-  content: string,
-  _entityName: string,
-  callerKey: string
-): CallEdge[] {
+function extractCallEdges(content: string, callerKey: string): CallEdge[] {
   const edges: CallEdge[] = [];
   const seen = new Set<string>();
 

@@ -1337,15 +1337,34 @@ function renderRank(tool: string): number {
  * the read-suppression manifest last) per the lost-in-the-middle U-curve —
  * distinct from the budget keep-priority on `bundle.sections`.
  */
+/** Internal-only reference fields the agent never acts on (community = graph
+ *  community-detection ID). MCP payload bytes cost tokens — drop before wire. */
+const WIRE_DROP_REF_KEYS = new Set(["community"]);
+
+/**
+ * Drop internal-only fields from a section's reference rows before they hit the
+ * wire. See CLAUDE.md "MCP tool responses cost tokens — send only the answer".
+ */
+function stripWireNoise(data: unknown): unknown {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  const o = data as Record<string, unknown>;
+  if (!Array.isArray(o.references)) return data;
+  return {
+    ...o,
+    references: (o.references as Record<string, unknown>[]).map((ref) =>
+      Object.fromEntries(
+        Object.entries(ref).filter(([k]) => !WIRE_DROP_REF_KEYS.has(k))
+      )
+    ),
+  };
+}
+
 export function renderReconText(bundle: ReconBundle): string {
   const lines: string[] = [];
-  lines.push(
-    `unerr recon — ${bundle.sections.length} sections, ~${bundle.totalTokens} tokens`
-  );
+  lines.push(`unerr recon — ${bundle.sections.length} sections`);
   if (bundle.focusName || bundle.focusKey) {
     lines.push(`focus: ${bundle.focusName ?? bundle.focusKey}`);
   }
-  if (bundle.terms.length) lines.push(`terms: ${bundle.terms.join(", ")}`);
   const ordered = [...bundle.sections].sort(
     (a, b) => renderRank(a.tool) - renderRank(b.tool)
   );
@@ -1364,7 +1383,18 @@ export function renderReconText(bundle: ReconBundle): string {
       lines.push(formatVocabNudges(s.data));
       continue;
     }
-    lines.push(typeof s.data === "string" ? s.data : JSON.stringify(s.data));
+    if (s.tool === "get_conventions") {
+      // Conventions ride recon as a one-line summary (naming/imports/structure
+      // heads only) — the per-rule confidence/adherence floats are never acted
+      // on and cost tokens on every recon. MCP payload bytes are not free.
+      lines.push(summarizeConventions(s.data));
+      continue;
+    }
+    lines.push(
+      typeof s.data === "string"
+        ? s.data
+        : JSON.stringify(stripWireNoise(s.data))
+    );
   }
   const manifest = buildReadManifest(bundle);
   if (manifest) {
@@ -1501,11 +1531,10 @@ export function renderReconDigest(bundle: ReconBundle): string {
   const lines: string[] = [];
   const focus = bundle.focusName ?? bundle.focusKey;
   lines.push(
-    `unerr recon digest — ${bundle.sections.length} sections, ~${bundle.totalTokens} tok${
+    `unerr recon digest — ${bundle.sections.length} sections${
       focus ? `, focus ${focus}` : ""
     }`
   );
-  if (bundle.terms.length) lines.push(`terms: ${bundle.terms.join(", ")}`);
 
   for (const s of bundle.sections) {
     if (s.tool === "search_code") {

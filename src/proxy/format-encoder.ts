@@ -81,9 +81,10 @@ export function encodeColumnar(
   rows: Record<string, unknown>[],
   columns: string[]
 ): string {
-  const header = `_fmt:columnar\n${columns.join("|")}`;
+  const kept = columns.filter((c) => !WIRE_DROP_COLUMNS.has(c));
+  const header = `_fmt:columnar\n${kept.join("|")}`;
   const lines = rows.map((row) =>
-    columns.map((c) => escapeColumnarCell(row[c])).join("|")
+    kept.map((c) => escapeColumnarCell(row[c])).join("|")
   );
   return `${header}\n${lines.join("\n")}`;
 }
@@ -110,6 +111,65 @@ function sortedColumnsFromFirstRow(rows: Record<string, unknown>[]): string[] {
  * Used when a response has 2+ recognized uniform arrays (file_outline has
  * entities/imports/exports; file_connections has connections/entities).
  */
+// Internal-only fields that never earn their wire tokens: they are consumed
+// inside the proxy (token_estimate/language feed metrics + logging; community
+// feeds blast-radius grouping) but the agent never acts on them. MCP payload
+// bytes are not free — drop them at the encode boundary. See CLAUDE.md
+// "MCP tool responses cost tokens — send only the answer".
+const WIRE_DROP_SCALARS = new Set(["token_estimate", "language"]);
+const WIRE_DROP_COLUMNS = new Set(["community"]);
+
+/**
+ * A flat-object array whose rows may carry DIFFERENT key sets — e.g.
+ * search_code ranked matches, where some rows have `domain`, some `summary`,
+ * some neither — yet still share a common core. Strictly-uniform arrays are a
+ * subset (same keys everywhere). Requires every element to be a non-null flat
+ * object (no nested object/array values — those don't columnar-encode cleanly)
+ * AND a non-empty shared key set, so a genuinely heterogeneous array stays
+ * JSON. This is what lets union-column columnar fire on lists that
+ * `isUniformObjectArray` rejects.
+ */
+export function isSparseObjectArray(arr: unknown[]): boolean {
+  if (arr.length === 0) return false;
+  let common: Set<string> | null = null;
+  for (const x of arr) {
+    if (x === null || typeof x !== "object" || Array.isArray(x)) return false;
+    const o = x as Record<string, unknown>;
+    for (const v of Object.values(o)) {
+      if (v !== null && typeof v === "object") return false;
+    }
+    const keys = Object.keys(o);
+    if (common === null) {
+      common = new Set(keys);
+    } else {
+      for (const k of [...common]) {
+        if (!keys.includes(k)) common.delete(k);
+      }
+    }
+  }
+  return common !== null && common.size > 0;
+}
+
+/**
+ * First-seen-ordered union of keys across all rows, minus internal-only
+ * columns. Keeps the row-0 core (key/name/kind/file_path) first, then appends
+ * columns only some rows carry (domain, summary). An empty cell costs one
+ * delimiter — far cheaper than JSON repeating the key name on every row.
+ */
+function unionColumns(rows: Record<string, unknown>[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of rows) {
+    for (const k of Object.keys(r)) {
+      if (!seen.has(k) && !WIRE_DROP_COLUMNS.has(k)) {
+        seen.add(k);
+        out.push(k);
+      }
+    }
+  }
+  return out;
+}
+
 export function encodeMultiSection(
   scalars: Record<string, unknown>,
   sections: Array<{
@@ -122,7 +182,13 @@ export function encodeMultiSection(
 
   // Scalars row
   const scalarPairs = Object.entries(scalars)
-    .filter(([, v]) => v !== undefined && v !== null && typeof v !== "object")
+    .filter(
+      ([k, v]) =>
+        v !== undefined &&
+        v !== null &&
+        typeof v !== "object" &&
+        !WIRE_DROP_SCALARS.has(k)
+    )
     .map(([k, v]) => `${k}=${String(v)}`);
   if (scalarPairs.length > 0) {
     lines.push(`@meta ${scalarPairs.join("|")}`);
@@ -136,7 +202,13 @@ export function encodeMultiSection(
     }
     if (sec.kind === "uniform-object") {
       const rows = sec.items as Record<string, unknown>[];
-      const columns = sortedColumnsFromFirstRow(rows);
+      // Uniform rows keep sorted column order (unchanged); sparse rows union
+      // their keys so a section with differing optional columns still encodes.
+      const columns = isUniformObjectArray(rows)
+        ? sortedColumnsFromFirstRow(rows).filter(
+            (c) => !WIRE_DROP_COLUMNS.has(c)
+          )
+        : unionColumns(rows);
       lines.push(`@${sec.name}[${columns.join("|")}]`);
       for (const row of rows) {
         lines.push(columns.map((c) => escapeColumnarCell(row[c])).join("|"));
@@ -226,6 +298,20 @@ export function formatToolOutput(
     return encodeColumnar(rows, columns);
   }
 
+  // Sparse-but-flat object array: rows differ only in optional columns
+  // (search_code ranked matches — some carry `domain`, some `summary`). The
+  // strict uniform check above rejects these, so without this branch they fall
+  // back to per-row JSON that repeats every key name. Union the columns and
+  // columnar-encode; missing cells are empty (one delimiter each).
+  if (!skipColumnar && Array.isArray(content) && isSparseObjectArray(content)) {
+    const rows = content as Record<string, unknown>[];
+    const columns = unionColumns(rows);
+    meta.format = "columnar";
+    meta.columns = columns;
+    attachColumnarLegend();
+    return encodeColumnar(rows, columns);
+  }
+
   // Tier-3 P6.1: extended wrapper detection.
   // Recognize known wrapper-array field names; columnar-encode the array
   // if it's uniform-object AND it's the only array in the wrapper. When
@@ -244,6 +330,8 @@ export function formatToolOutput(
     "exports",
     "tests",
     "candidates",
+    // search_code({mode:'literal'|'regex'}) content-search rows {file,line,preview}
+    "matches",
     // get_conventions: kinds hoisted to top level for _fmt:multi
     "naming",
     "import_direction",
@@ -263,11 +351,11 @@ export function formatToolOutput(
       if (arrayFieldsPresent.length >= 2) {
         const sections = arrayFieldsPresent.map((k) => {
           const items = obj[k] as unknown[];
+          // isSparseObjectArray covers both uniform and sparse flat-object
+          // arrays, so a references+text_occurrences pair (rows with differing
+          // optional columns) still encodes columnar instead of one-per-line.
           const kind: "uniform-object" | "string-list" =
-            items.length > 0 &&
-            typeof items[0] === "object" &&
-            items[0] !== null &&
-            isUniformObjectArray(items as Record<string, unknown>[])
+            items.length > 0 && isSparseObjectArray(items)
               ? "uniform-object"
               : "string-list";
           return { name: k, items, kind };
@@ -287,8 +375,14 @@ export function formatToolOutput(
       if (arrayFieldsPresent.length === 1) {
         const arrayKey = arrayFieldsPresent[0]!;
         const items = obj[arrayKey] as Record<string, unknown>[];
-        if (items.length > 0 && isUniformObjectArray(items)) {
-          const columns = sortedColumnsFromFirstRow(items);
+        const uniform = isUniformObjectArray(items);
+        if (items.length > 0 && (uniform || isSparseObjectArray(items))) {
+          // Uniform rows keep their sorted column order (unchanged behavior);
+          // sparse rows (get_references references, differing optional cols)
+          // union the columns so they columnar-encode instead of JSON.
+          const columns = uniform
+            ? sortedColumnsFromFirstRow(items)
+            : unionColumns(items);
           meta.format = "columnar";
           meta.columns = columns;
           attachColumnarLegend();

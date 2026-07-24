@@ -5,8 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { detectSerializedByMasterLeak } from "../hooks/stop-hooks.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 
-// A Claude-Code transcript is JSONL; the closing message scraper reads the last
-// assistant text. Build a one-line transcript whose assistant text is `closing`.
+// `detectSerializedByMasterLeak` no longer reads `transcript_path` (the
+// journal-sentinel closing-message scraper was removed) — the pending flag
+// alone is now the signal. `stdinJson` is still accepted for call-site
+// compatibility, so these fixtures keep passing a transcript path; its
+// content is no longer consulted.
 function writeTranscript(dir: string, closing: string): string {
   const path = join(dir, "transcript.jsonl");
   const row = {
@@ -56,12 +59,9 @@ describe("detectSerializedByMasterLeak (Issue 5 leak)", () => {
     ).toBe(false);
   });
 
-  it("emits the leak when the nudge fired but no delegate marker landed", () => {
+  it("emits the leak whenever the nudge is left armed at turn end", () => {
     arm();
-    const tp = writeTranscript(
-      repoRoot,
-      "renamed it myself\nunerr-save: intent fix the rename"
-    );
+    const tp = writeTranscript(repoRoot, "renamed it myself");
     expect(
       detectSerializedByMasterLeak(
         JSON.stringify({ transcript_path: tp }),
@@ -69,21 +69,6 @@ describe("detectSerializedByMasterLeak (Issue 5 leak)", () => {
       )
     ).toBe(true);
     // flag disarmed after firing once
-    expect(readNudgeState(repoRoot).delegable_nudge_pending).toBe(false);
-  });
-
-  it("does NOT emit when the close-out carries a delegate marker", () => {
-    arm();
-    const tp = writeTranscript(
-      repoRoot,
-      "handed it off\nunerr-save: intent delegate tests sweep: add coverage"
-    );
-    expect(
-      detectSerializedByMasterLeak(
-        JSON.stringify({ transcript_path: tp }),
-        unerrDir
-      )
-    ).toBe(false);
     expect(readNudgeState(repoRoot).delegable_nudge_pending).toBe(false);
   });
 

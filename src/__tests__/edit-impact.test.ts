@@ -92,6 +92,54 @@ describe("detectSignatureChange", () => {
       detectSignatureChange(target, "const x = 1", "const x = 2")
     ).toBeNull();
   });
+
+  // A body that CALLS a same-file entity is not a signature change of that
+  // entity. The cascade guard used to fire here because `foo(rows)` matched the
+  // signature regex — the reported false positive on `sortedColumnsFromFirstRow`.
+  it("stays silent when the hunk only CALLS a same-file entity (not its declaration)", () => {
+    const helper = entity({
+      name: "sortedColumnsFromFirstRow",
+      signature: "function sortedColumnsFromFirstRow(rows)",
+    });
+    const oldFrag =
+      "  const cols = sortedColumnsFromFirstRow(rows);\n  return encode(cols);";
+    const newFrag =
+      "  const cols = opts.sorted\n    ? sortedColumnsFromFirstRow(rows)\n    : rawColumns(rows);\n  return encode(cols);";
+    expect(detectSignatureChange(helper, oldFrag, newFrag)).toBeNull();
+  });
+
+  it("stays silent on a whitespace-differing call to a same-file entity", () => {
+    const helper = entity({ name: "sortedColumnsFromFirstRow" });
+    expect(
+      detectSignatureChange(
+        helper,
+        "const x = sortedColumnsFromFirstRow(rows );",
+        "const x = sortedColumnsFromFirstRow(rows);"
+      )
+    ).toBeNull();
+  });
+
+  it("stays silent on a method call obj.check(...) in an edited body", () => {
+    const method = entity({ name: "check", kind: "method" });
+    expect(
+      detectSignatureChange(
+        method,
+        "    this.check(ctx);\n    return 1;",
+        "    this.check(ctx, opts);\n    return 2;"
+      )
+    ).toBeNull();
+  });
+
+  it("still detects a parameter change on a method DEFINITION (brace-anchored)", () => {
+    const method = entity({ name: "check", kind: "method" });
+    expect(
+      detectSignatureChange(
+        method,
+        "  check(ctx: Ctx): void {",
+        "  check(ctx: Ctx, opts: Opts): void {"
+      )
+    ).toBe("parameter_added");
+  });
 });
 
 // Bug C — partial / multi-line edit fragments. Claude's Edit old_string/new_string

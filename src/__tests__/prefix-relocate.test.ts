@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,9 +16,10 @@ const SESSION = "UNERR_SESSION_ID";
 
 describe("prefix ordering", () => {
   const BOUNDARY = "— unerr: per-turn context —";
-  // Stable head line: the mark-intent one-shot (the Moment-1 recall nudge it
-  // used to be died with the active-memory strip).
-  const STABLE_HEAD = "record this turn's intent";
+  // Stable head line: the fixed decompose-and-delegate nudge (fires once per
+  // substantive code turn, byte-stable — no mark_intent/journal machinery
+  // involved, that subsystem was removed).
+  const STABLE_HEAD = "ur|act delegate-slices —";
   let prevCwd: string;
   let savedSession: string | undefined;
 
@@ -34,7 +35,9 @@ describe("prefix ordering", () => {
 
   beforeEach(() => {
     prevCwd = process.cwd();
-    process.chdir(mkdtempSync(join(tmpdir(), "unerr-relocate-")));
+    const dir = mkdtempSync(join(tmpdir(), "unerr-relocate-"));
+    process.chdir(dir);
+    mkdirSync(join(dir, ".unerr", "ledger"), { recursive: true });
     savedSession = process.env[SESSION];
     process.env[SESSION] = "relocate-test-session";
   });
@@ -45,25 +48,37 @@ describe("prefix ordering", () => {
     else process.env[SESSION] = savedSession;
   });
 
-  it("stable mark-intent nudge leads, boundary present, volatile delegate line trails", () => {
-    // Use a delegable prompt ("add tests …" → the `tests` class) so the
-    // class-specific delegate line fires — that line is the VOLATILE per-prompt
-    // nudge. (Since the decompose-delegate gate was broadened past build-intent,
-    // a fix/refactor verb-cluster prompt now draws the STABLE decompose nudge,
-    // not a volatile Path A line; the delegate line is the reliable volatile tail.)
+  it("stable decompose nudge leads, boundary present, volatile stitch line trails", () => {
+    // Seed a prior-session ledger entry so the cross-session stitch fires as
+    // the VOLATILE per-prompt tail. Use a plain bug-fix prompt (no narrow
+    // delegable class match) so the fixed decompose-and-delegate nudge — not
+    // the class-specific delegate line — owns the STABLE head.
+    writeFileSync(
+      join(process.cwd(), ".unerr", "ledger", "shadow.jsonl"),
+      `${JSON.stringify({
+        id: "m1",
+        tool: "mark_intent",
+        session_id: "sess-prior",
+        args_summary: { text: "wire the new router" },
+      })}\n`,
+      "utf8"
+    );
+
     const ctx = readContext(
-      runUserPromptSubmitHook(mk("add tests for the QueryRouter dispatch path"))
+      runUserPromptSubmitHook(
+        mk("fix the retry delay bug in the boot sequence")
+      )
     );
 
     expect(ctx).toContain(BOUNDARY);
     expect(ctx).toContain(STABLE_HEAD);
-    // The class-specific delegate line is the volatile per-prompt nudge.
-    expect(ctx).toContain("ur|act delegate —");
+    // The cross-session stitch line is the volatile per-prompt nudge.
+    expect(ctx).toContain("ur|act picking up:");
 
     const headIdx = ctx.indexOf(STABLE_HEAD);
     const boundaryIdx = ctx.indexOf(BOUNDARY);
-    const volatileIdx = ctx.indexOf("ur|act delegate —");
-    // stable head before the boundary; volatile delegate line after it.
+    const volatileIdx = ctx.indexOf("ur|act picking up:");
+    // stable head before the boundary; volatile stitch line after it.
     expect(headIdx).toBeGreaterThanOrEqual(0);
     expect(headIdx).toBeLessThan(boundaryIdx);
     expect(volatileIdx).toBeGreaterThan(boundaryIdx);

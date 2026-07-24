@@ -251,6 +251,33 @@ export async function applyDevConfig(repoPath: string): Promise<void> {
 }
 
 /**
+ * Set ONLY the dev-key trust env (and the dev API URL) so an already-cached dev
+ * entitlement verifies in THIS process — without minting a fresh token or
+ * rewriting the cache. The `unerr hook <event>` fast-path (cli-hook.ts) bypasses
+ * the Commander `preAction` wall that runs the full `applyDevConfig`, so a hook
+ * subprocess would otherwise never trust the dev `kid`; `verifyEntitlementToken`
+ * then reports `unknown_kid`, `authState()` drops to `degraded_free`, and
+ * `loginBlocked()` gates every hook to "{}" — silently killing the Stop close-out
+ * line. Write-free: the long-lived proxy/CLI owns minting the cache via
+ * `applyDevConfig`; the hook only needs to VERIFY it. Caller guards behind
+ * `__UNERR_DEV_BUILD__` (compile-stripped in prod, so zero cost there).
+ */
+export function trustDevKeyEnv(repoPath: string): void {
+  const profile = resolveDevProfile(repoPath);
+  if (!profile) return;
+
+  if (profile.apiUrl && !process.env.UNERR_API_URL?.trim()) {
+    process.env.UNERR_API_URL = profile.apiUrl;
+  }
+
+  if (profile.tier && PLAN_LIMITS[profile.tier]) {
+    const key = loadOrCreateDevKey();
+    process.env[ENV_KID] = key.kid;
+    process.env[ENV_PUBKEY] = key.publicKey;
+  }
+}
+
+/**
  * Describe the active dev profile as ready-to-print lines for `unerr pm status`
  * — the one command that surfaces dev mode. Returns an empty array when no
  * dev.json is present, so the caller prints nothing then. Read-only: unlike

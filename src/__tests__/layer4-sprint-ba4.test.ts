@@ -14,9 +14,12 @@ import {
   OUTPUT_FORMAT_LEGEND,
   createSessionLegendTracker,
 } from "../proxy/session-legend.js";
-// Post-consolidation (27→7): the token-efficient guidance is folded into
-// USING_UNERR_SKILL (the always-on master). Tests assert the rules still
-// ship — they just ride inside the master skill body now.
+// Post-consolidation (27→7): the tool-reference guidance is folded into
+// USING_UNERR_SKILL (the always-on master). The body was cut further
+// (2026-07-24 description/body dedup) to a short capability reference —
+// the diff/ur|<tag>/@sem prose moved out (already covered by CLAUDE.md /
+// the instruction file); tests assert the five tools + the sub-agent
+// delegation line still ship.
 import { USING_UNERR_SKILL } from "../skills/local-pack.js";
 
 describe("BA-4.1: token-efficient guidance (folded into using-unerr)", () => {
@@ -24,26 +27,23 @@ describe("BA-4.1: token-efficient guidance (folded into using-unerr)", () => {
     expect(USING_UNERR_SKILL.version.startsWith("2.")).toBe(true);
   });
 
-  it("includes unified diff rule", () => {
-    expect(USING_UNERR_SKILL.instructions).toContain(
-      "show diffs, not whole files"
-    );
+  it("body references all five unerr tools", () => {
+    const text = USING_UNERR_SKILL.instructions;
+    for (const tool of [
+      "search_code",
+      "file_read",
+      "file_edit",
+      "get_references",
+      "fetch_url",
+    ]) {
+      expect(text).toContain(tool);
+    }
   });
 
-  it("includes ur|ctx rule", () => {
-    // New loose body: drift/conventions arrive as ur|<tag> lines — agent must read them.
-    // The old rigid "Re-read any file flagged `ur|ctx`" step is gone; the guidance
-    // now says they "arrive on their own as `ur|<tag>` lines. Read them."
-    expect(USING_UNERR_SKILL.instructions).toContain("ur|<tag>");
-    expect(USING_UNERR_SKILL.instructions).toContain(
-      "arrive on their own as `ur|<tag>` lines. Read them."
-    );
-  });
-
-  it("includes the diff-only rule (no full-file regeneration)", () => {
-    expect(USING_UNERR_SKILL.instructions).toContain(
-      "show diffs, not whole files"
-    );
+  it("body notes unerr sub-agents exist for delegable slices", () => {
+    const text = USING_UNERR_SKILL.instructions;
+    expect(text).toContain("unerr-worker");
+    expect(text).toContain("unerr-junior");
   });
 });
 

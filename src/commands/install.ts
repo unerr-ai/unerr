@@ -29,10 +29,6 @@ import {
   normalizeAgentName,
 } from "../config/agent-registry.js";
 import {
-  readAutonomousMode,
-  writeAutonomousMode,
-} from "../config/autonomous-mode.js";
-import {
   addAgentToolAllows,
   addDisallowedTools,
   getUnerrBinary,
@@ -95,16 +91,8 @@ export function registerInstallCommand(program: Command): void {
       "Print setup instructions for any AI coding agent"
     )
     .option(
-      "--review-gate",
-      "Also install the git pre-commit/post-commit review gate (opt-in)"
-    )
-    .option(
       "--token <token>",
       "Connect non-interactively with a machine token (CI / headless)"
-    )
-    .option(
-      "--autonomous",
-      "non-interactive setup: strict verification, auto-escalation sub-agents, warm backend (claude-code only)"
     )
     .action(
       async (
@@ -113,9 +101,7 @@ export function registerInstallCommand(program: Command): void {
           force?: boolean;
           showSkills?: boolean;
           showInstructions?: boolean | string;
-          reviewGate?: boolean;
           token?: string;
-          autonomous?: boolean;
         }
       ) => {
         const cwd = process.cwd();
@@ -156,23 +142,11 @@ export function registerInstallCommand(program: Command): void {
 
         let result: InstallResult;
         try {
-          result = await runInstall(
-            cwd,
-            normalizedAgent as any,
-            opts?.autonomous === true
-          );
+          result = await runInstall(cwd, normalizedAgent as any);
         } catch (err) {
           if (err instanceof RepoCapError) {
             // Free-tier repo cap hit — print the upgrade/free-slot guidance and
             // exit non-zero. No config was written (the check runs first).
-            process.stderr.write(`\n  \x1b[31m✗\x1b[0m ${err.message}\n`);
-            process.exitCode = 1;
-            return;
-          }
-          if (err instanceof AutonomousModeUnsupportedError) {
-            // --autonomous requested for a non-claude-code agent — refuse the
-            // same way the repo cap does: message + non-zero exit, no config
-            // written (runInstall throws before any write).
             process.stderr.write(`\n  \x1b[31m✗\x1b[0m ${err.message}\n`);
             process.exitCode = 1;
             return;
@@ -222,22 +196,6 @@ export function registerInstallCommand(program: Command): void {
           process.stderr.write(
             "  \x1b[38;2;52;211;153m✓\x1b[0m PreToolUse hook installed (graph-first navigation)\n"
           );
-        }
-
-        // Review gate (opt-in git pre-commit/post-commit hooks)
-        if (opts?.reviewGate) {
-          const { installReviewGateHooks } = await import(
-            "../tracking/review-gate-hooks.js"
-          );
-          if (installReviewGateHooks(cwd)) {
-            process.stderr.write(
-              "  \x1b[38;2;52;211;153m✓\x1b[0m Review gate installed (git pre-commit/post-commit)\n"
-            );
-          } else {
-            process.stderr.write(
-              "  \x1b[38;2;251;191;36m⚠\x1b[0m Review gate skipped — not a git repository (.git/hooks missing)\n"
-            );
-          }
         }
 
         // Gitignore
@@ -335,62 +293,19 @@ export function registerInstallCommand(program: Command): void {
         // Login is mandatory (2026-06-14): `install` is a gated command, so the
         // `preAction` wall in cli.ts has already enforced a usable login before
         // this action runs. No separate install-time login offer.
-
-        // Autonomous mode: warm the backend (graph indexed + proxy running)
-        // so the very first MCP tool call in a non-interactive session hits a
-        // live graph instead of a cold boot. Kept out of runInstall so unit
-        // tests of runInstall never spawn a process. The agent-mismatch
-        // refusal above already guarantees normalizedAgent is claude-code
-        // whenever opts.autonomous is set and we got this far.
-        if (opts?.autonomous && normalizedAgent === "claude-code") {
-          const { bootAutonomousBackend } = await import(
-            "./autonomous-boot.js"
-          );
-          const warm = await bootAutonomousBackend(cwd);
-          if (!warm) {
-            process.exitCode = 1;
-          }
-        }
       }
     );
 }
 
 /**
- * Thrown by {@link runInstall} when `--autonomous` is requested for an agent
- * other than claude-code. Caught alongside {@link RepoCapError} in the
- * install action — message printed, non-zero exit, no config written.
- *
- * @sem domain=configuration role=validation
- */
-export class AutonomousModeUnsupportedError extends Error {}
-
-/**
  * Core install logic — writes MCP config + skills for a single agent.
- *
- * `autonomous` is tri-state: `true`/`false` set or clear the repo's
- * autonomous mode, and `undefined` preserves whatever it already runs — the
- * state every programmatic re-install (e.g.
- * {@link refreshAgentInstallsIfUpgraded}) must use so a refresh never
- * downgrades an autonomous repo to interactive behind the user's back.
  */
 export async function runInstall(
   cwd: string,
-  ide: Parameters<typeof writeMcpConfig>[1],
-  autonomous?: boolean
+  ide: Parameters<typeof writeMcpConfig>[1]
 ): Promise<InstallResult> {
   const agentDef = getAgent(ide);
   const agentName = agentDef?.name ?? ide;
-
-  // --autonomous is claude-code only (verifier sub-agent, strict-mode
-  // instructions, and the warm-backend boot path all assume Claude Code's
-  // on-disk sub-agent + hook surface). Refuse before any write. Keyed on the
-  // EXPLICIT argument: a programmatic re-install of a cursor repo must never
-  // throw just because some other agent in the repo runs autonomous.
-  if (autonomous === true && ide !== "claude-code") {
-    throw new AutonomousModeUnsupportedError(
-      "Autonomous mode currently supports claude-code only — run `unerr install claude-code --autonomous`."
-    );
-  }
 
   // 0. Free-tier repo cap — refuse a brand-new 2nd repo BEFORE writing any
   //    config, so a capped repo never gets a half-written .mcp.json. Adding
@@ -410,23 +325,6 @@ export async function runInstall(
   //     that pre-warm still spawns a daemon child that exits 1 for lack of
   //     config. This is what makes a headless install bootable at all.
   const { created: configBootstrapped } = await ensureRepoConfig(cwd);
-
-  // 0c. Autonomous-mode flag (claude-code only). TRI-STATE by design:
-  //     `true`/`false` come from the CLI (an explicit `--autonomous`, or a
-  //     plain `unerr install claude-code` — the authoritative way back to
-  //     interactive), while `undefined` means PRESERVE whatever the repo
-  //     already runs. That third state is load-bearing: the version-upgrade
-  //     refresh (`refreshAgentInstallsIfUpgraded`) re-runs `runInstall` for
-  //     every configured agent with no mode argument, and it fires from proxy
-  //     boot — which the autonomous install itself triggers. Treating
-  //     `undefined` as "clear" silently reverted a just-installed autonomous
-  //     repo to interactive (flag dropped, `unerr-verifier.md` deleted)
-  //     moments after the install printed success.
-  const effectiveAutonomous =
-    autonomous === undefined ? readAutonomousMode(cwd) : autonomous;
-  if (ide === "claude-code") {
-    writeAutonomousMode(cwd, effectiveAutonomous);
-  }
 
   // 1. Write MCP config (project-level)
   const mcpConfig = writeMcpConfig(cwd, ide);
@@ -455,7 +353,7 @@ export async function runInstall(
   //     `codex exec -m gpt-5.4-mini` and needs no file.
   try {
     const { writeJuniorSubagent } = await import("../skills/junior-agent.js");
-    writeJuniorSubagent(ide, cwd, { autonomous: effectiveAutonomous });
+    writeJuniorSubagent(ide, cwd);
   } catch {
     // Non-blocking
   }
@@ -500,9 +398,7 @@ export async function runInstall(
   let instructionsInjected = false;
   let instructionPath = "";
   try {
-    const instrResult = writeInstructionFile(cwd, ide, {
-      autonomous: effectiveAutonomous,
-    });
+    const instrResult = writeInstructionFile(cwd, ide);
     instructionsInjected =
       instrResult.action === "created" || instrResult.action === "updated";
     instructionPath = instrResult.path;
@@ -541,33 +437,22 @@ export async function runInstall(
   //    register the repo and ask it to spin up the per-repo process so the next
   //    IDE connect is instant. If the manager isn't running, do nothing — the
   //    bridge auto-spawns it on first MCP connection via the spawn-lock.
-  //
-  //    Skipped when `autonomous === true` — that argument only ever comes from
-  //    `unerr install claude-code --autonomous`, whose action runs
-  //    `bootAutonomousBackend` immediately after this returns. That boot indexes
-  //    to completion FIRST and starts the proxy SECOND. Pre-warming here would
-  //    invert the order: the proxy would already own the graph, `runIndex` would
-  //    report `proxy_running` and skip, and the two spawn paths would race (we
-  //    observed a duplicate orphan proxy from exactly this). A programmatic
-  //    re-install (`autonomous === undefined`) still pre-warms as before.
   let repoRegistered = false;
-  if (autonomous !== true) {
-    try {
-      const { daemonSockPath, probeDaemon, ensureRepo } = await import(
-        "../daemon/client.js"
-      );
-      const { addRepo } = await import("../daemon/registry.js");
-      const sock = daemonSockPath();
-      if (await probeDaemon(sock)) {
-        if (!findRepo(cwd)) {
-          addRepo(cwd, {}, { repoLimit: currentRepoLimit() });
-          repoRegistered = true;
-        }
-        await ensureRepo(sock, cwd).catch(() => {});
+  try {
+    const { daemonSockPath, probeDaemon, ensureRepo } = await import(
+      "../daemon/client.js"
+    );
+    const { addRepo } = await import("../daemon/registry.js");
+    const sock = daemonSockPath();
+    if (await probeDaemon(sock)) {
+      if (!findRepo(cwd)) {
+        addRepo(cwd, {}, { repoLimit: currentRepoLimit() });
+        repoRegistered = true;
       }
-    } catch {
-      // Non-blocking — IDE connection will register on demand.
+      await ensureRepo(sock, cwd).catch(() => {});
     }
+  } catch {
+    // Non-blocking — IDE connection will register on demand.
   }
 
   return {

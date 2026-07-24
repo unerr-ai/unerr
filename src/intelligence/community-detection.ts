@@ -14,11 +14,6 @@
  */
 
 import { dirname } from "node:path";
-// NodeNext CJS interop: graphology and graphology-communities-louvain ship as CJS
-// with .d.ts using `export default`. TypeScript NodeNext sees the module namespace
-// instead of the default export. We define the minimal interface we use and cast.
-import GraphNs from "graphology";
-import louvainNs from "graphology-communities-louvain";
 import { createYieldGate, maybeYield } from "../utils/index-yield.js";
 import { isTestFile } from "./indexer/test-detector.js";
 
@@ -64,8 +59,29 @@ type LouvainFn = (
   }
 ) => Record<string, number>;
 
-const Graph = GraphNs as unknown as GraphConstructor;
-const louvain = louvainNs as unknown as LouvainFn;
+// `graphology` and `graphology-communities-louvain` are heavy deps that must
+// not load on every `unerr` invocation — only when community detection
+// (indexing/enrichment) actually runs. Loaded via runtime `import()` and
+// cached, so a bundler de-hoists them instead of eval-loading at startup.
+// NodeNext CJS interop: both ship as CJS with .d.ts using `export default`;
+// the dynamic import's module namespace carries the value on `.default`.
+let _Graph: GraphConstructor | undefined;
+let _louvain: LouvainFn | undefined;
+
+async function loadGraphLibs(): Promise<{
+  Graph: GraphConstructor;
+  louvain: LouvainFn;
+}> {
+  if (!_Graph || !_louvain) {
+    const [graphMod, louvainMod] = await Promise.all([
+      import("graphology"),
+      import("graphology-communities-louvain"),
+    ]);
+    _Graph = graphMod.default as unknown as GraphConstructor;
+    _louvain = louvainMod.default as unknown as LouvainFn;
+  }
+  return { Graph: _Graph, louvain: _louvain };
+}
 
 // ── Public Types ────────────────────────────────────────────────
 
@@ -150,6 +166,8 @@ export async function detectCascadedCommunities(
   }
 
   // ── Phase 1: File Macro-Communities ─────────────────────────────
+
+  const { Graph, louvain } = await loadGraphLibs();
 
   const fileGraph = new Graph({ type: "undirected", allowSelfLoops: false });
 
@@ -486,6 +504,8 @@ export async function detectCascadedCommunities(
     // Split oversized sub-communities (>25% of macro-community)
     const threshold = entityKeys.length * 0.25;
     splitOversizedSubCommunities(
+      Graph,
+      louvain,
       subgraph,
       entityAssignments,
       entityKeys,
@@ -714,6 +734,8 @@ function reassignTestFiles(
  * Split oversized sub-communities within a macro-community.
  */
 function splitOversizedSubCommunities(
+  Graph: GraphConstructor,
+  louvain: LouvainFn,
   graph: GraphLike,
   assignments: Map<string, number>,
   entityKeys: string[],

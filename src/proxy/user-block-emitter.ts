@@ -42,14 +42,13 @@ export interface UserBlockContext {
    *  strip is spliced onto userBlock.head on the FIRST call of the
    *  session — once per process. Pulled from `stats.isResumedSession`. */
   isResumedSession?: boolean;
-  /** Fix K — optional timeline store handle. When set, the resume strip
-   *  pulls top-3 open blockers and top-3 most-recent mark_intent rows
-   *  from the prior session. When undefined, the resume block renders
-   *  without those lines (graceful degradation). */
+  /** Optional timeline store handle. When set, the resume strip reads
+   *  the prior session's modified-file list from timeline.db's
+   *  `session_files` table. When undefined, the resume block omits the
+   *  "Modified…" clause (graceful degradation). */
   timelineStore?: Parameters<typeof generateSessionResumePayload>[1];
-  /** Fix K — optional behavior-event writer. When set and the resume
-   *  strip emits ≥1 carried-over blocker, a `resume_blockers_surfaced`
-   *  event is recorded for the dashboard compliance ribbon. */
+  /** Optional behavior-event writer, unused by the resume strip itself;
+   *  retained for other callers that pass it through this context. */
   behaviorEvents?: BehaviorEventWriter;
   /** Override Date.now() — tests only. */
   now?: number;
@@ -92,39 +91,6 @@ async function buildResumeStrip(ctx: UserBlockContext): Promise<string> {
     const block = formatSessionResumeBlock(payload);
     if (block.length > 0) {
       RESUME_STRIP_EMITTED.add(ctx.sessionId);
-      // Fix K — record the magic-moment telemetry when ≥1 blocker
-      // carried over. Best-effort: never block the response on the write.
-      const blockerCount = payload.open_blockers?.length ?? 0;
-      if (blockerCount > 0 && ctx.behaviorEvents) {
-        try {
-          ctx.behaviorEvents.record({
-            session_id: ctx.sessionId,
-            type: "resume_blockers_surfaced",
-            tool: null,
-            entity_key: null,
-            response_bytes: null,
-            // L2 capture-site fix: carry the blocker texts so the Logbook can
-            // name them ("Resumed your open blocker: …") instead of rendering
-            // the default-phrasing "recorded thing" fall-through. Capped to the
-            // top 3 (matching the resume strip) + truncated for the detail bag.
-            detail: {
-              count: blockerCount,
-              blockers: (payload.open_blockers ?? []).slice(0, 3).map((b) => ({
-                text: b.text.slice(0, 200),
-                file_path: b.file_path,
-              })),
-              retrieved: (payload.open_blockers ?? []).slice(0, 3).map((b) => ({
-                kind: "resume_blocker",
-                ...(b.file_path ? { anchor: b.file_path } : {}),
-              })),
-              returned_count: Math.min(blockerCount, 3),
-              used: true,
-            },
-          });
-        } catch {
-          /* never break the response on telemetry failure */
-        }
-      }
     }
     return block;
   } catch {
@@ -193,9 +159,9 @@ export async function buildUserBlockForResponse(
       // `unerr_turn_summary`.
       const baseHead = buildUserBlock(prefaceLines);
       // Resume strip: prepend ABOVE everything else on the first response
-      // of a resumed session. It is its own self-formatted block (already
-      // includes `[unerr:session-resume]` prefix and bullets) — keep it
-      // outside `buildUserBlock` so its existing structure is preserved.
+      // of a resumed session. It is its own self-formatted single line
+      // (tool calls, duration, modified files, branch) — keep it outside
+      // `buildUserBlock` so its structure is preserved.
       const resumeStrip = await buildResumeStrip(ctx);
       const resumeBlock = resumeStrip ? `${resumeStrip}\n\n` : "";
       head = resumeBlock + baseHead;

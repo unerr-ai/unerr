@@ -44,10 +44,10 @@ describe("tool-tiers: UNLOCK_CONDITIONS alignment with TIER_ENTRIES", () => {
     }
   });
 
-  it("expected tier sizes — 6 / 0 / 1 (unerr_track is the sole Tier 3 tool; file_edit is the merged edit/write tool in tier 1; get_entity + unerr_context merged into search_code)", () => {
-    expect(toolsByTier(1)).toHaveLength(6);
-    expect(toolsByTier(2)).toHaveLength(0);
-    expect(toolsByTier(3)).toHaveLength(1);
+  it("expected tier sizes — 5 / 1 / 0 (get_references is the sole Tier 2 tool since 2026-07; Tier 3 is empty since unerr_track's removal; file_outline stays tier 1 but hidden — folded into file_read outline mode)", () => {
+    expect(toolsByTier(1)).toHaveLength(5);
+    expect(toolsByTier(2)).toHaveLength(1);
+    expect(toolsByTier(3)).toHaveLength(0);
   });
 });
 

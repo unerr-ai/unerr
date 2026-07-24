@@ -3,7 +3,6 @@
  * fires for Cursor-shaped payloads:
  *   - deny path emits `{permission:"deny", agent_message:...}`
  *   - nudge path emits `{permission:"allow", agent_message:...}`
- *   - ambient injection (mark_intent) rides on the first PreToolUse
  *
  * Spawning a real Cursor IDE in CI isn't practical; the contract is
  * the stdin/stdout JSON shape that Cursor's hook runner consumes. We
@@ -51,10 +50,6 @@ describe("Cursor end-to-end PreToolUse", () => {
   });
 
   it("emits permission:allow for passthrough (no signal pending)", () => {
-    // Drain the mark_intent one-shot first so it doesn't auto-inject here.
-    const drain: HookHandler = () => passthrough();
-    runPreToolUseHook(cursorPayload("Read", { file_path: "foo.ts" }), drain);
-
     const handler: HookHandler = () => passthrough();
     const out = runPreToolUseHook(
       cursorPayload("Read", { file_path: "foo.ts" }),
@@ -77,11 +72,6 @@ describe("Cursor end-to-end PreToolUse", () => {
   });
 
   it("emits permission:allow + agent_message when handler nudges", () => {
-    // Drain mark_intent first.
-    runPreToolUseHook(cursorPayload("Read", { file_path: "foo.ts" }), () =>
-      passthrough()
-    );
-
     const handler: HookHandler = () => nudge("prefer file_read");
     const out = runPreToolUseHook(
       cursorPayload("Read", { file_path: "bar.ts" }),
@@ -90,26 +80,5 @@ describe("Cursor end-to-end PreToolUse", () => {
     const parsed = JSON.parse(out);
     expect(parsed.permission).toBe("allow");
     expect(parsed.agent_message).toContain("prefer file_read");
-  });
-
-  it("injects the intent reminder (session-journal sentinel) once per session", () => {
-    const handler: HookHandler = () => passthrough();
-    const out1 = runPreToolUseHook(
-      cursorPayload("Read", { file_path: "a.ts" }),
-      handler
-    );
-    const parsed1 = JSON.parse(out1);
-    // Demoted (Sprint 11): the reminder points at the closing-message sentinel,
-    // not a mark_intent MCP call.
-    expect(parsed1.agent_message).toContain("unerr journal - goal -");
-    expect(parsed1.agent_message).not.toContain("mark_intent(");
-
-    const out2 = runPreToolUseHook(
-      cursorPayload("Read", { file_path: "b.ts" }),
-      handler
-    );
-    const parsed2 = JSON.parse(out2);
-    // Second call should NOT re-emit the one-shot reminder.
-    expect(parsed2.agent_message).toBeUndefined();
   });
 });

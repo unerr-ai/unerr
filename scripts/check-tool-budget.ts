@@ -3,10 +3,10 @@
  * CI gate: validate every MCP tool description against its tier-aware token
  * budget. Run via `pnpm run check:tool-budget`. Exits 0 on pass, 1 on overrun.
  *
- * This is the same validation that runs at module load in
- * `src/proxy/tool-descriptions.ts`. The gate exists so failures surface as a
- * compact tabular report in CI rather than as an exception buried in another
- * test's setup.
+ * This is the same validation `validateAllToolDescriptions()` runs at proxy
+ * startup (`src/proxy/tool-descriptions.ts`). The gate exists so failures
+ * surface as a compact tabular report in CI rather than as an exception
+ * buried in another test's setup.
  */
 
 import {
@@ -14,6 +14,7 @@ import {
 	type BudgetKey,
 	ToolBudgetError,
 	budgetHeadroom,
+	warmTokenizer,
 } from "../src/proxy/tool-budget.js";
 import {
 	type DescriptionState,
@@ -33,6 +34,8 @@ interface Row {
 	headroom: number;
 	ok: boolean;
 }
+
+await warmTokenizer();
 
 const rows: Row[] = [];
 

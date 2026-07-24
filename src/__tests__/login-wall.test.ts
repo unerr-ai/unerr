@@ -14,8 +14,7 @@
  *    `uninstall`, `pm stop`/`remove`/`status`/`logs`, `router …`.
  *  - NUDGE (agent surfaces, pass through — never walled here; the throttled
  *    nudge itself is covered by login-blocked-passthrough.test.ts): `recon`,
- *    `review`, `index`, `learn`, `exec`, `compress-output`, `check-commit`,
- *    `hook`.
+ *    `index`, `learn`, `exec`, `compress-output`, `hook`.
  *
  * The wall body lives inline in cli.ts and reads module-level state, so the
  * test reconstructs the SAME Commander 12 program shape + `requiresInteractiveLogin`
@@ -84,7 +83,6 @@ function buildProgram(actionRan: () => void): Command {
   program.command("install").action(actionRan);
   program.command("uninstall").action(actionRan);
   program.command("recon").action(actionRan);
-  program.command("review").action(actionRan);
 
   const conventions = program.command("conventions");
   conventions.command("pull").action(actionRan);
@@ -189,7 +187,7 @@ describe("login preAction wall", () => {
   });
 
   describe("NUDGE — agent surfaces pass through (not walled here)", () => {
-    for (const cmd of ["recon", "review"]) {
+    for (const cmd of ["recon"]) {
       it(`${cmd} runs while logged out (no interactive wall)`, async () => {
         loginBlockedMock.mockReturnValue(true);
         setTTY(true);

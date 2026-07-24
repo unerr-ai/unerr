@@ -177,9 +177,11 @@ describe("preReadHook — Cursor (non-Claude Code)", () => {
 describe("preEditHook — Claude Code", () => {
   // Read-before-Edit nudges were REMOVED (B6): edits route through the
   // unerr-owned file_edit path, which needs no prior built-in Read. The
-  // pre-edit nudge now only names the blast-radius next step. The banner no
-  // longer mentions built-in Read at all.
-  it("nudges get_references before edit, never mentions built-in Read", () => {
+  // generic non-signature pre-edit nudge was ALSO removed (measured ~105
+  // fires/5 sessions vs 1 get_references call) — a plain non-signature edit
+  // is now a silent passthrough. Only the signature-change branch below still
+  // nudges; the banner never mentions built-in Read at all.
+  it("passes through a non-signature edit with no nudge", () => {
     const result = JSON.parse(
       runPreEditHook(
         claudeCodePayload({
@@ -190,8 +192,7 @@ describe("preEditHook — Claude Code", () => {
       )
     );
     const msg = result.hookSpecificOutput?.systemMessage ?? "";
-    expect(msg).toContain("get_references");
-    expect(msg).toContain("src/foo.ts");
+    expect(msg).toBe("");
     expect(msg).not.toContain("CRITICAL: Edit REQUIRES built-in Read");
     expect(msg).not.toContain("built-in Read");
   });
@@ -232,8 +233,8 @@ describe("preEditHook — Cursor (non-Claude Code)", () => {
     // Should NOT mention Edit requires Read
     expect(msg).not.toContain("CRITICAL: Edit REQUIRES built-in Read");
     expect(msg).not.toContain("file_read (MCP) does NOT satisfy this");
-    // Should still mention get_references for blast radius
-    expect(msg).toContain("get_references");
+    // Generic non-signature pre-edit nudge was removed — passthrough, no message.
+    expect(msg).toBe("");
   });
 });
 
@@ -244,18 +245,15 @@ describe("postReadHook — agent-aware enrichment", () => {
     resetHookDedup();
   });
 
-  it("Claude Code: mentions Edit workflow", () => {
+  it("Claude Code: read-pref nudge is cut — passthrough (already in the instruction file)", () => {
     const result = JSON.parse(
       runPostReadHook(claudeCodePayload({ file_path: "src/post-read-cc.ts" }))
     );
     const msg = result.hookSpecificOutput?.additionalContext ?? "";
-    expect(msg).toContain(
-      "To change this file call file_edit (no built-in Read needed)"
-    );
-    expect(msg).toContain("file_read");
+    expect(msg).toBe("");
   });
 
-  it("Cursor: generic file_read suggestion (no Edit mention)", () => {
+  it("Cursor: read-pref nudge is cut — passthrough (already in the instruction file)", () => {
     // Cursor postToolUse payload includes tool_output to distinguish from preToolUse
     // Use a unique file path to avoid dedup collision with the Claude Code test above
     const stdin = JSON.stringify({
@@ -267,7 +265,6 @@ describe("postReadHook — agent-aware enrichment", () => {
     const result = JSON.parse(runPostReadHook(stdin));
     // Cursor adapter uses `additional_context` at root level for post-tool-use enrichment
     const msg = result.additional_context ?? "";
-    expect(msg).not.toContain("Edit needs built-in Read first");
-    expect(msg).toContain("file_read");
+    expect(msg).toBe("");
   });
 });

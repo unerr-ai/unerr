@@ -13,7 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
   aggregateSession,
@@ -26,6 +26,13 @@ import {
   RouterTelemetryRecorder,
   calculateTokenSavings,
 } from "../proxy/router-telemetry.js";
+import { warmTokenizer } from "../proxy/tool-budget.js";
+
+// calculateTokenSavings is sync but requires the BPE encoder to be warmed
+// first (gpt-tokenizer now loads lazily — see tool-budget.ts).
+beforeAll(async () => {
+  await warmTokenizer();
+});
 
 let tempDir: string;
 

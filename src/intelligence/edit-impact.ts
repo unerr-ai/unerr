@@ -74,7 +74,10 @@ export type SignatureChangeType =
  */
 export interface EditImpactGraph {
   getEntitiesByFile(filePath: string): Promise<LocalEntity[]>;
-  getCallersOf(entityKey: string): Promise<LocalEntity[]>;
+  getCallersOf(
+    entityKey: string,
+    opts?: { includeDrift?: boolean }
+  ): Promise<LocalEntity[]>;
 }
 
 export interface EditImpactConfig {
@@ -118,6 +121,18 @@ export function detectSignatureChange(
         return "signature_modified";
       }
     }
+    return null;
+  }
+
+  // A signature can only change where the entity is DECLARED. If neither
+  // fragment declares it, the name is merely referenced/called — editing a body
+  // that CALLS a same-file entity is not a signature change of that entity, and
+  // classifying a call site as one is what made the cascade guard fire on
+  // unrelated edits (a `foo(rows)` call read as a redefinition of `foo`).
+  if (
+    !declaresEntity(oldContent, entity.name) &&
+    !declaresEntity(newContent, entity.name)
+  ) {
     return null;
   }
 
@@ -255,6 +270,32 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * True when `content` DECLARES `entityName` — a `function`/`class` keyword, a
+ * `const|let|var name =` binding, or a brace-anchored method/accessor head
+ * (`name(...) {`, optionally with a `: ReturnType`). FALSE for a mere call like
+ * `name(x)` or `obj.name(x)`: those carry no declaration keyword and no body
+ * brace, so a call to a same-file entity from an edited body no longer trips
+ * signature detection. Multi-line method signatures whose brace sits below the
+ * hunk are intentionally not matched here (the post-edit `ur|rsk` line still
+ * reports them) — favouring a missed method over a false block on a call.
+ */
+function declaresEntity(content: string, entityName: string): boolean {
+  const n = escapeRegex(entityName);
+  const decl = new RegExp(
+    // function declaration:            (export )(async )function NAME(
+    `(?:export\\s+)?(?:async\\s+)?function\\s+${n}\\s*\\(` +
+      // class declaration:             (export )(abstract )class NAME
+      `|(?:export\\s+)?(?:abstract\\s+)?class\\s+${n}\\b` +
+      // const/let/var binding:         (export )(const|let|var) NAME =
+      `|(?:export\\s+)?(?:const|let|var)\\s+${n}\\s*=` +
+      // method / accessor definition at line start (after modifiers), brace-
+      // anchored so a bare `NAME(...);` call at line start is excluded:
+      `|(?:^|\\n)[ \\t]*(?:(?:public|private|protected|static|async|readonly|get|set)\\s+)*${n}\\s*\\([^)]*\\)\\s*(?::[^={;]+)?\\{`
+  );
+  return decl.test(content);
+}
+
 export function toCallerAtRisk(entity: LocalEntity): CallerAtRisk {
   return {
     file: entity.file_path,
@@ -363,7 +404,14 @@ export async function computeEditImpact(
     const changeType = detectSignatureChange(entity, oldContent, newContent);
     if (!changeType) continue;
 
-    const callers = await graph.getCallersOf(entity.key);
+    // Confirmed callers only: a signature-change warning must cite real call
+    // sites, never a same-file cohabitant the polluted drift_edges falsely links
+    // (the 11-vs-3 over-report). Fresh not-yet-reindexed callers are caught by
+    // the session-end reconcile, so confirmed-only here trades a rare miss for
+    // never naming a non-caller.
+    const callers = await graph.getCallersOf(entity.key, {
+      includeDrift: false,
+    });
     if (callers.length < config.minCallersToWarn) continue;
 
     const callersAtRisk = callers.map((c) => toCallerAtRisk(c));

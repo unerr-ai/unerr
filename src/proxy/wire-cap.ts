@@ -646,7 +646,11 @@ function enforceTokenCap(
   const envelopeTokens =
     estimateTokenCount(JSON.stringify(oversize)) + OVERSIZE_HINT_TOKENS;
   const headBudgetTokens = tokenCap - envelopeTokens;
-  if (headBudgetTokens >= OVERSIZE_HEAD_MIN_TOKENS) {
+  // fetch_url is excluded from the raw head: its payload is a JSON array of
+  // extracted passages, so a byte-slice cuts mid-JSON-string and delivers
+  // escaped page markup (script/boilerplate), not readable content. The
+  // cache_ref + suggested_token_budget below is the useful pointer instead.
+  if (!isFetchUrl && headBudgetTokens >= OVERSIZE_HEAD_MIN_TOKENS) {
     const charsPerToken = serialized.length / Math.max(1, tokens);
     headChars = Math.min(
       serialized.length,

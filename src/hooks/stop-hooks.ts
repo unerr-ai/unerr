@@ -18,8 +18,6 @@
  */
 
 import { join } from "node:path";
-import { readAutonomousMode } from "../config/autonomous-mode.js";
-import { parseDelegationIntent } from "../intelligence/delegation.js";
 import { gatherNotices, renderNoticesRed } from "../notices/status-notices.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { renderStopReportLive } from "../proxy/turn-report.js";
@@ -33,15 +31,7 @@ import { emitSavingsEvent } from "../tracking/savings-events.js";
 import { readEditLogSince } from "../tracking/session-edit-log.js";
 import { resolveExecSessionContext } from "../tracking/session-records.js";
 import { enqueueTranscriptClaim } from "../tracking/transcript-claim.js";
-import { spawnUnerr } from "../utils/self-spawn.js";
-import { block, enrich, runStopHookAsync } from "./hook-runner.js";
-import {
-  type PersistOptions,
-  STOP_PERSIST_WORKER_TIMEOUT_MS,
-  persistSentinels,
-  readClosingMessageFromTranscript,
-} from "./sentinel-persist.js";
-import { scrapeSentinels } from "./sentinel-scrape.js";
+import { enrich, runStopHookAsync } from "./hook-runner.js";
 
 /**
  * Minimal one-line presence marker for the Stop / SubagentStop hooks.
@@ -106,75 +96,16 @@ export function resolveCurrentSessionTurn(unerrDir: string): {
 }
 
 /**
- * T7.9 — persist session-journal sentinels WITHOUT blocking the economy line.
- *
- * The Stop hook used to await the UDS writes (sequential, ≤400ms each — ~1.6s
- * worst case for 4 markers) before the close-out line could render. Now it
- * scrapes locally (one sync file read, sub-millisecond) only to decide whether
- * there is anything to persist, then hands the actual UDS writes to a detached
- * `unerr hook stop-persist --transcript <path>` worker and returns immediately.
- * The worker re-reads the transcript from argv — detached children get no
- * stdin — and outlives this short-lived hook subprocess via unref().
- *
- * Accepted race: a sub-second follow-up prompt may recall before the
- * just-spawned worker lands its writes; the saves surface one turn later.
- * Returns true when a worker was spawned. Never throws.
- */
-export function spawnStopPersistWorker(stdinJson: string): boolean {
-  try {
-    const raw = JSON.parse(stdinJson) as { transcript_path?: unknown };
-    const transcriptPath =
-      typeof raw.transcript_path === "string" ? raw.transcript_path : undefined;
-    if (!transcriptPath) return false;
-    const closing = readClosingMessageFromTranscript(transcriptPath);
-    if (!closing || scrapeSentinels(closing).length === 0) return false;
-
-    const child = spawnUnerr(
-      ["hook", "stop-persist", "--transcript", transcriptPath],
-      { detached: true, stdio: "ignore" }
-    );
-    child.unref();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Worker body for `unerr hook stop-persist` — runs in the detached child.
- * Re-reads the transcript named on argv, scrapes the closing message, and
- * persists every sentinel over UDS with the relaxed worker timeout (no IDE
- * hook deadline applies here). Returns the count acked. Never throws.
- */
-export async function runStopPersistWorkerAsync(
-  transcriptPath: string,
-  options: PersistOptions = {}
-): Promise<number> {
-  try {
-    const closing = readClosingMessageFromTranscript(transcriptPath);
-    if (!closing) return 0;
-    const saves = scrapeSentinels(closing);
-    if (saves.length === 0) return 0;
-    return await persistSentinels(saves, {
-      timeoutMs: STOP_PERSIST_WORKER_TIMEOUT_MS,
-      ...options,
-    });
-  } catch {
-    return 0;
-  }
-}
-
-/**
  * Issue 5 leak detector — `subtasks_serialized_by_master`. The prompt hook arms
  * `delegable_nudge_pending` when it routes a delegable task to `unerr-delegate`.
- * At turn end this checks the close-out: if the agent emitted a `delegate`
- * marker it acted on the nudge (no leak); if the pending flag is still set and
- * no delegate marker landed, the master kept the delegable work itself — a leak
- * the activation dashboard should see. Records one event, then clears the flag
- * so the same un-acted nudge fires the leak at most once. The closing message is
- * the one the persist worker already scrapes (sub-millisecond sync read), so
- * this adds no transcript re-read on the hot path beyond that. Best-effort —
- * never throws, returns true only when a leak row was emitted.
+ * At turn end this fires whenever the flag is still armed: the prior
+ * closing-message `delegate` marker check rode the now-removed journal
+ * sentinel scraper, so the pending flag alone is the signal — left armed at
+ * turn end means the master never routed the work to a sub-agent. Records one
+ * event, then clears the flag so the same un-acted nudge fires the leak at
+ * most once. Best-effort — never throws, returns true only when a leak row
+ * was emitted. `stdinJson` is accepted for call-site compatibility but no
+ * longer read.
  */
 export function detectSerializedByMasterLeak(
   stdinJson: string,
@@ -184,32 +115,10 @@ export function detectSerializedByMasterLeak(
     const cwd = process.cwd();
     if (!readNudgeState(cwd).delegable_nudge_pending) return false;
 
-    // Did the close-out carry a `delegate <class>` marker?
-    let delegated = false;
-    try {
-      const raw = JSON.parse(stdinJson) as { transcript_path?: unknown };
-      const tp =
-        typeof raw.transcript_path === "string"
-          ? raw.transcript_path
-          : undefined;
-      const closing = tp ? readClosingMessageFromTranscript(tp) : null;
-      if (closing) {
-        delegated = scrapeSentinels(closing).some(
-          (s) =>
-            s.kind === "marker" &&
-            s.op === "intent" &&
-            parseDelegationIntent(s.text) !== null
-        );
-      }
-    } catch {
-      /* treat an unreadable transcript as "no marker" */
-    }
-
     // The turn is over — disarm the flag regardless of outcome.
     updateNudgeState(cwd, (s) => {
       s.delegable_nudge_pending = false;
     });
-    if (delegated) return false; // acted on — not a leak
 
     const ctx = resolveExecSessionContext(unerrDir);
     if (!ctx.session_id) return false;
@@ -248,13 +157,11 @@ export function buildTrackerCloseReminder(cwd: string): string {
 }
 
 /**
- * Verification-awareness (W4) result of {@link evaluateVerifyGate}: either a
- * blocking Stop decision (autonomous mode) or a soft line to append to the
- * existing systemMessage (interactive mode, or autonomous past its block cap).
+ * Verification-awareness (W4) result of {@link evaluateVerifyGate}: a soft
+ * advisory line to append to the existing systemMessage. Never blocks the
+ * Stop — verify findings are advisory only.
  */
-type VerifyGateResult =
-  | { kind: "block"; message: string }
-  | { kind: "soft"; line: string };
+type VerifyGateResult = { line: string };
 
 /**
  * Exit-code-aware outcome of the last check command relative to a turn's last
@@ -265,12 +172,6 @@ type VerifyGateResult =
  * or "none" (no recognized check ran after the edit).
  */
 type CheckOutcome = "green" | "red" | "unknown" | "none";
-
-const VERIFY_BLOCK_MESSAGE =
-  "Edits landed this turn with no check run. Run the project's check that proves the change (test / build / typecheck) and read its result, or spawn unerr-verifier (Task subagent_type:'unerr-verifier') with the acceptance criteria and what changed. Then finish.";
-
-const VERIFY_RED_BLOCK_MESSAGE =
-  "The check ran and FAILED. Fix the failure it reported and rerun until green, or spawn unerr-opus (Task subagent_type:'unerr-opus') with the failing output as the evidence brief. Do not stop on a red check.";
 
 const VERIFY_SOFT_LINE =
   "unerr » edits landed with no check run this turn — delegate a verify-run (typecheck + targeted tests) to unerr-junior before building on it";
@@ -359,14 +260,11 @@ function turnVerifyStatus(
  * silent (verified); "unknown" (a check ran but its exit code is invisible —
  * an unwrapped env) also stays silent — fail OPEN rather than trap the agent
  * on lost visibility; "red" (a real check ran and FAILED) or "none" (no
- * check ran) escalate identically — in autonomous mode
- * ({@link readAutonomousMode}), a blocking decision (capped at 2 per session,
- * `verify_block_count`); once that cap is spent — or always, in interactive
- * mode — a soft advisory line appended to the systemMessage (capped at 2 per
- * session, `verify_soft_count`). "red" uses the red-specific message/line
- * (`VERIFY_RED_BLOCK_MESSAGE`/`VERIFY_SOFT_LINE_RED`) so the agent is told the
+ * check ran) both earn a soft advisory line appended to the systemMessage
+ * (capped at 2 per session, `verify_soft_count`) — never a block. "red" uses
+ * the red-specific line (`VERIFY_SOFT_LINE_RED`) so the agent is told the
  * check FAILED, not merely that none ran. Returns null once there is nothing
- * to say: no edits this turn, green/unknown outcome, or both caps are spent.
+ * to say: no edits this turn, green/unknown outcome, or the cap is spent.
  * Best-effort — any internal error degrades to null (unchanged Stop behavior).
  *
  * @sem domain=agent-hooks role=verify-gate
@@ -391,22 +289,13 @@ export function evaluateVerifyGate(
     }
 
     const isRed = status.outcome === "red";
-    const blockMessage = isRed
-      ? VERIFY_RED_BLOCK_MESSAGE
-      : VERIFY_BLOCK_MESSAGE;
     const softLine = isRed ? VERIFY_SOFT_LINE_RED : VERIFY_SOFT_LINE;
 
-    if (readAutonomousMode(repoRoot) && state.verify_block_count < 2) {
-      updateNudgeState(repoRoot, (s) => {
-        s.verify_block_count += 1;
-      });
-      return { kind: "block", message: blockMessage };
-    }
     if (state.verify_soft_count < 2) {
       updateNudgeState(repoRoot, (s) => {
         s.verify_soft_count += 1;
       });
-      return { kind: "soft", line: softLine };
+      return { line: softLine };
     }
     return null;
   } catch {
@@ -422,18 +311,14 @@ export function evaluateVerifyGate(
  * presence marker (`stopPresenceLine`) instead of a silent "{}" — every turn
  * confirms unerr is active. Only truly unparseable stdin still yields "{}".
  * Verification awareness (W4): when this turn had edits with no GREEN check
- * since (none ran, or one ran and FAILED), `evaluateVerifyGate` either blocks
- * the turn (autonomous mode, capped) or appends a soft advisory line to the
- * systemMessage (capped); unaffected turns keep the prior message unchanged.
+ * since (none ran, or one ran and FAILED), `evaluateVerifyGate` appends a soft
+ * advisory line to the systemMessage (capped, never blocks); unaffected turns
+ * keep the prior message unchanged.
  */
 export async function runStopHookHandlerAsync(
   stdinJson: string
 ): Promise<string> {
   try {
-    // Write-capture (T7.9) is handed to a detached worker — the economy line
-    // renders immediately instead of waiting on sequential UDS writes.
-    spawnStopPersistWorker(stdinJson);
-
     const unerrDir = join(process.cwd(), ".unerr");
 
     // Issue 5 leak — a delegable nudge fired this turn but the master kept the
@@ -480,19 +365,16 @@ export async function runStopHookHandlerAsync(
         ? combined
         : stopPresenceLine(resolved.currentTurn);
 
-    // Verification awareness (W4) — unchecked edits either block the turn
-    // (autonomous mode, capped) or earn a soft advisory line (capped);
-    // everything else about this turn's message is untouched.
+    // Verification awareness (W4) — unchecked edits earn a soft advisory line
+    // (capped); everything else about this turn's message is untouched.
     const verifyGate = evaluateVerifyGate(
       unerrDir,
       process.cwd(),
       resolved.currentTurn
     );
-    if (verifyGate?.kind === "block") {
-      return runStopHookAsync(stdinJson, async () => block(verifyGate.message));
-    }
-    const messageWithVerify =
-      verifyGate?.kind === "soft" ? `${message}\n${verifyGate.line}` : message;
+    const messageWithVerify = verifyGate
+      ? `${message}\n${verifyGate.line}`
+      : message;
 
     const finalMessage = trackerCloseLine
       ? `${messageWithVerify}\n${trackerCloseLine}`
@@ -512,8 +394,8 @@ export async function runStopHookHandlerAsync(
  * master-only `detectSerializedByMasterLeak` call: a sub-agent shares the
  * master's cwd, so running the leak detector here would false-fire
  * `subtasks_serialized_by_master` and wipe the master's pending flag mid-turn.
- * Everything else — sentinel persist worker, transcript claim, and the
- * close-out economy line — fires identically to the Stop hook.
+ * Everything else — transcript claim and the close-out economy line — fires
+ * identically to the Stop hook.
  *
  * @sem domain=agent-hooks
  */
@@ -521,8 +403,6 @@ export async function runSubagentStopHookHandlerAsync(
   stdinJson: string
 ): Promise<string> {
   try {
-    spawnStopPersistWorker(stdinJson);
-
     const unerrDir = join(process.cwd(), ".unerr");
 
     const resolved = resolveCurrentSessionTurn(unerrDir);

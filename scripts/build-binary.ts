@@ -47,19 +47,31 @@ const EMBEDDED_TS = join(
   "embedded-natives.ts"
 );
 const ENTRY = join(REPO_ROOT, "src", "entrypoints", "cli.ts");
+// The hook fast-path and full Commander program are their own entrypoints so
+// Bun code-splits them into separate chunks (splitting:true below). cli.ts
+// dynamic-imports whichever one the argv shape needs, so `unerr hook <event>`
+// loads only cli-hook.js + the fired handler's chunks and never pulls the
+// terminal-UI framework (ink/react/react-reconciler/yoga) that lives under
+// cli-main. Both sit in src/entrypoints/ (same dir as cli.ts) so the runtime
+// `./cli-hook.js` / `./cli-main.js` specifiers resolve as bunfs siblings — see
+// the RUNTIME PATH CONTRACT on WORKER_ENTRY below.
+const CLI_HOOK_ENTRY = join(REPO_ROOT, "src", "entrypoints", "cli-hook.ts");
+const CLI_MAIN_ENTRY = join(REPO_ROOT, "src", "entrypoints", "cli-main.ts");
 // The cozo db worker. Bun's static analysis does NOT follow the spawn URL from
 // the deep dynamic-import chain, so the worker module must be listed as an
 // explicit entrypoint to be embedded in the standalone binary. RUNTIME PATH
 // CONTRACT (Bun.build API form — the CLI form lays out differently): EVERY
 // entrypoint, main included, embeds at /$bunfs/root/<path-from-common-base>
-// with a `.js` name. With cli.ts + this file the common base is `src/`, so the
-// main module runs as `/$bunfs/root/entrypoints/cli.js` and the worker lands
-// at `/$bunfs/root/intelligence/cozo-worker.js` — which is exactly the
+// with a `.js` name. The common base of every entrypoint below is `src/`
+// (cli*.ts are in entrypoints/, cozo-worker.ts in intelligence/), so the main
+// module runs as `/$bunfs/root/entrypoints/cli.js`, cli-hook/cli-main sit
+// beside it at `/$bunfs/root/entrypoints/cli-{hook,main}.js`, and the worker
+// lands at `/$bunfs/root/intelligence/cozo-worker.js` — exactly the
 // `../intelligence/cozo-worker.js` URL defaultWorker in
 // src/intelligence/cozo-worker-client.ts uses in its `__UNERR_BINARY__`
 // branch. Adding an entrypoint outside src/ shifts the common base and
-// silently breaks that URL — keep all entrypoints under src/, and re-run
-// `unerr doctor` (Graph DB worker check) inside a fresh binary after any
+// silently breaks those relative URLs — keep all entrypoints under src/, and
+// re-run `unerr doctor` (Graph DB worker check) inside a fresh binary after any
 // entrypoint change.
 const WORKER_ENTRY = join(REPO_ROOT, "src", "intelligence", "cozo-worker.ts");
 const OUT_DIR = join(REPO_ROOT, "dist", "bin");
@@ -362,8 +374,16 @@ async function runCompile(
   const outFile = join(OUT_DIR, `unerr-${osArch}${spec.exe ? ".exe" : ""}`);
   log(`bun build --compile --target=${spec.bunTarget} → ${outFile}`);
   const result = await Bun.build({
-    entrypoints: [ENTRY, WORKER_ENTRY],
+    entrypoints: [ENTRY, CLI_HOOK_ENTRY, CLI_MAIN_ENTRY, WORKER_ENTRY],
     target: "bun",
+    // Split shared code into chunks so the hook fast-path (cli-hook) does not
+    // re-embed the whole UI/command graph that lives under cli-main. Measured
+    // on darwin-arm64: `unerr hook <event>` drops from 0.22s → 0.04s CPU and
+    // `--version` from 0.26s → 0.09s. cozo-worker.js is still an explicit
+    // entrypoint (embedded regardless of splitting); defaultWorker in
+    // cozo-worker-client.ts anchors to the bunfs root so its URL survives the
+    // shallower chunk depth splitting gives this module.
+    splitting: true,
     minify: true,
     sourcemap: "none",
     external: SAFE_EXTERNALS,

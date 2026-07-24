@@ -361,9 +361,9 @@ export function buildSignalPrefix(
     if (cb.message) {
       msg = cb.message;
     } else if (typeof cb.attempts === "number" && cb.entity) {
-      msg = `${cb.attempts} failed attempts on ${cb.entity} — stop retrying; emit \`unerr journal - stuck - <obstacle>\` and switch approach`;
+      msg = `${cb.attempts} failed attempts on ${cb.entity} — stop retrying and switch approach`;
     } else if (cb.entity) {
-      msg = `repeated failures on ${cb.entity} — stop retrying; emit \`unerr journal - stuck - <obstacle>\` and switch approach`;
+      msg = `repeated failures on ${cb.entity} — stop retrying and switch approach`;
     }
     if (msg) tryPush("hlt", cb.entity ?? entityKey, msg);
   }

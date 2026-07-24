@@ -84,7 +84,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         query: {
           type: "string",
           description:
-            "A symbol OR a task. A bare name / partial / exact key ('compress', 'handleRequest', 'QueryRouter.dispatch') returns ranked entity matches. A task phrase ('add a retry to the boot path', 'where is retry handled') returns a recon bundle — focus entities + callers (blast radius) + conventions. Both return lean index by default (signatures, line ranges, caller counts; no full source). Drill down: use include_body:true to inline bodies, file_read({entity:'<key>'}) to read one entity, or cache_ref to pull a withheld body without recompute.",
+            "A symbol OR a task. A bare name/key ('handleRequest', 'QueryRouter.dispatch') returns ranked entity matches; a task phrase ('where is retry handled') returns a recon bundle (focus entities + callers + conventions). Lean index by default (signatures, line ranges, caller counts — no bodies); add include_body:true for bodies or file_read({entity:'<key>'}) for one entity.",
         },
         limit: {
           type: "number",
@@ -121,7 +121,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           type: "string",
           enum: ["literal", "regex"],
           description:
-            "Content-search mode — use INSTEAD of grep/rg for an exact string ('literal') or a real regex ('regex') across indexed code files. `query` is the string/pattern. Each match returns with a bounded context slice (matched line ± `context` lines), so no follow-up file read is needed. Omit for the default entity/recon search.",
+            "Search mode used INSTEAD of grep/rg: 'literal' (exact string) or 'regex', across indexed files. `query` is the pattern; each match returns with ± `context` lines, no follow-up read. Omit for the default entity/recon search.",
         },
         context: {
           type: "number",
@@ -162,7 +162,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
           items: { type: "string" },
           maxItems: 10,
           description:
-            "Absolute URLs to fetch in ONE call (max 10) — parallel, passages BM25-ranked across all pages, one roundtrip. After a web search, pass the result URLs here. url OR urls, never both.",
+            "Up to 10 absolute URLs fetched in ONE call — parallel, passages BM25-ranked across all pages. After a web search, pass the result URLs here. url OR urls, never both.",
         },
         prompt: {
           type: "string",
@@ -324,7 +324,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
         include_text_occurrences: {
           type: "boolean",
           description:
-            "Default false. Set true for a RENAME. Also returns word-boundary, case-sensitive literal matches of the symbol name the call graph cannot see (a name in a test-fixture string, a config key, a dynamic-dispatch string). Reconcile these alongside the callers — a rename that updates only callers leaves these stale. Only applies with direction:'callers'.",
+            "Default false. Set true for a RENAME (direction:'callers' only): also returns word-boundary literal matches the call graph misses — a name in a test string, config key, or dynamic dispatch — reconcile these with the callers or the rename leaves them stale.",
           default: false,
         },
         scope: SCOPE_PROP,
@@ -340,48 +340,7 @@ const SCHEMAS: Readonly<Record<string, ToolSchema>> = {
     },
   },
 
-  // ── unerr_track — session markers (op-union) ───────────────────────────
-  unerr_track: {
-    inputSchema: {
-      type: "object",
-      properties: {
-        op: {
-          type: "string",
-          enum: ["intent", "decision", "blocker", "resolution"],
-          description:
-            "What to track. intent=task start (REQUIRED first on coding tasks); decision=deliberate choice; blocker=obstacle (returns marker_id); resolution=fix for a blocker.",
-        },
-        text: {
-          type: "string",
-          description:
-            "Body for intent/decision/blocker, or the fix for resolution. ≤1400 chars.",
-        },
-        blocker_ref: {
-          type: "string",
-          description:
-            "resolution only — the marker_id returned by the prior op:'blocker'.",
-        },
-        target: {
-          type: "string",
-          description: "blocker only — optional file path where it surfaced.",
-        },
-        alternatives: {
-          type: "array",
-          items: { type: "string" },
-          description:
-            "decision only — up to 5 alternatives considered, each ≤80 chars.",
-        },
-      },
-      required: ["op"],
-    },
-    annotations: {
-      title: "Track session markers",
-      readOnlyHint: false,
-      openWorldHint: false,
-    },
-  },
-
-  // unerr_remember has no schema entry: removed.
+  // unerr_track and unerr_remember have no schema entry: both removed.
 };
 
 /**

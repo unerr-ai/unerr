@@ -56,8 +56,6 @@ const EXEC_NUDGES = [
   // advertised catalog; test files in a get_references caller list are the
   // tests for an entity, a task-shaped search_code query returns the one-call task-scoped bundle.)
   "[unerr] Structure: file_outline (file map) · search_code({detail:true}) (one symbol) · search_code({query:'<task phrase>'}) (task-scoped recon bundle)",
-  // #10 TRIM — narrative markers with when-tags
-  "[unerr] Markers (zero round-trip): emit `unerr journal - goal|decided|stuck|fixed - <one-line>` in your closing message — the Stop hook persists them to power timeline + resume",
   // #11 — user rules: the hook nudges the agent to write them into CLAUDE.md
   '[unerr] User said "remember" / "always" / "from now on"? Write the rule verbatim into CLAUDE.md (or the agent instruction file) — unerr does not store user rules.',
 ];

@@ -1,16 +1,19 @@
 /**
  * Intent Detector (ST-4) — cross-session task stitching.
  *
- * Walks closed turns + recorded session_files + markers in timeline.db and
- * groups sessions into `intents`. A session attaches to an intent if EITHER:
- *
- *   a) it emitted a `mark_intent` whose text matches an existing intent's
- *      title (anchored stitch, source="agent_marker"); OR
- *   b) its file set has Jaccard overlap > 0.4 with an intent's file_set AND
- *      the intent was last active within the freshness window (default 14 d).
- *
+ * Walks closed turns + recorded session_files in timeline.db and groups
+ * sessions into `intents` by Jaccard overlap: a session attaches to an intent
+ * if its file set has Jaccard overlap > 0.4 with the intent's file_set AND
+ * the intent was last active within the freshness window (default 14 d).
  * Otherwise a new intent is created with source="file_jaccard". After each
  * run, intents inactive for > 21 d move to "dormant".
+ *
+ * The anchored stitch (source="agent_marker", matching an intent title
+ * against a `mark_intent` marker's text) is permanently unreachable — the
+ * markers table and the mark_intent MCP tool that fed it were removed
+ * entirely (2026-07); journaling now rides the Stop-hook text lines only,
+ * which write nothing to timeline.db. `runIntentStitch` always passes an
+ * empty markers list, so file_jaccard is the sole live matching strategy.
  *
  * Pure functions are exported for testing; the orchestrator `runIntentStitch`
  * does the I/O against CozoTimelineStore.
@@ -303,7 +306,12 @@ export async function runIntentStitch(
   opts: StitchOptions = {}
 ): Promise<{ created: number; attached: number; dormant: number }> {
   const turns = await store.listTurns({ limit: 500 });
-  const markers = await store.listMarkers({ limit: 1000 });
+  // The markers table (and the mark_intent MCP tool that fed it) was removed
+  // entirely (2026-07) — there is no more source for anchored/agent_marker
+  // stitching, so that branch stays permanently unreached and file_jaccard is
+  // the sole live matching strategy. Signature kept (buildSessionSummaries
+  // still takes a markers array) rather than reworking the two-path algorithm.
+  const markers: MarkerRow[] = [];
   const sessionIds = new Set(turns.map((t) => t.session_id));
 
   const filesBySession = new Map<string, Set<string>>();

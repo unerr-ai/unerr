@@ -31,10 +31,10 @@ import {
  * should call instead — paired with an example argument shape so the refusal
  * carries a directly-pastable next action.
  *
- * After the token-overhead catalog reduction, the only advertised gated tool
- * is `unerr_track` (every other previously-gated read/write left the catalog).
- * Its op:'intent' call is the first-action it carries, so the tier-1 fallback
- * is a file_read — read the code before tracking intent.
+ * The one advertised gated tool carries an alternative: `get_references`
+ * (tier 2, 2026-07) points at file_read entity mode, which already lists an
+ * entity's top-10 callers, so the read/analysis phase never needs the deep
+ * graph. Every other previously-gated read/write left the catalog.
  *
  * Invariant (asserted at module load below): keys here MUST equal the keys of
  * UNLOCK_CONDITIONS in tool-tiers.ts.
@@ -42,7 +42,7 @@ import {
 const TIER1_ALTERNATIVE: Readonly<
   Record<string, { tool: string; example: string }>
 > = {
-  unerr_track: { tool: "file_read", example: "" },
+  get_references: { tool: "file_read", example: "" },
 };
 
 /**
@@ -163,7 +163,11 @@ export function buildSoftRefuse(inputs: SoftRefuseInputs): SoftRefuseResult {
   const example = fillExample(alt.example, args);
   const action = example ? `call ${example} first.` : `call ${alt.tool} first.`;
 
-  const text = `ur|fct ${toolName} locked — ${action}\n\n_error: tool_locked\n_unlock_when: ${unlockWhen}\n_alternative: ${example || alt.tool}`;
+  // `_alternative` is intentionally omitted from the wire text — the
+  // `ur|fct … — call <alt> first.` line above already names it, so a
+  // second `_alternative:` row is duplicate billed noise. The alternative
+  // stays on the internal `_gate` envelope below for the dashboard.
+  const text = `ur|fct ${toolName} locked — ${action}\n\n_error: tool_locked\n_unlock_when: ${unlockWhen}`;
 
   return {
     content: [{ type: "text", text }],

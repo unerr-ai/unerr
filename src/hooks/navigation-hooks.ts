@@ -7,14 +7,11 @@
  * Design: NEVER block — always allow, only advise or enrich.
  */
 
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { BoundaryViolation } from "../intelligence/boundary-check.js";
 import { lookupCoChangePartners } from "../intelligence/cochange-index.js";
-import type { CascadeWarning } from "../intelligence/edit-impact.js";
+import { renderInlineBlastRadius } from "../intelligence/edit-impact.js";
 import { isGraphReady } from "../intelligence/graph-readiness.js";
-import { splitStableVolatile } from "../proxy/prefix-order.js";
-import { isReviewEnabled } from "../review/feature-flag.js";
-import { formatReviewFindings } from "../review/format.js";
 import { consumeSpooledDiff } from "../tools/coding/file-edit.js";
 import { recordFullFileReadDenied } from "../tracking/read-deny-meter.js";
 import { recordEdit } from "../tracking/session-edit-log.js";
@@ -38,7 +35,6 @@ import {
   runPreToolUseHook,
   runPreToolUseHookAsync,
 } from "./hook-runner.js";
-import { queryReviewEdit } from "./review-client.js";
 
 /** Dedup TTL for deny decisions. Per Anthropic #43189/#47565, denying
  *  the same call twice in a row causes 10x retry loops — after the
@@ -76,6 +72,23 @@ function isCodeFile(filePath: string): boolean {
   return !/\.(md|json|ya?ml|toml|txt|lock|css|html|svg|png|jpg|pdf)$/i.test(
     filePath
   );
+}
+
+/** True only when filePath is inside the indexed repo (process.cwd()) and not
+ *  in an ignored location. Absolute paths outside the repo — the agent's
+ *  scratchpad, /private/tmp, another project — resolve outside root and return
+ *  false, so file-scoped hooks skip throwaway files that carry no graph callers. */
+function isInRepo(filePath: string): boolean {
+  try {
+    const root = resolve(process.cwd());
+    const rel = relative(root, resolve(root, filePath));
+    if (rel.startsWith("..") || isAbsolute(rel)) return false; // outside repo root
+    const parts = rel.split(sep);
+    if (parts[0] === ".unerr" || parts.includes("node_modules")) return false;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -160,8 +173,10 @@ const preReadHandler: HookHandler = (normalized) => {
 
   // Non-code files (docs, json, yaml, images, lockfiles) — built-in Read is the
   // sanctioned path; file_read's graph value (conventions/drift/callers) is
-  // code-specific. Reading these whole is normal. Allow silently.
-  if (!isCodeFile(filePath)) return passthrough();
+  // code-specific. Reading these whole is normal. Allow silently. Same for any
+  // file outside the indexed repo (scratchpad, /private/tmp, another project) —
+  // it carries no graph callers to redirect toward.
+  if (!isCodeFile(filePath) || !isInRepo(filePath)) return passthrough();
 
   // Full-file CODE Read with no offset/limit → wasteful exploration. Redirect.
   // (OWN_EDIT_TOOL.md T-N1: the deny STAYS, but the rationale is no longer the
@@ -245,7 +260,8 @@ const preGlobHandler: HookHandler = (normalized) => {
 
 const preWriteHandler: HookHandler = (normalized) => {
   const filePath = extractFilePath(normalized.toolInput);
-  if (!filePath || !isCodeFile(filePath)) return passthrough();
+  if (!filePath || !isCodeFile(filePath) || !isInRepo(filePath))
+    return passthrough();
 
   return nudge(
     onceVerbose(
@@ -259,7 +275,8 @@ const preWriteHandler: HookHandler = (normalized) => {
 const preEditHandler: HookHandler = (normalized) => {
   const input = normalized.toolInput;
   const filePath = extractFilePath(input);
-  if (!filePath || !isCodeFile(filePath)) return passthrough();
+  if (!filePath || !isCodeFile(filePath) || !isInRepo(filePath))
+    return passthrough();
 
   const oldStr = input.old_string as string | undefined;
   const hasSignatureChange =
@@ -274,54 +291,13 @@ const preEditHandler: HookHandler = (normalized) => {
     );
   }
 
-  return nudge(
-    `Before editing "${filePath}":\n- \`get_references\` on any entity you're changing — ensure callers won't break`
-  );
+  // Generic non-signature pre-edit nudge REMOVED: measured ~105 fires across
+  // 5 sessions against 1 get_references call — pure per-operation tax with no
+  // adoption signal. The signature-change branch above (which actually
+  // correlates with caller risk) and the post-edit `ur|rsk` at-risk-caller
+  // line on the file_edit response remain the load-bearing signals.
+  return passthrough();
 };
-
-/**
- * Render computed cascade warnings into a pre-edit nudge. Each warning already
- * carries an actionable, site-naming `suggestion` from the engine; this frames
- * them with the change type and the get_references next step. Reframed away
- * from "break silently" — the real risk is callers left un-updated, stated
- * plainly with concrete counts.
- */
-function formatCascadeNudge(
-  warnings: CascadeWarning[],
-  filePath: string
-): string {
-  const lines: string[] = [];
-  lines.push(
-    `⚡ unerr · cascade guard: editing "${filePath}" changes ${warnings.length} signature(s) with callers that must be updated in the same change:`
-  );
-  for (const w of warnings) {
-    const direct = w.blast_radius.direct_callers.length;
-    const tests = w.blast_radius.test_files.length;
-    // Distinct files the callers live in — the honest analogue of the
-    // "across N services" framing, computed from the caller sites we have.
-    const files = new Set(
-      [...w.blast_radius.direct_callers, ...w.blast_radius.test_files].map(
-        (c) => c.file
-      )
-    );
-    lines.push(
-      `- ${w.changed_entity} (${w.change_type}): ${w.blast_radius.total_at_risk} caller(s) at risk across ${files.size} file(s) — ${direct} source, ${tests} test. ${w.suggestion} call get_references({key:'${w.changed_entity_key}', direction:'callers'}) and update every caller before finishing.`
-    );
-    // CROSS_REPO_INTELLIGENCE Sprint 6.1: name the peer repos that import this
-    // entity so the cascade isn't shipped while callers in another repo go
-    // unupdated. Names the repos + counts; the agent updates them via the same
-    // get_references({scope:'workspace'}) cross-repo path.
-    if (w.cross_repo && w.cross_repo.peers.length > 0) {
-      const repos = w.cross_repo.peers
-        .map((p) => `${p.label} (${p.callers})`)
-        .join(", ");
-      lines.push(
-        `  · plus ${w.cross_repo.total_peer_callers} caller(s) in ${w.cross_repo.peers.length} peer repo(s): ${repos} — run get_references({key:'${w.changed_entity_key}', direction:'callers', scope:'workspace'}) and update those repos too.`
-      );
-    }
-  }
-  return lines.join("\n");
-}
 
 /**
  * Render computed architecture-boundary crossings into advisory pre-edit lines
@@ -344,17 +320,19 @@ function formatBoundaryNudge(violations: BoundaryViolation[]): string {
 }
 
 /**
- * Async pre-edit handler: query the proxy's warm graph for the full blast
- * radius of this edit — callers at risk from a signature change AND new imports
- * that cross an architecture boundary — and inject concrete, site-naming nudges.
- * Degrades to the static {@link preEditHandler} nudge when the proxy is
- * unreachable (null) or reports nothing actionable, so behaviour is never worse
- * than today and the edit is never blocked or stalled.
+ * Async pre-edit handler: query the proxy's warm graph for architecture-boundary
+ * crossings this edit introduces and warn on them (never blocks). Signature-
+ * change cascades are deliberately NOT surfaced here — a signature change is a
+ * legitimate edit, not an error, so the guard never denies or nags before it;
+ * the callers-to-update ride the POST-edit hook ({@link postEditHandlerAsync}),
+ * which lists the confirmed callers after the edit lands. Degrades to the static
+ * {@link preEditHandler} nudge only when the proxy is unreachable (null).
  */
 const preEditHandlerAsync: AsyncHookHandler = async (normalized) => {
   const input = normalized.toolInput;
   const filePath = extractFilePath(input);
-  if (!filePath || !isCodeFile(filePath)) return passthrough();
+  if (!filePath || !isCodeFile(filePath) || !isInRepo(filePath))
+    return passthrough();
 
   const result = await queryBlastRadius({
     file_path: filePath,
@@ -362,73 +340,32 @@ const preEditHandlerAsync: AsyncHookHandler = async (normalized) => {
     new_content: (input.new_string as string | undefined) ?? null,
   });
 
-  const warnings = result?.warnings ?? [];
-  const boundary = result?.boundary_violations ?? [];
+  // Proxy unreachable → degrade to the static nudge (no regression).
+  if (!result) return preEditHandler(normalized);
 
-  // null = proxy unreachable/slow; empty on both = nothing actionable from the
-  // graph. Either way, fall back to the static nudge (no regression).
-  if (!result || (warnings.length === 0 && boundary.length === 0)) {
-    return preEditHandler(normalized);
-  }
-
-  const sections: string[] = [];
-  if (warnings.length > 0) {
-    const cascade = formatCascadeNudge(warnings, filePath);
-    // Graph-confirmed caller cascade → escalate to deny-once. A signature
-    // change with real callers at risk is exactly when
-    // get_references({direction:'callers'}) must run BEFORE the edit. An
-    // advisory nudge here fires on every edit and is demonstrably ignored
-    // (observed ~4 get_references calls against ~147 Edits in 12h); deny is the
-    // only lever that drove Grep/Glob/WebFetch adoption to 100% displacement.
-    // Deny the first attempt to force the caller sweep, then nudge on the retry
-    // so the agent never enters a deny loop (#43189/#47565). Gated on
-    // warnings.length>0 — it never fires on edits the graph can't tie to real
-    // callers, so there is no blanket-deny noise. Boundary-only edits (warn,
-    // never block) stay a nudge below.
-    const entityKeys = warnings
-      .map((w) => w.changed_entity_key)
-      .sort()
-      .join(",");
-    if (
-      shouldEmitOnce(`deny:Edit:${filePath}:${entityKeys}`, DENY_ONCE_TTL_MS)
-    ) {
-      return deny(
-        `${cascade}\n\nThis Edit is blocked once: run get_references({direction:'callers'}) on the entit${
-          warnings.length > 1 ? "ies" : "y"
-        } above NOW, update every caller in the same change, then re-attempt the Edit (it will proceed).`
-      );
-    }
-    sections.push(cascade);
-  }
-  if (boundary.length > 0) {
-    sections.push(formatBoundaryNudge(boundary));
-  }
-  return nudge(sections.join("\n\n"));
+  // Only architecture-boundary crossings warn pre-edit — an added cross-layer
+  // import is worth catching before it lands. A signature cascade stays silent
+  // here; its confirmed caller list is delivered by the post-edit hook.
+  const boundary = result.boundary_violations ?? [];
+  if (boundary.length === 0) return passthrough();
+  return nudge(formatBoundaryNudge(boundary));
 };
 
 // ── PostToolUse Handlers (agent-agnostic) ────────────────────────────
 
+// The static read-preference nudge (file_read/file_edit) was cut — the
+// always-loaded instruction file already covers it, so re-billing the line on
+// every code-file read was pure per-operation tax with no incremental signal.
+// The graph-ready + in-repo gates stay so the handler degrades identically to
+// its siblings; conventions injection (the actual per-session value) rides
+// postReadHandlerAsync instead.
 const postReadHandler: HookHandler = (normalized) => {
   if (!isNavigationGraphReady()) return passthrough();
   const input = normalized.toolInput;
   const filePath = extractFilePath(input);
-  if (!filePath || !isCodeFile(filePath)) return passthrough();
-  // The read-preference line carries no file-specific content, so emit it once
-  // per session — not once per distinct file. Re-billing the identical nudge on
-  // every code-file read was pure per-operation tax (#9). File-specific
-  // blast-radius signal rides the post-EDIT hook, which keeps its per-file dedup.
-  if (!shouldEmitOnce("read-pref:session", VERBOSE_BANNER_TTL_MS))
+  if (!filePath || !isCodeFile(filePath) || !isInRepo(filePath))
     return passthrough();
-
-  const isClaudeCode = normalized.agentName === "claude-code";
-  if (isClaudeCode) {
-    return enrich(
-      "ur|fct To change this file call file_edit (no built-in Read needed); to understand it use `file_read` (auto-injects conventions and drift)."
-    );
-  }
-  return enrich(
-    "ur|fct Prefer `file_read` over built-in Read — it auto-injects conventions and drift."
-  );
+  return passthrough();
 };
 
 /** Conventions injection (T7.4) dedup window — long enough that one block per
@@ -438,18 +375,18 @@ const postReadHandler: HookHandler = (normalized) => {
 const CONVENTIONS_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 /**
- * Async post-read handler (Sprint 7, T7.4). Superset of {@link postReadHandler}:
- * on the first code-file read of a session it ALSO fetches the project's
- * detected conventions over UDS and injects a compact block — replacing the
- * standalone `get_conventions` round-trip (the tool is hidden for agents that
- * accept tool-time context; the injection is their zero-round-trip path). The
- * static read-preference nudge keeps its own per-file dedup. Best-effort: a
- * down/slow proxy yields no conventions block and the nudge still fires.
+ * Async post-read handler (Sprint 7, T7.4). On the first code-file read of a
+ * session, fetches the project's detected conventions over UDS and injects a
+ * compact block — replacing the standalone `get_conventions` round-trip (the
+ * tool is hidden for agents that accept tool-time context; the injection is
+ * their zero-round-trip path). Best-effort: a down/slow proxy yields no
+ * conventions block and the hook passes through.
  */
 const postReadHandlerAsync: AsyncHookHandler = async (normalized) => {
   if (!isNavigationGraphReady()) return passthrough();
   const filePath = extractFilePath(normalized.toolInput);
-  if (!filePath || !isCodeFile(filePath)) return passthrough();
+  if (!filePath || !isCodeFile(filePath) || !isInRepo(filePath))
+    return passthrough();
 
   // Conventions block — once per session, regardless of which file triggered it.
   let conventionsBlock: string | null = null;
@@ -462,36 +399,13 @@ const postReadHandlerAsync: AsyncHookHandler = async (normalized) => {
     }
   }
 
-  // Static read-preference nudge — generic, so once per session (not per file),
-  // matching the sync postReadHandler (#9). The conventions block above is
-  // already session-scoped.
-  let nudgeLine: string | null = null;
-  if (shouldEmitOnce("read-pref:session", VERBOSE_BANNER_TTL_MS)) {
-    nudgeLine =
-      normalized.agentName === "claude-code"
-        ? "ur|fct To change this file call file_edit (no built-in Read needed); to understand it use `file_read` (auto-injects conventions and drift)."
-        : "ur|fct Prefer `file_read` over built-in Read — it auto-injects conventions and drift.";
-  }
-
-  // T2.4 — keep the STABLE region (conventions: legend-like, slow-changing)
-  // ahead of the VOLATILE region (the per-file read nudge), so the cacheable
-  // prefix stays contiguous and the provider prompt cache can hold it. The
-  // conventions block is byte-stable per project (orderConventions); the nudge
-  // is per-file so it is volatile.
-  const { stable, volatile } = splitStableVolatile([
-    ...(conventionsBlock
-      ? [{ kind: "conventions", text: conventionsBlock }]
-      : []),
-    ...(nudgeLine ? [{ kind: "notes", text: nudgeLine }] : []),
-  ]);
-
-  const parts = [...stable, ...volatile]
-    .map((b) => b.text)
-    .filter((t) => t.length > 0);
-  if (parts.length === 0) return passthrough();
-  return enrich(parts.join("\n\n"));
+  if (conventionsBlock === null) return passthrough();
+  return enrich(conventionsBlock);
 };
 
+// Post-grep guidance was cut — the pre-grep hook already redirects Grep to
+// search_code, and the instruction file's Navigate-code table covers the
+// same ground, so a post-hoc enrich block was redundant tax.
 const postGrepHandler: HookHandler = (normalized) => {
   if (!isNavigationGraphReady()) return passthrough();
   const input = normalized.toolInput;
@@ -499,49 +413,20 @@ const postGrepHandler: HookHandler = (normalized) => {
     | string
     | undefined;
   if (typeof pattern !== "string" || pattern.length === 0) return passthrough();
-
-  // §11.6 invariant 1 — emit the grep→graph nudge once per session, not per
-  // grep. The guidance is generic (use search_code / get_references), so re-
-  // billing a content block on every grep is per-tool cache tax: it inflates the
-  // content-block count Claude Code's cache lookback walks. One block/session.
-  if (!shouldEmitOnce("grep-pref:session", VERBOSE_BANNER_TTL_MS))
-    return passthrough();
-
-  const looksLikeFunctionSearch = /^[a-zA-Z_]\w*$/.test(pattern);
-
-  if (looksLikeFunctionSearch) {
-    return enrich(
-      `You just grepped for "${pattern}". For structured results, try:\n` +
-        `- \`get_references "${pattern}"\` — finds ALL callers including indirect references (no false positives from comments/strings)\n` +
-        `- \`search_code({query:"${pattern}", detail:true})\` — resolves the entity with its full signature, body, and metadata\n` +
-        `- \`search_code "${pattern}"\` — ranked results across the entire codebase in <5ms`
-    );
-  }
-
-  return enrich(
-    "You just grepped for a pattern. For structured code navigation, unerr graph tools are faster and more accurate:\n" +
-      "- `search_code` for entity-level search (functions, classes, types)\n" +
-      "- `get_references` for reference tracing (no false positives)"
-  );
+  return passthrough();
 };
 
+// Post-glob guidance was cut for the same reason as postGrepHandler.
 const postGlobHandler: HookHandler = () => {
   if (!isNavigationGraphReady()) return passthrough();
-  // §11.6 invariant 1 — once per session, not per glob (generic guidance, so a
-  // per-call content block would be pure cache tax).
-  if (!shouldEmitOnce("glob-pref:session", VERBOSE_BANNER_TTL_MS))
-    return passthrough();
-  return enrich(
-    "You just found files via Glob. For efficient exploration of matched files:\n" +
-      "- `file_outline` on each file — see all entities, imports, and exports without reading full contents (<5ms)\n" +
-      "- `search_code` — search for specific entities across all matched files in one call"
-  );
+  return passthrough();
 };
 
 const postWriteHandler: HookHandler = (normalized) => {
   if (!isNavigationGraphReady()) return passthrough();
   const filePath = extractFilePath(normalized.toolInput);
-  if (!filePath || !isCodeFile(filePath)) return passthrough();
+  if (!filePath || !isCodeFile(filePath) || !isInRepo(filePath))
+    return passthrough();
   if (!shouldEmitOnce(`Write:${filePath}`)) return passthrough();
 
   const base = `ur|fct Wrote ${filePath} — get_references on exports to check blast radius`;
@@ -551,7 +436,8 @@ const postWriteHandler: HookHandler = (normalized) => {
 const postEditHandler: HookHandler = (normalized) => {
   const input = normalized.toolInput;
   const filePath = extractFilePath(input);
-  if (!filePath || !isCodeFile(filePath)) return passthrough();
+  if (!filePath || !isCodeFile(filePath) || !isInRepo(filePath))
+    return passthrough();
 
   // P2.2: record every edit (before the co-change dedup, which would skip a
   // repeat) so the session-end scan can reconcile callers. Best-effort — a
@@ -626,13 +512,12 @@ function colorizeAndNumberDiff(raw: string, maxLines = 10): string {
 }
 
 /**
- * Async post-edit handler (P1 — Surface A, in-flight review). Records the edit
- * (same as the sync path, so session-end reconcile is unaffected), then asks the
- * proxy's warm graph to run the full review engine over the edit and injects any
- * findings as `ur|<tag>` lines ahead of the co-change fact. Degrades to the
- * co-change nudge alone when the proxy is unreachable or the edit reviews clean,
- * so behaviour is never worse than the sync {@link postEditHandler}. Never
- * blocks — review findings are advisory context the agent acts on before close.
+ * Async post-edit handler. Records the edit (same as the sync path, so
+ * session-end reconcile is unaffected), queries the proxy for a signature-
+ * change cascade (confirmed callers to update), and appends the co-change
+ * nudge — injected as `ur|<tag>` lines. Degrades to passthrough when the
+ * proxy is unreachable and neither section fires, so behaviour is never
+ * worse than the sync {@link postEditHandler}.
  *
  * For `mcp__unerr__file_edit` calls: reads the local-only spool under
  * `.unerr/state/edit-display.jsonl` and surfaces a colorized unified diff to
@@ -643,7 +528,8 @@ function colorizeAndNumberDiff(raw: string, maxLines = 10): string {
 const postEditHandlerAsync: AsyncHookHandler = async (normalized) => {
   const input = normalized.toolInput;
   const filePath = extractFilePath(input);
-  if (!filePath || !isCodeFile(filePath)) return passthrough();
+  if (!filePath || !isCodeFile(filePath) || !isInRepo(filePath))
+    return passthrough();
 
   const oldContent = (input.old_string as string | undefined) ?? null;
   const newContent = (input.new_string as string | undefined) ?? null;
@@ -668,42 +554,40 @@ const postEditHandlerAsync: AsyncHookHandler = async (normalized) => {
     return passthrough();
   }
 
-  // Query the review engine over UDS — gated by the master reviewer switch
-  // (OFF by default while benchmarked). Disabled → skip the round-trip entirely
-  // so a normal edit pays no reviewer overhead; the co-change nudge below still
-  // fires (it is not part of the reviewer surface). null = proxy unreachable →
-  // review block is empty and we fall through to the co-change nudge.
-  const review = isReviewEnabled()
-    ? await queryReviewEdit({
-        file_path: filePath,
-        old_content: oldContent,
-        new_content: newContent,
-      })
-    : null;
-  const reviewBlock =
-    review && !review.clean
-      ? formatReviewFindings(review.findings, review.suppressed)
+  // Signature-change cascade (native Edit only — mcp__unerr__file_edit emits the
+  // same ur|rsk caller line in its own tool response, handled above). Delivered
+  // POST-edit because a signature change is a legitimate edit, not an error: it
+  // already landed, so this lists the CONFIRMED callers the agent must now update
+  // in the same session. Empty when the proxy is unreachable or the edit changed
+  // no signature with callers.
+  const blast = await queryBlastRadius({
+    file_path: filePath,
+    old_content: oldContent,
+    new_content: newContent,
+  });
+  const cascadeLine =
+    blast && blast.warnings.length > 0
+      ? (renderInlineBlastRadius(blast.warnings) ?? "")
       : "";
-  // Tier-2 host-synthesis evidence block (P4): the host model elaborates on
-  // unerr's evidence (fix-or-flag) before close. Empty unless a Tier-2 finding
-  // fired — rendered after the Tier-1 verdicts, never as a verdict itself.
-  const evidenceBlock = review?.evidenceBlock ?? "";
 
   // Co-change fact: deduped per file like the sync path (one per file per window).
   // Suppressed when the graph isn't ready — get_references has nothing to
-  // resolve against, so the nudge would send the agent at an empty tool.
+  // resolve against, so the nudge would send the agent at an empty tool. Also
+  // suppressed when the cascade line already fired — it names the confirmed
+  // callers directly, making the generic "check callers" reminder redundant.
   const base =
-    isNavigationGraphReady() && shouldEmitOnce(`Edit:${filePath}`)
+    !cascadeLine &&
+    isNavigationGraphReady() &&
+    shouldEmitOnce(`Edit:${filePath}`)
       ? appendCoChangeClause(
           `ur|fct Edited ${filePath} — get_references to check callers of changed entities`,
           filePath
         )
       : "";
 
-  // Tier-1 verdicts lead; the Tier-2 evidence block follows; the co-change fact last.
-  const sections = [reviewBlock, evidenceBlock, base].filter(
-    (s) => s.length > 0
-  );
+  // Cascade caller list leads (the load-bearing "update these" signal), then
+  // the co-change fact.
+  const sections = [cascadeLine, base].filter((s) => s.length > 0);
   if (sections.length === 0) return passthrough();
   return enrich(sections.join("\n"));
 };

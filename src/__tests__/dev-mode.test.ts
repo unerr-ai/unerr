@@ -28,7 +28,11 @@ vi.mock("node:os", async (importOriginal) => {
   };
 });
 
-import { applyDevConfig, describeDevConfig } from "../cloud/dev-mode.js";
+import {
+  applyDevConfig,
+  describeDevConfig,
+  trustDevKeyEnv,
+} from "../cloud/dev-mode.js";
 import {
   readEntitlementCache,
   writeEntitlementCache,
@@ -243,5 +247,57 @@ describe("describeDevConfig", () => {
 
     expect(process.env.UNERR_API_URL).toBeUndefined();
     expect(readEntitlementCache()).toBeNull();
+  });
+});
+
+// Regression guard: the `unerr hook <event>` fast-path (cli-hook.ts) bypasses
+// the Commander preAction wall that runs `applyDevConfig`, so it calls
+// `trustDevKeyEnv` to trust the dev key WITHOUT re-minting. If that trust step
+// is dropped, `verifyEntitlementToken` reports `unknown_kid`, `authState()`
+// drops to `degraded_free`, `loginBlocked()` returns true, and EVERY hook —
+// including the Stop close-out economy line — is silently gated to "{}".
+describe("trustDevKeyEnv", () => {
+  it("sets the dev-key trust env from dev.json tier, without writing a cache", () => {
+    writeDevJson(JSON.stringify({ tier: "pro" }));
+
+    trustDevKeyEnv(repoDir);
+
+    expect(process.env.UNERR_ENTITLEMENT_KID).toBe("k-dev-local");
+    expect(process.env.UNERR_ENTITLEMENT_PUBKEY).toBeTruthy();
+    // Write-free: the proxy/CLI owns minting via applyDevConfig; the hook only
+    // trusts the key so an existing cache verifies. No prior cache → still null.
+    expect(readEntitlementCache()).toBeNull();
+  });
+
+  it("the trust env alone verifies a cache the proxy minted (the hook scenario)", async () => {
+    // The long-lived proxy minted the cache: applyDevConfig writes the signed
+    // dev token to disk AND sets the trust env in its own process.
+    writeDevJson(JSON.stringify({ tier: "pro" }));
+    await applyDevConfig(repoDir);
+
+    // A fresh hook subprocess inherits the disk cache but NOT the proxy's env.
+    // Computed index (loop var) avoids biome's noDelete on the dotted form.
+    for (const k of ["UNERR_ENTITLEMENT_KID", "UNERR_ENTITLEMENT_PUBKEY"]) {
+      delete process.env[k];
+    }
+    // Without the trust env, the persisted dev token fails to verify → the bug.
+    expect(readEntitlementCache()?.claims ?? null).toBeNull();
+
+    // trustDevKeyEnv restores just the trust env → the same cache now verifies.
+    trustDevKeyEnv(repoDir);
+    const verified = readEntitlementCache();
+    expect(verified?.claims).not.toBeNull();
+    expect(verified?.claims?.plan).toBe("pro");
+  });
+
+  it("apiUrl is applied and no dev.json is a no-op", () => {
+    // No dev.json → touches nothing.
+    trustDevKeyEnv(repoDir);
+    expect(process.env.UNERR_ENTITLEMENT_KID).toBeUndefined();
+    expect(process.env.UNERR_API_URL).toBeUndefined();
+
+    writeDevJson(JSON.stringify({ apiUrl: "http://localhost:3000" }));
+    trustDevKeyEnv(repoDir);
+    expect(process.env.UNERR_API_URL).toBe("http://localhost:3000");
   });
 });

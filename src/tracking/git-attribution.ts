@@ -15,51 +15,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeNote } from "../utils/git.js";
 
-// ── Review verdict (Surface B — commit gate) ─────────────────────────────────
-
-/** Git-note ref the review gate records its verdict under. Separate from the
- *  `unerr` attribution namespace so a review verdict never collides with a
- *  ledger note. */
-export const REVIEW_NOTE_REF = "unerr-review";
-
-/** The commit gate's verdict for one commit. Persisted as a git note under
- *  {@link REVIEW_NOTE_REF} so it survives rebase / squash / cherry-pick. */
-export interface ReviewVerdictNote {
-  version: "1.0";
-  /** `pass` = nothing at/above the blocking floor; `blocked` = the gate would
-   *  have stopped the commit (or did, absent `--no-verify`); `warn` = findings
-   *  surfaced but below the blocking floor. */
-  verdict: "pass" | "blocked" | "warn";
-  /** Findings surfaced at/above the display floor. */
-  findings: number;
-  /** Findings at/above the blocking floor. */
-  blocking: number;
-  /** Most-severe finding's severity, or null when clean. */
-  top_severity: string | null;
-  /** Checker ids that ran. */
-  checkers_run: string[];
-  created_at: string;
-}
-
-/**
- * Write the review verdict as a git note on `commitSha` under
- * {@link REVIEW_NOTE_REF}. Called from the post-commit hook (the SHA only
- * exists once the commit is created). Force-overwrites any prior verdict note
- * on the same commit (a re-review supersedes).
- */
-export async function writeReviewVerdictNote(
-  cwd: string,
-  commitSha: string,
-  note: ReviewVerdictNote
-): Promise<void> {
-  await writeNote(
-    cwd,
-    REVIEW_NOTE_REF,
-    commitSha,
-    JSON.stringify(note, null, 2)
-  );
-}
-
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface GitNotePayload {

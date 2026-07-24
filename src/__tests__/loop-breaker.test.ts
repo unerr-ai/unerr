@@ -594,9 +594,9 @@ describe("Loop Circuit Breaker (BA-1.1)", () => {
       // renderer's internal "hlt" priority bucket maps to ur|act).
       expect(prefix).toContain("ur|act");
       expect(prefix).toContain("loop broken");
-      // Sprint 11 6-write demotion: the halt nudge points at the zero-round-trip
-      // sentinel, not the hidden mark_blocker MCP tool.
-      expect(prefix).toContain("unerr journal - stuck -");
+      // The halt nudge tells the agent to stop and switch approach — no journal
+      // sentinel (the journal subsystem was removed).
+      expect(prefix).toContain("stop retrying and switch approach");
     });
   });
 });

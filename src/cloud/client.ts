@@ -48,17 +48,6 @@ const DISCONNECT_PATH = "/api/v1/cli/machine/disconnect";
  * Supersedes the per-type `ingest/*` + `sync/*` + `machine/*` paths.
  */
 const INGEST_PATH = "/api/v1/cli/ingest";
-/**
- * Server-model review request (P8 — built, DORMANT). The CLI POSTs a change set
- * + intent; the server runs unerr's server-side review models and returns
- * findings. unerr has no server review model wired today, so the endpoint is a
- * guarded stub that answers `{status:"unavailable"}` — nothing ships findings
- * over this path until a model exists AND the reviewer master switch is ON
- * (`UNERR_REVIEW_ENABLED` on the CLI, `REVIEWS_ENABLED` on the server). The
- * request/response shapes live CLI-local in `review-request.ts` for now; migrate
- * them to `@unerr-ai/contracts/review` at go-live (see that file's note).
- */
-const REVIEW_REQUEST_PATH = "/api/v1/cli/review/request";
 
 /**
  * The retry policy every batch push shares: retry a `429` (rate limited) or
@@ -328,25 +317,6 @@ export class CloudClient {
    */
   async ingest(events: unknown[]): Promise<CloudResult<BatchAck>> {
     return this.postBatch(INGEST_PATH, { events });
-  }
-
-  /**
-   * `POST /api/v1/cli/review/request` — server-model review (P8, DORMANT). Sends
-   * a change set + intent; expects findings back. The server runs no review model
-   * today, so this returns `{status:"unavailable"}` — kept BUILT so the wire path
-   * is exercised end-to-end, but it ships no findings until a model is wired AND
-   * the reviewer master switch is ON. Body/response are typed `unknown` here;
-   * `review-request.ts` owns the CLI-local shapes (migrate to the contract at
-   * go-live). Retries `429`/`503` like the batch pushes.
-   */
-  async postReviewRequest(body: unknown): Promise<CloudResult<unknown>> {
-    return this.request<unknown>(REVIEW_REQUEST_PATH, {
-      method: "POST",
-      auth: true,
-      gzip: true,
-      body,
-      retry: BATCH_RETRY,
-    });
   }
 
   /**

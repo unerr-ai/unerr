@@ -441,6 +441,23 @@ describe("ingest-wire-conformance", () => {
     });
   });
 
+  describe("timeline projection", () => {
+    it("should drop timeline marker rows outright (returns null)", () => {
+      const row = {
+        ...baseEvent("timeline"),
+        detail: {
+          client_entry_id: "t1",
+          kind: "intent",
+          label: "reduce per-turn round-trips",
+          note_text: "reduce per-turn round-trips",
+        },
+      };
+
+      const projected = projectRowForWire(row, REPO_ROOT);
+      expect(projected).toBeNull();
+    });
+  });
+
   describe("garbage field stripping", () => {
     it("should strip all local-only fields across types", () => {
       const localOnlyFields = [

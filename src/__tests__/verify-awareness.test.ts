@@ -1,14 +1,13 @@
 /**
  * Verification awareness (W4) — check/weak-verify classifiers, the
- * PostToolUse(Bash) recorder, and the Stop-hook verify gate (soft advisory
- * line in interactive mode; capped blocking decision in autonomous mode).
+ * PostToolUse(Bash) recorder, and the Stop-hook verify gate (a capped soft
+ * advisory line appended to the systemMessage — never blocks).
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeAutonomousMode } from "../config/autonomous-mode.js";
 import { claudeCodeAdapter } from "../hooks/adapters/claude-code.js";
 import { cursorAdapter } from "../hooks/adapters/cursor.js";
 import { windsurfAdapter } from "../hooks/adapters/windsurf.js";
@@ -140,58 +139,9 @@ describe("runPostBashHook", () => {
     expect(readNudgeState(dir).weak_verify_nudged).toEqual([]);
   });
 
-  it("nudges an existence-only weak verify in autonomous mode, once per reason", () => {
-    writeAutonomousMode(dir, true);
-
-    const out = JSON.parse(runPostBashHook(bashStdin("test -f out.txt")));
-    expect(out.hookSpecificOutput.additionalContext).toContain(
-      "never compares a value"
-    );
-    expect(readNudgeState(dir).weak_verify_nudged).toEqual(["existence-only"]);
-
-    // Same reason again — one-shot, no repeat nudge.
-    const second = runPostBashHook(bashStdin("test -f other.txt"));
-    expect(second).toBe("{}");
-  });
-
   it("never throws on an empty command or unparseable stdin", () => {
     expect(() => runPostBashHook(bashStdin(""))).not.toThrow();
     expect(() => runPostBashHook("not json")).not.toThrow();
-  });
-
-  it("nudges self-referential when the turn's edit log names the read-back file (autonomous mode)", () => {
-    writeAutonomousMode(dir, true);
-    updateNudgeState(dir, (s) => {
-      s.turn_started_ts = Date.now() - 1000;
-    });
-    recordEdit(join(dir, ".unerr"), {
-      ts: new Date().toISOString(),
-      file_path: "src/foo.ts",
-      old_content: "old",
-      new_content: "new",
-    });
-
-    const out = JSON.parse(runPostBashHook(bashStdin("cat src/foo.ts")));
-    expect(out.hookSpecificOutput.additionalContext).toContain(
-      "Reading back the file you just wrote"
-    );
-    expect(readNudgeState(dir).weak_verify_nudged).toEqual([
-      "self-referential",
-    ]);
-  });
-
-  it("skips the new shapes entirely when turn_started_ts is unset (never guesses)", () => {
-    writeAutonomousMode(dir, true);
-    recordEdit(join(dir, ".unerr"), {
-      ts: new Date().toISOString(),
-      file_path: "src/foo.ts",
-      old_content: "old",
-      new_content: "new",
-    });
-
-    const out = runPostBashHook(bashStdin("cat src/foo.ts"));
-    expect(out).toBe("{}");
-    expect(readNudgeState(dir).weak_verify_nudged).toEqual([]);
   });
 });
 
@@ -327,65 +277,31 @@ describe("Stop hook — verification-awareness gate", () => {
     expect(out.systemMessage ?? "").not.toContain("verify-run");
   });
 
-  it("blocks the turn in autonomous mode, capped at 2, then degrades to the soft line", async () => {
-    seedTurnWithEdit();
-    writeAutonomousMode(dir, true);
-
-    const first = JSON.parse(await runStopHookHandlerAsync(stopStdin));
-    expect(first).toEqual({
-      decision: "block",
-      reason: expect.stringContaining("Run the project's check"),
-    });
-
-    const second = JSON.parse(await runStopHookHandlerAsync(stopStdin));
-    expect(second.decision).toBe("block");
-
-    const third = JSON.parse(await runStopHookHandlerAsync(stopStdin));
-    expect(third.decision).toBeUndefined();
-    expect(third.systemMessage).toContain("verify-run");
-
-    const state = readNudgeState(dir);
-    expect(state.verify_block_count).toBe(2);
-    expect(state.verify_soft_count).toBe(1);
-  });
-
-  it("never throws when the autonomous-mode config is malformed", async () => {
-    seedTurnWithEdit();
-    writeFileSync(join(unerrDir, "config.json"), "{not json", "utf8");
-    await expect(runStopHookHandlerAsync(stopStdin)).resolves.not.toThrow();
-  });
-
   // ── session-edits.jsonl ledger — native Write/Edit awareness ────────────
 
-  it("blocks in autonomous mode on a native-edit-only turn (ledger row, no named event)", async () => {
+  it("appends the soft advisory line on a native-edit-only turn (ledger row, no named event)", async () => {
     const promptTs = seedPromptOnly();
     seedNativeLedgerEdit(promptTs + 1000);
-    writeAutonomousMode(dir, true);
 
     const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
-    expect(out).toEqual({
-      decision: "block",
-      reason: expect.stringContaining("Run the project's check"),
-    });
+    expect(out.systemMessage).toContain(
+      "edits landed with no check run this turn"
+    );
   });
 
   it("does not count a ledger row recorded before the prompt boundary", async () => {
     const promptTs = seedPromptOnly();
     seedNativeLedgerEdit(promptTs - 60_000);
-    writeAutonomousMode(dir, true);
 
     const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
-    expect(out.decision).toBeUndefined();
     expect(out.systemMessage ?? "").not.toContain("verify-run");
   });
 
   it("does not count ledger rows when there is no prompt boundary this turn", async () => {
     seedNoPromptBoundary();
     seedNativeLedgerEdit(Date.now());
-    writeAutonomousMode(dir, true);
 
     const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
-    expect(out.decision).toBeUndefined();
     expect(out.systemMessage ?? "").not.toContain("verify-run");
   });
 
@@ -396,27 +312,23 @@ describe("Stop hook — verification-awareness gate", () => {
     updateNudgeState(dir, (s) => {
       s.check_cmd_last_ts = editTs + 60_000;
     });
-    writeAutonomousMode(dir, true);
 
     const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
-    expect(out.decision).toBeUndefined();
     expect(out.systemMessage ?? "").not.toContain("verify-run");
   });
 
   // ── Exit-code-aware verify gate (Port A) ────────────────────────────────
 
-  it("blocks with the red-specific message when a check ran and FAILED after the edit", async () => {
+  it("appends the red-specific soft line when a check ran and FAILED after the edit", async () => {
     seedTurnWithEdit();
     updateNudgeState(dir, (s) => {
       s.check_red_last_ts = Date.now() + 60_000;
     });
-    writeAutonomousMode(dir, true);
 
     const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
-    expect(out).toEqual({
-      decision: "block",
-      reason: expect.stringContaining("The check ran and FAILED"),
-    });
+    expect(out.systemMessage).toContain(
+      "the check run after this turn's edits FAILED"
+    );
   });
 
   it("stays silent when a check ran and PASSED after the edit (green)", async () => {
@@ -424,10 +336,8 @@ describe("Stop hook — verification-awareness gate", () => {
     updateNudgeState(dir, (s) => {
       s.check_green_last_ts = Date.now() + 60_000;
     });
-    writeAutonomousMode(dir, true);
 
     const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
-    expect(out.decision).toBeUndefined();
     expect(out.systemMessage ?? "").not.toContain("verify-run");
     expect(out.systemMessage ?? "").not.toContain("FAILED");
   });
@@ -439,10 +349,8 @@ describe("Stop hook — verification-awareness gate", () => {
       // bypassed `unerr exec` leaves behind.
       s.check_cmd_last_ts = Date.now() + 60_000;
     });
-    writeAutonomousMode(dir, true);
 
     const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
-    expect(out.decision).toBeUndefined();
     expect(out.systemMessage ?? "").not.toContain("verify-run");
   });
 
@@ -453,10 +361,8 @@ describe("Stop hook — verification-awareness gate", () => {
       s.check_red_last_ts = base + 30_000;
       s.check_green_last_ts = base + 60_000;
     });
-    writeAutonomousMode(dir, true);
 
     const out = JSON.parse(await runStopHookHandlerAsync(stopStdin));
-    expect(out.decision).toBeUndefined();
     expect(out.systemMessage ?? "").not.toContain("verify-run");
   });
 });

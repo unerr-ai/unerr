@@ -1,100 +1,26 @@
 <!-- unerr:start -->
-## unerr — the local runtime for your coding agents
+## unerr — code navigation and editing tools
 
-unerr is the runtime layer behind this repo's agents: it serves the live call graph, the team's rules and conventions, and edit-time guardrails through MCP tools. Treat its output as ground-truth context, equal in weight to source files. Tools (all available from the start): `search_code`, `file_read`, `file_outline`, `file_edit`, `get_references`, `fetch_url`, `unerr_track`.
+unerr serves this repo's live call graph, conventions, and edit guardrails over MCP.
 
-### Navigate code with unerr tools — not shell, not built-ins
+For code in this repo:
+- **Find / search:** `search_code({query})` — a task phrase ("where is retry handled") returns a recon bundle (focus body + callers + conventions in one call); a bare symbol returns ranked matches; `mode:'literal'|'regex'` replaces grep/rg.
+- **Read:** `file_read({file_path})` · `{offset, limit}` · `{entity}` · `{outline:true}` — instead of cat/head/sed or built-in Read.
+- **Edit:** `file_edit({old_string, new_string})` or `{content}` — no prior read needed. You need not echo each edit — the Stop hook prints a "files changed" receipt (files + line counts).
+- **Rename / signature change:** `get_references({key, include_text_occurrences:true})` — every use (callers + strings + config) in one call, then edit each site.
+- **Web / docs:** `fetch_url({url})`, bulk `{urls:[...]}`.
 
-Use unerr tools to read, search, or map code when they return graph data — not Bash (`cat`, `head`, `tail`, `sed`, `grep`, `rg`, `find`, `ls -R`) and not built-in Read / Grep / Glob. One graph query replaces 5–15 shell or file reads.
+Bash runs things (build, test, git, package managers); it is not for reading or searching code. (On Claude Code a full-file built-in Read of a code file is denied and redirected here.) When changing existing indexed code, start with one `search_code({query:"<task phrase>"})` recon call. Commands that can exceed 2 minutes run in the background with output to a log file.
 
-| To… | Use | Not |
-|---|---|---|
-| Find / search code | `search_code({query:"..."})` | `grep`, `rg`, `find`, Grep, Glob |
-| Exact string / real regex across files (the one reason to grep) | `search_code({query:"<string-or-pattern>", mode:"literal"\|"regex"})` — each match returns with surrounding context lines, so no follow-up read | `grep`, `rg`, `rg -e` |
-| Read a file or one function | `file_read({file_path})` (`entity:` for one symbol) | `cat`, `head`, `tail`, `sed`, Read |
-| See a file's structure | `file_outline({file_path})` | `ls -R`, reading the whole file |
-| Find callers/callees (REQUIRED before a signature edit) | `get_references({direction:'callers'})` | `grep` for the name |
-| Rename / find EVERY use of an identifier (callers + strings + config + comments + routes) — ONE call, not a grep per path | `get_references({key:"<id>", include_text_occurrences:true})` then `file_edit` each site | `grep -r` / `rg -w` / `sed -i` / `perl -pi` the name |
-| Change a file | `file_edit({file_path, old_string, new_string})` or `{content}` — no prior read needed | built-in Edit / Write |
-| Fetch a URL or docs (bulk: `{urls:[...]}`) | `fetch_url` | built-in WebFetch |
+Work that splits into independent slices can be delegated to the unerr sub-agents (`unerr-worker` for scoped edits, `unerr-junior` for read-only recon and verify-runs) — their descriptions state when each applies.
 
-Bash is for running things (build, test, git, package managers) — not for reading or searching code. (On Claude Code a full-file built-in Read of a code file is denied and redirected here.)
+Tool responses may carry `ur|<tag>` signal lines; the body of each line names the concrete next step.
 
-### Recon first — one call replaces the discovery fan-out
+If unerr MCP is unavailable, errors, or reports no graph: use built-in Read/Grep/Glob for the rest of the session.
 
-Before any non-trivial change, call `search_code` with a TASK PHRASE (`search_code({query:"add a retry to the boot path"})`). It returns a CODE-STRUCTURE recon bundle: the focus entity with its body (for a clear single-entity edit), its callers (blast radius), matching entities, and conventions. Anchored notes arrive automatically via prompt injection or explicitly via recall — they don't travel inside recon. For additional bodies, use `file_read({entity:'<key>'})`, `search_code({query, include_body:true})`, or pass the `cache_ref` from the response's `ur|cache-ref` marker for zero-recompute. A bare symbol (`search_code({query:"QueryRouter.dispatch"})`) returns ranked name matches.
+### `@sem` comments
 
-`file_edit` has two modes: `{old_string, new_string}` (unique, or `replace_all:true`) or `{content}`. When a signature edit has at-risk callers, the response lists them inline (`ur|rsk … N caller(s) …`) — update them in the same change. You need not echo each edit — the Stop hook prints a "files changed" receipt (files + line counts).
-
-Cross-repo (Pro): pass `scope:'workspace'` to query every registered sibling repo (results labeled by repo); `get_references({scope:'workspace'})` finds callers across repos; editing a path inside a sibling auto-routes to its graph.
-
-### Use the semantic fields — not just the graph
-
-Each search_code/file_read/callers entity carries `summary` (what it does), `domain` (code tier), `role` (responsibility) next to `fan_in`/callers. Read `summary` before pulling a body — skip the body read if it answers you. Triage callers by `domain`/`role`, not raw count — a `domain:routing` caller outranks a `domain:testing` one. Treat high `fan_in` + `role:entry-point` as a chokepoint → `get_references` before editing.
-
-### Batch the work — one shot, not file-by-file (round-trips are the cost)
-
-A round-trip carries input + output + latency, so the win is doing N items in one pass, not N passes.
-
-1. **Bulk edits — climb this ladder, stop at the first rung that works:** (a) **one command for the whole set** — `prettier --write .`, a `sed`/codemod, a formatter, a build flag; run it once, not once per file. (b) **else one script** — write one small script that walks the files and makes the change in a single run. (c) **else a sub-agent loop** — hand the repetitive per-file edit to a sub-agent so it runs off your main thread (see below). NEVER loop your main thread file-by-file over mechanical edits — spawn sub-agents instead.
-2. **Batch independent reads into ONE message.** When you need several files or several entities and the calls don't depend on each other, issue them as parallel tool calls in a single message — not one, wait, next. Better still, one `search_code({query:"<task>"})` recon bundle already returns several files' bodies + callers together; reach for it before fanning out `file_read`.
-3. **Set `token_budget`/`limit` right the first time.** Reading at a small budget then re-reading bigger doubles the cost. Ask for what the task needs up front (e.g. `token_budget:3000` for a full function, `limit:25` for references) instead of read-small-then-re-read.
-
-### Delegate by default — the main thread routes and consolidates, sub-agents do the work
-
-Delegation is the default behavior, not something to ask permission for: spawn sub-agents immediately when a turn has delegable work — never ask, never announce intent to ask; the user never needs to say "use unerr sub agents." On any non-trivial turn the main thread is a routing-and-consolidation layer: plan the change, split off its delegable slices, hand each to a sub-agent, then review and integrate the returned diffs. Run as many sub-agents in parallel as the turn has independent slices — one per slice, no fixed cap. The worker tier (a capable mid-tier model) is the DEFAULT executor — route the majority of scoped coding to it, not just mechanical chores. What stays on the main thread is narrow: architecture / algorithm design, a new public interface, cross-cutting wiring, and bug root-causing — everything else is a slice to delegate:
-- `Task({subagent_type:'unerr-junior', …})` — read-only investigation (find / trace / map X), web research & docs/API/changelog lookup, codebase Q&A (where / which / how), inventory & audit (find-all / list-all usages), log & error-output triage, bug reproduction (run repro, report — no edit), lint/format, docstrings/`@sem`, post-edit code review when unerr-reviewer is unavailable, security audits, git operations (branch/PR prep), benchmark/profiling runs, verify-runs (run typecheck + targeted tests + lint, return the failure list — no edits), shell-command runs (run a sequence of build/script/migration/setup commands, report the output).
-- `Task({subagent_type:'unerr-worker', …})` — scoped feature implementation from a clear spec (add a flag, wire X into Y, implement a handler — the bulk of ordinary coding), add/improve tests, multi-site mechanical refactor (rename / extract / inline / move), codemods (one bulk find-replace across many files), caller/import propagation (update every call site + import after a signature change), typecheck/build-error fixes (fix tsc/build errors mechanically, re-run until green), scaffold (generate a new file's skeleton from a sibling template), dependency upgrades, migration scripts.
-Tier by reasoning, not by size: scoped execution — even across many files — stays with the worker. Escalate to the senior only when the change needs novel design judgement (a new algorithm, architecture, or public interface) or root-causing a bug; deterministic mechanical breadth (codemods, caller propagation, renames) stays with the worker regardless of file count.
-
-On any long or multi-step task — 2+ steps, whether the steps run in parallel or one after another — call `TaskCreate` for each step before the first edit, unprompted, never wait to be asked; mark a step `in_progress` when you start it and `TaskUpdate` it completed as it lands, so the tracker mirrors live progress. When steps are independent slices, fan out one `unerr-worker`/`unerr-junior` sub-agent per slice in parallel via `Task`; sequential steps stay tracked the same way. Clear or complete the tracker at turn end.
-
-Group related work first, then spawn one sub-agent per independent group in a SINGLE message so they run in parallel. The sub-agents have the full graph tools — they re-derive the edit sites from `search_code` / `get_references`, so give them the task plus a one-line pointer, never pasted code or a list of files. Review each result before building on it. (Hosts without sub-agents — anything other than Claude Code / Codex / Cursor / Copilot CLI — do it inline.)
-
-### Signals — `ur|<tag>` lines on tool responses
-
-Act on these before the rest of the response; the body line is your concrete next step.
-
-| Tag | Meaning | Do |
-|---|---|---|
-| `act` | do something now | The body names the call (halt-and-switch, `Skill('<name>')`, pagination cursor, marker to emit) |
-| `ctx` | state changed | Re-read drifted file/entity; don't re-query context already delivered |
-| `rsk` | caution | High blast radius → `get_references` first; anti-pattern; prior failure on this entity |
-| `fct` | a fact for context | Surfaced project fact, co-change hint, family-routing nudge |
-
-Lines starting `unerr » ` are user-facing telemetry — never echo or act on them. When unerr shaped your answer, say so plainly ("unerr found <name>", "<N> places call <name>") — never dump tool JSON.
-
-### Session journal (zero round-trip)
-
-When the user states a durable rule ("remember", "always", "never", "from now on"), a hook nudge fires — write the rule verbatim into this repo's CLAUDE.md (or the agent's instruction file) immediately; unerr does not store user rules.
-
-unerr keeps a dated journal of each session — a plain audit trail (plus dashboard analytics when signed in). It is NOT memory: every entry is written as history, never asserted as present truth. Emit journal lines in your closing message (the Stop hook persists them):
-
-```
-unerr journal - goal - <what this turn does, ≤80 chars>   (REQUIRED first on coding tasks)
-unerr journal - decided - <a deliberate choice>
-unerr journal - stuck - <an obstacle>
-unerr journal - fixed - <how the obstacle was resolved>
-```
-
-When you need a return value (a blocker's `marker_id`), call `unerr_track({op:'intent'|'decision'|'blocker'|'resolution', text:'<one-line>'})` — the tool API keeps the internal op names.
-
-### Fallback to built-ins / Bash for code — only when
-
-unerr MCP is unavailable (not responding / erroring) · a non-text binary (image, PDF) · search_code or get_references reports no graph — switch to built-in Read / Grep / Glob for the rest of the session and stop calling unerr navigation tools.
-
-### Domain comments — maintain meaning in the same edit
-
-unerr parses a structured doc comment above each exported entity into a parallel domain graph: a 1–2 sentence prose summary (what + why, never how) then one `@sem domain=<tag> role=<tag>` line. The frontier model editing the code is the only thing that can keep that meaning true — maintain it inline, never as a separate pass:
-
-1. WHEN editing an entity that carries an `@sem` comment AND the edit changed what it does or why: rewrite the prose and tags in the SAME Edit call. Purpose unchanged → leave the comment untouched.
-2. WHEN creating an exported entity: write the comment block before the next edit. Prose ≤2 sentences, then `@sem domain=<tag>`. Reuse an active domain tag — a task-shaped `search_code({query:"<task>"})` lists them; add a new tag only when none fits.
-3. NEVER delete an `@sem` comment unless the user instructs it.
-4. NEVER write "how" prose — the code already says how. NEVER restate the entity name as the summary; unerr rejects a name-echo at parse time.
-
-unerr re-anchors these comments when code moves and flags a comment that drifted from its code — the rules above keep that machinery fed.
-
-`@sem` lines are plain comments; your code runs identically without them and without unerr. To remove every sentinel line later (prose summaries kept), run `unerr uninstall --strip-annotations`.
+Exported entities here carry a doc comment (1–2 sentences, what + why) ending `@sem domain=<tag> role=<tag>`. An edit that changes what an entity does updates its comment in the same edit; a new exported entity gets one before the next edit. Keep existing `@sem` lines unless the user removes them.
 
 <!-- unerr:end -->
 
@@ -180,9 +106,9 @@ The bridge owns no intelligence at all — every Tier-2 / Tier-3 module lives in
 Everything that crosses the CLI↔cloud wire — event / trace / sync / fleet body schemas, batch & text caps, schema versions — is defined ONCE in the shared package `@unerr-ai/contracts` (oRPC `@orpc/contract` + zod 4). The golden source is `github.com/unerr-ai/unerr-contracts`. Both this repo and `unerr-web-service` consume the same package: the CLI builds wire bodies from it, the web-service implements `cliContract` from it server-side. There is no second copy of a wire shape anywhere — adding one is the thing this section forbids.
 
 - **Wired here as a submodule, not an npm install.** Git submodule at `vendor/contracts`, pinned by commit; `package.json` dep `"@unerr-ai/contracts": "link:vendor/contracts"`. The CLI imports only the zod-only subpaths — `/ingest`, `/events`, `/review`, `/fleet`, `/account`. **Never import `/api`** (it exports `cliContract` and needs `@orpc/contract`, which is web-service-only).
-- **Build order matters.** `pnpm run build:contracts` runs first in `build`. The submodule's `dist/` is gitignored, so a fresh checkout / CI must build the contract before the CLI. tsup auto-externalizes `dependencies`, so `noExternal: ["@unerr-ai/contracts"]` in `tsup.config.ts` **force-inlines** the contract into `dist/cli.js`. This is load-bearing: the contract is `restricted` on GitHub Packages and the CLI ships to public npm, so it MUST be inlined. Verify after any build change: `grep -c "@unerr-ai/contracts" dist/cli.js` must print `0`.
+- **Build order matters.** `pnpm run build:contracts` runs first in `build`. The submodule's `dist/` is gitignored, so a fresh checkout / CI must build the contract before the CLI. tsup auto-externalizes `dependencies`, so `noExternal: ["@unerr-ai/contracts"]` in `tsup.config.ts` **force-inlines** the contract into the CLI output. This is load-bearing: the contract is `restricted` on GitHub Packages and the CLI ships to public npm, so it MUST be inlined. The build is code-split (`splitting:true`; `dist/cli.js` is a ~270-byte router and the inlined contract lands in a chunk), so verify across every emitted file: `grep -rl "@unerr-ai/contracts" dist/*.js` must print nothing. (Guarded by `src/__tests__/contract-single-source.test.ts`, which scans all of `dist/`.)
 - **Single-source rule (enforce at review).** Any constant or schema on the wire is imported from the contract, never re-declared in CLI code. To add a wire field or event: add it to the contract first (additive SchemaVer bump — `MODEL-REVISION-ADDITION`), bump the submodule pointer, then consume. Do not hand-build a wire body shape or copy a cap into CLI code.
-- **Cross-repo change order (mandatory for ANY CLI↔web-service change).** A wire change touches three repos in a fixed order — never edit both sides at once. (1) Land the shape in `@unerr-ai/contracts` first (zod-only subpath for CLI→server bodies; `/api` `cliContract` reusing the same zod for server-only read/triage/sync — never a second copy). (2) **Commit + push it to the contract repo's `main` and publish the version** before any consumer changes. (3) CLI bumps the `vendor/contracts` submodule pointer, `pnpm run build:contracts`, verify inlined (`grep -c "@unerr-ai/contracts" dist/cli.js` → `0`). (4) **unerr-web-service pulls the same published version and rebuilds BEFORE making its server-side change.** (5) Only then do CLI (producer) and web service (consumer/validator) implement against the shared shape. (6) GitHub App changes (web-service backend) come last. Tier gating reads the central source `src/cloud/tier-model.ts` (plan strings + `LIMIT_KEYS`); add a CLI gate in `src/cloud/entitlements.ts` modeled on `canSyncRecall`, never a parallel plan notion. Full plan: `.internal/reviewer-architecture.md` §16.5.1.
+- **Cross-repo change order (mandatory for ANY CLI↔web-service change).** A wire change touches three repos in a fixed order — never edit both sides at once. (1) Land the shape in `@unerr-ai/contracts` first (zod-only subpath for CLI→server bodies; `/api` `cliContract` reusing the same zod for server-only read/triage/sync — never a second copy). (2) **Commit + push it to the contract repo's `main` and publish the version** before any consumer changes. (3) CLI bumps the `vendor/contracts` submodule pointer, `pnpm run build:contracts`, verify inlined (`grep -rl "@unerr-ai/contracts" dist/*.js` → prints nothing; the build code-splits, so scan all of `dist/`, not just `cli.js`). (4) **unerr-web-service pulls the same published version and rebuilds BEFORE making its server-side change.** (5) Only then do CLI (producer) and web service (consumer/validator) implement against the shared shape. (6) GitHub App changes (web-service backend) come last. Tier gating reads the central source `src/cloud/tier-model.ts` (plan strings + `LIMIT_KEYS`); add a CLI gate in `src/cloud/entitlements.ts` modeled on `canSyncRecall`, never a parallel plan notion.
 - **No firewall, no identity in the contract.** The contract carries zero HR-2 firewall logic; the server enforces HR-2 and the CLI keeps its client-side `sanitizeDetail` pre-filter (`src/cloud/drainers/envelope.ts`). Identity (org/user) is resolved from the token and never appears in a request body.
 - **Validation seam (single-source on emit, DONE 2026-06-16).** Constants (schema versions + caps) AND body shapes are now single-source. Every `StreamDrainer` declares `schema?: ContractSchema`; `drainStream` (`src/cloud/push-drainer.ts`) validates each built row against its `@unerr-ai/contracts` record (`IngestEvent`, `TranscriptRecord`, `LedgerRecord`, `RouterRecord`, `SessionRecord`, `FactCreate`, `TimelineRecord`, `DriftRecordInput`) BEFORE push — per-element, so one bad row drops and the rest ship. Fleet bodies validate via `validateBody` (non-blocking). Fail mode: drop + `startupLog` warn in prod, **throw under `UNERR_CONTRACT_STRICT=1`** in tests. The helper is `src/cloud/drainers/validate.ts` (`validateRows` / `validateBody` / `ContractSchema`). Limit: `/events` + `/traces` `detail` is a `looseObject`, so an extra/renamed `detail` key is NOT caught (review concern). The CLI zod and the contract's vendored zod are different installs — `validate.ts` types on a structural `ContractSchema` (`safeParse` only), not zod's `ZodType`. Regression guard: `src/__tests__/contract-single-source.test.ts`. Reference: `.internal/docs/01-base-system/09-WIRE-CONTRACTS.md` (original tracker archived at `.internal/archive/CONTRACTS_SINGLE_SOURCE.md`).
 
@@ -219,7 +145,7 @@ src/
   tracking/             — Intent ledger, drift detection, git attribution
   commands/             — CLI subcommands (pm, status, stats, install, uninstall, dashboard,
                           debug, doctor, init, exec, hook, learn, manifest, rewind, router,
-                          serve, setup-wizard, skills, timeline, branches, check-commit,
+                          serve, setup-wizard, skills, timeline, branches,
                           compress-output, config-verify, enrich, gain)
   tools/                — MCP tool implementations (coding/, intelligence/)
   hooks/                — Claude Code hook system integration
@@ -232,7 +158,7 @@ src/
   utils/                — Shared utilities (startup-log, exec, git)
 ```
 
-Internal design docs live in `.internal/` at the repo root. A reconciliation in progress is consolidating them into `.internal/docs/` by feature category (`01-base-system/` … `05-roadmap/`), each doc re-grounded against current code; see `.internal/docs/README.md` and `.internal/docs/01-base-system/_CONSOLIDATION_PLAN.md`. Three categories are done: **base-system** (`01-base-system/`, 12 docs), **graph** (`02-graph/`, 7 docs), and **telemetry/insights** (`04-telemetry-insights/`, 4 docs). They supersede the old `LAYER_0_FOUNDATION`, `LAYER_12_PROCESS_MANAGER`, `MCP_GATEWAY_ROUTER_PROXY`, `AGENT_SURFACE`, `COMMAND_SURFACE`, `LOGGING_ARCHITECTURE`, `LOGIN_UX_STRATEGY`, `TIER_ENFORCEMENT_PLAN`, `AUTO_UPDATE_STRATEGY`, `NATIVE_BINARY_DISTRIBUTION`, `CONTRACTS_SINGLE_SOURCE`, `TELEMETRY_AND_EVENTS_ARCHITECTURE`, `LAYER_10_TOKEN_FLOW_OBSERVABILITY`, `TOKEN_ECONOMICS_AND_SAVINGS`, `LAYER_7_UI_DASHBOARD_SSE` (the local dashboard — now dead code), `LAYER_1_INDEXING`, `LAYER_2_GRAPH_INTELLIGENCE`, `LAYER_8_DOMAIN_UNDERSTANDING` (shipped, despite its "NOT BUILT" header), `CROSS_REPO_INTELLIGENCE`, `ui/code-intelligence` (dead — the graph-explorer UI was deleted), all moved to `.internal/archive/` (see `.internal/archive/README.md` for the old→new map). Code comments tagged `CROSS_REPO_INTELLIGENCE Sprint X` or `LAYER_8_DOMAIN_UNDERSTANDING.md §X` point at the archived copies. Not-yet-reconciled docs still live at the old paths: top-level product docs (NUDGE_V2.md, PERCEPTION_TO_PRESENCE.md, PRODUCT_POSITIONING.md — canonical positioning, reviewer-architecture.md, behavior-automation.md, USER_TESTING_CHECKLIST.md), `architecture/` (remaining LAYER_* feature docs + SESSION_TIMELINE), `roadmap/` (designs NOT built yet: LAYER_13 edit DSL, delegation-tier plan, autonomous planning, local sidecar, contract inference, builder-insights), `archive/` (superseded snapshots). Public docs live in a separate repo, `unerr` (Fumadocs source) — they are no longer in this repo. When a source comment cites a design doc, the path is relative to repo root (e.g. `.internal/reviewer-architecture.md`).
+Internal design docs live in `.internal/` at the repo root. A reconciliation in progress is consolidating them into `.internal/docs/` by feature category (`01-base-system/` … `05-roadmap/`), each doc re-grounded against current code; see `.internal/docs/README.md` and `.internal/docs/01-base-system/_CONSOLIDATION_PLAN.md`. Three categories are done: **base-system** (`01-base-system/`, 12 docs), **graph** (`02-graph/`, 7 docs), and **telemetry/insights** (`04-telemetry-insights/`, 4 docs). They supersede the old `LAYER_0_FOUNDATION`, `LAYER_12_PROCESS_MANAGER`, `MCP_GATEWAY_ROUTER_PROXY`, `AGENT_SURFACE`, `COMMAND_SURFACE`, `LOGGING_ARCHITECTURE`, `LOGIN_UX_STRATEGY`, `TIER_ENFORCEMENT_PLAN`, `AUTO_UPDATE_STRATEGY`, `NATIVE_BINARY_DISTRIBUTION`, `CONTRACTS_SINGLE_SOURCE`, `TELEMETRY_AND_EVENTS_ARCHITECTURE`, `LAYER_10_TOKEN_FLOW_OBSERVABILITY`, `TOKEN_ECONOMICS_AND_SAVINGS`, `LAYER_7_UI_DASHBOARD_SSE` (the local dashboard — now dead code), `LAYER_1_INDEXING`, `LAYER_2_GRAPH_INTELLIGENCE`, `LAYER_8_DOMAIN_UNDERSTANDING` (shipped, despite its "NOT BUILT" header), `CROSS_REPO_INTELLIGENCE`, `ui/code-intelligence` (dead — the graph-explorer UI was deleted), all moved to `.internal/archive/` (see `.internal/archive/README.md` for the old→new map). Code comments tagged `CROSS_REPO_INTELLIGENCE Sprint X` or `LAYER_8_DOMAIN_UNDERSTANDING.md §X` point at the archived copies. Not-yet-reconciled docs still live at the old paths: top-level product docs (NUDGE_V2.md, PERCEPTION_TO_PRESENCE.md, PRODUCT_POSITIONING.md — canonical positioning, behavior-automation.md, USER_TESTING_CHECKLIST.md), `architecture/` (remaining LAYER_* feature docs + SESSION_TIMELINE), `roadmap/` (designs NOT built yet: LAYER_13 edit DSL, delegation-tier plan, autonomous planning, local sidecar, contract inference, builder-insights), `archive/` (superseded snapshots). Public docs live in a separate repo, `unerr` (Fumadocs source) — they are no longer in this repo. When a source comment cites a design doc, the path is relative to repo root (e.g. `.internal/behavior-automation.md`).
 
 ### Key Files
 
@@ -407,6 +333,15 @@ Every string the system injects into agent context — `ur|<tag>` signals, `_hin
 6. **Legend agrees with emission.** The agent's interpretation key is `SIGNAL_PREFIX_LEGEND` (response-envelope.ts) and the `ur|<tag>` table in this file. If you change what a `ur|rsk` line says, update both legend rows in the same commit. The contract is: *whatever value the legend names, the emission produces.*
 
 When in doubt, the test is mechanical: read the line out loud, then ask *"can I paste this into a tool call without thinking?"* If yes, ship. If you'd have to interpret "this", "consider", or `:N` first, rewrite.
+
+## MCP tool responses cost tokens — send only the answer (IMPORTANT)
+
+An MCP tool response is **not** an API response. An API caller pays nothing per byte; an agent pays for every character of a tool response as context tokens — on the turn it lands and on every cached turn after. So make the maximum cut: **send only what the request needs, nothing more.**
+
+- If the call asks for search, return the search hits — not confidence scores, internal `community` IDs, token self-counts (`~N tokens`), extracted query `terms`, or an API-style envelope (`status`, `tool`, `requested_token_budget` echoes).
+- Cut any field the agent will not act on. Scores, provenance, and self-describing meta do not earn their tokens.
+- A useful hint or a small **sneak-peek** (blast-radius count, a one-line convention summary, a `cache_ref` pointer) does earn its tokens — keep those, tight.
+- The test for adding any field to any tool response: *does the agent act on this?* If not, drop it. This is the maximum-cut rule — apply it without degrading the actual answer's quality.
 
 ## Language Decision
 

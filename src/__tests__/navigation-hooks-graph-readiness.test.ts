@@ -17,6 +17,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetHookDedup } from "../hooks/hook-dedup.js";
 import {
+  runPostEditHook,
   runPostWriteHook,
   runPreGlobHook,
   runPreGrepHook,
@@ -176,6 +177,68 @@ describe("navigation hooks — graph readiness gate", () => {
         runPostWriteHook(claudeCodePayload({ file_path: "src/new-file.ts" }))
       );
       expect(result).toEqual({});
+    });
+  });
+
+  describe("repo-root gate (isInRepo) — graph ready", () => {
+    beforeEach(() => {
+      writeFixture(tmpDir, { entities: READY_ENTITIES });
+    });
+
+    // Not created on disk — the gate is pure path computation, no fs access
+    // on the target file itself.
+    const outsidePath = path.join(
+      os.tmpdir(),
+      `unerr-outside-repo-${Date.now()}`,
+      "foo.ts"
+    );
+
+    it("post-Write: out-of-repo absolute path (agent scratchpad) passes through silently", () => {
+      const result = JSON.parse(
+        runPostWriteHook(claudeCodePayload({ file_path: outsidePath }))
+      );
+      expect(result).toEqual({});
+    });
+
+    it("post-Write: in-repo path still fires", () => {
+      const result = JSON.parse(
+        runPostWriteHook(claudeCodePayload({ file_path: "src/new-file.ts" }))
+      );
+      const msg = result.hookSpecificOutput?.additionalContext ?? "";
+      expect(msg).toContain("get_references");
+    });
+
+    it("post-Edit: out-of-repo absolute path (agent scratchpad) passes through silently", () => {
+      const result = JSON.parse(
+        runPostEditHook(
+          JSON.stringify({
+            hook_event_name: "PostToolUse",
+            tool_input: {
+              file_path: outsidePath,
+              old_string: "const a = 1",
+              new_string: "const a = 2",
+            },
+          })
+        )
+      );
+      expect(result).toEqual({});
+    });
+
+    it("post-Edit: in-repo path still fires", () => {
+      const result = JSON.parse(
+        runPostEditHook(
+          JSON.stringify({
+            hook_event_name: "PostToolUse",
+            tool_input: {
+              file_path: "src/existing-file.ts",
+              old_string: "const a = 1",
+              new_string: "const a = 2",
+            },
+          })
+        )
+      );
+      const msg = result.hookSpecificOutput?.additionalContext ?? "";
+      expect(msg).toContain("get_references");
     });
   });
 });

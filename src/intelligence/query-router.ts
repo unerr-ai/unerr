@@ -1307,8 +1307,7 @@ export class QueryRouter {
     // catalog 2026-06, retained by name like get_function/get_class) so every
     // downstream stage — risk injection, noise stripping, wire encoding,
     // telemetry — keys on the single-entity tool name it already handles.
-    // Same early-translate pattern as translateUnerrTrack (proxy.ts). The
-    // translation is shared with executeRaw via resolveProfileTool so the public
+    // The translation is shared with executeRaw via resolveProfileTool so the public
     // and raw paths can never diverge (executeLocal dispatches on tool name).
     const profile = resolveProfileTool(requestedTool, requestedArgs);
     const toolName = profile.toolName;
@@ -2165,9 +2164,14 @@ export class QueryRouter {
 
     // ── Sprint 4: Structured Session Brief (first call only) ──────
     if (this.sessionContext.isFirstCall()) {
-      // Build structured brief (replaces flat greeting + resume)
+      // Build the structured brief for internal session tracking only. The
+      // visible `[unerr:session-resume]` block is NOT prepended to the tool
+      // response — the resume strip is already delivered by the session
+      // Stop-hook (session-hooks.ts:formatSessionResumeBlock). Emitting it
+      // in-band too was pure duplication billed into the agent's context.
+      // See CLAUDE.md "MCP tool responses cost tokens — send only the answer".
       try {
-        const { SessionBriefBuilder, formatBriefAsVisibleBlock } = await import(
+        const { SessionBriefBuilder } = await import(
           "./session-brief-builder.js"
         );
         const briefBuilder = new SessionBriefBuilder(
@@ -2178,16 +2182,6 @@ export class QueryRouter {
         const brief = await briefBuilder.build(this.sessionResumeContext);
         context.session_brief = brief;
         hasContext = true;
-        // MCP clients strip `_meta` before the model sees the response, so the
-        // structured brief is invisible to the agent. Emit the same intel as
-        // an inline `[unerr:session-resume]` block prepended to content[0].
-        const elapsedMs = this.previousSessionEndedAt
-          ? Date.now() - this.previousSessionEndedAt
-          : undefined;
-        const resumeBlock = formatBriefAsVisibleBlock(brief, elapsedMs);
-        if (resumeBlock.length > 0) {
-          result.content = prependAnnounceToBody(result.content, resumeBlock);
-        }
       } catch {
         // Fallback to flat greeting if brief builder fails
         const greeting = this.buildSessionGreeting();

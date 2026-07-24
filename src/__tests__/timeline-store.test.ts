@@ -1,17 +1,13 @@
 /**
  * ST-1b: CozoTimelineStore — third CozoDB instance at `.unerr/timeline.db`.
- * Tests cover open/init, idempotence, and round-trip CRUD on turns + markers.
+ * Tests cover open/init, idempotence, and round-trip CRUD on turns.
  */
 
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  CozoTimelineStore,
-  type MarkerRow,
-  type TurnRow,
-} from "../timeline/timeline-store.js";
+import { CozoTimelineStore, type TurnRow } from "../timeline/timeline-store.js";
 
 let tempDir: string;
 
@@ -47,19 +43,6 @@ function makeTurn(overrides: Partial<TurnRow> = {}): TurnRow {
   };
 }
 
-function makeMarker(overrides: Partial<MarkerRow> = {}): MarkerRow {
-  return {
-    marker_id: overrides.marker_id ?? "m1",
-    type: overrides.type ?? "mark_intent",
-    text: overrides.text ?? "refactor auth",
-    session_id: overrides.session_id ?? "s1",
-    turn_id: overrides.turn_id ?? "t1",
-    ts: overrides.ts ?? 1500,
-    blocker_ref: overrides.blocker_ref ?? "",
-    file_path: overrides.file_path ?? "",
-  };
-}
-
 describe("CozoTimelineStore", () => {
   it("creates .unerr/timeline.db on first call and reports isNew=true", async () => {
     const store = await CozoTimelineStore.create(tempDir);
@@ -83,7 +66,7 @@ describe("CozoTimelineStore", () => {
     }
   });
 
-  it("initialises all six expected relations", async () => {
+  it("initialises all five expected relations", async () => {
     const store = await CozoTimelineStore.create(tempDir);
     try {
       const rels = await store.getDb().run("::relations");
@@ -92,7 +75,6 @@ describe("CozoTimelineStore", () => {
         "turns",
         "intents",
         "intent_sessions",
-        "markers",
         "derived_signals",
         "signal_reinforcement",
       ]) {
@@ -150,49 +132,6 @@ describe("CozoTimelineStore", () => {
 
       const all = await store.listTurns();
       expect(all.map((t) => t.turn_id)).toEqual(["t2", "t3", "t1"]);
-    } finally {
-      store.close();
-    }
-  });
-
-  it("round-trips markers through insertMarker → listMarkers with type filter", async () => {
-    const store = await CozoTimelineStore.create(tempDir);
-    try {
-      await store.insertMarker(
-        makeMarker({
-          marker_id: "m1",
-          type: "mark_intent",
-          text: "auth",
-          ts: 100,
-        })
-      );
-      await store.insertMarker(
-        makeMarker({
-          marker_id: "m2",
-          type: "mark_blocker",
-          text: "type error",
-          ts: 200,
-        })
-      );
-      await store.insertMarker(
-        makeMarker({
-          marker_id: "m3",
-          type: "mark_resolution",
-          text: "fixed",
-          ts: 300,
-          blocker_ref: "m2",
-        })
-      );
-
-      const all = await store.listMarkers();
-      expect(all.map((m) => m.marker_id)).toEqual(["m3", "m2", "m1"]);
-
-      const blockers = await store.listMarkers({ type: "mark_blocker" });
-      expect(blockers).toHaveLength(1);
-      expect(blockers[0]?.text).toBe("type error");
-
-      const resolutions = await store.listMarkers({ type: "mark_resolution" });
-      expect(resolutions[0]?.blocker_ref).toBe("m2");
     } finally {
       store.close();
     }

@@ -55,6 +55,38 @@ describe("detectUserRule — does NOT fire on bare imperatives", () => {
     expect(detectUserRule("always")).toBeNull();
     expect(detectUserRule("")).toBeNull();
   });
+
+  it("does not fire on a 'lets' planning prompt that merely discusses instructions (regression: real false positive)", () => {
+    expect(
+      detectUserRule(
+        "lets understand why unerr enabled claude code execution is thinking more - lets go thorugh each & eveyr isntruction we have"
+      )
+    ).toBeNull();
+  });
+
+  it("does not fire on a first-person recollection ('I remember'), only a request", () => {
+    expect(
+      detectUserRule("I remember when we discussed this last time")
+    ).toBeNull();
+  });
+
+  it("does not fire on a question, even one containing 'remember'", () => {
+    expect(
+      detectUserRule("do you remember what we talked about last time?")
+    ).toBeNull();
+  });
+
+  it("does not fire when a directive phrase is buried after a 'let's' opener", () => {
+    expect(
+      detectUserRule("lets always run the tests before committing from now on")
+    ).toBeNull();
+  });
+
+  it("fires on a bare 'rule:' directive", () => {
+    expect(detectUserRule("Rule: never commit secrets to the repo")).toBe(
+      "Rule: never commit secrets to the repo"
+    );
+  });
 });
 
 describe("CLAUDE.md-redirect nudge — replaces UDS capture", () => {

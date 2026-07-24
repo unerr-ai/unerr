@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -6,28 +6,20 @@ import {
   CLAUDE_WORKER_MODEL,
   CODEX_WORKER_MODEL,
   FABLE_AGENT_MD,
-  FABLE_AGENT_MD_AUTONOMOUS,
   FABLE_MODEL,
   JUNIOR_AGENT_MD,
   JUNIOR_AGENT_RELPATH,
   JUNIOR_MODEL,
   OPUS_AGENT_MD,
-  OPUS_AGENT_MD_AUTONOMOUS,
   OPUS_MODEL,
-  REVIEWER_AGENT_MD,
-  REVIEWER_AGENT_RELPATH,
-  VERIFIER_AGENT_MD,
-  VERIFIER_AGENT_RELPATH,
   WORKER_AGENT_MD,
   fableAgentPath,
   juniorAgentPath,
   juniorHandoff,
   opusAgentPath,
   removeJuniorSubagent,
-  reviewerAgentPath,
   selectTier,
   tierModel,
-  verifierAgentPath,
   workerAgentPath,
   writeJuniorSubagent,
 } from "../skills/junior-agent.js";
@@ -53,12 +45,6 @@ describe("unerr-junior sub-agent (Lever C)", () => {
       body.push(lines[i]!.replace(/^ {2}/, ""));
     }
     return body.join(" ");
-  };
-
-  /** The `tools:` frontmatter line, parsed into its comma-separated entries. */
-  const toolsOf = (md: string): string[] => {
-    const m = md.match(/^tools: (.+)$/m);
-    return m ? m[1]!.split(", ") : [];
   };
 
   it("definition pins the cheaper model and a bounded tool set", () => {
@@ -141,57 +127,29 @@ describe("unerr-junior sub-agent (Lever C)", () => {
       // Not a cheaper tier — the out-of-scope clause uses the neutral phrasing.
       expect(md).not.toContain("on the cheaper tier");
     }
-    // uninstall removes the installed set (junior/worker/opus/fable; the
-    // reviewer is off by default so it is not installed to begin with).
+    // uninstall removes the installed set (junior/worker/opus/fable).
     expect(removeJuniorSubagent(cwd)).toBe(true);
     expect(existsSync(opusAgentPath(cwd))).toBe(false);
     expect(existsSync(fableAgentPath(cwd))).toBe(false);
   });
 
-  it("does NOT install the reviewer by default and sweeps a stale copy (claude-code)", () => {
-    const cwd = fresh();
-    // Reviewer is OFF by default (REVIEWER_AGENT_ENABLED=false) — never written.
-    expect(writeJuniorSubagent("claude-code", cwd)).toBe(true);
-    expect(existsSync(reviewerAgentPath(cwd))).toBe(false);
-
-    // A copy left by a prior install is swept on the next install. The first
-    // call created .claude/agents/, so the path's parent already exists.
-    writeFileSync(reviewerAgentPath(cwd), REVIEWER_AGENT_MD);
-    expect(existsSync(reviewerAgentPath(cwd))).toBe(true);
-    expect(writeJuniorSubagent("claude-code", cwd)).toBe(true);
-    expect(existsSync(reviewerAgentPath(cwd))).toBe(false);
-  });
-
-  it("keeps the reviewer template well-formed and read-only for re-enable", () => {
-    // The constant + path helper survive so flipping REVIEWER_AGENT_ENABLED back
-    // on needs no other change to the definition.
-    expect(reviewerAgentPath("/x").endsWith(REVIEWER_AGENT_RELPATH)).toBe(true);
-    expect(REVIEWER_AGENT_MD).toContain("name: unerr-reviewer");
-    expect(REVIEWER_AGENT_MD).toContain(`model: ${CLAUDE_WORKER_MODEL}`);
-    expect(foldedDescription(REVIEWER_AGENT_MD)).toContain("Use PROACTIVELY");
-    // Read-only tool set — no edit tools at all.
-    const reviewerTools = toolsOf(REVIEWER_AGENT_MD);
-    expect(reviewerTools).toContain("mcp__unerr__search_code");
-    expect(reviewerTools).toContain("mcp__unerr__get_references");
-    expect(reviewerTools).not.toContain("mcp__unerr__file_edit");
-    expect(reviewerTools).not.toContain("Edit");
-    expect(reviewerTools).not.toContain("Write");
-  });
-
-  it("junior/worker/reviewer descriptions signal auto-delegation; opus/fable are manual-only", () => {
-    for (const md of [JUNIOR_AGENT_MD, WORKER_AGENT_MD, REVIEWER_AGENT_MD]) {
+  it("junior/worker/opus descriptions signal auto-delegation; fable is manual-only", () => {
+    for (const md of [JUNIOR_AGENT_MD, WORKER_AGENT_MD, OPUS_AGENT_MD]) {
       const desc = foldedDescription(md);
       expect(desc).toContain("Use PROACTIVELY");
       expect(desc).toContain("MUST BE USED");
     }
-    // Claude Code has no `disable-model-invocation` field — opus/fable must
-    // stay out of automatic routing via description wording alone.
-    for (const md of [OPUS_AGENT_MD, FABLE_AGENT_MD]) {
-      const desc = foldedDescription(md);
-      expect(desc).toContain("Manual-only");
-      expect(desc).toContain("NEVER select this agent automatically");
-      expect(desc).not.toContain("Use PROACTIVELY");
-    }
+    // Opus auto-selects for complex/large-context work — it must NOT carry the
+    // manual-only wording anymore.
+    const opusDesc = foldedDescription(OPUS_AGENT_MD);
+    expect(opusDesc).not.toContain("Manual-only");
+    expect(opusDesc).not.toContain("NEVER select this agent automatically");
+    // Claude Code has no `disable-model-invocation` field — fable must stay
+    // out of automatic routing via description wording alone.
+    const fableDesc = foldedDescription(FABLE_AGENT_MD);
+    expect(fableDesc).toContain("Manual-only");
+    expect(fableDesc).toContain("NEVER select this agent automatically");
+    expect(fableDesc).not.toContain("Use PROACTIVELY");
   });
 
   it("every generated frontmatter uses a parseable folded description scalar", () => {
@@ -200,7 +158,6 @@ describe("unerr-junior sub-agent (Lever C)", () => {
       WORKER_AGENT_MD,
       OPUS_AGENT_MD,
       FABLE_AGENT_MD,
-      REVIEWER_AGENT_MD,
     ]) {
       expect(md).toContain("description: >-\n");
       const lines = md.split("\n");
@@ -220,90 +177,6 @@ describe("unerr-junior sub-agent (Lever C)", () => {
       expect(sawIndentedLine).toBe(true);
       expect(lines[i]).toMatch(/^model: /);
     }
-  });
-
-  it("autonomous install writes all 5 agent files (junior/worker/opus/fable/verifier)", () => {
-    const cwd = fresh();
-    expect(writeJuniorSubagent("claude-code", cwd, { autonomous: true })).toBe(
-      true
-    );
-    expect(existsSync(juniorAgentPath(cwd))).toBe(true);
-    expect(existsSync(workerAgentPath(cwd))).toBe(true);
-    expect(existsSync(opusAgentPath(cwd))).toBe(true);
-    expect(existsSync(fableAgentPath(cwd))).toBe(true);
-    expect(existsSync(verifierAgentPath(cwd))).toBe(true);
-    expect(readFileSync(opusAgentPath(cwd), "utf-8")).toBe(
-      OPUS_AGENT_MD_AUTONOMOUS
-    );
-    expect(readFileSync(fableAgentPath(cwd), "utf-8")).toBe(
-      FABLE_AGENT_MD_AUTONOMOUS
-    );
-    expect(readFileSync(verifierAgentPath(cwd), "utf-8")).toBe(
-      VERIFIER_AGENT_MD
-    );
-  });
-
-  it("autonomous opus/fable auto-spawn on evidence; manual variants stay manual-only", () => {
-    for (const md of [OPUS_AGENT_MD_AUTONOMOUS, FABLE_AGENT_MD_AUTONOMOUS]) {
-      const desc = foldedDescription(md);
-      expect(desc).toContain("AUTOMATICALLY");
-      expect(desc).not.toContain("Manual-only");
-    }
-    // The manual, user-invoked variants are untouched by the autonomous work.
-    for (const md of [OPUS_AGENT_MD, FABLE_AGENT_MD]) {
-      expect(foldedDescription(md)).toContain("Manual-only");
-    }
-  });
-
-  it("autonomous descriptions carry the blocked/stalled/wrong-subgoal triggers; manual variants don't", () => {
-    // Opus is the FIRST escalation rung: the non-retry triggers spawn it
-    // directly, so its description must state each one as a spawn condition.
-    const opusDesc = foldedDescription(OPUS_AGENT_MD_AUTONOMOUS);
-    expect(opusDesc).toContain("BLOCKED");
-    expect(opusDesc).toContain("STALLED");
-    expect(opusDesc).toContain("WRONG-SUBGOAL");
-    // Fable is the SECOND rung — it fires when opus's proposal failed, never
-    // directly on a trigger (that would double-spawn the two most expensive
-    // tiers on a mere stall). Its description references the trigger classes
-    // only via the after-opus clause.
-    const fableDesc = foldedDescription(FABLE_AGENT_MD_AUTONOMOUS);
-    expect(fableDesc).toContain("BLOCKED/STALLED/WRONG-SUBGOAL");
-    expect(fableDesc).not.toMatch(/directly when the session is BLOCKED/);
-    for (const md of [OPUS_AGENT_MD, FABLE_AGENT_MD]) {
-      const desc = foldedDescription(md);
-      expect(desc).not.toContain("BLOCKED");
-      expect(desc).not.toContain("STALLED");
-      expect(desc).not.toContain("WRONG-SUBGOAL");
-    }
-  });
-
-  it("unerr-verifier is read-only and Opus-pinned — no edit tools", () => {
-    expect(VERIFIER_AGENT_MD).toContain("name: unerr-verifier");
-    expect(VERIFIER_AGENT_MD).toContain(`model: ${OPUS_MODEL}`);
-    expect(verifierAgentPath("/x").endsWith(VERIFIER_AGENT_RELPATH)).toBe(true);
-    const verifierTools = toolsOf(VERIFIER_AGENT_MD);
-    expect(verifierTools).toContain("mcp__unerr__search_code");
-    expect(verifierTools).toContain("mcp__unerr__get_references");
-    expect(verifierTools).not.toContain("mcp__unerr__file_edit");
-    expect(verifierTools).not.toContain("Edit");
-    expect(verifierTools).not.toContain("Write");
-  });
-
-  it("interactive install keeps manual-only opus/fable and sweeps a stale verifier", () => {
-    const cwd = fresh();
-    // Simulate a prior autonomous install leaving a verifier file behind.
-    writeJuniorSubagent("claude-code", cwd, { autonomous: true });
-    expect(existsSync(verifierAgentPath(cwd))).toBe(true);
-
-    // Switching back to an interactive (non-autonomous) install sweeps the
-    // stale verifier and restores the manual-only opus/fable variants.
-    expect(writeJuniorSubagent("claude-code", cwd)).toBe(true);
-    expect(existsSync(verifierAgentPath(cwd))).toBe(false);
-    expect(readFileSync(opusAgentPath(cwd), "utf-8")).toBe(OPUS_AGENT_MD);
-    expect(readFileSync(fableAgentPath(cwd), "utf-8")).toBe(FABLE_AGENT_MD);
-    expect(
-      foldedDescription(readFileSync(opusAgentPath(cwd), "utf-8"))
-    ).toContain("Manual-only");
   });
 });
 

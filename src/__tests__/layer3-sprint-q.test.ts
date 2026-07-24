@@ -137,15 +137,17 @@ describe("Compression Quality Monitor (Q.13)", () => {
 });
 
 describe("Skills Pack (Q.11-Q.12, post-27→7 consolidation)", () => {
-  it("output discipline lives inside the orchestrator skill body", () => {
-    // Folded into using-unerr (the one always-on skill). The verbose 2026-05
-    // token-efficiency list was condensed to an "Output discipline" line in the
-    // 2026-06 slim (the rest lives in the instruction file, not duplicated).
+  it("tool-capability reference lives inside the orchestrator skill body", () => {
+    // Folded into using-unerr (the one always-on skill). The 2026-07-24
+    // description/body dedup cut the body further to a short tool-capability
+    // reference (the diff/ur|<tag>/@sem prose moved out — already covered by
+    // CLAUDE.md / the instruction file, not duplicated here).
     const skill = getSkill("using-unerr");
     expect(skill).not.toBeNull();
     expect(skill?.category).toBe("workflow");
-    expect(skill?.instructions).toContain("Output discipline");
-    expect(skill?.instructions).toContain("show diffs, not whole files");
+    expect(skill?.instructions).toContain("search_code");
+    expect(skill?.instructions).toContain("get_references");
+    expect(skill?.instructions).toContain("unerr-worker");
   });
 
   it("graph-first navigation lives inside unerr-exploration", () => {

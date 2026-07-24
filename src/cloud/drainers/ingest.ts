@@ -162,14 +162,26 @@ function relativizeRef(value: unknown, repoRoot?: string): unknown {
 }
 
 /**
- * Project one stored row to its wire shape just before push. For a projected type
- * the `detail` is reduced to the contract-declared keys (dropping the local-only
+ * Event types the CLI still validates against the contract (a producer may
+ * still stamp one into the local segment store) but no longer forwards to the
+ * cloud. Today just `timeline` — the mark_intent/mark_decision/mark_blocker/
+ * mark_resolution journal markers — retired on the push side while the
+ * contract's `timeline` event shape stays defined.
+ */
+const DROPPED_TYPES = new Set<string>(["timeline"]);
+
+/**
+ * Project one stored row to its wire shape just before push. A `timeline`
+ * marker row is dropped outright (returns null) — the CLI no longer pushes
+ * timeline-marker records to the cloud, though the contract's `timeline`
+ * event shape stays defined for a future consumer. For a projected type the
+ * `detail` is reduced to the contract-declared keys (dropping the local-only
  * blobs/diagnostics and firewall-tripping `command`/`tee_file`), with path-bearing
- * refs relativized; the `session_summary` `summary` variant is dropped (returns
- * null) so it cannot clobber the canonical `history` upsert. Every other type
- * keeps the `sanitizeRowForPush` denylist pass-through (its loose extras are
- * intentional). Pure — the stored line is untouched, so the cursor still advances
- * by the original byte span.
+ * refs relativized; the `session_summary` `summary` variant is also dropped
+ * (returns null) so it cannot clobber the canonical `history` upsert. Every
+ * other type keeps the `sanitizeRowForPush` denylist pass-through (its loose
+ * extras are intentional). Pure — the stored line is untouched, so the cursor
+ * still advances by the original byte span.
  *
  * // @sem domain=cloud role=drainer
  */
@@ -181,6 +193,7 @@ export function projectRowForWire(
   const r = row as Record<string, unknown>;
   const type = r.type as string;
   if (FLEET_EVENT_TYPES.has(type)) return row;
+  if (DROPPED_TYPES.has(type)) return null;
   if (!PROJECTED_TYPES.has(type)) return sanitizeRowForPush(row);
   const detail = r.detail;
   if (!detail || typeof detail !== "object") return row;

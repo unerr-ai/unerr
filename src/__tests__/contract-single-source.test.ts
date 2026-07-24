@@ -6,9 +6,11 @@
  *
  *  1. The contract is INLINED into the shipped bundle, not left as an external
  *     require. `@unerr-ai/contracts` is `restricted` on GitHub Packages and the
- *     CLI ships to public npm, so `dist/cli.js` must contain zero references to
- *     the package specifier (tsup `noExternal` force-inlines it). Skipped when
- *     `dist/cli.js` is absent (a fresh checkout that has not built yet).
+ *     CLI ships to public npm, so NO emitted dist chunk may contain the package
+ *     specifier (tsup `noExternal` force-inlines it). The build code-splits, so
+ *     the check scans every `dist/*.js` (cli.js is a 269 B router now — the
+ *     inlined contract lives in a chunk). Skipped when dist is absent (a fresh
+ *     checkout that has not built yet).
  *
  *  2. Every producer's emit shape still satisfies the one ingest contract. Rev-3
  *     collapsed the per-type drainers into a single stream: every producer stamps
@@ -20,7 +22,7 @@
  *     fails before the row can reach the wire.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { IngestBatchBody, IngestEvent } from "@unerr-ai/contracts/ingest";
 import { describe, expect, it } from "vitest";
@@ -59,12 +61,18 @@ function expectValid(row: unknown) {
 const DAEMON = { pid: 1, uptime_s: 1, rss_bytes: 1, dashboard_port: 1 };
 
 describe("contract single-source — bundle inlining", () => {
-  it("dist/cli.js carries no external @unerr-ai/contracts reference", () => {
-    const dist = join(process.cwd(), "dist", "cli.js");
-    if (!existsSync(dist)) return; // fresh checkout, not built yet
-    const bundle = readFileSync(dist, "utf8");
-    const matches = bundle.split("@unerr-ai/contracts").length - 1;
-    expect(matches).toBe(0);
+  it("no dist chunk carries an external @unerr-ai/contracts reference", () => {
+    const distDir = join(process.cwd(), "dist");
+    if (!existsSync(distDir)) return; // fresh checkout, not built yet
+    // The build code-splits into cli.js + cli-hook.js + cli-main.js + chunk-*.js.
+    // The inlined contract lands in a chunk, so scan every emitted .js.
+    const offenders: string[] = [];
+    for (const name of readdirSync(distDir)) {
+      if (!name.endsWith(".js")) continue;
+      const bundle = readFileSync(join(distDir, name), "utf8");
+      if (bundle.includes("@unerr-ai/contracts")) offenders.push(name);
+    }
+    expect(offenders).toEqual([]);
   });
 });
 

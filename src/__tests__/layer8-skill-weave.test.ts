@@ -1,6 +1,13 @@
 /**
  * Layer 8 SC-B.2: the same-edit domain-comment rule is woven into the
- * lifecycle skills so the agent maintains `@sem` comments inline.
+ * build-and-debug skill so the agent maintains `@sem` comments inline on
+ * new code.
+ *
+ * The orchestrator (USING_UNERR_SKILL) carried this same rule for edits to
+ * existing code until the 2026-07-24 description/body dedup cut its body to
+ * a short tool-capability reference — the @sem same-edit rule is already
+ * covered by CLAUDE.md / the instruction file, so it no longer duplicates
+ * here.
  *
  * Grep-level assertions only — the legend-agrees-with-emission rule: the
  * skill text must name `@sem`, the same-edit obligation, and the never-delete
@@ -8,36 +15,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-  BUILD_AND_DEBUG_SKILL,
-  USING_UNERR_SKILL,
-} from "../skills/local-pack.js";
+import { BUILD_AND_DEBUG_SKILL } from "../skills/local-pack.js";
 
 describe("SC-B.2: domain-comment rule woven into lifecycle skills", () => {
-  // The edit-existing lifecycle folded into the orchestrator's default workflow
-  // (2026-06); the @sem same-edit rule now rides USING_UNERR_SKILL's edit phase.
-  describe("orchestrator default edit workflow names the same-edit rule", () => {
-    const text = USING_UNERR_SKILL.instructions;
-
-    it("references the @sem comment contract", () => {
-      expect(text).toContain("@sem");
-    });
-
-    it("requires updating the comment in the SAME Edit call", () => {
-      expect(text).toContain("SAME Edit call");
-    });
-
-    it("forbids deleting an @sem comment without user instruction", () => {
-      expect(text).toContain(
-        "NEVER delete an `@sem` comment unless the user instructs it"
-      );
-    });
-
-    it("keeps the rule on the edit phase", () => {
-      expect(text).toMatch(/Domain comment \(Layer 8\)/);
-    });
-  });
-
   describe("build-and-debug (new code) names the create-entity rule", () => {
     const text = BUILD_AND_DEBUG_SKILL.instructions;
 

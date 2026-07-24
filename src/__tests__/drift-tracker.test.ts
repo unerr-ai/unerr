@@ -13,7 +13,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { entityKey } from "../intelligence/ast-extractor.js";
+import {
+  entityKey,
+  extractEntitiesAsync,
+} from "../intelligence/ast-extractor.js";
 import type {
   CozoGraphStore,
   DriftEntity,
@@ -1020,5 +1023,94 @@ describe("Cross-file drift invalidation", () => {
     // Summary should reflect it
     const summary = await tracker.getDriftSummary();
     expect(summary.dependency_changed).toBe(2);
+  });
+});
+
+describe("Task 6.4: call edge extraction is scoped to the caller's own body", () => {
+  const repoId = "repo1";
+
+  it("attributes a calls edge only to the entity that makes the call, not to file cohabitants", async () => {
+    const relPath = "src/consumers.ts";
+    const content = `function callsHelper() {
+  return sortedColumnsFromFirstRow();
+}
+
+function cohabitant() {
+  return 1;
+}
+`;
+
+    // The callee must already be resolvable by name for resolveCallTarget to
+    // find a target key — simulate it as an already-indexed base entity in
+    // another file (mirrors sortedColumnsFromFirstRow in the reported bug).
+    const helperEntity: LocalEntity = {
+      key: "helper-key",
+      kind: "function",
+      name: "sortedColumnsFromFirstRow",
+      file_path: "src/util.ts",
+      start_line: 1,
+      end_line: 3,
+      signature: "()",
+      body: "function sortedColumnsFromFirstRow() {\n  return []\n}",
+      fan_in: 0,
+      fan_out: 0,
+      risk_level: "normal",
+      community: -1,
+    };
+    const graph = createMockGraph([helperEntity]);
+    const edges: { from_key: string; to_key: string; type: string }[] = [];
+    (
+      graph as unknown as {
+        upsertDriftEdge: (e: {
+          from_key: string;
+          to_key: string;
+          type: string;
+        }) => void;
+      }
+    ).upsertDriftEdge = (edge) => {
+      edges.push(edge);
+    };
+
+    const fileHashManager = new FileHashManager(unerrDir);
+    const tracker = new DriftTracker(
+      { projectRoot, repoId, unerrDir },
+      graph,
+      fileHashManager
+    );
+
+    writeFileSync(join(projectRoot, relPath), content);
+    await tracker.processFile(relPath, "abc123");
+
+    // Derive the exact keys DriftTracker computes internally (real extractor
+    // signatures) instead of guessing the signature string format.
+    const localEntities = await extractEntitiesAsync(content, relPath);
+    const callsHelperKey = entityKey(
+      repoId,
+      relPath,
+      "function",
+      "callsHelper",
+      localEntities.find((e) => e.name === "callsHelper")!.signature
+    );
+    const cohabitantKey = entityKey(
+      repoId,
+      relPath,
+      "function",
+      "cohabitant",
+      localEntities.find((e) => e.name === "cohabitant")!.signature
+    );
+
+    const callEdges = edges.filter((e) => e.type === "calls");
+    const callerKeys = callEdges.map((e) => e.from_key);
+
+    // Only the entity that actually calls the helper gets the edge.
+    expect(callerKeys).toContain(callsHelperKey);
+    expect(callerKeys).not.toContain(cohabitantKey);
+
+    // A real intra-body call still produces its edge, with the right target.
+    expect(
+      callEdges.some(
+        (e) => e.from_key === callsHelperKey && e.to_key === helperEntity.key
+      )
+    ).toBe(true);
   });
 });

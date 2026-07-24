@@ -33,6 +33,7 @@ describe("renderToolsListForExposure", () => {
     const exposed = new Set(toolsByTier(1));
     const tools = renderToolsListForExposure(exposed);
     for (const name of toolsByTier(1)) {
+      if (isHidden(name)) continue; // demoted tier-1 tools (file_outline) aren't advertised
       const def = tools.find((t) => t.name === name);
       expect(def?.description).toBe(getDescription(name, "active"));
     }
@@ -48,12 +49,13 @@ describe("renderToolsListForExposure", () => {
     }
   });
 
-  it("flips to active when a tier-2/3 tool joins the exposed set", () => {
-    // unerr_track is the sole tier-3 tool after the catalog reduction.
-    const exposed = new Set([...toolsByTier(1), "unerr_track"]);
+  it("does not render a hidden tool even when it is in the exposed set", () => {
+    // file_outline is demoted (`hidden: true`) — it never reaches tools/list
+    // regardless of exposure state. Tier 3 is empty since unerr_track's
+    // removal, so file_outline (tier 1, hidden) is the only demoted example.
+    const exposed = new Set(toolsByTier(1));
     const tools = renderToolsListForExposure(exposed);
-    const def = tools.find((t) => t.name === "unerr_track");
-    expect(def?.description).toBe(getDescription("unerr_track", "active"));
+    expect(tools.find((t) => t.name === "file_outline")).toBeUndefined();
   });
 
   it("output order is deterministic across calls", () => {

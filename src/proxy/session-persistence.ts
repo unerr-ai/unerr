@@ -4,7 +4,8 @@
  * Layer 9 PI-4: On reconnect, loads the previous session's summary and
  * generates a targeted resume context that includes:
  *   - What was in progress (hot files, incomplete entities)
- *   - Carried-over blockers + last intent from timeline.db markers
+ *   - Files touched last session, read from timeline.db's session_files
+ *     table (independent of the removed journal/marker subsystem)
  *   - Session metrics (duration, tools used, revert count)
  *
  * Staleness rule: sessions older than 24h are considered too stale.
@@ -12,7 +13,7 @@
  * Graceful degradation: if any step fails, returns null (no crash).
  */
 
-import type { MarkerRow } from "../timeline/timeline-store.js";
+import { basename } from "node:path";
 import type { SessionSummaryRecord } from "../tracking/session-summary-writer.js";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -38,24 +39,11 @@ export interface SessionResumePayload {
     incomplete_hint: string;
     staleness: "fresh" | "warm";
   };
-  /** Fix K — top-3 still-open blockers carried over from prior sessions.
-   *  Surfaced in the resume block as the "5-minute first win" — user opens
-   *  chat next morning and sees what they were stuck on. Optional because
-   *  callers may not have a timelineStore handle (graceful degradation). */
-  open_blockers?: Array<{
-    marker_id: string;
-    text: string;
-    file_path: string;
-    ts: number;
-  }>;
-  /** Fix K — top-3 most-recent `mark_intent` rows from the prior session.
-   *  Anchors what the user was trying to do so the next turn's plan can
-   *  cite it ("picking up: <verbatim intent>"). */
-  last_intents?: Array<{
-    marker_id: string;
-    text: string;
-    ts: number;
-  }>;
+  /** Files touched last session, read from timeline.db's `session_files`
+   *  table (populated per-turn, independent of the removed marker
+   *  subsystem). Empty when no timelineStore handle is supplied or the
+   *  read fails — the resume strip then omits the "Modified…" clause. */
+  modified_files?: string[];
   /** P2.2 — entities whose signature changed last session but whose callers
    *  were never updated, reconciled at the prior session's end by
    *  IncompleteWorkDetector and persisted to incomplete-work.json. Surfaced
@@ -85,11 +73,7 @@ const WARM_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
 export async function generateSessionResumePayload(
   unerrDir: string,
   timelineStore?: {
-    listMarkers(opts: {
-      sessionId?: string;
-      type?: string;
-      limit?: number;
-    }): Promise<MarkerRow[]>;
+    getSessionFiles(sessionId: string): Promise<string[]>;
   } | null
 ): Promise<SessionResumePayload | null> {
   try {
@@ -110,40 +94,19 @@ export async function generateSessionResumePayload(
     const hotFiles = computeHotFiles(lastSession);
     const incompleteHint = generateIncompleteHint(lastSession);
 
-    // Fix K — open-blocker + last-intent injection. Both queries are
-    // best-effort and silently no-op when the timelineStore handle is
-    // missing or throws (e.g. timeline.db not yet initialised).
-    let openBlockers: SessionResumePayload["open_blockers"] = [];
-    let lastIntents: SessionResumePayload["last_intents"] = [];
+    // Modified files — read from timeline.db's `session_files` table
+    // (recorded per-turn, independent of the removed marker subsystem).
+    // Best-effort: a missing timelineStore handle or a read failure
+    // degrades to an empty list — the resume strip then omits the
+    // "Modified…" clause — never throws.
+    let modifiedFiles: SessionResumePayload["modified_files"] = [];
     if (timelineStore) {
       try {
-        const { getOpenThreads } = await import("../timeline/open-threads.js");
-        const blockers = await getOpenThreads(
-          timelineStore as Parameters<typeof getOpenThreads>[0],
-          { limit: 50 }
+        modifiedFiles = await timelineStore.getSessionFiles(
+          lastSession.session_id
         );
-        openBlockers = blockers.slice(0, 3).map((b) => ({
-          marker_id: b.marker_id,
-          text: b.text,
-          file_path: b.file_path,
-          ts: b.ts,
-        }));
       } catch {
-        // Non-critical — resume block still renders without blockers.
-      }
-      try {
-        const intentRows = await timelineStore.listMarkers({
-          sessionId: lastSession.session_id,
-          type: "mark_intent",
-          limit: 3,
-        });
-        lastIntents = intentRows.map((m) => ({
-          marker_id: m.marker_id,
-          text: m.text,
-          ts: m.ts,
-        }));
-      } catch {
-        // Non-critical.
+        // Non-critical — resume block still renders without the file list.
       }
     }
 
@@ -183,8 +146,7 @@ export async function generateSessionResumePayload(
         incomplete_hint: incompleteHint,
         staleness,
       },
-      open_blockers: openBlockers,
-      last_intents: lastIntents,
+      modified_files: modifiedFiles,
       broken_callers: brokenCallers,
     };
   } catch {
@@ -239,90 +201,69 @@ function generateIncompleteHint(session: SessionSummaryRecord): string {
 // ── Visible Resume Block ────────────────────────────────────────────
 
 /**
- * Format session resume payload as a visible text block that agents will read.
- * This is prepended to the first tool response content so it's impossible to miss.
- * Keeps total output under 500 chars.
+ * Format session resume payload as a compact continuity block agents will
+ * read: tool-call count + duration, up to 3 modified-file basenames, the
+ * branch, and two safety signals the prior session's end reconciled — the
+ * incomplete-work hint and any callers left un-updated after a signature
+ * change (`broken_callers`). All derived from tracked session data and
+ * graph analysis, never from an agent-emitted marker. Prepended to the
+ * first tool response content so it's impossible to miss. Capped at 500 chars.
  */
 export function formatSessionResumeBlock(
   payload: SessionResumePayload | null
 ): string {
   if (!payload) return "";
 
-  const parts: string[] = [];
+  const { tool_calls, duration_ms, branch } = payload.previous_session;
+  const parts: string[] = [
+    `Last session: ${tool_calls} tool calls over ${formatDuration(duration_ms)}`,
+  ];
 
-  // Elapsed time
-  const endedMs = new Date(payload.previous_session.ended_at).getTime();
-  const elapsedMs = Date.now() - endedMs;
-  const elapsed = formatElapsed(elapsedMs);
-
-  // Hot files
-  const hotFiles = payload.continuity.hot_files.slice(0, 3);
-  const filesStr = hotFiles.length > 0 ? hotFiles.join(", ") : "various files";
-  parts.push(
-    `[unerr:session-resume] Previous session (${elapsed} ago): worked on ${filesStr}.`
-  );
-
-  // Fix K — last intent first (narrative arc: what you were doing → what
-  // stopped you → relevant rules). Single-line, ≤80 chars per marker spec.
-  if (payload.last_intents && payload.last_intents.length > 0) {
-    const intent = payload.last_intents[0];
-    // Markers now store up to 1400 chars; the strip stays single-line, so
-    // truncate to a title-length preview here.
-    if (intent) parts.push(`▸ last intent: ${truncateForStrip(intent.text)}`);
+  // Modified files — degrades gracefully to omitting this clause when
+  // session_files was empty or unavailable (no timelineStore handle, or
+  // the read failed).
+  const files = payload.modified_files ?? [];
+  if (files.length > 0) {
+    const basenames = files.map((f) => basename(f));
+    const shown = basenames.slice(0, 3).join(", ");
+    const more = basenames.length > 3 ? ` (+${basenames.length - 3} more)` : "";
+    parts.push(`Modified ${basenames.length} file(s): ${shown}${more}`);
   }
 
-  // Fix K — open blockers carried over. The "5-minute first win" — user
-  // opens chat next morning and sees what they were stuck on, with the
-  // file anchor so they can jump straight back in.
-  if (payload.open_blockers && payload.open_blockers.length > 0) {
-    for (const b of payload.open_blockers.slice(0, 3)) {
-      const anchor = b.file_path ? ` [${b.file_path}]` : "";
-      parts.push(`▸ unresolved blocker: ${truncateForStrip(b.text)}${anchor}`);
-    }
+  if (branch) {
+    parts.push(`Branch: ${branch}`);
   }
 
-  // P2.2 — broken callers: a signature changed last session but these call
-  // sites were never updated. Names the exact file:entity to fix, so the next
-  // turn can open them directly instead of rediscovering the breakage.
-  if (payload.broken_callers && payload.broken_callers.length > 0) {
-    for (const bc of payload.broken_callers.slice(0, 3)) {
-      const sites = bc.callers.slice(0, 3).join(", ");
-      const more =
-        bc.callers.length > 3 ? ` (+${bc.callers.length - 3} more)` : "";
-      parts.push(
-        `▸ unfinished: changed ${bc.entity}, callers not updated: ${sites}${more}. call get_references({direction:'callers'}) on ${bc.entity}`
-      );
-    }
+  // Continuity signals reconciled at the prior session's end — event- and
+  // graph-derived, independent of the removed marker subsystem. Rendered
+  // after the stats so the actionable "callers still to update" reads last.
+  const hint = payload.continuity?.incomplete_hint;
+  if (hint && hint !== "No specific continuity context") {
+    parts.push(hint);
   }
 
-  // Incomplete hint if meaningful
-  if (
-    payload.continuity.incomplete_hint &&
-    payload.continuity.incomplete_hint !== "No specific continuity context"
-  ) {
-    parts.push(`▸ ${payload.continuity.incomplete_hint}`);
+  const broken = payload.broken_callers ?? [];
+  if (broken.length > 0) {
+    const shown = broken
+      .slice(0, 2)
+      .map((b) => {
+        const name = b.entity.split("::").pop() ?? b.entity;
+        const n = b.callers.length;
+        return `${name} (${n} caller${n === 1 ? "" : "s"})`;
+      })
+      .join(", ");
+    parts.push(`Callers still to update: ${shown}`);
   }
 
-  const result = parts.join("\n");
+  const result = `${parts.join(". ")}.`;
   // Truncate to 500 chars max
   return result.length > 500 ? `${result.slice(0, 497)}...` : result;
 }
 
-/**
- * Markers store up to 1400 chars (MARKER_TEXT_CAP) but the resume strip is a
- * single-line title rail — clip long marker text to a preview so one verbose
- * resolution can't dominate the strip.
- */
-function truncateForStrip(text: string, max = 100): string {
-  const t = text.trim();
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
-}
-
-function formatElapsed(ms: number): string {
-  const minutes = Math.floor(ms / 60000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return `${days}d`;
+/** Formats a duration in milliseconds as "<minutes>m <seconds>s". */
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m ${seconds}s`;
 }

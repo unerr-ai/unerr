@@ -26,16 +26,15 @@ async function deriveLocalRepoId(projectRoot: string): Promise<string> {
   return `local-${createHash("sha256").update(repoIdentifier).digest("hex").slice(0, 12)}`;
 }
 
-// ── Core routine (reused by autonomous-boot.ts) ────────────
+// ── Core routine ────────────
 
 export interface RunIndexOptions {
   force?: boolean;
   verbose?: boolean;
   json?: boolean;
   /** Suppress the raw stderr/stdout progress lines this function normally
-   *  prints — used by callers (e.g. the autonomous-boot warm-up) that log
-   *  their own step summary instead. Defaults to false, so `unerr index`'s
-   *  own CLI output is unchanged. */
+   *  prints — for callers that log their own step summary instead. Defaults
+   *  to false, so `unerr index`'s own CLI output is unchanged. */
   quiet?: boolean;
 }
 
@@ -58,8 +57,7 @@ export interface RunIndexResult {
  * Core indexing routine behind `unerr index`: freshness check, then the
  * live-proxy guard (two concurrent SQLite writers corrupt graph.db), then a
  * full local index pass. Never calls `process.exit` — callers own their own
- * exit/error surface, so this is also the routine the autonomous-boot warm-up
- * path calls in-process.
+ * exit/error surface.
  *
  * @sem domain=indexing role=orchestration
  */
@@ -214,8 +212,15 @@ export function registerIndexCommand(program: Command): void {
       async (opts: { force?: boolean; verbose?: boolean; json?: boolean }) => {
         // Maintenance/agent surface: never wall. Nudge once on stderr if logged out.
         nudgeIfLoggedOut();
-        if (!(await isInsideGitRepo())) {
-          process.stderr.write("[unerr] Error: not inside a git repository.\n");
+        // Default guard: refuse a bare (non-git) directory so `unerr index` run
+        // by accident in $HOME or / doesn't walk an enormous tree. `--force`
+        // bypasses it — indexing only needs a filesystem walk, not git, so a
+        // non-repo directory (bare benchmark fixtures, extracted tarballs) is
+        // indexable on demand.
+        if (!opts.force && !(await isInsideGitRepo())) {
+          process.stderr.write(
+            "[unerr] Error: not inside a git repository (use --force to index a non-repo directory).\n"
+          );
           process.exit(1);
         }
 

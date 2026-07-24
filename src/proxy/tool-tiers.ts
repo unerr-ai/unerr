@@ -119,11 +119,13 @@ export const C = {
  * tier 2/3 entries in `TIER_ENTRIES` — module-load assertion below enforces.
  */
 export const UNLOCK_CONDITIONS: Readonly<Record<string, Condition>> = {
-  // ── Tier 3 ─────────────────────────────────────────────────────────────
-  // Op-union (Sprint 8) — multiplexes the marker + fact writes. It unlocks
-  // once the session has done non-trivial work over a few turns, because
-  // op:'intent' is the first-on-coding-task call it carries.
-  unerr_track: C.and(C.turns(3), C.nonTrivial()),
+  // ── Tier 2 ─────────────────────────────────────────────────────────────
+  // get_references (2026-07) — the deep caller/callee escalation. The common
+  // "who calls this" is already covered by file_read entity mode (top-10
+  // callers) + the file_edit at-risk-caller line, so it unlocks only when the
+  // session either starts editing OR observes a high-fan-in entity (blast
+  // radius becomes relevant).
+  get_references: C.or(C.editOrWrite(), C.fanIn(5)),
 };
 
 /**

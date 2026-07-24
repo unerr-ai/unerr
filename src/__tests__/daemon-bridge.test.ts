@@ -221,7 +221,7 @@ describe("Bridge module isolation", () => {
 describe("mcpBoot auto-spawn", () => {
   it("imports spawn-lock primitives", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
     expect(content).toContain("tryAcquireSpawnLock");
@@ -231,7 +231,7 @@ describe("mcpBoot auto-spawn", () => {
 
   it("auto-spawns the process manager on first MCP contact", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
     // Lock-acquire branch performs spawn + wait.
@@ -243,7 +243,7 @@ describe("mcpBoot auto-spawn", () => {
 
   it("spawns detached via `pm start --detached` (no boot persistence)", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
     expect(content).toContain('"pm", "start", "--detached"');
@@ -255,7 +255,7 @@ describe("mcpBoot auto-spawn", () => {
 
   it("is unerrd-first: probes the daemon before ensuring the per-repo proxy", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
     // The bridge goes THROUGH unerrd — it must not connect to a proxy sock
@@ -276,7 +276,7 @@ describe("mcpBoot auto-spawn", () => {
 
   it("does NOT auto-register repos (registration goes through ensureRepo only)", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
     // The bridge must never silently call addRepo() from MCP boot.
@@ -289,7 +289,7 @@ describe("mcpBoot auto-spawn", () => {
 
   it("uses 60s activity-throttle on the supervisor", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
     expect(content).toContain("ACTIVITY_THROTTLE_MS = 60_000");
@@ -302,7 +302,7 @@ describe("mcpBoot auto-spawn", () => {
 describe("Bridge connect/disconnect lifecycle", () => {
   it("mcpBoot daemon path calls connectRepo before bridging and disconnectRepo after", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
 
@@ -329,7 +329,7 @@ describe("Bridge connect/disconnect lifecycle", () => {
     // the async `connect` callback, the frame would be dropped between handlers
     // → "MCP error -32001: Request timed out". Two invariants keep it gapless.
     const cli = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
     const daemonBlock = cli.slice(cli.indexOf('discovery.kind === "daemon"'));
@@ -405,7 +405,7 @@ describe("Client protocol integration", () => {
 describe("mcpBoot retry behavior", () => {
   it("uses exponential backoff retry constants", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
 
@@ -416,7 +416,7 @@ describe("mcpBoot retry behavior", () => {
 
   it("has a discoverWithRetry loop that retries instead of exiting", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
 
@@ -429,7 +429,7 @@ describe("mcpBoot retry behavior", () => {
 
   it("reconnects on daemon_dead or socket_closed (not stdin_closed)", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
 
@@ -470,7 +470,7 @@ describe("mcpBoot retry behavior", () => {
 describe("Error handling", () => {
   it("mcpBoot logs ensureRepo failures and retries", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
 
@@ -480,7 +480,7 @@ describe("Error handling", () => {
 
   it("mcpBoot handles connection loss from bridge by retrying", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
 
@@ -491,7 +491,7 @@ describe("Error handling", () => {
 
   it("backs off exponentially on short-lived reconnects (FIX C)", () => {
     const content = readFileSync(
-      resolve(process.cwd(), "src/entrypoints/cli.ts"),
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
 

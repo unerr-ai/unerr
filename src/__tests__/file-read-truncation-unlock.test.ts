@@ -1,19 +1,23 @@
 /**
- * A23 regression — the DISPATCH layer must flag a file read that withholds the
- * full file via `_meta.gated` / `_meta.truncated`.
+ * A23 regression — the DISPATCH layer must flag a file read that withholds
+ * content via `_meta.truncated`, and must NOT gate a plain whole-file read to
+ * a JSON outline any more.
  *
  * History (2026-05-31): this signal originally unlocked the `get_file` tool.
  * After the token-overhead catalog reduction, `get_file` left the catalog
  * entirely (its job folded into `file_read`), so NO tool unlocks on a
- * truncated/gated read any more — `unerr_track` is the sole gated tool and it
- * keys off turns + non-trivial activity, not truncation.
+ * truncated/gated read any more — `get_references` is the sole gated tool and
+ * it keys off an edit/write attempt or a high-fan-in entity, not truncation.
+ *
+ * 2026-07-23 (three-mode redesign): the large-file gate-to-outline branch was
+ * removed — a plain `file_read({file_path})` over budget now truncates to the
+ * budget and appends a plain footer, never a JSON outline. `_meta.gated` no
+ * longer fires on this path.
  *
  * What remains load-bearing — and is what this file now pins — is the dispatch
- * behaviour itself: a large `file_read` withholds content in shapes that must
- * surface on `_meta`, and a small read must surface neither flag:
- *   - gated outline (the common case): full file replaced by an outline.
- *     `_meta.gated:true`, but the small outline fits the budget so the
- *     budget-enforcer reports `truncated:false`.
+ * behaviour itself:
+ *   - large whole-file read: truncates to budget, plain footer, `_meta.gated`
+ *     stays unset.
  *   - wire-cap (`src/proxy/wire-cap.ts`): top-level `{status:"too_large"}` body
  *     → the dispatch stamps `_meta.truncated`.
  *   - entity gate (`file-read-protocol.ts`): top-level `{entity_overflow:true}`
@@ -77,12 +81,20 @@ describe("A23 dispatch regression: a large file_read stamps content-withheld met
     await db.close?.();
   });
 
-  it("gated outline path: large whole-file read sets _meta.gated", async () => {
+  it("large whole-file read truncates to budget with a plain footer (no outline)", async () => {
     const args = { file_path: "big.ts" };
     const result = await router.execute("file_read", args);
 
-    // The whole-file read of a large file is gated to an outline.
-    expect(metaOf(result).gated).toBe(true);
+    // No more gate-to-outline: a plain whole-file read never sets
+    // `_meta.gated` any more — it truncates to the token budget instead.
+    expect(metaOf(result).gated).not.toBe(true);
+    const body =
+      typeof result.content === "string"
+        ? result.content
+        : JSON.stringify(result.content);
+    expect(body).toContain(
+      "(file has 1200 lines; use offset/limit for more, outline:true for structure)"
+    );
   });
 
   it("wire-cap path: an oversized offset/limit read sets _meta.truncated", async () => {

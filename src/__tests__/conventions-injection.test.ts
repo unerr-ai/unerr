@@ -205,15 +205,16 @@ describe("runPostReadHookAsync degradation (no proxy)", () => {
       tool_input: { file_path: file },
     });
 
-  it("with no reachable proxy, emits the static read nudge (no conventions block)", async () => {
+  it("with no reachable proxy, passes through (no conventions block, no static nudge)", async () => {
     // No UDS socket exists in the test sandbox → queryConventions resolves null.
+    // The static read-pref nudge was cut — with no conventions to inject, the
+    // hook has nothing left to emit.
     const out = JSON.parse(
       await runPostReadHookAsync(codePayload("src/some-unique-read-target.ts"))
     );
     const text = JSON.stringify(out);
-    expect(text).toContain("file_read");
-    // The header only appears when conventions were actually fetched.
     expect(text).not.toContain("unerr detected the conventions");
+    expect(text).toBe("{}");
   });
 
   it("passes through (no enrich) for a non-code file", async () => {

@@ -249,7 +249,7 @@ describe("buildCrossSessionStitchLine (T3.4 wired)", () => {
     expect(buildCrossSessionStitchLine(cwd)).toBeNull();
   });
 
-  it("emits both intent and blocker lines on first call", () => {
+  it("emits the intent line on first call", () => {
     writeLedger(cwd, [
       {
         id: "m1",
@@ -257,17 +257,10 @@ describe("buildCrossSessionStitchLine (T3.4 wired)", () => {
         session_id: "sess-OLD",
         args_summary: { text: "wire the new router" },
       },
-      {
-        id: "b1",
-        tool: "mark_blocker",
-        session_id: "sess-OLD",
-        args_summary: { text: "dashboard crashes on resume" },
-      },
     ]);
     const line = buildCrossSessionStitchLine(cwd);
     expect(line).not.toBeNull();
     expect(line).toContain("picking up: wire the new router");
-    expect(line).toContain("dashboard crashes on resume");
   });
 
   it("fires once per session — second call returns null", () => {
@@ -548,12 +541,6 @@ describe("runUserPromptSubmitHook end-to-end", () => {
         session_id: "sess-PREV",
         args_summary: { text: "ship the router redesign" },
       },
-      {
-        id: "b1",
-        tool: "mark_blocker",
-        session_id: "sess-PREV",
-        args_summary: { text: "ledger flush race on shutdown" },
-      },
     ]);
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
@@ -561,7 +548,6 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     });
     const ctx = readContext(runUserPromptSubmitHook(stdin));
     expect(ctx).toContain("picking up: ship the router redesign");
-    expect(ctx).toContain("ledger flush race on shutdown");
   });
 
   it("falls back to passthrough on messages shorter than 10 chars", () => {
@@ -730,22 +716,6 @@ describe("RFC 2119 imperative phrasing (Fix C)", () => {
     return parsed.hookSpecificOutput?.additionalContext ?? "";
   }
 
-  it("intent nudge points at the session-journal sentinel (zero round-trip), not a mark_intent call", () => {
-    const stdin = JSON.stringify({
-      hook_event_name: "UserPromptSubmit",
-      user_message: "implement the new dashboard route handler",
-    });
-    const ctx = readContext(runUserPromptSubmitHook(stdin));
-    // De-jargoned (Sprint 11c): leads with the imperative verb "record", no
-    // mechanical "STEP-1:" prefix (CLAUDE.md nudge-rule #1).
-    expect(ctx).toContain("record this turn's intent");
-    expect(ctx).not.toContain("STEP-1");
-    expect(ctx).toContain("unerr journal - goal -");
-    expect(ctx).toContain("closing message");
-    // The demoted MCP tool must NOT be named as a call target.
-    expect(ctx).not.toContain("mark_intent(");
-  });
-
   it("turn_summary nudge is gone — the Stop hook delivers the close-out (T7.7)", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
@@ -757,6 +727,15 @@ describe("RFC 2119 imperative phrasing (Fix C)", () => {
     // unerr_turn_summary. No STEP-N close-out imperative survives here.
     expect(ctx).not.toContain("unerr_turn_summary");
     expect(ctx).not.toContain("STEP-N");
+  });
+
+  it("never says 'REQUIRED' — the word reads as an argue-back trigger, not an instruction", () => {
+    const stdin = JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      user_message: "implement the new dashboard route handler",
+    });
+    const ctx = readContext(runUserPromptSubmitHook(stdin));
+    expect(ctx).not.toContain("REQUIRED");
   });
 });
 
@@ -935,11 +914,67 @@ describe("asyncPromptSubmitHandler — injection tier gating", () => {
       inject: true,
       reason: "sweep task",
     });
+    // Relevance-gated trace (Fix 3): overlaps the prompt on "call" and
+    // "parseRequest", so it clears the >=2-significant-term-overlap bar.
+    mockedTraces().mockResolvedValue([
+      {
+        situation: "parseRequest call sites broke across three services",
+        dead_ends: JSON.stringify(["src/router/parseRequest.ts"]),
+        unlock: "fixed every call site to use the new parseRequest signature",
+        anchor: "e:parseRequest",
+        resolved_at: Date.parse("2026-05-02"),
+      },
+    ]);
     const out = await runUserPromptSubmitHookAsync(
       mk("rename every call to parseRequest across the codebase")
     );
     expect(mockedTraces()).toHaveBeenCalledWith(expect.any(String), 3);
     expect(readCtx(out)).toContain("past incident");
+  });
+
+  it("relevance gate: drops an unrelated incident even when the tier requests injection (e.g. a cozo-worker fix on an unrelated benchmark prompt)", async () => {
+    mockedTier().mockReturnValue({
+      tier: "focused",
+      inject: true,
+      reason: "focused edit",
+    });
+    mockedTraces().mockResolvedValue([
+      {
+        situation: "cozo worker exhausted memory during full reindex",
+        dead_ends: JSON.stringify(["src/intelligence/cozo-worker.ts"]),
+        unlock: "isolated cozo in a worker thread with a memory cap",
+        anchor: "e:cozo-worker-isolation",
+        resolved_at: Date.parse("2026-04-10"),
+      },
+    ]);
+    const out = await runUserPromptSubmitHookAsync(
+      mk("fix the torch benchmark timing calculation in the harness")
+    );
+    expect(mockedTraces()).toHaveBeenCalled();
+    expect(readCtx(out)).not.toContain("past incident");
+  });
+
+  it("caps injected past-incident lines at 1 even when 2 traces are relevant", async () => {
+    mockedTier().mockReturnValue({
+      tier: "broad",
+      inject: true,
+      reason: "sweep task",
+    });
+    mockedTraces().mockResolvedValue([
+      ...FAKE_TRACES,
+      {
+        situation: "proxy boot sequence hung on a stale pid lock",
+        dead_ends: JSON.stringify(["src/proxy/pid-lock.ts"]),
+        unlock: "cleared the stale lock before boot retried",
+        anchor: "e:pid-lock",
+        resolved_at: Date.parse("2026-05-03"),
+      },
+    ]);
+    const out = await runUserPromptSubmitHookAsync(
+      mk("refactor the proxy boot sequence to add a retry")
+    );
+    const count = (readCtx(out).match(/ur\|fct past incident/g) ?? []).length;
+    expect(count).toBe(1);
   });
 
   it("non-code prompt: isCodeContext guard fires before classifyInjectionTier", async () => {

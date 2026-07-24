@@ -69,29 +69,39 @@ describe("pure selectors: selectAdvertised / selectHidden", () => {
 
 describe("real catalog: advertisement is identical for every agent (caps machinery removed)", () => {
   // The per-agent "caps" advertisement machinery (HookCapProfile-aware hidden
-  // sets) was DELETED. Advertisement is now identical for all agents: all 9
-  // tools advertised, none hidden. The 9 advertised tools are the entire
-  // catalog — advertised === full set, hidden === []. (unerr_remember left
-  // the catalog 2026-06: its write paths ride hooks — UserPromptSubmit
-  // capture + the `unerr-save:` Stop-hook sentinel — and the hook clients
-  // dispatch it by name over UDS. get_entity merged into
+  // sets) was DELETED. Advertisement is now identical for all agents.
+  // (unerr_remember left the catalog 2026-06: its write paths ride hooks —
+  // UserPromptSubmit capture + the `unerr-save:` Stop-hook sentinel — and the
+  // hook clients dispatch it by name over UDS. get_entity merged into
   // search_code({detail:true}) 2026-06; its executor stays by-name only.
   // file_edit added 2026-06 (tier 1): unerr-owned edit path. file_edit + file_write
   // merged into the single file_edit tool 2026-06 (edit + whole-file write modes).)
   // unerr_context merged into search_code 2026-06: a task-shaped search_code
   // query re-targets to the recon composite; the executor stays by-name only.
-  const ADVERTISED_SEVEN = [
+  // unerr_track (journaling) and the mark_* marker tools were removed entirely
+  // (2026-07): the unerr journal subsystem is served by the Stop-hook text
+  // lines instead, with no MCP tool at all. file_outline demoted
+  // (`hidden: true`) 2026-07: its structural view folded into file_read
+  // outline mode (`file_read({file_path, outline:true})`). It stays a full
+  // catalog member (dispatch, validation, family) but drops out of the
+  // advertised set — leaving five advertised tools. get_references also moved
+  // to tier 2 in 2026-07 but STAYS advertised (locked placeholder until
+  // unlock), so it is not hidden.
+  const ADVERTISED_FIVE = [
     "fetch_url",
     "file_edit",
-    "file_outline",
     "file_read",
     "get_references",
     "search_code",
-    "unerr_track",
   ];
 
-  it("advertisedToolNames returns exactly the seven advertised tools", () => {
-    expect([...advertisedToolNames()].sort()).toEqual(ADVERTISED_SEVEN);
+  it("advertisedToolNames returns exactly the five advertised tools", () => {
+    expect([...advertisedToolNames()].sort()).toEqual(ADVERTISED_FIVE);
+  });
+
+  it("get_references stays advertised even though it is now tier 2", () => {
+    expect([...advertisedToolNames()]).toContain("get_references");
+    expect([...hiddenToolNames()]).not.toContain("get_references");
   });
 
   it("unerr_remember is not advertised and not a catalog member", () => {
@@ -99,14 +109,17 @@ describe("real catalog: advertisement is identical for every agent (caps machine
     expect([...listToolNames()]).not.toContain("unerr_remember");
   });
 
-  it("hiddenToolNames returns the empty set (nothing is demoted)", () => {
-    expect([...hiddenToolNames()]).toEqual([]);
+  it("hiddenToolNames returns exactly file_outline (the sole demoted tool)", () => {
+    expect([...hiddenToolNames()].sort()).toEqual(["file_outline"]);
   });
 
-  it("advertised equals the full catalog (no tool is withheld)", () => {
-    expect([...advertisedToolNames()].sort()).toEqual(
+  it("advertised is a strict subset of the full catalog (file_outline withheld)", () => {
+    expect([...advertisedToolNames()].sort()).not.toEqual(
       [...listToolNames()].sort()
     );
+    expect(listToolNames()).toContain("file_outline");
+    expect(advertisedToolNames()).not.toContain("file_outline");
+    expect(listToolNames()).not.toContain("unerr_track");
   });
 });
 
@@ -186,17 +199,19 @@ describe("advertisement slice: ADVERTISED_TOOL_DEFINITIONS drops only hidden", (
   });
 });
 
-describe("demotion allowlist guard (nothing is hidden post token-overhead deletion)", () => {
+describe("demotion allowlist guard (file_outline is the demoted tool)", () => {
   // After the token-overhead deletion the previously-demoted tools (get_file,
   // get_imports, record_fact, recall_facts, the four mark_* markers,
-  // get_cross_boundary_links, file_connections, review_changes) were PHYSICALLY
-  // REMOVED from the catalog (TIER_ENTRIES) — they are no longer present-but-
-  // hidden, they are simply absent. The catalog is now exactly the 9 advertised
-  // tools, so the demotion set is empty. An accidental hidden:true on any tool
-  // would fail this guard.
-  const EXPECTED_HIDDEN: string[] = [];
+  // unerr_track, get_cross_boundary_links, file_connections, review_changes)
+  // were PHYSICALLY REMOVED from the catalog (TIER_ENTRIES) — they are no
+  // longer present-but-hidden, they are simply absent. file_outline (2026-07)
+  // took the opposite path: it stays a full catalog member (dispatch,
+  // validation, family) with `hidden: true` — demoted from `tools/list` but
+  // not removed, since its structural view is now file_read outline mode.
+  // Any OTHER accidental hidden:true would fail this guard.
+  const EXPECTED_HIDDEN: string[] = ["file_outline"];
 
-  it("the hidden set is empty (no tool is demoted)", () => {
+  it("the hidden set is exactly file_outline (no other tool is demoted)", () => {
     expect([...hiddenToolNames()].sort()).toEqual(EXPECTED_HIDDEN);
   });
 

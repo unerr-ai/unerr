@@ -7,26 +7,26 @@
  * `family-detector.ts`. This file is the parallel registry for unerr's
  * own tool clusters.
  *
- * Four unerr families (one per advertised-catalog cluster):
+ * Three unerr families (one per advertised-catalog cluster):
  *
  *   graph    — code-graph navigation (search, entity, refs, recon composite)
  *   file     — file protocol (outline, read, edit, write)
- *   markers  — session markers + facts op-union (unerr_track)
  *   web      — external fetch (fetch_url)
  *
  * (The former `notes` family retired with `unerr_remember`'s catalog removal,
  * 2026-06 — Layer B writes now ride hooks: user rules at UserPromptSubmit,
- * agent notes via the `unerr journal -` Stop-hook sentinel; recall is folded into
+ * agent notes ride the `unerr journal -` Stop-hook text lines; recall is folded into
  * a task-shaped `search_code` query, which re-targets to the `unerr_context`
- * recon composite.)
+ * recon composite. The former `markers` family retired with `unerr_track`'s
+ * removal — the unerr journal subsystem now has no MCP tool at all.)
  *
- * All four are always-on (unerr is the *server*; its own tools cannot be masked
+ * All three are always-on (unerr is the *server*; its own tools cannot be masked
  * by intent scoring the way an external-service family can). The registry
  * exists so the router has the full picture for telemetry, dashboard
  * rendering, and any future per-family policy (rate-limits, attribution).
  *
  * Only the ADVERTISED catalog tools appear here. The names the proxy dispatches by
- * name only (unerr_remember, mark_*, record_fact, recall_facts,
+ * name only (unerr_remember, record_fact, recall_facts,
  * get_conventions, the demoted graph reads, …) are not catalog members, so
  * they are deliberately absent — the bidirectional invariant below would
  * reject them.
@@ -38,7 +38,7 @@
 
 import { TIER_ENTRIES } from "../proxy/tool-descriptions.js";
 
-export type UnerrFamilyName = "graph" | "file" | "markers" | "web";
+export type UnerrFamilyName = "graph" | "file" | "web";
 
 export interface UnerrFamilyEntry {
   readonly name: UnerrFamilyName;
@@ -59,11 +59,6 @@ export const UNERR_FAMILIES: Readonly<
     name: "file",
     label: "File protocol",
     tools: ["file_outline", "file_read", "file_edit"],
-  },
-  markers: {
-    name: "markers",
-    label: "Session markers + facts",
-    tools: ["unerr_track"],
   },
   web: {
     name: "web",

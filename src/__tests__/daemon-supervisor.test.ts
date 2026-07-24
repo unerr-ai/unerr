@@ -388,7 +388,7 @@ describe("CLI --daemon-child flag", () => {
     const { readFileSync: readSync } = await import("node:fs");
     const { resolve: res } = await import("node:path");
     const content = readSync(
-      res(process.cwd(), "src/entrypoints/cli.ts"),
+      res(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
 
@@ -400,7 +400,7 @@ describe("CLI --daemon-child flag", () => {
     const { readFileSync: readSync } = await import("node:fs");
     const { resolve: res } = await import("node:path");
     const content = readSync(
-      res(process.cwd(), "src/entrypoints/cli.ts"),
+      res(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
 
@@ -413,7 +413,7 @@ describe("CLI --daemon-child flag", () => {
     const { readFileSync: readSync } = await import("node:fs");
     const { resolve: res } = await import("node:path");
     const content = readSync(
-      res(process.cwd(), "src/entrypoints/cli.ts"),
+      res(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
 
@@ -520,7 +520,7 @@ describe("Signal handling", () => {
     const { readFileSync: readSync } = await import("node:fs");
     const { resolve: res } = await import("node:path");
     const content = readSync(
-      res(process.cwd(), "src/entrypoints/cli.ts"),
+      res(process.cwd(), "src/entrypoints/cli-main.ts"),
       "utf-8"
     );
 

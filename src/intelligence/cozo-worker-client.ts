@@ -396,10 +396,24 @@ export class CozoTxProxy {
 function defaultWorker(dbPath: string): WorkerLike {
   const options = { workerData: { dbPath } };
   if (typeof __UNERR_BINARY__ !== "undefined" && __UNERR_BINARY__) {
-    return new Worker(
-      new URL("../intelligence/cozo-worker.js", import.meta.url),
-      options
-    ) as unknown as WorkerLike;
+    // Bun single-file binary. Every entrypoint embeds under the bunfs root, so
+    // the worker lands at `<root>/intelligence/cozo-worker.js`. This module is
+    // NOT an entrypoint — with code-splitting (scripts/build-binary.ts,
+    // `splitting:true`) it lands in a chunk at `<root>/chunk-*.js`, one level
+    // shallower than the pre-split `<root>/entrypoints/cli.js`. A fixed `../`
+    // hop is therefore wrong (it resolves to `/$bunfs/intelligence/…` and the
+    // worker fails to load — silently degrading to the in-process db). Anchor to
+    // the `/$bunfs/root/` marker instead, so the absolute worker path is correct
+    // regardless of this module's split depth (verified: import.meta.url is
+    // `file:///$bunfs/root/chunk-*.js` under Bun 1.3.x). Falls back to the older
+    // `/$bunfs/` layout, then to a relative hop, for forward-compatibility.
+    const u = import.meta.url;
+    const rootMatch =
+      u.match(/^.*\/\$bunfs\/root\//) ?? u.match(/^.*\/\$bunfs\//);
+    const workerUrl = rootMatch
+      ? new URL(`${rootMatch[0]}intelligence/cozo-worker.js`)
+      : new URL("../intelligence/cozo-worker.js", u);
+    return new Worker(workerUrl, options) as unknown as WorkerLike;
   }
   return new Worker(
     new URL("./cozo-worker.js", import.meta.url),

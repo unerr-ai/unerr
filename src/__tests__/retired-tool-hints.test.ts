@@ -36,13 +36,12 @@ const RETIRED_TOOL_NAMES = [
 
 /**
  * Files whose string literals reach agent context: exec nudge footers,
- * PreToolUse/PostToolUse hook nudges, review-finding actions, auto-created
- * fact content, and the advertised tool schema descriptions.
+ * PreToolUse/PostToolUse hook nudges, auto-created fact content, and the
+ * advertised tool schema descriptions.
  */
 const AGENT_FACING_EMITTERS = [
   "src/commands/exec.ts",
   "src/hooks/navigation-hooks.ts",
-  "src/review/checkers/untested-export.ts",
   "src/proxy/tool-definitions.ts",
 ] as const;
 

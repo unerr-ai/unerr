@@ -174,28 +174,21 @@ describe("evaluateUnlocks: only newly-firing tools", () => {
   });
 
   it("emits one event per newly-satisfied policy", () => {
-    // After the token-overhead catalog reduction, unerr_track is the SOLE
-    // gated tool. Its policy is C.and(C.turns(3), C.nonTrivial()) — once
-    // both children hold, exactly one unlock event fires.
+    // get_references is the sole gated tool since unerr_track's removal:
+    // C.or(C.editOrWrite(), C.fanIn(5)). One edit call satisfies it.
     const s = new SessionState();
-    s.advanceTurn();
-    s.advanceTurn();
-    s.advanceTurn();
     s.recordCall({ toolName: "file_read", editOrWrite: true });
     const events = evaluateUnlocks(s);
     const tools = events.map((e) => e.toolName).sort();
-    expect(tools).toEqual(["unerr_track"]);
+    expect(tools).toEqual(["get_references"]);
   });
 
   it("does not re-emit tools that are already exposed", () => {
     const s = new SessionState();
-    s.expose(["unerr_track"]);
-    s.advanceTurn();
-    s.advanceTurn();
-    s.advanceTurn();
+    s.expose(["get_references"]);
     s.recordCall({ toolName: "file_read", editOrWrite: true });
     const events = evaluateUnlocks(s);
-    expect(events.find((e) => e.toolName === "unerr_track")).toBeUndefined();
+    expect(events.find((e) => e.toolName === "get_references")).toBeUndefined();
   });
 
   it("attaches a non-empty reason and the current turn", () => {
@@ -205,28 +198,34 @@ describe("evaluateUnlocks: only newly-firing tools", () => {
     s.advanceTurn();
     s.recordCall({ toolName: "file_read", editOrWrite: true });
     const events = evaluateUnlocks(s);
-    // unerr_track is the sole gated policy — fires once turns≥3 AND a
-    // non-trivial action is observed. Any firing event has the standard shape.
-    const event = events.find((e) => e.toolName === "unerr_track");
+    // get_references is the sole gated policy — fires on editOrWrite OR
+    // fan_in ≥ 5. Any firing event has the standard shape.
+    const event = events.find((e) => e.toolName === "get_references");
     expect(event).toBeDefined();
     expect(event?.reasonText.length).toBeGreaterThan(0);
     expect(event?.firedAtTurn).toBe(3);
     expect(event?.timestampMs).toBeGreaterThan(0);
   });
 
-  it("compound unlocks fire only when every child condition holds", () => {
-    // unerr_track: C.and(C.turns(3), C.nonTrivial())
-    const s = new SessionState();
-    s.advanceTurn();
-    s.advanceTurn();
-    s.recordCall({ toolName: "file_read", editOrWrite: true });
-    // nonTrivial holds, but turns is only 2 — the compound must not fire.
-    const before = evaluateUnlocks(s).map((e) => e.toolName);
-    expect(before).not.toContain("unerr_track");
+  it("Or unlocks fire from either child independently", () => {
+    // get_references: C.or(C.editOrWrite(), C.fanIn(5)).
+    const editOnly = new SessionState();
+    editOnly.recordCall({ toolName: "file_read", editOrWrite: true });
+    expect(evaluateUnlocks(editOnly).map((e) => e.toolName)).toContain(
+      "get_references"
+    );
 
-    s.advanceTurn();
-    const after = evaluateUnlocks(s).map((e) => e.toolName);
-    expect(after).toContain("unerr_track");
+    const fanInOnly = new SessionState();
+    fanInOnly.recordCall({ toolName: "get_entity", entityFanIn: 5 });
+    expect(evaluateUnlocks(fanInOnly).map((e) => e.toolName)).toContain(
+      "get_references"
+    );
+
+    const neither = new SessionState();
+    neither.recordCall({ toolName: "search_code" });
+    expect(evaluateUnlocks(neither).map((e) => e.toolName)).not.toContain(
+      "get_references"
+    );
   });
 });
 

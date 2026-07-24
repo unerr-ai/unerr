@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { CozoGraphStore } from "../intelligence/local-graph.js";
 import {
   elideCommentLines,
   rankEntityMatches,
@@ -28,24 +29,75 @@ describe("runFileReadForRouter", () => {
     expect(r._layer6_meta?.gated).toBeUndefined();
   });
 
-  it("gates files with >200 lines when no offset/entity", async () => {
-    const dir = makeTmpDir("gate");
-    const lines = Array.from({ length: 205 }, () => "x").join("\n");
-    writeFileSync(join(dir, "big.txt"), lines, "utf-8");
+  it("outline mode returns a lean structural view — stripped of per-entity risk/callers/imports", async () => {
+    const dir = makeTmpDir("outline");
+    writeFileSync(
+      join(dir, "mod.ts"),
+      [
+        "import { foo } from './foo.js';",
+        "export function alpha(): void {}",
+        "export const beta = 1;",
+      ].join("\n"),
+      "utf-8"
+    );
 
     const r = await runFileReadForRouter(
-      { file_path: "big.txt" },
+      { file_path: "mod.ts", outline: true },
       { cwd: dir, graph: null }
     );
 
-    expect(r.content && typeof r.content === "object").toBe(true);
     const c = r.content as Record<string, unknown>;
-    expect(c.gated).toBe(true);
-    expect(r._layer6_meta?.format).toBe("outline");
-    expect(r._layer6_meta?.gated).toBe(true);
+    expect(c.language).toBe("typescript");
+    expect(typeof c.total_lines).toBe("number");
+    expect(Array.isArray(c.exports)).toBe(true);
+
+    const entities = c.entities as Array<Record<string, unknown>>;
+    expect(entities.length).toBeGreaterThan(0);
+    const alpha = entities.find((e) => e.name === "alpha");
+    expect(alpha).toBeDefined();
+    // Lean per-entity shape: exactly name / kind / lines, nothing else.
+    expect(Object.keys(alpha as object).sort()).toEqual([
+      "kind",
+      "lines",
+      "name",
+    ]);
+    expect(Array.isArray((alpha as { lines: unknown }).lines)).toBe(true);
+
+    // Stripped fields are absent — top level (imports, token_estimate) and per
+    // entity (risk, callers, drift, exported).
+    expect(c.imports).toBeUndefined();
+    expect(c.token_estimate).toBeUndefined();
+    for (const e of entities) {
+      expect(e.risk).toBeUndefined();
+      expect(e.callers).toBeUndefined();
+      expect(e.drift).toBeUndefined();
+      expect(e.exported).toBeUndefined();
+    }
+    expect(r._layer6_meta?.format).toBe("json");
   });
 
-  it("entity slice includes ±5 line context around the match", async () => {
+  it("truncates files over budget to a plain footer — no JSON outline", async () => {
+    const dir = makeTmpDir("gate");
+    // .ts (not .log/.txt) — a plain large file, not the log-tail path.
+    const lines = Array.from({ length: 205 }, () => "x").join("\n");
+    writeFileSync(join(dir, "big.ts"), lines, "utf-8");
+
+    const r = await runFileReadForRouter(
+      { file_path: "big.ts" },
+      { cwd: dir, graph: null }
+    );
+
+    // No more gate-to-outline: a large whole-file read stays plain content,
+    // truncated to budgetLines, with a pointer footer.
+    expect(typeof r.content).toBe("string");
+    expect(r.content as string).toContain(
+      "(file has 205 lines; use offset/limit for more, outline:true for structure)"
+    );
+    expect(r._layer6_meta?.format).toBe("json");
+    expect(r._layer6_meta?.gated).toBeUndefined();
+  });
+
+  it("entity slice returns the EXACT span — no ±5 context, no footer", async () => {
     const dir = makeTmpDir("ctx");
     const prefix = Array.from(
       { length: 12 },
@@ -63,9 +115,14 @@ describe("runFileReadForRouter", () => {
     );
 
     const body = r.content as string;
-    expect(body.includes("// line 8")).toBe(true);
-    expect(body.includes("sliceFn")).toBe(true);
-    expect(body.includes("(Showing lines")).toBe(true);
+    // The line immediately before the function (old ±5 padding) is gone.
+    expect(body.includes("// line 12")).toBe(false);
+    expect(body.includes("13\texport function sliceFn")).toBe(true);
+    expect(body.includes("return 42")).toBe(true);
+    // Entity mode drops the "(Showing lines...)" footer entirely.
+    expect(body.includes("(Showing lines")).toBe(false);
+    // graph: null → no resolved key → no callers block.
+    expect(body.includes("callers (")).toBe(false);
   });
 
   it("targets entity by name using AST when graph is null", async () => {
@@ -83,7 +140,128 @@ describe("runFileReadForRouter", () => {
 
     expect(typeof r.content).toBe("string");
     expect((r.content as string).includes("targetFn")).toBe(true);
-    expect((r.content as string).includes("Showing lines")).toBe(true);
+    // Entity mode has no "(Showing lines...)" footer any more — exact span only.
+    expect((r.content as string).includes("Showing lines")).toBe(false);
+  });
+
+  it("entity mode resolved via the graph appends a callers block — file + name only, fan_in desc", async () => {
+    const dir = makeTmpDir("callers");
+    writeFileSync(
+      join(dir, "svc.ts"),
+      "// head\nexport function mainFn(): void {\n  return;\n}\n",
+      "utf-8"
+    );
+
+    const fakeGraph = {
+      async getEntitiesByFile() {
+        return [
+          {
+            key: "e:mainFn",
+            kind: "function",
+            name: "mainFn",
+            file_path: "svc.ts",
+            start_line: 2,
+            end_line: 4,
+            signature: "()",
+            body: "export function mainFn(): void {\n  return;\n}",
+            fan_in: 2,
+            fan_out: 0,
+            risk_level: "normal",
+            community: 1,
+          },
+        ];
+      },
+      async getCallersOf(key: string) {
+        if (key !== "e:mainFn") return [];
+        return [
+          {
+            key: "e:caller1",
+            kind: "function",
+            name: "callerOne",
+            file_path: "src/a.ts",
+            start_line: 1,
+            end_line: 5,
+            signature: "()",
+            body: "",
+            fan_in: 5,
+            fan_out: 1,
+            risk_level: "normal",
+            community: 1,
+          },
+          {
+            key: "e:caller2",
+            kind: "function",
+            name: "callerTwo",
+            file_path: "src/b.ts",
+            start_line: 1,
+            end_line: 5,
+            signature: "()",
+            body: "",
+            fan_in: 1,
+            fan_out: 1,
+            risk_level: "normal",
+            community: 1,
+          },
+        ];
+      },
+    } as unknown as CozoGraphStore;
+
+    const r = await runFileReadForRouter(
+      { file_path: "svc.ts", entity: "mainFn" },
+      { cwd: dir, graph: fakeGraph }
+    );
+
+    const body = r.content as string;
+    expect(body).toContain("callers (2):");
+    expect(body).toContain("  src/a.ts  callerOne");
+    expect(body).toContain("  src/b.ts  callerTwo");
+    // Ordered by fan_in desc: callerOne (5) before callerTwo (1).
+    expect(body.indexOf("callerOne")).toBeLessThan(body.indexOf("callerTwo"));
+    // No decoration — no match-type/score suffix on optimization.
+    expect(r._layer6_meta?.optimization ?? "").not.toContain("· entity");
+  });
+
+  it("entity mode with zero callers prints callers (0): with no rows", async () => {
+    const dir = makeTmpDir("callers-zero");
+    writeFileSync(
+      join(dir, "lonely.ts"),
+      "// head\nexport function lonelyFn(): void {\n  return;\n}\n",
+      "utf-8"
+    );
+
+    const fakeGraph = {
+      async getEntitiesByFile() {
+        return [
+          {
+            key: "e:lonelyFn",
+            kind: "function",
+            name: "lonelyFn",
+            file_path: "lonely.ts",
+            start_line: 2,
+            end_line: 4,
+            signature: "()",
+            body: "export function lonelyFn(): void {\n  return;\n}",
+            fan_in: 0,
+            fan_out: 0,
+            risk_level: "normal",
+            community: 1,
+          },
+        ];
+      },
+      async getCallersOf() {
+        return [];
+      },
+    } as unknown as CozoGraphStore;
+
+    const r = await runFileReadForRouter(
+      { file_path: "lonely.ts", entity: "lonelyFn" },
+      { cwd: dir, graph: fakeGraph }
+    );
+
+    const body = r.content as string;
+    expect(body).toContain("callers (0):");
+    // No rows follow the header for a zero-caller entity.
+    expect(body.endsWith("callers (0):")).toBe(true);
   });
 
   it("rejects binary files", async () => {
@@ -101,30 +279,32 @@ describe("runFileReadForRouter", () => {
 
   // ─── Token Budget Tests ─────────────────────────────────────────────────
 
-  it("adaptive gating: budget=5000 allows 500-line file through without gating", async () => {
+  it("full-file budget controls truncation — never gates to an outline", async () => {
     const dir = makeTmpDir("budget-high");
     const lines = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join(
       "\n"
     );
     writeFileSync(join(dir, "medium.ts"), lines, "utf-8");
 
+    // budget=5000 → budgetLines = (5000*4)/80 = 250 < 300 lines → truncates
     const r = await runFileReadForRouter(
       { file_path: "medium.ts", token_budget: 5000 },
       { cwd: dir, graph: null }
     );
+    expect(typeof r.content).toBe("string");
+    expect(r._layer6_meta?.gated).toBeUndefined();
+    expect(r.content as string).toContain(
+      "(file has 300 lines; use offset/limit for more, outline:true for structure)"
+    );
 
-    // With budget=5000, budgetLines = (5000*4)/80 = 250. effectiveGate = max(200, 250) = 250.
-    // File has 300 lines > 250 → still gated
-    // But let's use a higher budget to prove the adaptive gating works
+    // budget=30000 → budgetLines = (30000*4)/80 = 1500 ≥ 300 lines → whole file
     const r2 = await runFileReadForRouter(
       { file_path: "medium.ts", token_budget: 30000 },
       { cwd: dir, graph: null }
     );
-
-    // budget=30000 → budgetLines = (30000*4)/80 = 1500. effectiveGate = max(200, 1500) = 1500.
-    // File has 300 lines < 1500 → NOT gated
     expect(typeof r2.content).toBe("string");
     expect(r2._layer6_meta?.gated).toBeUndefined();
+    expect((r2.content as string).includes("file has")).toBe(false);
   });
 
   it("token budget constrains output line count", async () => {
@@ -144,25 +324,31 @@ describe("runFileReadForRouter", () => {
     // budget=300 → budgetLines = (300*4)/80 = 15
     // File has 150 lines, effLimit = min(15, 150) = 15
     const body = r.content as string;
-    expect(body.includes("(Showing lines")).toBe(true);
+    expect(body).toContain(
+      "(file has 150 lines; use offset/limit for more, outline:true for structure)"
+    );
     // Should only show ~15 lines
     const outputLines = body.split("\n").filter((l) => /^\d+\t/.test(l));
     expect(outputLines.length).toBeLessThanOrEqual(20); // some tolerance
   });
 
-  it("default behavior unchanged: no token_budget → same as before", async () => {
+  it("default behavior: no token_budget → truncates to the 100-line default budget", async () => {
     const dir = makeTmpDir("default");
+    // .ts (not .log/.txt) — a plain large file, not the log-tail path.
     const lines = Array.from({ length: 205 }, () => "x").join("\n");
-    writeFileSync(join(dir, "big.txt"), lines, "utf-8");
+    writeFileSync(join(dir, "big.ts"), lines, "utf-8");
 
-    // Default token_budget=2000 → budgetLines=(2000*4)/80=100 → effectiveGate=max(200,100)=200
-    // File has 205 > 200 → gated (same as before)
+    // Default token_budget=2000 → budgetLines=(2000*4)/80=100. File has 205
+    // lines > 100 → truncates to 100 with the plain pointer footer.
     const r = await runFileReadForRouter(
-      { file_path: "big.txt" },
+      { file_path: "big.ts" },
       { cwd: dir, graph: null }
     );
 
-    expect((r.content as Record<string, unknown>).gated).toBe(true);
+    expect(typeof r.content).toBe("string");
+    expect(r.content as string).toContain(
+      "(file has 205 lines; use offset/limit for more, outline:true for structure)"
+    );
   });
 
   // ─── Ranked Entity Matching Tests ───────────────────────────────────────

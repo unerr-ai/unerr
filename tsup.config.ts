@@ -3,23 +3,43 @@ import { defineConfig } from "tsup";
 // Compile-time dead-code-elimination flag.
 // Published npm builds run `UNERR_PROD_BUILD=1 pnpm run build` so that
 // `if (__UNERR_DEV_BUILD__) { ... }` blocks are stripped by esbuild.
-// Entry/format/target/dts/external are supplied by the build:cli CLI flags
-// in package.json and merged with this config; we mirror them here so the
-// two stay consistent if either is invoked alone.
+// format/target/dts/external are mirrored from the build:cli CLI flags in
+// package.json so a standalone `tsup` invocation matches. entry, splitting, and
+// noExternal live ONLY here (build:cli passes no --splitting flag — a CLI flag
+// would override this config, which is exactly the bug that once pinned the
+// hook fast-path shut: `--no-splitting` silently defeated the entry split).
 const isProdBuild = process.env.UNERR_PROD_BUILD === "1";
 
 export default defineConfig({
-  // Object form (not an array) so output names are pinned: `dist/cli.js` stays
-  // at the root (the `bin` target) and `dist/cozo-worker.js` sits beside it.
-  // An array of both entries would shift the common base to `src/` and emit
-  // `dist/entrypoints/cli.js`, breaking the bin path. cozo-worker is the DB
-  // worker-thread entry — `new URL("./cozo-worker.js", import.meta.url)` in
-  // cozo-worker-client.ts resolves to it next to cli.js.
-  entry: { cli: "src/entrypoints/cli.ts", "cozo-worker": "src/intelligence/cozo-worker.ts" },
+  // Object form (not an array) so output names are pinned at the dist root:
+  // `dist/cli.js` is the `bin` target and cli-hook.js / cli-main.js / cozo-
+  // worker.js sit beside it. An array would shift the common base to `src/` and
+  // emit `dist/entrypoints/cli.js`, breaking the bin path and the sibling
+  // resolution below.
+  //
+  // cli.ts is a thin argv router that dynamic-imports cli-hook.ts (the `unerr
+  // hook <event>` fast-path) or cli-main.ts (the full Commander program). Making
+  // those two their own entries + `splitting:true` lets esbuild emit each as a
+  // chunk the router loads on demand — instead of inlining both into one file
+  // and hoisting EVERY transitive external import (ink/react/react-reconciler/
+  // yoga/gpt-tokenizer/…) to the top, where Node eval-loads them before any
+  // dispatch runs. The heavy terminal-UI framework lives only under cli-main, so
+  // a hook fire (or `unerr --version`) loads ~5 KB + the fired handler's chunks,
+  // not the whole CLI. `./cli-hook.js` / `./cli-main.js` resolve as runtime
+  // siblings of cli.js (same layout in the Bun binary — see
+  // scripts/build-binary.ts). cozo-worker is the DB worker-thread entry —
+  // `new URL("./cozo-worker.js", import.meta.url)` in cozo-worker-client.ts
+  // resolves to it next to cli.js.
+  entry: {
+    cli: "src/entrypoints/cli.ts",
+    "cli-hook": "src/entrypoints/cli-hook.ts",
+    "cli-main": "src/entrypoints/cli-main.ts",
+    "cozo-worker": "src/intelligence/cozo-worker.ts",
+  },
   format: ["esm"],
   target: "node24",
   dts: true,
-  splitting: false,
+  splitting: true,
   external: ["cozo-node"],
   // `@unerr-ai/contracts` is `restricted` on GitHub Packages; the CLI ships to
   // PUBLIC npm, so end users could never fetch it as a runtime dep. It MUST be

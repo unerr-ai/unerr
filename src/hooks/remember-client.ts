@@ -21,10 +21,17 @@
 export function detectUserRule(prompt: string): string | null {
   const trimmed = prompt.trim();
   if (trimmed.length < 8) return null;
+  // A question is asking, not stating a durable rule; a "let's"/"lets" opener
+  // is a collaborative suggestion (e.g. "lets go through each instruction"),
+  // not a directive-to-remember — both are cheap, high-value excludes before
+  // the directive regex runs at all.
+  if (trimmed.endsWith("?")) return null;
+  if (/^(let'?s)\b/i.test(trimmed)) return null;
   // Anchored, explicit directives only. Each requires a remember-intent marker,
-  // not just an imperative verb.
+  // not just an imperative verb. The "remember" branch excludes "I remember"
+  // (a first-person recollection, not a request) via negative lookbehind.
   const DIRECTIVE =
-    /(^|\b)(remember(?:\s+(?:that|this|to))?|from now on|going forward|from here on(?:\s+out)?|as a (?:hard\s+)?rule|make sure to (?:always|never)|please always|please never|always make sure|never (?:ever )?)\b/i;
+    /\b(?<!i\s)(?<!i'm\s)(?<!i'll\s)(?<!i've\s)(?<!i'd\s)remember(?:\s+(?:that|this|to))?\b|\bfrom now on\b|\bgoing forward\b|\bfrom here on(?:\s+out)?\b|\bas a (?:hard\s+)?rule\b|\brule:|\bmake sure to (?:always|never)\b|\bplease (?:always|never)\b|\balways make sure\b|\bnever(?:\s+ever)?\b/i;
   if (!DIRECTIVE.test(trimmed)) return null;
   return trimmed;
 }

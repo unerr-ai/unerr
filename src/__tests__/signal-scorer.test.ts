@@ -70,9 +70,11 @@ describe("SignalScorer", () => {
       expect(signals).toHaveLength(1);
       expect(signals[0].type).toBe("history");
       expect(signals[0].actionability).toBe(0.7);
-      // Episodic fact action names the zero-round-trip sentinel (Sprint 11
-      // 6-write demotion) so divergence is captured without an MCP call.
-      expect(signals[0].action).toContain("unerr journal - decided -");
+      // Episodic fact action points the agent back at the narrative above
+      // instead of a round-trip tool call.
+      expect(signals[0].action).toContain(
+        "read narrative above before editing"
+      );
     });
 
     it("converts relevant_facts with negative prefix to warning signal", () => {

@@ -10,7 +10,7 @@
  *      identical to the provider's `active` state.
  */
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   BUDGETS,
@@ -19,6 +19,7 @@ import {
   budgetHeadroom,
   countTokens,
   enforceBudget,
+  warmTokenizer,
 } from "../proxy/tool-budget.js";
 import {
   TOOL_DEFINITIONS,
@@ -35,6 +36,13 @@ import {
   statesToValidate,
   toolsByTier,
 } from "../proxy/tool-descriptions.js";
+
+// countTokens/enforceBudget/budgetHeadroom are sync but require the BPE
+// encoder to be warmed first (gpt-tokenizer now loads lazily — see
+// tool-budget.ts). Warm once for the whole file.
+beforeAll(async () => {
+  await warmTokenizer();
+});
 
 describe("tool-budget: countTokens", () => {
   it("returns deterministic counts across repeated calls", () => {
@@ -90,28 +98,30 @@ describe("tool-budget: enforceBudget", () => {
 describe("tool-descriptions: tier registry", () => {
   const ALL = listToolNames();
 
-  it("contains exactly 7 tools (the advertised catalog; file_edit is the unerr-owned edit path with edit + whole-file write modes; get_entity + unerr_context merged into search_code)", () => {
-    expect(ALL.length).toBe(7);
+  it("contains exactly 6 tools (the full validation catalog: 5 advertised + file_outline hidden; file_edit is the unerr-owned edit path with edit + whole-file write modes; get_entity + unerr_context merged into search_code; file_outline folded into file_read outline mode; unerr_track and the mark_* marker tools were removed entirely)", () => {
+    expect(ALL.length).toBe(6);
   });
 
-  it("partitions tools into exactly 6 / 0 / 1 across tiers 1 / 2 / 3", () => {
-    expect(toolsByTier(1)).toHaveLength(6);
-    expect(toolsByTier(2)).toHaveLength(0);
-    expect(toolsByTier(3)).toHaveLength(1);
+  it("partitions tools into exactly 5 / 1 / 0 across tiers 1 / 2 / 3 (get_references demoted to tier 2 in 2026-07; tier 3 is empty since unerr_track's removal)", () => {
+    expect(toolsByTier(1)).toHaveLength(5);
+    expect(toolsByTier(2)).toHaveLength(1);
+    expect(toolsByTier(3)).toHaveLength(0);
   });
 
-  it("places the 6 starter tools in tier 1", () => {
+  it("places the 5 starter tools in tier 1 (file_outline stays tier 1 but hidden; get_references moved to tier 2)", () => {
     const tier1 = new Set(toolsByTier(1));
     for (const name of [
       "search_code",
       "file_outline",
       "file_read",
       "file_edit",
-      "get_references",
       "fetch_url",
     ]) {
       expect(tier1.has(name)).toBe(true);
     }
+    // get_references is now tier 2, not tier 1.
+    expect(tier1.has("get_references")).toBe(false);
+    expect(getTier("get_references")).toBe(2);
   });
 
   it("getTier matches the entry's tier", () => {
@@ -240,12 +250,13 @@ describe("tool-definitions: outbound MCP composition", () => {
     expect(def1.description).toBe(getDescription("search_code", "active"));
     expect(() => renderToolDefinition("search_code", "locked")).toThrow();
 
-    // Tier 3 — all three states valid (unerr_track is the sole tier 3 tool).
-    const locked = renderToolDefinition("unerr_track", "locked");
-    expect(locked.description).toBe(getDescription("unerr_track", "locked"));
-    const unlocked = renderToolDefinition("unerr_track", "unlocked");
+    // Tier 2 — locked + unlocked states valid (get_references is the sole
+    // gated tool since unerr_track's removal left tier 3 empty).
+    const locked = renderToolDefinition("get_references", "locked");
+    expect(locked.description).toBe(getDescription("get_references", "locked"));
+    const unlocked = renderToolDefinition("get_references", "unlocked");
     expect(unlocked.description).toBe(
-      getDescription("unerr_track", "unlocked")
+      getDescription("get_references", "unlocked")
     );
   });
 

@@ -69,11 +69,11 @@ describe("RouterGateway: unlock lifecycle", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  // After the token-overhead catalog reduction, unerr_track is the SOLE
-  // gated tool. Its policy is C.and(C.turns(3), C.nonTrivial()). Driving the
-  // gateway with 5 distinct file_read calls satisfies both children at once:
-  // 5 round-trips advance turns to 5 (≥3) and 5 distinct files cross the
-  // non-trivial-reads threshold. The earlier per-tool unlock paths
+  // After the unerr_track removal, get_references is the SOLE gated tool.
+  // Its policy is C.or(C.editOrWrite(), C.fanIn(5)): an edit/write call
+  // unlocks it immediately (EDIT_LIKE_TOOLS in call-signals.ts), or a read
+  // whose result carries `_meta.entity_risk.fan_in >= 5`. Plain reads with
+  // neither signal never unlock it. The earlier per-tool unlock paths
   // (get_conventions on first read, get_critical_nodes on ur|rsk / fan_in,
   // get_imports on import counts) are gone with their tools.
   async function readDistinctFiles(count: number): Promise<void> {
@@ -86,60 +86,44 @@ describe("RouterGateway: unlock lifecycle", () => {
     }
   }
 
-  it("turns≥3 + non-trivial reads unlock unerr_track", async () => {
-    expect(gateway.isExposed("unerr_track")).toBe(false);
-    // First four reads: turns climb, but the non-trivial threshold (5 distinct
-    // files) is not met yet, so nothing unlocks.
-    for (let i = 0; i < 4; i++) {
-      const outcome = await gateway.recordAndUnlock(
-        "file_read",
-        { file_path: `src/f${i}.ts` },
-        { content: {} }
-      );
-      expect(outcome.unlocks.map((u) => u.toolName)).not.toContain(
-        "unerr_track"
-      );
-    }
-    // Fifth distinct read crosses the threshold — both children now hold.
+  it("an edit call unlocks get_references immediately (editOrWrite branch)", async () => {
+    expect(gateway.isExposed("get_references")).toBe(false);
     const outcome = await gateway.recordAndUnlock(
-      "file_read",
-      { file_path: "src/f4.ts" },
-      { content: {} }
-    );
-    expect(outcome.unlocks.map((u) => u.toolName)).toContain("unerr_track");
-    expect(gateway.isExposed("unerr_track")).toBe(true);
-  });
-
-  it("edit/write satisfies non-trivial — unlocks unerr_track once turns≥3", async () => {
-    // An edit attempt sets nonTrivial immediately; turns must still reach 3.
-    await gateway.recordAndUnlock(
       "edit",
       { file_path: "src/a.ts" },
-      {
-        content: {},
-      }
-    );
-    await gateway.recordAndUnlock(
-      "search_code",
-      { query: "x" },
       { content: {} }
     );
+    expect(outcome.unlocks.map((u) => u.toolName)).toContain("get_references");
+    expect(gateway.isExposed("get_references")).toBe(true);
+  });
+
+  it("a high fan_in read unlocks get_references (fanIn branch)", async () => {
+    expect(gateway.isExposed("get_references")).toBe(false);
     const outcome = await gateway.recordAndUnlock(
       "search_code",
-      { query: "y" },
-      { content: {} }
+      { query: "x" },
+      { content: {}, _meta: { entity_risk: { fan_in: 5 } } }
     );
-    expect(outcome.unlocks.map((u) => u.toolName)).toContain("unerr_track");
+    expect(outcome.unlocks.map((u) => u.toolName)).toContain("get_references");
+    expect(gateway.isExposed("get_references")).toBe(true);
   });
 
   it("subsequent gate on the unlocked tool returns null", async () => {
-    await readDistinctFiles(5);
-    expect(gateway.gate("unerr_track")).toBeNull();
+    await gateway.recordAndUnlock(
+      "edit",
+      { file_path: "src/a.ts" },
+      { content: {} }
+    );
+    expect(gateway.gate("get_references")).toBeNull();
   });
 
   it("monotonic exposure across noise calls", async () => {
-    await readDistinctFiles(5);
-    expect(gateway.isExposed("unerr_track")).toBe(true);
+    await gateway.recordAndUnlock(
+      "edit",
+      { file_path: "src/a.ts" },
+      { content: {} }
+    );
+    expect(gateway.isExposed("get_references")).toBe(true);
     for (let i = 0; i < 20; i++) {
       await gateway.recordAndUnlock(
         "search_code",
@@ -147,19 +131,12 @@ describe("RouterGateway: unlock lifecycle", () => {
         { content: {} }
       );
     }
-    expect(gateway.isExposed("unerr_track")).toBe(true);
+    expect(gateway.isExposed("get_references")).toBe(true);
   });
 
-  it("does not unlock unerr_track before turns≥3 + nonTrivial", async () => {
-    // Two trivial calls: turns=2, no non-trivial action.
-    for (let i = 0; i < 2; i++) {
-      await gateway.recordAndUnlock(
-        "search_code",
-        { query: "x" },
-        { content: {} }
-      );
-    }
-    expect(gateway.isExposed("unerr_track")).toBe(false);
+  it("does not unlock get_references on plain reads (neither branch satisfied)", async () => {
+    await readDistinctFiles(4);
+    expect(gateway.isExposed("get_references")).toBe(false);
   });
 });
 
@@ -176,32 +153,27 @@ describe("RouterGateway: announce + persistence", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  // unerr_track is the sole gated tool: it unlocks once turns≥3 AND a
-  // non-trivial action is observed. Five distinct file reads satisfies both
-  // on the fifth round-trip.
-  async function unlockTrack(): Promise<
+  // get_references is the sole gated tool: an edit/write call unlocks it
+  // immediately (C.or(C.editOrWrite(), C.fanIn(5))).
+  async function unlockReferences(): Promise<
     Awaited<ReturnType<RouterGateway["recordAndUnlock"]>>
   > {
-    let last!: Awaited<ReturnType<RouterGateway["recordAndUnlock"]>>;
-    for (let i = 0; i < 5; i++) {
-      last = await gateway.recordAndUnlock(
-        "file_read",
-        { file_path: `src/f${i}.ts` },
-        { content: {} }
-      );
-    }
-    return last;
+    return gateway.recordAndUnlock(
+      "edit",
+      { file_path: "src/a.ts" },
+      { content: {} }
+    );
   }
 
   it("suppresses the ur|act ceremony for catalog tools (unlock state still fires)", async () => {
-    // Regression: `ur|act unerr_track unlocked — …` fired mid-session for a
-    // tool already advertised in the 9-tool catalog. The ceremony exists
-    // only for a tool surfacing into the agent's view mid-session — no
-    // catalog tool does. The unlock STATE must still flip (it drives
-    // gate() and the locked/active description swap).
-    const outcome = await unlockTrack();
-    expect(outcome.unlocks.map((u) => u.toolName)).toContain("unerr_track");
-    expect(gateway.isExposed("unerr_track")).toBe(true);
+    // Regression: `ur|act get_references unlocked — …` fired mid-session for
+    // a tool already advertised in the catalog. The ceremony exists only for
+    // a tool surfacing into the agent's view mid-session — no catalog tool
+    // does. The unlock STATE must still flip (it drives gate() and the
+    // locked/active description swap).
+    const outcome = await unlockReferences();
+    expect(outcome.unlocks.map((u) => u.toolName)).toContain("get_references");
+    expect(gateway.isExposed("get_references")).toBe(true);
     expect(outcome.announceText).toBe("");
   });
 
@@ -215,40 +187,31 @@ describe("RouterGateway: announce + persistence", () => {
   });
 
   it("persists unlock events to JSONL", async () => {
-    await unlockTrack();
+    await unlockReferences();
     const store = new ToolExposureStore(dir, "session-test");
     const rows = await store.readAll();
-    expect(rows.map((r) => r.tool)).toContain("unerr_track");
+    expect(rows.map((r) => r.tool)).toContain("get_references");
     expect(rows[0]?.session_id).toBe("session-test");
   });
 
   it("a persistence failure does not block in-memory exposure", async () => {
     // Force an append-time failure by occupying the JSONL file path
     // with a directory — `appendFile` then fails with EISDIR while
-    // the in-memory exposure path proceeds unaffected. The first four reads
-    // climb turns without unlocking; the fifth fires the unlock against the
-    // now-broken store path.
-    for (let i = 0; i < 4; i++) {
-      await gateway.recordAndUnlock(
-        "file_read",
-        { file_path: `src/f${i}.ts` },
-        { content: {} }
-      );
-    }
+    // the in-memory exposure path proceeds unaffected.
     await mkdir(join(dir, "router", "exposure-events.jsonl"), {
       recursive: true,
     });
     let observed = false;
     const outcome = await gateway.recordAndUnlock(
-      "file_read",
-      { file_path: "src/f4.ts" },
+      "edit",
+      { file_path: "src/a.ts" },
       { content: {} },
       () => {
         observed = true;
       }
     );
     expect(outcome.unlocks.length).toBeGreaterThan(0);
-    expect(gateway.isExposed("unerr_track")).toBe(true);
+    expect(gateway.isExposed("get_references")).toBe(true);
     expect(observed).toBe(true);
   });
 });
@@ -320,7 +283,7 @@ describe("RouterGateway: cross-client parsability", () => {
   });
 
   it("soft-refuse content is a single MCP text block", () => {
-    const refusal = gateway.gate("unerr_track");
+    const refusal = gateway.gate("get_references");
     expect(refusal).not.toBeNull();
     const blocks = refusal?.content ?? [];
     expect(blocks).toHaveLength(1);
@@ -329,8 +292,8 @@ describe("RouterGateway: cross-client parsability", () => {
   });
 
   it("refusal text is plain UTF-8 with no control sequences besides newline", () => {
-    const refusal = gateway.gate("unerr_track");
+    const refusal = gateway.gate("get_references");
     const text = refusal?.content[0]?.text ?? "";
-    expect(text).toMatch(/^[\t\n\x20-\x7e -￿]+$/);
+    expect(text).toMatch(/^[\t\n\x20-\x7e -￿]+$/);
   });
 });

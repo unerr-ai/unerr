@@ -14,8 +14,12 @@
  * surface (top-level description + schema) that all agents see at tools/list.
  */
 
-import { describe, expect, it } from "vitest";
-import { budgetCapFor, countTokens } from "../proxy/tool-budget.js";
+import { beforeAll, describe, expect, it } from "vitest";
+import {
+  budgetCapFor,
+  countTokens,
+  warmTokenizer,
+} from "../proxy/tool-budget.js";
 import { TOOL_DEFINITIONS } from "../proxy/tool-definitions.js";
 
 type JsonSchema = {
@@ -24,6 +28,12 @@ type JsonSchema = {
   required?: string[];
   enum?: unknown[];
 };
+
+// countTokens is sync but requires the BPE encoder to be warmed first
+// (gpt-tokenizer now loads lazily — see tool-budget.ts).
+beforeAll(async () => {
+  await warmTokenizer();
+});
 
 const unerrContext = TOOL_DEFINITIONS.find((d) => d.name === "unerr_context");
 

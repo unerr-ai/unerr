@@ -6,8 +6,7 @@
  *   - Path A (T3.1): keyword fast path — verb cluster → named sub-skill.
  *   - Path B (T3.2): always-on skill catalog ("available skills:" block).
  *   - T3.4: cross-session stitch — surfaces prior session's last
- *     `mark_intent` and any unresolved `mark_blocker` markers, once
- *     per session.
+ *     `mark_intent`, once per session.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -281,29 +280,6 @@ export function classifyPrompt(prompt: string): PromptClassification {
   };
 }
 
-/** One-shot mark_intent reminder. Returns the line on first qualifying
- *  prompt of a session, then null forever (per #47565 — repeating the
- *  reminder makes the agent argue with the hook). Increments the
- *  session-level required counter every call so #109's compliance
- *  ratio is meaningful. */
-function buildMarkIntentLine(prompt: string): string | null {
-  if (!classifyAsTask(prompt)) return null;
-  try {
-    const cwd = process.cwd();
-    const state = readNudgeState(cwd);
-    updateNudgeState(cwd, (s) => {
-      s.mark_intent_required_count += 1;
-    });
-    if (state.mark_intent_emitted) return null;
-    updateNudgeState(cwd, (s) => {
-      s.mark_intent_emitted = true;
-    });
-  } catch {
-    return null;
-  }
-  return "ur|act record this turn's intent with zero round-trip — emit `unerr journal - goal - <one-sentence summary, ≤80 chars>` anywhere in your closing message (the Stop hook persists it; no tool call). Required on every coding task (implement/fix/refactor/build/debug); skip only for a pure read-only question.";
-}
-
 // Sprint 7 (T7.7): buildTurnSummaryLine + buildReceiptEscalationLine removed.
 // The close-out economy line is now produced server-side by the Stop hook
 // (stop-hooks.ts → computeTurnSummaryLine) at zero round-trip, so the agent is
@@ -321,7 +297,7 @@ function buildMarkIntentLine(prompt: string): string | null {
  *  is an action — skl folded into act on the wire 2026-05-24). Imperative,
  *  names the skill, no hedge verbs. */
 function buildPathALine(match: VerbClusterMatch): string {
-  return `ur|act ${match.skill} — Path A matched verb cluster '${match.cluster}'. Invoke Skill('${match.skill}') before drafting code.`;
+  return `ur|act invoke Skill('${match.skill}') before drafting code.`;
 }
 
 // ── Delegation emit ──────────────────────────────────────────────────────────
@@ -380,9 +356,9 @@ function buildDecomposeDelegateLine(opts: {
   trackerCapable: boolean;
 }): string {
   if (opts.multiSlice && opts.trackerCapable) {
-    return "ur|act plan-then-track — multi-step task: before editing, (1) TaskCreate one task per step, (2) TaskUpdate each to in_progress+owner when you start it and completed as it lands, (3) for independent steps launch one Task subagent_type:'unerr-worker'/'unerr-junior' per step in ONE message (parallel, disjoint files); run dependent steps in order — keep design/wiring/root-cause on the main thread, (4) review each diff, then clear the tracker at turn end.";
+    return "ur|act plan-then-track — multi-step task: TaskCreate one task per step before editing, TaskUpdate each to in_progress when you start it and completed as it lands; fan out one Task subagent_type:'unerr-worker'/'unerr-junior' per independent step in ONE message (disjoint files); keep design/wiring/root-cause on the main thread; clear the tracker at turn end.";
   }
-  return "ur|act delegate-slices — delegation is the default execution mode, not a one-off: on every substantive turn, plan the change then fan out one unerr sub-agent per independent slice in parallel — use as many as the work has slices, no fixed cap — Task subagent_type:'unerr-worker' (tests, multi-site refactor, caller/import propagation, typecheck/build-error fixes, scaffold) / 'unerr-junior' (lint/format, docstrings/@sem, read-only recon, verify-runs, shell-command runs) — keeping design + wiring + root-cause on the main thread, then review and integrate each diff.";
+  return "ur|act delegate-slices — delegation is the default: plan the change, then fan out one Task sub-agent per independent slice in parallel (worker for edits/tests/refactor/caller-propagation/build-fixes/scaffold, junior for lint/@sem/recon/verify-runs/shell); keep design/wiring/root-cause on the main thread; review each diff.";
 }
 
 // ── Path B emit (T3.2) ───────────────────────────────────────────────────────
@@ -510,8 +486,8 @@ export function computeCrossSessionStitch(
 }
 
 /**
- * One-shot cross-session stitch (T3.4). Returns the stitch lines on
- * the first qualifying prompt of a session, then null forever.
+ * One-shot cross-session stitch (T3.4). Returns the picked-up-intent
+ * line on the first qualifying prompt of a session, then null forever.
  * Fails-open: any read or state failure → null (passthrough).
  */
 export function buildCrossSessionStitchLine(cwd: string): string | null {
@@ -530,7 +506,7 @@ export function buildCrossSessionStitchLine(cwd: string): string | null {
       return null;
     }
     const stitch = computeCrossSessionStitch(entries, currentSessionId);
-    if (stitch.lastIntent.length === 0 && stitch.openBlockers.length === 0) {
+    if (stitch.lastIntent.length === 0) {
       updateNudgeState(cwd, (s) => {
         s.cross_session_stitch_emitted = true;
       });
@@ -539,18 +515,8 @@ export function buildCrossSessionStitchLine(cwd: string): string | null {
     updateNudgeState(cwd, (s) => {
       s.cross_session_stitch_emitted = true;
     });
-    const lines: string[] = [];
-    if (stitch.lastIntent.length > 0) {
-      // rsm → act on the wire (14→4 consolidation 2026-05-24).
-      lines.push(`ur|act picking up: ${stitch.lastIntent}`);
-    }
-    if (stitch.openBlockers.length > 0) {
-      const list = stitch.openBlockers.slice(0, 3).join("; ");
-      lines.push(
-        `ur|act open blockers from prior session: ${list}. Call unerr_track({op:'resolution', blocker_ref:'<id>', text:'<fix>'}) when each is fixed.`
-      );
-    }
-    return lines.join("\n");
+    // rsm → act on the wire (14→4 consolidation 2026-05-24).
+    return `ur|act picking up: ${stitch.lastIntent}`;
   } catch {
     return null;
   }
@@ -575,10 +541,10 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // Re-arm conversation-scoped one-shot nudges when the agent starts a NEW
   // conversation. The nudge flags file is keyed on the long-lived proxy session
   // id (one proxy serves many conversations), so without this every "once per
-  // session" reminder — including the mark_intent line that drives the
-  // `unerr journal -` sentinel — fires once per proxy lifetime and then goes silent for every
-  // later conversation. Idempotent within a conversation (no-op when the native
-  // id is unchanged). Never blocks the hook.
+  // session" reminder — including the cross-session stitch line above — fires
+  // once per proxy lifetime and then goes silent for every later conversation.
+  // Idempotent within a conversation (no-op when the native id is unchanged).
+  // Never blocks the hook.
   try {
     resetOneShotsOnNewConversation(
       process.cwd(),
@@ -826,11 +792,6 @@ const promptSubmitHandler: HookHandler = (normalized) => {
     // fail-open
   }
 
-  // mark_intent one-shot rides ahead of the tool roster too — the agent needs
-  // to know about the contract BEFORE choosing a first tool call. Fires at
-  // most once per session (see buildMarkIntentLine).
-  const markIntentLine = buildMarkIntentLine(message);
-
   // Sprint 7 (T7.7): the close-out economy line fires automatically via the
   // Stop hook (stop-hooks.ts) on every agent whose AGENT receives this hook
   // output (claude-code — promptContextInject implies a Stop channel for every
@@ -859,7 +820,6 @@ const promptSubmitHandler: HookHandler = (normalized) => {
     { text: buildDecomposeLine, volatile: false }, // Build decompose+delegate (once/session, fixed)
     { text: pathALine, volatile: true }, //          Path A skill match (verb-specific)
     { text: fallbackLine, volatile: false }, //      Master orchestrator fallback (fixed)
-    { text: markIntentLine, volatile: false }, //    mark_intent one-shot (fixed)
   ];
 
   // Path B — static tool-roster + skill catalog. Both duplicate the cached
@@ -898,9 +858,7 @@ const promptSubmitHandler: HookHandler = (normalized) => {
       "[unerr] Prefer unerr MCP tools for code work (faster, graph-backed, project-aware): " +
       "`search_code` (NOT grep/glob) · `get_references` (NOT grep for fn names) · " +
       "`file_read` (NOT built-in Read for understanding) · `file_edit` to change files — old_string+new_string to edit, or content for a whole file (no built-in Read needed) · " +
-      "`file_outline` · `search_code({detail:true})` for one symbol's profile. " +
-      "Mark progress with zero round-trip — emit `unerr journal - goal|decided|stuck|fixed - <one-line>` " +
-      "in your closing message; the Stop hook persists them to the cross-session timeline.";
+      "`file_outline` · `search_code({detail:true})` for one symbol's profile.";
     const catalog = buildSkillCatalog(process.cwd());
     staticTail = catalog ? `${toolRoster}\n\n${catalog}` : toolRoster;
     try {
@@ -1021,6 +979,116 @@ function formatTraceLine(t: RecalledTrace): string {
   return `ur|fct past incident (${dateStamp}) — symptom then: ${situation}${deadEndsPart} · fix then: ${unlock}${anchorPart}`;
 }
 
+/** Cap A-2 output cap: at most 1 past-incident line per turn, even when the
+ *  tier budget (`traceMax`) requested more from the proxy — 2+ simultaneous
+ *  incidents in one turn crowd out the load-bearing signal. */
+const MAX_INJECTED_TRACES = 1;
+
+/** Terms too common to signal relevance on their own — a small, deliberately
+ *  generic list; this is a cheap overlap gate, not an NLP model. */
+const RECALL_STOPWORDS = new Set([
+  "this",
+  "that",
+  "with",
+  "from",
+  "have",
+  "been",
+  "were",
+  "will",
+  "would",
+  "could",
+  "should",
+  "about",
+  "into",
+  "only",
+  "also",
+  "then",
+  "than",
+  "when",
+  "what",
+  "where",
+  "which",
+  "while",
+  "does",
+  "doing",
+  "done",
+  "just",
+  "them",
+  "they",
+  "their",
+  "there",
+  "here",
+  "your",
+  "yours",
+  "some",
+  "such",
+  "each",
+  "more",
+  "most",
+  "over",
+  "under",
+  "after",
+  "before",
+  "during",
+  "being",
+  "these",
+  "those",
+  "because",
+  "since",
+  "still",
+  "even",
+  "very",
+  "much",
+  "many",
+  "both",
+  "across",
+  "every",
+]);
+
+/** Splits `text` into significant terms — lowercased words longer than 3
+ *  chars, minus `RECALL_STOPWORDS`. Shared by the recall relevance gate. */
+function extractSignificantTerms(text: string): Set<string> {
+  const terms = new Set<string>();
+  for (const word of text.toLowerCase().split(/[^a-z0-9_]+/)) {
+    if (word.length > 3 && !RECALL_STOPWORDS.has(word)) terms.add(word);
+  }
+  return terms;
+}
+
+/**
+ * True when a recalled trace is relevant enough to inject into THIS prompt's
+ * context: the trace's anchor (entity key or file path) is named in the
+ * prompt, or at least 2 significant terms (>3 chars, non-stopword) overlap
+ * between the trace's symptom/fix text and the prompt. The server's TF-IDF
+ * ranking alone lets same-repo-but-unrelated incidents through (e.g. a
+ * cozo-worker memory-leak trace surfacing on an unrelated benchmark-run
+ * prompt); this is the prompt-specific filter layered on top of that ranking.
+ */
+function isTraceRelevantToPrompt(t: RecalledTrace, prompt: string): boolean {
+  const lowerPrompt = prompt.toLowerCase();
+  if (t.anchor) {
+    const anchorLower = t.anchor.toLowerCase();
+    const base = anchorLower.split("/").pop() ?? anchorLower;
+    if (
+      lowerPrompt.includes(anchorLower) ||
+      (base.length > 3 && lowerPrompt.includes(base))
+    ) {
+      return true;
+    }
+  }
+  const promptTerms = extractSignificantTerms(prompt);
+  if (promptTerms.size === 0) return false;
+  const traceText = `${t.situation} ${t.unlock} ${t.dead_ends}`;
+  let overlap = 0;
+  for (const term of extractSignificantTerms(traceText)) {
+    if (promptTerms.has(term)) {
+      overlap += 1;
+      if (overlap >= 2) return true;
+    }
+  }
+  return false;
+}
+
 /** Cap on the quoted rule text in the CLAUDE.md-redirect nudge. */
 const MAX_RULE_QUOTE_CHARS = 140;
 
@@ -1122,9 +1190,10 @@ const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
 
   try {
     const traces = await queryRecallTraces(message, traceMax).catch(() => null);
+    const relevant = traces?.filter((t) => isTraceRelevantToPrompt(t, message));
     const traceLines =
-      traces && traces.length > 0
-        ? traces.map(formatTraceLine).join("\n")
+      relevant && relevant.length > 0
+        ? relevant.slice(0, MAX_INJECTED_TRACES).map(formatTraceLine).join("\n")
         : null;
 
     if (traceLines) {

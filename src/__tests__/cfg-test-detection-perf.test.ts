@@ -90,22 +90,30 @@ describe("Rust #[cfg(test)] detection performance", () => {
     // Warm up
     extractEntities(content, "src/lib.rs");
 
-    // Benchmark: 100 iterations
+    // Benchmark: best-of-N batches. Regex extraction is sub-millisecond, but
+    // absolute wall-clock is dominated by CPU contention under the parallel
+    // forks pool (observed ~0.5ms idle, spiking past 3ms under full-suite
+    // load), so a single batch's mean flakes. Taking the fastest batch filters
+    // transient contention — a real (order-of-magnitude) regression slows every
+    // batch, so the minimum still catches it, while a load spike in one batch
+    // is ignored.
     const iterations = 100;
-    const start = performance.now();
-    for (let i = 0; i < iterations; i++) {
-      extractEntities(content, `src/mod_${i}.rs`);
+    const batches = 5;
+    let bestPerFile = Number.POSITIVE_INFINITY;
+    for (let b = 0; b < batches; b++) {
+      const start = performance.now();
+      for (let i = 0; i < iterations; i++) {
+        extractEntities(content, `src/mod_${i}.rs`);
+      }
+      const perFile = (performance.now() - start) / iterations;
+      if (perFile < bestPerFile) bestPerFile = perFile;
     }
-    const elapsed = performance.now() - start;
-    const perFile = elapsed / iterations;
 
-    // Regex extraction is sub-millisecond, but absolute wall-clock varies with
-    // CPU contention under the parallel forks pool (observed ~0.5ms idle, ~1.1ms
-    // under full-suite load). 3ms keeps ~3x headroom over the worst observed
-    // value while still catching an order-of-magnitude regression.
-    expect(perFile).toBeLessThan(3);
+    // 3ms is ~6x over the idle baseline — catches an order-of-magnitude
+    // regression while tolerating residual jitter in the fastest batch.
+    expect(bestPerFile).toBeLessThan(3);
     console.error(
-      `  Per-file extraction: ${perFile.toFixed(3)}ms (${iterations} iterations, ${elapsed.toFixed(2)}ms total)`
+      `  Per-file extraction (best of ${batches}×${iterations}): ${bestPerFile.toFixed(3)}ms`
     );
   });
 });

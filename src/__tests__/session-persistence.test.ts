@@ -117,53 +117,16 @@ describe("session-persistence", () => {
       expect(payload!.continuity.hot_files).toContain("src/a.ts");
     });
 
-    // ── Fix K — timelineStore plumbing ──────────────────────────────
+    // ── session_files plumbing (marker-free continuity) ──────────────
 
-    it("populates open_blockers from timelineStore when provided", async () => {
+    it("populates modified_files from timelineStore.getSessionFiles when provided", async () => {
       const record = makeSessionRecord();
       writeLastSession(testDir, record);
 
       const mockTimelineStore = {
-        async listMarkers(opts: {
-          sessionId?: string;
-          type?: string;
-          limit?: number;
-        }) {
-          if (opts.type === "mark_intent") return [];
-          // Simulate two open blockers + one resolution that points at
-          // one of them, so only one blocker remains "open".
-          return [
-            {
-              marker_id: "b1",
-              type: "mark_blocker",
-              text: "PaymentGateway has 8 callers — refactor blocked",
-              session_id: "test-session",
-              turn_id: "t1",
-              ts: Date.now() - 1000,
-              blocker_ref: "",
-              file_path: "src/payment/gateway.ts",
-            },
-            {
-              marker_id: "b2",
-              type: "mark_blocker",
-              text: "session_id collision",
-              session_id: "test-session",
-              turn_id: "t2",
-              ts: Date.now() - 2000,
-              blocker_ref: "",
-              file_path: "src/session.ts",
-            },
-            {
-              marker_id: "r1",
-              type: "mark_resolution",
-              text: "resolved by patch",
-              session_id: "test-session",
-              turn_id: "t3",
-              ts: Date.now() - 500,
-              blocker_ref: "b2",
-              file_path: "src/session.ts",
-            },
-          ];
+        async getSessionFiles(sessionId: string) {
+          expect(sessionId).toBe("test-session");
+          return ["src/payment/gateway.ts", "src/session.ts"];
         },
       };
 
@@ -171,69 +134,26 @@ describe("session-persistence", () => {
         testDir,
         mockTimelineStore
       );
-      expect(payload!.open_blockers).toBeDefined();
-      expect(payload!.open_blockers!.length).toBe(1);
-      expect(payload!.open_blockers![0]!.marker_id).toBe("b1");
-      expect(payload!.open_blockers![0]!.file_path).toBe(
-        "src/payment/gateway.ts"
-      );
+      expect(payload!.modified_files).toEqual([
+        "src/payment/gateway.ts",
+        "src/session.ts",
+      ]);
     });
 
-    it("populates last_intents from timelineStore filtered by prior session", async () => {
-      const record = makeSessionRecord();
-      writeLastSession(testDir, record);
-
-      const mockTimelineStore = {
-        async listMarkers(opts: {
-          sessionId?: string;
-          type?: string;
-          limit?: number;
-        }) {
-          if (opts.type === "mark_intent") {
-            expect(opts.sessionId).toBe("test-session");
-            return [
-              {
-                marker_id: "i1",
-                type: "mark_intent",
-                text: "wire fact-store recall into resume strip",
-                session_id: "test-session",
-                turn_id: "t1",
-                ts: Date.now(),
-                blocker_ref: "",
-                file_path: "",
-              },
-            ];
-          }
-          return [];
-        },
-      };
-
-      const payload = await generateSessionResumePayload(
-        testDir,
-        mockTimelineStore
-      );
-      expect(payload!.last_intents).toBeDefined();
-      expect(payload!.last_intents!.length).toBe(1);
-      expect(payload!.last_intents![0]!.text).toContain(
-        "wire fact-store recall"
-      );
-    });
-
-    it("returns empty open_blockers + last_intents when timelineStore omitted", async () => {
+    it("returns empty modified_files when timelineStore omitted", async () => {
       const record = makeSessionRecord();
       writeLastSession(testDir, record);
 
       const payload = await generateSessionResumePayload(testDir);
-      expect(payload!.open_blockers).toEqual([]);
-      expect(payload!.last_intents).toEqual([]);
+      expect(payload!.modified_files).toEqual([]);
     });
 
-    it("gracefully handles timelineStore.listMarkers throwing", async () => {
+    it("gracefully handles timelineStore.getSessionFiles throwing", async () => {
       const record = makeSessionRecord();
       writeLastSession(testDir, record);
 
       const mockTimelineStore = {
-        async listMarkers() {
+        async getSessionFiles() {
           throw new Error("timeline.db unavailable");
         },
       };
@@ -242,10 +162,9 @@ describe("session-persistence", () => {
         testDir,
         mockTimelineStore
       );
-      // Resume payload still returned; new fields just empty.
+      // Resume payload still returned; modified_files just empty.
       expect(payload).not.toBeNull();
-      expect(payload!.open_blockers).toEqual([]);
-      expect(payload!.last_intents).toEqual([]);
+      expect(payload!.modified_files).toEqual([]);
     });
 
     // ── P2.2 — broken callers round-trip from incomplete-work.json ──────

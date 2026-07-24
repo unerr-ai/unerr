@@ -33,7 +33,7 @@ from glob import glob
 
 # --- bill weighting (Anthropic-rate proxy) and unerr fixed surface ----------
 RATE = {"fresh": 1.0, "cr": 0.1, "cw": 1.25, "out": 5.0}
-UNERR_PREFIX_TOK = 6056  # instruction block 3348 + tools/list (8 tools) 2708; keep in sync with measure-overhead.mts
+UNERR_PREFIX_TOK = 6056  # instruction block 3348 + tools/list (5 advertised tools (+2 hidden)) 2708; keep in sync with measure-overhead.mts
 CHARS_PER_TOK = 4.0      # crude estimator, matches unerr's estimateTokens ballpark
 
 # Hard denies that FORCE a retry round-trip (the avoidable tax). These match the

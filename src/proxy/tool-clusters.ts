@@ -57,28 +57,6 @@ export const TOOL_CLUSTERS: ToolCluster[] = [
     ],
   },
   {
-    id: "persistence",
-    name: "Persistent Intelligence",
-    // unerr_remember is hidden (2026-06): user rules are hook-captured, agent
-    // notes ride the `unerr journal -` sentinel. unerr_track({op:'fact'|'recall'})
-    // is the advertised persistence surface this cluster boosts.
-    tools: ["unerr_track"],
-    triggerKeywords: [
-      "remember",
-      "store",
-      "always",
-      "from now on",
-      "hold",
-      "keep in mind",
-      "note that",
-      "fact",
-      "convention",
-      "anti-pattern",
-      "record",
-      "recall",
-    ],
-  },
-  {
     id: "web",
     name: "Web Fetch",
     tools: ["fetch_url"],

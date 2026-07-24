@@ -138,10 +138,9 @@ describe("nudge invariants — isError reaches the agent's MCP context", () => {
   });
 
   it("contains the expected error-routing sites (sanity check)", () => {
-    // Documents the four MCP error paths that must surface isError to MCP
+    // Documents the three MCP error paths that must surface isError to MCP
     // clients. If anyone removes a path, this fires.
     expect(src).toMatch(/unerr_recall_traces failed/);
-    expect(src).toMatch(/unerr_track: \$\{translated\.error\}/);
     expect(src).toMatch(/tools\/call validation failed for/);
     expect(src).toMatch(/router\.execute\(\$\{name\}\) threw/);
   });

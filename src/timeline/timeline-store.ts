@@ -5,7 +5,6 @@
  *   - turns                 : agent-turn rollups (one per closed turn)
  *   - intents               : cross-session task groupings (ST-4)
  *   - intent_sessions       : intent↔session many-to-many (ST-4)
- *   - markers               : agent-emitted mark_* rows (ST-2)
  *   - derived_signals       : mined patterns (hot files, loops, co-changes) (ST-3+)
  *   - signal_reinforcement  : append-only reinforcement events per signal (ST-5)
  *   - traces                : blocker→resolution trajectories (Cap A-1)
@@ -117,22 +116,6 @@ export async function initTimelineSchema(db: CozoDb): Promise<void> {
       :create intent_sessions {
         intent_id: String,
         session_id: String
-      }
-    `);
-  }
-
-  if (!existing.has("markers")) {
-    await db.run(`
-      :create markers {
-        marker_id: String
-        =>
-        type: String,
-        text: String,
-        session_id: String,
-        turn_id: String,
-        ts: Float,
-        blocker_ref: String,
-        file_path: String
       }
     `);
   }
@@ -322,9 +305,10 @@ export interface TraceRow {
 // ── Store facade ─────────────────────────────────────────────────────────────
 
 /**
- * Thin async wrapper around the timeline CozoDB instance. ST-1b only ships a
- * minimal CRUD surface (turns + markers + listings). ST-3/4/5 extend this with
- * intent, signal, and reinforcement methods.
+ * Thin async wrapper around the timeline CozoDB instance. ST-1b only shipped a
+ * minimal CRUD surface (turns + listings; the markers table and its methods
+ * were removed entirely 2026-07 — journaling rides the Stop-hook text lines
+ * only). ST-3/4/5 extend this with intent, signal, and reinforcement methods.
  */
 export class CozoTimelineStore {
   private constructor(
@@ -595,63 +579,6 @@ export class CozoTimelineStore {
       map.set(b, cur);
     }
     return [...map.values()].sort((a, b) => a.ts - b.ts);
-  }
-
-  /** Insert a marker row. Used by ST-2 marker tool handlers. */
-  async insertMarker(marker: MarkerRow): Promise<void> {
-    await this.db.run(
-      `
-      ?[marker_id, type, text, session_id, turn_id, ts, blocker_ref, file_path] <-
-        [[$marker_id, $type, $text, $session_id, $turn_id, $ts, $blocker_ref, $file_path]]
-      :put markers {
-        marker_id
-        =>
-        type, text, session_id, turn_id, ts, blocker_ref, file_path
-      }
-    `,
-      marker as unknown as Record<string, unknown>
-    );
-  }
-
-  /**
-   * List markers, newest first. ST-3 open-threads uses this to find blockers
-   * without resolutions.
-   */
-  async listMarkers(
-    opts: { sessionId?: string; type?: string; limit?: number } = {}
-  ): Promise<MarkerRow[]> {
-    const limit = opts.limit ?? 100;
-    const filters: string[] = [];
-    if (opts.sessionId) filters.push("session_id = $session_id");
-    if (opts.type) filters.push("type = $type");
-    const filterClause = filters.length > 0 ? `, ${filters.join(", ")}` : "";
-    const query = `
-      ?[marker_id, type, text, session_id, turn_id, ts, blocker_ref, file_path] :=
-        *markers{
-          marker_id, type, text, session_id, turn_id, ts, blocker_ref, file_path
-        }${filterClause}
-      :order -ts
-      :limit ${Math.max(1, Math.min(limit, 500))}
-    `;
-    const params: Record<string, unknown> = {};
-    if (opts.sessionId) params.session_id = opts.sessionId;
-    if (opts.type) params.type = opts.type;
-    const result = await this.db.run(query, params);
-    return result.rows.map(rowToMarker);
-  }
-
-  /** Look up a single marker by id. Returns null when not found. */
-  async getMarkerById(markerId: string): Promise<MarkerRow | null> {
-    const result = await this.db.run(
-      `?[marker_id, type, text, session_id, turn_id, ts, blocker_ref, file_path] :=
-        *markers{
-          marker_id, type, text, session_id, turn_id, ts, blocker_ref, file_path
-        },
-        marker_id = $marker_id`,
-      { marker_id: markerId }
-    );
-    const row = result.rows[0];
-    return row ? rowToMarker(row) : null;
   }
 
   /**
@@ -1004,19 +931,6 @@ function rowToTurn(row: unknown[]): TurnRow {
     edit_count: row[8] as number,
     title: row[9] as string,
     outcome: row[10] as string,
-  };
-}
-
-function rowToMarker(row: unknown[]): MarkerRow {
-  return {
-    marker_id: row[0] as string,
-    type: row[1] as string,
-    text: row[2] as string,
-    session_id: row[3] as string,
-    turn_id: row[4] as string,
-    ts: row[5] as number,
-    blocker_ref: row[6] as string,
-    file_path: row[7] as string,
   };
 }
 

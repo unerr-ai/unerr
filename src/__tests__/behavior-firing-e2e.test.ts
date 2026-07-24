@@ -11,9 +11,12 @@
  *
  * The only thing not booted is `startProxy` itself; every other link in the
  * firing chain is the production code path:
- *   payload → adapter → preEditHandlerAsync → queryBlastRadius → UDS
+ *   payload → adapter → postEditHandlerAsync → queryBlastRadius → UDS
  *           → handleBlastRadiusRequest → computeEditImpact → CozoGraphStore
- *           → formatCascadeNudge → adapter output.
+ *           → renderInlineBlastRadius → adapter output.
+ *
+ * A signature change is a legitimate edit, not an error, so the pre-edit hook
+ * never denies; the confirmed caller list rides the POST-edit hook instead.
  */
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { type Server, createServer as createNetServer } from "node:net";
@@ -24,6 +27,7 @@ import { IncompleteWorkDetector } from "../behaviors/incomplete-work.js";
 import { resetHookDedup } from "../hooks/hook-dedup.js";
 import {
   runPostEditHook,
+  runPostEditHookAsync,
   runPreEditHookAsync,
 } from "../hooks/navigation-hooks.js";
 import type { CozoDb } from "../intelligence/cozo-schema.js";
@@ -153,7 +157,7 @@ describe("behavior firing — pre-edit cascade end-to-end (P0.6)", () => {
     }
   });
 
-  it("DENIES the first signature edit with graph-confirmed callers, forcing get_references", async () => {
+  it("does NOT deny a signature edit — a signature change is a legitimate edit, not an error", async () => {
     const out = await runPreEditHookAsync(
       editPayload(
         "src/pay.ts",
@@ -165,49 +169,58 @@ describe("behavior firing — pre-edit cascade end-to-end (P0.6)", () => {
     // Valid JSON (never a crash — exit 0 contract).
     expect(() => JSON.parse(out)).not.toThrow();
     const parsed = JSON.parse(out);
-    // Graph-confirmed caller cascade → deny-once (the lever that actually moves
-    // get_references adoption), not an advisory nudge.
-    expect(parsed.hookSpecificOutput?.permissionDecision).toBe("deny");
-    const reason = parsed.hookSpecificOutput?.permissionDecisionReason ?? "";
-    // The computed cascade signal reached the agent-facing output.
-    expect(reason).toContain("⚡ unerr · cascade guard:");
-    expect(reason).toContain("2 caller(s) at risk"); // checkout + refund
-    expect(reason).toContain("parameter_added");
-    expect(reason).toContain("get_references");
-    // The deny names the concrete next step + that the retry will proceed.
-    expect(reason).toContain("blocked once");
-    expect(reason).toContain("re-attempt the Edit");
-    // It names the real callers, not a placeholder.
-    expect(reason).toContain("pay");
+    // The guard never blocks a signature change: deny is reserved for errors.
+    // No pre-edit cascade at all — the caller list is delivered post-edit.
+    expect(parsed.hookSpecificOutput?.permissionDecision ?? "allow").not.toBe(
+      "deny"
+    );
+    expect(out).not.toContain("cascade guard");
+    expect(out).not.toContain("Blocked once");
   });
 
-  it("nudges (does NOT deny twice) on the retry of the same signature edit", async () => {
+  it("never denies on repeat pre-edits of the same signature change (no deny loop)", async () => {
     const payload = editPayload(
       "src/pay.ts",
       "export function pay(a) {",
       "export function pay(a, b) {"
     );
     const first = JSON.parse(await runPreEditHookAsync(payload));
-    expect(first.hookSpecificOutput?.permissionDecision).toBe("deny");
-
-    // Same entity within the dedup window → allow + cascade nudge, never a 2nd
-    // deny (guards the #43189/#47565 double-deny retry loop).
     const second = JSON.parse(await runPreEditHookAsync(payload));
-    expect(second.hookSpecificOutput?.permissionDecision).not.toBe("deny");
-    const msg = second.hookSpecificOutput?.systemMessage ?? "";
-    expect(msg).toContain("⚡ unerr · cascade guard:");
-    expect(msg).toContain("get_references");
+    expect(first.hookSpecificOutput?.permissionDecision ?? "allow").not.toBe(
+      "deny"
+    );
+    expect(second.hookSpecificOutput?.permissionDecision ?? "allow").not.toBe(
+      "deny"
+    );
   });
 
-  it("falls back to the static nudge when the edit changes no signature with callers", async () => {
+  it("delivers the confirmed caller list via the POST-edit hook", async () => {
+    const out = await runPostEditHookAsync(
+      editPayload(
+        "src/pay.ts",
+        "export function pay(a) {",
+        "export function pay(a, b) {"
+      )
+    );
+    expect(() => JSON.parse(out)).not.toThrow();
+    // renderInlineBlastRadius line: names the changed entity + its CONFIRMED
+    // callers (checkout + refund), with no deny and no forced get_references.
+    expect(out).toContain("signature change to pay");
+    expect(out).toContain("2 caller(s) to update");
+    expect(out).toContain("checkout");
+    expect(out).toContain("refund");
+  });
+
+  it("passes through silently when the edit changes no signature with callers", async () => {
     // Editing a string literal / comment — no function signature → engine
-    // returns no warnings → static nudge, not the cascade phrasing.
+    // returns no warnings → generic static nudge was REMOVED (measured ~105
+    // fires/5 sessions vs 1 get_references call) → passthrough.
     const out = await runPreEditHookAsync(
       editPayload("src/pay.ts", "const RETRIES = 3;", "const RETRIES = 5;")
     );
     expect(() => JSON.parse(out)).not.toThrow();
     expect(out).not.toContain("caller(s) at risk");
-    expect(out).toContain("get_references"); // static nudge still fires
+    expect(out).toBe("{}");
   });
 
   it("injects an architecture-boundary warning when a forbidden cross-layer import is added (P2.1)", async () => {
@@ -238,8 +251,8 @@ describe("behavior firing — pre-edit cascade end-to-end (P0.6)", () => {
   // died on every real edit. These two drive the hook with an ABSOLUTE path
   // (built from the resolved cwd so it shares the proxy's root, as in real use)
   // and assert the cascade + boundary signals still fire end-to-end.
-  it("fires the cascade signal for an ABSOLUTE file_path (real Claude Code shape)", async () => {
-    const out = await runPreEditHookAsync(
+  it("delivers the cascade caller list for an ABSOLUTE file_path (real Claude Code shape)", async () => {
+    const out = await runPostEditHookAsync(
       editPayload(
         join(process.cwd(), "src/pay.ts"),
         "export function pay(a) {",
@@ -247,8 +260,8 @@ describe("behavior firing — pre-edit cascade end-to-end (P0.6)", () => {
       )
     );
     expect(() => JSON.parse(out)).not.toThrow();
-    expect(out).toContain("2 caller(s) at risk"); // checkout + refund
-    expect(out).toContain("parameter_added");
+    expect(out).toContain("2 caller(s) to update"); // checkout + refund
+    expect(out).toContain("checkout"); // callers listed inline, not fetched
   });
 
   it("fires the boundary signal for an ABSOLUTE file_path (real Claude Code shape)", async () => {
@@ -264,8 +277,9 @@ describe("behavior firing — pre-edit cascade end-to-end (P0.6)", () => {
     expect(out).toContain("src/intelligence/");
   });
 
-  it("falls back to the static nudge for a file with no indexed callers", async () => {
-    // `refund` has no callers in the graph → below threshold → no warning.
+  it("passes through silently for a signature change on a function with no callers", async () => {
+    // `refund` has no callers in the graph → below threshold → no warning →
+    // silent passthrough (the guard informs only when there are callers to fix).
     const out = await runPreEditHookAsync(
       editPayload(
         "src/refund.ts",
@@ -274,7 +288,7 @@ describe("behavior firing — pre-edit cascade end-to-end (P0.6)", () => {
       )
     );
     expect(out).not.toContain("caller(s) at risk");
-    expect(out).toContain("get_references");
+    expect(out).toBe("{}");
   });
 
   it("records edits via the post-edit hook and flags un-updated callers at session end (P2.2)", async () => {

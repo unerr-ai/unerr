@@ -69,8 +69,10 @@ import {
 import { StartupRenderer } from "./startup-renderer.js";
 import { ToolUsageTracker, reorderToolsByCluster } from "./tool-clusters.js";
 import { TOOL_DEFINITIONS, type ToolDefinition } from "./tool-definitions.js";
-import { hiddenToolNames } from "./tool-descriptions.js";
-import { translateUnerrTrack } from "./unerr-track.js";
+import {
+  hiddenToolNames,
+  validateAllToolDescriptions,
+} from "./tool-descriptions.js";
 
 import { installFileLogger } from "../utils/file-logger.js";
 import { formatUnknownError } from "../utils/format-error.js";
@@ -1117,6 +1119,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // Tool definitions imported from shared tool-definitions.ts (single source of truth)
   const toolDefinitions = [...TOOL_DEFINITIONS];
 
+  // Validate every (tool, state) description against its token budget. Moved
+  // off module-load time (tool-descriptions.ts) so `gpt-tokenizer` loads only
+  // here, once, instead of on every `unerr` invocation. Runs before the MCP
+  // server registers any request handler below, so no tools/list response can
+  // ever serve an unvalidated description.
+  await validateAllToolDescriptions();
+
   // S7: Tool usage tracker for semantic cluster reordering
   const toolUsageTracker = new ToolUsageTracker();
 
@@ -1281,14 +1290,11 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // Advertisement/validation split (Sprint 8b keystone): the advertised
   // `tools/list` slice drops demoted (hidden) tools, while `toolDefinitions`
   // (used by runBoundaryValidation) and the families registry keep the full
-  // catalog. A retired tool stays dispatchable by name (hook UDS path,
-  // op-union) but never reaches the model's view. Computed once — the hidden
-  // set is module-load-stable.
-  // Advertisement filter: drop any `hidden` catalog member from `tools/list`
-  // while keeping it dispatchable by name (hook UDS path, op-union). After the
-  // token-overhead deletion the catalog is exactly the 9 advertised tools, so
-  // `hiddenToolNames()` is empty and this is a no-op — but it stays load-bearing
-  // so a future `hidden:true` entry is honoured without re-plumbing tools/list.
+  // catalog. A retired tool stays dispatchable by name (hook UDS path) but
+  // never reaches the model's view. Computed once — the hidden set is
+  // module-load-stable. `unerr_track` and the mark_* marker tools were
+  // removed entirely (2026-07), not just demoted: journaling is served
+  // exclusively by the Stop-hook text-line path.
   const HIDDEN_TOOL_NAMES = new Set(hiddenToolNames());
   async function getAdvertisedTools(): Promise<ToolDef[]> {
     const tools = await getInjectedTools();
@@ -1888,8 +1894,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // BEFORE this dispatch, so it can emit a protocol-level error frame; a
     // result-wrapped error returned from here cannot reach the wire as one.
 
-    // Mutable locals so unerr_track aliasing can re-target the dispatch without
-    // reassigning the parameters (noParameterAssign). All code below reads these.
+    // Mutable locals so a task-shaped search_code call can re-target the
+    // dispatch to unerr_context without reassigning the parameters
+    // (noParameterAssign). All code below reads these.
     let name = requestedName;
     let args = requestedArgs;
     // Advance the canonical turn counter at the tools/call boundary so
@@ -1915,26 +1922,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       ctx.clientId,
       process.cwd()
     );
-
-    // ── Sprint 8: unerr_track op-union → legacy (name, args) ──
-    // Translate FIRST so the legacy tool's boundary validation + dispatch run
-    // unchanged (single execution path, no behavioural fork). The legacy
-    // marker names stay dispatchable by name for UDS hooks + hook-less
-    // agents (DEMOTE not delete).
-    if (name === "unerr_track") {
-      const translated = translateUnerrTrack(args);
-      if ("error" in translated) {
-        process.stderr.write(`[unerr] unerr_track: ${translated.error}\n`);
-        return {
-          content: [
-            { type: "text", text: JSON.stringify({ error: translated.error }) },
-          ],
-          isError: true,
-        };
-      }
-      name = translated.name;
-      args = translated.args;
-    }
 
     // ── search_code recon escalation: task-shaped query → unerr_context ──
     // A bare-symbol query keeps the lean ranked-name search (the cheap default
@@ -2078,50 +2065,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
     // Shadow ledger tools disabled — not exposed in tool definitions
     // (unerr_mark_working, unerr_revert_to_working_state, unerr_get_timeline handlers removed)
-
-    // ── ST-2: Session-narrative marker tools ──
-    {
-      const { isMarkerTool, handleMarkerCall } = await import(
-        "../tools/intelligence/timeline-markers.js"
-      );
-      if (isMarkerTool(name)) {
-        if (!timelineHandle) {
-          process.stderr.write(
-            `[unerr] ${name} called but timeline subsystem is disabled\n`
-          );
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  error:
-                    "marker tools require timeline subsystem (UNERR_TIMELINE_V2!=0)",
-                }),
-              },
-            ],
-            isError: true,
-          };
-        }
-        let branchVal = "main";
-        let headShaVal = "";
-        try {
-          const { getCurrentBranch, getHeadSha } = await import(
-            "../utils/git.js"
-          );
-          branchVal = (await getCurrentBranch(process.cwd())) ?? branchVal;
-          headShaVal = (await getHeadSha(process.cwd())) ?? "";
-        } catch {
-          /* defaults */
-        }
-        return handleMarkerCall(name, args as Record<string, unknown>, {
-          ledger: shadowLedger,
-          store: timelineHandle.store,
-          branch: branchVal,
-          headSha: headShaVal,
-          behaviorWriter: behaviorEventWriter,
-        });
-      }
-    }
 
     // ── Cap A-2: symptom retrieval (trace recall) ──
     if (name === "unerr_recall_traces") {
@@ -2559,11 +2502,16 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       ((args as Record<string, unknown>).name as string | undefined) ??
       ((args as Record<string, unknown>).file_path as string | undefined) ??
       null;
-    const signalFooter = buildSignalPrefix(
-      meta,
-      contextPayload as unknown as Record<string, unknown>,
-      entityKey
-    );
+    // file_read's three modes (full/range/entity) are plain, built-in-style
+    // output — no `ur|`-prefixed signal line rides on file content.
+    const signalFooter =
+      name === "file_read"
+        ? ""
+        : buildSignalPrefix(
+            meta,
+            contextPayload as unknown as Record<string, unknown>,
+            entityKey
+          );
     const pageHint = (meta as Record<string, unknown>)._unerr_page_hint as
       | string
       | undefined;
@@ -2652,13 +2600,19 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       /* update surfacing is best-effort — never break a tool response */
     }
 
-    // Surfaces 2/3/4 (user-prose channel): preface above body, footer
-    // below the page hint and above the signal footer. Failures here
-    // never break the response.
+    // Surface 2/3 tracking (user-prose channel): the call is retained ONLY
+    // for its internal side-effects — per-turn state and the resume-blocker
+    // behavior event that feed session tracking and the Stop-hook receipt.
+    // Its rendered head/tail are intentionally NOT spliced into the tool
+    // response: the `unerr » primed …` preface and the resume strip are
+    // display the Stop-hook receipt already owns, and every character in a
+    // tool payload is billed to the agent's context on this turn and every
+    // cached turn after. See CLAUDE.md "MCP tool responses cost tokens —
+    // send only the answer".
     const { buildUserBlockForResponse } = await import(
       "./user-block-emitter.js"
     );
-    const userBlock = await buildUserBlockForResponse({
+    await buildUserBlockForResponse({
       unerrDir: join(process.cwd(), ".unerr"),
       sessionId: shadowLedger.getSessionId(),
       toolCallCount: router.sessionContext.getToolCallCount(),
@@ -2670,17 +2624,10 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       behaviorEvents: behaviorEventWriter,
     });
 
-    // Final assembly: preface → data → page-hint → user footer → signal
-    // footer → auth + update lines (signals, so they ride with the footer).
+    // Final assembly: data → page-hint → signal footer → auth + update
+    // lines. No preface/resume strip — see the note above.
     const finalText =
-      userBlock.head +
-      bodyText +
-      bodyEnd +
-      pageBlock +
-      userBlock.tail +
-      footerBlock +
-      authBlock +
-      updateBlock;
+      bodyText + bodyEnd + pageBlock + footerBlock + authBlock + updateBlock;
 
     // P0-3: A soft-refused (locked) tool call surfaces as a tool error
     // so every known MCP client (Cursor, Cline, Codex, Claude Code)
@@ -2935,99 +2882,15 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       }
 
       // Telemetry: surface the pre-edit guard firings so the dashboard's
-      // behavior-event panes render them (mirrors the unerr/review_edit block
-      // below). The caller-cascade signal (D2) and the architecture-boundary
-      // signal (D3) are distinct behaviors; each fires its own row only when
-      // it fires. Best-effort — never blocks the control-channel reply.
+      // behavior-event panes render them. The caller-cascade signal (D2) and
+      // the architecture-boundary signal (D3) are distinct behaviors; each
+      // fires its own row only when it fires. Best-effort — never blocks the
+      // control-channel reply.
       recordBlastRadiusTelemetry(
         behaviorEventWriter,
         result,
         blastParams?.file_path ?? null
       );
-
-      return { jsonrpc: "2.0" as const, id: message.id, result };
-    }
-
-    // Control channel: in-flight review query (P1 — Surface A). The post-edit
-    // hook connects, sends ONE frame, reads ONE response, disconnects. Runs the
-    // full review engine (all Tier-1 checkers) against the warm in-process graph
-    // server-side — the intelligence stays in the proxy, the hook just formats
-    // findings. Always returns a well-formed result (clean + empty on any
-    // missing input / absent graph) so the hook never special-cases a degraded
-    // proxy. Mirrors `unerr/blast_radius`, of which this is the whole-engine
-    // post-edit sibling.
-    if (message.method === "unerr/review_edit") {
-      // Snapshot so non-null narrowing survives the await (a swap could
-      // re-point `liveGraph` mid-call; resolve against the current instance).
-      const graphRef = liveGraph;
-      const reviewParams = message.params as
-        | import("./review-protocol.js").ReviewEditRequestParams
-        | undefined;
-      const { handleReviewEditRequest } = await import("./review-protocol.js");
-
-      // CROSS_REPO_INTELLIGENCE Sprint 8.2: route the post-edit review to the
-      // owning peer when the edited file lives in a federated sibling repo. The
-      // home graph has none of the peer's entities, so a foreign-file review
-      // would otherwise return clean/empty; routeByPath sends the review to the
-      // repo that actually owns the file. Home-owned files compute locally below.
-      let result: import("./review-protocol.js").ReviewEditResult | null = null;
-      const reviewFilePath = reviewParams?.file_path;
-      if (federationCoordinatorRef && reviewFilePath) {
-        try {
-          const { REVIEW_EDIT_METHOD, isReviewEditResult } = await import(
-            "./review-protocol.js"
-          );
-          const route = await federationCoordinatorRef.routeByPath({
-            homeRepo: process.cwd(),
-            toolName: REVIEW_EDIT_METHOD,
-            args: (reviewParams ?? {}) as Record<string, unknown>,
-            filePath: reviewFilePath,
-          });
-          if (route.routed && isReviewEditResult(route.result)) {
-            result = route.result;
-          }
-        } catch {
-          /* fall back to the home compute below */
-        }
-      }
-      if (!result) {
-        result = await handleReviewEditRequest(graphRef, reviewParams);
-      }
-
-      // Telemetry: one behavior event per emission (not per finding) so the
-      // close-out receipt can render a "flagged N review finding(s)" row.
-      // Best-effort — never block the control-channel reply.
-      if (result.findings.length > 0) {
-        try {
-          const filePath = reviewParams?.file_path ?? null;
-          behaviorEventWriter.record({
-            session_id: behaviorEventWriter.sessionId,
-            type: "review_finding_surfaced",
-            tool: null,
-            entity_key: filePath,
-            response_bytes: null,
-            detail: {
-              count: result.findings.length,
-              top_severity: result.findings[0]?.severity ?? null,
-              suppressed: result.suppressed,
-              checkers: [...new Set(result.findings.map((f) => f.checkerId))],
-              // P4: was a Tier-2 host-synthesis evidence block injected this edit?
-              // Lets the close-out telemetry measure whether the model acts on it.
-              synthesis_injected: result.evidenceBlock !== null,
-              policy: "review_finding",
-              action: "flagged",
-              ...(result.findings[0]?.title
-                ? { reason: result.findings[0].title }
-                : {}),
-              ...(filePath
-                ? { file_path: filePath, target_file: filePath }
-                : {}),
-            },
-          });
-        } catch {
-          /* best effort — telemetry never blocks the reply */
-        }
-      }
 
       return { jsonrpc: "2.0" as const, id: message.id, result };
     }
@@ -3071,36 +2934,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
             graphRef,
             fedParams?.arguments as
               | import("./blast-radius-protocol.js").BlastRadiusRequestParams
-              | undefined
-          );
-          return {
-            jsonrpc: "2.0" as const,
-            id: message.id,
-            result: { content },
-          };
-        } catch {
-          return {
-            jsonrpc: "2.0" as const,
-            id: message.id,
-            result: { content: null },
-          };
-        }
-      }
-      // CROSS_REPO_INTELLIGENCE Sprint 8.2: peer-side post-edit review executor.
-      // The home routes a foreign-file review here; this peer reruns the whole
-      // ReviewEngine against ITS warm graph (the file's owning repo) and returns
-      // the ReviewEditResult as `content`. Like blast-radius, this is a control
-      // method — `executeRaw` can't run it — so it gets its own special-case.
-      const { REVIEW_EDIT_METHOD } = await import("./review-protocol.js");
-      if (fedName === REVIEW_EDIT_METHOD) {
-        try {
-          const { handleReviewEditRequest } = await import(
-            "./review-protocol.js"
-          );
-          const content = await handleReviewEditRequest(
-            liveGraph,
-            fedParams?.arguments as
-              | import("./review-protocol.js").ReviewEditRequestParams
               | undefined
           );
           return {

@@ -157,7 +157,7 @@ describe("persistence-pattern regression guard", () => {
   });
 
   it("the bridge auto-spawns via spawn-lock, not a boot unit", () => {
-    const cli = readSrc("entrypoints/cli.ts");
+    const cli = readSrc("entrypoints/cli-main.ts");
     expect(cli).toContain("tryAcquireSpawnLock");
     expect(cli).toContain("spawn-lock.js");
     expect(cli).toContain('"pm", "start", "--detached"');

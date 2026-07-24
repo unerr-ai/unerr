@@ -14,8 +14,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // All mock factories use plain arrow functions (not vi.fn()) so that
 // vi.restoreAllMocks() in afterEach cannot accidentally reset them.
 
+// Toggled per-test so the non-git bypass path can be exercised; defaults to
+// true so the existing proxy-liveness tests behave as before.
+let _isGitRepo = true;
 vi.mock("../utils/git.js", () => ({
-  isGitRepo: () => Promise.resolve(true),
+  isGitRepo: () => Promise.resolve(_isGitRepo),
   getRemoteUrl: () => Promise.resolve(null),
 }));
 
@@ -53,6 +56,7 @@ describe("index command — proxy liveness guard", () => {
 
   beforeEach(() => {
     _shouldReindex = true; // default: needs re-index (reaches the guard)
+    _isGitRepo = true; // default: inside a git repo (git check is transparent)
     origCwd = process.cwd();
     tempDir = mkdtempSync(join(tmpdir(), "ur-idx-guard-"));
     process.chdir(tempDir);
@@ -153,5 +157,45 @@ describe("index command — proxy liveness guard", () => {
 
     // Dead pid → guard is transparent → exits 0 (fresh path)
     expect(process.exit).toHaveBeenCalledWith(0);
+  });
+
+  // ── (c) non-git directory ──────────────────────────────────────────────────────
+
+  it("(c) refuses a non-git directory without --force (exit 1, names --force)", async () => {
+    _isGitRepo = false;
+
+    const program = new Command().exitOverride();
+    registerIndexCommand(program);
+
+    await expect(
+      program.parseAsync(["node", "unerr", "index"])
+    ).rejects.toThrow("__exit__");
+
+    expect(process.exit).toHaveBeenCalledWith(1);
+    const out = stderrBuf.join("");
+    expect(out).toContain("not inside a git repository");
+    expect(out).toContain("--force");
+    // Never reached runIndex: no fresh/proxy/index JSON on stdout.
+    expect(stdoutBuf.join("")).toBe("");
+  });
+
+  it("(c) --force bypasses the git check on a non-git directory (reaches runIndex)", async () => {
+    _isGitRepo = false;
+    // A live proxy.pid makes runIndex return proxy_running before it opens the
+    // real cozo DB — so reaching that status proves the git wall was bypassed
+    // (and keeps the test off a real worker-thread index).
+    writePidFile(join(tempDir, ".unerr", "state"), process.pid);
+
+    const program = new Command().exitOverride();
+    registerIndexCommand(program);
+
+    await expect(
+      program.parseAsync(["node", "unerr", "index", "--force", "--json"])
+    ).rejects.toThrow("__exit__");
+
+    // Git wall did NOT fire — no git error, and runIndex ran (proxy_running).
+    expect(stderrBuf.join("")).not.toContain("not inside a git repository");
+    const parsed = JSON.parse(stdoutBuf.join("")) as { status: string };
+    expect(parsed.status).toBe("proxy_running");
   });
 });

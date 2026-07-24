@@ -1,0 +1,6 @@
+.venv/
+out/
+*.tgz
+vendor/
+*.log
+__pycache__/

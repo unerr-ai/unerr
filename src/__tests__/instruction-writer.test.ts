@@ -38,12 +38,6 @@ describe("instruction-writer", () => {
       expect(content).toContain("get_references");
       expect(content).toContain("search_code");
       expect(content).toContain("fetch_url");
-      expect(content).toContain("built-in WebFetch");
-      // CROSS_REPO_INTELLIGENCE: installed instructions must surface the
-      // workspace (Pro) scope so the agent discovers cross-repo search/routing
-      // at the prose level, not only from the tool schema.
-      expect(content).toContain("scope:'workspace'");
-      expect(content).toContain("Cross-repo (Pro)");
     });
 
     it("appends to existing CLAUDE.md without sentinel", () => {
@@ -259,27 +253,19 @@ describe("instruction-writer", () => {
   });
 
   describe("fallback rule — no-graph escape hatch", () => {
-    it("states the conditional graph-tools framing, not an absolute rule", () => {
+    it("names the escape hatch: switch to built-ins the moment unerr is unavailable or reports no graph", () => {
       const result = writeInstructionFile(tmpDir, "claude-code");
       const content = readFileSync(result.path, "utf-8");
       expect(content).toContain(
-        "Use unerr tools to read, search, or map code when they return graph data"
+        "If unerr MCP is unavailable, errors, or reports no graph: use built-in Read/Grep/Glob for the rest of the session."
       );
       expect(content).not.toContain("(the #1 rule)");
       expect(content).not.toContain("there is always an unerr tool");
     });
-
-    it("names the escape hatch: switch to built-ins the moment a tool reports no graph", () => {
-      const result = writeInstructionFile(tmpDir, "claude-code");
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).toContain(
-        "search_code or get_references reports no graph — switch to built-in Read / Grep / Glob for the rest of the session and stop calling unerr navigation tools."
-      );
-    });
   });
 
-  describe("Layer 8 §2.4 — maintenance-contract section (comments.maintain)", () => {
-    const MARKER = "Domain comments — maintain meaning in the same edit";
+  describe("Layer 8 §2.4 — `@sem` section (repo detection + comments.maintain)", () => {
+    const MARKER = "### `@sem` comments";
 
     function writeMaintainSetting(value: boolean): void {
       mkdirSync(join(tmpDir, ".unerr"), { recursive: true });
@@ -289,14 +275,32 @@ describe("instruction-writer", () => {
       );
     }
 
-    it("includes the section by default (no config) — claude-code", () => {
+    // tmpDir carries no .git dir, so repoHasSemComments falls back to the
+    // capped filesystem scan — writing this fixture is enough to flip it true.
+    function markRepoAsSemAdopter(): void {
+      writeFileSync(
+        join(tmpDir, "sem-fixture.ts"),
+        "// A thing.\n// @sem domain=testing role=fixture\nexport function thing() {}\n"
+      );
+    }
+
+    it("omits the section when the repo carries no @sem comments (no config)", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).not.toContain(MARKER);
+      expect(content).toContain("get_references");
+    });
+
+    it("includes the section once the repo carries an @sem comment — claude-code", () => {
+      markRepoAsSemAdopter();
       const result = writeInstructionFile(tmpDir, "claude-code");
       const content = readFileSync(result.path, "utf-8");
       expect(content).toContain(MARKER);
       expect(content).toContain("@sem domain=");
     });
 
-    it("includes the section by default — cursor (mdc)", () => {
+    it("includes the section once the repo carries an @sem comment — cursor (mdc)", () => {
+      markRepoAsSemAdopter();
       const result = writeInstructionFile(tmpDir, "cursor");
       const content = readFileSync(result.path, "utf-8");
       expect(content).toContain(MARKER);
@@ -319,7 +323,8 @@ describe("instruction-writer", () => {
       expect(content).toContain("file_edit");
     });
 
-    it("comments.maintain=false omits the section — claude-code", () => {
+    it("comments.maintain=false omits the section even when the repo has @sem comments — claude-code", () => {
+      markRepoAsSemAdopter();
       writeMaintainSetting(false);
       const result = writeInstructionFile(tmpDir, "claude-code");
       const content = readFileSync(result.path, "utf-8");
@@ -330,6 +335,7 @@ describe("instruction-writer", () => {
     });
 
     it("comments.maintain=false omits the section — cursor (mdc)", () => {
+      markRepoAsSemAdopter();
       writeMaintainSetting(false);
       const result = writeInstructionFile(tmpDir, "cursor");
       const content = readFileSync(result.path, "utf-8");
@@ -338,6 +344,7 @@ describe("instruction-writer", () => {
     });
 
     it("comments.maintain=true is explicit-on and keeps the section", () => {
+      markRepoAsSemAdopter();
       writeMaintainSetting(true);
       const result = writeInstructionFile(tmpDir, "claude-code");
       const content = readFileSync(result.path, "utf-8");
@@ -345,12 +352,14 @@ describe("instruction-writer", () => {
     });
 
     it("is idempotent — second write with the section skips", () => {
+      markRepoAsSemAdopter();
       writeInstructionFile(tmpDir, "claude-code");
       const second = writeInstructionFile(tmpDir, "claude-code");
       expect(second.action).toBe("skipped");
     });
 
     it("toggling the flag off rewrites the section away", () => {
+      markRepoAsSemAdopter();
       const first = writeInstructionFile(tmpDir, "claude-code");
       expect(first.action).toBe("created");
       expect(readFileSync(first.path, "utf-8")).toContain(MARKER);
@@ -360,113 +369,52 @@ describe("instruction-writer", () => {
       expect(second.action).toBe("updated");
       expect(readFileSync(second.path, "utf-8")).not.toContain(MARKER);
     });
+  });
 
-    it("carries the §2.1.1 inert promise + strip command (SC-B.5)", () => {
+  describe("delegation pointer — unerr-worker/unerr-junior (replaces the tier table)", () => {
+    it("points to unerr-worker/unerr-junior instead of the old tier table — claude-code", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain("unerr-worker");
+      expect(content).toContain("unerr-junior");
+      expect(content).not.toContain("Tier by the hardest part");
+    });
+
+    it("points to unerr-worker/unerr-junior instead of the old tier table — codex", () => {
+      const result = writeInstructionFile(tmpDir, "codex");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).toContain("unerr-worker");
+      expect(content).toContain("unerr-junior");
+      expect(content).not.toContain("Tier by the hardest part");
+    });
+  });
+
+  describe("recon + background one-liner (all agents)", () => {
+    it("includes the recon-first and background-first one-liners for claude-code", () => {
       const result = writeInstructionFile(tmpDir, "claude-code");
       const content = readFileSync(result.path, "utf-8");
       expect(content).toContain(
-        "`@sem` lines are plain comments; your code runs identically without them and without unerr."
+        'search_code({query:"<task phrase>"})` recon call'
       );
-      expect(content).toContain("unerr uninstall --strip-annotations");
-    });
-  });
-
-  describe("autonomous session discipline (autonomous flag)", () => {
-    const MARKER = "Autonomous session discipline";
-
-    it("includes the section when autonomous:true — claude-code", () => {
-      const result = writeInstructionFile(tmpDir, "claude-code", {
-        autonomous: true,
-      });
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).toContain(MARKER);
-      expect(content).toContain("unerr-verifier");
-      expect(content).toContain("unerr journal - decided");
+      expect(content).toContain(
+        "run in the background with output to a log file"
+      );
     });
 
-    it("omits the section by default (autonomous unset) — claude-code", () => {
-      const result = writeInstructionFile(tmpDir, "claude-code");
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).not.toContain(MARKER);
-    });
-
-    it("omits the section for cursor even with autonomous:true", () => {
-      const result = writeInstructionFile(tmpDir, "cursor", {
-        autonomous: true,
-      });
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).not.toContain(MARKER);
-    });
-
-    it("carries the blocked/stalled/wrong-subgoal escalation triggers and the long-running-work sub-block", () => {
-      const result = writeInstructionFile(tmpDir, "claude-code", {
-        autonomous: true,
-      });
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).toContain("BLOCKED");
-      expect(content).toContain("STALLED");
-      expect(content).toContain("WRONG-SUBGOAL");
-      expect(content).toContain("Long-running work");
-      expect(content).toContain("Background-first");
-    });
-
-    it("interactive (autonomous unset) content has none of the autonomous-only triggers or sub-block", () => {
-      const result = writeInstructionFile(tmpDir, "claude-code");
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).not.toContain("BLOCKED");
-      expect(content).not.toContain("STALLED");
-      expect(content).not.toContain("WRONG-SUBGOAL");
-      expect(content).not.toContain("Long-running work");
-    });
-
-    it("toggling the flag off rewrites the section away (idempotent sentinel update)", () => {
-      const first = writeInstructionFile(tmpDir, "claude-code", {
-        autonomous: true,
-      });
-      expect(first.action).toBe("created");
-      expect(readFileSync(first.path, "utf-8")).toContain(MARKER);
-
-      const second = writeInstructionFile(tmpDir, "claude-code", {
-        autonomous: false,
-      });
-      expect(second.action).toBe("updated");
-      expect(readFileSync(second.path, "utf-8")).not.toContain(MARKER);
-    });
-  });
-
-  describe("delegation tiering wording — hardest-part rule", () => {
-    it("uses the 'Tier by the hardest part' wording for claude-code", () => {
-      const result = writeInstructionFile(tmpDir, "claude-code");
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).toContain("Tier by the hardest part, not the average");
-      expect(content).not.toContain("Tier by reasoning, not by size");
-    });
-
-    it("uses the 'Tier by the hardest part' wording for codex", () => {
+    it("includes the recon-first and background-first one-liners for codex", () => {
       const result = writeInstructionFile(tmpDir, "codex");
       const content = readFileSync(result.path, "utf-8");
-      expect(content).toContain("Tier by the hardest part, not the average");
-      expect(content).not.toContain("Tier by reasoning, not by size");
-    });
-  });
-
-  describe("background-first line — shared batching section (all agents)", () => {
-    it("includes the background-first line for claude-code (interactive)", () => {
-      const result = writeInstructionFile(tmpDir, "claude-code");
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).toContain("Background-first for long commands");
+      expect(content).toContain(
+        "run in the background with output to a log file"
+      );
     });
 
-    it("includes the background-first line for codex (AGENTS.md)", () => {
-      const result = writeInstructionFile(tmpDir, "codex");
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).toContain("Background-first for long commands");
-    });
-
-    it("includes the background-first line for cursor (mdc)", () => {
+    it("includes the recon-first and background-first one-liners for cursor", () => {
       const result = writeInstructionFile(tmpDir, "cursor");
       const content = readFileSync(result.path, "utf-8");
-      expect(content).toContain("Background-first for long commands");
+      expect(content).toContain(
+        "run in the background with output to a log file"
+      );
     });
   });
 });

@@ -70,7 +70,7 @@ const INTENT_CLASSES: ReadonlyArray<Exclude<DelegableClass, "none">> = [
 ];
 
 /**
- * Parse a delegation telemetry signal out of an `unerr journal - goal -` marker. The
+ * Parse a delegation telemetry signal out of a delegation intent string. The
  * `unerr-delegate` skill emits `intent delegate <class>[ sweep]: <task>`, so a
  * delegation is recognised only when the text begins with `delegate` AND names a
  * delegable class. Returns null for any non-delegation intent. Pure + total —
@@ -101,11 +101,11 @@ export interface BulkEditIntent {
 const FIRST_INT = /(\d+)/;
 
 /**
- * Parse an Issue-4a bulk-edit signal out of an `unerr journal - goal -` marker. The
+ * Parse an Issue-4a bulk-edit signal out of a delegation intent string. The
  * batch-work skill emits `intent bulk-edit oneshot <N>: <task>` (one command /
  * script) or `intent bulk-edit cheap-loop <N>: <task>` (worker loop). Returns
  * null for any non-bulk-edit intent. When neither mode word is present but the
- * marker is clearly a bulk edit, defaults to `oneshot` (the common best path).
+ * text is clearly a bulk edit, defaults to `oneshot` (the common best path).
  * Pure + total — never throws.
  */
 export function parseBulkEditIntent(text: string): BulkEditIntent | null {
@@ -125,10 +125,10 @@ export interface BatchCallIntent {
 }
 
 /**
- * Parse an Issue-4b batch-call signal out of an `unerr journal - goal -` marker. The
+ * Parse an Issue-4b batch-call signal out of a delegation intent string. The
  * batch-work skill emits `intent batch-call <N>: <task>` when N independent
  * reads/edits were issued as one call (or one parallel message) instead of N
- * round-trips. Returns null when the marker is not a batch-call or names fewer
+ * round-trips. Returns null when the text is not a batch-call or names fewer
  * than 2 targets (no saving). Pure + total — never throws.
  */
 export function parseBatchCallIntent(text: string): BatchCallIntent | null {

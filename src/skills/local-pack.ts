@@ -74,15 +74,15 @@ export const USING_UNERR_SKILL: SkillDefinition = {
   id: "using-unerr",
   name: "Using unerr (orchestrator)",
   description:
-    "Always on. For anything that reads, searches, or edits code, reach for unerr's graph tools first (search_code / get_references / file_read / file_edit), and delegate the work to unerr sub-agents by default — the main thread plans, routes, and consolidates while sub-agents run the slices in parallel (one per independent slice, no fixed cap). Guidance toward the tools and capabilities, not a workflow — there are no fixed steps to run.",
+    "unerr's MCP tools for code in this repo: search_code finds code by name or task phrase (recon bundle with callers and conventions), file_read reads files/line-ranges/entities/outlines, file_edit changes files, get_references lists every use of an identifier for renames and signature changes, fetch_url fetches web pages (bulk urls supported). Reach for these before shell or built-in file tools when navigating or editing code.",
   whenToUse:
     "Any code action — read, search, edit, find callers/references, or fan the delegable slices out to sub-agents (the default execution mode, not an occasional offload). Reach for unerr's tools first; this skill points at the tools, it does not prescribe a procedure.",
   allowedTools: "*",
   instructions: loadContent("skill:using-unerr"),
   category: "workflow",
   trigger: { type: "always" },
-  tools: ["search_code", "get_references", "file_read", "unerr_track"],
-  version: "2.0.0",
+  tools: ["search_code", "file_read", "file_edit", "get_references"],
+  version: "2.1.0",
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -110,18 +110,19 @@ export const EXPLORATION_SKILL: SkillDefinition = {
   category: "navigation",
   trigger: { type: "agent-requested" },
   optIn: true,
-  tools: ["search_code", "get_references", "file_outline", "file_read"],
+  tools: ["search_code", "get_references", "file_read"],
   version: "1.0.0",
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// Memory (four-moment contract) and the session journal (unerr journal - <label> - sentinels) are no
-// longer skills: usage data (2026-06) showed BOTH invoked 0× via Skill() across
-// 174 sessions — their function runs through the UserPromptSubmit/Stop hooks and
-// the instruction file's contract block, never a Skill() call. Removing them
-// drops ~8 KB of always-on weight. The `remember/always` verb cluster is dropped
-// from VERB_CLUSTERS (capture is automatic); markers ride the closing-message
-// sentinel taught in USING_UNERR_SKILL + the instruction file.
+// Memory (four-moment contract) and the session journal (`unerr journal - <label> -`
+// text lines) are no longer skills: usage data (2026-06) showed BOTH invoked 0×
+// via Skill() across 174 sessions — their function runs through the
+// UserPromptSubmit/Stop hooks and the instruction file's contract block, never
+// a Skill() call. Removing them drops ~8 KB of always-on weight. The
+// `remember/always` verb cluster is dropped from VERB_CLUSTERS (capture is
+// automatic); journal lines ride the closing-message text convention taught in
+// USING_UNERR_SKILL + the instruction file.
 // ────────────────────────────────────────────────────────────────────────────
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -142,7 +143,7 @@ export const BUILD_AND_DEBUG_SKILL: SkillDefinition = {
   category: "workflow",
   trigger: { type: "agent-requested" },
   optIn: true,
-  tools: ["search_code", "get_references", "file_read", "unerr_track"],
+  tools: ["search_code", "get_references", "file_read"],
   version: "1.0.0",
 };
 
@@ -164,7 +165,7 @@ export const TEST_AND_REVIEW_SKILL: SkillDefinition = {
   category: "workflow",
   trigger: { type: "agent-requested" },
   optIn: true,
-  tools: ["search_code", "get_references", "file_read", "unerr_track"],
+  tools: ["search_code", "get_references", "file_read"],
   version: "1.0.0",
 };
 
@@ -193,7 +194,7 @@ export const REVIEW_SKILL: SkillDefinition = {
   category: "workflow",
   trigger: { type: "agent-requested" },
   optIn: true,
-  tools: ["search_code", "get_references", "file_read", "unerr_track"],
+  tools: ["search_code", "get_references", "file_read"],
   version: "1.0.0",
 };
 

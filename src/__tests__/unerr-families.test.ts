@@ -3,8 +3,8 @@
  *
  * Locks the contract that every unerr MCP tool is wrapped under the MCP
  * router's family-membership system. Without this guard, graph / file /
- * markers / web tools would have no declared family, and any future
- * router instantiation would mask them by default.
+ * web tools would have no declared family, and any future router
+ * instantiation would mask them by default.
  */
 
 import { describe, expect, it } from "vitest";
@@ -19,19 +19,14 @@ import {
 } from "../router/unerr-families.js";
 
 describe("UNERR_FAMILIES — every TIER_ENTRIES tool has a family", () => {
-  it("registers all 8 tools currently in TIER_ENTRIES", () => {
+  it("registers every tool currently in TIER_ENTRIES", () => {
     const tooled = Object.keys(TIER_ENTRIES).sort();
     const registered = [...UNERR_TOOL_TO_FAMILY.keys()].sort();
     expect(registered).toEqual(tooled);
   });
 
-  it("four families: graph, file, markers, web", () => {
-    expect([...UNERR_FAMILY_NAMES].sort()).toEqual([
-      "file",
-      "graph",
-      "markers",
-      "web",
-    ]);
+  it("three families: file, graph, web", () => {
+    expect([...UNERR_FAMILY_NAMES].sort()).toEqual(["file", "graph", "web"]);
   });
 
   it("each family has at least one tool", () => {
@@ -82,7 +77,7 @@ describe("UNERR_FAMILIES — always-on integration", () => {
     expect(merged.has("pg")).toBe(true);
     expect(merged.has("gh")).toBe(true);
     expect(merged.has("graph")).toBe(true);
-    expect(merged.has("markers")).toBe(true);
+    expect(merged.has("web")).toBe(true);
   });
 });
 
@@ -91,16 +86,13 @@ describe("UNERR_TOOL_TO_FAMILY — reverse lookup", () => {
     expect(UNERR_TOOL_TO_FAMILY.get("search_code")).toBe("graph");
   });
 
-  it("resolves unerr_track to markers", () => {
-    expect(UNERR_TOOL_TO_FAMILY.get("unerr_track")).toBe("markers");
-  });
-
   it("returns undefined for removed (non-catalog) tools", () => {
-    // unerr_recall_notes, mark_intent, and unerr_remember were dropped from
-    // the advertised catalog; they dispatch by-name only and belong to no
-    // router family.
+    // unerr_recall_notes, mark_intent, unerr_track, and unerr_remember were
+    // all removed (or dropped from the advertised catalog); none dispatch
+    // through a router family.
     expect(UNERR_TOOL_TO_FAMILY.get("unerr_recall_notes")).toBeUndefined();
     expect(UNERR_TOOL_TO_FAMILY.get("mark_intent")).toBeUndefined();
+    expect(UNERR_TOOL_TO_FAMILY.get("unerr_track")).toBeUndefined();
     expect(UNERR_TOOL_TO_FAMILY.get("unerr_remember")).toBeUndefined();
   });
 

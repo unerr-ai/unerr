@@ -25,195 +25,124 @@ function makePayload(
     },
     continuity: {
       hot_files: ["src/auth.ts", "src/api.ts"],
-      incomplete_hint: "Continuing work on src/auth.ts, src/api.ts",
+      incomplete_hint: "No specific continuity context",
       staleness: "fresh",
     },
-    open_blockers: [],
-    last_intents: [],
+    modified_files: [],
     ...overrides,
   };
 }
 
 describe("formatSessionResumeBlock", () => {
-  it("formats a complete resume block with elapsed time and hot files", () => {
-    const block = formatSessionResumeBlock(makePayload());
-    expect(block).toContain("[unerr:session-resume]");
-    expect(block).toContain("2h ago");
-    expect(block).toContain("src/auth.ts");
-  });
-
   it("returns empty string for null payload", () => {
     expect(formatSessionResumeBlock(null)).toBe("");
   });
 
-  it("truncates to 500 chars max", () => {
-    const payload = makePayload({
-      broken_callers: Array.from({ length: 3 }, (_, i) => ({
-        entity: `fn${i}`,
-        callers: Array.from(
-          { length: 3 },
-          (_, j) =>
-            `src/very-long-descriptive-path-${i}-${j}.ts:someLongCallerName${j}`
-        ),
-      })),
-    });
+  it("renders tool calls, duration and branch with no files modified", () => {
+    const block = formatSessionResumeBlock(makePayload());
+    expect(block).toBe("Last session: 15 tool calls over 5m 0s. Branch: main.");
+  });
+
+  it("renders up to 3 modified-file basenames", () => {
+    const block = formatSessionResumeBlock(
+      makePayload({
+        modified_files: ["src/a/auth.ts", "src/b/api.ts", "src/c/util.ts"],
+      })
+    );
+    expect(block).toBe(
+      "Last session: 15 tool calls over 5m 0s. Modified 3 file(s): auth.ts, api.ts, util.ts. Branch: main."
+    );
+  });
+
+  it("caps the file list at 3 basenames and adds a (+K more) suffix", () => {
+    const block = formatSessionResumeBlock(
+      makePayload({
+        modified_files: [
+          "src/a.ts",
+          "src/b.ts",
+          "src/c.ts",
+          "src/d.ts",
+          "src/e.ts",
+        ],
+      })
+    );
+    expect(block).toContain("Modified 5 file(s): a.ts, b.ts, c.ts (+2 more).");
+  });
+
+  it("omits the Modified clause when modified_files is empty", () => {
+    const block = formatSessionResumeBlock(makePayload({ modified_files: [] }));
+    expect(block).not.toContain("Modified");
+  });
+
+  it("omits the Modified clause when modified_files is undefined (degrades gracefully)", () => {
+    const payload = makePayload();
+    // biome-ignore lint/performance/noDelete: exercising the optional-field path
+    delete (payload as { modified_files?: string[] }).modified_files;
     const block = formatSessionResumeBlock(payload);
+    expect(block).not.toContain("Modified");
+    expect(block).toBe("Last session: 15 tool calls over 5m 0s. Branch: main.");
+  });
+
+  it("formats duration in minutes and seconds", () => {
+    const block = formatSessionResumeBlock(
+      makePayload({
+        previous_session: {
+          ...makePayload().previous_session,
+          duration_ms: 90_000,
+        },
+      })
+    );
+    expect(block).toContain("over 1m 30s");
+  });
+
+  it("truncates to 500 chars max", () => {
+    const block = formatSessionResumeBlock(
+      makePayload({
+        modified_files: Array.from(
+          { length: 3 },
+          (_, i) => `src/very-long-descriptive-directory-name-${i}/file-${i}.ts`
+        ),
+      })
+    );
     expect(block.length).toBeLessThanOrEqual(500);
   });
 
-  it("includes incomplete hint when meaningful", () => {
-    const payload = makePayload({
-      continuity: {
-        hot_files: ["src/auth.ts"],
-        incomplete_hint:
-          "2 revert(s) in last session — approach may need rethinking",
-        staleness: "fresh",
-      },
-    });
-    const block = formatSessionResumeBlock(payload);
-    expect(block).toContain("revert(s)");
+  it("appends the incomplete-work hint when it is not the default", () => {
+    const block = formatSessionResumeBlock(
+      makePayload({
+        continuity: {
+          hot_files: [],
+          incomplete_hint: "Continuing work on src/auth.ts",
+          staleness: "fresh",
+        },
+      })
+    );
+    expect(block).toContain("Continuing work on src/auth.ts");
   });
 
-  it("skips generic incomplete hint", () => {
-    const payload = makePayload({
-      continuity: {
-        hot_files: ["src/auth.ts"],
-        incomplete_hint: "No specific continuity context",
-        staleness: "fresh",
-      },
-    });
-    const block = formatSessionResumeBlock(payload);
+  it("omits the hint when it is the default 'No specific continuity context'", () => {
+    const block = formatSessionResumeBlock(makePayload());
     expect(block).not.toContain("No specific continuity context");
   });
 
-  // ── Fix K — open blockers + last intents ────────────────────────────
-
-  it("renders the last intent above blockers when present", () => {
-    const payload = makePayload({
-      last_intents: [
-        {
-          marker_id: "i1",
-          text: "wire fact-store recall into resume strip",
-          ts: Date.now(),
-        },
-      ],
-    });
-    const block = formatSessionResumeBlock(payload);
-    expect(block).toContain("last intent: wire fact-store recall");
+  it("renders broken_callers with singular/plural wording, capped at 2", () => {
+    const block = formatSessionResumeBlock(
+      makePayload({
+        broken_callers: [
+          { entity: "src/pay.ts::processPayment", callers: ["a", "b"] },
+          { entity: "applyRefund", callers: ["c"] },
+          { entity: "third", callers: ["d", "e", "f"] },
+        ],
+      })
+    );
+    expect(block).toContain(
+      "Callers still to update: processPayment (2 callers), applyRefund (1 caller)"
+    );
+    expect(block).not.toContain("third");
   });
 
-  it("renders open blockers with file anchor when present", () => {
-    const payload = makePayload({
-      open_blockers: [
-        {
-          marker_id: "b1",
-          text: "PaymentGateway has 8 callers — refactor blocked",
-          file_path: "src/payment/gateway.ts",
-          ts: Date.now(),
-        },
-      ],
-    });
-    const block = formatSessionResumeBlock(payload);
-    expect(block).toContain("unresolved blocker: PaymentGateway has 8 callers");
-    expect(block).toContain("[src/payment/gateway.ts]");
-  });
-
-  it("renders blockers without anchor when file_path is empty", () => {
-    const payload = makePayload({
-      open_blockers: [
-        {
-          marker_id: "b2",
-          text: "session_id collision across IDEs",
-          file_path: "",
-          ts: Date.now(),
-        },
-      ],
-    });
-    const block = formatSessionResumeBlock(payload);
-    expect(block).toContain("unresolved blocker: session_id collision");
-    expect(block).not.toContain("[]");
-  });
-
-  it("caps open blockers at 3 even when more are present", () => {
-    const payload = makePayload({
-      open_blockers: Array.from({ length: 6 }, (_, i) => ({
-        marker_id: `b${i}`,
-        text: `blocker number ${i}`,
-        file_path: `src/file-${i}.ts`,
-        ts: Date.now() - i * 1000,
-      })),
-    });
-    const block = formatSessionResumeBlock(payload);
-    const matches = block.match(/unresolved blocker:/g) ?? [];
-    expect(matches.length).toBeLessThanOrEqual(3);
-  });
-
-  it("orders intent line BEFORE blocker lines (narrative arc)", () => {
-    const payload = makePayload({
-      last_intents: [
-        {
-          marker_id: "i1",
-          text: "ship Fix K",
-          ts: Date.now(),
-        },
-      ],
-      open_blockers: [
-        {
-          marker_id: "b1",
-          text: "tests failing on edge case",
-          file_path: "src/a.ts",
-          ts: Date.now(),
-        },
-      ],
-    });
-    const block = formatSessionResumeBlock(payload);
-    const intentIdx = block.indexOf("last intent");
-    const blockerIdx = block.indexOf("unresolved blocker");
-    expect(intentIdx).toBeGreaterThan(-1);
-    expect(blockerIdx).toBeGreaterThan(intentIdx);
-  });
-
-  it("omits both lines when neither field is populated", () => {
-    const block = formatSessionResumeBlock(makePayload());
-    expect(block).not.toContain("last intent");
-    expect(block).not.toContain("unresolved blocker");
-  });
-
-  // ── P2.2 — broken callers surfaced from incomplete-work.json ─────────
-
-  it("renders broken callers with the get_references action when present", () => {
-    const payload = makePayload({
-      broken_callers: [
-        {
-          entity: "pay",
-          callers: ["src/checkout.ts:checkout", "src/refund.ts:refund"],
-        },
-      ],
-    });
-    const block = formatSessionResumeBlock(payload);
-    expect(block).toContain("unfinished: changed pay");
-    expect(block).toContain("src/checkout.ts:checkout");
-    expect(block).toContain("src/refund.ts:refund");
-    // Names the concrete next call, pasteable verbatim.
-    expect(block).toContain("get_references({direction:'callers'}) on pay");
-  });
-
-  it("omits the broken-callers line when none are present", () => {
-    const block = formatSessionResumeBlock(makePayload());
-    expect(block).not.toContain("unfinished: changed");
-  });
-
-  it("caps broken-callers entities at 3 and per-entity caller list at 3", () => {
-    const payload = makePayload({
-      broken_callers: Array.from({ length: 5 }, (_, i) => ({
-        entity: `fn${i}`,
-        callers: Array.from({ length: 5 }, (_, j) => `src/c${j}.ts:caller${j}`),
-      })),
-    });
-    const block = formatSessionResumeBlock(payload);
-    const entityMatches = block.match(/unfinished: changed/g) ?? [];
-    expect(entityMatches.length).toBeLessThanOrEqual(3);
-    // Per-entity overflow is summarised, not dumped.
-    expect(block).toContain("more)");
+  it("omits the callers clause when broken_callers is empty", () => {
+    const block = formatSessionResumeBlock(makePayload({ broken_callers: [] }));
+    expect(block).not.toContain("Callers still to update");
   });
 });

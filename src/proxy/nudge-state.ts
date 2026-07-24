@@ -147,10 +147,6 @@ export interface NudgeSessionState {
    *  has appended to the systemMessage for unchecked edits this session.
    *  Capped at 2; the gate goes silent past the cap. */
   verify_soft_count: number;
-  /** Verification awareness (W4) — count of blocking Stop decisions the
-   *  autonomous-mode verify gate has emitted this session. Capped at 2; past
-   *  the cap the gate degrades to the soft advisory line instead. */
-  verify_block_count: number;
   /** Verification awareness (W4) — weak-verify reasons (`"existence-only"` /
    *  `"no-comparison"` / `"self-referential"` / `"tampered-check"`) already
    *  nudged this session, so the just-in-time weak-verify nudge fires at most
@@ -193,7 +189,6 @@ function defaultState(): NudgeSessionState {
     check_green_last_ts: 0,
     check_red_last_ts: 0,
     verify_soft_count: 0,
-    verify_block_count: 0,
     weak_verify_nudged: [],
     turn_started_ts: 0,
   };
@@ -330,10 +325,6 @@ export function readNudgeState(cwd: string): NudgeSessionState {
       verify_soft_count:
         typeof parsed.verify_soft_count === "number"
           ? parsed.verify_soft_count
-          : 0,
-      verify_block_count:
-        typeof parsed.verify_block_count === "number"
-          ? parsed.verify_block_count
           : 0,
       weak_verify_nudged: Array.isArray(parsed.weak_verify_nudged)
         ? parsed.weak_verify_nudged.filter((s) => typeof s === "string")

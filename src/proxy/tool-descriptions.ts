@@ -17,11 +17,12 @@
  *   unlocked — richer description shown for tier 2/3 tools after their
  *              unlock condition fires. Budget cap: 60 tokens.
  *
- * Module-load-time validation asserts every entry meets its budget. A new
- * description that exceeds the cap fails import and is caught by the CI gate.
+ * Call `await validateAllToolDescriptions()` once (proxy startup, the CI
+ * gate, or a test's setup) to assert every entry meets its budget. A new
+ * description that exceeds the cap throws and is caught by the CI gate.
  */
 
-import { type BudgetKey, enforceBudget } from "./tool-budget.js";
+import { type BudgetKey, enforceBudget, warmTokenizer } from "./tool-budget.js";
 
 export type ToolTier = 1 | 2 | 3;
 export type DescriptionState = "active" | "locked" | "unlocked";
@@ -48,20 +49,35 @@ export interface TierEntry {
 
 /**
  * The MCP catalog — the tools the model sees in `tools/list`:
- *   search_code, file_outline, file_read, file_edit,
- *   get_references, fetch_url, unerr_track.
+ *   search_code, file_read, file_edit, get_references, fetch_url.
+ *
+ * `file_outline` is demoted (`hidden: true`, 2026-07): its structural view is
+ * now a mode of file_read (`file_read({file_path, outline:true})`), so its own
+ * schema no longer rides `tools/list`. It stays a full catalog member (tier 1,
+ * dispatchable by name, validated, family-tagged) and `buildFileOutline`
+ * remains a direct internal import.
+ *
+ * `get_references` moved to tier 2 (2026-07): the everyday "who calls this"
+ * need is served by file_read entity mode (top-10 callers) and the file_edit
+ * response's at-risk-caller line, so get_references is the deep escalation —
+ * it stays advertised but shows a locked placeholder until an edit is attempted
+ * or a fan_in ≥ 5 entity is observed (see UNLOCK_CONDITIONS in tool-tiers.ts).
+ *
+ * `unerr_track` and the mark_* marker tools were removed entirely (2026-07):
+ * journaling is served exclusively by the zero-round-trip Stop-hook text
+ * lines (`unerr journal - goal/decided/stuck/fixed`) — there is no MCP write
+ * surface for it any more, catalog member or not.
  *
  * Everything else the proxy can dispatch is NOT a catalog member. Those names
- * (get_entity, get_conventions, unerr_context, mark_*, get_imports,
+ * (get_entity, get_conventions, unerr_context, get_imports,
  * unerr_turn_summary) stay reachable ONLY by name — the
  * proxy's by-name dispatch switch matches them regardless of catalog
- * membership — because a Claude Code lifecycle hook (UDS `tools/call`), the
- * `unerr_track` op-union, a task-shaped `search_code` (which re-targets to the
- * `unerr_context` recon composite), or an
- * `unerr exec`/`unerr review` CLI calls them internally. They are absent from
- * `tools/list`, so no agent ever sees them and they cost zero context. Their
- * required-field validation lives where the caller is: `unerr_track` validates
- * its own ops (runBoundaryValidation no-ops for any name not in TOOL_DEFINITIONS).
+ * membership — because a Claude Code lifecycle hook (UDS `tools/call`), a
+ * task-shaped `search_code` (which re-targets to the `unerr_context` recon
+ * composite), or an `unerr exec`/`unerr review` CLI calls them internally.
+ * They are absent from `tools/list`, so no agent ever sees them and they cost
+ * zero context. Their required-field validation lives where the caller is
+ * (runBoundaryValidation no-ops for any name not in TOOL_DEFINITIONS).
  * Full rationale: `.internal/archive/TOKEN_ECONOMICS_AND_SAVINGS.md` §10.
  *
  * Tier numbers (1/2/3) remain on each entry for the unlock/description
@@ -81,8 +97,13 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
       "Find code by name OR task. A bare symbol ('QueryRouter.dispatch') → ranked matches, <5ms. A task phrase ('where is retry handled') → a recon bundle: focus body + callers (blast radius) + entities + conventions in ONE call, skipping the fan-out. detail:true → ONE entity profile; include_body adds source; want:['callers','callees','imports'] attaches refs.",
     locked: "[tier 1 — always exposed]",
   },
+  // file_outline demoted (`hidden: true`, 2026-07): its structural view is now
+  // a mode of file_read (`file_read({file_path, outline:true})`), which calls
+  // `buildFileOutline` internally. It stays a full catalog member (tier 1,
+  // dispatch, validation, family) — only dropped from the `tools/list` surface.
   file_outline: {
     tier: 1,
+    hidden: true,
     active:
       "Structural outline of a file — entities, imports, exports, line ranges. Call before reading large files; pair with file_read entity param.",
     locked: "[tier 1 — always exposed]",
@@ -90,7 +111,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   file_read: {
     tier: 1,
     active:
-      "Read a file by path, or a single function via the entity param. file_read returns the file or entity body. It does NOT auto-inject notes/conventions/drift.",
+      "Read a file as plain numbered lines: {file_path} = whole file (budget-capped); {file_path, offset, limit} = a line range; {file_path, entity} = one entity's body + its callers; {file_path, outline:true} = structural view.",
     locked: "[tier 1 — always exposed]",
   },
   file_edit: {
@@ -101,11 +122,19 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   },
   // get_entity merged into search_code({detail:true}) 2026-06 — executor
   // retained in QueryRouter, dispatched by name only (see roster above).
+  // get_references moved to tier 2 (2026-07): the everyday "who calls this" is
+  // served by file_read entity mode (top-10 callers) + the file_edit at-risk-
+  // caller line, so get_references is the deep escalation — advertised, but
+  // locked until an edit is attempted OR a fan_in ≥ 5 entity is observed
+  // (UNLOCK_CONDITIONS.get_references = C.or(C.editOrWrite(), C.fanIn(5))).
   get_references: {
-    tier: 1,
+    tier: 2,
     active:
       "Find callers or callees of an entity across the codebase. Pass direction:'callers' (default) or 'callees'. Catches indirect refs grep misses.",
-    locked: "[tier 1 — always exposed]",
+    locked:
+      "[locked, unlock: edit or fan_in ≥ 5 entity] deep caller/callee graph beyond file_read's top-10 callers.",
+    unlocked:
+      "Full caller or callee list for an entity. direction:'callers' (default) or 'callees'. include_text_occurrences:true adds string/config/comment hits for a rename. Catches indirect refs grep misses.",
   },
   fetch_url: {
     tier: 1,
@@ -114,24 +143,17 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
     locked: "[tier 1 — always exposed]",
   },
   // unerr_remember left the catalog (2026-06): user-fed rules are captured by
-  // the UserPromptSubmit hook (remember-client.ts), agent notes ride the
-  // `unerr journal -` Stop-hook sentinel (sentinel-persist.ts). Both hook clients
-  // dispatch it BY NAME over UDS tools/call — see the by-name roster above.
+  // the UserPromptSubmit hook (remember-client.ts), which dispatches it BY NAME
+  // over UDS tools/call — see the by-name roster above. Agent notes ride the
+  // `unerr journal -` Stop-hook text lines instead — no MCP tool, no dispatch.
   // unerr_context merged into search_code (2026-06): a task-shaped search_code
   // query now returns the recon bundle. The handler (handleUnerrContextProxy)
   // is retained and dispatched BY NAME over UDS for the recall path and the
   // `unerr recon` CLI — same de-advertise pattern as get_entity/unerr_remember.
-
-  // ── unerr_track — session markers (op-union) ───────────────────────────
-  unerr_track: {
-    tier: 3,
-    active:
-      "Track a dated journal entry for this session in one call. op:'intent' REQUIRED first on coding tasks. op ∈ intent/decision/blocker/resolution. Powers resume strip + cross-session timeline.",
-    locked:
-      "[locked, unlock: first non-trivial action] Track a session marker: op:'intent' first on coding tasks.",
-    unlocked:
-      "Track a dated journal entry. op:'intent'|'decision'|'blocker'|'resolution'. intent REQUIRED first on coding tasks; blocker returns marker_id for op:'resolution'.",
-  },
+  // unerr_track and the mark_* marker tools were removed entirely (the unerr
+  // journal subsystem is served by the zero-round-trip Stop-hook text lines,
+  // `unerr journal - goal/decided/stuck/fixed`) — no catalog entry, no
+  // dispatch, no family membership.
 };
 
 /**
@@ -260,11 +282,11 @@ export function advertisedToolNames(): readonly string[] {
 }
 
 /**
- * The demoted tool names — in the catalog, never advertised. After the
- * token-overhead deletion the catalog is exactly the 7 advertised tools, so
- * this returns `[]`. Kept (rather than inlined to a constant) so the
- * advertisement/validation split stays a single, testable partition: if a
- * future tool is ever marked `hidden`, every consumer already honours it.
+ * The demoted tool names — in the catalog, never advertised. Currently
+ * `["file_outline"]` (folded into file_read outline mode, demoted 2026-07).
+ * Kept (rather than inlined to a constant) so the advertisement/validation
+ * split stays a single, testable partition: any future tool marked `hidden`
+ * is honoured by every consumer automatically.
  */
 export function hiddenToolNames(): readonly string[] {
   return selectHidden(TIER_ENTRIES);
@@ -289,25 +311,30 @@ export function statesToValidate(
   ];
 }
 
-// ── Module-load-time validation ───────────────────────────────────────────
+// ── Explicit validation ────────────────────────────────────────────────────
 //
-// Every (tool, state) pair is validated against its budget right now. A
-// description that exceeds its cap fails import — which fails build, tests,
-// CI, and runtime. The CI gate (scripts/check-tool-budget.ts) runs the same
-// validation explicitly so failures surface with a clean tabular report.
+// Every (tool, state) pair is validated against its budget. A description
+// that exceeds its cap throws — callers are the proxy startup path, the CI
+// gate (scripts/check-tool-budget.ts), and any test that used to rely on
+// module-load-time validation. Not run at import time: `warmTokenizer()`
+// loads `gpt-tokenizer`, which must not pay its cost on every `unerr`
+// invocation, only when validation is actually requested.
 //
 // Additionally, we assert that every tier 2/3 entry has an `unlocked` field
 // (it is optional in the type to allow tier 1 entries to omit it cleanly).
 
-for (const [name, entry] of Object.entries(TIER_ENTRIES)) {
-  enforceBudget(name, entry.active, "tier1Active");
-  if (entry.tier !== 1) {
-    enforceBudget(name, entry.locked, "locked");
-    if (!entry.unlocked) {
-      throw new Error(
-        `Tool "${name}" is tier ${entry.tier} but has no 'unlocked' description.`
-      );
+export async function validateAllToolDescriptions(): Promise<void> {
+  await warmTokenizer();
+  for (const [name, entry] of Object.entries(TIER_ENTRIES)) {
+    enforceBudget(name, entry.active, "tier1Active");
+    if (entry.tier !== 1) {
+      enforceBudget(name, entry.locked, "locked");
+      if (!entry.unlocked) {
+        throw new Error(
+          `Tool "${name}" is tier ${entry.tier} but has no 'unlocked' description.`
+        );
+      }
+      enforceBudget(name, entry.unlocked, "unlockedExtended");
     }
-    enforceBudget(name, entry.unlocked, "unlockedExtended");
   }
 }

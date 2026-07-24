@@ -80,33 +80,22 @@ export interface FetchUrlOk {
   final_url: string;
   title: string;
   /**
-   * OG / article:* / dc:* metadata pulled from raw HTML. Null when the
-   * source doesn't ship the corresponding tag. Use for agent-side dating,
-   * cross-doc correlation, and provenance display.
+   * OG / article:* / dc:* metadata pulled from raw HTML. Present ONLY when
+   * the source ships the corresponding tag — omitted (not `null`) when
+   * absent, so a page without provenance costs zero wire bytes. Use for
+   * agent-side dating, cross-doc correlation, and provenance display.
    */
-  published_at: string | null;
-  author: string | null;
-  site_name: string | null;
+  published_at?: string;
+  author?: string;
+  site_name?: string;
   word_count: number;
   passages: Array<{
     index: number;
     heading: string | null;
     text: string;
   }>;
+  /** Total passages available; `> passages.length` signals more via offset. */
   total: number;
-  /**
-   * Per-call quality signals. The agent inspects this to decide whether a
-   * retry-with-prompt would help (low `word_count` + `playwright_rescued:false`
-   * usually means "page is short, no point retrying").
-   */
-  quality: {
-    playwright_rescued: boolean;
-    /**
-     * True when extraction recovered more text than the raw byte counter
-     * counted (SPA hydration). The compression metric was unreliable for this page.
-     */
-    inflated: boolean;
-  };
 }
 
 export interface FetchUrlBlocked {
@@ -923,9 +912,14 @@ function stripFetchUrlWireNoise(r: FetchUrlOkInternal): FetchUrlOk {
     result_status: r.result_status,
     final_url: r.final_url,
     title: r.title,
-    published_at: r.published_at,
-    author: r.author,
-    site_name: r.site_name,
+    // Provenance only when the source actually shipped it — three `:null`
+    // fields on every fetch are pure billed noise. `quality` (playwright/
+    // inflated diagnostics) is dropped entirely: it is the fetch analogue of
+    // a confidence score the agent never acts on. Both stay on the internal
+    // shape for batch aggregation + telemetry; this is the wire boundary.
+    ...(r.published_at != null ? { published_at: r.published_at } : {}),
+    ...(r.author != null ? { author: r.author } : {}),
+    ...(r.site_name != null ? { site_name: r.site_name } : {}),
     word_count: r.word_count,
     passages: r.passages.map((p) => ({
       index: p.index,
@@ -933,10 +927,6 @@ function stripFetchUrlWireNoise(r: FetchUrlOkInternal): FetchUrlOk {
       text: p.text,
     })),
     total: r.total,
-    quality: {
-      playwright_rescued: r.quality.playwright_rescued,
-      inflated: r.quality.inflated,
-    },
   };
 }
 

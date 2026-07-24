@@ -47,8 +47,8 @@ describe("T3.4 — cross-session marker stitching", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("surfaces last mark_intent + unresolved mark_blocker from prior session", () => {
-    // Agent A's session writes both markers; resolution never lands.
+  it("surfaces last mark_intent from prior session", () => {
+    // Agent A's session writes a prior-session intent marker.
     const ledger = [
       {
         id: "intent-1",
@@ -56,13 +56,6 @@ describe("T3.4 — cross-session marker stitching", () => {
         tool: "mark_intent",
         session_id: "sess-A",
         args_summary: { text: "foo" },
-      },
-      {
-        id: "blocker-1",
-        ts: "2026-05-22T10:05:00.000Z",
-        tool: "mark_blocker",
-        session_id: "sess-A",
-        args_summary: { text: "bar" },
       },
     ];
     writeFileSync(
@@ -82,7 +75,6 @@ describe("T3.4 — cross-session marker stitching", () => {
     };
     const ctx = out.hookSpecificOutput?.additionalContext ?? "";
     expect(ctx).toContain("picking up: foo");
-    expect(ctx).toContain("bar");
   });
 
   it("does not surface markers from the current session", () => {

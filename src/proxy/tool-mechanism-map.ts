@@ -61,27 +61,25 @@ export interface MechanismEntry {
 }
 
 /**
- * The verdict for every tool in TIER_ENTRIES — now exactly the 9 advertised
+ * The verdict for every tool in TIER_ENTRIES — now exactly the advertised
  * survivors (the Phase-2 migration is complete; the removed names are no
  * longer catalog members, so the drift guard would reject a verdict for them).
  *
- * Survivors (mechanism "mcp", 7) are the interactive reads/edits the model
- * drives:
- *   unerr_context, search_code, file_read, file_outline,
- *   get_references, fetch_url, file_edit.
+ * Survivors (mechanism "mcp") are the interactive reads/edits the model
+ * drives: search_code, file_read, file_outline, get_references, fetch_url,
+ * file_edit.
  * file_edit is interactive: the model needs the apply result (replaced count /
  * staleness reject / written bytes) back this turn to decide its next move, so
  * it is MCP, not a hook.
- * The one advertised write-via-marker (unerr_track) is mechanism "hook" — it
- * rides lifecycle hooks for hook-capable agents and stays advertised as the MCP
- * escape for hook-less ones.
  *
  * The capabilities that USED to be catalog tools (get_entity — merged into
- * search_code({detail:true}) 2026-06 — mark_*, record_fact,
+ * search_code({detail:true}) 2026-06 — mark_*, unerr_track, record_fact,
  * recall_facts, get_conventions, get_imports, unerr_turn_summary)
- * are gone from the catalog. They remain reachable only by-name — via a hook's
- * UDS `tools/call`, the unerr_track op-union, the unerr_context composite, or an
- * `unerr exec`/`unerr review`/`unerr stats` CLI — so they need no verdict here.
+ * are gone from the catalog entirely. Journaling now rides the Stop-hook
+ * `unerr journal -` text lines only — there is no MCP or hook write path left
+ * to verdict here. Remaining removed capabilities stay reachable only by-name
+ * — via a hook's UDS `tools/call`, the unerr_context composite, or an
+ * `unerr exec`/`unerr review`/`unerr stats` CLI.
  */
 export const TOOL_MECHANISM: Readonly<Record<string, MechanismEntry>> = {
   // ── Survivors — interactive reads (need a payload this turn) ────────────
@@ -118,17 +116,10 @@ export const TOOL_MECHANISM: Readonly<Record<string, MechanismEntry>> = {
   },
 
   // ── Writes → hooks (fire-and-forget; needed next turn, not this one) ─────
-  // unerr_remember left the catalog (2026-06) and carries no verdict: user
-  // rules are captured at UserPromptSubmit (remember-client.ts), agent notes
-  // ride the `unerr journal -` Stop-hook sentinel (sentinel-persist.ts). Both
-  // clients dispatch it by name over UDS, like the other by-name-only tools.
-  unerr_track: {
-    mechanism: "hook",
-    hookEvents: ["UserPromptSubmit", "Stop", "PostToolUse"],
-    mcpFallback: true,
-    rationale:
-      "Op-union over the marker+fact writes; each op rides its constituent's hook (intent→UserPromptSubmit; decision/blocker/resolution/fact→Stop; recall→PostToolUse). The single consolidated MCP write surface for hook-less agents.",
-  },
+  // unerr_remember and unerr_track (the mark_* op-union) both left the
+  // catalog: user rules are captured at UserPromptSubmit (remember-client.ts),
+  // agent notes ride the `unerr journal -` Stop-hook text lines only. Neither
+  // carries a verdict here — there is no MCP write surface for journaling.
 };
 
 /** Mechanism verdict for a tool. Throws on unknown name (caller bug). */
@@ -196,8 +187,8 @@ export function fallbackMcpCatalog(): readonly string[] {
 
   // Merged targets must themselves survive — you can't fold into a tool that's
   // also being removed. A survivor is an mcp read OR a hook tool that keeps an
-  // MCP fallback (e.g. a marker write folding into unerr_track, which lives on
-  // a hook but stays addressable over MCP).
+  // MCP fallback (a write that rides a hook but stays addressable over MCP for
+  // hook-less agents).
   for (const [name, entry] of Object.entries(TOOL_MECHANISM)) {
     if (entry.mechanism === "merged") {
       const target = entry.mergedInto;

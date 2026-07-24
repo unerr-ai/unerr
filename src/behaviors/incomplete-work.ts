@@ -108,7 +108,7 @@ export class IncompleteWorkDetector extends Behavior {
     const summary =
       highCount > 0
         ? `${highCount} item(s) will cause immediate errors. Fix before committing.`
-        : `${items.length} potential issue(s) detected. Review before your next session.`;
+        : `${items.length} potential issue(s) detected. Read them before the next session.`;
 
     const persisted = this.persistItems(items);
 

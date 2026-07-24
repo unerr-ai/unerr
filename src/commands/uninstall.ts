@@ -25,7 +25,6 @@ import {
   getAgent,
   normalizeAgentName,
 } from "../config/agent-registry.js";
-import { writeAutonomousMode } from "../config/autonomous-mode.js";
 import {
   removeAgentToolAllows,
   removeDisallowedTools,
@@ -37,13 +36,50 @@ import { removeMcpConfig } from "../config/mcp-config-writer.js";
 import { loadSettings } from "../config/settings.js";
 import { DEFAULT_SENTINEL_TOKENS } from "../intelligence/semantic/docstring-extractor.js";
 import { stripAnnotationsFromRepo } from "../intelligence/semantic/strip-annotations.js";
-import {
-  VERIFIER_AGENT_RELPATH,
-  removeJuniorSubagent,
-} from "../skills/junior-agent.js";
+import { removeJuniorSubagent } from "../skills/junior-agent.js";
 import { removeInstalledSkills } from "../skills/resolver.js";
-import { uninstallReviewGateHooks } from "../tracking/review-gate-hooks.js";
 import type { IdeType } from "../utils/detect.js";
+
+/** Marker the now-removed review-gate hook installer used (`review-gate-hooks.ts`). */
+const REVIEW_GATE_HOOK_MARKER = "# unerr-review-gate";
+
+/**
+ * Best-effort migration sweep: `unerr check-commit` (the git pre-commit/post-commit
+ * gate command) no longer exists, so a hook installed by the old review-gate
+ * installer would otherwise block every future commit. Delete the file when
+ * it's entirely ours (only a shebang precedes the marker), or strip our
+ * section when the user's hook has other content. Never throws.
+ */
+function sweepReviewGateHook(hookPath: string): void {
+  if (!existsSync(hookPath)) return;
+  try {
+    const content = readFileSync(hookPath, "utf-8");
+    if (
+      !content.includes(REVIEW_GATE_HOOK_MARKER) &&
+      !content.includes("unerr check-commit")
+    ) {
+      return; // not ours — leave it
+    }
+    const markerIdx = content.includes(REVIEW_GATE_HOOK_MARKER)
+      ? content.indexOf(REVIEW_GATE_HOOK_MARKER)
+      : content.indexOf("unerr check-commit");
+    const before = content.slice(0, markerIdx).trimEnd();
+    const beforeLines = before.split("\n").filter((l) => l.trim().length > 0);
+    if (beforeLines.length <= 1 && (beforeLines[0]?.startsWith("#!") ?? true)) {
+      unlinkSync(hookPath);
+      return;
+    }
+    writeFileSync(hookPath, `${before}\n`, { mode: 0o755 });
+  } catch {
+    /* best effort */
+  }
+}
+
+/** Remove any pre-commit/post-commit hook left by the removed review-gate installer. */
+function sweepReviewGateHooks(projectRoot: string): void {
+  sweepReviewGateHook(join(projectRoot, ".git", "hooks", "pre-commit"));
+  sweepReviewGateHook(join(projectRoot, ".git", "hooks", "post-commit"));
+}
 
 interface UninstallResult {
   mcpRemoved: boolean;
@@ -212,25 +248,21 @@ function runUninstall(cwd: string, ide: IdeType): UninstallResult {
     // Non-blocking
   }
 
-  // 2b. Remove the delegation sub-agent files (Lever C, Claude Code only),
-  //     the manual-only verifier agent, and clear the persisted autonomous
-  //     flag — a plain uninstall always returns the repo to interactive mode.
+  // 2b. Remove the delegation sub-agent files (Lever C, Claude Code only).
   if (ide === "claude-code") {
     try {
       removeJuniorSubagent(cwd);
     } catch {
       // Non-blocking
     }
+    // Sweep a stale reviewer sub-agent file left by a prior install — the
+    // reviewer surface (junior-agent.ts REVIEWER_* scaffolding) was removed,
+    // so the path is inlined here rather than imported.
     try {
-      const verifierPath = join(cwd, VERIFIER_AGENT_RELPATH);
-      if (existsSync(verifierPath)) {
-        rmSync(verifierPath, { force: true });
+      const reviewerPath = join(cwd, ".claude/agents/unerr-reviewer.md");
+      if (existsSync(reviewerPath)) {
+        rmSync(reviewerPath, { force: true });
       }
-    } catch {
-      // Non-blocking
-    }
-    try {
-      writeAutonomousMode(cwd, false);
     } catch {
       // Non-blocking
     }
@@ -424,9 +456,10 @@ function runUninstallAll(cwd: string): void {
       results.push("Restored disallowed built-in tools");
   }
 
-  // Review-gate git hooks are agent-independent (opt-in, shared) — remove them
-  // on a full uninstall regardless of which agents were configured.
-  uninstallReviewGateHooks(cwd);
+  // Review-gate git hooks are agent-independent (opt-in, shared) — sweep any
+  // left by the now-removed review-gate installer regardless of which agents
+  // were configured, so a stale hook never blocks a future commit.
+  sweepReviewGateHooks(cwd);
 
   if (results.length === 0) {
     process.stderr.write("[unerr] Nothing to uninstall — no configs found.\n");

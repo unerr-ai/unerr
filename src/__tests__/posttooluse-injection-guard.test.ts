@@ -50,7 +50,7 @@ describe("PostToolUse per-tool injection guard (§11.6)", () => {
     ).toEqual([]);
   });
 
-  describe("behavioral: grep/glob nudges fire once per session then gate", () => {
+  describe("behavioral: grep/glob post-hooks always pass through (nudges cut)", () => {
     let prevCwd: string;
     let savedSession: string | undefined;
 
@@ -91,21 +91,21 @@ describe("PostToolUse per-tool injection guard (§11.6)", () => {
       else process.env[SESSION] = savedSession;
     });
 
-    it("Grep: first call enriches, second passes through", () => {
+    it("Grep: every call passes through — the pre-grep hook + instruction file already cover it", () => {
       const mk = (p: string) =>
         JSON.stringify({ tool_name: "Grep", tool_input: { pattern: p } });
       const first = readCtx(runPostGrepHook(mk("fooBar")));
       const second = readCtx(runPostGrepHook(mk("bazQux")));
-      expect(first).toContain("get_references");
+      expect(first).toBe("");
       expect(second).toBe("");
     });
 
-    it("Glob: first call enriches, second passes through", () => {
+    it("Glob: every call passes through — the instruction file already covers it", () => {
       const mk = () =>
         JSON.stringify({ tool_name: "Glob", tool_input: { pattern: "*.ts" } });
       const first = readCtx(runPostGlobHook(mk()));
       const second = readCtx(runPostGlobHook(mk()));
-      expect(first).toContain("file_outline");
+      expect(first).toBe("");
       expect(second).toBe("");
     });
   });
