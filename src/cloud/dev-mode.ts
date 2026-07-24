@@ -37,7 +37,6 @@
  * `process.env.UNERR_API_URL` (which `resolveApiUrl` already honors) and writes
  * the entitlement cache the verifier already reads — both before cloud boot.
  *
- * @sem domain=dev-tooling role=config-loader
  */
 
 import { createPrivateKey, generateKeyPairSync, sign } from "node:crypto";

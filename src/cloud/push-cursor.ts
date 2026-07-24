@@ -51,7 +51,6 @@ interface CursorFile {
  * `.unerr/state/push-cursor.json`. Mutations are in-memory; call `save()` once
  * per drain tick after advancing the streams that succeeded.
  *
- * // @sem domain=cloud role=cursor
  */
 export class PushCursor {
   private readonly file: string;
@@ -68,7 +67,6 @@ export class PushCursor {
    * server's per-row dedup collapses, so a lost cursor costs bandwidth, never
    * correctness.
    *
-   * // @sem domain=cloud role=cursor
    */
   static async open(unerrDir: string): Promise<PushCursor> {
     const file = cursorPath(unerrDir);
@@ -98,7 +96,6 @@ export class PushCursor {
    * in `pos` move, so a row-id stream and a line-index stream each touch their
    * own field; the dead-letter tally is preserved.
    *
-   * // @sem domain=cloud role=cursor
    */
   advance(streamKey: string, pos: CursorPos): void {
     const prev = this.streams[streamKey] ?? {};
@@ -138,7 +135,6 @@ export class PushCursor {
    * the real one (rename is atomic on the same filesystem), so a crash leaves
    * either the old watermark or the new one — never a half-written file.
    *
-   * // @sem domain=cloud role=cursor
    */
   async save(): Promise<void> {
     const data: CursorFile = { version: 1, streams: this.streams };

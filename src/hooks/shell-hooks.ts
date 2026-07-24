@@ -76,7 +76,6 @@ export function runPreBashHook(stdinJson: string): string {
  * Stop hook can tell whether this turn's edits were verified. Never throws —
  * any failure degrades to passthrough.
  *
- * @sem domain=agent-hooks role=verify-gate
  */
 const postBashHandler: HookHandler = (normalized) => {
   try {

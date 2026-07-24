@@ -15,7 +15,6 @@
  * subprocess has no live writer, so each producer builds a short-lived
  * BehaviorEventWriter — the same pattern the cross-agent meter uses.
  *
- * @sem domain=tracking role=producer
  */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

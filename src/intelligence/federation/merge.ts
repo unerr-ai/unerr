@@ -5,7 +5,6 @@
  * the array shape (`search_code`) and the `{references}` shape (`get_references`);
  * any other shape passes the home result through untouched (no silent reshape).
  *
- * @sem domain=intelligence
  */
 
 /** One peer's contribution to a workspace merge, tagged with its identity. */
@@ -98,7 +97,6 @@ function mergeReferences(
  * Dispatches on the home result's shape (the peer shapes match — every repo ran
  * the same tool). Unknown shapes return the home result unchanged.
  *
- * @sem domain=intelligence role=merge
  */
 export function mergeWorkspaceResults(
   _toolName: string,

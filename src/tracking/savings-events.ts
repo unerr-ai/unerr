@@ -12,7 +12,6 @@
  * `SavingsEvent` contract record is the additive wire shape (landed per the
  * cross-repo change order — contract repo first, then the submodule bump).
  *
- * @sem domain=tracking role=event-emitter
  */
 
 import type { BehaviorEventInput } from "./behavior-events.js";
@@ -52,7 +51,6 @@ export type SavingsEventKind =
   | "cross_repo_yielded_unregistered" // Issue 1: sibling not registered → yielded
   // ── leak ─────────────────────────────────────────────────────────────
   | "code_grep_unredirected" // Issue 2: a code grep leaked to bash
-  | "subtasks_serialized_by_master" // Issue 5: master did mundane work itself
   | "reread_due_to_budget" // Issue 4b/D3: read-small-then-re-read waste
   | "one_shot_refire_detected"; // Issue 6: a one-shot nudge re-fired
 
@@ -76,7 +74,6 @@ export const KIND_CATEGORY: Record<SavingsEventKind, SavingsEventCategory> = {
   cross_repo_yielded_free: "routing",
   cross_repo_yielded_unregistered: "routing",
   code_grep_unredirected: "leak",
-  subtasks_serialized_by_master: "leak",
   reread_due_to_budget: "leak",
   one_shot_refire_detected: "leak",
 };

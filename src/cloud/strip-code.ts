@@ -63,7 +63,6 @@ function trimLineEnds(text: string): string {
  * scrubs inline backtick spans and long unbroken token runs inside surviving
  * prose. Mirroring the server is what stops a code-bearing row being dropped.
  */
-// @sem domain=cloud role=privacy
 export function stripCodeFromText(text: string): string {
   if (text.length === 0) return "";
 
@@ -131,7 +130,6 @@ export function stripCodeFromText(text: string): string {
  * block, or a >= 60-char token run) after stripping, used by callers as a
  * tripwire before pushing a reasoning trace to the cloud.
  */
-// @sem domain=cloud role=privacy
 export function looksLikeCode(text: string): boolean {
   if (FENCE_OPENER.test(text)) return true;
   if (new RegExp(`\\S{${LONG_TOKEN_THRESHOLD},}`).test(text)) return true;

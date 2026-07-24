@@ -12,11 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  installClaudeHook,
-  isClaudeHookInstalled,
-  removeClaudeHook,
-} from "../config/hook-installer.js";
+import { removeClaudeHook } from "../config/hook-installer.js";
 import {
   isConfigured,
   removeMcpConfig,
@@ -99,33 +95,19 @@ describe("MCP Config Writer (R.3 + R.7)", () => {
   });
 });
 
-describe("Hook Installer (R.4)", () => {
-  it("installs Claude hook with correct permissions", () => {
-    const result = installClaudeHook(tempDir);
-    expect(result.action).toBe("installed");
-    expect(existsSync(result.path)).toBe(true);
-
-    const content = readFileSync(result.path, "utf-8");
-    expect(content).toContain("#!/bin/bash");
-    expect(content).toContain("compress-output");
-  });
-
-  it("reports already_exists on second install", () => {
-    installClaudeHook(tempDir);
-    const result = installClaudeHook(tempDir);
-    expect(result.action).toBe("already_exists");
-  });
-
-  it("isClaudeHookInstalled returns correct state", () => {
-    expect(isClaudeHookInstalled(tempDir)).toBe(false);
-    installClaudeHook(tempDir);
-    expect(isClaudeHookInstalled(tempDir)).toBe(true);
-  });
-
+describe("Hook Installer (R.4 legacy sweep)", () => {
   it("removeClaudeHook removes the hook", () => {
-    installClaudeHook(tempDir);
+    const hooksDir = join(tempDir, ".claude", "hooks");
+    const hookPath = join(hooksDir, "PostToolUse.sh");
+    mkdirSync(hooksDir, { recursive: true });
+    writeFileSync(hookPath, "#!/bin/bash\necho legacy\n", "utf-8");
+
     const removed = removeClaudeHook(tempDir);
     expect(removed).toBe(true);
-    expect(isClaudeHookInstalled(tempDir)).toBe(false);
+    expect(existsSync(hookPath)).toBe(false);
+  });
+
+  it("removeClaudeHook returns false when no hook exists", () => {
+    expect(removeClaudeHook(tempDir)).toBe(false);
   });
 });

@@ -51,32 +51,14 @@ export const FetchUrlConfigSchema = z.object({
 
 export type FetchUrlConfig = z.infer<typeof FetchUrlConfigSchema>;
 
-/**
- * Layer 8 comment-contract config (`comments.*` keys).
- * See .internal/archive/LAYER_8_DOMAIN_UNDERSTANDING.md §2.1.1.
- */
+/** Comment-handling config (`comments.*` keys). */
 export const CommentsConfigSchema = z.object({
   /**
-   * Sentinel token(s) recognized inside doc comments. Vendor-neutral default
-   * (`@sem`); teams alias their own token here. Empty list disables sentinel
-   * parsing entirely.
-   */
-  sentinel: z.array(z.string().min(1)).default(["@sem"]),
-  /**
-   * Whether the instruction-writer injects the §2.4 maintenance-contract
-   * section (the agent maintains `@sem` comments in the same edit). Default
-   * on; `comments.maintain false` removes the section on next `install` —
-   * harvest, path inference, and propagation still populate the domain graph
-   * read-only. See .internal/archive/LAYER_8_DOMAIN_UNDERSTANDING.md §2.4.
-   */
-  maintain: z.boolean().default(true),
-  /**
-   * Sprint SC-E.2: elide non-sentinel comment prose from `file_read` explore
-   * windows to save tokens (the code + `@sem` anchors stay; comment-only lines
-   * collapse to a `…` marker, line numbers preserved). Default OFF — gated on a
-   * fidelity benchmark over the frozen corpus before it can default on, since
-   * removing comments can cost the agent context. See
-   * .internal/archive/LAYER_8_DOMAIN_UNDERSTANDING.md §E.2.
+   * Sprint SC-E.2: elide comment prose from `file_read` explore windows to
+   * save tokens (the code stays; comment-only lines collapse to a `…` marker,
+   * line numbers preserved). Default OFF — gated on a fidelity benchmark over
+   * the frozen corpus before it can default on, since removing comments can
+   * cost the agent context.
    */
   elide: z.boolean().default(false),
 });
@@ -124,10 +106,8 @@ export const SettingsSchema = z.object({
   verbose: z.boolean().default(false),
   /** AI SDK LLM configuration (Sprint D — unified multi-provider) */
   llm: LlmConfigSchema.optional(),
-  /** Layer 8 comment-contract config (sentinel token aliases, etc.) */
+  /** Comment-handling config (file_read comment elision) */
   comments: CommentsConfigSchema.default(() => ({
-    sentinel: ["@sem"],
-    maintain: true,
     elide: false,
   })),
   /** fetch_url runtime config (Playwright SPA fallback, etc.) */

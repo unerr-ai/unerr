@@ -14,15 +14,7 @@ import {
 import type { ParsedDocComment } from "../intelligence/semantic/docstring-extractor.js";
 
 function parsed(overrides: Partial<ParsedDocComment>): ParsedDocComment {
-  return { prose: null, sentinel: null, tags: [], ...overrides };
-}
-
-function sentinel(
-  pairs: Record<string, string>,
-  lineLength = 40,
-  stackedCount = 1
-) {
-  return { pairs, invalidPairs: [], lineLength, stackedCount };
+  return { prose: null, tags: [], ...overrides };
 }
 
 describe("Annotation gates (SC-A.4)", () => {
@@ -31,14 +23,18 @@ describe("Annotation gates (SC-A.4)", () => {
       parsed({
         prose:
           "Validates a session token against the active key set — the auth boundary every inbound call funnels through.",
-        sentinel: sentinel({ domain: "auth", role: "gateway" }),
       }),
       { entityName: "validateToken" }
     );
     expect(result.summary).toContain("auth boundary");
-    expect(result.pairs).toEqual({ domain: "auth", role: "gateway" });
     expect(result.confidenceMultiplier).toBe(1.0);
-    expect(result.candidateDomain).toBeNull();
+    expect(result.rejections).toEqual([]);
+  });
+
+  it("an absent comment produces an empty summary and no rejections", () => {
+    const result = applyAnnotationGates(parsed({}), { entityName: "f" });
+    expect(result.summary).toBe("");
+    expect(result.confidenceMultiplier).toBe(1.0);
     expect(result.rejections).toEqual([]);
   });
 
@@ -63,25 +59,6 @@ describe("Annotation gates (SC-A.4)", () => {
       });
       expect(result.summary.split(/\s+/)).toHaveLength(PROSE_MAX_WORDS);
       expect(result.rejections[0]?.detail).toContain("truncated 72");
-    });
-
-    it("rejects a sentinel line over 120 chars", () => {
-      const result = applyAnnotationGates(
-        parsed({ sentinel: sentinel({ domain: "auth" }, 140) }),
-        { entityName: "f" }
-      );
-      expect(result.pairs).toEqual({});
-      expect(result.rejections[0]?.gate).toBe("length");
-      expect(result.rejections[0]?.detail).toContain("140");
-    });
-
-    it("skips prose gates entirely for a sentinel-only block", () => {
-      const result = applyAnnotationGates(
-        parsed({ sentinel: sentinel({ domain: "auth" }) }),
-        { entityName: "f" }
-      );
-      expect(result.summary).toBe("");
-      expect(result.rejections).toEqual([]);
     });
   });
 
@@ -192,45 +169,6 @@ describe("Annotation gates (SC-A.4)", () => {
       expect(result.confidenceMultiplier).toBe(
         UNKNOWN_IDENTIFIER_CONFIDENCE_MULTIPLIER
       );
-    });
-  });
-
-  describe("vocabulary gate", () => {
-    it("flags an unknown domain as candidate but keeps the pair", () => {
-      const result = applyAnnotationGates(
-        parsed({ sentinel: sentinel({ domain: "billing" }) }),
-        { entityName: "f", activeDomains: new Set(["auth", "payments"]) }
-      );
-      expect(result.pairs.domain).toBe("billing");
-      expect(result.candidateDomain).toBe("billing");
-    });
-
-    it("does not flag a domain already in the vocabulary", () => {
-      const result = applyAnnotationGates(
-        parsed({ sentinel: sentinel({ domain: "auth" }) }),
-        { entityName: "f", activeDomains: new Set(["auth"]) }
-      );
-      expect(result.candidateDomain).toBeNull();
-    });
-
-    it("skips the gate when no active set is provided", () => {
-      const result = applyAnnotationGates(
-        parsed({ sentinel: sentinel({ domain: "billing" }) }),
-        { entityName: "f" }
-      );
-      expect(result.candidateDomain).toBeNull();
-    });
-  });
-
-  describe("stacking gate", () => {
-    it("records stacked sentinel lines (first already won in the parser)", () => {
-      const result = applyAnnotationGates(
-        parsed({ sentinel: sentinel({ domain: "auth" }, 40, 3) }),
-        { entityName: "f" }
-      );
-      expect(result.pairs.domain).toBe("auth");
-      expect(result.rejections[0]?.gate).toBe("stacking");
-      expect(result.rejections[0]?.detail).toContain("3");
     });
   });
 });

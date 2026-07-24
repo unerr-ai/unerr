@@ -58,7 +58,6 @@ import {
   removeAnnotationsForKeys,
   upsertAnnotations,
 } from "./semantic/annotation-indexer.js";
-import { DEFAULT_SENTINEL_TOKENS } from "./semantic/docstring-extractor.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -134,16 +133,9 @@ export async function indexFilesIncremental(
     // so the caller can debounce a deriveDomainGraph re-derive.
     let annotationsChanged = false;
 
-    // Layer 8 SC-A.3: sentinel tokens for doc-comment annotations, and a
-    // lazily-fetched graph name set for the identifier cross-check gate
-    // (queried once per batch, only when a file actually carries a sentinel
-    // or prose doc comment).
-    let sentinelTokens: readonly string[] = DEFAULT_SENTINEL_TOKENS;
-    try {
-      sentinelTokens = loadSettings(projectRoot).comments.sentinel;
-    } catch {
-      /* settings unreadable — default token list */
-    }
+    // Lazily-fetched graph name set for the identifier cross-check gate
+    // (queried once per batch, only when a file actually carries a prose
+    // doc comment).
     let knownIdentifiers: Set<string> | null = null;
     const getKnownIdentifiers = async (): Promise<Set<string>> => {
       if (knownIdentifiers === null) {
@@ -272,11 +264,7 @@ export async function indexFilesIncremental(
           startLine: e.line_start,
           endLine: e.line_end,
         }));
-        const candidates = collectAnnotationCandidates(
-          content,
-          targets,
-          sentinelTokens
-        );
+        const candidates = collectAnnotationCandidates(content, targets);
         const annotationRows =
           candidates.length > 0
             ? gateCandidates(candidates, {
@@ -287,9 +275,7 @@ export async function indexFilesIncremental(
         // comment edit keeps the entity row alive, so it never lands in `deleted`;
         // and upsertAnnotations is tier-guarded (comment 0.95 > harvested 0.7 >
         // path 0.4 — a higher prior tier is never overwritten by a lower-or-equal
-        // new one). So a prior comment row survives both a full @sem deletion (no
         // new durable candidate → only the path floor, which the guard blocks) and
-        // a downgrade (@sem stripped, prose kept → harvested candidate, which the
         // guard also blocks). Either way a phantom domain label lingers until the
         // next full reindex. Detect any prior comment/harvested row whose tier now
         // exceeds the best current durable candidate for that entity, delete it so

@@ -6,7 +6,6 @@
  * the in-process CozoDb that CozoGraphStore holds as `this.db`; all query/write/
  * transact paths and every raw `graphStore.db.run(...)` route through here.
  *
- * @sem domain=native-binary role=db-client
  */
 import { Worker } from "node:worker_threads";
 

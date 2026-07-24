@@ -6,7 +6,6 @@
  * fan-out with per-peer timeout, a per-peer circuit breaker, and partial-result
  * degradation. Per-tool merge/ranking is the caller's job — this stays generic.
  *
- * @sem domain=intelligence
  */
 import type {
   PeerEntry,
@@ -90,7 +89,6 @@ export interface FanOutOptions {
  * keying breakers by repoId means a flapping peer is skipped machine-wide, not
  * re-probed on every query.
  *
- * @sem domain=intelligence role=coordinator
  */
 export class FederationCoordinator {
   private readonly deps: CoordinatorDeps;
@@ -298,7 +296,6 @@ export class FederationCoordinator {
  * coordinator can't import the daemon client's heavier ensure path directly
  * without risking a cycle, so the waker is injected at the call site).
  *
- * @sem domain=intelligence role=factory
  */
 export function createFederationCoordinator(wiring: {
   getPeers: CoordinatorDeps["getPeers"];

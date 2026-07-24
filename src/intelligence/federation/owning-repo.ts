@@ -6,7 +6,6 @@
  * instead of failing against the home graph. Pure and path-only (no I/O) so the
  * match logic is unit-testable without a live filesystem or daemon.
  *
- * @sem domain=intelligence
  */
 import { resolve, sep } from "node:path";
 
@@ -35,7 +34,6 @@ function isUnder(child: string, parent: string): boolean {
  * the caller then lazy-adds it (scenario 1: on disk, not yet registered) or
  * falls back to home.
  *
- * @sem domain=intelligence role=resolver
  */
 export function resolveOwningRepo(
   filePath: string,

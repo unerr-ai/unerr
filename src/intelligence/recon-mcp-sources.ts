@@ -70,7 +70,7 @@ export interface McpSourcesResult {
  * Base priority for the FIRST external source. External sources are the
  * lowest-priority sections in a recon bundle — they fill only after every
  * code ring (notes=0, bodies=1, callers=2, search=3, conventions=4,
- * domain_tags=5, vocab_nudges=6) has been placed. Each subsequent source
+ * get_conventions=3) has been placed. Each subsequent source
  * sinks one notch below the previous, preserving the agent's declared order
  * under budget pressure (the budget pass keeps lower-priority first).
  */

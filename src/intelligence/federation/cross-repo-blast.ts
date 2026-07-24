@@ -11,7 +11,6 @@
  * live, and degrades to a no-op (warnings unchanged) on free tier, with no
  * coordinator/index, or when an entity has no cross-repo moniker.
  *
- * @sem domain=intelligence role=coordinator
  */
 
 import type { CascadeWarning } from "../edit-impact.js";

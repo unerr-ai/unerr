@@ -94,7 +94,6 @@ export const PERSONAL_SCOPE_MESSAGE =
  * `personal` scope is refused; `team` and an absent scope (older server) are
  * allowed. Pure — read from the entitlements/authorize scope, no network call.
  *
- * // @sem domain=cloud role=guard
  */
 export function isPersonalScope(scope: ConventionsScope): boolean {
   return scope === "personal";
@@ -106,7 +105,6 @@ export function isPersonalScope(scope: ConventionsScope): boolean {
  * surface; both spellings are accepted. Returns `undefined` when neither field
  * is present (older server) so the guard fails open.
  *
- * // @sem domain=cloud role=guard
  */
 export function scopeFromEntitlements(
   ent: Record<string, unknown> | null | undefined
@@ -123,7 +121,6 @@ export function scopeFromEntitlements(
  * fires a guaranteed-`400` request. A `team` / unknown scope performs the PUT
  * and maps the response onto a {@link SyncOutcome}.
  *
- * // @sem domain=cloud role=guard
  */
 export async function pushTeamConventions(
   client: CloudClient,

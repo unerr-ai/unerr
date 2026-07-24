@@ -26,7 +26,6 @@ function offsetsPath(unerrDir: string): string {
  * daemon has materialized, plus the file identity it was reading and the running
  * conversational-turn counter.
  *
- * // @sem domain=tracking role=cursor
  */
 export interface TranscriptOffset {
   byteOffset: number;
@@ -45,7 +44,6 @@ interface OffsetFile {
  * `.unerr/transcripts/offsets.json`. Mutations are in-memory; call `save()`
  * once after advancing the sessions that were drained this tick.
  *
- * // @sem domain=tracking role=cursor
  */
 export class TranscriptOffsetStore {
   private readonly file: string;
@@ -65,7 +63,6 @@ export class TranscriptOffsetStore {
    * bandwidth on the next tick but never loses or duplicates materialized turns
    * (the file identity and turn counter are re-derived on read).
    *
-   * // @sem domain=tracking role=cursor
    */
   static async open(unerrDir: string): Promise<TranscriptOffsetStore> {
     const file = offsetsPath(unerrDir);
@@ -102,7 +99,6 @@ export class TranscriptOffsetStore {
    * the real one (rename is atomic on the same filesystem), so a crash leaves
    * either the old offsets or the new ones — never a half-written file.
    *
-   * // @sem domain=tracking role=cursor
    */
   async save(): Promise<void> {
     const data: OffsetFile = { version: 1, sessions: this.sessions };

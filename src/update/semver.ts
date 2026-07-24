@@ -57,7 +57,6 @@ export function compareCore(a: SemVer, b: SemVer): -1 | 0 | 1 {
  * split on ".", compare left-to-right; purely numeric identifiers compare
  * numerically and sort LOWER than alphanumeric; a longer list wins if all
  * prior identifiers are equal.
- * @sem domain=update role=compare
  */
 export function comparePrerelease(
   a: string | null,
@@ -102,7 +101,6 @@ export function comparePrerelease(
 /**
  * Full semver comparison per §11: compare core (major.minor.patch) first, then
  * break ties with comparePrerelease. Returns -1 / 0 / 1.
- * @sem domain=update role=compare
  */
 export function compareSemver(a: SemVer, b: SemVer): -1 | 0 | 1 {
   const core = compareCore(a, b);

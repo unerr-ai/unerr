@@ -7,7 +7,6 @@
  * dependency-free and unit-testable without entitlement files, and lets the
  * same primitive serve Pro/Team by reading their server-sent numbers.
  *
- * @sem domain=billing role=policy
  */
 
 import { isUnlimited } from "./tier-model.js";

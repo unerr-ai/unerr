@@ -15,7 +15,6 @@
  * one-shot state (`nudge-state.ts`) stay where they are; this module documents
  * them as the shared inputs callers feed in.
  *
- * @sem domain=hooks role=policy
  */
 
 /** Marker that separates the cacheable stable head from the per-turn tail. */

@@ -11,7 +11,6 @@
  * In-place signature drift (same moniker, changed parameters) is out of scope
  * here — that needs a stored peer-def snapshot, deferred in the plan doc.
  *
- * @sem domain=federation role=detector
  */
 
 import type { FederationCoordinator } from "./coordinator.js";

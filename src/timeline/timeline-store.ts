@@ -285,7 +285,6 @@ export interface SignalReinforcementRow {
  * the blocking situation, what paths were tried (dead_ends), and the fix
  * (unlock) anchored to the code location so symptom-match retrieval can surface
  * it on a future similar task.
- * @sem domain=intelligence
  */
 export interface TraceRow {
   trace_id: string;
@@ -583,7 +582,6 @@ export class CozoTimelineStore {
 
   /**
    * Insert a trajectory trace synthesized from a blocker→resolution pair.
-   * @sem domain=intelligence
    */
   async insertTrace(trace: TraceRow): Promise<void> {
     await this.db.run(
@@ -601,7 +599,6 @@ export class CozoTimelineStore {
   /**
    * Insert situation tokens into the inverted trace_tokens index.
    * One row per token — idempotent via :put.
-   * @sem domain=intelligence
    */
   async insertTraceTokens(traceId: string, tokens: string[]): Promise<void> {
     if (tokens.length === 0) return;
@@ -618,7 +615,6 @@ export class CozoTimelineStore {
    * Recall traces matching any of the supplied tokens from the inverted index.
    * Returns up to `limit` distinct traces, de-duplicated by trace_id. The next
    * sprint will add TF-IDF ranking on top of this set.
-   * @sem domain=intelligence
    */
   async recallTracesByTokens(
     tokens: string[],
@@ -655,7 +651,6 @@ export class CozoTimelineStore {
   /**
    * Return the total number of stored traces — used as the IDF denominator
    * when ranking candidates in recallTracesBySymptom.
-   * @sem domain=intelligence
    */
   async countTraces(): Promise<number> {
     const result = await this.db.run("?[count(trace_id)] := *traces{trace_id}");
@@ -666,7 +661,6 @@ export class CozoTimelineStore {
   /**
    * Return all trace IDs that contain the supplied token in the inverted index.
    * Called once per query token during TF-IDF scoring in recallTracesBySymptom.
-   * @sem domain=intelligence
    */
   async getTracesForToken(token: string): Promise<string[]> {
     const r = await this.db.run(
@@ -679,7 +673,6 @@ export class CozoTimelineStore {
   /**
    * Fetch trace rows by their IDs. Returns a Map keyed by trace_id for O(1)
    * lookup during score annotation in recallTracesBySymptom.
-   * @sem domain=intelligence
    */
   async getTracesByIds(ids: string[]): Promise<Map<string, TraceRow>> {
     const result = new Map<string, TraceRow>();

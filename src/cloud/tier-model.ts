@@ -11,7 +11,6 @@
  * sentinel, and the free fail-safe. Changing a tier's numbers is a server
  * change with no CLI release.
  *
- * @sem domain=billing role=policy
  */
 
 /**

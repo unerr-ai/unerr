@@ -7,7 +7,6 @@
  * next pass) and cap-bounded (`maxRows` / `maxBytes`) so one pass never reads an
  * unbounded tail of a huge file.
  *
- * // @sem domain=utilities role=reader
  */
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";

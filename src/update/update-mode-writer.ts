@@ -8,7 +8,6 @@
  * CLI command is gone — the dashboard Settings page calls it via the
  * `/api/system/update-mode` route.
  *
- * @sem domain=configuration role=writer
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

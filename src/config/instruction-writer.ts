@@ -10,111 +10,19 @@
  *   - mdc: .cursor/rules/*.mdc files (standalone file, overwrite entire file)
  */
 
-import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import type { IdeType } from "../utils/detect.js";
 import { getAgent } from "./agent-registry.js";
-import { loadSettings } from "./settings.js";
 
 const SENTINEL_START = "<!-- unerr:start -->";
 const SENTINEL_END = "<!-- unerr:end -->";
-
-interface InstructionContentOptions {
-  maintainComments?: boolean;
-  /** True when the repo already carries at least one `@sem domain=` doc
-   *  comment — gates the `@sem` instruction section onto adopters instead
-   *  of describing the convention to every repo unconditionally. */
-  hasSemComments?: boolean;
-}
-
-const SEM_MARKER = "@sem domain=";
-const SEM_SCAN_FILE_CAP = 2000;
-const SEM_SCAN_SKIP_DIRS = new Set([
-  "node_modules",
-  ".git",
-  "dist",
-  "build",
-  "coverage",
-  ".unerr",
-  ".next",
-  "out",
-  "target",
-  "vendor",
-]);
-
-/**
- * True when the repo already has at least one `@sem domain=` doc comment.
- * `git grep` is the fast path (respects .gitignore, no repo walk needed); a
- * capped filesystem scan covers a missing git binary or a non-git checkout.
- * Anything short of a confirmed match is treated as absent, never as a
- * thrown error — this only gates an optional instruction section.
- */
-function repoHasSemComments(cwd: string): boolean {
-  try {
-    execFileSync("git", ["grep", "-q", SEM_MARKER, "--", "."], {
-      cwd,
-      stdio: "ignore",
-      timeout: 5000,
-    });
-    return true;
-  } catch (err) {
-    const status = (err as { status?: number | null } | undefined)?.status;
-    if (status === 1) return false; // git grep: no match — not an error
-    return scanForSemComments(cwd); // git missing / not a repo / other failure
-  }
-}
-
-/** Bounded fallback for {@link repoHasSemComments}: walks at most
- *  `SEM_SCAN_FILE_CAP` files looking for the marker. */
-function scanForSemComments(cwd: string): boolean {
-  try {
-    const stack: string[] = [cwd];
-    let filesScanned = 0;
-    while (stack.length > 0 && filesScanned < SEM_SCAN_FILE_CAP) {
-      const dir = stack.pop() as string;
-      let entries: string[];
-      try {
-        entries = readdirSync(dir);
-      } catch {
-        continue;
-      }
-      for (const entry of entries) {
-        if (SEM_SCAN_SKIP_DIRS.has(entry)) continue;
-        const full = join(dir, entry);
-        let info: ReturnType<typeof statSync>;
-        try {
-          info = statSync(full);
-        } catch {
-          continue;
-        }
-        if (info.isDirectory()) {
-          stack.push(full);
-          continue;
-        }
-        if (!info.isFile()) continue;
-        filesScanned++;
-        try {
-          if (readFileSync(full, "utf-8").includes(SEM_MARKER)) return true;
-        } catch {
-          // binary or unreadable — skip
-        }
-        if (filesScanned >= SEM_SCAN_FILE_CAP) break;
-      }
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * The tool-preference instructions injected into agent instruction files.
@@ -122,23 +30,8 @@ function scanForSemComments(cwd: string): boolean {
  * rule, and leaves per-task judgement to the agent instead of reconciling
  * every task against rules that mostly don't apply.
  */
-function getInstructionContent(
-  ide?: IdeType,
-  opts: InstructionContentOptions = {}
-): string {
+function getInstructionContent(ide?: IdeType): string {
   const isClaudeCode = ide === "claude-code";
-
-  // Layer 8 §2.4: gate the `@sem` note onto repos that have adopted the
-  // convention (opts.hasSemComments) and haven't opted out
-  // (`comments.maintain: false`).
-  const semSection =
-    opts.maintainComments !== false && opts.hasSemComments === true
-      ? `
-### \`@sem\` comments
-
-Exported entities here carry a doc comment (1–2 sentences, what + why) ending \`@sem domain=<tag> role=<tag>\`. An edit that changes what an entity does updates its comment in the same edit; a new exported entity gets one before the next edit. Keep existing \`@sem\` lines unless the user removes them.
-`
-      : "";
 
   // The end-of-turn "files changed" receipt is a user-facing systemMessage only
   // Claude Code surfaces (Cursor / Cline have no Stop-with-systemMessage channel —
@@ -154,6 +47,13 @@ Exported entities here carry a doc comment (1–2 sentences, what + why) ending 
     ? " (On Claude Code a full-file built-in Read of a code file is denied and redirected here.)"
     : "";
 
+  // Sub-agent `.md` files (unerr-worker / unerr-junior / unerr-architect) are only
+  // installed for Claude Code (writeSubagents gates on ide === "claude-code");
+  // naming them for other agents would point at files that don't exist there.
+  const delegationNote = isClaudeCode
+    ? "\n\nWork that splits into independent slices: spawn all the matching unerr sub-agents in one message, in parallel (`unerr-worker` scoped edits · `unerr-junior` recon and verify-runs · `unerr-architect` design, root-causing, and large-context work); use worktree isolation when two slices edit the same files."
+    : "";
+
   return `## unerr — code navigation and editing tools
 
 unerr serves this repo's live call graph, conventions, and edit guardrails over MCP.
@@ -165,26 +65,24 @@ For code in this repo:
 - **Rename / signature change:** \`get_references({key, include_text_occurrences:true})\` — every use (callers + strings + config) in one call, then edit each site.
 - **Web / docs:** \`fetch_url({url})\`, bulk \`{urls:[...]}\`.
 
-Bash runs things (build, test, git, package managers); it is not for reading or searching code.${readEnforcementNote} When changing existing indexed code, start with one \`search_code({query:"<task phrase>"})\` recon call. Commands that can exceed 2 minutes run in the background with output to a log file.
-
-Work that splits into independent slices can be delegated to the unerr sub-agents (\`unerr-worker\` for scoped edits, \`unerr-junior\` for read-only recon and verify-runs) — their descriptions state when each applies.
+Bash runs things (build, test, git, package managers); it is not for reading or searching code.${readEnforcementNote} When changing existing indexed code, start with one \`search_code({query:"<task phrase>"})\` recon call. Commands that can exceed 2 minutes run in the background with output to a log file.${delegationNote}
 
 Tool responses may carry \`ur|<tag>\` signal lines; the body of each line names the concrete next step.
 
 If unerr MCP is unavailable, errors, or reports no graph: use built-in Read/Grep/Glob for the rest of the session.
-${semSection}`;
+`;
 }
 
 /**
  * Generate MDC-formatted instruction content for Cursor rules.
  */
-function getMdcContent(opts: InstructionContentOptions = {}): string {
+function getMdcContent(): string {
   return `---
 description: unerr serves this repo's live call graph, conventions, and edit guardrails over MCP
 alwaysApply: true
 ---
 
-${getInstructionContent("cursor", opts)}
+${getInstructionContent("cursor")}
 `;
 }
 
@@ -208,26 +106,13 @@ export function writeInstructionFile(
 
   const filePath = join(cwd, agentDef.instructionFilePath);
 
-  // Layer 8 §2.4: `comments.maintain false` drops the `@sem` section on next
-  // install. Best-effort — a missing config defaults to on.
-  let maintainComments = true;
-  try {
-    maintainComments = loadSettings(cwd).comments.maintain;
-  } catch {
-    maintainComments = true;
-  }
-  const opts: InstructionContentOptions = {
-    maintainComments,
-    hasSemComments: repoHasSemComments(cwd),
-  };
-
   if (agentDef.instructionFormat === "mdc") {
-    return writeMdcInstructionFile(filePath, opts);
+    return writeMdcInstructionFile(filePath);
   }
 
   if (agentDef.instructionFormat === "windsurf-rule") {
     mkdirSync(dirname(filePath), { recursive: true });
-    const content = getInstructionContent(ide, opts);
+    const content = getInstructionContent(ide);
     // Windsurf enforces 6K char limit per rule
     const truncatedContent =
       content.length > 5800
@@ -247,7 +132,7 @@ export function writeInstructionFile(
 
   if (agentDef.instructionFormat === "antigravity-rule") {
     mkdirSync(dirname(filePath), { recursive: true });
-    const content = getInstructionContent(ide, opts);
+    const content = getInstructionContent(ide);
     const antigravityContent = `---\nname: unerr-instructions\ndescription: Tool routing instructions for unerr MCP integration\ntype: manual\n---\n\n${content}\n`;
     const existed = existsSync(filePath);
     if (existed) {
@@ -261,7 +146,7 @@ export function writeInstructionFile(
   }
 
   // markdown format (CLAUDE.md, AGENTS.md, GEMINI.md, copilot-instructions.md, .clinerules)
-  return mergeMarkdownSection(filePath, getInstructionContent(ide, opts));
+  return mergeMarkdownSection(filePath, getInstructionContent(ide));
 }
 
 /**
@@ -313,11 +198,8 @@ function mergeMarkdownSection(
  * Write a standalone .mdc instruction file for Cursor.
  * Overwrites entire file (it's ours). Returns "created" or "skipped".
  */
-function writeMdcInstructionFile(
-  filePath: string,
-  opts: InstructionContentOptions = {}
-): InstructionWriteResult {
-  const content = getMdcContent(opts);
+function writeMdcInstructionFile(filePath: string): InstructionWriteResult {
+  const content = getMdcContent();
   const alreadyExists = existsSync(filePath);
 
   if (alreadyExists) {
@@ -396,9 +278,7 @@ export function removeInstructionSection(cwd: string, ide: IdeType): boolean {
  * Generate formatted custom instructions text for --show-instructions output.
  */
 export function generateCustomInstructions(ide?: string): string {
-  const content = getInstructionContent(ide as IdeType | undefined, {
-    hasSemComments: repoHasSemComments(process.cwd()),
-  });
+  const content = getInstructionContent(ide as IdeType | undefined);
 
   if (ide && ide !== "other") {
     const agentDef = getAgent(ide as IdeType);

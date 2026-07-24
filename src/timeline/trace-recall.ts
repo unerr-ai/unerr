@@ -25,7 +25,6 @@ const ANCHOR_BOOST = 0.5;
  * floor, then drops traces whose anchor definitively no longer exists (via
  * `anchorExists`) so stale incidents never reach the injection budget.
  * Anchor-less traces and checker errors pass through — recall fails open.
- * @sem domain=intelligence
  */
 export async function recallTracesBySymptom(
   timelineStore: CozoTimelineStore,

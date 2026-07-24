@@ -16,10 +16,9 @@
  * A given handoff crosses exactly one seam per host (wrapped → exec, raw →
  * pre-shell), so there is no double count.
  *
- * @sem domain=tracking role=producer
  */
 import { join } from "node:path";
-import { detectDelegationHandoff } from "../skills/junior-agent.js";
+import { detectDelegationHandoff } from "../skills/subagent-manager.js";
 import { BehaviorEventWriter } from "./behavior-events.js";
 import { emitDelegationSavings } from "./savings-events.js";
 import { resolveExecSessionContext } from "./session-records.js";

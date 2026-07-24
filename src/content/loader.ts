@@ -4,7 +4,6 @@
  * `instructions.json` / `skills.json`, merged here and bundled into
  * `dist/cli.js`, so loading never touches the filesystem.
  *
- * @sem domain=config role=content-loader
  */
 
 import instructionsRaw from "./instructions.json" with { type: "json" };
@@ -20,7 +19,6 @@ const RAW_PROSE: Record<string, string> = {
  * Return the prose for `id`. Throws on an unknown id (a content-key typo is a
  * build-time bug, never silently empty).
  *
- * @sem domain=config role=content-loader
  */
 export function loadContent(id: string): string {
   const raw = RAW_PROSE[id];

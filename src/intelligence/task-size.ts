@@ -263,7 +263,6 @@ export interface InjectionDecision {
  * Continuation phrases short-circuit to skip before classifyTaskSize is called,
  * so green-lights are never misclassified as new tasks.
  *
- * @sem domain=intelligence role=classifier
  */
 export function classifyInjectionTier(prompt: string): InjectionDecision {
   const trimmedLower = (prompt ?? "").trim().toLowerCase();

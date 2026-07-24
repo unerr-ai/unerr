@@ -1,5 +1,5 @@
 /**
- * Parse-time quality gates for Layer 8 domain annotations (§5.2).
+ * Parse-time quality gates for domain annotations.
  *
  * Core principle: a wrong summary is worse than no summary — the agent
  * trusts it, skips reading the code, and makes confident wrong changes.
@@ -12,16 +12,10 @@ import { tokenizeIdentifier } from "./identifier-tokenizer.js";
 
 export const PROSE_MIN_WORDS = 3;
 export const PROSE_MAX_WORDS = 60;
-export const SENTINEL_MAX_CHARS = 120;
-/** Applied once when prose names an identifier the graph doesn't know (§5.2). */
+/** Applied once when prose names an identifier the graph doesn't know. */
 export const UNKNOWN_IDENTIFIER_CONFIDENCE_MULTIPLIER = 0.7;
 
-export type GateKind =
-  | "length"
-  | "tautology"
-  | "identifier"
-  | "vocabulary"
-  | "stacking";
+export type GateKind = "length" | "tautology" | "identifier";
 
 export interface GateRejection {
   gate: GateKind;
@@ -32,19 +26,13 @@ export interface GateOptions {
   entityName: string;
   /** Graph entity names for the identifier cross-check; omit to skip that gate. */
   knownIdentifiers?: ReadonlySet<string>;
-  /** Active domain-tag vocabulary; omit to skip the vocabulary gate. */
-  activeDomains?: ReadonlySet<string>;
 }
 
 export interface GatedAnnotation {
   /** Prose that survived the gates (possibly truncated). "" when rejected or absent. */
   summary: string;
-  /** Sentinel pairs that survived. Empty when the sentinel was rejected or absent. */
-  pairs: Record<string, string>;
   /** 1.0, or ×0.7 when prose names an identifier the graph doesn't know. */
   confidenceMultiplier: number;
-  /** Domain value not in the active tag set — candidate-new-domain flow (§5.2). */
-  candidateDomain: string | null;
   /** Gates that fired, for nudge emission. */
   rejections: GateRejection[];
 }
@@ -90,8 +78,8 @@ const IDENTIFIER_IN_PROSE =
   /\b([A-Za-z][a-z0-9]*(?:[A-Z][A-Za-z0-9]*)+|[a-z0-9]+(?:_[a-z0-9]+)+|[A-Z0-9]+(?:_[A-Z0-9]+)+)\b/g;
 
 /**
- * Apply the §5.2 gates to a parsed doc comment. Pure and total — returns a
- * downgraded annotation rather than throwing, in every failure mode.
+ * Apply the quality gates to a parsed doc comment. Pure and total — returns
+ * a downgraded annotation rather than throwing, in every failure mode.
  */
 export function applyAnnotationGates(
   parsed: ParsedDocComment,
@@ -100,7 +88,6 @@ export function applyAnnotationGates(
   const rejections: GateRejection[] = [];
   let confidenceMultiplier = 1.0;
 
-  // ── Prose gates (skipped when the block is sentinel-only) ──
   let summary = "";
   if (parsed.prose !== null) {
     const words = parsed.prose.split(/\s+/).filter(Boolean);
@@ -156,37 +143,5 @@ export function applyAnnotationGates(
     }
   }
 
-  // ── Sentinel gates ──
-  let pairs: Record<string, string> = {};
-  let candidateDomain: string | null = null;
-  if (parsed.sentinel !== null) {
-    if (parsed.sentinel.lineLength > SENTINEL_MAX_CHARS) {
-      rejections.push({
-        gate: "length",
-        detail: `sentinel line ${parsed.sentinel.lineLength} chars > ${SENTINEL_MAX_CHARS} — rejected`,
-      });
-    } else {
-      pairs = { ...parsed.sentinel.pairs };
-
-      if (parsed.sentinel.stackedCount > 1) {
-        rejections.push({
-          gate: "stacking",
-          detail: `${parsed.sentinel.stackedCount} sentinel lines — first wins, rest rejected`,
-        });
-      }
-
-      // Vocabulary: unknown domain is kept but flagged as a candidate;
-      // promotion happens after 3 entities carry it (SC-C.4).
-      const domain = pairs.domain;
-      if (
-        domain !== undefined &&
-        opts.activeDomains !== undefined &&
-        !opts.activeDomains.has(domain)
-      ) {
-        candidateDomain = domain;
-      }
-    }
-  }
-
-  return { summary, pairs, confidenceMultiplier, candidateDomain, rejections };
+  return { summary, confidenceMultiplier, rejections };
 }

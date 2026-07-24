@@ -20,29 +20,11 @@ import {
   classifyVerbCluster,
   computeCrossSessionStitch,
   isCodeContext,
-  isMultiSlice,
   runUserPromptSubmitHook,
-  runUserPromptSubmitHookAsync,
 } from "../hooks/prompt-hooks.js";
-import { queryRecallTraces } from "../hooks/recall-client.js";
 import { classifyInjectionTier } from "../intelligence/task-size.js";
 import { readNudgeState } from "../proxy/nudge-state.js";
 import { addOptInSkills } from "../skills/skill-opt-in.js";
-
-// ── Recall-injection tier gating mocks ───────────────────────────────────────
-// task-size.js: spread original exports, add classifyInjectionTier mock
-vi.mock("../intelligence/task-size.js", async (importOriginal) => {
-  const orig = await importOriginal<object>();
-  return { ...orig, classifyInjectionTier: vi.fn() };
-});
-// recall-client.js: mock the UDS network call for trace recall
-vi.mock("../hooks/recall-client.js", () => ({
-  queryRecallTraces: vi.fn(() => Promise.resolve([])),
-}));
-// remember-client.js: keep calls sync-safe in tests
-vi.mock("../hooks/remember-client.js", () => ({
-  detectUserRule: vi.fn(() => null),
-}));
 
 // Each test gets a fresh tmp cwd so .unerr/state/nudge-*.flags + the
 // shadow ledger never bleed across runs.
@@ -344,13 +326,11 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     // Static tail suppressed for claude-code …
     expect(first).not.toContain("available skills");
     expect(first).not.toContain("[unerr] Prefer unerr MCP tools");
-    // … but the non-duplicated per-turn product signals still fire. "refactor …"
-    // is a MULTI-SLICE prompt on claude-code (a tracker-capable host), so planner
-    // mode draws the stronger plan-into-tracker variant (not the plain
-    // delegate-slices line); unerr-build-and-debug is opt-in (not installed), so
-    // it is NOT named.
-    expect(first).toContain("ur|act");
-    expect(first).toContain("plan-then-track");
+    // … but the non-duplicated per-turn product signal still fires. "add" trips
+    // the build cluster, which routes to the opt-in unerr-build-and-debug skill
+    // (not installed), so Path A is suppressed and the omni-skill fallback line
+    // fires instead.
+    expect(first).toContain("ur|act unerr-using-unerr");
     expect(first).not.toContain("unerr-build-and-debug");
 
     const second = readContext(
@@ -429,40 +409,6 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     }
   });
 
-  // The decompose-delegate gate is broadened past build-intent: any substantive
-  // code-WORK prompt (replace / extract / refactor / optimize) now draws the
-  // fan-out nudge on a delegation-capable host. That nudge OWNS the routing slot,
-  // so the bare Path A skill line and the omni-skill fallback are suppressed for
-  // these prompts (the always-on unerr-using-unerr skill still covers tools).
-  it("substantive work 'replace X with Y' draws the decompose-delegate nudge", () => {
-    const stdin = JSON.stringify({
-      hook_event_name: "UserPromptSubmit",
-      user_message: "replace the legacy auth flow with the new one",
-    });
-    const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("delegate-slices");
-    expect(ctx).not.toContain("Path A matched verb cluster");
-  });
-
-  it("substantive work 'extract function Z' draws the decompose-delegate nudge", () => {
-    const stdin = JSON.stringify({
-      hook_event_name: "UserPromptSubmit",
-      user_message: "extract the request parser into its own function",
-    });
-    const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("delegate-slices");
-    expect(ctx).not.toContain("Path A matched verb cluster");
-  });
-
-  it("substantive work 'optimize the loop' draws the decompose-delegate nudge", () => {
-    const stdin = JSON.stringify({
-      hook_event_name: "UserPromptSubmit",
-      user_message: "optimize the inner loop in computeDelta",
-    });
-    const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("delegate-slices");
-  });
-
   it("Path A is GATED off for a non-code prompt that still matches a verb cluster", () => {
     // "hotspots" matches the navigation verb cluster, but it is NOT in
     // TASK_VERBS_CODE — so isCodeContext() is false and Path A must stay silent.
@@ -477,27 +423,36 @@ describe("runUserPromptSubmitHook end-to-end", () => {
     expect(ctx).not.toContain("no verb-cluster match");
   });
 
-  // The gate is widened past classifyAsTask/BUILD_INTENT_RE: an ordinary
-  // scoped coding prompt with no narrow imperative verb and no build phrasing
-  // still draws the nudge, as long as it is a code-task prompt (isCodeContext)
-  // and not a pure question. "make the retry delay configurable across all its
-  // callers" carries neither a TASK_VERBS_NARROW verb ("make"/"configurable"
-  // are not in the list) nor a build/bug verb cluster — it only qualifies via
-  // the navigation word "callers", which used to route to isCodeContext alone
-  // and never drew the fan-out nudge before this change. The "callers" +
-  // "all" breadth phrasing also trips isMultiSlice, so claude-code (a
-  // tracker-capable host) gets the stronger plan-into-tracker variant, which
-  // must name TaskCreate/TaskUpdate as the actual tracker calls.
-  it("plain scoped coding prompt with no build verbs draws the decompose-delegate/plan-then-track nudge on claude-code", () => {
+  // The gate requires explicit edit intent (a build/bug verb cluster, outcome-
+  // phrased build intent, or a classifyAsTask narrow task-verb) — it no longer
+  // fires on "any non-question prose". "make the retry delay configurable
+  // across all its callers" carries neither a TASK_VERBS_NARROW verb
+  // ("make"/"configurable" are not in the list) nor a build/bug verb cluster,
+  // so it draws nothing now.
+  it("plain scoped prompt with no build/task verb draws no decompose-delegate nudge", () => {
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "make the retry delay configurable across all its callers",
     });
     const ctx = readContext(runUserPromptSubmitHook(stdin));
-    expect(ctx).toContain("plan-then-track");
-    expect(ctx).toContain("TaskCreate");
-    expect(ctx).toContain("TaskUpdate");
-    expect(ctx).not.toContain("Path A matched verb cluster");
+    expect(ctx).not.toContain("delegate-slices");
+    expect(ctx).not.toContain("plan-then-track");
+  });
+
+  // Regression: an analysis/audit-style prompt is prose, not an edit request
+  // — "auditing"/"revealed"/"solved" never match TASK_VERBS_NARROW's
+  // word-boundary verbs (the "audit" alternative needs a standalone word, not
+  // a substring of "auditing") and BUILD_INTENT_RE doesn't fire either, so
+  // this must draw neither nudge under the narrowed gate.
+  it("analysis/audit-style prompt draws neither delegate-slices nor plan-then-track", () => {
+    const stdin = JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      user_message:
+        "here is what our analysis revealed - now we are auditing whether the issue is solved across all modules",
+    });
+    const ctx = readContext(runUserPromptSubmitHook(stdin));
+    expect(ctx).not.toContain("delegate-slices");
+    expect(ctx).not.toContain("plan-then-track");
   });
 
   // A pure question ("where is X enforced?") must still route to the
@@ -751,331 +706,58 @@ describe("TASK_VERBS_* regex constants (Fix A)", () => {
   });
 });
 
-// Delegation wiring regression. The classifier + gate (shouldDelegate) existed
-// but nothing called the gate at prompt time, so it was a no-op and
-// `shouldDelegate` was tree-shaken out of the bundle. This guard fails if the
-// prompt hook ever stops emitting the delegate routing line.
-describe("prompt hook emits the delegate routing line", () => {
-  let cwd: string;
-  let originalCwd: string;
-  let savedSession: string | undefined;
-
-  const readContext = (out: string): string =>
-    (
-      JSON.parse(out) as {
-        hookSpecificOutput?: { additionalContext?: string };
-      }
-    ).hookSpecificOutput?.additionalContext ?? "";
-  // Bare payload → claude-code adapter (a delegation-capable host).
+// ── System notification guard — prevent nudge injection on harness system turns ─
+describe("promptSubmitHandler — system-notification guard", () => {
+  function readContext(out: string): string {
+    const parsed = JSON.parse(out) as {
+      hookSpecificOutput?: { additionalContext?: string };
+    };
+    return parsed.hookSpecificOutput?.additionalContext ?? "";
+  }
   const mk = (msg: string) =>
-    JSON.stringify({ hook_event_name: "UserPromptSubmit", user_message: msg });
-
-  beforeEach(() => {
-    cwd = tmpRepo();
-    originalCwd = process.cwd();
-    savedSession = process.env.UNERR_SESSION_ID;
-    process.env.UNERR_SESSION_ID = `lc-${Date.now()}`;
+    JSON.stringify({
+      hook_event_name: "UserPromptSubmit",
+      user_message: msg,
+    });
+  it("passes through [SYSTEM NOTIFICATION messages without nudges", () => {
+    const cwd = tmpRepo();
     process.chdir(cwd);
-  });
-
-  afterEach(() => {
-    process.chdir(originalCwd);
-    if (savedSession === undefined)
-      Reflect.deleteProperty(process.env, "UNERR_SESSION_ID");
-    else process.env.UNERR_SESSION_ID = savedSession;
-    rmSync(cwd, { recursive: true, force: true });
-  });
-
-  it("delegable task on a delegation-capable host → emits delegate routing line (not the lifecycle skill)", () => {
-    const ctx = readContext(
-      runUserPromptSubmitHook(mk("add tests for the query router"))
+    const out = runUserPromptSubmitHook(
+      mk(
+        "[SYSTEM NOTIFICATION - NOT USER INPUT]\nBackground task: refresh context"
+      )
     );
-    // New delegate line format (no Skill() reference, no 'unerr-delegate' token after ur|act).
-    expect(ctx).toContain("ur|act delegate");
-    expect(ctx).toContain("is delegable");
-    // Imperative wording — the advisory "for better performance" hedge was
-    // removed (it leaked compliance); the line now ends the handoff with "now".
-    expect(ctx).not.toContain("for better performance");
-    expect(ctx).toContain(") now");
-    // claude-code worker handoff for the 'tests' class.
-    expect(ctx).toMatch(/unerr-worker|unerr-junior/);
-    // No legacy Skill('unerr-delegate') token.
-    expect(ctx).not.toContain("Skill('unerr-delegate')");
-    // The delegate line OWNS the routing slot — the normal verb-cluster skill
-    // line must not also fire for the same prompt.
-    expect(ctx).not.toContain("unerr-test-and-review");
+    expect(readContext(out)).toBe("");
   });
 
-  it("non-delegable task → no delegate line (classifier gate holds)", () => {
-    const ctx = readContext(
-      runUserPromptSubmitHook(mk("refactor the auth flow end to end"))
-    );
-    expect(ctx).not.toContain("unerr-delegate");
-  });
-});
-
-// ── asyncPromptSubmitHandler recall-injection tier gating ───────────────────
-// Tests for the classifyInjectionTier gate (Option A) and the trace budget it
-// drives (Cap A-2: skip→0, focused→1, broad→3). Mirrors the async trace-recall
-// path: queryRecallTraces is mocked to return fake past-incident rows.
-const FAKE_TRACES = [
-  {
-    situation: "retry storm on reconnect",
-    dead_ends: JSON.stringify(["src/proxy/bridge.ts"]),
-    unlock: "added exponential backoff",
-    anchor: "e:reconnect",
-    resolved_at: Date.parse("2026-05-01"),
-  },
-];
-
-describe("asyncPromptSubmitHandler — injection tier gating", () => {
-  let cwd: string;
-  let originalCwd: string;
-  let savedSession: string | undefined;
-
-  const readCtx = (out: string): string =>
-    (
-      JSON.parse(out) as {
-        hookSpecificOutput?: { additionalContext?: string };
-      }
-    ).hookSpecificOutput?.additionalContext ?? "";
-
-  const mk = (msg: string) =>
-    JSON.stringify({ hook_event_name: "UserPromptSubmit", user_message: msg });
-
-  const mockedTier = () => vi.mocked(classifyInjectionTier);
-  const mockedTraces = () => vi.mocked(queryRecallTraces);
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    cwd = tmpRepo();
-    originalCwd = process.cwd();
-    savedSession = process.env.UNERR_SESSION_ID;
-    process.env.UNERR_SESSION_ID = `tier-gate-${Date.now()}`;
+  it("passes through messages with <task-notification> without nudges", () => {
+    const cwd = tmpRepo();
     process.chdir(cwd);
-    // Default: traces available from the proxy
-    mockedTraces().mockResolvedValue(FAKE_TRACES);
-    // Default: broad inject
-    mockedTier().mockReturnValue({
-      tier: "broad",
-      inject: true,
-      reason: "default broad",
-    });
-  });
-
-  afterEach(() => {
-    process.chdir(originalCwd);
-    if (savedSession === undefined) {
-      Reflect.deleteProperty(process.env, "UNERR_SESSION_ID");
-    } else {
-      process.env.UNERR_SESSION_ID = savedSession;
-    }
-    rmSync(cwd, { recursive: true, force: true });
-  });
-
-  it("stamps turn_started_ts on the async entry point too (delegates to the sync handler first)", async () => {
-    await runUserPromptSubmitHookAsync(
-      mk("fix the bind retry in the boot sequence")
-    );
-    expect(readNudgeState(cwd).turn_started_ts).toBeGreaterThan(0);
-  });
-
-  it("inject:false — skips trace recall and does not call queryRecallTraces", async () => {
-    mockedTier().mockReturnValue({
-      tier: "skip",
-      inject: false,
-      reason: "trivial continuation",
-    });
-    const out = await runUserPromptSubmitHookAsync(
-      mk("fix the retry in handleConnection")
-    );
-    // No trace block in output
-    expect(readCtx(out)).not.toContain("past incident");
-    // Short-circuit before the network call
-    expect(mockedTraces()).not.toHaveBeenCalled();
-  });
-
-  it("focused tier: requests at most 1 trace", async () => {
-    mockedTier().mockReturnValue({
-      tier: "focused",
-      inject: true,
-      reason: "focused edit",
-    });
-    const out = await runUserPromptSubmitHookAsync(
-      mk("refactor the proxy boot sequence to add a retry")
-    );
-    expect(mockedTraces()).toHaveBeenCalledWith(expect.any(String), 1);
-    expect(readCtx(out)).toContain("past incident");
-  });
-
-  it("broad tier: requests up to 3 traces", async () => {
-    mockedTier().mockReturnValue({
-      tier: "broad",
-      inject: true,
-      reason: "sweep task",
-    });
-    // Relevance-gated trace (Fix 3): overlaps the prompt on "call" and
-    // "parseRequest", so it clears the >=2-significant-term-overlap bar.
-    mockedTraces().mockResolvedValue([
-      {
-        situation: "parseRequest call sites broke across three services",
-        dead_ends: JSON.stringify(["src/router/parseRequest.ts"]),
-        unlock: "fixed every call site to use the new parseRequest signature",
-        anchor: "e:parseRequest",
-        resolved_at: Date.parse("2026-05-02"),
-      },
-    ]);
-    const out = await runUserPromptSubmitHookAsync(
-      mk("rename every call to parseRequest across the codebase")
-    );
-    expect(mockedTraces()).toHaveBeenCalledWith(expect.any(String), 3);
-    expect(readCtx(out)).toContain("past incident");
-  });
-
-  it("relevance gate: drops an unrelated incident even when the tier requests injection (e.g. a cozo-worker fix on an unrelated benchmark prompt)", async () => {
-    mockedTier().mockReturnValue({
-      tier: "focused",
-      inject: true,
-      reason: "focused edit",
-    });
-    mockedTraces().mockResolvedValue([
-      {
-        situation: "cozo worker exhausted memory during full reindex",
-        dead_ends: JSON.stringify(["src/intelligence/cozo-worker.ts"]),
-        unlock: "isolated cozo in a worker thread with a memory cap",
-        anchor: "e:cozo-worker-isolation",
-        resolved_at: Date.parse("2026-04-10"),
-      },
-    ]);
-    const out = await runUserPromptSubmitHookAsync(
-      mk("fix the torch benchmark timing calculation in the harness")
-    );
-    expect(mockedTraces()).toHaveBeenCalled();
-    expect(readCtx(out)).not.toContain("past incident");
-  });
-
-  it("caps injected past-incident lines at 1 even when 2 traces are relevant", async () => {
-    mockedTier().mockReturnValue({
-      tier: "broad",
-      inject: true,
-      reason: "sweep task",
-    });
-    mockedTraces().mockResolvedValue([
-      ...FAKE_TRACES,
-      {
-        situation: "proxy boot sequence hung on a stale pid lock",
-        dead_ends: JSON.stringify(["src/proxy/pid-lock.ts"]),
-        unlock: "cleared the stale lock before boot retried",
-        anchor: "e:pid-lock",
-        resolved_at: Date.parse("2026-05-03"),
-      },
-    ]);
-    const out = await runUserPromptSubmitHookAsync(
-      mk("refactor the proxy boot sequence to add a retry")
-    );
-    const count = (readCtx(out).match(/ur\|fct past incident/g) ?? []).length;
-    expect(count).toBe(1);
-  });
-
-  it("non-code prompt: isCodeContext guard fires before classifyInjectionTier", async () => {
-    // Tier set to inject:true — if classifyInjectionTier were called, a trace
-    // block would appear in output. No block = gate fired first.
-    const out = await runUserPromptSubmitHookAsync(
-      mk("good morning, what do you think about the weather today?")
-    );
-    expect(readCtx(out)).not.toContain("past incident");
-    expect(mockedTier()).not.toHaveBeenCalled();
-  });
-});
-
-// ── Planner mode — isMultiSlice heuristic ────────────────────────────────────
-// Gates the stronger plan-into-tracker nudge (buildDecomposeDelegateLine) so a
-// single-slice fix never draws a tracker demand. buildDecomposeDelegateLine
-// itself is module-private (not exported) — its "plan-then-track" vs
-// "delegate-slices" branch is exercised indirectly via isMultiSlice, the
-// signal it's gated on.
-describe("isMultiSlice — multi-slice task detection", () => {
-  it("true: broad-scope verb + codebase-wide phrasing", () => {
-    expect(isMultiSlice("refactor the auth module across the codebase")).toBe(
-      true
-    );
-  });
-
-  it("true: 'migrate all' breadth phrasing", () => {
-    expect(isMultiSlice("migrate all callers to the new API")).toBe(true);
-  });
-
-  it("true: 'audit every' breadth phrasing", () => {
-    expect(isMultiSlice("audit every usage of the logger")).toBe(true);
-  });
-
-  it("true: 2+ enumerated bullets", () => {
-    expect(
-      isMultiSlice(
-        "please handle the following:\n- fix module a\n- fix module b"
+    const out = runUserPromptSubmitHook(
+      mk(
+        "Starting build: <task-notification>build process initiated</task-notification>"
       )
-    ).toBe(true);
-  });
-
-  it("true: build/create intent", () => {
-    expect(isMultiSlice("build a new export feature")).toBe(true);
-  });
-
-  it("false: narrow single-line fix", () => {
-    expect(isMultiSlice("fix the typo on line 12")).toBe(false);
-  });
-
-  it("false: empty prompt", () => {
-    expect(isMultiSlice("")).toBe(false);
-  });
-
-  it("false: short single-slice question", () => {
-    expect(isMultiSlice("why does this fail?")).toBe(false);
-  });
-
-  it("true: sequential 'first … then' phrasing", () => {
-    expect(
-      isMultiSlice("first update the parser, then wire it into the boot path")
-    ).toBe(true);
-  });
-
-  it("true: explicit numbered step markers", () => {
-    expect(
-      isMultiSlice("step 1 create the schema and step 2 add the migration")
-    ).toBe(true);
-  });
-
-  it("true: 'and then' sequence connector", () => {
-    expect(
-      isMultiSlice("add the retry flag and then propagate it to every caller")
-    ).toBe(true);
-  });
-
-  it("true: 2+ distinct actions joined by a coordinator", () => {
-    expect(isMultiSlice("fix the login bug and add a regression test")).toBe(
-      true
     );
+    expect(readContext(out)).toBe("");
   });
 
-  it("true: a chained meta-task the code-verb list alone misses", () => {
-    expect(
-      isMultiSlice(
-        "broaden the multi-step nudge and verify the review command, then disable it"
-      )
-    ).toBe(true);
+  it("passes through messages starting with <local-command-caveat> without nudges", () => {
+    const cwd = tmpRepo();
+    process.chdir(cwd);
+    const out = runUserPromptSubmitHook(
+      mk("<local-command-caveat>Command output follows</local-command-caveat>")
+    );
+    expect(readContext(out)).toBe("");
   });
 
-  it("false: single action across two objects (no second verb)", () => {
-    expect(isMultiSlice("update the readme and the changelog")).toBe(false);
-  });
-
-  it("false: single action verb, no multi-step signal", () => {
-    expect(isMultiSlice("rename the getUser helper")).toBe(false);
-  });
-
-  it("false: two distinct verbs but no coordinator joining them", () => {
-    // "verify" + "review" are both actions, but with no and/then/;/coordinator
-    // between them the prompt reads as one ask, not a multi-step plan.
-    expect(isMultiSlice("verify the review engine")).toBe(false);
+  it("does not suppress normal coding prompts", () => {
+    const cwd = tmpRepo();
+    process.chdir(cwd);
+    const out = runUserPromptSubmitHook(
+      mk("Can you help me fix this bug in my code?")
+    );
+    // Normal prompts should get the skill catalog or other nudges
+    const ctx = readContext(out);
+    expect(ctx).not.toBeNull();
   });
 });

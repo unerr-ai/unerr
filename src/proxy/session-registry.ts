@@ -20,7 +20,6 @@
  * of one conversation group under `coalesce(native_session_id,
  * unerr_session_id)`.
  *
- * @sem domain=session-identity role=registry
  */
 
 import {

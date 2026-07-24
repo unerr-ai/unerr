@@ -336,7 +336,6 @@ const MAX_INLINE_CALLERS = 8;
  * per warning for the file_edit response, so every agent — hook-less ones
  * included — receives the callers-at-risk in the same response and never has to
  * spend a get_references round-trip to learn them.
- * @sem domain=intelligence role=presenter
  */
 export function renderInlineBlastRadius(
   warnings: CascadeWarning[]

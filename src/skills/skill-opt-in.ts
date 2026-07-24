@@ -28,7 +28,6 @@ function bareId(id: string): string {
  * bare ids. Missing or corrupt file → empty set (safe default: only the loose
  * skill is installed).
  *
- * @sem domain=skills role=accessor
  */
 export function readOptInSkills(cwd: string): Set<string> {
   const path = optInStorePath(cwd);
@@ -63,7 +62,6 @@ function writeOptInSkills(cwd: string, ids: Set<string>): void {
  * expands to every opt-in skill; any other value is validated against the known
  * opt-in set. Returns `{ ids, unknown }` so the command can report bad names.
  *
- * @sem domain=skills role=validator
  */
 export function resolveOptInTargets(arg: string): {
   ids: string[];
@@ -88,7 +86,6 @@ export function resolveOptInTargets(arg: string): {
  * Add skills to the opt-in record. Returns the ids newly added and the full set
  * after the change.
  *
- * @sem domain=skills role=mutator
  */
 export function addOptInSkills(
   cwd: string,
@@ -110,7 +107,6 @@ export function addOptInSkills(
  * Remove skills from the opt-in record. Returns the ids removed and the full set
  * after the change.
  *
- * @sem domain=skills role=mutator
  */
 export function removeOptInSkills(
   cwd: string,

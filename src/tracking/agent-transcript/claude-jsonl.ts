@@ -421,7 +421,7 @@ export interface IncrementalReadResult {
  *  bytes off disk (never the whole file). Returns the new turns plus the advanced
  *  byte offset to persist. Never throws — yields an empty result on any failure.
  *
- * // @sem domain=tracking role=reader */
+ */
 export async function readClaudeTranscriptIncremental(opts: {
   filePath: string;
   fromOffset: number;

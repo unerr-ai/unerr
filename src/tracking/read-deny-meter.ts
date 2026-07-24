@@ -15,7 +15,6 @@
  * own tool returns less; this fires when the hook BLOCKS the built-in Read —
  * different lever, different seam, both real preventions.
  *
- * @sem domain=tracking role=producer
  */
 import { join } from "node:path";
 import { BehaviorEventWriter } from "./behavior-events.js";

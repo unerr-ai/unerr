@@ -21,7 +21,6 @@
  * never leaves the machine. Every function is best-effort and never throws:
  * fingerprinting must never break login.
  *
- * @sem domain=cloud role=identity
  */
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";

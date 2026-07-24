@@ -35,7 +35,6 @@ export interface ActiveRepoHolder {
 /**
  * The outcome of an acquire attempt: `acquired` on success, otherwise the live
  * holder that blocked it (a different repo whose pid is still alive).
- * @sem domain=security role=type
  */
 export type ActiveRepoAcquireResult =
   | { acquired: true }
@@ -43,7 +42,6 @@ export type ActiveRepoAcquireResult =
 
 /**
  * Absolute path of the active-repo lock file under the global state dir.
- * @sem domain=security role=accessor
  */
 export function activeRepoLockPath(): string {
   return join(globalDir(), "state", "active-repo.lock");
@@ -55,7 +53,6 @@ export function activeRepoLockPath(): string {
  * repo), otherwise the live holder that owns it. A holder whose pid is dead is
  * reclaimed and the claim retried once; re-acquiring for the same path
  * refreshes the pid.
- * @sem domain=security role=mutation
  */
 export function acquireActiveRepoLock(
   repoPath: string
@@ -96,7 +93,6 @@ export function acquireActiveRepoLock(
 /**
  * The current active-repo holder, or `null` when the slot is free, the lock is
  * missing/corrupt, or the recorded pid is no longer alive (treated as free).
- * @sem domain=security role=accessor
  */
 export function activeRepoHolder(): ActiveRepoHolder | null {
   const holder = readActiveRepoHolder();
@@ -108,7 +104,6 @@ export function activeRepoHolder(): ActiveRepoHolder | null {
 /**
  * Release the active-repo lock. Best-effort — only removes the lock when this
  * process owns it (or it is stale), never another live repo's slot.
- * @sem domain=security role=mutation
  */
 export function releaseActiveRepoLock(): void {
   const holder = readActiveRepoHolder();

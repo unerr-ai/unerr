@@ -25,7 +25,6 @@
  * edited this turn with its line numbers. This is host-emitted, so it never
  * depends on the model remembering to echo (which it dropped ~94% of the time).
  *
- * @sem domain=utilities role=tool
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

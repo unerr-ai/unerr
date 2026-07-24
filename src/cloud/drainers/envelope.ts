@@ -10,7 +10,6 @@
  * over each non-fleet row's detail just before push, so those path-ish keys
  * never leave the machine. The server firewall is the backstop.
  *
- * // @sem domain=cloud role=identity
  */
 
 import { createHash } from "node:crypto";
@@ -66,7 +65,6 @@ const MAX_DEPTH = 4;
  * keys and depth 4. Returns a fresh object — the input is never mutated.
  * Non-plain values (functions, symbols) are dropped; numbers/booleans/null pass.
  *
- * // @sem domain=cloud role=identity
  */
 export function sanitizeDetail(
   obj: Record<string, unknown>
@@ -83,7 +81,6 @@ export function sanitizeDetail(
  * without the real key or path ever leaving the machine. Returns undefined
  * for an empty / missing key so the caller omits the field.
  *
- * // @sem domain=cloud role=identity
  */
 export function hashEntityKey(
   entityKey: string | null | undefined

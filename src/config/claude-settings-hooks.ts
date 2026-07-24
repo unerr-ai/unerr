@@ -313,7 +313,6 @@ const LEGACY_UNERR_DENIES = ["Read", "Grep", "Glob"];
  * redirecting PreToolUse hooks + instruction do the steering now.
  *
  * Called by default on `unerr install claude-code`. Idempotent.
- * @sem domain=agent-instruction
  */
 export function addDisallowedTools(cwd: string): {
   added: number;
@@ -489,7 +488,6 @@ function ensureLocalSettingsIgnored(cwd: string): void {
  * existing allow list without duplicating or dropping the user's own entries;
  * creates the file when absent; never clobbers a malformed personal settings
  * file. Called by default on `unerr install claude-code`.
- * @sem domain=agent-instruction
  */
 export function addAgentToolAllows(cwd: string): {
   added: number;

@@ -31,6 +31,24 @@ describe("classifyCheckCommand", () => {
     "cargo test",
     "tsc --noEmit",
     "npm test",
+    "go test ./...",
+    "go vet ./...",
+    "dotnet test",
+    "make lint",
+    "mix test",
+    "bundle exec rspec spec/foo_spec.rb",
+    "rake test",
+    "swift test",
+    "bun test",
+    "deno test",
+    "deno check main.ts",
+    "cargo clippy",
+    "golangci-lint run",
+    "mypy src",
+    "pyright src",
+    "gradlew test",
+    "mvnw test",
+    "composer test",
   ];
   for (const cmd of trueCases) {
     it(`classifies "${cmd}" as a check command`, () => {
@@ -43,6 +61,9 @@ describe("classifyCheckCommand", () => {
     "echo done",
     "git status",
     "grep -q foo src/a.ts",
+    "go run main.go",
+    "make build-image",
+    "dotnet run",
   ];
   for (const cmd of falseCases) {
     it(`does NOT classify "${cmd}" as a check command`, () => {

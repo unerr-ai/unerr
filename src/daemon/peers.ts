@@ -4,7 +4,6 @@
  * and any repo that opted out. Pure and cloud-free so the daemon's tier check
  * stays injectable and the filter logic is unit-testable without a live daemon.
  *
- * @sem domain=process-manager
  */
 import { resolve } from "node:path";
 import type { RepoEntry } from "./protocol.js";
@@ -42,7 +41,6 @@ export type PeerResolveResult =
  * caller maps the returned registry entries to wire `PeerEntry` objects (adding
  * repoId + live socket), which keeps this function free of async id derivation.
  *
- * @sem domain=process-manager role=identity
  */
 export function resolveFederatedPeers(
   input: PeerResolveInput

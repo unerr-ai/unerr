@@ -12,7 +12,6 @@
  * future fleet field); it is never required for any code path. Every function
  * is best-effort and never throws (HR-B).
  *
- * @sem domain=cloud role=identity
  */
 import {
   chmodSync,

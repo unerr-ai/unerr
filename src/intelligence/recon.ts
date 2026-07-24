@@ -98,7 +98,6 @@ export interface ReconBundle {
  * The exact follow-up call that re-fetches a section recon dropped for budget,
  * so the coverage footer is paste-ready instead of advisory. Returns null when
  * the only remedy is a wider budget (recall-only rings carry no direct re-fetch).
- * @sem domain=recon role=nudge
  */
 function followUpFor(d: DroppedSection, bundle: ReconBundle): string | null {
   const terms = bundle.terms.join(" ").trim();
@@ -451,7 +450,6 @@ function asEntityArray(v: unknown): unknown[] {
  * a focus body, so the "Entities" overview never re-pays tokens for a row the
  * bundle already carries in full. Preserves the original container shape (bare
  * array or {entities|results|hits|rows} wrapper).
- * @sem domain=recon role=dedup
  */
 function dedupeSearchAgainstBodies(
   search: unknown,
@@ -487,7 +485,6 @@ function dedupeSearchAgainstBodies(
  * scaffolding to the end (tests are rarely the edit target and were ~half of an
  * un-trimmed list) and keep at most `max` rows. Preserves the container shape
  * (bare array or {entities|results|hits|rows} wrapper).
- * @sem domain=recon role=trim
  */
 function trimEntities(search: unknown, max: number): unknown {
   const rerank = (arr: unknown[]): unknown[] => {
@@ -691,7 +688,6 @@ function findEntityWithBody(raw: unknown): Record<string, unknown> | null {
 /**
  * Pull the top caller keys from a get_references result for the speculative
  * `expand` ring (E2). References shape: {references:[{key,name,...}], ...}.
- * @sem domain=recon role=expand
  */
 function topCallerKeys(
   references: unknown,
@@ -736,113 +732,6 @@ function extractFocusBody(raw: unknown): FocusBody | null {
     body,
     truncated: e._truncated != null || e._preview != null,
   };
-}
-
-/** Extract the `{tags:[…]}` (or bare array) shape the domain_tags runner returns. */
-function domainTagsOf(data: unknown): Array<{ domain: string; count: number }> {
-  if (data == null) return [];
-  const raw = Array.isArray(data)
-    ? data
-    : Array.isArray((data as Record<string, unknown>).tags)
-      ? ((data as Record<string, unknown>).tags as unknown[])
-      : [];
-  const out: Array<{ domain: string; count: number }> = [];
-  for (const t of raw) {
-    if (t == null || typeof t !== "object") continue;
-    const o = t as Record<string, unknown>;
-    const domain = typeof o.domain === "string" ? o.domain : "";
-    const count = Number(o.count ?? 0);
-    if (domain === "") continue;
-    out.push({ domain, count });
-  }
-  return out;
-}
-
-/**
- * Render the active domain-tag vocabulary as one compact "reuse before invent"
- * line: `auth (12), payments (8), graph-indexing (5)`. Empty → "" (caller skips
- * the section). Same line in both the full and digest renders — it's already flat.
- */
-function formatDomainTags(data: unknown): string {
-  const tags = domainTagsOf(data);
-  if (!tags.length) return "";
-  return `reuse before inventing a domain tag: ${tags
-    .map((t) => `${t.domain} (${t.count})`)
-    .join(", ")}`;
-}
-
-/**
- * §5.2 promotion threshold mirrored locally — recon stays pure (no
- * annotation-indexer import). A domain under this many entities is provisional.
- * Must equal `PROMOTION_THRESHOLD` in annotation-indexer.ts.
- */
-const VOCAB_PROMOTION_THRESHOLD = 3;
-
-/** Parse the `{canonical,provisional,merge}` shape the vocab_nudges runner returns. */
-function vocabNudgesOf(data: unknown): {
-  provisional: Array<{ domain: string; count: number }>;
-  merge: Array<{
-    from: string;
-    fromCount: number;
-    into: string;
-    intoCount: number;
-  }>;
-} {
-  const o = (data ?? {}) as Record<string, unknown>;
-  const provisional: Array<{ domain: string; count: number }> = [];
-  for (const t of Array.isArray(o.provisional) ? o.provisional : []) {
-    if (t == null || typeof t !== "object") continue;
-    const r = t as Record<string, unknown>;
-    const domain = typeof r.domain === "string" ? r.domain : "";
-    if (domain === "") continue;
-    provisional.push({ domain, count: Number(r.count ?? 0) });
-  }
-  const merge: Array<{
-    from: string;
-    fromCount: number;
-    into: string;
-    intoCount: number;
-  }> = [];
-  for (const m of Array.isArray(o.merge) ? o.merge : []) {
-    if (m == null || typeof m !== "object") continue;
-    const r = m as Record<string, unknown>;
-    const from = typeof r.from === "string" ? r.from : "";
-    const into = typeof r.into === "string" ? r.into : "";
-    if (from === "" || into === "") continue;
-    merge.push({
-      from,
-      fromCount: Number(r.fromCount ?? 0),
-      into,
-      intoCount: Number(r.intoCount ?? 0),
-    });
-  }
-  return { provisional, merge };
-}
-
-/**
- * Render the vocabulary nudges (§5.2 / §6.4): near-duplicate consolidation
- * hints first (the actionable rename), then the provisional-tag list (under the
- * promotion threshold — promote by reuse or rename). Empty → "" (caller skips
- * the section). Flat already — same line in full and digest renders.
- */
-function formatVocabNudges(data: unknown): string {
-  const { provisional, merge } = vocabNudgesOf(data);
-  const lines: string[] = [];
-  if (merge.length) {
-    lines.push(
-      `domain tag sprawl — rename to consolidate: ${merge
-        .map((m) => `${m.from} (${m.fromCount}) → ${m.into} (${m.intoCount})`)
-        .join("; ")}`
-    );
-  }
-  if (provisional.length) {
-    lines.push(
-      `provisional domain tags (under ${VOCAB_PROMOTION_THRESHOLD} entities — promote by reuse or rename): ${provisional
-        .map((t) => `${t.domain} (${t.count})`)
-        .join(", ")}`
-    );
-  }
-  return lines.join("\n");
 }
 
 /**
@@ -1323,8 +1212,6 @@ const RENDER_RANK: Readonly<Record<string, number>> = {
   search_code: 1,
   get_references: 2,
   get_conventions: 3,
-  domain_tags: 5,
-  vocab_nudges: 6,
 };
 /** Render position for a section tool; unknown (e.g. MCP sources) → mid-bundle. */
 function renderRank(tool: string): number {
@@ -1373,14 +1260,6 @@ export function renderReconText(bundle: ReconBundle): string {
     lines.push(`## ${s.title}${s.shrunk ? " (trimmed)" : ""}`);
     if (s.tool === "focus_bodies" || s.tool === "expand_callers") {
       lines.push(formatFocusBodies(s.data));
-      continue;
-    }
-    if (s.tool === "domain_tags") {
-      lines.push(formatDomainTags(s.data));
-      continue;
-    }
-    if (s.tool === "vocab_nudges") {
-      lines.push(formatVocabNudges(s.data));
       continue;
     }
     if (s.tool === "get_conventions") {
@@ -1576,18 +1455,6 @@ export function renderReconDigest(bundle: ReconBundle): string {
       lines.push("");
       lines.push(`## conventions${s.shrunk ? " (trimmed)" : ""}`);
       lines.push(conv);
-    } else if (s.tool === "domain_tags") {
-      const tags = formatDomainTags(s.data);
-      if (!tags) continue;
-      lines.push("");
-      lines.push(`## domain tags${s.shrunk ? " (trimmed)" : ""}`);
-      lines.push(tags);
-    } else if (s.tool === "vocab_nudges") {
-      const nudges = formatVocabNudges(s.data);
-      if (!nudges) continue;
-      lines.push("");
-      lines.push(`## vocabulary${s.shrunk ? " (trimmed)" : ""}`);
-      lines.push(nudges);
     } else {
       // Anchored notes and any other section — keep verbatim; load-bearing.
       lines.push("");
@@ -1644,7 +1511,6 @@ function bundleBodies(bundle: ReconBundle, tool: string): FocusBody[] {
  * confirmed avoided trip). The `delivered_*`/`expand_keys` arrays are Layer B's
  * input — they name exactly what this bundle put on the wire. Pure +
  * deterministic so it unit-tests against a hand-built bundle.
- * @sem domain=recon role=telemetry
  */
 export interface BundleSavingsModel {
   /** Distinct rings folded into the bundle; each is one avoided tool call. */
@@ -1679,7 +1545,6 @@ export const DEFAULT_PREFIX_TOKENS = 4000;
 
 /**
  * Compute the Layer-A modeled savings + the Layer-B manifest for a bundle.
- * @sem domain=recon role=telemetry
  */
 export function modelBundleSavings(
   bundle: ReconBundle,

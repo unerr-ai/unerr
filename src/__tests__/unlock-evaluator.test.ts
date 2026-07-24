@@ -175,7 +175,8 @@ describe("evaluateUnlocks: only newly-firing tools", () => {
 
   it("emits one event per newly-satisfied policy", () => {
     // get_references is the sole gated tool since unerr_track's removal:
-    // C.or(C.editOrWrite(), C.fanIn(5)). One edit call satisfies it.
+    // C.or(C.editOrWrite(), C.fanIn(5), C.firstRead()). One edit call
+    // satisfies it.
     const s = new SessionState();
     s.recordCall({ toolName: "file_read", editOrWrite: true });
     const events = evaluateUnlocks(s);
@@ -199,7 +200,7 @@ describe("evaluateUnlocks: only newly-firing tools", () => {
     s.recordCall({ toolName: "file_read", editOrWrite: true });
     const events = evaluateUnlocks(s);
     // get_references is the sole gated policy — fires on editOrWrite OR
-    // fan_in ≥ 5. Any firing event has the standard shape.
+    // fan_in ≥ 5 OR firstRead. Any firing event has the standard shape.
     const event = events.find((e) => e.toolName === "get_references");
     expect(event).toBeDefined();
     expect(event?.reasonText.length).toBeGreaterThan(0);
@@ -208,7 +209,7 @@ describe("evaluateUnlocks: only newly-firing tools", () => {
   });
 
   it("Or unlocks fire from either child independently", () => {
-    // get_references: C.or(C.editOrWrite(), C.fanIn(5)).
+    // get_references: C.or(C.editOrWrite(), C.fanIn(5), C.firstRead()).
     const editOnly = new SessionState();
     editOnly.recordCall({ toolName: "file_read", editOrWrite: true });
     expect(evaluateUnlocks(editOnly).map((e) => e.toolName)).toContain(
@@ -218,6 +219,14 @@ describe("evaluateUnlocks: only newly-firing tools", () => {
     const fanInOnly = new SessionState();
     fanInOnly.recordCall({ toolName: "get_entity", entityFanIn: 5 });
     expect(evaluateUnlocks(fanInOnly).map((e) => e.toolName)).toContain(
+      "get_references"
+    );
+
+    // A plain (non-edit, non-fan_in) file_read now unlocks it too — the
+    // firstRead branch closes the read-only recon dead-end.
+    const readOnly = new SessionState();
+    readOnly.recordCall({ toolName: "file_read", filePath: "src/a.ts" });
+    expect(evaluateUnlocks(readOnly).map((e) => e.toolName)).toContain(
       "get_references"
     );
 

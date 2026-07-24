@@ -12,7 +12,6 @@ import { getSharedReversibleCache } from "./shared-cache.js";
  * (evicted entry) returns null so the caller falls back to its normal recompute
  * path — a miss is never an error.
  *
- * @sem domain=compression role=retrieval
  */
 
 /** Default characters returned when a `cache_ref` retrieval supplies no limit. */

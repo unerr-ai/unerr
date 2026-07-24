@@ -59,7 +59,6 @@ export interface RunIndexResult {
  * full local index pass. Never calls `process.exit` — callers own their own
  * exit/error surface.
  *
- * @sem domain=indexing role=orchestration
  */
 export async function runIndex(
   projectRoot: string,

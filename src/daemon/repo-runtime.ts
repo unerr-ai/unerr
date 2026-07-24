@@ -4,7 +4,6 @@
  * so a fleet report can show where each repo's proxy is listening. Pure file
  * reads; absent or unreadable state yields nulls, never a throw.
  *
- * @sem domain=infrastructure
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -49,7 +48,6 @@ export function readRepoServerJson(repoPath: string): RepoServerJson | null {
  * Resolve a repo's runtime endpoints: HTTP port/URL from `server.json` (null
  * when the proxy is not running) plus the always-derivable socket path.
  *
- * @sem domain=infrastructure
  */
 export function readRepoRuntime(repoPath: string): RepoRuntime {
   const server = readRepoServerJson(repoPath);

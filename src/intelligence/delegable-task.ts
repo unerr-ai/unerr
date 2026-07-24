@@ -3,7 +3,7 @@
  *
  * A task is "delegable" when it belongs to a narrow, check-verifiable class that a
  * cheaper model can complete under a recon brief and senior review: test work,
- * docstring + `@sem` maintenance, mechanical refactors (rename/extract/inline/move),
+ * docstring maintenance, mechanical refactors (rename/extract/inline/move),
  * and lint/format fixups. This is ORTHOGONAL to task size — a delegable task can be
  * trivial or a sweep; size routes the recon footprint, this routes the model tier.
  *
@@ -13,7 +13,6 @@
  * ambiguous "refactor the auth flow" stays with the senior rather than risking a
  * judgement-heavy edit on the cheaper tier.
  *
- * @sem domain=delegation role=classifier
  */
 
 export type DelegableClass =
@@ -69,12 +68,11 @@ const TEST_SIGNALS = [
   "tdd",
 ];
 
-/** Docstring / `@sem` / comment maintenance — prose, no logic change. */
+/** Docstring / comment maintenance — prose, no logic change. */
 const DOC_SIGNALS = [
   "docstring",
   "doc comment",
   "doc-comment",
-  "@sem",
   "jsdoc",
   "tsdoc",
   "document the",
@@ -906,7 +904,7 @@ export function classifyDelegable(prompt: string): DelegableVerdict {
     return {
       delegable: true,
       class: "docs",
-      reason: "docstring/@sem maintenance",
+      reason: "docstring maintenance",
     };
   }
   if (matches(lower, MECHANICAL_REFACTOR_SIGNALS)) {

@@ -49,11 +49,6 @@ export interface NudgeSessionState {
    *  prior session's ledger) for this session. Fires AT MOST once per
    *  UNERR_SESSION_ID. */
   cross_session_stitch_emitted: boolean;
-  /** Phase 3 (active-memory strip) — running count of times the
-   *  prompt-submit hook injected the CLAUDE.md-redirect nudge (a detected
-   *  user-rule directive) this session. Fires on EVERY detection, not
-   *  one-shot — telemetry only, never gates emission. */
-  claude_md_redirect_count: number;
   /** Implementation-phase "speak plainly" directive — one-shot per
    *  session. Fires the first turn where the agent has demonstrably leaned
    *  on unerr tools (≥2 MCP calls) so the reminder lands when it's
@@ -86,12 +81,6 @@ export interface NudgeSessionState {
    *  cached CLAUDE.md tool table, so re-emitting it on every Bash call is
    *  per-operation re-bill; emit once per session, then stay silent. */
   exec_nudge_emitted: boolean;
-  /** Issue 5 leak correlation — set true when the prompt-submit hook emits the
-   *  `unerr-delegate` dispatch line (a delegable task on a delegation host).
-   *  Cleared at Stop: if it is still true and the close-out carries no
-   *  `delegate` marker, the master kept the delegable work itself, which the
-   *  Stop hook records as a `subtasks_serialized_by_master` leak. */
-  delegable_nudge_pending: boolean;
   /** Injection-tier counters — per-session telemetry for the
    *  classifyInjectionTier gate in asyncPromptSubmitHandler.
    *  injection_skip_count: turns where inject:false skipped recall.
@@ -100,19 +89,6 @@ export interface NudgeSessionState {
   injection_skip_count: number;
   injection_focused_count: number;
   injection_broad_count: number;
-  /** Planner-mode leak correlation — set true when the prompt-submit hook emits
-   *  the plan-into-tracker line (a multi-slice task on a tracker-capable host,
-   *  e.g. claude-code). Cleared at Stop: while it is set the Stop hook emits the
-   *  "mark tracker tasks completed / clear stale tasks" close-out reminder, then
-   *  disarms so the reminder fires at most once per opening. */
-  tracker_open_pending: boolean;
-  /** Planner-mode telemetry — turns where the prompt-submit hook injected the
-   *  plan-into-tracker line. Pairs with `tracker_close_reminder_count` for an
-   *  opened-vs-closed adoption ratio on the activation dashboard. */
-  tracker_nudge_emitted_count: number;
-  /** Planner-mode telemetry — turns where the Stop hook injected the
-   *  complete/clear-the-tracker close-out reminder. */
-  tracker_close_reminder_count: number;
   /** The agent's own conversation id (native session id) that last wrote this
    *  flags file. The filename is keyed on the long-lived PROXY session id and
    *  one proxy serves many conversations, so every "once per session" one-shot
@@ -170,20 +146,15 @@ function defaultState(): NudgeSessionState {
     mark_intent_compliant_count: 0,
     mark_intent_required_count: 0,
     cross_session_stitch_emitted: false,
-    claude_md_redirect_count: 0,
     impl_mention_emitted: false,
     turn_summary_required_count: 0,
     turn_summary_emitted_count: 0,
     consecutive_receipt_misses: 0,
     static_boilerplate_emitted: false,
     exec_nudge_emitted: false,
-    delegable_nudge_pending: false,
     injection_skip_count: 0,
     injection_focused_count: 0,
     injection_broad_count: 0,
-    tracker_open_pending: false,
-    tracker_nudge_emitted_count: 0,
-    tracker_close_reminder_count: 0,
     check_cmd_count: 0,
     check_cmd_last_ts: 0,
     check_green_last_ts: 0,
@@ -261,10 +232,6 @@ export function readNudgeState(cwd: string): NudgeSessionState {
       cross_session_stitch_emitted: Boolean(
         parsed.cross_session_stitch_emitted
       ),
-      claude_md_redirect_count:
-        typeof parsed.claude_md_redirect_count === "number"
-          ? parsed.claude_md_redirect_count
-          : 0,
       impl_mention_emitted: Boolean(parsed.impl_mention_emitted),
       turn_summary_required_count:
         typeof parsed.turn_summary_required_count === "number"
@@ -282,7 +249,6 @@ export function readNudgeState(cwd: string): NudgeSessionState {
       // roster emit once after upgrade, then gate. Forward-compatible.
       static_boilerplate_emitted: Boolean(parsed.static_boilerplate_emitted),
       exec_nudge_emitted: Boolean(parsed.exec_nudge_emitted),
-      delegable_nudge_pending: Boolean(parsed.delegable_nudge_pending),
       injection_skip_count:
         typeof parsed.injection_skip_count === "number"
           ? parsed.injection_skip_count
@@ -299,15 +265,6 @@ export function readNudgeState(cwd: string): NudgeSessionState {
         typeof parsed.last_native_session_id === "string"
           ? parsed.last_native_session_id
           : undefined,
-      tracker_open_pending: Boolean(parsed.tracker_open_pending),
-      tracker_nudge_emitted_count:
-        typeof parsed.tracker_nudge_emitted_count === "number"
-          ? parsed.tracker_nudge_emitted_count
-          : 0,
-      tracker_close_reminder_count:
-        typeof parsed.tracker_close_reminder_count === "number"
-          ? parsed.tracker_close_reminder_count
-          : 0,
       check_cmd_count:
         typeof parsed.check_cmd_count === "number" ? parsed.check_cmd_count : 0,
       check_cmd_last_ts:

@@ -3,7 +3,6 @@
  *
  * Verifies:
  *   - Auto-detection identifies installed AI tools by directory presence
- *   - installClaudeHook installs the Claude Code hook at the correct path
  *   - writeMcpConfig writes MCP config for detected tools
  *   - `compress-output` command accepts graph risk map
  *   - `unerr uninstall` removes hooks cleanly
@@ -16,7 +15,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  installClaudeHook,
   isClaudeHookInstalled,
   removeClaudeHook,
 } from "../config/hook-installer.js";
@@ -100,45 +98,6 @@ describe("Sprint S6: CLI Hooks Integration", () => {
       const formatted = formatDetectedTools(tools);
       expect(formatted).toContain("Claude Code");
       expect(formatted).toContain("Cursor");
-    });
-  });
-
-  describe("S6.2: Hook installation", () => {
-    it("installs Claude Code PostToolUse hook at correct path", () => {
-      const cwd = makeTmpDir();
-      mkdirSync(join(cwd, ".claude"), { recursive: true });
-
-      const result = installClaudeHook(cwd);
-
-      const hookPath = join(cwd, ".claude", "hooks", "PostToolUse.sh");
-      expect(existsSync(hookPath)).toBe(true);
-      expect(result.action).toBe("installed");
-    });
-
-    it("skips hook if already installed", () => {
-      const cwd = makeTmpDir();
-      mkdirSync(join(cwd, ".claude", "hooks"), { recursive: true });
-      writeFileSync(
-        join(cwd, ".claude", "hooks", "PostToolUse.sh"),
-        "#!/bin/bash\n# existing"
-      );
-
-      const result = installClaudeHook(cwd);
-      expect(result.action).toBe("already_exists");
-    });
-
-    it("hook content references unerr compress-output", () => {
-      const cwd = makeTmpDir();
-      mkdirSync(join(cwd, ".claude"), { recursive: true });
-
-      installClaudeHook(cwd);
-
-      const hookContent = readFileSync(
-        join(cwd, ".claude", "hooks", "PostToolUse.sh"),
-        "utf-8"
-      );
-      expect(hookContent).toContain("compress-output");
-      expect(hookContent).toContain("unerr");
     });
   });
 

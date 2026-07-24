@@ -59,7 +59,6 @@ function resolveRegisteredRepo(arg: string) {
  * stops the child before unregistering); otherwise it falls back to the bare
  * registry removal. Returns whether a registry row was actually dropped.
  *
- * @sem domain=process-manager role=mutator
  */
 export async function unregisterRepo(targetPath: string): Promise<boolean> {
   const { daemonSockPath, probeDaemon, sendRequest } = await import(

@@ -22,10 +22,11 @@ import { C, UNLOCK_CONDITIONS } from "../proxy/tool-tiers.js";
 
 describe("buildSoftRefuse: shape", () => {
   it("returns one MCP text block with ur|fct prefix and structured fields", () => {
-    // get_references is the sole gated tool: C.or(C.editOrWrite(), C.fanIn(5)).
+    // get_references is the sole gated tool:
+    // C.or(C.editOrWrite(), C.fanIn(5), C.firstRead()).
     const refusal = buildSoftRefuse({
       toolName: "get_references",
-      condition: C.or(C.editOrWrite(), C.fanIn(5)),
+      condition: C.or(C.editOrWrite(), C.fanIn(5), C.firstRead()),
     });
     expect(refusal.content).toHaveLength(1);
     expect(refusal.content[0]?.type).toBe("text");
@@ -33,7 +34,7 @@ describe("buildSoftRefuse: shape", () => {
     expect(text.startsWith("ur|fct get_references locked — ")).toBe(true);
     expect(text).toContain("_error: tool_locked");
     expect(text).toContain(
-      "_unlock_when: edit or write attempted OR entity fan_in ≥ 5 observed"
+      "_unlock_when: edit or write attempted OR entity fan_in ≥ 5 observed OR first file read completed"
     );
     // The alternative is named once, in the header action ("call file_read
     // first."). The redundant `_alternative:` row was cut as billed noise.
@@ -44,12 +45,13 @@ describe("buildSoftRefuse: shape", () => {
   it("attaches stable diagnostic fields to _gate", () => {
     const refusal = buildSoftRefuse({
       toolName: "get_references",
-      condition: C.or(C.editOrWrite(), C.fanIn(5)),
+      condition: C.or(C.editOrWrite(), C.fanIn(5), C.firstRead()),
     });
     expect(refusal._gate).toEqual({
       status: "locked",
       tool: "get_references",
-      unlock_when: "edit or write attempted OR entity fan_in ≥ 5 observed",
+      unlock_when:
+        "edit or write attempted OR entity fan_in ≥ 5 observed OR first file read completed",
       alternative_tool: "file_read",
     });
   });

@@ -14,7 +14,6 @@
  *
  * Group a conversation by `coalesce(native_session_id, unerr_session_id)`.
  *
- * @sem domain=session-identity role=store
  */
 
 import { randomUUID } from "node:crypto";

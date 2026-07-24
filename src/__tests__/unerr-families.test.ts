@@ -48,9 +48,9 @@ describe("UNERR_FAMILIES — every TIER_ENTRIES tool has a family", () => {
 
 describe("UNERR_FAMILIES — retired notes family stays retired", () => {
   it("unerr_remember left the catalog with the notes family (2026-06)", () => {
-    // Layer B writes ride hooks now: user rules at UserPromptSubmit
-    // (remember-client.ts), agent notes via the `unerr-save:` Stop-hook
-    // sentinel (sentinel-persist.ts). unerr_remember dispatches by name only.
+    // Layer B writes ride hooks now: user rules are no longer captured at
+    // all, agent notes via the `unerr-save:` Stop-hook sentinel
+    // (sentinel-persist.ts). unerr_remember dispatches by name only.
     expect(TIER_ENTRIES.unerr_remember).toBeUndefined();
     expect(UNERR_TOOL_TO_FAMILY.get("unerr_remember")).toBeUndefined();
     expect(UNERR_FAMILY_NAMES.has("notes" as never)).toBe(false);

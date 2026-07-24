@@ -370,7 +370,6 @@ export function effectiveTier(now: number = Date.now()): EffectiveTier {
  * mirror of the server's `canPushTelemetry` (unerr-web-service
  * `lib/cli/entitlements.ts`), which likewise no longer gates on plan.
  *
- * @sem domain=cloud role=entitlement
  */
 export function canPushTelemetry(now: number = Date.now()): boolean {
   const tier = effectiveTier(now);

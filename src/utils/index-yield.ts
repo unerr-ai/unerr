@@ -8,7 +8,6 @@
  * budget lets the Poll/Check phases run (servicing the ping) between batches, so
  * a 100s+ index stays connection-alive regardless of total duration.
  *
- * @sem domain=infrastructure role=scheduler
  */
 import { performance } from "node:perf_hooks";
 

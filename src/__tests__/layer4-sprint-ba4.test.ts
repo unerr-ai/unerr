@@ -17,9 +17,11 @@ import {
 // Post-consolidation (27→7): the tool-reference guidance is folded into
 // USING_UNERR_SKILL (the always-on master). The body was cut further
 // (2026-07-24 description/body dedup) to a short capability reference —
-// the diff/ur|<tag>/@sem prose moved out (already covered by CLAUDE.md /
-// the instruction file); tests assert the five tools + the sub-agent
-// delegation line still ship.
+// already covered by CLAUDE.md / the instruction file. The sub-agent
+// delegation sentence was deduped out of the body too (2026-07-24): it
+// duplicated CLAUDE.md's roster line and each agent's own description
+// (the canonical auto-delegation signal), so tests now assert it is ABSENT
+// from the skill body, not present.
 import { USING_UNERR_SKILL } from "../skills/local-pack.js";
 
 describe("BA-4.1: token-efficient guidance (folded into using-unerr)", () => {
@@ -40,10 +42,10 @@ describe("BA-4.1: token-efficient guidance (folded into using-unerr)", () => {
     }
   });
 
-  it("body notes unerr sub-agents exist for delegable slices", () => {
+  it("body no longer duplicates the sub-agent delegation line (covered by CLAUDE.md roster + agent descriptions)", () => {
     const text = USING_UNERR_SKILL.instructions;
-    expect(text).toContain("unerr-worker");
-    expect(text).toContain("unerr-junior");
+    expect(text).not.toContain("unerr-worker");
+    expect(text).not.toContain("unerr-junior");
   });
 });
 

@@ -138,7 +138,7 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     // Cursor names its conversation id `conversation_id`, not `session_id`.
     sessionIdentity: { idHookField: "conversation_id" },
     // Delegates via the headless CLI: `cursor-agent -p -m <model> --force` runs the
-    // edit on a cheaper tier (juniorHandoff in junior-agent.ts). No on-disk agent file.
+    // edit on a cheaper tier (subagentHandoff in subagent-manager.ts). No on-disk agent file.
     delegation: true,
   },
   {
@@ -338,7 +338,7 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     instructionFormat: "markdown",
     // Delegates via non-interactive exec: `copilot -p "<task>" --model <model>
     // --allow-all-tools` runs the edit on a model that doesn't consume premium
-    // requests (juniorHandoff in junior-agent.ts). No on-disk agent file.
+    // requests (subagentHandoff in subagent-manager.ts). No on-disk agent file.
     delegation: true,
   },
   {

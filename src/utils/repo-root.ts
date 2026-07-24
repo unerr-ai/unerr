@@ -25,7 +25,6 @@
  *
  * Pure and synchronous (no simple-git, no async) — safe on the hook hot path.
  *
- * @sem domain=infrastructure role=policy
  */
 
 import { existsSync, realpathSync, statSync } from "node:fs";

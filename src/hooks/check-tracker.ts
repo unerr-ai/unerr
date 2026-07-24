@@ -20,18 +20,28 @@ const CHECK_COMMAND_PATTERNS: RegExp[] = [
   /\b(?:pytest|py\.test|unittest|tox)\b/,
   /\b(?:npm|yarn|pnpm)\s+(?:run\s+)?(?:test|typecheck|lint|build|check)\b[^&|;]*/,
   /\b(?:jest|mocha|vitest)\b/,
-  /\bmake\s+(?:check|test)\b/,
+  /\bbun\s+test\b/,
+  /\bdeno\s+(?:test|check)\b/,
+  /\bmake\s+(?:check|test|lint)\b/,
   /\bctest\b/,
-  /\bgo\s+test\b/,
-  /\bcargo\s+(?:test|check|build)\b/,
-  /\bmvn\s+test\b/,
-  /\bgradle\s+(?:test|check)\b/,
+  /\bgo\s+(?:test|vet|build)\b/,
+  /\bgolangci-lint\b/,
+  /\bcargo\s+(?:test|check|build|clippy)\b/,
+  /\bmvnw?\s+test\b/,
+  /\bgradlew?\s+(?:test|check)\b/,
   /\brspec\b/,
+  /\brake\s+test\b/,
   /\bphpunit\b/,
+  /\bcomposer\s+test\b/,
+  /\bmix\s+test\b/,
+  /\bdotnet\s+(?:test|build)\b/,
+  /\bswift\s+test\b/,
   /\btsc\b/,
   /\bbiome\s+check\b/,
   /\beslint\b/,
   /\bruff\b(?:\s+check\b)?/,
+  /\bmypy\b/,
+  /\bpyright\b/,
 ];
 
 /** A `curl` invocation carrying `-f`/`--fail` (fail-on-HTTP-error) — the
@@ -47,13 +57,15 @@ function hasCurlCheckFlag(command: string): boolean {
 
 /**
  * True when `command` is a recognizable check/test/build/typecheck runner
- * (pytest, npm/yarn/pnpm test|typecheck|lint|build|check, jest/mocha/vitest,
- * make check/test, ctest, go test, cargo test/check/build, mvn test, gradle
- * test/check, rspec, phpunit, tsc, biome check, eslint, ruff, or a `curl -f`
- * health probe). Word-boundary matched, precision-first — an unrecognized
+ * across ecosystems, not just JS/TS: pytest, npm/yarn/pnpm
+ * test|typecheck|lint|build|check, jest/mocha/vitest, bun test, deno
+ * test/check, make check/test/lint, ctest, go test/vet/build, golangci-lint,
+ * cargo test/check/build/clippy, mvn(w) test, gradle(w) test/check, rspec,
+ * rake test, phpunit, composer test, mix test, dotnet test/build, swift
+ * test, tsc, biome check, eslint, ruff(check), mypy, pyright, or a `curl -f`
+ * health probe. Word-boundary matched, precision-first — an unrecognized
  * command classifies false rather than guess.
  *
- * @sem domain=agent-hooks role=classifier
  */
 export function classifyCheckCommand(command: string): boolean {
   const cmd = command.trim();
@@ -194,7 +206,6 @@ function isTamperedCheck(body: string, editedFiles: string[]): boolean {
  * Returns null for any shape that isn't one of these four narrow, whole-body
  * patterns.
  *
- * @sem domain=agent-hooks role=classifier
  */
 export function classifyWeakVerify(
   command: string,

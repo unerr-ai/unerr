@@ -33,11 +33,8 @@ import {
 import { removeClaudeHook } from "../config/hook-installer.js";
 import { removeInstructionSection } from "../config/instruction-writer.js";
 import { removeMcpConfig } from "../config/mcp-config-writer.js";
-import { loadSettings } from "../config/settings.js";
-import { DEFAULT_SENTINEL_TOKENS } from "../intelligence/semantic/docstring-extractor.js";
-import { stripAnnotationsFromRepo } from "../intelligence/semantic/strip-annotations.js";
-import { removeJuniorSubagent } from "../skills/junior-agent.js";
 import { removeInstalledSkills } from "../skills/resolver.js";
+import { removeSubagents } from "../skills/subagent-manager.js";
 import type { IdeType } from "../utils/detect.js";
 
 /** Marker the now-removed review-gate hook installer used (`review-gate-hooks.ts`). */
@@ -99,51 +96,36 @@ export function registerUninstallCommand(program: Command): void {
     .command("uninstall [agent]")
     .description("Remove unerr configs and hooks from this project")
     .option(
-      "--strip-annotations",
-      "also remove @sem sentinel lines from source comments repo-wide (prose summaries are kept)"
-    )
-    .option(
       "--purge",
       "also delete this repo's .unerr/ data directory (indexed graph, facts, logs)"
     )
-    .action(
-      async (
-        agent: string | undefined,
-        opts: { stripAnnotations?: boolean; purge?: boolean }
-      ) => {
-        const cwd = process.cwd();
+    .action(async (agent: string | undefined, opts: { purge?: boolean }) => {
+      const cwd = process.cwd();
 
-        if (agent) {
-          const normalized = normalizeAgentName(agent);
-          const agentDef = getAgent(normalized as IdeType);
-          if (!agentDef) {
-            process.stderr.write(
-              `\x1b[31m✗\x1b[0m Unknown agent: "${agent}"\n`
-            );
-            return;
-          }
-          const result = runUninstall(cwd, normalized as IdeType);
-          displayUninstallResult(agentDef.name, result);
-        } else {
-          runUninstallAll(cwd);
+      if (agent) {
+        const normalized = normalizeAgentName(agent);
+        const agentDef = getAgent(normalized as IdeType);
+        if (!agentDef) {
+          process.stderr.write(`\x1b[31m✗\x1b[0m Unknown agent: "${agent}"\n`);
+          return;
         }
-
-        // Free the free-tier cap slot: stop the running child + drop the
-        // registry row for this repo. Routes through the daemon "remove" RPC
-        // when unerrd is up (stop-then-remove), else bare registry removal.
-        await unregisterRepoFromPm(cwd);
-
-        // Keep .unerr/ data by default — never destroy user data silently.
-        // Only --purge deletes the indexed graph, facts, and logs.
-        if (opts.purge) {
-          purgeDataDir(cwd);
-        }
-
-        if (opts.stripAnnotations) {
-          stripAnnotationsAndReport(cwd);
-        }
+        const result = runUninstall(cwd, normalized as IdeType);
+        displayUninstallResult(agentDef.name, result);
+      } else {
+        runUninstallAll(cwd);
       }
-    );
+
+      // Free the free-tier cap slot: stop the running child + drop the
+      // registry row for this repo. Routes through the daemon "remove" RPC
+      // when unerrd is up (stop-then-remove), else bare registry removal.
+      await unregisterRepoFromPm(cwd);
+
+      // Keep .unerr/ data by default — never destroy user data silently.
+      // Only --purge deletes the indexed graph, facts, and logs.
+      if (opts.purge) {
+        purgeDataDir(cwd);
+      }
+    });
 }
 
 /**
@@ -152,7 +134,6 @@ export function registerUninstallCommand(program: Command): void {
  * stops before unregistering) when the daemon is up; otherwise removes the
  * registry row directly.
  *
- * @sem domain=process-manager role=mutator
  */
 async function unregisterRepoFromPm(cwd: string): Promise<void> {
   try {
@@ -205,35 +186,6 @@ function purgeDataDir(cwd: string): void {
 }
 
 /**
- * Layer 8 §2.1.1 exit story — strip `@sem` sentinel lines from source comments
- * repo-wide. Sentinel tokens come from `comments.sentinel` (default `@sem`);
- * prose summaries are preserved. Idempotent: a clean repo reports 0 changes.
- */
-function stripAnnotationsAndReport(cwd: string): void {
-  let tokens = DEFAULT_SENTINEL_TOKENS;
-  try {
-    const configured = loadSettings(cwd).comments.sentinel;
-    if (configured.length > 0) tokens = configured;
-  } catch {
-    tokens = DEFAULT_SENTINEL_TOKENS;
-  }
-  const { filesChanged, linesRemoved } = stripAnnotationsFromRepo(cwd, tokens);
-  if (filesChanged === 0) {
-    process.stderr.write(
-      "\x1b[32m✓\x1b[0m No @sem sentinel lines found — nothing to strip.\n"
-    );
-    return;
-  }
-  process.stderr.write(
-    `\x1b[32m✓\x1b[0m Stripped ${linesRemoved} @sem sentinel line${
-      linesRemoved === 1 ? "" : "s"
-    } from ${filesChanged} file${
-      filesChanged === 1 ? "" : "s"
-    } (prose summaries kept; review the diff with \`git diff\`).\n`
-  );
-}
-
-/**
  * Uninstall unerr for a single agent — symmetric to runInstall().
  */
 function runUninstall(cwd: string, ide: IdeType): UninstallResult {
@@ -251,12 +203,12 @@ function runUninstall(cwd: string, ide: IdeType): UninstallResult {
   // 2b. Remove the delegation sub-agent files (Lever C, Claude Code only).
   if (ide === "claude-code") {
     try {
-      removeJuniorSubagent(cwd);
+      removeSubagents(cwd);
     } catch {
       // Non-blocking
     }
     // Sweep a stale reviewer sub-agent file left by a prior install — the
-    // reviewer surface (junior-agent.ts REVIEWER_* scaffolding) was removed,
+    // reviewer surface (subagent-manager.ts REVIEWER_* scaffolding) was removed,
     // so the path is inlined here rather than imported.
     try {
       const reviewerPath = join(cwd, ".claude/agents/unerr-reviewer.md");

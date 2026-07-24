@@ -8,7 +8,6 @@
  * Every field is best-effort: a repo not yet indexed yields an empty profile,
  * and a missing sub-store (domain graph, facts) is skipped rather than thrown.
  *
- * @sem domain=cloud role=identity
  */
 
 /** The profile object stored as JSON on a repo_activity row and put on the wire. */
@@ -103,7 +102,7 @@ function topLanguages(breakdown: Record<string, number>): string[] {
 }
 
 /**
- * The most common active `@sem domain=` tags across the repo — unerr's view of
+ * The most common active domain tags across the repo — unerr's view of
  * what the codebase is ABOUT. Read-only; an absent domain graph returns [].
  */
 async function topDomains(graph: ProfileGraph): Promise<string[]> {

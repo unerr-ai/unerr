@@ -126,8 +126,7 @@ unerr status         # in a repo: shows graph + proxy state
 ## Uninstall
 
 ```bash
-unerr uninstall                       # remove unerr from the current repo
-unerr uninstall --strip-annotations   # also strip the @sem comments unerr added
+unerr uninstall   # remove unerr from the current repo
 ```
 
 Then remove the binary itself:

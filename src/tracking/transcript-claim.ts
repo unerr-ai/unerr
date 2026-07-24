@@ -37,7 +37,6 @@ function claimsDir(unerrDir: string): string {
  * A lightweight reference to a session whose transcript should be materialized
  * later by the daemon. Carries NO transcript content — only the pointer.
  *
- * // @sem domain=tracking role=producer
  */
 export interface TranscriptClaim {
   kind: "transcript";
@@ -55,7 +54,6 @@ export interface TranscriptClaim {
  * must never crash on telemetry, so all work is swallowed and the transcript is
  * never stat-ed or read here.
  *
- * // @sem domain=tracking role=producer
  */
 export function enqueueTranscriptClaim(opts: {
   unerrDir: string;
@@ -91,7 +89,6 @@ export function enqueueTranscriptClaim(opts: {
  * deduped. Torn or corrupt lines are skipped and a missing directory yields an
  * empty list, so the daemon always gets whatever is readable without throwing.
  *
- * // @sem domain=tracking role=reader
  */
 export function readPendingClaims(unerrDir: string): TranscriptClaim[] {
   const out: TranscriptClaim[] = [];
@@ -134,7 +131,6 @@ export function readPendingClaims(unerrDir: string): TranscriptClaim[] {
  * greatest `observed_at` so the daemon materializes each session only from its
  * latest pointer.
  *
- * // @sem domain=tracking role=reader
  */
 export function latestClaimPerSession(
   claims: TranscriptClaim[]
@@ -157,7 +153,6 @@ export function latestClaimPerSession(
  * pid-based) so a claim is never swept before its transcript settles + ships.
  * Best-effort and never throws.
  *
- * // @sem domain=tracking role=reader
  */
 export function sweepStaleClaimFiles(
   unerrDir: string,

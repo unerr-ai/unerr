@@ -4,7 +4,6 @@
  * reads the keychain-free credential metadata only, so building a snapshot never
  * triggers a keychain prompt or blocks the daemon.
  *
- * @sem domain=infrastructure
  */
 import { arch, hostname, platform } from "node:os";
 import { readCredentialMetadata } from "../cloud/credentials.js";
@@ -42,7 +41,6 @@ export interface MachineSnapshotOptions {
  * for an authenticated machine. `machine_name` falls back to the OS hostname
  * when the metadata did not record one (e.g. the CI env-token path).
  *
- * @sem domain=infrastructure
  */
 export function buildMachineSnapshot(
   opts: MachineSnapshotOptions = {}

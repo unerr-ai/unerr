@@ -11,7 +11,7 @@
  * It reuses the proxy's already-tested MCP `tools/call` path (proxy.ts) by
  * sending one `tools/call` frame for `get_conventions` and parsing the reply.
  *
- * Same hard contract as recall-client: NEVER throws, NEVER stalls. Every
+ * Hard contract shared by all hook-side UDS clients: NEVER throws, NEVER stalls. Every
  * failure mode (no socket, proxy down, slow/malformed reply, no conventions)
  * resolves to `null`, and `null` means "inject nothing — keep the static nudge".
  */
@@ -117,7 +117,7 @@ export function parseConventionsReply(
     if (response.error || !response.result?.content?.[0]?.text) return null;
 
     // The MCP tool text is itself JSON: {ok, data:{naming,…}, …} or the bare
-    // {naming,…} shape — tolerate both (mirrors recall-client's data/bare fork).
+    // {naming,…} shape — tolerate both (daemon replies vary by protocol version).
     const parsed = JSON.parse(response.result.content[0].text!) as Record<
       string,
       unknown

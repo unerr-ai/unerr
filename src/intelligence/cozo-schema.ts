@@ -32,7 +32,6 @@
  * write set — which is what lets an incremental reindex's delete-then-reinsert
  * stay invisible to live tool reads until it is whole.
  *
- * @sem domain=intelligence role=transaction-handle
  */
 export interface CozoTx {
   run(
@@ -688,9 +687,9 @@ export async function initSchema(db: CozoDb): Promise<void> {
   // graph annotates structural truth, never mutates entities/edges.
 
   // Per-entity semantic annotation captured from doc comments at index time.
-  // source: 'comment' | 'harvested' | 'propagated' | 'path' (§5.3 confidence
-  // tiers — higher-confidence sources overwrite lower, never the reverse).
-  // status: 'active' | 'stale' (§5.1 drift predicate flips to stale when
+  // source: 'harvested' | 'propagated' | 'path' (confidence tiers —
+  // higher-confidence sources overwrite lower, never the reverse).
+  // status: 'active' | 'stale' (drift predicate flips to stale when
   // content_hash changes while comment_hash does not).
   await createIfMissing(
     db,
@@ -702,8 +701,6 @@ export async function initSchema(db: CozoDb): Promise<void> {
       =>
       summary: String default "",
       domain: String default "",
-      role: String default "",
-      extras: String default "{}",
       source: String default "path",
       confidence: Float default 0.0,
       status: String default "active",
@@ -715,7 +712,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
   );
 
   // Domain-graph edges between domain tags (NOT entities — §6).
-  // edge_type: 'coupled_declared' | 'calls_observed' | 'co_change'.
+  // edge_type: 'calls_observed' | 'co_change'.
   await createIfMissing(
     db,
     existing,

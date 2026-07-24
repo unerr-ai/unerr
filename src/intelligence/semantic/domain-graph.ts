@@ -10,7 +10,7 @@
  *                                     writing `source='propagated'` rows
  *   - computeCommunityDomains (D.2) — confidence-weighted dominant-tag vote per
  *                                     Louvain community → `community_domains`
- *   - buildDomainEdges (D.4)        — `coupled=` + cross-domain calls + git
+ *   - buildDomainEdges (D.4)        — cross-domain calls + git
  *                                     co-change → `domain_edges`
  *   - computeFileDomains / Module (D.5) — derived confidence-weighted-majority
  *                                     rollups (never authored, never stored)
@@ -154,7 +154,7 @@ function dominantDomain(votes: Map<string, number>): string {
  * crosses {@link PROPAGATION_FLOOR}. Each untagged entity keeps the
  * highest-confidence candidate (ties broken alphabetically), written as a
  * `source='propagated'` row. The upsert's tier ordering guarantees a propagated
- * row never overwrites a comment/harvested row and only overwrites the path
+ * row never overwrites a harvested row and only overwrites the path
  * floor. Deterministic + idempotent: seeds exclude prior propagated rows, so a
  * re-run reproduces the same labels. Returns rows written.
  */
@@ -263,8 +263,6 @@ export async function propagateLabels(db: AnnotationDb): Promise<number> {
       entity_key: key,
       summary: "",
       domain,
-      role: "",
-      extras: "{}",
       source: propagatedSource,
       confidence: Math.round(best * 1000) / 1000,
       comment_hash: "",
@@ -355,29 +353,13 @@ export async function computeCommunityDomains(
 export interface DomainEdgeRow {
   from_domain: string;
   to_domain: string;
-  edge_type: "coupled_declared" | "calls_observed" | "co_change";
+  edge_type: "calls_observed" | "co_change";
   weight: number;
   evidence_count: number;
 }
 
-/** Parse the `coupled=` extras list into target names (file or entity). */
-function parseCoupledTargets(extras: string): string[] {
-  try {
-    const obj = JSON.parse(extras) as Record<string, unknown>;
-    const raw = obj.coupled;
-    if (typeof raw !== "string" || raw.trim() === "") return [];
-    return raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
 /**
- * SC-D.4 — build the domain graph's edges from three evidence sources:
- *   - `coupled_declared`: `coupled=` targets resolved to their domain
+ * SC-D.4 — build the domain graph's edges from two evidence sources:
  *   - `calls_observed`:   structural `calls` edges aggregated by domain pair
  *   - `co_change`:        git `co_changes` file edges aggregated by file domain
  * Cross-domain only (a domain never edges to itself), undirected pairs
@@ -409,31 +391,7 @@ export async function buildDomainEdges(
     else acc.set(k, { from, to, type, count: 1 });
   };
 
-  // (a) coupled_declared — resolve each coupled target name to a domain.
-  try {
-    const res = await db.run(
-      `?[entity_key, domain, extras] :=
-         *domain_annotations{entity_key, domain, extras, source},
-         domain != "", source != "propagated"`
-    );
-    // name → domain resolution: entity name and file basename both index a domain.
-    const nameToDomain = await loadNameDomainIndex(db);
-    for (const row of res.rows) {
-      const srcDomain = row[1] as string;
-      for (const target of parseCoupledTargets(row[2] as string)) {
-        const tgtDomain =
-          nameToDomain.get(target) ??
-          nameToDomain.get(target.split("/").pop() ?? target) ??
-          fileDomains.get(target)?.domain ??
-          "";
-        bump(srcDomain, tgtDomain, "coupled_declared");
-      }
-    }
-  } catch {
-    /* best-effort */
-  }
-
-  // (b) calls_observed — cross-domain structural call edges.
+  // (a) calls_observed — cross-domain structural call edges.
   try {
     const res = await db.run(
       `?[from_key, to_key] := *edges{from_key, to_key, type: "calls"}`
@@ -509,33 +467,6 @@ export async function buildDomainEdges(
 function stripFilePrefix(key: string): string {
   const idx = key.indexOf(":");
   return idx >= 0 ? key.slice(idx + 1) : key;
-}
-
-/** Map entity names and file basenames → domain, for `coupled=` resolution. */
-async function loadNameDomainIndex(
-  db: AnnotationDb
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  try {
-    const res = await db.run(
-      `?[name, file_path, domain] :=
-         *domain_annotations{entity_key, domain, source},
-         domain != "", source != "propagated",
-         *entities{key: entity_key, name, file_path}`
-    );
-    for (const row of res.rows) {
-      const name = row[0] as string;
-      const file = row[1] as string;
-      const domain = row[2] as string;
-      if (name && !out.has(name)) out.set(name, domain);
-      const base = file.split("/").pop();
-      if (base && !out.has(base)) out.set(base, domain);
-      if (file && !out.has(file)) out.set(file, domain);
-    }
-  } catch {
-    /* best-effort */
-  }
-  return out;
 }
 
 /** A derived rollup: the confidence-weighted-majority domain of a group. */
@@ -622,18 +553,17 @@ export async function computeModuleDomains(
 /** SC-E.3: one domain's entity count split by provenance tier. */
 export interface DomainCoverageRow {
   domain: string;
-  comment: number;
   harvested: number;
   propagated: number;
   path: number;
   total: number;
-  /** % of the domain's entities tagged from durable (comment/harvested) sources. */
+  /** % of the domain's entities tagged from durable (harvested) sources. */
   durablePct: number;
 }
 
 /**
  * Per-domain coverage by provenance tier — how much of each domain's labelling
- * rests on durable (comment/harvested) sources vs graph-inferred
+ * rests on durable (harvested) sources vs graph-inferred
  * (propagated/path) ones. Reads active `domain_annotations` only; sorted
  * lowest-durable-first so the contested domains surface at the top of the
  * dashboard pane. Best-effort: a read failure yields an empty list.
@@ -656,7 +586,6 @@ export async function computeDomainCoverage(
       if (!entry) {
         entry = {
           domain,
-          comment: 0,
           harvested: 0,
           propagated: 0,
           path: 0,
@@ -666,7 +595,6 @@ export async function computeDomainCoverage(
         byDomain.set(domain, entry);
       }
       if (
-        source === "comment" ||
         source === "harvested" ||
         source === "propagated" ||
         source === "path"
@@ -681,9 +609,7 @@ export async function computeDomainCoverage(
   const out: DomainCoverageRow[] = [];
   for (const entry of byDomain.values()) {
     entry.durablePct =
-      entry.total === 0
-        ? 0
-        : Math.round(((entry.comment + entry.harvested) / entry.total) * 100);
+      entry.total === 0 ? 0 : Math.round((entry.harvested / entry.total) * 100);
     out.push(entry);
   }
   out.sort((a, b) => a.durablePct - b.durablePct || b.total - a.total);

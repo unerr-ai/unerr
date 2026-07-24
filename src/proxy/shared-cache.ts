@@ -6,7 +6,6 @@ import { ReversibleCache } from "./reversible-cache.js";
  * side (file_read / search_code / fetch_url pulling a slice back) share one
  * store — without a shared instance every cache_ref retrieval would miss.
  *
- * @sem domain=compression role=cache
  */
 
 let shared: ReversibleCache | null = null;

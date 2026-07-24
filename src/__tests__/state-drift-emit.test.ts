@@ -110,7 +110,6 @@ describe("L1 state + drift producers", () => {
     const FIXTURE = `/**
  * Validates a session token against the active key set — the auth boundary
  * every inbound API call funnels through.
- * @sem domain=auth role=gateway stability=frozen
  */
 export function validateToken(token: string) {}
 `;
@@ -118,8 +117,8 @@ export function validateToken(token: string) {}
       {
         key: "e:validateToken",
         name: "validateToken",
-        startLine: 6,
-        endLine: 6,
+        startLine: 5,
+        endLine: 5,
       },
     ];
     const BODY = "export function validateToken(token: string) {}";

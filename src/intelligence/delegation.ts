@@ -5,7 +5,6 @@
  * (`classifyDelegable`). One call so the `unerr-delegate` skill and any runtime
  * consult the same decision.
  *
- * @sem domain=delegation role=gate
  */
 
 import { supportsDelegation } from "../config/agent-registry.js";
@@ -151,7 +150,7 @@ export type DelegationTier = "worker" | "junior";
 
 /**
  * Route a delegable class to its model tier. Kept consistent with `selectTier`
- * (the authoritative router in junior-agent.ts): the scoped-write classes that
+ * (the authoritative router in subagent-manager.ts): the scoped-write classes that
  * need a correctness check (tests, mechanical_refactor, codemod, caller_propagation,
  * typecheck_fix, scaffold, feature_impl, dependency_upgrade, migration_script) →
  * worker; every read-only / trivially-mechanical class (recon, research, qa_lookup,

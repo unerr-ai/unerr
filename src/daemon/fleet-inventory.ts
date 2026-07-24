@@ -22,7 +22,6 @@ import type { RepoStatus, RepoStatusEntry } from "./protocol.js";
  * stamps each into a contract-shaped event and pushes it on the one ingest
  * stream; the machine itself is resolved from the bearer token, never the body.
  *
- * @sem domain=infrastructure
  */
 import { listRepos } from "./registry.js";
 import { readRepoRuntime } from "./repo-runtime.js";
@@ -85,7 +84,6 @@ export interface FleetReportInputs extends MachineSnapshotOptions {
  * Git origin is detected per repo (memoized, credential-free); registry supplies
  * `added_at`. The repo list is capped at {@link MAX_REPOS_PER_REPORT}.
  *
- * @sem domain=infrastructure
  */
 export async function buildFleetReport(
   inputs: FleetReportInputs
@@ -131,7 +129,6 @@ export async function buildFleetReport(
  * status/counts, no origin or path lookups (so it is cheap on the fast cadence).
  * Returns null when not logged in.
  *
- * @sem domain=infrastructure
  */
 export function buildHeartbeatReport(
   inputs: FleetReportInputs

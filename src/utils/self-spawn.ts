@@ -12,7 +12,6 @@
  * Every place that spawns a child unerr must route through here so the binary
  * build stays correct as new spawn sites appear.
  *
- * @sem domain=native-binary role=process-spawn
  */
 import {
   type ChildProcess,

@@ -13,7 +13,6 @@
  * — HR-2 anchor hashing — lives at the producer call site, not here, to keep
  * this module a leaf.
  *
- * // @sem domain=telemetry role=producer
  */
 import { randomUUID } from "node:crypto";
 import { INGEST_SCHEMA_VERSION } from "@unerr-ai/contracts/events";

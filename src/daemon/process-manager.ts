@@ -612,7 +612,6 @@ export class ProcessManager {
    * this a no-op for that pid — a missed duplicate is far safer than a
    * wrongful kill.
    *
-   * @sem domain=daemon-lifecycle role=safety-net
    */
   async reapDuplicateChildren(): Promise<void> {
     if (this.stopped) return;
@@ -668,7 +667,6 @@ export class ProcessManager {
    * or adopted. No-op when the limit is unlimited (Pro/Team) or ≤1 proxy runs.
    * Returns the count stopped. Never throws — a failed stop retries next call.
    *
-   * @sem domain=billing role=policy
    */
   async reconcileFreeTier(): Promise<number> {
     if (this.stopped) return 0;

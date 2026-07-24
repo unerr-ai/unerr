@@ -14,7 +14,6 @@
  * advances only after the turns are durably enqueued to the event store, so the
  * data is handed to the durable queue before the cursor moves.
  *
- * // @sem domain=tracking role=drainer
  */
 
 import { readdirSync, statSync } from "node:fs";
@@ -110,7 +109,6 @@ function resolveClaudeFile(claim: TranscriptClaim): ResolvedFile | null {
  * Best-effort: a per-session failure never sinks the others, and the function
  * never throws.
  *
- * // @sem domain=tracking role=drainer
  */
 export async function materializeClaimedTranscripts(opts: {
   repoCwd: string;

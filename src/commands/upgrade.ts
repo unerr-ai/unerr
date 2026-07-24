@@ -7,7 +7,6 @@
  * unerrd, the per-repo `unerr` proxies, and the IDE-owned `unerr --mcp` bridges.
  * All logic lives in upgrade-flow.ts so there is ONE upgrade implementation.
  *
- * @sem domain=update role=cli-upgrade
  */
 
 import type { Command } from "commander";

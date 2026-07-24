@@ -123,10 +123,12 @@ export async function runHook(args: string[]): Promise<void> {
     }
     // ── UserPromptSubmit ──────────────────────────────────────
     case "prompt-submit": {
-      const { runUserPromptSubmitHookAsync } = await import(
+      const { runUserPromptSubmitHook } = await import(
         "../hooks/prompt-hooks.js"
       );
-      await safeAsyncHookAction(runUserPromptSubmitHookAsync)();
+      await safeAsyncHookAction(async (stdin) =>
+        runUserPromptSubmitHook(stdin)
+      )();
       return;
     }
     // ── SessionStart ──────────────────────────────────────────

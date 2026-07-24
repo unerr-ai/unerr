@@ -6,7 +6,6 @@
  * serves run / transaction requests keyed by id. Transaction handles stay open
  * here across the tx-run/commit/abort round-trips the client makes.
  *
- * @sem domain=native-binary role=db-worker
  */
 import { parentPort, workerData } from "node:worker_threads";
 import type { CozoDb } from "./cozo-schema.js";

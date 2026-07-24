@@ -30,7 +30,6 @@ const BASE_URL = "https://app.unerr.dev";
  * this automatically returns the dev URL when a dev profile is active.
  * Never throws — a bad config falls back to `DEFAULT_API_URL`.
  *
- * @sem domain=cloud role=url-resolver
  */
 export function consolidatedServiceBaseUrl(): string {
   try {
@@ -48,7 +47,6 @@ export function consolidatedServiceBaseUrl(): string {
  * @param repoId - Optional repository identifier. When present, appends `/r/<repoId>`.
  * @returns Full URL string with `utm_source=cli` appended.
  *
- * @sem domain=cloud role=url-builder
  */
 export function consolidatedDashboardUrl(repoId?: string): string {
   const base = consolidatedServiceBaseUrl();

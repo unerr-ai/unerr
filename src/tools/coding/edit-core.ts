@@ -9,7 +9,6 @@
  * MCP tool runs in a different process and can never satisfy that gate, so the
  * harness carries its own correctness instead.
  *
- * @sem domain=utilities role=core
  */
 
 import { createHash } from "node:crypto";

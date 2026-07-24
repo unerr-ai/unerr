@@ -13,7 +13,6 @@
  * `cloud_ingest: false` force-disable. All dependencies are
  * injected so it talks to no module directly and is fully testable offline.
  *
- * @sem domain=infrastructure
  */
 import { join } from "node:path";
 import { CloudClient } from "../cloud/client.js";
@@ -111,7 +110,6 @@ function isSoftFailure(status: DrainOutcome["status"]): boolean {
  * boot, `stop()` on shutdown. Each tick drains every repo; a machine-wide
  * backoff slows the whole loop when the cloud is unreachable or rate-limiting.
  *
- * @sem domain=infrastructure
  */
 export class PushReporter {
   private readonly deps: Required<

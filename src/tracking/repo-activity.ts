@@ -9,7 +9,6 @@
  * errors. `added`/`started` carry the unerr-standpoint repo profile; the others
  * omit it.
  *
- * @sem domain=cloud role=identity
  */
 import type { MetricsStore } from "./metrics-store.js";
 import {

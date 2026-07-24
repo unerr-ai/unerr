@@ -6,7 +6,6 @@
  * queue of stale payloads is kept). All dependencies are injected, so it talks
  * to no module directly and is fully testable offline.
  *
- * @sem domain=infrastructure
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -170,7 +169,6 @@ export interface FleetReporterDeps {
  * Drives the heartbeat/inventory loop for one daemon. Construct once, `start()`
  * on boot, `notifyEvent()` on repo/proxy changes, `stop()` on shutdown.
  *
- * @sem domain=infrastructure
  */
 export class FleetReporter {
   private readonly deps: Required<

@@ -11,11 +11,6 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { supportsDelegation } from "../config/agent-registry.js";
-import {
-  type DelegationDecision,
-  shouldDelegate,
-} from "../intelligence/delegation.js";
 import { classifyInjectionTier } from "../intelligence/task-size.js";
 import {
   readNudgeState,
@@ -23,14 +18,12 @@ import {
   updateNudgeState,
 } from "../proxy/nudge-state.js";
 import { recordPrefixStability } from "../proxy/prefix-stability.js";
-import { juniorHandoff } from "../skills/junior-agent.js";
 import { OPT_IN_SKILLS, isOptInSkill } from "../skills/local-pack.js";
 import { readOptInSkills } from "../skills/skill-opt-in.js";
 import {
   recordInjectionTelemetry,
   recordOneShotEmit,
 } from "../tracking/injection-meter.js";
-import type { IdeType } from "../utils/detect.js";
 import {
   type AsyncHookHandler,
   type HookHandler,
@@ -48,8 +41,6 @@ import {
   readProxySessionId,
   recordUserPromptReceived,
 } from "./prompt-capture.js";
-import { type RecalledTrace, queryRecallTraces } from "./recall-client.js";
-import { detectUserRule } from "./remember-client.js";
 
 // ── Path A: keyword fast path — verb clusters → named sub-skills ─────────────
 // Mirrors docs/identity-impact-redesign.md §3 Path A table. Each cluster
@@ -123,9 +114,10 @@ export const VERB_CLUSTERS: VerbCluster[] = [
     pattern:
       /\b(find|search|where|who[- ]calls|callers|callees|dependencies|import|imports|hotspot|hotspots)\b/i,
   },
-  // No `memory` cluster: "remember / always / from now on / never" rules are
-  // captured automatically by the UserPromptSubmit hook (remember-client.ts) —
-  // there is no `unerr-memory` skill to invoke (removed 2026-06, invoked 0×).
+  // No `memory` cluster: user rules ("remember / always / from now on /
+  // never") are NOT captured — there is no capture hook and no memory
+  // cluster; there is no `unerr-memory` skill to invoke (removed 2026-06,
+  // invoked 0×).
 ];
 
 export interface VerbClusterMatch {
@@ -174,61 +166,6 @@ export const TASK_VERBS_CODE =
 const BUILD_INTENT_RE =
   /\b(build|create|implement|scaffold|develop)\b|\b(set|wire)[ -]?up\b|\bmake\b[^.?!]{0,40}\bwork(?:ing)?\b|\bget\b[^.?!]{0,40}\bworking\b|\bnew\s+(feature|endpoint|component|page|service|module|integration)\b/i;
 
-/** Coarse "this prompt implies multiple independent slices" signal — gates the
- *  stronger plan-into-tracker nudge so a single-slice fix never draws a
- *  5-task-tracker demand (the over-fire that trains ignore-behavior). Fires on
- *  broad-scope verbs (refactor/migrate/audit/rewrite/restructure/consolidate/
- *  overhaul), breadth phrasing (across the codebase / every / all callers /
- *  all these / these changes|tasks|files), or an explicit enumerated list. */
-export const MULTI_SLICE_RE =
-  /\b(refactor|migrate|audit|rewrite|restructure|consolidate|overhaul)\b|\b(across|throughout)\b[^.?!]{0,30}\b(codebase|repo|project|files?)\b|\b(every|all)\b[^.?!]{0,20}\b(callers?|files?|usages?|sites?|modules?)\b|\ball\s+(these|the|of\s+these)\b|\bthese\s+(changes|tasks|files|slices|edits)\b/i;
-
-/** Explicit sequential-step phrasing — the prompt spells out an ordered plan
- *  the parallel-slice signals miss: "first … then …", "step 1 … step 2",
- *  "and then", "after that", "once X, Y", "finally". A long SEQUENTIAL task
- *  (dependent steps, not independent slices) that the user still wants
- *  externalized into the tracker. */
-export const SEQUENTIAL_STEPS_RE =
-  /\b(step|phase|stage)\s*\d+\b|\bstep\s+(one|two|three|four|five|first|second|third)\b|\bfirst\b[^.?!]{0,90}\b(then|next|second|after(?:wards?)?|finally|lastly|and\s+then)\b|\b(and\s+then|then\s+(also|next|we|you|i)\b|after\s+that|afterwards?\b|once\s+(that|it|you|done|complete|finished)\b|followed\s+by|finally,|lastly\b)/i;
-
-/** Action verbs counted ONLY to size the multi-step signal — broader than
- *  `TASK_VERBS_CODE` so a real chained prompt ("broaden X and verify Y then
- *  disable Z") registers each step. Not a code-context gate: over-inclusion
- *  here only upgrades the delegate nudge to its tracker variant, never gates
- *  whether the nudge fires. Global so `match` returns every occurrence. */
-const STEP_ACTION_RE =
-  /\b(add|fix|implement|build|create|update|change|modify|remove|delete|refactor|rename|move|extract|inline|replace|revert|wire|gate|broaden|narrow|verify|confirm|ensure|disable|enable|check|test|review|audit|investigate|trace|document|configure|install|uninstall|run|migrate|optimize|handle|support|integrate|set\s?up|clean\s?up)\b/gi;
-
-/** A coordinator token that joins two actions into a sequence or list. */
-const STEP_COORDINATOR_RE = /\b(and|then|also|plus|next|after|afterwards)\b|;/i;
-
-/** True when the prompt looks like a long or multi-step task — worth a
- *  plan-into-tracker nudge. Fires on: a build/create/implement intent, a
- *  broad-scope/breadth signal, an enumerated list (2+ bullets or ordinals),
- *  explicit sequential-step phrasing, OR 2+ distinct action verbs joined by a
- *  coordinator ("fix X and add Y"). Covers SEQUENTIAL multi-step work, not only
- *  independent parallel slices. */
-export function isMultiSlice(prompt: string): boolean {
-  const t = prompt.trim();
-  if (t.length < 20) return false;
-  if (MULTI_SLICE_RE.test(t) || BUILD_INTENT_RE.test(t)) return true;
-  if (SEQUENTIAL_STEPS_RE.test(t)) return true;
-  // Enumerated list: 2+ "- " / "* " bullets, or "1." "2." ordinal markers.
-  const bullets = (t.match(/^\s*[-*]\s+/gm) ?? []).length;
-  const ordinals = (t.match(/(?:^|\s)\d+[.)]\s+/g) ?? []).length;
-  if (bullets >= 2 || ordinals >= 2) return true;
-  // 2+ distinct action verbs joined by a coordinator → a task with multiple
-  // steps ("fix the bug and add a test", "broaden A then verify B").
-  const actions = t.match(STEP_ACTION_RE);
-  if (actions) {
-    const distinct = new Set(
-      actions.map((a) => a.toLowerCase().replace(/\s+/g, ""))
-    );
-    if (distinct.size >= 2 && STEP_COORDINATOR_RE.test(t)) return true;
-  }
-  return false;
-}
-
 /** Unified classification result. */
 export interface PromptClassification {
   /** True when the prompt warrants `mark_intent` (narrow imperative). */
@@ -247,9 +184,8 @@ export function isCodeContext(prompt: string): boolean {
 
 /** True when `prompt` ends in "?" with no imperative/narrow verb before the
  *  mark — a pure Q&A turn ("where is X enforced?") rather than an actionable
- *  request. Shared by `classifyAsTask` and the decompose-delegate gate in
- *  `promptSubmitHandler` so both apply the exact same Q&A exclusion instead
- *  of two drifting rules. */
+ *  request. Used by `classifyAsTask` to opt a real question out of the
+ *  narrow task-verb match. */
 function isPureQuestionPrompt(prompt: string): boolean {
   const trimmed = prompt.trim();
   return (
@@ -300,27 +236,6 @@ function buildPathALine(match: VerbClusterMatch): string {
   return `ur|act invoke Skill('${match.skill}') before drafting code.`;
 }
 
-// ── Delegation emit ──────────────────────────────────────────────────────────
-/** Emit the delegation routing line for a delegable task. Fires ONLY when
- *  `shouldDelegate` returned `delegate:true` (host supports delegation and the
- *  prompt named a delegable class). Points straight at the sub-agent handoff —
- *  the delegate WORKFLOW is now an opt-in skill, so the default nudge names the
- *  capability (the Task sub-agent / exec) as a direct command, not a Skill() to
- *  invoke; imperative ("<handoff> now"), no hedge verbs, no deictic pronouns. */
-function buildDelegateLine(
-  decision: DelegationDecision,
-  agentId: IdeType
-): string {
-  // Host-specific handoff: each delegation host hands the work to a sub-agent
-  // differently — Claude Code via the on-disk `unerr-junior`/`unerr-worker`
-  // sub-agent, Codex / Cursor / Copilot CLI via their own non-interactive exec
-  // with a model flag. The CLASS picks the tier (tests/mechanical_refactor →
-  // worker, lint_format/docs/recon → junior). juniorHandoff emits ONLY the path
-  // for THIS host — naming another is noise the agent can't act on.
-  const handoff = juniorHandoff(agentId, decision.class);
-  return `ur|act delegate — '${decision.class}' is delegable: ${handoff} now, hand it the recon brief, then review the diff. Do NOT enumerate edit sites by hand — the brief carries them.`;
-}
-
 /** True when the skill a verb cluster points at is actually on disk for this
  *  repo: default skills always; opt-in skills only when the user installed them
  *  (`unerr skill install`). Path A must NOT tell the agent to invoke a `Skill()`
@@ -332,33 +247,6 @@ function isClusterSkillInstalled(
 ): boolean {
   const bare = skillName.replace(/^unerr-/, "");
   return !isOptInSkill(bare) || optedIn.has(bare);
-}
-
-/** Once-per-session decompose-and-delegate nudge for a composite build/debug
- *  prompt. Real prompts ("build the export flow", "make login work") are
- *  senior-class, so the delegable-CLASS delegate nudge never fires — yet the
- *  build implicitly contains delegable slices (tests, lint/format, docstrings,
- *  recon, caller/import propagation, typecheck/build fixes, scaffold, verify-runs,
- *  shell-command runs) the agent tends to do itself on the main thread. This
- *  points the agent at decomposing and handing those slices to sub-agents for
- *  better performance. Imperative, names the sub-agents, no hedge verbs, no cost
- *  framing.
- *
- *  Planner mode: on a MULTI-SLICE turn on a task-tracker-capable host
- *  (claude-code), returns the stronger plan-into-tracker command — externalize
- *  the plan into the built-in task tracker (TaskCreate one task per slice)
- *  BEFORE fanning out, then complete/clear the tracker at turn end. The tracker
- *  is the forcing function that turns an in-head plan into concrete, assignable,
- *  closeable slices; without it delegation stays a one-off. Single-slice work or
- *  a host with no tracker keeps the lighter fan-out line. */
-function buildDecomposeDelegateLine(opts: {
-  multiSlice: boolean;
-  trackerCapable: boolean;
-}): string {
-  if (opts.multiSlice && opts.trackerCapable) {
-    return "ur|act plan-then-track — multi-step task: TaskCreate one task per step before editing, TaskUpdate each to in_progress when you start it and completed as it lands; fan out one Task subagent_type:'unerr-worker'/'unerr-junior' per independent step in ONE message (disjoint files); keep design/wiring/root-cause on the main thread; clear the tracker at turn end.";
-  }
-  return "ur|act delegate-slices — delegation is the default: plan the change, then fan out one Task sub-agent per independent slice in parallel (worker for edits/tests/refactor/caller-propagation/build-fixes/scaffold, junior for lint/@sem/recon/verify-runs/shell); keep design/wiring/root-cause on the main thread; review each diff.";
 }
 
 // ── Path B emit (T3.2) ───────────────────────────────────────────────────────
@@ -535,6 +423,17 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   const raw = normalized.raw;
   const message = (raw.user_message ?? raw.prompt ?? "") as string;
 
+  // Guard against harness system-notification turns (background tasks)
+  // re-entering as prompts — emit nothing, return passthrough
+  const trimmed = message.trim();
+  if (
+    trimmed.startsWith("[SYSTEM NOTIFICATION") ||
+    message.includes("<task-notification>") ||
+    trimmed.startsWith("<local-command-caveat>")
+  ) {
+    return passthrough();
+  }
+
   // Skip for very short messages (likely confirmations like "yes", "ok", "continue")
   if (message.length < 10) return passthrough();
 
@@ -617,44 +516,6 @@ const promptSubmitHandler: HookHandler = (normalized) => {
     }
   }
 
-  // Delegation — when the task is a delegable class AND the host
-  // supports delegation, route the volatile skill slot to `unerr-delegate`
-  // (hand to a cheaper model) instead of the normal lifecycle skill.
-  // `shouldDelegate` is the gate; this call is the runtime trigger. Fail-open:
-  // any error leaves `delegateLine` null and the normal Path A routing stands.
-  let delegateLine: string | null = null;
-  // feature_impl never draws the single delegate line (the decompose nudge
-  // below owns it) — hoisted so the decompose gate can still fire on
-  // feature_impl prompts whose wording misses isCodeContext's word list
-  // ("add a --json flag", "make X configurable").
-  let delegableFeatureImpl = false;
-  try {
-    const agentId = (normalized.agentName ?? "") as IdeType;
-    const decision = shouldDelegate({ prompt: message, agentId });
-    delegableFeatureImpl =
-      decision.delegate && decision.class === "feature_impl";
-    // feature_impl is the broad scoped-work class — it overlaps the substantive
-    // decompose-and-delegate nudge below, which gives richer fan-out guidance
-    // (one sub-agent per slice) and still routes to the worker tier. Let that
-    // nudge own the routing slot; the single delegate line stays for the narrow
-    // classes (tests / lint / codemod / caller_propagation / typecheck_fix / …).
-    if (decision.delegate && decision.class !== "feature_impl") {
-      delegateLine = buildDelegateLine(decision, agentId);
-      // Issue 5 leak correlation — arm the pending flag. The Stop hook clears
-      // it; if no `delegate` marker lands in the close-out, the master kept the
-      // delegable work and the leak fires. Best-effort — never block the hook.
-      try {
-        updateNudgeState(process.cwd(), (s) => {
-          s.delegable_nudge_pending = true;
-        });
-      } catch {
-        /* best effort */
-      }
-    }
-  } catch {
-    // never block the hook — fall through to normal routing
-  }
-
   // Code-task gate — computed ONCE here (was duplicated lower for the static
   // tail). Path A, its fallback, and the static roster all gate on this. A
   // non-code prompt (a question, a chat aside, "what does X do") must NOT draw
@@ -674,112 +535,24 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   })();
 
   // Path A — verb-cluster fast path. Gated on isCodeTask: a verb cluster only
-  // routes to a skill on an actual code task. When Lever C delegates, the
-  // delegate line OWNS the routing slot — skip Path A so the agent gets exactly
-  // one skill instruction.
+  // routes to a skill on an actual code task.
   const pathAMatch = classifyVerbCluster(message);
-
-  // Build-delegate nudge — a composite build/debug prompt is senior-class (the
-  // delegable-CLASS delegate nudge never fires for "build X" / "make Y work"),
-  // yet it implies delegable slices (tests, lint/format, docstrings, recon) the
-  // agent tends to do itself on the main thread. On a delegation-capable host,
-  // when the rigid build skill is NOT opted in, remind the agent EVERY
-  // substantive (code + build/bug) turn to decompose and fan those slices out to
-  // sub-agents (one per independent slice, no fixed cap). Suppressed when the
-  // user opted into the rigid build-and-debug
-  // skill (it owns the workflow).
-  let buildDecomposeLine: string | null = null;
-  try {
-    const agentId = (normalized.agentName ?? "") as IdeType;
-    // A build/bug verb cluster, OR outcome-phrased implementation intent
-    // ("make X work", "set up Y") the cluster classifier misses.
-    const isBuildIntent =
-      (!!pathAMatch &&
-        (pathAMatch.cluster === "build" || pathAMatch.cluster === "bug")) ||
-      BUILD_INTENT_RE.test(message);
-    // Broaden past build-intent: any substantive code-WORK prompt (refactor,
-    // migrate, restructure, consolidate, audit, move) carries delegable slices
-    // too, yet most of those phrasings miss BUILD_INTENT_RE and never drew the
-    // fan-out nudge. classifyAsTask is the narrow imperative-work signal that
-    // ALREADY excludes pure questions / chat / design-discussion, so OR-ing it
-    // in widens coverage to non-build work turns WITHOUT firing on questions.
-    // Widened further: `isCodeTask` (below) already excludes non-code chatter,
-    // so any code-task prompt that is NOT a pure question also qualifies — this
-    // catches ordinary scoped requests and bug reports ("the retry delay is
-    // broken for long sessions") that miss both BUILD_INTENT_RE and
-    // classifyAsTask's narrow-verb list. `isPureQuestionPrompt` reuses
-    // classifyAsTask's own Q&A rule, so a real question ("where is the idle
-    // timeout enforced?") still skips the build nudge and routes to the
-    // junior/recon path instead.
-    const isSubstantiveTask =
-      isBuildIntent ||
-      classifyAsTask(message) ||
-      !isPureQuestionPrompt(message);
-    // Suppress only when the user opted into the rigid build-and-debug skill for
-    // a build/bug cluster — that skill then owns the workflow.
-    const rigidBuildOptedIn =
-      !!pathAMatch &&
-      (pathAMatch.cluster === "build" || pathAMatch.cluster === "bug") &&
-      isClusterSkillInstalled(pathAMatch.skill, optedInSkills);
-    if (
-      !delegateLine &&
-      (isCodeTask || delegableFeatureImpl) &&
-      isSubstantiveTask &&
-      !rigidBuildOptedIn &&
-      supportsDelegation(agentId)
-    ) {
-      // Re-arm every substantive turn: delegation is the default execution mode,
-      // so the decompose-and-delegate nudge fires on each build/bug code turn —
-      // not once per session — to keep sub-agents fanning out per turn. The
-      // line is tail-appended additionalContext (cache-safe), so per-turn firing
-      // adds no prefix-cache cost.
-      // Planner mode: a multi-slice turn on a task-tracker-capable host
-      // (claude-code) gets the stronger plan-into-tracker command; single-slice
-      // work or a host with no tracker keeps the lighter fan-out line.
-      const trackerCapable = normalized.agentName === "claude-code";
-      const multiSlice = isMultiSlice(message);
-      buildDecomposeLine = buildDecomposeDelegateLine({
-        multiSlice,
-        trackerCapable,
-      });
-      // Arm the planner-mode leak/telemetry flags only when the tracker variant
-      // fired — the Stop hook reads tracker_open_pending to emit the
-      // complete/clear-the-tracker close-out reminder once per opening.
-      // Best-effort, mirrors the delegable_nudge_pending arming above; never
-      // blocks the hook.
-      if (multiSlice && trackerCapable) {
-        try {
-          updateNudgeState(process.cwd(), (s) => {
-            s.tracker_open_pending = true;
-            s.tracker_nudge_emitted_count += 1;
-          });
-        } catch {
-          /* best effort */
-        }
-      }
-    }
-  } catch {
-    // fail-open — no build nudge, normal routing stands
-  }
 
   // Path A only names a skill that is actually installed. For an uninstalled
   // opt-in skill the line is suppressed and the always-on `unerr-using-unerr`
   // fallback below takes the routing slot.
   const pathALine =
-    delegateLine ||
-    buildDecomposeLine ||
     !pathAMatch ||
     !isCodeTask ||
     !isClusterSkillInstalled(pathAMatch.skill, optedInSkills)
       ? null
       : buildPathALine(pathAMatch);
 
-  // T3.3 — omni-skill fallback. When Path A misses/suppresses AND no delegation
-  // or build-decompose nudge fired AND it is a code task, point the agent at the
-  // always-on `unerr-using-unerr` skill (loose tool guidance). Skipped on
-  // non-code prompts.
+  // T3.3 — omni-skill fallback. When Path A misses/suppresses AND it is a code
+  // task, point the agent at the always-on `unerr-using-unerr` skill (loose
+  // tool guidance). Skipped on non-code prompts.
   const fallbackLine =
-    pathALine || delegateLine || buildDecomposeLine || !isCodeTask
+    pathALine || !isCodeTask
       ? null
       : "ur|act unerr-using-unerr — no verb-cluster match. Invoke Skill('unerr-using-unerr') and use unerr's tools before drafting code.";
 
@@ -816,10 +589,8 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   // one is non-null). `volatile` drives ordering: the Path A line varies per
   // prompt so it rides the tail; every other line is a fixed template.
   const actCandidates: ActCandidate[] = [
-    { text: delegateLine, volatile: true }, //       Lever C delegation routing (class-specific)
-    { text: buildDecomposeLine, volatile: false }, // Build decompose+delegate (once/session, fixed)
-    { text: pathALine, volatile: true }, //          Path A skill match (verb-specific)
-    { text: fallbackLine, volatile: false }, //      Master orchestrator fallback (fixed)
+    { text: pathALine, volatile: true }, //     Path A skill match (verb-specific)
+    { text: fallbackLine, volatile: false }, // Master orchestrator fallback (fixed)
   ];
 
   // Path B — static tool-roster + skill catalog. Both duplicate the cached
@@ -889,17 +660,15 @@ const promptSubmitHandler: HookHandler = (normalized) => {
   if (stableHead.length > 0) recordPrefixStability(process.cwd(), stableHead);
 
   // Issue 6/7 telemetry — record what the injection brain decided this turn:
-  // which route it chose (delegate / Path A / orchestrator fallback) and whether
-  // it withheld the once-per-session static block. Observability only; best-
+  // which route it chose (Path A / orchestrator fallback) and whether it
+  // withheld the once-per-session static block. Observability only; best-
   // effort, cache-safe, never blocks the hook.
   try {
-    const route = delegateLine
-      ? "delegate"
-      : pathALine
-        ? "path-a-skill"
-        : fallbackLine
-          ? "orchestrator-fallback"
-          : undefined;
+    const route = pathALine
+      ? "path-a-skill"
+      : fallbackLine
+        ? "orchestrator-fallback"
+        : undefined;
     // The static tail is suppressed when it would otherwise be relevant (a code
     // task) but was already spent this session or is skipped as cached-duplicate
     // for claude-code. A non-code/trivial turn carries no roster, so it is not a
@@ -930,288 +699,4 @@ const promptSubmitHandler: HookHandler = (normalized) => {
  */
 export function runUserPromptSubmitHook(stdinJson: string): string {
   return runPromptSubmitHook(stdinJson, promptSubmitHandler);
-}
-
-// ── Cap A-2: trace injection helpers ─────────────────────────────────────────
-
-const MAX_SITUATION_LEN = 60;
-const MAX_UNLOCK_LEN = 60;
-
-/**
- * Format one recalled trace as a single ur|fct JOURNAL line per the nudge
- * rules: named anchor, real values, truncated long fields. Date-stamped and
- * past-tense by design — the line reports a dated journal entry ("what
- * happened then"), never asserts present truth; the agent re-verifies against
- * today's code before acting on it.
- */
-function formatTraceLine(t: RecalledTrace): string {
-  const dateStamp =
-    t.resolved_at > 0
-      ? `resolved ${new Date(t.resolved_at).toISOString().slice(0, 10)}`
-      : "undated";
-  const situation =
-    t.situation.length > MAX_SITUATION_LEN
-      ? `${t.situation.slice(0, MAX_SITUATION_LEN - 1)}…`
-      : t.situation;
-
-  let deadEndsPart = "";
-  if (t.dead_ends) {
-    try {
-      const arr = JSON.parse(t.dead_ends) as string[];
-      const parts = arr
-        .slice(0, 2)
-        .map((d) => d.split("/").pop() ?? d)
-        .filter(Boolean);
-      if (parts.length > 0) deadEndsPart = ` · dead ends: ${parts.join(", ")}`;
-    } catch {
-      const trimmed = t.dead_ends.slice(0, 40);
-      deadEndsPart = ` · dead ends: ${trimmed}`;
-    }
-  }
-
-  const unlock =
-    t.unlock.length > MAX_UNLOCK_LEN
-      ? `${t.unlock.slice(0, MAX_UNLOCK_LEN - 1)}…`
-      : t.unlock;
-
-  const anchorPart = t.anchor ? ` (e:${t.anchor})` : "";
-
-  return `ur|fct past incident (${dateStamp}) — symptom then: ${situation}${deadEndsPart} · fix then: ${unlock}${anchorPart}`;
-}
-
-/** Cap A-2 output cap: at most 1 past-incident line per turn, even when the
- *  tier budget (`traceMax`) requested more from the proxy — 2+ simultaneous
- *  incidents in one turn crowd out the load-bearing signal. */
-const MAX_INJECTED_TRACES = 1;
-
-/** Terms too common to signal relevance on their own — a small, deliberately
- *  generic list; this is a cheap overlap gate, not an NLP model. */
-const RECALL_STOPWORDS = new Set([
-  "this",
-  "that",
-  "with",
-  "from",
-  "have",
-  "been",
-  "were",
-  "will",
-  "would",
-  "could",
-  "should",
-  "about",
-  "into",
-  "only",
-  "also",
-  "then",
-  "than",
-  "when",
-  "what",
-  "where",
-  "which",
-  "while",
-  "does",
-  "doing",
-  "done",
-  "just",
-  "them",
-  "they",
-  "their",
-  "there",
-  "here",
-  "your",
-  "yours",
-  "some",
-  "such",
-  "each",
-  "more",
-  "most",
-  "over",
-  "under",
-  "after",
-  "before",
-  "during",
-  "being",
-  "these",
-  "those",
-  "because",
-  "since",
-  "still",
-  "even",
-  "very",
-  "much",
-  "many",
-  "both",
-  "across",
-  "every",
-]);
-
-/** Splits `text` into significant terms — lowercased words longer than 3
- *  chars, minus `RECALL_STOPWORDS`. Shared by the recall relevance gate. */
-function extractSignificantTerms(text: string): Set<string> {
-  const terms = new Set<string>();
-  for (const word of text.toLowerCase().split(/[^a-z0-9_]+/)) {
-    if (word.length > 3 && !RECALL_STOPWORDS.has(word)) terms.add(word);
-  }
-  return terms;
-}
-
-/**
- * True when a recalled trace is relevant enough to inject into THIS prompt's
- * context: the trace's anchor (entity key or file path) is named in the
- * prompt, or at least 2 significant terms (>3 chars, non-stopword) overlap
- * between the trace's symptom/fix text and the prompt. The server's TF-IDF
- * ranking alone lets same-repo-but-unrelated incidents through (e.g. a
- * cozo-worker memory-leak trace surfacing on an unrelated benchmark-run
- * prompt); this is the prompt-specific filter layered on top of that ranking.
- */
-function isTraceRelevantToPrompt(t: RecalledTrace, prompt: string): boolean {
-  const lowerPrompt = prompt.toLowerCase();
-  if (t.anchor) {
-    const anchorLower = t.anchor.toLowerCase();
-    const base = anchorLower.split("/").pop() ?? anchorLower;
-    if (
-      lowerPrompt.includes(anchorLower) ||
-      (base.length > 3 && lowerPrompt.includes(base))
-    ) {
-      return true;
-    }
-  }
-  const promptTerms = extractSignificantTerms(prompt);
-  if (promptTerms.size === 0) return false;
-  const traceText = `${t.situation} ${t.unlock} ${t.dead_ends}`;
-  let overlap = 0;
-  for (const term of extractSignificantTerms(traceText)) {
-    if (promptTerms.has(term)) {
-      overlap += 1;
-      if (overlap >= 2) return true;
-    }
-  }
-  return false;
-}
-
-/** Cap on the quoted rule text in the CLAUDE.md-redirect nudge. */
-const MAX_RULE_QUOTE_CHARS = 140;
-
-/**
- * Phase 3 (active-memory strip) — on a detected user-rule directive, inject a
- * `ur|act` line telling the agent to write the rule verbatim into the repo's
- * own instruction file (CLAUDE.md / AGENTS.md), rather than persisting it to a
- * separate store. Fires on EVERY detection (no one-shot gate) and upgrades a
- * passthrough result to an enriching one so the nudge is never dropped.
- */
-function injectClaudeMdRedirect(base: HookResult, rule: string): HookResult {
-  const quoted =
-    rule.length > MAX_RULE_QUOTE_CHARS
-      ? `${rule.slice(0, MAX_RULE_QUOTE_CHARS - 1)}…`
-      : rule;
-  const line = `ur|act write this rule into CLAUDE.md now — the user stated a durable rule; add it verbatim to this repo's CLAUDE.md (or AGENTS.md) before continuing: "${quoted}". unerr does not store user rules — the instruction file is the only durable home.`;
-  try {
-    updateNudgeState(process.cwd(), (s) => {
-      s.claude_md_redirect_count = (s.claude_md_redirect_count ?? 0) + 1;
-    });
-  } catch {
-    /* best effort — emission still proceeds */
-  }
-  if (base.action === "enrich" && base.message) {
-    return enrich(`${line}\n${base.message}`);
-  }
-  return enrich(line);
-}
-
-/**
- * Recall-injecting prompt-submit handler (Phase-2 Sprint 7; Phase 3
- * active-memory strip).
- *
- * Runs the same synchronous assembly as {@link promptSubmitHandler}, then two
- * additional things: (1) on a detected user-rule directive, injects the
- * CLAUDE.md-redirect nudge ({@link injectClaudeMdRedirect}) regardless of
- * whether the turn is code-context; (2) on coding-task prompts, fetches
- * matching trace-recall (past-incident journal) rows from the warm proxy over
- * UDS and appends them as `ur|fct` lines (Cap A-2).
- *
- * Strictly additive + degrade-safe: if the proxy is unreachable, the prompt is
- * non-code, or recall is empty, the result carries only the redirect nudge (if
- * any) plus the sync assembly. The UDS query never throws (recall-client
- * contract) and is time-boxed, so it can't stall the turn.
- */
-const asyncPromptSubmitHandler: AsyncHookHandler = async (normalized) => {
-  const base = promptSubmitHandler(normalized);
-
-  const raw = normalized.raw;
-  const message = (raw.user_message ?? raw.prompt ?? "") as string;
-
-  // Phase 3 — CLAUDE.md redirect. Fires on EVERY detection, even on a
-  // passthrough turn (a one-line "from now on, always X" must still surface
-  // the nudge even though it otherwise warrants no injection).
-  const rule = detectUserRule(message);
-  const withRedirect = rule ? injectClaudeMdRedirect(base, rule) : base;
-
-  // Only enrich an enrich — passthrough turns (short / one-shot-spent prompts,
-  // net of the redirect above) stay passthrough. Trace recall rides only
-  // code-context enrich turns.
-  if (withRedirect.action !== "enrich" || !withRedirect.message) {
-    return withRedirect;
-  }
-  if (!message || !isCodeContext(message)) {
-    return withRedirect;
-  }
-
-  // Option A — gate trivial turns; the tier still scales the trace budget.
-  // classifyInjectionTier classifies this prompt as skip/focused/broad.
-  // inject:false → skip trace recall entirely (saves uncacheable tokens on
-  // turns where a past incident adds no load-bearing signal).
-  const decision = classifyInjectionTier(message);
-  if (!decision.inject) {
-    try {
-      updateNudgeState(process.cwd(), (s) => {
-        s.injection_skip_count = (s.injection_skip_count ?? 0) + 1;
-      });
-    } catch {
-      // best-effort; never block the hook
-    }
-    return withRedirect;
-  }
-  try {
-    updateNudgeState(process.cwd(), (s) => {
-      if (decision.tier === "focused") {
-        s.injection_focused_count = (s.injection_focused_count ?? 0) + 1;
-      } else {
-        s.injection_broad_count = (s.injection_broad_count ?? 0) + 1;
-      }
-    });
-  } catch {
-    // best-effort; never block the hook
-  }
-
-  // Cap A-2 trace budget: focused→1, broad→up-to-3. decision.inject is true
-  // here, so only those two tiers reach this line. ur|fct lines are advisory
-  // and do NOT count toward the 5-line act cap.
-  const traceMax = decision.tier === "focused" ? 1 : 3;
-
-  try {
-    const traces = await queryRecallTraces(message, traceMax).catch(() => null);
-    const relevant = traces?.filter((t) => isTraceRelevantToPrompt(t, message));
-    const traceLines =
-      relevant && relevant.length > 0
-        ? relevant.slice(0, MAX_INJECTED_TRACES).map(formatTraceLine).join("\n")
-        : null;
-
-    if (traceLines) {
-      return enrich(`${withRedirect.message}\n${traceLines}`);
-    }
-  } catch {
-    // recall-client never throws, but stay defensive — fall back to the nudge.
-  }
-  return withRedirect;
-};
-
-/**
- * Async UserPromptSubmit entry — the default the `unerr hook prompt-submit`
- * command dispatches to. Injects warm recall when the proxy is up, falls back
- * to the static nudge otherwise.
- */
-export async function runUserPromptSubmitHookAsync(
-  stdinJson: string
-): Promise<string> {
-  return runPromptSubmitHookAsync(stdinJson, asyncPromptSubmitHandler);
 }

@@ -9,7 +9,6 @@
  * `.unerr/events/` store, so one drainer per segment forwards those events
  * verbatim to `POST /api/v1/cli/ingest` — no per-type row→detail mapping.
  *
- * // @sem domain=cloud role=drainer
  */
 
 import { computeMachineFingerprint } from "../machine-fingerprint.js";
@@ -22,7 +21,6 @@ import { buildIngestDrainers } from "./ingest.js";
  * set rather than sinking the repo's drain. The daemon scheduler runs each
  * returned drainer through `drainRepo`.
  *
- * // @sem domain=cloud role=drainer
  */
 export const assembleDrainers: BuildDrainers = async (ctx) => {
   try {

@@ -70,11 +70,7 @@ import type {
 } from "./local-graph.js";
 import type { evaluateRules as EvaluateRulesFn } from "./rule-evaluator.js";
 import { tokenize } from "./search-index.js";
-import {
-  attachAnnotations,
-  fetchActiveDomainTags,
-  fetchVocabularyNudges,
-} from "./semantic/annotation-indexer.js";
+import { attachAnnotations } from "./semantic/annotation-indexer.js";
 import { SessionContext } from "./session-context.js";
 import type { createSessionHealthMonitor } from "./session-health-monitor.js";
 import { smartTruncate, truncateResultList } from "./smart-truncate.js";
@@ -471,13 +467,6 @@ export interface ToolResult {
     tools_degraded?: string[];
     entity_risk?: EntityRiskMeta;
     drift?: DriftMeta;
-    /** Layer 8 §5.1 (SC-C.2): stale @sem/doc annotation on the focus entity. */
-    comment_drift?: {
-      entityKey: string;
-      name: string;
-      file: string;
-      line: number;
-    };
     /**
      * Layer 8 §6 (SC-D.3): the focus entity sits in a low-purity Louvain
      * community — the domain vote is contested, so an edit here risks eroding
@@ -954,7 +943,6 @@ export class QueryRouter {
    * exists is history about deleted code and must not be injected. Fails
    * open (true) on any query error so a cold or rebuilding graph never
    * suppresses recall.
-   * @sem domain=intelligence
    */
   async anchorExists(anchor: string): Promise<boolean> {
     const a = anchor.trim();
@@ -1558,17 +1546,6 @@ export class QueryRouter {
       const driftMeta = await this.extractDriftMeta(toolName, args, result);
       if (driftMeta) {
         meta.drift = driftMeta;
-      }
-
-      // Layer 8 §5.1 (SC-C.2): inject comment-drift metadata when the focus
-      // entity carries a stale @sem/doc annotation (body moved, comment did
-      // not). buildSignalPrefix renders it as a once-per-episode `ur|ctx` nudge.
-      const commentDriftMeta = await this.extractCommentDriftMeta(
-        toolName,
-        args
-      );
-      if (commentDriftMeta) {
-        meta.comment_drift = commentDriftMeta;
       }
 
       // Layer 8 §6 (SC-D.3): inject boundary-erosion metadata when the focus
@@ -4030,20 +4007,6 @@ export class QueryRouter {
         // unchanged — attachAnnotations is best-effort.
         return await attachAnnotations(this.localGraph.db, rows);
       }
-      case "domain_tags": {
-        // Layer 8 §5.4 "reuse before invent": the active domain-tag vocabulary
-        // ranked by entity count, served in the recon bundle so a new
-        // `@sem domain=` reuses an existing tag. Best-effort — [] on any error.
-        const tags = await fetchActiveDomainTags(this.localGraph.db);
-        return { tags };
-      }
-      case "vocab_nudges": {
-        // Layer 8 §5.2 / §6.4: the canonical/provisional split at the promotion
-        // threshold plus near-duplicate merge hints, served in the recon bundle
-        // so an agent standardises a `@sem domain=` instead of minting sprawl.
-        // Best-effort — empty sets on any error.
-        return await fetchVocabularyNudges(this.localGraph.db);
-      }
       case "get_conventions": {
         const raw = await this.localGraph.getConventions();
         // Hoist each kind to a top-level array so the format-encoder can emit
@@ -4582,58 +4545,6 @@ export class QueryRouter {
     }
 
     return null;
-  }
-
-  /**
-   * Layer 8 §5.1 (SC-C.2): detect a stale @sem/doc annotation on the focus
-   * entity (body moved, comment did not — status flipped by the C.1 predicate).
-   * Returns the name + file:line buildSignalPrefix needs for the
-   * once-per-episode comment-drift nudge, or null when no stale annotation
-   * exists. Best-effort: a DB error or absent annotation never disturbs the
-   * response.
-   */
-  private async extractCommentDriftMeta(
-    toolName: string,
-    args: Record<string, unknown>
-  ): Promise<{
-    entityKey: string;
-    name: string;
-    file: string;
-    line: number;
-  } | null> {
-    if (!ENTITY_TOOLS.has(toolName)) return null;
-    const key = args.key as string | undefined;
-    if (!key) return null;
-    try {
-      const db = (
-        this.localGraph as unknown as {
-          db: import("./cozo-schema.js").CozoDb;
-        }
-      ).db;
-      // entity_key is the domain_annotations primary key (direct lookup, not a
-      // secondary index), joined to entities for the name + line. status is a
-      // value-column constant filter.
-      const res = await db.run(
-        `?[name, file_path, start_line] :=
-           *domain_annotations{entity_key: $key, status: "stale"},
-           *entities{key: $key, name, file_path, start_line}`,
-        { key }
-      );
-      if (res.rows.length === 0) return null;
-      const [name, filePath, startLine] = res.rows[0] as [
-        string,
-        string,
-        number,
-      ];
-      return {
-        entityKey: key,
-        name,
-        file: filePath,
-        line: typeof startLine === "number" ? startLine : 0,
-      };
-    } catch {
-      return null;
-    }
   }
 
   /**

@@ -102,7 +102,6 @@ export type ShellValidation =
  * Validate a shell-want command string as an exact read-only git invocation and
  * return its argv array. Rejects shell metacharacters, non-git commands,
  * non-allowlisted subcommands, and file-writing flags.
- * @sem domain=recon role=security
  */
 export function validateReadonlyShell(cmd: string): ShellValidation {
   const trimmed = cmd.trim();
@@ -126,7 +125,6 @@ export function validateReadonlyShell(cmd: string): ShellValidation {
  * is stripped; the remainder (which may itself contain colons, e.g.
  * `shell:git show HEAD~1:src/foo.ts`) is the command. Non-strings, empties, and
  * duplicates are dropped.
- * @sem domain=recon role=parse
  */
 export function parseShellWants(want: unknown): ShellWant[] {
   if (!Array.isArray(want)) return [];
@@ -154,7 +152,6 @@ function shellToolId(argv: string[]): string {
  * folding the results in as the lowest-priority sections (after every MCP source
  * — shell history is context, not a code ring). Never throws: a disallowed,
  * timed-out, or failing command becomes a `dropped` entry.
- * @sem domain=recon role=fetch
  */
 export async function fetchShellSources(
   wants: ShellWant[],

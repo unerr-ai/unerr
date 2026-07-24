@@ -25,7 +25,6 @@
  * touches lives here too (`reconcileBundleSavings` and its helpers); the dashboard
  * route adds only the two table reads.
  *
- * @sem domain=telemetry role=reconcile
  */
 
 import type { BehaviorEvent, BehaviorEventType } from "./behavior-events.js";
@@ -82,7 +81,6 @@ export const DEFAULT_WINDOW_TURNS = 5;
 
 /**
  * Reconcile one bundle's modeled savings against the touches that followed it.
- * @sem domain=telemetry role=reconcile
  */
 export function reconcileBundle(
   manifest: BundleManifest,
@@ -186,7 +184,6 @@ export interface BundleReconcileSummary {
  * Fold per-bundle realizations into one summary. Hit rate is weighted by
  * delivered items (a 1-item bundle does not outvote a 20-item one); expand
  * precision averages only over bundles that actually carried an expand ring.
- * @sem domain=telemetry role=reconcile
  */
 export function summarizeReconciliations(
   realized: readonly BundleRealized[]
@@ -349,7 +346,6 @@ export interface BundleSavingsReport {
 /**
  * Reconcile every modeled bundle against the touches that followed it and fold
  * the result into the dashboard report. Pure over already-read event arrays.
- * @sem domain=telemetry role=reconcile
  */
 export function reconcileBundleSavings(
   tokenFlow: readonly TokenFlowEvent[],

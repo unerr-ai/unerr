@@ -125,14 +125,16 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   // get_references moved to tier 2 (2026-07): the everyday "who calls this" is
   // served by file_read entity mode (top-10 callers) + the file_edit at-risk-
   // caller line, so get_references is the deep escalation — advertised, but
-  // locked until an edit is attempted OR a fan_in ≥ 5 entity is observed
-  // (UNLOCK_CONDITIONS.get_references = C.or(C.editOrWrite(), C.fanIn(5))).
+  // locked until an edit is attempted, a fan_in ≥ 5 entity is observed, OR a
+  // file_read completes (read-only sessions unlock too)
+  // (UNLOCK_CONDITIONS.get_references =
+  // C.or(C.editOrWrite(), C.fanIn(5), C.firstRead())).
   get_references: {
     tier: 2,
     active:
       "Find callers or callees of an entity across the codebase. Pass direction:'callers' (default) or 'callees'. Catches indirect refs grep misses.",
     locked:
-      "[locked, unlock: edit or fan_in ≥ 5 entity] deep caller/callee graph beyond file_read's top-10 callers.",
+      "[locked, unlock: edit, read, or fan_in ≥5] deep caller/callee graph beyond file_read's top-10 callers.",
     unlocked:
       "Full caller or callee list for an entity. direction:'callers' (default) or 'callees'. include_text_occurrences:true adds string/config/comment hits for a rename. Catches indirect refs grep misses.",
   },
@@ -142,10 +144,10 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
       "Fetch one page (url) or many (urls:[...], parallel + ranked across pages, ONE roundtrip) → DOM-extracted markdown passages. Strips chrome, splits by heading, BM25-ranks when prompt set, caches by hash. Pass a search's result URLs as urls:[...]. Replaces WebFetch — 5–10× fewer tokens.",
     locked: "[tier 1 — always exposed]",
   },
-  // unerr_remember left the catalog (2026-06): user-fed rules are captured by
-  // the UserPromptSubmit hook (remember-client.ts), which dispatches it BY NAME
-  // over UDS tools/call — see the by-name roster above. Agent notes ride the
-  // `unerr journal -` Stop-hook text lines instead — no MCP tool, no dispatch.
+  // unerr_remember left the catalog (2026-06) and the handler was removed
+  // entirely (2026-07): user rules are no longer captured. Agent notes ride
+  // the `unerr journal -` Stop-hook text lines instead — no MCP tool, no
+  // dispatch.
   // unerr_context merged into search_code (2026-06): a task-shaped search_code
   // query now returns the recon bundle. The handler (handleUnerrContextProxy)
   // is retained and dispatched BY NAME over UDS for the recall path and the

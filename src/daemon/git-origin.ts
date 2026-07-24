@@ -8,7 +8,6 @@
  * "owner/repo" string for repo identity; this returns provider + host + owner
  * + repo with the userinfo stripped, for the fleet report payload.
  *
- * @sem domain=infrastructure
  */
 import { getRemoteUrl } from "../utils/git.js";
 
@@ -30,7 +29,6 @@ const originCache = new Map<string, GitOrigin | null>();
  * Classify a hostname into a provider. Substring match so enterprise hosts
  * (`github.acme.com`, `gitlab.internal`) still resolve to their provider.
  *
- * @sem domain=infrastructure
  */
 export function providerFromHost(host: string): GitProvider {
   const h = host.toLowerCase();
@@ -47,7 +45,6 @@ export function providerFromHost(host: string): GitProvider {
  * by regex over the whole string. Returns null when the string is not a remote
  * with at least an owner and a repo.
  *
- * @sem domain=infrastructure
  */
 export function parseGitOrigin(remote: string): GitOrigin | null {
   const trimmed = remote.trim();
@@ -103,7 +100,6 @@ export function parseGitOrigin(remote: string): GitOrigin | null {
  * shared `getRemoteUrl` (cached simple-git) for git access and returns null
  * for a non-git directory or one with no `origin` remote. Never throws.
  *
- * @sem domain=infrastructure
  */
 export async function detectGitOrigin(cwd: string): Promise<GitOrigin | null> {
   const cached = originCache.get(cwd);

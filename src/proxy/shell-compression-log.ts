@@ -22,7 +22,6 @@ import { resolveExecSessionContext } from "../tracking/session-records.js";
  * path (o200k_base via estimateTokenCount). Every compressor that wants to
  * record `original_tokens` / `delivered_tokens` / `mechanism` calls this once.
  *
- * @sem domain=metrics role=accounting
  */
 export function accountCompression(
   original: string,

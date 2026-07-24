@@ -55,11 +55,9 @@ function isProbableLogPath(rel: string): boolean {
  *
  * Collapses *comment-only* lines (line comments, JSDoc/block-comment bodies,
  * Python docstrings) to a bare `…` marker so their prose stops costing tokens,
- * while keeping byte-for-byte fidelity on three things that must survive:
+ * while keeping byte-for-byte fidelity on two things that must survive:
  *   1. Code lines — never touched.
- *   2. Sentinel-bearing comments (`@sem …` or any configured token) — kept
- *      verbatim; they carry the domain semantics this whole layer exists for.
- *   3. Line numbers — one marker per elided line, so the window's `effOffset+i`
+ *   2. Line numbers — one marker per elided line, so the window's `effOffset+i`
  *      numbering still maps to real file positions and a follow-up offset/limit
  *      Read lands on the right lines before an Edit.
  *
@@ -69,13 +67,10 @@ function isProbableLogPath(rel: string): boolean {
  *
  * Pure + synchronous. Returns the rewritten lines plus the elided count.
  */
-export function elideCommentLines(
-  lines: string[],
-  sentinels: string[]
-): { lines: string[]; elided: number } {
-  const tokens = sentinels.filter((s) => s.length > 0);
-  const hasSentinel = (line: string): boolean =>
-    tokens.some((t) => line.includes(t));
+export function elideCommentLines(lines: string[]): {
+  lines: string[];
+  elided: number;
+} {
   const out: string[] = [];
   let elided = 0;
   // Tracks an open `/* … */` or `""" … """` / `''' … '''` block across lines.
@@ -87,7 +82,6 @@ export function elideCommentLines(
 
     // Inside a multi-line block comment / docstring.
     if (blockCloser !== null) {
-      const keepVerbatim = hasSentinel(line);
       if (trimmed.includes(blockCloser)) {
         // The closer is on this line. Only elide when nothing of substance
         // follows the closer (pure comment tail); otherwise keep verbatim.
@@ -95,7 +89,7 @@ export function elideCommentLines(
           trimmed.indexOf(blockCloser) + blockCloser.length
         );
         blockCloser = null;
-        if (after.trim() === "" && !keepVerbatim) {
+        if (after.trim() === "") {
           out.push(`${indent}…`);
           elided++;
           continue;
@@ -104,16 +98,12 @@ export function elideCommentLines(
         continue;
       }
       // Still inside the block.
-      if (keepVerbatim) {
-        out.push(line);
-      } else {
-        out.push(`${indent}…`);
-        elided++;
-      }
+      out.push(`${indent}…`);
+      elided++;
       continue;
     }
 
-    if (trimmed === "" || hasSentinel(line)) {
+    if (trimmed === "") {
       out.push(line);
       continue;
     }
@@ -610,7 +600,7 @@ export async function runFileReadForRouter(
   try {
     const commentsCfg = loadSettings(ctx.cwd).comments;
     if (commentsCfg.elide) {
-      const result = elideCommentLines(rawSliced, commentsCfg.sentinel);
+      const result = elideCommentLines(rawSliced);
       sliced = result.lines;
       commentsElided = result.elided;
     }

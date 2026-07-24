@@ -9,7 +9,6 @@
  * `appendFileSync` (`O_APPEND`) which cannot blank on a missing binary. Imports
  * only node builtins — safe to load from the bridge (no intelligence/tracking).
  *
- * // @sem domain=telemetry role=store
  */
 import {
   appendFileSync,

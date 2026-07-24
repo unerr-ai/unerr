@@ -6,7 +6,6 @@
  * into it. Without this, monikers are discarded after intra-repo edge merge and
  * no symbol can be named across a repo boundary.
  *
- * @sem domain=federation role=index
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";

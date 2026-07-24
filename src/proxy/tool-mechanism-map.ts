@@ -117,9 +117,10 @@ export const TOOL_MECHANISM: Readonly<Record<string, MechanismEntry>> = {
 
   // ── Writes → hooks (fire-and-forget; needed next turn, not this one) ─────
   // unerr_remember and unerr_track (the mark_* op-union) both left the
-  // catalog: user rules are captured at UserPromptSubmit (remember-client.ts),
-  // agent notes ride the `unerr journal -` Stop-hook text lines only. Neither
-  // carries a verdict here — there is no MCP write surface for journaling.
+  // catalog: user rules are no longer captured at all (the capture hook was
+  // removed 2026-07), agent notes ride the `unerr journal -` Stop-hook text
+  // lines only. Neither carries a verdict here — there is no MCP write
+  // surface for journaling.
 };
 
 /** Mechanism verdict for a tool. Throws on unknown name (caller bug). */

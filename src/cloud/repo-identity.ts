@@ -3,7 +3,6 @@
  * machines maps to one id (keyed off its git origin) while a remote-less repo
  * still gets a deterministic, machine-local fallback id keyed off its path.
  *
- * @sem domain=cloud
  */
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -19,7 +18,6 @@ function sha256Hex(input: string): string {
  * form so every spelling of the same remote (https, ssh, scp-style, with or
  * without a trailing `.git`) hashes to one identity.
  *
- * @sem domain=cloud role=identity
  */
 export function normalizeGitOrigin(originUrl: string): string {
   let s = originUrl.trim();
@@ -51,7 +49,6 @@ export function normalizeGitOrigin(originUrl: string): string {
  * when one exists (shared across machines), otherwise from the absolute path
  * (machine-local by design — a remote-less checkout cannot be matched globally).
  *
- * @sem domain=cloud role=identity
  */
 export async function deriveRepoId(repoPath: string): Promise<string> {
   const origin = await detectGitOrigin(repoPath);

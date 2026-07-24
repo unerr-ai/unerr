@@ -34,7 +34,6 @@ import {
   getUnerrBinary,
   mergePreToolUseBashHook,
 } from "../config/claude-settings-hooks.js";
-import { installClaudeHook } from "../config/hook-installer.js";
 import {
   generateCustomInstructions,
   writeInstructionFile,
@@ -352,8 +351,8 @@ export async function runInstall(
   //     host supports an on-disk sub-agent (Claude Code); Codex delegates via
   //     `codex exec -m gpt-5.4-mini` and needs no file.
   try {
-    const { writeJuniorSubagent } = await import("../skills/junior-agent.js");
-    writeJuniorSubagent(ide, cwd);
+    const { writeSubagents } = await import("../skills/subagent-manager.js");
+    writeSubagents(ide, cwd);
   } catch {
     // Non-blocking
   }
@@ -363,13 +362,14 @@ export async function runInstall(
   if (agentDef?.hookSupport) {
     try {
       if (ide === "claude-code") {
-        // Claude Code: PostToolUse shell hook + PreToolUse/PostToolUse/UserPromptSubmit settings hooks
-        const hookResult = installClaudeHook(cwd);
+        // Claude Code: PreToolUse/PostToolUse/UserPromptSubmit settings hooks.
+        // (The legacy .claude/hooks/PostToolUse.sh shell hook is no longer
+        // installed — Claude Code PostToolUse hooks receive JSON on stdin,
+        // never a $TOOL_OUTPUT env var, so it was always a no-op. Real
+        // compression rides `unerr hook post-bash` via settings.json.)
         const preTool = mergePreToolUseBashHook(cwd);
         hookInstalled =
-          hookResult.action === "installed" ||
-          preTool.action === "merged" ||
-          preTool.action === "already_present";
+          preTool.action === "merged" || preTool.action === "already_present";
       } else if (ide === "cursor") {
         // Cursor: hook config in .cursor/hooks.json (when supported)
         hookInstalled = installCursorHooks(cwd);

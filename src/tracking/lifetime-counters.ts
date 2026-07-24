@@ -3,7 +3,6 @@
  * proxy.jsonl. Counters accumulate across the lifetime of a repo and are
  * written atomically to avoid partial reads.
  *
- * @sem domain=tracking role=counter-store
  */
 
 import {

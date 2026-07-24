@@ -15,7 +15,6 @@
  * every Read/Grep/Glob. The per-repo proxy publishes the counts to
  * `.unerr/state/graph-stats.json` after each index; this module only reads them.
  *
- * @sem domain=intelligence role=policy
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";

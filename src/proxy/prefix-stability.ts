@@ -13,7 +13,6 @@ import { resolveExecSessionContext } from "../tracking/session-records.js";
  * prompt cache can hold them); a drop to 0 marks a turn that re-billed
  * uncacheable bytes. Visibility only — does not change what is injected.
  *
- * @sem domain=compression role=accounting
  */
 
 const STATE_FILE = join(".unerr", "state", "prefix-stability.json");

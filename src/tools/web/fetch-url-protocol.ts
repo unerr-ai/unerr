@@ -886,7 +886,6 @@ export async function runFetchUrlBatch(
  * tool body instead of an opaque tool failure. Mirrors the `batch_error` shape
  * (status + suggestion) so one body contract covers every fetch_url failure.
  *
- * @sem domain=web role=error-shape
  */
 export interface FetchUrlInvalidRequest {
   result_status: "invalid_request";
@@ -936,7 +935,6 @@ function stripFetchUrlWireNoise(r: FetchUrlOkInternal): FetchUrlOk {
  * the ONE place that decides single-vs-bulk — the QueryRouter `fetch_url` case
  * calls only this, so there is no second copy of the routing/validation logic.
  *
- * @sem domain=web role=request-dispatch
  */
 export async function runFetchUrlRequest(
   args: FetchUrlArgs & { urls?: unknown },

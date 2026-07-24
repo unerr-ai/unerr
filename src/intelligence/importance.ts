@@ -21,7 +21,6 @@
  * that integration. Keeping it standalone and pure keeps it easy to test for the
  * determinism the rest of Sprint 2/3 depends on.
  *
- * @sem domain=compression role=ranking
  */
 
 /** Entity-like shape the truncation drop points pass in. All fields optional —

@@ -5,7 +5,6 @@
  * `behavior_events` row per (authored_by, cohort_days) so the cloud-push
  * behavior drainer can copy the counts through the HR-2 firewall.
  *
- * @sem domain=tracking role=producer
  */
 
 import { getGit } from "../utils/git.js";
@@ -35,7 +34,6 @@ const AI_ATTRIBUTION_TRAILER = "Unerr-Session:";
  * detail keys `authored_by` / `cohort_days` / `lines_authored` /
  * `lines_still_present` — counts and enums only, firewall-safe.
  *
- * @sem domain=tracking role=record
  */
 export interface LineSurvivalRow {
   authored_by: AuthoredBy;
@@ -113,7 +111,6 @@ function authorOf(commitBody: string): AuthoredBy {
  * signal rather than a silent gap). Returns `[]` when the directory is not a
  * git work tree or git is unavailable.
  *
- * @sem domain=tracking role=producer
  */
 export async function computeLineSurvival(
   cwd: string
@@ -302,7 +299,6 @@ async function accumulateSurviving(
  * and side-effect-only: returns the rows it wrote (empty on a non-repo) and
  * never throws into the caller's periodic loop.
  *
- * @sem domain=tracking role=producer
  */
 export async function computeAndRecordLineSurvival(
   opts: LineSurvivalOptions

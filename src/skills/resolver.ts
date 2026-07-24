@@ -532,7 +532,6 @@ function loadLocalDirectorySkills(cwd: string): ResolvedSkill[] {
  * context cost. This is the SINGLE source both the installer and the boot
  * self-heal read, so they never disagree on what belongs on disk.
  *
- * @sem domain=skills role=selector
  */
 function expectedBundledSkillIds(ide: IdeType, cwd: string): Set<string> {
   const optedIn = readOptInSkills(cwd);

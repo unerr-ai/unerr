@@ -32,7 +32,6 @@ export interface StreamBatch {
  * drainer is responsible for capping each batch to its endpoint's row/byte
  * limit; `drainRepo` keeps calling `read` until it returns `null`.
  *
- * // @sem domain=cloud role=drainer
  */
 export interface StreamDrainer {
   /** Cursor key + log label, unique per stream (e.g. `"events"`, `"ledger"`). */
@@ -57,7 +56,6 @@ export interface StreamDrainer {
  * Built once per repo per drain tick by the daemon scheduler and handed to
  * {@link BuildDrainers}.
  *
- * // @sem domain=cloud role=drainer
  */
 export interface DrainerContext {
   /** Absolute path of the repo being drained. */
@@ -124,7 +122,6 @@ const BODY_BYTE_BUDGET = 240 * 1024;
  * dead-letters — better than a stuck cursor). Each row's size is measured as
  * its JSON byte length plus a small per-row separator allowance.
  *
- * // @sem domain=cloud role=drainer
  */
 export function fitBatch<T>(
   rows: T[],
@@ -202,7 +199,6 @@ export interface DrainOptions {
  * `skipped_gate` (the logged-out case is handled upstream by the absent token).
  * Fleet inventory and conventions run on their own paths and are unaffected.
  *
- * // @sem domain=cloud role=drainer
  */
 export async function drainRepo(
   cursor: PushCursor,

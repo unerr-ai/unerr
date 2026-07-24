@@ -1,67 +1,20 @@
 /**
- * Hook Installer — installs CLI hooks for Claude Code PostToolUse.
+ * Hook Installer — removes the legacy Claude Code PostToolUse shell hook.
  *
- * R.4: Generates .claude/hooks/PostToolUse.sh that pipes command output
- * through `unerr compress-output` for graph-aware compression.
- *
- * The hook intercepts tool output, compresses it, and returns the compressed
- * version to the agent — reducing context window usage by 60-90%.
+ * R.4 installed .claude/hooks/PostToolUse.sh to pipe command output through
+ * `unerr compress-output`. It was dead weight: Claude Code PostToolUse hooks
+ * receive JSON on stdin and never set a $TOOL_OUTPUT env var, so the script
+ * always saw an empty string and did nothing. Real compression rides the
+ * settings.json hook `unerr hook post-bash` instead. This module no longer
+ * installs the shell hook — it only sweeps it from existing users' repos on
+ * `unerr uninstall`.
  */
 
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
-const HOOK_CONTENT = `#!/bin/bash
-# unerr PostToolUse hook — graph-aware output compression
-# Installed by: unerr init
-# Removes: unerr uninstall
-
-# Only compress large outputs (>2KB)
-if [ \${#TOOL_OUTPUT} -gt 2048 ]; then
-  echo "$TOOL_OUTPUT" | unerr compress-output
-else
-  echo "$TOOL_OUTPUT"
-fi
-`;
-
-export interface HookInstallResult {
-  path: string;
-  action: "installed" | "already_exists" | "failed";
-}
-
 /**
- * Install the PostToolUse hook for Claude Code.
- */
-export function installClaudeHook(cwd: string): HookInstallResult {
-  const hooksDir = join(cwd, ".claude", "hooks");
-  const hookPath = join(hooksDir, "PostToolUse.sh");
-
-  if (existsSync(hookPath)) {
-    return { path: hookPath, action: "already_exists" };
-  }
-
-  try {
-    if (!existsSync(hooksDir)) {
-      mkdirSync(hooksDir, { recursive: true });
-    }
-
-    writeFileSync(hookPath, HOOK_CONTENT, "utf-8");
-    chmodSync(hookPath, 0o755);
-
-    return { path: hookPath, action: "installed" };
-  } catch {
-    return { path: hookPath, action: "failed" };
-  }
-}
-
-/**
- * Remove the PostToolUse hook.
+ * Remove the legacy PostToolUse.sh hook, if present.
  */
 export function removeClaudeHook(cwd: string): boolean {
   const hookPath = join(cwd, ".claude", "hooks", "PostToolUse.sh");

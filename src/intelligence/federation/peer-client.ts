@@ -7,7 +7,6 @@
  * `unerr/blast_radius` control-channel precedent, not the prose-wrapped
  * `tools/call` path.
  *
- * @sem domain=intelligence
  */
 import { existsSync } from "node:fs";
 import { connect } from "node:net";
@@ -24,7 +23,6 @@ export const FEDERATED_CALL_METHOD = "unerr/federated_call";
  * error reply, or malformed frame. Never throws, so a bad peer degrades to a
  * partial fan-out instead of failing the whole query.
  *
- * @sem domain=intelligence role=transport
  */
 export function callPeerTool(
   sockPath: string,

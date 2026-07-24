@@ -2,7 +2,7 @@
  * Sprint SC-A.2: Layer 8 domain-graph relations — create + round-trip.
  *
  * Hits a real in-memory CozoDB instance so the actual :create / :put / named
- * Datalog syntax is exercised (domain_annotations has 10 value columns —
+ * Datalog syntax is exercised (domain_annotations has 8 value columns —
  * named syntax always, per the Datalog rules).
  */
 
@@ -42,28 +42,26 @@ describe("Layer 8 domain-graph schema (SC-A.2)", () => {
 
   it("round-trips a domain_annotations row with named syntax", async () => {
     await db.run(
-      `?[entity_key, summary, domain, role, extras, source, confidence, status, comment_hash, content_hash, computed_at] <-
-         [[$key, $summary, "auth", "gateway", $extras, "comment", 0.95, "active", "ch1", "bh1", "2026-06-07"]]
-       :put domain_annotations {entity_key => summary, domain, role, extras, source, confidence, status, comment_hash, content_hash, computed_at}`,
+      `?[entity_key, summary, domain, source, confidence, status, comment_hash, content_hash, computed_at] <-
+         [[$key, $summary, "auth", "harvested", 0.7, "active", "ch1", "bh1", "2026-06-07"]]
+       :put domain_annotations {entity_key => summary, domain, source, confidence, status, comment_hash, content_hash, computed_at}`,
       {
         key: "src/auth/token.ts::validateToken",
         summary: "Validates a session token against the active key set.",
-        extras: JSON.stringify({ stability: "frozen" }),
       }
     );
 
     const result = await db.run(
-      `?[summary, domain, role, source, confidence, status] :=
-         *domain_annotations{entity_key: $key, summary, domain, role, source, confidence, status}`,
+      `?[summary, domain, source, confidence, status] :=
+         *domain_annotations{entity_key: $key, summary, domain, source, confidence, status}`,
       { key: "src/auth/token.ts::validateToken" }
     );
     expect(result.rows).toHaveLength(1);
-    const [summary, domain, role, source, confidence, status] = result.rows[0]!;
+    const [summary, domain, source, confidence, status] = result.rows[0]!;
     expect(summary).toContain("session token");
     expect(domain).toBe("auth");
-    expect(role).toBe("gateway");
-    expect(source).toBe("comment");
-    expect(confidence).toBeCloseTo(0.95);
+    expect(source).toBe("harvested");
+    expect(confidence).toBeCloseTo(0.7);
     expect(status).toBe("active");
   });
 
@@ -79,8 +77,8 @@ describe("Layer 8 domain-graph schema (SC-A.2)", () => {
     await db.run(put, {
       key: "e1",
       domain: "auth",
-      source: "comment",
-      conf: 0.95,
+      source: "harvested",
+      conf: 0.7,
     });
 
     const result = await db.run(
@@ -88,7 +86,7 @@ describe("Layer 8 domain-graph schema (SC-A.2)", () => {
       { key: "e1" }
     );
     expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]![0]).toBe("comment");
+    expect(result.rows[0]![0]).toBe("harvested");
   });
 
   it("round-trips domain_edges keyed by (from, to, type)", async () => {
@@ -134,14 +132,13 @@ describe("Layer 8 domain-graph schema (SC-A.2)", () => {
     );
 
     const result = await db.run(
-      `?[summary, extras, source, status, confidence] :=
-         *domain_annotations{entity_key: "e2", summary, extras, source, status, confidence}`,
+      `?[summary, source, status, confidence] :=
+         *domain_annotations{entity_key: "e2", summary, source, status, confidence}`,
       {}
     );
     expect(result.rows).toHaveLength(1);
-    const [summary, extras, source, status, confidence] = result.rows[0]!;
+    const [summary, source, status, confidence] = result.rows[0]!;
     expect(summary).toBe("");
-    expect(extras).toBe("{}");
     expect(source).toBe("path");
     expect(status).toBe("active");
     expect(confidence).toBe(0);

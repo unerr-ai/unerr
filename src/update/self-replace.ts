@@ -7,7 +7,6 @@
  * all errors are caught and returned as {ok:false, error} so the caller can
  * surface them without crashing the update path.
  *
- * @sem domain=update role=self-replace
  */
 
 import { spawn } from "node:child_process";

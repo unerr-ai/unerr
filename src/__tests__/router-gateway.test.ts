@@ -70,10 +70,13 @@ describe("RouterGateway: unlock lifecycle", () => {
   });
 
   // After the unerr_track removal, get_references is the SOLE gated tool.
-  // Its policy is C.or(C.editOrWrite(), C.fanIn(5)): an edit/write call
-  // unlocks it immediately (EDIT_LIKE_TOOLS in call-signals.ts), or a read
-  // whose result carries `_meta.entity_risk.fan_in >= 5`. Plain reads with
-  // neither signal never unlock it. The earlier per-tool unlock paths
+  // Its policy is C.or(C.editOrWrite(), C.fanIn(5), C.firstRead()): an
+  // edit/write call unlocks it immediately (EDIT_LIKE_TOOLS in
+  // call-signals.ts), a read whose result carries
+  // `_meta.entity_risk.fan_in >= 5`, or a single completed file_read (any
+  // call whose args name a file path) — a read-only audit/recon session
+  // must not be dead-ended on the flagship tool. Only a session with ZERO
+  // recorded calls stays locked. The earlier per-tool unlock paths
   // (get_conventions on first read, get_critical_nodes on ur|rsk / fan_in,
   // get_imports on import counts) are gone with their tools.
   async function readDistinctFiles(count: number): Promise<void> {
@@ -134,9 +137,15 @@ describe("RouterGateway: unlock lifecycle", () => {
     expect(gateway.isExposed("get_references")).toBe(true);
   });
 
-  it("does not unlock get_references on plain reads (neither branch satisfied)", async () => {
-    await readDistinctFiles(4);
+  it("a single plain file_read unlocks get_references (firstRead branch)", async () => {
     expect(gateway.isExposed("get_references")).toBe(false);
+    await readDistinctFiles(1);
+    expect(gateway.isExposed("get_references")).toBe(true);
+  });
+
+  it("cold call: with zero prior recorded calls, get_references stays locked", () => {
+    expect(gateway.isExposed("get_references")).toBe(false);
+    expect(gateway.gate("get_references")).not.toBeNull();
   });
 });
 
@@ -154,7 +163,7 @@ describe("RouterGateway: announce + persistence", () => {
   });
 
   // get_references is the sole gated tool: an edit/write call unlocks it
-  // immediately (C.or(C.editOrWrite(), C.fanIn(5))).
+  // immediately (C.or(C.editOrWrite(), C.fanIn(5), C.firstRead())).
   async function unlockReferences(): Promise<
     Awaited<ReturnType<RouterGateway["recordAndUnlock"]>>
   > {

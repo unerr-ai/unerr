@@ -29,7 +29,6 @@ const BODY_DEDUP_MAX_TURNS = 5;
 /**
  * Whether body/file content dedup is active. Defaults on; set
  * UNERR_BODY_DEDUP=0 to disable for a session without a rebuild.
- * @sem domain=proxy role=dedup
  */
 export const BODY_DEDUP_ENABLED = process.env.UNERR_BODY_DEDUP !== "0";
 
@@ -307,7 +306,6 @@ interface BodyDedupEntry {
  * Keyed on absolute file path. Uses BODY_DEDUP_MAX_TURNS recency window
  * so dedup never fires after likely harness compaction. Distinct from
  * enrichment dedup (which uses a 7-day TTL and different keys).
- * @sem domain=proxy role=dedup
  */
 export interface BodyDedupStore {
   /**
@@ -350,7 +348,6 @@ export interface BodyDedupStore {
  * "reuse prior content" pointer for a span it was never sent. (A path-only
  * key collapsed every sliced re-read onto the first delivery; the agent then
  * escaped to shell reads to get the lines it had actually asked for.)
- * @sem domain=proxy role=dedup
  */
 export function createBodyDedup(): BodyDedupStore {
   const entries = new Map<string, BodyDedupEntry>();

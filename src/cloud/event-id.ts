@@ -31,7 +31,6 @@ function namespaceBytes(): Buffer {
  * distinct part lists can never produce the same concatenation). Same parts in
  * → same UUID, which is exactly the idempotency the push pipeline relies on.
  *
- * // @sem domain=cloud role=identity
  */
 export function deterministicId(...parts: string[]): string {
   const name = parts.join(PART_SEPARATOR);

@@ -7,7 +7,6 @@
  * conventions at all. The owning peer attaches its own conventions for the file
  * here, labeled by repo, so the home surfaces them as `ur|fct` lines.
  *
- * @sem domain=federation role=coordinator
  */
 
 import type { IntelligenceSignal } from "../signal-scorer.js";

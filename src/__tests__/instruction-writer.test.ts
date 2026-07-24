@@ -264,48 +264,7 @@ describe("instruction-writer", () => {
     });
   });
 
-  describe("Layer 8 §2.4 — `@sem` section (repo detection + comments.maintain)", () => {
-    const MARKER = "### `@sem` comments";
-
-    function writeMaintainSetting(value: boolean): void {
-      mkdirSync(join(tmpDir, ".unerr"), { recursive: true });
-      writeFileSync(
-        join(tmpDir, ".unerr", "settings.json"),
-        JSON.stringify({ comments: { maintain: value } })
-      );
-    }
-
-    // tmpDir carries no .git dir, so repoHasSemComments falls back to the
-    // capped filesystem scan — writing this fixture is enough to flip it true.
-    function markRepoAsSemAdopter(): void {
-      writeFileSync(
-        join(tmpDir, "sem-fixture.ts"),
-        "// A thing.\n// @sem domain=testing role=fixture\nexport function thing() {}\n"
-      );
-    }
-
-    it("omits the section when the repo carries no @sem comments (no config)", () => {
-      const result = writeInstructionFile(tmpDir, "claude-code");
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).not.toContain(MARKER);
-      expect(content).toContain("get_references");
-    });
-
-    it("includes the section once the repo carries an @sem comment — claude-code", () => {
-      markRepoAsSemAdopter();
-      const result = writeInstructionFile(tmpDir, "claude-code");
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).toContain(MARKER);
-      expect(content).toContain("@sem domain=");
-    });
-
-    it("includes the section once the repo carries an @sem comment — cursor (mdc)", () => {
-      markRepoAsSemAdopter();
-      const result = writeInstructionFile(tmpDir, "cursor");
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).toContain(MARKER);
-    });
-
+  describe('"files changed" receipt note', () => {
     it('includes the "files changed" receipt note for claude-code', () => {
       const result = writeInstructionFile(tmpDir, "claude-code");
       const content = readFileSync(result.path, "utf-8");
@@ -322,69 +281,23 @@ describe("instruction-writer", () => {
       // but the file_edit routing section itself is still present.
       expect(content).toContain("file_edit");
     });
-
-    it("comments.maintain=false omits the section even when the repo has @sem comments — claude-code", () => {
-      markRepoAsSemAdopter();
-      writeMaintainSetting(false);
-      const result = writeInstructionFile(tmpDir, "claude-code");
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).not.toContain(MARKER);
-      // The rest of the instruction block is untouched.
-      expect(content).toContain("get_references");
-      expect(content).toContain("<!-- unerr:start -->");
-    });
-
-    it("comments.maintain=false omits the section — cursor (mdc)", () => {
-      markRepoAsSemAdopter();
-      writeMaintainSetting(false);
-      const result = writeInstructionFile(tmpDir, "cursor");
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).not.toContain(MARKER);
-      expect(content).toContain("get_references");
-    });
-
-    it("comments.maintain=true is explicit-on and keeps the section", () => {
-      markRepoAsSemAdopter();
-      writeMaintainSetting(true);
-      const result = writeInstructionFile(tmpDir, "claude-code");
-      const content = readFileSync(result.path, "utf-8");
-      expect(content).toContain(MARKER);
-    });
-
-    it("is idempotent — second write with the section skips", () => {
-      markRepoAsSemAdopter();
-      writeInstructionFile(tmpDir, "claude-code");
-      const second = writeInstructionFile(tmpDir, "claude-code");
-      expect(second.action).toBe("skipped");
-    });
-
-    it("toggling the flag off rewrites the section away", () => {
-      markRepoAsSemAdopter();
-      const first = writeInstructionFile(tmpDir, "claude-code");
-      expect(first.action).toBe("created");
-      expect(readFileSync(first.path, "utf-8")).toContain(MARKER);
-
-      writeMaintainSetting(false);
-      const second = writeInstructionFile(tmpDir, "claude-code");
-      expect(second.action).toBe("updated");
-      expect(readFileSync(second.path, "utf-8")).not.toContain(MARKER);
-    });
   });
 
   describe("delegation pointer — unerr-worker/unerr-junior (replaces the tier table)", () => {
-    it("points to unerr-worker/unerr-junior instead of the old tier table — claude-code", () => {
+    it("points to unerr-worker/unerr-junior/unerr-architect instead of the old tier table — claude-code", () => {
       const result = writeInstructionFile(tmpDir, "claude-code");
       const content = readFileSync(result.path, "utf-8");
       expect(content).toContain("unerr-worker");
       expect(content).toContain("unerr-junior");
+      expect(content).toContain("unerr-architect");
       expect(content).not.toContain("Tier by the hardest part");
     });
 
-    it("points to unerr-worker/unerr-junior instead of the old tier table — codex", () => {
+    it("omits the unerr-worker/unerr-junior/unerr-architect pointer for codex (sub-agent .md files are claude-code-only)", () => {
       const result = writeInstructionFile(tmpDir, "codex");
       const content = readFileSync(result.path, "utf-8");
-      expect(content).toContain("unerr-worker");
-      expect(content).toContain("unerr-junior");
+      expect(content).not.toContain("unerr-worker");
+      expect(content).not.toContain("unerr-junior");
       expect(content).not.toContain("Tier by the hardest part");
     });
   });

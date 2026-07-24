@@ -16,10 +16,10 @@ const SESSION = "UNERR_SESSION_ID";
 
 describe("prefix ordering", () => {
   const BOUNDARY = "— unerr: per-turn context —";
-  // Stable head line: the fixed decompose-and-delegate nudge (fires once per
-  // substantive code turn, byte-stable — no mark_intent/journal machinery
-  // involved, that subsystem was removed).
-  const STABLE_HEAD = "ur|act delegate-slices —";
+  // Stable head line: "bug" routes to the opt-in unerr-build-and-debug skill,
+  // which is NOT installed by default, so Path A is suppressed and the fixed
+  // omni-skill fallback line fires instead (byte-stable turn-to-turn).
+  const STABLE_HEAD = "ur|act unerr-using-unerr —";
   let prevCwd: string;
   let savedSession: string | undefined;
 
@@ -48,11 +48,11 @@ describe("prefix ordering", () => {
     else process.env[SESSION] = savedSession;
   });
 
-  it("stable decompose nudge leads, boundary present, volatile stitch line trails", () => {
+  it("stable fallback line leads, boundary present, volatile stitch line trails", () => {
     // Seed a prior-session ledger entry so the cross-session stitch fires as
-    // the VOLATILE per-prompt tail. Use a plain bug-fix prompt (no narrow
-    // delegable class match) so the fixed decompose-and-delegate nudge — not
-    // the class-specific delegate line — owns the STABLE head.
+    // the VOLATILE per-prompt tail. A bug-fix prompt routes Path A to the
+    // opt-in unerr-build-and-debug skill (not installed), so the fixed
+    // omni-skill fallback line owns the STABLE head.
     writeFileSync(
       join(process.cwd(), ".unerr", "ledger", "shadow.jsonl"),
       `${JSON.stringify({

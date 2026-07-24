@@ -20,7 +20,6 @@
  *       VERIFY_PER_STREAM=20    max events read per stream (spread the mix)
  *       UNERR_WEB_ENV=/path/to/unerr-web-service/.env.local  (DB creds source)
  *
- * @sem domain=cloud role=verifier
  */
 import { createRequire } from "node:module";
 import { existsSync, readFileSync } from "node:fs";

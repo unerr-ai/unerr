@@ -24,7 +24,7 @@
  */
 
 import { loadContent } from "../content/loader.js";
-import { CODEX_JUNIOR_MODEL, CODEX_WORKER_MODEL } from "./junior-agent.js";
+import { CODEX_JUNIOR_MODEL, CODEX_WORKER_MODEL } from "./subagent-manager.js";
 
 export type SkillCategory = "behavior" | "navigation" | "quality" | "workflow";
 
@@ -117,12 +117,13 @@ export const EXPLORATION_SKILL: SkillDefinition = {
 // ────────────────────────────────────────────────────────────────────────────
 // Memory (four-moment contract) and the session journal (`unerr journal - <label> -`
 // text lines) are no longer skills: usage data (2026-06) showed BOTH invoked 0×
-// via Skill() across 174 sessions — their function runs through the
+// via Skill() across 174 sessions — their function ran through the
 // UserPromptSubmit/Stop hooks and the instruction file's contract block, never
 // a Skill() call. Removing them drops ~8 KB of always-on weight. The
 // `remember/always` verb cluster is dropped from VERB_CLUSTERS (capture is
-// automatic); journal lines ride the closing-message text convention taught in
-// USING_UNERR_SKILL + the instruction file.
+// automatic); the journal-sentinel scrape/persist path itself was removed
+// entirely in 2026-07 (no MCP tool, no Stop-hook scraper) — the resume strip
+// is rederived from events (files changed / branch / broken callers) instead.
 // ────────────────────────────────────────────────────────────────────────────
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -208,9 +209,9 @@ export const REVIEW_SKILL: SkillDefinition = {
 export const DELEGATE_SKILL: SkillDefinition = {
   id: "delegate",
   name: "Delegate (cheaper-model handoff)",
-  description: `Use when the task is a delegable class — add/improve tests, docstring + @sem maintenance, mechanical refactor (rename/extract/inline/move), lint/format fixup, read-only recon (find out / trace / investigate X), caller/import propagation (update every call site + import after a signature change), typecheck/build-error fixes (fix tsc/build errors mechanically, re-run until green), scaffold (generate a new file's skeleton from a sibling template), verify-runs (run typecheck + targeted tests + lint, return the failure list — no edits), or shell-command runs (run a sequence of build/script/migration/setup commands, report the output) — AND the host supports delegation (Claude Code / Codex / Cursor / GitHub Copilot CLI). Builds a recon brief, PARTITIONS it into disjoint groups, and spawns one cheaper-model worker per group in parallel, routed by difficulty: tests/mechanical_refactor/caller_propagation/typecheck_fix/scaffold → WORKER model (Claude \`unerr-worker\` sub-agent / \`codex exec -m ${CODEX_WORKER_MODEL}\`), lint/docs/recon/verify/shell-command → JUNIOR model (Claude \`unerr-junior\` sub-agent / \`codex exec -m ${CODEX_JUNIOR_MODEL}\`). Then reviews each diff. The senior NEVER enumerates the edit sites — the graph does. If the host can't delegate, skip this skill and run the normal lifecycle skill.`,
+  description: `Use when the task is a delegable class — add/improve tests, docstring maintenance, mechanical refactor (rename/extract/inline/move), lint/format fixup, read-only recon (find out / trace / investigate X), caller/import propagation (update every call site + import after a signature change), typecheck/build-error fixes (fix tsc/build errors mechanically, re-run until green), scaffold (generate a new file's skeleton from a sibling template), verify-runs (run typecheck + targeted tests + lint, return the failure list — no edits), or shell-command runs (run a sequence of build/script/migration/setup commands, report the output) — AND the host supports delegation (Claude Code / Codex / Cursor / GitHub Copilot CLI). Builds a recon brief, PARTITIONS it into disjoint groups, and spawns one cheaper-model worker per group in parallel, routed by difficulty: tests/mechanical_refactor/caller_propagation/typecheck_fix/scaffold → WORKER model (Claude \`unerr-worker\` sub-agent / \`codex exec -m ${CODEX_WORKER_MODEL}\`), lint/docs/recon/verify/shell-command → JUNIOR model (Claude \`unerr-junior\` sub-agent / \`codex exec -m ${CODEX_JUNIOR_MODEL}\`). Then reviews each diff. The senior NEVER enumerates the edit sites — the graph does. If the host can't delegate, skip this skill and run the normal lifecycle skill.`,
   whenToUse:
-    "A delegable task on a delegation-capable host: add tests, write a unit/integration test, improve test coverage, add/update a docstring or @sem comment, rename/extract/inline/move a symbol, fix lint/format, propagate call-site + import changes after a signature edit, fix tsc/build errors, scaffold a new file from a sibling template, run typecheck + tests + lint and return failures (no edits), run a sequence of build/script/migration/setup commands, or a read-only investigation (find out / trace / investigate X). Also when a hook emits `ur|act unerr-delegate`. Not for design, new features, or bug root-causing — those stay with the senior.",
+    "A delegable task on a delegation-capable host: add tests, write a unit/integration test, improve test coverage, add/update a docstring, rename/extract/inline/move a symbol, fix lint/format, propagate call-site + import changes after a signature edit, fix tsc/build errors, scaffold a new file from a sibling template, run typecheck + tests + lint and return failures (no edits), run a sequence of build/script/migration/setup commands, or a read-only investigation (find out / trace / investigate X). Also when a hook emits `ur|act unerr-delegate`. Not for design, new features, or bug root-causing — those stay with the senior.",
   allowedTools: "*",
   instructions: loadContent("skill:delegate"),
   category: "workflow",

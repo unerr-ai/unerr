@@ -17,7 +17,6 @@
  * yield identical ordering. Ties (equal score) break by original chunk index,
  * never by Map/Set iteration order. No clock, no random, no model.
  *
- * @sem domain=compression role=ranker
  */
 
 /** A unit of content to rank. Granularity is the caller's (whole function /

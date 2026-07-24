@@ -6,7 +6,6 @@
  * semantic routing standard (Sourcegraph/deepset): keyword lookups stay on the
  * fast precise path, NL queries get the heavier semantic bundle.
  *
- * @sem domain=search role=classifier
  */
 
 export type QueryShape = "symbol" | "task";
@@ -176,7 +175,6 @@ export function classifyQueryShape(query: string): QueryShapeVerdict {
  * Pure + side-effect-free so the routing rule is unit-testable apart from the
  * proxy dispatch.
  *
- * @sem domain=search role=classifier
  */
 export function shouldEscalateSearchCodeToRecon(
   args: Record<string, unknown>

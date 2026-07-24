@@ -15,7 +15,6 @@
  * generated file is what lets the rest of the source stay build-tool-agnostic:
  * tsup sees an inert stub, Bun sees the real assets.
  *
- * @sem domain=native-binary role=asset-registry
  */
 
 // The cozo-node N-API binding (`native.open_db`, `native.query_db`, …). `null`

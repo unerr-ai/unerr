@@ -608,7 +608,7 @@ function recordShellTokenFlow(
         turn = 0;
       }
     }
-    // PostToolUse hooks (`.claude/hooks/PostToolUse.sh`) spawn `unerr
+    // The settings.json hook (`unerr hook post-bash`) spawns `unerr
     // compress-output` from the IDE's own shell, so this exec doesn't inherit
     // UNERR_AGENT from the proxy. Fall back to the IDE's own env markers
     // (CLAUDECODE, CURSOR_TRACE_ID, …) so the row still attributes correctly.

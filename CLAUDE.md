@@ -12,15 +12,11 @@ For code in this repo:
 
 Bash runs things (build, test, git, package managers); it is not for reading or searching code. (On Claude Code a full-file built-in Read of a code file is denied and redirected here.) When changing existing indexed code, start with one `search_code({query:"<task phrase>"})` recon call. Commands that can exceed 2 minutes run in the background with output to a log file.
 
-Work that splits into independent slices can be delegated to the unerr sub-agents (`unerr-worker` for scoped edits, `unerr-junior` for read-only recon and verify-runs) — their descriptions state when each applies.
+Work that splits into independent slices: spawn all the matching unerr sub-agents in one message, in parallel (`unerr-worker` scoped edits · `unerr-junior` recon and verify-runs · `unerr-architect` design, root-causing, and large-context work); use worktree isolation when two slices edit the same files.
 
 Tool responses may carry `ur|<tag>` signal lines; the body of each line names the concrete next step.
 
 If unerr MCP is unavailable, errors, or reports no graph: use built-in Read/Grep/Glob for the rest of the session.
-
-### `@sem` comments
-
-Exported entities here carry a doc comment (1–2 sentences, what + why) ending `@sem domain=<tag> role=<tag>`. An edit that changes what an entity does updates its comment in the same edit; a new exported entity gets one before the next edit. Keep existing `@sem` lines unless the user removes them.
 
 <!-- unerr:end -->
 

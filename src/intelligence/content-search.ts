@@ -7,7 +7,6 @@
  * follow-up read; hard caps (total matches, per-file matches, total bytes) keep
  * it from flooding context with whole files.
  *
- * @sem domain=search role=matcher
  */
 
 export interface ContentMatch {

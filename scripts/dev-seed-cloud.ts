@@ -41,7 +41,6 @@
  * Usage:  pnpm tsx scripts/dev-seed-cloud.ts [repoPath]
  *         (repoPath defaults to process.cwd())
  *
- * @sem domain=dev-tooling role=seed-script
  */
 
 import { existsSync, readFileSync } from "node:fs";

@@ -10,7 +10,6 @@
  * each row against `IngestEvent`, advances the cursor on ack, and dead-letters
  * poison — one machine-wide loop in `unerrd`, never the per-repo proxy.
  *
- * // @sem domain=cloud role=drainer
  */
 
 import { truncateSync, unlinkSync } from "node:fs";
@@ -112,7 +111,6 @@ const PATH_DETAIL_KEYS = new Set<string>([
  * Empty on an introspection miss; `projectRowForWire` then falls back to the
  * denylist pass-through for that type (fail-safe, never a crash).
  *
- * // @sem domain=cloud role=drainer
  */
 export const WIRE_DETAIL_KEYS: Map<string, Set<string>> = buildWireDetailKeys();
 
@@ -183,7 +181,6 @@ const DROPPED_TYPES = new Set<string>(["timeline"]);
  * extras are intentional). Pure — the stored line is untouched, so the cursor
  * still advances by the original byte span.
  *
- * // @sem domain=cloud role=drainer
  */
 export function projectRowForWire(
   row: unknown,
@@ -320,7 +317,6 @@ function makeSegmentDrainer(
  * picked up next tick; an empty / absent store yields no drainers. The daemon
  * scheduler runs each returned drainer through `drainRepo`.
  *
- * // @sem domain=cloud role=drainer
  */
 export async function buildIngestDrainers(
   ctx: DrainerContext
@@ -361,7 +357,6 @@ function pidAlive(pid: number): boolean {
  * stale offset. Call after `drainRepo`, before `cursor.save()`, so the forget is
  * persisted. Returns the number of segments reaped.
  *
- * // @sem domain=cloud role=drainer
  */
 export function reapDrainedDeadSegments(
   repoPath: string,
@@ -401,7 +396,6 @@ export function reapDrainedDeadSegments(
  * already treats as loss-tolerant. Call after `drainRepo`, before `cursor.save()`
  * (same place as the reap), so the cursor reset is persisted. Returns the count.
  *
- * // @sem domain=cloud role=drainer
  */
 export function truncateDrainedLongLivedSegments(
   repoPath: string,

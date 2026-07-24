@@ -26,11 +26,8 @@ describe("classifyDelegable (Lever C)", () => {
     );
   });
 
-  it("flags docstring / @sem maintenance", () => {
+  it("flags docstring maintenance", () => {
     expect(classifyDelegable("add a docstring to setFlag").class).toBe("docs");
-    expect(
-      classifyDelegable("update the @sem comment on the handler").class
-    ).toBe("docs");
   });
 
   it("flags mechanical refactors but not plain refactor", () => {

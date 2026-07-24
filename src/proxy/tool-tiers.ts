@@ -122,10 +122,11 @@ export const UNLOCK_CONDITIONS: Readonly<Record<string, Condition>> = {
   // ── Tier 2 ─────────────────────────────────────────────────────────────
   // get_references (2026-07) — the deep caller/callee escalation. The common
   // "who calls this" is already covered by file_read entity mode (top-10
-  // callers) + the file_edit at-risk-caller line, so it unlocks only when the
-  // session either starts editing OR observes a high-fan-in entity (blast
-  // radius becomes relevant).
-  get_references: C.or(C.editOrWrite(), C.fanIn(5)),
+  // callers) + the file_edit at-risk-caller line, so it unlocks once the
+  // session starts editing, observes a high-fan-in entity (blast radius
+  // becomes relevant), OR completes a first file_read — a read-only
+  // audit/recon session must not be dead-ended on the flagship tool.
+  get_references: C.or(C.editOrWrite(), C.fanIn(5), C.firstRead()),
 };
 
 /**

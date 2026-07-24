@@ -57,7 +57,6 @@ import {
   removeOrphanedAnnotations,
   upsertAnnotations,
 } from "./semantic/annotation-indexer.js";
-import { DEFAULT_SENTINEL_TOKENS } from "./semantic/docstring-extractor.js";
 import { deriveDomainGraph } from "./semantic/domain-graph.js";
 
 // ── Types ────────────────────────────────────────────────────────
@@ -343,12 +342,6 @@ export async function indexLocalProject(
   // are known (the identifier cross-check needs the full graph vocabulary);
   // rows land in domain_annotations in Phase 6.6.
   const annotationCandidates: AnnotationCandidate[] = [];
-  let sentinelTokens: readonly string[] = DEFAULT_SENTINEL_TOKENS;
-  try {
-    sentinelTokens = loadSettings(projectRoot).comments.sentinel;
-  } catch {
-    /* settings unreadable — default token list */
-  }
   let filesProcessed = 0;
   const yieldGate = createYieldGate();
 
@@ -421,7 +414,7 @@ export async function indexLocalProject(
 
     // Layer 8: parse doc-comment annotations while content is in scope
     annotationCandidates.push(
-      ...collectAnnotationCandidates(content, annotationTargets, sentinelTokens)
+      ...collectAnnotationCandidates(content, annotationTargets)
     );
 
     // Extract edges (tag with source file for cross-file resolution)
@@ -740,7 +733,6 @@ export async function seedFileContentHashes(
  * reindex on every boot once the stale count exceeds the incremental cap.
  * Batched :rm (chunked), best-effort per chunk.
  *
- * @sem domain=indexing role=staleness-cleanup
  */
 export async function pruneStaleFileContentHashes(
   graphStore: CozoGraphStore,
@@ -928,7 +920,6 @@ function walkDir(dir: string, files: string[], projectRoot: string): void {
  * `mode:'literal'` search appear to hang. The walk is `readdir`/`stat` only (no
  * content read) and each `await` yields the event loop.
  *
- * @sem domain=indexing role=discovery
  */
 export async function discoverSearchableFiles(
   projectRoot: string

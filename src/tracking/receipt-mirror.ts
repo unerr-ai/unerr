@@ -5,7 +5,6 @@
  * the cloud-drain pipeline never touches. This lets the Stop-hook receipt
  * builder read events even after the cloud pipeline truncates proxy.jsonl.
  *
- * @sem domain=tracking role=mirror
  */
 
 import {

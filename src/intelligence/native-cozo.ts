@@ -7,7 +7,6 @@
  * is embedded directly (`embedded-natives.cozoNative`) and we re-wrap the raw
  * N-API binding with a class identical to cozo-node's own `index.js`.
  *
- * @sem domain=native-binary role=loader
  */
 
 // Build-time flag injected by tsup (`false`) and by `script/build-binary.ts`
@@ -47,7 +46,6 @@ export async function getCozoDbCtor(): Promise<CozoDbCtor> {
  * over the same `native.*` calls) so the compiled binary behaves identically to
  * the package — only the addon-resolution step differs.
  *
- * @sem domain=native-binary role=loader
  */
 function makeCozoDbClass(native: any): CozoDbCtor {
   class CozoTx {

@@ -16,7 +16,6 @@ import { createRequire } from "node:module";
  * verbatim and resolves to the real builtin at runtime. Every `node:sqlite`
  * load MUST go through here — never `import("node:sqlite")` directly.
  *
- * @sem domain=infrastructure role=loader
  */
 export function loadNodeSqlite(): typeof import("node:sqlite") {
   const req = createRequire(import.meta.url);

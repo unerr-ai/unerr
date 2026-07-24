@@ -321,7 +321,7 @@ One local DB per repo. Zero network calls. No API keys. No cloud. Your code neve
 
 ```bash
 unerr install <agent>   # MCP config + skills + hooks + instructions for one agent
-unerr uninstall         # Remove unerr from this repo (add --strip-annotations to also remove @sem lines)
+unerr uninstall         # Remove unerr from this repo
 unerr doctor            # Check PATH + environment, auto-fix if unerr isn't on all shells
 unerr status            # Process health, entity count, graph age
 unerr stats             # Session statistics (tokens, tool calls, compression)
@@ -337,8 +337,6 @@ unerr pm dashboard      # Open http://localhost:9847
 ```
 
 `unerrd` is a lightweight Node process that supervises every registered repo. Your IDE invocation auto-spawns it; it exits cleanly after 30 minutes of no activity. `unerr pm --help` lists the rest.
-
-No lock-in: any `@sem` domain comments unerr's agent adds are plain comments — your code runs identically without them and without unerr. `unerr uninstall --strip-annotations` removes every sentinel line repo-wide while keeping the prose summaries.
 
 ### MCP tools (7 advertised)
 

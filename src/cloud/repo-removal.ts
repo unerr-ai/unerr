@@ -15,7 +15,6 @@
  * Call from every removeRepo site: the daemon's remove handler, the CLI
  * `pm` fallback when the daemon is down, and `uninstall`.
  *
- * @sem domain=cloud role=drainer
  */
 
 /**

@@ -27,7 +27,7 @@ import {
   runPreReadHook,
   runPreWriteHook,
 } from "../hooks/navigation-hooks.js";
-import { runUserPromptSubmitHookAsync } from "../hooks/prompt-hooks.js";
+import { runUserPromptSubmitHook } from "../hooks/prompt-hooks.js";
 import { runSessionStartHookAsync } from "../hooks/session-hooks.js";
 import {
   runPostBashHook,
@@ -140,10 +140,8 @@ export function registerHookCommand(program: Command): void {
 
   hook
     .command("prompt-submit")
-    .description(
-      "Inject dated trace recall + unerr tool reminder on each user prompt"
-    )
-    .action(safeAsyncHookAction(runUserPromptSubmitHookAsync));
+    .description("Inject unerr tool reminder on each user prompt")
+    .action(safeHookAction(runUserPromptSubmitHook));
 
   // ── SessionStart hook (Claude Code only — Cursor/Cline fall back to Surface 1) ──
 

@@ -38,8 +38,6 @@ import {
 import {
   type AnnotationDb,
   attachAnnotations,
-  fetchActiveDomainTags,
-  fetchVocabularyNudges,
 } from "../intelligence/semantic/annotation-indexer.js";
 import { classifyTaskSize } from "../intelligence/task-size.js";
 import { getOrCreateSid } from "../utils/log-paths.js";
@@ -149,16 +147,6 @@ function buildGraphRunner(graph: {
         // Layer 8 §5.4: attach domain annotations to the recon "Entities"
         // section; best-effort, un-annotated hits pass through unchanged.
         return await attachAnnotations(graph.db, rows);
-      }
-      case "domain_tags": {
-        // Layer 8 §5.4 "reuse before invent": active domain-tag vocabulary by
-        // entity count. Best-effort — [] on any error.
-        return { tags: await fetchActiveDomainTags(graph.db) };
-      }
-      case "vocab_nudges": {
-        // Layer 8 §5.2 / §6.4: canonical/provisional split + near-duplicate
-        // merge hints. Best-effort — empty sets on any error.
-        return await fetchVocabularyNudges(graph.db);
       }
       case "get_references": {
         const key = String(args.key ?? "");

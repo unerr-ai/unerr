@@ -333,7 +333,7 @@ describe("runPromptSubmitHook", () => {
   // tool-routing section + the installed `.claude/skills/` menu, so they are
   // suppressed for claude-code. The per-turn ur|act Path A line still rides.
   // (Runs in a fresh tmp cwd for a clean first-turn nudge-state.)
-  it("default (claude-code) handler suppresses the static roster / catalog and emits the build decompose-and-delegate nudge for a build/bug prompt", async () => {
+  it("default (claude-code) handler suppresses the static roster / catalog and falls back to the omni-skill line for a build/bug prompt", async () => {
     const { runUserPromptSubmitHook } = await import(
       "../hooks/prompt-hooks.js"
     );
@@ -351,10 +351,10 @@ describe("runPromptSubmitHook", () => {
       // Static tail suppressed for claude-code …
       expect(ctx).not.toContain("available skills");
       expect(ctx).not.toContain("[unerr] Prefer unerr MCP tools");
-      // … and the build/bug prompt draws the once-per-session decompose-and-
-      // delegate nudge. unerr-build-and-debug is opt-in (not installed by
-      // default), so it is NOT named — the nudge points at sub-agents instead.
-      expect(ctx).toContain("ur|act delegate-slices");
+      // … "failing" matches the bug cluster, which routes to the opt-in
+      // unerr-build-and-debug skill (not installed by default), so Path A is
+      // suppressed and the omni-skill fallback line fires instead.
+      expect(ctx).toContain("ur|act unerr-using-unerr");
       expect(ctx).not.toContain("unerr-build-and-debug");
     } finally {
       process.chdir(prevCwd);
@@ -364,21 +364,19 @@ describe("runPromptSubmitHook", () => {
 
   // T3.1 — Path A routes the matched cluster to a named skill in the
   // emitted ur|act line.
-  it("default handler emits the decompose-delegate nudge for a substantive code-work prompt", async () => {
+  it("default handler routes a substantive code-work prompt to the matched Path A skill", async () => {
     const { runUserPromptSubmitHook } = await import(
       "../hooks/prompt-hooks.js"
     );
-    // "optimize …" is a substantive code-WORK prompt (a `fix`-cluster verb). On
-    // a delegation-capable host the broadened decompose-delegate gate now OWNS
-    // the routing slot for it — the agent is told to fan delegable slices out to
-    // sub-agents rather than just pointed at the orchestrator skill.
+    // "optimize …" matches the `fix` cluster, which routes to the always-on
+    // unerr-using-unerr skill (not opt-in), so Path A fires directly.
     const stdin = JSON.stringify({
       hook_event_name: "UserPromptSubmit",
       user_message: "optimize the QueryRouter dispatch hot path",
     });
     const result = JSON.parse(runUserPromptSubmitHook(stdin));
     const ctx = result.hookSpecificOutput.additionalContext ?? "";
-    expect(ctx).toContain("delegate-slices");
+    expect(ctx).toContain("Skill('unerr-using-unerr')");
   });
 });
 

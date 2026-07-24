@@ -6,7 +6,6 @@
  * the agent signals rename intent. Matching is whole-word and case-sensitive
  * (the `-w -F` ripgrep convention) so `userId` never flags `getUserId`.
  *
- * @sem domain=intelligence role=text-search
  */
 
 import { type Dirent, readFileSync, readdirSync } from "node:fs";

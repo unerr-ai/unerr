@@ -155,8 +155,8 @@ export type BehaviorEventType =
    *  recap); it renders in its own dedicated receipt section. */
   | "code_edit_applied"
   // ── Lever C (TOKEN_ECONOMICS §11.2) — internal model delegation ──────
-  /** A delegable single-entity task (tests / docstring+@sem / mechanical
-   *  refactor / lint-format) was routed to the cheaper model. One row per
+  /** A delegable single-entity task was routed to the cheaper model
+   *  (tests, docstrings, mechanical refactors, lint/format). One row per
    *  delegation. `detail.class` = the delegable class, `detail.model` = the
    *  junior model, `detail.escalated` = true when the senior had to take the
    *  task back. Carries no token-savings claim — aggregated at write (no

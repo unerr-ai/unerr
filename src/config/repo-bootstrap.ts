@@ -4,7 +4,6 @@
  * install <agent>` call into this so a repo bootstrapped either way ends up
  * with the identical on-disk shape and `repoId` — no divergent second copy.
  *
- * @sem domain=configuration role=bootstrap
  */
 
 import { createHash } from "node:crypto";
@@ -19,7 +18,6 @@ import { getRemoteUrl } from "../utils/git.js";
  * it — so a repo bootstrapped by `install` and one bootstrapped by the
  * wizard always resolve to the same id.
  *
- * @sem domain=configuration role=id-generation
  */
 export async function generateRepoId(cwd: string): Promise<string> {
   let repoIdentifier = cwd;
@@ -54,7 +52,6 @@ function readExistingConfig(
  * when `.unerr` itself cannot be written — a repo unerr genuinely cannot serve,
  * which callers surface rather than swallow.
  *
- * @sem domain=configuration role=bootstrap
  */
 export async function ensureRepoConfig(
   cwd: string

@@ -12,7 +12,6 @@
  * the existing pre-edit boundary nudge and `boundary_violation_flagged`
  * telemetry — no new wire field or event type.
  *
- * @sem domain=federation role=detector
  */
 
 import type { BoundaryViolation } from "../boundary-check.js";

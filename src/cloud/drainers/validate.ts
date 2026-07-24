@@ -20,7 +20,6 @@
  * drift, but NOT an extra or renamed `detail` key. Renamed detail keys are a
  * review concern, not something zod can police here.
  *
- * // @sem domain=cloud role=drainer
  */
 
 /**
@@ -62,7 +61,6 @@ function firstIssue(error: {
  * rows that pass; drops (and logs) the rows that fail. Under
  * `UNERR_CONTRACT_STRICT=1` the first failing row throws instead.
  *
- * // @sem domain=cloud role=drainer
  */
 export function validateRows(
   schema: ContractSchema,
@@ -90,7 +88,6 @@ export function validateRows(
  * `UNERR_CONTRACT_STRICT=1`, else logs and returns false. The caller decides
  * whether a false result blocks the send.
  *
- * // @sem domain=cloud role=drainer
  */
 export function validateBody(
   schema: ContractSchema,

@@ -3,8 +3,8 @@
  *
  * Fixture: two tagged communities (auth, payments) + one untagged util entity
  * reached only along a call edge, plus a mixed-domain file and a cross-domain
- * coupled/calls/co-change triple. Exercises label propagation, the community
- * vote, the domain edges, and the file/module rollups against a real CozoDB.
+ * calls/co-change pair. Exercises label propagation, the community vote, the
+ * domain edges, and the file/module rollups against a real CozoDB.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -46,17 +46,17 @@ async function seedFixture(db: CozoDb): Promise<void> {
       ],
     }
   );
-  // Seeds (real annotations). a1 declares a cross-domain `coupled=charge`.
+  // Seeds (real, harvested-tier annotations).
   await db.run(
-    `?[entity_key, domain, role, extras, source, confidence, status] <- $rows
-     :put domain_annotations {entity_key => domain, role, extras, source, confidence, status}`,
+    `?[entity_key, domain, source, confidence, status] <- $rows
+     :put domain_annotations {entity_key => domain, source, confidence, status}`,
     {
       rows: [
-        ["e:a1", "auth", "", '{"coupled":"charge"}', "comment", 0.95, "active"],
-        ["e:a2", "auth", "", "{}", "comment", 0.95, "active"],
-        ["e:a4", "payments", "", "{}", "comment", 0.4, "active"],
-        ["e:p1", "payments", "", "{}", "comment", 0.95, "active"],
-        ["e:p2", "payments", "", "{}", "comment", 0.95, "active"],
+        ["e:a1", "auth", "harvested", 0.95, "active"],
+        ["e:a2", "auth", "harvested", 0.95, "active"],
+        ["e:a4", "payments", "harvested", 0.4, "active"],
+        ["e:p1", "payments", "harvested", 0.95, "active"],
+        ["e:p2", "payments", "harvested", 0.95, "active"],
       ],
     }
   );
@@ -142,7 +142,7 @@ describe("domain graph — §6 derivations (SC-D)", () => {
     expect(res.rows.length).toBe(2);
   });
 
-  it("builds domain edges from coupled + calls + co-change (D.4)", async () => {
+  it("builds domain edges from calls + co-change (D.4)", async () => {
     const edges = await buildDomainEdges(db);
     // All evidence is auth↔payments; one edge per type, normalised + sorted.
     expect(edges).toEqual([
@@ -157,13 +157,6 @@ describe("domain graph — §6 derivations (SC-D)", () => {
         from_domain: "auth",
         to_domain: "payments",
         edge_type: "co_change",
-        weight: 1,
-        evidence_count: 1,
-      },
-      {
-        from_domain: "auth",
-        to_domain: "payments",
-        edge_type: "coupled_declared",
         weight: 1,
         evidence_count: 1,
       },
@@ -195,12 +188,12 @@ describe("domain graph — §6 derivations (SC-D)", () => {
     const first = await deriveDomainGraph(db);
     expect(first.propagated).toBe(2);
     expect(first.communities).toBe(2);
-    expect(first.edges).toBe(3);
+    expect(first.edges).toBe(2);
     // Second pass: propagation reproduces the same labels → zero new writes.
     const second = await deriveDomainGraph(db);
     expect(second.propagated).toBe(0);
     expect(second.communities).toBe(2);
-    expect(second.edges).toBe(3);
+    expect(second.edges).toBe(2);
   });
 });
 
@@ -214,23 +207,23 @@ describe("domain coverage by provenance tier (SC-E.3)", () => {
 
   async function seedTiers(): Promise<void> {
     await db.run(
-      `?[entity_key, domain, role, extras, source, confidence, status] <- $rows
-       :put domain_annotations {entity_key => domain, role, extras, source, confidence, status}`,
+      `?[entity_key, domain, source, confidence, status] <- $rows
+       :put domain_annotations {entity_key => domain, source, confidence, status}`,
       {
         rows: [
-          // payments: 1 comment + 1 harvested (durable) + 2 propagated (inferred)
-          ["e:p1", "payments", "", "{}", "comment", 0.95, "active"],
-          ["e:p2", "payments", "", "{}", "harvested", 0.7, "active"],
-          ["e:p3", "payments", "", "{}", "propagated", 0.6, "active"],
-          ["e:p4", "payments", "", "{}", "propagated", 0.45, "active"],
-          // auth: all 2 comment (fully durable)
-          ["e:a1", "auth", "", "{}", "comment", 0.95, "active"],
-          ["e:a2", "auth", "", "{}", "comment", 0.95, "active"],
+          // payments: 2 harvested (durable) + 2 propagated (inferred)
+          ["e:p1", "payments", "harvested", 0.95, "active"],
+          ["e:p2", "payments", "harvested", 0.7, "active"],
+          ["e:p3", "payments", "propagated", 0.6, "active"],
+          ["e:p4", "payments", "propagated", 0.45, "active"],
+          // auth: all harvested (fully durable)
+          ["e:a1", "auth", "harvested", 0.95, "active"],
+          ["e:a2", "auth", "harvested", 0.95, "active"],
           // search: 1 path (fully inferred) + 1 inactive (excluded)
-          ["e:s1", "search", "", "{}", "path", 0.4, "active"],
-          ["e:s2", "search", "", "{}", "comment", 0.95, "superseded"],
+          ["e:s1", "search", "path", 0.4, "active"],
+          ["e:s2", "search", "harvested", 0.95, "superseded"],
           // blank domain row — excluded entirely
-          ["e:z1", "", "", "{}", "comment", 0.95, "active"],
+          ["e:z1", "", "harvested", 0.95, "active"],
         ],
       }
     );
@@ -242,24 +235,23 @@ describe("domain coverage by provenance tier (SC-E.3)", () => {
     const payments = rows.find((r) => r.domain === "payments");
     expect(payments).toEqual({
       domain: "payments",
-      comment: 1,
-      harvested: 1,
+      harvested: 2,
       propagated: 2,
       path: 0,
       total: 4,
-      durablePct: 50, // (1 comment + 1 harvested) / 4
+      durablePct: 50, // 2 harvested / 4
     });
   });
 
   it("excludes non-active and blank-domain rows", async () => {
     await seedTiers();
     const rows = await computeDomainCoverage(db);
-    // search has one active path row; the superseded comment row is dropped.
+    // search has one active path row; the superseded harvested row is dropped.
     const search = rows.find((r) => r.domain === "search");
     expect(search).toMatchObject({
       total: 1,
       path: 1,
-      comment: 0,
+      harvested: 0,
       durablePct: 0,
     });
     // blank-domain row never produces a coverage entry.
