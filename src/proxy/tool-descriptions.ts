@@ -111,7 +111,7 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
   file_read: {
     tier: 1,
     active:
-      "Read a file as plain numbered lines: {file_path} = whole file (budget-capped); {file_path, offset, limit} = a line range; {file_path, entity} = one entity's body + its callers; {file_path, outline:true} = structural view.",
+      "Read a file as plain numbered lines: {file_path} = whole file (budget-capped); {file_path, offset, limit} = a line range; {file_path, outline:true} = structural view. Large file or one function — pass {file_path, entity:'<name>'} for body + callers only.",
     locked: "[tier 1 — always exposed]",
   },
   file_edit: {

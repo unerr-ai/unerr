@@ -153,9 +153,9 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
   });
 
   describe("R.4: Git co-change computation", () => {
-    it("computes co-change edges from the current repo", () => {
+    it("computes co-change edges from the current repo", async () => {
       // This test runs against the actual unerr-cli repo
-      const edges = computeCoChangeEdges(process.cwd(), 50, 10, 2);
+      const edges = await computeCoChangeEdges(process.cwd(), 50, 10, 2);
 
       // Should find at least some co-change pairs in a real repo
       expect(edges.length).toBeGreaterThanOrEqual(0);
@@ -171,8 +171,8 @@ describe("Sprint R: File-as-L0 Graph Enrichment", () => {
       }
     });
 
-    it("returns empty for non-git directory", () => {
-      const edges = computeCoChangeEdges("/tmp", 50, 10, 2);
+    it("returns empty for non-git directory", async () => {
+      const edges = await computeCoChangeEdges("/tmp", 50, 10, 2);
       expect(edges).toHaveLength(0);
     });
   });

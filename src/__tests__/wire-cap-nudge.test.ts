@@ -90,6 +90,60 @@ describe("wire-cap pagination hint — concrete next cursor", () => {
   });
 });
 
+describe("wire-cap count cap honors an explicit token_budget (C6 undershoot)", () => {
+  // Compact entity rows carrying graph-importance columns so rankEntityArray
+  // orders them deterministically.
+  function entityRows(
+    n: number,
+    summaryBytes = 0
+  ): Array<Record<string, unknown>> {
+    return Array.from({ length: n }, (_, i) => ({
+      key: `k${i}`,
+      name: `entity${i}`,
+      kind: "function",
+      file_path: `src/mod${i}.ts`,
+      fan_in: n - i,
+      fan_out: 1,
+      risk_level: "normal",
+      ...(summaryBytes > 0 ? { summary: bigString(summaryBytes) } : {}),
+    }));
+  }
+
+  it("a default search_code call still caps at defaultLimit 10 (behavior-preserving)", () => {
+    const { body, pageHint } = applyWireCap("search_code", entityRows(30), {});
+    expect(Array.isArray(body)).toBe(true);
+    expect((body as unknown[]).length).toBe(10);
+    // Remainder is paged, not silently dropped.
+    expect(pageHint).toMatch(/\+20/);
+  });
+
+  it("a lifted token_budget delivers more than defaultLimit up to what fits", () => {
+    // 30 compact rows fit comfortably in 8000 tokens → all 30 delivered.
+    const { body } = applyWireCap("search_code", entityRows(30), {
+      token_budget: 8000,
+    });
+    expect(Array.isArray(body)).toBe(true);
+    expect((body as unknown[]).length).toBe(30);
+  });
+
+  it("clamps a lifted token_budget to the byte-fit and pages the remainder", () => {
+    // Fat rows (~500 tokens each) × 30 = ~15000 tokens; a 6000-token budget
+    // fits only a prefix — more than the default 10, fewer than all 30 — and
+    // the rest is paged (never a wholesale too_large drop).
+    const { body, pageHint } = applyWireCap(
+      "search_code",
+      entityRows(30, 2000),
+      { token_budget: 6000 }
+    );
+    expect(Array.isArray(body)).toBe(true);
+    const len = (body as unknown[]).length;
+    expect(len).toBeGreaterThan(10);
+    expect(len).toBeLessThan(30);
+    expect(pageHint).toMatch(/limit:\d+/);
+    expect(pageHint).not.toMatch(/limit:N/);
+  });
+});
+
 describe("wire-cap fetch_url too_large hint", () => {
   function oversizedFetchBody() {
     return {

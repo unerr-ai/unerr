@@ -41,6 +41,10 @@ import { createSessionLegendTracker } from "../proxy/session-legend.js";
 import type { SessionEvents } from "../proxy/session-stats.js";
 import { getSharedReversibleCache } from "../proxy/shared-cache.js";
 import type { TokenCounter } from "../proxy/token-counter.js";
+// A token_budget above this hard default signals the caller wants a fuller
+// payload — single-sourced from wire-cap so the fetch/compression widening here
+// and the wire-cap count/byte cap agree on the same lift threshold.
+import { HARD_TOKEN_CAP } from "../proxy/wire-cap.js";
 import type { BehaviorEventWriter } from "../tracking/behavior-events.js";
 import type { BranchContext } from "../tracking/branch-context.js";
 import type { DriftTracker } from "../tracking/drift-tracker.js";
@@ -62,7 +66,7 @@ import {
   type WorkspacePeerResult,
   mergeWorkspaceResults,
 } from "./federation/merge.js";
-import { readGraphReadiness } from "./graph-readiness.js";
+import { isGraphReady, readGraphReadiness } from "./graph-readiness.js";
 import type {
   CozoGraphStore,
   DriftEntity,
@@ -1598,6 +1602,23 @@ export class QueryRouter {
 
       this.injectModeMeta(meta);
 
+      // Honor an explicitly-lifted token_budget through the pre-wire
+      // compression layers (smart-truncate for entities, list truncation for
+      // arrays), which otherwise clamp to a fixed 2000-token default and
+      // undershoot the budget the caller paid for — the second undershoot layer
+      // behind the wire-cap count cap. Gated on a lift above the hard default so
+      // a normal call stays byte-for-byte identical; wire-cap re-clamps to the
+      // real safety ceiling afterward.
+      if (
+        typeof args.token_budget === "number" &&
+        args.token_budget > HARD_TOKEN_CAP
+      ) {
+        (meta as Record<string, unknown>).token_budget_override = Math.min(
+          Math.floor(args.token_budget),
+          32_768
+        );
+      }
+
       // S1: Compress large text output before delivering to agent
       const compressedContent = await this.maybeCompressContent(
         toolName,
@@ -2974,7 +2995,12 @@ export class QueryRouter {
 
     // Apply list truncation to array results from get_callers/get_callees/search_code
     if (Array.isArray(result) && result.length > 0) {
-      const budget = 2000;
+      // Honor a lifted token_budget (threaded via token_budget_override) so a
+      // large-array result isn't pre-clamped to 2000 below the caller's budget;
+      // defaults to 2000 when no budget was lifted (behavior unchanged).
+      const budget =
+        ((meta as Record<string, unknown>).token_budget_override as number) ??
+        2000;
       const truncatedList = truncateResultList(result, budget, (item) =>
         JSON.stringify(item)
       );
@@ -4000,8 +4026,39 @@ export class QueryRouter {
           return await this.searchFileContent(args);
         }
         const query = args.query as string;
-        const limit = (args.limit as number) ?? 20;
-        const rows = await this.localGraph.searchEntities(query, limit);
+        const explicitLimit =
+          typeof args.limit === "number" && args.limit > 0
+            ? Math.floor(args.limit)
+            : null;
+        // A lifted token_budget (> the hard default) is the caller asking for a
+        // fuller payload; fetch enough rows for the wire cap to fill it. Without
+        // a lift, keep the lean default fetch (20) — behavior unchanged.
+        const budgetLifted =
+          typeof args.token_budget === "number" &&
+          args.token_budget > HARD_TOKEN_CAP;
+        const fetchLimit = explicitLimit ?? (budgetLifted ? 50 : 20);
+        let rows = await this.localGraph.searchEntities(query, fetchLimit);
+        // Relevance-floor recovery: the token search matched nothing. A genuine
+        // near-match the IDF floor dropped — or a single-blob identifier the
+        // tokenizer never split ("usercontroller" vs "UserController") — still
+        // lives in the index as a name substring. One floor-free substring pass
+        // recovers it, so the agent gets a real hit instead of an empty array
+        // that forces a hand-written reformulation or a grep.
+        if (rows.length === 0 && typeof query === "string") {
+          const relaxed = await this.relaxedNameSearch(query, fetchLimit);
+          if (relaxed.length > 0) rows = relaxed;
+        }
+        if (rows.length === 0) {
+          // Genuinely nothing indexed under this query. Return an actionable
+          // next step, never a bare empty array (which reads as "graph has no
+          // data" and drives the agent to grep). Imperative + named tool +
+          // concrete query, per the nudge-writing rules.
+          return {
+            matched: false,
+            query,
+            _hint: `No entity matches "${query}". Run search_code({mode:'literal', query:"${query}"}) for a substring scan of file contents, or search_code({query:"<shorter term>"}) with a broader term.`,
+          };
+        }
         // Layer 8 §5.4: serve the domain annotation alongside each hit when one
         // exists; un-annotated hits (and an absent graph db) pass through
         // unchanged — attachAnnotations is best-effort.
@@ -4132,6 +4189,10 @@ export class QueryRouter {
         const fr = await runFileReadForRouter(args, {
           cwd,
           graph: this.localGraph,
+          // Starvation-safe fs check (reads .unerr/state/graph-stats.json, never
+          // opens CozoDB). False during the initial index → file_read serves raw
+          // bytes instead of awaiting a graph busy behind the on-loop indexer.
+          graphReady: isGraphReady(cwd),
         });
 
         // After a successful string-body read, record delivery for future dedup.
@@ -4303,6 +4364,66 @@ export class QueryRouter {
       return qualified[0]!.key;
     } catch {
       return raw;
+    }
+  }
+
+  /**
+   * Floor-free name-substring fallback for `search_code` (BUG-2 relevance
+   * floor). Runs ONLY when the IDF token search returned nothing: matches
+   * entities whose name literally contains the query (case-insensitive),
+   * recovering both a genuine near-match the relevance floor dropped and a
+   * single-blob identifier the tokenizer never split ("usercontroller" →
+   * "UserController"). Hubs first (fan_in desc). Best-effort: a missing /
+   * non-Cozo `db` or a query error yields [], so the caller falls through to
+   * the actionable no-match hint. Only fires on the (uncommon) empty-result
+   * path, so the extra scan never taxes a search that already matched.
+   */
+  private async relaxedNameSearch(
+    query: string,
+    limit: number
+  ): Promise<
+    Array<{
+      key: string;
+      name: string;
+      kind: string;
+      file_path: string;
+      score: number;
+    }>
+  > {
+    const needle = query.trim().toLowerCase();
+    // A 1-char needle matches almost everything → noise, not a near-match.
+    if (needle.length < 2) return [];
+    const cap = Math.max(1, Math.min(Math.floor(limit) || 20, 50));
+    try {
+      const db = (
+        this.localGraph as unknown as {
+          db: import("./cozo-schema.js").CozoDb;
+        }
+      ).db;
+      if (!db) return [];
+      const res = await db.run(
+        `?[key, name, kind, file_path, fan_in] :=
+          *entities{key, name, kind, file_path, fan_in},
+          str_includes(lowercase(name), $needle)
+         :order -fan_in
+         :limit ${cap}`,
+        { needle }
+      );
+      const rows = (res?.rows ?? []) as Array<
+        [string, string, string, string, number]
+      >;
+      return rows.map(([key, name, kind, file_path, fan_in]) => ({
+        key,
+        name,
+        kind,
+        file_path,
+        // No IDF score for a substring hit; surface fan_in as the ordering
+        // proxy so the row shape matches the token-search hits. wire-cap's
+        // query-relevance re-rank reorders these before the slice anyway.
+        score: typeof fan_in === "number" ? fan_in : 0,
+      }));
+    } catch {
+      return [];
     }
   }
 

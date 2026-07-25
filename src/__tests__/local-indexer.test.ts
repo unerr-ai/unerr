@@ -15,6 +15,7 @@ const { mockMaybeYield, mockCreateYieldGate } = vi.hoisted(() => ({
 
 vi.mock("../utils/index-yield.js", () => ({
   DEFAULT_YIELD_BUDGET_MS: 50,
+  YIELD_CHECK_STRIDE: 4096,
   createYieldGate: mockCreateYieldGate,
   maybeYield: mockMaybeYield,
 }));

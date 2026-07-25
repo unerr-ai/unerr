@@ -14,6 +14,12 @@
  */
 
 import { execSync } from "node:child_process";
+import {
+  YIELD_CHECK_STRIDE,
+  type YieldGate,
+  createYieldGate,
+  maybeYield,
+} from "../../utils/index-yield.js";
 
 export interface CoChangeEdge {
   from_file: string;
@@ -31,19 +37,25 @@ export interface CoChangeEdge {
  * @param maxCommits - Number of recent commits to analyze (default 100)
  * @param topK - Maximum number of co-change pairs to return (default 20)
  * @param minCoOccurrences - Minimum co-occurrences to include (default 3)
+ * @param gate - Shared yield gate; the O(files^2)-per-commit pair loop and the
+ *   pair-aggregation loop hand control back to the event loop every
+ *   YIELD_CHECK_STRIDE iterations so a mid-finalize MCP request is dispatched
+ *   within one budget window instead of after the whole phase.
  */
-export function computeCoChangeEdges(
+export async function computeCoChangeEdges(
   projectRoot: string,
   maxCommits = 100,
   topK = 20,
-  minCoOccurrences = 3
-): CoChangeEdge[] {
+  minCoOccurrences = 3,
+  gate: YieldGate = createYieldGate()
+): Promise<CoChangeEdge[]> {
   const commits = getCommitFileLists(projectRoot, maxCommits);
   if (commits.length === 0) return [];
 
   // Count individual file changes and pair co-occurrences
   const fileChanges = new Map<string, number>();
   const pairCount = new Map<string, number>();
+  let ops = 0;
 
   for (const files of commits) {
     // Skip very large commits (merges, bulk renames) — they add noise
@@ -53,9 +65,11 @@ export function computeCoChangeEdges(
       fileChanges.set(file, (fileChanges.get(file) ?? 0) + 1);
     }
 
-    // Count co-occurrences for all pairs in this commit
+    // Count co-occurrences for all pairs in this commit. The nested pair loop is
+    // O(files^2) per commit; yield inside it so a large history can't pin the loop.
     for (let i = 0; i < files.length; i++) {
       for (let j = i + 1; j < files.length; j++) {
+        if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
         const key = pairKey(files[i]!, files[j]!);
         pairCount.set(key, (pairCount.get(key) ?? 0) + 1);
       }
@@ -65,6 +79,7 @@ export function computeCoChangeEdges(
   // Build edges for pairs that meet the threshold
   const edges: CoChangeEdge[] = [];
   for (const [key, count] of pairCount) {
+    if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
     if (count < minCoOccurrences) continue;
     const [a, b] = key.split("\0") as [string, string];
     const changesA = fileChanges.get(a) ?? 1;

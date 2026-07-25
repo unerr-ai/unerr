@@ -43,6 +43,56 @@ import { teeShellOutput } from "./shell-tee.js";
 const CONFIDENCE_GATE = 0.7;
 
 /**
+ * File-dump commands materialize a file's raw bytes into stdout — reordering
+ * or histogramming that output turns the file into something an agent can no
+ * longer use as a verbatim edit anchor. Shared by the source-code
+ * passthrough guard and the reorder-confidence gate below.
+ */
+const FILE_DUMP_COMMAND_RE =
+  /^(?:\s*)(?:cat|head|tail|less|more|sed|awk|bat)\s+/;
+
+/** Extensions unerr indexes, or an agent edits verbatim — a dump of any of
+ * these must stay byte-identical regardless of size. */
+const SOURCE_EXTENSION_RE =
+  /\.(?:tsx?|jsx?|mjs|cjs|py|go|rs|java|kt|rb|php|c|h|cc|cpp|hpp|cs|swift|scala|sh|bash|zsh|sql|ya?ml|json|toml|md)\b/i;
+
+/**
+ * Content sniff for the source-code passthrough guard below — catches
+ * source code that reaches stdout without the command naming a path
+ * directly (`git show HEAD:file.ts`, a heredoc, a `$(...)` substitution).
+ * Requires 3+ hits in the first 60 lines so an incidental keyword in a log
+ * line ("import" in a sentence, one stray `//`) doesn't false-positive.
+ */
+const SOURCE_CODE_LINE_RE =
+  /^\s*(?:#!\/|\/\/|\/\*|\*\/|import\s|export\s+(?:default|const|function|class|interface|type)\b|from\s+["'][^"']+["']\s*;?\s*$|package\s+\w|namespace\s+\w|using\s+\w|def\s+\w+\s*\(|class\s+\w|interface\s+\w|func\s+\w|public\s+(?:class|static|void|final)\b|private\s+\w|protected\s+\w|#include\s|module\.exports|require\(["']|SELECT\s+\S+\s+FROM\s|CREATE\s+TABLE\s|<\?php)/;
+
+function looksLikeSourceCode(text: string): boolean {
+  const lines = text.split("\n", 60);
+  let hits = 0;
+  for (const line of lines) {
+    if (SOURCE_CODE_LINE_RE.test(line) && ++hits >= 3) return true;
+  }
+  return false;
+}
+
+/**
+ * Reordering compression (frequency histograms, non-consecutive pattern
+ * dedup) drops and moves lines — the exact mechanism that destroys verbatim
+ * edit anchors when the raw input was a file dump. Order-preserving
+ * transforms (ANSI strip, blank-run collapse, redaction) keep the ordinary
+ * CONFIDENCE_GATE; reordering needs either a much higher confidence or proof
+ * the command isn't a raw file dump (a build/test stream, not a
+ * `cat`/`head`/etc of a file).
+ */
+const REORDER_CONFIDENCE_GATE = 0.9;
+
+function allowsReorder(command: string, confidence: number): boolean {
+  return (
+    confidence >= REORDER_CONFIDENCE_GATE || !FILE_DUMP_COMMAND_RE.test(command)
+  );
+}
+
+/**
  * R8 — commands whose primary signal lives on stderr. When the caller passes
  * options.stderr alongside stdout, we merge stderr into the stream that goes
  * through ANSI strip → redact → classify → compress. De-duplicated within the
@@ -106,13 +156,14 @@ function applyStrategy(
   category: ClassifyResult["category"],
   stripped: string,
   command: string,
+  allowReorder: boolean,
   options?: CompressShellOptions
 ): string {
   switch (category) {
     case "tabular":
       return compressTabular(stripped, command);
     case "log_text":
-      return compressLogText(stripped, command);
+      return allowReorder ? compressLogText(stripped, command) : stripped;
     case "test_results":
       return compressTestResults(stripped, command, options?.exitCode);
     case "progress_streaming":
@@ -204,6 +255,28 @@ export async function compressShellOutput(
       confidence: 1,
       hint_source: "command_name",
     };
+    return { text: stripped, classification };
+  }
+
+  // Source-code passthrough — the file-dump equivalent of N8 above, but not
+  // gated by size or a scratch-directory path. Reordering compression turns
+  // a dumped source file into a frequency histogram, destroying the
+  // verbatim line anchors an edit needs. Trigger on either signal: a
+  // file-dump command naming a path with a source-code extension, or
+  // content that reads as source regardless of command shape. Size does
+  // NOT gate this — a 200KB source file stays verbatim exactly like a 2KB
+  // one. Tee still runs (matches the main path below); it only writes a
+  // file when teeShellOutput's own ratio gate is met, which raw===compressed
+  // never trips here — the response already carries the full text.
+  const isFileDumpOfSource =
+    FILE_DUMP_COMMAND_RE.test(command) && SOURCE_EXTENSION_RE.test(command);
+  if (isFileDumpOfSource || looksLikeSourceCode(stripped)) {
+    const classification: ClassifyResult = {
+      category: "structured",
+      confidence: 1,
+      hint_source: isFileDumpOfSource ? "command_name" : "content_heuristic",
+    };
+    teeShellOutput(cwd, command, stripped, stripped);
     return { text: stripped, classification };
   }
 
@@ -356,6 +429,7 @@ export async function compressShellOutput(
   }
 
   const classification = classifyShellOutput(command, stripped);
+  const allowReorder = allowsReorder(command, classification.confidence);
 
   let graph = options?.graph ?? null;
   const wantsFileBoost = categoryWantsFileRiskBoost(
@@ -394,13 +468,14 @@ export async function compressShellOutput(
 
   if (classification.confidence < CONFIDENCE_GATE) {
     // Smart omni: try both the best-guess strategy AND omni, pick whichever compresses more
-    const omniResult = compressOmni(stripped);
+    const omniResult = compressOmni(stripped, allowReorder);
     let strategyResult: string | null = null;
     try {
       strategyResult = applyStrategy(
         classification.category,
         stripped,
         command,
+        allowReorder,
         options
       );
     } catch {
@@ -463,7 +538,7 @@ export async function compressShellOutput(
       text = compressTabular(stripped, command);
       break;
     case "log_text":
-      text = compressLogText(stripped, command);
+      text = allowReorder ? compressLogText(stripped, command) : stripped;
       break;
     case "test_results":
       text = compressTestResults(stripped, command, options?.exitCode);
@@ -509,7 +584,8 @@ export async function compressShellOutput(
   // Tee: save full output to disk when compression is significant
   const tee = teeShellOutput(cwd, command, stripped, text);
   if (tee) {
-    text += `\n[full output: ${tee.filePath} (${(tee.sizeBytes / 1024).toFixed(1)}KB)]`;
+    const kb = (tee.sizeBytes / 1024).toFixed(1);
+    text += `\n[full output ${kb}KB: file_read({file_path:'${tee.filePath}', offset:0, limit:200})]`;
   }
 
   const savedPctHi =

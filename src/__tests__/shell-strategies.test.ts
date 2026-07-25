@@ -269,6 +269,113 @@ describe("compressTestResults", () => {
   });
 });
 
+// Regression: real captured test-runner output (the "verify bundle"). Asserts
+// the failing test name + assertion + file:line survive BYTE-EXACT, passing
+// noise is dropped, and pytest's FAILED-first summary ordering is parsed.
+describe("compressTestResults — real captured failure blocks", () => {
+  // A genuine `pytest` failing run. pytest orders the final summary line
+  // FAILED-first ("1 failed, 2 passed"), which the previous passed-first regex
+  // could not read — counts silently became "0 tests" on every failing run.
+  const PYTEST_FAIL = [
+    "============================= test session starts ==============================",
+    "platform linux -- Python 3.11.4, pytest-7.4.0, pluggy-1.2.0",
+    "rootdir: /workspace/app",
+    "collected 3 items",
+    "",
+    "tests/test_math.py ..F                                                    [100%]",
+    "",
+    "=================================== FAILURES ===================================",
+    "___________________________________ test_add ___________________________________",
+    "",
+    "    def test_add():",
+    "        result = add(2, 2)",
+    ">       assert result == 5",
+    "E       assert 4 == 5",
+    "E        +  where 4 = add(2, 2)",
+    "",
+    "tests/test_math.py:12: AssertionError",
+    "=========================== short test summary info ============================",
+    "FAILED tests/test_math.py::test_add - assert 4 == 5",
+    "========================= 1 failed, 2 passed in 0.04s ==========================",
+  ].join("\n");
+
+  it("parses FAILED-first pytest counts (2 passed, 1 failed)", () => {
+    const out = compressTestResults(PYTEST_FAIL, "pytest", 1);
+    expect(out).toContain("2 passed");
+    expect(out).toContain("1 failed");
+    expect(out).not.toContain("0 tests");
+  });
+
+  it("keeps the assertion and file:line BYTE-EXACT, drops passing noise", () => {
+    const out = compressTestResults(PYTEST_FAIL, "pytest", 1);
+    // Verbatim assertion + final frame — reproduced, never paraphrased.
+    expect(out).toContain("E       assert 4 == 5");
+    expect(out).toContain("tests/test_math.py:12: AssertionError");
+    expect(out).toContain("test_add");
+    // Setup / collection / progress chatter is dropped.
+    expect(out).not.toContain("platform linux");
+    expect(out).not.toContain("collected 3 items");
+    expect(out).not.toContain("[100%]");
+  });
+
+  it("preserves the tail frame (file:line) of a long traceback verbatim", () => {
+    const lines = [
+      "=================================== FAILURES ===================================",
+      "___________________________________ test_deep __________________________________",
+      "",
+      "    def test_deep():",
+      ">       call_chain()",
+    ];
+    for (let i = 0; i < 30; i++) {
+      lines.push(`  File "libx/frame_${i}.py", line ${i}, in fn_${i}`);
+    }
+    lines.push("E       ValueError: boom at the bottom");
+    lines.push("tests/test_deep.py:99: ValueError");
+    lines.push(
+      "============================ 1 failed in 0.10s ================================="
+    );
+    const out = compressTestResults(lines.join("\n"), "pytest", 1);
+    expect(out).toContain("def test_deep"); // head kept
+    expect(out).toContain("more lines"); // middle collapsed
+    // The last frame the agent opens must survive even past the line cap.
+    expect(out).toContain("E       ValueError: boom at the bottom");
+    expect(out).toContain("tests/test_deep.py:99: ValueError");
+  });
+
+  // A real captured vitest failing run — the assertion detail must survive.
+  const VITEST_FAIL = [
+    " RUN  v3.2.4 /workspace/app",
+    "",
+    " ✓ src/adder.test.ts > adds small numbers 1ms",
+    " ✓ src/adder.test.ts > adds zero 1ms",
+    " ❯ src/adder.test.ts > adds large numbers 2ms",
+    "",
+    "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯",
+    "",
+    " FAIL  src/adder.test.ts > adds large numbers",
+    "AssertionError: expected 4000000 to be 4000001 // Object.is equality",
+    " ❯ src/adder.test.ts:14:24",
+    "",
+    "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯",
+    "",
+    " Test Files  1 failed | 0 passed (1)",
+    "      Tests  1 failed | 2 passed (3)",
+    "   Duration  512ms",
+  ].join("\n");
+
+  it("vitest: verbatim assertion + location, passing lines dropped", () => {
+    const out = compressTestResults(VITEST_FAIL, "vitest run", 1);
+    expect(out).toContain("1 failed");
+    expect(out).toContain("2 passed");
+    expect(out).toContain(
+      "AssertionError: expected 4000000 to be 4000001 // Object.is equality"
+    );
+    expect(out).toContain("src/adder.test.ts:14:24");
+    expect(out).not.toContain("✓");
+    expect(out).not.toContain("adds zero");
+  });
+});
+
 describe("compressProgress", () => {
   it("truncates long npm-style output", () => {
     const raw = Array.from({ length: 80 }, (_, i) => `step ${i}`).join("\n");
@@ -581,6 +688,22 @@ describe("compressOmni", () => {
   it("Tier 2: skips output under 80 lines", () => {
     const lines = Array.from({ length: 30 }, () => "same");
     expect(compressOmni(lines.join("\n"))).not.toContain("[×");
+  });
+
+  it("Tier 2: allowReorder=false skips pattern-dedup (file-dump reorder gate)", () => {
+    // Non-consecutive duplicates by normalized shape — patternDedup (Tier 2)
+    // merges these across the whole input; consecutiveDedup (Tier 3) does not,
+    // since no run of 3+ IDENTICAL adjacent lines exists here.
+    const lines = Array.from({ length: 100 }, (_, i) =>
+      i % 2 === 0 ? "shared entry" : `event ${i} occurred at node ${i % 3}`
+    );
+    const raw = lines.join("\n");
+
+    const withReorder = compressOmni(raw, true);
+    const withoutReorder = compressOmni(raw, false);
+
+    expect(withReorder).toContain("[×");
+    expect(withoutReorder).toBe(raw);
   });
 
   it("Tier 3: truncates >200 lines with head + tail", () => {

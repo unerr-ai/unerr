@@ -296,6 +296,36 @@ export function detectDelegationHandoff(
   return null;
 }
 
+/**
+ * Call-mix bucket the delegation counter groups by. Distinct from
+ * {@link ModelTier} (the multi-host `senior/worker/junior` routing tiers):
+ * `architect` covers the Claude-Code-only `unerr-architect` / `unerr-expert`
+ * sub-agents, which never appear in `ModelTier` (no host routes to them).
+ */
+export type DelegationAgentTier = "junior" | "worker" | "architect" | "other";
+
+/**
+ * Map a sub-agent identifier — a Claude Code `Task subagent_type` name
+ * (`unerr-junior`, `unerr-worker`, `unerr-architect`, `unerr-expert`) or a
+ * cross-agent `ModelTier` string (`"worker"`/`"junior"`) — to its call-mix
+ * tier bucket for the per-session delegation counter. Case-insensitive.
+ * Anything unrecognized buckets as `"other"` so a future role or a raw model
+ * name still gets counted rather than dropped.
+ */
+export function agentTierFromName(name: string): DelegationAgentTier {
+  const n = name.trim().toLowerCase();
+  if (n === "unerr-junior" || n === "junior") return "junior";
+  if (n === "unerr-worker" || n === "worker") return "worker";
+  if (
+    n === "unerr-architect" ||
+    n === "unerr-expert" ||
+    n === "architect" ||
+    n === "expert"
+  )
+    return "architect";
+  return "other";
+}
+
 /** Relative path (from repo root) of the Claude Code sub-agent definition. */
 export const JUNIOR_AGENT_RELPATH = ".claude/agents/unerr-junior.md";
 

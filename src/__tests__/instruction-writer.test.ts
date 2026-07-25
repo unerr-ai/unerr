@@ -330,4 +330,59 @@ describe("instruction-writer", () => {
       );
     });
   });
+
+  describe("terse-reply block (opt-in via .unerr/config.json terse_replies, default OFF)", () => {
+    it("is absent with no .unerr/config.json (default OFF)", () => {
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+      expect(content).not.toContain("Keep replies terse");
+    });
+
+    it("output is byte-identical to the flag-OFF baseline when terse_replies is absent/false", () => {
+      const baseline = writeInstructionFile(tmpDir, "claude-code");
+      const baselineContent = readFileSync(baseline.path, "utf-8");
+      rmSync(baseline.path);
+
+      mkdirSync(join(tmpDir, ".unerr"), { recursive: true });
+      writeFileSync(
+        join(tmpDir, ".unerr", "config.json"),
+        JSON.stringify({ terse_replies: false })
+      );
+      const withExplicitFalse = writeInstructionFile(tmpDir, "claude-code");
+      expect(readFileSync(withExplicitFalse.path, "utf-8")).toBe(
+        baselineContent
+      );
+    });
+
+    it("appends the block exactly once, at the end, when terse_replies is true", () => {
+      mkdirSync(join(tmpDir, ".unerr"), { recursive: true });
+      writeFileSync(
+        join(tmpDir, ".unerr", "config.json"),
+        JSON.stringify({ terse_replies: true })
+      );
+
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      const content = readFileSync(result.path, "utf-8");
+
+      const occurrences = content.split("Keep replies terse").length - 1;
+      expect(occurrences).toBe(1);
+
+      const beforeEnd = content
+        .slice(0, content.indexOf("<!-- unerr:end -->"))
+        .trimEnd();
+      expect(beforeEnd.endsWith("truncate them.")).toBe(true);
+    });
+
+    it("is idempotent when terse_replies is true (second install skips)", () => {
+      mkdirSync(join(tmpDir, ".unerr"), { recursive: true });
+      writeFileSync(
+        join(tmpDir, ".unerr", "config.json"),
+        JSON.stringify({ terse_replies: true })
+      );
+
+      writeInstructionFile(tmpDir, "claude-code");
+      const result = writeInstructionFile(tmpDir, "claude-code");
+      expect(result.action).toBe("skipped");
+    });
+  });
 });

@@ -216,15 +216,25 @@ function parsePytest(lines: string[]): ParsedTestOutput {
   let inFailures = false;
 
   for (const line of lines) {
-    // Final summary: "= N passed, M failed in Xs ="
-    const summaryMatch = line.match(
-      /^=+\s*(\d+)\s+passed(?:,\s+(\d+)\s+failed)?(?:,\s+(\d+)\s+skipped)?\s+in\s+(.+?)\s*=+$/
-    );
+    // Final summary line: "===== 1 failed, 2 passed, 1 skipped in 0.04s =====".
+    // pytest lists categories FAILED-first whenever a run has failures, so the
+    // old passed-first regex silently missed the counts on every failing run —
+    // the exact case the agent needs correct. Match the "<counts> in <duration>"
+    // shell, then pull each count independently of order. The " in <digit>"
+    // anchor keeps this off the "=== FAILURES ===" / "=== short test summary
+    // info ===" section separators (no " in <digit>" there).
+    const summaryMatch = line.match(/^=+\s*(.+?)\s+in\s+([0-9][^=]*?)\s*=+$/);
     if (summaryMatch) {
-      passed = Number.parseInt(summaryMatch[1]!, 10);
-      if (summaryMatch[2]) failed = Number.parseInt(summaryMatch[2], 10);
-      if (summaryMatch[3]) skipped = Number.parseInt(summaryMatch[3], 10);
-      duration = summaryMatch[4]!;
+      const body = summaryMatch[1]!;
+      const p = body.match(/(\d+)\s+passed/);
+      const f = body.match(/(\d+)\s+failed/);
+      const e = body.match(/(\d+)\s+errors?/);
+      const s = body.match(/(\d+)\s+skipped/);
+      if (p) passed = Number.parseInt(p[1]!, 10);
+      if (f) failed = Number.parseInt(f[1]!, 10);
+      if (e) failed += Number.parseInt(e[1]!, 10);
+      if (s) skipped = Number.parseInt(s[1]!, 10);
+      duration = summaryMatch[2]!;
       summaryLines.push(line.trim());
       continue;
     }
@@ -716,13 +726,25 @@ function emitCompressed(parsed: ParsedTestOutput): string {
   const durStr = parsed.duration ? ` (${parsed.duration})` : "";
   parts.push(`${parsed.framework}: ${countStr}${durStr}`);
 
+  const MAX_FAIL_LINES = 20;
+  const TAIL_KEEP = 4;
   for (const fail of parsed.failures.slice(0, 10)) {
     parts.push("");
     parts.push(fail.header);
-    const truncated = fail.lines.slice(0, 20);
-    parts.push(...truncated);
-    if (fail.lines.length > 20) {
-      parts.push(`  … ${fail.lines.length - 20} more lines`);
+    if (fail.lines.length <= MAX_FAIL_LINES) {
+      parts.push(...fail.lines);
+    } else {
+      // Keep the head (the assertion message sits near the top) AND the tail
+      // (the "file.py:N: AssertionError" / final traceback frame the agent
+      // opens to reach the failing site). Both slices are verbatim source
+      // lines — this selects, it never rewrites. The dropped middle is
+      // recoverable through the tee pointer the compressor appends.
+      const head = fail.lines.slice(0, MAX_FAIL_LINES - TAIL_KEEP);
+      const tail = fail.lines.slice(-TAIL_KEEP);
+      const dropped = fail.lines.length - head.length - tail.length;
+      parts.push(...head);
+      parts.push(`  … ${dropped} more lines`);
+      parts.push(...tail);
     }
   }
   if (parsed.failures.length > 10) {

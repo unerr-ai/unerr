@@ -23,6 +23,7 @@ Stdlib only.
 import glob
 import json
 import os
+import re
 import sys
 
 # $/M tokens as (input, cache_write_5m, cache_read, output), sticker rates.
@@ -148,6 +149,84 @@ def _model_costs_from_sessions(trial_dir: str) -> dict[str, list]:
     return out
 
 
+# Recovery-pointer grammars a compressed tool result offers:
+#   tee   — src/proxy/shell-compressor.ts:588
+#           "[full output <KB>KB: file_read({file_path:'<path>', offset:0, limit:200})]"
+#   cache — src/proxy/reversible-cache.ts CACHE_MARKER_PREFIX/LEGEND
+#           "ur|cache-ref ..." alongside a "cache_ref:'<hash>'" (or JSON "cache_ref":"<hash>")
+_TEE_PTR_RE = re.compile(r"\[full output[^\n]*?file_read\(\{file_path:'([^']+)'")
+_CACHE_REF_RE = re.compile(r"cache_ref['\"]?\s*:\s*['\"]([^'\"]+)['\"]")
+_UR_CACHE_REF_RE = re.compile(r"ur\|cache-ref")
+
+
+def _recovery_pointer_keys(content: str) -> list[str]:
+    """Recovery-pointer keys (tee path / cache_ref hash) offered in one tool result."""
+    keys: list[str] = []
+    for m in _TEE_PTR_RE.finditer(content):
+        keys.append(m.group(1))
+    for m in _CACHE_REF_RE.finditer(content):
+        if m.group(1) not in keys:
+            keys.append(m.group(1))
+    if not keys and _UR_CACHE_REF_RE.search(content):
+        # Marker present with no parseable key — still count the offer so the
+        # ratio isn't silently undercounted; it can never register as followed.
+        keys.append("ur|cache-ref")
+    return keys
+
+
+def trial_metrics(trial_dir: str) -> tuple[float | None, int, int]:
+    """(turn-1 prefix tokens, recovery pointers offered, recovery pointers followed).
+
+    Reads agent/trajectory.json (ATIF schema). Prefix is metrics.prompt_tokens on
+    the FIRST source=="agent" step. A recovery pointer offered in one step's
+    observation is "followed" if a LATER agent step has a file_read tool_call
+    whose arguments reference the same path / cache_ref.
+    """
+    traj_paths = glob.glob(os.path.join(trial_dir, "**", "trajectory.json"), recursive=True)
+    if not traj_paths:
+        return None, 0, 0
+    d = _load(traj_paths[0])
+    if not isinstance(d, dict):
+        return None, 0, 0
+    steps = d.get("steps") or []
+
+    prefix_tokens = None
+    offers: list[tuple[int, str]] = []
+    reads_by_step: dict[int, list[str]] = {}
+
+    for idx, s in enumerate(steps):
+        if not isinstance(s, dict) or s.get("source") != "agent":
+            continue
+        if prefix_tokens is None:
+            pt = (s.get("metrics") or {}).get("prompt_tokens")
+            if isinstance(pt, (int, float)):
+                prefix_tokens = pt
+
+        for tc in s.get("tool_calls") or []:
+            if (tc.get("function_name") or "") in ("mcp__unerr__file_read", "file_read"):
+                reads_by_step.setdefault(idx, []).append(json.dumps(tc.get("arguments") or {}))
+
+        for r in (s.get("observation") or {}).get("results") or []:
+            content = r.get("content")
+            if isinstance(content, str):
+                offers.extend((idx, key) for key in _recovery_pointer_keys(content))
+
+    if not offers:
+        return prefix_tokens, 0, 0
+
+    followed = sum(
+        1
+        for off_idx, key in offers
+        if any(
+            key in haystack
+            for step_idx, haystacks in reads_by_step.items()
+            if step_idx > off_idx
+            for haystack in haystacks
+        )
+    )
+    return prefix_tokens, len(offers), followed
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print("usage: status.py <JOB_DIR> [TOTAL_TASKS]", file=sys.stderr)
@@ -160,6 +239,10 @@ def main() -> int:
     cost = 0.0
     by_model: dict[str, list] = {}
     unresolved: list[str] = []
+    prefix_sum = 0.0
+    prefix_n = 0
+    recovery_offered = 0
+    recovery_followed = 0
 
     for path in sorted(glob.glob(os.path.join(job, "*", "result.json"))):
         d = _load(path)
@@ -182,6 +265,15 @@ def main() -> int:
             for i in range(4):
                 agg[i] += t[i]
             agg[4] += t[4]
+        pt, off, fol = trial_metrics(os.path.dirname(path))
+        if pt is not None:
+            prefix_sum += pt
+            prefix_n += 1
+        recovery_offered += off
+        recovery_followed += fol
+
+    prefix_mean = (prefix_sum / prefix_n) if prefix_n else None
+    recovery_ratio = (recovery_followed / recovery_offered) if recovery_offered else None
 
     # Harbor keeps live counts in the job-level result.json (written at START and
     # updated as trials land) — prefer them over globbing. finished_at stays None
@@ -218,10 +310,16 @@ def main() -> int:
                     parts.append(f"{kind} {short} {share:.1f}% (${t[4]:.2f})")
             mix = " | " + ", ".join(parts)
         billed = cost * SONNET_5_INTRO_FACTOR
+        pfx = f" | pfx {prefix_mean:,.0f}tok" if prefix_mean is not None else ""
+        rec = (
+            f" | rec {recovery_followed}/{recovery_offered} ({recovery_ratio * 100:.0f}%)"
+            if recovery_ratio is not None
+            else " | rec n/a"
+        )
         print(
             f"{completed}/{total} done, {running} run, {pending} pend | "
             f"resolved {resolved}/{completed} ({pct:.0f}%), err {errored} | "
-            f"${cost:.2f} stk / ${billed:.2f} billed{mix}"
+            f"${cost:.2f} stk / ${billed:.2f} billed{mix}{pfx}{rec}"
         )
         return 0
     print(f"\n=== {job}  [{state}] ===")
@@ -229,6 +327,15 @@ def main() -> int:
     print(f"  progress   {completed}/{total} completed   {running} in flight{tail}")
     print(f"  resolved   {resolved}/{completed} ({pct:.1f}%)   errored {errored}")
     print(f"  cost       ${cost:.2f} so far (harbor agent_result.cost_usd, sticker)")
+    if prefix_mean is not None:
+        print(f"  prefix     {prefix_mean:,.0f} tok mean turn-1 prompt (n={prefix_n} trials)")
+    if recovery_ratio is not None:
+        print(
+            f"  recovery   {recovery_followed}/{recovery_offered} pointers followed "
+            f"({recovery_ratio * 100:.1f}%)"
+        )
+    else:
+        print("  recovery   n/a (no recovery pointers offered)")
 
     if by_model:
         mtot = sum(t[4] for t in by_model.values()) or cost

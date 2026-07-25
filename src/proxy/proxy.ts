@@ -45,6 +45,11 @@ import { getPromptsForSession } from "../tracking/prompt-trace.js";
 import { createReconDetector } from "../tracking/turn-telemetry.js";
 import { UNERR_VERSION } from "../version.js";
 import { aliasAndValidate } from "./arg-validator.js";
+import { lockAdvertisedCatalog } from "./catalog-lock.js";
+import {
+  DISPATCH_DEADLINE_MS,
+  raceToolExecution,
+} from "./dispatch-deadline.js";
 import { PidLock } from "./pid-lock.js";
 import {
   type SessionStats,
@@ -67,7 +72,6 @@ import {
   resolveResumableSessionId,
 } from "./session-stats.js";
 import { StartupRenderer } from "./startup-renderer.js";
-import { ToolUsageTracker, reorderToolsByCluster } from "./tool-clusters.js";
 import { TOOL_DEFINITIONS, type ToolDefinition } from "./tool-definitions.js";
 import {
   hiddenToolNames,
@@ -1126,8 +1130,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // ever serve an unvalidated description.
   await validateAllToolDescriptions();
 
-  // S7: Tool usage tracker for semantic cluster reordering
-  const toolUsageTracker = new ToolUsageTracker();
+  // The S7 usage-driven cluster reorder (`ToolUsageTracker` +
+  // `reorderToolsByCluster`) was removed from the `tools/list` path 2026-07:
+  // it re-sorted the advertised catalog by how often each cluster had been
+  // called this session, so the serialized tool block — which sits at the front
+  // of the provider cache prefix — changed bytes after roughly the third tool
+  // call and re-billed the whole context. See `catalog-lock.ts`.
 
   // Sprint 0: recon-pattern detector — flags when a turn's tool sequence
   // matches the recall→search→outline→read→entity chain that `unerr recon`
@@ -1303,34 +1311,24 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       : tools.filter((t) => !HIDDEN_TOOL_NAMES.has(t.name));
   }
 
-  // P0-3 + S7: Apply tier-aware exposure rendering (locked tools get the
-  // ≤30-token placeholder description, active tools get the full text),
-  // then reorder by semantic cluster priority based on recent usage.
-  const { renderToolsListForExposure } = await import("./tools-list.js");
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const baseTools = await getAdvertisedTools();
-    const gateway = router.getRouterGateway();
-    if (!gateway) {
-      return {
-        tools: reorderToolsByCluster(baseTools, toolUsageTracker),
-      };
-    }
-    const exposed = gateway.exposedTools();
-    const knownNames = new Set(
-      renderToolsListForExposure(exposed).map((t) => t.name)
-    );
-    // Replace gateway-known entries with their per-exposure rendering,
-    // and pass through everything else (deep-dive tools, etc.) untouched.
-    const exposureRendered = new Map(
-      renderToolsListForExposure(exposed).map((t) => [t.name, t])
-    );
-    const merged = baseTools.map((t) =>
-      knownNames.has(t.name) ? (exposureRendered.get(t.name) ?? t) : t
-    );
-    return {
-      tools: reorderToolsByCluster(merged, toolUsageTracker),
-    };
-  });
+  // stdio `tools/list`. The answer is pinned to the canonical catalog — the
+  // exact array `bridge-catalog.ts` serves — so a bridge fallback reply and a
+  // proxy reply are byte-identical and neither re-writes the cache prefix.
+  // `getAdvertisedTools()` is still evaluated: it keeps the enrichment cache
+  // warm and gives `lockAdvertisedCatalog` a real candidate to report on, so a
+  // future change that tries to alter the advertised surface (a deep-dive tool
+  // appearing, injected rule text, a reorder) is named on stderr instead of
+  // silently costing a full context rewrite.
+  //
+  // Two mutators were removed from this path rather than merely refused:
+  //   - `renderToolsListForExposure(gateway.exposedTools())` — tier-2
+  //     `get_references` rendered its LOCKED placeholder until an edit or read
+  //     unlocked it, then flipped to the active text mid-session. The gateway
+  //     still gates DISPATCH (soft-refuse); only the description stops moving.
+  //   - `reorderToolsByCluster(..., toolUsageTracker)` — session-usage-ordered.
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: lockAdvertisedCatalog(await getAdvertisedTools()),
+  }));
 
   // ── Step 7a: Shadow Ledger + Intent Correlator ─────────────────
 
@@ -1993,9 +1991,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       };
     }
 
-    // S7: Track tool usage for semantic cluster reordering
-    toolUsageTracker.record(name);
-
     // Sprint 0: emit one recon-pattern event per episode (file-only — no
     // stderr, so it never enters the agent's tool-result context).
     const reconEvent = reconDetector.note(name);
@@ -2295,7 +2290,22 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // surface less prominently than a tool-level error.
     let result: Awaited<ReturnType<typeof router.execute>>;
     try {
-      result = await router.execute(name, args);
+      // Dispatch-level hard deadline (defense-in-depth). A tool that defeats its
+      // own internal deadline (e.g. an offline fetch_url whose AbortController
+      // never interrupts a stalled DNS/connect syscall) must not hang until the
+      // MCP client's ~1800s abort and burn the whole agent-task budget. On
+      // deadline we return a degraded, agent-actionable result and RETURN EARLY —
+      // skipping every post-tool side effect (stats, ledger, behaviors) so the
+      // timed-out call is never counted or double-fired. The abandoned execute
+      // promise settles in the background; its late result is discarded.
+      const outcome = await raceToolExecution(router.execute(name, args), name);
+      if (outcome.timedOut) {
+        process.stderr.write(
+          `[unerr] router.execute(${name}) exceeded ${DISPATCH_DEADLINE_MS}ms dispatch deadline — returning degraded result\n`
+        );
+        return outcome.degraded;
+      }
+      result = outcome.result;
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       process.stderr.write(
@@ -3074,10 +3084,13 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       return { jsonrpc: "2.0" as const };
     }
 
+    // UDS `tools/list` — the path a bridged IDE actually takes. Same lock as
+    // the stdio handler above, so both replies and the bridge's local fallback
+    // serialize to the same bytes.
     if (message.method === "tools/list") {
       return {
         jsonrpc: "2.0" as const,
-        result: { tools: await getAdvertisedTools() },
+        result: { tools: lockAdvertisedCatalog(await getAdvertisedTools()) },
       };
     }
 

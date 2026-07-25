@@ -20,6 +20,7 @@ import {
 import { dirname, join } from "node:path";
 import type { IdeType } from "../utils/detect.js";
 import { getAgent } from "./agent-registry.js";
+import { readTerseRepliesFlag } from "./terse-reply-flag.js";
 
 const SENTINEL_START = "<!-- unerr:start -->";
 const SENTINEL_END = "<!-- unerr:end -->";
@@ -30,7 +31,7 @@ const SENTINEL_END = "<!-- unerr:end -->";
  * rule, and leaves per-task judgement to the agent instead of reconciling
  * every task against rules that mostly don't apply.
  */
-function getInstructionContent(ide?: IdeType): string {
+function getInstructionContent(ide?: IdeType, terseReplies = false): string {
   const isClaudeCode = ide === "claude-code";
 
   // The end-of-turn "files changed" receipt is a user-facing systemMessage only
@@ -54,6 +55,13 @@ function getInstructionContent(ide?: IdeType): string {
     ? "\n\nWork that splits into independent slices: spawn all the matching unerr sub-agents in one message, in parallel (`unerr-worker` scoped edits · `unerr-junior` recon and verify-runs · `unerr-architect` design, root-causing, and large-context work); use worktree isolation when two slices edit the same files."
     : "";
 
+  // Opt-in (default OFF — see terse-reply-flag.ts), appended once at the end
+  // of the injected section: the end of the stable prefix is the cache-safe
+  // position, so this costs nothing unless a repo explicitly turns it on.
+  const terseReplyBlock = terseReplies
+    ? "\n\nKeep replies terse: state results, cut narration and filler. Reproduce code, shell commands, file paths, and error text byte-exact — never paraphrase, summarize, or truncate them."
+    : "";
+
   return `## unerr — code navigation and editing tools
 
 unerr serves this repo's live call graph, conventions, and edit guardrails over MCP.
@@ -69,20 +77,20 @@ Bash runs things (build, test, git, package managers); it is not for reading or 
 
 Tool responses may carry \`ur|<tag>\` signal lines; the body of each line names the concrete next step.
 
-If unerr MCP is unavailable, errors, or reports no graph: use built-in Read/Grep/Glob for the rest of the session.
+If unerr MCP is unavailable, errors, or reports no graph: use built-in Read/Grep/Glob for the rest of the session.${terseReplyBlock}
 `;
 }
 
 /**
  * Generate MDC-formatted instruction content for Cursor rules.
  */
-function getMdcContent(): string {
+function getMdcContent(terseReplies = false): string {
   return `---
 description: unerr serves this repo's live call graph, conventions, and edit guardrails over MCP
 alwaysApply: true
 ---
 
-${getInstructionContent("cursor")}
+${getInstructionContent("cursor", terseReplies)}
 `;
 }
 
@@ -105,14 +113,15 @@ export function writeInstructionFile(
   }
 
   const filePath = join(cwd, agentDef.instructionFilePath);
+  const terseReplies = readTerseRepliesFlag(cwd);
 
   if (agentDef.instructionFormat === "mdc") {
-    return writeMdcInstructionFile(filePath);
+    return writeMdcInstructionFile(filePath, terseReplies);
   }
 
   if (agentDef.instructionFormat === "windsurf-rule") {
     mkdirSync(dirname(filePath), { recursive: true });
-    const content = getInstructionContent(ide);
+    const content = getInstructionContent(ide, terseReplies);
     // Windsurf enforces 6K char limit per rule
     const truncatedContent =
       content.length > 5800
@@ -132,7 +141,7 @@ export function writeInstructionFile(
 
   if (agentDef.instructionFormat === "antigravity-rule") {
     mkdirSync(dirname(filePath), { recursive: true });
-    const content = getInstructionContent(ide);
+    const content = getInstructionContent(ide, terseReplies);
     const antigravityContent = `---\nname: unerr-instructions\ndescription: Tool routing instructions for unerr MCP integration\ntype: manual\n---\n\n${content}\n`;
     const existed = existsSync(filePath);
     if (existed) {
@@ -146,7 +155,10 @@ export function writeInstructionFile(
   }
 
   // markdown format (CLAUDE.md, AGENTS.md, GEMINI.md, copilot-instructions.md, .clinerules)
-  return mergeMarkdownSection(filePath, getInstructionContent(ide));
+  return mergeMarkdownSection(
+    filePath,
+    getInstructionContent(ide, terseReplies)
+  );
 }
 
 /**
@@ -198,8 +210,11 @@ function mergeMarkdownSection(
  * Write a standalone .mdc instruction file for Cursor.
  * Overwrites entire file (it's ours). Returns "created" or "skipped".
  */
-function writeMdcInstructionFile(filePath: string): InstructionWriteResult {
-  const content = getMdcContent();
+function writeMdcInstructionFile(
+  filePath: string,
+  terseReplies = false
+): InstructionWriteResult {
+  const content = getMdcContent(terseReplies);
   const alreadyExists = existsSync(filePath);
 
   if (alreadyExists) {

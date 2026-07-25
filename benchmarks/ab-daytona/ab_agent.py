@@ -4,9 +4,20 @@
 Kept (identical to ClaudeUnerrAgent): the Daytona/Harbor lifecycle, the unerr
 install sequence (npm -g tarball -> version gate -> PATH bridge -> dev.json Pro
 tier + UNERR_TOKEN login-skip -> index -> pm start -> install claude-code ->
-live MCP probe), the per-tier model forwarding (ENV_VARS), the unerr MCP-server
-registration, and the `--dangerously-skip-permissions` + `IS_SANDBOX=1` root
-bypass.
+alwaysLoad verification -> live MCP probe), the per-tier model forwarding
+(ENV_VARS), the unerr MCP-server registration, and the
+`--dangerously-skip-permissions` + `IS_SANDBOX=1` root bypass.
+
+Two additions beyond ClaudeUnerrAgent, unerr-arm only (see FIX 2 / FIX 1 in
+the recon that produced this): `_build_register_mcp_servers_command` is
+overridden to add `"alwaysLoad": true` to the registered unerr entry — the
+parent's serializer only emits type/command/args, so Claude Code's default
+ENABLE_TOOL_SEARCH deferred every unerr tool behind Tool Search (confirmed:
+ToolSearch fired 27x vs 1x real unerr tool call in a 23-trial run). And
+`run()` wraps the parent call in a `finally` that best-effort copies
+`.unerr/logs` into `/logs/agent/unerr-logs/` — Harbor auto-downloads
+`/logs/agent` to the trial's own artifacts after every run regardless of
+outcome, so a proxy-side hang now leaves a trace.
 
 Removed (the "additional harness"): the autonomy/operator `--append-system-prompt`
 policy, `cc-harness-hooks.py`, the `.claude/settings.local.json` gate hooks, the
@@ -30,7 +41,10 @@ Run (src/ of the bench on PYTHONPATH so harbor_agents imports, plus this dir):
 
 from __future__ import annotations
 
+import json
 import os
+import shlex
+from typing import override
 
 # EnvVar is how Harbor's ClaudeCode.run() forwards a value into the `claude -p`
 # container env (a hardcoded key list + ENV_VARS is ALL it forwards). We use it
@@ -125,6 +139,63 @@ class MinimalUnerrAgent(ClaudeUnerrAgent):
                     args=["-c", "UNERR_FORCE_PROJECT=1 exec unerr --mcp"],
                 ),
             ]
+
+    @override
+    def _build_register_mcp_servers_command(self) -> str | None:
+        """Same write as ClaudeCode._build_register_mcp_servers_command()
+        (user-scoped $CLAUDE_CONFIG_DIR/.claude.json, no trust dialog — see
+        __init__'s comment above) but with `"alwaysLoad": true` added to the
+        unerr entry.
+
+        Root cause this fixes: MCPServerConfig carries no alwaysLoad field
+        and the parent's serializer only emits type/command/args, so the
+        per-server override Claude Code's own docs describe ("loads at
+        session start regardless of ENABLE_TOOL_SEARCH") never reached the
+        file the parent writes. With ENABLE_TOOL_SEARCH on by default, every
+        MCP tool defers behind Tool Search until the agent explicitly
+        searches for it — confirmed in a prior 23-trial run: ToolSearch
+        fired 27x vs 1x for an actual mcp__unerr__file_read call, so the A/B
+        measured startup overhead, not unerr's tools.
+
+        Why override this method rather than write .mcp.json instead: a
+        project-scope .mcp.json entry (which unerr's OWN installer already
+        writes with alwaysLoad — see `unerr install claude-code` below)
+        "requires explicit enablement" per this same parent class's own
+        docstring — i.e. a trust gate — and this agent injects no
+        settings.local.json to pre-trust it, so relying on that file alone
+        risks a dead connection, worse than deferred tools. The user-scope
+        file this method writes is the ALREADY-PROVEN connection path (the
+        same one ClaudeUnerrAgent uses for the full leaderboard agent), so
+        this reimplements it byte-for-byte with one added key rather than
+        replacing it — run()'s own $CLAUDE_CONFIG_DIR/exec sequencing, error
+        handling, and hard gate (a non-zero echo raises inside
+        exec_as_agent) stay exactly the parent's.
+        """
+        if not self.mcp_servers:
+            return None
+        servers: dict[str, dict] = {}
+        for server in self.mcp_servers:
+            if server.transport == "stdio":
+                entry: dict = {
+                    "type": "stdio",
+                    "command": server.command,
+                    "args": server.args,
+                }
+                if server.name == "unerr":
+                    entry["alwaysLoad"] = True
+                    self.logger.warning(
+                        "UNERR-ALWAYSLOAD: registering user-scope "
+                        "$CLAUDE_CONFIG_DIR/.claude.json unerr entry with "
+                        "alwaysLoad=true"
+                    )
+                servers[server.name] = entry
+            else:
+                transport = (
+                    "http" if server.transport == "streamable-http" else server.transport
+                )
+                servers[server.name] = {"type": transport, "url": server.url}
+        claude_json = json.dumps({"mcpServers": servers}, indent=2)
+        return f"echo {shlex.quote(claude_json)} > $CLAUDE_CONFIG_DIR/.claude.json"
 
     async def install(self, environment) -> None:
         # Baseline: Harbor's own unmodified claude-code install, nothing else.
@@ -231,7 +302,80 @@ class MinimalUnerrAgent(ClaudeUnerrAgent):
             environment, _NVM_LOAD + "unerr install claude-code", env=env
         )
 
+        # Verification (non-fatal, loud): confirm the installer's OWN
+        # project-scope .mcp.json still carries alwaysLoad for "unerr", so
+        # a regression in `unerr install claude-code` (the one write this
+        # agent doesn't control) surfaces in trial.log instead of only as
+        # silently-deferred tools discovered after a full, expensive run.
+        # Diagnostic only — project .mcp.json still needs trust to load at
+        # all; the connection itself goes through the user-scope
+        # $CLAUDE_CONFIG_DIR/.claude.json _build_register_mcp_servers_command
+        # override writes above (that write logs its own UNERR-ALWAYSLOAD
+        # marker, and is a hard gate inside run() — a failed echo there
+        # raises, not silently degrades).
+        try:
+            mcp_json = await environment.exec(
+                command="cat .mcp.json 2>/dev/null || true", env=env
+            )
+            always_load = (
+                json.loads(mcp_json.stdout or "{}")
+                .get("mcpServers", {})
+                .get("unerr", {})
+                .get("alwaysLoad")
+            )
+        except Exception as exc:  # diagnostic only — never fatal
+            always_load = f"<probe failed: {exc}>"
+        self.logger.warning(
+            "UNERR-ALWAYSLOAD-MCPJSON: project .mcp.json unerr.alwaysLoad=%r",
+            always_load,
+        )
+
         # Live MCP connectivity gate (non-fatal, loud) — the anti-dead-backend
         # check: unerr --mcp completes a JSON-RPC handshake from the stripped
         # PATH Claude Code spawns it with.
         await self._probe_mcp_connectivity(environment, env=env)
+
+    @override
+    async def run(self, instruction, environment, context) -> None:
+        # FIX 1: neither arm otherwise saves .unerr/logs, so a proxy-side
+        # hang (e.g. the 1800s file_read hang) leaves no trace. `finally`
+        # (not a plain trailer) so this still runs when the agent hangs and
+        # trial.py's asyncio.wait_for cancels the run — wait_for cancels the
+        # task then awaits it to unwind, and finally blocks execute during
+        # that unwind, before TimeoutError is raised to the caller — so a
+        # hang is exactly the case this needs to catch, and it does.
+        try:
+            await super().run(instruction, environment, context)
+        finally:
+            if not _is_baseline():
+                await self._copy_unerr_logs(environment)
+
+    async def _copy_unerr_logs(self, environment) -> None:
+        """Best-effort, never-fatal copy-back of proxy-side logs into the
+        trial artifacts.
+
+        /logs/agent is EnvironmentPaths.agent_dir (harbor.models.trial.paths,
+        pinned harbor==0.20.0) — the one directory Trial._download_agent_logs
+        (harbor/trial/trial.py) downloads back to the host trial dir
+        unconditionally after every run, mounted or not, so anything written
+        there needs no extra environment.download_file/upload_file call —
+        this agent has no post-run hook other than wrapping run() (no
+        cleanup/teardown method exists on BaseInstalledAgent), so writing
+        into that directory is the only way to get files into the trial's
+        own artifacts after the agent runs.
+        """
+        try:
+            await self.exec_as_agent(
+                environment,
+                command=(
+                    "set +e; mkdir -p /logs/agent/unerr-logs; "
+                    "tar -czf /logs/agent/unerr-logs/project-logs.tar.gz "
+                    ".unerr/logs 2>/dev/null; "
+                    'tar -C "$HOME" -czf '
+                    "/logs/agent/unerr-logs/daemon-logs.tar.gz "
+                    ".unerr/logs 2>/dev/null; true"
+                ),
+                timeout_sec=60,
+            )
+        except Exception as exc:  # best-effort — never fails the trial
+            self.logger.warning("unerr log copy-back failed (non-fatal): %s", exc)

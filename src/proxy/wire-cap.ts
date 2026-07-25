@@ -121,7 +121,7 @@ const PER_TOOL_CAPS: Record<string, ToolCap> = {
  * response exceed this many BPE tokens on the wire. `token_budget` and this cap
  * are both counted in real tokens (estimateTokenCount) — the same metric — so a
  * suggested budget always clears the cap on retry. */
-const HARD_TOKEN_CAP = 2048;
+export const HARD_TOKEN_CAP = 2048;
 
 /** Upper bound on the token cap reachable via `token_budget`, even if the agent
  * passes a very large value. Keeps a runaway client from blowing the model
@@ -162,6 +162,32 @@ function resolveTokenCap(args: Record<string, unknown>): number {
 function resolveLimit(cap: ToolCap, argsLimit: unknown): number {
   if (typeof argsLimit !== "number" || argsLimit <= 0) return cap.defaultLimit;
   return Math.min(Math.floor(argsLimit), cap.maxLimit);
+}
+
+/**
+ * Effective COUNT cap for an array tool, so an explicitly-lifted `token_budget`
+ * is actually honored instead of being silently clamped to `defaultLimit`.
+ * Precedence:
+ *   1. An explicit cursor arg (`limit`/`top_n`/`page`) always wins, clamped to
+ *      `maxLimit` (unchanged behavior).
+ *   2. Otherwise, a `token_budget` lifted above HARD_TOKEN_CAP is the caller
+ *      asking for a fuller payload — raise the count to `maxLimit` and let the
+ *      byte-fit trim it to whatever the budget holds.
+ *   3. No lift → the lean `defaultLimit` (unchanged behavior).
+ * A default call (no `token_budget`, no cursor arg) is therefore byte-for-byte
+ * identical to before; only an explicit budget widens the count.
+ */
+function resolveEffectiveLimit(
+  cap: ToolCap,
+  args: Record<string, unknown>,
+  tokenCap: number
+): number {
+  const explicit = args[cap.cursorArg];
+  if (typeof explicit === "number" && explicit > 0) {
+    return Math.min(Math.floor(explicit), cap.maxLimit);
+  }
+  if (tokenCap > HARD_TOKEN_CAP) return cap.maxLimit;
+  return cap.defaultLimit;
 }
 
 /**
@@ -349,22 +375,38 @@ export function applyWireCap(
     return enforceTokenCap(toolName, rawBody, args, null, tokenCap);
   }
 
-  const limit = resolveLimit(cap, args[cap.cursorArg]);
+  const limit = resolveEffectiveLimit(cap, args, tokenCap);
 
   // Top-level array (e.g. search_code returns a uniform array directly).
   if (!cap.arrayKey && Array.isArray(rawBody)) {
-    if (rawBody.length <= limit)
-      return enforceTokenCap(toolName, rawBody, args, null, tokenCap);
     const total = rawBody.length;
     // T3.2/T7.4: order entity rows by query relevance (when a query is present)
-    // or graph importance before the positional slice, so the dropped tail is
-    // the least load-bearing items. Non-entity tools keep positional order.
+    // or graph importance BEFORE the positional slice, so both the kept prefix
+    // and the dropped tail respect relevance. Non-entity tools keep positional
+    // order.
     const { ordered, ranking_key } = rankEntityArray(toolName, rawBody, args);
-    const sliced = ordered.slice(0, limit);
-    const droppedLow = countDroppedLowImportance(ordered.slice(limit));
+    // Compose the COUNT cap (`limit`) with the BYTE cap (`tokenCap`): keep the
+    // largest prefix satisfying BOTH. This is what makes a lifted token_budget
+    // fill up to the content that fits (instead of stopping at defaultLimit),
+    // and degrades an oversized prefix to a fitting count instead of the
+    // wholesale too_large drop the old fixed slice produced.
+    const countCap = Math.min(total, limit);
+    const fitCount = fittingPrefixCount(
+      (n) => estimateTokenCount(JSON.stringify(ordered.slice(0, n))),
+      countCap,
+      tokenCap
+    );
+    const delivered = total === 0 ? 0 : Math.max(1, fitCount);
+    // Nothing dropped by count or bytes → pristine pass-through (byte-for-byte
+    // identical to the old `rawBody.length <= limit` fast path).
+    if (delivered >= total) {
+      return enforceTokenCap(toolName, rawBody, args, null, tokenCap);
+    }
+    const sliced = ordered.slice(0, delivered);
+    const droppedLow = countDroppedLowImportance(ordered.slice(delivered));
     const hint = buildPageHint(
       toolName,
-      total - limit,
+      total - delivered,
       cap.cursorArg,
       args,
       sliced.length,

@@ -7,8 +7,14 @@
  * disconnected. Answering locally from the static `TOOL_DEFINITIONS` catalog
  * keeps Claude Code / Cursor connected during a multi-second (or multi-minute,
  * on heavy reindex) startup. Once the proxy is up, frames flow through
- * normally and the proxy's enriched `tools/list` takes over for any later
- * refresh.
+ * normally and the proxy answers any later refresh.
+ *
+ * The two answers are byte-identical by construction: this module and the
+ * proxy's `tools/list` handlers both emit `ADVERTISED_TOOL_DEFINITIONS`, the
+ * proxy via `lockAdvertisedCatalog` (`catalog-lock.ts`). That matters because
+ * the serialized tool block sits at the front of the provider cache prefix — a
+ * bridge reply and a proxy reply that differed by one byte would re-bill the
+ * whole context. `src/__tests__/tool-catalog-lock.test.ts` pins the equality.
  *
  * Pure module — imports only from `./tool-definitions.js` and so stays inside
  * `src/proxy/`. Safe to consume from the bridge entry point without breaking

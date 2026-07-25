@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { relative } from "node:path";
 import { loadSettings } from "../../config/settings.js";
 import { extractEntities } from "../../intelligence/ast-extractor.js";
+import { byImportanceDesc } from "../../intelligence/importance.js";
 import type { CozoGraphStore } from "../../intelligence/local-graph.js";
 import { estimateTokens } from "../../intelligence/token-estimator.js";
 import {
@@ -277,6 +278,166 @@ function logFileRead(
   });
 }
 
+// ─── Relevance-ranked whole-file overflow ───────────────────────────────────
+// When a whole-file read (no explicit range, no entity, no log-tail) exceeds the
+// line budget, the naive path below serves lines 1..N — the FIRST N lines,
+// regardless of where the load-bearing code sits. These helpers replace that
+// with the top entity spans ranked by graph importance (fan_in + fan_out +
+// risk_level, via `byImportanceDesc`), delivered BYTE-EXACT. No summarization, no
+// compression — the selected source lines are copied verbatim; the whole file
+// stays reachable via offset/limit. Engages ONLY on the overflow path when the
+// graph is published with entities for the file; every other case runs the
+// unchanged naive path (byte-identical to today's head-truncation).
+
+/** A contiguous 1-based inclusive line interval. */
+interface LineSpan {
+  start: number;
+  end: number;
+}
+
+/** Graph-importance fields a rankable entity carries (all optional — a missing
+ *  column ranks lowest, never throws). */
+interface RankableEntity {
+  name?: string;
+  start_line: number;
+  end_line?: number;
+  fan_in?: number;
+  fan_out?: number;
+  risk_level?: string;
+  key?: string;
+}
+
+/** Merge overlapping OR adjacent spans into disjoint intervals sorted by start.
+ *  Adjacent (`end + 1 === next.start`) merges so no zero-length gap is emitted. */
+function mergeSpans(spans: LineSpan[]): LineSpan[] {
+  if (spans.length === 0) return [];
+  const sorted = [...spans].sort((a, b) => a.start - b.start);
+  const merged: LineSpan[] = [{ ...sorted[0]! }];
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i]!;
+    const last = merged[merged.length - 1]!;
+    if (cur.start <= last.end + 1) {
+      last.end = Math.max(last.end, cur.end);
+    } else {
+      merged.push({ ...cur });
+    }
+  }
+  return merged;
+}
+
+/** Lines in [start,end] not already covered by `covered` (disjoint sorted
+ *  intervals). Used to budget only the NEW lines a candidate span adds. */
+function countNewLines(
+  covered: LineSpan[],
+  start: number,
+  end: number
+): number {
+  let newLines = end - start + 1;
+  for (const c of covered) {
+    const overlapStart = Math.max(start, c.start);
+    const overlapEnd = Math.min(end, c.end);
+    if (overlapEnd >= overlapStart) newLines -= overlapEnd - overlapStart + 1;
+  }
+  return Math.max(0, newLines);
+}
+
+/**
+ * Greedily pack the highest-importance entity spans that fit within
+ * `budgetLines`. Ranking is deterministic (`byImportanceDesc` — score then key),
+ * so identical input yields identical survivors. Returns null when no span fits
+ * or the file has no rankable entities, signalling the caller to fall back to
+ * naive head-truncation. `maxSpans` bounds gap-marker overhead.
+ */
+function selectRankedSpans(
+  entities: RankableEntity[],
+  budgetLines: number,
+  totalLines: number,
+  maxSpans = 15
+): { spans: LineSpan[]; coveredLines: number } | null {
+  const valid = entities.filter(
+    (e) =>
+      Number.isFinite(e.start_line) &&
+      e.start_line >= 1 &&
+      e.start_line <= totalLines
+  );
+  if (valid.length === 0) return null;
+
+  const ranked = byImportanceDesc(valid, (e) => ({
+    fan_in: e.fan_in,
+    fan_out: e.fan_out,
+    risk_level: e.risk_level,
+    key: e.key,
+  }));
+
+  let chosen: LineSpan[] = [];
+  let coveredLines = 0;
+  for (const e of ranked) {
+    if (chosen.length >= maxSpans) break;
+    const start = Math.min(Math.max(1, e.start_line), totalLines);
+    const rawEnd =
+      typeof e.end_line === "number" &&
+      Number.isFinite(e.end_line) &&
+      e.end_line >= start
+        ? e.end_line
+        : start;
+    const end = Math.min(totalLines, rawEnd);
+    const newLines = countNewLines(chosen, start, end);
+    if (newLines === 0) continue; // already fully covered by a chosen span
+    if (coveredLines + newLines > budgetLines) continue; // would exceed budget — try a smaller span
+    chosen = mergeSpans([...chosen, { start, end }]);
+    coveredLines += newLines;
+  }
+
+  if (chosen.length === 0) return null; // nothing fit → caller head-truncates
+  return { spans: chosen, coveredLines };
+}
+
+/** First omitted line range (leading gap, else first interior gap, else the
+ *  trailing gap) — a concrete offset/limit the recovery footer can name. The
+ *  caller only invokes this when omitted content is guaranteed to exist. */
+function firstOmittedRange(spans: LineSpan[], totalLines: number): LineSpan {
+  if (spans[0]!.start > 1) return { start: 1, end: spans[0]!.start - 1 };
+  for (let i = 1; i < spans.length; i++) {
+    const gapStart = spans[i - 1]!.end + 1;
+    const gapEnd = spans[i]!.start - 1;
+    if (gapEnd >= gapStart) return { start: gapStart, end: gapEnd };
+  }
+  return { start: spans[spans.length - 1]!.end + 1, end: totalLines };
+}
+
+/**
+ * Render the chosen spans as numbered, byte-exact source with a compact marker
+ * on each interior gap and a single recovery footer. Line numbers are the real
+ * file positions, so a follow-up offset/limit lands correctly.
+ */
+function buildRankedSpanBody(
+  lines: string[],
+  spans: LineSpan[],
+  coveredLines: number,
+  totalLines: number,
+  rel: string
+): string {
+  const parts: string[] = [];
+  for (let i = 0; i < spans.length; i++) {
+    const span = spans[i]!;
+    if (i > 0) {
+      const gapStart = spans[i - 1]!.end + 1;
+      const gapEnd = span.start - 1;
+      const gapLen = gapEnd - gapStart + 1;
+      if (gapLen > 0) {
+        parts.push(`… ${gapLen} lines omitted (${gapStart}-${gapEnd}) …`);
+      }
+    }
+    const spanLines = lines.slice(span.start - 1, span.end);
+    parts.push(spanLines.map((l, j) => `${span.start + j}\t${l}`).join("\n"));
+  }
+  const gap = firstOmittedRange(spans, totalLines);
+  const gapLimit = gap.end - gap.start + 1;
+  const spanWord = spans.length === 1 ? "span" : "spans";
+  const footer = `(file has ${totalLines} lines; showing the ${coveredLines} most load-bearing lines across ${spans.length} ${spanWord}, ranked by graph importance. Omitted ranges are byte-exact on disk: call file_read({file_path:'${rel}', offset:${gap.start}, limit:${gapLimit}}) for the first omitted range, or file_read({file_path:'${rel}', outline:true}) for the full structure.)`;
+  return `${parts.join("\n")}\n\n${footer}`;
+}
+
 // ─── Core File Read ─────────────────────────────────────────────────────────
 
 /**
@@ -284,10 +445,21 @@ function logFileRead(
  */
 export async function runFileReadForRouter(
   args: Record<string, unknown>,
-  ctx: { cwd: string; graph: CozoGraphStore | null }
+  ctx: { cwd: string; graph: CozoGraphStore | null; graphReady?: boolean }
 ): Promise<FileReadRouterResult> {
   const filePathArg = args.file_path as string;
   if (!filePathArg) throw new Error("file_read requires file_path");
+
+  // Graph enrichment (entity resolution, callers block, outline metadata) is the
+  // only part of file_read that awaits the CozoDB graph. File BYTES come from fs
+  // and never need the graph. During the initial index the proxy's single event
+  // loop is busy and the graph is not yet published, so awaiting a graph call
+  // there is how a file_read can hang until the client's 1800s abort. The router
+  // passes graphReady = isGraphReady(cwd) — a synchronous, starvation-safe fs
+  // check; when false, skip ALL graph work and serve raw bytes. Undefined
+  // (interactive callers / tests) preserves the old behavior: enrich whenever a
+  // graph object is present.
+  const graphIsReady = ctx.graphReady ?? true;
 
   // ─── Outline mode ─────────────────────────────────────────────────────────
   // `file_read({file_path, outline:true})` returns the structural view —
@@ -302,7 +474,7 @@ export async function runFileReadForRouter(
       const outline = await buildFileOutline({
         cwd: ctx.cwd,
         filePathArg,
-        graph: ctx.graph,
+        graph: ctx.graph && graphIsReady ? ctx.graph : null,
       });
       const lean: {
         file_path: string;
@@ -390,6 +562,9 @@ export async function runFileReadForRouter(
   const rel = relative(ctx.cwd, abs).replace(/\\/g, "/") || filePathArg;
   // Out-of-project files have no graph data — skip graph queries to prevent hangs
   const isOutOfProject = rel.startsWith("..");
+  // Single gate for every graph touch below: a present graph, in-project, and
+  // published/ready. False during the initial index → raw bytes, no graph await.
+  const graphAllowed = ctx.graph != null && !isOutOfProject && graphIsReady;
 
   if (!existsSync(abs)) {
     return { content: { error: `File not found: ${abs}` } };
@@ -417,7 +592,7 @@ export async function runFileReadForRouter(
   if (entityName) {
     try {
       let resolvedFromGraph = false;
-      if (ctx.graph && !isOutOfProject) {
+      if (graphAllowed && ctx.graph) {
         const entities = await Promise.race([
           ctx.graph.getEntitiesByFile(rel),
           new Promise<never>((_, reject) =>
@@ -530,7 +705,7 @@ export async function runFileReadForRouter(
       const outline = await buildFileOutline({
         cwd: ctx.cwd,
         filePathArg,
-        graph: isOutOfProject ? null : ctx.graph,
+        graph: graphAllowed ? ctx.graph : null,
       });
       const search = entityMatchInfo ?? {
         matched: false,
@@ -585,6 +760,68 @@ export async function runFileReadForRouter(
     offset = Math.max(1, totalLines - LOG_TAIL_LINES + 1);
     limit = LOG_TAIL_LINES;
     logTailApplied = true;
+  }
+
+  // ─── Relevance-ranked whole-file overflow (Mode 1 only) ───────────────────
+  // Replaces naive head-truncation (first N lines) with the top entity spans by
+  // graph importance, delivered byte-exact. Strictly the overflow path: engages
+  // only when there is NO explicit range, NO entity window, NO log-tail, the
+  // file exceeds the line budget, AND the graph is published with entities for
+  // it. Every other case (including a graph-less / not-ready read) falls through
+  // to the naive path below unchanged (byte-identical to today). The
+  // un-delivered remainder stays fully reachable via offset/limit, named in the
+  // recovery footer.
+  if (
+    !explicitRange &&
+    !entityWindowApplied &&
+    !logTailApplied &&
+    totalLines > budgetLines &&
+    graphAllowed &&
+    ctx.graph
+  ) {
+    try {
+      const fileEntities = (await Promise.race([
+        ctx.graph.getEntitiesByFile(rel),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("graph_timeout")), GRAPH_TIMEOUT_MS)
+        ),
+      ]).catch(() => [] as RankableEntity[])) as RankableEntity[];
+
+      const picked = selectRankedSpans(fileEntities, budgetLines, totalLines);
+      if (picked) {
+        let rankedBody = buildRankedSpanBody(
+          lines,
+          picked.spans,
+          picked.coveredLines,
+          totalLines,
+          rel
+        );
+        if (isGeneratedPath(rel)) {
+          rankedBody = `Path looks generated or vendor (\`node_modules\` / \`dist\` / \`.next\`) — verify you intended to read it.\n\n${rankedBody}`;
+        }
+        logFileRead(
+          ctx.cwd,
+          rel,
+          "slice",
+          totalLines,
+          picked.coveredLines,
+          undefined,
+          estimateTokens(rankedBody)
+        );
+        return {
+          content: rankedBody,
+          _layer6_meta: {
+            format: "json",
+            total_lines: totalLines,
+            total_file_tokens: estimateTokens(text),
+            tokens_estimate: estimateTokens(rankedBody),
+            optimization: `file_read relevance-ranked → ${picked.spans.length} span(s), ${picked.coveredLines}/${totalLines} lines (graph importance)`,
+          },
+        };
+      }
+    } catch {
+      // Ranking failed — fall through to the naive budget-capped path below.
+    }
   }
 
   // ─── Apply budget-capped limit ────────────────────────────────────────────
@@ -715,7 +952,7 @@ export async function runFileReadForRouter(
   // ordered by fan_in desc, capped at 10 rows. Only possible when the entity
   // resolved against the graph (resolvedEntityKey set); the AST-fallback path
   // has no key to look callers up with.
-  if (entityWindowApplied && resolvedEntityKey && ctx.graph) {
+  if (entityWindowApplied && resolvedEntityKey && graphAllowed && ctx.graph) {
     try {
       const callers = await ctx.graph.getCallersOf(resolvedEntityKey);
       const ranked = [...callers].sort((a, b) => b.fan_in - a.fan_in);
@@ -755,6 +992,12 @@ export async function runFileReadForRouter(
     meta.out_of_project = true;
     meta._hint =
       "File is outside the indexed project. Graph features (references, callers) unavailable.";
+  } else if (entityName && ctx.graph != null && !graphIsReady) {
+    // Graph present but still indexing: the entity was resolved from the file's
+    // own AST (byte-accurate span), but the cross-file callers block needs the
+    // published graph. Tell the agent why the callers block is absent.
+    meta._hint =
+      "graph still indexing — entity resolved from file AST; cross-file callers block omitted";
   }
 
   // Log file read efficiency

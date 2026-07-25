@@ -1,12 +1,18 @@
 /**
  * Semantic Tool Clusters — groups tools by task domain.
  *
- * When agents call tools/list, we return ALL tools (MCP spec requires it)
- * but REORDER them so the most relevant cluster appears first. Agents
- * tend to use tools listed earlier — reordering is a soft adoption boost.
+ * OFF THE WIRE PATH since 2026-07. `proxy.ts` no longer reorders `tools/list`.
+ * The reorder was a function of this session's tool-call counts, so the
+ * serialized tool block — the front of the provider cache prefix — changed
+ * bytes after roughly the third call and re-billed the whole context. With a
+ * five-tool catalog the ordering boost was worth far less than one full-prefix
+ * rewrite. See `catalog-lock.ts`; re-wiring this into `tools/list` will be
+ * refused by the lock.
  *
- * Based on RAG-MCP research: presenting relevant subset first → 3x accuracy.
- * We can't filter (agents may need any tool) but we CAN prioritize.
+ * Original intent, for the record: return ALL tools (MCP spec requires it) but
+ * REORDER them so the most relevant cluster appears first, since agents tend to
+ * use tools listed earlier. Based on RAG-MCP research: presenting the relevant
+ * subset first → 3x accuracy.
  */
 
 export interface ToolCluster {

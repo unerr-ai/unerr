@@ -14,6 +14,7 @@ import {
   JUNIOR_AGENT_RELPATH,
   JUNIOR_MODEL,
   WORKER_AGENT_MD,
+  agentTierFromName,
   architectAgentPath,
   buildArchitectAgentMd,
   buildExpertAgentMd,
@@ -359,5 +360,29 @@ describe("three-tier model map (Issue 5 / D2)", () => {
     );
     // Legacy no-class call floors to the junior tier (back-compat).
     expect(subagentHandoff("codex")).toContain("gpt-5.4-mini");
+  });
+});
+
+describe("agentTierFromName (delegation call-mix counter)", () => {
+  it("maps Claude Code sub-agent names to their tier bucket", () => {
+    expect(agentTierFromName("unerr-junior")).toBe("junior");
+    expect(agentTierFromName("unerr-worker")).toBe("worker");
+    expect(agentTierFromName("unerr-architect")).toBe("architect");
+    expect(agentTierFromName("unerr-expert")).toBe("architect");
+  });
+
+  it("maps the bare cross-agent ModelTier strings", () => {
+    expect(agentTierFromName("junior")).toBe("junior");
+    expect(agentTierFromName("worker")).toBe("worker");
+  });
+
+  it("is case-insensitive and trims whitespace", () => {
+    expect(agentTierFromName("  Unerr-Worker  ")).toBe("worker");
+    expect(agentTierFromName("UNERR-JUNIOR")).toBe("junior");
+  });
+
+  it("buckets an unrecognized name as other instead of dropping it", () => {
+    expect(agentTierFromName("some-future-agent")).toBe("other");
+    expect(agentTierFromName("")).toBe("other");
   });
 });

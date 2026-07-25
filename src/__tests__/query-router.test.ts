@@ -253,9 +253,65 @@ describe("QueryRouter", () => {
       const router = new QueryRouter(localGraph);
 
       const raw = await router.executeRaw("search_code", { query: "fn1" });
-      // No detail/include_body → list search path (searchEntities mock → []).
-      expect(Array.isArray(raw)).toBe(true);
+      // No detail/include_body → list search path, so get_entity is NOT called.
+      // The mock graph indexes nothing (searchEntities → [], substring db.run →
+      // no rows), so the list path returns an actionable no-match hint instead
+      // of a bare empty array — never a get_entity resolve.
       expect(localGraph.getEntity).not.toHaveBeenCalled();
+      const noMatch = raw as { matched?: boolean; _hint?: string };
+      expect(noMatch.matched).toBe(false);
+      expect(noMatch._hint).toContain("search_code({mode:'literal'");
+    });
+
+    // BUG-2 relevance floor: an IDF token miss that still has a name substring
+    // in the index must recover the real entity, not return an empty array.
+    it("search_code recovers a name-substring near-match when the token search misses", async () => {
+      const localGraph = createMockLocalGraph();
+      (localGraph.searchEntities as ReturnType<typeof vi.fn>).mockReturnValue(
+        []
+      );
+      // Floor-free substring pass finds the entity the tokenizer split apart
+      // ("usercontroller" vs "UserController").
+      (localGraph.db.run as ReturnType<typeof vi.fn>).mockImplementation(
+        async (q: string) => {
+          if (q.includes("str_includes")) {
+            return {
+              rows: [["uc1", "UserController", "class", "src/user.ts", 7]],
+            };
+          }
+          return { rows: [] };
+        }
+      );
+      const router = new QueryRouter(localGraph);
+
+      const raw = (await router.executeRaw("search_code", {
+        query: "usercontroller",
+      })) as unknown[];
+      expect(Array.isArray(raw)).toBe(true);
+      expect(raw.length).toBe(1);
+      expect((raw[0] as { name: string }).name).toBe("UserController");
+    });
+
+    // BUG-1 undershoot: a lifted token_budget must widen the upstream fetch so
+    // the wire cap has enough rows to fill the budget; default stays lean and an
+    // explicit limit always wins.
+    it("a lifted token_budget widens the upstream search fetch", async () => {
+      const localGraph = createMockLocalGraph();
+      const se = localGraph.searchEntities as ReturnType<typeof vi.fn>;
+      se.mockReturnValue([]);
+      const router = new QueryRouter(localGraph);
+
+      await router.executeRaw("search_code", { query: "fn1" });
+      expect(se).toHaveBeenLastCalledWith("fn1", 20);
+
+      await router.executeRaw("search_code", {
+        query: "fn1",
+        token_budget: 8000,
+      });
+      expect(se).toHaveBeenLastCalledWith("fn1", 50);
+
+      await router.executeRaw("search_code", { query: "fn1", limit: 5 });
+      expect(se).toHaveBeenLastCalledWith("fn1", 5);
     });
 
     it("returns error when local fails (no cloud fallback)", async () => {

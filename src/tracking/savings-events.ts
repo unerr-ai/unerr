@@ -14,7 +14,11 @@
  *
  */
 
-import type { BehaviorEventInput } from "./behavior-events.js";
+import {
+  type DelegationAgentTier,
+  agentTierFromName,
+} from "../skills/subagent-manager.js";
+import type { BehaviorEvent, BehaviorEventInput } from "./behavior-events.js";
 
 /** The four buckets every savings event falls into. */
 export type SavingsEventCategory =
@@ -168,6 +172,7 @@ export function emitDelegationSavings(
   if (
     emitSavingsEvent(sink, "harness_subagent_model", {
       ...base,
+      tier,
       note: `tier=${tier} class=${delegable_class}`,
     })
   )
@@ -175,6 +180,7 @@ export function emitDelegationSavings(
   if (
     emitSavingsEvent(sink, "delegated_to_junior", {
       ...base,
+      tier,
       note: `${delegable_class} → ${tier} tier`,
     })
   )
@@ -247,4 +253,34 @@ export function emitBatchCallSavings(
     roundtrips_saved: Math.max(0, opts.targets - 1),
     note: `${opts.targets} targets in one call`,
   });
+}
+
+/**
+ * Per-session delegation call-mix — how many `harness_subagent_model` routing
+ * rows (one per delegation `emitDelegationSavings` observed) fall into each
+ * {@link DelegationAgentTier}. Reads the existing `savings_event` rows already
+ * written by `emitDelegationSavings` — no new table, no new event kind. A
+ * session with no delegations yet returns all-zero counts; never throws.
+ *
+ * Only the cross-agent shell-exec handoff (`recordDelegationHandoff`) writes
+ * `harness_subagent_model` today, so `junior`/`worker` are the buckets that
+ * currently fill; `architect` stays 0 until a Claude-Code Task-tool spawn is
+ * itself observable and recorded through this same event.
+ */
+export function delegationTierCounts(
+  events: BehaviorEvent[]
+): Record<DelegationAgentTier, number> {
+  const counts: Record<DelegationAgentTier, number> = {
+    junior: 0,
+    worker: 0,
+    architect: 0,
+    other: 0,
+  };
+  for (const e of events) {
+    if (e.type !== "savings_event") continue;
+    const detail = e.detail as { kind?: string; tier?: string } | undefined;
+    if (detail?.kind !== "harness_subagent_model") continue;
+    counts[agentTierFromName(detail.tier ?? "")] += 1;
+  }
+  return counts;
 }

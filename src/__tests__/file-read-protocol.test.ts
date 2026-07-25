@@ -221,6 +221,98 @@ describe("runFileReadForRouter", () => {
     expect(r._layer6_meta?.optimization ?? "").not.toContain("· entity");
   });
 
+  it("graphReady:false — serves AST-resolved bytes + indexing note, never touches the graph", async () => {
+    const dir = makeTmpDir("not-ready");
+    writeFileSync(
+      join(dir, "svc.ts"),
+      "// head\nexport function mainFn(): void {\n  return;\n}\n",
+      "utf-8"
+    );
+
+    // Any graph access while the graph is not ready is a bug — the whole point
+    // is that file_read never awaits the busy graph during the initial index.
+    const throwingGraph = {
+      async getEntitiesByFile() {
+        throw new Error("graph touched while not ready");
+      },
+      async getCallersOf() {
+        throw new Error("graph touched while not ready");
+      },
+    } as unknown as CozoGraphStore;
+
+    const r = await runFileReadForRouter(
+      { file_path: "svc.ts", entity: "mainFn" },
+      { cwd: dir, graph: throwingGraph, graphReady: false }
+    );
+
+    const body = r.content as string;
+    // Entity still resolved from the file's own AST — bytes served immediately.
+    expect(body).toContain("mainFn");
+    // No cross-file callers block (needs the published graph).
+    expect(body).not.toContain("callers (");
+    // One-line note explains why the callers block is absent.
+    expect(r._layer6_meta?._hint ?? "").toContain("indexing");
+  });
+
+  it("graphReady:true — enriches with the callers block (gate is a no-op for a ready graph)", async () => {
+    const dir = makeTmpDir("ready-gate");
+    writeFileSync(
+      join(dir, "svc.ts"),
+      "// head\nexport function mainFn(): void {\n  return;\n}\n",
+      "utf-8"
+    );
+
+    const fakeGraph = {
+      async getEntitiesByFile() {
+        return [
+          {
+            key: "e:mainFn",
+            kind: "function",
+            name: "mainFn",
+            file_path: "svc.ts",
+            start_line: 2,
+            end_line: 4,
+            signature: "()",
+            body: "export function mainFn(): void {\n  return;\n}",
+            fan_in: 1,
+            fan_out: 0,
+            risk_level: "normal",
+            community: 1,
+          },
+        ];
+      },
+      async getCallersOf() {
+        return [
+          {
+            key: "e:only",
+            kind: "function",
+            name: "onlyCaller",
+            file_path: "src/x.ts",
+            start_line: 1,
+            end_line: 3,
+            signature: "()",
+            body: "",
+            fan_in: 0,
+            fan_out: 1,
+            risk_level: "normal",
+            community: 1,
+          },
+        ];
+      },
+    } as unknown as CozoGraphStore;
+
+    const r = await runFileReadForRouter(
+      { file_path: "svc.ts", entity: "mainFn" },
+      { cwd: dir, graph: fakeGraph, graphReady: true }
+    );
+
+    const body = r.content as string;
+    expect(body).toContain("callers (1):");
+    expect(body).toContain("  src/x.ts  onlyCaller");
+    // No indexing note when the graph is ready.
+    expect(r._layer6_meta?._hint ?? "").not.toContain("indexing");
+  });
+
   it("entity mode with zero callers prints callers (0): with no rows", async () => {
     const dir = makeTmpDir("callers-zero");
     writeFileSync(
@@ -615,5 +707,186 @@ describe("elideCommentLines (SC-E.2)", () => {
     // (not a comment-only line → fidelity wins).
     expect(elided).toBe(0);
     expect(lines).toEqual(input);
+  });
+});
+
+// ─── Relevance-ranked whole-file overflow ───────────────────────────────────
+// The overflow path used to serve the FIRST N lines (head-truncation). It now
+// serves the top entity spans by graph importance, byte-exact. These pin the
+// three invariants: (a) under budget → byte-identical full file, no ranking;
+// (b) over budget → high-importance span verbatim, trivial one deferred;
+// (c) the deferred remainder stays reachable via the footer's offset/limit.
+
+/** 300-line file: a trivial leaf at lines 2-6, a high-importance hub at 250-260,
+ *  filler everywhere else. Head-truncation (lines 1..N) would show the leaf and
+ *  miss the hub; ranking must do the opposite. Returns the exact source lines so
+ *  tests can assert byte-for-byte delivery. */
+function makeRankedOverflowFile(dir: string): {
+  hubLine250: string;
+  fakeGraph: CozoGraphStore;
+} {
+  const fileLines = Array.from(
+    { length: 300 },
+    (_, i) => `const filler_${i + 1} = ${i + 1};`
+  );
+  // trivialLeaf → lines 2-6 (indices 1-5)
+  fileLines[1] = "function trivialLeaf() { // TRIVIAL_LEAF_MARKER";
+  fileLines[2] = "  return 1; // TRIVIAL_LEAF_MARKER";
+  fileLines[3] = "  // leaf body";
+  fileLines[4] = "  return 1;";
+  fileLines[5] = "}";
+  // criticalHub → lines 250-260 (indices 249-259)
+  fileLines[249] = "function criticalHub() { // CRITICAL_HUB_BODY_MARKER";
+  for (let k = 250; k <= 258; k++) {
+    fileLines[k] =
+      `  const hub_${k + 1} = ${k + 1}; // CRITICAL_HUB_BODY_MARKER`;
+  }
+  fileLines[259] = "}";
+  writeFileSync(join(dir, "big.ts"), fileLines.join("\n"), "utf-8");
+
+  const fakeGraph = {
+    async getEntitiesByFile() {
+      return [
+        {
+          key: "e:trivial",
+          kind: "function",
+          name: "trivialLeaf",
+          file_path: "big.ts",
+          start_line: 2,
+          end_line: 6,
+          signature: "()",
+          body: "",
+          fan_in: 0,
+          fan_out: 0,
+          risk_level: "normal",
+          community: 1,
+        },
+        {
+          key: "e:hub",
+          kind: "function",
+          name: "criticalHub",
+          file_path: "big.ts",
+          start_line: 250,
+          end_line: 260,
+          signature: "()",
+          body: "",
+          fan_in: 40,
+          fan_out: 5,
+          risk_level: "high",
+          community: 1,
+        },
+      ];
+    },
+  } as unknown as CozoGraphStore;
+
+  // Line 250 is index 249 — the exact source string the delivery must reproduce.
+  return { hubLine250: fileLines[249] as string, fakeGraph };
+}
+
+describe("runFileReadForRouter — relevance-ranked overflow", () => {
+  it("file UNDER budget → full file, byte-identical to a graph-less read (no ranking, graph untouched)", async () => {
+    const dir = makeTmpDir("rank-under");
+    const content = Array.from(
+      { length: 8 },
+      (_, i) => `const v${i} = ${i};`
+    ).join("\n");
+    writeFileSync(join(dir, "small.ts"), content, "utf-8");
+
+    // If ranking engaged on an under-budget file it would touch the graph — this
+    // throws to prove it does not.
+    const throwIfTouched = {
+      async getEntitiesByFile() {
+        throw new Error("graph touched for an under-budget read");
+      },
+    } as unknown as CozoGraphStore;
+
+    const withGraph = await runFileReadForRouter(
+      { file_path: "small.ts" },
+      { cwd: dir, graph: throwIfTouched, graphReady: true }
+    );
+    const withoutGraph = await runFileReadForRouter(
+      { file_path: "small.ts" },
+      { cwd: dir, graph: null }
+    );
+
+    expect(withGraph.content).toBe(withoutGraph.content);
+    expect(withGraph.content as string).not.toContain("load-bearing");
+  });
+
+  it("file OVER budget → top graph-importance span delivered verbatim; a trivial entity is deferred", async () => {
+    const dir = makeTmpDir("rank-over");
+    const { hubLine250, fakeGraph } = makeRankedOverflowFile(dir);
+
+    // token_budget 300 → budgetLines = (300*4)/80 = 15. The hub (11 lines) fits;
+    // adding the leaf (5 lines) would exceed 15, so the leaf is dropped.
+    const r = await runFileReadForRouter(
+      { file_path: "big.ts", token_budget: 300 },
+      { cwd: dir, graph: fakeGraph, graphReady: true }
+    );
+    const body = r.content as string;
+
+    // High-importance hub delivered — and byte-exact (line number + source line).
+    expect(body).toContain("CRITICAL_HUB_BODY_MARKER");
+    expect(body).toContain(`250\t${hubLine250}`);
+    // Trivial leaf deferred, not in any delivered span.
+    expect(body).not.toContain("TRIVIAL_LEAF_MARKER");
+    // Recovery pointer: concrete offset/limit + outline, names the tool.
+    expect(body).toMatch(
+      /file_read\(\{file_path:'big\.ts', offset:\d+, limit:\d+\}\)/
+    );
+    expect(body).toContain("outline:true");
+    // Meta records the ranked path.
+    expect(r._layer6_meta?.optimization ?? "").toContain("relevance-ranked");
+    // Stayed within budget: delivered code lines ≤ budgetLines (15).
+    const codeLines = body.split("\n").filter((l) => /^\d+\t/.test(l));
+    expect(codeLines.length).toBeLessThanOrEqual(15);
+  });
+
+  it("deferred remainder is retrievable via the footer's offset/limit pointer", async () => {
+    const dir = makeTmpDir("rank-recover");
+    const { fakeGraph } = makeRankedOverflowFile(dir);
+
+    const r = await runFileReadForRouter(
+      { file_path: "big.ts", token_budget: 300 },
+      { cwd: dir, graph: fakeGraph, graphReady: true }
+    );
+    const body = r.content as string;
+
+    const m = body.match(/offset:(\d+), limit:(\d+)/);
+    expect(m).not.toBeNull();
+    const offset = Number((m as RegExpMatchArray)[1]);
+    const limit = Number((m as RegExpMatchArray)[2]);
+    // First omitted range is lines 1-249 (before the hub span at 250).
+    expect(offset).toBe(1);
+    expect(limit).toBe(249);
+
+    const follow = await runFileReadForRouter(
+      { file_path: "big.ts", offset, limit },
+      { cwd: dir, graph: fakeGraph, graphReady: true }
+    );
+    const followBody = follow.content as string;
+    // The deferred trivial leaf lives in that omitted range → now retrieved.
+    expect(followBody).toContain("TRIVIAL_LEAF_MARKER");
+  });
+
+  it("graph present but no entities for the file → falls back to naive head-truncation footer", async () => {
+    const dir = makeTmpDir("rank-noentities");
+    const content = Array.from({ length: 205 }, () => "x").join("\n");
+    writeFileSync(join(dir, "plain.ts"), content, "utf-8");
+
+    const emptyGraph = {
+      async getEntitiesByFile() {
+        return [];
+      },
+    } as unknown as CozoGraphStore;
+
+    const r = await runFileReadForRouter(
+      { file_path: "plain.ts" },
+      { cwd: dir, graph: emptyGraph, graphReady: true }
+    );
+    // No rankable entities → the existing naive footer, unchanged.
+    expect(r.content as string).toContain(
+      "(file has 205 lines; use offset/limit for more, outline:true for structure)"
+    );
   });
 });

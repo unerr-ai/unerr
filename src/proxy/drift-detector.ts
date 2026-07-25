@@ -92,18 +92,55 @@ function extractGrepPattern(tail: string): string | undefined {
   return undefined;
 }
 
+// Matches an output-redirect operator prefix: `>`, `>>`, `>|`, and the
+// fd/stream-prefixed variants `1>`, `2>`, `&>` (and their `>>` forms). A
+// token is a BARE operator when the whole token is this match (e.g. `>`,
+// `2>>`); it's a GLUED operator+target when the token has more chars after
+// the match (e.g. `>build.py`, `2>err.log`).
+const REDIRECT_OP_RE = /^(?:[0-9]|&)?>{1,2}\|?/;
+
 /**
  * Extract the file path from a code-read command. Prefers a token that looks
  * like a code file so `sed -n '1,5p' a.ts` / `awk 'NR<5' a.ts` resolve to the
  * path, not the inline script; falls back to the first non-flag token.
+ *
+ * A token that is the TARGET of an output redirect (`>`, `>>`, `1>`, `2>`,
+ * `&>`, `>|` — separate or glued to the path, e.g. `> out.py` / `>out.py`)
+ * is never returned: `cat > build.py << 'EOF'` WRITES build.py, it doesn't
+ * read it, so it must not trigger the "use file_read" nudge.
  */
 function extractReadPath(tail: string): string | undefined {
   const parts = tail.match(/(?:"[^"]*"|'[^']*'|\S+)/g) ?? [];
+
+  let skipNext = false;
   for (const p of parts) {
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    const m = p.match(REDIRECT_OP_RE);
+    if (m) {
+      // Bare operator (whole token is just `>` / `>>` / etc.) — the NEXT
+      // token is its target, skip that too. Glued (`>build.py`) already
+      // carries the target inside this one token — skip only this token.
+      if (m[0] === p) skipNext = true;
+      continue;
+    }
     const unq = p.replace(/^['"]|['"]$/g, "");
     if (!unq.startsWith("-") && CODE_EXTENSIONS_RE.test(unq)) return unq;
   }
+
+  skipNext = false;
   for (const p of parts) {
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    const m = p.match(REDIRECT_OP_RE);
+    if (m) {
+      if (m[0] === p) skipNext = true;
+      continue;
+    }
     if (p.startsWith("-")) continue;
     return p.replace(/^['"]|['"]$/g, "");
   }

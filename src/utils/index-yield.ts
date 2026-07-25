@@ -16,6 +16,19 @@ import { performance } from "node:perf_hooks";
  *  the Node guidance targets for a responsive loop. */
 export const DEFAULT_YIELD_BUDGET_MS = 50;
 
+/**
+ * How many trivial inner-loop iterations to run between clock checks in the
+ * finalize phases (resolveEdges / computeDerivedFields / resolveTestEdges /
+ * computeCoChangeEdges). {@link maybeYield} is `async`, so `await maybeYield(gate)`
+ * costs a microtask on every call even when it decides NOT to yield. Awaiting it
+ * once per element over a 1M-edge set would add tens of ms of pure microtask
+ * overhead. A cheap `i % YIELD_CHECK_STRIDE` gate keeps that overhead negligible
+ * while still bounding the main-loop stall to one `budgetMs` window — STRIDE
+ * trivial map/set ops run in well under 1ms, far below the 50ms budget, so the
+ * clock is still sampled long before the budget is exceeded.
+ */
+export const YIELD_CHECK_STRIDE = 4096;
+
 export interface YieldGate {
   /** `performance.now()` timestamp of the last yield (or gate creation). */
   last: number;

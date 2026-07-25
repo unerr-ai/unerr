@@ -24,7 +24,12 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
 import { loadSettings } from "../config/settings.js";
 import { formatUnknownError } from "../utils/format-error.js";
-import { createYieldGate, maybeYield } from "../utils/index-yield.js";
+import {
+  YIELD_CHECK_STRIDE,
+  type YieldGate,
+  createYieldGate,
+  maybeYield,
+} from "../utils/index-yield.js";
 import {
   EXTRACTOR_VERSION,
   type ExtractedEdge,
@@ -438,13 +443,14 @@ export async function indexLocalProject(
     phase: "resolving",
     currentFile: null,
   });
-  const entityByName = buildEntityNameIndex(allEntities);
-  const { edges: resolvedEdges, fileImportEdges } = resolveEdges(
+  const entityByName = await buildEntityNameIndex(allEntities, yieldGate);
+  const { edges: resolvedEdges, fileImportEdges } = await resolveEdges(
     allRawEdges,
     entityByName,
     allEntities,
     repoId,
-    fileEntityMap
+    fileEntityMap,
+    yieldGate
   );
 
   // Phase 4.5: SCIP enrichment (inline — adds cross-file edges tree-sitter missed)
@@ -496,13 +502,14 @@ export async function indexLocalProject(
   }
 
   // Phase 5: Compute fan_in, fan_out, risk_level
-  computeDerivedFields(allEntities, resolvedEdges);
+  await computeDerivedFields(allEntities, resolvedEdges, yieldGate);
 
   // Phase 5.1: R.11 — Create "tests" edges (test entity → source entity it exercises)
-  const testEdges = resolveTestEdges(
+  const testEdges = await resolveTestEdges(
     allEntities,
     resolvedEdges,
-    fileImportEdges
+    fileImportEdges,
+    yieldGate
   );
   if (testEdges.length > 0) {
     resolvedEdges.push(...testEdges);
@@ -510,7 +517,13 @@ export async function indexLocalProject(
   }
 
   // Phase 5.5: R.4 — Compute file→file co-change edges from git history
-  const coChangeEdges = computeCoChangeEdges(projectRoot);
+  const coChangeEdges = await computeCoChangeEdges(
+    projectRoot,
+    100,
+    20,
+    3,
+    yieldGate
+  );
   const coChangeCompactEdges: CompactEdge[] = coChangeEdges.map((e) => ({
     from_key: `file:${e.from_file}`,
     to_key: `file:${e.to_file}`,
@@ -963,11 +976,14 @@ export async function discoverSearchableFiles(
 // ── Phase 4: Cross-File Edge Resolution ──────────────────────────
 
 /** Build a name → entity key index for cross-file resolution. */
-function buildEntityNameIndex(
-  entities: CompactEntity[]
-): Map<string, CompactEntity[]> {
+async function buildEntityNameIndex(
+  entities: CompactEntity[],
+  gate: YieldGate
+): Promise<Map<string, CompactEntity[]>> {
   const index = new Map<string, CompactEntity[]>();
+  let ops = 0;
   for (const entity of entities) {
+    if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
     const baseName = entity.name.split(".").pop() ?? entity.name;
     const list = index.get(baseName) ?? [];
     list.push(entity);
@@ -990,13 +1006,14 @@ interface ResolveEdgesResult {
   fileImportEdges: CompactEdge[];
 }
 
-function resolveEdges(
+async function resolveEdges(
   rawEdges: TaggedEdge[],
   entityByName: Map<string, CompactEntity[]>,
   allEntities: CompactEntity[],
   repoId: string,
-  fileEntityMap: Map<string, ExtractedEntity[]>
-): ResolveEdgesResult {
+  fileEntityMap: Map<string, ExtractedEntity[]>,
+  gate: YieldGate
+): Promise<ResolveEdgesResult> {
   const resolved: CompactEdge[] = [];
   const seen = new Set<string>();
   // R.3: Track file→file import pairs for deduplication
@@ -1008,7 +1025,9 @@ function resolveEdges(
     if (entity.file_path) allFilePaths.add(entity.file_path);
   }
 
+  let ops = 0;
   for (const edge of rawEdges) {
+    if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
     // R.3 (all languages): file-level import edges → resolve to file→file
     if (
       edge.from_name === "__file__" &&
@@ -1349,18 +1368,25 @@ function pickBestTarget(
  * create a "tests" edge to each called source entity in the same file stem (subject file).
  * Falls back to all called non-test entities if no subject file match.
  */
-function resolveTestEdges(
+async function resolveTestEdges(
   entities: CompactEntity[],
   edges: CompactEdge[],
-  fileImportEdges: CompactEdge[] = []
-): CompactEdge[] {
+  fileImportEdges: CompactEdge[] = [],
+  gate: YieldGate = createYieldGate()
+): Promise<CompactEdge[]> {
   const testEdges: CompactEdge[] = [];
+  // Shared across every loop below so the yield budget spans the whole phase.
+  let ops = 0;
   const entityMap = new Map<string, CompactEntity>();
-  for (const e of entities) entityMap.set(e.key, e);
+  for (const e of entities) {
+    if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
+    entityMap.set(e.key, e);
+  }
 
   // Build set of project files for subject resolution
   const projectFiles = new Set<string>();
   for (const e of entities) {
+    if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
     if (e.file_path) projectFiles.add(e.file_path);
   }
 
@@ -1371,6 +1397,7 @@ function resolveTestEdges(
   // Build outbound calls index: source_key → Set<target_key>
   const callsFrom = new Map<string, Set<string>>();
   for (const edge of edges) {
+    if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
     if (edge.type === "calls") {
       let targets = callsFrom.get(edge.from_key);
       if (!targets) {
@@ -1384,6 +1411,7 @@ function resolveTestEdges(
   // Build file→file import index from file-level import edges (file:A → file:B)
   const fileImportsFrom = new Map<string, Set<string>>(); // file → Set<imported file>
   for (const edge of fileImportEdges) {
+    if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
     if (edge.type === "imports" && edge.from_key.startsWith("file:")) {
       const fromFile = edge.from_key.slice(5); // strip "file:" prefix
       const toFile = edge.to_key.startsWith("file:")
@@ -1401,6 +1429,7 @@ function resolveTestEdges(
   // Build file → non-test entities index for import-based fallback
   const sourceEntitiesByFile = new Map<string, CompactEntity[]>();
   for (const e of entities) {
+    if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
     if (e.is_test || !e.file_path) continue;
     const list = sourceEntitiesByFile.get(e.file_path) ?? [];
     list.push(e);
@@ -1425,6 +1454,7 @@ function resolveTestEdges(
     if (!targets) continue;
 
     for (const targetKey of targets) {
+      if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
       const target = entityMap.get(targetKey);
       // Only create tests edge to non-test entities
       if (!target || target.is_test) continue;
@@ -1456,6 +1486,7 @@ function resolveTestEdges(
     if (!representative) continue;
 
     for (const targetKey of fileTargets) {
+      if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
       const target = entityMap.get(targetKey);
       if (!target || target.is_test) continue;
 
@@ -1491,6 +1522,7 @@ function resolveTestEdges(
       // Create "tests" edges to top-level entities in the imported source file
       // (filter to classes/functions — skip internal types/interfaces for cleaner graph)
       for (const srcEnt of sourceEnts) {
+        if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
         if (srcEnt.kind === "type" || srcEnt.kind === "interface") continue;
         const edgeKey = `${representative.key}→${srcEnt.key}`;
         if (seen.has(edgeKey)) continue;
@@ -1510,20 +1542,34 @@ function resolveTestEdges(
 
 // ── Phase 5: Derived Fields ──────────────────────────────────────
 
-/** Compute fan_in, fan_out, and risk_level for all entities. */
-function computeDerivedFields(
+/**
+ * Compute fan_in, fan_out, and risk_level for all entities.
+ *
+ * Exported so the finalize-yield regression test can drive it directly over a
+ * synthetic entity/edge set with a low-budget gate. Both hot loops (over edges,
+ * over entities) hand control back to the event loop every YIELD_CHECK_STRIDE
+ * iterations so a mid-finalize MCP request is dispatched within one budget
+ * window instead of after the whole phase. `gate` defaults to a fresh gate so
+ * standalone callers keep the same output; `indexLocalProject` passes the shared
+ * gate that spans every finalize phase.
+ */
+export async function computeDerivedFields(
   entities: CompactEntity[],
-  edges: CompactEdge[]
-): void {
+  edges: CompactEdge[],
+  gate: YieldGate = createYieldGate()
+): Promise<void> {
   const fanInMap = new Map<string, number>();
   const fanOutMap = new Map<string, number>();
 
+  let ops = 0;
   for (const edge of edges) {
+    if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
     fanOutMap.set(edge.from_key, (fanOutMap.get(edge.from_key) ?? 0) + 1);
     fanInMap.set(edge.to_key, (fanInMap.get(edge.to_key) ?? 0) + 1);
   }
 
   for (const entity of entities) {
+    if (++ops % YIELD_CHECK_STRIDE === 0) await maybeYield(gate);
     entity.fan_in = fanInMap.get(entity.key) ?? 0;
     entity.fan_out = fanOutMap.get(entity.key) ?? 0;
     entity.risk_level = computeRiskLevel(entity.fan_in, entity.fan_out);

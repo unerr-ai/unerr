@@ -1176,6 +1176,55 @@ interface FetchHtmlOptions {
 }
 
 /**
+ * Extra grace over a single attempt's per-attempt timeout before the hard
+ * wall-clock race trips. Gives fetchHtmlOnce's own AbortController first chance
+ * to end the request and surface its real error; the hard race is the backstop
+ * for the case that abort CANNOT — a stalled DNS/connect syscall (getaddrinfo
+ * runs in the libuv threadpool and is not interruptible mid-flight).
+ */
+const ATTEMPT_HARD_GRACE_MS = 500;
+
+/** Thrown by {@link raceAttempt} when a single fetch attempt blew its hard
+ *  wall-clock ceiling — i.e. the AbortController fired but the underlying
+ *  request did not unwind. Treated as a retryable timeout by the fetchHtml
+ *  loop, so the total deadline (checked each iteration) still bounds the call. */
+class AttemptStalledError extends Error {
+  constructor(public timeoutMs: number) {
+    super(
+      `fetch attempt exceeded ${Math.round(timeoutMs / 1000)}s hard ceiling — abort did not interrupt the request`
+    );
+    this.name = "AttemptStalledError";
+  }
+}
+
+/**
+ * Hard wall-clock ceiling on a single in-flight fetch attempt.
+ *
+ * fetchHtml checks `totalDeadlineMs` only BETWEEN attempts, so a single
+ * `fetch()` whose AbortController fails to interrupt a stalled DNS/connect
+ * syscall can blow far past the ceiling (observed ~960s against an unreachable
+ * host in an offline sandbox). Racing the attempt against `ms` guarantees
+ * control returns to the loop, which then re-checks the total deadline and
+ * fails with a typed `FetchDeadlineExceededError`. The abandoned request settles
+ * whenever the syscall finally returns; the timer is `unref`'d + cleared so it
+ * never keeps the process alive nor leaks.
+ */
+async function raceAttempt<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race<T>([
+      p,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new AttemptStalledError(ms)), ms);
+        if (typeof timer.unref === "function") timer.unref();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
  * Drive the network fetch with exponential per-attempt timeouts capped by a
  * total wall-clock deadline. First attempt waits up to `baseTimeoutMs`; each
  * subsequent attempt doubles, clamped by remaining budget. When the total
@@ -1220,7 +1269,13 @@ async function fetchHtml(
     );
     const attemptStartedAt = Date.now();
     try {
-      return await fetchHtmlOnce(url, opts, perAttemptMs);
+      // Hard-race the attempt so a syscall that ignores its AbortController
+      // cannot exceed the per-attempt slot — this is what makes totalDeadlineMs
+      // actually hold when abort fails to interrupt a stalled DNS/connect.
+      return await raceAttempt(
+        fetchHtmlOnce(url, opts, perAttemptMs),
+        perAttemptMs + ATTEMPT_HARD_GRACE_MS
+      );
     } catch (e) {
       lastError = e;
       if (opts.abortSignal?.aborted) throw e;
@@ -1230,14 +1285,17 @@ async function fetchHtml(
       if (fetchErrorCode(e) === "ENOTFOUND") {
         throw new DnsNotFoundError(url, e);
       }
-      if (!isRetryableFetchError(e)) throw e;
+      // A stalled attempt (abort ignored) is a retryable timeout — the total
+      // deadline re-check at the top of the loop bounds the overall call.
+      const stalled = e instanceof AttemptStalledError;
+      if (!stalled && !isRetryableFetchError(e)) throw e;
       // A timeout-bound failure consumed its whole attempt slot — the next
       // attempt's doubled timeout IS the backoff, no sleep needed. A FAST
       // failure (connection refused/reset in ms) would otherwise tight-loop;
       // sleep an exponential backoff clamped to the slot it didn't use.
       const attemptElapsed = Date.now() - attemptStartedAt;
       const unusedSlotMs = perAttemptMs - attemptElapsed;
-      if (unusedSlotMs > 0) {
+      if (!stalled && unusedSlotMs > 0) {
         const backoffMs = Math.min(250 * 2 ** attempt, unusedSlotMs);
         await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
       }

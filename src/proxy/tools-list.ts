@@ -1,6 +1,16 @@
 /**
  * Per-session `tools/list` view.
  *
+ * OFF THE WIRE PATH since 2026-07. `proxy.ts` no longer calls this: the
+ * advertised catalog is pinned by `catalog-lock.ts` so the serialized tool
+ * block never changes bytes mid-session. Swapping `get_references` between its
+ * locked placeholder and its active text on unlock was one of the two live
+ * mutations that pinning removed. The gateway still gates DISPATCH — a locked
+ * tool is soft-refused when called — so tier enforcement is unchanged; only the
+ * advertised description stopped moving. Retained (with its tests) as the
+ * renderer to reach for if a per-exposure view is ever needed off the cache
+ * prefix; re-wiring it into `tools/list` will be refused by the lock.
+ *
  * Every MCP session sees the same set of tool *names* in `tools/list`,
  * but tier-2/3 tools that have not yet unlocked carry their short
  * `locked` description (≤ 30 tokens) in place of the full active text.

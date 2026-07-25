@@ -7,6 +7,9 @@ set -euo pipefail
 
 ARM="${ARM:-unerr}"
 TASK="${TASK:-terminal-bench/build-pmars}"
+# TASKS = space-separated task ids -> one -i per id (harbor's -i is repeatable).
+# Set it to run a subset; leave empty to fall back to the single TASK above.
+TASKS="${TASKS:-}"
 DATASET="${DATASET:-terminal-bench/terminal-bench-2-1}"
 MODEL="${MODEL:-claude-opus-4-8}"
 # FULL=1 drops the -i single-task filter and runs the whole dataset.
@@ -37,13 +40,19 @@ fi
 ARGS=(-d "$DATASET" -a ab_agent:MinimalUnerrAgent
       -m "$MODEL" --ak "unerr_main_model=$MODEL"
       -e daytona -n "$N" -k "$K" -o "$OUT")
-[ "$FULL" = "1" ] || ARGS+=(-i "$TASK")
+if [ "$FULL" != "1" ]; then
+  if [ -n "$TASKS" ]; then
+    for t in $TASKS; do ARGS+=(-i "$t"); done
+  else
+    ARGS+=(-i "$TASK")
+  fi
+fi
 case "$UPLOAD" in
   private) ARGS+=(--upload --private) ;;
   public)  ARGS+=(--upload --public) ;;
 esac
 
 echo "[run_arm] arm=$ARM model=$MODEL n=$N k=$K upload=$UPLOAD out=$OUT ctx=${UNERR_CONTEXT_DIR:-<none>}"
-echo "[run_arm] scope=$([ "$FULL" = "1" ] && echo "FULL $DATASET" || echo "$TASK")"
+echo "[run_arm] scope=$([ "$FULL" = "1" ] && echo "FULL $DATASET" || echo "${TASKS:-$TASK}")"
 cd "$AB_DIR"
 exec harbor run "${ARGS[@]}"

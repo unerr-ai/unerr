@@ -174,8 +174,15 @@ function capChars(text: string): string {
   return `${text.slice(0, CHAR_HEAD)}\n… ${omitted} chars omitted …\n${text.slice(-CHAR_TAIL)}`;
 }
 
-/** Universal catch-all compression. Format-agnostic, safe on any text. */
-export function compressOmni(raw: string): string {
+/**
+ * Universal catch-all compression. Format-agnostic, safe on any text.
+ * `allowReorder` (default true) gates Tier 2 (pattern-dedup) — merging
+ * non-consecutive lines by normalized pattern changes line ORDER and drops
+ * instances, which destroys verbatim edit anchors when the raw input was a
+ * file dump. Order-preserving tiers (blank-run collapse, consecutive-dedup,
+ * truncate, char cap) always run.
+ */
+export function compressOmni(raw: string, allowReorder = true): string {
   const lines = raw.replace(/\r\n/g, "\n").split("\n");
   const originalCount = lines.length;
 
@@ -187,7 +194,7 @@ export function compressOmni(raw: string): string {
 
   const normalized = normalize(lines);
   // Try pattern dedup first (more aggressive, non-consecutive)
-  const patternDeduped = patternDedup(normalized);
+  const patternDeduped = allowReorder ? patternDedup(normalized) : normalized;
   // Then consecutive dedup on whatever remains
   const deduped = consecutiveDedup(patternDeduped);
   const truncated = truncate(deduped);

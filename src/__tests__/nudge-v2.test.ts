@@ -229,6 +229,40 @@ describe("isDriftCommand — TRUE NEGATIVES (must NOT nudge)", () => {
   });
 });
 
+// Regression: `cat > file.py << 'EOF'` WRITES file.py via heredoc — it does
+// not read it. extractReadPath previously returned the redirect TARGET as
+// though it were a read path, so the "use file_read, do not cat code files"
+// nudge fired on a command that was creating a code file, not reading one.
+describe("isDriftCommand — code_read must not fire on write redirects", () => {
+  it("leaves a heredoc write via `cat > file.py << EOF` alone (live regression)", () => {
+    expect(isDriftCommand("cat > /app/build_bn.py << 'EOF'")).toBeNull();
+  });
+
+  it("leaves an append write via `cat >> file.py` alone", () => {
+    expect(isDriftCommand("cat >> src/app.py")).toBeNull();
+  });
+
+  it("leaves a glued write via `cat >file.py` (no space) alone", () => {
+    expect(isDriftCommand("cat >build_bn.py")).toBeNull();
+  });
+
+  it("still flags cat when a code file is genuinely read despite a later redirect", () => {
+    const h = isDriftCommand("cat file.py > /tmp/out.txt");
+    expect(h?.kind).toBe("code_read");
+    expect(h?.arg).toBe("file.py");
+  });
+
+  it("still flags a plain code read (unchanged behavior)", () => {
+    const h = isDriftCommand("cat src/proxy/proxy.ts");
+    expect(h?.kind).toBe("code_read");
+    expect(h?.arg).toBe("src/proxy/proxy.ts");
+  });
+
+  it("leaves a heredoc write via `cat << EOF > file.ts` alone", () => {
+    expect(isDriftCommand("cat << EOF > handler.ts")).toBeNull();
+  });
+});
+
 describe("formatDriftNudge — output shape", () => {
   it("produces a one-line nudge with the alternative", () => {
     // Post-trim format (table rows #1-4): drops the internal "drift(<kind>):
