@@ -77,6 +77,63 @@ calls are in the Claude session log:
 `…/agent/sessions/projects/-app/*.jsonl` (parse `message.usage` +
 `tool_use`/`tool_result`).
 
+## Leaderboard run (one public Harbor job)
+
+Different from the A/B here. The leaderboard is **one Harbor job**: 89 tasks ×
+≥5 trials, a single job UUID, one config, uploaded public. It runs the **full**
+agent (`harbor_agents:ClaudeUnerrAgent`), not the minimal A/B agent. Per-trial
+cloud sandboxes (`-e daytona`/`e2b`/`modal`) give the resource isolation the
+heavy tail needs while letting you raise concurrency safely.
+
+```bash
+harbor run \
+  -d terminal-bench/terminal-bench-2-1 \          # dataset (all 89 tasks)
+  -a harbor_agents:ClaudeUnerrAgent \             # full unerr agent (not the A/B minimal one)
+  -m claude-opus-4-8 \                            # model under test
+  --ak reasoning_effort=<none|low|medium|high> \  # agent kwarg (repeatable)
+  -e daytona \                                    # per-trial cloud sandbox
+  -k 5 \                                          # trials (attempts) per task — ≥5 REQUIRED
+  -n 10 \                                         # concurrency (concurrent trials)
+  --upload --public                               # push to Harbor Hub, world-viewable
+```
+
+Flag reference (from `harbor run --help`):
+
+| Flag | Meaning |
+|---|---|
+| `-d` | dataset id |
+| `-a` | agent (`module:Class`) |
+| `-m` | model |
+| `-i` | filter to ONE task id (the A/B runs use this, e.g. `terminal-bench/torch-tensor-parallelism`) |
+| `--ak` / `--agent-kwarg` | extra agent kwarg, repeatable (e.g. `reasoning_effort=high`, `unerr_main_model=claude-opus-4-8`) |
+| `-e` | environment / sandbox: `daytona`, `e2b`, `modal`, `local` |
+| `-k` / `--n-attempts` | **trials (attempts) per task** — ≥5 for the leaderboard (drives pass@k). Default 1 |
+| `-n` / `--n-concurrent` | **concurrency** — number of concurrent trials |
+| `-o` | jobs output dir |
+
+The A/B `run_arm.sh` here is deliberately `-k` unset (1 trial) and `-n 1` — a
+single-trial isolation test, NOT a leaderboard-valid run.
+
+## Upload / share results (Harbor Hub — external)
+
+Uploads the whole job dir (trajectories, session logs, token usage, config) to
+Harbor Hub. New uploads default to **private**.
+
+```bash
+# upload an existing run:
+harbor upload <JOB_DIR> --public                 # world-viewable link
+harbor upload <JOB_DIR> --share-user <github>    # keep private, share with one GitHub user
+harbor upload <JOB_DIR> --share-org <org> --yes  # share with an org (-y confirms non-member orgs)
+
+# or auto-upload when a run finishes:
+harbor run ... --upload --public                 # --public/--share-* require --upload
+```
+
+`--public`/`--private` set visibility; `--share-org` / `--share-user` are
+repeatable. **Before any `--public` upload, scan the job dir for a leaked
+`UNERR_TOKEN` / Anthropic / Daytona key or an `env` dump** — the run env carries
+live secrets, and public upload is world-readable and may be cached.
+
 ## Files
 
 | File | Purpose |

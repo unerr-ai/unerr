@@ -1,0 +1,49 @@
+# ab-daytona arm orchestrator image.
+#
+# This machine does NOT run the agent. It runs the HARBOR ORCHESTRATOR, which
+# provisions a remote Daytona sandbox per trial and drives `claude -p` inside
+# that sandbox over HTTP. So this image needs no Docker/DinD, no Node, no
+# browser — just Python + harbor + the daytona SDK + the A/B agent code.
+#
+# One arm per machine: ARM / MODEL / TASK(S) / N / K are read from env at
+# `flyctl machine run` time (see entrypoint.sh), so one image serves every arm.
+FROM python:3.12-slim-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git curl ca-certificates jq procps \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+
+# harbor orchestrator + daytona SDK, pinned to the versions the laptop harness
+# is known to work with (harbor 0.20.0, daytona 0.200.1). If pip can't satisfy
+# both together, drop the daytona pin — harbor pulls a compatible daytona itself.
+RUN python -m venv /work/.venv \
+ && /work/.venv/bin/pip install --no-cache-dir --upgrade pip \
+ && /work/.venv/bin/pip install --no-cache-dir harbor==0.20.0 daytona==0.200.1
+ENV PATH="/work/.venv/bin:$PATH"
+
+# Bake the default dataset so runtime doesn't re-download it every launch.
+# Public dataset — no Hub auth needed. Runtime re-downloads if DATASET differs.
+ARG DATASET=terminal-bench/terminal-bench-2-1
+RUN harbor dataset download "$DATASET" || true
+
+# Benchmark code: the minimal A/B agent, its harbor_agents dependency (copied
+# from unerr-terminal-bench/src — self-contained, stdlib+harbor only), the fresh
+# unerr tgz built on the laptop, plus the run entrypoint and cost summarizer.
+COPY ab-daytona/ab_agent.py        /work/ab-daytona/ab_agent.py
+COPY ab-daytona/vendor             /work/ab-daytona/vendor
+COPY bench-src/harbor_agents.py    /work/bench-src/harbor_agents.py
+COPY entrypoint.sh                 /work/entrypoint.sh
+COPY summarize.py                  /work/summarize.py
+RUN chmod +x /work/entrypoint.sh
+
+# harbor imports the agent module by `module:Class`, so both the agent dir and
+# its harbor_agents dependency must be on PYTHONPATH. UNERR_CONTEXT_DIR points
+# the agent at the tgz it ships into each Daytona sandbox.
+ENV PYTHONPATH="/work/bench-src:/work/ab-daytona" \
+    UNERR_CONTEXT_DIR="/work/ab-daytona/vendor"
+
+# No arm baked in. Launch with:
+#   flyctl machine run <img> --entrypoint /work/entrypoint.sh -e ARM=.. -e MODEL=.. -e TASKS=".."
+CMD ["bash","-lc","echo 'launch with --entrypoint /work/entrypoint.sh and -e ARM/MODEL/TASKS/N/K' >&2; exit 64"]

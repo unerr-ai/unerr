@@ -9,6 +9,12 @@ ARM="${ARM:-unerr}"
 TASK="${TASK:-terminal-bench/build-pmars}"
 DATASET="${DATASET:-terminal-bench/terminal-bench-2-1}"
 MODEL="${MODEL:-claude-opus-4-8}"
+# FULL=1 drops the -i single-task filter and runs the whole dataset.
+# N = concurrent trials, K = attempts per task, UPLOAD=private|public|0.
+FULL="${FULL:-0}"
+N="${N:-1}"
+K="${K:-1}"
+UPLOAD="${UPLOAD:-0}"
 
 AB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH_DIR="${BENCH_DIR:-$HOME/IdeaProjects/unerr-terminal-bench}"
@@ -28,13 +34,16 @@ else
   export UNERR_CONTEXT_DIR="$AB_DIR/vendor"
 fi
 
-echo "[run_arm] arm=$ARM task=$TASK model=$MODEL out=$OUT ctx=${UNERR_CONTEXT_DIR:-<none>}"
+ARGS=(-d "$DATASET" -a ab_agent:MinimalUnerrAgent
+      -m "$MODEL" --ak "unerr_main_model=$MODEL"
+      -e daytona -n "$N" -k "$K" -o "$OUT")
+[ "$FULL" = "1" ] || ARGS+=(-i "$TASK")
+case "$UPLOAD" in
+  private) ARGS+=(--upload --private) ;;
+  public)  ARGS+=(--upload --public) ;;
+esac
+
+echo "[run_arm] arm=$ARM model=$MODEL n=$N k=$K upload=$UPLOAD out=$OUT ctx=${UNERR_CONTEXT_DIR:-<none>}"
+echo "[run_arm] scope=$([ "$FULL" = "1" ] && echo "FULL $DATASET" || echo "$TASK")"
 cd "$AB_DIR"
-exec harbor run \
-  -d "$DATASET" \
-  -a ab_agent:MinimalUnerrAgent \
-  -m "$MODEL" --ak "unerr_main_model=$MODEL" \
-  -e daytona \
-  -i "$TASK" \
-  -n 1 \
-  -o "$OUT"
+exec harbor run "${ARGS[@]}"
