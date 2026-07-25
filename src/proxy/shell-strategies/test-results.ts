@@ -220,23 +220,33 @@ function parsePytest(lines: string[]): ParsedTestOutput {
     // pytest lists categories FAILED-first whenever a run has failures, so the
     // old passed-first regex silently missed the counts on every failing run —
     // the exact case the agent needs correct. Match the "<counts> in <duration>"
-    // shell, then pull each count independently of order. The " in <digit>"
-    // anchor keeps this off the "=== FAILURES ===" / "=== short test summary
-    // info ===" section separators (no " in <digit>" there).
-    const summaryMatch = line.match(/^=+\s*(.+?)\s+in\s+([0-9][^=]*?)\s*=+$/);
+    // shell, then pull each count independently of order.
+    //
+    // The "=" banner is OPTIONAL: pytest's default run decorates this line
+    // ("==== 1 failed, 2 passed in 0.04s ===="), but QUIET mode (`pytest -q` —
+    // the common terse invocation) prints it BARE ("1 failed, 2 passed in
+    // 0.02s") with no banner. A required "=+" silently missed the bare form and
+    // reported "pytest: 0 tests" on every `-q` run. The " in <digit>" anchor
+    // plus a required count keyword keep this off traceback frames
+    // ("File …, line 9, in test_x") and the "=== FAILURES ===" / "=== short
+    // test summary info ===" separators (neither has " in <digit>" + a count).
+    const summaryMatch = line.match(/^=*\s*(.+?)\s+in\s+([0-9][^=]*?)\s*=*$/);
     if (summaryMatch) {
       const body = summaryMatch[1]!;
       const p = body.match(/(\d+)\s+passed/);
       const f = body.match(/(\d+)\s+failed/);
       const e = body.match(/(\d+)\s+errors?/);
       const s = body.match(/(\d+)\s+skipped/);
-      if (p) passed = Number.parseInt(p[1]!, 10);
-      if (f) failed = Number.parseInt(f[1]!, 10);
-      if (e) failed += Number.parseInt(e[1]!, 10);
-      if (s) skipped = Number.parseInt(s[1]!, 10);
-      duration = summaryMatch[2]!;
-      summaryLines.push(line.trim());
-      continue;
+      const noTests = /no tests ran/i.test(body);
+      if (p || f || e || s || noTests) {
+        if (p) passed = Number.parseInt(p[1]!, 10);
+        if (f) failed = Number.parseInt(f[1]!, 10);
+        if (e) failed += Number.parseInt(e[1]!, 10);
+        if (s) skipped = Number.parseInt(s[1]!, 10);
+        duration = summaryMatch[2]!;
+        summaryLines.push(line.trim());
+        continue;
+      }
     }
     // Short test summary info section header
     if (/^=+\s*short test summary info\s*=+$/i.test(line)) {

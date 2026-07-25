@@ -306,6 +306,35 @@ describe("compressTestResults — real captured failure blocks", () => {
     expect(out).not.toContain("0 tests");
   });
 
+  // `pytest -q` (quiet, the common terse invocation) prints the summary line
+  // BARE — "1 failed, 2 passed in 0.02s" with no "=" banner. A required "=+"
+  // anchor missed it and reported "pytest: 0 tests" on every failing -q run.
+  // The failure block ("File …, in fn") must NOT be misread as a count line.
+  const PYTEST_FAIL_QUIET = [
+    "F..                                                                      [100%]",
+    "=================================== FAILURES ===================================",
+    "________________________________ test_broken __________________________________",
+    "",
+    "    def test_broken():",
+    "        result = 2 + 2",
+    ">       assert result == 5",
+    "E       assert 4 == 5",
+    "",
+    "tests/test_q.py:9: AssertionError",
+    "1 failed, 2 passed in 0.02s",
+  ].join("\n");
+
+  it("parses a BARE quiet-mode pytest summary (no = banner)", () => {
+    const out = compressTestResults(PYTEST_FAIL_QUIET, "pytest -q", 1);
+    expect(out).toContain("2 passed");
+    expect(out).toContain("1 failed");
+    expect(out).not.toContain("0 tests");
+    expect(out).toContain("0.02s"); // duration still pulled from the bare line
+    // failure detail still verbatim
+    expect(out).toContain("E       assert 4 == 5");
+    expect(out).toContain("tests/test_q.py:9: AssertionError");
+  });
+
   it("keeps the assertion and file:line BYTE-EXACT, drops passing noise", () => {
     const out = compressTestResults(PYTEST_FAIL, "pytest", 1);
     // Verbatim assertion + final frame — reproduced, never paraphrased.
