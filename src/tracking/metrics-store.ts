@@ -375,6 +375,13 @@ interface TranscriptCacheRow {
   model: string | null;
   tokens_input: number;
   tokens_output: number;
+  /** Tokens written into the prompt cache this turn. Billed at 2× base input on
+   *  the 1-hour TTL a subscription main conversation uses (1.25× on the 5-minute
+   *  TTL sub-agents get), so this is the cost of admitting content to context. */
+  tokens_cache_create: number;
+  /** Tokens served from the prompt cache this turn, billed at 0.1× base input.
+   *  Ratio against `tokens_cache_create` is the session's re-read amplification. */
+  tokens_cache_read: number;
   ts: string;
 }
 
@@ -557,6 +564,12 @@ export class MetricsStore {
         continue; // torn/corrupt line — skip
       }
       if (sessionFilter && row.session_id !== sessionFilter) continue;
+      // Lines written before cache accounting existed carry no cache counters.
+      // Normalize them to 0 so every returned row has the full numeric shape and
+      // callers never branch on undefined.
+      if (!Number.isFinite(row.tokens_cache_create))
+        row.tokens_cache_create = 0;
+      if (!Number.isFinite(row.tokens_cache_read)) row.tokens_cache_read = 0;
       // Last write wins: re-set the same key so the latest line supersedes.
       byKey.set(`${row.session_id} ${row.turn} ${row.role}`, row);
     }
@@ -582,6 +595,8 @@ export class MetricsStore {
     model: string | null;
     tokens_input: number;
     tokens_output: number;
+    tokens_cache_create: number;
+    tokens_cache_read: number;
     ts: string;
   }): void {
     try {
@@ -631,6 +646,8 @@ export class MetricsStore {
     model: string | null;
     tokens_input: number;
     tokens_output: number;
+    tokens_cache_create: number;
+    tokens_cache_read: number;
     ts: string;
   }> {
     return this.readTranscriptCache(session_id).map((r, i) => ({
@@ -655,6 +672,8 @@ export class MetricsStore {
     model: string | null;
     tokens_input: number;
     tokens_output: number;
+    tokens_cache_create: number;
+    tokens_cache_read: number;
     ts: string;
   }> {
     return this.readTranscriptCache(session_id)

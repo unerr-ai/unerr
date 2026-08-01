@@ -172,8 +172,9 @@ describe("persistence-pattern regression guard", () => {
     ) as { files: string[] };
     expect(pkg.files).toContain("!dist/__tests__/**");
     // The dashboard UI was archived to archive/ui and is no longer built or
-    // shipped: the only HTTP surface is unerrd's GET /api/pm (process info).
-    // No dist/ui entry may reappear in the tarball file list.
+    // shipped, and unerrd's HTTP API went with it — there is no HTTP surface
+    // left (see daemon-no-http-listener.test.ts). No dist/ui entry may reappear
+    // in the tarball file list.
     for (const entry of pkg.files) {
       expect(entry).not.toContain("dist/ui");
     }

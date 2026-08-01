@@ -1,9 +1,36 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { ReconRunner } from "../intelligence/recon.js";
 import {
   type UnerrContextDeps,
   handleUnerrContextProxy,
 } from "../proxy/unerr-context-handler.js";
+import { startupLog } from "../utils/startup-log.js";
+
+/**
+ * Lever 6 telemetry runs behind `if (process.env.VITEST) return` (never write
+ * real logs during the suite). To observe the emitted fields/events, these
+ * tests unset VITEST for the call and spy on `startupLog.fileOnly` instead of
+ * reading a real file — mirrors the pattern in edit-display-spool.test.ts. A
+ * real temp dir stands in for repoCwd so `initFileLog`'s mkdirSync has a real,
+ * cleaned-up target instead of littering /tmp.
+ */
+async function withRealTelemetry<T>(
+  fn: (repoCwd: string) => Promise<T>
+): Promise<T> {
+  const vitestEnv = process.env.VITEST;
+  // biome-ignore lint/performance/noDelete: must unset the env var — assigning undefined would set it to the string "undefined"
+  delete process.env.VITEST;
+  const dir = mkdtempSync(join(tmpdir(), "unerr-context-telemetry-"));
+  try {
+    return await fn(dir);
+  } finally {
+    process.env.VITEST = vitestEnv;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 /**
  * Fake graph runner returning the raw structured shapes `composeRecon` expects —
@@ -280,5 +307,102 @@ describe("handleUnerrContextProxy", () => {
     );
     expect(res.isError).toBeUndefined();
     expect(res.content[0]?.text).toContain("unerr recon");
+  });
+
+  // ── Lever 6: bundle_realized_bodies on recon_cli_served + the
+  // recon_focus_body_mismatch event (the W4 no-op this lever measures).
+  describe("Lever 6 instrumentation", () => {
+    it("records bundle_realized_bodies: 0 for a digest-mode (index-only) bundle", async () => {
+      await withRealTelemetry(async (repoCwd) => {
+        const spy = vi.spyOn(startupLog, "fileOnly");
+        try {
+          await handleUnerrContextProxy(
+            { prompt: "add a retry to fetchUser" },
+            baseDeps({ repoCwd })
+          );
+          const served = spy.mock.calls.find(
+            (c) => c[1] === "recon_cli_served"
+          );
+          expect(served).toBeDefined();
+          expect(served?.[2]?.bundle_realized_bodies).toBe(0);
+        } finally {
+          spy.mockRestore();
+        }
+      });
+    });
+
+    it("records bundle_realized_bodies > 0 when a focus body is inlined", async () => {
+      await withRealTelemetry(async (repoCwd) => {
+        const spy = vi.spyOn(startupLog, "fileOnly");
+        try {
+          await handleUnerrContextProxy(
+            { prompt: "add a retry to fetchUser" },
+            baseDeps({ runRaw: twoBodyRunner, repoCwd })
+          );
+          const served = spy.mock.calls.find(
+            (c) => c[1] === "recon_cli_served"
+          );
+          expect(served).toBeDefined();
+          expect(served?.[2]?.bundle_realized_bodies).toBeGreaterThan(0);
+        } finally {
+          spy.mockRestore();
+        }
+      });
+    });
+
+    it("emits recon_focus_body_mismatch when a focus candidate is locked but no body is inlined", async () => {
+      await withRealTelemetry(async (repoCwd) => {
+        const spy = vi.spyOn(startupLog, "fileOnly");
+        try {
+          await handleUnerrContextProxy(
+            { prompt: "add a retry to fetchUser" },
+            baseDeps({ repoCwd })
+          );
+          const mismatch = spy.mock.calls.find(
+            (c) => c[1] === "recon_focus_body_mismatch"
+          );
+          expect(mismatch).toBeDefined();
+          expect(mismatch?.[2]?.focus_key).toBe("e:fetchUser");
+        } finally {
+          spy.mockRestore();
+        }
+      });
+    });
+
+    it("does NOT emit recon_focus_body_mismatch when the focus body IS inlined", async () => {
+      await withRealTelemetry(async (repoCwd) => {
+        const spy = vi.spyOn(startupLog, "fileOnly");
+        try {
+          await handleUnerrContextProxy(
+            { prompt: "add a retry to fetchUser" },
+            baseDeps({ runRaw: twoBodyRunner, repoCwd })
+          );
+          const mismatch = spy.mock.calls.find(
+            (c) => c[1] === "recon_focus_body_mismatch"
+          );
+          expect(mismatch).toBeUndefined();
+        } finally {
+          spy.mockRestore();
+        }
+      });
+    });
+
+    it("swallows a throwing startupLog.fileOnly sink — telemetry never breaks the response", async () => {
+      await withRealTelemetry(async (repoCwd) => {
+        const spy = vi.spyOn(startupLog, "fileOnly").mockImplementation(() => {
+          throw new Error("sink down");
+        });
+        try {
+          const res = await handleUnerrContextProxy(
+            { prompt: "add a retry to fetchUser" },
+            baseDeps({ repoCwd })
+          );
+          expect(res.isError).toBeUndefined();
+          expect(res.content[0]?.text).toContain("unerr recon");
+        } finally {
+          spy.mockRestore();
+        }
+      });
+    });
   });
 });

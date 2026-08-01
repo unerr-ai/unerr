@@ -24,8 +24,6 @@ export interface StatusData {
   proxyRunning: boolean;
   graphInfo: string;
   drift?: DriftCounts;
-  healthGrade?: string;
-  healthScore?: number;
   latency?: {
     localP50?: number;
     localP99?: number;
@@ -153,14 +151,6 @@ export function StatusDashboard({
 
       {/* Graph */}
       <KeyValue label="Graph" value={data.graphInfo} />
-
-      {/* Health Grade */}
-      {data.healthGrade && (
-        <Box marginLeft={4}>
-          <Text color={t.dim}>Health </Text>
-          <GradeBadge grade={data.healthGrade} score={data.healthScore} />
-        </Box>
-      )}
 
       {/* Rule Health */}
       {data.ruleHealth && data.ruleHealth.total > 0 && (

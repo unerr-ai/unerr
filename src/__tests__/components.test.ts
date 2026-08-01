@@ -8,7 +8,6 @@
  *   - ProgressBar: sub-character Unicode blocks, clamping, label
  *   - GradeBadge: colored grade with optional score
  *   - StepLine: icon + label + value for each status
- *   - HealthCard: grade + bar + dead functions + chokepoints
  *   - DriftSummary: modified/added/deleted counts
  *   - ViolationList: severity icons + messages + suggestions
  *   - SessionSummaryCard: tool calls, local rate, savings, latency
@@ -23,7 +22,6 @@ import { Banner } from "../components/Banner.js";
 import { ConfirmPrompt } from "../components/ConfirmPrompt.js";
 import { DriftSummary } from "../components/DriftSummary.js";
 import { GradeBadge } from "../components/GradeBadge.js";
-import { HealthCard } from "../components/HealthCard.js";
 import { InkSpinner } from "../components/InkSpinner.js";
 import { KeyValue } from "../components/KeyValue.js";
 import { BLOCKS, ProgressBar } from "../components/ProgressBar.js";
@@ -244,73 +242,6 @@ describe("StepLine", () => {
       })
     );
     expect(lastFrame()).toContain("○");
-  });
-});
-
-// ── HealthCard ───────────────────────────────────────────────────
-
-describe("HealthCard", () => {
-  const baseHealth = {
-    grade: "C+",
-    totalEntities: 2341,
-    totalEdges: 1892,
-    totalRules: 12,
-    deadFunctionCount: 23,
-    highRiskEntities: [
-      {
-        name: "processPayment",
-        kind: "function",
-        file_path: "src/billing.ts",
-        fan_in: 14,
-        fan_out: 8,
-      },
-    ],
-    score: 62,
-  };
-
-  it("renders grade and score in full mode", () => {
-    const { lastFrame } = render(
-      React.createElement(HealthCard, { health: baseHealth })
-    );
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("C+");
-    expect(frame).toContain("62/100");
-  });
-
-  it("renders dead function warning", () => {
-    const { lastFrame } = render(
-      React.createElement(HealthCard, { health: baseHealth })
-    );
-    expect(lastFrame()).toContain("23 dead functions");
-  });
-
-  it("renders chokepoint warning with fan counts", () => {
-    const { lastFrame } = render(
-      React.createElement(HealthCard, { health: baseHealth })
-    );
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("processPayment");
-    expect(frame).toContain("14 callers");
-    expect(frame).toContain("8 callees");
-    expect(frame).toContain("chokepoint");
-  });
-
-  it("renders compact mode with entity/edge counts", () => {
-    const { lastFrame } = render(
-      React.createElement(HealthCard, { health: baseHealth, compact: true })
-    );
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("C+");
-    expect(frame).toContain("2341 entities");
-    expect(frame).toContain("1892 edges");
-  });
-
-  it("omits dead function line when count is 0", () => {
-    const healthy = { ...baseHealth, deadFunctionCount: 0 };
-    const { lastFrame } = render(
-      React.createElement(HealthCard, { health: healthy })
-    );
-    expect(lastFrame()).not.toContain("dead function");
   });
 });
 

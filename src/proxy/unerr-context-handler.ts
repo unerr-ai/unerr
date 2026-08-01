@@ -26,6 +26,7 @@ import {
   modelBundleSavings,
   reconEntityCount,
   reconFileSpread,
+  reconRealizedBodyCount,
   renderReconDigest,
   renderReconText,
 } from "../intelligence/recon.js";
@@ -74,6 +75,8 @@ function recordReconServed(
     digest: boolean;
     file_spread: number;
     entity_count: number;
+    /** Lever 6 — focus bodies actually inlined; 0 ⇒ index-only bundle. */
+    bundle_realized_bodies: number;
   },
   repoCwd: string
 ): void {
@@ -84,6 +87,32 @@ function recordReconServed(
       _leverLogInit = true;
     }
     startupLog.fileOnly("telemetry", "recon_cli_served", {
+      ...fields,
+      source: "mcp_warm",
+    });
+  } catch {
+    /* telemetry never load-bearing */
+  }
+}
+
+/**
+ * Lever 6 — emit `recon_focus_body_mismatch` when a focus candidate WAS
+ * locked (`focusKey` non-null) but no body made it into the delivered
+ * bundle: the W4 no-op this lever measures, where the agent still has to
+ * file_read the entity before editing despite a modeled savings record.
+ * Same sink and never-load-bearing discipline as `recordReconServed`.
+ */
+function recordFocusBodyMismatch(
+  fields: { focus_key: string; task_size: string },
+  repoCwd: string
+): void {
+  if (process.env.VITEST) return;
+  try {
+    if (!_leverLogInit) {
+      initFileLog(repoCwd);
+      _leverLogInit = true;
+    }
+    startupLog.fileOnly("telemetry", "recon_focus_body_mismatch", {
       ...fields,
       source: "mcp_warm",
     });
@@ -209,9 +238,21 @@ export async function handleUnerrContextProxy(
       digest: useDigest,
       file_spread: files.length,
       entity_count: entityCount,
+      bundle_realized_bodies: reconRealizedBodyCount(bundle),
     },
     deps.repoCwd
   );
+
+  // Lever 6 (W4 no-op): a focus candidate was locked but its body never made
+  // it into the delivered bundle — same predicate the digest-mode decision
+  // above already uses. Never load-bearing (recordFocusBodyMismatch swallows
+  // internally).
+  if (bundle.focusKey && !hasFocusBodies) {
+    recordFocusBodyMismatch(
+      { focus_key: bundle.focusKey, task_size: verdict.size },
+      deps.repoCwd
+    );
+  }
 
   // E4 Layer A: model this bundle's round-trip savings and hand them to the
   // injected sink (compression_event + token_flow_event). Pure computation here;

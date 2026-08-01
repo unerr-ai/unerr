@@ -12,6 +12,7 @@ import {
   rankFocusEntities,
   reconEntityCount,
   reconFileSpread,
+  reconRealizedBodyCount,
   renderReconDigest,
   renderReconText,
   shrinkToBudget,
@@ -1528,6 +1529,108 @@ describe("modelBundleSavings (A4)", () => {
     expect(m.round_trips_modeled).toBe(0);
     expect(m.rerequest_saved_tokens).toBe(0);
     expect(m.original_tokens).toBe(100);
+  });
+
+  // ── Lever 6: index_only no-op flag — never changes the modeled numbers above.
+  it("flags index_only when no focus body is inlined and at most one entity is delivered", () => {
+    const bundle = bundleWith(
+      [section("search_code", [{ key: "ent1", name: "fooBar" }])],
+      100
+    );
+    const m = modelBundleSavings(bundle);
+    expect(m.index_only).toBe(true);
+  });
+
+  it("flags index_only when no focus body is inlined and zero entities are delivered", () => {
+    const bundle = bundleWith([section("get_conventions", { naming: [] })], 50);
+    const m = modelBundleSavings(bundle);
+    expect(m.index_only).toBe(true);
+  });
+
+  it("clears index_only when a focus body is inlined, even with a single entity", () => {
+    const bundle = bundleWith(
+      [
+        section("focus_bodies", [
+          { key: "ent1", file: "src/foo.ts", body: "…", truncated: false },
+        ]),
+      ],
+      200
+    );
+    const m = modelBundleSavings(bundle);
+    expect(m.index_only).toBe(false);
+  });
+
+  it("clears index_only when no focus body is inlined but more than one entity is delivered", () => {
+    const bundle = bundleWith(
+      [
+        section("search_code", [
+          { key: "ent1", name: "fooBar" },
+          { key: "ent2", name: "bar" },
+        ]),
+      ],
+      100
+    );
+    const m = modelBundleSavings(bundle);
+    expect(m.index_only).toBe(false);
+  });
+});
+
+// ── Lever 6: bundle_realized_bodies — focus bodies actually inlined in the
+// delivered (post-budget) bundle. 0 ⇒ index-only, no read was replaced.
+describe("reconRealizedBodyCount (Lever 6)", () => {
+  function bundleWith(sections: ReconBundle["sections"]): ReconBundle {
+    return {
+      prompt: "edit fooBar",
+      terms: ["fooBar"],
+      focusKey: "ent1",
+      focusName: "fooBar",
+      sections,
+      dropped: [],
+      totalTokens: 100,
+      budget: 4000,
+      truncated: false,
+    };
+  }
+  function section(
+    tool: string,
+    data: unknown
+  ): ReconBundle["sections"][number] {
+    return { tool, title: tool, data, tokens: 10, priority: 1, shrunk: false };
+  }
+
+  it("is 0 for a digest-mode bundle (no focus_bodies section)", () => {
+    const bundle = bundleWith([
+      section("search_code", [{ key: "ent1", name: "fooBar" }]),
+    ]);
+    expect(reconRealizedBodyCount(bundle)).toBe(0);
+  });
+
+  it("is >0 when a focus body is inlined", () => {
+    const bundle = bundleWith([
+      section("focus_bodies", [
+        { key: "ent1", file: "src/foo.ts", body: "…", truncated: false },
+      ]),
+    ]);
+    expect(reconRealizedBodyCount(bundle)).toBe(1);
+  });
+
+  it("counts every inlined focus body, not just the first", () => {
+    const bundle = bundleWith([
+      section("focus_bodies", [
+        { key: "ent1", file: "src/foo.ts", body: "…", truncated: false },
+        { key: "ent2", file: "src/bar.ts", body: "…", truncated: false },
+      ]),
+    ]);
+    expect(reconRealizedBodyCount(bundle)).toBe(2);
+  });
+
+  it("does not count expand-ring caller bodies as focus bodies", () => {
+    const bundle = bundleWith([
+      section("expand_callers", [
+        { key: "c1", file: "src/a.ts", body: "…", truncated: false },
+      ]),
+    ]);
+    expect(reconRealizedBodyCount(bundle)).toBe(0);
   });
 });
 

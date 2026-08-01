@@ -33,6 +33,7 @@ import {
 import type { RouterGateway } from "../proxy/router-gateway.js";
 import {
   BODY_DEDUP_ENABLED,
+  type BodyDedupScope,
   type BodyDedupStore,
   type SessionDedup,
   createBodyDedup,
@@ -286,16 +287,12 @@ export interface ContextHints {
   confidence?: number;
 
   // ── One-time injections (not converted to signals) ──
-  /** Session greeting (first MCP response only) */
-  session_greeting?: string;
   /** S7.4: Structured session resume context (first response after resumed session) */
   session_resume?: {
     summary: string;
     filesModified: string[];
     incompleteEntities: string[];
   };
-  /** Sprint 4: Structured session brief (replaces flat greeting + resume on first call) */
-  session_brief?: import("./session-brief-builder.js").SessionBrief;
   /** Tool adoption hint — reminds agent to use unerr tools instead of built-ins (first call only) */
   tool_adoption?: { hint: string; tools_available: number };
   /** Running value counter: "unerr has caught 6 issues this session" */
@@ -368,8 +365,6 @@ export function orderContextFields(ctx: ContextHints): ContextHints {
     ordered.hidden_coupling = ctx.hidden_coupling;
   if (ctx.related_issues !== undefined)
     ordered.related_issues = ctx.related_issues;
-  if (ctx.session_greeting !== undefined)
-    ordered.session_greeting = ctx.session_greeting;
   if (ctx.value_counter !== undefined)
     ordered.value_counter = ctx.value_counter;
   return ordered;
@@ -447,8 +442,6 @@ export async function assembleContextOutput(
   }
 
   // One-time injections pass through unchanged
-  if (raw.session_greeting !== undefined)
-    output.session_greeting = raw.session_greeting;
   if (raw.session_resume !== undefined)
     output.session_resume = raw.session_resume;
   if (raw.tool_adoption !== undefined) output.tool_adoption = raw.tool_adoption;
@@ -697,16 +690,6 @@ export class QueryRouter {
   /** External session events ref — set by proxy for value counter. */
   private sessionEvents: SessionEvents | null = null;
 
-  /** Health grade string for session greeting. */
-  private healthGrade: string | null = null;
-
-  /** Graph stats for session greeting. */
-  private graphStats: {
-    entities: number;
-    edges: number;
-    rules: number;
-  } | null = null;
-
   /** Push-based violation store (Task 7.3) — shared with DriftTracker. */
   private pendingViolations: PendingViolationStore | null = null;
 
@@ -916,17 +899,6 @@ export class QueryRouter {
   }
 
   /**
-   * Set health grade info for session greeting (Task 2.6).
-   */
-  setHealthInfo(
-    grade: string,
-    stats: { entities: number; edges: number; rules: number }
-  ): void {
-    this.healthGrade = grade;
-    this.graphStats = stats;
-  }
-
-  /**
    * Set the pending violation store for push-based rule enforcement (Task 7.3).
    */
   setPendingViolations(store: PendingViolationStore): void {
@@ -941,8 +913,9 @@ export class QueryRouter {
   }
 
   /**
-   * True when a journal anchor (entity key, entity name, or repo-relative
-   * file path) still resolves in the current graph or working tree. The
+   * True when a recalled incident's anchor (entity key, entity name, or
+   * repo-relative file path) still resolves in the current graph or working
+   * tree. The
    * staleness gate for trace recall: a past incident whose anchor no longer
    * exists is history about deleted code and must not be injected. Fails
    * open (true) on any query error so a cold or rebuilding graph never
@@ -1024,6 +997,20 @@ export class QueryRouter {
    */
   setSessionDedup(dedup: SessionDedup): void {
     this.sessionDedup = dedup;
+  }
+
+  /**
+   * Drop delivered-file-body dedup entries the agent can no longer see, because
+   * the harness compacted or cleared its context. Driven by the
+   * `unerr/compaction` control channel (compaction-protocol.ts); returns the
+   * number of entries dropped so the caller can ack it.
+   *
+   * Bodies only — the cross-session enrichment dedup (`sessionDedup`, different
+   * keys + 7-day TTL) is untouched: it suppresses re-injected _context, which
+   * compaction does not invalidate.
+   */
+  clearBodyDedup(nativeSessionId?: string | null): number {
+    return this.bodyDedup?.clearBodies(nativeSessionId) ?? 0;
   }
 
   /**
@@ -1287,9 +1274,21 @@ export class QueryRouter {
     return LOCAL_TOOLS.has(toolName);
   }
 
+  /**
+   * Run one tool call.
+   *
+   * `callSession` is the calling conversation's identity, resolved once per
+   * dispatch by the proxy (`ProxySessionRegistry.resolve`). It is threaded as a
+   * PARAMETER, not stored on the router: two MCP clients can have calls in
+   * flight at once, so a mutable "current session" field would let one client's
+   * file_read match a body delivered to the other. Only body dedup consumes it
+   * today; omitted (tests, federated sub-calls) it degrades to an unscoped
+   * entry, which a compaction flush then drops unconditionally.
+   */
   async execute(
     requestedTool: string,
-    requestedArgs: Record<string, unknown>
+    requestedArgs: Record<string, unknown>,
+    callSession?: BodyDedupScope
   ): Promise<ToolResult> {
     const t0 = performance.now();
 
@@ -1362,7 +1361,7 @@ export class QueryRouter {
       // Try to serve from partial graph — if entities exist, return them with caveat
       if (LOCAL_TOOLS.has(toolName)) {
         try {
-          const result = await this.executeLocal(toolName, args);
+          const result = await this.executeLocal(toolName, args, callSession);
           if (result !== null && result !== undefined) {
             const toolResult: ToolResult = {
               content: result,
@@ -1461,7 +1460,7 @@ export class QueryRouter {
           ? 5_000
           : 3_000;
       const rawLocal = await Promise.race([
-        this.executeLocal(toolName, args),
+        this.executeLocal(toolName, args, callSession),
         new Promise<never>((_, reject) =>
           setTimeout(
             () =>
@@ -2168,29 +2167,16 @@ export class QueryRouter {
       // Stop-hook (session-hooks.ts:formatSessionResumeBlock). Emitting it
       // in-band too was pure duplication billed into the agent's context.
       // See CLAUDE.md "MCP tool responses cost tokens — send only the answer".
-      try {
-        const { SessionBriefBuilder } = await import(
-          "./session-brief-builder.js"
-        );
-        const briefBuilder = new SessionBriefBuilder(
-          this.localGraph,
-          this.graphStats,
-          this.healthGrade
-        );
-        const brief = await briefBuilder.build(this.sessionResumeContext);
-        context.session_brief = brief;
+      // `SessionBriefBuilder` and the flat `session_greeting` fallback both went
+      // with the health grade. The brief was dead three ways over: its only
+      // setter (`setHealthInfo`) had no callers so the grade was always null,
+      // `context.session_brief` was never copied into the assembled output (see
+      // `orderContextFields` / `assembleContextOutput`), and the greeting it fell
+      // back to said only "Codebase health: B. Tracking N entities…" — a grade
+      // and three counts, naming no call the agent could make.
+      if (this.sessionResumeContext) {
+        context.session_resume = this.sessionResumeContext;
         hasContext = true;
-      } catch {
-        // Fallback to flat greeting if brief builder fails
-        const greeting = this.buildSessionGreeting();
-        if (greeting) {
-          context.session_greeting = greeting;
-          hasContext = true;
-        }
-        if (this.sessionResumeContext) {
-          context.session_resume = this.sessionResumeContext;
-          hasContext = true;
-        }
       }
       this.sessionResumeContext = null; // One-time injection
       this.sessionContext.markGreeted();
@@ -2804,35 +2790,6 @@ export class QueryRouter {
       tokensSaved: enrichTokensSaved,
       savingsMechanism: enrichSavingsMechanism,
     };
-  }
-
-  /**
-   * Build session greeting based on health grade (Task 2.6).
-   * Max 200 tokens. Content varies by grade and mode.
-   */
-  private buildSessionGreeting(): string | null {
-    if (this.currentMode === "parse") {
-      return "unerr is running in parse mode — basic code structure available. Link your repo with 'unerr' to unlock full graph intelligence.";
-    }
-
-    if (!this.healthGrade || !this.graphStats) {
-      return "unerr proxy ready. Graph intelligence active.";
-    }
-
-    const { entities, edges, rules } = this.graphStats;
-    const grade = this.healthGrade;
-
-    if (grade === "A" || grade === "A+") {
-      return `Your codebase scores ${grade} — ${entities} entities, ${edges} edges, ${rules} rules tracked. Architecture is healthy. unerr is watching for regressions.`;
-    }
-    if (grade === "B" || grade === "B+") {
-      return `Codebase health: ${grade}. Tracking ${entities} entities across ${edges} edges with ${rules} rules. Some areas could improve — I'll flag specific issues as you work.`;
-    }
-    if (grade.startsWith("C")) {
-      return `Heads up: codebase health is ${grade}. ${entities} entities tracked, ${rules} rules active. There are structural issues that affect maintainability — ask me about high-risk areas.`;
-    }
-    // D or F
-    return `Warning: codebase health is ${grade}. Significant structural issues detected across ${entities} entities. I'll actively flag risks as you work. Consider running 'unerr status' for details.`;
   }
 
   /** Layer 6 — token estimate for encoding tier / legend budgeting. */
@@ -3722,7 +3679,8 @@ export class QueryRouter {
 
   private async executeLocal(
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    callSession?: BodyDedupScope
   ): Promise<unknown> {
     // T1.5/T1.6 — reversible-cache retrieve side. When a pagination-capable
     // tool (search_code, get_references, file_read) is handed a `cache_ref`,
@@ -4062,7 +4020,20 @@ export class QueryRouter {
         // Layer 8 §5.4: serve the domain annotation alongside each hit when one
         // exists; un-annotated hits (and an absent graph db) pass through
         // unchanged — attachAnnotations is best-effort.
-        return await attachAnnotations(this.localGraph.db, rows);
+        //
+        // `score` is dropped on the way out, the same cut get_conventions makes
+        // above. It is the TF-IDF rank the rows are ALREADY sorted by, so it
+        // tells the agent nothing the row order doesn't, and there is no call it
+        // changes. At ~8 characters × up to 50 rows it was the largest
+        // non-actionable field in a search_code response.
+        // Array-guarded for the same reason attachAnnotations is: a serve site
+        // can hand back a non-array (a raw string a downstream layer
+        // compresses), and it must pass through byte-identical rather than
+        // throw on `.map` and fail the whole tool call.
+        const ranked = Array.isArray(rows)
+          ? rows.map(({ score: _score, ...rest }) => rest)
+          : rows;
+        return await attachAnnotations(this.localGraph.db, ranked);
       }
       case "get_conventions": {
         const raw = await this.localGraph.getConventions();
@@ -4093,7 +4064,7 @@ export class QueryRouter {
         };
       }
       case "file_outline": {
-        const { buildFileOutline } = await import(
+        const { buildFileOutline, leanFileOutline } = await import(
           "../tools/coding/file-outline.js"
         );
         const { appendFileReadLog } = await import(
@@ -4124,7 +4095,11 @@ export class QueryRouter {
           savedPct,
           tokenEstimate: outline.token_estimate,
         });
-        return outline;
+        // Serve the lean shape — the same one `file_read({outline:true})` has
+        // always returned. `token_estimate` stays available above for the
+        // file-read log (internal), but never rides the wire: it counts the
+        // very payload the agent is already holding.
+        return leanFileOutline(outline);
       }
       case "file_read": {
         const cwd = this.projectRoot ?? process.cwd();
@@ -4147,7 +4122,8 @@ export class QueryRouter {
               currentTurn,
               args.offset as number | undefined,
               args.limit as number | undefined,
-              args.token_budget as number | undefined
+              args.token_budget as number | undefined,
+              callSession
             );
             if (hit) {
               // Pointer: imperative, names the tool, interpolates real values.
@@ -4218,7 +4194,8 @@ export class QueryRouter {
               estimateTokens(fr.content),
               args.offset as number | undefined,
               args.limit as number | undefined,
-              args.token_budget as number | undefined
+              args.token_budget as number | undefined,
+              callSession
             );
           } catch {
             // Best effort — failure just means no dedup on next read.

@@ -75,9 +75,7 @@ export interface MechanismEntry {
  * The capabilities that USED to be catalog tools (get_entity — merged into
  * search_code({detail:true}) 2026-06 — mark_*, unerr_track, record_fact,
  * recall_facts, get_conventions, get_imports, unerr_turn_summary)
- * are gone from the catalog entirely. Journaling now rides the Stop-hook
- * `unerr journal -` text lines only — there is no MCP or hook write path left
- * to verdict here. Remaining removed capabilities stay reachable only by-name
+ * are gone from the catalog entirely. Remaining removed capabilities stay reachable only by-name
  * — via a hook's UDS `tools/call`, the unerr_context composite, or an
  * `unerr exec`/`unerr review`/`unerr stats` CLI.
  */
@@ -118,9 +116,7 @@ export const TOOL_MECHANISM: Readonly<Record<string, MechanismEntry>> = {
   // ── Writes → hooks (fire-and-forget; needed next turn, not this one) ─────
   // unerr_remember and unerr_track (the mark_* op-union) both left the
   // catalog: user rules are no longer captured at all (the capture hook was
-  // removed 2026-07), agent notes ride the `unerr journal -` Stop-hook text
-  // lines only. Neither carries a verdict here — there is no MCP write
-  // surface for journaling.
+  // removed 2026-07).
 };
 
 /** Mechanism verdict for a tool. Throws on unknown name (caller bug). */

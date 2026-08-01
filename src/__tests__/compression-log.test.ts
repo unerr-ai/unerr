@@ -15,7 +15,6 @@ import { closeMetricsStore } from "../tracking/metrics-store.js";
 describe("compression-log", () => {
   let tmpDir: string;
   let unerrDir: string;
-  let dbPath: string;
 
   beforeEach(() => {
     tmpDir = join(
@@ -24,7 +23,6 @@ describe("compression-log", () => {
     );
     mkdirSync(tmpDir, { recursive: true });
     unerrDir = join(tmpDir, ".unerr");
-    dbPath = join(unerrDir, "metrics.db");
   });
 
   afterEach(() => {
@@ -127,7 +125,6 @@ describe("compression-log", () => {
 describe("file-read-log", () => {
   let tmpDir: string;
   let unerrDir: string;
-  let dbPath: string;
 
   beforeEach(() => {
     tmpDir = join(
@@ -136,7 +133,6 @@ describe("file-read-log", () => {
     );
     mkdirSync(tmpDir, { recursive: true });
     unerrDir = join(tmpDir, ".unerr");
-    dbPath = join(unerrDir, "metrics.db");
   });
 
   afterEach(() => {

@@ -78,9 +78,9 @@ describe("real catalog: advertisement is identical for every agent (caps machine
   // merged into the single file_edit tool 2026-06 (edit + whole-file write modes).)
   // unerr_context merged into search_code 2026-06: a task-shaped search_code
   // query re-targets to the recon composite; the executor stays by-name only.
-  // unerr_track (journaling) and the mark_* marker tools were removed entirely
-  // (2026-07): the unerr journal subsystem is served by the Stop-hook text
-  // lines instead, with no MCP tool at all. file_outline demoted
+  // unerr_track and the mark_* marker tools were removed entirely (2026-07),
+  // along with the subsystem behind them — nothing replaces them. file_outline
+  // demoted
   // (`hidden: true`) 2026-07: its structural view folded into file_read
   // outline mode (`file_read({file_path, outline:true})`). It stays a full
   // catalog member (dispatch, validation, family) but drops out of the

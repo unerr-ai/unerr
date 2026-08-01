@@ -106,7 +106,7 @@ describe("Incomplete Work Detection (BA-2.1)", () => {
   });
 
   afterEach(() => {
-    // Release any metrics.db handle the telemetry tests opened. No-op when
+    // Release any metrics-store handle the telemetry tests opened. No-op when
     // the test never created a store.
     closeMetricsStore(join(tmpDir, ".unerr"));
   });

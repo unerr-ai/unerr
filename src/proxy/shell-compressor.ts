@@ -3,6 +3,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { relative } from "node:path";
 import type { CozoGraphStore } from "../intelligence/local-graph.js";
 import { TokenFlowWriter } from "../tracking/token-flow.js";
 import { detectAgentNameFromEnv } from "../utils/detect.js";
@@ -585,7 +586,13 @@ export async function compressShellOutput(
   const tee = teeShellOutput(cwd, command, stripped, text);
   if (tee) {
     const kb = (tee.sizeBytes / 1024).toFixed(1);
-    text += `\n[full output ${kb}KB: file_read({file_path:'${tee.filePath}', offset:0, limit:200})]`;
+    // Repo-relative, not absolute: `file_read` resolves a relative path against
+    // the repo root (`resolveWithHome` → `resolve(cwd, p)`), and the tee always
+    // lives under this same `cwd`, so both forms name the same file. The
+    // absolute form spent ~120 extra characters of the agent's context on every
+    // compressed command without changing the action it can take.
+    const teeRef = relative(cwd, tee.filePath);
+    text += `\n[full output ${kb}KB: file_read({file_path:'${teeRef}', offset:0, limit:200})]`;
   }
 
   const savedPctHi =
@@ -633,8 +640,8 @@ export async function compressShellOutput(
 }
 
 /**
- * Layer 10: Record shell compression savings to the token_flow_events
- * table in metrics.db (formerly logs/token-flow.jsonl).
+ * Layer 10: Record shell compression savings as `token_flow` events in
+ * `.unerr/events/*.jsonl`.
  * Uses UNERR_SESSION_ID from env (set by parent proxy/MCP process).
  * Exec processes have turn=0 since they lack turn context.
  */

@@ -4,6 +4,8 @@
  * PreToolUse hooks: Bash (rewrite), Read (nudge), Grep (nudge), Glob (nudge).
  * PostToolUse hooks: Read (enrich), Grep (enrich), Glob (enrich), Bash
  * (verify-awareness record + weak-verify nudge).
+ * SessionStart: resume strip (+ compaction flush on source compact|clear).
+ * PostCompact: compaction flush for file-body dedup.
  * All hooks are installed on `unerr install claude-code` and removed on `unerr uninstall`.
  */
 
@@ -23,8 +25,25 @@ type HookEvent =
   | "PostToolUse"
   | "UserPromptSubmit"
   | "SessionStart"
+  | "PostCompact"
   | "Stop"
   | "SubagentStop";
+
+/**
+ * Every event unerr registers under. The merge path re-writes exactly these and
+ * the remove path strips exactly these — one list, so install and uninstall can
+ * never drift (an event missing from the remove list would leave a dangling
+ * `unerr hook …` command in the user's settings after uninstall).
+ */
+const UNERR_HOOK_EVENTS: HookEvent[] = [
+  "PreToolUse",
+  "PostToolUse",
+  "UserPromptSubmit",
+  "SessionStart",
+  "PostCompact",
+  "Stop",
+  "SubagentStop",
+];
 
 /**
  * Resolve the absolute path to the `unerr` binary.
@@ -151,11 +170,23 @@ function buildMatcherHooks(): {
       command: `${bin} hook post-edit`,
     },
     // SessionStart — emits resume strip on session boot. Matcher alternation
-    // fires for all four start modes (startup, resume, clear, compact).
+    // fires for all four start modes (startup, resume, clear, compact). The
+    // compact/clear sources double as the FALLBACK compaction signal for
+    // file-body dedup (see PostCompact below).
     {
       event: "SessionStart",
       matcher: "startup|resume|clear|compact",
       command: `${bin} hook session-start`,
+    },
+    // PostCompact — the precise compaction signal: fires right after Claude Code
+    // finishes compacting, so the proxy can drop the file bodies the agent no
+    // longer holds instead of guessing with a 5-turn window. Matcher values here
+    // are WHO triggered it (`manual` = /compact, `auto` = context full), NOT the
+    // SessionStart vocabulary.
+    {
+      event: "PostCompact",
+      matcher: "manual|auto",
+      command: `${bin} hook post-compact`,
     },
   ];
 }
@@ -228,14 +259,7 @@ export function mergePreToolUseBashHook(cwd: string): MergePreToolResult {
     const globalHooks = buildGlobalHooks();
 
     // Remove any existing unerr hooks first (handles upgrades from bare to absolute paths)
-    for (const eventType of [
-      "PreToolUse",
-      "PostToolUse",
-      "UserPromptSubmit",
-      "SessionStart",
-      "Stop",
-      "SubagentStop",
-    ] as HookEvent[]) {
+    for (const eventType of UNERR_HOOK_EVENTS) {
       if (Array.isArray(hooks[eventType])) {
         hooks[eventType] = (hooks[eventType] as unknown[]).filter(
           (entry: unknown) => !isAnyUnerrHook(entry)
@@ -617,16 +641,8 @@ export function removePreToolUseBashHook(cwd: string): boolean {
     if (!hooks) return false;
 
     let totalRemoved = 0;
-    const eventTypes: HookEvent[] = [
-      "PreToolUse",
-      "PostToolUse",
-      "UserPromptSubmit",
-      "SessionStart",
-      "Stop",
-      "SubagentStop",
-    ];
 
-    for (const eventType of eventTypes) {
+    for (const eventType of UNERR_HOOK_EVENTS) {
       if (!Array.isArray(hooks[eventType])) continue;
 
       const before = (hooks[eventType] as unknown[]).length;

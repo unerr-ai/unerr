@@ -1496,6 +1496,15 @@ function bundleBodies(bundle: ReconBundle, tool: string): FocusBody[] {
 }
 
 /**
+ * Focus entity bodies actually inlined in the delivered (post-budget) bundle.
+ * 0 means the bundle collapsed to an index-only digest — the agent still has
+ * to file_read before editing (Lever 6 instrumentation, the W4 no-op).
+ */
+export function reconRealizedBodyCount(bundle: ReconBundle): number {
+  return bundleBodies(bundle, "focus_bodies").length;
+}
+
+/**
  * E4 Layer A — emit-time MODELED savings for one recon bundle.
  *
  * The bundle is ONE round-trip that stands in for the discovery fan-out an agent
@@ -1533,6 +1542,14 @@ export interface BundleSavingsModel {
   readonly delivered_files: string[];
   /** Expand-ring caller keys — Layer B confirmed-avoided-trip input. */
   readonly expand_keys: string[];
+  /**
+   * Lever 6 instrumentation flag — true when this bundle is the suspected
+   * near-zero-value no-op: no focus body was inlined AND at most one entity
+   * key was delivered. Does NOT change any modeled number above; it flags the
+   * case where those numbers likely overstate the real saving because the
+   * agent still has to file_read before editing.
+   */
+  readonly index_only: boolean;
 }
 
 /**
@@ -1581,6 +1598,10 @@ export function modelBundleSavings(
     .map((b) => b.key)
     .filter((k): k is string => !!k);
 
+  // Lever 6: flag the suspected no-op WITHOUT touching any modeled number
+  // above — no focus body inlined AND at most one entity delivered.
+  const index_only = focusBodies.length === 0 && entityKeys.size <= 1;
+
   return {
     sources_collapsed,
     round_trips_modeled,
@@ -1592,5 +1613,6 @@ export function modelBundleSavings(
     delivered_entity_keys: [...entityKeys],
     delivered_files: reconFileSpread(bundle),
     expand_keys,
+    index_only,
   };
 }

@@ -49,6 +49,54 @@ describe("detectAdapter", () => {
   it("defaults to Claude Code for unknown payloads", () => {
     expect(detectAdapter({}).name).toBe("claude-code");
   });
+
+  it("keeps a Bash payload on Claude Code rather than routing it to Codex", () => {
+    // Codex and Claude Code both send `tool_name: "Bash"`, so it must not be a
+    // Codex signal. Routing Claude Code's Bash hooks to the Codex adapter looked
+    // harmless while both emitted the same additionalContext JSON, and silently
+    // dropped PostToolUse `updatedToolOutput`, which only Claude Code has.
+    const prior = process.env.CODEX_SESSION_ID;
+    Reflect.deleteProperty(process.env, "CODEX_SESSION_ID");
+    try {
+      const payload = {
+        hook_event_name: "PostToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "npm test" },
+        tool_response: { stdout: "ok", stderr: "", interrupted: false },
+      };
+      expect(detectAdapter(payload).name).toBe("claude-code");
+    } finally {
+      if (prior === undefined)
+        Reflect.deleteProperty(process.env, "CODEX_SESSION_ID");
+      else process.env.CODEX_SESSION_ID = prior;
+    }
+  });
+
+  it("detects Codex from apply_patch, a tool name Claude Code never sends", () => {
+    const payload = {
+      hook_event_name: "PreToolUse",
+      tool_name: "apply_patch",
+      tool_input: { file_path: "foo.ts" },
+    };
+    expect(detectAdapter(payload).name).toBe("codex");
+  });
+
+  it("detects Codex from CODEX_SESSION_ID even on a Bash payload", () => {
+    const prior = process.env.CODEX_SESSION_ID;
+    process.env.CODEX_SESSION_ID = "codex-detect-test";
+    try {
+      const payload = {
+        hook_event_name: "PostToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "npm test" },
+      };
+      expect(detectAdapter(payload).name).toBe("codex");
+    } finally {
+      if (prior === undefined)
+        Reflect.deleteProperty(process.env, "CODEX_SESSION_ID");
+      else process.env.CODEX_SESSION_ID = prior;
+    }
+  });
 });
 
 // ── Claude Code Adapter ──────────────────────────────────────────────

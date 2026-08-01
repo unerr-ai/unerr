@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it, vi } from "vitest";
 import {
   type QueryShape,
   classifyQueryShape,
   shouldEscalateSearchCodeToRecon,
 } from "../intelligence/query-shape.js";
+import { recordSearchCodeDispatch } from "../proxy/proxy.js";
+import { startupLog } from "../utils/startup-log.js";
 
 function shape(q: string): QueryShape {
   return classifyQueryShape(q).shape;
@@ -121,5 +126,92 @@ describe("shouldEscalateSearchCodeToRecon", () => {
         scope: "workspace",
       })
     ).toBe(false);
+  });
+});
+
+// ── recordSearchCodeDispatch: the search_code_dispatch telemetry lever ──
+// `dispatchToolCall` (src/proxy/proxy.ts) is a closure inside `startProxy`
+// and cannot be invoked directly in a test, so the emit/skip logic is
+// extracted into `recordSearchCodeDispatch` and tested here in isolation.
+// The wiring that calls it for BOTH escalation outcomes is locked by a
+// source guard below (mirrors the drainDrift throttle pattern in
+// proxy-drift-throttle.test.ts).
+describe("recordSearchCodeDispatch", () => {
+  it("emits search_code_dispatch with escalated:true", () => {
+    const vitestEnv = process.env.VITEST;
+    // biome-ignore lint/performance/noDelete: must unset the env var — assigning undefined would set it to the string "undefined"
+    delete process.env.VITEST;
+    const spy = vi.spyOn(startupLog, "fileOnly");
+    try {
+      recordSearchCodeDispatch(true);
+      expect(spy).toHaveBeenCalledWith("telemetry", "search_code_dispatch", {
+        escalated: true,
+      });
+    } finally {
+      spy.mockRestore();
+      process.env.VITEST = vitestEnv;
+    }
+  });
+
+  it("emits search_code_dispatch with escalated:false", () => {
+    const vitestEnv = process.env.VITEST;
+    // biome-ignore lint/performance/noDelete: must unset the env var — assigning undefined would set it to the string "undefined"
+    delete process.env.VITEST;
+    const spy = vi.spyOn(startupLog, "fileOnly");
+    try {
+      recordSearchCodeDispatch(false);
+      expect(spy).toHaveBeenCalledWith("telemetry", "search_code_dispatch", {
+        escalated: false,
+      });
+    } finally {
+      spy.mockRestore();
+      process.env.VITEST = vitestEnv;
+    }
+  });
+
+  it("swallows a throwing startupLog.fileOnly sink — telemetry never breaks dispatch", () => {
+    const vitestEnv = process.env.VITEST;
+    // biome-ignore lint/performance/noDelete: must unset the env var — assigning undefined would set it to the string "undefined"
+    delete process.env.VITEST;
+    const spy = vi.spyOn(startupLog, "fileOnly").mockImplementation(() => {
+      throw new Error("sink down");
+    });
+    try {
+      expect(() => recordSearchCodeDispatch(true)).not.toThrow();
+    } finally {
+      spy.mockRestore();
+      process.env.VITEST = vitestEnv;
+    }
+  });
+
+  it("does not write during VITEST runs (the default in this suite)", () => {
+    const spy = vi.spyOn(startupLog, "fileOnly");
+    try {
+      recordSearchCodeDispatch(true);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("search_code dispatch wiring (source guard)", () => {
+  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const proxySrc = readFileSync(
+    join(thisDir, "..", "proxy", "proxy.ts"),
+    "utf-8"
+  );
+
+  it("records the dispatch BEFORE branching on the escalation outcome, so both true and false fire the same call", () => {
+    const escalateIdx = proxySrc.indexOf(
+      "const escalateToRecon = shouldEscalateSearchCodeToRecon(args);"
+    );
+    const recordIdx = proxySrc.indexOf(
+      "recordSearchCodeDispatch(escalateToRecon);"
+    );
+    const branchIdx = proxySrc.indexOf("if (escalateToRecon) {");
+    expect(escalateIdx).toBeGreaterThan(-1);
+    expect(recordIdx).toBeGreaterThan(escalateIdx);
+    expect(branchIdx).toBeGreaterThan(recordIdx);
   });
 });

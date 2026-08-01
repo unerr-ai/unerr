@@ -8,6 +8,7 @@
  * - post-read/post-grep/post-glob: enrich tool output with graph navigation suggestions
  * - post-write/post-edit: convention check + caller verification after modifications
  * - prompt-submit: inject unerr tool reminder on each user prompt (UserPromptSubmit)
+ * - post-compact: flush file-body dedup after context compaction (PostCompact)
  */
 
 import type { Command } from "commander";
@@ -15,6 +16,7 @@ import {
   safeAsyncHookAction,
   safeHookAction,
 } from "../entrypoints/hook-runtime.js";
+import { runPostCompactHookAsync } from "../hooks/compaction-hooks.js";
 import {
   runPostEditHookAsync,
   runPostGlobHook,
@@ -30,7 +32,7 @@ import {
 import { runUserPromptSubmitHook } from "../hooks/prompt-hooks.js";
 import { runSessionStartHookAsync } from "../hooks/session-hooks.js";
 import {
-  runPostBashHook,
+  runPostBashHookAsync,
   runPreBashHook,
   runPreShellHook,
 } from "../hooks/shell-hooks.js";
@@ -124,7 +126,7 @@ export function registerHookCommand(program: Command): void {
     .description(
       "Verification awareness: record check-command runs, nudge weak verify shapes"
     )
-    .action(safeHookAction(runPostBashHook));
+    .action(safeAsyncHookAction(runPostBashHookAsync));
 
   hook
     .command("post-write")
@@ -149,6 +151,18 @@ export function registerHookCommand(program: Command): void {
     .command("session-start")
     .description("Inject resume strip into agent context at session boot")
     .action(safeAsyncHookAction(runSessionStartHookAsync));
+
+  // ── PostCompact hook (Claude Code only) ─────────────────────────
+  // Tells the proxy the agent's context was compacted, so file-body dedup drops
+  // what the agent no longer holds. The session-start path (source
+  // compact|clear) is the fallback for builds without PostCompact.
+
+  hook
+    .command("post-compact")
+    .description(
+      "Flush file-body dedup after context compaction (drops evicted entries)"
+    )
+    .action(safeAsyncHookAction(runPostCompactHookAsync));
 
   // ── Stop hook (turn end) ────────────────────────────────────────
   // Surfaces the close-out economy line server-side (replaces the agent

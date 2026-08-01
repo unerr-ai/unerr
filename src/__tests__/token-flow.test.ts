@@ -19,7 +19,6 @@ import {
 describe("token-flow", () => {
   let tmpDir: string;
   let unerrDir: string;
-  let dbPath: string;
 
   beforeEach(() => {
     tmpDir = join(
@@ -28,7 +27,6 @@ describe("token-flow", () => {
     );
     unerrDir = join(tmpDir, ".unerr");
     mkdirSync(unerrDir, { recursive: true });
-    dbPath = join(unerrDir, "metrics.db");
   });
 
   afterEach(() => {

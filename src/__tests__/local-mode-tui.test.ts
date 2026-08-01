@@ -67,31 +67,9 @@ function makeLocalStats(): SessionStats {
 // ── StartupDisplay Local Mode ─────────────────────────────────────
 
 describe("StartupDisplay Local Mode (L7.1)", () => {
-  it("renders locally computed health title instead of First Look", () => {
-    const { lastFrame } = renderStartup({
-      steps: [],
-      firstBoot: false,
-      ready: false,
-      localMode: true,
-      health: {
-        grade: "B",
-        totalEntities: 500,
-        totalEdges: 300,
-        totalRules: 8,
-        deadFunctionCount: 5,
-        highRiskEntities: [],
-        score: 78,
-      },
-    });
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("Health (locally computed)");
-    expect(frame).not.toContain("First Look");
-  });
-
   it("shows tool count and zero cloud deps in Act 3", () => {
     const { lastFrame } = renderStartup({
       steps: [],
-      firstBoot: false,
       ready: true,
       localMode: true,
       toolCount: 11,
@@ -104,7 +82,6 @@ describe("StartupDisplay Local Mode (L7.1)", () => {
   it("shows agent invitation with entity name in Local Mode", () => {
     const { lastFrame } = renderStartup({
       steps: [],
-      firstBoot: false,
       ready: true,
       localMode: true,
       invitationEntity: "processPayment",
@@ -116,7 +93,6 @@ describe("StartupDisplay Local Mode (L7.1)", () => {
   it("shows default invitation when no entity", () => {
     const { lastFrame } = renderStartup({
       steps: [],
-      firstBoot: false,
       ready: true,
       localMode: true,
     });
@@ -129,21 +105,19 @@ describe("StartupDisplay Local Mode (L7.1)", () => {
   it("never shows deep link in Local Mode", () => {
     const { lastFrame } = renderStartup({
       steps: [],
-      firstBoot: false,
       ready: true,
       localMode: true,
       deepLink: "https://app.unerr.dev/r/repo_123",
     });
     // Deep link is in state but Local Mode Act 3 doesn't render it
     const frame = lastFrame() ?? "";
-    expect(frame).not.toContain("Health details");
+    expect(frame).not.toContain("Details →");
     expect(frame).not.toContain("Proxy ready. Serving MCP on stdio");
   });
 
   it("does not show standard Act 3 when in local mode", () => {
     const { lastFrame } = renderStartup({
       steps: [],
-      firstBoot: false,
       ready: true,
       localMode: true,
       proxyMode: "full",
@@ -329,29 +303,6 @@ describe("StartupRenderer Local Mode (L7.4)", () => {
   afterEach(() => {
     process.chdir(origCwd);
     fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("setLocalMode suppresses deep link in setHealth", async () => {
-    const { StartupRenderer } = await import("../proxy/startup-renderer.js");
-    const renderer = new StartupRenderer();
-    renderer.setLocalMode(true);
-    renderer.setHealth(
-      {
-        grade: "B",
-        totalEntities: 100,
-        totalEdges: 50,
-        totalRules: 5,
-        deadFunctionCount: 0,
-        highRiskEntities: [],
-        score: 80,
-      },
-      "repo_test"
-    );
-    // Access internal state to verify no deep link
-    // @ts-expect-error accessing private for test
-    expect(renderer.state.deepLink).toBeUndefined();
-    // @ts-expect-error accessing private for test
-    expect(renderer.state.localMode).toBe(true);
   });
 
   it("setLocalMode suppresses deep link in setReady", async () => {

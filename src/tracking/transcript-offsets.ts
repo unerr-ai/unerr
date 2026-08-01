@@ -31,6 +31,17 @@ export interface TranscriptOffset {
   byteOffset: number;
   inode: number | null; // fs inode of the file this offset refers to
   lastConvTurn: number; // running conversational-turn counter (increments per user message)
+  /**
+   * Running row ordinal for the local transcript cache, monotonic across
+   * incremental batches. Required because the reader's `turn_index` is
+   * PER-BATCH (`buildTurns` assigns `index` within the slice it was handed), and
+   * the cache dedups on `session_id + turn + role` with last-write-wins — so
+   * reusing `turn_index` would make every batch overwrite the previous batch's
+   * rows and silently discard their token counts. Optional: an offsets file
+   * written before this field existed loads as `undefined` and restarts at 0,
+   * which over-writes at most the rows of one already-materialized batch.
+   */
+  lastRowSeq?: number;
 }
 
 /** On-disk shape. `version` guards a future format change (pre-release: just 1). */

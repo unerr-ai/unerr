@@ -57,7 +57,7 @@ describe("compressShellOutput empty-output guard", () => {
 
 describe("compressShellOutput never inflates (test_results 2× bug)", () => {
   it("does not double a single-line grep-of-test-json misclassified as test_results", async () => {
-    // Reproduces metrics.db id 26276: a `grep` over a minified jest results file
+    // Reproduces a real regression: a `grep` over a minified jest results file
     // lands as ONE huge line. The generic fallback found a summary line (the same
     // single line, which matches /failed/) and prepended it to a body that already
     // contained it → exactly 2× the input. The output must never exceed the input.

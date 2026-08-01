@@ -300,8 +300,8 @@ function contextBundleBullet(turnEvents: readonly NamedEvent[]): Bullet | null {
   };
 }
 
-/** A trace_recalled event this turn → "resurfaced N dated incidents" — the
- *  session journal resurfacing a past resolved incident, not a stored rule. */
+/** A trace_recalled event this turn → "resurfaced N dated incidents" — a past
+ *  resolved incident from the timeline store, not a stored rule. */
 function recallBullet(recall: AttributionRecall | undefined): Bullet | null {
   if (!recall || recall.count <= 0) return null;
   const noun = recall.count === 1 ? "incident" : "incidents";
@@ -706,7 +706,7 @@ function renderTurnLines(inputs: ReceiptBlockInputs): string[] {
   const preventions = collectPreventions(turnEvents);
 
   // Collect every candidate bullet, each tagged with its priority tier. The
-  // differentiated signals (prevention/interjection, journal, drift) rank
+  // differentiated signals (prevention/interjection, recall, drift) rank
   // ABOVE commodity compressions (shell, graph) — the headline already carries
   // the raw token number, so the bullets lead with what only unerr does. A
   // single (priority asc, weight desc) sort then picks the scarce slots.

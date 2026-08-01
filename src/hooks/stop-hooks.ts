@@ -239,8 +239,7 @@ export function evaluateVerifyGate(
 }
 
 /**
- * Stop hook entry. Scrapes + persists any session-journal sentinels from the
- * closing message, then computes the close-out line for the active session/turn
+ * Stop hook entry. Computes the close-out line for the active session/turn
  * and returns it as a user-facing systemMessage. When the turn has no rich
  * receipt (honest-zero) or an internal error occurs, it falls back to a one-line
  * presence marker (`stopPresenceLine`) instead of a silent "{}" — every turn

@@ -231,6 +231,25 @@ describe("log-paths", () => {
       expect(existsSync(join(unerrDir, "facts.db-shm"))).toBe(false);
       expect(existsSync(join(unerrDir, "graph.db"))).toBe(true);
     });
+
+    it("removes metrics.db from both <unerrDir> and <unerrDir>/logs", async () => {
+      const unerrDir = join(tmpDir, ".unerr");
+      const logsDir = join(unerrDir, "logs");
+      mkdirSync(logsDir, { recursive: true });
+      writeFileSync(join(unerrDir, "metrics.db"), "root");
+      writeFileSync(join(logsDir, "metrics.db"), "logs");
+      writeFileSync(join(logsDir, "proxy.log"), "keep"); // canonical — keep
+
+      const { cleanupLegacyStateArtefacts } = await import(
+        "../utils/log-paths.js"
+      );
+      const removed = cleanupLegacyStateArtefacts(unerrDir);
+
+      expect(removed).toBe(2);
+      expect(existsSync(join(unerrDir, "metrics.db"))).toBe(false);
+      expect(existsSync(join(logsDir, "metrics.db"))).toBe(false);
+      expect(existsSync(join(logsDir, "proxy.log"))).toBe(true);
+    });
   });
 
   describe("sweepStaleScipIntermediates", () => {

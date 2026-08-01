@@ -73,7 +73,7 @@ describe("log-tailer", () => {
     handle.close();
   });
 
-  it("polls compression rows from metrics.db", async () => {
+  it("polls compression rows from the JSONL event store", async () => {
     const { startLogTailer } = await import("../proxy/log-tailer.js");
     const handle = startLogTailer(tmpDir, { pollIntervalMs: 50 });
 

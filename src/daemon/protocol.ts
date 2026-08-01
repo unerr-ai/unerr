@@ -12,26 +12,19 @@ import type { TierLimits } from "../cloud/tier-model.js";
 // ── Shared primitives ────────────────────────────────────────────
 
 /**
- * Fixed loopback port the process manager (unerrd) serves the dashboard +
- * HTTP API on (127.0.0.1:9847). Single source of truth — import this instead
- * of repeating the literal so the URL surfaced in `pm status`, `doctor`, and
- * the daemon logs can never drift apart.
+ * Historical loopback port for the process manager's HTTP API.
+ *
+ * **Nothing binds this port.** unerrd no longer starts an HTTP listener at all
+ * — every local caller reaches it over the UDS control socket, and everything
+ * that leaves the machine goes over the cloud push path. The constant survives
+ * only because `dashboard_port` is a required field on the
+ * `@unerr-ai/contracts` machine-snapshot body: removing the field needs the
+ * cross-repo contract change order, so until that lands the fleet report sends
+ * this number and it describes no listener.
+ *
+ * Do not reintroduce a bind on it. See CLAUDE.md rule #8.
  */
 export const DAEMON_DASHBOARD_PORT = 9847;
-
-/**
- * How many ports above DAEMON_DASHBOARD_PORT unerrd will scan for a free one
- * before giving up. 9847 occupied → try 9848 … 9947. The actually-bound port
- * is persisted to dashboard.json so every URL surface reflects reality.
- */
-export const DAEMON_DASHBOARD_PORT_SCAN_RANGE = 100;
-
-/** Canonical dashboard URL. Reachable only while unerrd is running. */
-export function daemonDashboardUrl(
-  port: number = DAEMON_DASHBOARD_PORT
-): string {
-  return `http://localhost:${port}`;
-}
 
 export type JavaBuildTool = "Maven" | "Gradle" | "Bazel" | "Sbt";
 
@@ -134,10 +127,6 @@ export interface ShutdownRequest {
   cmd: "shutdown";
 }
 
-export interface DashboardStateRequest {
-  cmd: "dashboard-state";
-}
-
 export interface RepoDetailRequest {
   cmd: "repo-detail";
   repo: string;
@@ -177,7 +166,6 @@ export type DaemonRequest =
   | RemoveRequest
   | StopRequest
   | ShutdownRequest
-  | DashboardStateRequest
   | RepoDetailRequest
   | EntitlementsRequest
   | PeersRequest;

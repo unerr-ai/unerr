@@ -28,6 +28,7 @@ import {
   getTranscriptCapability,
   readAgentTranscriptsFlag,
 } from "./agent-transcript/index.js";
+import { openMetricsStore } from "./metrics-store.js";
 import {
   type TranscriptClaim,
   latestClaimPerSession,
@@ -160,6 +161,9 @@ export async function materializeClaimedTranscripts(opts: {
       const sameFile = prior?.inode === file.ino;
       const fromOffset = sameFile ? (prior?.byteOffset ?? 0) : 0;
       let convTurn = sameFile ? (prior?.lastConvTurn ?? 0) : 0;
+      // Monotonic across batches — see TranscriptOffset.lastRowSeq for why the
+      // reader's per-batch `turn_index` cannot be the cache row key.
+      let rowSeq = sameFile ? (prior?.lastRowSeq ?? 0) : 0;
 
       const result = await readClaudeTranscriptIncremental({
         filePath: file.path,
@@ -167,7 +171,10 @@ export async function materializeClaimedTranscripts(opts: {
         caps: { maxBytes: MAX_BYTES_PER_TICK, maxRows: MAX_ROWS_PER_TICK },
       });
 
-      if (result.restarted) convTurn = 0;
+      if (result.restarted) {
+        convTurn = 0;
+        rowSeq = 0;
+      }
 
       if (result.turns.length > 0) {
         const ctx: EmitContext = {
@@ -178,8 +185,37 @@ export async function materializeClaimedTranscripts(opts: {
           session_id: claim.session_id,
         };
 
+        // The local transcript cache is what `unerr status`'s cost-economics
+        // section reads (`computeSessionCacheMetrics` →
+        // `getAgentTranscriptsForSession` → `.unerr/cache/transcripts.jsonl`).
+        // Only the non-jsonl branch above wrote it, via `materializeTranscripts`
+        // — so on Claude Code, the ONE agent whose transcripts actually carry
+        // real `cache_creation_*` / `cache_read_*` counters, the cache was never
+        // created and the report rendered "no session data yet" forever. Writing
+        // it here is local-only and never drained (the file lives outside
+        // `.unerr/events/`).
+        const store = openMetricsStore(opts.unerrDir);
+
         for (const t of result.turns) {
           if (t.role === "user") convTurn++;
+          rowSeq++;
+          store.upsertAgentTranscript({
+            session_id: claim.session_id,
+            native_session_id: t.native_session_id,
+            turn: rowSeq,
+            agent: claim.agent,
+            role: t.role,
+            text:
+              t.text.length > 0 ? t.text.slice(0, TRACE_TEXT_EMIT_LIMIT) : null,
+            tools: t.tools.length > 0 ? JSON.stringify(t.tools) : null,
+            files: t.files.length > 0 ? JSON.stringify(t.files) : null,
+            model: t.model,
+            tokens_input: t.tokens_used.input,
+            tokens_output: t.tokens_used.output,
+            tokens_cache_create: t.tokens_used.cache_create,
+            tokens_cache_read: t.tokens_used.cache_read,
+            ts: t.started_ts ?? new Date().toISOString(),
+          });
           const speaker = speakerForRole(t.role);
           // event_id keys on the message's stable uuid, NOT the per-batch
           // turn_index, so a re-emit collapses server-side regardless of batch.
@@ -219,6 +255,7 @@ export async function materializeClaimedTranscripts(opts: {
         byteOffset: result.nextOffset,
         inode: file.ino,
         lastConvTurn: convTurn,
+        lastRowSeq: rowSeq,
       });
       dirty = true;
     }

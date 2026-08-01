@@ -79,17 +79,6 @@ describe("StatusDashboard", () => {
     expect(lastFrame()).toContain("1,892 edges");
   });
 
-  it("renders health grade", () => {
-    const { lastFrame } = renderStatus({
-      ...baseData,
-      healthGrade: "B+",
-      healthScore: 78,
-    });
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("B+");
-    expect(frame).toContain("78/100");
-  });
-
   it("renders drift summary", () => {
     const { lastFrame } = renderStatus({
       ...baseData,

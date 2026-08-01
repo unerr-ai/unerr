@@ -2,15 +2,11 @@
  * Log Tailer — relays new metric/log events from child processes to the
  * proxy console via startupLog.
  *
- * Three streams (compression, token_flow, file_read) live in `.unerr/metrics.db`
- * and are polled by `id > lastSeen` every `pollIntervalMs` (default 500ms).
- * One stream (`logs/events.jsonl`) stays JSONL and is tailed via `fs.watch`.
- *
- * Why this shape: SQLite gives ordered-by-id polling for free, so we no
- * longer have to track byte offsets or worry about partial writes. The
- * remaining JSONL file is structured log output that doesn't need indexed
- * aggregation, so leaving it as a flat file keeps `tail -f .../events.jsonl`
- * useful for debugging.
+ * Three streams (compression, token_flow, file_read) live as JSONL events
+ * in `.unerr/events/*.jsonl` and are polled by `id > lastSeen` every
+ * `pollIntervalMs` (default 500ms) via the metrics store's `*Since` methods.
+ * One stream (`logs/events.jsonl`) is a separate flat structured log and is
+ * tailed via `fs.watch`.
  */
 
 import {
@@ -250,7 +246,7 @@ function tokenFlowRowToEntry(r: TokenFlowEventRow): Record<string, unknown> {
 /**
  * Start tailing the proxy's child-process activity.
  *
- *   - compression / token_flow / file_read: polled from `.unerr/metrics.db`
+ *   - compression / token_flow / file_read: polled from `.unerr/events/*.jsonl`
  *     via `id > lastSeen` (no offsets, no partial-read races).
  *   - events.jsonl: still `fs.watch`-tailed — it's a flat structured log,
  *     not a metric stream.

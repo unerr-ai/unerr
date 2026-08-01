@@ -346,6 +346,21 @@ const WORKER_TOOLS =
 const JUNIOR_TOOLS = `${WORKER_TOOLS}, mcp__unerr__fetch_url, WebSearch, WebFetch`;
 
 /**
+ * Architect's allow-list adds nested delegation on top of junior's set, restricted
+ * by `Agent(...)` allowlist syntax to the two cheap execution tiers — never another
+ * architect (no opus-recursion, no runaway fan-out) and never the manual-only expert.
+ *
+ * Nesting is OFF in Claude Code by default: the `Agent` tool is withheld from every
+ * sub-agent unless the user sets `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` (>= 2) in
+ * settings. Listing it here is inert until they do — the architect then simply does
+ * the work itself, which is today's behaviour. When nesting IS enabled the win is
+ * twofold: the architect's mechanical slices run in parallel, and their tokens never
+ * enter the senior's context (a nested sub-agent also bills cache writes at the
+ * 5-minute TTL's 1.25x rather than the main conversation's 1h 2x).
+ */
+const ARCHITECT_TOOLS = `${JUNIOR_TOOLS}, Agent(unerr-worker, unerr-junior)`;
+
+/**
  * Per-repo facts a generated sub-agent body is interpolated from: the repo's
  * own check commands (never a hardcoded `pnpm`/TS assumption).
  */
@@ -515,7 +530,11 @@ function architectContract(env: AgentEnv): string {
     )
   );
   steps.push(
-    "**Hand mechanical breadth back.** If implementing the decision means propagating a change across many sites, return the decision plus the site list instead of editing them all — the senior dispatches worker-tier for that."
+    // Nested spawning is off unless the user raised
+    // CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH, in which case the `Agent` tool is
+    // withheld from this definition's tool list. Phrase both branches so the
+    // step is correct either way instead of prompting a call that cannot run.
+    "**Hand mechanical breadth off.** If implementing the decision means propagating a change across many sites: when the `Agent` tool is in your tool list, spawn `unerr-worker` per independent slice (all in ONE message so they run in parallel) and keep the design work yourself — their output never touches the senior's context. When `Agent` is absent, return the decision plus the site list and let the senior dispatch, rather than editing every site here."
   );
   steps.push(
     "**Report.** Lead with the answer (root cause or design), then evidence, then what you changed if anything."
@@ -662,7 +681,7 @@ export function buildArchitectAgentMd(env: AgentEnv): string {
       "Use PROACTIVELY as the auto-selected default for COMPLEX work (novel design, algorithm or architecture decisions, a new public interface) and bug root-causing, and for LARGE-CONTEXT work — spawning isolates that recon in a fresh sub-agent instead of growing the main thread. MUST BE USED once a task needs design judgement rather than scoped execution. Also runs on explicit request ('use unerr-architect'). Not for scoped, check-verifiable execution — that stays with unerr-worker.",
     intro:
       "The senior delegated a complex or large-context task to you — either the work needs design judgement or the investigation would bloat the senior's main thread.",
-    tools: JUNIOR_TOOLS,
+    tools: ARCHITECT_TOOLS,
     job: "Your job is to do the thinking the senior can't spare context for — root-cause the bug, design the interface, or make the judgement call — and return a decision the senior can act on.",
     contract: architectContract(env),
     examples: `## Examples

@@ -46,7 +46,7 @@ describe("session-summary-writer", () => {
   });
 
   describe("writeSessionSummary", () => {
-    it("upserts session summary row into metrics.db", () => {
+    it("upserts a session summary event into the JSONL event store", () => {
       const ctx: SessionWriterContext = {
         sessionId: "test-session-001",
         entries: [

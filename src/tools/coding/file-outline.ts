@@ -38,6 +38,47 @@ export interface FileOutlineOutput {
   token_estimate: number;
 }
 
+/** The outline shape that goes over the MCP wire. */
+export interface LeanFileOutline {
+  file_path: string;
+  total_lines: number;
+  language: string;
+  entities: Array<{ name: string; kind: string; lines: [number, number] }>;
+  exports: string[];
+  headings?: string[];
+  config_keys?: string[];
+}
+
+/**
+ * Strip a `FileOutlineOutput` to what the agent acts on.
+ *
+ * Dropped: `token_estimate` (a self-count of the very payload being read — the
+ * agent cannot act on it, and CLAUDE.md names token self-counts as noise),
+ * `imports` (file_read entity mode covers the deep read), and the per-entity
+ * `risk` / `callers` / `drift` / `exported` graph metadata.
+ *
+ * Single source for all three serve sites — the `file_outline` tool, the
+ * coding-tools wrapper, and `file_read({outline:true})`. Before this existed
+ * only the file_read path was lean, so the two paths the nudges actually name
+ * (`file_outline("<path>")`) served the fat shape.
+ */
+export function leanFileOutline(outline: FileOutlineOutput): LeanFileOutline {
+  const lean: LeanFileOutline = {
+    file_path: outline.file_path,
+    total_lines: outline.total_lines,
+    language: outline.language,
+    entities: outline.entities.map((e) => ({
+      name: e.name,
+      kind: e.kind,
+      lines: e.lines,
+    })),
+    exports: outline.exports,
+  };
+  if (outline.headings?.length) lean.headings = outline.headings;
+  if (outline.config_keys?.length) lean.config_keys = outline.config_keys;
+  return lean;
+}
+
 function normRisk(rl: string | undefined): FileOutlineEntityRow["risk"] {
   const x = (rl ?? "low").toLowerCase();
   if (x === "critical") return "critical";
@@ -279,7 +320,9 @@ export const fileOutlineTool: Tool = {
         filePathArg: fp,
         graph: ctx.graph ?? null,
       });
-      return { content: outline as unknown as Record<string, unknown> };
+      return {
+        content: leanFileOutline(outline) as unknown as Record<string, unknown>,
+      };
     } catch (e) {
       return {
         content: `file_outline failed: ${e instanceof Error ? e.message : String(e)}`,

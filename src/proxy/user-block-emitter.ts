@@ -30,7 +30,7 @@ import {
 import { noteToolCall } from "./turn-state.js";
 
 export interface UserBlockContext {
-  /** Absolute `.unerr/` directory (where metrics.db + facts.db live). */
+  /** Absolute `.unerr/` directory (holds `events/`, `cache/`, `state/`, and `graph.db`). */
   unerrDir: string;
   /** Stable session identifier from `shadowLedger.getSessionId()`. */
   sessionId: string;

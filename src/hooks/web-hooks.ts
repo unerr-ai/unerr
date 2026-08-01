@@ -85,7 +85,11 @@ export const preWebFetchHandler: HookHandler = (normalized) => {
 
   const prompt = normalized.toolInput.prompt as string | undefined;
   const suggestion = buildFetchUrlSuggestion(url, prompt);
-  const reason = `WebFetch("${url}") is blocked — call \`${suggestion}\` instead. fetch_url returns DOM-extracted, BM25-ranked markdown passages (paginated, content-hash cached) at 5–10× fewer tokens than WebFetch's full page, and routes through unerr's graph-backed proxy.`;
+  // No justification clause: the call is DENIED, so the agent has no choice to
+  // be persuaded of. "DOM-extracted, BM25-ranked, content-hash cached, 5–10×
+  // fewer tokens, graph-backed proxy" all described unerr; none of it changed
+  // which call the agent makes next, and the call itself is already spelled out.
+  const reason = `WebFetch("${url}") is blocked — call \`${suggestion}\` instead.`;
 
   if (shouldEmitOnce(`deny:WebFetch:${url}`, DENY_ONCE_TTL_MS)) {
     return deny(reason);
@@ -164,7 +168,10 @@ export const postWebSearchHandler: HookHandler = (normalized) => {
     query.length > 0 && query.length <= MAX_INLINE_PROMPT_CHARS
       ? `, prompt:"${query}"`
       : "";
-  const message = `${urls.length} result URLs found. Read them ALL in one roundtrip: call \`fetch_url({urls:[${list}]${promptArg}})\` — unerr fetches the pages in parallel, BM25-ranks passages across all of them, and returns one payload. Do NOT call fetch_url once per URL; the bulk form pays the prefix cost once instead of ${urls.length} times.`;
+  // The prohibition stays (it names an operation to avoid); the mechanism
+  // sentence and the prefix-cost arithmetic went — both described why unerr is
+  // cheaper rather than changing the call.
+  const message = `${urls.length} result URLs found — call \`fetch_url({urls:[${list}]${promptArg}})\` once. Do NOT call fetch_url per URL.`;
   return enrich(message);
 };
 

@@ -1,36 +1,9 @@
 ---
-unerr_skill_version: "2.0.0"
-description: "Always on. For anything that reads, searches, or edits code, reach for unerr's tools first (search_code / file_read / file_edit / fetch_url) and escalate to get_references for a full caller/callee graph or a rename sweep, then delegate the work to unerr sub-agents by default — the main thread plans, routes, and consolidates while sub-agents run the slices in parallel (one per independent slice, no fixed cap). Guidance toward the tools and capabilities, not a workflow — there are no fixed steps to run."
+unerr_skill_version: "2.1.0"
+description: "unerr's MCP tools for code in this repo: search_code finds code by name or task phrase (recon bundle with callers and conventions), file_read reads files/line-ranges/entities/outlines, file_edit changes files, get_references lists every use of an identifier for renames and signature changes, fetch_url fetches web pages (bulk urls supported). Reach for these before shell or built-in file tools when navigating or editing code."
 alwaysApply: true
 ---
 
-## Use unerr's tools, not bash or built-ins
+## unerr tools
 
-unerr serves the live code graph and your team's rules via MCP tools — one query replaces 5-15 file reads for any code read, search, or edit.
-
-| To… | Use |
-|---|---|
-| Find code, or pull context for a change | `search_code({query})` — a task phrase returns a recon bundle: focus entity (+ body if single-entity), callers (blast radius), top matches, conventions. More bodies: `file_read({entity})`, `include_body:true`, `cache_ref` (zero recompute). A bare symbol returns ranked matches. |
-| Exact string / regex across files | `search_code({query, mode:'literal'\|'regex'})` — match + surrounding lines, no follow-up read |
-| Read a file, range, entity (+ top callers), or structure | `file_read({file_path})` whole file; `{offset,limit}` a range; `{entity}` one entity + top callers; `{outline:true}` structure |
-| Change a file | `file_edit` (`{old_string,new_string}` or `{content}`) — no prior read needed |
-| Fetch a URL or docs | `fetch_url` (bulk: `{urls:[...]}`) |
-| Caller/callee graph, or a rename sweep | `get_references({key, direction:'callers'\|'callees'})` — unlocks on first edit, or automatically at fan_in ≥ 5; add `include_text_occurrences:true` for a rename |
-
-Pick the tool that fits — no required sequence.
-
-## Keep `@sem` doc comments true in the same edit
-
-Domain comment (Layer 8): when `file_edit` changes what an `@sem`-commented entity does or why, rewrite its prose summary and `@sem domain=<tag>` line in the SAME Edit call; NEVER delete an `@sem` comment unless the user instructs it.
-
-## The hooks already do the protective work — don't pay a call to repeat it
-
-Conventions and drift (on read) and the blast-radius gate (on edit) arrive on their own as `ur|<tag>` lines. Read them. Don't re-spend `search_code` / `get_references` / `file_read` on context already delivered.
-
-## Delegate by default
-
-Spawn `unerr-worker` (scoped coding from a spec) / `unerr-junior` (read-only investigation, verify-runs) sub-agents for delegable slices, in parallel, one per slice — the main thread plans, routes, and consolidates. The full tiering and task-tracker rules live in your instruction file, not here.
-
-## Output discipline
-
-Lead with the answer; structured summaries over prose; show diffs, not whole files; never repeat context already in the conversation.
+`search_code({query})` finds code by name or task phrase — a phrase returns a recon bundle (callers, conventions). `file_read({file_path})` reads a file, a range, an entity, or an outline. `file_edit` changes a file. `get_references({key})` lists every caller/callee of an identifier — add `include_text_occurrences:true` for a rename. `fetch_url({url})` fetches a page (bulk: `{urls:[...]}`).

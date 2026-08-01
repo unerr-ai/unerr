@@ -1,6 +1,6 @@
 /**
  * Sprint 3: Local Intelligence Deepening — tests for blast radius entities,
- * convention matching, health grade enhancements, and prefetch.
+ * convention matching and prefetch.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -189,46 +189,6 @@ describe("Sprint 3.2: Convention Pattern Matching", () => {
   });
 });
 
-// ── 3.3: Health Grade Enhancement ─────────────────────────────────
-
-describe("Sprint 3.3: Health Grade Enhancement", () => {
-  it("HealthGradeResult includes new fields", async () => {
-    const { computeHealthGrade } = await import(
-      "../intelligence/health-grade.js"
-    );
-
-    const db = createHealthGradeDb({
-      entities: 100,
-      edges: 200,
-      rules: 5,
-      deadFunctions: 10,
-    });
-
-    const result = await computeHealthGrade(db);
-    expect(result.score).toBeGreaterThan(0);
-    expect(result.grade).toBeDefined();
-    expect(result.conventionAdherence).toBeDefined();
-    expect(result.maxImportDepth).toBeDefined();
-  });
-
-  it("circular deps reduce health score", async () => {
-    const { computeHealthGrade } = await import(
-      "../intelligence/health-grade.js"
-    );
-
-    const dbNoCycles = createHealthGradeDb({ entities: 100, edges: 200 });
-    const dbWithCycles = createHealthGradeDb({
-      entities: 100,
-      edges: 200,
-      circularDeps: [["a", "b"]],
-    });
-
-    const scoreNoCycles = (await computeHealthGrade(dbNoCycles)).score;
-    const scoreWithCycles = (await computeHealthGrade(dbWithCycles)).score;
-    expect(scoreWithCycles).toBeLessThanOrEqual(scoreNoCycles);
-  });
-});
-
 // ── Helpers ───────────────────────────────────────────────────────
 
 function makeEntity(name: string, kind: string, filePath: string): LocalEntity {
@@ -303,74 +263,4 @@ function createConventionGraph(opts?: {
     }),
     getImports: vi.fn().mockReturnValue(opts?.imports ?? []),
   } as unknown as CozoGraphStore;
-}
-
-function createHealthGradeDb(opts?: {
-  entities?: number;
-  edges?: number;
-  rules?: number;
-  deadFunctions?: number;
-  circularDeps?: string[][];
-}) {
-  const entityCount = opts?.entities ?? 50;
-  const edgeCount = opts?.edges ?? 100;
-  const ruleCount = opts?.rules ?? 0;
-  const deadFnCount = opts?.deadFunctions ?? 0;
-  const circularDeps = opts?.circularDeps ?? [];
-
-  return {
-    async run(query: string, _params?: Record<string, unknown>) {
-      // Count queries
-      if (query.includes("count(key)") && query.includes("*entities{")) {
-        return { rows: [[entityCount]] };
-      }
-      if (query.includes("count(from_key)") && query.includes("*edges[")) {
-        return { rows: [[edgeCount]] };
-      }
-      if (query.includes("count(key)") && query.includes("*rules[")) {
-        return { rows: [[ruleCount]] };
-      }
-
-      // Dead functions
-      if (
-        query.includes('kind = "function"') &&
-        query.includes("fan_in == 0")
-      ) {
-        const rows = [];
-        for (let i = 0; i < deadFnCount; i++) {
-          rows.push([`dead-fn-${i}`, `deadFn${i}`, `src/dead${i}.ts`, 0]);
-        }
-        return { rows };
-      }
-
-      // High risk entities
-      if (query.includes('risk_level == "high"')) {
-        return { rows: [] };
-      }
-
-      // Circular deps (2-hop)
-      if (query.includes("*edges[a, b") && query.includes("*edges[b, a")) {
-        return {
-          rows: circularDeps.map((c) => [c[0], c[1]]),
-        };
-      }
-
-      // Max import depth
-      if (query.includes("max(depth)")) {
-        return { rows: [[3]] };
-      }
-
-      // Convention adherence
-      if (query.includes("*patterns[") && query.includes("naming")) {
-        return { rows: [] };
-      }
-
-      // Drift impact
-      if (query.includes("*drift_overlay[") && query.includes("fi > 5")) {
-        return { rows: [[0]] };
-      }
-
-      return { rows: [] };
-    },
-  };
 }

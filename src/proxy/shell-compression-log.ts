@@ -1,10 +1,7 @@
 /**
- * Compression-specific event log — per-command rows written to
- * `.unerr/metrics.db` (`compression_events` and `file_read_events`).
- *
- * Previously this was JSONL (`logs/compression.jsonl`, `logs/file-reads.jsonl`);
- * migrated to SQLite for indexed lookups, monotonic poll-by-id semantics
- * (used by the log-tailer), and cheap aggregations in the dashboard.
+ * Compression-specific event log — per-command rows written as
+ * `compression` and `file_read` events in `.unerr/events/*.jsonl` (via
+ * `openMetricsStore`, `src/tracking/metrics-store.ts`).
  *
  * The wire types (CompressionLogEntry / FileReadLogEntry) are unchanged so
  * callers don't need to know about the storage backend.

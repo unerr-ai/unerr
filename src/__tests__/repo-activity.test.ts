@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // emitRepoRemoved does a one-shot cloud drain after spooling. Stub the reporter
 // so the test never touches the network (a logged-in dev machine would push for
-// real otherwise); the spool we assert on still runs against the real metrics.db.
+// real otherwise); the spool we assert on still runs against the real JSONL
+// event store.
 vi.mock("../daemon/push-reporter.js", () => ({
   PushReporter: class {
     drainRepoNow(): Promise<void> {

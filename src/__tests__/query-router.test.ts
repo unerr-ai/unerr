@@ -292,6 +292,50 @@ describe("QueryRouter", () => {
       expect((raw[0] as { name: string }).name).toBe("UserController");
     });
 
+    // CLAUDE.md "send only the answer": `score` is the TF-IDF rank the rows are
+    // already sorted by, so it names no call the agent can make. It was the
+    // largest non-actionable field in a search_code response (every row, up to
+    // 50 rows on a lifted budget).
+    it("drops the ranking score from served rows, keeping the fields acted on", async () => {
+      const localGraph = createMockLocalGraph();
+      (localGraph.searchEntities as ReturnType<typeof vi.fn>).mockResolvedValue(
+        [
+          {
+            key: "e1",
+            name: "alpha",
+            kind: "function",
+            file_path: "src/a.ts",
+            score: 12.5,
+          },
+        ]
+      );
+      const router = new QueryRouter(localGraph);
+
+      const raw = (await router.executeRaw("search_code", {
+        query: "alpha",
+      })) as Array<Record<string, unknown>>;
+
+      expect(raw.length).toBe(1);
+      expect(raw[0]?.score).toBeUndefined();
+      // `key` stays — get_references({key}) and file_read({entity}) consume it.
+      expect(raw[0]?.key).toBe("e1");
+      expect(raw[0]?.name).toBe("alpha");
+      expect(raw[0]?.file_path).toBe("src/a.ts");
+    });
+
+    // attachAnnotations documents this contract explicitly; the score-strip must
+    // honour it too or a non-array result throws on `.map` and fails the call.
+    it("passes a non-array search result through instead of throwing", async () => {
+      const localGraph = createMockLocalGraph();
+      (localGraph.searchEntities as ReturnType<typeof vi.fn>).mockResolvedValue(
+        "already-compressed text" as unknown as never
+      );
+      const router = new QueryRouter(localGraph);
+
+      const raw = await router.executeRaw("search_code", { query: "alpha" });
+      expect(raw).toBe("already-compressed text");
+    });
+
     // BUG-1 undershoot: a lifted token_budget must widen the upstream fetch so
     // the wire cap has enough rows to fill the budget; default stays lean and an
     // explicit limit always wins.
@@ -1176,7 +1220,6 @@ describe("QueryRouter", () => {
         blast_radius: "14 callers, 38 transitive dependents",
         value_counter: "unerr caught 3 issues",
         drift_alert: "WARNING: modified locally",
-        session_greeting: "Welcome to unerr",
         reminder: "Previously queried: 5 callers, risk=high",
         related_issues: ["Chokepoint detected"],
         pending_violations: [
@@ -1196,8 +1239,7 @@ describe("QueryRouter", () => {
       // Informational fields come after
       expect(keys[4]).toBe("conventions");
       expect(keys[5]).toBe("related_issues");
-      expect(keys[6]).toBe("session_greeting");
-      expect(keys[7]).toBe("value_counter");
+      expect(keys[6]).toBe("value_counter");
     });
 
     it("preserves field values during reordering", () => {

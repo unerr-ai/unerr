@@ -6,9 +6,9 @@
  * `hooks.stop=false`, so their handoffs (`codex exec -m`, `cursor-agent -p -m`,
  * `copilot … --model`) were invisible to the meter. This producer recognizes the
  * handoff command and records the SAME `harness_subagent_model` +
- * `delegated_to_junior` rows straight into the shared `.unerr/metrics.db`
- * behavior_events table — so the delegation meter fires on every host, not just
- * Claude Code. Called from the two seams a shell handoff crosses:
+ * `delegated_to_junior` rows as `behavior` events straight into the shared
+ * `.unerr/events/*.jsonl` — so the delegation meter fires on every host, not
+ * just Claude Code. Called from the two seams a shell handoff crosses:
  *   - `unerr exec` (`runExecMain`) — the rewrite-capable hosts (Codex) route the
  *     handoff through `unerr exec -- codex exec -m …`,
  *   - the pre-shell hook (`runPreShellHook`) — Cursor / Copilot can't rewrite, so

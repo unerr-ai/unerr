@@ -1,19 +1,22 @@
 /**
- * Local Skills Pack — the 7 consolidated unerr skills.
+ * Local Skills Pack — the 6 unerr skills (2026-06 consolidation, usage-driven).
  *
- * Consolidation history (27 → 7) shipped per docs/skill-consolidation-audit.md:
+ * One always-on orchestrator + five opt-in workflow skills:
  *
- *   - unerr-using-unerr        — master orchestrator + token-efficient guidance
- *   - unerr-safe-modification  — edit-existing lifecycle (absorbs understand-before-modify,
- *                                blast-radius-first / -check, convention-aware-generation /
- *                                discovery, dependency-aware-refactor, drift-aware-edit,
- *                                pre-edit-recon, safe-modification-workflow)
+ *   - unerr-using-unerr        — always-on orchestrator: tool guidance + the
+ *                                default edit workflow (recall → blast-radius →
+ *                                conventions → drift → edit, folded in from the
+ *                                former safe-modification skill)
  *   - unerr-exploration        — find/understand (absorbs graph-first-navigation,
  *                                architecture-exploration, file-read-protocol)
  *   - unerr-build-and-debug    — new-code + bug-forensics lifecycles (absorbs
  *                                brainstorming-before-build, systematic-debugging)
  *   - unerr-test-and-review    — TDD + receiving-code-review (absorbs
  *                                test-driven-development, receiving-code-review)
+ *   - unerr-review             — agent-as-reviewer: evidence-gathered review of
+ *                                a diff before commit
+ *   - unerr-delegate           — routes a delegable task to a cheaper-model
+ *                                worker/junior sub-agent, then reviews the diff
  *
  * Each skill body follows the Superpowers Iron Law / Phases / Red Flags shape.
  * `whenToUse` and `allowedTools` are emitted as Claude Code SKILL.md frontmatter
@@ -63,7 +66,7 @@ export interface SkillDefinition {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Skill 1 — Orchestrator (the ONE always-on skill). A thin dispatch table to the
+// Orchestrator (the ONE always-on skill). A thin dispatch table to the
 // five on-demand workflow skills + the default edit workflow (recall →
 // blast-radius → conventions → drift → edit, folded in from the former
 // safe-modification skill). The verbose Surface 2/3/4 telemetry + token rules
@@ -94,7 +97,7 @@ export const USING_UNERR_SKILL: SkillDefinition = {
 // ────────────────────────────────────────────────────────────────────────────
 
 // ────────────────────────────────────────────────────────────────────────────
-// Skill 3 — Find/Understand (agent-requested). Absorbs graph-first-navigation,
+// Find/Understand (agent-requested). Absorbs graph-first-navigation,
 // architecture-exploration, file-read-protocol.
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -127,7 +130,7 @@ export const EXPLORATION_SKILL: SkillDefinition = {
 // ────────────────────────────────────────────────────────────────────────────
 
 // ────────────────────────────────────────────────────────────────────────────
-// Skill 6 — Build + Debug (agent-requested). Two tracks: new-build greenfield
+// Build + Debug (agent-requested). Two tracks: new-build greenfield
 // (Track A) and bug forensics (Track B). Absorbs brainstorming-before-build
 // and systematic-debugging.
 // ────────────────────────────────────────────────────────────────────────────
@@ -149,7 +152,7 @@ export const BUILD_AND_DEBUG_SKILL: SkillDefinition = {
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// Skill 7 — Test + Review (agent-requested). Two tracks: TDD (Track A) and
+// Test + Review (agent-requested). Two tracks: TDD (Track A) and
 // receiving code review (Track B). Absorbs test-driven-development and
 // receiving-code-review.
 // ────────────────────────────────────────────────────────────────────────────
@@ -171,7 +174,7 @@ export const TEST_AND_REVIEW_SKILL: SkillDefinition = {
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// Skill 8 — Review (agent-as-reviewer). PRODUCES a review of a diff / change
+// Review (agent-as-reviewer). PRODUCES a review of a diff / change
 // set by driving unerr's graph tools as the evidence layer, then judging.
 // Distinct from test-and-review Track B, which ADDRESSES review comments.
 // ────────────────────────────────────────────────────────────────────────────
@@ -200,7 +203,7 @@ export const REVIEW_SKILL: SkillDefinition = {
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// Skill 9 — Delegate (agent-requested). Routes a delegable task (tests / docs /
+// Delegate (agent-requested). Routes a delegable task (tests / docs /
 // mechanical refactor / lint) to a cheaper model in the SAME host, then reviews
 // the diff. Only fires when the host supports delegation (claude-code / codex);
 // on any other host it is a no-op and the normal skill runs.

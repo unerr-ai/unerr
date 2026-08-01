@@ -16,7 +16,7 @@ import {
 } from "../../proxy/shell-compression-log.js";
 import { resolveWithHome } from "../../utils/expand-home.js";
 import type { ToolContext, ToolOutput } from "../types.js";
-import { buildFileOutline } from "./file-outline.js";
+import { buildFileOutline, leanFileOutline } from "./file-outline.js";
 
 /** Subset of `ToolResult["_meta"]` merged at the router layer. */
 export type FileReadLayer6Meta = {
@@ -476,31 +476,7 @@ export async function runFileReadForRouter(
         filePathArg,
         graph: ctx.graph && graphIsReady ? ctx.graph : null,
       });
-      const lean: {
-        file_path: string;
-        total_lines: number;
-        language: string;
-        entities: Array<{
-          name: string;
-          kind: string;
-          lines: [number, number];
-        }>;
-        exports: string[];
-        headings?: string[];
-        config_keys?: string[];
-      } = {
-        file_path: outline.file_path,
-        total_lines: outline.total_lines,
-        language: outline.language,
-        entities: outline.entities.map((e) => ({
-          name: e.name,
-          kind: e.kind,
-          lines: e.lines,
-        })),
-        exports: outline.exports,
-      };
-      if (outline.headings?.length) lean.headings = outline.headings;
-      if (outline.config_keys?.length) lean.config_keys = outline.config_keys;
+      const lean = leanFileOutline(outline);
       logFileRead(
         ctx.cwd,
         outline.file_path,

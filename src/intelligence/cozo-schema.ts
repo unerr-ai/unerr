@@ -1,7 +1,7 @@
 /**
  * CozoDB Datalog schema for local graph store (v9 — multi-level graph).
  *
- * Twenty-two relations:
+ * Twenty-six relations:
  *   - entities: All graph entities with risk + community fields (functions, classes, files, etc.)
  *   - edges: Relationships between entities (calls, imports, extends, etc.)
  *   - file_index: File path → entity key mapping for fast file queries
@@ -10,6 +10,7 @@
  *   - rules: Code rules for local evaluation (Phase 10b, Sprint 9 extensions)
  *   - patterns: Detected code patterns (Phase 10b)
  *   - drift_overlay: Locally-modified entities tracked for drift detection (Phase 10)
+ *   - drift_edges: Drift propagation edges between overlay entities (Phase 10)
  *   - justifications: Entity purpose, taxonomy, feature_area, confidence (Phase 10 MV-03)
  *   - spatial_positions: 3D positions for local-first visualization (Phase 14)
  *   - rule_exceptions: Time-bound exception ledger for rule violations (Sprint 9.6)
@@ -22,6 +23,11 @@
  *   - file_edges: Weighted file-to-file edges aggregated from L0 (Multi-Level Graph)
  *   - class_edges: Weighted class-to-class edges aggregated from L0 (Multi-Level Graph)
  *   - file_communities: Materialized file-level communities from cascaded Louvain (Multi-Level Graph)
+ *   - file_content_hashes: Per-file content hash for incremental early-cutoff (FIX D Phase 3)
+ *   - index_meta: Index-wide key/value metadata (e.g. extractor-logic version, for staleness planning)
+ *   - domain_annotations: Per-entity semantic annotation from doc comments (Layer 8 Domain Understanding)
+ *   - domain_edges: Domain-graph edges between domain tags (Layer 8 Domain Understanding)
+ *   - community_domains: Community-level merge of structural + domain graphs (Layer 8 Domain Understanding)
  */
 
 /**

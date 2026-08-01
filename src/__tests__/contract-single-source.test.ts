@@ -60,8 +60,18 @@ function expectValid(row: unknown) {
 /** A contract-valid daemon runtime block for the fleet events. */
 const DAEMON = { pid: 1, uptime_s: 1, rss_bytes: 1, dashboard_port: 1 };
 
+// Matches a real unresolved import specifier — `from`, `require(`, or
+// `import(` immediately followed by the quoted package name (either quote
+// style, any whitespace, an optional subpath like `/ingest`). It does NOT
+// match the package name sitting in prose: `src/entrypoints/daemon.ts` keeps
+// a code comment naming `@unerr-ai/contracts` inside backticks to explain why
+// `DAEMON_DASHBOARD_PORT` survives (see CLAUDE.md rule #8), and that comment
+// must not trip this guard.
+const EXTERNAL_CONTRACT_SPECIFIER =
+  /\b(?:from|require|import)\s*\(?\s*["']@unerr-ai\/contracts(?:\/[\w.-]+)?["']/;
+
 describe("contract single-source — bundle inlining", () => {
-  it("no dist chunk carries an external @unerr-ai/contracts reference", () => {
+  it("no dist chunk carries an external @unerr-ai/contracts import specifier", () => {
     const distDir = join(process.cwd(), "dist");
     if (!existsSync(distDir)) return; // fresh checkout, not built yet
     // The build code-splits into cli.js + cli-hook.js + cli-main.js + chunk-*.js.
@@ -70,9 +80,32 @@ describe("contract single-source — bundle inlining", () => {
     for (const name of readdirSync(distDir)) {
       if (!name.endsWith(".js")) continue;
       const bundle = readFileSync(join(distDir, name), "utf8");
-      if (bundle.includes("@unerr-ai/contracts")) offenders.push(name);
+      if (EXTERNAL_CONTRACT_SPECIFIER.test(bundle)) offenders.push(name);
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("the specifier matcher catches a real external reference and ignores the doc comment", () => {
+    // A real un-inlined import in any of the forms esbuild/tsup emits.
+    expect(
+      EXTERNAL_CONTRACT_SPECIFIER.test(
+        'import { X } from "@unerr-ai/contracts/ingest";'
+      )
+    ).toBe(true);
+    expect(
+      EXTERNAL_CONTRACT_SPECIFIER.test("require('@unerr-ai/contracts')")
+    ).toBe(true);
+    expect(
+      EXTERNAL_CONTRACT_SPECIFIER.test(
+        'const c = await import("@unerr-ai/contracts/events");'
+      )
+    ).toBe(true);
+    // The daemon.ts comment: package name in backticks, no import keyword.
+    expect(
+      EXTERNAL_CONTRACT_SPECIFIER.test(
+        "// `dashboard_port` is a `@unerr-ai/contracts` wire field, so it still has"
+      )
+    ).toBe(false);
   });
 });
 

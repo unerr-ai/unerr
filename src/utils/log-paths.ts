@@ -141,21 +141,29 @@ export function cleanupLegacyLogs(dir: string): number {
 // ── Legacy state / data-dir cleanup ───────────────────────────────────
 
 /**
- * Pre-redesign artefacts that live OUTSIDE `.unerr/logs/` and so aren't
- * reached by `cleanupLegacyLogs`:
+ * Pre-redesign artefacts named by exact retired-store filename, not by the
+ * generic log patterns `cleanupLegacyLogs` matches (`mcp-`, `child-`,
+ * `session-2*`, `*.bak`/`*.jsonl`):
  *
  *   - `<unerrDir>/state/*.pre-sqlite.bak` — one-shot backups written when a
  *     JSON/JSONL state file was migrated to SQLite. Never read again.
  *   - `<unerrDir>/sessions/` — per-session `*.jsonl` summaries, superseded by
  *     the session-summary JSONL events. Frozen at the migration and no longer
  *     written or read; the whole directory is removed.
- *   - `<unerrDir>/metrics.db` (+ `-wal`/`-shm` sidecars) — the retired SQLite
- *     telemetry/transcript store. All telemetry is now `.unerr/events/` JSONL and
- *     the transcript cache is `.unerr/cache/transcripts.jsonl`; the legacy DB is
- *     never created or read again, so its (often 100+ MB) bulk is reclaimed.
- *   - `<unerrDir>/facts.db` (+ `-wal`/`-shm` sidecars) — the retired Layer 9
- *     temporal-fact CozoDB store (active-memory strip). No code opens it
- *     anymore; a leftover from a build predating the strip is reclaimed.
+ *   - `<unerrDir>/metrics.db` and `<unerrDir>/logs/metrics.db` (+ `-wal`/
+ *     `-shm` sidecars) — the retired SQLite telemetry/transcript store. An
+ *     older version wrote it at the `.unerr` root; a later version moved it
+ *     under `.unerr/logs/` before the store itself was retired, so either
+ *     location can hold a leftover depending on which version last wrote it.
+ *     All telemetry is now `.unerr/events/` JSONL and the transcript cache is
+ *     `.unerr/cache/transcripts.jsonl`; the legacy DB is never created or
+ *     read again, so its (often 100+ MB) bulk is reclaimed from wherever it
+ *     landed.
+ *   - `<unerrDir>/facts.db` and `<unerrDir>/logs/facts.db` (+ `-wal`/`-shm`
+ *     sidecars) — the retired Layer 9 temporal-fact CozoDB store
+ *     (active-memory strip), swept at both locations for the same reason.
+ *     No code opens it anymore; a leftover from a build predating the strip
+ *     is reclaimed.
  *
  * Best-effort idempotent boot-time sweep; never throws. Returns the number of
  * filesystem entries removed (files + the sessions dir, if present).
@@ -163,25 +171,29 @@ export function cleanupLegacyLogs(dir: string): number {
 export function cleanupLegacyStateArtefacts(unerrDir: string): number {
   let removed = 0;
 
-  // Retired SQLite/CozoDB stores — only unerr-owned files directly under
-  // `<unerrDir>`. We never recurse or touch anything outside `.unerr`.
-  for (const name of [
-    "metrics.db",
-    "metrics.db-wal",
-    "metrics.db-shm",
-    "facts.db",
-    "facts.db-wal",
-    "facts.db-shm",
-  ]) {
-    const full = join(unerrDir, name);
-    if (!existsSync(full)) continue;
-    try {
-      if (statSync(full).isFile()) {
-        unlinkSync(full);
-        removed++;
+  // Retired SQLite/CozoDB stores — only unerr-owned files, checked directly
+  // under `<unerrDir>` and `<unerrDir>/logs` (metrics.db moved between the
+  // two across versions — see doc comment above). No recursion, no globs,
+  // nothing outside `.unerr`.
+  for (const dir of [unerrDir, join(unerrDir, "logs")]) {
+    for (const name of [
+      "metrics.db",
+      "metrics.db-wal",
+      "metrics.db-shm",
+      "facts.db",
+      "facts.db-wal",
+      "facts.db-shm",
+    ]) {
+      const full = join(dir, name);
+      if (!existsSync(full)) continue;
+      try {
+        if (statSync(full).isFile()) {
+          unlinkSync(full);
+          removed++;
+        }
+      } catch {
+        /* best effort */
       }
-    } catch {
-      /* best effort */
     }
   }
 

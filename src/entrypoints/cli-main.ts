@@ -106,8 +106,7 @@ async function reapplyDevConfig(repoPath: string): Promise<void> {
  */
 async function startProxy(repoId?: string): Promise<void> {
   const { startProxy: boot } = await import("../proxy/proxy.js");
-  const httpPort = Number.parseInt(process.env.UNERR_HTTP_PORT ?? "0", 10);
-  await boot({ repoId, httpPort: httpPort || undefined });
+  await boot({ repoId });
 }
 
 /**

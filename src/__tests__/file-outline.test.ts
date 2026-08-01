@@ -2,7 +2,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildFileOutline } from "../tools/coding/file-outline.js";
+import {
+  buildFileOutline,
+  leanFileOutline,
+} from "../tools/coding/file-outline.js";
 
 function makeTmpDir(label: string): string {
   const dir = join(tmpdir(), `fo-${label}-${Date.now()}`);
@@ -214,5 +217,80 @@ describe("buildFileOutline", () => {
     for (const entity of o.entities) {
       expect(typeof entity.exported).toBe("boolean");
     }
+  });
+});
+
+describe("leanFileOutline (wire shape)", () => {
+  // `file_read({outline:true})` has always served the lean shape and had a test
+  // guarding it; the `file_outline` tool and its coding-tools wrapper served the
+  // FULL FileOutlineOutput and had none. Since the pre-Read and pre-Glob nudges
+  // name `file_outline("<path>")` by hand, the untested path was the one agents
+  // actually hit. These assertions cover the shared shaper both now use.
+  it("drops token_estimate, imports, and per-entity graph metadata", async () => {
+    const dir = makeTmpDir("lean");
+    writeFileSync(
+      join(dir, "mod.ts"),
+      [
+        "import { foo } from './foo.js';",
+        "export function alpha(): void {}",
+        "export class Beta {}",
+      ].join("\n"),
+      "utf-8"
+    );
+
+    const full = await buildFileOutline({
+      cwd: dir,
+      filePathArg: "mod.ts",
+      graph: null,
+    });
+    const lean = leanFileOutline(full);
+
+    // The source object still carries them — only the wire shape is trimmed.
+    expect(full.token_estimate).toBeGreaterThan(0);
+    expect(Array.isArray(full.imports)).toBe(true);
+
+    const wire = lean as unknown as Record<string, unknown>;
+    expect(wire.token_estimate).toBeUndefined();
+    expect(wire.imports).toBeUndefined();
+
+    // Per-entity: exactly name / kind / lines.
+    expect(lean.entities.length).toBeGreaterThan(0);
+    for (const e of lean.entities) {
+      expect(Object.keys(e).sort()).toEqual(["kind", "lines", "name"]);
+    }
+
+    // What the agent acts on survives.
+    expect(lean.file_path).toBe(full.file_path);
+    expect(lean.language).toBe(full.language);
+    expect(lean.total_lines).toBe(full.total_lines);
+    expect(lean.exports).toEqual(full.exports);
+  });
+
+  it("omits headings and config_keys entirely when empty rather than sending []", async () => {
+    const dir = makeTmpDir("lean-empty");
+    writeFileSync(join(dir, "plain.ts"), "export const x = 1;\n", "utf-8");
+
+    const lean = leanFileOutline(
+      await buildFileOutline({ cwd: dir, filePathArg: "plain.ts", graph: null })
+    );
+
+    // An empty array still costs brackets and a key name on every call.
+    expect("headings" in lean).toBe(false);
+    expect("config_keys" in lean).toBe(false);
+  });
+
+  it("keeps headings for markdown, where they are the outline", async () => {
+    const dir = makeTmpDir("lean-md");
+    writeFileSync(
+      join(dir, "doc.md"),
+      "# Title\n\n## Section\nbody\n",
+      "utf-8"
+    );
+
+    const lean = leanFileOutline(
+      await buildFileOutline({ cwd: dir, filePathArg: "doc.md", graph: null })
+    );
+
+    expect(lean.headings?.some((h) => h.includes("Title"))).toBe(true);
   });
 });

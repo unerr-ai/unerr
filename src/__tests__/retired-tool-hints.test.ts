@@ -32,17 +32,19 @@ const RETIRED_TOOL_NAMES = [
   "file_connections",
   "get_imports",
   "review_changes",
+  "file_write",
 ] as const;
 
 /**
  * Files whose string literals reach agent context: exec nudge footers,
- * PreToolUse/PostToolUse hook nudges, auto-created fact content, and the
- * advertised tool schema descriptions.
+ * PreToolUse/PostToolUse hook nudges, auto-created fact content, the
+ * advertised tool schema descriptions, and skill instruction bodies.
  */
 const AGENT_FACING_EMITTERS = [
   "src/commands/exec.ts",
   "src/hooks/navigation-hooks.ts",
   "src/proxy/tool-definitions.ts",
+  "src/content/skills.json",
 ] as const;
 
 /** Remove block and line comments so doc references don't false-positive. */

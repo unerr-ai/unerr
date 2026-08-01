@@ -306,9 +306,6 @@ async function handleRequest(
       }
     }
 
-    case "dashboard-state":
-      return { ok: true, repos: pm.getStatus() };
-
     case "repo-detail": {
       const managed = pm.getManaged(req.repo);
       if (!managed) return { ok: false, error: "Not managed" };
@@ -457,15 +454,12 @@ export async function startDaemon(opts: {
   const originalCreateUdsServer = server;
 
   // Graceful shutdown procedure
-  let apiHandle: import("../daemon/api.js").DaemonApiHandle | null = null;
-
   const shutdown = async (reason: string) => {
     if (shutdownRequested) return;
     shutdownRequested = true;
     log.info(`Shutting down: ${reason}`);
 
     pm.stopIdleSweep();
-    apiHandle?.close();
 
     server.close();
     try {
@@ -532,23 +526,20 @@ export async function startDaemon(opts: {
     /* best-effort — never block daemon startup */
   });
 
-  // Start the dashboard HTTP API (non-critical — daemon works without it)
-  try {
-    const { startDaemonApi } = await import("../daemon/api.js");
-    apiHandle = await startDaemonApi(pm);
-    if (apiHandle) {
-      log.info(`Dashboard: http://localhost:${apiHandle.port}`);
-    }
-  } catch (err) {
-    log.warn(`Dashboard API failed to start: ${(err as Error).message}`);
-  }
+  // No HTTP listener is started. The manager reports upward over the cloud
+  // push path (fleet reporter + drainers), and every local caller — `pm
+  // status`, `pm stop`, the bridge — reaches it over the UDS control socket at
+  // ~/.unerr/unerrd.sock. The old loopback server (`GET /api/pm`, a sliding
+  // 9847-9947 bind, and `~/.unerr/state/dashboard.json` port discovery) served
+  // pid/uptime/version to nothing: it had zero production callers after the
+  // dashboard UI was archived, and an unauthenticated listening socket on every
+  // developer machine is exactly the shape AV/EDR flags.
 
   // Schedule warm-start of MRU repos (non-critical)
   let cancelWarmStart: (() => void) | null = null;
   try {
     const { scheduleWarmStart } = await import("../daemon/warm-start.js");
     cancelWarmStart = scheduleWarmStart(pm, (event) => {
-      apiHandle?.pushWarmStartEvent(event);
       if (event.status === "started") {
         log.info(`warm-start: ${event.label} ready (${event.ms}ms)`);
       } else if (event.status === "skipped") {
@@ -604,7 +595,12 @@ export async function startDaemon(opts: {
           machineId: creds.machine_id,
         };
       },
-      dashboardPort: () => apiHandle?.port ?? DAEMON_DASHBOARD_PORT,
+      // `dashboard_port` is a `@unerr-ai/contracts` wire field, so it still has
+      // to carry a number — but nothing binds a port any more, so it is the
+      // constant, not a live bind. Dropping the field needs the cross-repo
+      // contract change order; until then the server reads a value that
+      // describes no listener.
+      dashboardPort: () => DAEMON_DASHBOARD_PORT,
       log: (msg) => log.info(msg),
     });
     reporter.start();

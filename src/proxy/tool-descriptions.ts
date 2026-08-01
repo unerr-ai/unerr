@@ -63,10 +63,7 @@ export interface TierEntry {
  * it stays advertised but shows a locked placeholder until an edit is attempted
  * or a fan_in ≥ 5 entity is observed (see UNLOCK_CONDITIONS in tool-tiers.ts).
  *
- * `unerr_track` and the mark_* marker tools were removed entirely (2026-07):
- * journaling is served exclusively by the zero-round-trip Stop-hook text
- * lines (`unerr journal - goal/decided/stuck/fixed`) — there is no MCP write
- * surface for it any more, catalog member or not.
+ * `unerr_track` and the mark_* marker tools were removed entirely (2026-07).
  *
  * Everything else the proxy can dispatch is NOT a catalog member. Those names
  * (get_entity, get_conventions, unerr_context, get_imports,
@@ -145,17 +142,13 @@ export const TIER_ENTRIES: Readonly<Record<string, TierEntry>> = {
     locked: "[tier 1 — always exposed]",
   },
   // unerr_remember left the catalog (2026-06) and the handler was removed
-  // entirely (2026-07): user rules are no longer captured. Agent notes ride
-  // the `unerr journal -` Stop-hook text lines instead — no MCP tool, no
-  // dispatch.
+  // entirely (2026-07): user rules are no longer captured.
   // unerr_context merged into search_code (2026-06): a task-shaped search_code
   // query now returns the recon bundle. The handler (handleUnerrContextProxy)
   // is retained and dispatched BY NAME over UDS for the recall path and the
   // `unerr recon` CLI — same de-advertise pattern as get_entity/unerr_remember.
-  // unerr_track and the mark_* marker tools were removed entirely (the unerr
-  // journal subsystem is served by the zero-round-trip Stop-hook text lines,
-  // `unerr journal - goal/decided/stuck/fixed`) — no catalog entry, no
-  // dispatch, no family membership.
+  // unerr_track and the mark_* marker tools were removed entirely — no catalog entry,
+  // no dispatch, no family membership.
 };
 
 /**

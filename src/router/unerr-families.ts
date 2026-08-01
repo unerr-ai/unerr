@@ -14,11 +14,10 @@
  *   web      — external fetch (fetch_url)
  *
  * (The former `notes` family retired with `unerr_remember`'s catalog removal,
- * 2026-06 — Layer B writes now ride hooks: user rules at UserPromptSubmit,
- * agent notes ride the `unerr journal -` Stop-hook text lines; recall is folded into
+ * 2026-06 — user rules at UserPromptSubmit and recall are folded into
  * a task-shaped `search_code` query, which re-targets to the `unerr_context`
  * recon composite. The former `markers` family retired with `unerr_track`'s
- * removal — the unerr journal subsystem now has no MCP tool at all.)
+ * removal.)
  *
  * All three are always-on (unerr is the *server*; its own tools cannot be masked
  * by intent scoring the way an external-service family can). The registry

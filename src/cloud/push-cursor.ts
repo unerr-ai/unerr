@@ -2,8 +2,8 @@
  * unerr cloud — per-repo push cursor.
  *
  * The push pipeline does NOT keep a second copy of the events it sends. The
- * local stores (`metrics.db`, `shadow.jsonl`, `router/metrics.jsonl`) already
- * hold every row; this cursor is the only new state — a small watermark per
+ * local stores (`.unerr/events/*.jsonl`, `shadow.jsonl`, `router/metrics.jsonl`)
+ * already hold every row; this cursor is the only new state — a small watermark per
  * stream recording how far the daemon has drained. On the next tick the drain
  * loop reads each store *from the cursor forward*, pushes, and advances the
  * watermark only after a `2xx`. At-least-once delivery plus a stable per-row
@@ -24,8 +24,8 @@ function cursorPath(unerrDir: string): string {
 }
 
 /**
- * A stream's drained position. `lastId` is the highest `metrics.db` rowid
- * drained (the `*Since(lastId)` watermark); `lastIndex` is the count of
+ * A stream's drained position. `lastId` is the highest `.unerr/events/*.jsonl`
+ * offset drained (the `*Since(lastId)` watermark); `lastIndex` is the count of
  * append-log lines already drained (`shadow.jsonl`, router jsonl). A stream
  * uses whichever one fits its store; both may be absent before the first drain.
  */

@@ -12,14 +12,8 @@ For code in this repo:
 
 Bash runs things (build, test, git, package managers); it is not for reading or searching code. When changing existing indexed code, start with one `search_code({query:"<task phrase>"})` recon call. Commands that can exceed 2 minutes run in the background with output to a log file.
 
-Work that splits into independent slices can be delegated to the unerr sub-agents (`unerr-worker` for scoped edits, `unerr-junior` for read-only recon and verify-runs) — their descriptions state when each applies.
-
 Tool responses may carry `ur|<tag>` signal lines; the body of each line names the concrete next step.
 
 If unerr MCP is unavailable, errors, or reports no graph: use built-in Read/Grep/Glob for the rest of the session.
-
-### `@sem` comments
-
-Exported entities here carry a doc comment (1–2 sentences, what + why) ending `@sem domain=<tag> role=<tag>`. An edit that changes what an entity does updates its comment in the same edit; a new exported entity gets one before the next edit. Keep existing `@sem` lines unless the user removes them.
 
 <!-- unerr:end -->

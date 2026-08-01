@@ -1,7 +1,7 @@
 /**
  * P10-TEST-01: Proxy Lifecycle Tests
  *
- * Tests PID lock, session stats, health grade computation.
+ * Tests PID lock and session stats.
  * Note: Full MCP server integration tests require cozo-node and stdio — kept as
  * focused unit tests for the core proxy subsystems.
  */
@@ -488,91 +488,5 @@ describe("LatencyTracker", () => {
     expect(output).toContain("p50=");
     expect(output).toContain("p95=");
     expect(output).toContain("p99=");
-  });
-});
-
-// ── Health Grade Tests ────────────────────────────────────────────
-
-describe("HealthGrade", () => {
-  it("computeHealthGrade works with mock CozoDB", async () => {
-    const { computeHealthGrade } = await import(
-      "../intelligence/health-grade.js"
-    );
-
-    // Mock CozoDB that returns empty results
-    const mockDb = {
-      run: async (query: string) => {
-        if (query.includes("count(key)") && query.includes("entities"))
-          return { rows: [[50]] };
-        if (query.includes("count(from_key)")) return { rows: [[100]] };
-        if (query.includes("count(key)") && query.includes("rules"))
-          return { rows: [[5]] };
-        if (query.includes("fan_in == 0")) return { rows: [] };
-        if (query.includes('risk_level == "high"')) return { rows: [] };
-        return { rows: [] };
-      },
-    } as import("../intelligence/cozo-schema.js").CozoDb;
-
-    const result = await computeHealthGrade(mockDb);
-    expect(result.grade).toBeDefined();
-    expect(result.totalEntities).toBe(50);
-    expect(result.totalEdges).toBe(100);
-    expect(result.totalRules).toBe(5);
-    expect(result.score).toBeGreaterThan(0);
-  });
-
-  it("formatHealthGrade produces readable output", async () => {
-    const { formatHealthGrade } = await import(
-      "../intelligence/health-grade.js"
-    );
-
-    const result = {
-      grade: "B+",
-      totalEntities: 250,
-      totalEdges: 800,
-      totalRules: 12,
-      deadFunctionCount: 15,
-      highRiskEntities: [
-        {
-          name: "processPayment",
-          kind: "function",
-          file_path: "src/billing.ts",
-          fan_in: 23,
-          fan_out: 8,
-        },
-      ],
-      score: 82,
-    };
-
-    const output = formatHealthGrade(result);
-    expect(output).toContain("B+");
-    expect(output).toContain("82/100");
-    expect(output).toContain("250");
-    expect(output).toContain("processPayment");
-    expect(output).toContain("23 callers");
-  });
-
-  it("assigns correct grades for edge scores", async () => {
-    const { computeHealthGrade } = await import(
-      "../intelligence/health-grade.js"
-    );
-
-    // High score (few entities, no dead, no risk, has rules)
-    const goodDb = {
-      run: async (query: string) => {
-        if (query.includes("count(key)") && query.includes("entities"))
-          return { rows: [[30]] };
-        if (query.includes("count(from_key)")) return { rows: [[50]] };
-        if (query.includes("count(key)") && query.includes("rules"))
-          return { rows: [[3]] };
-        if (query.includes("fan_in == 0")) return { rows: [] };
-        if (query.includes('risk_level == "high"')) return { rows: [] };
-        return { rows: [] };
-      },
-    } as import("../intelligence/cozo-schema.js").CozoDb;
-
-    const good = await computeHealthGrade(goodDb);
-    expect(good.score).toBeGreaterThanOrEqual(85);
-    expect(["A", "B+"]).toContain(good.grade);
   });
 });

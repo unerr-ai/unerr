@@ -154,6 +154,8 @@ export async function materializeTranscripts(
         model: t.model,
         tokens_input: t.tokens_used.input,
         tokens_output: t.tokens_used.output,
+        tokens_cache_create: t.tokens_used.cache_create,
+        tokens_cache_read: t.tokens_used.cache_read,
         ts: t.started_ts ?? new Date().toISOString(),
       });
       count++;
@@ -188,6 +190,16 @@ export async function materializeTranscripts(
             : {}),
           ...(t.tokens_used.output > 0
             ? { tokens_out: t.tokens_used.output }
+            : {}),
+          // Cache counters ride as additive detail keys the contract's
+          // TranscriptEvent carries untyped (no schema bump needed). They are
+          // what makes billed cost legible: a write is 2× base input on the
+          // 1-hour TTL a subscription main conversation uses, a read is 0.1×.
+          ...(t.tokens_used.cache_create > 0
+            ? { tokens_cache_create: t.tokens_used.cache_create }
+            : {}),
+          ...(t.tokens_used.cache_read > 0
+            ? { tokens_cache_read: t.tokens_used.cache_read }
             : {}),
         },
         session_id: opts.sessionId,

@@ -32,8 +32,15 @@ from collections import Counter
 from glob import glob
 
 # --- bill weighting (Anthropic-rate proxy) and unerr fixed surface ----------
-RATE = {"fresh": 1.0, "cr": 0.1, "cw": 1.25, "out": 5.0}
-UNERR_PREFIX_TOK = 6056  # instruction block 3348 + tools/list (5 advertised tools (+2 hidden)) 2708; keep in sync with measure-overhead.mts
+# cw=2.0, NOT 1.25: a Claude Code subscription main conversation uses the 1-hour
+# cache TTL, which bills writes at 2x base input. 1.25x is the 5-minute TTL — what
+# an API key gets by default, and what sub-agents get even on a subscription. Using
+# 1.25 here under-counts the cost of admitting content to context by 60%.
+RATE = {"fresh": 1.0, "cr": 0.1, "cw": 2.0, "out": 5.0}
+# Measured 2026-07-26 via `pnpm run measure-overhead`: instruction block 461 +
+# tools/list 2067 (5 advertised tools). The previous 6056 was 2.4x stale — it
+# predated the token-optimizer trims and the catalog shrink to 5 tools.
+UNERR_PREFIX_TOK = 2528
 CHARS_PER_TOK = 4.0      # crude estimator, matches unerr's estimateTokens ballpark
 
 # Hard denies that FORCE a retry round-trip (the avoidable tax). These match the

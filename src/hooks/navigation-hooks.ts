@@ -188,7 +188,12 @@ const preReadHandler: HookHandler = (normalized) => {
   const editClause = isClaudeCode
     ? `\n- About to EDIT "${filePath}"? Call \`file_edit({file_path:"${filePath}", old_string, new_string})\` — the unerr edit path needs no prior Read.`
     : "";
-  const reason = `Read("${filePath}") full-file is wasteful — route code exploration through unerr instead:\n- Understand the file: \`file_read({file_path:"${filePath}"})\` (auto-injects conventions and drift)\n- Large file, need one function? \`file_read({file_path:"${filePath}", entity:"<symbolName>"})\` — body + top-10 callers (~350 tok) instead of the whole file (~746 tok)\n- Task-scoped recon in one call (blast radius + conventions): \`search_code({query:"<what you are about to do>"})\` (a task phrase returns the recon bundle)\n- File structure first: \`file_outline("${filePath}")\`\n- One symbol's profile/body: \`search_code({query:'<name>', detail:true})\`\n- Genuinely need the ENTIRE file? Re-call Read — this redirect fires once per file.${editClause}`;
+  // Four options, not six. Dropped from the earlier text: the `~350 tok` /
+  // `~746 tok` figures (invented — 746 is not the size of an arbitrary file, so
+  // the agent cannot act on either number), and the `search_code({detail:true})`
+  // bullet, which answered the same "give me one symbol" intent as the `entity:`
+  // bullet with no stated criterion for picking between them.
+  const reason = `Read("${filePath}") full-file is wasteful — route code exploration through unerr instead:\n- Understand the file: \`file_read({file_path:"${filePath}"})\` (auto-injects conventions and drift)\n- Need one function: \`file_read({file_path:"${filePath}", entity:"<symbolName>"})\` — body + top-10 callers\n- Task-scoped recon in one call: \`search_code({query:"<what you are about to do>"})\` — blast radius + conventions\n- File structure first: \`file_outline("${filePath}")\`\n- Genuinely need the ENTIRE file? Re-call Read — the redirect fires once per file.${editClause}`;
 
   // Deny the first full-file read per file; nudge (collapsing to terse after the
   // first verbose banner) on repeats within the dedup window — so re-issuing the
@@ -221,22 +226,36 @@ const preGrepHandler: HookHandler = (normalized) => {
     // direct graph-tool replacement. Deny the first attempt to force a
     // redirect to search_code; subsequent attempts in the same window
     // fall back to a nudge so the agent doesn't get stuck retrying.
-    const reason = `Grep("${pattern}") — use \`search_code("${pattern}")\` (graph-indexed, <5ms, zero false positives) or \`get_references("${pattern}")\` for callers. Text grep matches comments/strings; graph tools are precise.`;
+    // One correctness clause, no latency figure: "<5ms" and "graph-indexed"
+    // describe unerr's mechanism, and a model cannot act on either. What makes
+    // it switch is knowing grep's answer would be wrong.
+    const reason = `Grep("${pattern}") — call \`search_code("${pattern}")\` instead (matches declarations, not comments and strings), or \`get_references("${pattern}")\` for callers.`;
     if (shouldEmitOnce(`deny:Grep:${pattern}`, DENY_ONCE_TTL_MS)) {
       return deny(reason);
     }
     return nudge(reason);
   }
 
+  // Both remaining branches interpolate the actual pattern into a pasteable
+  // call, and both gate per-pattern like the identifier branch above. An
+  // ungated generic restatement of the installed instruction block is the
+  // worst shape available: the block is already permanently cached, so the
+  // repeat is billed for nothing, and it does not name the one call that
+  // answers THIS pattern.
   if (looksLikeImportSearch) {
-    return nudge(
-      "STOP: Use `file_outline` instead of Grep for import/dependency tracing. It returns a file's structured entities + imports + exports in <5ms — more reliable than grepping for import statements."
-    );
+    // `mode:'literal'` — an import trace spans the whole repo. `file_outline`
+    // takes a single `file_path`, so recommending it here sent a cross-file
+    // search to a one-file tool and bought a failed call plus a retry.
+    const reason = `Grep("${pattern}") — call search_code({query:"${pattern}", mode:'literal'}) instead (whole-repo, ±2 lines of context per match, no follow-up read).`;
+    return shouldEmitOnce(`nudge:Grep:import:${pattern}`, DENY_ONCE_TTL_MS)
+      ? nudge(reason)
+      : passthrough();
   }
 
-  return nudge(
-    "REQUIRED: This project has unerr graph tools indexed. Use `search_code` for code entity searches (faster, more accurate than Grep). Use `get_references` for finding callers."
-  );
+  const reason = `Grep("${pattern}") — call search_code({query:"${pattern}", mode:'literal'}) instead, or mode:'regex' if "${pattern}" is a pattern.`;
+  return shouldEmitOnce(`nudge:Grep:text:${pattern}`, DENY_ONCE_TTL_MS)
+    ? nudge(reason)
+    : passthrough();
 };
 
 const preGlobHandler: HookHandler = (normalized) => {
@@ -251,7 +270,10 @@ const preGlobHandler: HookHandler = (normalized) => {
   // replacement (search_code), so the first attempt gets denied to
   // force the redirect. Subsequent attempts in the dedup window nudge
   // instead, so the agent never enters a deny-retry loop.
-  const reason = `Glob("${pattern}") — use \`search_code("${pattern}")\` (graph-indexed, finds entities across the whole codebase in <5ms) or \`file_outline\` for structure. Glob+Grep is a multi-step pattern; search_code does it in one call.`;
+  // A bare `file_outline` was unpasteable here (it needs a `file_path`, and Glob
+  // is what the agent was using to FIND the path), and the latency figure plus
+  // the "multi-step pattern" sentence described unerr rather than naming a call.
+  const reason = `Glob("${pattern}") — call \`search_code("${pattern}")\` instead (searches entity names across the repo in one call).`;
   if (shouldEmitOnce(`deny:Glob:${pattern}`, DENY_ONCE_TTL_MS)) {
     return deny(reason);
   }

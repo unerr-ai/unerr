@@ -105,6 +105,22 @@ export const claudeCodeAdapter: HookAdapter = {
       return JSON.stringify({ systemMessage: result.message });
     }
 
+    // rewrite on PostToolUse = replace what the model sees with a compressed
+    // rendering. `updatedToolOutput` must carry the tool's own output shape; an
+    // unrecognised shape (or an older Claude Code with no such field) is ignored
+    // and the original output stands, so emitting it is never destructive.
+    // `message` rides along as additionalContext when present — that is where the
+    // retrieval pointer for the full output goes.
+    if (result.action === "rewrite" && result.updatedToolOutput) {
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PostToolUse",
+          ...(result.message ? { additionalContext: result.message } : {}),
+          updatedToolOutput: result.updatedToolOutput,
+        },
+      });
+    }
+
     if (
       (result.action === "enrich" || result.action === "nudge") &&
       result.message

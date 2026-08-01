@@ -26,10 +26,6 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { Command } from "commander";
 import {
-  DAEMON_DASHBOARD_PORT,
-  daemonDashboardUrl,
-} from "../daemon/protocol.js";
-import {
   MIN_NODE_VERSION,
   RECOMMENDED_NODE_VERSION,
 } from "../utils/node-version.js";
@@ -735,60 +731,6 @@ function checkUnerrDirAccess(): CheckResult {
   };
 }
 
-// 5. Dashboard port free (or already held by a live daemon)
-function checkDashboardPort(): Promise<CheckResult> {
-  const port = DAEMON_DASHBOARD_PORT;
-  return new Promise((resolve) => {
-    const server = createServer();
-    let settled = false;
-    const finish = (r: CheckResult) => {
-      if (settled) return;
-      settled = true;
-      try {
-        server.close();
-      } catch {
-        // ignore
-      }
-      resolve(r);
-    };
-
-    const timer = setTimeout(() => {
-      finish({
-        name: `Dashboard port ${port}`,
-        status: "skip",
-        message: "probe timed out",
-      });
-    }, 2000);
-
-    server.once("error", (err: NodeJS.ErrnoException) => {
-      clearTimeout(timer);
-      if (err.code === "EADDRINUSE") {
-        finish({
-          name: `Dashboard port ${port}`,
-          status: "warn",
-          message: "in use",
-          detail: `If unerrd is already running, this is expected — visit ${daemonDashboardUrl()}.\nOtherwise unerrd scans the next ~100 ports for a free one at startup.`,
-        });
-      } else {
-        finish({
-          name: `Dashboard port ${port}`,
-          status: "warn",
-          message: `probe failed: ${err.message}`,
-        });
-      }
-    });
-
-    server.listen(port, "127.0.0.1", () => {
-      clearTimeout(timer);
-      finish({
-        name: `Dashboard port ${port}`,
-        status: "ok",
-        message: `available (dashboard will serve at ${daemonDashboardUrl()})`,
-      });
-    });
-  });
-}
-
 /**
  * A required native module can still fail to load two ways:
  *   - MISSING: the package never finished installing (prebuilt download failed
@@ -1049,7 +991,8 @@ export async function runEnvironmentChecks(opts: {
   await runTimedCheck(() => checkNodeVersion(), results, verbose);
   await runTimedCheck(() => checkMultiNode(), results, verbose);
   await runTimedCheck(() => checkUnerrDirAccess(), results, verbose);
-  await runTimedCheck(() => checkDashboardPort(), results, verbose);
+  // No port check: unerrd binds no TCP port. A "dashboard port 9847 free"
+  // result told the user nothing about whether unerr works.
   await runTimedCheck(() => checkNativeModule(), results, verbose);
   await runTimedCheck(() => checkDbWorker(), results, verbose);
 

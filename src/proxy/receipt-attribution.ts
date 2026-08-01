@@ -2,10 +2,9 @@
  * Receipt attribution extractor — Surface 4 → Surface 3 merge (§10.7).
  *
  * Pulls the per-turn provenance payload the end-of-turn receipt needs: how
- * many dated incidents `unerr_recall_traces` resurfaced this turn (the
- * session journal's recall path), and which files drift was caught on.
- * Replaces the inline `attribution:` block previously emitted by
- * `attribution-panel.ts` renderers.
+ * many dated incidents `unerr_recall_traces` resurfaced this turn from the
+ * timeline store, and which files drift was caught on. Replaces the inline
+ * `attribution:` block previously emitted by `attribution-panel.ts` renderers.
  *
  * Pure data layer: no IO, deterministic, unit-testable in isolation.
  * Reads the same `NamedEvent` stream `turn-summary-handler` already
@@ -29,7 +28,7 @@ export interface AttributionDrift {
 
 export interface ReceiptAttribution {
   /** `trace_recalled` events that fired this turn (dated incidents resurfaced
-   *  from the session journal). */
+   *  from the timeline store). */
   recalls: AttributionRecall[];
   /** Drift signals that the agent consumed this turn. */
   drift: AttributionDrift[];

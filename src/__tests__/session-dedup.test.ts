@@ -222,4 +222,142 @@ describe("createBodyDedup", () => {
     expect(dedup.check(ABS, MTIME, 2, 380, 80)).toBeNull();
     expect(dedup.check(ABS, MTIME, 3, 300, 80)).toBeNull();
   });
+
+  it("evicts the oldest entries once the map exceeds MAX_BODY_DEDUP_ENTRIES", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS); // recorded first — should be evicted
+    for (let i = 0; i < 2000; i++) {
+      dedup.record(`/repo/src/file-${i}.ts`, MTIME, 1, TOKENS);
+    }
+    // The first-recorded entry is gone — evicted to stay under the cap.
+    expect(dedup.check(ABS, MTIME, 2)).toBeNull();
+    // The most recently recorded entry is still tracked.
+    expect(dedup.check("/repo/src/file-1999.ts", MTIME, 2)).toEqual({
+      deliveredTurn: 1,
+      tokens: TOKENS,
+    });
+  });
+
+  it("re-recording an existing key refreshes its recency, surviving an eviction wave", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS); // recorded first — oldest by default
+    for (let i = 0; i < 1999; i++) {
+      dedup.record(`/repo/src/file-${i}.ts`, MTIME, 1, TOKENS);
+    }
+    // Map now holds exactly MAX_BODY_DEDUP_ENTRIES entries, nothing evicted yet.
+    // Re-record ABS — this must move it to the back of eviction order.
+    dedup.record(ABS, MTIME, 1, TOKENS);
+    // One more distinct entry pushes the map over the cap. Without the
+    // refresh above, ABS (the original oldest) would be evicted here instead.
+    dedup.record("/repo/src/file-1999.ts", MTIME, 1, TOKENS);
+    expect(dedup.check(ABS, MTIME, 2)).toEqual({
+      deliveredTurn: 1,
+      tokens: TOKENS,
+    });
+  });
+});
+
+// Cost lever 3 — compaction-aware dedup. Until the harness reports a compaction
+// the recency window is a 5-turn GUESS; once it reports one, the invalidated
+// entries are dropped and the window widens to 50 turns.
+describe("createBodyDedup — compaction flush", () => {
+  const ABS = "/repo/src/foo.ts";
+  const MTIME = 1_700_000_000_000;
+  const TOKENS = 100;
+  const A = { sessionId: "bridge-A", nativeSessionId: "nat-A" };
+  const B = { sessionId: "bridge-B", nativeSessionId: "nat-B" };
+
+  it("drops the entry and reports the dropped count", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS, undefined, undefined, undefined, A);
+    expect(dedup.clearBodies("nat-A")).toBe(1);
+    expect(
+      dedup.check(ABS, MTIME, 2, undefined, undefined, undefined, A)
+    ).toBeNull();
+  });
+
+  it("is idempotent — a double-fire drops once, the second call reports 0", () => {
+    // PostCompact and SessionStart(source=compact) both fire for one compaction.
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS, undefined, undefined, undefined, A);
+    expect(dedup.clearBodies("nat-A")).toBe(1);
+    expect(dedup.clearBodies("nat-A")).toBe(0);
+  });
+
+  it("clearing conversation A leaves conversation B's entries intact", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS, undefined, undefined, undefined, A);
+    dedup.record(ABS, MTIME, 1, TOKENS, undefined, undefined, undefined, B);
+    expect(dedup.clearBodies("nat-A")).toBe(1);
+    expect(
+      dedup.check(ABS, MTIME, 2, undefined, undefined, undefined, A)
+    ).toBeNull();
+    expect(
+      dedup.check(ABS, MTIME, 2, undefined, undefined, undefined, B)
+    ).toEqual({ deliveredTurn: 1, tokens: TOKENS });
+  });
+
+  it("one client's delivery is never skipped for another client", () => {
+    // Pre-existing hole this scoping closes: session B never received the body,
+    // so it must not be told "reuse prior content".
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS, undefined, undefined, undefined, A);
+    expect(
+      dedup.check(ABS, MTIME, 2, undefined, undefined, undefined, B)
+    ).toBeNull();
+  });
+
+  it("an unscoped flush (a /clear, or no conversation id) drops everything", () => {
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS, undefined, undefined, undefined, A);
+    dedup.record(ABS, MTIME, 1, TOKENS, undefined, undefined, undefined, B);
+    expect(dedup.clearBodies(null)).toBe(2);
+  });
+
+  it("a scoped flush also drops entries whose conversation is unknown", () => {
+    // An entry recorded with no native id can't be proven to belong to another
+    // live conversation — dropping it costs a re-read; keeping it could hand the
+    // agent a pointer to content it no longer has.
+    const dedup = createBodyDedup();
+    dedup.record(ABS, MTIME, 1, TOKENS); // no scope at all
+    expect(dedup.clearBodies("nat-A")).toBe(1);
+  });
+
+  it("window is 5 turns before a notification and 50 after", () => {
+    const dedup = createBodyDedup();
+    expect(dedup.isCompactionSignalled()).toBe(false);
+    expect(dedup.recencyWindowTurns()).toBe(5);
+
+    // Unsignalled: a 20-turn-old delivery is outside the guess window.
+    dedup.record(ABS, MTIME, 1, TOKENS, undefined, undefined, undefined, A);
+    expect(
+      dedup.check(ABS, MTIME, 21, undefined, undefined, undefined, A)
+    ).toBeNull();
+
+    // The flush itself is the proof that the harness reports compaction.
+    dedup.clearBodies("nat-A");
+    expect(dedup.isCompactionSignalled()).toBe(true);
+    expect(dedup.recencyWindowTurns()).toBe(50);
+
+    // Signalled: the same 20-turn gap is now a hit, because an eviction would
+    // have arrived as its own flush.
+    dedup.record(ABS, MTIME, 30, TOKENS, undefined, undefined, undefined, A);
+    expect(
+      dedup.check(ABS, MTIME, 50, undefined, undefined, undefined, A)
+    ).toEqual({ deliveredTurn: 30, tokens: TOKENS });
+    // 51 turns later is still a miss — the wide window is wide, not infinite.
+    expect(
+      dedup.check(ABS, MTIME, 81, undefined, undefined, undefined, A)
+    ).toBeNull();
+  });
+
+  it("mtime change still forces re-delivery in signalled mode", () => {
+    const dedup = createBodyDedup();
+    dedup.clearBodies("nat-A"); // widen the window
+    dedup.record(ABS, MTIME, 1, TOKENS, undefined, undefined, undefined, A);
+    // Same conversation, well inside the 50-turn window, but the file changed.
+    expect(
+      dedup.check(ABS, MTIME + 1, 3, undefined, undefined, undefined, A)
+    ).toBeNull();
+  });
 });

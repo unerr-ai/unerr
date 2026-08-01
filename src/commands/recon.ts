@@ -146,7 +146,14 @@ function buildGraphRunner(graph: {
         const rows = await graph.searchEntities(query, limit);
         // Layer 8 §5.4: attach domain annotations to the recon "Entities"
         // section; best-effort, un-annotated hits pass through unchanged.
-        return await attachAnnotations(graph.db, rows);
+        // `score` is dropped for the same reason as in the query-router search
+        // case: the rows arrive sorted by it, so it names no call to make.
+        // Array-guarded like attachAnnotations itself — a non-array result must
+        // pass through byte-identical instead of throwing on `.map`.
+        const ranked = Array.isArray(rows)
+          ? rows.map(({ score: _score, ...rest }) => rest)
+          : rows;
+        return await attachAnnotations(graph.db, ranked);
       }
       case "get_references": {
         const key = String(args.key ?? "");

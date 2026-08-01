@@ -16,7 +16,7 @@ import {
   classifyWeakVerify,
 } from "../hooks/check-tracker.js";
 import { block } from "../hooks/hook-runner.js";
-import { runPostBashHook } from "../hooks/shell-hooks.js";
+import { runPostBashHookAsync } from "../hooks/shell-hooks.js";
 import { runStopHookHandlerAsync } from "../hooks/stop-hooks.js";
 import { readNudgeState, updateNudgeState } from "../proxy/nudge-state.js";
 import { BehaviorEventWriter } from "../tracking/behavior-events.js";
@@ -121,7 +121,7 @@ describe("classifyWeakVerify", () => {
   });
 });
 
-// ── runPostBashHook — record + weak-verify nudge ────────────────────────
+// ── runPostBashHookAsync — record + weak-verify nudge ───────────────────
 
 function bashStdin(command: string): string {
   return JSON.stringify({
@@ -131,7 +131,7 @@ function bashStdin(command: string): string {
   });
 }
 
-describe("runPostBashHook", () => {
+describe("runPostBashHookAsync", () => {
   let dir: string;
   const origCwd = process.cwd();
 
@@ -146,23 +146,23 @@ describe("runPostBashHook", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("stamps check_cmd_last_ts + bumps check_cmd_count for a check command", () => {
-    const out = runPostBashHook(bashStdin("pnpm run test:run"));
+  it("stamps check_cmd_last_ts + bumps check_cmd_count for a check command", async () => {
+    const out = await runPostBashHookAsync(bashStdin("pnpm run test:run"));
     expect(out).toBe("{}");
     const state = readNudgeState(dir);
     expect(state.check_cmd_count).toBe(1);
     expect(state.check_cmd_last_ts).toBeGreaterThan(0);
   });
 
-  it("does not nudge a weak-verify shape in interactive mode (default)", () => {
-    const out = runPostBashHook(bashStdin("test -f out.txt"));
+  it("does not nudge a weak-verify shape in interactive mode (default)", async () => {
+    const out = await runPostBashHookAsync(bashStdin("test -f out.txt"));
     expect(out).toBe("{}");
     expect(readNudgeState(dir).weak_verify_nudged).toEqual([]);
   });
 
-  it("never throws on an empty command or unparseable stdin", () => {
-    expect(() => runPostBashHook(bashStdin(""))).not.toThrow();
-    expect(() => runPostBashHook("not json")).not.toThrow();
+  it("never throws on an empty command or unparseable stdin", async () => {
+    await expect(runPostBashHookAsync(bashStdin(""))).resolves.toBe("{}");
+    await expect(runPostBashHookAsync("not json")).resolves.toBe("{}");
   });
 });
 

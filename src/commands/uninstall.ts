@@ -37,7 +37,8 @@ import { removeInstalledSkills } from "../skills/resolver.js";
 import { removeSubagents } from "../skills/subagent-manager.js";
 import type { IdeType } from "../utils/detect.js";
 
-/** Marker the now-removed review-gate hook installer used (`review-gate-hooks.ts`). */
+// Upgrade-path sweep only — not a live surface. Marker the now-removed
+// review-gate hook installer used (`review-gate-hooks.ts`).
 const REVIEW_GATE_HOOK_MARKER = "# unerr-review-gate";
 
 /**
@@ -207,9 +208,10 @@ function runUninstall(cwd: string, ide: IdeType): UninstallResult {
     } catch {
       // Non-blocking
     }
-    // Sweep a stale reviewer sub-agent file left by a prior install — the
-    // reviewer surface (subagent-manager.ts REVIEWER_* scaffolding) was removed,
-    // so the path is inlined here rather than imported.
+    // Upgrade-path sweep only — not a live surface. Sweeps a stale reviewer
+    // sub-agent file left by a prior install — the reviewer surface
+    // (subagent-manager.ts REVIEWER_* scaffolding) was removed, so the path
+    // is inlined here rather than imported.
     try {
       const reviewerPath = join(cwd, ".claude/agents/unerr-reviewer.md");
       if (existsSync(reviewerPath)) {

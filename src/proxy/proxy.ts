@@ -46,6 +46,14 @@ import { createReconDetector } from "../tracking/turn-telemetry.js";
 import { UNERR_VERSION } from "../version.js";
 import { aliasAndValidate } from "./arg-validator.js";
 import { lockAdvertisedCatalog } from "./catalog-lock.js";
+// Zero-dependency protocol module — static import keeps the method name and the
+// handler on one constant, so the UDS dispatch can never drift from the wire
+// contract the hooks send.
+import {
+  COMPACTION_METHOD,
+  type CompactionRequestParams,
+  handleCompactionRequest,
+} from "./compaction-protocol.js";
 import {
   DISPATCH_DEADLINE_MS,
   raceToolExecution,
@@ -188,13 +196,30 @@ export function shouldThrottleDrift(
   return lastWriteMs > DRIFT_SLOW_WRITE_MS && now < cooldownUntil;
 }
 
+/**
+ * Emit `search_code_dispatch` recording whether a `search_code` call
+ * escalated to the `unerr_context` recon composite. This is the only
+ * denominator for the recon-savings measurement — without it there is no way
+ * to tell whether the recon path (vs the lean ranked-name search) is actually
+ * being reached. Extracted as a standalone function so the emit/skip logic is
+ * unit-testable apart from `dispatchToolCall`. Never load-bearing: any
+ * failure here must not affect tool dispatch, and it never writes during
+ * `VITEST` runs.
+ */
+export function recordSearchCodeDispatch(escalated: boolean): void {
+  if (process.env.VITEST) return;
+  try {
+    startupLog.fileOnly("telemetry", "search_code_dispatch", { escalated });
+  } catch {
+    /* telemetry never load-bearing */
+  }
+}
+
 export interface ProxyOptions {
   /** Specific repo ID (auto-detected from .unerr/config.json if omitted) */
   repoId?: string;
   /** Enable predictive context pre-fetching */
   prefetch?: boolean;
-  /** Sprint 5.3: HTTP port for Streamable HTTP transport (0 = disabled) */
-  httpPort?: number;
   /** Running as a daemon-managed child (suppresses startup renderer, PID lock is per-repo) */
   daemonChild?: boolean;
   /** Fired once the per-repo dashboard HTTP server is up (daemon child only). */
@@ -757,10 +782,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     }
   }
 
-  // Health grade computation — deferred to after MCP ready (Task 6.3)
-  let healthResult:
-    | import("../intelligence/health-grade.js").HealthGradeResult
-    | null = null;
   if (localGraph && proxyMode !== "parse") {
     startup.updateStep("Graph loaded", "done");
     lifecycle.send({ type: "GRAPH_LOADED" });
@@ -1301,8 +1322,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // catalog. A retired tool stays dispatchable by name (hook UDS path) but
   // never reaches the model's view. Computed once — the hidden set is
   // module-load-stable. `unerr_track` and the mark_* marker tools were
-  // removed entirely (2026-07), not just demoted: journaling is served
-  // exclusively by the Stop-hook text-line path.
+  // removed entirely (2026-07).
   const HIDDEN_TOOL_NAMES = new Set(hiddenToolNames());
   async function getAdvertisedTools(): Promise<ToolDef[]> {
     const tools = await getInjectedTools();
@@ -1933,14 +1953,18 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // `scope:'workspace'` keeps the lean federated search (unerr_context does
     // not fan out to siblings). Re-targeting before boundary validation lets the
     // unerr_context `prompt` requirement be satisfied by the carried query.
-    if (name === "search_code" && shouldEscalateSearchCodeToRecon(args)) {
-      // Task-shaped query, no overriding intent → re-target to the recon
-      // composite so the agent gets notes + bodies + callers + conventions in
-      // ONE call. The predicate excludes profile flags, workspace scope, AND
-      // an explicit `mode:'literal'|'regex'` content search (which must run as
-      // a file scan, never silently become an entity recon bundle).
-      name = "unerr_context";
-      args = { ...args, prompt: args.query };
+    if (name === "search_code") {
+      const escalateToRecon = shouldEscalateSearchCodeToRecon(args);
+      recordSearchCodeDispatch(escalateToRecon);
+      if (escalateToRecon) {
+        // Task-shaped query, no overriding intent → re-target to the recon
+        // composite so the agent gets notes + bodies + callers + conventions
+        // in ONE call. The predicate excludes profile flags, workspace scope,
+        // AND an explicit `mode:'literal'|'regex'` content search (which must
+        // run as a file scan, never silently become an entity recon bundle).
+        name = "unerr_context";
+        args = { ...args, prompt: args.query };
+      }
     }
 
     // ── Boundary validation: alias normalization + required-field check ──
@@ -2298,7 +2322,14 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       // skipping every post-tool side effect (stats, ledger, behaviors) so the
       // timed-out call is never counted or double-fired. The abandoned execute
       // promise settles in the background; its late result is discarded.
-      const outcome = await raceToolExecution(router.execute(name, args), name);
+      // `sessionIdentity` scopes per-conversation router state (file-body dedup)
+      // to the client that made THIS call — threaded as an argument, never
+      // parked on the router, so two concurrent MCP sessions can't read each
+      // other's deliveries.
+      const outcome = await raceToolExecution(
+        router.execute(name, args, sessionIdentity),
+        name
+      );
       if (outcome.timedOut) {
         process.stderr.write(
           `[unerr] router.execute(${name}) exceeded ${DISPATCH_DEADLINE_MS}ms dispatch deadline — returning degraded result\n`
@@ -2798,6 +2829,31 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       return { jsonrpc: "2.0" as const };
     }
 
+    // Control channel: compaction flush (cost lever 3). Claude Code reports a
+    // compaction twice — `PostCompact` and `SessionStart` (source `compact` /
+    // `clear`) — and each hook sends ONE frame here before it exits. The harness
+    // blocks on the hook process, so the flush lands before the agent's next
+    // tool call can hit BodyDedupStore.check(): a "you already have this file"
+    // pointer can never cross a compaction boundary. Idempotent — the second
+    // path finds nothing left and acks `dropped: 0`.
+    if (message.method === COMPACTION_METHOD) {
+      const compactionParams = message.params as
+        | CompactionRequestParams
+        | undefined;
+      const result = handleCompactionRequest(
+        { clearBodies: (id) => router.clearBodyDedup(id) },
+        compactionParams
+      );
+      if (result.dropped > 0) {
+        // Per-repo proxy.log only (never the user's terminal) — the field trace
+        // for "did the flush actually reach the store?".
+        process.stderr.write(
+          `[unerr] compaction flush (${compactionParams?.trigger ?? "compact"}) dropped ${result.dropped} body-dedup entr${result.dropped === 1 ? "y" : "ies"}\n`
+        );
+      }
+      return { jsonrpc: "2.0" as const, id: message.id, result };
+    }
+
     // Control channel: edit blast-radius query (P0.4). The pre-edit hook
     // (a short-lived `unerr hook pre-edit` subprocess) connects, sends ONE
     // frame, reads ONE response, disconnects — no MCP initialize handshake.
@@ -3158,25 +3214,12 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
 
   transportMux.start();
 
-  // ── Step 7a-3: HTTP Transport (Task 5.3) ────────────────────────
-  let httpTransportHandle:
-    | import("./http-transport.js").HttpTransportHandle
-    | null = null;
-  if (opts.httpPort && opts.httpPort > 0) {
-    try {
-      const { startHttpTransport } = await import("./http-transport.js");
-      httpTransportHandle = await startHttpTransport({
-        port: opts.httpPort,
-        mcpServer: server,
-        log: log.info,
-      });
-      log.info(`HTTP transport ready on port ${httpTransportHandle.port}`);
-    } catch (err: unknown) {
-      log.warn(
-        `HTTP transport failed to start: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-  }
+  // No HTTP transport. `startHttpTransport` (POST/GET /mcp + /health, opt-in
+  // via UNERR_HTTP_PORT) is removed: nothing set the env var, no test covered
+  // it, and its bearer-token check keyed on an `apiKey` option this call site
+  // never passed — so the one way to turn it on served the full MCP tool suite
+  // over unauthenticated loopback HTTP. MCP reaches this proxy over stdio and
+  // the per-repo UDS socket only.
 
   // ── Step 7b: Branch Context + Drift Tracker ────────────────────
 
@@ -3472,26 +3515,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
         ms: card.elapsedMs,
       });
 
-      // Compute health grade now that the graph is populated
-      try {
-        const { computeHealthGrade } = await import(
-          "../intelligence/health-grade.js"
-        );
-        healthResult = await computeHealthGrade(graph.db);
-        if (healthResult) {
-          router.setHealthInfo(healthResult.grade, {
-            entities: healthResult.totalEntities,
-            edges: healthResult.totalEdges,
-            rules: healthResult.totalRules,
-          });
-          // startupLog.healthCard(healthResult); // Disabled until health metrics verified against drift state
-        }
-      } catch (err: unknown) {
-        log.warn(
-          `Health grade failed: ${err instanceof Error ? err.message : String(err)}`
-        );
-      }
-
       // Publish counts for navigation hooks (short-lived CLI processes that
       // cannot open CozoDB) — covers full reindex, incremental reindex, and
       // the no-op staleness skip, since finalizeIndexing runs on all three.
@@ -3738,29 +3761,7 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // These run after MCP is already serving — first few tool calls may
   // lack health/PARSE data, which is acceptable (flagged via _meta.initialization).
 
-  // Deferred: Health grade computation (non-PARSE mode)
-  // Skip if background index is running — graph is empty until indexing completes.
-  // In that case, health grade is computed in the bgIndexer onComplete callback.
   if (localGraph && proxyMode !== "parse" && !needsBackgroundIndex) {
-    try {
-      const { computeHealthGrade } = await import(
-        "../intelligence/health-grade.js"
-      );
-      healthResult = await computeHealthGrade(localGraph.db);
-      if (healthResult) {
-        router.setHealthInfo(healthResult.grade, {
-          entities: healthResult.totalEntities,
-          edges: healthResult.totalEdges,
-          rules: healthResult.totalRules,
-        });
-        // startupLog.healthCard(healthResult); // Disabled until health metrics verified against drift state
-      }
-    } catch (err: unknown) {
-      log.warn(
-        `Health grade failed: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-
     // Publish counts for navigation hooks — this is the resume path where
     // the graph was already current at boot, so no reindex ever runs and
     // this is the only completion point for the run.
@@ -4325,8 +4326,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       stopBranchPoller?.();
       // Task 7.2: Stop UDS transport (cleans up socket file)
       transportMux.stop();
-      // Task 5.3: Stop HTTP transport
-      httpTransportHandle?.close();
       // Persist a FINAL stats snapshot instead of deleting it. The next proxy
       // boot reads this file (detectSessionResume) to CONTINUE under the same
       // session id on a warm restart within SESSION_RESUME_ID_WINDOW_MS — if we

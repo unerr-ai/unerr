@@ -588,7 +588,6 @@ describe("UDS protocol", () => {
       "remove",
       "stop",
       "shutdown",
-      "dashboard-state",
       "repo-detail",
     ];
 

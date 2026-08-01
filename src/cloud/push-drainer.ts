@@ -87,7 +87,7 @@ export interface DrainerContext {
 
 /**
  * The set of drainers for one repo plus an optional cleanup. C1/C2 open store
- * handles (a metrics.db read connection, file descriptors) while building their
+ * handles (JSONL event-store file descriptors) while building their
  * drainers; `dispose` releases them after the tick so nothing leaks per cycle.
  */
 export interface DrainerSet {

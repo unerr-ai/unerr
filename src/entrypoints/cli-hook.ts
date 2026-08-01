@@ -105,8 +105,8 @@ export async function runHook(args: string[]): Promise<void> {
       return;
     }
     case "post-bash": {
-      const { runPostBashHook } = await import("../hooks/shell-hooks.js");
-      safeHookAction(runPostBashHook)();
+      const { runPostBashHookAsync } = await import("../hooks/shell-hooks.js");
+      await safeAsyncHookAction(runPostBashHookAsync)();
       return;
     }
     case "post-write": {

@@ -4,7 +4,7 @@
  * NOT wired into the CLI.
  *
  * Reads whatever already lives in the developer's OWN laptop `.unerr/*` stores
- * (metrics.db's 8 tables, agent_transcripts, ledger/shadow.jsonl,
+ * (events (`.unerr/events/*.jsonl`), agent_transcripts, ledger/shadow.jsonl,
  * router/metrics.jsonl(.gz), facts.db, timeline.db) and pushes it through the
  * REAL live `/ingest/*` + `/sync/*` routes, so the cloud dashboards / insights
  * can be exercised end-to-end with real data before any second client exists.

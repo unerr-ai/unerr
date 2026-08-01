@@ -62,8 +62,16 @@ export interface HookResult {
     | "block";
   /** Advisory, enrichment, deny, or block reason (used by nudge + enrich + deny + display + block). */
   message?: string;
-  /** Rewritten tool input (used by rewrite). */
+  /** Rewritten tool input (used by rewrite on PreToolUse). */
   updatedInput?: Record<string, unknown>;
+  /**
+   * Replacement tool OUTPUT (used by rewrite on PostToolUse). Must match the
+   * tool's own output shape — Bash returns `{stdout, stderr, interrupted,
+   * isImage}`, not a string. A shape the tool does not recognise is ignored by
+   * Claude Code and the original output is kept, which is what makes this safe
+   * to emit on older versions that lack the field entirely.
+   */
+  updatedToolOutput?: Record<string, unknown>;
 }
 
 /**

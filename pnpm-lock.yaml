@@ -19,9 +19,6 @@ importers:
       '@clack/prompts':
         specifier: ^1.2.0
         version: 1.2.0
-      '@hono/node-server':
-        specifier: ^2.0.1
-        version: 2.0.1(hono@4.12.23)
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.1)
@@ -61,9 +58,6 @@ importers:
       graphology-layout-forceatlas2:
         specifier: ^0.10.1
         version: 0.10.1(graphology-types@0.24.8)
-      hono:
-        specifier: ^4.12.21
-        version: 4.12.23
       ignore:
         specifier: ^6.0.0
         version: 6.0.2
@@ -478,12 +472,6 @@ packages:
   '@hono/node-server@1.19.13':
     resolution: {integrity: sha512-TsQLe4i2gvoTtrHje625ngThGBySOgSK3Xo2XRYOdqGN1teR8+I7vchQC46uLJi8OF62YTYA3AhSpumtkhsaKQ==}
     engines: {node: '>=18.14.1'}
-    peerDependencies:
-      hono: ^4
-
-  '@hono/node-server@2.0.1':
-    resolution: {integrity: sha512-jI9yMDyFpqBeSighf/zlXnQG/nl9AyBc6aAgy4XtxJMyt/CNyJpvPfzDD+bCc2zAOmhhqtF6TnmIaY+xV4mIrw==}
-    engines: {node: '>=20'}
     peerDependencies:
       hono: ^4
 
@@ -2937,10 +2925,6 @@ snapshots:
     optional: true
 
   '@hono/node-server@1.19.13(hono@4.12.23)':
-    dependencies:
-      hono: 4.12.23
-
-  '@hono/node-server@2.0.1(hono@4.12.23)':
     dependencies:
       hono: 4.12.23
 

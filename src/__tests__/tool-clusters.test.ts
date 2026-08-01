@@ -16,9 +16,8 @@ import {
 
 describe("TOOL_CLUSTERS", () => {
   it("has 3 semantic clusters", () => {
-    // The persistence cluster retired with unerr_track (the journal MCP
-    // path was removed entirely — journaling rides the Stop-hook text
-    // lines only). Survivors: navigation, file-access, web.
+    // The persistence cluster retired with unerr_track; nothing replaced it.
+    // Survivors: navigation, file-access, web.
     expect(TOOL_CLUSTERS).toHaveLength(3);
   });
 

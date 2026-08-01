@@ -183,9 +183,7 @@ You can install more than one agent in the same repo — each writes its own con
 
 ### 3. Restart your IDE
 
-Close and reopen your IDE, or start a new chat session. Your agent picks up unerr through MCP and everything is available from the next prompt.
-
-> **Dashboard:** <http://localhost:9847> — open it any time to watch unerr work.
+Close and reopen your IDE, or start a new chat session. Your agent picks up unerr through MCP and everything is available from the next prompt — the context and catches show up inline in the chat, no dashboard to open.
 
 > Using a different MCP client, or setting it up by hand? `unerr install --show-instructions <agent>` prints copy-pasteable steps.
 
@@ -193,15 +191,13 @@ Close and reopen your IDE, or start a new chat session. Your agent picks up uner
 
 ## See it in action
 
-The demo at the top is one moment, caught live. Day to day, there are two places you watch it working — in the chat, and in a browser.
+The demo at the top is one moment, caught live. Day to day, you watch it working in the chat, on every turn.
 
-**In the chat.** Before an edit runs, unerr drops a line into the agent's context on its own:
+Before an edit runs, unerr drops a line into the agent's context on its own:
 
 > ⚡ unerr · editing `src/payments/gateway.ts` changes a function that **24 other places depend on, across 6 files**. Update every one of them in this same change before finishing.
 
 Every turn opens with one line naming what unerr brought in and closes with one line totalling what it caught and saved — named, countable catches, not a vague percentage.
-
-**In a browser.** A live dashboard at `http://localhost:9847` reads from the same place the agent reads from — what it remembers, what it caught, and which of those things actually shaped the next answer.
 
 <p align="center">
   <img src="https://unerr.dev/open-cli/screenshots/end-of-turn-receipt.png" alt="unerr end-of-turn receipt — what it caught and saved this turn" width="380" />
@@ -209,33 +205,21 @@ Every turn opens with one line naming what unerr brought in and closes with one 
   <br/><sub><strong>End-of-turn receipt</strong> · every turn closes with one line totalling what unerr caught and saved you — named, countable, not a ratio.</sub>
 </p>
 
-<p align="center">
-  <img src="https://unerr.dev/open-cli/screenshots/token-trace-main.png" alt="unerr token trace — where the agent's tokens went, per turn and per task" width="400" />
-  <img src="https://unerr.dev/open-cli/screenshots/reasoning-quality.png" alt="unerr reasoning quality — answer quality held steady while the token count dropped" width="400" />
-  <br/><sub><strong>Token trace & reasoning quality</strong> · where the agent's tokens actually went — and that the answer quality held while the count came down. Cost-per-useful-action, not cost-per-token.</sub>
-</p>
-
-<p align="center">
-  <img src="https://unerr.dev/open-cli/screenshots/project-memory.png" alt="unerr session journal — dated activity markers and conventions detected for this repo" width="400" />
-  <img src="https://unerr.dev/open-cli/screenshots/activity.png" alt="unerr activity feed — what unerr caught and surfaced live as the agent worked" width="400" />
-  <br/><sub><strong>Session journal & activity</strong> · the dated record of what happened in this repo across sessions, and a live feed of what it caught and surfaced as the agent worked.</sub>
-</p>
-
 ---
 
 ## You today, your team soon
 
-Today unerr is the local runtime behind the agents **you** run: the code map, the seven MCP tools, all the in-loop behaviors, the dated session journal, and the dashboard — local, no account needed, across your tools and your repos.
+Today unerr is the local runtime behind the agents **you** run: the code map, the five MCP tools, and all the in-loop behaviors — local, no account needed, across your tools and your repos.
 
 The same runtime extends to your whole team — one shared view across every engineer's agents — and that's **arriving soon.** Your individual setup carries straight over; there's nothing to redo when it lands. For platform and engineering leads, that's Datadog-style visibility and control across every agent your team runs: what they cost, what they changed, and whether the team is building capability or dependency — in one place, and without code or prompts ever leaving your engineers' machines.
 
 | | You, today | Your team, soon |
 |---|---|---|
-| Code map, the 7 MCP tools, all in-loop behaviors | ✓ | ✓ |
+| Code map, the 5 MCP tools, all in-loop behaviors | ✓ | ✓ |
 | Output trimming + savings receipts, hooks, skills, every agent | ✓ | ✓ |
-| Session journal, conventions, dashboard for your own work | ✓ | ✓ |
+| Conventions detected and applied for your own work | ✓ | ✓ |
 | One continuous thread across the agents and repos you run | ✓ | ✓ |
-| Conventions and the session journal **shared** across the team | | ✓ soon |
+| Conventions **shared** across the team | | ✓ soon |
 | Edit-time behaviors **enforceable** org-wide (block / approve) | | ✓ soon |
 | One rolled-up view of what the whole team's agents spend and catch | | ✓ soon |
 
@@ -245,7 +229,7 @@ The individual product works with no account and no network, forever. Follow [un
 
 ## Logging in (optional)
 
-Logging in is optional and the bare runtime — code map, session journal, the guards — works fully without it. Today it connects this machine to your account and tells the CLI which plan you're on; it's also the identity your team's shared view is built on.
+Logging in is optional and the bare runtime — code map, conventions, the guards — works fully without it. Today it connects this machine to your account and tells the CLI which plan you're on; it's also the identity your team's shared view is built on.
 
 ```bash
 unerr login      # connect this machine — opens your browser to approve
@@ -281,7 +265,7 @@ One local process per repo. You don't have to think about any of this to use it 
 | The piece | What's in it | What it gives the agent |
 |---|---|---|
 | **A live map of your code** | CozoDB · tree-sitter · SCIP-verified call data · 18+ languages · sub-5ms lookups | Before any file read, the agent gets the 50 lines that matter and the list of what depends on them — not 3,000 lines and a guess. |
-| **Dated session journal + conventions detected from source** | intent / decision / blocker / resolution markers, date-stamped · conventions auto-detected once a pattern holds ≥70% of the time | Every marker is a past-tense, date-stamped record — it never asserts a present truth that can go stale. Conventions re-derive from source on every reindex, so they can't drift out of date. |
+| **Conventions detected from source** | auto-detected once a pattern holds across ≥70% of matching code | Conventions re-derive from source on every reindex, so they can't drift out of date — no rules file to hand-maintain. |
 | **The right slice, delivered automatically** | shell-output trimming (645+ command types) · web pages fetched at 5–10× less bulk · function-targeted file reads | The relevant piece shows up the moment the agent reads — it never has to remember which tool to reach for. |
 | **The behaviors that catch problems** | breaking-change guard · convention-slip guard · retry-loop breaker · session continuity · auto-doc · change narrative · architecture guard | Each fires on a combination of the three above, *at the moment of the edit* — not as a tool the agent picked, not as a review after the fact. |
 
@@ -293,29 +277,26 @@ One local process per repo. You don't have to think about any of this to use it 
 ```
 AI Agent (Claude Code / Cursor / Windsurf / any MCP client)
     │
-    ├── stdio MCP ──→ unerr --mcp (bridge, per IDE session)
-    │                       │
-    │                       └── UDS ──→ unerrd (one lightweight Node process
-    │                                           per machine, auto-spawned,
-    │                                           exits after 30 min idle)
-    │                                       │
-    │                                       └── per-repo unerr process(es)
-    │                                              ├── CozoDB graph     (in-process, <5ms)
-    │                                              ├── Session journal  (dated markers + traces)
-    │                                              ├── Timeline + ledger (every tool call)
-    │                                              ├── File watcher     (incremental reindex)
-    │                                              ├── Convention engine
-    │                                              ├── Compression engine
-    │                                              └── Behavior modules
-    │
-    └── Dashboard ──→ http://localhost:9847 (SSE-streamed live)
+    └── stdio MCP ──→ unerr --mcp (bridge, per IDE session)
+                            │
+                            └── UDS ──→ unerrd (one lightweight Node process
+                                               per machine, auto-spawned,
+                                               exits after 30 min idle)
+                                           │
+                                           └── per-repo unerr process(es)
+                                                  ├── CozoDB graph      (in-process, <5ms)
+                                                  ├── Shadow ledger     (every tool call, append-only)
+                                                  ├── File watcher      (incremental reindex)
+                                                  ├── Convention engine
+                                                  ├── Compression engine
+                                                  └── Behavior modules
 ```
 
 One local DB per repo. Zero network calls. No API keys. No cloud. Your code never leaves the machine.
 
 **Design principles** — zero network calls; stdout is sacred (MCP JSON-RPC only, everything else to stderr); sub-5ms query responses; first useful output in under 5s (shallow index first, deep enrichment in the background); graceful degradation (the agent still works if unerr is down — you just lose the extra layer).
 
-**Tech stack** — TypeScript (ESM) · CozoDB (Rust/NAPI) · web-tree-sitter (WASM) · MCP SDK · Ink (React CLI) · React + Vite (dashboard) · tsup · Vitest
+**Tech stack** — TypeScript (ESM) · CozoDB (Rust/NAPI) · web-tree-sitter (WASM) · MCP SDK · Ink (React CLI) · tsup · Vitest
 
 ### CLI commands
 
@@ -324,28 +305,28 @@ unerr install <agent>   # MCP config + skills + hooks + instructions for one age
 unerr uninstall         # Remove unerr from this repo
 unerr doctor            # Check PATH + environment, auto-fix if unerr isn't on all shells
 unerr status            # Process health, entity count, graph age
-unerr stats             # Session statistics (tokens, tool calls, compression)
 unerr --mcp             # Stdio bridge — what your IDE invokes via .mcp.json
 
 unerr login             # Connect this machine to your account (optional)
 unerr whoami            # Show the connected account and machine
 unerr logout            # Disconnect and delete the local credentials
+unerr dashboard         # Open the cloud dashboard (requires login)
 
 unerr pm status         # Process manager: PID, uptime, repos, memory, idle countdown
 unerr pm logs           # Tail ~/.unerr/logs/unerrd.log
-unerr pm dashboard      # Open http://localhost:9847
 ```
 
 `unerrd` is a lightweight Node process that supervises every registered repo. Your IDE invocation auto-spawns it; it exits cleanly after 30 minutes of no activity. `unerr pm --help` lists the rest.
 
-### MCP tools (7 advertised)
+### MCP tools (5 advertised)
 
-Grouped by what the agent gets, not by file:
+- `search_code` — find code by name or task phrase; a task phrase returns a recon bundle (focus body + callers + conventions in one call); `detail:true` resolves one entity (signature, callers, callees, imports).
+- `file_read` — read a file as numbered lines, a line range, an entity's body, or a structural outline.
+- `file_edit` — change a file (exact replacement or full overwrite); no prior built-in read needed.
+- `get_references` — every caller or callee of an entity, including indirect refs grep misses.
+- `fetch_url` — fetch one page or many, DOM-extracted markdown, BM25-ranked — replaces built-in WebFetch.
 
-- **Reads (6)** — `search_code` (ranked entity search; `detail:true` resolves one entity — signature plus callers / callees / imports in the same call), `file_outline` (structure without body), `file_read` (context-aware, auto-injects conventions and drift), `get_references` (callers or callees — catches indirect refs grep misses), `fetch_url` (DOM-extracted markdown, BM25 re-ranking, content-hash cache — replaces built-in WebFetch), and `unerr_context` (one call that folds search + references + conventions for what you're about to edit).
-- **Session journal (1)** — `unerr_track` (one op-union call for intent / decision / blocker / resolution — powers turn titles and the dated session journal).
-
-Persistence costs zero tool calls: a UserPromptSubmit hook fires when the user states a durable rule ("remember this", "always X") — the agent writes it straight into the instruction file, unerr itself stores nothing — and session-journal markers ride an `unerr journal - <label> -` sentinel in the closing message that a Stop hook scrapes and persists. On Claude Code the rest of the always-on ceremony runs automatically: a PostToolUse hook injects detected conventions on the first file read, and the Stop hook prints the turn close-out — all at zero extra round-trip.
+Persistence costs zero tool calls: a UserPromptSubmit hook fires when the user states a durable rule ("remember this", "always X") — the agent writes it straight into the instruction file, unerr itself stores nothing. On Claude Code the rest of the always-on ceremony runs automatically: a PostToolUse hook injects detected conventions on the first file read, and the Stop hook prints the turn close-out — all at zero extra round-trip.
 
 Every response carries inline `ur|<tag>` signals for high-priority guidance — drift, breaking-change warnings, loop-breaker halts — so the agent acts on what it just learned without burning a turn.
 

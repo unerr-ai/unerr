@@ -2,7 +2,6 @@
  * StartupDisplay — Three-Act proxy startup renderer.
  *
  * Act 1: Instant Competence (brand + fast checks ≤2s)
- * Act 2: Revelation (Health Shock card after graph load)
  * Act 3: Invitation (agent suggestion + deep link)
  *
  * Driven by StartupState — proxy updates state, component re-renders.
@@ -10,9 +9,7 @@
 
 import { Box, Text } from "ink";
 import type React from "react";
-import type { HealthGradeResult } from "../intelligence/health-grade.js";
 import { Banner } from "./Banner.js";
-import { HealthCard } from "./HealthCard.js";
 import { Section } from "./Section.js";
 import { StepLine } from "./StepLine.js";
 import type { StepStatus } from "./StepLine.js";
@@ -37,8 +34,6 @@ export interface LocalIndexStats {
 
 export interface StartupState {
   steps: StartupStep[];
-  health?: HealthGradeResult;
-  firstBoot: boolean;
   deepLink?: string;
   invitationEntity?: string;
   proxyMode?: string;
@@ -70,23 +65,6 @@ export function StartupDisplay({
           />
         ))}
       </Box>
-
-      {/* ACT 2: Revelation — Health Shock */}
-      {state.health && (
-        <Box flexDirection="column" marginTop={1}>
-          {state.localMode ? (
-            <>
-              <Section title="Health (locally computed)" />
-              <HealthCard health={state.health} compact />
-            </>
-          ) : (
-            <>
-              <Section title="First Look" />
-              <HealthCard health={state.health} compact={!state.firstBoot} />
-            </>
-          )}
-        </Box>
-      )}
 
       {/* ACT 3: Invitation */}
       {state.ready && state.localMode && (
@@ -135,7 +113,7 @@ export function StartupDisplay({
 
           {state.deepLink && (
             <Box marginLeft={2}>
-              <Text color={t.dim}>Health details → {state.deepLink}</Text>
+              <Text color={t.dim}>Details → {state.deepLink}</Text>
             </Box>
           )}
         </Box>

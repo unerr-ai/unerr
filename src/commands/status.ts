@@ -26,17 +26,27 @@ import { getRemoteUrl } from "../utils/git.js";
  */
 function buildSuggestions(data: {
   lastIndexed?: string;
+  graphIndexed?: boolean;
   conventionCount?: number;
   skillCount?: number;
   proxyRunning: boolean;
-  healthGrade?: string;
 }): string[] {
   const suggestions: string[] = [];
 
-  if (!data.lastIndexed) {
+  // Keyed on the graph itself, not on whether a timestamp could be formatted.
+  // Both of these fired unconditionally in every repo: `lastIndexed` came from
+  // `.unerr/state/snapshot_meta.json` and `conventionCount` from
+  // `graph_version.json`, and NOTHING writes either field — snapshot_meta.json
+  // is a legacy msgpack-snapshot artifact with no writer left, and
+  // graph_version.json only ever carries `first_boot_shown`. So a fully indexed
+  // repo was told "No index yet" and "Run 'unerr' to detect conventions".
+  if (data.graphIndexed === false) {
     suggestions.push("No index yet. Run 'unerr' to start indexing.");
   }
-  if (data.conventionCount === 0 || data.conventionCount == null) {
+  // Only an explicit zero, never an absent count — status cannot read the
+  // convention total (it lives in CozoDB, not in any state file), and "unknown"
+  // is not "none".
+  if (data.conventionCount === 0) {
     suggestions.push("Run 'unerr' to detect conventions and generate rules");
   }
 
@@ -174,24 +184,6 @@ export function registerStatusCommand(program: Command): void {
         }
       }
 
-      // ── Health Grade ───────────────────────────────────────────
-
-      let healthGrade: string | undefined;
-      let healthScore: number | undefined;
-      const graphVersionPath = join(unerrDir, "state", "graph_version.json");
-      if (existsSync(graphVersionPath)) {
-        try {
-          const gv = JSON.parse(readFileSync(graphVersionPath, "utf-8")) as {
-            health_grade?: string;
-            health_score?: number;
-          };
-          healthGrade = gv.health_grade;
-          healthScore = gv.health_score;
-        } catch {
-          /* ignore */
-        }
-      }
-
       // ── Rule Health ───────────────────────────────────────────
       let ruleHealth: StatusData["ruleHealth"] | undefined;
       if (repoId) {
@@ -310,30 +302,34 @@ export function registerStatusCommand(program: Command): void {
         /* ignore */
       }
 
-      // Last indexed
+      // Last indexed — from `.unerr/state/graph-stats.json`, the file the proxy
+      // actually publishes after each index (see proxy.ts "Publish live
+      // entity/edge/rule counts"). The previous source, `snapshot_meta.json`,
+      // was a legacy msgpack-snapshot artifact that no code writes any more;
+      // status.ts was its only remaining referencer, so `lastIndexed` was
+      // permanently undefined and the "No index yet" suggestion always fired.
       let lastIndexed: string | undefined;
-      const snapshotMetaPath = join(unerrDir, "state", "snapshot_meta.json");
-      if (existsSync(snapshotMetaPath)) {
+      let graphIndexed = false;
+      const graphStatsPath = join(unerrDir, "state", "graph-stats.json");
+      if (existsSync(graphStatsPath)) {
         try {
-          const meta = JSON.parse(readFileSync(snapshotMetaPath, "utf-8")) as {
+          const stats = JSON.parse(readFileSync(graphStatsPath, "utf-8")) as {
             indexedAt?: string;
-            fileCount?: number;
-            elapsedMs?: number;
+            entities?: number;
+            rules?: number;
           };
-          if (meta.indexedAt) {
-            const ageMs = Date.now() - new Date(meta.indexedAt).getTime();
+          graphIndexed = (stats.entities ?? 0) > 0;
+          if (stats.indexedAt) {
+            const ageMs = Date.now() - new Date(stats.indexedAt).getTime();
             const ageHours = Math.floor(ageMs / 3_600_000);
-            const ageStr =
+            lastIndexed =
               ageHours < 1
                 ? "<1h ago"
                 : ageHours < 24
                   ? `${ageHours}h ago`
                   : `${Math.floor(ageHours / 24)}d ago`;
-            lastIndexed = ageStr;
-            if (meta.fileCount) lastIndexed += ` (${meta.fileCount} files`;
-            if (meta.elapsedMs)
-              lastIndexed += ` in ${(meta.elapsedMs / 1000).toFixed(1)}s`;
-            if (meta.fileCount) lastIndexed += ")";
+            if (stats.entities)
+              lastIndexed += ` (${stats.entities.toLocaleString()} entities)`;
           }
         } catch {
           /* ignore */
@@ -354,20 +350,20 @@ export function registerStatusCommand(program: Command): void {
         /* ignore */
       }
 
-      // Community, convention, rule counts from graph_version.json
+      // Rule count from graph-stats.json (the live publish). `community_count`
+      // and `convention_count` were read from graph_version.json, which only
+      // ever holds `first_boot_shown` — no writer sets those keys, so both were
+      // always undefined. They stay undefined here rather than being read from a
+      // file that cannot supply them; the dashboard already guards on `!= null`.
       let communityCount: number | undefined;
       let conventionCount: number | undefined;
       let ruleCount: number | undefined;
       try {
-        if (existsSync(graphVersionPath)) {
-          const gv = JSON.parse(readFileSync(graphVersionPath, "utf-8")) as {
-            community_count?: number;
-            convention_count?: number;
-            rule_count?: number;
+        if (existsSync(graphStatsPath)) {
+          const stats = JSON.parse(readFileSync(graphStatsPath, "utf-8")) as {
+            rules?: number;
           };
-          communityCount = gv.community_count;
-          conventionCount = gv.convention_count;
-          ruleCount = gv.rule_count;
+          ruleCount = stats.rules;
         }
       } catch {
         /* ignore */
@@ -527,10 +523,10 @@ export function registerStatusCommand(program: Command): void {
       // Suggestions engine
       const suggestions = buildSuggestions({
         lastIndexed,
+        graphIndexed,
         conventionCount,
         skillCount,
         proxyRunning,
-        healthGrade,
       });
 
       let shellCompression:
@@ -638,8 +634,6 @@ export function registerStatusCommand(program: Command): void {
         proxyRunning,
         graphInfo,
         drift,
-        healthGrade,
-        healthScore,
         latency,
         liveToolCalls,
         ruleHealth,
@@ -763,6 +757,18 @@ export function registerStatusCommand(program: Command): void {
           }
         }
         process.stderr.write(output);
+      }
+
+      // ── Cost economics (Lever 5 + Lever 2 phase-0) ──────────────
+      // Terminal output ONLY — never injected into agent context (no ur|
+      // line, no _hint field, no MCP response reaches this data). See
+      // src/tracking/cost-economics-report.ts.
+      try {
+        const { buildCostEconomicsReport, renderCostEconomicsReport } =
+          await import("../tracking/cost-economics-report.js");
+        renderCostEconomicsReport(buildCostEconomicsReport(unerrDir));
+      } catch {
+        /* additive and read-only — must never break status */
       }
     });
 }
