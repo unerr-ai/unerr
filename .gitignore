@@ -32,3 +32,8 @@ src/intelligence/native/
 
 # unerr: personal Claude Code permission grant
 .claude/settings.local.json
+
+# Internal design docs + agent scratch — moved to ../unerr-docs, symlinked back.
+# Never part of this repo.
+.internal
+claude-work
