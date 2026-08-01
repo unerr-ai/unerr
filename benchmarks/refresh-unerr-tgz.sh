@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # Build the CURRENT unerr-cli checkout as a DEV binary and pack it into a fresh
-# npm tarball under ./vendor, which the A/B agent (ab_agent.py) picks up via
-# UNERR_CONTEXT_DIR. Run before EVERY benchmark run so a run never ships a stale
-# binary. This is the ONLY tgz the benchmark uses — never the stale vendored
-# copy in ../../../unerr-terminal-bench/src (that repo is inspiration, not the
-# source of truth).
+# npm tarball under ./vendor, which the benchmark agent (bench_agent.py) picks
+# up via UNERR_CONTEXT_DIR. Run before EVERY benchmark run so a run never ships
+# a stale binary. This is the ONLY tgz the benchmark uses — never the stale
+# vendored copy in ../../unerr-terminal-bench/src (that repo is inspiration,
+# not the source of truth).
 #
 # The build is a DEV build (UNERR_PROD_BUILD=0) on purpose: it keeps the
 # file-based dev-mode code (the dev.json tier override) compiled in. A prod
 # build (=1) strips it and dev.json would not mint Pro.
 #
 # Adapted from (inspiration only)
-# ../../../unerr-terminal-bench/scripts/refresh-unerr-tgz.sh — that one is
+# ../../unerr-terminal-bench/scripts/refresh-unerr-tgz.sh — that one is
 # pack-only because its owner controls the build; here we own it, so we build.
 #
 # Usage:
@@ -20,9 +20,9 @@
 #   UNERR_CLI_DIR=/path ./refresh-unerr-tgz.sh
 set -euo pipefail
 
-AB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLI_DIR="$(cd "${UNERR_CLI_DIR:-$AB_DIR/../..}" && pwd)"
-VENDOR_DIR="${VENDOR_DIR:-$AB_DIR/vendor}"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLI_DIR="$(cd "${UNERR_CLI_DIR:-$SELF_DIR/..}" && pwd)"
+VENDOR_DIR="${VENDOR_DIR:-$SELF_DIR/vendor}"
 DIST_CLI="$CLI_DIR/dist/cli.js"
 
 if [ "${SKIP_BUILD:-0}" = "1" ]; then

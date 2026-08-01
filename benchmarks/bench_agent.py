@@ -1,7 +1,7 @@
 """Minimal unerr Harbor agent — the EXACT unerr install from
 `harbor_agents.ClaudeUnerrAgent`, with the benchmark HARNESS stripped.
 
-Kept (identical to ClaudeUnerrAgent): the Daytona/Harbor lifecycle, the unerr
+Kept (identical to ClaudeUnerrAgent): the Harbor sandbox lifecycle, the unerr
 install sequence (npm -g tarball -> version gate -> PATH bridge -> dev.json Pro
 tier + UNERR_TOKEN login-skip -> index -> pm start -> install claude-code ->
 alwaysLoad verification -> live MCP probe), the per-tier model forwarding
@@ -25,7 +25,7 @@ policy, `cc-harness-hooks.py`, the `.claude/settings.local.json` gate hooks, the
 The only system-prompt addition is one line telling the model it is running
 non-interactively so it never pauses for input mid-task.
 
-Two arms, selected by the `AB_BASELINE` env var:
+Two arms, selected by the `BASELINE_ARM` env var:
   * unset  -> unerr arm: full unerr install + unerr MCP server + minimal prompt.
   * "1"    -> baseline : bare claude-code (no unerr install, no unerr MCP),
               same minimal prompt + root bypass, so the ONLY difference between
@@ -33,10 +33,10 @@ Two arms, selected by the `AB_BASELINE` env var:
 
 Run (src/ of the bench on PYTHONPATH so harbor_agents imports, plus this dir):
   PYTHONPATH="<bench>/src:<this-dir>" harbor run \
-    -d terminal-bench/terminal-bench-2-1 -a ab_agent:MinimalUnerrAgent \
+    -d terminal-bench/terminal-bench-2-1 -a bench_agent:MinimalUnerrAgent \
     -m claude-opus-4-8 --ak unerr_main_model=claude-opus-4-8 \
-    -e daytona -i terminal-bench/<task> -n 1 -o out/ab-unerr
-  # baseline: prefix the same line with  AB_BASELINE=1  (and a different -o).
+    -e daytona -i terminal-bench/<task> -n 1 -o out/unerr
+  # baseline: prefix the same line with  BASELINE_ARM=1  (and a different -o).
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ from harbor_agents import (  # type: ignore[import-not-found]
 # returns false the instant UNERR_TOKEN is non-blank — before any credential or
 # entitlement check — so its mere presence makes every unerr process "logged in"
 # (offline: nothing validates it on the wire). A fixed dev string is fine.
-AB_UNERR_TOKEN = os.environ.get("UNERR_TOKEN", "unerr_sk_ab_devmode_offline")
+DEFAULT_UNERR_TOKEN = os.environ.get("UNERR_TOKEN", "unerr_sk_bench_devmode_offline")
 
 # One line, per the brief: autonomous / non-interactive, nothing else.
 MIN_PROMPT = (
@@ -78,7 +78,7 @@ MIN_PROMPT = (
 
 
 def _is_baseline() -> bool:
-    return os.environ.get("AB_BASELINE") == "1"
+    return os.environ.get("BASELINE_ARM") == "1"
 
 
 class MinimalUnerrAgent(ClaudeUnerrAgent):
@@ -100,7 +100,7 @@ class MinimalUnerrAgent(ClaudeUnerrAgent):
             env="UNERR_TOKEN",
             type="str",
             env_fallback="UNERR_TOKEN",
-            default=AB_UNERR_TOKEN,
+            default=DEFAULT_UNERR_TOKEN,
         ),
     ]
 
@@ -154,8 +154,8 @@ class MinimalUnerrAgent(ClaudeUnerrAgent):
         file the parent writes. With ENABLE_TOOL_SEARCH on by default, every
         MCP tool defers behind Tool Search until the agent explicitly
         searches for it — confirmed in a prior 23-trial run: ToolSearch
-        fired 27x vs 1x for an actual mcp__unerr__file_read call, so the A/B
-        measured startup overhead, not unerr's tools.
+        fired 27x vs 1x for an actual mcp__unerr__file_read call, so the
+        benchmark measured startup overhead, not unerr's tools.
 
         Why override this method rather than write .mcp.json instead: a
         project-scope .mcp.json entry (which unerr's OWN installer already
@@ -215,7 +215,7 @@ class MinimalUnerrAgent(ClaudeUnerrAgent):
             raise RuntimeError(
                 f"unerr tarball not found under {context_dir} "
                 "(expected unerr-ai-unerr-*.tgz) — set UNERR_CONTEXT_DIR, "
-                "or run the baseline arm with AB_BASELINE=1"
+                "or run the baseline arm with BASELINE_ARM=1"
             )
 
         remote = self.UNERR_REMOTE_DIR
@@ -288,7 +288,7 @@ class MinimalUnerrAgent(ClaudeUnerrAgent):
         # UNERR_TOKEN clears the login wall for these install execs and for the
         # per-repo proxy pm start forks (ProcessManager forks with {...env}, so
         # the proxy inherits it) — the same token ENV_VARS pushes into claude.
-        env = {"UNERR_FORCE_PROJECT": "1", "UNERR_TOKEN": AB_UNERR_TOKEN}
+        env = {"UNERR_FORCE_PROJECT": "1", "UNERR_TOKEN": DEFAULT_UNERR_TOKEN}
 
         # index -> pm start -> install claude-code (best-effort past the PATH
         # gate, exactly as the parent: log-and-continue, not fatal).

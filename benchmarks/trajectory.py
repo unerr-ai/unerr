@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paired trajectory + prefix analysis for the A/B arms.
+"""Paired trajectory + prefix analysis for the unerr and baseline arms.
 
 Usage: trajectory.py <UNERR_JOB_DIR> <BASELINE_JOB_DIR> [--steps TASK|all]
 

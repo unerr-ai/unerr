@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Standalone Daytona check: can unerr serve its MCP tools in FILE-BASED dev
-mode with NO login env (no UNERR_TOKEN, no UNERR_ENTITLEMENT_*)?
+"""Standalone remote-sandbox check: can unerr serve its MCP tools in
+FILE-BASED dev mode with NO login env (no UNERR_TOKEN, no UNERR_ENTITLEMENT_*)?
 
 Sets up two on-disk files only:
   ~/.unerr/dev.json         = {"tier":"pro"}         -> applyDevConfig mints Pro
@@ -78,7 +78,7 @@ def main():
                     "token": "unerr_sk_devmode_verify_0000000000",
                     "organization_id": "dev-org",
                     "machine_id": "dev-machine",
-                    "machine_name": "daytona-verify",
+                    "machine_name": "bench-devmode-verify",
                 }
             ).encode(),
             "/root/.unerr/credentials.json",

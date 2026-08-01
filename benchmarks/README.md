@@ -1,20 +1,30 @@
-# ab-daytona — unerr A/B token benchmark
+# unerr token benchmark
 
 Measures what unerr does to a plain `claude -p` run: token cost and the "unerr
-tax". Two arms, identical except for unerr itself, run on Daytona sandboxes via
-Harbor with a minimal custom agent (`ab_agent.py`).
+tax". Two arms, identical except for unerr itself, run in a remote sandbox via
+Harbor with a minimal custom agent (`bench_agent.py`).
 
 | Arm | What runs |
 |---|---|
 | `unerr` | claude-code + full unerr install + unerr MCP server + minimal prompt |
 | `baseline` | bare claude-code, same minimal prompt (no unerr) |
 
+## Prerequisite: the `unerr-terminal-bench` repo
+
+The scripts here need a sibling checkout at `~/IdeaProjects/unerr-terminal-bench`
+(override with `BENCH_DIR`). It supplies two things `run_arm.sh` reads directly:
+
+- `.env.local` — live secrets (sandbox API key, Anthropic key), sourced and
+  never printed.
+- `src/harbor_agents.py` — the full leaderboard agent (`ClaudeUnerrAgent`) that
+  `bench_agent.py` imports from and strips down for this benchmark.
+
 ## The one rule: always run the CURRENT build, never a vendored tgz
 
-The benchmark must test *this checkout's* code. It builds a fresh DEV binary and
-packs it into `vendor/`, and the agent loads that via `UNERR_CONTEXT_DIR`. It
-must NEVER use the stale `unerr-ai-unerr-*.tgz` vendored in
-`../../../unerr-terminal-bench/src` — that repo is inspiration, not the source of
+The benchmark must test *this checkout's* code. `refresh-unerr-tgz.sh` builds a
+fresh DEV binary and packs it into `vendor/`, and the agent loads that via
+`UNERR_CONTEXT_DIR`. Never use the stale `unerr-ai-unerr-*.tgz` vendored in
+`../unerr-terminal-bench/src` — that repo is inspiration, not the source of
 truth.
 
 ### Build command (dev build — mandatory)
@@ -31,6 +41,8 @@ compiled in (`~/.unerr/dev.json` → Pro tier). A prod build (`=1`) strips it, a
 result into `vendor/unerr-ai-unerr-<version>.tgz` (one tgz, older ones removed).
 
 ## Run
+
+All commands run from `benchmarks/`.
 
 ```bash
 # unerr arm — auto-builds fresh, packs to vendor/, points the agent at it:
@@ -61,7 +73,7 @@ SKIP_BUILD=1 ./refresh-unerr-tgz.sh   # pack an existing dist only
 
 Two independent gates, both cleared without a browser login:
 
-1. **Tier** — `ab_agent.py` writes `~/.unerr/dev.json = {"tier":"pro"}`.
+1. **Tier** — `bench_agent.py` writes `~/.unerr/dev.json = {"tier":"pro"}`.
    `applyDevConfig` mints a local Pro entitlement in every `unerr <cmd>` process
    (needs the dev build above).
 2. **Login wall** — `UNERR_TOKEN` is forwarded into the `claude -p` container via
@@ -70,25 +82,42 @@ Two independent gates, both cleared without a browser login:
    false the instant `UNERR_TOKEN` is non-blank — it is never validated locally,
    and wire calls with it fail gracefully off the tool path.
 
-## Output
+## Output and analysis
 
-Results land in `out/ab-<arm>/<timestamp>/…`. The per-turn token usage and tool
+Results land in `out/<arm>/<timestamp>/…`. The per-turn token usage and tool
 calls are in the Claude session log:
 `…/agent/sessions/projects/-app/*.jsonl` (parse `message.usage` +
 `tool_use`/`tool_result`).
 
+```bash
+python3 status.py out/unerr [TOTAL_TASKS]        # progress, cost, resolved rate for one job
+python3 status.py out/unerr --line               # one compact line, for a periodic monitor
+python3 trajectory.py out/unerr out/baseline      # paired route + prefix + landed-token comparison
+python3 trajectory.py out/unerr out/baseline --steps TASK_ID  # per-step tool trace for one task
+```
+
+`verify_devmode.py` is a standalone sandbox probe of file-based dev mode (no
+model spend): it boots a sandbox, installs the vendored tgz, and confirms
+`tools/list` / `tools/call` work with no login env set. Run:
+
+```bash
+set -a; source ~/IdeaProjects/unerr-terminal-bench/.env.local; set +a
+python3 verify_devmode.py
+```
+
 ## Leaderboard run (one public Harbor job)
 
-Different from the A/B here. The leaderboard is **one Harbor job**: 89 tasks ×
-≥5 trials, a single job UUID, one config, uploaded public. It runs the **full**
-agent (`harbor_agents:ClaudeUnerrAgent`), not the minimal A/B agent. Per-trial
-cloud sandboxes (`-e daytona`/`e2b`/`modal`) give the resource isolation the
-heavy tail needs while letting you raise concurrency safely.
+Different from the two-arm benchmark above. The leaderboard is **one Harbor
+job**: 89 tasks × ≥5 trials, a single job UUID, one config, uploaded public. It
+runs the **full** agent (`harbor_agents:ClaudeUnerrAgent`), not the minimal
+benchmark agent. Per-trial cloud sandboxes (`-e daytona`/`e2b`/`modal`) give
+the resource isolation the heavy tail needs while letting you raise
+concurrency safely.
 
 ```bash
 harbor run \
   -d terminal-bench/terminal-bench-2-1 \          # dataset (all 89 tasks)
-  -a harbor_agents:ClaudeUnerrAgent \             # full unerr agent (not the A/B minimal one)
+  -a harbor_agents:ClaudeUnerrAgent \             # full unerr agent (not the minimal benchmark one)
   -m claude-opus-4-8 \                            # model under test
   --ak reasoning_effort=<none|low|medium|high> \  # agent kwarg (repeatable)
   -e daytona \                                    # per-trial cloud sandbox
@@ -104,14 +133,14 @@ Flag reference (from `harbor run --help`):
 | `-d` | dataset id |
 | `-a` | agent (`module:Class`) |
 | `-m` | model |
-| `-i` | filter to ONE task id (the A/B runs use this, e.g. `terminal-bench/torch-tensor-parallelism`) |
+| `-i` | filter to ONE task id (the two-arm benchmark uses this, e.g. `terminal-bench/torch-tensor-parallelism`) |
 | `--ak` / `--agent-kwarg` | extra agent kwarg, repeatable (e.g. `reasoning_effort=high`, `unerr_main_model=claude-opus-4-8`) |
 | `-e` | environment / sandbox: `daytona`, `e2b`, `modal`, `local` |
 | `-k` / `--n-attempts` | **trials (attempts) per task** — ≥5 for the leaderboard (drives pass@k). Default 1 |
 | `-n` / `--n-concurrent` | **concurrency** — number of concurrent trials |
 | `-o` | jobs output dir |
 
-The A/B `run_arm.sh` here is deliberately `-k` unset (1 trial) and `-n 1` — a
+`run_arm.sh` here is deliberately `-k` unset (1 trial) and `-n 1` — a
 single-trial isolation test, NOT a leaderboard-valid run.
 
 ## Upload / share results (Harbor Hub — external)
@@ -131,16 +160,18 @@ harbor run ... --upload --public                 # --public/--share-* require --
 
 `--public`/`--private` set visibility; `--share-org` / `--share-user` are
 repeatable. **Before any `--public` upload, scan the job dir for a leaked
-`UNERR_TOKEN` / Anthropic / Daytona key or an `env` dump** — the run env carries
-live secrets, and public upload is world-readable and may be cached.
+`UNERR_TOKEN` / Anthropic / sandbox API key or an `env` dump** — the run env
+carries live secrets, and public upload is world-readable and may be cached.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `ab_agent.py` | the minimal Harbor agent (both arms) |
+| `bench_agent.py` | the minimal Harbor agent (both arms) |
 | `run_arm.sh` | one arm run (build → pack → harbor run) |
 | `refresh-unerr-tgz.sh` | dev-build + pack this checkout into `vendor/` |
-| `verify_devmode.py` | standalone Daytona probe of file-based dev mode (no model spend) |
+| `status.py` | progress/cost/resolved-rate summary for one job dir |
+| `trajectory.py` | paired route + prefix + landed-token comparison across two job dirs |
+| `verify_devmode.py` | standalone sandbox probe of file-based dev mode (no model spend) |
 | `vendor/` | the fresh packed tgz (gitignored) |
 | `out/` | run outputs (gitignored) |
