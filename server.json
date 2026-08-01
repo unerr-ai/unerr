@@ -4,16 +4,16 @@
   "title": "unerr",
   "description": "Operational memory for AI agents: code graph, session memory & guardrails. No context rot.",
   "repository": {
-    "url": "https://github.com/unerr-ai/unerr-cli",
+    "url": "https://github.com/unerr-ai/unerr",
     "source": "github"
   },
-  "version": "0.2.1",
+  "version": "0.5.1",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@unerr-ai/unerr",
-      "version": "0.2.1",
+      "version": "0.5.1",
       "transport": {
         "type": "stdio"
       },

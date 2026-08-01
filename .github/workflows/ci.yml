@@ -2,11 +2,13 @@ name: CI / Release
 
 # One flow, triggered by a `v*` tag push:
 #   build-and-test  →  publish (npm pending, gate)  →  promote (npm latest, gate)
-#                   →  build-binaries (5 targets)    →  release (public unerr
-#                      Release + sync install scripts)  →  homebrew / scoop
+#                   →  build-binaries (5 targets)    →  release (GitHub Release
+#                      on this repo)                  →  homebrew / scoop
 # On `main` pushes and PRs only build-and-test runs (the release jobs are
-# gated on `refs/tags/v`). unerr-cli is PRIVATE, so binaries and install
-# scripts are published to the PUBLIC repo unerr.
+# gated on `refs/tags/v`). Source, binaries, and install scripts all live in
+# this repo (unerr-ai/unerr, public): its Releases host the tarballs/zip +
+# SHA256SUMS, and its `main` serves install / install.ps1 directly at
+# raw.githubusercontent.com — no cross-repo sync step.
 
 on:
   push:
@@ -52,7 +54,7 @@ jobs:
           private-key: ${{ secrets.CONTRACTS_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: |
-            unerr-cli
+            unerr
             unerr-contracts
 
       - uses: actions/checkout@v5
@@ -318,7 +320,7 @@ jobs:
           private-key: ${{ secrets.CONTRACTS_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: |
-            unerr-cli
+            unerr
             unerr-contracts
 
       - uses: actions/checkout@v5
@@ -462,15 +464,16 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Job 4 — publish the binaries to the PUBLIC unerr repo and sync the
-  # install scripts there. Gated to run only AFTER the binaries are built AND
-  # npm is promoted to `latest`, so nothing reaches users until the maintainer
-  # has approved both npm gates above.
+  # Job 4 — publish the binaries as a GitHub Release on THIS repo. Gated to run
+  # only AFTER the binaries are built AND npm is promoted to `latest`, so
+  # nothing reaches users until the maintainer has approved both npm gates
+  # above.
   #
-  # unerr-cli is private → its own Release assets need auth to download.
-  # unerr is public: its Releases host the tarballs/zip + SHA256SUMS, and
-  # its `main` serves install / install.ps1 at raw.githubusercontent.com.
-  # The commit to unerr touches ONLY those two files (docs rarely change).
+  # This repo is public: its Releases host the tarballs/zip + SHA256SUMS, and
+  # its `main` serves install / install.ps1 at raw.githubusercontent.com
+  # directly. Source, install scripts, and release assets are all here, so
+  # there is no cross-repo token and no install-script sync step — the default
+  # GITHUB_TOKEN with `contents: write` is sufficient.
   # ---------------------------------------------------------------------------
   release:
     needs: [build-binaries, promote]
@@ -480,18 +483,13 @@ jobs:
     # to tag runs (build-binaries only runs on `v*`).
     if: ${{ always() && needs.build-binaries.result == 'success' && (needs.promote.result == 'success' || needs.promote.result == 'skipped') }}
     runs-on: ubuntu-latest
+    # Creating a Release on this repo needs write access to contents. Declared
+    # explicitly so the job does not depend on the org/repo default token
+    # permission being read-write.
+    permissions:
+      contents: write
     steps:
-      - name: Mint GitHub App token for unerr
-        id: docs-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ vars.CONTRACTS_APP_ID }}
-          private-key: ${{ secrets.CONTRACTS_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: |
-            unerr
-
-      - name: Checkout unerr-cli (install scripts + packaging templates live here)
+      - name: Checkout (install scripts + packaging templates live here)
         uses: actions/checkout@v5
 
       - name: Download all binary artifacts
@@ -508,38 +506,21 @@ jobs:
           echo "=== SHA256SUMS ==="
           cat SHA256SUMS
 
-      - name: Sync install scripts to unerr main
-        # Only install + install.ps1 are pushed, and only when they changed.
-        env:
-          TAG: ${{ github.ref_name }}
-          GH_TOKEN: ${{ steps.docs-token.outputs.token }}
-        run: |
-          git clone --depth 1 \
-            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository_owner }}/unerr.git" docs-repo
-          cp install     docs-repo/install
-          cp install.ps1 docs-repo/install.ps1
-          cd docs-repo
-          git config user.name  "unerr-release-bot"
-          git config user.email "release-bot@users.noreply.github.com"
-          git add install install.ps1
-          if git diff --cached --quiet; then
-            echo "install scripts unchanged — nothing to commit"
-          else
-            git commit -m "chore(install): sync install scripts for ${TAG}"
-            git push origin HEAD:main
-          fi
+      # No install-script sync step: `install` and `install.ps1` live at the root
+      # of this repo, so raw.githubusercontent.com/unerr-ai/unerr/main/install
+      # already serves the committed copy on every push to main.
 
-      - name: Publish GitHub Release on unerr
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          repository: ${{ github.repository_owner }}/unerr
-          token: ${{ steps.docs-token.outputs.token }}
+          # No `repository:` / `token:` — the Release is created on this repo
+          # using the job's default GITHUB_TOKEN (permissions.contents: write).
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           # Pre-release if the tag carries a pre-release segment (e.g. v1.0.0-rc.1).
           prerelease: ${{ contains(github.ref_name, '-') }}
-          # Notes are generated from unerr-cli, not unerr, so don't
-          # auto-generate from the docs repo's history.
+          # Release notes are written by hand in `body` below. Left off so the
+          # notes stay stable and reviewed rather than tracking commit subjects.
           generate_release_notes: false
           body: |
             unerr ${{ github.ref_name }} — native binaries.
@@ -547,7 +528,7 @@ jobs:
             Install (macOS / Linux):
             `curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash`
 
-            All channels: see INSTALL.md in unerr-cli. Verify downloads against `SHA256SUMS` below.
+            All channels: see INSTALL.md. Verify downloads against `SHA256SUMS` below.
           files: |
             release-assets/unerr-darwin-x64.tar.gz
             release-assets/unerr-darwin-arm64.tar.gz
@@ -576,7 +557,7 @@ jobs:
           repositories: |
             homebrew-tap
 
-      - name: Checkout unerr-cli (formula template)
+      - name: Checkout (formula template)
         uses: actions/checkout@v5
 
       - name: Fetch SHA256SUMS from the release
@@ -637,7 +618,7 @@ jobs:
           repositories: |
             scoop-bucket
 
-      - name: Checkout unerr-cli (manifest template)
+      - name: Checkout (manifest template)
         uses: actions/checkout@v5
 
       - name: Fetch SHA256SUMS from the release

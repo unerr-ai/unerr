@@ -71,7 +71,7 @@ describe("fleet inventory", () => {
       sock_path: "/repo/a/.unerr/state/proxy.sock",
     });
     mockedGetRemoteUrl.mockResolvedValue(
-      "https://github.com/unerr-ai/unerr-cli.git"
+      "https://github.com/unerr-ai/unerr.git"
     );
   });
   afterEach(() => {
@@ -99,7 +99,7 @@ describe("fleet inventory", () => {
     expect(report?.repos[0]).toMatchObject({
       label: "a",
       path: "/repo/a",
-      origin: { provider: "github", owner: "unerr-ai", repo: "unerr-cli" },
+      origin: { provider: "github", owner: "unerr-ai", repo: "unerr" },
       status: "running",
       pid: 100,
       http_port: 51890,
@@ -162,7 +162,7 @@ describe("fleet inventory", () => {
 
   it("never leaks a token or an embedded git credential", async () => {
     mockedGetRemoteUrl.mockResolvedValue(
-      "https://bot:ghp_supersecret@github.com/unerr-ai/unerr-cli.git"
+      "https://bot:ghp_supersecret@github.com/unerr-ai/unerr.git"
     );
     const report = await buildFleetReport({
       statusEntries: [statusEntry()],

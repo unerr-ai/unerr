@@ -39,14 +39,14 @@ Scope: all user-facing text (replies, summaries, plans, status updates) and all 
 
 ## Critical Rules (Always Apply)
 
-1. **Read files in chunks.** ~108K LOC production code (~178K including tests + UI). Use `offset`/`limit` (100–200 lines). Search first (grep/glob), then read only the sections you need. Never dump entire files.
+1. **Read files in chunks.** ~149,600 LOC production code, ~247,762 total in `src/` (production + tests). Use `offset`/`limit` (100–200 lines). Search first (grep/glob), then read only the sections you need. Never dump entire files.
 2. **stdout is MCP JSON-RPC only.** All logging, all UI, all messages go to stderr via `process.stderr.write()`. A single stray `console.log()` breaks every IDE integration.
 3. **All CozoDB access is async.** `db.run()` returns a Promise. Always `await`. See [CozoDB Rules](#cozodb-rules) below.
 4. **Named Datalog syntax for 4+ column relations.** `*edges{from_key, to_key, type}` not `*edges[a, b, c]`. See [Datalog Rules](#datalog-rules) below.
 5. **MCP config is project-level only.** Never write to global/home config. Each repo gets its own `.mcp.json` (Claude Code), `.cursor/mcp.json` (Cursor), etc.
 6. **Imports use `.js` extensions.** NodeNext module resolution requires it. ESM throughout.
 7. **No boot-time persistence, ever.** `unerrd` is a lazy **process manager**, not a system service. No source file may write to launchd plists, systemd user units, Windows scheduled tasks, or Startup folder. No command exists to register the manager at boot. The bridge (`unerr --mcp`) auto-spawns the manager on first MCP connection via an O_EXCL spawn lock at `~/.unerr/state/spawn.lock` — same lifecycle pattern as `tsserver`, `rust-analyzer`, or `esbuild`. Each per-repo `unerr` proxy idles out after 30 minutes of zero MCP activity (`DEFAULT_IDLE_TIMEOUT_S=1800`, swept by the manager's idle loop); the manager itself is lazily spawned, carries no boot-time registration, and runs until `unerr pm stop` (no manager self-idle-exit exists in code today). The lazy-spawn + no-boot-registration is what eliminates the AV/EDR persistence pattern that flagged 0.1.6. Enforced by `src/__tests__/persistence-pattern-guard.test.ts` — the test forbids any source file from referencing LaunchAgents / systemd / schtasks paths.
-8. **The dashboard UI is archived; the tarball ships no UI.** The React SPA was moved to `archive/ui/` (with its `vite.config.ts` and `check-ui-bundle.mjs`) and is no longer built or shipped. There is no `build:ui` step, no `vite` toolchain in `devDependencies`, and no `dist/ui/**` entry in the `package.json` `files` array. The only HTTP surface is the process manager's single endpoint `GET /api/pm` (process info) in `src/daemon/api.ts`; the per-repo dashboard HTTP server (`src/server/`) and all its routes were deleted. `src/__tests__/persistence-pattern-guard.test.ts` asserts no `dist/ui` entry reappears in the tarball. Do NOT re-add a UI build, a `dist/ui` files entry, or a second HTTP endpoint without an explicit decision to un-archive the dashboard.
+8. **The dashboard UI is archived; the tarball ships no UI.** The React SPA was moved to `archive/ui/` (with its `vite.config.ts` and `check-ui-bundle.mjs`) and is no longer built or shipped. There is no `build:ui` step, no `vite` toolchain in `devDependencies`, and no `dist/ui/**` entry in the `package.json` `files` array. **The only HTTP surface is a loopback health probe** — `src/proxy/pid-lock.ts` starts a `node:http` server on `127.0.0.1:0` (OS-assigned ephemeral port) serving `GET /health`, unconditionally, from `acquire()`; the port is printed at proxy startup and used by `checkHealthWithRetry` to tell a live proxy (secondary attach) from a wedged one holding a stale PID file — the guard that stops two writers hitting `graph.db` at once (the WAL-bloat incident). It is load-bearing and stays. (`src/proxy/transport-mux.ts` registers a `/commit-context` handler too, but that's HTTP-shaped parsing over the UNIX control socket via `node:net`, not a network listener.) There is no dashboard and no MCP-over-HTTP. The per-repo dashboard server (`src/server/`) was deleted with the SPA, and the process manager's own loopback API (`GET /api/pm`, a sliding 9847-9947 bind, and `~/.unerr/state/dashboard.json` port discovery) followed it — `src/daemon/api.ts` and `src/daemon/dashboard-state.ts` are gone, along with the `hono` and `@hono/node-server` dependencies. Local callers (`pm status`, `pm stop`, the bridge) use the UDS control socket at `~/.unerr/unerrd.sock`; everything that leaves the machine goes over the cloud push path (fleet reporter + drainers). `DAEMON_DASHBOARD_PORT = 9847` survives in `src/daemon/protocol.ts` for one reason only: `dashboard_port` is a required field on the `@unerr-ai/contracts` machine-snapshot body, so the fleet report must still send a number — it describes no listener, and removing the field needs the cross-repo contract change order. Guards: `src/__tests__/persistence-pattern-guard.test.ts` asserts no `dist/ui` entry reappears in the tarball; `src/__tests__/daemon-no-http-listener.test.ts` asserts no HTTP listener, framework dependency, or `dashboard-state` UDS command comes back. Do NOT re-add a UI build, a `dist/ui` files entry, or any HTTP endpoint without an explicit decision to un-archive the dashboard.
 
 ### Never name a competitor's product (copyright/trademark hygiene)
 
@@ -60,7 +60,7 @@ unerr CLI — a local guardrail that lets an AI agent **safely change a large, e
 
 There is **one program** — `unerr`. It ships as a **self-contained native binary** per platform built with `bun build --compile` (no Node needed). Every channel delivers that same binary: curl\|bash, Homebrew, and Scoop download it directly; **npm** (`@unerr-ai/unerr`) is the esbuild-style binary wrapper — a shim package whose `optionalDependencies` are five per-platform packages (`@unerr-ai/unerr-<os>-<arch>`) that carry the binary, launched through a thin Node shim (`packaging/npm/wrapper/bin/unerr.js`). `npm install -g @unerr-ai/unerr` is unchanged for users but no longer ships `dist/cli.js`. The three "process types" below are the same program entered through different argv shapes; the process title is renamed so they're distinguishable in `ps`.
 
-**Native binary distribution.** Built by `scripts/build-binary.ts` (`pnpm run build:binary -- --target <os>-<arch>`) → `dist/bin/unerr-<os>-<arch>`. Targets: darwin x64/arm64, linux x64/arm64 (glibc), windows-x64. NOT musl or win-arm64 (no cozo prebuild — unsupported on every channel, including npm). The native pieces (cozo-node + @parcel/watcher addons, tree-sitter `.wasm`) are embedded via a generated `src/intelligence/embedded-natives.ts` (committed as an inert stub; the build script fills it, compiles, then restores it). Build kind is selected by the `__UNERR_BINARY__` define — `false` under tsup (folds out the embed branches; keeps loading cozo-node/@parcel/watcher from `node_modules`), `true` under the Bun compile. All self-spawn goes through `src/utils/self-spawn.ts` (`spawnUnerr`/`forkUnerr`) so a child process re-execs the binary, not `node dist/cli.js`. unerr-cli is PRIVATE, so binaries are published to the PUBLIC `unerr-ai/unerr` Releases; curl\|bash, Homebrew, and Scoop download from there, and the install scripts are served from that repo's raw `main` URL. Reference: `.internal/docs/01-base-system/08-DISTRIBUTION-PACKAGING.md` (original plan archived at `.internal/archive/NATIVE_BINARY_DISTRIBUTION.md`); user setup: `INSTALL.md`. CI: the single tag-based `.github/workflows/ci.yml` (npm publish/promote + binary build + public Release + brew/scoop).
+**Native binary distribution.** Built by `scripts/build-binary.ts` (`pnpm run build:binary -- --target <os>-<arch>`) → `dist/bin/unerr-<os>-<arch>`. Targets: darwin x64/arm64, linux x64/arm64 (glibc), windows-x64. NOT musl or win-arm64 (no cozo prebuild — unsupported on every channel, including npm). The native pieces (cozo-node + @parcel/watcher addons, tree-sitter `.wasm`) are embedded via a generated `src/intelligence/embedded-natives.ts` (committed as an inert stub; the build script fills it, compiles, then restores it). Build kind is selected by the `__UNERR_BINARY__` define — `false` under tsup (folds out the embed branches; keeps loading cozo-node/@parcel/watcher from `node_modules`), `true` under the Bun compile. All self-spawn goes through `src/utils/self-spawn.ts` (`spawnUnerr`/`forkUnerr`) so a child process re-execs the binary, not `node dist/cli.js`. This source repo is the public `unerr-ai/unerr` repo, so binaries are published to its own Releases; curl\|bash, Homebrew, and Scoop download from there, and the install scripts are served from this repo's raw `main` URL — no cross-repo sync. Reference: `.internal/docs/01-base-system/08-DISTRIBUTION-PACKAGING.md` (original plan archived at `.internal/archive/NATIVE_BINARY_DISTRIBUTION.md`); user setup: `INSTALL.md`. CI: the single tag-based `.github/workflows/ci.yml` (npm publish/promote + binary build + public Release + brew/scoop).
 
 - **`unerr`** (no args) — Per-repo MCP server **+ the only owner of intelligence (graph, facts, behaviors, drift)**. Started lazily by the process manager (or directly, for standalone mode). First-run: wizard → index → serve. Subsequent: resume → serve.
 - **`unerrd`** (process manager) — `unerr pm start --detached` with `process.title = "unerrd"`. Single lightweight Node process per machine. Manages per-repo `unerr` children, the registry, the dashboard, and the cross-repo log file. Auto-spawned by the bridge on first MCP connection. Sweeps idle per-repo children out after 30 min; the manager itself runs until `unerr pm stop` (no manager self-idle-exit). **No boot-time registration** (no launchd / systemd / schtasks).
@@ -87,13 +87,15 @@ The bridge owns no intelligence at all — every Tier-2 / Tier-3 module lives in
 | NativeWatcher (file system) | ✓ `@parcel/watcher` — detects LLM writes + user edits | ✗ Not active |
 | GraphHolder (swap-on-idle rebuild) | ✓ 5s idle → full reindex → atomic swap | ✗ Not active |
 | DriftTracker | ✓ Full drift detection + overlays | ✗ Not active |
-| Behaviors (auto-doc, cascade-guard, etc.) | ✓ All 5 behaviors active | ✗ Not active |
+| Behaviors (loop-breaker, incomplete-work) | ✓ 2 registered (see below) | ✗ Not active |
 | PID lock | ✓ Single instance per repo | ✗ No lock (IDE manages lifecycle) |
 | Branch poller | ✓ Detects branch switches | ✗ Not active |
-| HTTP dashboard server | ✓ SSE events, REST API | ✗ Not started |
+| Loopback health probe (`GET /health`) | ✓ Ephemeral port, used by `acquire()` | ✗ Not started |
 | CLI wizard (first run) | ✓ Interactive setup | ✗ N/A |
 | Tool Adoption Nudging | ✓ Active — exec nudges, hook interception, instruction reinforcement | ✓ Active — exec nudges + instruction reinforcement |
 | File logger (stderr→.log) | ✓ `.unerr/logs/proxy.log` (shared, O_APPEND) | ✓ `.unerr/logs/bridge.log` (shared across IDE sessions) |
+
+**Behaviors:** `src/behaviors/` has 5 files, but only 2 register with the `BehaviorDispatcher` — `loop-breaker.ts` (`LoopCircuitBreaker`) and `incomplete-work.ts` (`IncompleteWorkDetector`); `agent-llm-bridge.ts`, `framework.ts`, and `guard-formatter.ts` are infrastructure, not behaviors. Cascade-guard didn't vanish — it moved into the `file_edit` path (`src/proxy/proxy.ts`, the `name === "file_edit"` dispatch): a signature change with at-risk callers denies the first edit out-of-band, via the same blast-radius check the Claude Code PreToolUse hook uses for the built-in Edit.
 
 **Design rationale:** `unerr --mcp` is spawned by IDEs (Cursor, Claude Code) per-session. It must connect stdio instantly (<50 ms) and own no state. The heavy stateful work (graph, watchers, intelligence) belongs in `unerr` which the user runs once as a long-lived daemon. Every MCP request the bridge receives is forwarded over UDS to the daemon — the IDE sees a normal stdio MCP transport while everything actually happens server-side. **Invariant:** `src/proxy/bridge.ts` imports nothing from `src/intelligence/`, `src/behaviors/`, or `src/tracking/` — enforced by `src/__tests__/bridge-isolation.test.ts`.
 
@@ -106,21 +108,21 @@ Everything that crosses the CLI↔cloud wire — event / trace / sync / fleet bo
 - **Single-source rule (enforce at review).** Any constant or schema on the wire is imported from the contract, never re-declared in CLI code. To add a wire field or event: add it to the contract first (additive SchemaVer bump — `MODEL-REVISION-ADDITION`), bump the submodule pointer, then consume. Do not hand-build a wire body shape or copy a cap into CLI code.
 - **Cross-repo change order (mandatory for ANY CLI↔web-service change).** A wire change touches three repos in a fixed order — never edit both sides at once. (1) Land the shape in `@unerr-ai/contracts` first (zod-only subpath for CLI→server bodies; `/api` `cliContract` reusing the same zod for server-only read/triage/sync — never a second copy). (2) **Commit + push it to the contract repo's `main` and publish the version** before any consumer changes. (3) CLI bumps the `vendor/contracts` submodule pointer, `pnpm run build:contracts`, verify inlined (`grep -rl "@unerr-ai/contracts" dist/*.js` → prints nothing; the build code-splits, so scan all of `dist/`, not just `cli.js`). (4) **unerr-web-service pulls the same published version and rebuilds BEFORE making its server-side change.** (5) Only then do CLI (producer) and web service (consumer/validator) implement against the shared shape. (6) GitHub App changes (web-service backend) come last. Tier gating reads the central source `src/cloud/tier-model.ts` (plan strings + `LIMIT_KEYS`); add a CLI gate in `src/cloud/entitlements.ts` modeled on `canSyncRecall`, never a parallel plan notion.
 - **No firewall, no identity in the contract.** The contract carries zero HR-2 firewall logic; the server enforces HR-2 and the CLI keeps its client-side `sanitizeDetail` pre-filter (`src/cloud/drainers/envelope.ts`). Identity (org/user) is resolved from the token and never appears in a request body.
-- **Validation seam (single-source on emit, DONE 2026-06-16).** Constants (schema versions + caps) AND body shapes are now single-source. Every `StreamDrainer` declares `schema?: ContractSchema`; `drainStream` (`src/cloud/push-drainer.ts`) validates each built row against its `@unerr-ai/contracts` record (`IngestEvent`, `TranscriptRecord`, `LedgerRecord`, `RouterRecord`, `SessionRecord`, `FactCreate`, `TimelineRecord`, `DriftRecordInput`) BEFORE push — per-element, so one bad row drops and the rest ship. Fleet bodies validate via `validateBody` (non-blocking). Fail mode: drop + `startupLog` warn in prod, **throw under `UNERR_CONTRACT_STRICT=1`** in tests. The helper is `src/cloud/drainers/validate.ts` (`validateRows` / `validateBody` / `ContractSchema`). Limit: `/events` + `/traces` `detail` is a `looseObject`, so an extra/renamed `detail` key is NOT caught (review concern). The CLI zod and the contract's vendored zod are different installs — `validate.ts` types on a structural `ContractSchema` (`safeParse` only), not zod's `ZodType`. Regression guard: `src/__tests__/contract-single-source.test.ts`. Reference: `.internal/docs/01-base-system/09-WIRE-CONTRACTS.md` (original tracker archived at `.internal/archive/CONTRACTS_SINGLE_SOURCE.md`).
+- **Validation seam, Rev-3 unified ingest.** `src/cloud/drainers/index.ts` collapsed the old per-type `StreamDrainer`s into one path: every producer stamps a contract-shaped event into the repo's `.unerr/events/` store (`src/events/`), and `assembleDrainers` builds one drainer per segment file (`buildIngestDrainers` in `src/cloud/drainers/ingest.ts`) that forwards those events verbatim to `POST /api/v1/cli/ingest` — no per-type row→detail mapping. What's unchanged: `drainStream` (`src/cloud/push-drainer.ts`) still validates each built row against its `@unerr-ai/contracts` schema BEFORE push, per-element, so one bad row drops and the rest ship; fleet bodies validate via `validateBody` (non-blocking); fail mode is drop + `startupLog` warn in prod, **throw under `UNERR_CONTRACT_STRICT=1`** in tests. The helper is `src/cloud/drainers/validate.ts` (`validateRows` / `validateBody` / `ContractSchema`). Limit: `/events` + `/traces` `detail` is a `looseObject`, so an extra/renamed `detail` key is NOT caught (review concern). The CLI zod and the contract's vendored zod are different installs — `validate.ts` types on a structural `ContractSchema` (`safeParse` only), not zod's `ZodType`. Regression guard: `src/__tests__/contract-single-source.test.ts`. Reference: `.internal/docs/01-base-system/09-WIRE-CONTRACTS.md` (original tracker archived at `.internal/archive/CONTRACTS_SINGLE_SOURCE.md`).
 
 ## Commands
 
 ```bash
 pnpm run build          # tsup → dist/ (ESM, node20 target)
 pnpm run dev            # tsx watch for live reload
-pnpm run test:run       # vitest full suite (~218 test files, ~3070 tests)
+pnpm run test:run       # vitest full suite (425 test files, ~5,517 tests)
 pnpm run test:run src/__tests__/<file>.test.ts  # single test — do NOT prefix with `--`
 pnpm run lint           # biome check
 pnpm run lint:fix       # biome auto-fix
 pnpm run typecheck      # tsc --noEmit
 ```
 
-> **Single-file test runs: pass the path as a bare positional, never with `--`.** pnpm v10 forwards positional args directly to the script, so `pnpm run test:run src/__tests__/foo.test.ts` reaches vitest as `vitest run src/__tests__/foo.test.ts` and filters correctly. Prefixing with `--` (the old npm v6 convention) makes pnpm produce `vitest run -- src/__tests__/foo.test.ts`; vitest's `cac` parser then treats the path as a pass-through extra arg, the include list ends up empty, and vitest silently runs the full 218-file suite.
+> **Single-file test runs: pass the path as a bare positional, never with `--`.** pnpm v10 forwards positional args directly to the script, so `pnpm run test:run src/__tests__/foo.test.ts` reaches vitest as `vitest run src/__tests__/foo.test.ts` and filters correctly. Prefixing with `--` (the old npm v6 convention) makes pnpm produce `vitest run -- src/__tests__/foo.test.ts`; vitest's `cac` parser then treats the path as a pass-through extra arg, the include list ends up empty, and vitest silently runs the full 425-file suite.
 
 > **Vitest pool is pinned to `forks` in `vitest.config.ts`.** Required, not optional: ~16 tests (`hook-dedup.test.ts`, `local-mode-tui.test.ts`) call `process.chdir()`, which throws `"process.chdir() is not supported in workers"` under the default `threads` pool. Forks (`child_process`) also avoids the Darwin SIGURG worker death (exit 144) we saw running the full suite under `threads`.
 
@@ -137,16 +139,22 @@ src/
   daemon/               — Process manager: api.ts, client.ts, process-manager.ts, protocol.ts,
                           registry.ts, spawn-lock.ts, warm-start.ts, system-health.ts
   router/               — Router intent classification, associations, client
-  behaviors/            — Agent behavior automation (auto-doc, cascade-guard, etc.)
+  behaviors/            — loop-breaker + incomplete-work (only 2 of 5 files register as behaviors)
   tracking/             — Intent ledger, drift detection, git attribution
-  commands/             — CLI subcommands (pm, status, stats, install, uninstall, dashboard,
-                          debug, doctor, init, exec, hook, learn, manifest, rewind, router,
-                          serve, setup-wizard, skills, timeline, branches,
-                          compress-output, config-verify, enrich, gain)
+  commands/             — CLI subcommands: pm, status, install, uninstall, dashboard, doctor,
+                          exec, exec-runner, hook, learn, conventions, login, logout, recon,
+                          router, serve, setup-wizard, skill, upgrade, whoami,
+                          compress-output, config-verify
   tools/                — MCP tool implementations (coding/, intelligence/)
   hooks/                — Claude Code hook system integration
-  server/               — HTTP dashboard API server
-  ui/                   — React (Vite) dashboard frontend
+  cloud/                — Auth, entitlements, tier gating, cloud push drainers (32 files)
+  events/               — event-store.ts + enqueue.ts, the .unerr/events/ JSONL spine
+  timeline/             — Timeline store, intent detector, loop miner, trace recall
+  update/               — Self-update: version check, semver, collision guard, self-replace
+  eval/                 — Eval harness (configs, matrix, metrics, runner, tasks)
+  components/           — Ink/React .tsx terminal UI components (the only UI that ships)
+  content/              — instructions.json + skills.json (bundled agent content)
+  notices/              — Status notices
   schemas/              — Zod schemas for entity/edge/rule types
   config/               — MCP config writer, agent registry, instruction writer, settings
   core/                 — Query engine, context assembly (scaffolded)
@@ -164,6 +172,7 @@ Internal design docs live in `.internal/` at the repo root. A reconciliation in 
 | MCP bridge (stdio↔UDS relay) | `src/proxy/bridge.ts` |
 | Full proxy (PID lock + graph + watchers) | `src/proxy/proxy.ts` |
 | Query router (all tool dispatch) | `src/intelligence/query-router.ts` |
+| `tools/list` catalog lock (pinned constant, not `tools-list.ts` — that file is off the wire path since 2026-07) | `src/proxy/catalog-lock.ts` |
 | CozoDB schema definitions (graph.db) | `src/intelligence/cozo-schema.ts` |
 | Graph store (CozoDB wrapper) | `src/intelligence/local-graph.ts` |
 | AST extraction (regex + tree-sitter) | `src/intelligence/ast-extractor.ts` |
@@ -275,7 +284,7 @@ unerr install cursor           # Writes .cursor/mcp.json + .cursor/rules/
 
 **Verify:**
 - `.mcp.json` contains `{ "command": "<resolved-unerr-path>", "args": ["--mcp"] }` (absolute path)
-- `.claude/skills/unerr-*` files exist (8 skills)
+- `.claude/skills/unerr-*` files exist (6 skills: using-unerr, exploration, build-and-debug, test-and-review, review, delegate)
 - `.cursor/rules/unerr-*.mdc` files exist
 - stderr shows: entity/edge counts, SCIP enrichment, conventions detected
 - Tool latency `<5ms` (check `_meta.latency_ms` in MCP responses)
@@ -326,7 +335,7 @@ Every string the system injects into agent context — `ur|<tag>` signals, `_hin
 3. **Banned hedge verbs.** `Consider`, `Verify`, `Review`, `Check`, `may want to`, `try`. Each one signals "advisory, low priority" to the model and is silently dropped. Replace with the exact operation.
 4. **Numbers over placeholders.** `token_budget:3000` not `token_budget:N`. `offset:25` not `offset:N`. If you can compute the value at emit time (you almost always can — `bytes / BYTES_PER_TOKEN`, `currentOffset + delivered`), interpolate it. Models that see `:N` either copy it literally or hesitate, both bad.
 5. **Signal without action = noise.** If you can't write a concrete action for a signal, either lower its `actionability` so it ranks below load-bearing signals, or gate the emission entirely. Don't ship a `content`-only nudge unless the content is itself the action.
-6. **Legend agrees with emission.** The agent's interpretation key is `SIGNAL_PREFIX_LEGEND` (response-envelope.ts) and the `ur|<tag>` table in this file. If you change what a `ur|rsk` line says, update both legend rows in the same commit. The contract is: *whatever value the legend names, the emission produces.*
+6. **The emitted body is the only key the agent gets — no legend ships.** `SIGNAL_PREFIX_LEGEND` (response-envelope.ts) is NOT injected into any response; its only importers are tests. That is deliberate: a per-response legend would bill ~345 tokens to explain lines that are supposed to be self-describing. So every `ur|<tag>` body must stand alone with no key — the tag is a priority bucket, nothing more. Treat the legend as a lint fixture: the tests over it are what enforce rules 1–4 (no hedge verbs, no `:N`, every wire tag named), so keep it in sync when you add a tag, and do not "fix" a signal by adding explanation to the legend where the agent will never read it. The one thing the agent is told is a single line in the installed instruction block (`src/config/instruction-writer.ts`).
 
 When in doubt, the test is mechanical: read the line out loud, then ask *"can I paste this into a tool call without thinking?"* If yes, ship. If you'd have to interpret "this", "consider", or `:N` first, rewrite.
 

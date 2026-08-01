@@ -156,8 +156,7 @@ The script stages each target's prebuilt cozo / watcher `.node` addon and the
 tree-sitter `.wasm` grammars, then embeds them into the binary (cozo-node's
 node-pre-gyp loader is bypassed — the addon is `require`d directly so Bun bundles
 it). The `release` job in `.github/workflows/ci.yml` builds all targets, signs
-the macOS binaries, uploads them to the PUBLIC `unerr-ai/unerr` Releases
-(unerr-cli is private, so its own Release assets aren't anonymously
-downloadable), and syncs `install` / `install.ps1` to that repo's `main` so the
-raw URL resolves. All channels above point at those public artifacts. Design
-notes: `.internal/roadmap/NATIVE_BINARY_DISTRIBUTION.md`.
+the macOS binaries, uploads them to this repo's own `unerr-ai/unerr` Releases
+(public), and updates `install` / `install.ps1` on `main` so the raw URL
+resolves. All channels above point at those artifacts. Design notes:
+`.internal/roadmap/NATIVE_BINARY_DISTRIBUTION.md`.

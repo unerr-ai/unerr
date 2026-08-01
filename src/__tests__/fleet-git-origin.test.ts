@@ -19,45 +19,43 @@ const mockedGetRemoteUrl = vi.mocked(getRemoteUrl);
 
 describe("parseGitOrigin", () => {
   it("parses an https remote", () => {
-    expect(parseGitOrigin("https://github.com/unerr-ai/unerr-cli.git")).toEqual(
-      {
-        provider: "github",
-        host: "github.com",
-        owner: "unerr-ai",
-        repo: "unerr-cli",
-      }
-    );
-  });
-
-  it("parses an scp-like ssh remote", () => {
-    expect(parseGitOrigin("git@github.com:unerr-ai/unerr-cli.git")).toEqual({
+    expect(parseGitOrigin("https://github.com/unerr-ai/unerr.git")).toEqual({
       provider: "github",
       host: "github.com",
       owner: "unerr-ai",
-      repo: "unerr-cli",
+      repo: "unerr",
+    });
+  });
+
+  it("parses an scp-like ssh remote", () => {
+    expect(parseGitOrigin("git@github.com:unerr-ai/unerr.git")).toEqual({
+      provider: "github",
+      host: "github.com",
+      owner: "unerr-ai",
+      repo: "unerr",
     });
   });
 
   it("parses an ssh:// URL with a port", () => {
     expect(
-      parseGitOrigin("ssh://git@github.com:22/unerr-ai/unerr-cli.git")
+      parseGitOrigin("ssh://git@github.com:22/unerr-ai/unerr.git")
     ).toEqual({
       provider: "github",
       host: "github.com",
       owner: "unerr-ai",
-      repo: "unerr-cli",
+      repo: "unerr",
     });
   });
 
   it("strips credentials embedded in an https remote", () => {
     const out = parseGitOrigin(
-      "https://user:ghp_secrettoken@github.com/unerr-ai/unerr-cli.git"
+      "https://user:ghp_secrettoken@github.com/unerr-ai/unerr.git"
     );
     expect(out).toEqual({
       provider: "github",
       host: "github.com",
       owner: "unerr-ai",
-      repo: "unerr-cli",
+      repo: "unerr",
     });
     // The token must not survive anywhere in the parsed result.
     expect(JSON.stringify(out)).not.toContain("ghp_secrettoken");
@@ -114,14 +112,12 @@ describe("detectGitOrigin", () => {
   afterEach(() => __clearGitOriginCache());
 
   it("returns the parsed origin for a repo with a remote", async () => {
-    mockedGetRemoteUrl.mockResolvedValue(
-      "git@github.com:unerr-ai/unerr-cli.git"
-    );
+    mockedGetRemoteUrl.mockResolvedValue("git@github.com:unerr-ai/unerr.git");
     expect(await detectGitOrigin("/repo")).toEqual({
       provider: "github",
       host: "github.com",
       owner: "unerr-ai",
-      repo: "unerr-cli",
+      repo: "unerr",
     });
   });
 
@@ -132,7 +128,7 @@ describe("detectGitOrigin", () => {
 
   it("memoizes per cwd (git is read once)", async () => {
     mockedGetRemoteUrl.mockResolvedValue(
-      "https://github.com/unerr-ai/unerr-cli.git"
+      "https://github.com/unerr-ai/unerr.git"
     );
     await detectGitOrigin("/repo");
     await detectGitOrigin("/repo");
