@@ -7,9 +7,12 @@
  * refresh, using the cheap `If-None-Match`/ETag fast path so we only pay for
  * the document body when the version actually moves.
  *
- * It is GATED: `gate("conventions_sync")` decides whether the sync runs. When
- * denied, the daemon skips silently (HR-B — local work never depends on the
- * cloud); an explicit `unerr conventions pull` explains it in plain language.
+ * It is GATED two ways: `gate("conventions_sync")` decides whether the plan
+ * includes the feature, and the telemetry off-switch (`UNERR_NO_TELEMETRY`,
+ * `DO_NOT_TRACK`, `telemetry: false`) can stop it outright regardless of
+ * plan. Either denial skips the daemon's automatic pull silently (HR-B —
+ * local work never depends on the cloud); an explicit `unerr conventions
+ * pull` explains it in plain language instead.
  *
  * The synced doc is stored at `~/.unerr/team-conventions.json` (mode 0600) as
  * a DISTINCT, READ-ONLY team layer. It is NEVER auto-merged into the locally
@@ -29,10 +32,20 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import { readCredentials, teamConventionsPath } from "../auth/credentials.js";
+import { handleRevokedToken } from "../auth/login-state.js";
+import {
+  isTelemetryDisabledByConfig,
+  isTelemetryDisabledByEnv,
+} from "../plan/entitlements.js";
+import { gate } from "../plan/gate.js";
 import type { CloudClient } from "./client.js";
-import { readCredentials, teamConventionsPath } from "./credentials.js";
-import { gate } from "./gate.js";
-import { handleRevokedToken } from "./login-state.js";
+
+/** Plain-language reason shown when the telemetry off-switch blocks a pull —
+ *  reuses the `"gated"` outcome shape so every existing caller (the daemon's
+ *  automatic cadence, `unerr conventions pull`) already renders it correctly. */
+const TELEMETRY_OFF_MESSAGE =
+  "Telemetry is off (UNERR_NO_TELEMETRY, DO_NOT_TRACK, or a telemetry:false config key) — remove it to pull team conventions.";
 
 /** Owner read/write only — matches the credential + entitlement files. */
 const FILE_MODE = 0o600;
@@ -210,6 +223,10 @@ export function writeTeamConventions(doc: TeamConventions): void {
  * only in tests.
  *
  * Behaviour:
+ *  - telemetry off-switch on      → `"gated"` (reused shape) explaining the
+ *    switch; no network call. This is the pull side of the same GET the
+ *    entitlement refresh makes, so it honors the same off-switch — see
+ *    `src/cloud/refresh-job.ts`.
  *  - gate denied                  → `"gated"` with the gate's plain-language
  *    explanation; no network call.
  *  - not logged in                → `"not_logged_in"`.
@@ -225,6 +242,14 @@ export async function syncConventions(
   client: CloudClient,
   opts: { now?: number } = {}
 ): Promise<SyncOutcome> {
+  // The telemetry off-switch stops this outright, even for an explicit
+  // `unerr conventions pull` — the GET here still identifies the account to
+  // the server, exactly the contact UNERR_NO_TELEMETRY/DO_NOT_TRACK and a
+  // `telemetry: false` config key promise to stop.
+  if (isTelemetryDisabledByEnv() || isTelemetryDisabledByConfig()) {
+    return { result: "gated", message: TELEMETRY_OFF_MESSAGE };
+  }
+
   // Gate first — the sync is a paid feature. A denial returns the gate's
   // plain-language explanation and makes no network call.
   const decision = gate(CONVENTIONS_FEATURE, opts.now);

@@ -32,14 +32,14 @@ import {
   clearAuthEvents,
   markRevoked,
   recordRefreshOutcome,
-} from "../cloud/auth-events.js";
-import { authState } from "../cloud/auth-state.js";
-import { credentialsPath } from "../cloud/credentials.js";
+} from "../cloud/auth/auth-events.js";
+import { authState } from "../cloud/auth/auth-state.js";
+import { credentialsPath } from "../cloud/auth/credentials.js";
+import { handleRevokedToken } from "../cloud/auth/login-state.js";
 import {
   type EntitlementClaims,
   writeEntitlementCache,
-} from "../cloud/entitlements.js";
-import { handleRevokedToken } from "../cloud/login-state.js";
+} from "../cloud/plan/entitlements.js";
 
 // ── Test keypair + token helpers (mirrors cloud-entitlements.test.ts) ──
 const KID = "k-test-1";

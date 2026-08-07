@@ -68,6 +68,13 @@ export function checkRegisterRepo(args: {
  * single-active free limit triggers the backstop: with limit 1, a repo other
  * than the one already running is refused. Limits above 1 (or unlimited) run
  * everything, so they always allow.
+ *
+ * No production caller today — repos are unlimited on every plan, so no
+ * caller resolves `limit: 1` anymore. Kept (not deleted) alongside
+ * `checkRegisterRepo`, which is still live via the registry and install
+ * command: this stays a generic, pure, tested primitive so a future
+ * per-plan activation limit (unrelated to the removed free-tier cap) has a
+ * ready function instead of a new one being written from scratch.
  */
 export function checkActivateRepo(args: {
   limit: number;

@@ -47,7 +47,7 @@ export interface CrossRepoDriftResult {
   dangling: CrossRepoDriftFinding[];
   /** True when ≥1 peer was unreachable — a defining peer may have been missed. */
   partial: boolean;
-  /** True when the daemon refused workspace scope (free tier) — nothing computed. */
+  /** True on the rare defensive daemon refusal (no plan gates this) — nothing computed. */
   refused: boolean;
   /** npm package names of the federated peers that answered this sweep. Lets the
    *  caller cache the live sibling set for the cross-repo import-breach check

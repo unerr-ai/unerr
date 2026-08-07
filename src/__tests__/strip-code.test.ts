@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { looksLikeCode, stripCodeFromText } from "../cloud/strip-code.js";
+import { looksLikeCode, stripCodeFromText } from "../cloud/sync/strip-code.js";
 
 const PLACEHOLDER = "[code removed]";
 

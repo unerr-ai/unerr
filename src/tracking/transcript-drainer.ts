@@ -19,7 +19,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { deterministicId } from "../cloud/event-id.js";
+import { deterministicId } from "../cloud/sync/index.js";
 import { type EmitContext, enqueue } from "../events/enqueue.js";
 import { UNERR_VERSION } from "../version.js";
 import { readClaudeTranscriptIncremental } from "./agent-transcript/claude-jsonl.js";

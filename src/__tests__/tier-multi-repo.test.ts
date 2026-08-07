@@ -1,10 +1,12 @@
 /**
- * Tier → multi-repo guarantee, end to end through the REAL offline pipeline.
- *
- * Proves the rule the product depends on: free is capped at one active repo,
- * while pro / enterprise (Team) may register and activate more than one. The
- * test drives the exact chain a running proxy uses, with no mocks on the
- * pipeline itself — only a temp HOME and a trusted dev key:
+ * Signed limit → repo-cap enforcement, end to end through the REAL offline
+ * pipeline. The repo limit is unlimited on every plan today (no
+ * unerr-operated server sits between a user and how many repos they run),
+ * but `checkRegisterRepo` / `checkActivateRepo` stay generic primitives that
+ * must still enforce whatever finite number a signed entitlement carries —
+ * this proves that mechanism end to end. The test drives the exact chain a
+ * running proxy uses, with no mocks on the pipeline itself — only a temp
+ * HOME and a trusted dev key:
  *
  *   signed entitlement (claims.limits.max_active_repos)
  *     → writeEntitlementCache → effectiveTier (fresh)
@@ -37,10 +39,13 @@ vi.mock("node:os", async (importOriginal) => {
 import {
   type EntitlementClaims,
   writeEntitlementCache,
-} from "../cloud/entitlements.js";
-import { checkActivateRepo, checkRegisterRepo } from "../cloud/repo-cap.js";
-import { isUnlimited } from "../cloud/tier-model.js";
-import { currentRepoLimit, tierFromCache } from "../cloud/tier-query.js";
+} from "../cloud/plan/entitlements.js";
+import {
+  checkActivateRepo,
+  checkRegisterRepo,
+} from "../cloud/plan/repo-cap.js";
+import { isUnlimited } from "../cloud/plan/tier-model.js";
+import { currentRepoLimit, tierFromCache } from "../cloud/plan/tier-query.js";
 
 const KID = "k-test-tier";
 const keyPair = generateKeyPairSync("ed25519");
@@ -117,7 +122,7 @@ describe("tier → multi-repo", () => {
     }
   });
 
-  it("free resolves a 1-repo limit and caps at one active repo", () => {
+  it("a signed 1-repo limit is enforced regardless of plan", () => {
     seed("free", 1);
 
     const snap = tierFromCache();

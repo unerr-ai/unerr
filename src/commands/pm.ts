@@ -81,7 +81,7 @@ export async function unregisterRepo(targetPath: string): Promise<boolean> {
   // repo_activity event ourselves (the daemon isn't running to do it).
   const removed = removeRepo(targetPath);
   if (removed) {
-    const { emitRepoRemoved } = await import("../cloud/repo-removal.js");
+    const { emitRepoRemoved } = await import("../cloud/sync/index.js");
     await emitRepoRemoved(targetPath);
   }
   return removed;

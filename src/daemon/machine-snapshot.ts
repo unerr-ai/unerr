@@ -6,7 +6,7 @@
  *
  */
 import { arch, hostname, platform } from "node:os";
-import { readCredentialMetadata } from "../cloud/credentials.js";
+import { readCredentialMetadata } from "../cloud/auth/index.js";
 import { UNERR_VERSION } from "../version.js";
 import { DAEMON_DASHBOARD_PORT } from "./protocol.js";
 

@@ -23,17 +23,20 @@
 
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
-import { CloudClient } from "../cloud/client.js";
 import {
+  handleRevokedToken,
+  readCredentials,
+  teamConventionsPath,
+} from "../cloud/auth/index.js";
+import {
+  CloudClient,
   PERSONAL_SCOPE_MESSAGE,
   isPersonalScope,
   readTeamConventions,
   scopeFromEntitlements,
   syncConventions,
   writeTeamConventions,
-} from "../cloud/conventions-sync.js";
-import { readCredentials, teamConventionsPath } from "../cloud/credentials.js";
-import { handleRevokedToken } from "../cloud/login-state.js";
+} from "../cloud/sync/index.js";
 
 function out(line: string): void {
   process.stderr.write(`${line}\n`);

@@ -147,6 +147,14 @@ export function cleanupLegacyLogs(dir: string): number {
  *
  *   - `<unerrDir>/state/*.pre-sqlite.bak` — one-shot backups written when a
  *     JSON/JSONL state file was migrated to SQLite. Never read again.
+ *   - `<unerrDir>/state/active-repo.lock` — the single-active-repo slot file
+ *     written by the free-tier cap module (`src/daemon/active-repo-lock.ts`,
+ *     deleted in 9467bb4 along with its only caller, `guardActiveRepoSlot`).
+ *     It only ever wrote under the *global* state dir (`~/.unerr/state/`,
+ *     never a per-repo `.unerr/state/`), so this entry only matches anything
+ *     when `unerrDir` is the global dir. No code reads or writes it anymore;
+ *     a leftover from any build that predates the free-tier cap removal is
+ *     reclaimed.
  *   - `<unerrDir>/sessions/` — per-session `*.jsonl` summaries, superseded by
  *     the session-summary JSONL events. Frozen at the migration and no longer
  *     written or read; the whole directory is removed.
@@ -201,7 +209,8 @@ export function cleanupLegacyStateArtefacts(unerrDir: string): number {
   if (existsSync(stateDir)) {
     try {
       for (const name of readdirSync(stateDir)) {
-        if (!name.endsWith(".pre-sqlite.bak")) continue;
+        if (!name.endsWith(".pre-sqlite.bak") && name !== "active-repo.lock")
+          continue;
         const full = join(stateDir, name);
         try {
           if (statSync(full).isFile()) {

@@ -25,8 +25,8 @@ vi.mock("node:os", async (importOriginal) => {
 import {
   type EntitlementClaims,
   writeEntitlementCache,
-} from "../cloud/entitlements.js";
-import { gate } from "../cloud/gate.js";
+} from "../cloud/plan/entitlements.js";
+import { gate } from "../cloud/plan/gate.js";
 
 const KID = "k-gate-1";
 const kp = generateKeyPairSync("ed25519");

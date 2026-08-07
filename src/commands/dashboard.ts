@@ -19,7 +19,7 @@
  */
 
 import type { Command } from "commander";
-import { readCredentials } from "../cloud/credentials.js";
+import { readCredentials } from "../cloud/auth/index.js";
 import { openUrlInDefaultBrowser } from "../utils/exec.js";
 
 /** Authenticated landing route on the cloud web app. */

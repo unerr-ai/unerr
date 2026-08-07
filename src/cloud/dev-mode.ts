@@ -9,9 +9,9 @@
  * Each file is `{ "apiUrl": "http://localhost:3000", "tier": "pro" }`. The
  * global file is the primary knob: there is one process manager per machine, so
  * one global dev profile lets every repo see the same fabricated tier — which is
- * what testing the per-tier repo caps (free = 1 active repo, pro = unlimited)
- * across several real repos requires. The repo file stays as a narrow override
- * for pointing one repo at a different server/tier than the rest.
+ * what testing per-tier limits (seats, machines) across several real repos
+ * requires. The repo file stays as a narrow override for pointing one repo at
+ * a different server/tier than the rest.
  *
  * Written by `pnpm dev:config --host <url> --tier <plan>` (global by default;
  * `--repo` targets the repo file). This reader (called early in boot, before any
@@ -53,7 +53,7 @@ import {
   type EntitlementCache,
   type EntitlementClaims,
   writeEntitlementCache,
-} from "./entitlements.js";
+} from "./plan/entitlements.js";
 
 /** kid for the local dev key — distinct from any pinned/production kid. */
 const DEV_KID = "k-dev-local";
@@ -63,7 +63,7 @@ const ENV_PUBKEY = "UNERR_ENTITLEMENT_PUBKEY";
 
 /** Per-plan limits. Mirrors the server's plan table closely enough for dev. */
 const PLAN_LIMITS = {
-  free: { max_members: 1, max_machines: 2, max_active_repos: 1 },
+  free: { max_members: 1, max_machines: 2, max_active_repos: -1 },
   pro: { max_members: 1, max_machines: 10, max_active_repos: -1 },
   team: { max_members: -1, max_machines: -1, max_active_repos: -1 },
   enterprise: { max_members: 500, max_machines: 1000, max_active_repos: -1 },

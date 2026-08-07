@@ -51,7 +51,6 @@ export type SavingsEventKind =
   // ── routing ──────────────────────────────────────────────────────────
   | "harness_subagent_model" // Issue 5/D2: which model a spawned sub-agent used
   | "conversation_routed" // Issue 7: policy chose a non-default route
-  | "cross_repo_yielded_free" // Issue 1: sibling not Pro → yielded to the agent
   | "cross_repo_yielded_unregistered" // Issue 1: sibling not registered → yielded
   // ── leak ─────────────────────────────────────────────────────────────
   | "code_grep_unredirected" // Issue 2: a code grep leaked to bash
@@ -75,7 +74,6 @@ export const KIND_CATEGORY: Record<SavingsEventKind, SavingsEventCategory> = {
   nudge_flipped_to_builtin: "prevention",
   harness_subagent_model: "routing",
   conversation_routed: "routing",
-  cross_repo_yielded_free: "routing",
   cross_repo_yielded_unregistered: "routing",
   code_grep_unredirected: "leak",
   reread_due_to_budget: "leak",

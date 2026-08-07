@@ -1,0 +1,78 @@
+name: Bug report
+description: Something isn't working the way it should.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. The fields below are what we need to reproduce most bugs — please fill them all in.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `unerr ...`
+        2. ...
+        3. See error
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: e.g. macOS 15.1 (arm64), Ubuntu 24.04 (x64), Windows 11
+      placeholder: macOS 15.1 (arm64)
+    validations:
+      required: true
+
+  - type: input
+    id: unerr-version
+    attributes:
+      label: unerr version
+      description: Output of `unerr --version`
+      placeholder: 0.5.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: coding-agent
+    attributes:
+      label: Coding agent
+      description: Which agent were you using unerr with?
+      options:
+        - Claude Code
+        - Cursor
+        - Codex
+        - VS Code
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor-output
+    attributes:
+      label: unerr doctor output
+      description: Paste the full output of `unerr doctor`.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs (optional)
+      description: Anything relevant from `.unerr/logs/`.
+      render: shell
+    validations:
+      required: false

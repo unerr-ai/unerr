@@ -5,11 +5,11 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../cloud/credentials.js", () => ({
+vi.mock("../cloud/auth/credentials.js", () => ({
   readCredentialMetadata: vi.fn(),
 }));
 
-import { readCredentialMetadata } from "../cloud/credentials.js";
+import { readCredentialMetadata } from "../cloud/auth/credentials.js";
 import { buildMachineSnapshot } from "../daemon/machine-snapshot.js";
 
 const mockedMeta = vi.mocked(readCredentialMetadata);

@@ -37,9 +37,14 @@ export const UNLIMITED = -1;
  * The free fail-safe. Used when there is no entitlement at all (logged-out /
  * offline) and as the per-key fallback when a server `limits` field is absent
  * or unparseable (an older server) — the contract says fail-safe to 1.
+ *
+ * `max_active_repos` is unlimited on every plan, free included: the number of
+ * repos a user runs is a JSON file on their own disk, with no unerr-operated
+ * server in its data path, so there is nothing to gate. Seats and machines
+ * stay capped at 1 — those are genuine cloud/org concepts.
  */
 export const FREE_LIMITS = {
-  max_active_repos: 1,
+  max_active_repos: UNLIMITED,
   max_members: 1,
   max_machines: 1,
 } as const;

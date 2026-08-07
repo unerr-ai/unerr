@@ -15,7 +15,7 @@
  * Pure + injectable, never throws.
  */
 
-import { readEntitlementCache } from "../cloud/entitlements.js";
+import { readEntitlementCache } from "../cloud/plan/index.js";
 import { loadSettings } from "../config/settings.js";
 
 export type UpdatePolicy = "auto" | "notify" | "off";

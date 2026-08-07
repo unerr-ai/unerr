@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { PushCursor } from "../cloud/push-cursor.js";
+import { PushCursor } from "../cloud/sync/push-cursor.js";
 
 async function freshUnerrDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "unerr-push-cursor-"));

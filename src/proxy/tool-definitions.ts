@@ -46,14 +46,13 @@ export const CACHE_REF_PROP = {
  * Shared input-schema property for cross-repo scope. `'repo'` (default) answers
  * from the current repo only; `'workspace'` fans the query out to the other
  * unerr repos on this machine and merges, each result labeled with its repo.
- * Pro/enterprise only — on free tier `'workspace'` degrades to the home repo
- * plus a one-line upgrade nudge (the call never errors).
+ * Available on every plan — no tier gate.
  */
 export const SCOPE_PROP = {
   type: "string",
   enum: ["repo", "workspace"],
   description:
-    "'repo' (default, current repo) or 'workspace' (all your unerr repos, labeled by repo). Pro — free tier returns the current repo + an upgrade nudge.",
+    "'repo' (default, current repo) or 'workspace' (all your unerr repos, labeled by repo).",
   default: "repo",
 } as const;
 

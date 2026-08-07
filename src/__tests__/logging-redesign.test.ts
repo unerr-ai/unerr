@@ -191,6 +191,37 @@ describe("log-paths", () => {
       expect(existsSync(sessionsDir)).toBe(false);
     });
 
+    it("removes a leftover state/active-repo.lock (dead free-tier-cap file)", async () => {
+      const unerrDir = join(tmpDir, ".unerr");
+      const stateDir = join(unerrDir, "state");
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        join(stateDir, "active-repo.lock"),
+        JSON.stringify({ path: "/some/repo", pid: 123 })
+      );
+      writeFileSync(join(stateDir, "proxy.pid"), "123"); // canonical — keep
+
+      const { cleanupLegacyStateArtefacts } = await import(
+        "../utils/log-paths.js"
+      );
+      const removed = cleanupLegacyStateArtefacts(unerrDir);
+
+      expect(removed).toBe(1);
+      expect(existsSync(join(stateDir, "active-repo.lock"))).toBe(false);
+      expect(existsSync(join(stateDir, "proxy.pid"))).toBe(true);
+    });
+
+    it("does not throw when the state dir is missing entirely", async () => {
+      const unerrDir = join(tmpDir, ".unerr");
+      mkdirSync(unerrDir, { recursive: true }); // .unerr exists, but no state/ subdir
+
+      const { cleanupLegacyStateArtefacts } = await import(
+        "../utils/log-paths.js"
+      );
+      expect(() => cleanupLegacyStateArtefacts(unerrDir)).not.toThrow();
+      expect(cleanupLegacyStateArtefacts(unerrDir)).toBe(0);
+    });
+
     it("is a no-op when nothing legacy is present", async () => {
       const unerrDir = join(tmpDir, ".unerr");
       mkdirSync(join(unerrDir, "state"), { recursive: true });

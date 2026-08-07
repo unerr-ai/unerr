@@ -16,8 +16,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { checkRegisterRepo } from "../cloud/repo-cap.js";
-import { UNLIMITED } from "../cloud/tier-model.js";
+import { UNLIMITED, checkRegisterRepo } from "../cloud/plan/index.js";
 import {
   DEFAULT_IDLE_TIMEOUT_S,
   type NeedsInputSignal,

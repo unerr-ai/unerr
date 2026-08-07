@@ -14,8 +14,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   reapDrainedDeadSegments,
   segmentCursorKey,
-} from "../cloud/drainers/ingest.js";
-import { PushCursor } from "../cloud/push-cursor.js";
+} from "../cloud/sync/drainers/ingest.js";
+import { PushCursor } from "../cloud/sync/push-cursor.js";
 import {
   PROXY_SEGMENT,
   type StoredEvent,

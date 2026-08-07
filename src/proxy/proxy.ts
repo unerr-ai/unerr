@@ -19,14 +19,8 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  statSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import {
-  credentialsPath,
-  entitlementsCachePath,
-} from "../cloud/credentials.js";
-import { loginBlocked, loginGateNotice } from "../cloud/login-gate.js";
 import { configureEmit } from "../events/enqueue.js";
 import { PROXY_SEGMENT } from "../events/event-store.js";
 // Static ESM imports, NOT require(): the tsup bundle is pure ESM, where
@@ -103,32 +97,6 @@ const log = {
   error: (msg: string) => process.stderr.write(`[unerr] ERROR: ${msg}\n`),
 };
 
-/** JSON-RPC error code for the mandatory-login block on MCP tool calls. */
-export const LOGIN_BLOCKED_ERROR_CODE = -32004;
-
-// ── Mandatory-login gate: mtime-memoized `loginBlocked()` for the tool path ──
-// `dispatchToolCall` runs on EVERY tools/call and carries a <5ms budget, so it
-// cannot afford `loginBlocked()`'s 2-3 small JSON reads each time. We memoize
-// the verdict and re-evaluate ONLY when the credentials or entitlement file
-// mtime moves. That is what lets a login completed in ANOTHER terminal unblock
-// the NEXT tool call without restarting the proxy: writeCredentials() rewrites
-// credentials.json (new mtime) → the cache key changes → we re-run the gate.
-//
-// A missing file stats to mtime 0; the pair (cred, ent) forms the cache key.
-// `loginBlocked()` itself short-circuits on UNERR_TOKEN, so the headless/CI
-// path needs no special-casing here.
-let loginGateCacheKey: string | null = null;
-let loginGateCacheBlocked = false;
-
-/** mtime-ms of a path, or 0 when it does not exist / cannot be stat'd. */
-function mtimeOrZero(path: string): number {
-  try {
-    return statSync(path).mtimeMs;
-  } catch {
-    return 0;
-  }
-}
-
 /**
  * SIGKILL a wedged proxy pid (already identity-verified by `PidLock.acquire`
  * as a real unerr proxy, never on the plain "secondary" path) and wait for it
@@ -153,27 +121,6 @@ async function killAndWaitForExit(
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-}
-
-/**
- * Memoized `loginBlocked()` for the per-call tool path. Recomputes only when
- * the credentials or entitlement file mtime changes, so the steady-state cost
- * is two `statSync` calls (no JSON parse, no auth-state recompute) and a
- * mid-session login in another terminal unblocks the next call.
- */
-export function loginBlockedCached(now: number = Date.now()): boolean {
-  const key = `${mtimeOrZero(credentialsPath())}:${mtimeOrZero(entitlementsCachePath())}`;
-  if (key !== loginGateCacheKey) {
-    loginGateCacheKey = key;
-    loginGateCacheBlocked = loginBlocked(now);
-  }
-  return loginGateCacheBlocked;
-}
-
-/** Test-only: drop the memoized login verdict so the next call re-evaluates. */
-export function __resetLoginGateCache(): void {
-  loginGateCacheKey = null;
-  loginGateCacheBlocked = false;
 }
 
 /** Drift-write duration (ms) above which a `processFiles` call counts as slow. */
@@ -1133,8 +1080,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   const { StdioServerTransport } = await import(
     "@modelcontextprotocol/sdk/server/stdio.js"
   );
-  const { ListToolsRequestSchema, CallToolRequestSchema, McpError } =
-    await import("@modelcontextprotocol/sdk/types.js");
+  const { ListToolsRequestSchema, CallToolRequestSchema } = await import(
+    "@modelcontextprotocol/sdk/types.js"
+  );
 
   const server = new Server(
     { name: "unerr-local", version: UNERR_VERSION },
@@ -1877,27 +1825,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   // turn_summary, surface2, facts, deep-dive) are intercepted here as before.
   // `ctx.clientId` is set only for UDS clients → threads into ledger attribution.
   // ══════════════════════════════════════════════════════════════════
-  // ── Mandatory-login gate (-32004) ────────────────────────────────────
-  // Enforced at the tools/call choke point, NOT at initialize or tools/list —
-  // the agent must connect and receive the catalog so this error reaches it
-  // (and through it, the human). Returns the JSON-RPC error payload when login
-  // is blocked, else null. The verdict is mtime-memoized (loginBlockedCached)
-  // to stay inside the <5ms budget while still unblocking the next call after a
-  // login in another terminal.
-  //
-  // CRITICAL: each transport must surface this as a PROTOCOL-LEVEL JSON-RPC
-  // error (stdio → throw McpError; UDS → a top-level `error` frame), NOT inside
-  // the tool-result body. A result-wrapped `{error:{code,message}}` with
-  // isError:true is a SUCCESSFUL response — Claude Code silently swallows it and
-  // the tool call appears to hang. Only a real `error` frame is surfaced to the
-  // user, the same way a missing `unerr --mcp` binary is.
-  function loginBlockedError(): { code: number; message: string } | null {
-    if (!loginBlockedCached()) return null;
-    const message = loginGateNotice();
-    process.stderr.write(`[unerr] tools/call blocked (-32004): ${message}\n`);
-    return { code: LOGIN_BLOCKED_ERROR_CODE, message };
-  }
-
   async function dispatchToolCall(
     requestedName: string,
     requestedArgs: Record<string, unknown>,
@@ -1908,10 +1835,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     _meta?: unknown;
     _context?: unknown;
   }> {
-    // The login gate is enforced by each transport handler (loginBlockedError)
-    // BEFORE this dispatch, so it can emit a protocol-level error frame; a
-    // result-wrapped error returned from here cannot reach the wire as one.
-
     // Mutable locals so a task-shaped search_code call can re-target the
     // dispatch to unerr_context without reassigning the parameters
     // (noParameterAssign). All code below reads these.
@@ -2570,8 +2493,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // signal table. Never breaks a response: any failure yields no auth line.
     let authBlock = "";
     try {
-      const { authState } = await import("../cloud/auth-state.js");
-      const { authSurfaceSignal } = await import("../cloud/auth-surface.js");
+      const { authState, authSurfaceSignal } = await import(
+        "../cloud/auth/index.js"
+      );
       const sig = authSurfaceSignal(authState());
       if (sig) {
         const { getSignalDedup } = await import("./signal-dedup.js");
@@ -2688,11 +2612,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (async (request: any) => {
       const { name, arguments: args = {} } = request.params;
-      // Login expired/blocked → throw McpError; the SDK serializes it into a
-      // top-level JSON-RPC `error` the IDE surfaces, not a result-wrapped body
-      // Claude Code silently swallows.
-      const blocked = loginBlockedError();
-      if (blocked) throw new McpError(blocked.code, blocked.message);
       return await dispatchToolCall(
         name,
         (args ?? {}) as Record<string, unknown>,
@@ -3184,13 +3103,6 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
       }
 
       const { name, arguments: toolArgs = {} } = params;
-
-      // Login expired/blocked → top-level JSON-RPC `error` frame (the bridge
-      // forwards it to the IDE verbatim), NOT a result-wrapped body.
-      const blocked = loginBlockedError();
-      if (blocked) {
-        return { jsonrpc: "2.0" as const, error: blocked };
-      }
 
       // Single dispatch path — every UDS (bridged-IDE) tools/call runs the
       // IDENTICAL pipeline as the directly-connected stdio client via the one

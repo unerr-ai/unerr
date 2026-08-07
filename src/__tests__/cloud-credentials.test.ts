@@ -36,12 +36,12 @@ import {
   isLoggedIn,
   readCredentials,
   writeCredentials,
-} from "../cloud/credentials.js";
+} from "../cloud/auth/credentials.js";
 import {
   type KeychainRunner,
   __resetKeychainBackend,
   __setKeychainRunner,
-} from "../cloud/keychain.js";
+} from "../cloud/auth/keychain.js";
 
 /**
  * A runner that fails every keychain call. On any platform this makes the

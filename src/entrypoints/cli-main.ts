@@ -19,7 +19,7 @@ import {
   isInternalEntryShape,
   loginBlocked,
   loginGateNotice,
-} from "../cloud/login-gate.js";
+} from "../cloud/auth/index.js";
 import { registerCompressOutputCommand } from "../commands/compress-output.js";
 import { registerConventionsCommand } from "../commands/conventions.js";
 import { registerDashboardCommand } from "../commands/dashboard.js";
@@ -107,35 +107,6 @@ async function reapplyDevConfig(repoPath: string): Promise<void> {
 async function startProxy(repoId?: string): Promise<void> {
   const { startProxy: boot } = await import("../proxy/proxy.js");
   await boot({ repoId });
-}
-
-/**
- * Free-tier single-active backstop for the daemon-less standalone path. When
- * the repo limit is 1, acquire the global active-repo lock for `cwd` before
- * serving; if a LIVE pid for a DIFFERENT repo holds it, fatal-exit with the
- * exact stop/upgrade commands. The lock is released on clean exit. When the
- * daemon is up it is the source of truth; this file-lock is the fallback.
- */
-async function guardActiveRepoSlot(cwd: string): Promise<void> {
-  const { currentRepoLimit } = await import("../cloud/tier-query.js");
-  if (currentRepoLimit() !== 1) return;
-
-  const { acquireActiveRepoLock, releaseActiveRepoLock } = await import(
-    "../daemon/active-repo-lock.js"
-  );
-  const result = acquireActiveRepoLock(cwd);
-  if (!result.acquired) {
-    const { checkActivateRepo } = await import("../cloud/repo-cap.js");
-    const verdict = checkActivateRepo({
-      limit: 1,
-      activePath: result.holder.path,
-      requestedPath: cwd,
-    });
-    process.stderr.write(`\n  ${verdict.message}\n\n`);
-    process.exit(1);
-  }
-  // Release on clean exit so the slot frees for the next repo.
-  process.once("exit", releaseActiveRepoLock);
 }
 
 /**
@@ -875,7 +846,6 @@ async function resumeBoot(config: Record<string, unknown>): Promise<void> {
   process.stderr.write("[unerr] Starting proxy...\n");
 
   await autoVerifyIdeConfigs();
-  await guardActiveRepoSlot(process.cwd());
   await startProxy(config.repoId as string | undefined);
 }
 
@@ -928,10 +898,7 @@ async function firstRunBoot(): Promise<void> {
 
   if (result.action === "setup") {
     await autoVerifyIdeConfigs();
-    // Login is mandatory (2026-06-14): the bare `unerr` invocation is the
-    // default command action, so the `preAction` wall has already enforced a
-    // usable login before this boot path runs. No separate prompt here.
-    await guardActiveRepoSlot(process.cwd());
+    // No login required (OSS): bare `unerr` indexes and serves fully local.
     await startProxy(result.repoId);
     return;
   }
@@ -1164,9 +1131,13 @@ type DiscoveryResult =
     }
   | {
       /**
-       * Free-tier single-active cap: the daemon refused to start this repo
-       * because a different one already holds the one slot. The bridge answers
-       * the IDE's initialize with a JSON-RPC cap error and exits.
+       * A daemon still running pre-OSS-conversion code refused this repo
+       * under the removed free-tier repo cap. Retrying would poll the same
+       * stale daemon forever, and by this point the IDE already believes the
+       * server is connected (StaticCatalogInterceptor answered `initialize`
+       * locally), so a silent hang would leave every `tools/call` unanswered
+       * until the IDE's own timeout. The bridge answers the IDE's
+       * `initialize` with a JSON-RPC error instead and exits non-zero.
        */
       kind: "refused";
       message: string;
@@ -1197,7 +1168,7 @@ type DiscoveryResult =
  * Scan a stdin chunk for an `initialize` request and return its JSON-RPC id
  * (which may be `null`). Returns `undefined` when no complete `initialize`
  * frame is present, so the caller keeps the previously-captured id. Used to
- * answer a free-tier cap refusal against the exact request the IDE is waiting
+ * answer a stale-daemon refusal against the exact request the IDE is waiting
  * on.
  */
 function sniffInitializeId(chunk: Buffer): string | number | null | undefined {
@@ -1252,7 +1223,7 @@ async function mcpBoot(
   );
   const interceptor = new StaticCatalogInterceptor();
   const stdinPreBuffer: Buffer[] = [];
-  // The IDE's `initialize` request id, captured so a free-tier cap refusal can
+  // The IDE's `initialize` request id, captured so a stale-daemon refusal can
   // answer that exact request with a JSON-RPC error (-32003) instead of a sock.
   let initializeId: string | number | null = null;
   const preBufferHandler = (chunk: Buffer) => {
@@ -1357,10 +1328,14 @@ async function mcpBoot(
       return;
     }
 
-    // Free-tier single-active cap: the daemon refused this repo. Answer the
-    // IDE's initialize with a JSON-RPC cap error (-32003) on stdout, then exit
-    // non-zero. Do NOT start the bridge — relaying would serve a 2nd repo. The
-    // static interceptor must not mask this, so detach it before replying.
+    // A stale (pre-OSS-conversion) daemon refused this repo under the
+    // removed free-tier repo cap. Do NOT retry — the same stale daemon would
+    // refuse forever, and by this point the static interceptor has already
+    // told the IDE the server is connected, so a silent poll would leave
+    // every `tools/call` unanswered until the IDE's own timeout. Answer the
+    // IDE's initialize with a JSON-RPC error (-32003) on stdout instead, then
+    // exit non-zero. The static interceptor must not mask this, so detach it
+    // before replying.
     if (discovery.kind === "refused") {
       process.stdin.removeListener("data", preBufferHandler);
       process.stdin.removeListener("end", earlyEndHandler);
@@ -1513,11 +1488,16 @@ async function discoverWithRetry(
       try {
         const ensured = await ensureRepo(daemonSock, cwd);
 
-        // Free-tier single-active cap: the daemon refused this repo because a
-        // different one holds the one slot. Surface it to the IDE as a clean
-        // JSON-RPC error — do NOT retry (retrying would hot-loop forever).
+        // A daemon on a stale (pre-OSS-conversion) build still enforces the
+        // removed free-tier repo cap. Do NOT retry — the same stale daemon
+        // refuses on every poll, so this would hang the IDE forever with a
+        // connection it already believes is healthy. Fail loudly instead,
+        // naming the actual fix.
         if ("refused" in ensured) {
-          return { kind: "refused", message: ensured.message };
+          return {
+            kind: "refused",
+            message: `${ensured.message} The process manager is running a stale build — run \`unerr pm stop\` to restart it, then reconnect.`,
+          };
         }
 
         const { sock, daemonVersion } = ensured;
@@ -1747,49 +1727,41 @@ export async function main(): Promise<void> {
     register(program);
   }
 
-  // ── Login wall — only commands that add / modify / start ────
+  // ── Login wall — only the shared cloud document ────
   //
-  // A login wall fires ONLY for user-typed commands that ADD, MODIFY, or START
-  // something. This follows the established CLI split (npm / docker / wrangler /
-  // supabase): local + read + teardown work logged out; publishing / deploying /
-  // mutating shared state needs auth. Authentication friction is most costly at
-  // goal-oriented moments, and a tool must never trap a user — teardown (`stop`,
-  // `remove`, `uninstall`) and viewing (`status`, `pm status`, `router …`) must
-  // always work, even logged out.
+  // unerr's local features (indexing, serving, install, the process manager)
+  // need no account at all. The one exception is `conventions`: it reads and
+  // writes a document shared between people on our servers, so it genuinely
+  // needs an account. Everything else always runs logged out.
   //
-  // Three buckets, decided in the single `preAction` choke point below:
-  //  - WALL  (interactive login): bare `unerr` (register repo + serve), `install`,
-  //    `pm start`, `conventions` (reads/writes the team's shared cloud document).
-  //  - EXEMPT (no login, silent): `status`, `doctor`, `uninstall`, `pm stop`,
-  //    `pm remove`, `pm status`, `pm logs`, `router …`, `login`/`logout`/`whoami`.
-  //  - NUDGE  (agent/hook surfaces): pass through unchanged + emit ONE throttled
-  //    `run \`unerr login\`` line from their own handlers — `recon`,
-  //    `index`, `learn`, `exec`, `compress-output`, `hook`.
-  //    They never wall, so the IDE / git hooks / agent are never broken.
+  // Two buckets, decided in the single `preAction` choke point below:
+  //  - WALL  (interactive login): `conventions` (and its pull/push subs) —
+  //    reads/writes the team's shared cloud document.
+  //  - EXEMPT (no login, ever): everything else — bare `unerr`, `install`,
+  //    `pm start`, `status`, `doctor`, `uninstall`, `pm stop`/`remove`/`status`/
+  //    `logs`, `router …`, `login`/`logout`/`whoami`, and agent/hook surfaces
+  //    (`recon`, `index`, `learn`, `exec`, `compress-output`, `hook`).
   //
   // `--mcp`/`--daemon-child` bypass the wall entirely (the per-repo proxy enforces
   // those non-interactive paths separately). `UNERR_TOKEN` is the CI escape hatch.
 
   /**
-   * True for the commands that require an interactive login before they run: the
-   * user-typed commands that ADD, MODIFY, or START something. Everything else
-   * (view / teardown / recovery / agent surfaces) returns false and never walls.
+   * True only for `conventions` (and its pull/push subs) — the one command
+   * that reads/writes the team's shared cloud document. Everything else
+   * (local indexing, serving, install, the process manager) returns false
+   * and never walls.
    *
    * Verified empirically (Commander 12.1.0): the bare `unerr` default action has
-   * no `parent`; a subcommand like `pm start` reports `actionCmd.name() === "start"`
-   * and `actionCmd.parent.name() === "pm"`; `conventions push` reports
-   * `name === "push"` and `parent === "conventions"`.
+   * no `parent`; `conventions push` reports `name === "push"` and
+   * `parent === "conventions"`.
    */
   function requiresInteractiveLogin(actionCmd: Command): boolean {
-    // Bare `unerr` (no parent) = first-run (register repo) + serve, or resume serve.
-    if (!actionCmd.parent) return true;
+    // Bare `unerr` (no parent), `install`, and `pm start` all run fully local —
+    // no account needed. Only `conventions` (and its pull/push subs) read/write
+    // the team's shared cloud document, so it alone still needs a login.
+    if (!actionCmd.parent) return false;
     const name = actionCmd.name();
     const parent = actionCmd.parent.name();
-    // `install` writes IDE config + registers the repo.
-    if (name === "install") return true;
-    // `pm start` starts the process manager (NOT `pm stop`/`remove`/`status`/`logs`).
-    if (parent === "pm" && name === "start") return true;
-    // `conventions` (and its pull/push subs) read/write the team's shared cloud doc.
     if (name === "conventions" || parent === "conventions") return true;
     return false;
   }
@@ -1859,23 +1831,24 @@ export async function main(): Promise<void> {
     // (login, pm, the proxy default action, --mcp, --daemon-child), so it is the
     // single choke point that routes all cloud access through the dev server. A
     // dev.json with a `tier` mints a local entitlement here that fabricates the
-    // PLAN only — login is still required (loginBlocked() keys off real credential
-    // presence, not the entitlement), so dev exercises the real wall against the
+    // PLAN — `loginBlocked()` still keys off real credential presence, not the
+    // entitlement, so dev exercises the real `conventions` wall against the
     // dev server. Compile-stripped in prod.
     await applyDevConfigOnce(process.cwd());
 
-    // --mcp / --daemon-child: non-interactive entry shapes the proxy enforces
-    // separately; never run an interactive wall here.
+    // --mcp / --daemon-child: non-interactive entry shapes; never run an
+    // interactive wall here (MCP tool calls need no login at all).
     if (isInternalEntryShape()) return;
 
-    // Wall ONLY the add / modify / start commands. View, teardown, and recovery
-    // run freely logged out; agent + hook surfaces (recon/index/learn/exec/
+    // Wall ONLY `conventions` (+ its pull/push subs) — the one command that
+    // reads/writes the team's shared cloud document. Every other command runs
+    // freely logged out; agent + hook surfaces (recon/index/learn/exec/
     // compress-output/hook) pass through and self-nudge in their own
     // handlers (src/hooks/login-nudge.ts) — they must never break the IDE/agent.
     // Non-wall commands don't even consult the gate.
     if (!requiresInteractiveLogin(actionCmd)) return;
 
-    // A wall command, but already logged in (or a dev tier is active) → proceed.
+    // `conventions`, but already logged in (or a dev tier is active) → proceed.
     if (!loginBlocked()) return;
 
     await loginThenContinue();

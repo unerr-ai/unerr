@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { detectGitOrigin } from "../daemon/git-origin.js";
+import { detectGitOrigin } from "../../daemon/git-origin.js";
 
 /** Lowercase hex sha256 of an arbitrary input string. */
 function sha256Hex(input: string): string {

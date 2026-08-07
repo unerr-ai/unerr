@@ -9,8 +9,8 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { maybeNotifyAuthTransition } from "../cloud/auth-notify.js";
-import type { AuthStateName } from "../cloud/auth-state.js";
+import { maybeNotifyAuthTransition } from "../cloud/auth/auth-notify.js";
+import type { AuthStateName } from "../cloud/auth/auth-state.js";
 
 /** In-memory harness over the injectable seams. Tracks the latch + notify. */
 function harness(notifyGrace = false) {

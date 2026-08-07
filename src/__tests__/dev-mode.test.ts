@@ -36,7 +36,7 @@ import {
 import {
   readEntitlementCache,
   writeEntitlementCache,
-} from "../cloud/entitlements.js";
+} from "../cloud/plan/entitlements.js";
 
 let tempHome: string;
 let repoDir: string;
@@ -108,7 +108,7 @@ describe("applyDevConfig", () => {
     expect(cache?.claims?.limits.max_active_repos).toBe(-1);
   });
 
-  it("free tier → max_active_repos 1", async () => {
+  it("free tier → max_active_repos unlimited", async () => {
     writeDevJson(JSON.stringify({ tier: "free" }));
 
     await applyDevConfig(repoDir);
@@ -116,7 +116,7 @@ describe("applyDevConfig", () => {
     const cache = readEntitlementCache();
     expect(cache?.claims).not.toBeNull();
     expect(cache?.claims?.plan).toBe("free");
-    expect(cache?.claims?.limits.max_active_repos).toBe(1);
+    expect(cache?.claims?.limits.max_active_repos).toBe(-1);
   });
 
   it("no dev.json is a no-op", async () => {
@@ -166,7 +166,7 @@ describe("applyDevConfig", () => {
     expect(process.env.UNERR_API_URL).toBe("http://localhost:3000");
     const cache = readEntitlementCache();
     expect(cache?.claims?.plan).toBe("free");
-    expect(cache?.claims?.limits.max_active_repos).toBe(1);
+    expect(cache?.claims?.limits.max_active_repos).toBe(-1);
   });
 
   it("repo dev.json overrides the global per-field, global fills the rest", async () => {

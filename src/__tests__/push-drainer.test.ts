@@ -1,14 +1,29 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
-import type { BatchAck, CloudResult } from "../cloud/client.js";
-import { PushCursor } from "../cloud/push-cursor.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Only the load-bearing "account-less machine" gate test below (which
+// exercises the REAL default `canPushTelemetry`, not an injected
+// `isEntitled`) depends on this — every other test in this file passes its
+// own `isEntitled` and never reads the real entitlement cache.
+let tempHome: string;
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return {
+    ...actual,
+    homedir: () => process.env.__TEST_HOME ?? actual.homedir(),
+  };
+});
+
+import type { BatchAck, CloudResult } from "../cloud/sync/client.js";
+import { PushCursor } from "../cloud/sync/push-cursor.js";
 import {
   type StreamBatch,
   type StreamDrainer,
   drainRepo,
-} from "../cloud/push-drainer.js";
+} from "../cloud/sync/push-drainer.js";
 
 const ok = (ack: BatchAck): CloudResult<BatchAck> => ({
   ok: true,
@@ -307,6 +322,57 @@ describe("drainRepo", () => {
       maxBatchesPerStream: 3,
     });
     expect(cursor.position("events")).toEqual({ lastId: 3 });
+  });
+});
+
+describe("drainRepo — default (uninjected) entitlement gate", () => {
+  let unerrDir: string;
+
+  beforeEach(async () => {
+    unerrDir = await mkdtemp(join(tmpdir(), "unerr-drainer-gate-"));
+    // A fresh, empty HOME: no ~/.unerr/entitlements.json at all — the exact
+    // shape of a machine that has never logged in.
+    tempHome = mkdtempSync(join(tmpdir(), "unerr-drainer-home-"));
+    process.env.__TEST_HOME = tempHome;
+  });
+
+  afterEach(() => {
+    rmSync(tempHome, { recursive: true, force: true });
+    // biome-ignore lint/performance/noDelete: must unset the env var — assigning undefined would set it to the string "undefined"
+    delete process.env.__TEST_HOME;
+  });
+
+  it("an account-less machine attempts ZERO network calls through the drain path", async () => {
+    const cursor = await PushCursor.open(unerrDir);
+    let reads = 0;
+    let pushes = 0;
+    const drainer: StreamDrainer = {
+      key: "events",
+      async read() {
+        reads += 1;
+        return { rows: [{ a: 1 }], next: { lastId: 1 } };
+      },
+      async push(rows) {
+        pushes += 1;
+        return ok({ accepted: rows.length });
+      },
+    };
+
+    // No `isEntitled` override here — this exercises the REAL default,
+    // `canPushTelemetry`, against the empty HOME set up above.
+    const outcomes = await drainRepo(cursor, [drainer]);
+
+    expect(reads).toBe(0);
+    expect(pushes).toBe(0);
+    expect(outcomes).toEqual([
+      {
+        stream: "events",
+        pushed: 0,
+        parked: 0,
+        deadLettered: 0,
+        status: "skipped_gate",
+      },
+    ]);
   });
 });
 

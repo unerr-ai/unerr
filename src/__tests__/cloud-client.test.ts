@@ -10,7 +10,7 @@ import {
   CloudClient,
   assertSafeBaseUrl,
   extractError,
-} from "../cloud/client.js";
+} from "../cloud/sync/client.js";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(body === undefined ? "" : JSON.stringify(body), {

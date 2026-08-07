@@ -17,6 +17,30 @@ on:
   pull_request:
     branches: [main]
 
+# Default GITHUB_TOKEN scope for every job below. A job that declares no
+# `permissions:` block inherits the repo/org default instead, which is
+# broader than any job here needs (write access on scopes nothing uses) —
+# that includes build-and-test, which runs on untrusted fork PRs. This is
+# the floor; individual jobs elevate only the exact scope they use
+# (`publish` needs `id-token: write` for npm OIDC, `release` needs
+# `contents: write` to create the GitHub Release). Everything else,
+# including homebrew/scoop (they push to OTHER repos with a minted GitHub
+# App token, never this repo's GITHUB_TOKEN), stays read-only.
+permissions:
+  contents: read
+
+# The production cloud control-plane address, baked into every build (the
+# npm/tsup validation build in build-and-test AND the native binary compile
+# in build-binaries) via UNERR_BUILD_API_URL (see src/cloud/config.ts
+# resolveApiUrl / tsup.config.ts / scripts/build-binary.ts). Declared once,
+# workflow-level, on purpose: setting it explicitly here — rather than
+# relying on the same default baked into both build configs — means an
+# accidental future edit to one of those defaults still ships the address
+# CI actually asked for, and the two build paths read the identical value
+# from the identical place instead of two copies that could drift apart.
+env:
+  UNERR_BUILD_API_URL: https://app.unerr.dev
+
 jobs:
   build-and-test:
     runs-on: ${{ matrix.os }}
@@ -42,31 +66,22 @@ jobs:
         node-version: [24]
 
     steps:
-      - name: Mint GitHub App token for the contracts submodule
-        # The default GITHUB_TOKEN is scoped to this repo only and cannot clone
-        # the internal unerr-contracts submodule. Mint a token scoped to both
-        # this repo (main clone) and unerr-contracts (submodule). The App is
-        # installed org-wide on unerr-ai, so no per-repo secret setup is needed.
-        id: app-token
-        uses: actions/create-github-app-token@v3
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:
-          app-id: ${{ vars.CONTRACTS_APP_ID }}
-          private-key: ${{ secrets.CONTRACTS_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: |
-            unerr
-            unerr-contracts
-
-      - uses: actions/checkout@v5
-        with:
+          # No app token here, deliberately. unerr-contracts is public, so the
+          # submodule clones anonymously. This job runs on every pull request,
+          # INCLUDING forks — and a fork PR is never given repository secrets,
+          # so a step that needed CONTRACTS_APP_KEY would fail at step one and
+          # no outside contributor could ever get a green check. Keeping the
+          # credential out of the job that executes untrusted PR code is also
+          # the right call on its own. Re-adding a token here re-breaks fork CI.
           submodules: true # vendor/contracts (link: target); build:contracts builds its dist/
-          token: ${{ steps.app-token.outputs.token }}
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86  # v6.0.10
         with:
           version: 10
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6.5.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
@@ -150,10 +165,15 @@ jobs:
     needs: [build-and-test, build-binaries]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # Manual-approval gate #1: this requires a GitHub Environment named "npm-publish"
-    # with a required reviewer configured in repo settings (Settings → Environments).
-    # The job holds until a reviewer approves, same mechanism as web-landing's
-    # `environment: production`.
+    # Manual-approval gate #1. The "npm-publish" environment exists and carries
+    # a required reviewer, so a `v*` tag pauses here until a human approves.
+    # Watch out for the failure mode this replaced: GitHub silently auto-creates
+    # a referenced-but-missing environment with NO protection rules, so naming
+    # an environment that does not exist reads as a gate and behaves as a no-op.
+    # If this ever needs recreating, the environment must be PUT first and the
+    # reviewer added in the same call — creating it bare re-opens the hole:
+    #   gh api --method PUT repos/unerr-ai/unerr/environments/npm-publish \
+    #     --input - <<< '{"reviewers":[{"type":"User","id":<numeric-id>}]}'
     environment: npm-publish
     permissions:
       contents: read
@@ -165,9 +185,9 @@ jobs:
     steps:
       # Only packaging/npm/ + the downloaded binaries are needed here — no
       # contracts submodule, no root build, so a plain checkout is enough.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6.5.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -195,7 +215,7 @@ jobs:
       - name: Download compiled binaries
         # rawbin-* artifacts each carry one dist/bin/unerr-<target>[.exe];
         # merge-multiple lands them all in dist/bin for the packaging script.
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           pattern: rawbin-*
           merge-multiple: true
@@ -237,13 +257,16 @@ jobs:
     needs: publish
     if: ${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # Manual-approval gate #2: a SEPARATE GitHub Environment named "npm-promote"
-    # with its own required reviewer (Settings → Environments). The job holds
-    # until that reviewer approves — distinct from the `npm-publish` gate above.
+    # Manual-approval gate #2: a SEPARATE "npm-promote" environment, which also
+    # exists and carries a required reviewer. Flipping the dist-tag to `latest`
+    # is what makes a release the default install for everyone, so it gets its
+    # own approval rather than riding on the publish approval. Same warning as
+    # gate #1 — a missing environment is auto-created with no rules and the
+    # gate silently disappears.
     environment: npm-promote
 
     steps:
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6.5.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -312,30 +335,19 @@ jobs:
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
 
     steps:
-      - name: Mint GitHub App token (contracts submodule access)
-        id: app-token
-        uses: actions/create-github-app-token@v3
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:
-          app-id: ${{ vars.CONTRACTS_APP_ID }}
-          private-key: ${{ secrets.CONTRACTS_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: |
-            unerr
-            unerr-contracts
-
-      - uses: actions/checkout@v5
-        with:
+          # No app token: unerr-contracts is public and clones anonymously.
           submodules: recursive
-          token: ${{ steps.app-token.outputs.token }}
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86  # v6.0.10
         with:
           version: 10
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6.5.0
         with:
           node-version: 24
           cache: pnpm
@@ -433,7 +445,7 @@ jobs:
 
       - name: Upload archive artifact (Unix)
         if: ${{ matrix.os != 'windows' }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: binary-${{ matrix.target }}
           path: |
@@ -444,7 +456,7 @@ jobs:
 
       - name: Upload archive artifact (Windows)
         if: ${{ matrix.os == 'windows' }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: binary-${{ matrix.target }}
           path: |
@@ -456,7 +468,7 @@ jobs:
       # Raw (post-codesign) binary — input to the npm wrapper packaging in the
       # `publish` job. Glob covers the bare name and the Windows `.exe`.
       - name: Upload raw binary (npm packaging input)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: rawbin-${{ matrix.target }}
           path: dist/bin/unerr-${{ matrix.target }}*
@@ -490,10 +502,10 @@ jobs:
       contents: write
     steps:
       - name: Checkout (install scripts + packaging templates live here)
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
 
       - name: Download all binary artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           pattern: binary-*
           merge-multiple: true
@@ -511,7 +523,7 @@ jobs:
       # already serves the committed copy on every push to main.
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
         with:
           # No `repository:` / `token:` — the Release is created on this repo
           # using the job's default GITHUB_TOKEN (permissions.contents: write).
@@ -549,7 +561,7 @@ jobs:
     steps:
       - name: Mint GitHub App token for the tap
         id: tap-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
         with:
           app-id: ${{ vars.CONTRACTS_APP_ID }}
           private-key: ${{ secrets.CONTRACTS_APP_KEY }}
@@ -558,7 +570,7 @@ jobs:
             homebrew-tap
 
       - name: Checkout (formula template)
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
 
       - name: Fetch SHA256SUMS from the release
         env:
@@ -610,7 +622,7 @@ jobs:
     steps:
       - name: Mint GitHub App token for the bucket
         id: bucket-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
         with:
           app-id: ${{ vars.CONTRACTS_APP_ID }}
           private-key: ${{ secrets.CONTRACTS_APP_KEY }}
@@ -619,7 +631,7 @@ jobs:
             scoop-bucket
 
       - name: Checkout (manifest template)
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
 
       - name: Fetch SHA256SUMS from the release
         env:

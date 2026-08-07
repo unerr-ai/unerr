@@ -6,7 +6,10 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type DeviceFlowDeps, runDeviceFlow } from "../cloud/device-flow.js";
+import {
+  type DeviceFlowDeps,
+  runDeviceFlow,
+} from "../cloud/auth/device-flow.js";
 
 const API = "https://app.unerr.ai";
 const AUTHORIZE = "/api/v1/cli/device/authorize";

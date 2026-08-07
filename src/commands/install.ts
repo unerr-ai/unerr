@@ -21,8 +21,11 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
-import { RepoCapError, checkRegisterRepo } from "../cloud/repo-cap.js";
-import { currentRepoLimit } from "../cloud/tier-query.js";
+import {
+  RepoCapError,
+  checkRegisterRepo,
+  currentRepoLimit,
+} from "../cloud/plan/index.js";
 import {
   AGENT_REGISTRY,
   getAgent,
@@ -289,9 +292,9 @@ export function registerInstallCommand(program: Command): void {
         const notices = renderNoticesPlain(gatherNotices());
         if (notices) process.stderr.write(`\n${notices}\n`);
 
-        // Login is mandatory (2026-06-14): `install` is a gated command, so the
-        // `preAction` wall in cli.ts has already enforced a usable login before
-        // this action runs. No separate install-time login offer.
+        // No login required (OSS): `install` runs fully local. No
+        // install-time login offer — `unerr login` is opt-in, for
+        // `conventions` (the shared cloud document) only.
       }
     );
 }

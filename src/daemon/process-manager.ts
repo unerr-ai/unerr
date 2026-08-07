@@ -32,9 +32,6 @@ import {
 } from "node:fs";
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
-import { checkActivateRepo } from "../cloud/repo-cap.js";
-import { repoLimit } from "../cloud/tier-model.js";
-import { tierFromCache } from "../cloud/tier-query.js";
 import {
   fleetUpgradePending,
   readUpdateState,
@@ -62,9 +59,13 @@ import {
 // ── Types ───────────────────────────────────────────────────────
 
 /**
- * The result of {@link ProcessManager.ensure}: the per-repo UDS sock path on
- * success, or a structured free-tier refusal when the single active slot is
- * already held by a different repo.
+ * The result of {@link ProcessManager.ensure}: the per-repo UDS sock path.
+ * `EnsureRefusal` is a structural leftover from the removed single-active-repo
+ * cap — `ensure()` never constructs it anymore (repos are unlimited on every
+ * plan). The union stays because `entrypoints/daemon.ts`'s "ensure" case still
+ * narrows on `typeof outcome !== "string"` to answer the wire's
+ * `EnsureRefusedResponse` shape; collapsing this to plain `string` means
+ * editing that file's dead branch too, which is out of this round's scope.
  */
 export type EnsureRefusal = {
   refused: "already_active";
@@ -72,11 +73,6 @@ export type EnsureRefusal = {
   message: string;
 };
 export type EnsureOutcome = string | EnsureRefusal;
-
-/** Type guard — true when `ensure` refused rather than returning a sock path. */
-export function isEnsureRefusal(o: EnsureOutcome): o is EnsureRefusal {
-  return typeof o !== "string";
-}
 
 /**
  * One caller blocked in {@link ProcessManager.waitForReady} for a repo whose
@@ -658,80 +654,23 @@ export class ProcessManager {
   }
 
   /**
-   * Free-tier single-active reconciler. The admission check in `ensure` only
-   * blocks NEW foreign starts — it never stops proxies already running (a set
-   * admitted while the account was Pro, then lapsed to free, keeps running).
-   * When the resolved repo limit is 1, bring the running set down to that one
-   * slot: keep the repo with the most connections, then the most recent
-   * activity (ties by newest start), and stop every other live proxy — forked
-   * or adopted. No-op when the limit is unlimited (Pro/Team) or ≤1 proxy runs.
-   * Returns the count stopped. Never throws — a failed stop retries next call.
-   *
+   * Historically brought a running set down to one proxy when the resolved
+   * repo limit was 1 (an account admitted under Pro that lapsed to free). The
+   * repo limit is unlimited on every plan now — the number of repos a user
+   * runs has no unerr-operated server in its data path — so this is
+   * permanently a no-op. Kept so its callers (`startDaemon`, `runIdleSweep`)
+   * don't need to change.
    */
   async reconcileFreeTier(): Promise<number> {
-    if (this.stopped) return 0;
-    if (repoLimit(tierFromCache()) !== 1) return 0;
-
-    const live = [...this.repos.values()].filter(
-      (r) => r.status === "running" || r.status === "starting"
-    );
-    if (live.length <= 1) return 0;
-
-    // Keep the repo the user is most likely inside: most connections first, then
-    // most-recently-active, then newest start. Every other live proxy is stopped.
-    const keep = live.reduce((best, r) => {
-      if (r.connections !== best.connections) {
-        return r.connections > best.connections ? r : best;
-      }
-      if (r.lastActivity !== best.lastActivity) {
-        return r.lastActivity > best.lastActivity ? r : best;
-      }
-      return (r.startedAt ?? 0) > (best.startedAt ?? 0) ? r : best;
-    });
-
-    let stopped = 0;
-    for (const repo of live) {
-      if (repo === keep) continue;
-      this.onEvent?.("stopped", repo, "free-tier single-active reconcile");
-      try {
-        await this.stop(repo.path);
-        stopped++;
-      } catch {
-        /* best-effort — a failed stop is retried on the next reconcile */
-      }
-    }
-    return stopped;
+    return 0;
   }
 
   /**
    * Ensure a repo process is running. If already running, returns the sock path.
    * If stopped, spawns it and waits for the "ready" IPC message.
-   *
-   * Free-tier backstop: when the repo limit is 1 and a DIFFERENT repo is
-   * already running/starting, refuses instead of spawning a second proxy —
-   * returns a structured `{ refused: "already_active", activePath, message }`.
-   * The daemon is single-process, so this check serializes without a race.
    */
   async ensure(repoPath: string): Promise<EnsureOutcome> {
     const key = canonRepoKey(repoPath);
-
-    if (repoLimit(tierFromCache()) === 1) {
-      const active = this.activeForeignRepo(key);
-      if (active) {
-        const verdict = checkActivateRepo({
-          limit: 1,
-          activePath: active,
-          requestedPath: repoPath,
-        });
-        if (!verdict.allowed) {
-          return {
-            refused: "already_active",
-            activePath: active,
-            message: verdict.message,
-          };
-        }
-      }
-    }
 
     const existing = this.repos.get(key);
     if (existing?.status === "running" && existing.sock) {
@@ -828,21 +767,6 @@ export class ProcessManager {
       }
       throw err;
     }
-  }
-
-  /**
-   * The path of a managed repo currently `running` or `starting` that is NOT
-   * `excludeKey`, or null when no other repo is active. Used by the free-tier
-   * single-active backstop to refuse a second concurrent repo.
-   */
-  private activeForeignRepo(excludeKey: string): string | null {
-    for (const [key, repo] of this.repos) {
-      if (key === excludeKey) continue;
-      if (repo.status === "running" || repo.status === "starting") {
-        return repo.path;
-      }
-    }
-    return null;
   }
 
   /**
@@ -1415,8 +1339,20 @@ export class ProcessManager {
     // no latency and a failed/offline check is silent. `isQuiet` gates the apply
     // so an upgrade only ever runs when no IDE is connected. Lazy import keeps
     // the update subsystem out of the manager's hot module graph.
-    void import("../update/update-runner.js")
-      .then((m) => m.runUpdateCycle({ isQuiet: () => this.isQuietForUpdate() }))
+    //
+    // Skipped entirely when the telemetry off-switch is set
+    // (`UNERR_NO_TELEMETRY` / `DO_NOT_TRACK`): the version check is an
+    // outbound network call (`fetch` to the npm registry), and an explicit
+    // opt-out means no outbound calls, not just no cloud push. NOT gated on
+    // plan or login — an account-less user still gets update checks by
+    // default, because a CLI that never learns about a security fix is worse.
+    void import("../cloud/plan/index.js")
+      .then(({ isTelemetryDisabledByEnv }) => {
+        if (isTelemetryDisabledByEnv()) return;
+        return import("../update/update-runner.js").then((m) =>
+          m.runUpdateCycle({ isQuiet: () => this.isQuietForUpdate() })
+        );
+      })
       .catch(() => {
         /* best-effort — auto-update never breaks the sweep */
       });
@@ -1464,9 +1400,8 @@ export class ProcessManager {
       }
     }
 
-    // Free-tier single-active convergence: down-scale a running set that was
-    // admitted under Pro and then lapsed to free (ensure only blocks NEW
-    // starts). Fire-and-forget — a stop failure retries on the next sweep.
+    // No-op now that the repo limit is unlimited on every plan — see
+    // reconcileFreeTier's own doc comment. Fire-and-forget for cheapness.
     void this.reconcileFreeTier().catch(() => {
       /* best-effort — reconcile never breaks the sweep */
     });

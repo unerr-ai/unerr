@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AuthState, AuthStateName } from "../cloud/auth-state.js";
+import type { AuthState, AuthStateName } from "../cloud/auth/auth-state.js";
 
 // The gate composes authState() — mock it so each test drives one exact state.
 const authStateMock = vi.fn<(now?: number) => AuthState>();
-vi.mock("../cloud/auth-state.js", () => ({
+vi.mock("../cloud/auth/auth-state.js", () => ({
   authState: (now?: number) => authStateMock(now),
 }));
 
@@ -11,7 +11,7 @@ vi.mock("../cloud/auth-state.js", () => ({
 // fresh-but-credential-less entitlement (a dev-minted token) can't satisfy it.
 // Default each test to "credentials present"; the presence-specific tests flip it.
 const credentialMetaMock = vi.fn<() => unknown>();
-vi.mock("../cloud/credentials.js", () => ({
+vi.mock("../cloud/auth/credentials.js", () => ({
   readCredentialMetadata: () => credentialMetaMock(),
 }));
 
@@ -20,7 +20,7 @@ import {
   isInternalEntryShape,
   loginBlocked,
   loginGateNotice,
-} from "../cloud/login-gate.js";
+} from "../cloud/auth/login-gate.js";
 
 function stateOf(name: AuthStateName): AuthState {
   return {
@@ -148,9 +148,11 @@ describe("login-gate", () => {
       authStateMock.mockReturnValue(stateOf("degraded_free"));
       expect(loginGateNotice()).toContain("session expired");
     });
-    it("uses the generic sign-in copy otherwise", () => {
+    it("uses the conventions-specific copy otherwise", () => {
       authStateMock.mockReturnValue(stateOf("logged_out"));
-      expect(loginGateNotice()).toContain("Sign in to use unerr");
+      expect(loginGateNotice()).toContain(
+        "Shared team conventions need an account"
+      );
     });
   });
 });

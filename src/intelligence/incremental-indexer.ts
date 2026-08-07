@@ -34,7 +34,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { hashEntityKey } from "../cloud/drainers/envelope.js";
+import { hashEntityKey } from "../cloud/sync/index.js";
 import { loadSettings } from "../config/settings.js";
 import { emit } from "../events/enqueue.js";
 import { createYieldGate, maybeYield } from "../utils/index-yield.js";

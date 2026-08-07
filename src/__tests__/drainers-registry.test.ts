@@ -2,9 +2,9 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { CloudClient } from "../cloud/client.js";
-import { assembleDrainers } from "../cloud/drainers/index.js";
-import type { DrainerContext } from "../cloud/push-drainer.js";
+import type { CloudClient } from "../cloud/sync/client.js";
+import { assembleDrainers } from "../cloud/sync/drainers/index.js";
+import type { DrainerContext } from "../cloud/sync/push-drainer.js";
 
 /** A context pointed at an empty `.unerr` dir — every store is absent. */
 function emptyCtx(unerrDir: string): DrainerContext {

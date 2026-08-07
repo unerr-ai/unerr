@@ -20,10 +20,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { CloudClient } from "../cloud/client.js";
-import { buildIngestDrainers } from "../cloud/drainers/ingest.js";
-import { PushCursor } from "../cloud/push-cursor.js";
-import { drainRepo } from "../cloud/push-drainer.js";
+import type { CloudClient } from "../cloud/sync/client.js";
+import { buildIngestDrainers } from "../cloud/sync/drainers/ingest.js";
+import { PushCursor } from "../cloud/sync/push-cursor.js";
+import { drainRepo } from "../cloud/sync/push-drainer.js";
 import { readSegmentFrom, segmentPath } from "../events/event-store.js";
 import { claudeProjectDir } from "../tracking/agent-transcript/claude-jsonl.js";
 import {

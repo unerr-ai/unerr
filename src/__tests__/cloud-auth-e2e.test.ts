@@ -32,20 +32,20 @@ vi.mock("node:os", async (importOriginal) => {
   };
 });
 
-import { maybeNotifyAuthTransition } from "../cloud/auth-notify.js";
-import { authState } from "../cloud/auth-state.js";
+import { maybeNotifyAuthTransition } from "../cloud/auth/auth-notify.js";
+import { authState } from "../cloud/auth/auth-state.js";
 import {
   authBadge,
   authStateLine,
   authSurfaceSignal,
-} from "../cloud/auth-surface.js";
-import type { CloudClient } from "../cloud/client.js";
-import { credentialsPath, isLoggedIn } from "../cloud/credentials.js";
+} from "../cloud/auth/auth-surface.js";
+import { credentialsPath, isLoggedIn } from "../cloud/auth/credentials.js";
 import {
   type EntitlementClaims,
   writeEntitlementCache,
-} from "../cloud/entitlements.js";
-import { runEntitlementRefreshOnce } from "../cloud/refresh-job.js";
+} from "../cloud/plan/entitlements.js";
+import { runEntitlementRefreshOnce } from "../cloud/plan/refresh-job.js";
+import type { CloudClient } from "../cloud/sync/client.js";
 
 // ── signing keys: `good` matches the env pubkey; `wrong` does not ──
 const KID = "k-test-1";

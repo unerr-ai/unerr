@@ -20,7 +20,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { hashEntityKey } from "../../cloud/drainers/envelope.js";
+import { hashEntityKey } from "../../cloud/sync/index.js";
 import { emit } from "../../events/enqueue.js";
 import { applyAnnotationGates } from "./annotation-gates.js";
 import type { ParsedDocComment } from "./docstring-extractor.js";

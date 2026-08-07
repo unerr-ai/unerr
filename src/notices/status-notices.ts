@@ -9,10 +9,8 @@
  * to null so the notice subsystem never breaks its caller. Pure + injectable.
  */
 
-import type { AuthState } from "../cloud/auth-state.js";
-import { authState } from "../cloud/auth-state.js";
-import type { AuthSignal } from "../cloud/auth-surface.js";
-import { authSurfaceSignal } from "../cloud/auth-surface.js";
+import type { AuthSignal, AuthState } from "../cloud/auth/index.js";
+import { authState, authSurfaceSignal } from "../cloud/auth/index.js";
 import type { UpdateSignal } from "../update/update-surface.js";
 import { updateSignal } from "../update/update-surface.js";
 import { startupLog } from "../utils/startup-log.js";

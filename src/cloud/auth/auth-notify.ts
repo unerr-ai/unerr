@@ -21,7 +21,7 @@
  * OS notifier, filesystem, or settings file. Never throws (HR-B).
  */
 
-import { loadSettings } from "../config/settings.js";
+import { loadSettings } from "../../config/settings.js";
 import { readNotifiedState, setNotifiedState } from "./auth-events.js";
 import { type AuthStateName, authState } from "./auth-state.js";
 import { osNotify } from "./os-notify.js";

@@ -115,6 +115,20 @@ export async function runSetup(cwd?: string): Promise<WizardResult> {
   );
   summaryLines.push("convention enforcement, and <5ms graph queries.");
 
+  // One line, only when logged out: names what an account adds instead of
+  // implying one is needed. Never blocks setup — a failed check just skips it.
+  try {
+    const { loginBlocked } = await import("../cloud/auth/index.js");
+    if (loginBlocked()) {
+      summaryLines.push("");
+      summaryLines.push(
+        "No account needed. `unerr login` adds team conventions sync and a usage dashboard."
+      );
+    }
+  } catch {
+    // Non-blocking — account status can't stop first-run setup.
+  }
+
   // Disclose auto-update once per machine (informed default-on) — shares the
   // `disclosed_at` flag with `unerr install`, so whichever onboarding path runs
   // first shows it and the other stays quiet. Best-effort, never blocks setup.

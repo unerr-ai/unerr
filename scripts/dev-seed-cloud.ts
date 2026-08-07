@@ -3,28 +3,28 @@
  * DEV/TEST ONLY — one-shot cloud seeding script (C4-dev). NOT a `bin` entry and
  * NOT wired into the CLI.
  *
- * Reads whatever already lives in the developer's OWN laptop `.unerr/*` stores
- * (events (`.unerr/events/*.jsonl`), agent_transcripts, ledger/shadow.jsonl,
- * router/metrics.jsonl(.gz), facts.db, timeline.db) and pushes it through the
- * REAL live `/ingest/*` + `/sync/*` routes, so the cloud dashboards / insights
- * can be exercised end-to-end with real data before any second client exists.
+ * Reads whatever already lives in the developer's OWN laptop event store
+ * (`.unerr/events/*.jsonl`) and pushes it through the REAL live ingest route, so
+ * the cloud dashboards / insights can be exercised end-to-end with real data
+ * before any second client exists.
  *
  * It REUSES the exact same push pipeline the live daemon drain loop uses — the
- * stream-source mappers and the client-side HR-2 code/path stripper — instead of
- * a parallel copy, so what it seeds matches byte-for-byte what live push sends:
+ * same drainer build and the client-side HR-2 code/path stripper — instead of a
+ * parallel copy, so what it seeds matches byte-for-byte what live push sends:
  *
- *   - `assembleDrainers` (src/cloud/drainers/index.ts) — builds all 8 stream
- *     drainers for a repo (events, transcripts, ledger, router, sessions, facts,
- *     timeline, state). Each drainer maps source rows, strips code/paths, mints a
- *     deterministic per-row `event_id`, and caps each batch to its endpoint.
- *   - `drainRepo` (src/cloud/push-drainer.ts) — runs every drainer until empty,
+ *   - `assembleDrainers` (src/cloud/sync/drainers/index.ts) — under Rev-3 unified
+ *     ingest this builds ONE drainer per segment file in `.unerr/events/`, not a
+ *     drainer per stream type. Every producer already stamped a contract-shaped
+ *     event into that store, so each drainer forwards those events verbatim to
+ *     `POST /api/v1/cli/ingest` — no per-type row→detail mapping.
+ *   - `drainRepo` (src/cloud/sync/push-drainer.ts) — runs every drainer until empty,
  *     advancing the cursor only after a `2xx`.
- *   - `PushCursor` (src/cloud/push-cursor.ts) — the per-stream watermark. To seed
+ *   - `PushCursor` (src/cloud/sync/push-cursor.ts) — the per-stream watermark. To seed
  *     ALL history this script points the cursor at a THROWAWAY temp dir, so every
  *     position starts empty and every row is read from position zero — and the
  *     repo's real daemon watermark is never touched.
- *   - `CloudClient` (src/cloud/client.ts) — the authenticated push transport.
- *   - `deriveRepoId` (src/cloud/repo-identity.ts) — the salted wire repo id.
+ *   - `CloudClient` (src/cloud/sync/client.ts) — the authenticated push transport.
+ *   - `deriveRepoId` (src/cloud/sync/repo-identity.ts) — the salted wire repo id.
  *
  * PROD GUARD: the script refuses to run unless a `.unerr/dev.json` (or the
  * global `~/.unerr/dev.json`) names a dev `apiUrl`. `applyDevConfig` then points
@@ -33,7 +33,7 @@
  * hard refuse.
  *
  * IDEMPOTENCY: re-running adds NO duplicate rollup counts. The drainers mint a
- * deterministic per-row `event_id` (content-hash, see src/cloud/event-id.ts), so
+ * deterministic per-row `event_id` (content-hash, see src/cloud/sync/event-id.ts), so
  * the server's `ReplacingMergeTree` + S1 dedup token collapse a second run to a
  * no-op. The throwaway cursor guarantees a full re-read each run; dedup is what
  * makes the re-read free of double-counting.
@@ -47,13 +47,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CloudClient } from "../src/cloud/client.js";
-import { readCredentials } from "../src/cloud/credentials.js";
+import { readCredentials } from "../src/cloud/auth/index.js";
 import { applyDevConfig } from "../src/cloud/dev-mode.js";
-import { assembleDrainers } from "../src/cloud/drainers/index.js";
-import { PushCursor } from "../src/cloud/push-cursor.js";
-import { drainRepo } from "../src/cloud/push-drainer.js";
-import { deriveRepoId } from "../src/cloud/repo-identity.js";
+import {
+  CloudClient,
+  assembleDrainers,
+  PushCursor,
+  drainRepo,
+  deriveRepoId,
+} from "../src/cloud/sync/index.js";
 import { UNERR_VERSION } from "../src/version.js";
 
 /** stderr-only diagnostic line (stdout stays clean per the repo logging rule). */

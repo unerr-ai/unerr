@@ -118,9 +118,11 @@ export function sendFireAndForget(
 // ── High-level client methods ─────────────────────────────────────
 
 /**
- * The daemon refused to start the repo because the free tier's single active
- * slot is already held by a different repo. Returned by {@link ensureRepo}
- * instead of a sock so the bridge can answer the IDE with a cap error.
+ * Structural refusal shape for a daemon-side active-repo cap. No plan
+ * enforces a repo-count limit anymore (repos are unlimited on every plan), so
+ * `ensureRepo` never constructs this today — kept because `proxy.ts` still
+ * narrows on {@link isEnsureRepoRefused} to answer a clean cap error if a
+ * future daemon-side limit ever returns one.
  */
 export interface EnsureRepoRefused {
   refused: "already_active";
@@ -140,9 +142,10 @@ export function isEnsureRepoRefused(
  * If the repo is already running, returns immediately.
  * If not, the supervisor spawns it and waits for ready.
  *
- * On the free tier with another repo already active, returns a structured
- * {@link EnsureRepoRefused} instead of throwing — the bridge surfaces it as a
- * JSON-RPC cap error.
+ * Structural refusal handling only: no plan enforces an active-repo cap
+ * anymore, so the daemon never returns {@link EnsureRepoRefused} today — kept
+ * so a future daemon-side limit surfaces as a clean JSON-RPC cap error
+ * instead of a generic thrown error.
  */
 export async function ensureRepo(
   sockPath: string,
@@ -264,9 +267,11 @@ export async function getDaemonTier(
 
 /**
  * Ask the daemon for the home repo's federatable peers (cross-repo
- * intelligence). Returns the peer list on pro/enterprise, a `workspace_pro_only`
- * refusal on free, or null when the daemon is unreachable (caller degrades to
- * home-only). Never throws. Answered from local registry state — no network.
+ * intelligence). Every plan federates now — there is no tier gate — so this
+ * normally returns the peer list, or null when the daemon is unreachable
+ * (caller degrades to home-only). The `WorkspaceRefusedResponse` return type
+ * is kept defensive-only for a daemon that could still send it; never throws.
+ * Answered from local registry state — no network.
  */
 export async function getPeers(
   sockPath: string,

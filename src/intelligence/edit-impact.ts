@@ -39,10 +39,10 @@ export interface CascadeWarning {
   };
   suggestion: string;
   /**
-   * Cross-repo callers of this entity in federated peer repos (Pro tier).
-   * Populated by the home proxy's federation augmentation
-   * (`augmentBlastRadiusWithPeers`), NOT by `computeEditImpact` — this engine
-   * stays local and process-agnostic. Absent on free tier, when the entity has
+   * Cross-repo callers of this entity in federated peer repos. Every plan
+   * federates — no tier gate. Populated by the home proxy's federation
+   * augmentation (`augmentBlastRadiusWithPeers`), NOT by `computeEditImpact` —
+   * this engine stays local and process-agnostic. Absent when the entity has
    * no SCIP moniker (not exported / no cross-repo identity), or when no peer
    * references it. When present, the pre-edit gate cites the peer repos so a
    * signature change isn't shipped while callers in another repo go unupdated.

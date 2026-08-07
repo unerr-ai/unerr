@@ -24,7 +24,7 @@ import {
   readSegmentFrom,
   segmentPidFromPath,
   segmentSize,
-} from "../../events/event-store.js";
+} from "../../../events/event-store.js";
 import type { BatchAck, CloudResult } from "../client.js";
 import type { CursorPos, PushCursor } from "../push-cursor.js";
 import type {

@@ -9,8 +9,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { AuthState } from "../cloud/auth-state.js";
-import type { AuthSignal } from "../cloud/auth-surface.js";
+import type { AuthState } from "../cloud/auth/auth-state.js";
+import type { AuthSignal } from "../cloud/auth/auth-surface.js";
 import {
   type GatherNoticesDeps,
   type StatusNotices,

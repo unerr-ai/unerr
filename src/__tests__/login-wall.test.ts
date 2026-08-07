@@ -1,24 +1,23 @@
 /**
- * Tests for the login `preAction` wall wired in `src/entrypoints/cli.ts`.
+ * Tests for the login `preAction` wall wired in `src/entrypoints/cli-main.ts`.
  *
- * Policy (2026-06-14, revised): a login wall fires ONLY for user-typed commands
- * that ADD, MODIFY, or START something — bare `unerr` (register repo + serve),
- * `install`, `pm start`, and `conventions` (reads/writes the shared cloud doc).
- * This mirrors the npm/docker/wrangler/supabase split: local + read + teardown
- * work logged out; mutating shared/remote state needs auth. These tests pin that
- * decision matrix:
+ * Policy (2026-08, OSS conversion): unerr's local features — indexing, serving,
+ * install, the process manager — need no account at all. `conventions` is the
+ * one exception: it reads and writes a document shared between people on our
+ * servers, so it alone still needs a login. These tests pin that decision:
  *
- *  - WALL  (login when blocked): bare `unerr`, `install`, `pm start`,
- *    `conventions push`/`pull`.
- *  - EXEMPT (no login, ever): `login`/`logout`/`whoami`/`doctor`, `status`,
- *    `uninstall`, `pm stop`/`remove`/`status`/`logs`, `router …`.
+ *  - WALL  (login when blocked): `conventions push`/`pull`.
+ *  - EXEMPT (no login, ever): bare `unerr`, `install`, `pm start`,
+ *    `login`/`logout`/`whoami`/`doctor`, `status`, `uninstall`,
+ *    `pm stop`/`remove`/`status`/`logs`, `router …`.
  *  - NUDGE (agent surfaces, pass through — never walled here; the throttled
  *    nudge itself is covered by login-blocked-passthrough.test.ts): `recon`,
  *    `index`, `learn`, `exec`, `compress-output`, `hook`.
  *
- * The wall body lives inline in cli.ts and reads module-level state, so the
- * test reconstructs the SAME Commander 12 program shape + `requiresInteractiveLogin`
- * rule and the SAME `loginThenContinue` behavior, driving it through `parseAsync`.
+ * The wall body lives inline in cli-main.ts and reads module-level state, so
+ * the test reconstructs the SAME Commander 12 program shape +
+ * `requiresInteractiveLogin` rule and the SAME `loginThenContinue` behavior,
+ * driving it through `parseAsync`.
  */
 
 import { Command } from "commander";
@@ -28,7 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const loginBlockedMock = vi.fn<() => boolean>();
 const loginGateNoticeMock = vi.fn<() => string>(() => "Sign in to use unerr.");
 const isInternalEntryShapeMock = vi.fn<() => boolean>(() => false);
-vi.mock("../cloud/login-gate.js", () => ({
+vi.mock("../cloud/auth/login-gate.js", () => ({
   loginBlocked: () => loginBlockedMock(),
   loginGateNotice: () => loginGateNoticeMock(),
   isInternalEntryShape: () => isInternalEntryShapeMock(),
@@ -38,21 +37,19 @@ import {
   isInternalEntryShape,
   loginBlocked,
   loginGateNotice,
-} from "../cloud/login-gate.js";
+} from "../cloud/auth/login-gate.js";
 
-// ── Mirror of the cli.ts wall (kept lockstep with the real wiring) ──
+// ── Mirror of the cli-main.ts wall (kept lockstep with the real wiring) ──
 
 /**
- * True for the commands that wall: bare `unerr` (no parent), `install`,
- * `pm start`, and `conventions` (+ its pull/push subs). Everything else returns
- * false and passes through. Mirrors `requiresInteractiveLogin` in cli.ts.
+ * True only for `conventions` (+ its pull/push subs). Everything else,
+ * including bare `unerr` (no parent), `install`, and `pm start`, returns
+ * false and passes through. Mirrors `requiresInteractiveLogin` in cli-main.ts.
  */
 function requiresInteractiveLogin(actionCmd: Command): boolean {
-  if (!actionCmd.parent) return true;
+  if (!actionCmd.parent) return false;
   const name = actionCmd.name();
   const parent = actionCmd.parent.name();
-  if (name === "install") return true;
-  if (parent === "pm" && name === "start") return true;
   if (name === "conventions" || parent === "conventions") return true;
   return false;
 }
@@ -134,25 +131,29 @@ describe("login preAction wall", () => {
     });
   }
 
-  it("subcommand-naming finding: pm start reports leaf 'start' under parent 'pm'", async () => {
-    // Confirms the wall logic keys off (name + parent), not the group.
+  it("subcommand-naming finding: conventions push reports leaf 'push' under parent 'conventions'", async () => {
+    // Confirms the wall logic keys off (name + parent) — the check the
+    // current requiresInteractiveLogin relies on.
     let observedName = "";
     let observedParent = "";
     const program = new Command();
     program.name("unerr");
-    const pm = program.command("pm");
-    pm.command("start").action(() => {});
+    const conventions = program.command("conventions");
+    conventions.command("push").action(() => {});
     program.hook("preAction", (_t, actionCmd) => {
       observedName = actionCmd.name();
       observedParent = actionCmd.parent?.name() ?? "<none>";
     });
-    await program.parseAsync(["node", "unerr", "pm", "start"]);
-    expect(observedName).toBe("start");
-    expect(observedParent).toBe("pm");
+    await program.parseAsync(["node", "unerr", "conventions", "push"]);
+    expect(observedName).toBe("push");
+    expect(observedParent).toBe("conventions");
   });
 
-  describe("EXEMPT — view / teardown / recovery run while logged out", () => {
+  describe("EXEMPT — local features run while logged out", () => {
     const exempt: Array<[string, string[]]> = [
+      ["bare unerr", []],
+      ["install", ["install"]],
+      ["pm start", ["pm", "start"]],
       ["login", ["login"]],
       ["logout", ["logout"]],
       ["whoami", ["whoami"]],
@@ -200,11 +201,8 @@ describe("login preAction wall", () => {
     }
   });
 
-  describe("WALL — add / modify / start commands trigger the login", () => {
+  describe("WALL — conventions (shared cloud doc) triggers the login", () => {
     const walled: Array<[string, string[]]> = [
-      ["bare unerr", []],
-      ["install", ["install"]],
-      ["pm start", ["pm", "start"]],
       ["conventions pull", ["conventions", "pull"]],
       ["conventions push", ["conventions", "push"]],
     ];
@@ -223,7 +221,7 @@ describe("login preAction wall", () => {
       setTTY(true);
       const action = vi.fn();
       const program = buildProgram(action);
-      await program.parseAsync(["node", "unerr", "install"]);
+      await program.parseAsync(["node", "unerr", "conventions", "push"]);
       expect(action).toHaveBeenCalledTimes(1);
       expect(loginRan).not.toHaveBeenCalled();
     });
@@ -234,7 +232,7 @@ describe("login preAction wall", () => {
       setTTY(true);
       const action = vi.fn();
       const program = buildProgram(action);
-      await program.parseAsync(["node", "unerr", "install"]);
+      await program.parseAsync(["node", "unerr", "conventions", "push"]);
       expect(loginBlockedMock).not.toHaveBeenCalled();
       expect(loginRan).not.toHaveBeenCalled();
       expect(action).toHaveBeenCalledTimes(1);
@@ -251,7 +249,7 @@ describe("login preAction wall", () => {
       const program = buildProgram(vi.fn());
 
       await expect(
-        program.parseAsync(["node", "unerr", "install"])
+        program.parseAsync(["node", "unerr", "conventions", "push"])
       ).rejects.toThrow("__exit__");
 
       expect(exitSpy).toHaveBeenCalledWith(1);

@@ -153,7 +153,7 @@ async function unregisterRepoFromPm(cwd: string): Promise<void> {
     const { removeRepo } = await import("../daemon/registry.js");
     if (removeRepo(cwd)) {
       // Daemon-down fallback: ship the `removed` repo_activity event ourselves.
-      const { emitRepoRemoved } = await import("../cloud/repo-removal.js");
+      const { emitRepoRemoved } = await import("../cloud/sync/index.js");
       await emitRepoRemoved(cwd);
     }
   } catch {

@@ -1,13 +1,14 @@
 /**
  * runLogin self-heal — a connected-but-expired machine must not dead-end.
  *
- * Reproduces the reported bug: `unerr install` in a non-dev repo printed
+ * Reproduces the reported bug: a walled command (e.g. `conventions push`;
+ * back when the wall also covered `install`) in a non-dev repo printed
  *   "Your unerr session expired — run `unerr login`"  (the wall)
  *   "This machine is already connected. Run unerr logout first."  (runLogin)
  *   "Login did not complete — run `unerr login`, then retry."  (the wall again)
  * A machine with credentials on disk but an expired/revoked entitlement
- * (`loginBlocked()` true) could never clear the mandatory-login wall, because
- * runLogin() short-circuited on `isLoggedIn()` and refused to act.
+ * (`loginBlocked()` true) could never clear the wall, because runLogin()
+ * short-circuited on `isLoggedIn()` and refused to act.
  *
  * The fix: when connected AND blocked, renew with the stored token; if that
  * clears the block, reconnect silently; if not, the credential is dead — drop
@@ -23,7 +24,7 @@ const isLoggedIn = vi.fn<() => boolean>();
 const readCredentials = vi.fn<() => unknown>();
 const writeCredentials = vi.fn();
 const deleteCredentials = vi.fn();
-vi.mock("../cloud/credentials.js", () => ({
+vi.mock("../cloud/auth/credentials.js", () => ({
   DEFAULT_API_URL: "https://app.unerr.dev",
   isLoggedIn: () => isLoggedIn(),
   readCredentials: () => readCredentials(),
@@ -32,21 +33,21 @@ vi.mock("../cloud/credentials.js", () => ({
 }));
 
 const loginBlocked = vi.fn<() => boolean>();
-vi.mock("../cloud/login-gate.js", () => ({
+vi.mock("../cloud/auth/login-gate.js", () => ({
   loginBlocked: () => loginBlocked(),
 }));
 
 const refreshEntitlements = vi.fn();
-vi.mock("../cloud/entitlements.js", () => ({
+vi.mock("../cloud/plan/entitlements.js", () => ({
   refreshEntitlements: (c: unknown) => refreshEntitlements(c),
 }));
 
 const runDeviceFlow = vi.fn();
-vi.mock("../cloud/device-flow.js", () => ({
+vi.mock("../cloud/auth/device-flow.js", () => ({
   runDeviceFlow: (u: string) => runDeviceFlow(u),
 }));
 
-vi.mock("../cloud/client.js", () => ({
+vi.mock("../cloud/sync/client.js", () => ({
   // Inert stand-in: refreshEntitlements (mocked above) is what consumes the
   // instance, so the client only needs to construct without throwing.
   CloudClient: class {},

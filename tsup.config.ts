@@ -55,6 +55,16 @@ export default defineConfig({
     // here and the package keeps loading cozo-node / @parcel/watcher normally.
     // `script/build-binary.ts` passes `--define __UNERR_BINARY__=true` instead.
     __UNERR_BINARY__: "false",
+    // Production cloud control-plane address, baked in (both prod and dev
+    // tsup builds — this is a build INPUT, not gated by isProdBuild).
+    // Default is today's production URL; UNERR_BUILD_API_URL overrides it for
+    // a staging build with no code edit. Must match scripts/build-binary.ts's
+    // literal exactly, or npm-build and binary-build users land on different
+    // servers — src/__tests__/consolidated-url.test.ts asserts the two files
+    // can't drift.
+    __UNERR_API_URL__: JSON.stringify(
+      process.env.UNERR_BUILD_API_URL || "https://app.unerr.dev"
+    ),
   },
   // Production only: enable esbuild's syntax-level dead-code pass so the
   // `if (false) { ... applyDevConfig ... }` branch is physically removed (not

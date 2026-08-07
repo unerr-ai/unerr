@@ -427,6 +427,58 @@ describe("mcpBoot retry behavior", () => {
     expect(content).not.toContain("No unerr process found for this project");
   });
 
+  it("fails loudly on a stale-daemon repo-cap refusal instead of polling forever", () => {
+    // Regression guard: a daemon still on pre-OSS-conversion code can return
+    // `refused: "already_active"` from ensureRepo. By the time discovery sees
+    // it, StaticCatalogInterceptor has already told the IDE `initialize`
+    // succeeded, so silently retrying leaves every `tools/call` unanswered
+    // until the IDE's own timeout — a hang, not a graceful degrade. The fix
+    // must return immediately (never fall into the retry tail) and the
+    // bridge must answer a protocol-level JSON-RPC error + exit non-zero.
+    const content = readFileSync(
+      resolve(process.cwd(), "src/entrypoints/cli-main.ts"),
+      "utf-8"
+    );
+
+    // ── discoverWithRetry: the refused branch returns, it does not poll ──
+    const discoStart = content.indexOf("async function discoverWithRetry");
+    expect(discoStart).toBeGreaterThan(-1);
+    const refusedCheckIdx = content.indexOf(
+      'if ("refused" in ensured)',
+      discoStart
+    );
+    expect(refusedCheckIdx).toBeGreaterThan(-1);
+    const nextDestructureIdx = content.indexOf(
+      "const { sock, daemonVersion } = ensured;",
+      refusedCheckIdx
+    );
+    expect(nextDestructureIdx).toBeGreaterThan(refusedCheckIdx);
+    const refusedBlock = content.slice(refusedCheckIdx, nextDestructureIdx);
+    expect(refusedBlock).toContain("return {");
+    expect(refusedBlock).toContain('kind: "refused"');
+    // Names the actual fix — not a silent poll, not a dead-ended message.
+    expect(refusedBlock).toContain("unerr pm stop");
+    // Must NOT regress to log-and-fall-through (no branch, no retry log).
+    expect(refusedBlock).not.toContain("} else {");
+    expect(refusedBlock).not.toContain(", retrying...");
+
+    // ── mcpBoot: a refused discovery answers -32003 and exits non-zero ──
+    const refusedHandlerIdx = content.indexOf('discovery.kind === "refused"');
+    expect(refusedHandlerIdx).toBeGreaterThan(-1);
+    const daemonHandlerIdx = content.indexOf(
+      'discovery.kind === "daemon"',
+      refusedHandlerIdx
+    );
+    expect(daemonHandlerIdx).toBeGreaterThan(refusedHandlerIdx);
+    const refusedHandlerBlock = content.slice(
+      refusedHandlerIdx,
+      daemonHandlerIdx
+    );
+    expect(refusedHandlerBlock).toContain("jsonrpc");
+    expect(refusedHandlerBlock).toContain("-32003");
+    expect(refusedHandlerBlock).toContain("process.exit(1)");
+  });
+
   it("reconnects on daemon_dead or socket_closed (not stdin_closed)", () => {
     const content = readFileSync(
       resolve(process.cwd(), "src/entrypoints/cli-main.ts"),

@@ -8,8 +8,9 @@
  *
  * Local and federation stay decoupled: `computeEditImpact` knows nothing of
  * peers; this runs only in the home proxy where the coordinator + moniker index
- * live, and degrades to a no-op (warnings unchanged) on free tier, with no
- * coordinator/index, or when an entity has no cross-repo moniker.
+ * live, and degrades to a no-op (warnings unchanged) with no coordinator/index,
+ * or when an entity has no cross-repo moniker. Every plan federates — no tier
+ * gate.
  *
  */
 
@@ -65,7 +66,7 @@ export async function augmentBlastRadiusWithPeers(
           toolName: "xref_by_moniker",
           args: { moniker, direction: "callers" },
         });
-        if (fan.refused) return; // free tier — leave home-only
+        if (fan.refused) return; // defensive-only refusal — leave home-only
         const peers = fan.results
           .map((r) => ({
             repoId: r.repoId,

@@ -198,7 +198,7 @@ export function recordBlastRadiusTelemetry(
               })),
               callers_truncated: Math.max(0, callers.length - kept.length),
               // Sprint 6.1: cross-repo caller rollup when the federation
-              // augmentation found peer importers (Pro tier). Absent otherwise.
+              // augmentation found peer importers. Absent otherwise.
               ...(w.cross_repo ? { cross_repo: w.cross_repo } : {}),
             };
           }),

@@ -11,7 +11,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { loginBlocked } from "../cloud/login-gate.js";
+import { loginBlocked } from "../cloud/auth/index.js";
 import {
   LOGIN_NUDGE_LINE,
   shouldEmitLoginNudge,

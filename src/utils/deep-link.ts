@@ -9,7 +9,7 @@
  * so a dev.json `apiUrl` override automatically reaches every URL the CLI prints.
  */
 
-import { DEFAULT_API_URL, resolveApiUrl } from "../cloud/credentials.js";
+import { DEFAULT_API_URL, resolveApiUrl } from "../cloud/config.js";
 
 export type DeepLinkView = "health" | "drift" | "timeline" | "graph";
 
@@ -20,8 +20,6 @@ export interface DeepLinkOptions {
   intents?: string[];
   utm_source?: string;
 }
-
-const BASE_URL = "https://app.unerr.dev";
 
 /**
  * Returns the unerr consolidated service base URL resolved through the same
@@ -65,14 +63,20 @@ export function buildDeepLink(
   repoId: string | undefined,
   options?: DeepLinkOptions
 ): string {
+  // Same chain as every other URL this file prints. In a production build
+  // `resolveApiUrl()` folds to the baked address, so this is identical to
+  // DEFAULT_API_URL there; in a dev build it follows `dev.json apiUrl`, so a
+  // printed deep link points at the same server the CLI is actually talking
+  // to. Splitting the two would make a dev session print production links.
+  const baseUrl = consolidatedServiceBaseUrl();
   if (!repoId) {
     // Fallback: generic landing when repo context unavailable
     const params = new URLSearchParams();
     params.set("utm_source", options?.utm_source ?? "cli");
-    return `${BASE_URL}?${params.toString()}`;
+    return `${baseUrl}?${params.toString()}`;
   }
 
-  const base = `${BASE_URL}/r/${repoId}`;
+  const base = `${baseUrl}/r/${repoId}`;
   const params = new URLSearchParams();
 
   if (options?.view) params.set("view", options.view);

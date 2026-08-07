@@ -1,12 +1,19 @@
 /**
  * unerr cloud — the login gate (single enforcement predicate).
  *
- * Login moved from optional to mandatory (2026-06-14, owner decision; see
- * `.internal/archive/LOGIN_UX_STRATEGY.md`). Every surface that must
- * refuse work when there is no usable login — the `preAction` wall on human
- * commands, the `-32004` block on MCP tools, the passthrough/nudge in hooks —
- * decides with the ONE predicate here, so they can never disagree about "is
- * this machine logged in enough to proceed?".
+ * unerr's local features (indexing, serving, install, the process manager)
+ * need no account at all (OSS conversion, 2026-08). Only two kinds of surface
+ * still consult this predicate:
+ *
+ *   - The `preAction` wall on `conventions` (`src/entrypoints/cli-main.ts`) —
+ *     the one command that reads/writes the team's shared cloud document, so
+ *     it alone still refuses to run while signed out.
+ *   - Agent/hook passthrough surfaces — hooks (`hook-runtime.ts`), `exec`,
+ *     `compress-output` — which skip graph-aware or cloud-touching work while
+ *     signed out and emit at most one throttled login nudge, but never block.
+ *
+ * Both kinds decide with the ONE predicate here, so they can never disagree
+ * about "is this machine logged in enough to proceed?".
  *
  * It composes `authState()` (the auth state machine) rather than the raw
  * `isLoggedIn()` file check, because the file check can't tell a deliberate
@@ -34,13 +41,14 @@
  * the environment (CI, agent runs with no human to complete a browser flow).
  * Per the MCP stdio convention — servers take credentials from the environment,
  * not an interactive flow — its mere presence means "allowed"; the server
- * rejects it on the wire if it's actually invalid. Without this, every CI
- * pipeline running the agent would be blocked the day the wall ships.
+ * rejects it on the wire if it's actually invalid. Without this, CI running
+ * `conventions` while signed out would hang on an interactive login it can't
+ * complete.
  *
  * Pure and side-effect-free: it never prompts, never opens a browser, never
  * touches the network. The interactive login + re-dispatch lives in the
- * `preAction` wall (see `src/entrypoints/cli.ts`), which calls this to decide
- * WHETHER to act.
+ * `preAction` wall (see `src/entrypoints/cli-main.ts`), which calls this to
+ * decide WHETHER to act.
  */
 
 import { type AuthStateName, authState } from "./auth-state.js";
@@ -79,9 +87,9 @@ export function loginBlocked(now: number = Date.now()): boolean {
 
 /**
  * Entry shapes that must bypass the interactive command wall: the IDE bridge
- * (`--mcp`, non-interactive — enforced instead by the proxy's `-32004` block)
- * and the process-manager child (`--daemon-child`, a background process that
- * can never complete a browser login).
+ * (`--mcp`, non-interactive — MCP tool calls need no login at all) and the
+ * process-manager child (`--daemon-child`, a background process that can
+ * never complete a browser login).
  */
 export function isInternalEntryShape(
   argv: readonly string[] = process.argv
@@ -101,6 +109,6 @@ export function loginGateNotice(now: number = Date.now()): string {
     case "degraded_free":
       return "Your unerr session expired — run `unerr login` to continue.";
     default:
-      return "Sign in to use unerr — run `unerr login`.";
+      return "Shared team conventions need an account — run `unerr login`.";
   }
 }

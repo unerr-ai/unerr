@@ -11,11 +11,11 @@
 
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { sanitizeDetail } from "../cloud/drainers/envelope.js";
+import { sanitizeDetail } from "../cloud/sync/drainers/envelope.js";
 import {
   PROJECTED_TYPES,
   projectRowForWire,
-} from "../cloud/drainers/ingest.js";
+} from "../cloud/sync/drainers/ingest.js";
 
 const REPO_ROOT = "/Users/x/IdeaProjects/unerr-cli";
 

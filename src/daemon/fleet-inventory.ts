@@ -3,7 +3,7 @@ import {
   type MachineCheckinEventInput,
   type MachineInventoryEventInput,
 } from "@unerr-ai/contracts/fleet";
-import { deriveRepoId } from "../cloud/repo-identity.js";
+import { deriveRepoId } from "../cloud/sync/index.js";
 import { type GitOrigin, detectGitOrigin } from "./git-origin.js";
 import {
   type DaemonRuntime,

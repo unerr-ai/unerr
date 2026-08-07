@@ -26,12 +26,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CloudClient } from "../src/cloud/client.js";
-import { readCredentials } from "../src/cloud/credentials.js";
+import { readCredentials } from "../src/cloud/auth/index.js";
 import { applyDevConfig } from "../src/cloud/dev-mode.js";
-import { assembleDrainers } from "../src/cloud/drainers/index.js";
-import { PushCursor } from "../src/cloud/push-cursor.js";
-import { deriveRepoId } from "../src/cloud/repo-identity.js";
+import {
+  CloudClient,
+  assembleDrainers,
+  PushCursor,
+  deriveRepoId,
+} from "../src/cloud/sync/index.js";
 import { materializeTranscripts } from "../src/tracking/transcript-materializer.js";
 import { UNERR_VERSION } from "../src/version.js";
 

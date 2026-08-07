@@ -1,9 +1,8 @@
 /**
- * Free-tier single-active RECONCILER: `ProcessManager.reconcileFreeTier` brings
- * a running set that was admitted under Pro (then lapsed to free) down to the
- * one free slot. The admission check in `ensure` only blocks NEW foreign
- * starts — it never stops proxies already running, so this reconciler is what
- * makes free actually converge to a single active repo.
+ * `ProcessManager.reconcileFreeTier` used to bring a running set down to one
+ * proxy when the resolved repo limit was exactly 1 (an account lapsed from
+ * Pro to free). The repo limit is unlimited on every plan now, so the method
+ * is permanently a no-op — this proves it never stops a live proxy.
  */
 
 import { EventEmitter } from "node:events";
@@ -23,23 +22,6 @@ vi.mock("node:child_process", async (importActual) => ({
 vi.mock("../daemon/system-health.js", () => ({
   onBattery: () => false,
   loadAverage1: () => 0,
-}));
-
-// Mutable tier so a test can seed repos under Pro (unlimited) then flip to free
-// (limit 1) and assert the reconcile converges — the exact Pro→free lapse.
-const tierState = { limit: -1 };
-vi.mock("../cloud/tier-query.js", async (importActual) => ({
-  ...(await importActual<typeof import("../cloud/tier-query.js")>()),
-  tierFromCache: () => ({
-    plan: tierState.limit === 1 ? "free" : "pro",
-    source: "cache" as const,
-    features: {},
-    limits: {
-      maxActiveRepos: tierState.limit,
-      maxMembers: tierState.limit === 1 ? 1 : -1,
-      maxMachines: tierState.limit === 1 ? 1 : -1,
-    },
-  }),
 }));
 
 type FakeChild = EventEmitter & {
@@ -68,13 +50,12 @@ function makeFakeChild(pid: number): FakeChild {
   return child;
 }
 
-describe("free-tier single-active reconciler", () => {
+describe("ProcessManager.reconcileFreeTier", () => {
   let testDir: string;
   let counter = 0;
 
   beforeEach(() => {
     counter++;
-    tierState.limit = -1; // start Pro so seeding two repos is allowed
     testDir = join(tmpdir(), `reconcile-${Date.now()}-${counter}`);
     mkdirSync(join(testDir, ".unerr"), { recursive: true });
     vi.stubEnv("UNERR_HOME", testDir);
@@ -112,58 +93,19 @@ describe("free-tier single-active reconciler", () => {
     expect(out).toBe(sock);
   }
 
-  it("stops all but the most-connected/active repo when the tier lapses to free", async () => {
+  it("is a permanent no-op — never stops a live proxy", async () => {
     const { ProcessManager } = await import("../daemon/process-manager.js");
     const pm = new ProcessManager();
 
     const repoA = join(testDir, "repo-a");
     const repoB = join(testDir, "repo-b");
-
-    // Both admitted under Pro (cap is a no-op) → two live proxies.
     await seedRunning(pm, repoA, 111111);
     await seedRunning(pm, repoB, 222222);
     expect(forkMock).toHaveBeenCalledTimes(2);
 
-    // repoB is the one the user is inside — give it a live connection so the
-    // keep-selection (most connections first) is deterministic.
-    pm.connect(repoB);
-
-    // Pro lapses to free.
-    tierState.limit = 1;
-
-    const stopped = await pm.reconcileFreeTier();
-    expect(stopped).toBe(1);
-
-    expect(pm.getManaged(repoB)?.status).toBe("running");
-    expect(pm.getManaged(repoA)?.status).toBe("stopped");
-  });
-
-  it("is a no-op on Pro (unlimited) even with several repos running", async () => {
-    const { ProcessManager } = await import("../daemon/process-manager.js");
-    const pm = new ProcessManager();
-
-    const repoA = join(testDir, "repo-a");
-    const repoB = join(testDir, "repo-b");
-    await seedRunning(pm, repoA, 333333);
-    await seedRunning(pm, repoB, 444444);
-
-    // Tier stays Pro (limit -1).
     const stopped = await pm.reconcileFreeTier();
     expect(stopped).toBe(0);
     expect(pm.getManaged(repoA)?.status).toBe("running");
     expect(pm.getManaged(repoB)?.status).toBe("running");
-  });
-
-  it("is a no-op on free when only one repo is running", async () => {
-    const { ProcessManager } = await import("../daemon/process-manager.js");
-    const pm = new ProcessManager();
-
-    const repoA = join(testDir, "repo-a");
-    await seedRunning(pm, repoA, 555555);
-    tierState.limit = 1;
-
-    const stopped = await pm.reconcileFreeTier();
-    expect(stopped).toBe(0);
-    expect(pm.getManaged(repoA)?.status).toBe("running");
   });
 });

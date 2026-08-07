@@ -248,7 +248,7 @@ export const WIRE_TAG_ALIAS: Readonly<Record<string, string>> = Object.freeze({
   ctx: "ctx",
   hth: "ctx",
   wsp: "ctx", // workspace (cross-repo) fan-out partial
-  wsr: "fct", // workspace (cross-repo) refused — free tier upgrade nudge
+  wsr: "fct", // workspace (cross-repo) refused — defensive-only, no tier gate emits it
   rsk: "rsk",
   ber: "rsk",
   wrn: "rsk",
@@ -488,14 +488,16 @@ export function buildSignalPrefix(
   }
 
   // Cross-repo (workspace) refusal — yield SILENTLY (Issue 1, confirmed
-  // 2026-06-22). A free-tier / refused workspace call already ran home-only and
-  // returns the home result; per the settled design it surfaces NO agent-facing
-  // line at all ("silent to coding agent, no error surface"). The wall-hit is
-  // still measured server-side — the `cross_repo_access {refused:true}`
-  // behavior event + the Issue 8 `cross_repo_yielded_free` savings event — so we
-  // know how often users hit it without spending the agent's context on an
-  // upsell. `meta.workspace_refused` is retained as an internal/telemetry field;
-  // it is deliberately NOT emitted as a `ur|` line.
+  // 2026-06-22). Cross-repo intelligence has no tier gate anymore (every plan
+  // federates), so a refused workspace call is defensive-only now — see the
+  // matching comment on `fan.refused` in query-router.ts. If it were ever hit,
+  // it already ran home-only and returns the home result; per the settled
+  // design it surfaces NO agent-facing line at all ("silent to coding agent,
+  // no error surface"). The wall-hit is still measured server-side via the
+  // `cross_repo_access {refused:true}` behavior event, so we'd know how often
+  // it fires without spending the agent's context on an upsell.
+  // `meta.workspace_refused` is retained as an internal/telemetry field; it is
+  // deliberately NOT emitted as a `ur|` line.
 
   // CROSS_REPO_INTELLIGENCE Sprint 5.2: partial cross-repo fan-out note. Some
   // peer repos were unreachable, so the merged result is incomplete — warn

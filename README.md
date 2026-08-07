@@ -40,7 +40,7 @@
   <code>curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash</code>
   <br /><sub>or <code>brew install unerr-ai/tap/unerr</code> · <code>npm install -g @unerr-ai/unerr</code> · <a href="./INSTALL.md">all platforms →</a></sub>
   <br /><br />
-  <sub>One self-contained binary — no Node to match, nothing to compile. Install, restart your IDE, and the next prompt already knows your repo. No config, no account, nothing leaves your machine.</sub>
+  <sub>One self-contained binary — no Node to match, nothing to compile. Install, restart your IDE, and the next prompt already knows your repo. No config, no account, and your code never leaves your machine.</sub>
 </p>
 
 <p align="center">
@@ -59,7 +59,7 @@
 - [Quick Start](#quick-start)
 - [See it in action](#see-it-in-action)
 - [You today, your team soon](#you-today-your-team-soon)
-- [Logging in (optional)](#logging-in-optional)
+- [Account](#account)
 - [Who it's for](#who-its-for)
 - [What it does under the hood](#what-it-does-under-the-hood)
 - [About the fewer tokens](#about-the-fewer-tokens)
@@ -223,13 +223,19 @@ The same runtime extends to your whole team — one shared view across every eng
 | Edit-time behaviors **enforceable** org-wide (block / approve) | | ✓ soon |
 | One rolled-up view of what the whole team's agents spend and catch | | ✓ soon |
 
-The individual product works with no account and no network, forever. Follow [unerr.dev](https://www.unerr.dev/) for the team rollout.
+The individual product works with no account, forever, and keeps working with no network. Follow [unerr.dev](https://www.unerr.dev/) for the team rollout.
 
 ---
 
-## Logging in (optional)
+## Account
 
-Logging in is optional and the bare runtime — code map, conventions, the guards — works fully without it. Today it connects this machine to your account and tells the CLI which plan you're on; it's also the identity your team's shared view is built on.
+Logging in is optional. Everything above this section — the code map, search, edits, blast-radius checks, convention detection, and unlimited repos — runs fully on your machine with no account, forever. An account connects this machine to a plan and adds the pieces where a server is genuinely part of the picture:
+
+| Works with no account | Needs an account |
+|---|---|
+| Code map, search, file edits, blast-radius checks | Usage synced to a team dashboard |
+| Convention detection, applied to your own work | Shared team conventions, pulled from the server |
+| Unlimited repos, cross-repo search on this machine | Fleet inventory — which machines run which repos |
 
 ```bash
 unerr login      # connect this machine — opens your browser to approve
@@ -237,7 +243,7 @@ unerr whoami     # show the account this machine is connected to
 unerr logout     # disconnect and delete the local credentials
 ```
 
-**What gets sent — and what never does.** The connection carries settings only: the plan you're on, and any shared conventions document (plain text you chose to share). Your source code, your prompts, and your diffs never leave your machine — the service has no endpoint that accepts them.
+**What gets sent — and what never does.** Logged out, or logged in on the free plan, nothing but two account-less checks (a version check, a one-time parser download for some languages) ever leaves your machine. Once you're on a paid, logged-in plan, background sync adds four things: machine facts, this repo's inventory row, usage events (which tool ran, how long, session/branch/commit), and a stripped summary of agent transcripts. Never source code, file contents, diffs, raw prompts, raw transcript text, or credentials. Full detail in [PRIVACY.md](./PRIVACY.md).
 
 **Where credentials live.** The token for this machine goes into your OS keychain (Keychain Access on macOS, Secret Service on Linux, Credential Manager on Windows). If no keychain is available, it falls back to `~/.unerr/credentials.json` (readable only by you) and warns you once.
 

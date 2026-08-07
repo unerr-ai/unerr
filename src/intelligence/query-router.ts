@@ -565,8 +565,11 @@ export interface ToolResult {
      */
     workspace?: { peers: number; partial: boolean };
     /**
-     * Set when `scope:'workspace'` was requested on free tier: the upgrade nudge
-     * to surface while still returning the home-only result.
+     * Set when a `scope:'workspace'` fan-out was refused, carrying the message
+     * to surface while still returning the home-only result. Defensive only —
+     * the free-tier gate that used to emit this was removed when cross-repo
+     * became free, and `resolveFederatedPeers` no longer refuses on plan. The
+     * daemon can still return a refusal shape, so the path stays handled.
      */
     workspace_refused?: string;
     /** Set when an implicit cross-repo path route served this from a peer repo. */
@@ -3199,6 +3202,10 @@ export class QueryRouter {
     const homeRepo = this.projectRoot ?? process.cwd();
     const fan = await coord.fanOut({ homeRepo, toolName, args: repoArgs });
 
+    // Defensive only — the daemon's `peers` command never refuses this way
+    // anymore (the repo/workspace tier gate is gone), but `fanOut`'s injected
+    // `getPeers` dependency still declares the refusal shape, so this stays
+    // to degrade cleanly if it's ever exercised.
     if (fan.refused) {
       meta.workspace_refused = fan.refused.message;
       meta.latency_ms = performance.now() - t0;
@@ -3207,10 +3214,6 @@ export class QueryRouter {
         partial: false,
         refused: true,
       });
-      // Issue 1 + 8: free tier / refused fan-out → yielded silently to the home
-      // repo (no agent surface). Record the wall-hit for the savings-origin
-      // rollup so we know how often users hit it.
-      this.emitCrossRepoSavings("cross_repo_yielded_free", toolName, 0);
       return { content: homeContent, _meta: meta };
     }
 
@@ -3257,10 +3260,7 @@ export class QueryRouter {
    * raw federation telemetry. No-op when there is no writer or session id.
    */
   private emitCrossRepoSavings(
-    kind:
-      | "cross_repo_routed"
-      | "cross_repo_yielded_free"
-      | "cross_repo_yielded_unregistered",
+    kind: "cross_repo_routed" | "cross_repo_yielded_unregistered",
     toolName: string,
     peers: number
   ): void {
@@ -3269,9 +3269,7 @@ export class QueryRouter {
     const note =
       kind === "cross_repo_routed"
         ? `${peers} peer repo(s)`
-        : kind === "cross_repo_yielded_unregistered"
-          ? "no registered peer"
-          : "home-only";
+        : "no registered peer";
     emitSavingsEvent(this.behaviorEvents, kind, {
       session_id: sid,
       turn: this.sessionContext.getToolCallCount(),
@@ -3319,6 +3317,7 @@ export class QueryRouter {
       args: { moniker, direction },
     });
 
+    // Defensive only — see the matching comment in executeWorkspace.
     if (fan.refused) {
       meta.workspace_refused = fan.refused.message;
       this.recordCrossRepoAccess("get_references", {
@@ -3326,8 +3325,6 @@ export class QueryRouter {
         partial: false,
         refused: true,
       });
-      // Issue 1 + 8: silent home-only yield; record the wall-hit.
-      this.emitCrossRepoSavings("cross_repo_yielded_free", "get_references", 0);
       return finishHome();
     }
 

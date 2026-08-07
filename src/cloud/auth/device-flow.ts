@@ -24,9 +24,9 @@
 
 import { spawn } from "node:child_process";
 import { arch, hostname, platform } from "node:os";
-import { UNERR_VERSION } from "../version.js";
-import { CloudClient } from "./client.js";
-import { computeMachineFingerprint } from "./machine-fingerprint.js";
+import { UNERR_VERSION } from "../../version.js";
+import { CloudClient } from "../sync/client.js";
+import { computeMachineFingerprint } from "../sync/machine-fingerprint.js";
 
 /** Response from the authorize endpoint. */
 interface AuthorizeResponse {

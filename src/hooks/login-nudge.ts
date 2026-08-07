@@ -2,12 +2,14 @@
  * Throttled "run `unerr login`" nudge for the non-interactive surfaces.
  *
  * The hook / exec / compress-output / check-commit paths are invoked by the
- * IDE's PreToolUse/PostToolUse hooks and by git pre-commit/post-commit. When
- * login is blocked (`loginBlocked()`) they pass through unchanged — they never
- * deny, throw, or open a browser. But the agent/user still needs to learn that
- * login is required, so each surface emits ONE `ur|act` line, throttled to at
- * most once per `LOGIN_NUDGE_WINDOW_MS` per repo, so a busy session of hook
- * fires doesn't spam the same line on every Bash/Edit/commit.
+ * IDE's PreToolUse/PostToolUse hooks and by git pre-commit/post-commit. Signed
+ * out (`loginBlocked()`) they pass through unchanged — they never deny, throw,
+ * or open a browser, and every local feature keeps working. The nudge exists
+ * only so the user learns what an account would ADD (team conventions sync, a
+ * usage dashboard); it does not report a wall, because there isn't one. Each
+ * surface emits ONE `ur|act` line, throttled to at most once per
+ * `LOGIN_NUDGE_WINDOW_MS` per repo, so a busy session of hook fires doesn't
+ * spam the same line on every Bash/Edit/commit.
  *
  * The throttle is a single timestamp file under `.unerr/state/`. Reads and
  * writes are wrapped so a missing/unwritable state dir can never throw into a
@@ -17,14 +19,14 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { loginBlocked } from "../cloud/login-gate.js";
+import { loginBlocked } from "../cloud/auth/index.js";
 
 /** Throttle window: emit the login nudge at most once per hour per repo. */
 export const LOGIN_NUDGE_WINDOW_MS = 60 * 60 * 1000;
 
 /** The single agent-facing action line. Imperative verb + named command. */
 export const LOGIN_NUDGE_LINE =
-  "ur|act run `unerr login` — unerr is signed out; hooks pass through unchanged until you do";
+  "ur|act run `unerr login` for team conventions sync and a usage dashboard — local features run with no account";
 
 function nudgeMarkerPath(cwd: string): string {
   return join(cwd, ".unerr", "state", "login-nudge.stamp");
