@@ -395,6 +395,15 @@ async function runCompile(
       __UNERR_DEV_BUILD__: "false",
       __UNERR_VERSION__: JSON.stringify(version),
       __UNERR_COMMIT__: JSON.stringify(commit),
+      // Production cloud control-plane address baked into the binary.
+      // Default is today's production URL; UNERR_BUILD_API_URL overrides it
+      // for a staging build with no code edit. Must match tsup.config.ts's
+      // literal exactly, or npm-build and binary-build users land on
+      // different servers — src/__tests__/consolidated-url.test.ts asserts
+      // the two files can't drift.
+      __UNERR_API_URL__: JSON.stringify(
+        process.env.UNERR_BUILD_API_URL || "https://app.unerr.dev"
+      ),
     },
     compile: { target: spec.bunTarget, outfile: outFile },
     plugins: [

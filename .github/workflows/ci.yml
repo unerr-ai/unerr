@@ -29,6 +29,18 @@ on:
 permissions:
   contents: read
 
+# The production cloud control-plane address, baked into every build (the
+# npm/tsup validation build in build-and-test AND the native binary compile
+# in build-binaries) via UNERR_BUILD_API_URL (see src/cloud/config.ts
+# resolveApiUrl / tsup.config.ts / scripts/build-binary.ts). Declared once,
+# workflow-level, on purpose: setting it explicitly here — rather than
+# relying on the same default baked into both build configs — means an
+# accidental future edit to one of those defaults still ships the address
+# CI actually asked for, and the two build paths read the identical value
+# from the identical place instead of two copies that could drift apart.
+env:
+  UNERR_BUILD_API_URL: https://app.unerr.dev
+
 jobs:
   build-and-test:
     runs-on: ${{ matrix.os }}

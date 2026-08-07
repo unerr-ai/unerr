@@ -30,7 +30,7 @@ import {
   runDeviceFlow,
   writeCredentials,
 } from "../cloud/auth/index.js";
-import { DEFAULT_API_URL } from "../cloud/config.js";
+import { resolveApiUrl } from "../cloud/config.js";
 import { refreshEntitlements } from "../cloud/plan/index.js";
 import {
   CloudClient,
@@ -68,12 +68,6 @@ async function refreshAndDescribePlan(
     /* fall through to the soft message */
   }
   return "Run unerr whoami to see your team's plan.";
-}
-
-/** Resolve the API URL for a fresh login (env override wins). */
-function resolveApiUrl(): string {
-  const env = process.env.UNERR_API_URL?.trim();
-  return (env || DEFAULT_API_URL).replace(/\/+$/, "");
 }
 
 /**

@@ -9,10 +9,23 @@
  *   - Fallback: returns generic landing when repoId is missing
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDeepLink } from "../utils/deep-link.js";
 
 describe("Deep-Link URL Generation (1.6)", () => {
+  // These assertions pin the exact host, and outside a production build the URL
+  // helpers honour a `UNERR_API_URL` override. So the variable is cleared here
+  // rather than inherited: without this, a sibling test file that sets it and
+  // does not restore it makes every assertion below fail on file order alone.
+  // `vi.stubEnv(..., undefined)` removes the key; a plain assignment would
+  // store the literal string "undefined", which `resolveApiUrl` would then use.
+  beforeEach(() => {
+    vi.stubEnv("UNERR_API_URL", undefined);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   // ── Basic URL structure ────────────────────────────────────────
 
   describe("basic URL structure", () => {

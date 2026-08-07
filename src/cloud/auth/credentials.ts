@@ -128,7 +128,9 @@ export function readCredentials(): Credentials | null {
   const envToken = process.env.UNERR_TOKEN;
   if (envToken && envToken.trim().length > 0) {
     return {
-      api_url: resolveApiUrl(process.env.UNERR_API_URL),
+      // resolveApiUrl() already reads UNERR_API_URL internally (dev builds
+      // only) — no need to pass it again here.
+      api_url: resolveApiUrl(),
       token: envToken.trim(),
       organization_id: process.env.UNERR_ORG_ID?.trim() ?? "",
       machine_id: "",
