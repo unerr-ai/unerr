@@ -3264,7 +3264,9 @@ export class QueryRouter {
     const sid = this.tokenFlow?.sessionId;
     if (!this.behaviorEvents || !sid) return;
     const note =
-      kind === "cross_repo_routed" ? `${peers} peer repo(s)` : "no registered peer";
+      kind === "cross_repo_routed"
+        ? `${peers} peer repo(s)`
+        : "no registered peer";
     emitSavingsEvent(this.behaviorEvents, kind, {
       session_id: sid,
       turn: this.sessionContext.getToolCallCount(),
