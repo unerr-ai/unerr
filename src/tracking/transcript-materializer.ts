@@ -25,10 +25,14 @@ import {
 } from "./agent-transcript/index.js";
 import { openMetricsStore } from "./metrics-store.js";
 
-// Matches the transcripts wire cap (`TRANSCRIPT_TEXT_CAP` = 16 KB in
-// src/cloud/drainers/transcripts.ts). Storing up to the wire cap means the
-// transcript push stream's final clip (B2-clip) is the only place prose is
-// trimmed — the store does not silently lose prose below the wire limit first.
+// Local-store cap only — bounds the `text` column persisted to the transcript
+// cache (`store.upsertAgentTranscript`), not the wire body. It used to mirror
+// a matching wire-side `TRANSCRIPT_TEXT_CAP` in the per-type transcripts
+// drainer, but that drainer (`src/cloud/drainers/transcripts.ts`) and its
+// constant no longer exist — Rev-3 collapsed every per-type drainer into the
+// unified ingest path (`src/cloud/sync/drainers/index.ts`), which forwards
+// events verbatim instead of mapping per type. The wire-side `trace_text` cap
+// is independent of this constant: see `TRACE_TEXT_EMIT_LIMIT` below.
 const TEXT_LIMIT = 16_384;
 
 function truncate(

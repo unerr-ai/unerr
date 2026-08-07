@@ -44,6 +44,7 @@ import {
 import { installFileLogger } from "../utils/file-logger.js";
 import {
   cleanupLegacyLogs,
+  cleanupLegacyStateArtefacts,
   getOrCreateSid,
   globalLog,
   globalLogsDir,
@@ -388,6 +389,7 @@ export async function startDaemon(opts: {
   // Install file logger as first action
   getOrCreateSid();
   cleanupLegacyLogs(globalLogsDir(globalDir()));
+  cleanupLegacyStateArtefacts(globalDir());
   sweepRotatedLogs(globalLogsDir(globalDir()));
   installFileLogger({
     filePath: globalLog.unerrd(globalDir()),
