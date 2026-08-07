@@ -42,8 +42,8 @@ export interface RepoSettings {
   autostart?: "eager" | "auto" | "never";
   /**
    * Cross-repo federation opt-out. When `false`, this repo never appears in
-   * another repo's workspace-scoped results. Absent ⇒ true (federate). Only
-   * consulted on pro/enterprise tiers — free never federates regardless.
+   * another repo's workspace-scoped results. Absent ⇒ true (federate). Every
+   * plan federates — no tier gate.
    */
   federate?: boolean;
   /**
@@ -145,10 +145,10 @@ export interface EntitlementsRequest {
 /**
  * Ask the daemon which other registered repos the home repo may federate with
  * (cross-repo intelligence). Returns peers minus the home repo, minus any repo
- * that opted out (`settings.federate === false`). Pro/enterprise only — the
- * daemon refuses on free with `workspace_pro_only`. Discovery only: the daemon
- * does not spawn sleeping peers here (the coordinator ensures each peer it
- * actually queries), so this stays cheap and avoids a spawn storm.
+ * that opted out (`settings.federate === false`). Every plan federates — there
+ * is no tier gate. Discovery only: the daemon does not spawn sleeping peers
+ * here (the coordinator ensures each peer it actually queries), so this stays
+ * cheap and avoids a spawn storm.
  */
 export interface PeersRequest {
   cmd: "peers";
@@ -196,9 +196,11 @@ export interface ErrorResponse {
 }
 
 /**
- * The daemon refused to start a repo because the free tier (1 active repo) is
- * already serving a different repo. Distinct from `ErrorResponse` so the bridge
- * can surface a clean cap refusal (JSON-RPC -32003) instead of a generic error.
+ * Structural refusal shape for a daemon-side active-repo cap. No plan enforces
+ * a repo-count limit anymore (repos are unlimited on every plan — no server
+ * sits in that data path), so nothing constructs this today. Kept only so a
+ * future daemon-side limit (unrelated to pricing tier) has a ready response
+ * shape and the bridge's `already_active` handling stays exercised.
  */
 export interface EnsureRefusedResponse {
   ok: false;
@@ -266,10 +268,11 @@ export interface PeersOkResponse {
 }
 
 /**
- * The daemon refused a `peers` request because cross-repo federation is a
- * pro/enterprise feature and the active plan is free. Distinct from
- * `ErrorResponse` so the proxy can degrade to home-only and surface a clean
- * upgrade nudge instead of a generic error.
+ * Structural refusal shape for a `peers` request. Every plan federates now —
+ * there is no tier gate, so the daemon no longer constructs this. Kept
+ * defensive-only: `getPeers` (client.ts) still handles it and the proxy still
+ * degrades to home-only on receipt, in case a daemon on an older version ever
+ * sends one.
  */
 export interface WorkspaceRefusedResponse {
   ok: false;

@@ -127,21 +127,23 @@ export type BehaviorEventType =
    *  strip reads. */
   | "incomplete_work_flagged"
   // ── CROSS_REPO_INTELLIGENCE (Sprint 5.1) — cross-repo (workspace) access ──
-  /** A `scope:'workspace'` tool call fanned out to federated peer repos (Pro
-   *  tier). One row per workspace tool call that reached the federation path.
-   *  `detail.peers` = peers that answered, `detail.partial` = ≥1 peer
-   *  unreachable (result incomplete), `detail.refused` = true when the daemon
-   *  refused on free tier (home-only). Drains through the existing C1 `events`
-   *  behavior projection — no new drainer or event table. */
+  /** A `scope:'workspace'` tool call fanned out to federated peer repos. Every
+   *  plan federates — no tier gate. One row per workspace tool call that
+   *  reached the federation path. `detail.peers` = peers that answered,
+   *  `detail.partial` = ≥1 peer unreachable (result incomplete),
+   *  `detail.refused` = true on the rare defensive daemon refusal (home-only).
+   *  Drains through the existing C1 `events` behavior projection — no new
+   *  drainer or event table. */
   | "cross_repo_access"
   // ── CROSS_REPO_INTELLIGENCE (Sprint 6.3) — dangling cross-repo reference ──
   /** A cross-repo drift sweep found ≥1 reference whose owning peer answered but
    *  no longer defines the moniker — the peer moved, renamed, or deleted the
-   *  symbol the home repo still imports (Pro tier). One row per sweep that found
-   *  drift. `detail.dangling` = count of dangling monikers, `detail.partial` =
-   *  ≥1 peer unreachable (a defining peer may have been missed), `detail.findings`
-   *  = capped sample of `{moniker, package, name, sites}`. Drains through the
-   *  existing C1 `events` behavior projection — no new drainer or event table. */
+   *  symbol the home repo still imports. Every plan federates — no tier gate.
+   *  One row per sweep that found drift. `detail.dangling` = count of dangling
+   *  monikers, `detail.partial` = ≥1 peer unreachable (a defining peer may have
+   *  been missed), `detail.findings` = capped sample of
+   *  `{moniker, package, name, sites}`. Drains through the existing C1 `events`
+   *  behavior projection — no new drainer or event table. */
   | "cross_repo_drift"
   // ── OWN_EDIT_TOOL — deterministic end-of-turn "files changed" receipt ──
   /** A `file_edit` (targeted edit or whole-file write) applied successfully.

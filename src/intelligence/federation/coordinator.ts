@@ -44,7 +44,11 @@ export interface FanOutResult {
   results: PeerResult[];
   /** True when ≥1 peer was skipped, timed out, or failed — results incomplete. */
   partial: boolean;
-  /** Set when the daemon refused workspace scope (free tier). Home-only then. */
+  /**
+   * Set when the daemon refused workspace scope. Every plan federates now — no
+   * tier gate constructs this — kept defensive-only in case a daemon on an
+   * older version ever sends one. Home-only then.
+   */
   refused?: WorkspaceRefusedResponse;
 }
 
@@ -100,9 +104,9 @@ export class FederationCoordinator {
 
   /**
    * Fan `toolName` out to every federatable peer and collect labeled results.
-   * Free tier short-circuits to a refusal (no peers queried). Each peer is
-   * lazily ensured, called with `scope:'repo'` forced on, and gated by its
-   * breaker; any skip/timeout/failure flips `partial` so the caller can warn.
+   * Every plan federates — no tier gate. Each peer is lazily ensured, called
+   * with `scope:'repo'` forced on, and gated by its breaker; any
+   * skip/timeout/failure flips `partial` so the caller can warn.
    */
   async fanOut(opts: FanOutOptions): Promise<FanOutResult> {
     const peersResp = await this.deps.getPeers(opts.homeRepo);
@@ -112,7 +116,8 @@ export class FederationCoordinator {
     if (peersResp === null) {
       return { results: [], partial: false };
     }
-    // Free tier → structured refusal; caller degrades to home-only + nudge.
+    // Defensive-only: no daemon on this version ever refuses now. Kept in
+    // case an older daemon sends one; caller degrades to home-only + nudge.
     if (!peersResp.ok) {
       return { results: [], partial: false, refused: peersResp };
     }
@@ -222,8 +227,9 @@ export class FederationCoordinator {
    * Route a single path-bearing call (e.g. `file_read`) to the peer that owns
    * `filePath`, when the path resolves outside the home repo into a federated
    * sibling. Returns `{routed:false}` when no peer owns the path, the daemon is
-   * unreachable, the peer's breaker is open, or free tier refuses — the caller
-   * then falls back to the home graph. `scope:'repo'` is forced on the peer call.
+   * unreachable, the peer's breaker is open, or a daemon refusal (defensive
+   * only — no plan gates this) — the caller then falls back to the home graph.
+   * `scope:'repo'` is forced on the peer call.
    */
   async routeByPath(opts: {
     homeRepo: string;

@@ -59,9 +59,13 @@ import {
 // ── Types ───────────────────────────────────────────────────────
 
 /**
- * The result of {@link ProcessManager.ensure}: the per-repo UDS sock path on
- * success, or a structured free-tier refusal when the single active slot is
- * already held by a different repo.
+ * The result of {@link ProcessManager.ensure}: the per-repo UDS sock path.
+ * `EnsureRefusal` is a structural leftover from the removed single-active-repo
+ * cap — `ensure()` never constructs it anymore (repos are unlimited on every
+ * plan). The union stays because `entrypoints/daemon.ts`'s "ensure" case still
+ * narrows on `typeof outcome !== "string"` to answer the wire's
+ * `EnsureRefusedResponse` shape; collapsing this to plain `string` means
+ * editing that file's dead branch too, which is out of this round's scope.
  */
 export type EnsureRefusal = {
   refused: "already_active";
@@ -69,11 +73,6 @@ export type EnsureRefusal = {
   message: string;
 };
 export type EnsureOutcome = string | EnsureRefusal;
-
-/** Type guard — true when `ensure` refused rather than returning a sock path. */
-export function isEnsureRefusal(o: EnsureOutcome): o is EnsureRefusal {
-  return typeof o !== "string";
-}
 
 /**
  * One caller blocked in {@link ProcessManager.waitForReady} for a repo whose
@@ -1340,8 +1339,20 @@ export class ProcessManager {
     // no latency and a failed/offline check is silent. `isQuiet` gates the apply
     // so an upgrade only ever runs when no IDE is connected. Lazy import keeps
     // the update subsystem out of the manager's hot module graph.
-    void import("../update/update-runner.js")
-      .then((m) => m.runUpdateCycle({ isQuiet: () => this.isQuietForUpdate() }))
+    //
+    // Skipped entirely when the telemetry off-switch is set
+    // (`UNERR_NO_TELEMETRY` / `DO_NOT_TRACK`): the version check is an
+    // outbound network call (`fetch` to the npm registry), and an explicit
+    // opt-out means no outbound calls, not just no cloud push. NOT gated on
+    // plan or login — an account-less user still gets update checks by
+    // default, because a CLI that never learns about a security fix is worse.
+    void import("../cloud/entitlements.js")
+      .then(({ isTelemetryDisabledByEnv }) => {
+        if (isTelemetryDisabledByEnv()) return;
+        return import("../update/update-runner.js").then((m) =>
+          m.runUpdateCycle({ isQuiet: () => this.isQuietForUpdate() })
+        );
+      })
       .catch(() => {
         /* best-effort — auto-update never breaks the sweep */
       });
