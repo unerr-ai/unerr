@@ -17,9 +17,9 @@ vulnerability reporting:
 2. Click **Report a vulnerability**.
 3. Describe the issue: what it is, how to reproduce it, and what it affects.
 
-<!-- PLACEHOLDER: if you want an email fallback for reporters who can't use
-     GitHub, add a real security contact address here, e.g.
-     security@unerr.dev, and update this section. None is set today. -->
+If you cannot use GitHub for any reason, email **jaswanth@unerr.dev** instead.
+Say "security" in the subject line. Please do not include a working exploit in
+the first email — describe the issue and we will agree a channel for details.
 
 ## What to expect
 
