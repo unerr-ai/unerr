@@ -46,14 +46,14 @@ describe("parseLimits", () => {
     });
   });
 
-  it("fail-safes garbage values to 1", () => {
+  it("fail-safes garbage values to the free default", () => {
     const limits = parseLimits({
       max_active_repos: "lots",
       max_members: 2.5,
       max_machines: -7,
     });
     expect(limits).toEqual({
-      maxActiveRepos: 1,
+      maxActiveRepos: UNLIMITED,
       maxMembers: 1,
       maxMachines: 1,
     });
@@ -112,9 +112,9 @@ describe("limit accessors", () => {
 });
 
 describe("FREE_TIER_LIMITS", () => {
-  it("is one repo, one seat, one machine", () => {
+  it("is unlimited repos, one seat, one machine", () => {
     expect(FREE_TIER_LIMITS).toEqual({
-      maxActiveRepos: 1,
+      maxActiveRepos: UNLIMITED,
       maxMembers: 1,
       maxMachines: 1,
     });

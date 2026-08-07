@@ -14,9 +14,13 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { WORKSPACE_PRO_ONLY_MESSAGE } from "../daemon/peers.js";
 import { buildSignalPrefix } from "../proxy/response-envelope.js";
 import { resetSignalDedupSingleton } from "../proxy/signal-dedup.js";
+
+// `meta.workspace_refused` no longer has a live producer (the repo/workspace
+// tier gate is gone), but `buildSignalPrefix` still swallows it silently if a
+// caller ever sets it — this constant just stands in for any refusal string.
+const WORKSPACE_PRO_ONLY_MESSAGE = "workspace refusal test message";
 
 describe("workspace refusal yields silently (Issue 1)", () => {
   beforeEach(() => {

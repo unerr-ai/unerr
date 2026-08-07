@@ -62,7 +62,7 @@ export const PLANS = {
   free: {
     maxMembers: 1,
     maxMachines: 2,
-    maxActiveRepos: 1,
+    maxActiveRepos: -1,
     features: { conventions_sync: true },
   },
   pro: {

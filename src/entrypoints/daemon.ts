@@ -190,25 +190,19 @@ async function handleRequest(
   switch (req.cmd) {
     case "ensure": {
       try {
-        // Pro+ lazy auto-add (cross-repo scenarios 1 & 3): if the agent
-        // referenced a repo that is on disk but never `unerr add`-ed, register
-        // it (ephemeral) so it becomes queryable this turn. Gated on unlimited
-        // tier — free never auto-adds, its single slot stays with the explicitly
-        // added repo. Best-effort: a parent/child conflict just leaves it
-        // unregistered and ensure proceeds (the covering proxy serves it).
+        // Lazy auto-add (cross-repo scenarios 1 & 3): if the agent referenced a
+        // repo that is on disk but never `unerr add`-ed, register it (ephemeral)
+        // so it becomes queryable this turn. The repo limit is unlimited on
+        // every plan, so this applies uniformly — no tier gate. Best-effort: a
+        // parent/child conflict just leaves it unregistered and ensure proceeds
+        // (the covering proxy serves it).
         if (!findRepo(req.repo)) {
-          const { tierFromCache } = await import("../cloud/tier-query.js");
-          const { repoLimit, isUnlimited } = await import(
-            "../cloud/tier-model.js"
-          );
-          if (isUnlimited(repoLimit(tierFromCache()))) {
-            addRepo(req.repo, { ephemeral: true }, { skipCap: true });
-          }
+          addRepo(req.repo, { ephemeral: true }, { skipCap: true });
         }
         const outcome = await pm.ensure(req.repo);
-        // Free-tier single-active backstop: a different repo already holds the
-        // one slot — surface a structured refusal so the bridge answers the
-        // IDE with a clean cap error instead of relaying.
+        // `ensure` no longer refuses on an active-repo cap (unlimited on every
+        // plan), so `outcome` is always the sock string here — kept as a type
+        // guard since `EnsureOutcome` still declares the refusal shape.
         if (typeof outcome !== "string") {
           return {
             ok: false,
@@ -243,8 +237,10 @@ async function handleRequest(
 
     case "add": {
       // Resolve the plan's repo limit from local state (the daemon owns the
-      // freshest entitlement cache) and inject it so the registry enforces the
-      // free-tier cap without importing cloud (which would cycle).
+      // freshest entitlement cache) and inject it so the registry can enforce
+      // it without importing cloud (which would cycle). Unlimited on every
+      // plan today, so this always allows — the primitive stays generic for
+      // whatever limit a future plan sends.
       const { tierFromCache } = await import("../cloud/tier-query.js");
       const { repoLimit } = await import("../cloud/tier-model.js");
       const result = addRepo(req.repo, req.settings ?? {}, {
@@ -334,24 +330,15 @@ async function handleRequest(
     }
 
     case "peers": {
-      // Cross-repo discovery. Pro/enterprise only — the tier gate lives in
-      // resolveFederatedPeers (injected `unlimited`). Discovery does NOT spawn
-      // sleeping peers: the coordinator ensures each peer it actually queries,
-      // so this stays cheap and avoids a fork storm.
-      const { tierFromCache } = await import("../cloud/tier-query.js");
-      const { repoLimit, isUnlimited } = await import("../cloud/tier-model.js");
+      // Cross-repo discovery — every repo may federate (no tier gate; peers
+      // are sibling processes on the same machine over UNIX sockets, no
+      // unerr-operated server in the path). Discovery does NOT spawn sleeping
+      // peers: the coordinator ensures each peer it actually queries, so this
+      // stays cheap and avoids a fork storm.
       const verdict = resolveFederatedPeers({
         homeRepo: req.homeRepo,
         repos: listRepos(),
-        unlimited: isUnlimited(repoLimit(tierFromCache())),
       });
-      if (!verdict.ok) {
-        return {
-          ok: false,
-          refused: "workspace_pro_only",
-          message: verdict.message,
-        };
-      }
       const { deriveRepoId } = await import("../cloud/repo-identity.js");
       const peers = await Promise.all(
         verdict.peers.map(async (r) => {

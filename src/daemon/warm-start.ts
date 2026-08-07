@@ -19,8 +19,6 @@ import { type ChildProcess, spawn as cpSpawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
-import { repoLimit } from "../cloud/tier-model.js";
-import { tierFromCache } from "../cloud/tier-query.js";
 import { isCI } from "./detect-ci.js";
 import type { ProcessManager } from "./process-manager.js";
 import type { RepoEntry } from "./protocol.js";
@@ -173,9 +171,8 @@ export function selectCandidates(
 
 /**
  * The single most-recently-active repo across `repos`, ranked by
- * `max(lastActivity ?? lastStarted ?? addedAt)`. Used by the free-tier
- * autostart restriction: when only one repo may run, only this one starts.
- * Returns null for an empty registry.
+ * `max(lastActivity ?? lastStarted ?? addedAt)`. Returns null for an empty
+ * registry.
  */
 export function lastActiveRepo(repos: RepoEntry[]): RepoEntry | null {
   let best: RepoEntry | null = null;
@@ -223,15 +220,7 @@ export async function runWarmStart(
   if (isCI()) return result;
 
   const registry = readRegistry();
-
-  // Free-tier single-active cap: when only one repo may run, autostart starts
-  // ONLY the single last-active repo and skips the rest (they stay registered
-  // but dormant). Limit >1 / unlimited (Pro/Team) starts all as before.
-  let repos = registry.repos;
-  if (repoLimit(tierFromCache()) === 1 && repos.length > 1) {
-    const only = lastActiveRepo(repos);
-    repos = only ? [only] : [];
-  }
+  const repos = registry.repos;
 
   const { candidates, skipped } = selectCandidates(repos, config);
 
