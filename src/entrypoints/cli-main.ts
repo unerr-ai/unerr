@@ -110,25 +110,6 @@ async function startProxy(repoId?: string): Promise<void> {
 }
 
 /**
- * Free-tier single-active backstop for the daemon-less standalone path. When
- * the repo limit is 1, acquire the global active-repo lock for `cwd` before
- * serving; if a LIVE pid for a DIFFERENT repo holds it, fatal-exit with the
- * exact stop/upgrade commands. The lock is released on clean exit. When the
- * daemon is up it is the source of truth; this file-lock is the fallback.
- */
-async function guardActiveRepoSlot(cwd: string): Promise<void> {
-  const { currentRepoLimit } = await import("../cloud/tier-query.js");
-  if (currentRepoLimit() !== 1) return;
-
-  const { acquireActiveRepoLock, releaseActiveRepoLock } = await import(
-    "../daemon/active-repo-lock.js"
-  );
-  acquireActiveRepoLock(cwd);
-  // Release on clean exit so the slot frees for the next repo.
-  process.once("exit", releaseActiveRepoLock);
-}
-
-/**
  * Auto-verify and repair IDE MCP configs before proxy start.
  * Silently fixes stale MCP configs → local proxy format.
  */
@@ -865,7 +846,6 @@ async function resumeBoot(config: Record<string, unknown>): Promise<void> {
   process.stderr.write("[unerr] Starting proxy...\n");
 
   await autoVerifyIdeConfigs();
-  await guardActiveRepoSlot(process.cwd());
   await startProxy(config.repoId as string | undefined);
 }
 
@@ -918,10 +898,7 @@ async function firstRunBoot(): Promise<void> {
 
   if (result.action === "setup") {
     await autoVerifyIdeConfigs();
-    // Login is mandatory (2026-06-14): the bare `unerr` invocation is the
-    // default command action, so the `preAction` wall has already enforced a
-    // usable login before this boot path runs. No separate prompt here.
-    await guardActiveRepoSlot(process.cwd());
+    // No login required (OSS): bare `unerr` indexes and serves fully local.
     await startProxy(result.repoId);
     return;
   }
@@ -1152,6 +1129,19 @@ type DiscoveryResult =
       /** U4: the daemon's reported running version (absent on an old daemon). */
       daemonVersion?: string;
     }
+  | {
+      /**
+       * A daemon still running pre-OSS-conversion code refused this repo
+       * under the removed free-tier repo cap. Retrying would poll the same
+       * stale daemon forever, and by this point the IDE already believes the
+       * server is connected (StaticCatalogInterceptor answered `initialize`
+       * locally), so a silent hang would leave every `tools/call` unanswered
+       * until the IDE's own timeout. The bridge answers the IDE's
+       * `initialize` with a JSON-RPC error instead and exits non-zero.
+       */
+      kind: "refused";
+      message: string;
+    }
   | { kind: "none" };
 
 /**
@@ -1174,6 +1164,32 @@ type DiscoveryResult =
  * re-enters the discovery loop so reconnection happens automatically when
  * the unerr process restarts.
  */
+/**
+ * Scan a stdin chunk for an `initialize` request and return its JSON-RPC id
+ * (which may be `null`). Returns `undefined` when no complete `initialize`
+ * frame is present, so the caller keeps the previously-captured id. Used to
+ * answer a stale-daemon refusal against the exact request the IDE is waiting
+ * on.
+ */
+function sniffInitializeId(chunk: Buffer): string | number | null | undefined {
+  const text = chunk.toString("utf8");
+  for (const line of text.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      const msg = JSON.parse(line) as {
+        method?: string;
+        id?: string | number | null;
+      };
+      if (msg && typeof msg === "object" && msg.method === "initialize") {
+        return msg.id ?? null;
+      }
+    } catch {
+      // Partial / non-JSON line — ignore; a later chunk completes it.
+    }
+  }
+  return undefined;
+}
+
 async function mcpBoot(
   cwd: string,
   opts: { codingAgent?: string } = {}
@@ -1207,7 +1223,12 @@ async function mcpBoot(
   );
   const interceptor = new StaticCatalogInterceptor();
   const stdinPreBuffer: Buffer[] = [];
+  // The IDE's `initialize` request id, captured so a stale-daemon refusal can
+  // answer that exact request with a JSON-RPC error (-32003) instead of a sock.
+  let initializeId: string | number | null = null;
   const preBufferHandler = (chunk: Buffer) => {
+    const id = sniffInitializeId(chunk);
+    if (id !== undefined) initializeId = id;
     const out = interceptor.ingest(chunk);
     for (const reply of out.replies) {
       process.stdout.write(reply);
@@ -1305,6 +1326,29 @@ async function mcpBoot(
         "[unerr:mcp] stdin closed during auto-spawn — exiting\n"
       );
       return;
+    }
+
+    // A stale (pre-OSS-conversion) daemon refused this repo under the
+    // removed free-tier repo cap. Do NOT retry — the same stale daemon would
+    // refuse forever, and by this point the static interceptor has already
+    // told the IDE the server is connected, so a silent poll would leave
+    // every `tools/call` unanswered until the IDE's own timeout. Answer the
+    // IDE's initialize with a JSON-RPC error (-32003) on stdout instead, then
+    // exit non-zero. The static interceptor must not mask this, so detach it
+    // before replying.
+    if (discovery.kind === "refused") {
+      process.stdin.removeListener("data", preBufferHandler);
+      process.stdin.removeListener("end", earlyEndHandler);
+      process.stderr.write(`[unerr:mcp] ${discovery.message}\n`);
+      process.stdout.write(
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: initializeId,
+          error: { code: -32003, message: discovery.message },
+        })}\n`
+      );
+      releaseSpawnLock();
+      process.exit(1);
     }
 
     if (discovery.kind === "daemon") {
@@ -1444,52 +1488,53 @@ async function discoverWithRetry(
       try {
         const ensured = await ensureRepo(daemonSock, cwd);
 
-        // The daemon may still refuse under its own repo-limit check (owned
-        // by daemon/*, not this file). This bridge no longer walls on it —
-        // log and keep polling; a later poll may find the slot free.
+        // A daemon on a stale (pre-OSS-conversion) build still enforces the
+        // removed free-tier repo cap. Do NOT retry — the same stale daemon
+        // refuses on every poll, so this would hang the IDE forever with a
+        // connection it already believes is healthy. Fail loudly instead,
+        // naming the actual fix.
         if ("refused" in ensured) {
-          process.stderr.write(`[unerr:mcp] ${ensured.message}, retrying...\n`);
-        } else {
-          const { sock, daemonVersion } = ensured;
-
-          // ── U4: bridge↔daemon version handshake ──
-          // The bridge is fresh-spawned (always the on-disk version); the
-          // daemon is long-lived and may be running stale code after an
-          // upgrade. Decide what to do about any skew before we hand the
-          // session to the proxy.
-          if (daemonVersion && !convergeRequested) {
-            const { classifyVersionSkew } = await import(
-              "../update/version-handshake.js"
-            );
-            const { UNERR_VERSION } = await import("../version.js");
-            const skew = classifyVersionSkew(UNERR_VERSION, daemonVersion);
-            if (skew.action === "converge") {
-              convergeRequested = true;
-              process.stderr.write(`[unerr:mcp] ${skew.reason}\n`);
-              const { requestDaemonShutdown } = await import(
-                "../daemon/client.js"
-              );
-              await requestDaemonShutdown(daemonSock);
-              // Wait for the stale daemon to actually exit (bounded ~5s),
-              // then Step 2 re-spawns a fresh daemon on the new on-disk
-              // version.
-              for (let i = 0; i < 50 && (await probeDaemon(daemonSock)); i++) {
-                await new Promise<void>((r) => {
-                  const t = setTimeout(r, 100);
-                  if (typeof t.unref === "function") t.unref();
-                });
-              }
-              continue;
-            }
-            if (skew.action === "surface") {
-              process.stderr.write(
-                `[unerr:mcp] version skew: ${skew.reason}\n`
-              );
-            }
-          }
-
-          return { kind: "daemon", sockPath: sock, daemonSock, daemonVersion };
+          return {
+            kind: "refused",
+            message: `${ensured.message} The process manager is running a stale build — run \`unerr pm stop\` to restart it, then reconnect.`,
+          };
         }
+
+        const { sock, daemonVersion } = ensured;
+
+        // ── U4: bridge↔daemon version handshake ──
+        // The bridge is fresh-spawned (always the on-disk version); the daemon
+        // is long-lived and may be running stale code after an upgrade. Decide
+        // what to do about any skew before we hand the session to the proxy.
+        if (daemonVersion && !convergeRequested) {
+          const { classifyVersionSkew } = await import(
+            "../update/version-handshake.js"
+          );
+          const { UNERR_VERSION } = await import("../version.js");
+          const skew = classifyVersionSkew(UNERR_VERSION, daemonVersion);
+          if (skew.action === "converge") {
+            convergeRequested = true;
+            process.stderr.write(`[unerr:mcp] ${skew.reason}\n`);
+            const { requestDaemonShutdown } = await import(
+              "../daemon/client.js"
+            );
+            await requestDaemonShutdown(daemonSock);
+            // Wait for the stale daemon to actually exit (bounded ~5s), then
+            // Step 2 re-spawns a fresh daemon on the new on-disk version.
+            for (let i = 0; i < 50 && (await probeDaemon(daemonSock)); i++) {
+              await new Promise<void>((r) => {
+                const t = setTimeout(r, 100);
+                if (typeof t.unref === "function") t.unref();
+              });
+            }
+            continue;
+          }
+          if (skew.action === "surface") {
+            process.stderr.write(`[unerr:mcp] version skew: ${skew.reason}\n`);
+          }
+        }
+
+        return { kind: "daemon", sockPath: sock, daemonSock, daemonVersion };
       } catch (err) {
         process.stderr.write(
           `[unerr:mcp] ensureRepo failed: ${(err as Error).message}, retrying...\n`
