@@ -1,0 +1,42 @@
+name: CodeQL
+
+# Static analysis for security issues. Runs on every pull request and push
+# to main, plus a weekly scan so findings surface even with no code churn.
+#
+# JavaScript/TypeScript is interpreted, so CodeQL extracts straight from
+# source (build-mode: none) — no compile step, and no need to check out the
+# private vendor/contracts submodule, which keeps this workflow working on
+# pull requests from forks too.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '23 4 * * 1' # every Monday, 04:23 UTC
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
+        with:
+          languages: javascript-typescript
+          build-mode: none
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
+        with:
+          category: "/language:javascript-typescript"
