@@ -123,17 +123,7 @@ async function guardActiveRepoSlot(cwd: string): Promise<void> {
   const { acquireActiveRepoLock, releaseActiveRepoLock } = await import(
     "../daemon/active-repo-lock.js"
   );
-  const result = acquireActiveRepoLock(cwd);
-  if (!result.acquired) {
-    const { checkActivateRepo } = await import("../cloud/repo-cap.js");
-    const verdict = checkActivateRepo({
-      limit: 1,
-      activePath: result.holder.path,
-      requestedPath: cwd,
-    });
-    process.stderr.write(`\n  ${verdict.message}\n\n`);
-    process.exit(1);
-  }
+  acquireActiveRepoLock(cwd);
   // Release on clean exit so the slot frees for the next repo.
   process.once("exit", releaseActiveRepoLock);
 }
@@ -1162,15 +1152,6 @@ type DiscoveryResult =
       /** U4: the daemon's reported running version (absent on an old daemon). */
       daemonVersion?: string;
     }
-  | {
-      /**
-       * Free-tier single-active cap: the daemon refused to start this repo
-       * because a different one already holds the one slot. The bridge answers
-       * the IDE's initialize with a JSON-RPC cap error and exits.
-       */
-      kind: "refused";
-      message: string;
-    }
   | { kind: "none" };
 
 /**
@@ -1193,32 +1174,6 @@ type DiscoveryResult =
  * re-enters the discovery loop so reconnection happens automatically when
  * the unerr process restarts.
  */
-/**
- * Scan a stdin chunk for an `initialize` request and return its JSON-RPC id
- * (which may be `null`). Returns `undefined` when no complete `initialize`
- * frame is present, so the caller keeps the previously-captured id. Used to
- * answer a free-tier cap refusal against the exact request the IDE is waiting
- * on.
- */
-function sniffInitializeId(chunk: Buffer): string | number | null | undefined {
-  const text = chunk.toString("utf8");
-  for (const line of text.split("\n")) {
-    if (line.trim() === "") continue;
-    try {
-      const msg = JSON.parse(line) as {
-        method?: string;
-        id?: string | number | null;
-      };
-      if (msg && typeof msg === "object" && msg.method === "initialize") {
-        return msg.id ?? null;
-      }
-    } catch {
-      // Partial / non-JSON line — ignore; a later chunk completes it.
-    }
-  }
-  return undefined;
-}
-
 async function mcpBoot(
   cwd: string,
   opts: { codingAgent?: string } = {}
@@ -1252,12 +1207,7 @@ async function mcpBoot(
   );
   const interceptor = new StaticCatalogInterceptor();
   const stdinPreBuffer: Buffer[] = [];
-  // The IDE's `initialize` request id, captured so a free-tier cap refusal can
-  // answer that exact request with a JSON-RPC error (-32003) instead of a sock.
-  let initializeId: string | number | null = null;
   const preBufferHandler = (chunk: Buffer) => {
-    const id = sniffInitializeId(chunk);
-    if (id !== undefined) initializeId = id;
     const out = interceptor.ingest(chunk);
     for (const reply of out.replies) {
       process.stdout.write(reply);
@@ -1355,25 +1305,6 @@ async function mcpBoot(
         "[unerr:mcp] stdin closed during auto-spawn — exiting\n"
       );
       return;
-    }
-
-    // Free-tier single-active cap: the daemon refused this repo. Answer the
-    // IDE's initialize with a JSON-RPC cap error (-32003) on stdout, then exit
-    // non-zero. Do NOT start the bridge — relaying would serve a 2nd repo. The
-    // static interceptor must not mask this, so detach it before replying.
-    if (discovery.kind === "refused") {
-      process.stdin.removeListener("data", preBufferHandler);
-      process.stdin.removeListener("end", earlyEndHandler);
-      process.stderr.write(`[unerr:mcp] ${discovery.message}\n`);
-      process.stdout.write(
-        `${JSON.stringify({
-          jsonrpc: "2.0",
-          id: initializeId,
-          error: { code: -32003, message: discovery.message },
-        })}\n`
-      );
-      releaseSpawnLock();
-      process.exit(1);
     }
 
     if (discovery.kind === "daemon") {
@@ -1513,48 +1444,52 @@ async function discoverWithRetry(
       try {
         const ensured = await ensureRepo(daemonSock, cwd);
 
-        // Free-tier single-active cap: the daemon refused this repo because a
-        // different one holds the one slot. Surface it to the IDE as a clean
-        // JSON-RPC error — do NOT retry (retrying would hot-loop forever).
+        // The daemon may still refuse under its own repo-limit check (owned
+        // by daemon/*, not this file). This bridge no longer walls on it —
+        // log and keep polling; a later poll may find the slot free.
         if ("refused" in ensured) {
-          return { kind: "refused", message: ensured.message };
-        }
+          process.stderr.write(`[unerr:mcp] ${ensured.message}, retrying...\n`);
+        } else {
+          const { sock, daemonVersion } = ensured;
 
-        const { sock, daemonVersion } = ensured;
-
-        // ── U4: bridge↔daemon version handshake ──
-        // The bridge is fresh-spawned (always the on-disk version); the daemon
-        // is long-lived and may be running stale code after an upgrade. Decide
-        // what to do about any skew before we hand the session to the proxy.
-        if (daemonVersion && !convergeRequested) {
-          const { classifyVersionSkew } = await import(
-            "../update/version-handshake.js"
-          );
-          const { UNERR_VERSION } = await import("../version.js");
-          const skew = classifyVersionSkew(UNERR_VERSION, daemonVersion);
-          if (skew.action === "converge") {
-            convergeRequested = true;
-            process.stderr.write(`[unerr:mcp] ${skew.reason}\n`);
-            const { requestDaemonShutdown } = await import(
-              "../daemon/client.js"
+          // ── U4: bridge↔daemon version handshake ──
+          // The bridge is fresh-spawned (always the on-disk version); the
+          // daemon is long-lived and may be running stale code after an
+          // upgrade. Decide what to do about any skew before we hand the
+          // session to the proxy.
+          if (daemonVersion && !convergeRequested) {
+            const { classifyVersionSkew } = await import(
+              "../update/version-handshake.js"
             );
-            await requestDaemonShutdown(daemonSock);
-            // Wait for the stale daemon to actually exit (bounded ~5s), then
-            // Step 2 re-spawns a fresh daemon on the new on-disk version.
-            for (let i = 0; i < 50 && (await probeDaemon(daemonSock)); i++) {
-              await new Promise<void>((r) => {
-                const t = setTimeout(r, 100);
-                if (typeof t.unref === "function") t.unref();
-              });
+            const { UNERR_VERSION } = await import("../version.js");
+            const skew = classifyVersionSkew(UNERR_VERSION, daemonVersion);
+            if (skew.action === "converge") {
+              convergeRequested = true;
+              process.stderr.write(`[unerr:mcp] ${skew.reason}\n`);
+              const { requestDaemonShutdown } = await import(
+                "../daemon/client.js"
+              );
+              await requestDaemonShutdown(daemonSock);
+              // Wait for the stale daemon to actually exit (bounded ~5s),
+              // then Step 2 re-spawns a fresh daemon on the new on-disk
+              // version.
+              for (let i = 0; i < 50 && (await probeDaemon(daemonSock)); i++) {
+                await new Promise<void>((r) => {
+                  const t = setTimeout(r, 100);
+                  if (typeof t.unref === "function") t.unref();
+                });
+              }
+              continue;
             }
-            continue;
+            if (skew.action === "surface") {
+              process.stderr.write(
+                `[unerr:mcp] version skew: ${skew.reason}\n`
+              );
+            }
           }
-          if (skew.action === "surface") {
-            process.stderr.write(`[unerr:mcp] version skew: ${skew.reason}\n`);
-          }
-        }
 
-        return { kind: "daemon", sockPath: sock, daemonSock, daemonVersion };
+          return { kind: "daemon", sockPath: sock, daemonSock, daemonVersion };
+        }
       } catch (err) {
         process.stderr.write(
           `[unerr:mcp] ensureRepo failed: ${(err as Error).message}, retrying...\n`
@@ -1747,49 +1682,41 @@ export async function main(): Promise<void> {
     register(program);
   }
 
-  // ── Login wall — only commands that add / modify / start ────
+  // ── Login wall — only the shared cloud document ────
   //
-  // A login wall fires ONLY for user-typed commands that ADD, MODIFY, or START
-  // something. This follows the established CLI split (npm / docker / wrangler /
-  // supabase): local + read + teardown work logged out; publishing / deploying /
-  // mutating shared state needs auth. Authentication friction is most costly at
-  // goal-oriented moments, and a tool must never trap a user — teardown (`stop`,
-  // `remove`, `uninstall`) and viewing (`status`, `pm status`, `router …`) must
-  // always work, even logged out.
+  // unerr's local features (indexing, serving, install, the process manager)
+  // need no account at all. The one exception is `conventions`: it reads and
+  // writes a document shared between people on our servers, so it genuinely
+  // needs an account. Everything else always runs logged out.
   //
-  // Three buckets, decided in the single `preAction` choke point below:
-  //  - WALL  (interactive login): bare `unerr` (register repo + serve), `install`,
-  //    `pm start`, `conventions` (reads/writes the team's shared cloud document).
-  //  - EXEMPT (no login, silent): `status`, `doctor`, `uninstall`, `pm stop`,
-  //    `pm remove`, `pm status`, `pm logs`, `router …`, `login`/`logout`/`whoami`.
-  //  - NUDGE  (agent/hook surfaces): pass through unchanged + emit ONE throttled
-  //    `run \`unerr login\`` line from their own handlers — `recon`,
-  //    `index`, `learn`, `exec`, `compress-output`, `hook`.
-  //    They never wall, so the IDE / git hooks / agent are never broken.
+  // Two buckets, decided in the single `preAction` choke point below:
+  //  - WALL  (interactive login): `conventions` (and its pull/push subs) —
+  //    reads/writes the team's shared cloud document.
+  //  - EXEMPT (no login, ever): everything else — bare `unerr`, `install`,
+  //    `pm start`, `status`, `doctor`, `uninstall`, `pm stop`/`remove`/`status`/
+  //    `logs`, `router …`, `login`/`logout`/`whoami`, and agent/hook surfaces
+  //    (`recon`, `index`, `learn`, `exec`, `compress-output`, `hook`).
   //
   // `--mcp`/`--daemon-child` bypass the wall entirely (the per-repo proxy enforces
   // those non-interactive paths separately). `UNERR_TOKEN` is the CI escape hatch.
 
   /**
-   * True for the commands that require an interactive login before they run: the
-   * user-typed commands that ADD, MODIFY, or START something. Everything else
-   * (view / teardown / recovery / agent surfaces) returns false and never walls.
+   * True only for `conventions` (and its pull/push subs) — the one command
+   * that reads/writes the team's shared cloud document. Everything else
+   * (local indexing, serving, install, the process manager) returns false
+   * and never walls.
    *
    * Verified empirically (Commander 12.1.0): the bare `unerr` default action has
-   * no `parent`; a subcommand like `pm start` reports `actionCmd.name() === "start"`
-   * and `actionCmd.parent.name() === "pm"`; `conventions push` reports
-   * `name === "push"` and `parent === "conventions"`.
+   * no `parent`; `conventions push` reports `name === "push"` and
+   * `parent === "conventions"`.
    */
   function requiresInteractiveLogin(actionCmd: Command): boolean {
-    // Bare `unerr` (no parent) = first-run (register repo) + serve, or resume serve.
-    if (!actionCmd.parent) return true;
+    // Bare `unerr` (no parent), `install`, and `pm start` all run fully local —
+    // no account needed. Only `conventions` (and its pull/push subs) read/write
+    // the team's shared cloud document, so it alone still needs a login.
+    if (!actionCmd.parent) return false;
     const name = actionCmd.name();
     const parent = actionCmd.parent.name();
-    // `install` writes IDE config + registers the repo.
-    if (name === "install") return true;
-    // `pm start` starts the process manager (NOT `pm stop`/`remove`/`status`/`logs`).
-    if (parent === "pm" && name === "start") return true;
-    // `conventions` (and its pull/push subs) read/write the team's shared cloud doc.
     if (name === "conventions" || parent === "conventions") return true;
     return false;
   }
