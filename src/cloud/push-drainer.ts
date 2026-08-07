@@ -194,10 +194,14 @@ export interface DrainOptions {
  * Best-effort: a failure on one stream never throws and never blocks the next.
  * The caller persists the cursor (`cursor.save()`) once after this returns.
  *
- * Telemetry flows on every plan, free included; only an explicit
- * `cloud_ingest: false` force-disable makes every stream come back
- * `skipped_gate` (the logged-out case is handled upstream by the absent token).
- * Fleet inventory and conventions run on their own paths and are unaffected.
+ * Fails CLOSED: `isEntitled` (default {@link canPushTelemetry}) must return
+ * `true` before any stream is read. No verified paying-plan entitlement, an
+ * expired one, the free plan, `UNERR_NO_TELEMETRY`/`DO_NOT_TRACK`, or a
+ * machine-wide `telemetry: false` config key all make every stream come back
+ * `skipped_gate` (the logged-out case is handled upstream by the absent
+ * token). A per-repo `telemetry: false` in that repo's `.unerr/config.json`
+ * is not visible here — this function has no `repoPath` — so the caller
+ * (`PushReporter.drainOneRepo`) checks it before calling in.
  *
  */
 export async function drainRepo(

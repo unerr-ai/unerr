@@ -8,9 +8,12 @@
  * One machine-wide loop with one rate-limiter/backoff (the plan's "write
  * per-repo, drain in unerrd" decision). It never blocks or throws into the
  * daemon — every cycle is guarded, failures back off with jitter, and a
- * logged-out machine skips the whole cycle (no credentials). Telemetry flows on
- * every plan, free included — the only entitlement skip is the explicit
- * `cloud_ingest: false` force-disable. All dependencies are
+ * logged-out machine skips the whole cycle (no credentials). Telemetry fails
+ * CLOSED: `isEntitled` (default {@link canPushTelemetry}) must confirm a
+ * verified, non-expired, paying-plan entitlement before any repo is drained —
+ * an account-less or free-plan machine never reaches the network. A per-repo
+ * `telemetry: false` in that repo's `.unerr/config.json` adds a narrower
+ * opt-out on top, checked in `drainOneRepo`. All dependencies are
  * injected so it talks to no module directly and is fully testable offline.
  *
  */
@@ -21,7 +24,10 @@ import {
   reapDrainedDeadSegments,
   truncateDrainedLongLivedSegments,
 } from "../cloud/drainers/ingest.js";
-import { canPushTelemetry } from "../cloud/entitlements.js";
+import {
+  canPushTelemetry,
+  isTelemetryDisabledByConfig,
+} from "../cloud/entitlements.js";
 import { PushCursor } from "../cloud/push-cursor.js";
 import {
   type BuildDrainers,
@@ -250,6 +256,11 @@ export class PushReporter {
     repoPath: string,
     client: CloudClient
   ): Promise<boolean> {
+    // Per-repo privacy opt-out: `{"telemetry": false}` in this repo's
+    // .unerr/config.json (or the machine-wide file, which always wins) stops
+    // this repo's cloud push before any local processing runs.
+    if (isTelemetryDisabledByConfig(repoPath)) return false;
+
     const unerrDir = this.deps.unerrDir(repoPath);
     let set: Awaited<ReturnType<BuildDrainers>> | null = null;
     try {

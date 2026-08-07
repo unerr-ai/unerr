@@ -11,7 +11,14 @@
  */
 
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,9 +32,13 @@ vi.mock("node:os", async (importOriginal) => {
   };
 });
 
-import { entitlementsCachePath } from "../cloud/credentials.js";
+import {
+  entitlementsCachePath,
+  readCredentialMetadata,
+} from "../cloud/credentials.js";
 import {
   type EntitlementClaims,
+  canPushTelemetry,
   effectiveTier,
   readEntitlementCache,
   verifyEntitlementToken,
@@ -82,6 +93,11 @@ const ENV_KEYS = [
   "__TEST_HOME",
   "UNERR_ENTITLEMENT_PUBKEY",
   "UNERR_ENTITLEMENT_KID",
+  "UNERR_NO_TELEMETRY",
+  "DO_NOT_TRACK",
+  "UNERR_TOKEN",
+  "UNERR_ORG_ID",
+  "UNERR_MACHINE_ID",
 ] as const;
 
 describe("cloud entitlements", () => {
@@ -296,6 +312,110 @@ describe("cloud entitlements", () => {
       expect(tier.plan).toBe("free"); // never trusted for gating
       expect(tier.source).toBe("none");
       expect(tier.unverified_plan).toBe("pro");
+    });
+  });
+
+  // ── canPushTelemetry — fails CLOSED ──────────────────────────────
+  describe("canPushTelemetry", () => {
+    const writeFor = (claims: EntitlementClaims, maxServerTimeMs: number) => {
+      writeEntitlementCache({
+        token: makeToken(claims),
+        claims,
+        fetched_at: Date.now(),
+        max_server_time: maxServerTimeMs,
+      });
+    };
+
+    it("no cache → false", () => {
+      expect(canPushTelemetry()).toBe(false);
+    });
+
+    it("expired (past-grace) cache → false", () => {
+      const now = Date.now();
+      const nowSec = Math.floor(now / 1000);
+      writeFor(
+        claimsAt(nowSec, { freshInS: -200, graceInS: -100 }),
+        now - 1000
+      );
+      expect(canPushTelemetry(now)).toBe(false);
+    });
+
+    it("free plan, fresh and verified → false", () => {
+      const now = Date.now();
+      const nowSec = Math.floor(now / 1000);
+      writeFor(claimsAt(nowSec, { freshInS: 3600, plan: "free" }), now - 1000);
+      expect(canPushTelemetry(now)).toBe(false);
+    });
+
+    it("paying plan, fresh and verified → true", () => {
+      const now = Date.now();
+      const nowSec = Math.floor(now / 1000);
+      writeFor(claimsAt(nowSec, { freshInS: 3600, plan: "pro" }), now - 1000);
+      expect(canPushTelemetry(now)).toBe(true);
+    });
+
+    it("paying plan, grace → true", () => {
+      const now = Date.now();
+      const nowSec = Math.floor(now / 1000);
+      writeFor(
+        claimsAt(nowSec, { freshInS: -100, graceInS: 7 * 86400, plan: "pro" }),
+        now - 1000
+      );
+      expect(canPushTelemetry(now)).toBe(true);
+    });
+
+    it("a dev-minted paid tier with NO credential file still returns true", () => {
+      // Mirrors what `mintDevToken` in src/cloud/dev-mode.ts writes: a
+      // verified, signed entitlement cache with no credentials.json anywhere
+      // — the local dev/test escape hatch for exercising paid behavior with
+      // no server and no real subscription. `canPushTelemetry` must key off
+      // `effectiveTier()` alone, never login presence, or this path breaks.
+      expect(readCredentialMetadata()).toBeNull();
+      const now = Date.now();
+      const nowSec = Math.floor(now / 1000);
+      writeFor(claimsAt(nowSec, { freshInS: 3600, plan: "pro" }), now - 1000);
+      expect(readCredentialMetadata()).toBeNull(); // still no credential
+      expect(canPushTelemetry(now)).toBe(true);
+    });
+
+    it("paying plan with an explicit cloud_ingest:false claim → false", () => {
+      const now = Date.now();
+      const nowSec = Math.floor(now / 1000);
+      const claims = claimsAt(nowSec, { freshInS: 3600, plan: "pro" });
+      claims.features = { cloud_ingest: false };
+      writeFor(claims, now - 1000);
+      expect(canPushTelemetry(now)).toBe(false);
+    });
+
+    it.each(["UNERR_NO_TELEMETRY", "DO_NOT_TRACK"] as const)(
+      "%s=1 disables a paying plan",
+      (envVar) => {
+        const now = Date.now();
+        const nowSec = Math.floor(now / 1000);
+        writeFor(claimsAt(nowSec, { freshInS: 3600, plan: "pro" }), now - 1000);
+        process.env[envVar] = "1";
+        expect(canPushTelemetry(now)).toBe(false);
+      }
+    );
+
+    it("DO_NOT_TRACK=0 does not disable (only non-'0' truthy values count)", () => {
+      const now = Date.now();
+      const nowSec = Math.floor(now / 1000);
+      writeFor(claimsAt(nowSec, { freshInS: 3600, plan: "pro" }), now - 1000);
+      process.env.DO_NOT_TRACK = "0";
+      expect(canPushTelemetry(now)).toBe(true);
+    });
+
+    it("machine-wide {telemetry:false} config disables a paying plan", () => {
+      const now = Date.now();
+      const nowSec = Math.floor(now / 1000);
+      writeFor(claimsAt(nowSec, { freshInS: 3600, plan: "pro" }), now - 1000);
+      mkdirSync(join(tempHome, ".unerr"), { recursive: true });
+      writeFileSync(
+        join(tempHome, ".unerr", "config.json"),
+        JSON.stringify({ telemetry: false })
+      );
+      expect(canPushTelemetry(now)).toBe(false);
     });
   });
 });

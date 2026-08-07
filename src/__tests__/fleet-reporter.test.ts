@@ -79,6 +79,7 @@ function makeHarness(over: Partial<FleetReporterDeps> = {}): Harness {
   const reporter = new FleetReporter({
     getStatusEntries: () => [],
     resolveAuth: () => auth,
+    isEntitled: () => true,
     dashboardPort: () => 9847,
     appendFleetEvent: append,
     setTimer: (fn, ms) => {
@@ -228,6 +229,15 @@ describe("FleetReporter", () => {
     h.reporter.start();
     await flush();
     expect(h.append).not.toHaveBeenCalled();
+    h.reporter.stop();
+  });
+
+  it("does nothing when not entitled (fail-closed, even while logged in)", async () => {
+    const h = makeHarness({ isEntitled: () => false });
+    h.reporter.start();
+    await flush();
+    expect(h.append).not.toHaveBeenCalled();
+    expect(mockedBuildFleet).not.toHaveBeenCalled();
     h.reporter.stop();
   });
 

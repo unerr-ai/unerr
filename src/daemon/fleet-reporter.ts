@@ -15,6 +15,7 @@ import {
   MachineInventoryEvent,
 } from "@unerr-ai/contracts/fleet";
 import { validateBody } from "../cloud/drainers/validate.js";
+import { canPushTelemetry } from "../cloud/entitlements.js";
 import { type EmitContext, stampEvent } from "../events/enqueue.js";
 import {
   FLEET_SEGMENT,
@@ -142,6 +143,8 @@ export interface FleetReporterDeps {
   getStatusEntries: () => RepoStatusEntry[];
   /** Resolve auth, or null when logged out. */
   resolveAuth: () => FleetAuth | null;
+  /** Telemetry-entitlement check; defaults to {@link canPushTelemetry}. */
+  isEntitled?: (now: number) => boolean;
   /** The actually-bound dashboard port. */
   dashboardPort: () => number;
   /** Optional structured logger (stderr). */
@@ -175,6 +178,7 @@ export class FleetReporter {
     Pick<
       FleetReporterDeps,
       | "appendFleetEvent"
+      | "isEntitled"
       | "setTimer"
       | "clearTimer"
       | "jitter"
@@ -200,6 +204,7 @@ export class FleetReporter {
       appendFleetEvent:
         deps.appendFleetEvent ??
         ((e) => appendEvent(machineEventsRoot(), FLEET_SEGMENT, e)),
+      isEntitled: deps.isEntitled ?? canPushTelemetry,
       setTimer: deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms).unref()),
       clearTimer: deps.clearTimer ?? ((h) => clearTimeout(h)),
       jitter: deps.jitter ?? Math.random,
@@ -277,12 +282,17 @@ export class FleetReporter {
 
   /**
    * Build + send one report. Returns the delay until the next cycle. Skips
-   * silently (default delay) when logged out — never an error.
+   * silently (default delay) when logged out or not entitled — never an
+   * error. The entitlement check runs before auth so an account-less or
+   * free-plan machine never even builds a snapshot to append.
    */
   private async report(
     forceInventory: boolean,
     reason?: string
   ): Promise<number> {
+    if (!this.deps.isEntitled(this.deps.now())) {
+      return DEFAULT_CHECKIN_INTERVAL_MS;
+    }
     const auth = this.deps.resolveAuth();
     if (!auth) return DEFAULT_CHECKIN_INTERVAL_MS;
 

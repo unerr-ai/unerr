@@ -1,3 +1,4 @@
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -158,6 +159,22 @@ describe("PushReporter", () => {
       isEntitled: () => false,
       buildDrainers: build,
     });
+    const done = settled();
+    reporter.start();
+    await done;
+    expect(build).not.toHaveBeenCalled();
+  });
+
+  it("skips one repo when its .unerr/config.json sets telemetry:false", async () => {
+    const build = vi.fn(async () => ({ drainers: [] }));
+    const { reporter, settled, repoPath } = makeHarness({
+      buildDrainers: build,
+    });
+    mkdirSync(join(repoPath, ".unerr"), { recursive: true });
+    writeFileSync(
+      join(repoPath, ".unerr", "config.json"),
+      JSON.stringify({ telemetry: false })
+    );
     const done = settled();
     reporter.start();
     await done;

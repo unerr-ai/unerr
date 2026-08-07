@@ -27,7 +27,8 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import type { CloudClient, Entitlements } from "./client.js";
 import { entitlementsCachePath } from "./credentials.js";
 import { resolveEntitlementKey } from "./entitlement-keys.js";
@@ -358,26 +359,99 @@ export function effectiveTier(now: number = Date.now()): EffectiveTier {
   return { plan: "free", source: "free_fallback" };
 }
 
+/** Env vars that force telemetry off, honored even on a paying plan. Any
+ *  non-empty value other than the literal string "0" counts as truthy. */
+const TELEMETRY_OFF_ENV_VARS = ["UNERR_NO_TELEMETRY", "DO_NOT_TRACK"] as const;
+
+function isTruthyEnvFlag(value: string | undefined): boolean {
+  return value !== undefined && value !== "" && value !== "0";
+}
+
 /**
- * May this machine push telemetry (events, traces, relational sync) right now?
- * Telemetry flows on EVERY plan, free included — it is the default, and the
- * path by which a new user first connects a machine and signs in (the growth
- * mechanism, not a paid feature). The only suppression is an explicit
- * `cloud_ingest: false` feature flag (the enterprise force-disable lever). The
- * logged-out case is gated separately by the absence of credentials/auth
- * (`resolveAuth()` in the drain loop), so this can return `true` for a
- * logged-out machine and the missing token still stops the push. The CLI-side
- * mirror of the server's `canPushTelemetry` (unerr-web-service
- * `lib/cli/entitlements.ts`), which likewise no longer gates on plan.
+ * The telemetry off-switch, read from the environment. `UNERR_NO_TELEMETRY=1`
+ * or `DO_NOT_TRACK=1` (either one) disables every cloud push, even on a
+ * paying plan. This is the ONLY place `src/` reads these two env vars —
+ * every consumer calls this instead of touching `process.env` directly.
+ */
+export function isTelemetryDisabledByEnv(): boolean {
+  return TELEMETRY_OFF_ENV_VARS.some((name) =>
+    isTruthyEnvFlag(process.env[name])
+  );
+}
+
+/** `{"telemetry": <bool>}` from one config file, or undefined when the file
+ *  is absent, unparseable, or omits the key. */
+function readTelemetryConfigValue(configPath: string): boolean | undefined {
+  try {
+    if (!existsSync(configPath)) return undefined;
+    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as {
+      telemetry?: unknown;
+    };
+    return typeof raw.telemetry === "boolean" ? raw.telemetry : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The telemetry off-switch, read from config: `{"telemetry": false}` in
+ * `~/.unerr/config.json` (machine-wide) or `<repoPath>/.unerr/config.json`
+ * (per-repo). The machine-wide file wins whenever it sets the key at all —
+ * a machine-wide `false` cannot be overridden by a repo, and a machine-wide
+ * `true` beats a repo's `false`. Called with no `repoPath` (the machine-wide
+ * gates: `canPushTelemetry`, the fleet reporter) it checks the machine file
+ * only; a repo-scoped caller (the push drain loop) passes its `repoPath` to
+ * also honor that repo's own opt-out.
+ */
+export function isTelemetryDisabledByConfig(repoPath?: string): boolean {
+  const machineValue = readTelemetryConfigValue(
+    join(homedir(), ".unerr", "config.json")
+  );
+  if (machineValue !== undefined) return machineValue === false;
+  if (repoPath) {
+    const repoValue = readTelemetryConfigValue(
+      join(repoPath, ".unerr", "config.json")
+    );
+    if (repoValue !== undefined) return repoValue === false;
+  }
+  return false;
+}
+
+/**
+ * May this machine push telemetry (events, traces, relational sync) right
+ * now? Fails CLOSED: the default is `false`. Returns `true` only when every
+ * one of these holds —
  *
+ *  - no off-switch: neither `UNERR_NO_TELEMETRY`/`DO_NOT_TRACK` nor a
+ *    machine-wide `{"telemetry": false}` config key is set
+ *  - the entitlement cache holds a verified, non-expired claim
+ *    (`effectiveTier().source` is `"fresh"` or `"grace"` — the only two
+ *    trustworthy sources; `"none"` and `"free_fallback"` both mean "treat as
+ *    unpaid")
+ *  - that claim's plan is not `"free"`
+ *  - the claim's own `features.cloud_ingest` flag is not explicitly `false`
+ *    (the enterprise force-disable lever, preserved on top of the paid check)
+ *
+ * An absent cache, an expired cache, and a free-plan account all return
+ * `false` — there is no cloud tier that ships with telemetry on by default.
+ * This checks the entitlement cache only, never login presence: a normal
+ * logged-out machine has no cache either and so returns `false` too, but the
+ * two are not the same check — the local dev/test escape hatch
+ * (`src/cloud/dev-mode.ts`, compile-stripped from production) mints a
+ * verified signed cache with NO credential file behind it, and that must
+ * still return `true` on a paid dev tier. The CLI-side mirror of the
+ * server's `canPushTelemetry` (unerr-web-service `lib/cli/entitlements.ts`)
+ * must be updated to match this fail-closed contract.
  */
 export function canPushTelemetry(now: number = Date.now()): boolean {
+  if (isTelemetryDisabledByEnv() || isTelemetryDisabledByConfig()) {
+    return false;
+  }
+
   const tier = effectiveTier(now);
-  // The verified claims carry the features map only while fresh or in grace;
-  // an absent/expired cache yields {} → cloud_ingest is treated as enabled.
-  const features =
-    tier.source === "fresh" || tier.source === "grace"
-      ? (readEntitlementCache()?.claims?.features ?? {})
-      : {};
+  if (tier.source !== "fresh" && tier.source !== "grace") return false;
+  if (tier.plan === "free") return false;
+
+  const features = readEntitlementCache()?.claims?.features ?? {};
   return features.cloud_ingest !== false;
 }
