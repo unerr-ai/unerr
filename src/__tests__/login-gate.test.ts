@@ -148,9 +148,11 @@ describe("login-gate", () => {
       authStateMock.mockReturnValue(stateOf("degraded_free"));
       expect(loginGateNotice()).toContain("session expired");
     });
-    it("uses the generic sign-in copy otherwise", () => {
+    it("uses the conventions-specific copy otherwise", () => {
       authStateMock.mockReturnValue(stateOf("logged_out"));
-      expect(loginGateNotice()).toContain("Sign in to use unerr");
+      expect(loginGateNotice()).toContain(
+        "Shared team conventions need an account"
+      );
     });
   });
 });

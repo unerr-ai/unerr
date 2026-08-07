@@ -109,6 +109,6 @@ export function loginGateNotice(now: number = Date.now()): string {
     case "degraded_free":
       return "Your unerr session expired — run `unerr login` to continue.";
     default:
-      return "Sign in to use unerr — run `unerr login`.";
+      return "Shared team conventions need an account — run `unerr login`.";
   }
 }
