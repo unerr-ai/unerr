@@ -9,7 +9,7 @@ vi.mock("../daemon/git-origin.js", () => ({
 }));
 
 const { deriveRepoId, normalizeGitOrigin } = await import(
-  "../cloud/repo-identity.js"
+  "../cloud/sync/repo-identity.js"
 );
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;

@@ -1346,7 +1346,7 @@ export class ProcessManager {
     // opt-out means no outbound calls, not just no cloud push. NOT gated on
     // plan or login — an account-less user still gets update checks by
     // default, because a CLI that never learns about a security fix is worse.
-    void import("../cloud/entitlements.js")
+    void import("../cloud/plan/index.js")
       .then(({ isTelemetryDisabledByEnv }) => {
         if (isTelemetryDisabledByEnv()) return;
         return import("../update/update-runner.js").then((m) =>

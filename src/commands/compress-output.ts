@@ -11,7 +11,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
-import { loginBlocked } from "../cloud/login-gate.js";
+import { loginBlocked } from "../cloud/auth/index.js";
 import {
   LOGIN_NUDGE_LINE,
   shouldEmitLoginNudge,

@@ -1019,7 +1019,7 @@ export async function runEnvironmentChecks(opts: {
   // Cloud login state — informational only. The CLI works fully logged out,
   // so this never affects `ok` / `blocking`. Read-only, no network call.
   try {
-    const { loginStateLine } = await import("../cloud/login-state.js");
+    const { loginStateLine } = await import("../cloud/auth/index.js");
     log(`  ${D}Team: ${loginStateLine()}${R}\n\n`);
   } catch {
     /* ignore — cloud login is optional */

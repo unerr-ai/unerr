@@ -29,8 +29,8 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { CloudClient, Entitlements } from "./client.js";
-import { entitlementsCachePath } from "./credentials.js";
+import { entitlementsCachePath } from "../auth/credentials.js";
+import type { CloudClient, Entitlements } from "../sync/client.js";
 import { resolveEntitlementKey } from "./entitlement-keys.js";
 
 /** Owner read/write only — matches the credential file. */

@@ -6,7 +6,10 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { hashEntityKey, sanitizeDetail } from "../cloud/drainers/envelope.js";
+import {
+  hashEntityKey,
+  sanitizeDetail,
+} from "../cloud/sync/drainers/envelope.js";
 
 describe("sanitizeDetail (HR-2 detail firewall)", () => {
   it("drops denylisted keys case-insensitively, keeps safe scalars", () => {

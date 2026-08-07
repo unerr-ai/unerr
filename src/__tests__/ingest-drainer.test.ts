@@ -9,14 +9,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { assembleDrainers } from "../cloud/drainers/index.js";
+import { assembleDrainers } from "../cloud/sync/drainers/index.js";
 import {
   buildIngestDrainers,
   parkIfStale,
   segmentCursorKey,
   stampDrainContext,
-} from "../cloud/drainers/ingest.js";
-import type { DrainerContext } from "../cloud/push-drainer.js";
+} from "../cloud/sync/drainers/ingest.js";
+import type { DrainerContext } from "../cloud/sync/push-drainer.js";
 import {
   PARK_AGE_MS,
   PROXY_SEGMENT,

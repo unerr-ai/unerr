@@ -53,7 +53,7 @@ import {
   type EntitlementCache,
   type EntitlementClaims,
   writeEntitlementCache,
-} from "./entitlements.js";
+} from "./plan/entitlements.js";
 
 /** kid for the local dev key — distinct from any pinned/production kid. */
 const DEV_KID = "k-dev-local";

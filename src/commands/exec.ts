@@ -10,7 +10,7 @@
  */
 
 import type { Command } from "commander";
-import { loginBlocked } from "../cloud/login-gate.js";
+import { loginBlocked } from "../cloud/auth/index.js";
 import { classifyCheckCommand } from "../hooks/check-tracker.js";
 import {
   LOGIN_NUDGE_LINE,

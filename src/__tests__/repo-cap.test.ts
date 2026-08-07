@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { checkActivateRepo, checkRegisterRepo } from "../cloud/repo-cap.js";
-import { UNLIMITED } from "../cloud/tier-model.js";
+import {
+  checkActivateRepo,
+  checkRegisterRepo,
+} from "../cloud/plan/repo-cap.js";
+import { UNLIMITED } from "../cloud/plan/tier-model.js";
 
 describe("checkRegisterRepo", () => {
   it("allows the first repo on free (count 0, limit 1)", () => {

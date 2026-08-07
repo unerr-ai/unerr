@@ -18,23 +18,21 @@
  *
  */
 import { join } from "node:path";
-import { CloudClient } from "../cloud/client.js";
-import { assembleDrainers } from "../cloud/drainers/index.js";
-import {
-  reapDrainedDeadSegments,
-  truncateDrainedLongLivedSegments,
-} from "../cloud/drainers/ingest.js";
 import {
   canPushTelemetry,
   isTelemetryDisabledByConfig,
-} from "../cloud/entitlements.js";
-import { PushCursor } from "../cloud/push-cursor.js";
+} from "../cloud/plan/index.js";
 import {
   type BuildDrainers,
+  CloudClient,
   type DrainOutcome,
+  PushCursor,
+  assembleDrainers,
+  deriveRepoId,
   drainRepo,
-} from "../cloud/push-drainer.js";
-import { deriveRepoId } from "../cloud/repo-identity.js";
+  reapDrainedDeadSegments,
+  truncateDrainedLongLivedSegments,
+} from "../cloud/sync/index.js";
 import { machineEventsRoot } from "../events/event-store.js";
 import { getCurrentBranch, getHeadSha } from "../utils/git.js";
 import { UNERR_VERSION } from "../version.js";

@@ -9,7 +9,7 @@
  * so a dev.json `apiUrl` override automatically reaches every URL the CLI prints.
  */
 
-import { DEFAULT_API_URL, resolveApiUrl } from "../cloud/credentials.js";
+import { DEFAULT_API_URL, resolveApiUrl } from "../cloud/config.js";
 
 export type DeepLinkView = "health" | "drift" | "timeline" | "graph";
 

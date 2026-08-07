@@ -5,7 +5,7 @@ import {
   PROJECTED_TYPES,
   WIRE_DETAIL_KEYS,
   projectRowForWire,
-} from "../cloud/drainers/ingest.js";
+} from "../cloud/sync/drainers/ingest.js";
 
 const REPO_ROOT = "/Users/x/IdeaProjects/unerr-cli";
 

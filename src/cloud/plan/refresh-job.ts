@@ -28,17 +28,17 @@
  * noticed without a manual re-login.
  */
 
-import { recordRefreshOutcome } from "./auth-events.js";
-import { maybeNotifyAuthTransition } from "./auth-notify.js";
-import { CloudClient } from "./client.js";
-import { syncConventions } from "./conventions-sync.js";
-import { readCredentials } from "./credentials.js";
+import { recordRefreshOutcome } from "../auth/auth-events.js";
+import { maybeNotifyAuthTransition } from "../auth/auth-notify.js";
+import { readCredentials } from "../auth/credentials.js";
+import { handleRevokedToken } from "../auth/login-state.js";
+import { CloudClient } from "../sync/client.js";
+import { syncConventions } from "../sync/conventions-sync.js";
 import {
   isTelemetryDisabledByConfig,
   isTelemetryDisabledByEnv,
   refreshEntitlements,
 } from "./entitlements.js";
-import { handleRevokedToken } from "./login-state.js";
 
 /** Base interval between refreshes: 12 hours. */
 export const REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000;

@@ -7,7 +7,7 @@
  *   3. unerrd ↔ child repo processes (ready/activity/stats/shutdown)
  */
 
-import type { TierLimits } from "../cloud/tier-model.js";
+import type { TierLimits } from "../cloud/plan/index.js";
 
 // ── Shared primitives ────────────────────────────────────────────
 

@@ -29,11 +29,15 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { DEFAULT_API_URL, resolveApiUrl } from "../config.js";
 import { clearAuthEvents } from "./auth-events.js";
 import { getKeychainBackend } from "./keychain.js";
 
-/** The default cloud control-plane URL. */
-export const DEFAULT_API_URL = "https://app.unerr.dev";
+// Re-exported for callers that haven't migrated to `../config.js` yet — the
+// single source for both moved there (Step 5, OSS conversion). New code
+// should import `DEFAULT_API_URL` / `resolveApiUrl` from `../config.js`
+// directly.
+export { DEFAULT_API_URL, resolveApiUrl };
 
 /** Owner read/write only. */
 const FILE_MODE = 0o600;
@@ -378,18 +382,4 @@ export function deleteTeamConventionsCache(): boolean {
 /** True when a usable credential exists (env override or file). */
 export function isLoggedIn(): boolean {
   return readCredentials() !== null;
-}
-
-/**
- * Resolve the API base URL. `UNERR_API_URL` always wins (preview testing);
- * then the stored value; then the default. Trailing slashes are stripped.
- *
- * Exported so URL builders in other modules (e.g. `utils/deep-link.ts`) can
- * resolve through the same chain — including dev-mode overrides injected via
- * `applyDevConfig` — without duplicating the logic.
- */
-export function resolveApiUrl(stored?: string): string {
-  const envUrl = process.env.UNERR_API_URL?.trim();
-  const url = envUrl || stored?.trim() || DEFAULT_API_URL;
-  return url.replace(/\/+$/, "");
 }

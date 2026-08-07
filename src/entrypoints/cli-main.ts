@@ -19,7 +19,7 @@ import {
   isInternalEntryShape,
   loginBlocked,
   loginGateNotice,
-} from "../cloud/login-gate.js";
+} from "../cloud/auth/index.js";
 import { registerCompressOutputCommand } from "../commands/compress-output.js";
 import { registerConventionsCommand } from "../commands/conventions.js";
 import { registerDashboardCommand } from "../commands/dashboard.js";

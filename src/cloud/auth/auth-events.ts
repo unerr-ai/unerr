@@ -25,7 +25,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { RefreshOutcome } from "./entitlements.js";
+import type { RefreshOutcome } from "../plan/entitlements.js";
 
 /** 0600 — owner read/write only, same as the credential file. */
 const FILE_MODE = 0o600;

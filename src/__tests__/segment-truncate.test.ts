@@ -11,8 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   segmentCursorKey,
   truncateDrainedLongLivedSegments,
-} from "../cloud/drainers/ingest.js";
-import { PushCursor } from "../cloud/push-cursor.js";
+} from "../cloud/sync/drainers/ingest.js";
+import { PushCursor } from "../cloud/sync/push-cursor.js";
 import {
   ensureEventsDir,
   hookSegment,

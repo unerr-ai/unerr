@@ -20,20 +20,23 @@
  */
 
 import type { Command } from "commander";
-import { CloudClient, assertSafeBaseUrl } from "../cloud/client.js";
 import {
   type Credentials,
-  DEFAULT_API_URL,
   deleteCredentials,
   isLoggedIn,
+  loginBlocked,
   readCredentials,
+  recordLogin,
+  runDeviceFlow,
   writeCredentials,
-} from "../cloud/credentials.js";
-import { runDeviceFlow } from "../cloud/device-flow.js";
-import { refreshEntitlements } from "../cloud/entitlements.js";
-import { loginBlocked } from "../cloud/login-gate.js";
-import { recordLogin } from "../cloud/login-ledger.js";
-import { computeMachineFingerprint } from "../cloud/machine-fingerprint.js";
+} from "../cloud/auth/index.js";
+import { DEFAULT_API_URL } from "../cloud/config.js";
+import { refreshEntitlements } from "../cloud/plan/index.js";
+import {
+  CloudClient,
+  assertSafeBaseUrl,
+  computeMachineFingerprint,
+} from "../cloud/sync/index.js";
 
 function out(line: string): void {
   process.stderr.write(`${line}\n`);

@@ -17,17 +17,17 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AuthState, AuthStateName } from "../cloud/auth-state.js";
+import type { AuthState, AuthStateName } from "../cloud/auth/auth-state.js";
 
 const authStateMock = vi.fn<(now?: number) => AuthState>();
-vi.mock("../cloud/auth-state.js", () => ({
+vi.mock("../cloud/auth/auth-state.js", () => ({
   authState: (now?: number) => authStateMock(now),
 }));
 
 // loginBlocked() also requires real login presence (credential metadata).
 // blocked()/allowed() drive both inputs together.
 const credentialMetaMock = vi.fn<() => unknown>();
-vi.mock("../cloud/credentials.js", () => ({
+vi.mock("../cloud/auth/credentials.js", () => ({
   readCredentialMetadata: () => credentialMetaMock(),
 }));
 

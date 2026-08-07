@@ -11,7 +11,7 @@ import {
   __resetKeychainBackend,
   __setKeychainRunner,
   getKeychainBackend,
-} from "../cloud/keychain.js";
+} from "../cloud/auth/keychain.js";
 
 /** Force `process.platform` for the duration of a test. */
 function forcePlatform(p: NodeJS.Platform): void {

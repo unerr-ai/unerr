@@ -17,13 +17,13 @@ vi.mock("node:os", async (importOriginal) => {
   };
 });
 
-import type { BatchAck, CloudResult } from "../cloud/client.js";
-import { PushCursor } from "../cloud/push-cursor.js";
+import type { BatchAck, CloudResult } from "../cloud/sync/client.js";
+import { PushCursor } from "../cloud/sync/push-cursor.js";
 import {
   type StreamBatch,
   type StreamDrainer,
   drainRepo,
-} from "../cloud/push-drainer.js";
+} from "../cloud/sync/push-drainer.js";
 
 const ok = (ack: BatchAck): CloudResult<BatchAck> => ({
   ok: true,

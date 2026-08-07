@@ -39,10 +39,13 @@ vi.mock("node:os", async (importOriginal) => {
 import {
   type EntitlementClaims,
   writeEntitlementCache,
-} from "../cloud/entitlements.js";
-import { checkActivateRepo, checkRegisterRepo } from "../cloud/repo-cap.js";
-import { isUnlimited } from "../cloud/tier-model.js";
-import { currentRepoLimit, tierFromCache } from "../cloud/tier-query.js";
+} from "../cloud/plan/entitlements.js";
+import {
+  checkActivateRepo,
+  checkRegisterRepo,
+} from "../cloud/plan/repo-cap.js";
+import { isUnlimited } from "../cloud/plan/tier-model.js";
+import { currentRepoLimit, tierFromCache } from "../cloud/plan/tier-query.js";
 
 const KID = "k-test-tier";
 const keyPair = generateKeyPairSync("ed25519");

@@ -24,7 +24,7 @@ const isLoggedIn = vi.fn<() => boolean>();
 const readCredentials = vi.fn<() => unknown>();
 const writeCredentials = vi.fn();
 const deleteCredentials = vi.fn();
-vi.mock("../cloud/credentials.js", () => ({
+vi.mock("../cloud/auth/credentials.js", () => ({
   DEFAULT_API_URL: "https://app.unerr.dev",
   isLoggedIn: () => isLoggedIn(),
   readCredentials: () => readCredentials(),
@@ -33,21 +33,21 @@ vi.mock("../cloud/credentials.js", () => ({
 }));
 
 const loginBlocked = vi.fn<() => boolean>();
-vi.mock("../cloud/login-gate.js", () => ({
+vi.mock("../cloud/auth/login-gate.js", () => ({
   loginBlocked: () => loginBlocked(),
 }));
 
 const refreshEntitlements = vi.fn();
-vi.mock("../cloud/entitlements.js", () => ({
+vi.mock("../cloud/plan/entitlements.js", () => ({
   refreshEntitlements: (c: unknown) => refreshEntitlements(c),
 }));
 
 const runDeviceFlow = vi.fn();
-vi.mock("../cloud/device-flow.js", () => ({
+vi.mock("../cloud/auth/device-flow.js", () => ({
   runDeviceFlow: (u: string) => runDeviceFlow(u),
 }));
 
-vi.mock("../cloud/client.js", () => ({
+vi.mock("../cloud/sync/client.js", () => ({
   // Inert stand-in: refreshEntitlements (mocked above) is what consumes the
   // instance, so the client only needs to construct without throwing.
   CloudClient: class {},

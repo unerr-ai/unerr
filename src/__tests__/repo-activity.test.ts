@@ -15,7 +15,7 @@ vi.mock("../daemon/push-reporter.js", () => ({
   },
 }));
 
-import { emitRepoRemoved } from "../cloud/repo-removal.js";
+import { emitRepoRemoved } from "../cloud/sync/repo-removal.js";
 import {
   type RepoActivityEventRow,
   openMetricsStore,

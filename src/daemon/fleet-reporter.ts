@@ -14,11 +14,11 @@ import {
   MachineCheckinEvent,
   MachineInventoryEvent,
 } from "@unerr-ai/contracts/fleet";
-import { validateBody } from "../cloud/drainers/validate.js";
 import {
   canPushTelemetry,
   isTelemetryDisabledByConfig,
-} from "../cloud/entitlements.js";
+} from "../cloud/plan/index.js";
+import { validateBody } from "../cloud/sync/index.js";
 import { type EmitContext, stampEvent } from "../events/enqueue.js";
 import {
   FLEET_SEGMENT,

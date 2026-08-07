@@ -2493,8 +2493,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
     // signal table. Never breaks a response: any failure yields no auth line.
     let authBlock = "";
     try {
-      const { authState } = await import("../cloud/auth-state.js");
-      const { authSurfaceSignal } = await import("../cloud/auth-surface.js");
+      const { authState, authSurfaceSignal } = await import(
+        "../cloud/auth/index.js"
+      );
       const sig = authSurfaceSignal(authState());
       if (sig) {
         const { getSignalDedup } = await import("./signal-dedup.js");

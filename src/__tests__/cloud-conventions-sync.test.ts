@@ -30,21 +30,21 @@ vi.mock("node:os", async (importOriginal) => {
   };
 });
 
-import { CloudClient } from "../cloud/client.js";
-import {
-  readTeamConventions,
-  syncConventions,
-  writeTeamConventions,
-} from "../cloud/conventions-sync.js";
 import {
   credentialsPath,
   teamConventionsPath,
   writeCredentials,
-} from "../cloud/credentials.js";
+} from "../cloud/auth/credentials.js";
 import {
   type EntitlementClaims,
   writeEntitlementCache,
-} from "../cloud/entitlements.js";
+} from "../cloud/plan/entitlements.js";
+import { CloudClient } from "../cloud/sync/client.js";
+import {
+  readTeamConventions,
+  syncConventions,
+  writeTeamConventions,
+} from "../cloud/sync/conventions-sync.js";
 
 // ── In-test signing key (pinned via env override) ───────────────
 const KID = "k-conv-1";

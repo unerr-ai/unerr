@@ -26,22 +26,22 @@ vi.mock("node:os", async (importOriginal) => {
   };
 });
 
-import type {
-  CloudClient,
-  CloudResult,
-  Entitlements,
-} from "../cloud/client.js";
 import {
   credentialsPath,
   entitlementsCachePath,
   writeCredentials,
-} from "../cloud/credentials.js";
+} from "../cloud/auth/credentials.js";
 import {
   REFRESH_INTERVAL_MS,
   REFRESH_JITTER_MS,
   runEntitlementRefreshOnce,
   startEntitlementRefresh,
-} from "../cloud/refresh-job.js";
+} from "../cloud/plan/refresh-job.js";
+import type {
+  CloudClient,
+  CloudResult,
+  Entitlements,
+} from "../cloud/sync/client.js";
 
 /** A CloudClient stand-in that returns a canned entitlements result. */
 function fakeClient(

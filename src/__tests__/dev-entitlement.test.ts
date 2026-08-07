@@ -30,8 +30,8 @@ import {
   effectiveTier,
   verifyEntitlementToken,
   writeEntitlementCache,
-} from "../cloud/entitlements.js";
-import { gate } from "../cloud/gate.js";
+} from "../cloud/plan/entitlements.js";
+import { gate } from "../cloud/plan/gate.js";
 
 // The minter is a dependency-free .mjs outside src/ (rootDir). A computed
 // dynamic import keeps it out of tsc's static graph while vitest resolves it.

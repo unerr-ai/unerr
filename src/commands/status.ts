@@ -644,11 +644,11 @@ export function registerStatusCommand(program: Command): void {
       // ── Cloud login state (optional — the CLI works fully logged out) ─
       // Read-only and local: no network call, never blocks. One line.
       try {
-        const { loginStateLine } = await import("../cloud/login-state.js");
+        const { loginStateLine } = await import("../cloud/auth/index.js");
         process.stderr.write(`\n  Team:     ${loginStateLine()}\n`);
 
         // Plan line — read-only and offline (reads the signed cache only).
-        const { effectiveTier } = await import("../cloud/entitlements.js");
+        const { effectiveTier } = await import("../cloud/plan/index.js");
         const tier = effectiveTier();
         process.stderr.write(`  Plan:     ${tier.plan}\n`);
         if (tier.source === "grace" && tier.reconnect_by) {
@@ -681,7 +681,7 @@ export function registerStatusCommand(program: Command): void {
       // standing per-repo count from `.unerr/state/push-cursor.json` so an
       // operator can tell push is lossy. Silent when zero (the common case).
       try {
-        const { PushCursor } = await import("../cloud/push-cursor.js");
+        const { PushCursor } = await import("../cloud/sync/index.js");
         const cursor = await PushCursor.open(unerrDir);
         const dead = cursor.deadLetterTotal();
         if (dead > 0) {

@@ -8,7 +8,7 @@ import {
   repoLimit,
   seatLimit,
   tierLabel,
-} from "../cloud/tier-model.js";
+} from "../cloud/plan/tier-model.js";
 
 describe("parseLimits", () => {
   it("reads the server limit keys", () => {

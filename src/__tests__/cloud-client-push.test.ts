@@ -13,7 +13,11 @@
 
 import { gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CloudClient, fullJitter, parseRetryAfter } from "../cloud/client.js";
+import {
+  CloudClient,
+  fullJitter,
+  parseRetryAfter,
+} from "../cloud/sync/client.js";
 
 /** Build a `Response` from a status + JSON body + optional headers. */
 function makeResponse(

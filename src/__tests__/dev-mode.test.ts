@@ -36,7 +36,7 @@ import {
 import {
   readEntitlementCache,
   writeEntitlementCache,
-} from "../cloud/entitlements.js";
+} from "../cloud/plan/entitlements.js";
 
 let tempHome: string;
 let repoDir: string;

@@ -32,14 +32,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
-import type { CloudClient } from "./client.js";
-import { readCredentials, teamConventionsPath } from "./credentials.js";
+import { readCredentials, teamConventionsPath } from "../auth/credentials.js";
+import { handleRevokedToken } from "../auth/login-state.js";
 import {
   isTelemetryDisabledByConfig,
   isTelemetryDisabledByEnv,
-} from "./entitlements.js";
-import { gate } from "./gate.js";
-import { handleRevokedToken } from "./login-state.js";
+} from "../plan/entitlements.js";
+import { gate } from "../plan/gate.js";
+import type { CloudClient } from "./client.js";
 
 /** Plain-language reason shown when the telemetry off-switch blocks a pull —
  *  reuses the `"gated"` outcome shape so every existing caller (the daemon's

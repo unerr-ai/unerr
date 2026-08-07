@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { IngestEvent } from "@unerr-ai/contracts/ingest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { deterministicId } from "../cloud/event-id.js";
+import { deterministicId } from "../cloud/sync/event-id.js";
 import { _resetEmitContextForTest } from "../events/enqueue.js";
 import { hookSegment, segmentPath } from "../events/event-store.js";
 

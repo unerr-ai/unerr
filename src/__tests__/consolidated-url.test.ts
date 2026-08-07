@@ -15,7 +15,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_API_URL } from "../cloud/credentials.js";
+import { DEFAULT_API_URL } from "../cloud/config.js";
 import {
   consolidatedDashboardUrl,
   consolidatedServiceBaseUrl,

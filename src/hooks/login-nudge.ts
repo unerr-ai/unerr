@@ -17,7 +17,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { loginBlocked } from "../cloud/login-gate.js";
+import { loginBlocked } from "../cloud/auth/index.js";
 
 /** Throttle window: emit the login nudge at most once per hour per repo. */
 export const LOGIN_NUDGE_WINDOW_MS = 60 * 60 * 1000;

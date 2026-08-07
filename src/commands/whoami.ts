@@ -12,11 +12,9 @@
  */
 
 import type { Command } from "commander";
-import { CloudClient } from "../cloud/client.js";
-import { readTeamConventions } from "../cloud/conventions-sync.js";
-import { readCredentials } from "../cloud/credentials.js";
-import { effectiveTier, refreshEntitlements } from "../cloud/entitlements.js";
-import { handleRevokedToken } from "../cloud/login-state.js";
+import { handleRevokedToken, readCredentials } from "../cloud/auth/index.js";
+import { effectiveTier, refreshEntitlements } from "../cloud/plan/index.js";
+import { CloudClient, readTeamConventions } from "../cloud/sync/index.js";
 
 /**
  * Plain-language one-liner describing the synced team-conventions doc, if

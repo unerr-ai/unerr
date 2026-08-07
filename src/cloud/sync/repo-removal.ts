@@ -24,8 +24,12 @@
 export async function emitRepoRemoved(repoPath: string): Promise<void> {
   try {
     const { join } = await import("node:path");
-    const { openMetricsStore } = await import("../tracking/metrics-store.js");
-    const { recordRepoActivity } = await import("../tracking/repo-activity.js");
+    const { openMetricsStore } = await import(
+      "../../tracking/metrics-store.js"
+    );
+    const { recordRepoActivity } = await import(
+      "../../tracking/repo-activity.js"
+    );
     const store = openMetricsStore(join(repoPath, ".unerr"));
     recordRepoActivity(store, "removed");
   } catch {
@@ -34,8 +38,8 @@ export async function emitRepoRemoved(repoPath: string): Promise<void> {
   }
 
   try {
-    const { PushReporter } = await import("../daemon/push-reporter.js");
-    const { readCredentials } = await import("./credentials.js");
+    const { PushReporter } = await import("../../daemon/push-reporter.js");
+    const { readCredentials } = await import("../auth/credentials.js");
     const reporter = new PushReporter({
       getRepos: () => [{ path: repoPath }],
       resolveAuth: () => {

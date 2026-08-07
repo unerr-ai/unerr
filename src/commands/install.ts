@@ -21,8 +21,11 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
-import { RepoCapError, checkRegisterRepo } from "../cloud/repo-cap.js";
-import { currentRepoLimit } from "../cloud/tier-query.js";
+import {
+  RepoCapError,
+  checkRegisterRepo,
+  currentRepoLimit,
+} from "../cloud/plan/index.js";
 import {
   AGENT_REGISTRY,
   getAgent,

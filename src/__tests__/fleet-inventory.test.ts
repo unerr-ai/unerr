@@ -7,10 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../daemon/registry.js", () => ({ listRepos: vi.fn() }));
 vi.mock("../utils/git.js", () => ({ getRemoteUrl: vi.fn() }));
-vi.mock("../cloud/credentials.js", () => ({ readCredentialMetadata: vi.fn() }));
+vi.mock("../cloud/auth/credentials.js", () => ({
+  readCredentialMetadata: vi.fn(),
+}));
 vi.mock("../daemon/repo-runtime.js", () => ({ readRepoRuntime: vi.fn() }));
 
-import { readCredentialMetadata } from "../cloud/credentials.js";
+import { readCredentialMetadata } from "../cloud/auth/credentials.js";
 import {
   MAX_REPOS_PER_REPORT,
   buildFleetReport,

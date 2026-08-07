@@ -25,8 +25,8 @@
 
 import { gzipSync } from "node:zlib";
 import type { MachineDisconnectInput } from "@unerr-ai/contracts/account";
-import { UNERR_VERSION } from "../version.js";
-import { DEFAULT_API_URL } from "./credentials.js";
+import { UNERR_VERSION } from "../../version.js";
+import { DEFAULT_API_URL } from "../config.js";
 
 /** Per-request timeout. */
 const TIMEOUT_MS = 10_000;

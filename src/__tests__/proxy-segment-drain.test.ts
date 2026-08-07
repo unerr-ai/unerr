@@ -14,10 +14,10 @@ import {
   buildIngestDrainers,
   segmentCursorKey,
   truncateDrainedLongLivedSegments,
-} from "../cloud/drainers/ingest.js";
-import { PushCursor } from "../cloud/push-cursor.js";
-import type { DrainerContext } from "../cloud/push-drainer.js";
-import { drainRepo } from "../cloud/push-drainer.js";
+} from "../cloud/sync/drainers/ingest.js";
+import { PushCursor } from "../cloud/sync/push-cursor.js";
+import type { DrainerContext } from "../cloud/sync/push-drainer.js";
+import { drainRepo } from "../cloud/sync/push-drainer.js";
 import {
   PROXY_SEGMENT,
   type StoredEvent,

@@ -10,12 +10,12 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import type { AuthState } from "../cloud/auth-state.js";
+import type { AuthState } from "../cloud/auth/auth-state.js";
 import {
   authBadge,
   authStateLine,
   authSurfaceSignal,
-} from "../cloud/auth-surface.js";
+} from "../cloud/auth/auth-surface.js";
 import {
   getSignalDedup,
   resetSignalDedupSingleton,

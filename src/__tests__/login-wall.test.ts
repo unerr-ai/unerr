@@ -27,7 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const loginBlockedMock = vi.fn<() => boolean>();
 const loginGateNoticeMock = vi.fn<() => string>(() => "Sign in to use unerr.");
 const isInternalEntryShapeMock = vi.fn<() => boolean>(() => false);
-vi.mock("../cloud/login-gate.js", () => ({
+vi.mock("../cloud/auth/login-gate.js", () => ({
   loginBlocked: () => loginBlockedMock(),
   loginGateNotice: () => loginGateNoticeMock(),
   isInternalEntryShape: () => isInternalEntryShapeMock(),
@@ -37,7 +37,7 @@ import {
   isInternalEntryShape,
   loginBlocked,
   loginGateNotice,
-} from "../cloud/login-gate.js";
+} from "../cloud/auth/login-gate.js";
 
 // ── Mirror of the cli-main.ts wall (kept lockstep with the real wiring) ──
 

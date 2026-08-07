@@ -13,7 +13,7 @@
  * Both paths are offline and never block. The shape returned is the same.
  */
 
-import { daemonSockPath, getDaemonTier } from "../daemon/client.js";
+import { daemonSockPath, getDaemonTier } from "../../daemon/client.js";
 import { effectiveTier, readEntitlementCache } from "./entitlements.js";
 import {
   FREE_TIER_LIMITS,

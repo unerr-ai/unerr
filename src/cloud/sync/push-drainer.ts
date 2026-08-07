@@ -13,9 +13,9 @@
  */
 
 import { INGEST_MAX_EVENTS_PER_BATCH } from "@unerr-ai/contracts/events";
+import { canPushTelemetry } from "../plan/entitlements.js";
 import type { BatchAck, CloudClient, CloudResult } from "./client.js";
 import { type ContractSchema, validateRows } from "./drainers/validate.js";
-import { canPushTelemetry } from "./entitlements.js";
 import type { CursorPos, PushCursor } from "./push-cursor.js";
 
 /** A batch a drainer read from its store, plus the cursor to persist once acked. */

@@ -23,9 +23,9 @@
  * proxy tool-call hot path.
  */
 
+import { tierFromCache } from "../plan/tier-query.js";
 import { readAuthEvents } from "./auth-events.js";
 import { readCredentialMetadata } from "./credentials.js";
-import { tierFromCache } from "./tier-query.js";
 
 /** The six auth states a surface renders. */
 export type AuthStateName =

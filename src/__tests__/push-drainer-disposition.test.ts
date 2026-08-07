@@ -13,13 +13,13 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { BatchAck, CloudResult } from "../cloud/client.js";
-import { PushCursor } from "../cloud/push-cursor.js";
+import type { BatchAck, CloudResult } from "../cloud/sync/client.js";
+import { PushCursor } from "../cloud/sync/push-cursor.js";
 import {
   type StreamBatch,
   type StreamDrainer,
   drainRepo,
-} from "../cloud/push-drainer.js";
+} from "../cloud/sync/push-drainer.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

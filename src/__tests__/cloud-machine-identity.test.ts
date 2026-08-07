@@ -26,8 +26,8 @@ import {
   readLoginLedger,
   recordLogin,
   recordLogout,
-} from "../cloud/login-ledger.js";
-import { computeMachineFingerprint } from "../cloud/machine-fingerprint.js";
+} from "../cloud/auth/login-ledger.js";
+import { computeMachineFingerprint } from "../cloud/sync/machine-fingerprint.js";
 
 let tempHome: string;
 

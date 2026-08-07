@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deterministicId } from "../cloud/event-id.js";
+import { deterministicId } from "../cloud/sync/event-id.js";
 
 const UUID_V5 =
   /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;

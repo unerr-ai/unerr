@@ -35,7 +35,7 @@ vi.mock("node:os", async (importOriginal) => {
 import {
   entitlementsCachePath,
   readCredentialMetadata,
-} from "../cloud/credentials.js";
+} from "../cloud/auth/credentials.js";
 import {
   type EntitlementClaims,
   canPushTelemetry,
@@ -44,7 +44,7 @@ import {
   readEntitlementCache,
   verifyEntitlementToken,
   writeEntitlementCache,
-} from "../cloud/entitlements.js";
+} from "../cloud/plan/entitlements.js";
 
 // ── Test keypairs ────────────────────────────────────────────────
 const KID = "k-test-1";

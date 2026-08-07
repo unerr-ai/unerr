@@ -9,17 +9,16 @@
  */
 
 import type { Command } from "commander";
-import { clearAuthEvents } from "../cloud/auth-events.js";
-import { CloudClient } from "../cloud/client.js";
 import {
+  clearAuthEvents,
   deleteCredentials,
   deleteEntitlementsCache,
   deleteTeamConventionsCache,
   isLoggedIn,
   readCredentials,
-} from "../cloud/credentials.js";
-import { recordLogout } from "../cloud/login-ledger.js";
-import { computeMachineFingerprint } from "../cloud/machine-fingerprint.js";
+  recordLogout,
+} from "../cloud/auth/index.js";
+import { CloudClient, computeMachineFingerprint } from "../cloud/sync/index.js";
 
 function out(line: string): void {
   process.stderr.write(`${line}\n`);
