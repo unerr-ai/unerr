@@ -243,7 +243,7 @@ unerr whoami     # show the account this machine is connected to
 unerr logout     # disconnect and delete the local credentials
 ```
 
-**What gets sent — and what never does.** Logged out, or logged in on the free plan, nothing but two account-less checks (a version check, a one-time parser download for some languages) ever leaves your machine. Once you're on a paid, logged-in plan, background sync adds machine facts, this repo's inventory row, and usage events (which tool ran, how long, session/branch/commit) — never source code, file contents, diffs, prompts, or credentials. Full detail in [PRIVACY.md](./PRIVACY.md).
+**What gets sent — and what never does.** Logged out, or logged in on the free plan, nothing but two account-less checks (a version check, a one-time parser download for some languages) ever leaves your machine. Once you're on a paid, logged-in plan, background sync adds four things: machine facts, this repo's inventory row, usage events (which tool ran, how long, session/branch/commit), and a stripped summary of agent transcripts. Never source code, file contents, diffs, raw prompts, raw transcript text, or credentials. Full detail in [PRIVACY.md](./PRIVACY.md).
 
 **Where credentials live.** The token for this machine goes into your OS keychain (Keychain Access on macOS, Secret Service on Linux, Credential Manager on Windows). If no keychain is available, it falls back to `~/.unerr/credentials.json` (readable only by you) and warns you once.
 
