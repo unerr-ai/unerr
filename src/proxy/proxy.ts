@@ -19,7 +19,6 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  statSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { configureEmit } from "../events/enqueue.js";
@@ -1081,8 +1080,9 @@ export async function startProxy(opts: ProxyOptions = {}): Promise<{
   const { StdioServerTransport } = await import(
     "@modelcontextprotocol/sdk/server/stdio.js"
   );
-  const { ListToolsRequestSchema, CallToolRequestSchema } =
-    await import("@modelcontextprotocol/sdk/types.js");
+  const { ListToolsRequestSchema, CallToolRequestSchema } = await import(
+    "@modelcontextprotocol/sdk/types.js"
+  );
 
   const server = new Server(
     { name: "unerr-local", version: UNERR_VERSION },
