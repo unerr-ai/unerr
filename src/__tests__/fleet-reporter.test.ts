@@ -9,12 +9,27 @@
  * them. The reporter no longer pushes to the cloud directly, so the seam under
  * test is `appendFleetEvent`, not a client.
  */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../daemon/fleet-inventory.js", () => ({
   buildFleetReport: vi.fn(),
   buildHeartbeatReport: vi.fn(),
 }));
+
+// Hermetic home dir so `isTelemetryDisabledByConfig`'s machine-wide check
+// (used by the per-repo opt-out filter below) never reads the real
+// `~/.unerr/config.json`.
+let tempHome: string;
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return {
+    ...actual,
+    homedir: () => process.env.__TEST_HOME ?? actual.homedir(),
+  };
+});
 
 import {
   buildFleetReport,
@@ -28,6 +43,24 @@ import {
   INVENTORY_KEEPALIVE_MS,
   inventoryFingerprint,
 } from "../daemon/fleet-reporter.js";
+import type { RepoStatusEntry } from "../daemon/protocol.js";
+
+/** A minimal valid RepoStatusEntry for a given repo root path. */
+function statusEntry(path: string): RepoStatusEntry {
+  return {
+    path,
+    label: path,
+    status: "running",
+    pid: 1,
+    memory: 1,
+    idle: 0,
+    connections: 0,
+    lastActivity: null,
+    entityCount: 1,
+    edgeCount: 1,
+    needsInput: [],
+  };
+}
 
 const mockedBuildFleet = vi.mocked(buildFleetReport);
 const mockedBuildBeat = vi.mocked(buildHeartbeatReport);
@@ -123,9 +156,16 @@ function makeHarness(over: Partial<FleetReporterDeps> = {}): Harness {
 beforeEach(() => {
   mockedBuildFleet.mockResolvedValue({ machine: MACHINE, repos: [] } as any);
   mockedBuildBeat.mockReturnValue({ daemon: DAEMON, repos: [] } as any);
+  tempHome = mkdtempSync(join(tmpdir(), "unerr-fleet-home-"));
+  process.env.__TEST_HOME = tempHome;
 });
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  // biome-ignore lint/performance/noDelete: must unset the env var — assigning undefined would set it to the string "undefined"
+  delete process.env.__TEST_HOME;
+  rmSync(tempHome, { recursive: true, force: true });
+});
 
 describe("FleetReporter", () => {
   it("appends a full inventory on start, then schedules a heartbeat", async () => {
@@ -239,6 +279,32 @@ describe("FleetReporter", () => {
     expect(h.append).not.toHaveBeenCalled();
     expect(mockedBuildFleet).not.toHaveBeenCalled();
     h.reporter.stop();
+  });
+
+  it("excludes a repo with its own telemetry:false from the inventory/heartbeat inputs", async () => {
+    const optedOut = mkdtempSync(join(tmpdir(), "unerr-fleet-repo-out-"));
+    const optedIn = mkdtempSync(join(tmpdir(), "unerr-fleet-repo-in-"));
+    mkdirSync(join(optedOut, ".unerr"), { recursive: true });
+    writeFileSync(
+      join(optedOut, ".unerr", "config.json"),
+      JSON.stringify({ telemetry: false })
+    );
+    try {
+      const h = makeHarness({
+        getStatusEntries: () => [statusEntry(optedOut), statusEntry(optedIn)],
+      });
+      h.reporter.start();
+      await flush();
+      expect(mockedBuildFleet).toHaveBeenCalledTimes(1);
+      const inputs = mockedBuildFleet.mock.calls[0]?.[0] as {
+        statusEntries: RepoStatusEntry[];
+      };
+      expect(inputs.statusEntries.map((e) => e.path)).toEqual([optedIn]);
+      h.reporter.stop();
+    } finally {
+      rmSync(optedOut, { recursive: true, force: true });
+      rmSync(optedIn, { recursive: true, force: true });
+    }
   });
 
   it("backs off without throwing when the append fails", async () => {

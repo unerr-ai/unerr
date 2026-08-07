@@ -396,23 +396,26 @@ function readTelemetryConfigValue(configPath: string): boolean | undefined {
 /**
  * The telemetry off-switch, read from config: `{"telemetry": false}` in
  * `~/.unerr/config.json` (machine-wide) or `<repoPath>/.unerr/config.json`
- * (per-repo). The machine-wide file wins whenever it sets the key at all —
- * a machine-wide `false` cannot be overridden by a repo, and a machine-wide
- * `true` beats a repo's `false`. Called with no `repoPath` (the machine-wide
- * gates: `canPushTelemetry`, the fleet reporter) it checks the machine file
- * only; a repo-scoped caller (the push drain loop) passes its `repoPath` to
- * also honor that repo's own opt-out.
+ * (per-repo). OR-ed, most-restrictive-wins: disabled if EITHER file sets
+ * `telemetry: false` — a machine-wide `true` can never cancel a repo's own
+ * `false`, and vice versa. Only `false` from either file disables; `true`
+ * or an absent/unset key at one level defers to the other level, and
+ * "both absent" defaults to enabled. Called with no `repoPath` (the
+ * machine-wide gates: `canPushTelemetry`, the fleet reporter) it checks the
+ * machine file only; a repo-scoped caller (the push drain loop, the fleet
+ * inventory filter) passes its `repoPath` to also honor that repo's own
+ * opt-out.
  */
 export function isTelemetryDisabledByConfig(repoPath?: string): boolean {
   const machineValue = readTelemetryConfigValue(
     join(homedir(), ".unerr", "config.json")
   );
-  if (machineValue !== undefined) return machineValue === false;
+  if (machineValue === false) return true;
   if (repoPath) {
     const repoValue = readTelemetryConfigValue(
       join(repoPath, ".unerr", "config.json")
     );
-    if (repoValue !== undefined) return repoValue === false;
+    if (repoValue === false) return true;
   }
   return false;
 }

@@ -40,6 +40,7 @@ import {
   type EntitlementClaims,
   canPushTelemetry,
   effectiveTier,
+  isTelemetryDisabledByConfig,
   readEntitlementCache,
   verifyEntitlementToken,
   writeEntitlementCache,
@@ -416,6 +417,46 @@ describe("cloud entitlements", () => {
         JSON.stringify({ telemetry: false })
       );
       expect(canPushTelemetry(now)).toBe(false);
+    });
+  });
+
+  describe("isTelemetryDisabledByConfig — OR semantics, most-restrictive-wins", () => {
+    it("machine-wide telemetry:true cannot cancel a repo's own telemetry:false", () => {
+      mkdirSync(join(tempHome, ".unerr"), { recursive: true });
+      writeFileSync(
+        join(tempHome, ".unerr", "config.json"),
+        JSON.stringify({ telemetry: true })
+      );
+      const repoDir = mkdtempSync(join(tmpdir(), "unerr-ent-repo-"));
+      try {
+        mkdirSync(join(repoDir, ".unerr"), { recursive: true });
+        writeFileSync(
+          join(repoDir, ".unerr", "config.json"),
+          JSON.stringify({ telemetry: false })
+        );
+        expect(isTelemetryDisabledByConfig(repoDir)).toBe(true);
+      } finally {
+        rmSync(repoDir, { recursive: true, force: true });
+      }
+    });
+
+    it("repo telemetry:true cannot cancel a machine-wide telemetry:false", () => {
+      mkdirSync(join(tempHome, ".unerr"), { recursive: true });
+      writeFileSync(
+        join(tempHome, ".unerr", "config.json"),
+        JSON.stringify({ telemetry: false })
+      );
+      const repoDir = mkdtempSync(join(tmpdir(), "unerr-ent-repo-"));
+      try {
+        mkdirSync(join(repoDir, ".unerr"), { recursive: true });
+        writeFileSync(
+          join(repoDir, ".unerr", "config.json"),
+          JSON.stringify({ telemetry: true })
+        );
+        expect(isTelemetryDisabledByConfig(repoDir)).toBe(true);
+      } finally {
+        rmSync(repoDir, { recursive: true, force: true });
+      }
     });
   });
 });

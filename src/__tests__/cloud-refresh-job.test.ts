@@ -6,7 +6,13 @@
  * (fake timers). A fake CloudClient is injected so no network happens.
  */
 
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -76,7 +82,12 @@ const offline: CloudResult<Entitlements> = {
   error: { code: "network_error", message: "offline" },
 };
 
-const ENV_KEYS = ["__TEST_HOME", "UNERR_TOKEN"] as const;
+const ENV_KEYS = [
+  "__TEST_HOME",
+  "UNERR_TOKEN",
+  "UNERR_NO_TELEMETRY",
+  "DO_NOT_TRACK",
+] as const;
 
 function login(): void {
   writeCredentials({
@@ -113,6 +124,35 @@ describe("entitlement refresh job", () => {
   it("skips silently when not logged in", async () => {
     const res = await runEntitlementRefreshOnce();
     expect(res.status).toBe("skipped");
+  });
+
+  it.each(["UNERR_NO_TELEMETRY", "DO_NOT_TRACK"] as const)(
+    "%s=1 skips the refresh even while logged in, no network call",
+    async (envVar) => {
+      login();
+      process.env[envVar] = "1";
+      const calls = { n: 0 };
+      const res = await runEntitlementRefreshOnce({
+        makeClient: () => fakeClient(okUnsigned, calls),
+      });
+      expect(res.status).toBe("skipped");
+      expect(calls.n).toBe(0);
+    }
+  );
+
+  it("machine-wide telemetry:false skips the refresh, no network call", async () => {
+    login();
+    mkdirSync(join(tempHome, ".unerr"), { recursive: true });
+    writeFileSync(
+      join(tempHome, ".unerr", "config.json"),
+      JSON.stringify({ telemetry: false })
+    );
+    const calls = { n: 0 };
+    const res = await runEntitlementRefreshOnce({
+      makeClient: () => fakeClient(okUnsigned, calls),
+    });
+    expect(res.status).toBe("skipped");
+    expect(calls.n).toBe(0);
   });
 
   it("revoked → wipes credentials + cache, reports revoked", async () => {

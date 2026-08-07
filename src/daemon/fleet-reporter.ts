@@ -15,7 +15,10 @@ import {
   MachineInventoryEvent,
 } from "@unerr-ai/contracts/fleet";
 import { validateBody } from "../cloud/drainers/validate.js";
-import { canPushTelemetry } from "../cloud/entitlements.js";
+import {
+  canPushTelemetry,
+  isTelemetryDisabledByConfig,
+} from "../cloud/entitlements.js";
 import { type EmitContext, stampEvent } from "../events/enqueue.js";
 import {
   FLEET_SEGMENT,
@@ -296,8 +299,13 @@ export class FleetReporter {
     const auth = this.deps.resolveAuth();
     if (!auth) return DEFAULT_CHECKIN_INTERVAL_MS;
 
+    // A repo with its own `{"telemetry": false}` opts out of the fleet
+    // inventory/heartbeat too, not just the event drain — its path, label,
+    // git-remote hash, and graph size never enter the report at all.
     const inputs = {
-      statusEntries: this.deps.getStatusEntries(),
+      statusEntries: this.deps
+        .getStatusEntries()
+        .filter((e) => !isTelemetryDisabledByConfig(e.path)),
       dashboardPort: this.deps.dashboardPort(),
     };
 

@@ -114,6 +114,8 @@ const ENV_KEYS = [
   "UNERR_TOKEN",
   "UNERR_ENTITLEMENT_PUBKEY",
   "UNERR_ENTITLEMENT_KID",
+  "UNERR_NO_TELEMETRY",
+  "DO_NOT_TRACK",
 ] as const;
 
 describe("conventions sync", () => {
@@ -239,6 +241,31 @@ describe("conventions sync", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(existsSync(teamConventionsPath())).toBe(false);
   });
+
+  it.each(["UNERR_NO_TELEMETRY", "DO_NOT_TRACK"] as const)(
+    "%s=1 gates the pull even on a plan with the feature on, no network call",
+    async (envVar) => {
+      login();
+      seedTier({ conventions_sync: true });
+      process.env[envVar] = "1";
+
+      const fetchMock = vi.fn(async () => jsonResponse(200, {}));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = new CloudClient({
+        apiUrl: "https://app.unerr.ai",
+        token: "unerr_sk_test",
+      });
+      const outcome = await syncConventions(client);
+
+      expect(outcome.result).toBe("gated");
+      if (outcome.result === "gated") {
+        expect(outcome.message.length).toBeGreaterThan(0);
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(existsSync(teamConventionsPath())).toBe(false);
+    }
+  );
 
   it("revoked token: 401 revoked_token wipes credentials + cache via the one funnel", async () => {
     login();

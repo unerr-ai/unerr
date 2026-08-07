@@ -17,6 +17,15 @@
  *  - offline / network error → silent; the signed cache covers it.
  *  - 401 revoked_token       → wipe credentials + cache (handleRevokedToken),
  *    then STOP the timer (nothing to refresh until the next login).
+ *
+ * Off-switch: `UNERR_NO_TELEMETRY`/`DO_NOT_TRACK` and a `telemetry: false`
+ * config key stop this too, on ANY plan — the GET here still hands the
+ * server an account token, exactly the automatic background contact those
+ * switches promise to stop. Consequence: while the switch is set, a plan
+ * change (e.g. an upgrade) is not noticed until it's removed (see
+ * PRIVACY.md). This is NOT gated on plan otherwise — a free-plan machine
+ * still refreshes, since that refresh is the only way an upgrade is ever
+ * noticed without a manual re-login.
  */
 
 import { recordRefreshOutcome } from "./auth-events.js";
@@ -24,7 +33,11 @@ import { maybeNotifyAuthTransition } from "./auth-notify.js";
 import { CloudClient } from "./client.js";
 import { syncConventions } from "./conventions-sync.js";
 import { readCredentials } from "./credentials.js";
-import { refreshEntitlements } from "./entitlements.js";
+import {
+  isTelemetryDisabledByConfig,
+  isTelemetryDisabledByEnv,
+  refreshEntitlements,
+} from "./entitlements.js";
 import { handleRevokedToken } from "./login-state.js";
 
 /** Base interval between refreshes: 12 hours. */
@@ -70,6 +83,13 @@ export async function runEntitlementRefreshOnce(
 ): Promise<{ status: "skipped" | "revoked" | "done"; plan?: string }> {
   const notifyTransition =
     deps.notifyTransition ?? (() => maybeNotifyAuthTransition());
+
+  // The off-switch stops this before it touches credentials at all — no
+  // token leaves the machine while it's set, on any plan.
+  if (isTelemetryDisabledByEnv() || isTelemetryDisabledByConfig()) {
+    notifyTransition();
+    return { status: "skipped" };
+  }
 
   const creds = readCredentials();
   if (!creds) {
