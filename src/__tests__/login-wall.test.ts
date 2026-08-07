@@ -39,7 +39,7 @@ import {
   loginGateNotice,
 } from "../cloud/login-gate.js";
 
-// ── Mirror of the cli.ts wall (kept lockstep with the real wiring) ──
+// ── Mirror of the cli-main.ts wall (kept lockstep with the real wiring) ──
 
 /**
  * True only for `conventions` (+ its pull/push subs). Everything else,

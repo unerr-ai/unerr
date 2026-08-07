@@ -10,11 +10,13 @@
  * All output goes to stderr (stdout stays clean for MCP JSON-RPC). The
  * machine token is never printed.
  *
- * Login is mandatory (2026-06-14, owner decision; see
- * `.internal/archive/LOGIN_UX_STRATEGY.md`). The `preAction` wall in
- * `src/entrypoints/cli.ts` calls `runLogin()` to drive a blocked command
- * through the device flow, then re-dispatches the original command. For
- * non-interactive use (CI / agents), set `UNERR_TOKEN` or pass `--token`.
+ * Login is optional (OSS conversion, 2026-08): unerr's local features need no
+ * account. The one exception is `conventions` — it reads/writes a document
+ * shared between people on our servers, so the `preAction` wall in
+ * `src/entrypoints/cli-main.ts` still calls `runLogin()` to drive a blocked
+ * `conventions` call through the device flow, then re-dispatches the
+ * original command. For non-interactive use (CI / agents running
+ * `conventions`), set `UNERR_TOKEN` or pass `--token`.
  */
 
 import type { Command } from "commander";

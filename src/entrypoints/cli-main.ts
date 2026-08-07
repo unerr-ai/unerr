@@ -1831,23 +1831,24 @@ export async function main(): Promise<void> {
     // (login, pm, the proxy default action, --mcp, --daemon-child), so it is the
     // single choke point that routes all cloud access through the dev server. A
     // dev.json with a `tier` mints a local entitlement here that fabricates the
-    // PLAN only — login is still required (loginBlocked() keys off real credential
-    // presence, not the entitlement), so dev exercises the real wall against the
+    // PLAN — `loginBlocked()` still keys off real credential presence, not the
+    // entitlement, so dev exercises the real `conventions` wall against the
     // dev server. Compile-stripped in prod.
     await applyDevConfigOnce(process.cwd());
 
-    // --mcp / --daemon-child: non-interactive entry shapes the proxy enforces
-    // separately; never run an interactive wall here.
+    // --mcp / --daemon-child: non-interactive entry shapes; never run an
+    // interactive wall here (MCP tool calls need no login at all).
     if (isInternalEntryShape()) return;
 
-    // Wall ONLY the add / modify / start commands. View, teardown, and recovery
-    // run freely logged out; agent + hook surfaces (recon/index/learn/exec/
+    // Wall ONLY `conventions` (+ its pull/push subs) — the one command that
+    // reads/writes the team's shared cloud document. Every other command runs
+    // freely logged out; agent + hook surfaces (recon/index/learn/exec/
     // compress-output/hook) pass through and self-nudge in their own
     // handlers (src/hooks/login-nudge.ts) — they must never break the IDE/agent.
     // Non-wall commands don't even consult the gate.
     if (!requiresInteractiveLogin(actionCmd)) return;
 
-    // A wall command, but already logged in (or a dev tier is active) → proceed.
+    // `conventions`, but already logged in (or a dev tier is active) → proceed.
     if (!loginBlocked()) return;
 
     await loginThenContinue();
