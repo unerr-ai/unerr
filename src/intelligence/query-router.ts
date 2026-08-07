@@ -565,8 +565,11 @@ export interface ToolResult {
      */
     workspace?: { peers: number; partial: boolean };
     /**
-     * Set when `scope:'workspace'` was requested on free tier: the upgrade nudge
-     * to surface while still returning the home-only result.
+     * Set when a `scope:'workspace'` fan-out was refused, carrying the message
+     * to surface while still returning the home-only result. Defensive only —
+     * the free-tier gate that used to emit this was removed when cross-repo
+     * became free, and `resolveFederatedPeers` no longer refuses on plan. The
+     * daemon can still return a refusal shape, so the path stays handled.
      */
     workspace_refused?: string;
     /** Set when an implicit cross-repo path route served this from a peer repo. */
