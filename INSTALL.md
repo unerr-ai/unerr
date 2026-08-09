@@ -90,6 +90,23 @@ Downloads the Windows x64 build, verifies its hash, expands it to
 `%USERPROFILE%\.unerr\bin`, and adds that to your user PATH. Open a new terminal
 afterward.
 
+Works on Windows PowerShell 5.1 (what ships with Windows 10 and 11) and on
+PowerShell 7+. Nothing else is needed — no Node, no admin rights, no execution
+policy change, since piping into `iex` doesn't run a script file.
+
+Same knobs as the macOS/Linux script:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `$env:UNERR_INSTALL_DIR` | `%USERPROFILE%\.unerr\bin` | Where the binary lands |
+| `$env:VERSION` | latest release | Pin a specific version, e.g. `0.3.5` |
+
+```powershell
+# Pin a version and a location
+$env:VERSION="0.3.5"; $env:UNERR_INSTALL_DIR="C:\tools\unerr"
+irm https://raw.githubusercontent.com/unerr-ai/unerr/main/install.ps1 | iex
+```
+
 ### Windows — Scoop
 
 ```powershell
@@ -122,6 +139,59 @@ unerr --version      # prints the version baked into the binary
 unerr doctor         # checks PATH across your shells, auto-fixes if needed
 unerr status         # in a repo: shows graph + proxy state
 ```
+
+---
+
+## Connect unerr to your agent
+
+`unerr install <agent>` sets up one agent. Run it with no argument to see the
+full list and what is already installed.
+
+There are two categories, and they install differently.
+
+### Code agents
+
+For agents that work on a codebase. unerr indexes the repo, builds the call
+graph, and serves graph-backed tools over MCP.
+
+```bash
+unerr install claude-code
+unerr install cursor
+unerr install codex
+```
+
+This writes a project-level MCP config and a short instruction block into the
+agent's own instruction file. Never a global config.
+
+### Work agents
+
+For agents that work on documents rather than code. There is no repo to index,
+so unerr skips the graph entirely and ships what still pays off without one:
+compressed command output, ranked web fetching, and five delegation sub-agents.
+
+```bash
+unerr install cowork          # Claude Cowork
+unerr install chatgpt-work    # ChatGPT Work, Codex, and other Agent Plugins hosts
+```
+
+These do not write an MCP config. They generate a plugin folder under
+`.unerr/plugins/` and print the steps to load it. The command tells you exactly
+what to do next for each host.
+
+| Host | What gets generated | How you load it |
+|---|---|---|
+| Claude Cowork | Claude plugin bundle | Cowork tab → Plugins → Upload plugin |
+| ChatGPT Work, Codex, Cursor, Copilot, Kiro, VS Code | [Agent Plugins](https://github.com/agentplugins/agent-plugins-spec) v1.0.0 bundle | The host's own plugin install |
+
+The Cowork bundle carries no MCP server on purpose. Cowork runs each session in
+an isolated virtual machine that cannot reach a process on your computer, so an
+MCP entry there would advertise tools that could never connect. The Agent
+Plugins bundle does carry one, because those hosts run locally and the standard
+allows a plugin to launch its own bundled binary.
+
+Web access in work mode goes through unerr's `fetch_url`. That is the point of
+the mode: a page fetched through unerr comes back as ranked passages instead of
+the whole document.
 
 ## Uninstall
 
@@ -159,4 +229,4 @@ it). The `release` job in `.github/workflows/ci.yml` builds all targets, signs
 the macOS binaries, uploads them to this repo's own `unerr-ai/unerr` Releases
 (public), and updates `install` / `install.ps1` on `main` so the raw URL
 resolves. All channels above point at those artifacts. Design notes:
-`.internal/roadmap/NATIVE_BINARY_DISTRIBUTION.md`.
+`.internal/docs/01-base-system/08-DISTRIBUTION-PACKAGING.md`.

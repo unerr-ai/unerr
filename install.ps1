@@ -11,7 +11,16 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# Public host for binary Releases (unerr-cli is private). See ./install.
+# Windows PowerShell 5.1 inherits .NET's default protocol list, which on an
+# un-updated Windows 10 still tops out at TLS 1.0. GitHub refuses anything below
+# TLS 1.2, so every download below would die with "Could not create SSL/TLS
+# secure channel". OR the flag in rather than assigning it, so a host that
+# already negotiates TLS 1.3 keeps it. PowerShell 7+ is unaffected and unharmed.
+[Net.ServicePointManager]::SecurityProtocol =
+    [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
+# The public source repo. It hosts both the Release assets this script downloads
+# and this script itself (served from its raw URL on `main`). See ./install.
 $Repo    = "unerr-ai/unerr"
 $Binary  = "unerr.exe"
 $Archive = "unerr-windows-x64.zip"
@@ -94,6 +103,14 @@ if (-not (Test-Path $InstallDir)) {
 
 $TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
 New-Item -ItemType Directory -Path $TmpDir | Out-Null
+
+# Invoke-WebRequest repaints a progress bar on every read. On PowerShell 5.1
+# that repaint, not the network, dominates a large download — the 57 MB archive
+# below takes minutes with it and seconds without. Piping this script into `iex`
+# runs it in the caller's own session, so the prior value is restored in the
+# `finally` below rather than left changed under them.
+$PriorProgressPreference = $ProgressPreference
+$ProgressPreference = "SilentlyContinue"
 
 try {
 
@@ -185,6 +202,10 @@ Write-Ok "    unerr install claude-code"
 Write-Ok ""
 
 } finally {
+    # Hand the caller's session back exactly as we found it — `iex` means this
+    # ran inside their shell, not a child process.
+    $ProgressPreference = $PriorProgressPreference
+
     # Clean up temp directory
     if (Test-Path $TmpDir) {
         Remove-Item -Recurse -Force $TmpDir -ErrorAction SilentlyContinue
