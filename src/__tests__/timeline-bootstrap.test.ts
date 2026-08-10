@@ -155,11 +155,19 @@ describe("startTimelineBootstrap", () => {
       ledger.record("search_code", { query: "foo" }, {}, "main", "deadbeef");
       ledger.closeTurn("session_end");
 
-      // Give the async upsertTurn microtask a tick to flush.
-      await new Promise((r) => setTimeout(r, 30));
-
+      // `onTurnClose` fires `upsertTurn(...)` without awaiting it, on purpose —
+      // the segmenter must not block on a database write. So there is nothing to
+      // await here; poll for the row instead. A fixed sleep was flaky: 30ms is
+      // enough on a developer laptop and not always enough on a loaded 4-vCPU
+      // CI runner, which failed this exact assertion on Linux while macOS passed.
       const store = handle.store;
-      const turns = await store.listTurns();
+      const deadline = Date.now() + 5000;
+      let turns = await store.listTurns();
+      while (turns.length === 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 10));
+        turns = await store.listTurns();
+      }
+
       expect(turns).toHaveLength(1);
       expect(turns[0]?.session_id).toBe(ledger.getSessionId());
       expect(turns[0]?.tool_count).toBe(2);
