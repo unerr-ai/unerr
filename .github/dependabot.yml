@@ -11,6 +11,34 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # web-tree-sitter 0.25+ cannot load the grammars we ship. Every grammar in
+      # tree-sitter-wasms 0.1.13 dies inside the runtime's getDylinkMetadata,
+      # so all eight languages would silently fall back to the regex extractor
+      # and the graph would quietly get worse without a single red test.
+      # 0.1.13 is the newest grammar package published, so there is nothing to
+      # upgrade to. Lift this once tree-sitter-wasms ships grammars built for
+      # the new runtime, and re-run the loader check before believing it.
+      - dependency-name: "web-tree-sitter"
+        versions: [">=0.25.0"]
+
+      # defuddle 0.19 stops pulling article text out of a server-rendered
+      # single-page app, so fetch_url returns zero passages for that entire
+      # page shape — a common one for documentation sites. Reproduced with the
+      # __NEXT_DATA__ fixture in src/__tests__/tools/web/fetch-url.test.ts.
+      - dependency-name: "defuddle"
+        versions: [">=0.19.0"]
+
+      # jsdom majors change what the web extractor produces. jsdom 30 strips
+      # navigation that lives inside an article, reports zero bytes for
+      # server-rendered payloads, and stops surfacing CSS parse errors — three
+      # web tests go red. Accepting that is a product decision about extraction
+      # output, not a dependency bump, so majors are gated here while patch and
+      # minor updates still flow normally.
+      - dependency-name: "jsdom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/jsdom"
+        update-types: ["version-update:semver-major"]
 
   # Actions used in .github/workflows/.
   - package-ecosystem: "github-actions"

@@ -9,6 +9,15 @@
 
 import { createRequire } from "node:module";
 import { join } from "node:path";
+// Pinned below 0.25 on purpose. The 0.25 runtime rewrote this API (default
+// export split into named `Parser`/`Language`, `SyntaxNode` renamed to `Node`)
+// AND stopped being able to load the grammars in tree-sitter-wasms 0.1.13 —
+// every one of them fails while the runtime parses the wasm dynamic-link
+// header. The API rename is a day of typing; the grammar break has no fix
+// available, because 0.1.13 is the newest grammar package published. Nothing
+// here throws loudly if you ignore this: getParser() rejects, callers fall back
+// to the regex extractor, and the graph just gets worse. See the pin and its
+// reasoning in .github/dependabot.yml.
 import type Parser from "web-tree-sitter";
 
 let TreeSitter: typeof Parser | null = null;
