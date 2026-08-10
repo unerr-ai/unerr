@@ -43,7 +43,7 @@
     "@parcel/watcher": "^2.6.0",
     "@sourcegraph/scip-python": "^0.6.6",
     "@sourcegraph/scip-typescript": "^0.4.0",
-    "commander": "^12.1.0",
+    "commander": "^15.0.0",
     "consola": "^3.4.2",
     "cozo-node": "^0.7.6",
     "defuddle": "^0.18.1",
