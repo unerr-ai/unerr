@@ -51,7 +51,7 @@
     "graphology": "^0.25.4",
     "graphology-communities-louvain": "^2.0.1",
     "graphology-layout-forceatlas2": "^0.10.1",
-    "ignore": "^6.0.0",
+    "ignore": "^7.0.6",
     "ink": "^6.8.0",
     "ink-text-input": "^6.0.0",
     "jsdom": "^25.0.1",
