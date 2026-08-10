@@ -19,6 +19,8 @@
     "build:contracts": "node scripts/build-contracts.mjs",
     "build:cli": "tsup --format esm --target node24 --dts --external cozo-node",
     "build:binary": "bun scripts/build-binary.ts",
+    "build:plugins": "tsx scripts/build-plugins.ts",
+    "build:plugins:publish": "tsx scripts/build-plugins.ts --publish",
     "dev": "tsx watch src/entrypoints/cli.ts",
     "test": "vitest",
     "test:run": "vitest run < /dev/null",

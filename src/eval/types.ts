@@ -1,5 +1,5 @@
 /**
- * Eval suite types — see ACTIVE_COGNITION_REASON_LAYER.md §18.
+ * Eval suite types.
  *
  * The smoke harness (Sprint A) defines these shapes and a runner that
  * exercises them against a no-op agent. Ship-gate (Sprint C) and live

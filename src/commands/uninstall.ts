@@ -33,6 +33,13 @@ import {
 import { removeClaudeHook } from "../config/hook-installer.js";
 import { removeInstructionSection } from "../config/instruction-writer.js";
 import { removeMcpConfig } from "../config/mcp-config-writer.js";
+import {
+  LEGACY_WORK_PLUGIN_PARENT_DIR,
+  WORK_PLUGIN_PARENT_DIR,
+  legacyWorkPluginRoots,
+  workPluginKindFor,
+  workPluginRoot,
+} from "../config/work-plugin-writer.js";
 import { removeInstalledSkills } from "../skills/resolver.js";
 import { removeSubagents } from "../skills/subagent-manager.js";
 import type { IdeType } from "../utils/detect.js";
@@ -189,7 +196,54 @@ function purgeDataDir(cwd: string): void {
 /**
  * Uninstall unerr for a single agent — symmetric to runInstall().
  */
-function runUninstall(cwd: string, ide: IdeType): UninstallResult {
+export function runUninstall(cwd: string, ide: IdeType): UninstallResult {
+  // 0. Work agents (Cowork, ChatGPT Work) installed a plugin folder, not an MCP
+  //    config, so none of the steps below have anything to remove. Delete the
+  //    generated folder and stop — symmetric with runWorkInstall().
+  const agentDef = getAgent(ide);
+  const workKind = agentDef && workPluginKindFor(agentDef.configFormat);
+  if (workKind) {
+    let removed = false;
+    // The shared, machine-wide copy, plus both project-level locations
+    // installs wrote into before the move to `workPluginHome()`.
+    for (const root of [
+      workPluginRoot(workKind),
+      ...legacyWorkPluginRoots(cwd, workKind),
+    ]) {
+      try {
+        if (existsSync(root)) {
+          rmSync(root, { recursive: true, force: true });
+          removed = true;
+        }
+      } catch {
+        // Non-blocking — nothing else to undo.
+      }
+    }
+    // Prune the two project-level parents once the last work plugin under them
+    // is gone. rmdirSync refuses a non-empty directory, so a second plugin
+    // left behind is safe. `~/Claude/Plugins` itself is never pruned — that
+    // folder is the user's, not ours to remove even when empty.
+    for (const parent of [
+      join(cwd, WORK_PLUGIN_PARENT_DIR),
+      join(cwd, LEGACY_WORK_PLUGIN_PARENT_DIR),
+    ]) {
+      try {
+        rmdirSync(parent);
+      } catch {
+        // Still holds another plugin — leave it.
+      }
+    }
+    return {
+      mcpRemoved: removed,
+      skillsRemoved: 0,
+      hookRemoved: false,
+      settingsHookRemoved: false,
+      instructionsRemoved: false,
+      disallowedToolsRemoved: false,
+      agentToolAllowsRemoved: false,
+    };
+  }
+
   // 1. Remove MCP config
   const mcpRemoved = removeMcpConfig(cwd, ide);
 

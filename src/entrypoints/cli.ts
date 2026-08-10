@@ -18,6 +18,13 @@ const args = process.argv.slice(2);
 if (args[0] === "hook") {
   const { runHook } = await import("./cli-hook.js");
   await runHook(args.slice(1));
+} else if (args[0] === "work") {
+  // Work mode is the graph-free MCP server for document hosts. Routed here, not
+  // registered on the full program, for the same reason `hook` is: `cli-main.ts`
+  // eagerly evaluates every command module and the whole graph surface, and a
+  // document sandbox has neither the need nor the native modules for it.
+  const { runWorkCli } = await import("../commands/work.js");
+  await runWorkCli(process.argv);
 } else {
   const { main } = await import("./cli-main.js");
   await main();

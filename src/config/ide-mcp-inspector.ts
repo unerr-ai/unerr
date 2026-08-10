@@ -91,6 +91,11 @@ function extractServers(
       return extractSettingsJsonServers(raw);
     case "continue-config":
       return extractContinueServers(raw);
+    case "plugin-dir":
+    case "agent-plugin":
+      // Work-category agents have no mcpServers-shaped config — handled by
+      // the plugin generator, not this inspector.
+      return null;
     default:
       return extractMcpJsonServers(raw);
   }

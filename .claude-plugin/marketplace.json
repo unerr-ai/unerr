@@ -1,0 +1,14 @@
+{
+  "name": "unerr",
+  "owner": {
+    "name": "unerr"
+  },
+  "plugins": [
+    {
+      "name": "unerr-work",
+      "displayName": "unerr for work",
+      "source": "./unerr-work",
+      "description": "Compressed command output, ranked web fetching, and five delegation sub-agents for document work. No codebase required."
+    }
+  ]
+}

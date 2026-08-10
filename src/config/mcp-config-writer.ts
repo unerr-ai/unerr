@@ -178,6 +178,13 @@ export function writeMcpConfig(
       return writeContinueFormat(configPath, ide);
     case "toml":
       return writeTomlFormat(configPath, ide);
+    case "plugin-dir":
+    case "agent-plugin":
+      // Work-category agents (Cowork, ChatGPT Work) install via a generated
+      // plugin bundle, not an MCP config entry — handled by the plugin
+      // generator, not this writer. Explicit no-op so a future sweep over
+      // getConfigurableAgents() never writes a wrong-shaped mcp-json here.
+      return { path: configPath, action: "skipped" };
     default:
       return writeMcpJsonFormat(configPath, ide);
   }
@@ -206,6 +213,15 @@ export function writeAllMcpConfigs(
 export function removeMcpConfig(cwd: string, ide: IdeType): boolean {
   const agent = getAgent(ide);
   if (!agent) return false;
+
+  if (
+    agent.configFormat === "plugin-dir" ||
+    agent.configFormat === "agent-plugin"
+  ) {
+    // Work-category agents have no MCP config file — their on-disk plugin
+    // bundle is owned by the plugin generator, not this writer.
+    return false;
+  }
 
   const configPath =
     agent.configScope === "global"
@@ -287,6 +303,15 @@ export function isConfigured(cwd: string, ide: IdeType): boolean {
   const agent = getAgent(ide);
   if (!agent) return false;
 
+  if (
+    agent.configFormat === "plugin-dir" ||
+    agent.configFormat === "agent-plugin"
+  ) {
+    // Work-category agents have no MCP config file to check — their
+    // plugin bundle is owned by the plugin generator, not this writer.
+    return false;
+  }
+
   const configPath =
     agent.configScope === "global"
       ? join(homedir(), agent.projectConfigPath)
@@ -352,6 +377,11 @@ export function generateConfigSnippet(ide: IdeType): string {
       );
     case "toml":
       return buildTomlSection(entry);
+    case "plugin-dir":
+    case "agent-plugin":
+      // No manual MCP snippet — work-category agents install via a
+      // generated plugin bundle, not a copy-pasted MCP config entry.
+      return "";
     default:
       return JSON.stringify(
         { mcpServers: { [UNERR_SERVER_KEY]: entry } },

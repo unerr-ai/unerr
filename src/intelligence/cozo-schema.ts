@@ -689,7 +689,7 @@ export async function initSchema(db: CozoDb): Promise<void> {
   );
 
   // ── Layer 8: Domain Understanding (comment-driven semantic layer) ──
-  // See .internal/archive/LAYER_8_DOMAIN_UNDERSTANDING.md §7. The domain
+  // See .internal/docs/02-graph/05-DOMAIN-UNDERSTANDING.md §8. The domain
   // graph annotates structural truth, never mutates entities/edges.
 
   // Per-entity semantic annotation captured from doc comments at index time.

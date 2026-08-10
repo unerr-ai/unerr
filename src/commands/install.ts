@@ -17,6 +17,8 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
+  rmdirSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -27,8 +29,10 @@ import {
   currentRepoLimit,
 } from "../cloud/plan/index.js";
 import {
-  AGENT_REGISTRY,
+  type AGENT_REGISTRY,
+  type AgentDefinition,
   getAgent,
+  getAgentsByCategory,
   normalizeAgentName,
 } from "../config/agent-registry.js";
 import {
@@ -47,6 +51,14 @@ import {
   writeMcpConfig,
 } from "../config/mcp-config-writer.js";
 import { ensureRepoConfig } from "../config/repo-bootstrap.js";
+import {
+  WORK_PLUGIN_PARENT_DIR,
+  type WorkPluginKind,
+  legacyWorkPluginRoots,
+  workPluginKindFor,
+  workPluginRoot,
+  writeWorkPlugin,
+} from "../config/work-plugin-writer.js";
 import { findRepo, listRepos } from "../daemon/registry.js";
 import {
   gatherNotices,
@@ -58,6 +70,7 @@ import {
   resolveAndInstallSkills,
 } from "../skills/resolver.js";
 import { consolidatedDashboardUrl } from "../utils/deep-link.js";
+import { UNERR_VERSION } from "../version.js";
 
 export interface InstallResult {
   agent: string;
@@ -80,6 +93,12 @@ export interface InstallResult {
    *  created it (headless installs used to leave the repo unbootable —
    *  see ensureRepoConfig). False when a valid config already existed. */
   configBootstrapped: boolean;
+  /** Work agents only. Absolute path of the sibling `.zip` Cowork's upload
+   *  dialog takes, or null when this install produced no archive (Agent
+   *  Plugins hosts load a directory). Undefined for every non-work agent. */
+  archivePath?: string | null;
+  /** Work agents only. Byte size of `archivePath`, or null alongside it. */
+  archiveBytes?: number | null;
 }
 
 export function registerInstallCommand(program: Command): void {
@@ -171,8 +190,13 @@ export function registerInstallCommand(program: Command): void {
           );
         }
 
-        // MCP config
-        if (result.mcpConfig.action === "created") {
+        // MCP config — or, for a work agent, the generated plugin folder.
+        const installedWorkKind = workPluginKindFor(agentDef.configFormat);
+        if (installedWorkKind) {
+          process.stderr.write(
+            `  \x1b[38;2;52;211;153m✓\x1b[0m Plugin generated → ${result.mcpConfig.path}\n`
+          );
+        } else if (result.mcpConfig.action === "created") {
           process.stderr.write(
             `  \x1b[38;2;52;211;153m✓\x1b[0m MCP config created → ${result.mcpConfig.path}\n`
           );
@@ -244,6 +268,29 @@ export function registerInstallCommand(program: Command): void {
           );
         }
 
+        if (installedWorkKind) {
+          // A work agent still has to load the folder. Printing the exact steps
+          // here is the whole handoff — nothing else tells the user what to do.
+          process.stderr.write("\n");
+          process.stderr.write(
+            `  \x1b[38;2;251;191;36m⚠\x1b[0m ${agentDef.name} does not pick this up on its own — load it:\n\n`
+          );
+          if (installedWorkKind === "claude") {
+            process.stderr.write("    1. Open the Cowork tab\n");
+            process.stderr.write("    2. Click Plugins in the left sidebar\n");
+            process.stderr.write(
+              `    3. Click Upload plugin and pick ${result.archivePath ?? `${result.mcpConfig.path}.zip`}\n`
+            );
+          } else {
+            process.stderr.write(
+              `    Point your host's plugin install at ${result.mcpConfig.path}\n`
+            );
+            process.stderr.write(
+              "    \x1b[38;2;161;161;170m(Agent Plugins v1.0.0 — ChatGPT Work, Codex, Cursor, Copilot, Kiro, VS Code)\x1b[0m\n"
+            );
+          }
+        }
+
         process.stderr.write("\n");
         process.stderr.write(
           `  \x1b[38;2;161;161;170mStart a new ${agentDef.name} chat session to begin using unerr.\x1b[0m\n`
@@ -302,12 +349,90 @@ export function registerInstallCommand(program: Command): void {
 /**
  * Core install logic — writes MCP config + skills for a single agent.
  */
+/**
+ * Install a WORK agent (Claude Cowork, ChatGPT Work).
+ *
+ * Work agents have no codebase to index, so none of the code-agent machinery
+ * applies: no MCP config, no instruction-file injection, no graph, no daemon
+ * pre-warm, no repo registration. They also have no per-project home: Cowork
+ * and ChatGPT Work each load one plugin folder for the whole machine, not one
+ * per repo, so the plugin goes under the user's Claude folder
+ * (`workPluginRoot`, `~/Claude/Plugins/<name>`) and this writes NOTHING into
+ * `cwd`.
+ *
+ * Deliberately does NOT call `ensureRepoConfig`. Writing `.unerr/config.json`
+ * would mark the directory as a repo the process manager should index, and a
+ * folder full of documents has nothing to index.
+ */
+function runWorkInstall(
+  cwd: string,
+  agentDef: AgentDefinition,
+  kind: WorkPluginKind
+): InstallResult {
+  const root = workPluginRoot(kind);
+
+  // Clear copies left behind by installs before the move to workPluginHome().
+  for (const legacyRoot of legacyWorkPluginRoots(cwd, kind)) {
+    try {
+      rmSync(legacyRoot, { recursive: true, force: true });
+    } catch {
+      // Absent — nothing to do.
+    }
+  }
+  for (const parent of [
+    join(cwd, WORK_PLUGIN_PARENT_DIR),
+    join(cwd, ".unerr", WORK_PLUGIN_PARENT_DIR),
+  ]) {
+    try {
+      rmdirSync(parent);
+    } catch {
+      // Non-empty (still holds the other work plugin) or absent — leave it.
+    }
+  }
+
+  const written = writeWorkPlugin(root, kind, {
+    version: UNERR_VERSION,
+    // A local install points at the `unerr` already on PATH rather than copying
+    // a ~60 MB binary into the repo. Release packages bundle it instead —
+    // see scripts/build-plugins.ts.
+    binary: "path",
+    // Only the Claude package loads into Cowork, whose Plugins page takes an
+    // upload — and an upload dialog cannot take a folder. Agent Plugins hosts
+    // load a directory, so they get no zip.
+    archive: kind === "claude",
+  });
+
+  return {
+    agent: agentDef.name,
+    mcpConfig: { path: written.path, action: "created" },
+    skillsRemoved: 0,
+    skillsInstalled: written.skills,
+    hookInstalled: false,
+    // Nothing was written into `cwd`, so there is nothing to .gitignore.
+    gitignoreUpdated: false,
+    instructionsInjected: false,
+    instructionPath: "",
+    legacyDeniesRemoved: 0,
+    agentToolAllowsAdded: 0,
+    configBootstrapped: false,
+    archivePath: written.archivePath,
+    archiveBytes: written.archiveBytes,
+  };
+}
+
 export async function runInstall(
   cwd: string,
   ide: Parameters<typeof writeMcpConfig>[1]
 ): Promise<InstallResult> {
   const agentDef = getAgent(ide);
   const agentName = agentDef?.name ?? ide;
+
+  // Work agents take a different path entirely — plugin folder, no MCP config,
+  // no graph. Branch before anything below touches repo state.
+  const workKind = agentDef && workPluginKindFor(agentDef.configFormat);
+  if (agentDef && workKind) {
+    return runWorkInstall(cwd, agentDef, workKind);
+  }
 
   // 0. Free-tier repo cap — refuse a brand-new 2nd repo BEFORE writing any
   //    config, so a capped repo never gets a half-written .mcp.json. Adding
@@ -490,21 +615,49 @@ function showAvailableAgents(cwd: string): void {
     "  \x1b[38;2;161;161;170mWrites MCP config + installs skills (project-level, never global).\x1b[0m\n"
   );
   process.stderr.write("\n");
-  process.stderr.write(
-    "  \x1b[38;2;161;161;170mAgent              Command                          Status\x1b[0m\n"
-  );
-  process.stderr.write(
-    "  \x1b[2m─────────────────────────────────────────────────────────────────\x1b[0m\n"
-  );
-
-  for (const agent of AGENT_REGISTRY) {
-    const installed = isConfigured(cwd, agent.id);
+  const row = (agent: (typeof AGENT_REGISTRY)[number]): void => {
+    const installed = isWorkAgentInstalled(agent)
+      ? true
+      : isConfigured(cwd, agent.id);
     const status = installed
       ? "\x1b[38;2;52;211;153m✓ installed\x1b[0m"
       : "\x1b[38;2;161;161;170m·\x1b[0m";
     const name = agent.name.padEnd(18);
     const cmd = `unerr install ${agent.id}`.padEnd(32);
     process.stderr.write(`  ${name} ${cmd} ${status}\n`);
+  };
+
+  process.stderr.write(
+    "  \x1b[1mCode agents\x1b[0m \x1b[38;2;161;161;170m— index the repo, serve the call graph\x1b[0m\n"
+  );
+  process.stderr.write(
+    "  \x1b[38;2;161;161;170mAgent              Command                          Status\x1b[0m\n"
+  );
+  process.stderr.write(
+    "  \x1b[2m─────────────────────────────────────────────────────────────────\x1b[0m\n"
+  );
+  for (const agent of getAgentsByCategory("code")) row(agent);
+
+  const workAgents = getAgentsByCategory("work");
+  if (workAgents.length > 0) {
+    process.stderr.write("\n");
+    process.stderr.write(
+      "  \x1b[1mWork agents\x1b[0m \x1b[38;2;161;161;170m— documents, not code. No graph.\x1b[0m\n"
+    );
+    process.stderr.write(
+      "  \x1b[38;2;161;161;170mAgent              Command                          Status\x1b[0m\n"
+    );
+    process.stderr.write(
+      "  \x1b[2m─────────────────────────────────────────────────────────────────\x1b[0m\n"
+    );
+    for (const agent of workAgents) row(agent);
+    process.stderr.write("\n");
+    process.stderr.write(
+      "  \x1b[38;2;161;161;170mWork agents get compressed command output, ranked web fetching,\x1b[0m\n"
+    );
+    process.stderr.write(
+      "  \x1b[38;2;161;161;170mand five sub-agents — delivered as a plugin folder, not an MCP config.\x1b[0m\n"
+    );
   }
 
   process.stderr.write("\n");
@@ -512,6 +665,17 @@ function showAvailableAgents(cwd: string): void {
     "  \x1b[38;2;161;161;170mExample:\x1b[0m unerr install claude-code\n"
   );
   process.stderr.write("\n");
+}
+
+/**
+ * A work agent is installed when its generated plugin folder is on disk.
+ * `isConfigured` only ever inspects MCP config files, and work agents write
+ * none, so it can never answer this.
+ */
+function isWorkAgentInstalled(agent: AgentDefinition): boolean {
+  const kind = workPluginKindFor(agent.configFormat);
+  if (!kind) return false;
+  return existsSync(join(workPluginRoot(kind), "skills"));
 }
 
 /**
@@ -557,13 +721,82 @@ async function showSkillContent(): Promise<void> {
 /**
  * Print detailed setup instructions for a specific agent or generic guide.
  */
+/**
+ * Setup steps for a work agent. These hosts load a plugin folder; there is no
+ * MCP config to paste and no instruction file to edit, so none of the
+ * code-agent steps apply.
+ */
+function showWorkSetupInstructions(
+  agentDef: AgentDefinition,
+  kind: WorkPluginKind,
+  w: (s: string) => void
+): void {
+  const dir = workPluginRoot(kind);
+
+  w(
+    `  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1mSetup instructions for ${agentDef.name}\x1b[0m\n\n`
+  );
+  w(
+    "  \x1b[38;2;161;161;170mA work agent has no codebase to index, so unerr skips the graph and\x1b[0m\n"
+  );
+  w(
+    "  \x1b[38;2;161;161;170mships a plugin instead: compressed command output, ranked web\x1b[0m\n"
+  );
+  w("  \x1b[38;2;161;161;170mfetching, and five sub-agents.\x1b[0m\n\n");
+
+  if (kind === "claude") {
+    const archivePath = `${dir}.zip`;
+    w(
+      "  \x1b[1m1. Install from the marketplace (updates automatically)\x1b[0m\n"
+    );
+    w("     claude plugin marketplace add unerr-ai/unerr\n");
+    w("     claude plugin install unerr-work@unerr\n\n");
+    w("  \x1b[1m2. Or load the local copy\x1b[0m\n");
+    w(`     unerr install ${agentDef.id}\n`);
+    w(`     \x1b[38;2;161;161;170mwrites ${archivePath}\x1b[0m\n\n`);
+    w("     In Cowork: Customize → Plugins → Upload plugin,\n");
+    w(`     and pick ${archivePath}\n\n`);
+  } else {
+    w("  \x1b[1m1. Generate the plugin\x1b[0m\n");
+    w(`     unerr install ${agentDef.id}\n`);
+    w(`     \x1b[38;2;161;161;170mwrites ${dir}\x1b[0m\n\n`);
+    w("  \x1b[1m2. Load it in your host\x1b[0m\n");
+    w(
+      `     ${dir} is an Agent Plugins v1.0.0 package — ChatGPT Work, Codex,\n`
+    );
+    w("     Cursor, GitHub Copilot, Kiro and VS Code all read this format.\n");
+    w("     Point your host's plugin install at that folder.\n\n");
+    w(
+      "     \x1b[38;2;161;161;170mIts MCP server runs `unerr work --mcp`, resolved from PATH.\x1b[0m\n"
+    );
+    w(
+      "     \x1b[38;2;161;161;170mKeep unerr on PATH or the plugin loads skills but no tools.\x1b[0m\n\n"
+    );
+  }
+
+  w(
+    "  \x1b[38;2;161;161;170mWeb access goes through unerr's fetch_url: a page comes back as\x1b[0m\n"
+  );
+  w(
+    "  \x1b[38;2;161;161;170mranked passages instead of the whole document.\x1b[0m\n\n"
+  );
+  w(
+    `  \x1b[38;2;161;161;170mStart a new ${agentDef.name} session to pick up the plugin.\x1b[0m\n`
+  );
+}
+
 function showSetupInstructions(agentName: string): void {
   const agentDef = getAgent(agentName as any);
   const w = (s: string) => process.stderr.write(s);
 
   w("\n");
 
-  if (agentDef) {
+  const workKind = agentDef && workPluginKindFor(agentDef.configFormat);
+
+  if (agentDef && workKind) {
+    // Work agent — a plugin folder, not an MCP config. Different steps entirely.
+    showWorkSetupInstructions(agentDef, workKind, w);
+  } else if (agentDef) {
     // Known agent — show agent-specific instructions
     w(
       `  \x1b[38;2;139;92;246m◆\x1b[0m \x1b[1mSetup instructions for ${agentDef.name}\x1b[0m\n\n`

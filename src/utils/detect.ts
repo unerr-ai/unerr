@@ -30,6 +30,8 @@ export type IdeType =
   | "github-copilot-cli"
   | "continue"
   | "antigravity"
+  | "cowork"
+  | "chatgpt-work"
   | "other"
   | "unknown";
 
@@ -234,6 +236,10 @@ export function ideDisplayName(ide: IdeType): string {
       return "Continue";
     case "antigravity":
       return "Google Antigravity";
+    case "cowork":
+      return "Claude Cowork";
+    case "chatgpt-work":
+      return "ChatGPT Work";
     case "other":
       return "Other";
     case "unknown":

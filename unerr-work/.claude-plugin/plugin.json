@@ -1,0 +1,16 @@
+{
+  "name": "unerr-work",
+  "version": "0.5.1",
+  "description": "Compressed command output, ranked web fetching, and five delegation sub-agents for document work. No codebase required.",
+  "author": {
+    "name": "unerr",
+    "url": "https://unerr.ai"
+  },
+  "keywords": [
+    "productivity",
+    "research",
+    "web-fetch",
+    "delegation",
+    "context"
+  ]
+}

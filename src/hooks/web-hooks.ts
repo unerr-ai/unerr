@@ -62,7 +62,7 @@ function extractUrl(input: Record<string, unknown>): string | undefined {
  *  Interpolates the real URL (never a placeholder) and carries the
  *  extraction prompt through to fetch_url's BM25 ranking when present and
  *  short enough to inline. */
-function buildFetchUrlSuggestion(url: string, prompt?: string): string {
+export function buildFetchUrlSuggestion(url: string, prompt?: string): string {
   const limit = `limit:${DEFAULT_SUGGESTED_LIMIT}`;
   if (typeof prompt === "string" && prompt.length > 0) {
     if (prompt.length <= MAX_INLINE_PROMPT_CHARS) {

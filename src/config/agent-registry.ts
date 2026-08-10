@@ -12,7 +12,9 @@ export type McpConfigFormat =
   | "settings-json" // VS Code style { "mcp": { "servers": { ... } } }
   | "copilot-json" // GitHub Copilot CLI { mcpServers: { ... } } with type: "local"
   | "continue-config" // Continue.dev { mcpServers: [...] } in config.json
-  | "toml"; // Codex: [mcp_servers.unerr] in config.toml
+  | "toml" // Codex: [mcp_servers.unerr] in config.toml
+  | "plugin-dir" // Claude plugin bundle (Cowork) — generated bundle, not an MCP config
+  | "agent-plugin"; // Agent Plugins v1.0.0 bundle (ChatGPT Work / Codex) — generated bundle, not an MCP config
 
 /**
  * Granular hook-event capabilities — what an agent's native hook system can
@@ -65,6 +67,13 @@ export interface SessionIdentitySpec {
 export interface AgentDefinition {
   id: IdeType;
   name: string;
+  /**
+   * Agent category. Absent ⇒ "code". "code" agents get an MCP config plus
+   * instruction-file injection (the path this registry was originally built
+   * for); "work" agents get a generated plugin bundle instead, no MCP
+   * config and no instruction-file injection.
+   */
+  category?: "code" | "work";
   /** Relative path from project root for project-level config */
   projectConfigPath: string;
   /** Whether config is project-level or global (default: project) */
@@ -373,6 +382,32 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     instructionFilePath: ".agents/rules/unerr-instructions.md",
     instructionFormat: "antigravity-rule",
   },
+  {
+    id: "cowork",
+    name: "Claude Cowork",
+    category: "work",
+    projectConfigPath: "~/Claude/Plugins/unerr-work",
+    configFormat: "plugin-dir",
+    dirMarkers: [],
+    envVars: [],
+    hookSupport: false,
+    description: "Anthropic's agentic workspace for document work",
+    instructionFilePath: null,
+    instructionFormat: null,
+  },
+  {
+    id: "chatgpt-work",
+    name: "ChatGPT Work",
+    category: "work",
+    projectConfigPath: "~/Claude/Plugins/unerr",
+    configFormat: "agent-plugin",
+    dirMarkers: [],
+    envVars: [],
+    hookSupport: false,
+    description: "OpenAI's agentic work mode (Agent Plugins standard)",
+    instructionFilePath: null,
+    instructionFormat: null,
+  },
 ];
 
 /**
@@ -453,6 +488,17 @@ export function getAgent(id: IdeType): AgentDefinition | undefined {
  */
 export function getConfigurableAgents(): AgentDefinition[] {
   return AGENT_REGISTRY.filter((a) => a.id !== "other" && a.id !== "unknown");
+}
+
+/**
+ * Get all registry entries in a category. An entry with no `category`
+ * counts as "code" — only entries that explicitly declare `category: "work"`
+ * fall outside the default "code" bucket.
+ */
+export function getAgentsByCategory(
+  category: "code" | "work"
+): AgentDefinition[] {
+  return AGENT_REGISTRY.filter((a) => (a.category ?? "code") === category);
 }
 
 /**

@@ -2,8 +2,6 @@
  * The two agent configs used by the smoke harness. Sprint D's live eval
  * may add configs C (instructed + surface 2/3 receipts) and D
  * (cross-session), but the smoke and ship-gate phases only need A and B.
- *
- * See ACTIVE_COGNITION_REASON_LAYER.md §18.2.
  */
 
 import type { AgentConfig } from "./types.js";

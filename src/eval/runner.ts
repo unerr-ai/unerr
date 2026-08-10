@@ -1,5 +1,5 @@
 /**
- * Smoke eval runner — Sprint A skeleton (see ACTIVE_COGNITION_REASON_LAYER.md §18.7).
+ * Smoke eval runner — Sprint A skeleton.
  *
  * Responsibilities:
  *   1. Load a task definition.

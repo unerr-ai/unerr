@@ -29,8 +29,7 @@ export async function warmTokenizer(): Promise<void> {
 }
 
 /**
- * Token caps per description-state. Values match the gateway design in
- * .internal/archive/MCP_GATEWAY_ROUTER_PROXY.md §7.
+ * Token caps per description-state.
  *
  *   tier1Active        — Tier 1 tool advertised in tools/list with full description.
  *   locked             — Placeholder for tier 2/3 tool advertised on clients that

@@ -182,6 +182,11 @@ export function rewriteIdeConfig(
       return rewriteCopilotJson(configPath, ide);
     case "continue-config":
       return rewriteContinueConfig(configPath, ide);
+    case "plugin-dir":
+    case "agent-plugin":
+      // No MCP config to rewrite for work-category agents — the plugin
+      // generator owns their bundle, not this router rewriter.
+      return false;
     default:
       return rewriteMcpJson(configPath, ide);
   }
