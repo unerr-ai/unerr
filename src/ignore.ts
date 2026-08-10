@@ -95,11 +95,14 @@ const ALWAYS_IGNORE_GLOBS = [
  * @returns An ignore instance with .ignores(relativePath) method.
  */
 export async function createIgnoreFilter(cwd: string) {
+  // `ignore` is CJS (`export = ignore`), so a dynamic import hands back the
+  // callable itself under some interop paths and `{default: callable}` under
+  // others — hence the `??`. Its types carried a `default` member up to v6 and
+  // dropped it in v7, so name the published `Ignore` type instead of reaching
+  // through `["default"]`, which no longer exists.
   const ignoreMod = await import("ignore");
   const ignore = ignoreMod.default ?? ignoreMod;
-  const ig = (
-    ignore as unknown as () => ReturnType<typeof import("ignore")["default"]>
-  )();
+  const ig = (ignore as unknown as () => import("ignore").Ignore)();
 
   ig.add(ALWAYS_IGNORE.map((d) => `${d}/`));
   ig.add(ALWAYS_IGNORE_GLOBS);
