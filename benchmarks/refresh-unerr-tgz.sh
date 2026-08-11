@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the CURRENT unerr-cli checkout as a DEV binary and pack it into a fresh
+# Build the CURRENT unerr checkout as a DEV binary and pack it into a fresh
 # npm tarball under ./vendor, which the benchmark agent (bench_agent.py) picks
 # up via UNERR_CONTEXT_DIR. Run before EVERY benchmark run so a run never ships
 # a stale binary. This is the ONLY tgz the benchmark uses — never the stale

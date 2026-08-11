@@ -28,8 +28,8 @@ import {
 } from "./update-config.js";
 import { type UpdateState, readUpdateState } from "./update-state.js";
 
-// Releases are published to the PUBLIC unerr repo (unerr-cli is private,
-// so its own release pages aren't visible to end users).
+// Releases are published to this repo's own Releases page. It is public, so
+// the release-notes links below resolve for end users with no auth.
 const REPO_URL = "https://github.com/unerr-ai/unerr";
 
 /** GitHub release-notes URL for a version (the `v`-tagged release). */

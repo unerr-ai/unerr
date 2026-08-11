@@ -1,7 +1,7 @@
 {
   "id": "007-add-mcp-tool",
-  "title": "Add a new MCP tool to the unerr-cli proxy",
+  "title": "Add a new MCP tool to the unerr proxy",
   "repo": "self",
-  "prompt": "Add a new MCP tool 'get_recent_changes' to the unerr-cli proxy that returns the last N commits touching a given file. Wire it through the query router and add tests.",
+  "prompt": "Add a new MCP tool 'get_recent_changes' to the unerr proxy that returns the last N commits touching a given file. Wire it through the query router and add tests.",
   "assertions": []
 }

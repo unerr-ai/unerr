@@ -11,7 +11,7 @@ export interface TaskDef {
   id: string;
   /** Short human-readable label. */
   title: string;
-  /** Repo fixture id this task targets — references a fixture under eval/fixtures/ or "self" for unerr-cli itself. */
+  /** Repo fixture id this task targets — references a fixture under eval/fixtures/ or "self" for unerr itself. */
   repo: string;
   /** The prompt handed to the agent verbatim. */
   prompt: string;

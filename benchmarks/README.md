@@ -30,7 +30,7 @@ truth.
 ### Build command (dev build — mandatory)
 
 ```bash
-rm -rf dist && export UNERR_PROD_BUILD=0 && pnpm run build   # in the unerr-cli repo root
+rm -rf dist && export UNERR_PROD_BUILD=0 && pnpm run build   # in the unerr repo root
 ```
 
 `UNERR_PROD_BUILD=0` is load-bearing: it keeps the file-based **dev-mode** code

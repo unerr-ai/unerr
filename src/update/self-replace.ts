@@ -16,8 +16,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// Releases are published to the PUBLIC unerr repo (unerr-cli is private,
-// so its own release page is not visible to end-users).
+// Releases are published to this repo's own Releases page. It is public, so
+// the download URLs below resolve for end users with no auth.
 const RELEASES_BASE = "https://github.com/unerr-ai/unerr/releases/download";
 
 const PLATFORM_MAP: Partial<Record<NodeJS.Platform, string>> = {

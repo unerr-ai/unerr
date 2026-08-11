@@ -44,7 +44,7 @@ export function loadTask(taskId: string): TaskDef {
 export interface RunOptions {
   /** Override the workspace root for testability. Defaults to a tmpdir. */
   workspaceRoot?: string;
-  /** Override the source repo path. Defaults to the current unerr-cli repo. */
+  /** Override the source repo path. Defaults to the current unerr repo. */
   sourceRepoOverride?: string;
   /** Skip the `unerr install` step even when the config requests it. */
   skipInstall?: boolean;
