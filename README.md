@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <strong>SPEND</strong> · <strong>CONSISTENCY</strong> · <strong>VISIBILITY</strong> · <strong>INSIGHT</strong> — across every agent, in one place.
+  <strong>Cut what they cost</strong> · <strong>Measure what they produce</strong> · <strong>Keep them inside your rules</strong>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <sub><strong>Works with</strong> Cursor · Claude Code · Windsurf · Gemini CLI · Antigravity · GitHub Copilot CLI · and every MCP-compatible client.</sub>
+  <sub><strong>Works with</strong> Cursor · Claude Code · Codex · Windsurf · Cline · Gemini CLI · Antigravity · GitHub Copilot CLI · and every MCP-compatible client.</sub>
 </p>
 
 <p align="center">
@@ -33,7 +33,8 @@
   <a href="https://www.unerr.dev/"><img src="https://img.shields.io/badge/website-unerr.dev-8B5CF6?style=flat-square&logo=icloud&logoColor=white" alt="Website" /></a>
   <img src="https://img.shields.io/badge/runtime-Node.js_≥20-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js" />
   <img src="https://img.shields.io/badge/protocol-MCP-7C3AED?style=flat-square" alt="MCP" />
-  <img src="https://img.shields.io/badge/local--first-no_cloud-22D3EE?style=flat-square" alt="Local-first" />
+  <img src="https://img.shields.io/badge/local--first-runs_offline-22D3EE?style=flat-square" alt="Local-first" />
+  <a href="./METRICS.md"><img src="https://img.shields.io/badge/metrics-CC_BY_4.0-34D399?style=flat-square" alt="Open metric definitions" /></a>
 </p>
 
 <p align="center">
@@ -55,11 +56,12 @@
 
 - [What it actually is](#what-it-actually-is)
 - [Why one runtime instead of five plugins](#why-one-runtime-instead-of-five-plugins)
-- [The four things it gives you](#the-four-things-it-gives-you)
+- [What it gives you](#what-it-gives-you)
 - [Quick Start](#quick-start)
 - [See it in action](#see-it-in-action)
 - [You today, your team soon](#you-today-your-team-soon)
 - [Account](#account)
+- [Metrics](./METRICS.md) · [Your data](./docs/DATA.md) · [Privacy](./PRIVACY.md)
 - [Who it's for](#who-its-for)
 - [What it does under the hood](#what-it-does-under-the-hood)
 - [About the fewer tokens](#about-the-fewer-tokens)
@@ -110,27 +112,39 @@ You can't buy those as five separate tools and bolt them together. That's why un
 
 ---
 
-## The four things it gives you
+## What it gives you
 
-The same runtime, four things you feel in your own work — across every agent and every repo on your machine, with no dashboard-per-tool to keep checking. (Running a team? The same four roll up into one shared view — [arriving soon](#you-today-your-team-soon).)
+Three jobs, one install — across every agent and every repo on your machine, with no dashboard-per-tool to keep checking. (Running a team? The same three roll up into one shared view — [arriving soon](#you-today-your-team-soon).)
 
-### ⚡ SPEND — cut what the agents cost to run
+### ⚡ Cut what the agents cost to run
 
 Because unerr only ever hands the agent the one relevant thing — the rule for the function in front of it, 50 lines instead of 3,000 — it spends far fewer tokens getting there. In head-to-head benchmarks against grep-and-read, unerr removes **86–90% of the tokens an agent spends reading and navigating code** — same questions, same tokenizer, with a fidelity gate that throws out any "saving" that lost the answer.
 
 That number is the read/navigate slice, not a promise about your whole bill. It's measured, not estimated, and you can [reproduce it on your own repo](https://github.com/unerr-ai/unerr-benchmarks).
 
-### 📐 CONSISTENCY — your conventions, applied at the edit
+### 📊 Measure what they produce
+
+Usage dashboards tell you tokens went out. They don't tell you whether the spending produced anything that lasted. unerr computes both halves on your machine, from your own git history and session records:
+
+| Metric | What it answers |
+|---|---|
+| [Code survival](./METRICS.md#code-survival) | Of the lines added in the last 30 or 90 days, how many are still here — agent-written versus human-written. |
+| [Durability score](./METRICS.md#durability-score) | Which functions an agent keeps rewriting, measured by whether its change was still untouched a day later. |
+| [Cache hit rate](./METRICS.md#cache-hit-rate) | How much of a session's input was reused rather than paid for again. |
+| [Re-read amplification](./METRICS.md#re-read-amplification) | How many times the average cached token got billed back — the number that makes context expensive. |
+| [Self-correction patterns](./METRICS.md#self-correction-patterns) | Which parts of your codebase agents get wrong on the first try and immediately come back to. |
+
+Every definition, including what each metric deliberately ignores, is in [METRICS.md](./METRICS.md) under CC BY 4.0. Today this is a mirror for your own work, not a scorecard. Shared team views stay aggregate when they land — **never per-developer ranking.**
+
+### 📐 Keep them inside your rules
 
 A rules file is something an agent can acknowledge and then skip three turns later. unerr ties each rule to the part of the code it's about, brings it up the moment the agent touches that part, and keeps it pinned there even after the code moves. Conventions it detects on its own once a pattern holds across the codebase become rules without you writing them down. One standard, applied the same way across every agent you run and every session — Cursor today, Claude Code tomorrow, same rule.
 
-### 👁 VISIBILITY — one view across every agent and repo
+Today those rules are enforced on your machine, for your work. Making them enforceable across a whole team is the paid part, [described below](#you-today-your-team-soon).
 
-What your agents are spending, what they caught, what they changed — read from the same place the agents read from, not reconstructed from billing metadata after the fact. One local daemon sees across your IDEs and repos, so moving from Claude Code in the terminal to Cursor in the editor is one continuous thread, not a relearn each session. Local-first: your code never leaves the machine.
+### Your data
 
-### 🧭 INSIGHT — see what the AI actually did
-
-Usage dashboards tell you tokens went out. They don't tell you whether the spend produced anything. unerr surfaces the decisions the agent made, capability versus dependency, and whether you're still steering the work. Today it's a mirror for your own work — self-coaching, not scoring. (When shared team views land, they stay aggregate and team-level — never per-developer ranking.) The question is whether the AI is helping, not who to rank.
+Everything above is computed from files inside your own repository, in a documented and versioned format. It stays there unless you log in on a paid plan. [What's in it and how to read it →](./docs/DATA.md)
 
 ---
 
@@ -181,6 +195,8 @@ unerr install github-copilot-cli
 
 You can install more than one agent in the same repo — each writes its own config. Re-running updates the setup if anything changed and skips it if nothing did. Remove it with `unerr uninstall`.
 
+**Claude Cowork and ChatGPT Work work differently.** They handle documents, not code, so there is no repo to set up — you install a plugin into the app instead, and nothing lands in your project. [How to install it](./INSTALL.md#work-agents--install-a-plugin).
+
 ### 3. Restart your IDE
 
 Close and reopen your IDE, or start a new chat session. Your agent picks up unerr through MCP and everything is available from the next prompt — the context and catches show up inline in the chat, no dashboard to open.
@@ -211,31 +227,40 @@ Every turn opens with one line naming what unerr brought in and closes with one 
 
 Today unerr is the local runtime behind the agents **you** run: the code map, the five MCP tools, and all the in-loop behaviors — local, no account needed, across your tools and your repos.
 
-The same runtime extends to your whole team — one shared view across every engineer's agents — and that's **arriving soon.** Your individual setup carries straight over; there's nothing to redo when it lands. For platform and engineering leads, that's Datadog-style visibility and control across every agent your team runs: what they cost, what they changed, and whether the team is building capability or dependency — in one place, and without code or prompts ever leaving your engineers' machines.
+The same runtime extends to your whole team — one shared view across every engineer's agents — and that's **arriving soon.** Your individual setup carries straight over; there's nothing to redo when it lands. The same local data that answers these questions for you answers them for a team: what your AI-assisted work costs, and what it produces that lasts.
 
 | | You, today | Your team, soon |
 |---|---|---|
+| **Cut what they cost** | | |
 | Code map, the 5 MCP tools, all in-loop behaviors | ✓ | ✓ |
 | Output trimming + savings receipts, hooks, skills, every agent | ✓ | ✓ |
-| Conventions detected and applied for your own work | ✓ | ✓ |
+| **Measure what they produce** | | |
+| Every metric in [METRICS.md](./METRICS.md), computed locally | ✓ | ✓ |
 | One continuous thread across the agents and repos you run | ✓ | ✓ |
+| One rolled-up view of what the whole team's agents spend and catch | | ✓ soon |
+| **Keep them inside your rules** | | |
+| Conventions detected and applied for your own work | ✓ | ✓ |
 | Conventions **shared** across the team | | ✓ soon |
 | Edit-time behaviors **enforceable** org-wide (block / approve) | | ✓ soon |
-| One rolled-up view of what the whole team's agents spend and catch | | ✓ soon |
 
-The individual product works with no account, forever, and keeps working with no network. Follow [unerr.dev](https://www.unerr.dev/) for the team rollout.
+**The line between the two columns is simple, and it does not move.** Everything that runs on your machine is free, forever, on unlimited repos — no account required, and it keeps working with no network at all. The right-hand column needs our servers to hold the shared state and roll it up, so it is part of the paid plan. Nothing in the left-hand column will ever move to the right.
+
+Follow [unerr.dev](https://www.unerr.dev/) for the team rollout.
 
 ---
 
 ## Account
 
-Logging in is optional. Everything above this section — the code map, search, edits, blast-radius checks, convention detection, and unlimited repos — runs fully on your machine with no account, forever. An account connects this machine to a plan and adds the pieces where a server is genuinely part of the picture:
+Logging in is optional. Everything above this section — the code map, search, edits, blast-radius checks, convention detection, every metric, and unlimited repos — runs fully on your machine with no account, forever.
 
-| Works with no account | Needs an account |
+**The rule, stated once:** if it runs on your machine, it is free and always will be. If it needs our hosted service to hold shared state across people and machines, it is part of the paid plan — because it runs on our servers and stores your history there. The client code that talks to that service is in this repository under Apache-2.0, so you can read exactly what it sends.
+
+| Works with no account | Needs a paid plan |
 |---|---|
 | Code map, search, file edits, blast-radius checks | Usage synced to a team dashboard |
 | Convention detection, applied to your own work | Shared team conventions, pulled from the server |
-| Unlimited repos, cross-repo search on this machine | Fleet inventory — which machines run which repos |
+| Every metric, computed and stored locally | Fleet inventory — which machines run which repos |
+| Unlimited repos, cross-repo search on this machine | Org-wide enforcement, when it ships |
 
 ```bash
 unerr login      # connect this machine — opens your browser to approve
@@ -298,9 +323,9 @@ AI Agent (Claude Code / Cursor / Windsurf / any MCP client)
                                                   └── Behavior modules
 ```
 
-One local DB per repo. Zero network calls. No API keys. No cloud. Your code never leaves the machine.
+One local DB per repo. No API keys. Your code never leaves the machine. Nothing on the query path touches the network — the only calls that ever go out are a daily version check, a one-time parser download for some languages, and, if you log in on a paid plan, background sync. All three are itemised in [PRIVACY.md](./PRIVACY.md).
 
-**Design principles** — zero network calls; stdout is sacred (MCP JSON-RPC only, everything else to stderr); sub-5ms query responses; first useful output in under 5s (shallow index first, deep enrichment in the background); graceful degradation (the agent still works if unerr is down — you just lose the extra layer).
+**Design principles** — no network call on the query path; stdout is sacred (MCP JSON-RPC only, everything else to stderr); sub-5ms query responses; first useful output in under 5s (shallow index first, deep enrichment in the background); graceful degradation (the agent still works if unerr is down — you just lose the extra layer).
 
 **Tech stack** — TypeScript (ESM) · CozoDB (Rust/NAPI) · web-tree-sitter (WASM) · MCP SDK · Ink (React CLI) · tsup · Vitest
 
@@ -366,8 +391,10 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, day-to-day commands, code co
 Token savings is a receipt, not the reason — a dozen tools now claim some version of the same number, so it isn't where the product lives. But it's real, and you get it as a side effect of only ever handing the agent the one relevant thing:
 
 - **86–90%** of an agent's code-navigation tokens removed in head-to-head benchmarks against grep-and-read — real tokenizer, fidelity-gated, reproducible on any repo. [See the benchmarks →](https://github.com/unerr-ai/unerr-benchmarks)
-- Roughly **84%** of an agent's tokens are tool output, mostly file reads ([JetBrains, NeurIPS 2025](https://blog.jetbrains.com/research/2025/12/efficient-context-management/)). unerr steps in at the read, so the window doesn't fill up with noise.
-- **0** AI calls per query in the core — the lookups, facts, and warnings are computed directly. No API keys, no per-turn inference cost, no telemetry.
+- An agent's turn is dominated by what its tools hand back, and managing that instead of letting it pile up **cuts cost by more than half** ([JetBrains Research, NeurIPS 2025 workshop](https://blog.jetbrains.com/research/2025/12/efficient-context-management/)). unerr steps in at the read, so the window doesn't fill up with noise in the first place.
+- **0** AI calls per query in the core — the lookups, facts, and warnings are computed directly. No API keys and no per-turn inference cost. No telemetry while you are logged out or on the free plan; [PRIVACY.md](./PRIVACY.md) lists the exact fields paid sync sends.
+
+The reason this matters more than it looks: a token you let into a conversation is not paid for once. It gets re-read on every later turn, and unerr measures that multiplier directly — see [re-read amplification](./METRICS.md#re-read-amplification). Keeping a token out is worth many times more than compressing it after the fact.
 
 The point was never the number. The point is that the agent lands on the right code, sees the thing that would have stopped the break, and you stop paying — in money *and* in afternoons — for work it would otherwise have had to undo.
 
@@ -376,5 +403,5 @@ The point was never the number. The point is that the agent lands on the right c
 <p align="center">
   <code>curl -fsSL https://raw.githubusercontent.com/unerr-ai/unerr/main/install | bash</code>
   <br /><br />
-  <a href="https://www.unerr.dev/"><sub>unerr.dev</sub></a> · <a href="https://www.npmjs.com/package/@unerr-ai/unerr"><sub>npm registry</sub></a> · <a href="https://discord.gg/2BjRftz8kG"><sub>Discord</sub></a> · <a href="https://x.com/unerr_ai"><sub>X</sub></a> · <a href="https://www.linkedin.com/company/unerr"><sub>LinkedIn</sub></a> · <sub>Fully local. No account. No cloud.</sub>
+  <a href="https://www.unerr.dev/"><sub>unerr.dev</sub></a> · <a href="https://www.npmjs.com/package/@unerr-ai/unerr"><sub>npm registry</sub></a> · <a href="https://discord.gg/2BjRftz8kG"><sub>Discord</sub></a> · <a href="https://x.com/unerr_ai"><sub>X</sub></a> · <a href="https://www.linkedin.com/company/unerr"><sub>LinkedIn</sub></a> · <sub>Runs locally. No account needed, ever.</sub>
 </p>
