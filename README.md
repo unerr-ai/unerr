@@ -8,16 +8,7 @@
 </h1>
 
 <p align="center">
-  <strong>The local runtime for your coding agents.</strong>
-</p>
-
-<p align="center">
-  Your agent has read the code. It still breaks callers it never saw.<br/>
-  unerr hands it the live call graph and your rules at the moment it edits.
-</p>
-
-<p align="center">
-  <strong>Cut what they cost</strong> · <strong>Measure what they produce</strong> · <strong>Keep them inside your rules</strong>
+  <strong>Cost reduction</strong> · <strong>Control plane</strong> · <strong>Tracing &amp; analytics</strong>
 </p>
 
 <p align="center">
