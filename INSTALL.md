@@ -23,6 +23,10 @@ unerr install claude-code     # or: cursor, windsurf, gemini-cli, antigravity, g
 
 Then restart your IDE (or start a new chat). The next prompt already knows your repo.
 
+Using **Claude Cowork** or **ChatGPT Work**? Those work on documents, not code.
+They install a plugin into the app itself and put nothing in your project — see
+[Work agents](#work-agents--install-a-plugin).
+
 ---
 
 ## Supported platforms
@@ -144,60 +148,131 @@ unerr status         # in a repo: shows graph + proxy state
 
 ## Connect unerr to your agent
 
-`unerr install <agent>` sets up one agent. Run it with no argument to see the
-full list and what is already installed.
+There are two kinds of agent, and they are set up in completely different ways.
 
-There are two categories, and they install differently.
-
-### Code agents
-
-For agents that work on a codebase. unerr indexes the repo, builds the call
-graph, and serves graph-backed tools over MCP.
-
-```bash
-unerr install claude-code
-unerr install cursor
-unerr install codex
-```
-
-This writes a project-level MCP config and a short instruction block into the
-agent's own instruction file. Never a global config.
-
-### Work agents
-
-For agents that work on documents rather than code. There is no repo to index,
-so unerr skips the graph entirely and ships what still pays off without one:
-compressed command output, ranked web fetching, and five delegation sub-agents.
-
-```bash
-unerr install cowork          # Claude Cowork
-unerr install chatgpt-work    # ChatGPT Work, Codex, and other Agent Plugins hosts
-```
-
-These do not write an MCP config. They generate a plugin folder under
-`.unerr/plugins/` and print the steps to load it. The command tells you exactly
-what to do next for each host.
-
-| Host | What gets generated | How you load it |
+| Your agent works on… | What you do | Takes |
 |---|---|---|
-| Claude Cowork | Claude plugin bundle | Cowork tab → Plugins → Upload plugin |
-| ChatGPT Work, Codex, Cursor, Copilot, Kiro, VS Code | [Agent Plugins](https://github.com/agentplugins/agent-plugins-spec) v1.0.0 bundle | The host's own plugin install |
+| **Code** — Claude Code, Cursor, Codex, Windsurf, Gemini CLI, Copilot, VS Code | Run `unerr install <agent>` in the repo. Done. | one command |
+| **Documents** — Claude Cowork, ChatGPT Work | Install a plugin into the app itself. Nothing is installed into your project. | a few clicks |
 
-The Cowork bundle carries no MCP server on purpose. Cowork runs each session in
-an isolated virtual machine that cannot reach a process on your computer, so an
-MCP entry there would advertise tools that could never connect. The Agent
-Plugins bundle does carry one, because those hosts run locally and the standard
-allows a plugin to launch its own bundled binary.
+---
 
-Web access in work mode goes through unerr's `fetch_url`. That is the point of
-the mode: a page fetched through unerr comes back as ranked passages instead of
-the whole document.
+## Code agents — one command
+
+Run it inside the repository you want the agent to understand.
+
+```bash
+cd ~/your-project
+unerr install claude-code     # or: cursor, codex, windsurf, gemini-cli,
+                              #     antigravity, github-copilot-cli, vscode
+```
+
+That is the whole setup. It writes two things, both inside that project:
+
+- the agent's MCP config, pointing at your `unerr` binary
+- a short block in the agent's instruction file, telling it to prefer unerr's tools
+
+Never a global or home-directory config. Restart your IDE, or start a new chat,
+and the next prompt already knows the repo.
+
+Run `unerr install` with no argument to see every supported agent and which ones
+you already have set up.
+
+---
+
+## Work agents — install a plugin
+
+Claude Cowork and ChatGPT Work have no codebase to index, so there is no graph
+and no repo to set up. unerr ships them a **plugin** instead, carrying what still
+pays off without a graph: compressed command output, ranked web fetching, and
+five sub-agents that take work off the main thread.
+
+**Nothing is written into your project.** These commands do not touch the folder
+you run them from.
+
+### Claude Cowork
+
+Two ways in. The first is better — it keeps itself up to date.
+
+#### Option A — add the marketplace (recommended)
+
+1. Open **Customize** in the Cowork sidebar, then **Plugins**.
+2. Under **Personal plugins**, click **+**, then **Add marketplace**.
+3. Enter `unerr-ai/unerr`.
+4. Install **unerr for work** from it.
+
+Nothing to download and nothing to run. To pick up new versions later, press
+**Update** on that marketplace. A marketplace you add yourself does not refresh
+silently — that is Anthropic's default for third-party sources, not an unerr
+choice.
+
+#### Option B — upload the file
+
+Use this when you want a fixed version, or you are offline.
+
+```bash
+unerr install cowork
+```
+
+This writes the plugin and a matching `.zip` to a folder in your home
+directory. Then in Cowork: **Customize → Plugins → upload**, and pick the `.zip`.
+
+An uploaded copy never updates itself. Re-run the command and upload again to
+move to a new version.
+
+#### Where the files land
+
+One copy per computer, shared by every project. Never inside a project folder.
+
+| Your system | Folder |
+|---|---|
+| macOS | `~/Claude/Plugins/` |
+| Windows | `C:\Users\<you>\Claude\Plugins\` |
+| Linux | `~/Claude/Plugins/` |
+
+Inside it:
+
+```
+Claude/Plugins/
+├── unerr-work/         the plugin itself
+└── unerr-work.zip      the file you upload to Cowork  (~8 KB)
+```
+
+It sits next to `Claude/Projects/`, the folder Cowork already keeps your work in,
+so it is easy to find in the upload dialog. Set `UNERR_WORK_PLUGIN_HOME` to put
+it somewhere else.
+
+**Why Cowork gets no MCP server.** Cowork runs every session inside an isolated
+virtual machine that cannot reach a program on your computer. An MCP entry there
+would advertise tools that could never connect, so the Cowork plugin deliberately
+ships none. Its value is the sub-agents and skills.
+
+### ChatGPT Work, Codex, Cursor, Copilot, Kiro, VS Code
+
+```bash
+unerr install chatgpt-work
+```
+
+This writes an [Agent Plugins](https://github.com/agentplugins/agent-plugins-spec)
+v1.0.0 package to the same folder — `Claude/Plugins/unerr/`. Point your host's
+plugin install at it. These hosts do run on your machine, and the standard lets a
+plugin launch its own binary, so this package **does** carry an MCP server.
+
+### What web access looks like in work mode
+
+Pages are fetched through unerr's `fetch_url`. You get back ranked passages
+rather than the whole document — that is the point of the mode.
 
 ## Uninstall
 
 ```bash
-unerr uninstall   # remove unerr from the current repo
+unerr uninstall              # a code agent: clean this repo
+unerr uninstall cowork       # a work agent: delete the shared plugin folder
 ```
+
+For a work agent, also remove it inside the app: in Cowork, **Customize →
+Plugins**, then remove the plugin and the `unerr-ai/unerr` marketplace. Deleting
+the folder on disk does not remove what Cowork already installed.
 
 Then remove the binary itself:
 
