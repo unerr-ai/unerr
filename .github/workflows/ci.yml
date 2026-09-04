@@ -523,7 +523,7 @@ jobs:
       # already serves the committed copy on every push to main.
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
         with:
           # No `repository:` / `token:` — the Release is created on this repo
           # using the job's default GITHUB_TOKEN (permissions.contents: write).
