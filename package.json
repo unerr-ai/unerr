@@ -52,7 +52,7 @@
     "graphology-communities-louvain": "^2.0.1",
     "graphology-layout-forceatlas2": "^0.10.1",
     "ignore": "^7.0.6",
-    "ink": "^6.8.0",
+    "ink": "^7.1.1",
     "ink-text-input": "^6.0.0",
     "msgpackr": "^1.11.0",
     "ora": "^9.4.1",
